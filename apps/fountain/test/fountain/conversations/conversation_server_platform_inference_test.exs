@@ -185,6 +185,7 @@ defmodule Fountain.Conversations.ConversationServerPlatformInferenceTest do
 
       machine = %TurnMachine{
         conversation_id: conv.id,
+        sandbox_id: conv.sandbox_id,
         row: row,
         metrics:
           TurnMachine.start_metrics("claude", :sprites, System.monotonic_time(:millisecond))

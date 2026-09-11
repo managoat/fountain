@@ -84,6 +84,7 @@ defmodule Fountain.Conversations.TurnMachine do
   @type t :: %__MODULE__{
           conversation_id: String.t() | nil,
           sandbox_id: String.t() | nil,
+          interrupted?: boolean(),
           row: Conversations.Turn.t() | nil,
           span: term() | nil,
           metrics: map() | nil,
@@ -93,6 +94,7 @@ defmodule Fountain.Conversations.TurnMachine do
 
   defstruct conversation_id: nil,
             sandbox_id: nil,
+            interrupted?: false,
             row: nil,
             span: nil,
             metrics: nil,
@@ -660,37 +662,43 @@ defmodule Fountain.Conversations.TurnMachine do
   @doc """
   The interrupt's first half: the row `interrupted`, the stage, the tracer
   closed. The server stops the peer between the halves, as it always did,
-  then `close_interrupted/1` ends the span, emits the metric and sets the
-  conversation idle.
+  then `close_interrupted/1` ends the span, emits the metric and conditionally
+  idles the conversation. A stale mark emits neither a stage nor a metric;
+  reassignment or a newer running turn between halves prevents the idle write.
   """
   @spec mark_interrupted(t()) :: t()
   def mark_interrupted(%__MODULE__{} = turn) do
-    {:ok, _turn} =
-      Conversations._unsafe_update_turn(turn.row, %{
-        status: "interrupted",
-        ended_at: now()
-      })
+    # Ownership: the actor's binding is checked with the parent and turn locked.
+    applied? =
+      case Conversations._unsafe_interrupt_turn(turn.row, turn.sandbox_id) do
+        {:ok, _} ->
+          publish_stage(turn.conversation_id, "turn", "interrupted", %{
+            turn_id: turn.row.id,
+            turn_number: turn.row.turn_number
+          })
 
-    publish_stage(turn.conversation_id, "turn", "interrupted", %{
-      turn_id: turn.row.id,
-      turn_number: turn.row.turn_number
-    })
+          true
 
-    # Finalize stream tracer: close any tool spans still open (abandoned calls).
+        :noop ->
+          false
+      end
+
+    # Finalize local spans even when another actor owns the persisted result.
     finalize_tracer(turn.tracer)
-    turn
+    %{turn | interrupted?: applied?}
   end
 
   @spec close_interrupted(t()) :: t()
   def close_interrupted(%__MODULE__{} = turn) do
     end_span(turn.span, :error, %{"outcome" => "interrupted"})
 
-    emit_completed(turn, "interrupted")
+    if turn.interrupted? do
+      emit_completed(turn, "interrupted")
+      # Ownership: mark_interrupted verified this actor; recheck after peer shutdown.
+      Conversations._unsafe_idle_interrupted_turn(turn.row, turn.sandbox_id)
+    end
 
-    conv = Conversations._unsafe_get_conversation!(turn.conversation_id)
-    {:ok, _} = Conversations.update_conversation(conv, %{status: "idle"})
-
-    %{turn | row: nil, span: nil, metrics: nil, tracer: nil}
+    %{turn | row: nil, span: nil, metrics: nil, tracer: nil, interrupted?: false}
   end
 
   @doc "Start one turn's measurements with the provider of the computer it runs on."

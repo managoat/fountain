@@ -2067,11 +2067,9 @@ defmodule Fountain.Conversations do
   @doc """
   Update a turn's row. When the update ends the turn — its status becomes
   `completed`, `failed` or `interrupted` — the assistant's text for the
-  turn is materialised into `reply_text` in the same write (#826): every
-  turn ending goes through here, from the ConversationServer's six endings
-  to the orphan sweep, so search coverage is by construction rather than
-  by each ending remembering. A turn that already carries a `reply_text`
-  keeps it.
+  turn is materialised into `reply_text` in the same write (#826). Conditional
+  completion and orphan reconciliation also materialize the reply in their
+  transactions. A turn that already carries a `reply_text` keeps it.
 
   The same write is where activation is decided (ADR 0038): a turn that ends
   carrying a reply is handed to `Fountain.Activation.turn_replied/1`, which
@@ -2095,6 +2093,57 @@ defmodule Fountain.Conversations do
     end
 
     result
+  end
+
+  @doc """
+  Complete a running turn only on the actor's current sandbox binding.
+
+  Lock the conversation before the turn, and commit its idle status with the
+  turn's result. A moved or terminal conversation, or a turn already ended by
+  another actor, is a no-op. Reply materialization shares that transaction;
+  activation and sidebar publication run after it commits.
+  """
+  def _unsafe_complete_turn(%Turn{} = turn, sandbox_id, status)
+      when status in ["completed", "failed"] do
+    {:ok, result} =
+      Repo.transaction(fn ->
+        conversation_query =
+          from(c in Conversation, where: c.id == ^turn.conversation_id, lock: "FOR UPDATE")
+
+        turn_query =
+          from(t in Turn,
+            where: t.id == ^turn.id and t.conversation_id == ^turn.conversation_id,
+            lock: "FOR UPDATE"
+          )
+
+        with %Conversation{} = conv <- Repo.one(conversation_query),
+             true <- conv.sandbox_id == sandbox_id and conv.status not in ["terminated", "failed"],
+             %Turn{status: "running"} = current <- Repo.one(turn_query) do
+          changeset =
+            current
+            |> Turn.changeset(%{
+              status: status,
+              ended_at: DateTime.utc_now() |> DateTime.truncate(:second)
+            })
+            |> maybe_put_reply_text(current)
+
+          updated = Repo.update!(changeset)
+          idle = conv |> Conversation.changeset(%{status: "idle"}) |> Repo.update!()
+          {updated, idle, is_binary(Ecto.Changeset.get_change(changeset, :reply_text))}
+        else
+          _ -> :noop
+        end
+      end)
+
+    case result do
+      :noop ->
+        :noop
+
+      {updated, conv, reply_materialized?} ->
+        if reply_materialized?, do: Fountain.Activation.turn_replied(updated)
+        broadcast_sidebar_update(conv.user_id)
+        {:ok, updated}
+    end
   end
 
   @doc """

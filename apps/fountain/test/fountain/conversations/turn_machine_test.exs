@@ -18,6 +18,7 @@ defmodule Fountain.Conversations.TurnMachineTest do
 
     machine = %TurnMachine{
       conversation_id: conv.id,
+      sandbox_id: conv.sandbox_id,
       row: row,
       metrics: TurnMachine.start_metrics("claude", :runner, System.monotonic_time(:millisecond))
     }
@@ -60,6 +61,7 @@ defmodule Fountain.Conversations.TurnMachineTest do
     test "round-trip the server's turn fields and nothing else", %{row: row} do
       state = %{
         conversation_id: "c",
+        sandbox_id: "s",
         current_turn: row,
         current_turn_span: :span,
         turn_metrics: %{a: 1},
@@ -69,7 +71,15 @@ defmodule Fountain.Conversations.TurnMachineTest do
       }
 
       machine = TurnMachine.from_state(state)
-      assert %TurnMachine{row: ^row, span: :span, metrics: %{a: 1}, tracer: :tracer} = machine
+
+      assert %TurnMachine{
+               sandbox_id: "s",
+               row: ^row,
+               span: :span,
+               metrics: %{a: 1},
+               tracer: :tracer
+             } = machine
+
       assert MapSet.member?(machine.replay_dedup, "x")
 
       assert TurnMachine.into_state(state, %{machine | row: nil, span: nil}) ==
@@ -410,6 +420,57 @@ defmodule Fountain.Conversations.TurnMachineTest do
                       }}
 
       assert conv_id == conv.id
+    end
+
+    for stale <- [:reassigned, :terminated, :failed, :completed, :interrupted, :deleted] do
+      @tag stale: stale
+      test "a #{stale} completion preserves the persisted result without duplicate events", ctx do
+        attach_telemetry([[:fountain, :turn, :completed]])
+        insert_log_event(ctx.conv, turn_id: ctx.row.id, stream: "acp", data: @update_line)
+
+        case ctx.stale do
+          :reassigned ->
+            replacement = insert_sandbox(user_id: ctx.user.id)
+
+            Conversations.update_conversation(ctx.conv, %{
+              sandbox_id: replacement.id,
+              status: "running"
+            })
+
+          terminal when terminal in [:terminated, :failed] ->
+            Conversations.update_conversation(ctx.conv, %{status: Atom.to_string(terminal)})
+
+          ended when ended in [:completed, :interrupted] ->
+            ctx.row
+            |> Ecto.Changeset.change(status: Atom.to_string(ended))
+            |> Fountain.Repo.update!()
+
+            Conversations.update_conversation(ctx.conv, %{status: "running"})
+            insert_turn(ctx.conv, status: "running")
+
+          :deleted ->
+            Fountain.Repo.delete!(ctx.conv)
+        end
+
+        persisted_turn = Fountain.Repo.get(Conversations.Turn, ctx.row.id)
+        persisted_conv = Fountain.Repo.get(Conversations.Conversation, ctx.conv.id)
+
+        assert %TurnMachine{row: nil, span: nil, metrics: nil, tracer: nil} =
+                 TurnMachine.finish(ctx.machine, "completed", %{}, %{})
+
+        assert Fountain.Repo.get(Conversations.Turn, ctx.row.id) == persisted_turn
+        assert Fountain.Repo.get(Conversations.Conversation, ctx.conv.id) == persisted_conv
+        assert stages(ctx.conv.id, "turn") == []
+        refute Fountain.Repo.reload!(ctx.user).onboarding_completed_at
+        refute_receive {:telemetry, [:fountain, :turn, :completed], _, _}, 50
+      end
+    end
+
+    test "completion materializes a reply and activates the account", ctx do
+      insert_log_event(ctx.conv, turn_id: ctx.row.id, stream: "acp", data: @update_line)
+      TurnMachine.finish(ctx.machine, "completed", %{}, %{})
+      assert Fountain.Repo.reload!(ctx.row).reply_text == "hi"
+      assert Fountain.Repo.reload!(ctx.user).onboarding_completed_at
     end
 
     test "a failed status is the failed stage, and no metric without metrics", %{

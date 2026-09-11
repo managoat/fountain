@@ -19,10 +19,9 @@ defmodule Fountain.Activation do
 
   ## The seam
 
-  `turn_replied/1` is called from `Conversations._unsafe_update_turn/2` —
-  every turn ending in the system goes through there, from the
-  ConversationServer's six endings to the orphan sweep, so a new way for a
-  turn to end is instrumented by construction rather than by remembering.
+  `turn_replied/1` is called after general turn updates, conditional
+  completion and orphan reconciliation materialize a reply. The conditional
+  paths call it after their transaction commits and skip it for stale writes.
   It is the *account's first* reply that this module cares about, so the
   function is a no-op for every later turn.
 

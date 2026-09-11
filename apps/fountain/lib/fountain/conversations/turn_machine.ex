@@ -83,6 +83,7 @@ defmodule Fountain.Conversations.TurnMachine do
 
   @type t :: %__MODULE__{
           conversation_id: String.t() | nil,
+          sandbox_id: String.t() | nil,
           row: Conversations.Turn.t() | nil,
           span: term() | nil,
           metrics: map() | nil,
@@ -91,6 +92,7 @@ defmodule Fountain.Conversations.TurnMachine do
         }
 
   defstruct conversation_id: nil,
+            sandbox_id: nil,
             row: nil,
             span: nil,
             metrics: nil,
@@ -104,6 +106,7 @@ defmodule Fountain.Conversations.TurnMachine do
   def from_state(state) do
     %__MODULE__{
       conversation_id: state.conversation_id,
+      sandbox_id: Map.get(state, :sandbox_id),
       row: state.current_turn,
       span: state.current_turn_span,
       metrics: state.turn_metrics,
@@ -607,38 +610,32 @@ defmodule Fountain.Conversations.TurnMachine do
   the completion metric and the conversation back to idle. What the server
   resolves first (a held permission, parked caller tools, the quiet timer)
   is the server's; what it clears after (activity) is too. Returns the turn
-  with its bookkeeping cleared.
+  with its bookkeeping cleared. A stale completion clears local bookkeeping
+  without overwriting the persisted result or emitting another completion.
   """
   @spec finish(t(), String.t(), map(), map()) :: t()
   def finish(%__MODULE__{} = turn, status, span_attrs, stage_meta) do
     # Before the turn span ends: totals land on it, abandoned tool spans close.
     finalize_tracer(turn.tracer)
 
-    {:ok, row} =
-      Conversations._unsafe_update_turn(turn.row, %{
-        status: status,
-        ended_at: now()
-      })
+    # Ownership: the server supplies its binding, and the context locks and rechecks it.
+    case Conversations._unsafe_complete_turn(turn.row, turn.sandbox_id, status) do
+      {:ok, row} ->
+        publish_stage(
+          turn.conversation_id,
+          "turn",
+          if(status == "completed", do: "done", else: "failed"),
+          %{turn_id: row.id, turn_number: row.turn_number}
+          |> Map.merge(stage_meta)
+          |> Map.merge(waiting_meta(row))
+        )
 
-    publish_stage(
-      turn.conversation_id,
-      "turn",
-      if(status == "completed", do: "done", else: "failed"),
-      %{turn_id: row.id, turn_number: row.turn_number}
-      |> Map.merge(stage_meta)
-      |> Map.merge(waiting_meta(row))
-    )
+        end_span(turn.span, if(status == "completed", do: :ok, else: :error), span_attrs)
+        emit_completed(turn, row.status)
 
-    end_span(
-      turn.span,
-      if(status == "completed", do: :ok, else: :error),
-      span_attrs
-    )
-
-    emit_completed(turn, row.status)
-
-    conv = Conversations._unsafe_get_conversation!(turn.conversation_id)
-    {:ok, _} = Conversations.update_conversation(conv, %{status: "idle"})
+      :noop ->
+        end_span(turn.span, :error, %{"outcome" => "completion_ignored"})
+    end
 
     %{turn | row: nil, span: nil, metrics: nil, tracer: nil}
   end

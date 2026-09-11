@@ -574,7 +574,7 @@ defmodule Fountain.Conversations.Lifecycle do
     |> Enum.each(fn conv_id ->
       case ConversationServer.whereis(conv_id) do
         nil -> :ok
-        pid -> GenServer.cast(pid, {:machine_gone, event, reason, message})
+        pid -> GenServer.cast(pid, {:machine_gone, sandbox_id, event, reason, message})
       end
     end)
   end

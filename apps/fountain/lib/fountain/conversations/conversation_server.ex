@@ -849,7 +849,7 @@ defmodule Fountain.Conversations.ConversationServer do
         {:ok, _} ->
           do_fresh_provision_inner(state, conv, sandbox, agent, env, secrets)
 
-        {:error, %Ecto.Changeset{errors: [status: {"sandbox is retired", []}]}} ->
+        {:error, reason} when retired_or_resetting(reason) ->
           # No resources were created yet. Leave the winning retirement and
           # any replacement conversation alone, without announcing a start.
           {:stop, :normal, state}
@@ -1009,7 +1009,7 @@ defmodule Fountain.Conversations.ConversationServer do
           # queue_initial_prompt/3.
           {:noreply, new_state}
         else
-          {:error, %Ecto.Changeset{errors: [status: {"sandbox is retired", []}]}} ->
+          {:error, reason} when retired_or_resetting(reason) ->
             # This handle and token belong to this attempt. Do not fail the
             # conversation or release every session: a replacement may own it.
             _ = Managoat.Sandbox.destroy(handle)

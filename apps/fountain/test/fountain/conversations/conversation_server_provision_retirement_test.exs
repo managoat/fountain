@@ -1,7 +1,7 @@
 defmodule Fountain.Conversations.ConversationServerProvisionRetirementTest do
   use Fountain.ConversationServerCase
 
-  for terminal <- ["terminated", "failed"] do
+  for terminal <- ["terminated", "failed", "reset_pending"] do
     test "retirement to #{terminal} before starting does not provision or fail the replacement" do
       stub_happy_sprite()
       user = insert_verified_user()
@@ -34,14 +34,24 @@ defmodule Fountain.Conversations.ConversationServerProvisionRetirementTest do
       on_exit(fn -> if Process.alive?(pid), do: Process.exit(pid, :kill) end)
       assert_receive {:starting_paused, ^pid}, 5_000
 
-      {:ok, retired} = Conversations.update_sandbox(sandbox, %{status: unquote(terminal)})
+      retired =
+        if unquote(terminal) == "reset_pending" do
+          sandbox
+          |> Ecto.Changeset.change(reset_requested_at: DateTime.utc_now())
+          |> Fountain.Repo.update!()
+        else
+          {:ok, retired} = Conversations.update_sandbox(sandbox, %{status: unquote(terminal)})
+          retired
+        end
+
       replacement = insert_sandbox(user_id: user.id, status: "ready")
       {:ok, _} = Conversations.update_conversation(conv, %{sandbox_id: replacement.id})
       send(pid, :resume_starting)
 
       assert :normal = assert_stopped(ref, 5_000)
-      assert Fountain.Repo.reload!(sandbox).status == unquote(terminal)
+      assert Fountain.Repo.reload!(sandbox).status == retired.status
       assert Fountain.Repo.reload!(sandbox).terminated_at == retired.terminated_at
+      assert Fountain.Repo.reload!(sandbox).reset_requested_at == retired.reset_requested_at
       assert Fountain.Repo.reload!(conv).status == "idle"
       assert Fountain.Repo.reload!(conv).sandbox_id == replacement.id
       assert Fountain.Repo.reload!(replacement).status == "ready"

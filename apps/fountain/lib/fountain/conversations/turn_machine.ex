@@ -1298,7 +1298,8 @@ defmodule Fountain.Conversations.TurnMachine do
   or the runtime exited before the prompt reached its stdin (#603). Both
   leave nothing running, so both end the same way — the turn `failed` with
   the reason, a `turn`/`failed` stage event, and the conversation back to
-  "idle".
+  "idle". A reassigned or terminal conversation, or an already-ended turn,
+  preserves its persisted result and emits no failure stage.
 
   `exit_code` is what the runtime managed to say before it went (#608); the
   spawn-failure path has none, since there was never a process. `detail` is
@@ -1313,33 +1314,24 @@ defmodule Fountain.Conversations.TurnMachine do
   @spec fail_before_start(
           Conversations.Turn.t(),
           String.t(),
+          String.t() | nil,
           String.t(),
           String.t(),
           integer() | nil
         ) ::
           :ok
-  def fail_before_start(turn, conversation_id, what, detail, exit_code) do
-    {:ok, _} =
-      Conversations._unsafe_update_turn(turn, %{
-        status: "failed",
-        exit_code: exit_code,
-        ended_at: now()
-      })
+  def fail_before_start(turn, conversation_id, sandbox_id, what, detail, exit_code) do
+    # The server owns this turn and supplies its captured sandbox binding.
+    case Conversations._unsafe_complete_turn(turn, sandbox_id, "failed", exit_code: exit_code) do
+      {:ok, _} ->
+        publish_stage(conversation_id, "turn", "failed", %{
+          turn_id: turn.id,
+          reason: detail,
+          exit_code: exit_code
+        })
 
-    publish_stage(conversation_id, "turn", "failed", %{
-      turn_id: turn.id,
-      reason: detail,
-      exit_code: exit_code
-    })
-
-    # The conversation was set to "running" just before the spawn attempt;
-    # without this it stays "running" in the API and UI until some later turn
-    # completes, even though nothing is executing. The :exit and :interrupt
-    # handlers both do the same reset.
-    failed_conv = Conversations._unsafe_get_conversation!(conversation_id)
-
-    if failed_conv.status == "running" do
-      {:ok, _} = Conversations.update_conversation(failed_conv, %{status: "idle"})
+      :noop ->
+        :ok
     end
 
     # The turn never started; close the span we just opened so it doesn't leak.

@@ -2101,11 +2101,12 @@ defmodule Fountain.Conversations do
   Lock the conversation before the turn, and commit its idle status with the
   turn's result. A moved or terminal conversation, or a turn already ended by
   another actor, is a no-op. Reply materialization shares that transaction;
-  activation and sidebar publication run after it commits.
+  activation and sidebar publication run after it commits. The optional
+  `:exit_code` is persisted atomically with the result.
   """
-  def _unsafe_complete_turn(%Turn{} = turn, sandbox_id, status)
+  def _unsafe_complete_turn(%Turn{} = turn, sandbox_id, status, opts \\ [])
       when status in ["completed", "failed"] do
-    end_running_turn(turn, sandbox_id, status, true)
+    end_running_turn(turn, sandbox_id, status, true, Map.new(Keyword.take(opts, [:exit_code])))
   end
 
   @doc """
@@ -2116,7 +2117,7 @@ defmodule Fountain.Conversations do
   def _unsafe_interrupt_turn(%Turn{} = turn, sandbox_id),
     do: end_running_turn(turn, sandbox_id, "interrupted", false)
 
-  defp end_running_turn(turn, sandbox_id, status, idle?) do
+  defp end_running_turn(turn, sandbox_id, status, idle?, attrs \\ %{}) do
     {:ok, result} =
       Repo.transaction(fn ->
         conversation_query =
@@ -2133,10 +2134,12 @@ defmodule Fountain.Conversations do
              %Turn{status: "running"} = current <- Repo.one(turn_query) do
           changeset =
             current
-            |> Turn.changeset(%{
-              status: status,
-              ended_at: DateTime.utc_now() |> DateTime.truncate(:second)
-            })
+            |> Turn.changeset(
+              Map.merge(attrs, %{
+                status: status,
+                ended_at: DateTime.utc_now() |> DateTime.truncate(:second)
+              })
+            )
             |> maybe_put_reply_text(current)
 
           updated = Repo.update!(changeset)

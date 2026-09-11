@@ -4,9 +4,9 @@ defmodule Fountain.Conversations.TurnCompletionBindingIsolationTest do
   alias Fountain.Conversations
   alias Fountain.Conversations.Conversation
 
-  for first <- [:reassignment, :completion] do
-    @tag first: first
-    test "#{first} serializes turn completion with reassignment", %{first: first} do
+  for first <- [:reassignment, :completion], outcome <- [:completion, :startup_failure] do
+    @tag first: first, outcome: outcome
+    test "#{first} serializes #{outcome} with reassignment", %{first: first, outcome: outcome} do
       Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
         user = insert_verified_user()
         old = insert_sandbox(user_id: user.id, status: "ready")
@@ -28,7 +28,11 @@ defmodule Fountain.Conversations.TurnCompletionBindingIsolationTest do
 
         complete = fn ->
           # Internal actor completion; the fixture belongs to this test's tenant.
-          Conversations._unsafe_complete_turn(turn, old.id, "completed")
+          if outcome == :startup_failure do
+            Conversations._unsafe_complete_turn(turn, old.id, "failed", exit_code: 17)
+          else
+            Conversations._unsafe_complete_turn(turn, old.id, "completed")
+          end
         end
 
         reassign = fn ->
@@ -65,13 +69,18 @@ defmodule Fountain.Conversations.TurnCompletionBindingIsolationTest do
             if first == :completion do
               assert {:ok, _} = leading_result
               assert {:ok, _} = trailing_result
-              assert Repo.reload(turn).status == "completed"
+
+              assert Repo.reload(turn).status ==
+                       if(outcome == :startup_failure, do: "failed", else: "completed")
+
+              assert Repo.reload(turn).exit_code == if(outcome == :startup_failure, do: 17)
               assert Repo.reload(turn).ended_at
             else
               assert {:ok, :ok} = leading_result
               assert :noop = trailing_result
               assert Repo.reload(turn).status == "running"
               assert Repo.reload(turn).ended_at == nil
+              assert Repo.reload(turn).exit_code == nil
             end
 
             assert Repo.reload(conv).sandbox_id == replacement.id

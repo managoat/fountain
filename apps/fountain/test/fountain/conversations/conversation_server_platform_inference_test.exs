@@ -221,7 +221,7 @@ defmodule Fountain.Conversations.ConversationServerPlatformInferenceTest do
       other = insert_turn(conv, status: "running")
       {_m, []} = select_model(%{m | row: other}, platform_ctx())
 
-      TurnMachine.fail_before_start(other, conv.id, "spawn", "boom", 1)
+      TurnMachine.fail_before_start(other, conv.id, conv.sandbox_id, "spawn", "boom", 1)
 
       assert stored(other).status == "failed"
       assert stored(other).usage["inference"] == "platform"

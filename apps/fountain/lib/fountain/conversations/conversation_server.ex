@@ -2494,7 +2494,7 @@ defmodule Fountain.Conversations.ConversationServer do
     end
   end
 
-  # A turn that never got as far as running (`TurnMachine.fail_before_start/5`):
+  # A turn that never got as far as running (`TurnMachine.fail_before_start/6`):
   # the spawn failed, or the runtime exited before the prompt reached its
   # stdin (#603). The server's half is the runtime's parting words (#608),
   # persisted through the output path against the turn they explain.
@@ -2514,7 +2514,14 @@ defmodule Fountain.Conversations.ConversationServer do
         log_output(acc, stream, data)
       end)
 
-    TurnMachine.fail_before_start(turn, state.conversation_id, what, detail, exit_code)
+    TurnMachine.fail_before_start(
+      turn,
+      state.conversation_id,
+      state.sandbox_id,
+      what,
+      detail,
+      exit_code
+    )
 
     %{state | current_turn: nil}
   end

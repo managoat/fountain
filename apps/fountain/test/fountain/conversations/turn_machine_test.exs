@@ -689,17 +689,94 @@ defmodule Fountain.Conversations.TurnMachineTest do
   end
 
   describe "a turn that never started" do
-    test "fail_before_start/5 fails the row with the detail, and idles a running conversation",
+    test "fail_before_start/6 fails the row with the detail, and idles a running conversation",
          %{conv: conv, row: row} do
       {:ok, _} = Conversations.update_conversation(conv, %{status: "running"})
       detail = TurnMachine.failure_detail(:command_exited, 1)
       assert detail == ":command_exited (runtime exited 1)"
 
-      assert :ok = TurnMachine.fail_before_start(row, conv.id, "prompt write failed", detail, 1)
+      assert :ok =
+               TurnMachine.fail_before_start(
+                 row,
+                 conv.id,
+                 conv.sandbox_id,
+                 "prompt write failed",
+                 detail,
+                 1
+               )
 
       assert %{status: "failed", exit_code: 1} = Fountain.Repo.get!(Conversations.Turn, row.id)
       assert [{"failed", %{"reason" => ^detail, "exit_code" => 1}}] = stages(conv.id, "turn")
       assert Conversations._unsafe_get_conversation!(conv.id).status == "idle"
+    end
+
+    test "startup failure materializes a reply and accepts a missing exit code", ctx do
+      insert_log_event(ctx.conv, turn_id: ctx.row.id, stream: "acp", data: @update_line)
+
+      assert :ok =
+               TurnMachine.fail_before_start(
+                 ctx.row,
+                 ctx.conv.id,
+                 ctx.conv.sandbox_id,
+                 "spawn",
+                 "boom",
+                 nil
+               )
+
+      assert %{status: "failed", exit_code: nil, reply_text: "hi", ended_at: %DateTime{}} =
+               Fountain.Repo.reload!(ctx.row)
+
+      assert Fountain.Repo.reload!(ctx.user).onboarding_completed_at
+      assert [{"failed", %{"exit_code" => nil}}] = stages(ctx.conv.id, "turn")
+    end
+
+    for stale <- [:reassigned, :terminated, :failed, :completed, :interrupted, :deleted] do
+      @tag stale: stale
+      test "a #{stale} startup failure preserves persisted state without a failure stage", ctx do
+        insert_log_event(ctx.conv, turn_id: ctx.row.id, stream: "acp", data: @update_line)
+
+        case ctx.stale do
+          :reassigned ->
+            replacement = insert_sandbox(user_id: ctx.user.id)
+
+            Conversations.update_conversation(ctx.conv, %{
+              sandbox_id: replacement.id,
+              status: "running"
+            })
+
+          terminal when terminal in [:terminated, :failed] ->
+            Conversations.update_conversation(ctx.conv, %{status: Atom.to_string(terminal)})
+
+          ended when ended in [:completed, :interrupted] ->
+            ctx.row
+            |> Ecto.Changeset.change(status: Atom.to_string(ended), exit_code: 0)
+            |> Fountain.Repo.update!()
+
+            Conversations.update_conversation(ctx.conv, %{status: "running"})
+            insert_turn(ctx.conv, status: "running")
+
+          :deleted ->
+            Fountain.Repo.delete!(ctx.conv)
+        end
+
+        persisted_turn = Fountain.Repo.get(Conversations.Turn, ctx.row.id)
+        persisted_conv = Fountain.Repo.get(Conversations.Conversation, ctx.conv.id)
+
+        assert :ok =
+                 TurnMachine.fail_before_start(
+                   ctx.row,
+                   ctx.conv.id,
+                   ctx.conv.sandbox_id,
+                   "spawn",
+                   "boom",
+                   1
+                 )
+
+        assert Fountain.Repo.get(Conversations.Turn, ctx.row.id) == persisted_turn
+        assert Fountain.Repo.get(Conversations.Conversation, ctx.conv.id) == persisted_conv
+        assert stages(ctx.conv.id, "turn") == []
+        refute Fountain.Repo.reload!(ctx.user).onboarding_completed_at
+      end
     end
 
     test "failure_detail/2 without an exit code is the inspected reason alone" do

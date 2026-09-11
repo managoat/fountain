@@ -165,6 +165,8 @@ defmodule Fountain.AuditGuardrailTest do
   # Documented non-coverage. Mirrors the `Fountain.Audit` moduledoc; if the two
   # ever disagree, the moduledoc is the one to trust and this list is stale.
   @deliberately_silent %{
+    "Conversations._unsafe_finish_conversation_termination/2" =>
+      "internal conditional status write; terminate_conversation/2 audits the successful action once",
     "ConversationServer per-turn state" => "high-volume machine state; log_events covers it",
     "Accounts.touch_api_key/1" => "a last-used stamp on every authenticated request",
     "Runners.touch/1 and reconnects" =>

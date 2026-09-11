@@ -1176,6 +1176,34 @@ defmodule Fountain.Conversations do
   end
 
   @doc """
+  Finish an actor's termination only while the conversation is still bound to
+  its sandbox. The binding check and status write are one database statement,
+  so a reassignment during provider cleanup cannot terminate the new binding.
+
+  The actor owns both IDs. This is internal lifecycle bookkeeping; the public
+  `ConversationServer.terminate_conversation/2` records the action's audit once
+  after a successful reply. A missing or moved conversation returns a refusal.
+  """
+  def _unsafe_finish_conversation_termination(conversation_id, sandbox_id) do
+    query =
+      from(c in Conversation,
+        where: c.id == ^conversation_id and c.sandbox_id == ^sandbox_id,
+        select: c
+      )
+
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+    case Repo.update_all(query, set: [status: "terminated", updated_at: now]) do
+      {1, [conv]} ->
+        broadcast_sidebar_update(conv.user_id)
+        {:ok, conv}
+
+      {0, _} ->
+        {:error, :sandbox_unavailable}
+    end
+  end
+
+  @doc """
   Re-resolve the Agent, Environment and Vault for an existing conversation,
   on the machine it is already running (#1565).
 

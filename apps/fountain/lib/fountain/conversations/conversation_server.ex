@@ -2064,11 +2064,8 @@ defmodule Fountain.Conversations.ConversationServer do
     # no stop path touches the sprite.
     state = if state.current_turn, do: interrupt_turn(state), else: state
     state = drop_connection(state, "terminated")
-    # ownership: the conditional fence verified this server-owned conversation.
-    conv = Conversations._unsafe_get_conversation!(state.conversation_id)
-    {:ok, _} = Conversations.update_conversation(conv, %{status: "terminated"})
 
-    Output.publish_stage(state.conversation_id, "terminate", "done", %{
+    finish_termination(%{state | handle: nil}, %{
       sandbox: "kept",
       reason:
         if(Lifecycle.home?(state.sandbox_id),
@@ -2076,8 +2073,6 @@ defmodule Fountain.Conversations.ConversationServer do
           else: "held_by_another_conversation"
         )
     })
-
-    {:stop, :normal, :ok, %{state | handle: nil}}
   end
 
   defp terminate_machine(state, sandbox) do
@@ -2088,11 +2083,25 @@ defmodule Fountain.Conversations.ConversationServer do
     {:ok, _} =
       Conversations.update_sandbox(sandbox, %{status: "terminated", terminated_at: now()})
 
-    # ownership: the conditional fence verified this server-owned conversation.
-    conv = Conversations._unsafe_get_conversation!(state.conversation_id)
-    {:ok, _} = Conversations.update_conversation(conv, %{status: "terminated"})
-    Output.publish_stage(state.conversation_id, "terminate", "done")
-    {:stop, :normal, :ok, state}
+    finish_termination(state, %{})
+  end
+
+  defp finish_termination(state, metadata) do
+    # Ownership: this actor's IDs came from init; the write rechecks its binding.
+    result =
+      case Conversations._unsafe_finish_conversation_termination(
+             state.conversation_id,
+             state.sandbox_id
+           ) do
+        {:ok, _} ->
+          Output.publish_stage(state.conversation_id, "terminate", "done", metadata)
+          :ok
+
+        {:error, _} = error ->
+          error
+      end
+
+    {:stop, :normal, result, state}
   end
 
   # The server's own clock stamp: the input `Lifecycle.check/4` reads. Nothing

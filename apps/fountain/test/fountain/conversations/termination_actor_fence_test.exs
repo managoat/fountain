@@ -107,6 +107,59 @@ defmodule Fountain.Conversations.TerminationActorFenceTest do
     refute Repo.reload!(replacement).reset_requested_at
   end
 
+  for cleanup <- [:destroy, :keep] do
+    @tag cleanup: cleanup
+    test "reassignment during #{cleanup} cleanup preserves the replacement conversation", ctx do
+      replacement = insert_sandbox(user_id: ctx.user.id, status: "ready")
+      owner = self()
+
+      reassign = fn ->
+        {:ok, moved} =
+          Conversations.update_conversation(ctx.conv, %{
+            sandbox_id: replacement.id,
+            status: "running"
+          })
+
+        send(owner, {:replacement_turn, insert_turn(moved, status: "running")})
+        :ok
+      end
+
+      if ctx.cleanup == :keep do
+        ctx.sandbox |> Ecto.Changeset.change(mode: "persistent") |> Repo.update!()
+        expect(Managoat.Sandbox, :close_stdin, fn :adapter -> reassign.() end)
+        reject(Managoat.Sandbox, :destroy, 1)
+      else
+        expect(Managoat.Sandbox, :destroy, fn handle ->
+          assert handle == ctx.handle
+          reassign.()
+        end)
+      end
+
+      assert {:stop, :normal, {:error, :sandbox_unavailable}, _} = terminate(ctx, :terminate_conv)
+      assert_received {:replacement_turn, turn}
+      assert Repo.reload!(turn) == turn
+      assert Repo.reload!(ctx.conv).sandbox_id == replacement.id
+      assert Repo.reload!(ctx.conv).status == "running"
+      assert Repo.reload!(replacement).status == "ready"
+      refute Repo.reload!(replacement).reset_requested_at
+      expected_old_status = if ctx.cleanup == :keep, do: "ready", else: "terminated"
+      assert Repo.reload!(ctx.sandbox).status == expected_old_status
+      assert termination_stages(ctx) == []
+    end
+  end
+
+  test "a conversation deleted during provider cleanup does not crash final bookkeeping", ctx do
+    expect(Managoat.Sandbox, :destroy, fn _ ->
+      Repo.delete!(ctx.conv)
+      :ok
+    end)
+
+    assert {:stop, :normal, {:error, :sandbox_unavailable}, _} = terminate(ctx, :terminate_conv)
+    assert Repo.reload(ctx.conv) == nil
+    assert Repo.reload!(ctx.sandbox).status == "terminated"
+    assert termination_stages(ctx) == []
+  end
+
   test "an enclosing transaction refuses termination before side effects", ctx do
     reject(Managoat.Sandbox, :close_stdin, 1)
     reject(Managoat.Sandbox, :destroy, 1)
@@ -136,6 +189,13 @@ defmodule Fountain.Conversations.TerminationActorFenceTest do
 
   defp terminate(ctx, message),
     do: ConversationServer.handle_call(message, {self(), make_ref()}, ctx.state)
+
+  defp termination_stages(ctx) do
+    Repo.all(
+      from e in Conversations.LogEvent,
+        where: e.conversation_id == ^ctx.conv.id and e.stage == "terminate" and e.state == "done"
+    )
+  end
 
   defp events(ctx),
     do: Audit.list_for_user(ctx.user.id, action_prefix: "sandbox.teardown_requested")

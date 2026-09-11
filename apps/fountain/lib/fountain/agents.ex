@@ -273,8 +273,13 @@ defmodule Fountain.Agents do
     # (ADR 0023 step 5). Torn down before the row goes, while `agent_id` still
     # names it — deletion would nilify the pointer and orphan the sprite.
     # Ownership: `agent` came from the caller's scoped fetch.
-    _ = Fountain.Conversations._unsafe_destroy_homes_for_agent(agent.id)
+    with count when is_integer(count) <-
+           Fountain.Conversations._unsafe_destroy_homes_for_agent(agent.id) do
+      delete_agent_row(agent, opts)
+    end
+  end
 
+  defp delete_agent_row(agent, opts) do
     # Unpin the agent's conversations from its versions before the row goes.
     # Deleting the agent cascades to `agent_versions`, and Postgres re-checks
     # `conversations.agent_version_id` while it is still setting

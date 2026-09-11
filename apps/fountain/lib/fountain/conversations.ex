@@ -3388,28 +3388,68 @@ defmodule Fountain.Conversations do
   the sprite is destroyed and the row terminated. Best-effort per machine; a
   provider error is logged and the row still retires, so the reaper's sweep
   sees a terminal row rather than a live one nobody can find. Returns the
-  number of homes torn down. `_unsafe_`: the caller owns the agent.
+  number of homes torn down, or a fencing error. Refuses an enclosing database
+  transaction before any teardown. Admission is fenced before actor shutdown
+  and provider I/O; already admitted turns may be interrupted by this forced
+  operation. `_unsafe_`: the caller owns the agent.
   """
   def _unsafe_destroy_homes_for_agent(agent_id) when is_binary(agent_id) do
-    from(s in Sandbox,
-      where:
-        s.agent_id == ^agent_id and s.mode == "persistent" and
-          s.status not in ["terminated", "failed"]
-    )
-    |> Repo.all()
-    |> Enum.map(&_unsafe_destroy_home/1)
-    |> length()
+    if Repo.in_transaction?() do
+      {:error, :provider_transaction_open}
+    else
+      from(s in Sandbox,
+        where:
+          s.agent_id == ^agent_id and s.mode == "persistent" and
+            s.status not in ["terminated", "failed"]
+      )
+      |> Repo.all()
+      |> Enum.reduce_while(0, fn home, count ->
+        case _unsafe_destroy_home(home) do
+          :ok -> {:cont, count + 1}
+          {:error, _} = error -> {:halt, error}
+        end
+      end)
+    end
   end
 
   @doc false
   def _unsafe_destroy_home(%Sandbox{} = sandbox) do
-    sandbox = Repo.preload(sandbox, :conversations)
+    if Repo.in_transaction?() do
+      {:error, :provider_transaction_open}
+    else
+      with {:ok, fenced} <- fence_home_destruction(sandbox) do
+        fenced = Repo.preload(fenced, :conversations)
 
-    sandbox.conversations
-    |> Enum.reject(&(&1.status in ["terminated", "failed"]))
-    |> Enum.each(&ConversationServer.terminate_conversation(&1.id, actor: "system:home_reset"))
+        fenced.conversations
+        |> Enum.reject(&(&1.status in ["terminated", "failed"]))
+        |> Enum.each(
+          &ConversationServer.terminate_conversation(&1.id, actor: "system:home_reset")
+        )
 
-    _unsafe_retire_home(sandbox)
+        _unsafe_retire_home(fenced)
+      end
+    end
+  end
+
+  defp fence_home_destruction(sandbox) do
+    Repo.transaction(fn ->
+      Repo.query!("SELECT pg_advisory_xact_lock($1, $2)", [
+        @sandbox_lock_namespace,
+        :erlang.phash2(sandbox.id)
+      ])
+
+      current =
+        Repo.one(from s in Sandbox, where: s.id == ^sandbox.id, lock: "FOR UPDATE") ||
+          Repo.rollback(:not_found)
+
+      # Forced teardown may stop an admitted turn, but cannot admit a new one
+      # after this commit. Keep capacity until the existing teardown finishes.
+      if current.status in @billable_terminal or not is_nil(current.reset_requested_at) do
+        current
+      else
+        current |> Ecto.Changeset.change(reset_requested_at: DateTime.utc_now()) |> Repo.update!()
+      end
+    end)
   end
 
   # Destroy the sprite behind a home and retire its row. Best-effort on the

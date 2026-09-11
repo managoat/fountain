@@ -178,7 +178,8 @@ defmodule Fountain.Conversations.ConversationServerBrokerTest do
       end
     end
 
-    for initial <- ["ready", "suspended"], terminal <- ["terminated", "failed"] do
+    for initial <- ["ready", "suspended"],
+        terminal <- ["terminated", "failed", "reset_pending"] do
       @tag initial: initial, terminal: terminal
       test "retirement during #{initial} wake preserves #{terminal} and the replacement", %{
         user: user,
@@ -224,7 +225,15 @@ defmodule Fountain.Conversations.ConversationServerBrokerTest do
         callback_id = Fountain.Repo.reload!(conv).callback_api_key_id
         assert is_binary(callback_id)
 
-        {:ok, retired} = Conversations.update_sandbox(sandbox, %{status: terminal})
+        retired =
+          if terminal == "reset_pending" do
+            sandbox
+            |> Ecto.Changeset.change(reset_requested_at: DateTime.utc_now())
+            |> Fountain.Repo.update!()
+          else
+            {:ok, retired} = Conversations.update_sandbox(sandbox, %{status: terminal})
+            retired
+          end
 
         replacement =
           insert_sandbox(user_id: user.id, status: "ready", sprite_name: "replacement")
@@ -238,8 +247,9 @@ defmodule Fountain.Conversations.ConversationServerBrokerTest do
         send(pid, :resume_wake)
 
         assert :normal = assert_stopped(ref, 5_000)
-        assert Fountain.Repo.reload!(sandbox).status == terminal
+        assert Fountain.Repo.reload!(sandbox).status == retired.status
         assert Fountain.Repo.reload!(sandbox).terminated_at == retired.terminated_at
+        assert Fountain.Repo.reload!(sandbox).reset_requested_at == retired.reset_requested_at
         assert Fountain.Repo.reload!(conv).sandbox_id == replacement.id
         assert Fountain.Repo.reload!(conv).status == "idle"
         assert Fountain.Repo.reload!(replacement).status == "ready"

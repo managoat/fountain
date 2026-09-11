@@ -20,6 +20,7 @@ defmodule Fountain.Conversations.TeardownFenceTest do
     expect(Audit, :record, fn attrs ->
       refute Repo.in_transaction?()
       assert Repo.reload!(ctx.home).reset_requested_at
+      assert Repo.reload!(ctx.home).teardown_requested_at
       Mimic.call_original(Audit, :record, [attrs])
     end)
 
@@ -31,6 +32,7 @@ defmodule Fountain.Conversations.TeardownFenceTest do
              )
 
     assert fenced.status == "ready"
+    assert fenced.teardown_requested_at == fenced.reset_requested_at
     assert Fountain.Quotas.active_sandbox_count(ctx.user.id) == 1
     assert [event] = events(ctx)
     assert event.actor == "ui"
@@ -41,6 +43,7 @@ defmodule Fountain.Conversations.TeardownFenceTest do
 
     assert {:ok, repeated} = Conversations._unsafe_fence_sandbox_for_teardown(ctx.home)
     assert repeated.reset_requested_at == fenced.reset_requested_at
+    assert repeated.teardown_requested_at == fenced.teardown_requested_at
     assert [^event] = events(ctx)
   end
 
@@ -53,19 +56,49 @@ defmodule Fountain.Conversations.TeardownFenceTest do
       assert {:ok, retired} = Conversations._unsafe_fence_sandbox_for_teardown(ctx.home)
       assert retired.status == unquote(status)
       refute retired.reset_requested_at
+      refute retired.teardown_requested_at
       assert events(ctx) == []
     end
   end
 
-  test "an existing reset fence keeps its timestamp without another request event", ctx do
+  test "escalating a reset records forced intent while retaining the original admission fence",
+       ctx do
     requested_at = DateTime.add(DateTime.utc_now(), -60)
     ctx.home |> Ecto.Changeset.change(reset_requested_at: requested_at) |> Repo.update!()
-    reject(Audit, :record, 1)
     reject(Managoat.Sandbox.Sprites, :destroy, 1)
 
-    assert {:ok, fenced} = Conversations._unsafe_fence_sandbox_for_teardown(ctx.home)
+    assert {:ok, fenced} =
+             Conversations._unsafe_fence_sandbox_for_teardown(ctx.home, actor: "ui")
+
     assert fenced.reset_requested_at == requested_at
+    assert DateTime.compare(fenced.teardown_requested_at, requested_at) == :gt
+    assert [event] = events(ctx)
+    assert event.actor == "ui"
+    assert {:ok, repeated} = Conversations._unsafe_fence_sandbox_for_teardown(ctx.home)
+    assert repeated.teardown_requested_at == fenced.teardown_requested_at
+    assert [^event] = events(ctx)
+  end
+
+  test "an ordinary failed reset does not become a forced teardown", ctx do
+    stub(Managoat.Sandbox.Sprites, :destroy, fn _ -> {:error, :provider_unavailable} end)
+    assert {:error, :sandbox_reset_pending} = Conversations.reset_sandbox(ctx.home)
+    assert Repo.reload!(ctx.home).reset_requested_at
+    refute Repo.reload!(ctx.home).teardown_requested_at
     assert events(ctx) == []
+  end
+
+  test "general sandbox attributes cannot forge or clear forced intent", ctx do
+    assert {:ok, fenced} = Conversations._unsafe_fence_sandbox_for_teardown(ctx.home)
+
+    for value <- [nil, DateTime.add(DateTime.utc_now(), 60)] do
+      changeset =
+        Fountain.Conversations.Sandbox.changeset(fenced, %{teardown_requested_at: value})
+
+      refute Map.has_key?(changeset.changes, :teardown_requested_at)
+
+      assert Ecto.Changeset.get_field(changeset, :teardown_requested_at) ==
+               fenced.teardown_requested_at
+    end
   end
 
   test "a missing sandbox returns an error without an audit or provider call", ctx do
@@ -86,6 +119,7 @@ defmodule Fountain.Conversations.TeardownFenceTest do
              end)
 
     refute Repo.reload!(ctx.home).reset_requested_at
+    refute Repo.reload!(ctx.home).teardown_requested_at
     assert events(ctx) == []
   end
 

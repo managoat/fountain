@@ -44,6 +44,8 @@ defmodule Fountain.Conversations.Sandbox do
     field :last_resumed_at, :utc_datetime
     # Internal reset fence; retained after completion as operation evidence.
     field :reset_requested_at, :utc_datetime_usec
+    # Forced teardown intent; admission still uses the shared reset fence.
+    field :teardown_requested_at, :utc_datetime_usec
     # A digest of the Environment fields provisioning turned into disk state:
     # packages, repositories, the setup script and the network policy. Written
     # when the machine reaches `ready`, so a later reapply can tell whether the

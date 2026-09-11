@@ -3437,8 +3437,10 @@ defmodule Fountain.Conversations do
   the provider after success. Already admitted turns may be forcibly stopped.
 
   Reuses the reset fence so every existing reuse path refuses the machine,
-  retaining capacity until retirement completes. A new fence records
-  `sandbox.teardown_requested` after commit; repeats preserve its timestamp.
+  retaining capacity until retirement completes. `teardown_requested_at`
+  distinguishes forced teardown from an ordinary reset. A new forced intent
+  records `sandbox.teardown_requested` after commit; repeats preserve both
+  timestamps. Escalating an existing reset preserves its admission fence.
   Refuses an enclosing transaction. `opts` carries actor, request_ip and reason.
 
   With a terminating_conversation_id, first lock and verify that conversation's
@@ -3495,17 +3497,27 @@ defmodule Fountain.Conversations do
         Repo.rollback(:sandbox_kept)
       end
 
-      # Forced teardown may stop an admitted turn, but cannot admit a new one
-      # after this commit. Keep capacity until the existing teardown finishes.
-      if current.status in @billable_terminal or not is_nil(current.reset_requested_at) do
-        {current, false}
-      else
-        fenced =
-          current
-          |> Ecto.Changeset.change(reset_requested_at: DateTime.utc_now())
-          |> Repo.update!()
+      # Forced teardown may stop an admitted turn. Keep the admission fence
+      # and its timestamp when an ordinary reset is escalated to forced teardown.
+      cond do
+        current.status in @billable_terminal ->
+          {current, false}
 
-        {fenced, true}
+        is_nil(current.teardown_requested_at) ->
+          now = DateTime.utc_now()
+
+          fenced =
+            current
+            |> Ecto.Changeset.change(
+              reset_requested_at: current.reset_requested_at || now,
+              teardown_requested_at: now
+            )
+            |> Repo.update!()
+
+          {fenced, true}
+
+        true ->
+          {current, false}
       end
     end)
   end

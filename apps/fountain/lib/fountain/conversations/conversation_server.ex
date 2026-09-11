@@ -297,6 +297,9 @@ defmodule Fountain.Conversations.ConversationServer do
   sprite. If not, just mark the DB rows terminated so the user can still
   clean up dead conversations after a server restart.
 
+  An enclosing database transaction is refused before contacting the actor or
+  updating rows, so teardown cannot escape a caller's rollback.
+
   Named `terminate_conversation` rather than `terminate`: taking `opts` for
   audit attribution (#545) would have made this `terminate/2`, which is the
   OTP callback below. Two different meanings under one name in one module was
@@ -305,6 +308,15 @@ defmodule Fountain.Conversations.ConversationServer do
   the client half gets the unambiguous name.
   """
   def terminate_conversation(conv_id, opts \\ []) do
+    if Fountain.Repo.in_transaction?() do
+      {:error, :provider_transaction_open}
+    else
+      do_terminate_conversation(conv_id, opts)
+    end
+  end
+
+  defp do_terminate_conversation(conv_id, opts) do
+    # ownership: callers establish conv_id through a scoped fetch or their actor context.
     result =
       case whereis(conv_id) do
         nil ->
@@ -322,6 +334,7 @@ defmodule Fountain.Conversations.ConversationServer do
               # must not take either down.
               sandbox_id = conv.sandbox_id
 
+              # ownership: sandbox_id comes from that same authorized conversation.
               if is_binary(sandbox_id) and
                    not Conversations._unsafe_sandbox_kept_on_terminate?(sandbox_id, conv.id) do
                 sb = Conversations._unsafe_get_sandbox!(sandbox_id)
@@ -335,7 +348,7 @@ defmodule Fountain.Conversations.ConversationServer do
           end
 
         pid ->
-          call_server(pid, :terminate_conv)
+          call_server(pid, {:terminate_conv, opts})
       end
 
     audit_lifecycle(conv_id, "conversation.terminated", result, opts)

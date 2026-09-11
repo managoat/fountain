@@ -949,6 +949,40 @@ defmodule Fountain.Conversations.ConversationServerTest do
       GenServer.stop(pid)
     end
 
+    test "a spawn failure after reassignment leaves the replacement binding running", %{
+      conv: conv
+    } do
+      stub_happy_sprite()
+      replacement = insert_sandbox(user_id: conv.user_id, status: "ready")
+
+      Mimic.stub(Managoat.Sandbox.Sprites, :spawn, fn _h, _cmd, _args, _opts ->
+        {:ok, _} =
+          Conversations.update_conversation(conv, %{sandbox_id: replacement.id, status: "running"})
+
+        {:error, :econnrefused}
+      end)
+
+      {pid, _ref, :alive} = start_server(conv, initial_prompt: "hello")
+      _ = :sys.get_state(pid)
+
+      assert [turn] = Conversations._unsafe_list_turns(conv.id)
+      assert turn.status == "running"
+      assert turn.ended_at == nil
+      assert turn.exit_code == nil
+      current = Conversations._unsafe_get_conversation!(conv.id)
+      assert current.sandbox_id == replacement.id
+      assert current.status == "running"
+
+      refute Repo.exists?(
+               from e in Fountain.Conversations.LogEvent,
+                 where:
+                   e.conversation_id == ^conv.id and e.stage == "turn" and e.state == "failed"
+             )
+
+      GenServer.stop(pid)
+      assert Repo.reload!(turn).status == "running"
+    end
+
     test "a runtime that exits before the prompt is written fails the turn (#603)", %{conv: conv} do
       # The real adapter write path against a real command process that stops
       # :normal on the write, which is what Sprites.Command does the moment the

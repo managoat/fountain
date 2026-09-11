@@ -3440,12 +3440,17 @@ defmodule Fountain.Conversations do
   retaining capacity until retirement completes. A new fence records
   `sandbox.teardown_requested` after commit; repeats preserve its timestamp.
   Refuses an enclosing transaction. `opts` carries actor, request_ip and reason.
+
+  With a terminating_conversation_id, first lock and verify that conversation's
+  current attachment and owner. A persistent home or another live conversation
+  returns {:error, :sandbox_kept} without a new fence. The sandbox row stays
+  locked through this decision and the fence, serializing supported attachments.
   """
   def _unsafe_fence_sandbox_for_teardown(%Sandbox{} = sandbox, opts \\ []) do
     if Repo.in_transaction?() do
       {:error, :provider_transaction_open}
     else
-      case do_fence_sandbox_for_teardown(sandbox) do
+      case do_fence_sandbox_for_teardown(sandbox, Keyword.get(opts, :terminating_conversation_id)) do
         {:ok, {fenced, true}} ->
           Audit.record(%{
             user_id: fenced.user_id,
@@ -3471,16 +3476,24 @@ defmodule Fountain.Conversations do
     end
   end
 
-  defp do_fence_sandbox_for_teardown(sandbox) do
+  defp do_fence_sandbox_for_teardown(sandbox, ending_id) do
     Repo.transaction(fn ->
       Repo.query!("SELECT pg_advisory_xact_lock($1, $2)", [
         @sandbox_lock_namespace,
         :erlang.phash2(sandbox.id)
       ])
 
+      # Match admission's advisory -> conversation -> sandbox lock order.
+      lock_terminating_conversation(sandbox, ending_id)
+
       current =
         Repo.one(from s in Sandbox, where: s.id == ^sandbox.id, lock: "FOR UPDATE") ||
           Repo.rollback(:not_found)
+
+      if not is_nil(ending_id) and
+           (current.mode == "persistent" or _unsafe_sandbox_held_by_other?(current.id, ending_id)) do
+        Repo.rollback(:sandbox_kept)
+      end
 
       # Forced teardown may stop an admitted turn, but cannot admit a new one
       # after this commit. Keep capacity until the existing teardown finishes.
@@ -3495,6 +3508,18 @@ defmodule Fountain.Conversations do
         {fenced, true}
       end
     end)
+  end
+
+  defp lock_terminating_conversation(_sandbox, nil), do: :ok
+
+  defp lock_terminating_conversation(sandbox, ending_id) when is_binary(ending_id) do
+    Repo.one(
+      from c in Conversation,
+        where:
+          c.id == ^ending_id and c.sandbox_id == ^sandbox.id and c.user_id == ^sandbox.user_id,
+        select: c.id,
+        lock: "FOR UPDATE"
+    ) || Repo.rollback(:sandbox_unavailable)
   end
 
   # Destroy the sprite behind a home and retire its row. Best-effort on the

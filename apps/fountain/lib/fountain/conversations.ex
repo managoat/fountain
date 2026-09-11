@@ -3393,7 +3393,7 @@ defmodule Fountain.Conversations do
   and provider I/O; already admitted turns may be interrupted by this forced
   operation. `_unsafe_`: the caller owns the agent.
   """
-  def _unsafe_destroy_homes_for_agent(agent_id) when is_binary(agent_id) do
+  def _unsafe_destroy_homes_for_agent(agent_id, opts \\ []) when is_binary(agent_id) do
     if Repo.in_transaction?() do
       {:error, :provider_transaction_open}
     else
@@ -3404,7 +3404,7 @@ defmodule Fountain.Conversations do
       )
       |> Repo.all()
       |> Enum.reduce_while(0, fn home, count ->
-        case _unsafe_destroy_home(home) do
+        case _unsafe_destroy_home(home, Keyword.put_new(opts, :reason, "agent_deleted")) do
           :ok -> {:cont, count + 1}
           {:error, _} = error -> {:halt, error}
         end
@@ -3413,11 +3413,11 @@ defmodule Fountain.Conversations do
   end
 
   @doc false
-  def _unsafe_destroy_home(%Sandbox{} = sandbox) do
+  def _unsafe_destroy_home(%Sandbox{} = sandbox, opts \\ []) do
     if Repo.in_transaction?() do
       {:error, :provider_transaction_open}
     else
-      with {:ok, fenced} <- fence_home_destruction(sandbox) do
+      with {:ok, fenced} <- _unsafe_fence_sandbox_for_teardown(sandbox, opts) do
         fenced = Repo.preload(fenced, :conversations)
 
         fenced.conversations
@@ -3431,7 +3431,47 @@ defmodule Fountain.Conversations do
     end
   end
 
-  defp fence_home_destruction(sandbox) do
+  @doc """
+  Commit an admission fence before a caller tears down a sandbox. No provider
+  I/O runs here. The caller owns this row and must stop actors and clean up
+  the provider after success. Already admitted turns may be forcibly stopped.
+
+  Reuses the reset fence so every existing reuse path refuses the machine,
+  retaining capacity until retirement completes. A new fence records
+  `sandbox.teardown_requested` after commit; repeats preserve its timestamp.
+  Refuses an enclosing transaction. `opts` carries actor, request_ip and reason.
+  """
+  def _unsafe_fence_sandbox_for_teardown(%Sandbox{} = sandbox, opts \\ []) do
+    if Repo.in_transaction?() do
+      {:error, :provider_transaction_open}
+    else
+      case do_fence_sandbox_for_teardown(sandbox) do
+        {:ok, {fenced, true}} ->
+          Audit.record(%{
+            user_id: fenced.user_id,
+            action: "sandbox.teardown_requested",
+            resource_type: "sandbox",
+            resource_id: fenced.id,
+            actor: Keyword.get(opts, :actor, "self"),
+            request_ip: Keyword.get(opts, :request_ip),
+            metadata: %{
+              "reason" => Keyword.get(opts, :reason, "teardown"),
+              "provider" => fenced.provider
+            }
+          })
+
+          {:ok, fenced}
+
+        {:ok, {fenced, false}} ->
+          {:ok, fenced}
+
+        {:error, _} = error ->
+          error
+      end
+    end
+  end
+
+  defp do_fence_sandbox_for_teardown(sandbox) do
     Repo.transaction(fn ->
       Repo.query!("SELECT pg_advisory_xact_lock($1, $2)", [
         @sandbox_lock_namespace,
@@ -3445,9 +3485,14 @@ defmodule Fountain.Conversations do
       # Forced teardown may stop an admitted turn, but cannot admit a new one
       # after this commit. Keep capacity until the existing teardown finishes.
       if current.status in @billable_terminal or not is_nil(current.reset_requested_at) do
-        current
+        {current, false}
       else
-        current |> Ecto.Changeset.change(reset_requested_at: DateTime.utc_now()) |> Repo.update!()
+        fenced =
+          current
+          |> Ecto.Changeset.change(reset_requested_at: DateTime.utc_now())
+          |> Repo.update!()
+
+        {fenced, true}
       end
     end)
   end

@@ -274,7 +274,7 @@ defmodule Fountain.Agents do
     # names it — deletion would nilify the pointer and orphan the sprite.
     # Ownership: `agent` came from the caller's scoped fetch.
     with count when is_integer(count) <-
-           Fountain.Conversations._unsafe_destroy_homes_for_agent(agent.id) do
+           Fountain.Conversations._unsafe_destroy_homes_for_agent(agent.id, opts) do
       delete_agent_row(agent, opts)
     end
   end

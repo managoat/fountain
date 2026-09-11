@@ -135,6 +135,7 @@ defmodule Fountain.Workers.AutonomousTurnReaperTest do
       assert :ok =
                ConversationServer.terminate(:normal, %{
                  conversation_id: conv.id,
+                 sandbox_id: conv.sandbox_id,
                  callback_api_key_id: nil,
                  current_turn: turn
                })
@@ -144,12 +145,38 @@ defmodule Fountain.Workers.AutonomousTurnReaperTest do
       assert Repo.reload(conv).status == "idle"
     end
 
+    test "an old actor leaves a rebound conversation and its turn untouched" do
+      {user, conv, turn} = running_turn()
+      replacement = insert_sandbox(user_id: user.id, status: "ready")
+      {:ok, _} = Conversations.update_conversation(conv, %{sandbox_id: replacement.id})
+      Phoenix.PubSub.subscribe(Fountain.PubSub, "conv:#{conv.id}")
+
+      assert :ok =
+               ConversationServer.terminate(:normal, %{
+                 conversation_id: conv.id,
+                 sandbox_id: conv.sandbox_id,
+                 callback_api_key_id: nil,
+                 current_turn: turn
+               })
+
+      assert Repo.reload(turn) == turn
+      assert Repo.reload(conv).sandbox_id == replacement.id
+      assert Repo.reload(conv).status == "running"
+      refute_receive {:log_event, %{stage: "reattach"}}
+
+      refute Enum.any?(
+               Audit.list_recent_for_user(user.id),
+               &(&1.action == "conversation.turn.orphaned")
+             )
+    end
+
     test "a supervisor shutdown leaves the turn available for reattach" do
       {_user, conv, turn} = running_turn()
 
       assert :ok =
                ConversationServer.terminate(:shutdown, %{
                  conversation_id: conv.id,
+                 sandbox_id: conv.sandbox_id,
                  callback_api_key_id: nil,
                  current_turn: turn
                })

@@ -1558,9 +1558,13 @@ defmodule Fountain.Conversations.TurnMachine do
   `terminate/2`, and a raise here must not take the rest of that callback
   with it.
   """
-  @spec orphan_on_normal_stop(term(), Conversations.Turn.t() | nil, String.t() | nil) :: :ok
-  def orphan_on_normal_stop(:normal, turn, conversation_id) when not is_nil(turn) do
-    _ = Conversations._unsafe_orphan_turn(turn, "server_terminated_normally")
+  @spec orphan_on_normal_stop(term(), Conversations.Turn.t() | nil, String.t() | nil, keyword()) ::
+          :ok
+  def orphan_on_normal_stop(reason, turn, conversation_id, opts \\ [])
+
+  def orphan_on_normal_stop(:normal, turn, conversation_id, opts) when not is_nil(turn) do
+    # The actor owns this turn; its expected sandbox binding is checked under the row lock.
+    _ = Conversations._unsafe_orphan_turn(turn, "server_terminated_normally", opts)
     :ok
   rescue
     error ->
@@ -1572,5 +1576,5 @@ defmodule Fountain.Conversations.TurnMachine do
       :ok
   end
 
-  def orphan_on_normal_stop(_reason, _turn, _conversation_id), do: :ok
+  def orphan_on_normal_stop(_reason, _turn, _conversation_id, _opts), do: :ok
 end

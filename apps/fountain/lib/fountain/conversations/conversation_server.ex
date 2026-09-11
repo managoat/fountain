@@ -2171,7 +2171,11 @@ defmodule Fountain.Conversations.ConversationServer do
     _ = CallbackKey.revoke(state.conversation_id, state.callback_api_key_id)
 
     # Last and best-effort, so it cannot skip the revocation above.
-    _ = TurnMachine.orphan_on_normal_stop(reason, state.current_turn, state.conversation_id)
+    _ =
+      TurnMachine.orphan_on_normal_stop(reason, state.current_turn, state.conversation_id,
+        expected_sandbox_id: state.sandbox_id
+      )
+
     :ok
   end
 

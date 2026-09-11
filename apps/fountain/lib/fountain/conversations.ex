@@ -2080,6 +2080,8 @@ defmodule Fountain.Conversations do
 
   This function is unscoped because it is called by a conversation's own
   server and by the system reaper. Callers may supply audit attribution.
+  An actor supplies `:expected_sandbox_id`; after locking the conversation,
+  a changed binding makes the entire reconciliation a no-op.
   """
   def _unsafe_orphan_turn(%Turn{} = turn, why, opts \\ []) do
     now = DateTime.utc_now() |> DateTime.truncate(:second)
@@ -2091,24 +2093,28 @@ defmodule Fountain.Conversations do
 
     result =
       Repo.transaction(fn ->
-        {count, _} =
-          from(t in Turn, where: t.id == ^turn.id and t.status == "running")
-          |> Repo.update_all(set: updates)
+        conversation_query =
+          from(c in Conversation, where: c.id == ^turn.conversation_id, lock: "FOR UPDATE")
 
-        if count == 0 do
-          :noop
-        else
+        turn_query =
+          from(t in Turn,
+            where:
+              t.id == ^turn.id and t.conversation_id == ^turn.conversation_id and
+                t.status == "running"
+          )
+
+        with %Conversation{} = conv <- Repo.one(conversation_query),
+             true <- Keyword.get(opts, :expected_sandbox_id, conv.sandbox_id) == conv.sandbox_id,
+             {1, _} <- Repo.update_all(turn_query, set: updates) do
           {conversation_count, _} =
             from(c in Conversation,
-              where: c.id == ^turn.conversation_id and c.status == "running"
+              where: c.id == ^conv.id and c.status == "running"
             )
             |> Repo.update_all(set: [status: "idle", updated_at: now])
 
-          {
-            Repo.get!(Turn, turn.id),
-            Repo.get!(Conversation, turn.conversation_id),
-            conversation_count == 1
-          }
+          {Repo.get!(Turn, turn.id), Repo.reload!(conv), conversation_count == 1}
+        else
+          _ -> :noop
         end
       end)
 

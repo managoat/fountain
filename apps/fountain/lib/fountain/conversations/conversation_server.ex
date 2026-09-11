@@ -1882,38 +1882,36 @@ defmodule Fountain.Conversations.ConversationServer do
   def handle_info({:exit, %{ref: ref}, code}, %{current_command_ref: ref} = state) do
     turn = state.current_turn
 
-    {:ok, turn} =
-      Conversations._unsafe_update_turn(turn, %{
-        status: if(code == 0, do: "completed", else: "failed"),
-        exit_code: code,
-        ended_at: now()
-      })
-
-    Output.publish_stage(state.conversation_id, "turn", "done", %{
-      turn_id: turn.id,
-      turn_number: turn.turn_number,
-      exit_code: code
-    })
-
     # Finalize stream tracer: close any tool spans still open (abandoned calls).
     TurnMachine.finalize_tracer(state.stream_tracer)
 
-    # An ACP turn can also end here — the adapter exits, is interrupted, or its
-    # socket drops before it ever answers `session/prompt`. The peer has nothing
-    # left to drive and must not outlive the turn.
+    # An ACP adapter can exit before answering session/prompt. Attempt local
+    # peer cleanup before rechecking ownership: its callback may change the
+    # conversation while this actor waits for it to stop.
     stop_acp_peer(state)
 
-    # Close the OTel turn span we opened in kick_turn.
-    TurnMachine.end_span(
-      state.current_turn_span,
-      if(code == 0, do: :ok, else: :error),
-      %{"exit_code" => code}
-    )
+    status = if(code == 0, do: "completed", else: "failed")
 
-    emit_turn_completed(state, turn.status)
+    # Ownership: this actor supplies the sandbox binding captured at startup.
+    case Conversations._unsafe_complete_turn(turn, state.sandbox_id, status, exit_code: code) do
+      {:ok, ended} ->
+        Output.publish_stage(state.conversation_id, "turn", "done", %{
+          turn_id: ended.id,
+          turn_number: ended.turn_number,
+          exit_code: code
+        })
 
-    conv = Conversations._unsafe_get_conversation!(state.conversation_id)
-    {:ok, _} = Conversations.update_conversation(conv, %{status: "idle"})
+        TurnMachine.end_span(
+          state.current_turn_span,
+          if(code == 0, do: :ok, else: :error),
+          %{"exit_code" => code}
+        )
+
+        emit_turn_completed(state, ended.status)
+
+      :noop ->
+        TurnMachine.end_span(state.current_turn_span, :error, %{"outcome" => "completion_ignored"})
+    end
 
     {:noreply,
      %{

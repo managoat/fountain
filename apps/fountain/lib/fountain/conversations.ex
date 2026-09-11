@@ -2212,6 +2212,50 @@ defmodule Fountain.Conversations do
   end
 
   @doc """
+  Finish an actor's machine-gone notification on its current binding.
+
+  Lock the parent through the running-turn check and optional idle write, as
+  admission does. A moved, terminal or deleted conversation, or a newer running
+  turn, makes this a no-op. Only a running conversation changes status;
+  already-idle actors can still record the sandbox event. Publication happens
+  after commit, and this function performs no provider or actor I/O.
+  """
+  def _unsafe_finish_machine_gone(conversation_id, sandbox_id) do
+    {:ok, result} =
+      Repo.transaction(fn ->
+        conversation_query =
+          from(c in Conversation, where: c.id == ^conversation_id, lock: "FOR UPDATE")
+
+        running_query =
+          from(t in Turn, where: t.conversation_id == ^conversation_id and t.status == "running")
+
+        with %Conversation{} = conv <- Repo.one(conversation_query),
+             true <- conv.sandbox_id == sandbox_id and conv.status not in ["terminated", "failed"],
+             false <- Repo.exists?(running_query) do
+          if conv.status == "running" do
+            {:updated, conv |> Conversation.changeset(%{status: "idle"}) |> Repo.update!()}
+          else
+            :unchanged
+          end
+        else
+          _ -> :noop
+        end
+      end)
+
+    case result do
+      {:updated, conv} ->
+        broadcast_sidebar_update(conv.user_id)
+        :ok
+
+      :unchanged ->
+        :ok
+
+      :noop ->
+        :noop
+    end
+  end
+
+  @doc """
   Reconciles a turn left `running` after its server or runtime disappeared.
 
   The turn transition and the conversation's `running` to `idle` transition

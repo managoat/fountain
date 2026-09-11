@@ -191,6 +191,109 @@ defmodule Fountain.Conversations.ConversationServerSharedSandboxTest do
              end)
     end
 
+    for active? <- [false, true] do
+      @tag active?: active?
+      test "a qualified notification stops its #{if active?, do: "active", else: "idle"} actor",
+           ctx do
+        %{b: b, sandbox: sandbox} = shared_machine("claude")
+        stub_happy_sprite()
+        stub_turn_boundary()
+        {pid, ref} = start(b)
+
+        if ctx.active? do
+          assert :ok = GenServer.call(pid, {:send_prompt, "hi", []})
+        else
+          # The actor has no turn, but a lost completion left its parent running.
+          {:ok, _} = Conversations.update_conversation(b, %{status: "running"})
+        end
+
+        GenServer.cast(pid, {:machine_gone, sandbox.id, "suspended", "idle", "parked"})
+        assert :normal = assert_stopped(ref)
+        assert Repo.reload!(b).status == "idle"
+
+        if ctx.active? do
+          assert [%{status: "interrupted"}] = Conversations._unsafe_list_turns(b.id)
+        end
+
+        assert Enum.any?(sandbox_stages(b.id), &(&1["event"] == "suspended"))
+      end
+    end
+
+    test "an obsolete notification leaves the replacement actor and its turn alone" do
+      %{b: b, user: user} = shared_machine("claude")
+      old = insert_sandbox(user_id: user.id, status: "terminated")
+      stub_happy_sprite()
+      stub_turn_boundary()
+      {pid, _ref} = start(b)
+      assert :ok = GenServer.call(pid, {:send_prompt, "hi", []})
+      state = :sys.get_state(pid)
+      [turn] = Conversations._unsafe_list_turns(b.id)
+      turn = Repo.reload!(turn)
+      events = sandbox_stages(b.id)
+      owner = self()
+
+      Mimic.stub(Managoat.Sandbox.Sprites, :close_stdin, fn _ ->
+        send(owner, :closed)
+        :ok
+      end)
+
+      Mimic.stub(Managoat.Sandbox.Sprites, :stop_command, fn _ ->
+        send(owner, :stopped)
+        :ok
+      end)
+
+      GenServer.cast(pid, {:machine_gone, old.id, "reset", "home_reset", "obsolete"})
+      assert :sys.get_state(pid) == state
+      assert Repo.reload!(turn) == turn
+      assert Repo.reload!(b).status == "running"
+      assert sandbox_stages(b.id) == events
+      refute_received :closed
+      refute_received :stopped
+    end
+
+    for change <- [:reassigned, :terminated, :failed, :new_turn, :deleted] do
+      @tag during_cleanup: change
+      test "#{change} during machine-gone cleanup preserves the committed state", ctx do
+        %{b: b, sandbox: sandbox, user: user} = shared_machine("claude")
+        replacement = insert_sandbox(user_id: user.id, status: "ready")
+        stub_happy_sprite()
+        stub_turn_boundary()
+        {pid, ref} = start(b)
+        assert :ok = GenServer.call(pid, {:send_prompt, "hi", []})
+        [turn] = Conversations._unsafe_list_turns(b.id)
+        owner = self()
+
+        Mimic.stub(Managoat.Sandbox.Sprites, :close_stdin, fn _ ->
+          refute Repo.in_transaction?()
+
+          case ctx.during_cleanup do
+            :reassigned ->
+              Conversations.update_conversation(b, %{sandbox_id: replacement.id})
+
+            terminal when terminal in [:terminated, :failed] ->
+              Conversations.update_conversation(b, %{status: Atom.to_string(terminal)})
+
+            :new_turn ->
+              turn |> Ecto.Changeset.change(status: "completed") |> Repo.update!()
+              insert_turn(b, status: "running")
+
+            :deleted ->
+              Repo.delete!(Repo.reload!(b))
+          end
+
+          send(owner, {:persisted, Repo.reload(b), Repo.reload(turn)})
+          :ok
+        end)
+
+        GenServer.cast(pid, {:machine_gone, sandbox.id, "suspended", "idle", "stale"})
+        assert :normal = assert_stopped(ref)
+        assert_received {:persisted, persisted_conv, persisted_turn}
+        assert Repo.reload(b) == persisted_conv
+        assert Repo.reload(turn) == persisted_turn
+        refute Enum.any?(sandbox_stages(b.id), &(&1["message"] == "stale"))
+      end
+    end
+
     test "a co-tenant told the machine is gone records it and stops" do
       %{b: b} = shared_machine("claude")
       stub_happy_sprite()

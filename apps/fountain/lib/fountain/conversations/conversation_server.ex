@@ -1586,44 +1586,16 @@ defmodule Fountain.Conversations.ConversationServer do
     {:reply, reply, Pending.into_state(state, pending)}
   end
 
-  def handle_call(:terminate_conv, _from, state) do
-    kept? =
-      Conversations._unsafe_sandbox_kept_on_terminate?(state.sandbox_id, state.conversation_id)
+  # Keep the legacy request during rollout; callers can adopt attribution
+  # only after all nodes understand the tuple form.
+  def handle_call(:terminate_conv, from, state),
+    do: handle_call({:terminate_conv, []}, from, state)
 
-    if kept? do
-      # The machine is shared, or it is the agent's home (ADR 0023): end this
-      # conversation and leave the sprite — the same guard the no-server path
-      # applies in terminate_conversation/2. A turn of ours still running is
-      # cut first, since nothing would be left to drive it; `handle: nil` so
-      # no stop path touches the sprite.
-      state = if state.current_turn, do: interrupt_turn(state), else: state
-      state = drop_connection(state, "terminated")
-      conv = Conversations._unsafe_get_conversation!(state.conversation_id)
-      {:ok, _} = Conversations.update_conversation(conv, %{status: "terminated"})
-
-      Output.publish_stage(state.conversation_id, "terminate", "done", %{
-        sandbox: "kept",
-        reason:
-          if(Lifecycle.home?(state.sandbox_id),
-            do: "persistent_home",
-            else: "held_by_another_conversation"
-          )
-      })
-
-      {:stop, :normal, :ok, %{state | handle: nil}}
-    else
-      state = drop_connection(state, "terminated")
-      if state.handle, do: _ = Managoat.Sandbox.destroy(state.handle)
-      Egress.release(state.user_id, state.conversation_id)
-      sandbox = Conversations._unsafe_get_sandbox!(state.sandbox_id)
-
-      {:ok, _} =
-        Conversations.update_sandbox(sandbox, %{status: "terminated", terminated_at: now()})
-
-      conv = Conversations._unsafe_get_conversation!(state.conversation_id)
-      {:ok, _} = Conversations.update_conversation(conv, %{status: "terminated"})
-      Output.publish_stage(state.conversation_id, "terminate", "done")
-      {:stop, :normal, :ok, state}
+  def handle_call({:terminate_conv, opts}, _from, state) when is_list(opts) do
+    case prepare_termination(state, opts) do
+      {:ok, sandbox} -> terminate_machine(state, sandbox)
+      {:error, :sandbox_kept} -> terminate_kept_machine(state)
+      {:error, _} = error -> {:reply, error, state}
     end
   end
 
@@ -2069,6 +2041,62 @@ defmodule Fountain.Conversations.ConversationServer do
   # from the shared-sandbox reattach fix and moves with it.
   defp fail_transport(state, reason),
     do: Reattachment.fail_transport(Pending.resolve_held(state, "turn_ended"), reason)
+
+  defp prepare_termination(state, opts) do
+    opts =
+      opts
+      |> Keyword.put(:terminating_conversation_id, state.conversation_id)
+      |> Keyword.put_new(:reason, "conversation_terminated")
+
+    # ownership: init/1 established this actor's conversation and sandbox.
+    case Conversations._unsafe_get_sandbox(state.sandbox_id) do
+      nil ->
+        {:error, :sandbox_unavailable}
+
+      sandbox ->
+        # ownership: the conditional fence rechecks this actor's parent and owner.
+        Conversations._unsafe_fence_sandbox_for_teardown(sandbox, opts)
+    end
+  end
+
+  defp terminate_kept_machine(state) do
+    # The machine is shared, or it is the agent's home (ADR 0023): end this
+    # conversation and leave the sprite — the same guard the no-server path
+    # applies in terminate_conversation/2. A turn of ours still running is
+    # cut first, since nothing would be left to drive it; `handle: nil` so
+    # no stop path touches the sprite.
+    state = if state.current_turn, do: interrupt_turn(state), else: state
+    state = drop_connection(state, "terminated")
+    # ownership: the conditional fence verified this server-owned conversation.
+    conv = Conversations._unsafe_get_conversation!(state.conversation_id)
+    {:ok, _} = Conversations.update_conversation(conv, %{status: "terminated"})
+
+    Output.publish_stage(state.conversation_id, "terminate", "done", %{
+      sandbox: "kept",
+      reason:
+        if(Lifecycle.home?(state.sandbox_id),
+          do: "persistent_home",
+          else: "held_by_another_conversation"
+        )
+    })
+
+    {:stop, :normal, :ok, %{state | handle: nil}}
+  end
+
+  defp terminate_machine(state, sandbox) do
+    state = drop_connection(state, "terminated")
+    if state.handle, do: _ = Managoat.Sandbox.destroy(state.handle)
+    Egress.release(state.user_id, state.conversation_id)
+
+    {:ok, _} =
+      Conversations.update_sandbox(sandbox, %{status: "terminated", terminated_at: now()})
+
+    # ownership: the conditional fence verified this server-owned conversation.
+    conv = Conversations._unsafe_get_conversation!(state.conversation_id)
+    {:ok, _} = Conversations.update_conversation(conv, %{status: "terminated"})
+    Output.publish_stage(state.conversation_id, "terminate", "done")
+    {:stop, :normal, :ok, state}
+  end
 
   # The server's own clock stamp: the input `Lifecycle.check/4` reads. Nothing
   # but this process writes it.

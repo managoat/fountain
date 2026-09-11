@@ -523,6 +523,43 @@ defmodule Fountain.Conversations.Lifecycle do
   end
 
   @doc """
+  Handle a notification for this actor's sandbox; ignore another sandbox's.
+
+  The actor supplies its local interrupt and connection cleanup callbacks.
+  Cleanup runs before the guarded context transition, outside its transaction.
+  A moved or terminal conversation, or a newer running turn, keeps its state
+  and emits no sandbox event. The obsolete actor still stops after cleanup.
+  """
+  def machine_gone(
+        %{sandbox_id: sandbox_id} = state,
+        {:machine_gone, sandbox_id, event, reason, message},
+        interrupt,
+        drop_connection
+      )
+      when is_binary(sandbox_id) do
+    state = if state.current_turn, do: interrupt.(state), else: state
+    state = drop_connection.(state, event)
+
+    # Ownership: the actor supplies the sandbox whose local handle it closed.
+    case Conversations._unsafe_finish_machine_gone(state.conversation_id, sandbox_id) do
+      :ok ->
+        Conversations.publish_stage(state.conversation_id, "sandbox", "done", %{
+          event: event,
+          reason: reason,
+          by: "another_conversation",
+          message: message
+        })
+
+      :noop ->
+        :ok
+    end
+
+    {:stop, :normal, %{state | handle: nil}}
+  end
+
+  def machine_gone(state, _notification, _interrupt, _drop_connection), do: {:noreply, state}
+
+  @doc """
   A park or a destroy is a machine operation: every other conversation on the
   sandbox loses its handle with it. Tell their servers, so each records what
   happened on its own transcript and stops — the next prompt then takes the

@@ -1681,26 +1681,14 @@ defmodule Fountain.Conversations.ConversationServer do
     end
   end
 
-  # Another conversation on this machine parked or destroyed it (see
-  # stop_cotenants/4). Record that on this transcript, cut a turn that has
-  # nothing left to run on, and stop: with no handle there is nothing this
-  # server can do, and the wake path is what brings the machine back.
-  def handle_cast({:machine_gone, event, reason, message}, state) do
-    state = if state.current_turn, do: interrupt_turn(state), else: state
-    state = drop_connection(state, event)
+  # Compatibility for senders deployed before the sandbox-qualified message.
+  # Roll out this receiver before migrating senders; the old tuple cannot
+  # distinguish an obsolete sandbox notification from one for this actor.
+  def handle_cast({:machine_gone, event, reason, message}, state),
+    do: handle_cast({:machine_gone, state.sandbox_id, event, reason, message}, state)
 
-    conv = Conversations._unsafe_get_conversation!(state.conversation_id)
-    if conv.status == "running", do: Conversations.update_conversation(conv, %{status: "idle"})
-
-    Output.publish_stage(state.conversation_id, "sandbox", "done", %{
-      event: event,
-      reason: reason,
-      by: "another_conversation",
-      message: message
-    })
-
-    {:stop, :normal, %{state | handle: nil}}
-  end
+  def handle_cast({:machine_gone, _, _, _, _} = notification, state),
+    do: Lifecycle.machine_gone(state, notification, &interrupt_turn/1, &drop_connection/2)
 
   # Catch-all for the same reason as the handle_call one above (#315).
   def handle_cast(msg, state) do

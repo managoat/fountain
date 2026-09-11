@@ -325,26 +325,10 @@ defmodule Fountain.Conversations.ConversationServer do
               {:error, :not_running}
 
             conv ->
-              now = DateTime.utc_now() |> DateTime.truncate(:second)
-              {:ok, _} = Conversations.update_conversation(conv, %{status: "terminated"})
-
-              # A sandbox handed on to a successor conversation
-              # (`release_conversation/2`) is that conversation's computer now,
-              # and a home is the agent's (ADR 0023); terminating this thread
-              # must not take either down.
-              sandbox_id = conv.sandbox_id
-
-              # ownership: sandbox_id comes from that same authorized conversation.
-              if is_binary(sandbox_id) and
-                   not Conversations._unsafe_sandbox_kept_on_terminate?(sandbox_id, conv.id) do
-                sb = Conversations._unsafe_get_sandbox!(sandbox_id)
-
-                if sb.status not in ["terminated", "failed"] do
-                  Conversations.update_sandbox(sb, %{status: "terminated", terminated_at: now})
-                end
+              with {:ok, terminated} <-
+                     Conversations.update_conversation(conv, %{status: "terminated"}) do
+                Lifecycle.retire_terminated_sandbox(terminated, opts)
               end
-
-              :ok
           end
 
         pid ->

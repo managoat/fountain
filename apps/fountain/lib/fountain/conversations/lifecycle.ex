@@ -334,6 +334,52 @@ defmodule Fountain.Conversations.Lifecycle do
   end
 
   @doc """
+  Retire the machine of an authorized, terminated conversation with no actor.
+  The conditional fence preserves homes and other live co-tenants, and blocks
+  new attachments before the terminal write. No provider I/O runs here; the
+  reaper handles terminal rows. The caller owns the conversation lifecycle
+  audit; the fence records teardown intent using the supplied attribution.
+  """
+  def retire_terminated_sandbox(%{sandbox_id: nil}, _opts), do: :ok
+
+  def retire_terminated_sandbox(conv, opts) do
+    opts =
+      opts
+      |> Keyword.put(:terminating_conversation_id, conv.id)
+      |> Keyword.put_new(:reason, "conversation_terminated")
+
+    # ownership: this sandbox belongs to the conversation authorized by the caller.
+    case Conversations._unsafe_get_sandbox(conv.sandbox_id) do
+      nil ->
+        {:error, :sandbox_unavailable}
+
+      sandbox ->
+        # ownership: the authorized conversation supplies this sandbox; the fence rechecks binding.
+        case Conversations._unsafe_fence_sandbox_for_teardown(sandbox, opts) do
+          {:ok, %{status: status}} when status in ["terminated", "failed"] ->
+            :ok
+
+          {:ok, fenced} ->
+            now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+            with {:ok, _} <-
+                   Conversations.update_sandbox(fenced, %{
+                     status: "terminated",
+                     terminated_at: now
+                   }) do
+              :ok
+            end
+
+          {:error, :sandbox_kept} ->
+            :ok
+
+          {:error, _} = error ->
+            error
+        end
+    end
+  end
+
+  @doc """
   What the max-lifetime ceiling does to this machine, the suspend call
   included.
 

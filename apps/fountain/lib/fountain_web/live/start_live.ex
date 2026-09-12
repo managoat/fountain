@@ -108,8 +108,13 @@ defmodule FountainWeb.StartLive do
   defp needs_credential?(_user_id, nil), do: false
 
   defp needs_credential?(user_id, agent) do
+    # The agent's credential set, not the account's default (ADR 0053
+    # decision 3): the banner asks whether *this* agent will reach a model,
+    # and an agent pointed at a set that holds nothing will not, whatever the
+    # default set holds.
     with {:ok, dek} <- Fountain.Crypto.load_tenant_key(user_id),
-         {:ok, own} <- InferenceCredentials.decrypted_for_user(user_id, dek) do
+         {:ok, own} <-
+           InferenceCredentials.decrypted_for(user_id, agent.inference_credential_id, dek) do
       match?(
         {:error, :no_credential},
         InferenceCredentials.select(agent.model, own, agent.runtime,

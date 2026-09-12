@@ -166,8 +166,35 @@ defmodule Fountain.InferenceCredentials do
   """
   @spec decrypted_for_user(binary(), binary()) ::
           {:ok, %{atom() => String.t()}} | {:error, :decrypt_failed}
-  def decrypted_for_user(user_id, dek) when is_binary(user_id) and is_binary(dek) do
-    case get_for_user(user_id) do
+  def decrypted_for_user(user_id, dek) when is_binary(user_id) and is_binary(dek),
+    do: decrypted_for_set(get_for_user(user_id), dek)
+
+  @doc """
+  The same map for a named set (ADR 0053 decision 3), or for a `set_id` of
+  `nil`, which is the account's default set.
+
+  This is what a conversation reads: the set its agent names, or the launch's
+  override, or the default when neither says otherwise. A `set_id` belonging
+  to another tenant reads as `nil` and therefore as the default, because
+  `get_set/2` is tenant-scoped — an id that cannot be found must not fall
+  through to somebody else's credential.
+  """
+  @spec decrypted_for(binary(), binary() | nil, binary()) ::
+          {:ok, %{atom() => String.t()}} | {:error, :decrypt_failed}
+  def decrypted_for(user_id, nil, dek), do: decrypted_for_user(user_id, dek)
+
+  def decrypted_for(user_id, set_id, dek) when is_binary(set_id) do
+    case get_set(set_id, user_id) do
+      nil -> decrypted_for_user(user_id, dek)
+      %Credential{} = set -> decrypted_for_set(set, dek)
+    end
+  end
+
+  @doc "The decrypted map of one loaded set, or `%{}` for `nil`."
+  @spec decrypted_for_set(Credential.t() | nil, binary()) ::
+          {:ok, %{atom() => String.t()}} | {:error, :decrypt_failed}
+  def decrypted_for_set(cred, dek) when is_binary(dek) do
+    case cred do
       nil ->
         {:ok, %{}}
 

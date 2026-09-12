@@ -121,6 +121,7 @@ defmodule Fountain.Agents do
       %Agent{}
       |> Agent.changeset(attrs)
       |> validate_environment_owner()
+      |> validate_credential_set_owner()
 
     # The version snapshot shares the transaction with the insert: an agent
     # with no version 1 would break the invariant every conversation and the
@@ -142,6 +143,7 @@ defmodule Fountain.Agents do
       agent
       |> Agent.changeset(attrs)
       |> validate_environment_owner()
+      |> validate_credential_set_owner()
 
     # A home is keyed on (user, agent, environment, vault), so moving the
     # agent's environment orphans every home built on the old one: the next
@@ -270,6 +272,32 @@ defmodule Fountain.Agents do
     end
   end
 
+  # Same shape and the same reason as `validate_environment_owner/1` above: a
+  # cross-tenant id must read as "does not exist" rather than attach another
+  # account's credential set, and the check is skipped on an already-invalid
+  # changeset so a malformed id reaches the caller as a 422 and not a cast
+  # error out of `Repo` (#1679).
+  #
+  # Naming a set is stronger than naming an environment: it decides whose
+  # provider account pays for every turn this agent runs.
+  defp validate_credential_set_owner(%Ecto.Changeset{valid?: false} = changeset), do: changeset
+
+  defp validate_credential_set_owner(changeset) do
+    set_id = Ecto.Changeset.get_change(changeset, :inference_credential_id)
+    user_id = Ecto.Changeset.get_field(changeset, :user_id)
+
+    cond do
+      is_nil(set_id) ->
+        changeset
+
+      is_binary(user_id) && Fountain.InferenceCredentials.get_set(set_id, user_id) ->
+        changeset
+
+      true ->
+        Ecto.Changeset.add_error(changeset, :inference_credential_id, "does not exist")
+    end
+  end
+
   @doc "Delete an agent. See `create_agent/2` for `opts`."
   def delete_agent(%Agent{} = agent, opts \\ []) do
     # A home is the agent's computer; without the agent its identity is gone
@@ -384,8 +412,10 @@ defmodule Fountain.Agents do
     :metadata,
     :allowed_vault_ids,
     :allowed_environment_ids,
+    :allowed_inference_credential_ids,
     :permission_policy,
-    :environment_id
+    :environment_id,
+    :inference_credential_id
   ]
 
   @doc """

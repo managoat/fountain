@@ -24,10 +24,14 @@ defmodule Fountain.Conversations.SpriteEnv do
   # held in GenServer state for the conversation lifetime; the DEK is used
   # for ad-hoc decryption (vaults, environments) and the credentials map
   # is passed to runtime modules via build_sprite_env.
-  @spec load_tenant_state(String.t()) :: {:ok, binary(), map()} | {:error, term()}
-  def load_tenant_state(user_id) when is_binary(user_id) do
+  # `set_id` is the credential set this conversation runs on (ADR 0053
+  # decision 3): the agent's, or nil for the account's default, which is what
+  # every conversation had before a set could be named. An id the tenant does
+  # not own resolves to the default rather than to anything of theirs.
+  @spec load_tenant_state(String.t(), binary() | nil) :: {:ok, binary(), map()} | {:error, term()}
+  def load_tenant_state(user_id, set_id \\ nil) when is_binary(user_id) do
     with {:ok, dek} <- Crypto.load_tenant_key(user_id),
-         {:ok, creds} <- InferenceCredentials.decrypted_for_user(user_id, dek) do
+         {:ok, creds} <- InferenceCredentials.decrypted_for(user_id, set_id, dek) do
       {:ok, dek, creds}
     end
   end

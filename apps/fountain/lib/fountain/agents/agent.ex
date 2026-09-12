@@ -54,6 +54,12 @@ defmodule Fountain.Agents.Agent do
     # non-empty = allowlist. An override *replaces* the reviewed environment
     # wholesale, so it is scoped the same way a vault override is.
     field :allowed_environment_ids, {:array, :binary_id}
+    # Credential sets a conversation may launch this agent on instead of the
+    # agent's (ADR 0053 decision 3). Same shape again: nil = any set the
+    # tenant owns, [] = none, non-empty = allowlist. Naming a set changes
+    # whose provider account pays for the turn, which is the reason it is
+    # scoped rather than free.
+    field :allowed_inference_credential_ids, {:array, :binary_id}
     # Per-tool permission policy (#939): %{"default" => "auto_allow",
     # "Bash" => "auto_deny"}. Empty means no opinion, which resolves to
     # auto_allow — what every agent does today. A launch may supply its own,
@@ -63,6 +69,10 @@ defmodule Fountain.Agents.Agent do
     field :conversation_count, :integer, virtual: true, default: 0
     belongs_to :user, User
     belongs_to :environment, Environment
+    # Which credential set this agent's conversations run on (ADR 0053
+    # decision 3). nil is the account's default set, which is what every
+    # agent had before there was more than one.
+    belongs_to :inference_credential, Fountain.InferenceCredentials.Credential
     timestamps(type: :utc_datetime)
   end
 
@@ -96,9 +106,11 @@ defmodule Fountain.Agents.Agent do
       :metadata,
       :allowed_vault_ids,
       :allowed_environment_ids,
+      :allowed_inference_credential_ids,
       :permission_policy,
       :user_id,
-      :environment_id
+      :environment_id,
+      :inference_credential_id
     ]
 
   def changeset(agent, attrs) do
@@ -119,7 +131,9 @@ defmodule Fountain.Agents.Agent do
     |> Fountain.Changeset.validate_ids([
       :user_id,
       :environment_id,
+      :inference_credential_id,
       :allowed_vault_ids,
+      :allowed_inference_credential_ids,
       :allowed_environment_ids
     ])
     |> validate_skills()
@@ -127,6 +141,7 @@ defmodule Fountain.Agents.Agent do
     |> validate_permission_policy()
     |> unique_constraint(:name, name: :agents_user_id_name_index)
     |> foreign_key_constraint(:environment_id)
+    |> foreign_key_constraint(:inference_credential_id)
   end
 
   defp validate_fixture_account(changeset) do

@@ -400,9 +400,17 @@ defmodule Fountain.InferenceCredentials do
   that would do. The onboarding wizard asks only for Anthropic; this is how
   the agent form and the API ask for the rest the first time a model needs
   them, rather than failing inside the sandbox.
+
+  `opts` may name a `:credential_set_id`, the set this question is being
+  asked about (ADR 0053 decision 3). Without one it is the account's default
+  set, which is the only set that existed when every caller of this was
+  written. A set id the tenant does not own reads as the default, the same
+  fallback `decrypted_for/3` makes, so an unresolvable id can never report on
+  somebody else's credentials.
   """
-  @spec missing_for_model(binary(), String.t() | nil) :: nil | {String.t(), [atom()]}
-  def missing_for_model(user_id, model) when is_binary(user_id) do
+  @spec missing_for_model(binary(), String.t() | nil, keyword()) ::
+          nil | {String.t(), [atom()]}
+  def missing_for_model(user_id, model, opts \\ []) when is_binary(user_id) do
     provider = Managoat.Runtimes.Model.provider(model)
 
     case credentials_for_provider(provider) do
@@ -410,8 +418,17 @@ defmodule Fountain.InferenceCredentials do
         nil
 
       accepted ->
-        status = status_for_user(user_id)
+        status = status_for(user_id, Keyword.get(opts, :credential_set_id))
         if Enum.any?(accepted, &Map.get(status, &1, false)), do: nil, else: {provider, accepted}
+    end
+  end
+
+  defp status_for(user_id, nil), do: status_for_user(user_id)
+
+  defp status_for(user_id, set_id) do
+    case get_set(set_id, user_id) do
+      nil -> status_for_user(user_id)
+      set -> status_for_set(set)
     end
   end
 
@@ -430,7 +447,7 @@ defmodule Fountain.InferenceCredentials do
   """
   @spec has_own?(binary(), String.t() | nil, keyword()) :: boolean()
   def has_own?(user_id, model, opts \\ []) when is_binary(user_id) do
-    case missing_for_model(user_id, model) do
+    case missing_for_model(user_id, model, opts) do
       nil -> true
       {_provider, accepted} -> shadowed?(accepted, secret_keys(user_id, opts))
     end

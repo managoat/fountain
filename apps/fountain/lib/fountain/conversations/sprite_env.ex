@@ -24,10 +24,28 @@ defmodule Fountain.Conversations.SpriteEnv do
   # held in GenServer state for the conversation lifetime; the DEK is used
   # for ad-hoc decryption (vaults, environments) and the credentials map
   # is passed to runtime modules via build_sprite_env.
+  @doc """
+  Which credential set a conversation runs on: **the launch's, then the
+  agent's, then the account's default** (ADR 0053 decision 3).
+
+  The second precedence rule this module states, beside "a vault wins over an
+  environment". Resolved at provision rather than pinned at launch, so a
+  conversation that named no set follows its agent when the agent moves —
+  exactly how the environment override behaves, and for the same reason: the
+  launch said nothing, so it has no opinion to preserve.
+
+  A conversation with no agent has only the two outer choices.
+  """
+  @spec credential_set_id(map(), map() | nil) :: binary() | nil
+  def credential_set_id(conv, agent) do
+    conv.inference_credential_id || (agent && agent.inference_credential_id)
+  end
+
   # `set_id` is the credential set this conversation runs on (ADR 0053
-  # decision 3): the agent's, or nil for the account's default, which is what
-  # every conversation had before a set could be named. An id the tenant does
-  # not own resolves to the default rather than to anything of theirs.
+  # decision 3): the launch's, the agent's, or nil for the account's default,
+  # which is what every conversation had before a set could be named. An id
+  # the tenant does not own resolves to the default rather than to anything
+  # of theirs.
   @spec load_tenant_state(String.t(), binary() | nil) :: {:ok, binary(), map()} | {:error, term()}
   def load_tenant_state(user_id, set_id \\ nil) when is_binary(user_id) do
     with {:ok, dek} <- Crypto.load_tenant_key(user_id),

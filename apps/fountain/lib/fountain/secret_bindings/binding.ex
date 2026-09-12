@@ -75,6 +75,14 @@ defmodule Fountain.SecretBindings.Binding do
     |> validate_inclusion(:auth_type, @auth_types)
     |> validate_host()
     |> validate_auth_fields()
+    |> Fountain.ChatGPTAccounts.Reserved.validate_changeset([
+      :key,
+      :host,
+      :header,
+      :prefix,
+      :username,
+      :headers
+    ])
     |> unique_constraint([:user_id, :key, :host],
       error_key: :host,
       message: "this secret is already bound to that host"

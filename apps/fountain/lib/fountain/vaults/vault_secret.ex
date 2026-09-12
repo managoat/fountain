@@ -28,6 +28,7 @@ defmodule Fountain.Vaults.VaultSecret do
     |> validate_required([:key, :value, :vault_id])
     |> validate_format(:key, ~r/^[A-Z][A-Z0-9_]*$/, message: "must be UPPER_SNAKE_CASE")
     |> validate_length(:key, min: 1, max: 200)
+    |> Fountain.ChatGPTAccounts.Reserved.validate_changeset([:key, :value])
     |> put_ciphertext(dek)
     |> reset_expiry_notice()
     |> unique_constraint([:vault_id, :key])

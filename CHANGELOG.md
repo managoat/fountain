@@ -18,6 +18,17 @@ upgrade, is in
 
 ### Upgrade notes
 
+- **The inference credential no longer reaches `/home/sprite/.env`** (ADR 0053
+  decision 4, #2018). A sandbox carries several conversations and each can run
+  on a different credential, so a value in that shared file would be whichever
+  conversation provisioned last. Every process still receives the credential
+  through its own environment, the `setup_script` included. What stops working
+  is `source .env` in a **later** shell as a way to recover a provider key: a
+  script that re-reads the file for `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`,
+  `GEMINI_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` finds nothing there now. Read
+  it from the script's own environment instead. The proxy variables have
+  worked this way since the broker landed.
+
 - **Connections needs no `FEATURE_FLAGS_ON` entry on a deployment without
   PostHog** (#1693). Gating Connections behind the `connections` flag (#1620)
   took the feature away from every deployment that configures no flag service,
@@ -33,6 +44,27 @@ upgrade, is in
 
 ### Added
 
+- **An account can hold several named sets of inference credentials, and an
+  agent or a launch can name one** (ADR 0053, #2018). `inference_credentials`
+  becomes one row per set, each with a `name` and an `is_default` flag; every
+  existing row becomes that account's Default set, so an account that never
+  makes a second one behaves exactly as before. An agent runs on the set it
+  names (`agents.inference_credential_id`), a launch may override it
+  (`inference_credential_id` on `POST /api/conversations`), and
+  `allowed_inference_credential_ids` bounds which set a launch may name — the
+  same shape as `allowed_vault_ids`. Manage them at
+  `/account/inference-credentials` or under
+  `/api/account/inference-credential-sets`. A set is deliberately not part of
+  sandbox identity, so two conversations that differ only in their set share
+  one machine.
+- **An application can write an inference credential on a principal it opened**
+  (`PUT /api/claimable-users/:id/inference-credentials/:provider`, ADR 0053
+  decision 7). A `principal`-scoped key cannot write account state, so until
+  now nothing could put a customer's key on the tenant that would run on it.
+  The value is encrypted under the principal's own tenant key. Authorised as
+  the grant's read is: the application that opened it, or the account that
+  claimed it (#2018).
+
 - `POST /api/conversations/:id/reapply` re-selects a conversation's Agent,
   Environment and Vault on the machine it is already running, keeping the
   conversation, its transcript and the files on its disk. A selection that would
@@ -40,6 +72,20 @@ upgrade, is in
   `configuration` webhook stage and three columns
   (`conversations.configuration_revision`, `sandboxes.build_fingerprint`,
   `sandboxes.applied_skills`) (#1565).
+
+### Fixed
+
+- **A tenant secret named after an inference credential is no longer billed as
+  platform inference** (ADR 0053 decision 5, #2018). An environment or vault
+  secret called `ANTHROPIC_API_KEY` wins over the account's credential in the
+  sandbox, which is documented behaviour, but selection could not see it: on a
+  deployment holding platform keys the turn was selected as platform-served,
+  stamped, priced against the tenant's credits and counted against
+  `PLATFORM_INFERENCE_DAILY_CENTS`, while the tenant's own secret served it.
+  The door gate refused such a launch once the deployment had spent its day,
+  for the same reason. Both now resolve the tenant's secret as their own
+  credential. The managed ChatGPT grant keeps ADR 0052's reservation and stays
+  un-overridable: reserve what rotates, resolve what is static.
 
 ### Changed
 

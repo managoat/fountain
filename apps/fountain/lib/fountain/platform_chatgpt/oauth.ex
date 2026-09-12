@@ -51,11 +51,25 @@ defmodule Fountain.PlatformChatGPT.OAuth do
   """
   @spec refresh(String.t()) :: {:ok, tokens()} | {:error, {:terminal, String.t()} | term()}
   def refresh(refresh_token) when is_binary(refresh_token) do
-    post("/oauth/token", %{
-      client_id: @client_id,
-      grant_type: "refresh_token",
-      refresh_token: refresh_token
-    })
+    # Leave headroom inside the refresh lock's 20-second transaction budget.
+    # Finch's complete-response timeout applies to HTTP/1, so pin that protocol
+    # for this small token exchange. A slow drip must not hold the DB forever.
+    post(
+      "/oauth/token",
+      %{
+        client_id: @client_id,
+        grant_type: "refresh_token",
+        refresh_token: refresh_token
+      },
+      finch: [
+        conn_opts: [transport_opts: [timeout: 2_000]],
+        protocols: [:http1],
+        pool_timeout: 1_000,
+        receive_timeout: 12_000,
+        request_timeout: 12_000
+      ],
+      retry: false
+    )
     |> token_response()
   end
 
@@ -161,7 +175,7 @@ defmodule Fountain.PlatformChatGPT.OAuth do
   defp error_code(%{"error" => %{"type" => code}}) when is_binary(code), do: code
   defp error_code(_body), do: "unknown"
 
-  defp post(path, json) do
+  defp post(path, json, opts \\ []) do
     [
       url: base_url() <> path,
       json: json,
@@ -170,6 +184,7 @@ defmodule Fountain.PlatformChatGPT.OAuth do
       retry: false
     ]
     |> Keyword.merge(Application.get_env(:fountain, :platform_chatgpt_req_options, []))
+    |> Keyword.merge(opts)
     |> Req.new()
     |> Req.post()
     |> case do

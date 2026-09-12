@@ -5,17 +5,16 @@ defmodule Fountain.PlatformChatGPT.Refresher do
 
   A refresh is an HTTP round-trip, and every conversation on the deployment
   shares the one grant, so when it goes stale every turn and every launch
-  wants to refresh it at the same moment. Holding a database lock across
-  that round-trip, the way `Fountain.Connections` does per connection, would
-  park every waiter on a checked-out connection and drain the pool. So the
-  waiters queue here instead, holding nothing: the first call refreshes,
-  the rest find the row fresh when their turn comes.
+  wants to refresh it at the same moment. Waiters queue here, holding no
+  database connection: the first call refreshes, the rest find the row fresh
+  when their turn comes.
 
-  Across nodes, generation/version checks prevent stale success and failure
-  writes. A loser can serve a winner from the same grant generation; it
-  cannot serve or revoke a replacement account. This still permits duplicate
-  upstream calls: deployment-wide refresh coordination is follow-up work
-  under ADR 0052, not a guarantee of this local queue.
+  Across nodes, a per-grant PostgreSQL try-lock excludes concurrent upstream
+  requests. Only the holder keeps a checkout; contenders release theirs
+  between bounded retries. Generation/version checks still fence reconnect
+  and disconnect while the provider call is in flight. The transaction is
+  bounded to 20 seconds and contention to 5 seconds. Per-user queues and
+  fleet-wide user keepalive scheduling remain unbuilt under ADR 0052.
   """
 
   use GenServer

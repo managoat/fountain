@@ -56,6 +56,10 @@ defmodule Fountain.ChatGPTAccounts do
   a turn that outlives its access token fails at the proxy, because codex
   cannot refresh in this mode. The default is fifteen minutes.
 
+  Platform refresh is coordinated across nodes with a per-grant PostgreSQL
+  try-lock. Only the holder retains a database checkout across the provider
+  request; contenders release theirs between bounded retries.
+
   ## User grants
 
   `status_for_user/1` and `credential_for_user/3` read a tenant's own grant.
@@ -71,7 +75,7 @@ defmodule Fountain.ChatGPTAccounts do
   require Logger
 
   alias Fountain.Audit
-  alias Fountain.ChatGPTAccounts.{Cipher, Grant}
+  alias Fountain.ChatGPTAccounts.{Cipher, Grant, RefreshLock}
   alias Fountain.PlatformChatGPT.{Account, OAuth, Refresher, Tokens}
   alias Fountain.Repo
 
@@ -461,14 +465,48 @@ defmodule Fountain.ChatGPTAccounts do
   end
 
   @doc false
-  # The body of a refresh, run by `Fountain.PlatformChatGPT.Refresher` and
-  # by nothing else: one at a time on this node, no database lock and no
-  # connection held across the HTTP round-trip. The row is re-read here
-  # because a queued caller may find the refresh already done, and the
-  # write checks the generation, version and active state this read started
-  # from. A losing refresher may serve a winner from the same generation,
-  # but cannot overwrite or serve a replacement account.
+  # The local queue bounds platform holders to one per node. The database
+  # try-lock excludes other nodes without parking waiters on pool connections.
+  # Observe identity before waiting, then re-read under the lock: even forced
+  # refresh contenders serve a winner instead of exchanging its rotated token.
   def platform_refresh_serialized(mode) do
+    case platform_row() do
+      %Account{status: "active", refresh_token_ciphertext: cipher} = observed
+      when is_binary(cipher) ->
+        observed.id
+        |> RefreshLock.run(fn -> refresh_locked(observed, mode) end)
+        |> finish_refresh()
+
+      _ ->
+        refresh_without_exchange()
+    end
+  end
+
+  defp refresh_locked(observed, mode) do
+    case platform_row() do
+      %Account{id: id, generation: generation} = current
+      when id == observed.id and generation == observed.generation ->
+        cond do
+          current.status != "active" or current.lock_version != observed.lock_version ->
+            current_result(observed)
+
+          mode == :if_stale and fresh?(current) ->
+            Cipher.decrypt_token(current, :access_token)
+
+          true ->
+            do_refresh(current)
+        end
+
+      nil ->
+        {:error, :not_connected}
+
+      %Account{} ->
+        {:error, :stale_grant}
+    end
+  end
+
+  # Static workspace tokens do not need a refresh lock.
+  defp refresh_without_exchange do
     case platform_row() do
       nil ->
         {:error, :not_connected}
@@ -482,13 +520,17 @@ defmodule Fountain.ChatGPTAccounts do
       %Account{refresh_token_ciphertext: nil} = row ->
         Cipher.decrypt_token(row, :access_token)
 
-      row when mode == :if_stale ->
-        if fresh?(row), do: Cipher.decrypt_token(row, :access_token), else: do_refresh(row)
-
-      row ->
-        do_refresh(row)
+      %Account{} ->
+        {:error, :stale_grant}
     end
   end
+
+  defp finish_refresh({:revoked, account_id, code}) do
+    record_revocation(account_id, code)
+    {:error, :revoked}
+  end
+
+  defp finish_refresh(result), do: result
 
   defp do_refresh(current) do
     with {:ok, refresh} <- Cipher.decrypt_token(current, :refresh_token) do
@@ -501,7 +543,7 @@ defmodule Fountain.ChatGPTAccounts do
 
         {:error, {:terminal, code}} ->
           case mark_revoked(current, code) do
-            :ok -> {:error, :revoked}
+            :ok -> {:revoked, current.account_id, code}
             :stale -> current_result(current)
           end
 
@@ -598,18 +640,17 @@ defmodule Fountain.ChatGPTAccounts do
       )
 
     if count == 1 do
-      record_revocation(row, code)
       :ok
     else
       :stale
     end
   end
 
-  defp record_revocation(row, code) do
+  defp record_revocation(account_id, code) do
     Audit.record_admin(%{
       actor_user_id: nil,
       event_type: "admin.platform_chatgpt.revoked",
-      metadata: %{"actor" => @system_actor, "reason" => code, "account_id" => row.account_id}
+      metadata: %{"actor" => @system_actor, "reason" => code, "account_id" => account_id}
     })
 
     Logger.warning(

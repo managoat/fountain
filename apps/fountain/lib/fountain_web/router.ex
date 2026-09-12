@@ -362,6 +362,19 @@ defmodule FountainWeb.Router do
     post "/:id/claim", ClaimableUserController, :claim
     get "/:id", ClaimableUserController, :show
     delete "/:id", ClaimableUserController, :delete
+
+    # The one thing an application must do for a principal that the
+    # principal's own credential cannot do for itself (ADR 0053 decision 7):
+    # put the customer's inference key on it. Full scope, and authorised as
+    # the read above is — the application that opened it, or the account that
+    # claimed it.
+    put "/:id/inference-credentials/:provider",
+        ClaimableUserController,
+        :put_inference_credential
+
+    delete "/:id/inference-credentials/:provider",
+           ClaimableUserController,
+           :delete_inference_credential
   end
 
   # Self-hosted runners (ADR 0022). Full scope: a sandbox's per-conversation

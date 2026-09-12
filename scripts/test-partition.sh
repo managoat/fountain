@@ -75,6 +75,13 @@ if [ -n "$missing" ]; then
   exit 1
 fi
 
+# The umbrella compile updates _build/test/consolidated, but a child run can
+# load its own older lib/fountain/consolidated from the restored build cache.
+# Its protocol table may omit newly compiled implementations (including
+# credential Inspect redaction). Removing this generated table makes the
+# child compile rebuild it from the current implementations before tests load.
+rm -rf ../../_build/test/lib/fountain/consolidated
+
 set +e
 # shellcheck disable=SC2086 # word splitting is how the file list is passed
 elixir -r ../../scripts/ci/timing-formatter.exs -S mix test \

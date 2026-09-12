@@ -3,8 +3,9 @@ defmodule Fountain.ChatGPTAccounts.Grant do
   A server-only credential paired with its non-secret source identity.
 
   Keep this value separate from generic environment/template inputs. Inspect
-  omits the bearer, and no JSON encoder is derived. Transport integration and
-  protected broker compilation are follow-up work under ADR 0052.
+  omits the bearer, and no JSON encoder is derived. ProtectedCompiler accepts
+  this separate input; session authorization and runtime adoption remain
+  follow-up work under ADR 0052.
   """
 
   alias Fountain.PlatformChatGPT.Account

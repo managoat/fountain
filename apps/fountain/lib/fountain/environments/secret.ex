@@ -26,6 +26,7 @@ defmodule Fountain.Environments.Secret do
     |> validate_required([:key, :value, :environment_id])
     |> validate_format(:key, ~r/^[A-Z][A-Z0-9_]*$/, message: "must be UPPER_SNAKE_CASE")
     |> validate_length(:key, min: 1, max: 200)
+    |> Fountain.ChatGPTAccounts.Reserved.validate_changeset([:key, :value])
     |> put_ciphertext(dek)
     |> unique_constraint([:environment_id, :key])
   end

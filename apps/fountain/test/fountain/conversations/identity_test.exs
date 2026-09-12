@@ -2,6 +2,7 @@ defmodule Fountain.Conversations.IdentityTest do
   use ExUnit.Case, async: true
 
   alias Fountain.Conversations.Identity
+  alias Fountain.InferenceCredentials
   alias Managoat.Sandbox.Session
 
   @conv "0b0f6e1a-4d4c-4c1a-9a2b-3c4d5e6f7a8b"
@@ -10,7 +11,6 @@ defmodule Fountain.Conversations.IdentityTest do
   describe "disk_env/1" do
     test "strips the per-conversation identity and keeps everything else" do
       env = [
-        {"ANTHROPIC_API_KEY", "sk-1"},
         {"FOUNTAIN_BASE_URL", "https://f.example"},
         {"FOUNTAIN_TOKEN", "fk_secret"},
         {"FOUNTAIN_CONVERSATION_ID", @conv},
@@ -20,11 +20,31 @@ defmodule Fountain.Conversations.IdentityTest do
       ]
 
       assert Identity.disk_env(env) == [
-               {"ANTHROPIC_API_KEY", "sk-1"},
                {"FOUNTAIN_BASE_URL", "https://f.example"},
                {"SANDBOX_URL", "https://sb.example"},
                {"GITHUB_TOKEN", "ghp_x"}
              ]
+    end
+
+    # ADR 0053 decision 4. Which credential runs a conversation is a
+    # per-conversation decision and a sandbox carries several conversations
+    # (ADR 0023), so a value in the shared file is a cross-conversation read
+    # of whichever one provisioned last. A tenant secret of the same name is
+    # not the credential and is not stripped: it belongs to the environment
+    # or vault, which is what the file is for, and it is the same for every
+    # conversation that attaches them.
+    test "keeps every inference credential off the disk" do
+      env =
+        Enum.map(InferenceCredentials.env_names(), fn {_cred, name} -> {name, "value-#{name}"} end)
+
+      assert Identity.disk_env(env) == []
+    end
+
+    test "the managed ChatGPT grant is not one of them: it never reaches the env list" do
+      # ADR 0052 decision 6 keeps `CODEX_CHATGPT_ACCESS_TOKEN` out of
+      # configuration entirely, so `disk_env/1` has no opinion about it and
+      # must not grow one here by accident.
+      refute "CODEX_CHATGPT_ACCESS_TOKEN" in Identity.process_only_keys()
     end
 
     test "an empty env stays empty" do

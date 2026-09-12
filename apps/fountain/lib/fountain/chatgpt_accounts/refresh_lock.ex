@@ -10,6 +10,15 @@ defmodule Fountain.ChatGPTAccounts.RefreshLock do
   The callback must re-read the grant and fence its writes. It must not take
   a grant row lock before contacting the provider or emit best-effort audit
   events inside the transaction. Its result is returned only after commit.
+  `run/3` must not itself be called inside a transaction: the lock would
+  attach to the enclosing one and outlive the callback by however long that
+  transaction runs. The one caller is `Fountain.PlatformChatGPT.Refresher`,
+  which holds none.
+
+  Whatever the callback does upstream has to finish inside
+  `@transaction_timeout`, which is a wall clock over the whole checkout
+  rather than a per-query budget. `Fountain.PlatformChatGPT.OAuth.refresh/1`
+  sizes its HTTP timeouts against this number and explains the arithmetic.
   A provider rotation followed by a crash before commit still needs reconnect:
   database exclusion cannot make an external token exchange atomic.
   """
@@ -21,6 +30,10 @@ defmodule Fountain.ChatGPTAccounts.RefreshLock do
   @namespace 52_001
   @wait_timeout 5_000
   @transaction_timeout 20_000
+
+  @doc "The wall clock the holder's whole checkout runs under, in milliseconds."
+  @spec transaction_timeout_ms() :: pos_integer()
+  def transaction_timeout_ms, do: @transaction_timeout
 
   @doc false
   def run(grant_id, fun, opts \\ []) when is_binary(grant_id) and is_function(fun, 0) do

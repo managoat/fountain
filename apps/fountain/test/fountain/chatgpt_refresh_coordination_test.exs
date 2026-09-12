@@ -180,7 +180,10 @@ defmodule Fountain.ChatGPTRefreshCoordinationTest do
       end
 
       # One of just two connections remains usable despite six waiters.
-      assert %{rows: [[1]]} = Repo.query!("SELECT 1", [], timeout: 1_000)
+      # The timeout only has to be long enough to distinguish "a connection
+      # is free" from "both are pinned"; a loaded runner should not have to
+      # answer in a second to prove that.
+      assert %{rows: [[1]]} = Repo.query!("SELECT 1", [], timeout: 5_000)
 
       assert {:ok, :other_grant} =
                RefreshLock.run(Ecto.UUID.generate(), fn -> {:ok, :other_grant} end)
@@ -222,6 +225,47 @@ defmodule Fountain.ChatGPTRefreshCoordinationTest do
     holder = hold_lock(ctx.repo, grant_id)
     Task.shutdown(holder, :brutal_kill)
     assert {:ok, :recovered} = RefreshLock.run(grant_id, fn -> {:ok, :recovered} end)
+  end
+
+  # The holder keeps a database checkout for the whole provider exchange, so
+  # the exchange has to be unable to outlast the transaction. Measured once
+  # at 12/12: a provider that dripped for 11s and then went silent took 22.8s
+  # and the pool force-disconnected the connection underneath it -- and the
+  # dangerous case is not that one but the next, where the rotation lands at
+  # ~21s, the connection is already gone, and the refresh token has moved
+  # upstream with nothing able to commit it locally.
+  #
+  # The numbers live in two modules and the ceiling is a sum rather than a
+  # maximum, which is how the first version got it wrong. Neither fact is
+  # visible from either file alone, so assert the relationship here.
+  test "the provider exchange cannot outlast the transaction that holds the connection" do
+    assert Fountain.PlatformChatGPT.OAuth.refresh_timeout_ceiling_ms() <
+             RefreshLock.transaction_timeout_ms()
+  end
+
+  # The moduledoc's strongest claim is that no session lock can leak into the
+  # pool, and until this test nothing observed it: swapping
+  # `pg_try_advisory_xact_lock` for `pg_try_advisory_lock` left all twelve
+  # tests green. "worker death" passes either way because DBConnection drops
+  # the whole connection when the client dies, and "rollback" passes because
+  # advisory locks are re-entrant within one session. Both prove the lock is
+  # released, neither proves it was scoped to the transaction. This asks the
+  # connection itself, after the transaction has ended and it is back in the
+  # pool for the next checkout to inherit.
+  test "the lock is scoped to the transaction, not left on the pooled connection" do
+    grant_id = Ecto.UUID.generate()
+    assert {:ok, :done} = RefreshLock.run(grant_id, fn -> {:ok, :done} end)
+    assert advisory_locks_held() == 0
+
+    # A rollback and a raise unwind by different routes; neither may strand a
+    # lock on the connection they borrowed.
+    assert {:error, :refresh_unavailable} =
+             RefreshLock.run(grant_id, fn -> Repo.rollback(:failed) end)
+
+    assert advisory_locks_held() == 0
+
+    assert catch_throw(RefreshLock.run(grant_id, fn -> throw(:boom) end)) == :boom
+    assert advisory_locks_held() == 0
   end
 
   test "rollback releases the lock without returning the callback's success" do
@@ -313,6 +357,18 @@ defmodule Fountain.ChatGPTRefreshCoordinationTest do
       Repo.put_dynamic_repo(repo)
       fun.()
     end)
+  end
+
+  # Every checkout in this pool ran `RefreshLock.run/3`, so any advisory lock
+  # still held by whichever connection answers is one that outlived its
+  # transaction. `pg_backend_pid()` scopes the count to this connection.
+  defp advisory_locks_held do
+    %{rows: [[held]]} =
+      Repo.query!(
+        "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND pid = pg_backend_pid()"
+      )
+
+    held
   end
 
   defp hold_lock(repo, grant_id) do

@@ -115,6 +115,13 @@ defmodule FountainWeb.Telemetry do
         tags: [:event_type],
         description: "Admin audit events rejected at write time (lost trail rows)"
       ),
+      # The only signal that two servers raced for the same ChatGPT grant's
+      # refresh. Contention is expected and harmless; a rate that climbs with
+      # replica count is how "the lock is doing real work" becomes visible.
+      counter("fountain.chatgpt.refresh_lock.contention.count",
+        event_name: [:fountain, :chatgpt, :refresh_lock, :contention],
+        description: "Refreshers that found another node holding the grant lock"
+      ),
       # Any non-zero value here means billing data is being lost (#503) —
       # record_usage/5 swallows failures by contract, so this counter is the
       # only signal that distinguishes "no usage" from "metering broken".

@@ -35,6 +35,40 @@ defmodule Fountain.PlatformChatGPT.OAuth do
   @doc "Codex's OAuth client id."
   def client_id, do: @client_id
 
+  @refresh_connect_timeout 2_000
+  @refresh_pool_timeout 1_000
+  @refresh_receive_timeout 3_000
+  @refresh_request_timeout 12_000
+
+  defp refresh_finch_options do
+    [
+      conn_opts: [transport_opts: [timeout: @refresh_connect_timeout]],
+      protocols: [:http1],
+      pool_timeout: @refresh_pool_timeout,
+      receive_timeout: @refresh_receive_timeout,
+      request_timeout: @refresh_request_timeout
+    ]
+  end
+
+  @doc """
+  The longest `refresh/1` can take before it gives up, in milliseconds.
+
+  A **sum**, not a maximum. `:request_timeout` is checked between receives
+  and each receive may then block for a full `:receive_timeout`, so a call
+  that exhausts the first can still spend the second on one last receive,
+  on top of connecting and waiting for a pool slot.
+
+  `Fountain.ChatGPTAccounts.RefreshLock` holds a database checkout for the
+  whole exchange, so this number has to stay under its transaction budget.
+  `Fountain.ChatGPTRefreshCoordinationTest` asserts exactly that, because
+  the two are set in different modules and the arithmetic is not obvious.
+  """
+  @spec refresh_timeout_ceiling_ms() :: pos_integer()
+  def refresh_timeout_ceiling_ms do
+    @refresh_request_timeout + @refresh_receive_timeout + @refresh_connect_timeout +
+      @refresh_pool_timeout
+  end
+
   @doc """
   The error codes that mean the refresh token will never work again, and so
   the only ones a stored `revoked_reason` can hold. Callers that show a
@@ -51,9 +85,21 @@ defmodule Fountain.PlatformChatGPT.OAuth do
   """
   @spec refresh(String.t()) :: {:ok, tokens()} | {:error, {:terminal, String.t()} | term()}
   def refresh(refresh_token) when is_binary(refresh_token) do
-    # Leave headroom inside the refresh lock's 20-second transaction budget.
-    # Finch's complete-response timeout applies to HTTP/1, so pin that protocol
-    # for this small token exchange. A slow drip must not hold the DB forever.
+    # This call runs inside `Fountain.ChatGPTAccounts.RefreshLock`'s
+    # 20-second transaction, holding a database checkout for its whole
+    # duration, so its worst case has to be provably smaller than that.
+    #
+    # `:request_timeout` alone does not bound it. Finch checks it *between*
+    # receives and each receive may then block for a full `:receive_timeout`
+    # (finch 0.23.0, `http1/conn.ex:298` guards before the `recv` at `:313`),
+    # so the ceiling is the two added together, not the larger of them.
+    # Measured: a provider dripping for 11s and then going silent took 22.8s
+    # under 12/12 and the pool force-disconnected the connection mid-flight.
+    # 12 + 3 + 2 + 1 = 18s leaves the transaction two seconds of headroom.
+    #
+    # `:request_timeout` applies to HTTP/1 only, hence the protocol pin. It
+    # is scoped to this exchange: Req starts a separate Finch instance named
+    # by a hash of these options, so the shared pool keeps its own settings.
     post(
       "/oauth/token",
       %{
@@ -61,13 +107,7 @@ defmodule Fountain.PlatformChatGPT.OAuth do
         grant_type: "refresh_token",
         refresh_token: refresh_token
       },
-      finch: [
-        conn_opts: [transport_opts: [timeout: 2_000]],
-        protocols: [:http1],
-        pool_timeout: 1_000,
-        receive_timeout: 12_000,
-        request_timeout: 12_000
-      ],
+      finch: refresh_finch_options(),
       retry: false
     )
     |> token_response()

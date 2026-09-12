@@ -67,8 +67,10 @@ defmodule Fountain.ChatGPTAccounts do
   row. Near-expiry reads renew through bounded per-grant workers and the
   PostgreSQL refresh lock, using only the owner's encryption key. Callers
   re-read their pinned grant after renewal; the coordinator holds no tokens.
-  User linking, conversation selection and user keepalive scheduling remain
-  unbuilt. No account API exposes this internal credential read.
+  User linking and conversation selection remain unbuilt. A paginated daily
+  sweep schedules idle grants through these same bounded workers. No account
+  API exposes this internal credential read. Keepalive timing is provisional,
+  pending the provider lifetime measurement in ADR 0047.
   """
 
   import Ecto.Query, only: [from: 2]
@@ -210,12 +212,40 @@ defmodule Fountain.ChatGPTAccounts do
   end
 
   defp user_grant_query(grant_id, user_id) when is_binary(user_id) do
-    from(a in Account,
-      where: a.user_id == ^user_id and a.id == ^grant_id,
+    Account
+    |> from(where: [user_id: ^user_id, id: ^grant_id])
+    |> with_eligible_owner()
+  end
+
+  defp with_eligible_owner(query) do
+    from(a in query,
       join: u in User,
       on: u.id == a.user_id,
       where: not u.principal and not is_nil(u.email_verified_at) and is_nil(u.suspended_at)
     )
+  end
+
+  @doc "Internal fleet keepalive scan: one bounded page of IDs, never token material."
+  @spec _unsafe_due_user_grants(Ecto.UUID.t() | nil, pos_integer()) :: [map()]
+  def _unsafe_due_user_grants(after_id \\ nil, limit \\ 100)
+      when (is_nil(after_id) or is_binary(after_id)) and limit in 1..100 do
+    cutoff = DateTime.add(now(), -platform_keepalive_days() * 86_400, :second)
+
+    query =
+      from(a in Account,
+        where:
+          not is_nil(a.user_id) and a.status == "active" and a.kind == "chatgpt" and
+            not is_nil(a.refresh_token_ciphertext) and not is_nil(a.account_id) and
+            a.account_id != "",
+        where: is_nil(a.last_refreshed_at) or a.last_refreshed_at <= ^cutoff,
+        order_by: [asc: a.id],
+        limit: ^limit,
+        select: %{grant_id: a.id, user_id: a.user_id, generation: a.generation}
+      )
+      |> with_eligible_owner()
+
+    query = if after_id, do: from(a in query, where: a.id > ^after_id), else: query
+    Repo.all(query)
   end
 
   # Only a code `OAuth` itself names can reach a tenant: a reason that is not

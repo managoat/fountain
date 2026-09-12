@@ -495,6 +495,16 @@ defmodule FountainWeb.Router do
     post "/inference-credential-sets", InferenceCredentialSetController, :create
     patch "/inference-credential-sets/:id", InferenceCredentialSetController, :update
     delete "/inference-credential-sets/:id", InferenceCredentialSetController, :delete
+
+    # The per-set write, on the controller that owns the provider ping and
+    # its three distinguishable outcomes rather than a second copy of them.
+    put "/inference-credential-sets/:id/credentials/:provider",
+        InferenceCredentialController,
+        :update_in_set
+
+    delete "/inference-credential-sets/:id/credentials/:provider",
+           InferenceCredentialController,
+           :delete_in_set
   end
 
   # The team's SSE stream (#810). Declared before the JSON team routes so

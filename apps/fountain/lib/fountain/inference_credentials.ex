@@ -234,6 +234,33 @@ defmodule Fountain.InferenceCredentials do
           {:ok, Credential.t()} | {:error, Ecto.Changeset.t()}
   def put_credential(user_id, dek, provider, value, opts \\ [])
       when is_binary(user_id) and is_binary(dek) and provider in @providers do
+    set =
+      get_for_user(user_id) ||
+        %Credential{user_id: user_id, name: Credential.default_name(), is_default: true}
+
+    write_credential(set, dek, provider, value, opts)
+  end
+
+  @doc """
+  The same write, into a named set (ADR 0053 decision 1).
+
+  `set` is a loaded row, which means the caller has already fetched it through
+  the tenant-scoped `get_set/2` — this function does no scoping of its own and
+  must not be handed a row from anywhere else.
+
+  Audited as `inference_credential.write` or `.delete`, like the default-set
+  write, with the set's id and name in the metadata. Which set a credential
+  landed in is the question the trail could not answer before there was more
+  than one, and the provider alone stops being enough the moment there is.
+  """
+  @spec put_credential_in(Credential.t(), binary(), atom(), String.t() | nil, keyword()) ::
+          {:ok, Credential.t()} | {:error, Ecto.Changeset.t()}
+  def put_credential_in(%Credential{} = set, dek, provider, value, opts \\ [])
+      when is_binary(dek) and provider in @providers do
+    write_credential(set, dek, provider, value, opts)
+  end
+
+  defp write_credential(%Credential{} = set, dek, provider, value, opts) do
     ct_field = ciphertext_field(provider)
 
     ciphertext =
@@ -243,24 +270,20 @@ defmodule Fountain.InferenceCredentials do
         plain when is_binary(plain) -> Crypto.encrypt(plain, dek)
       end
 
-    existing =
-      get_for_user(user_id) ||
-        %Credential{user_id: user_id, name: Credential.default_name(), is_default: true}
-
     attrs =
-      %{user_id: user_id, name: existing.name, is_default: existing.is_default}
+      %{user_id: set.user_id, name: set.name, is_default: set.is_default}
       |> Map.put(ct_field, ciphertext)
 
-    existing
+    set
     |> Credential.changeset(attrs)
     |> Repo.insert_or_update()
-    |> audited(user_id, provider, ciphertext, opts)
+    |> audited(set.user_id, provider, ciphertext, opts)
   end
 
   # The provider name is the whole payload. The credential must never reach a
   # second table — the same rule the secret-write events follow, and the
   # reason those record a key and not a value.
-  defp audited({:ok, _cred} = ok, user_id, provider, ciphertext, opts) do
+  defp audited({:ok, %Credential{} = set} = ok, user_id, provider, ciphertext, opts) do
     action =
       if is_nil(ciphertext), do: "inference_credential.delete", else: "inference_credential.write"
 
@@ -271,7 +294,15 @@ defmodule Fountain.InferenceCredentials do
       resource_id: Atom.to_string(provider),
       actor: Keyword.get(opts, :actor, "self"),
       request_ip: Keyword.get(opts, :request_ip),
-      metadata: %{"provider" => Atom.to_string(provider)}
+      # Which set it landed in, by id and name. The provider alone answered
+      # "what changed" while an account held one row; with several it does
+      # not, and a trail that cannot say which key moved cannot explain the
+      # turn that ran on it. Still no value, and still no ciphertext.
+      metadata: %{
+        "provider" => Atom.to_string(provider),
+        "set_id" => set.id,
+        "set" => set.name
+      }
     })
 
     ok

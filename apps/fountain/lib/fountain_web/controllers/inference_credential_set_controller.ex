@@ -3,10 +3,14 @@ defmodule FountainWeb.InferenceCredentialSetController do
   Named inference credential sets over the API (ADR 0053 decision 1).
 
   An account holds one or more, exactly one of them the default, and an agent
-  or a launch may name another. This is the surface that makes a second one:
-  create, rename, promote to default, delete. **Putting a credential into a
-  set** is `FountainWeb.InferenceCredentialController`, which writes the
-  default set; the per-set write is a separate route.
+  or a launch may name another. This is the whole surface: create, rename,
+  promote to default, delete, and write or clear one provider's credential
+  inside a named set.
+
+  `FountainWeb.InferenceCredentialController` is the same write against the
+  account's default set, and stays: it is the older, shorter path, every
+  existing client uses it, and an account that never makes a second set has
+  no reason to learn about sets at all.
 
   Values are never returned here, not even truncated. `providers` says which
   credentials a set holds and nothing about what they are.

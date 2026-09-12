@@ -90,6 +90,46 @@
         }
       }
     },
+    "DELETE /api/account/inference-credential-sets/{id}/credentials/{provider}": {
+      "operation_id": "FountainWeb.InferenceCredentialController.delete_in_set",
+      "path_params": [
+        "id",
+        "provider"
+      ],
+      "responses": {
+        "204": {},
+        "401": {
+          "application/json": {
+            "ref": "Error"
+          }
+        },
+        "403": {
+          "application/json": {
+            "ref": "Error"
+          }
+        },
+        "404": {
+          "application/json": {
+            "ref": "Error"
+          }
+        },
+        "406": {
+          "application/json": {
+            "ref": "NegotiationError"
+          }
+        },
+        "422": {
+          "application/json": {
+            "ref": "Error"
+          }
+        },
+        "429": {
+          "application/json": {
+            "ref": "Error"
+          }
+        }
+      }
+    },
     "DELETE /api/account/inference-credentials/{provider}": {
       "operation_id": "FountainWeb.InferenceCredentialController.delete",
       "path_params": [
@@ -7804,6 +7844,68 @@
               }
             },
             "type": "object"
+          }
+        }
+      }
+    },
+    "PUT /api/account/inference-credential-sets/{id}/credentials/{provider}": {
+      "operation_id": "FountainWeb.InferenceCredentialController.update_in_set",
+      "path_params": [
+        "id",
+        "provider"
+      ],
+      "request_body": {
+        "content": {
+          "application/json": {
+            "ref": "InferenceCredentialRequest"
+          }
+        },
+        "required": false
+      },
+      "responses": {
+        "200": {
+          "application/json": {
+            "ref": "InferenceCredentialResponse"
+          }
+        },
+        "401": {
+          "application/json": {
+            "ref": "Error"
+          }
+        },
+        "403": {
+          "application/json": {
+            "ref": "Error"
+          }
+        },
+        "404": {
+          "application/json": {
+            "ref": "Error"
+          }
+        },
+        "406": {
+          "application/json": {
+            "ref": "NegotiationError"
+          }
+        },
+        "422": {
+          "application/json": {
+            "ref": "Error"
+          }
+        },
+        "429": {
+          "application/json": {
+            "ref": "Error"
+          }
+        },
+        "502": {
+          "application/json": {
+            "ref": "Error"
+          }
+        },
+        "504": {
+          "application/json": {
+            "ref": "Error"
           }
         }
       }

@@ -173,6 +173,27 @@ export interface paths {
         patch: operations["FountainWeb.InferenceCredentialSetController.update"];
         trace?: never;
     };
+    "/api/account/inference-credential-sets/{id}/credentials/{provider}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set a provider credential inside a named set
+         * @description The same validate-then-store path as PUT /inference-credentials/:provider, against a set the caller names instead of the account's default (ADR 0053 decision 1). This is what puts a second subscription's key somewhere an agent can point at.
+         */
+        put: operations["FountainWeb.InferenceCredentialController.update_in_set"];
+        post?: never;
+        /** Clear a provider credential inside a named set */
+        delete: operations["FountainWeb.InferenceCredentialController.delete_in_set"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/account/inference-credentials": {
         parameters: {
             query?: never;
@@ -6253,6 +6274,181 @@ export interface operations {
                 };
             };
             /** @description Invalid or duplicate name */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    "FountainWeb.InferenceCredentialController.update_in_set": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                provider: "anthropic_api_key" | "claude_code_oauth_token" | "openai_api_key" | "gemini_api_key";
+            };
+            cookie?: never;
+        };
+        /** @description Credential */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["InferenceCredentialRequest"];
+            };
+        };
+        responses: {
+            /** @description Provider status for the set */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InferenceCredentialResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Insufficient scope */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No such set */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No acceptable representation */
+            406: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NegotiationError"];
+                };
+            };
+            /** @description Rejected credential, blank value, or unknown provider */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Provider unreachable */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Provider timed out */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    "FountainWeb.InferenceCredentialController.delete_in_set": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                provider: "anthropic_api_key" | "claude_code_oauth_token" | "openai_api_key" | "gemini_api_key";
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Cleared */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Insufficient scope */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No such set */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No acceptable representation */
+            406: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NegotiationError"];
+                };
+            };
+            /** @description Unknown provider */
             422: {
                 headers: {
                     [name: string]: unknown;

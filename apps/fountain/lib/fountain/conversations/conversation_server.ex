@@ -750,7 +750,7 @@ defmodule Fountain.Conversations.ConversationServer do
 
     vault = if conv.vault_id, do: Vaults._unsafe_get_vault(conv.vault_id)
 
-    case SpriteEnv.load_tenant_state(conv.user_id, agent && agent.inference_credential_id) do
+    case SpriteEnv.load_tenant_state(conv.user_id, SpriteEnv.credential_set_id(conv, agent)) do
       {:ok, dek, own_creds} ->
         # Before the selection: a tenant secret named after a credential wins
         # in the sandbox, so it decides the source too (ADR 0053 decision 5).

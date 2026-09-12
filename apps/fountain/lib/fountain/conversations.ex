@@ -24,6 +24,7 @@ defmodule Fountain.Conversations do
   }
 
   alias Fountain.Conversations.Reapply
+  alias Fountain.Conversations.SpriteEnv
   alias Fountain.Conversations.{ExecutionAllowance, ExecutionGuard, ExecutionLimits}
   alias Fountain.Conversations.Lifecycle
   alias Fountain.PermissionPolicy
@@ -3179,6 +3180,8 @@ defmodule Fountain.Conversations do
          {:ok, runtime_module} <- Fountain.RuntimeDispatch.for_agent(agent),
          {:ok, vault_id} <- resolve_vault_id(attrs["vault_id"], user_id, agent),
          {:ok, env_id} <- resolve_environment_id(attrs["environment_id"], user_id, agent),
+         {:ok, cred_set_id} <-
+           resolve_inference_credential_id(attrs["inference_credential_id"], user_id, agent),
          {:ok, mode} <- resolve_sandbox_mode(attrs["sandbox_mode"], agent),
          {:ok, api_access} <- resolve_sandbox_api_access(attrs["sandbox_api_access"], mode),
          {:ok, perm_policy} <- resolve_permission_policy(attrs["permission_policy"], agent),
@@ -3191,7 +3194,8 @@ defmodule Fountain.Conversations do
          :ok <-
            Fountain.PlatformInference.gate(user_id, agent.model, agent.runtime,
              environment_id: env_id || agent.environment_id,
-             vault_id: vault_id
+             vault_id: vault_id,
+             credential_set_id: cred_set_id || agent.inference_credential_id
            ),
          # A persistent launch lands on the identity's home when there is one
          # (ADR 0023 gate 6): `{:home, sandbox}` leaves the `with` and attaches
@@ -3220,6 +3224,7 @@ defmodule Fountain.Conversations do
                agent_version_id: Agents._unsafe_current_version_id(agent.id),
                vault_id: vault_id,
                environment_id: env_id,
+               inference_credential_id: cred_set_id,
                user_id: user_id,
                runtime: agent.runtime,
                status: "pending",
@@ -3963,6 +3968,8 @@ defmodule Fountain.Conversations do
          {:ok, _runtime_module} <- Fountain.RuntimeDispatch.for_agent(agent),
          {:ok, vault_id} <- resolve_vault_id(attrs["vault_id"], user_id, agent),
          {:ok, env_id} <- resolve_environment_id(attrs["environment_id"], user_id, agent),
+         {:ok, cred_set_id} <-
+           resolve_inference_credential_id(attrs["inference_credential_id"], user_id, agent),
          {:ok, perm_policy} <- resolve_permission_policy(attrs["permission_policy"], agent),
          {:ok, parent_id} <- resolve_parent_id(attrs["parent_conversation_id"], user_id),
          :ok <- Fountain.Accounts.check_not_suspended(user_id),
@@ -3973,7 +3980,8 @@ defmodule Fountain.Conversations do
          :ok <-
            Fountain.PlatformInference.gate(user_id, agent.model, agent.runtime,
              environment_id: env_id || agent.environment_id,
-             vault_id: vault_id
+             vault_id: vault_id,
+             credential_set_id: cred_set_id || agent.inference_credential_id
            ),
          %Sandbox{} = sandbox <- get_sandbox(sandbox_id, user_id) || {:error, :sandbox_not_found},
          :ok <- check_sandbox_api_attach(sandbox, attrs["sandbox_api_access"]),
@@ -3988,6 +3996,7 @@ defmodule Fountain.Conversations do
                agent_version_id: Agents._unsafe_current_version_id(agent.id),
                vault_id: vault_id,
                environment_id: env_id,
+               inference_credential_id: cred_set_id,
                user_id: user_id,
                runtime: agent.runtime,
                status: "idle",
@@ -4333,6 +4342,43 @@ defmodule Fountain.Conversations do
 
   defp check_environment_allowed(id, %Agents.Agent{allowed_environment_ids: allowed}) do
     if id in allowed, do: :ok, else: {:error, :environment_not_allowed}
+  end
+
+  # A per-launch credential-set override (ADR 0053 decision 3): the
+  # conversation provisions on this set instead of the agent's, and stays
+  # pinned to it across wakes. Resolved exactly like the environment -- a
+  # scoped fetch, so a foreign id reads as not found and cannot be probed,
+  # behind the agent's allowlist.
+  #
+  # Not part of the home identity tuple (ADR 0053 decision 6, and why
+  # `_unsafe_find_home/4` is not given one): two conversations differing only
+  # in credential set share a machine, because the credential reaches the
+  # runtime as process env and never the shared disk.
+  defp resolve_inference_credential_id(nil, _user_id, _agent), do: {:ok, nil}
+  defp resolve_inference_credential_id("", _user_id, _agent), do: {:ok, nil}
+
+  defp resolve_inference_credential_id(id, user_id, agent)
+       when is_binary(id) and is_binary(user_id) do
+    with :ok <- check_credential_set_allowed(id, agent) do
+      case Fountain.InferenceCredentials.get_set(id, user_id) do
+        nil -> {:error, :inference_credential_not_found}
+        set -> {:ok, set.id}
+      end
+    end
+  end
+
+  # Same three-way shape as the vault and environment allowlists, and the same
+  # deliberate nil default: a caller who can attach a vault can already
+  # override `ANTHROPIC_API_KEY` outright, so a stricter default here would
+  # guard nothing (#783 made this argument for the environment). Naming the
+  # agent's own set is not an override, so it passes regardless of the list.
+  defp check_credential_set_allowed(_id, %Agents.Agent{allowed_inference_credential_ids: nil}),
+    do: :ok
+
+  defp check_credential_set_allowed(id, %Agents.Agent{inference_credential_id: id}), do: :ok
+
+  defp check_credential_set_allowed(id, %Agents.Agent{allowed_inference_credential_ids: allowed}) do
+    if id in allowed, do: :ok, else: {:error, :inference_credential_not_allowed}
   end
 
   @doc """
@@ -4845,7 +4891,8 @@ defmodule Fountain.Conversations do
                    agent.model,
                    conv.runtime,
                    environment_id: conv.environment_id || agent.environment_id,
-                   vault_id: conv.vault_id
+                   vault_id: conv.vault_id,
+                   credential_set_id: SpriteEnv.credential_set_id(conv, agent)
                  ),
                {:ok, _} <- wake_suspended_sandbox(conv.user_id, sandbox_id) do
             case start_conversation_server(conv, sandbox_id, runtime_module, initial_prompt) do
@@ -5156,7 +5203,8 @@ defmodule Fountain.Conversations do
              agent.model,
              conv.runtime,
              environment_id: conv.environment_id || agent.environment_id,
-             vault_id: conv.vault_id
+             vault_id: conv.vault_id,
+             credential_set_id: SpriteEnv.credential_set_id(conv, agent)
            ),
          # A fresh sandbox is a fresh placement decision — re-resolve from
          # the agent, so a conversation whose old sandbox died can migrate

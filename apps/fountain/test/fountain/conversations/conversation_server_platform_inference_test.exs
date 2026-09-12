@@ -7,6 +7,7 @@ defmodule Fountain.Conversations.ConversationServerPlatformInferenceTest do
   use Fountain.ConversationServerCase
 
   alias Fountain.Conversations.TurnMachine
+  alias Fountain.InferenceCredentials.Source
 
   @session %{vault: "c-test", token: "av_sess_conv", expires_at: nil}
   @platform_key "sk-ant-platform-key"
@@ -86,7 +87,7 @@ defmodule Fountain.Conversations.ConversationServerPlatformInferenceTest do
       on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
 
       state = :sys.get_state(pid)
-      assert state.inference_source == :own
+      assert state.inference_source == Source.credential()
       assert state.env_credentials == %{anthropic_api_key: "sk-ant-tenant-key"}
     end
   end
@@ -144,13 +145,13 @@ defmodule Fountain.Conversations.ConversationServerPlatformInferenceTest do
       on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
 
       state = :sys.get_state(pid)
-      assert state.inference_source == :platform
+      assert state.inference_source == Source.platform()
       assert state.inference_model == "anthropic/claude-opus-5"
       assert state.env_credentials.anthropic_api_key == @platform_key
     end
 
     test "usage says which key ran the turn, and names the model on a platform turn" do
-      ctx = %{inference: :platform, model: "anthropic/claude-opus-5"}
+      ctx = %{inference: Source.platform(), model: "anthropic/claude-opus-5"}
 
       assert TurnMachine.with_inference(%{"input" => 5, "output" => 3}, ctx) ==
                %{
@@ -160,7 +161,7 @@ defmodule Fountain.Conversations.ConversationServerPlatformInferenceTest do
                  "model" => "anthropic/claude-opus-5"
                }
 
-      assert TurnMachine.with_inference(%{"input" => 5}, %{ctx | inference: :own}) ==
+      assert TurnMachine.with_inference(%{"input" => 5}, %{ctx | inference: Source.credential()}) ==
                %{"input" => 5, "inference" => "own"}
 
       assert TurnMachine.with_inference(nil, ctx) == nil
@@ -169,7 +170,7 @@ defmodule Fountain.Conversations.ConversationServerPlatformInferenceTest do
     test "with no platform key configured the usage map is untouched" do
       Application.delete_env(:fountain, :platform_anthropic_api_key)
 
-      ctx = %{inference: :own, model: "anthropic/claude-opus-5"}
+      ctx = %{inference: Source.credential(), model: "anthropic/claude-opus-5"}
       assert TurnMachine.with_inference(%{"input" => 5}, ctx) == %{"input" => 5}
     end
   end
@@ -253,7 +254,7 @@ defmodule Fountain.Conversations.ConversationServerPlatformInferenceTest do
       machine: m,
       row: row
     } do
-      ctx = %{platform_ctx() | inference: :own}
+      ctx = %{platform_ctx() | inference: Source.credential()}
       {_m, []} = select_model(m, ctx)
 
       assert stored(row).usage == %{"inference" => "own"}
@@ -263,7 +264,7 @@ defmodule Fountain.Conversations.ConversationServerPlatformInferenceTest do
     test "an own-credential turn without platform keys stamps nothing", %{machine: m, row: row} do
       Application.delete_env(:fountain, :platform_anthropic_api_key)
 
-      {_m, []} = select_model(m, %{platform_ctx() | inference: :own})
+      {_m, []} = select_model(m, %{platform_ctx() | inference: Source.credential()})
       assert is_nil(stored(row).usage)
     end
 
@@ -309,7 +310,7 @@ defmodule Fountain.Conversations.ConversationServerPlatformInferenceTest do
     refute Fountain.PlatformInference.enabled?()
     model = "openai/gpt-6-astra"
 
-    assert {:ok, :platform = source, credentials} =
+    assert {:ok, %Fountain.InferenceCredentials.Source{origin: :platform} = source, credentials} =
              Fountain.InferenceCredentials.select(model, %{}, "codex", refresh: false)
 
     assert Map.has_key?(credentials, :codex_chatgpt_access_token)
@@ -342,7 +343,7 @@ defmodule Fountain.Conversations.ConversationServerPlatformInferenceTest do
            }
   end
 
-  defp platform_ctx, do: %{inference: :platform, model: "anthropic/claude-opus-5"}
+  defp platform_ctx, do: %{inference: Source.platform(), model: "anthropic/claude-opus-5"}
 
   # What `Managoat.ACP.Peer` reports from `send_prompt/1`, just before it
   # writes `session/prompt`.

@@ -506,7 +506,7 @@ defmodule Fountain.Conversations.ConversationServer do
       # What the runtime's default_env/2 is handed (gate 3): the real
       # credentials, or placeholders when the conversation is brokered.
       env_credentials: %{},
-      # #1388; see `SpriteEnv.select_inference/2`, which decides both.
+      # #1388, ADR 0053: the `InferenceCredentials.Source` that ran this one.
       inference_source: nil,
       inference_model: nil,
       broker: nil,

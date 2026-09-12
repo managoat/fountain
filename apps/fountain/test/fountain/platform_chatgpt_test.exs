@@ -22,6 +22,7 @@ defmodule Fountain.PlatformChatGPTTest do
   alias Fountain.Conversations.Egress
   alias Fountain.Crypto
   alias Fountain.InferenceCredentials
+  alias Fountain.InferenceCredentials.Source
   alias Fountain.PlatformChatGPT
   alias Fountain.PlatformChatGPT.Account
   alias Fountain.PlatformInference
@@ -144,7 +145,7 @@ defmodule Fountain.PlatformChatGPTTest do
       # No stub for /oauth/token: a refresh here would raise.
       assert PlatformChatGPT.credential(refresh: false) == {:ok, stale}
 
-      assert {:ok, :platform, %{codex_chatgpt_access_token: ^stale}} =
+      assert {:ok, %Source{origin: :platform}, %{codex_chatgpt_access_token: ^stale}} =
                InferenceCredentials.select("openai/gpt-5.5-codex", %{}, "codex", refresh: false)
 
       stub_refusal()
@@ -394,10 +395,11 @@ defmodule Fountain.PlatformChatGPTTest do
       connect!(%{access_token: access})
 
       assert InferenceCredentials.select("openai/gpt-5.5-codex", %{}, "codex") ==
-               {:ok, :platform, %{codex_chatgpt_access_token: access}}
+               {:ok, Source.platform(), %{codex_chatgpt_access_token: access}}
 
       # The tenant's other credentials survive the merge.
-      assert {:ok, :platform, %{anthropic_api_key: "sk-ant", codex_chatgpt_access_token: ^access}} =
+      assert {:ok, %Source{origin: :platform},
+              %{anthropic_api_key: "sk-ant", codex_chatgpt_access_token: ^access}} =
                InferenceCredentials.select(
                  "openai/gpt-5.5-codex",
                  %{anthropic_api_key: "sk-ant"},
@@ -414,13 +416,15 @@ defmodule Fountain.PlatformChatGPTTest do
       Application.put_env(:fountain, :platform_openai_api_key, "sk-platform")
 
       assert InferenceCredentials.select("openai/gpt-5.5-codex", %{}, "codex", brokered: false) ==
-               {:ok, :platform, %{openai_api_key: "sk-platform"}}
+               {:ok, Source.platform(), %{openai_api_key: "sk-platform"}}
     end
 
     test "the tenant's own OpenAI key always wins" do
       connect!()
       own = %{openai_api_key: "sk-mine"}
-      assert {:ok, :own, ^own} = InferenceCredentials.select("openai/gpt-5.5-codex", own, "codex")
+
+      assert {:ok, %Source{origin: :own, scope: :credential}, ^own} =
+               InferenceCredentials.select("openai/gpt-5.5-codex", own, "codex")
     end
 
     test "opencode on an openai model never takes the grant" do
@@ -432,10 +436,10 @@ defmodule Fountain.PlatformChatGPTTest do
       Application.put_env(:fountain, :platform_openai_api_key, "sk-platform")
 
       assert InferenceCredentials.select("openai/gpt-5.5", %{}, "opencode") ==
-               {:ok, :platform, %{openai_api_key: "sk-platform"}}
+               {:ok, Source.platform(), %{openai_api_key: "sk-platform"}}
 
       assert InferenceCredentials.select("openai/gpt-5.5", %{}) ==
-               {:ok, :platform, %{openai_api_key: "sk-platform"}}
+               {:ok, Source.platform(), %{openai_api_key: "sk-platform"}}
     end
 
     test "a revoked grant falls through to the platform key, and to nothing" do
@@ -444,7 +448,7 @@ defmodule Fountain.PlatformChatGPTTest do
       Application.put_env(:fountain, :platform_openai_api_key, "sk-platform")
 
       assert InferenceCredentials.select("openai/gpt-5.5-codex", %{}, "codex") ==
-               {:ok, :platform, %{openai_api_key: "sk-platform"}}
+               {:ok, Source.platform(), %{openai_api_key: "sk-platform"}}
 
       Application.delete_env(:fountain, :platform_openai_api_key)
 

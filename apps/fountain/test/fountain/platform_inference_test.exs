@@ -13,6 +13,7 @@ defmodule Fountain.PlatformInferenceTest do
 
   alias Fountain.Credits
   alias Fountain.InferenceCredentials
+  alias Fountain.InferenceCredentials.Source
   alias Fountain.PlatformInference
 
   setup do
@@ -92,7 +93,7 @@ defmodule Fountain.PlatformInferenceTest do
       assert PlatformInference.key_for("google") == {:ok, :gemini_api_key, "AIza-stored"}
 
       assert InferenceCredentials.select("google/gemini-3.1-pro-preview", %{}) ==
-               {:ok, :platform, %{gemini_api_key: "AIza-stored"}}
+               {:ok, Source.platform(), %{gemini_api_key: "AIza-stored"}}
 
       :ok = PlatformInference.clear_key("google")
       refute PlatformInference.enabled?()
@@ -199,21 +200,25 @@ defmodule Fountain.PlatformInferenceTest do
       with_platform_key()
       own = %{anthropic_api_key: "sk-tenant"}
 
-      assert {:ok, :own, ^own} = InferenceCredentials.select("anthropic/claude-opus-5", own)
+      assert {:ok, %Source{origin: :own, scope: :credential}, ^own} =
+               InferenceCredentials.select("anthropic/claude-opus-5", own)
     end
 
     test "an OAuth token is a credential for anthropic and wins too" do
       with_platform_key()
       own = %{claude_code_oauth_token: "oauth"}
 
-      assert {:ok, :own, ^own} = InferenceCredentials.select("anthropic/claude-opus-5", own)
+      assert {:ok, %Source{origin: :own, scope: :credential}, ^own} =
+               InferenceCredentials.select("anthropic/claude-opus-5", own)
     end
 
     test "the platform key is merged in, leaving the tenant's other credentials alone" do
       with_platform_key()
       own = %{openai_api_key: "sk-tenant-openai"}
 
-      assert {:ok, :platform, creds} = InferenceCredentials.select("anthropic/claude-opus-5", own)
+      assert {:ok, %Source{origin: :platform}, creds} =
+               InferenceCredentials.select("anthropic/claude-opus-5", own)
+
       assert creds.anthropic_api_key == "sk-platform"
       assert creds.openai_api_key == "sk-tenant-openai"
     end
@@ -227,14 +232,17 @@ defmodule Fountain.PlatformInferenceTest do
     test "a provider that needs no credential is :own, whatever is configured" do
       with_platform_key()
 
-      assert {:ok, :own, %{}} = InferenceCredentials.select("ollama/llama3", %{})
-      assert {:ok, :own, %{}} = InferenceCredentials.select(nil, %{})
+      assert {:ok, %Source{origin: :own, scope: :none}, %{}} =
+               InferenceCredentials.select("ollama/llama3", %{})
+
+      assert {:ok, %Source{origin: :own, scope: :none}, %{}} =
+               InferenceCredentials.select(nil, %{})
     end
 
     test "an empty-string credential is not a credential" do
       with_platform_key()
 
-      assert {:ok, :platform, creds} =
+      assert {:ok, %Source{origin: :platform}, creds} =
                InferenceCredentials.select("anthropic/claude-opus-5", %{anthropic_api_key: ""})
 
       assert creds.anthropic_api_key == "sk-platform"

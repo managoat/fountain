@@ -17,6 +17,7 @@ defmodule Fountain.InferenceCredentials do
   alias Fountain.Audit
   alias Fountain.Crypto
   alias Fountain.InferenceCredentials.Credential
+  alias Fountain.InferenceCredentials.Source
   alias Fountain.Repo
 
   @providers Credential.providers()
@@ -226,14 +227,15 @@ defmodule Fountain.InferenceCredentials do
   decision 3). **This is the whole selection rule**, and it is one function so
   that the two paths a credential reaches a sandbox by cannot disagree.
 
-    * `{:ok, :own, creds}` — the tenant has a credential the model's provider
-      accepts, or the provider needs none. `creds` is what came in, untouched.
-    * `{:ok, :platform, creds}` — the tenant has none and this deployment
-      holds a platform key for that provider. `creds` is what came in with the
-      platform key merged in under the provider's credential, so everything
-      downstream — the broker split, the runtime's `default_env/2`, the
-      redaction register — treats it as exactly what it is: a credential for
-      that provider.
+    * `{:ok, %Source{origin: :own}, creds}` — the tenant has a credential the
+      model's provider accepts, or the provider needs none. `creds` is what
+      came in, untouched. The source's `scope` says which of the two it was.
+    * `{:ok, %Source{origin: :platform}, creds}` — the tenant has none and
+      this deployment holds a platform key for that provider. `creds` is what
+      came in with the platform key merged in under the provider's credential,
+      so everything downstream — the broker split, the runtime's
+      `default_env/2`, the redaction register — treats it as exactly what it
+      is: a credential for that provider.
     * `{:error, :no_credential}` — neither. The caller keeps today's
       behaviour, which is to provision anyway and let the runtime report the
       provider's own auth failure on the transcript.
@@ -267,8 +269,7 @@ defmodule Fountain.InferenceCredentials do
   auth server.
   """
   @spec select(String.t() | nil, %{atom() => String.t()}, String.t() | nil, keyword()) ::
-          {:ok, :own, %{atom() => String.t()}}
-          | {:ok, :platform, %{atom() => String.t()}}
+          {:ok, Source.t(), %{atom() => String.t()}}
           | {:error, :no_credential}
   def select(model, own_creds, runtime \\ nil, opts \\ []) when is_map(own_creds) do
     provider = Managoat.Runtimes.Model.provider(model)
@@ -276,14 +277,14 @@ defmodule Fountain.InferenceCredentials do
 
     cond do
       accepted == [] ->
-        {:ok, :own, own_creds}
+        {:ok, Source.none(), own_creds}
 
       Enum.any?(accepted, &present?(own_creds, &1)) ->
-        {:ok, :own, own_creds}
+        {:ok, Source.credential(), own_creds}
 
       true ->
         case platform_credential(provider, runtime, Keyword.get(opts, :brokered, true), opts) do
-          {:ok, credential, key} -> {:ok, :platform, Map.put(own_creds, credential, key)}
+          {:ok, credential, key} -> {:ok, Source.platform(), Map.put(own_creds, credential, key)}
           :none -> {:error, :no_credential}
         end
     end

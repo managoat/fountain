@@ -5,6 +5,7 @@ defmodule Fountain.Credits.ChatGPTInferenceTest do
   alias Fountain.{Billing, Credits, InferenceCredentials, PlatformInference}
   alias Fountain.Conversations.TurnMachine
   alias Fountain.Credits.InferenceRates
+  alias Fountain.InferenceCredentials.Source
   alias Fountain.Workers.CreditPricer
 
   setup do
@@ -28,7 +29,7 @@ defmodule Fountain.Credits.ChatGPTInferenceTest do
   test "a grant-only turn is debited once and counted in daily spend; own credentials are not" do
     model = "openai/gpt-6-astra"
     {:ok, source, _} = InferenceCredentials.select(model, %{}, "codex", refresh: false)
-    assert source == :platform
+    assert source == Source.platform()
 
     usage =
       TurnMachine.with_inference(%{"input" => 1_000_000, "output" => 0}, %{
@@ -52,7 +53,7 @@ defmodule Fountain.Credits.ChatGPTInferenceTest do
     assert entry.metadata["model"] == model
     assert Billing.platform_inference_spend_today(now) == before + cost
 
-    {:ok, :own = source, _} =
+    {:ok, %Source{origin: :own} = source, _} =
       InferenceCredentials.select(model, %{openai_api_key: "tenant-key"}, "codex", refresh: false)
 
     own_usage =

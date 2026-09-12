@@ -49,6 +49,7 @@ defmodule Fountain.Conversations.TurnMachine do
 
   alias Fountain.{Agents, Conversations}
   alias Fountain.Conversations.{Conversation, Labels}
+  alias Fountain.InferenceCredentials.Source
   alias Fountain.PermissionPolicy
 
   @typedoc "What the peer reports about a turn, with the command ref already matched."
@@ -59,14 +60,15 @@ defmodule Fountain.Conversations.TurnMachine do
   connection family's predicate, read by the server), `:runtime_module`
   (the OAuth clause is Claude-only), `:oauth_switched?` (the server
   swaps the env before the call; the machine words the message), and the
-  pair the usage stamp needs — `:inference` (`:own` | `:platform`, whose key
-  ran this turn, #1388) and `:model` (what it ran).
+  pair the usage stamp needs — `:inference` (the
+  `Fountain.InferenceCredentials.Source` whose key ran this turn, #1388 and
+  ADR 0053) and `:model` (what it ran).
   """
   @type ctx :: %{
           optional(:autonomous?) => boolean(),
           optional(:runtime_module) => module(),
           optional(:oauth_switched?) => boolean(),
-          optional(:inference) => :own | :platform | nil,
+          optional(:inference) => Fountain.InferenceCredentials.Source.t() | nil,
           optional(:model) => String.t() | nil
         }
 
@@ -804,12 +806,12 @@ defmodule Fountain.Conversations.TurnMachine do
   @spec with_inference(map() | nil, ctx()) :: map() | nil
   def with_inference(usage, ctx) when is_map(usage) do
     case Map.get(ctx, :inference) do
-      :platform ->
+      %Source{origin: :platform} ->
         usage
         |> Map.put("inference", "platform")
         |> put_model(:platform, Map.get(ctx, :model))
 
-      :own ->
+      %Source{origin: :own} ->
         if Fountain.PlatformInference.enabled?(),
           do: Map.put(usage, "inference", "own"),
           else: usage
@@ -969,11 +971,11 @@ defmodule Fountain.Conversations.TurnMachine do
   # gate: a live server outlives the ceiling it started under exactly as it
   # outlives the balance, so the same backstop shape applies. A turn on the
   # tenant's own key is never touched by it.
-  @spec gate(String.t(), :own | :platform | nil) :: :ok | {:error, term()}
+  @spec gate(String.t(), Source.t() | nil) :: :ok | {:error, term()}
   def gate(user_id, inference \\ nil) do
     with :ok <- Fountain.Accounts.check_not_suspended(user_id),
          :ok <- Fountain.Billing.check_spend(user_id) do
-      if inference == :platform,
+      if Source.platform?(inference),
         do: Fountain.PlatformInference.check_ceiling(),
         else: :ok
     end

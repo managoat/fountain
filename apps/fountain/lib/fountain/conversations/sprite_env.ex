@@ -43,15 +43,23 @@ defmodule Fountain.Conversations.SpriteEnv do
   runtime's `default_env/2`, the redaction register — is untouched by the
   feature existing at all.
 
+  The first element is a `Fountain.InferenceCredentials.Source` (ADR 0053
+  decision 2), which the server holds for the conversation's lifetime and the
+  turn's usage stamp is derived from.
+
   `:no_credential` keeps the behaviour that predates platform keys: the
   conversation provisions anyway, and the provider's own auth failure lands
-  on the transcript rather than a refusal invented here.
+  on the transcript rather than a refusal invented here. Nothing served the
+  turn and the deployment is not paying for it, so the source is
+  `Source.missing/0` — `origin: :own`, exactly what this case resolved to
+  before the struct existed.
 
   `runtime` is the conversation's own (`conv.runtime`), which is what the
   sandbox is dispatched on and can differ from the agent's after an edit;
   nil falls back to the agent's.
   """
-  @spec select_inference(map() | nil, map(), String.t() | nil) :: {:own | :platform, map()}
+  @spec select_inference(map() | nil, map(), String.t() | nil) ::
+          {InferenceCredentials.Source.t(), map()}
   def select_inference(agent, own_creds, runtime \\ nil) do
     brokered? = (agent && Fountain.Broker.enabled_for?(agent.user_id)) || false
     runtime = runtime || (agent && agent.runtime)
@@ -60,7 +68,7 @@ defmodule Fountain.Conversations.SpriteEnv do
            brokered: brokered?
          ) do
       {:ok, source, creds} -> {source, creds}
-      {:error, :no_credential} -> {:own, own_creds}
+      {:error, :no_credential} -> {InferenceCredentials.Source.missing(), own_creds}
     end
   end
 

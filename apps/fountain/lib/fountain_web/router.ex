@@ -488,6 +488,13 @@ defmodule FountainWeb.Router do
     get "/inference-credentials", InferenceCredentialController, :index
     put "/inference-credentials/:provider", InferenceCredentialController, :update
     delete "/inference-credentials/:provider", InferenceCredentialController, :delete
+
+    # The named sets behind those three, which write the default one
+    # (ADR 0053 decision 1).
+    get "/inference-credential-sets", InferenceCredentialSetController, :index
+    post "/inference-credential-sets", InferenceCredentialSetController, :create
+    patch "/inference-credential-sets/:id", InferenceCredentialSetController, :update
+    delete "/inference-credential-sets/:id", InferenceCredentialSetController, :delete
   end
 
   # The team's SSE stream (#810). Declared before the JSON team routes so

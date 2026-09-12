@@ -107,6 +107,36 @@ defmodule FountainWeb.FallbackController do
     })
   end
 
+  # And again for a per-launch credential set (ADR 0053 decision 3). 404 for
+  # a set the tenant does not own, so an id cannot be probed; 422 for one
+  # they own that the agent does not allow, which is a different mistake and
+  # a fixable one.
+  def call(conn, {:error, :inference_credential_not_found}) do
+    conn
+    |> put_status(:not_found)
+    |> json(%{error: "inference_credential_not_found"})
+  end
+
+  def call(conn, {:error, :inference_credential_not_allowed}) do
+    conn
+    |> put_status(:unprocessable_entity)
+    |> json(%{
+      error: "inference_credential_not_allowed",
+      message: "credential set is not in the agent's allowed_inference_credential_ids"
+    })
+  end
+
+  # `is_default: false` on a set. There is no such state: exactly one set per
+  # account is the default and nothing allows zero.
+  def call(conn, {:error, :cannot_undefault}) do
+    conn
+    |> put_status(:unprocessable_entity)
+    |> json(%{
+      error: "cannot_undefault",
+      message: "a set stops being the default when another becomes it; promote another instead"
+    })
+  end
+
   # A per-launch permission override that would loosen the agent's policy
   # (#939). 422 naming the tool, because the caller asked for something
   # specific and a generic "invalid" would send them hunting. Refused rather

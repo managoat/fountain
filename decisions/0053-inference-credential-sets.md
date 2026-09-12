@@ -96,6 +96,24 @@ broker's implicit binding to the provider host still attaches. ADR 0052
 decision 6 has already set the direction that managed credential material is
 not ordinary configuration, and a set is the static half of the same idea.
 
+Three rules follow from "exactly one default", and each of them is a refusal
+rather than a silent correction:
+
+- **The first set an account gets is its default**, whoever asked for it. An
+  account with no default is an account nothing can read a credential for.
+- **The default cannot be deleted.** Promote another first. For an account
+  with one set there is nothing to promote and the set stays.
+- **A set cannot be demoted**, only replaced. There is no state the partial
+  index can hold for "no default", so an API asked for one is refused rather
+  than ignored: a client that believes it demoted a set should find out at
+  the call, not at the next conversation.
+
+"Has this account connected a provider at all" — the onboarding step and the
+dashboard — asks **every** set. An account whose only key lives in a set they
+made for one agent has connected one, and putting the nag back in front of
+them would be wrong. Everything else that reads without being told which set
+reads the default.
+
 ### 2. Selection returns a source, not an atom
 
 `select/4` returns `{:ok, %InferenceCredentials.Source{}, creds}` instead of
@@ -104,7 +122,8 @@ not ordinary configuration, and a set is the static half of the same idea.
 and `scope`, which says where the value came from: `:credential` an
 `inference_credentials` row, `:tenant_secret` an environment or vault secret
 (decision 5), `:platform` a platform key or the deployment's ChatGPT grant,
-`:none` a provider that needs no credential. It threads through
+`:none` a provider that needs no credential, `:missing` a provider that needs
+one where neither the tenant nor the deployment has it. It threads through
 `SpriteEnv.select_inference/3`, `ConversationServer` state and the
 `TurnMachine` context, and the usage stamp is derived from it rather than
 from a bare atom.

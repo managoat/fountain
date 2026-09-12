@@ -60,6 +60,11 @@ defmodule Fountain.AuditGuardrailTest do
     {"api key revoke", &__MODULE__.do_key_revoke/1, "api_key.revoked"},
     {"inference credential write", &__MODULE__.do_cred_write/1, "inference_credential.write"},
     {"inference credential clear", &__MODULE__.do_cred_clear/1, "inference_credential.delete"},
+    {"credential set create", &__MODULE__.do_set_create/1, "inference_credential_set.created"},
+    {"credential set rename", &__MODULE__.do_set_rename/1, "inference_credential_set.renamed"},
+    {"credential set delete", &__MODULE__.do_set_delete/1, "inference_credential_set.deleted"},
+    {"credential set default", &__MODULE__.do_set_default/1,
+     "inference_credential_set.default_changed"},
     {"conversation delete", &__MODULE__.do_conv_delete/1, "conversation.deleted"},
     {"conversation caller tools", &__MODULE__.do_caller_tools/1, "conversation.caller_tools_set"},
     {"conversation configuration reapply", &__MODULE__.do_conv_reapply/1,
@@ -423,6 +428,30 @@ defmodule Fountain.AuditGuardrailTest do
   def do_cred_clear(user) do
     {:ok, dek} = Fountain.Crypto.load_tenant_key(user.id)
     {:ok, _} = InferenceCredentials.put_credential(user.id, dek, :anthropic_api_key, nil)
+  end
+
+  def do_set_create(user) do
+    {:ok, _} =
+      InferenceCredentials.create_set(user.id, "guard-#{System.unique_integer([:positive])}")
+  end
+
+  def do_set_rename(user) do
+    {:ok, set} = InferenceCredentials.create_set(user.id, "guard-before")
+    {:ok, _} = InferenceCredentials.rename_set(set, "guard-after")
+  end
+
+  def do_set_delete(user) do
+    # The first set an account gets is its default, and the default cannot be
+    # deleted -- so make two and delete the one that is not.
+    {:ok, _default} = InferenceCredentials.create_set(user.id, "guard-default")
+    {:ok, second} = InferenceCredentials.create_set(user.id, "guard-second")
+    {:ok, _} = InferenceCredentials.delete_set(second)
+  end
+
+  def do_set_default(user) do
+    {:ok, _default} = InferenceCredentials.create_set(user.id, "guard-default")
+    {:ok, second} = InferenceCredentials.create_set(user.id, "guard-second")
+    {:ok, _} = InferenceCredentials.set_default(second)
   end
 
   def do_conv_delete(user) do

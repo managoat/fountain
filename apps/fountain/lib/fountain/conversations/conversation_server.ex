@@ -752,18 +752,17 @@ defmodule Fountain.Conversations.ConversationServer do
 
     case SpriteEnv.load_tenant_state(conv.user_id) do
       {:ok, dek, own_creds} ->
+        # Before the selection: a tenant secret named after a credential wins
+        # in the sandbox, so it decides the source too (ADR 0053 decision 5).
+        tenant_secrets = SpriteEnv.merge_secrets(env, vault, dek)
+
         {inference_source, inference_creds} =
-          SpriteEnv.select_inference(agent, own_creds, conv.runtime)
+          SpriteEnv.select_inference(agent, own_creds, conv.runtime, tenant_secrets)
 
         bindings = Egress.bindings(conv.user_id)
 
         {merged, bindings, connection_keys} =
-          Egress.add_connection_secrets(
-            conv.user_id,
-            SpriteEnv.merge_secrets(env, vault, dek),
-            bindings,
-            agent
-          )
+          Egress.add_connection_secrets(conv.user_id, tenant_secrets, bindings, agent)
 
         {secrets, brokered} = Egress.split_brokered(conv.user_id, merged, bindings)
 

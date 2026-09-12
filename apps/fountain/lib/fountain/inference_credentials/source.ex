@@ -14,10 +14,11 @@ defmodule Fountain.InferenceCredentials.Source do
       uses. `:platform` prices the turn against the tenant's credits and
       counts it against the deployment's daily ceiling; `:own` does neither.
     * `scope` — where the value came from. `:credential` an
-      `inference_credentials` row, `:platform` a platform key or the
-      deployment's ChatGPT grant, `:none` a provider that needs no credential
-      at all (a local model, a gateway), `:missing` a provider that needs one
-      where neither the tenant nor the deployment has it.
+      `inference_credentials` row, `:tenant_secret` an environment or vault
+      secret named after one, `:platform` a platform key or the deployment's
+      ChatGPT grant, `:none` a provider that needs no credential at all (a
+      local model, a gateway), `:missing` a provider that needs one where
+      neither the tenant nor the deployment has it.
 
   `:none` and `:missing` are both `origin: :own` and are both what `main`
   called `:own` before this struct existed, so nothing about billing moves.
@@ -26,10 +27,10 @@ defmodule Fountain.InferenceCredentials.Source do
   provider that requires one will fail inside the sandbox. Keeping them apart
   is what lets a surface say which without asking the question again.
 
-  `origin` and `scope` are not the same question. ADR 0053 decision 5 adds
-  `:tenant_secret`, an environment or vault secret naming a credential, which
-  is `origin: :own` and needs to stay distinguishable from a credential row
-  for anything that reports where a turn ran.
+  `origin` and `scope` are not the same question. `:tenant_secret` — an
+  environment or vault secret named after a credential, which overrides it in
+  the sandbox — is `origin: :own` and has to stay distinguishable from a
+  credential row for anything that reports where a turn ran.
 
   **There is deliberately no `kind`.** A field naming the credential atom that
   served the turn would have to guess how the runtime chose between an
@@ -44,7 +45,7 @@ defmodule Fountain.InferenceCredentials.Source do
   """
 
   @type origin :: :own | :platform
-  @type scope :: :credential | :platform | :none | :missing
+  @type scope :: :credential | :tenant_secret | :platform | :none | :missing
 
   @type t :: %__MODULE__{origin: origin(), scope: scope()}
 
@@ -54,6 +55,16 @@ defmodule Fountain.InferenceCredentials.Source do
   @doc "The tenant's own credential row served this conversation."
   @spec credential() :: t()
   def credential, do: %__MODULE__{origin: :own, scope: :credential}
+
+  @doc """
+  An environment or vault secret named after a credential served it.
+
+  It overrides the credential in the sandbox whether or not the account also
+  holds a row, so the deployment is not paying for the turn — which is the
+  whole reason this scope exists (ADR 0053 decision 5).
+  """
+  @spec tenant_secret() :: t()
+  def tenant_secret, do: %__MODULE__{origin: :own, scope: :tenant_secret}
 
   @doc """
   The model's provider needs no credential — a local model, a gateway, or a

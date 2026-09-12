@@ -88,4 +88,56 @@ defmodule Fountain.Conversations.SpriteEnvInferenceTest do
                SpriteEnv.select_inference(agent_on(user, @anthropic), %{})
     end
   end
+
+  # ADR 0053 decision 5. A tenant secret named after a credential overrides it
+  # in the sandbox — `Egress`'s gate-3 split says so and
+  # `docs/concepts/secrets.md` publishes it — but selection could not see it,
+  # so the deployment's key was selected, the turn was stamped `"platform"`,
+  # priced against the tenant's credits and counted against the daily ceiling,
+  # while the tenant's own secret served every one of them.
+  describe "select_inference/4 with a tenant secret shadowing a credential" do
+    test "is :own, not :platform, even with a platform key configured", %{user: user} do
+      Application.put_env(:fountain, :platform_anthropic_api_key, "sk-platform")
+      secrets = %{"ANTHROPIC_API_KEY" => "sk-from-the-vault"}
+
+      assert {%Source{origin: :own, scope: :tenant_secret}, creds} =
+               SpriteEnv.select_inference(agent_on(user, @anthropic), %{}, nil, secrets)
+
+      # Presence only: the value already reaches the sandbox through the
+      # secrets path, and merging it here would change which credential the
+      # runtime exports.
+      assert creds == %{}
+    end
+
+    test "an OAuth token by name counts for anthropic too", %{user: user} do
+      Application.put_env(:fountain, :platform_anthropic_api_key, "sk-platform")
+      secrets = %{"CLAUDE_CODE_OAUTH_TOKEN" => "oauth-from-the-vault"}
+
+      assert {%Source{scope: :tenant_secret}, %{}} =
+               SpriteEnv.select_inference(agent_on(user, @anthropic), %{}, nil, secrets)
+    end
+
+    test "a secret for another provider does not shadow this one", %{user: user} do
+      Application.put_env(:fountain, :platform_anthropic_api_key, "sk-platform")
+      secrets = %{"OPENAI_API_KEY" => "sk-openai", "UNRELATED" => "x"}
+
+      assert {%Source{origin: :platform}, _} =
+               SpriteEnv.select_inference(agent_on(user, @anthropic), %{}, nil, secrets)
+    end
+
+    test "with no platform key it is still :own rather than :missing", %{user: user} do
+      secrets = %{"ANTHROPIC_API_KEY" => "sk-from-the-vault"}
+
+      assert {%Source{origin: :own, scope: :tenant_secret}, %{}} =
+               SpriteEnv.select_inference(agent_on(user, @anthropic), %{}, nil, secrets)
+    end
+
+    test "a credential row is reported ahead of a secret when both exist", %{user: user} do
+      own = %{anthropic_api_key: "sk-row"}
+      secrets = %{"ANTHROPIC_API_KEY" => "sk-from-the-vault"}
+
+      assert {%Source{origin: :own, scope: :credential}, ^own} =
+               SpriteEnv.select_inference(agent_on(user, @anthropic), own, nil, secrets)
+    end
+  end
 end

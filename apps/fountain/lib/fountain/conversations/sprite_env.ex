@@ -57,15 +57,26 @@ defmodule Fountain.Conversations.SpriteEnv do
   `runtime` is the conversation's own (`conv.runtime`), which is what the
   sandbox is dispatched on and can differ from the agent's after an edit;
   nil falls back to the agent's.
+
+  `secrets` is this conversation's merged environment and vault secrets, the
+  same map `merge_secrets/3` returns. Only its **keys** are read: a secret
+  named after a static credential overrides that credential in the sandbox,
+  so the conversation is running on the tenant's own key and must not be
+  billed as platform inference (ADR 0053 decision 5). The values stay where
+  they are — they already reach the sandbox through the secrets path, and
+  merging them into the credentials map would change which credential the
+  runtime picks. Default `%{}` keeps the old answer for a caller with no
+  secrets to hand over.
   """
-  @spec select_inference(map() | nil, map(), String.t() | nil) ::
+  @spec select_inference(map() | nil, map(), String.t() | nil, map()) ::
           {InferenceCredentials.Source.t(), map()}
-  def select_inference(agent, own_creds, runtime \\ nil) do
+  def select_inference(agent, own_creds, runtime \\ nil, secrets \\ %{}) do
     brokered? = (agent && Fountain.Broker.enabled_for?(agent.user_id)) || false
     runtime = runtime || (agent && agent.runtime)
 
     case InferenceCredentials.select(agent && agent.model, own_creds, runtime,
-           brokered: brokered?
+           brokered: brokered?,
+           secret_keys: Map.keys(secrets)
          ) do
       {:ok, source, creds} -> {source, creds}
       {:error, :no_credential} -> {InferenceCredentials.Source.missing(), own_creds}

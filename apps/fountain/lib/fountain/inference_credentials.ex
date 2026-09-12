@@ -175,6 +175,33 @@ defmodule Fountain.InferenceCredentials do
     |> MapSet.new()
   end
 
+  # The environment variable each static credential is exported as. A tenant
+  # secret of the same name overrides it in the sandbox (`Egress`'s gate-3
+  # split, published in `docs/concepts/secrets.md`), which is what
+  # `select/4`'s `:secret_keys` reads.
+  #
+  # The deployment's ChatGPT grant is deliberately absent: ADR 0052 decision 6
+  # reserves `CODEX_CHATGPT_ACCESS_TOKEN` so no configuration can name it.
+  # Reserve what rotates, resolve what is static (ADR 0053 decision 5).
+  # `inference_credentials_env_names_test.exs` holds this table against
+  # `Fountain.Broker.inference_keys/0`, which is where the same mapping is
+  # used to build the placeholders.
+  @env_names %{
+    anthropic_api_key: "ANTHROPIC_API_KEY",
+    claude_code_oauth_token: "CLAUDE_CODE_OAUTH_TOKEN",
+    openai_api_key: "OPENAI_API_KEY",
+    gemini_api_key: "GEMINI_API_KEY"
+  }
+
+  @doc """
+  The environment variable each static credential is exported as.
+
+  Only the four a tenant sets themselves. The managed ChatGPT grant is not
+  here: configuration may not name it (ADR 0052 decision 6).
+  """
+  @spec env_names() :: %{atom() => String.t()}
+  def env_names, do: @env_names
+
   @doc """
   The credentials that let a model's provider run: a model `provider/id`
   names a provider; any one of these credentials serves it. Unknown
@@ -258,7 +285,24 @@ defmodule Fountain.InferenceCredentials do
   an `openai/` model keeps needing a key. The origin is `:platform` either
   way, so the ledger prices the turn and the daily ceiling counts it.
 
-  `opts` carries `:brokered`, whether the conversation's credentials go
+  `opts` carries `:secret_keys` (ADR 0053 decision 5), the environment
+  variable names this conversation's environment and vault define. A tenant
+  secret named after a static credential **wins in the sandbox** — `Egress`
+  says so at the gate-3 split and `docs/concepts/secrets.md` publishes it —
+  so a conversation that has one is running on the tenant's own credential
+  and must not be selected `:platform`, priced against their credits or
+  counted against the deployment's daily ceiling. Before this was read, a
+  tenant using the documented override paid for platform inference they never
+  used. Presence is all that is read: the value already reaches the sandbox
+  through the secrets path, and putting it in `creds` as well would change
+  which credential the runtime picks.
+
+  A credential row is reported ahead of a secret when an account has both.
+  Both are `origin: :own`, so nothing about billing turns on the order; the
+  scope answers "why was this not platform-paid", and the row is the more
+  specific answer because it is what Fountain itself exports.
+
+  `opts` also carries `:brokered`, whether the conversation's credentials go
   through the egress broker (`Fountain.Broker.enabled_for?/1`), default
   `true`. The grant is offered to brokered conversations only: unbrokered,
   the access token itself would land in the sandbox file, and the whole
@@ -282,6 +326,9 @@ defmodule Fountain.InferenceCredentials do
       Enum.any?(accepted, &present?(own_creds, &1)) ->
         {:ok, Source.credential(), own_creds}
 
+      shadowed?(accepted, Keyword.get(opts, :secret_keys, [])) ->
+        {:ok, Source.tenant_secret(), own_creds}
+
       true ->
         case platform_credential(provider, runtime, Keyword.get(opts, :brokered, true), opts) do
           {:ok, credential, key} -> {:ok, Source.platform(), Map.put(own_creds, credential, key)}
@@ -303,6 +350,15 @@ defmodule Fountain.InferenceCredentials do
 
   defp platform_credential(provider, _runtime, _brokered?, _opts),
     do: Fountain.PlatformInference.key_for(provider)
+
+  # Whether one of the credentials this provider accepts is defined as a
+  # tenant secret for this conversation. Names only; the values stay where
+  # they are.
+  @spec shadowed?([atom()], Enumerable.t()) :: boolean()
+  defp shadowed?(accepted, secret_keys) do
+    names = MapSet.new(secret_keys, &to_string/1)
+    Enum.any?(accepted, &MapSet.member?(names, Map.fetch!(@env_names, &1)))
+  end
 
   defp present?(creds, credential) do
     case Map.get(creds, credential) do

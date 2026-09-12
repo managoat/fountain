@@ -90,6 +90,45 @@ defmodule Fountain.Conversations.ConversationServerPlatformInferenceTest do
       assert state.inference_source == Source.credential()
       assert state.env_credentials == %{anthropic_api_key: "sk-ant-tenant-key"}
     end
+
+    # ADR 0053 decision 5. The vault value wins in the sandbox environment
+    # (`Egress`'s gate-3 split; `docs/concepts/secrets.md` publishes it) but
+    # selection could not see it, so this conversation took the platform key,
+    # was stamped `"platform"`, priced against the tenant's credits and
+    # counted against the deployment's daily ceiling -- on a turn the
+    # tenant's own key served. Live on the hosted deployment, which has held
+    # platform keys since 2026-09-03.
+    test "a vault secret naming the credential is the tenant's own key, not the platform's", %{
+      user: user,
+      agent: agent
+    } do
+      vault = insert_vault(user_id: user.id)
+
+      # The case stubs `load_tenant_key/1` to an all-zero DEK, so the row has
+      # to be written under the same one or the server cannot decrypt it and
+      # the secret never reaches the merge.
+      {:ok, _} =
+        Fountain.Vaults.upsert_secret(
+          vault,
+          %{"key" => "ANTHROPIC_API_KEY", "value" => "sk-ant-from-the-vault"},
+          <<0::256>>
+        )
+
+      conv = insert_conversation(user_id: user.id, agent: agent, vault_id: vault.id)
+
+      stub_happy_sprite()
+      _ref = stub_turn_boundary()
+
+      {pid, _mon, :alive} = start_server(conv, initial_prompt: "hello")
+      on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
+
+      state = :sys.get_state(pid)
+      assert state.inference_source == Source.tenant_secret()
+
+      # And so the turn is not billed as platform inference.
+      assert TurnMachine.with_inference(%{"input" => 5}, TurnMachine.ctx(state)) ==
+               %{"input" => 5, "inference" => "own"}
+    end
   end
 
   describe "the brokered path (ADR 0019 gate 3)" do

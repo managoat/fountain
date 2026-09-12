@@ -11,6 +11,20 @@ server releases.
 
 ---
 
+## [1.32.0] — 2026-09-12
+
+### Added
+
+- Wire types for inference credential sets (ADR 0053): the four operations
+  under `/api/account/inference-credential-sets`, the per-set credential write
+  and clear, `inference_credential_id` on the conversation-create request,
+  `inference_credential_id` and `allowed_inference_credential_ids` on the
+  agent, and the owner-authenticated principal credential write under
+  `/api/claimable-users/:id/inference-credentials/:provider`.
+
+  Generated types only. No hand-written client method changes, so nothing an
+  existing caller uses moves.
+
 ## [1.31.0] — 2026-09-11
 
 ### Added

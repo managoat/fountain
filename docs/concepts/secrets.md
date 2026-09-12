@@ -119,6 +119,43 @@ then the only assignment left in the file. A `setup_script` that does
 path out. A brokered sandbox can reach the broker host and no other, so a
 different proxy name there costs you your own egress.
 
+The four inference credential names stay out of that file for the same reason.
+One sandbox can carry several conversations, and each one can run on a
+different key. A value in the shared file would be the key of whichever
+conversation started last. Every process still gets the credential, because
+Fountain passes the whole set to each command it runs. The `setup_script` has
+it too. What a later shell loses is `source .env` as a way to read a provider
+key back.
+
+## Credential sets
+
+Your provider keys live in a **credential set**. An account starts with one,
+called Default. That set holds up to four values: an Anthropic key, a Claude
+OAuth token, an OpenAI key and a Gemini key. Most accounts never need a second
+set.
+
+Make a second set when you hold a second subscription. A set carries a name
+you choose. Exactly one set is the default, and the default is what Fountain
+reads unless something names another.
+
+Three rules follow from that.
+
+- The first set you have is the default.
+- You cannot delete the default. Promote another set first.
+- You cannot demote a set. Promote a different one instead.
+
+An agent names the set its conversations run on. Leave it unset and the agent
+runs on the default. A launch can name a different set, and the agent's
+`allowed_inference_credential_ids` scopes which one. That list works like
+`allowed_vault_ids`: empty forbids every override, and a list of ids is an
+allowlist.
+
+The set is not part of sandbox identity. Two conversations that differ only in
+their set share one machine.
+
+Set the whole thing up at `/account/inference-credentials`, or over the API
+under `/api/account/inference-credential-sets`.
+
 ## Hop 4: substitution, then the process
 
 An agent config string takes `${VAR}` interpolation, which Fountain resolves

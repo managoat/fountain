@@ -1,6 +1,6 @@
 {
   "name": "@managoat/fountain-sdk",
-  "version": "1.31.0",
+  "version": "1.32.0",
   "description": "Run a coding agent on a real computer, with your repos and your credentials, in one call.",
   "license": "Apache-2.0",
   "publishConfig": {

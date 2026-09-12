@@ -123,6 +123,7 @@ defmodule FountainWeb.SchemaEnumGuardrailTest do
     {FountainWeb.Schemas.EnvironmentUpdate, "networking_type"} => {Environment, :networking},
     {FountainWeb.Schemas.Export, "status"} => {Export, :statuses},
     {FountainWeb.Schemas.InferenceCredentialStatus, "provider"} => {Credential, :providers},
+    {FountainWeb.Schemas.InferenceCredentialSet, "providers.[]"} => {Credential, :providers},
     {FountainWeb.Schemas.LogEvent, "kind"} => {LogEvent, :kinds},
     {FountainWeb.Schemas.LogEvent, "state"} => {LogEvent, :states},
     {FountainWeb.Schemas.ManifestResource, "kind"} => {Manifest, :kinds},

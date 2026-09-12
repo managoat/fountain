@@ -1679,6 +1679,80 @@ defmodule FountainWeb.ConversationControllerTest do
     end
   end
 
+  # ADR 0053 decision 3. The same three shapes as the environment override
+  # above, because it is the same kind of override: the caller names something
+  # of theirs, the agent's allowlist bounds it, and an id they do not own is a
+  # 404 rather than a hint that it exists.
+  describe "POST /api/conversations with inference_credential_id (ADR 0053)" do
+    setup %{user: user} do
+      stub(Horde.DynamicSupervisor, :start_child, fn _s, _spec -> {:ok, spawn(fn -> :ok end)} end)
+      {:ok, _default} = Fountain.InferenceCredentials.create_set(user.id, "Default")
+      {:ok, second} = Fountain.InferenceCredentials.create_set(user.id, "Second subscription")
+      %{agent: insert_agent(user_id: user.id), second: second}
+    end
+
+    test "runs the conversation on the named set", %{
+      conn: conn,
+      raw_key: raw_key,
+      agent: agent,
+      second: second
+    } do
+      data =
+        conn
+        |> authed_with_key(raw_key)
+        |> post_json("/api/conversations", %{
+          "agent_id" => agent.id,
+          "inference_credential_id" => second.id
+        })
+        |> json_response(201)
+        |> Map.fetch!("data")
+
+      assert Fountain.Conversations._unsafe_get_conversation(data["id"]).inference_credential_id ==
+               second.id
+    end
+
+    test "a foreign set is a 404, indistinguishable from an unknown one", %{
+      conn: conn,
+      raw_key: raw_key,
+      agent: agent
+    } do
+      other = insert_active_user()
+      {:ok, theirs} = Fountain.InferenceCredentials.create_set(other.id, "Theirs")
+
+      for id <- [theirs.id, Ecto.UUID.generate()] do
+        assert conn
+               |> authed_with_key(raw_key)
+               |> post_json("/api/conversations", %{
+                 "agent_id" => agent.id,
+                 "inference_credential_id" => id
+               })
+               |> json_response(404)
+               |> Map.fetch!("error") == "inference_credential_not_found"
+      end
+    end
+
+    test "a set outside the agent's allowlist is a 422", %{
+      conn: conn,
+      raw_key: raw_key,
+      agent: agent,
+      second: second
+    } do
+      {:ok, agent} =
+        Fountain.Agents.update_agent(agent, %{allowed_inference_credential_ids: []})
+
+      resp =
+        conn
+        |> authed_with_key(raw_key)
+        |> post_json("/api/conversations", %{
+          "agent_id" => agent.id,
+          "inference_credential_id" => second.id
+        })
+        |> json_response(422)
+
+      assert resp["error"] == "inference_credential_not_allowed"
+    end
+  end
+
   describe "POST /api/conversations with channel_id (#774)" do
     # A client that forgets its sessions — a restarted buzz-acp — must land back
     # on the same conversation, and so the same sandbox, rather than opening a

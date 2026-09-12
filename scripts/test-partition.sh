@@ -80,7 +80,20 @@ fi
 # Its protocol table may omit newly compiled implementations (including
 # credential Inspect redaction). Removing this generated table makes the
 # child compile rebuild it from the current implementations before tests load.
-rm -rf ../../_build/test/lib/fountain/consolidated
+#
+# A typo in this path would remove nothing, exit 0, and put the bug back
+# silently -- the same shape as every other trap this file exists to catch.
+# So assert the build is where we think it is whenever there is one at all;
+# a cold checkout has no _build yet and nothing that can be stale.
+app_build=../../_build/test/lib/fountain
+
+if [ -d ../../_build/test/lib ] && [ ! -d "$app_build" ]; then
+  echo "expected the fountain build at $app_build, relative to apps/fountain." >&2
+  echo "  the path has moved; the stale protocol table would not be removed." >&2
+  exit 1
+fi
+
+rm -rf "$app_build/consolidated"
 
 set +e
 # shellcheck disable=SC2086 # word splitting is how the file list is passed

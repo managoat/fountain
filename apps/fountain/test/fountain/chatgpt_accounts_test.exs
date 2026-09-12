@@ -2,6 +2,8 @@ defmodule Fountain.ChatGPTAccountsTest do
   use Fountain.DataCase, async: true
   use Mimic
 
+  import ExUnit.CaptureLog
+
   import Fountain.ChatGPTFixtures, only: [access_token: 0, access_token: 1]
 
   alias Fountain.ChatGPTAccounts
@@ -121,6 +123,39 @@ defmodule Fountain.ChatGPTAccountsTest do
                %{grant | access_token_ciphertext: grant.refresh_token_ciphertext},
                :access_token
              )
+  end
+
+  # This warning is the only thing that tells an operator a key rotation
+  # killed the grant: the credential read answers `:none`, codex falls back
+  # to the platform API key, and the status read never decrypts, so the
+  # admin page still says "active". It was dropped once in the extraction
+  # from `Fountain.PlatformChatGPT` because no test held it down.
+  test "a token that will not decrypt says so in the log, for either owner" do
+    owner = insert_verified_user()
+    grant = user_grant(owner, %{access_token_ciphertext: Crypto.encrypt_platform("platform")})
+
+    tenant_log = capture_log(fn -> assert {:error, :undecryptable} = read(grant, owner) end)
+    assert tenant_log =~ "does not decrypt under the tenant key"
+    assert tenant_log =~ owner.id
+    assert tenant_log =~ "access_token"
+    refute tenant_log =~ "platform"
+
+    platform =
+      %Account{}
+      |> Account.connect_changeset(%{
+        kind: "chatgpt",
+        access_token_ciphertext: <<0, 1, 2, 3>>,
+        last_refreshed_at: DateTime.utc_now() |> DateTime.truncate(:second)
+      })
+      |> Repo.insert!()
+
+    platform_log =
+      capture_log(fn ->
+        assert {:error, :undecryptable} = Cipher.decrypt_token(platform, :access_token)
+      end)
+
+    assert platform_log =~ "does not decrypt under MASTER_SECRETS_KEY"
+    assert platform_log =~ "reconnect at /admin/inference"
   end
 
   test "a wrong DEK fails without attempting platform decryption" do

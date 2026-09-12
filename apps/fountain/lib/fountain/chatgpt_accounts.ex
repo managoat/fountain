@@ -1,16 +1,69 @@
 defmodule Fountain.ChatGPTAccounts do
   @moduledoc """
-  Owner-scoped ChatGPT grant storage (ADR 0052).
+  ChatGPT grant storage for both owners a grant can have (ADRs 0047/0052):
+  the deployment, and -- when the rest of ADR 0052 lands -- a tenant.
 
-  User reads require an authenticated owner and never fall through to the
-  platform row. The `_unsafe_platform_*` functions implement the existing
-  admin lifecycle behind `Fountain.PlatformChatGPT`'s compatibility wrapper.
-  Token encryption is selected by immutable row ownership.
+  Token encryption follows the row's ownership, which never changes: the
+  null-owner row keeps the deployed platform format, an owned row uses its
+  owner's DEK with an AAD naming both the owner and the token field, so no
+  blob decrypts in the wrong row or the wrong column
+  (`Fountain.ChatGPTAccounts.Cipher`).
 
-  This foundation does not connect user grants, coordinate refresh across
-  nodes, or select user grants for conversations. Those paths remain unbuilt.
-  User credential reads refuse grants needing renewal rather than invoking
-  the existing platform-only refresher.
+  ## The two prefixes
+
+  `platform_*` is the deployment's grant: every one of those functions
+  queries `where: is_nil(a.user_id)` and cannot reach a tenant's row, the
+  way `Fountain.PlatformInference` is deployment-scoped. `*_for_user` takes
+  the owner as its first scope. Neither is `_unsafe_`: nothing here reads
+  across tenants, so there is no ownership for a call site to establish.
+
+  ## Platform grant
+
+  An admin signs the Fountain **server** in to ChatGPT once, by pasting the
+  `auth.json` a laptop's `codex login` wrote or by the device-code flow
+  (`Fountain.PlatformChatGPT.Device`). From then on Fountain owns the
+  refresh token and is the only thing that ever uses it: the token rotates
+  on every refresh, and the one place it lives is the one place that is
+  refreshed. A sandbox never sees it. What a sandbox gets is `auth.json` in
+  `chatgptAuthTokens` mode with a placeholder where the bearer goes
+  (`Fountain.Conversations.CodexChatGPT`), and the broker substitutes the
+  current access token on `chatgpt.com` (`Fountain.Broker`).
+
+    * `platform_access_token/0` -- the current access token, refreshed when
+      it is within `PLATFORM_CHATGPT_REFRESH_MARGIN_SECONDS` of its expiry,
+      through `Fountain.PlatformChatGPT.Refresher` so the deployment's many
+      conversations queue on one round-trip rather than each making their
+      own. The rotated refresh token is persisted *before* the new access
+      token is handed out. A terminal refusal marks the row `revoked` with
+      the server's reason code; a workspace token past its expiry marks it
+      `expired`.
+    * `platform_credential/1` -- `{:ok, token}` or `:none`, for
+      `Fountain.InferenceCredentials.select/4`, which takes the grant for a
+      codex agent whose tenant has no OpenAI key of their own.
+    * `platform_sandbox_auth/0` -- the account id and the synthesised
+      `id_token` the sandbox file carries; never the real one.
+    * `platform_connect_from_auth_json/2`,
+      `platform_connect_from_tokens/3`,
+      `platform_connect_workspace_token/3`, `platform_disconnect/1` -- the
+      admin mutations, each leaving an `admin.platform_chatgpt.*` row on the
+      privilege trail. Never a token, never a claim that is a secret.
+    * `platform_keepalive/0` -- refresh a grant nobody has used for
+      `PLATFORM_CHATGPT_KEEPALIVE_DAYS`, so it never idles past the auth
+      server's window (`Fountain.Workers.PlatformChatGPTKeepalive`).
+    * `platform_status/0` -- what the admin page shows.
+
+  The refresh margin must exceed the longest turn the deployment expects:
+  a turn that outlives its access token fails at the proxy, because codex
+  cannot refresh in this mode. The default is fifteen minutes.
+
+  ## User grants
+
+  `status_for_user/1` and `credential_for_user/3` read a tenant's own grant.
+  Both are scoped by the owner and neither falls through to the platform
+  row. Nothing writes a user grant yet: this foundation does not connect
+  them, coordinate refresh across nodes, or select them for conversations,
+  and a read that needs renewal returns `:refresh_required` rather than
+  invoking the platform-only refresher or a paid fallback.
   """
 
   import Ecto.Query, only: [from: 2]
@@ -24,12 +77,21 @@ defmodule Fountain.ChatGPTAccounts do
 
   @system_actor "system:platform_chatgpt"
 
-  @doc "Connection metadata only; does not decrypt tokens or start a refresh."
+  @doc """
+  Connection metadata only; does not decrypt tokens or start a refresh.
+
+  `:grant_id` and `:generation` are the pin `credential_for_user/3` takes,
+  so the two halves compose: a caller reads the grant here and asks for a
+  bearer from that exact version. Neither is a secret -- the generation is
+  a lifecycle counter, not key material.
+  """
   @spec status_for_user(String.t()) :: :not_connected | map()
   def status_for_user(user_id) when is_binary(user_id) do
     from(a in Account,
       where: a.user_id == ^user_id,
       select: %{
+        grant_id: a.id,
+        generation: a.generation,
         status: a.status,
         kind: a.kind,
         account_id: a.account_id,
@@ -83,19 +145,23 @@ defmodule Fountain.ChatGPTAccounts do
 
   defp user_credential(_), do: {:error, :invalid_grant}
 
+  # Only a code `OAuth` itself names can reach a tenant: a reason that is not
+  # one of those did not come from the paths that write this column, and the
+  # tenant page is the wrong place to find out what it was. Allowlisted
+  # against `OAuth.terminal_codes/0` rather than a second copy of the list,
+  # because the copy this replaced was already missing
+  # `invalid_refresh_token_ciphertext_integrity`.
   defp safe_reason(nil), do: nil
 
-  defp safe_reason(reason)
-       when reason in ~w(invalid_grant refresh_token_reused refresh_token_expired refresh_token_invalidated),
-       do: reason
-
-  defp safe_reason(_), do: "provider_error"
+  defp safe_reason(reason) do
+    if reason in OAuth.terminal_codes(), do: reason, else: "provider_error"
+  end
 
   # ── reads ────────────────────────────────────────────────────────────────
 
   @doc "Whether the deployment holds a usable grant right now (no refresh is attempted)."
-  @spec _unsafe_platform_active?() :: boolean()
-  def _unsafe_platform_active?, do: match?(%Account{status: "active"}, platform_row())
+  @spec platform_active?() :: boolean()
+  def platform_active?, do: match?(%Account{status: "active"}, platform_row())
 
   @doc """
   The grant as `Fountain.InferenceCredentials.select/4` wants it:
@@ -105,10 +171,10 @@ defmodule Fountain.ChatGPTAccounts do
   caller that only asks whether a grant is there (a page render), not for
   one about to hand the token to a sandbox.
   """
-  @spec _unsafe_platform_credential(keyword()) :: {:ok, String.t()} | :none
-  def _unsafe_platform_credential(opts \\ []) do
+  @spec platform_credential(keyword()) :: {:ok, String.t()} | :none
+  def platform_credential(opts \\ []) do
     if Keyword.get(opts, :refresh, true) do
-      case _unsafe_platform_access_token() do
+      case platform_access_token() do
         {:ok, token} -> {:ok, token}
         _ -> :none
       end
@@ -132,8 +198,8 @@ defmodule Fountain.ChatGPTAccounts do
   when there is nothing to hand out; a transient refresh failure comes
   back as its reason and the caller keeps what it has.
   """
-  @spec _unsafe_platform_access_token() :: {:ok, String.t()} | {:error, term()}
-  def _unsafe_platform_access_token do
+  @spec platform_access_token() :: {:ok, String.t()} | {:error, term()}
+  def platform_access_token do
     case platform_row() do
       nil -> {:error, :not_connected}
       %Account{status: "revoked"} -> {:error, :revoked}
@@ -172,9 +238,9 @@ defmodule Fountain.ChatGPTAccounts do
   the one the broker already took at selection. Only a row that is gone, or
   one with no account id, is `:none`.
   """
-  @spec _unsafe_platform_sandbox_auth() ::
+  @spec platform_sandbox_auth() ::
           {:ok, %{account_id: String.t(), id_token: String.t()}} | :none
-  def _unsafe_platform_sandbox_auth do
+  def platform_sandbox_auth do
     case platform_row() do
       %Account{account_id: account_id, id_claims: claims} when is_binary(account_id) ->
         {:ok, %{account_id: account_id, id_token: Tokens.synthesize_id_token(claims)}}
@@ -190,8 +256,8 @@ defmodule Fountain.ChatGPTAccounts do
   `:plan_type`, `:account_id`, `:access_expires_at`, `:last_refreshed_at`,
   `:revoked_reason`, `:updated_at` and `:updated_by`.
   """
-  @spec _unsafe_platform_status() :: :not_connected | map()
-  def _unsafe_platform_status do
+  @spec platform_status() :: :not_connected | map()
+  def platform_status do
     case platform_row([:updated_by]) do
       nil ->
         :not_connected
@@ -219,11 +285,11 @@ defmodule Fountain.ChatGPTAccounts do
   CI recipe). Refused unless it is a ChatGPT login with a refresh token.
   From here on that file is Fountain's: using it anywhere else breaks both.
   """
-  @spec _unsafe_platform_connect_from_auth_json(String.t(), keyword()) ::
+  @spec platform_connect_from_auth_json(String.t(), keyword()) ::
           {:ok, Account.t()} | {:error, term()}
-  def _unsafe_platform_connect_from_auth_json(json, opts \\ []) do
+  def platform_connect_from_auth_json(json, opts \\ []) do
     with {:ok, tokens} <- Tokens.parse_auth_json(json) do
-      _unsafe_platform_connect_from_tokens(tokens, "paste", opts)
+      platform_connect_from_tokens(tokens, "paste", opts)
     end
   end
 
@@ -233,9 +299,9 @@ defmodule Fountain.ChatGPTAccounts do
   carry an account id: without it codex has nothing to send in
   `chatgpt-account-id`, and the backend refuses the request.
   """
-  @spec _unsafe_platform_connect_from_tokens(OAuth.tokens(), String.t(), keyword()) ::
+  @spec platform_connect_from_tokens(OAuth.tokens(), String.t(), keyword()) ::
           {:ok, Account.t()} | {:error, term()}
-  def _unsafe_platform_connect_from_tokens(%{access_token: access} = tokens, method, opts \\ [])
+  def platform_connect_from_tokens(%{access_token: access} = tokens, method, opts \\ [])
       when is_binary(access) and is_binary(method) do
     with refresh when is_binary(refresh) and refresh != "" <-
            Map.get(tokens, :refresh_token) || {:error, :no_refresh_token},
@@ -273,9 +339,9 @@ defmodule Fountain.ChatGPTAccounts do
   it on every request and a row without it would fail every provision
   while the page said "connected".
   """
-  @spec _unsafe_platform_connect_workspace_token(String.t(), Date.t() | nil, keyword()) ::
+  @spec platform_connect_workspace_token(String.t(), Date.t() | nil, keyword()) ::
           {:ok, Account.t()} | {:error, term()}
-  def _unsafe_platform_connect_workspace_token(token, expires_on, opts \\ [])
+  def platform_connect_workspace_token(token, expires_on, opts \\ [])
       when is_binary(token) do
     token = String.trim(token)
     actor_user_id = Keyword.get(opts, :actor_user_id)
@@ -305,8 +371,8 @@ defmodule Fountain.ChatGPTAccounts do
   platform `OPENAI_API_KEY`, or to no credential. `:ok` either way; the
   event is recorded only when a row was there.
   """
-  @spec _unsafe_platform_disconnect(keyword()) :: :ok
-  def _unsafe_platform_disconnect(opts \\ []) do
+  @spec platform_disconnect(keyword()) :: :ok
+  def platform_disconnect(opts \\ []) do
     {:ok, deleted} =
       Repo.transaction(fn ->
         case locked_platform_row() do
@@ -375,8 +441,8 @@ defmodule Fountain.ChatGPTAccounts do
   `{:ok, :skipped}` (nothing to do: not connected, not a refreshable grant,
   or renewed recently), or the refresh's error.
   """
-  @spec _unsafe_platform_keepalive() :: {:ok, :refreshed | :skipped} | {:error, term()}
-  def _unsafe_platform_keepalive do
+  @spec platform_keepalive() :: {:ok, :refreshed | :skipped} | {:error, term()}
+  def platform_keepalive do
     case platform_row() do
       %Account{status: "active", refresh_token_ciphertext: cipher} = row
       when is_binary(cipher) ->
@@ -402,7 +468,7 @@ defmodule Fountain.ChatGPTAccounts do
   # write checks the generation, version and active state this read started
   # from. A losing refresher may serve a winner from the same generation,
   # but cannot overwrite or serve a replacement account.
-  def _unsafe_platform_refresh_serialized(mode) do
+  def platform_refresh_serialized(mode) do
     case platform_row() do
       nil ->
         {:error, :not_connected}
@@ -553,11 +619,11 @@ defmodule Fountain.ChatGPTAccounts do
   end
 
   # `:stale` is narrow here in a way it is not on the refresh path: nothing
-  # blocks between the read in `_unsafe_platform_access_token/0` and this
-  # write, so only a reconnect landing inside those microseconds loses the
-  # fence. It is still routed through `current_result/1` rather than assumed
-  # away, because reporting `:expired` for a grant that is now active is the
-  # same class of wrong answer the fence exists to prevent.
+  # blocks between the read in `platform_access_token/0` and this write, so
+  # only a reconnect landing inside those microseconds loses the fence. It is
+  # still routed through `current_result/1` rather than assumed away, because
+  # reporting `:expired` for a grant that is now active is the same class of
+  # wrong answer the fence exists to prevent.
   defp mark_expired(row) do
     {count, _} =
       current_query(row)
@@ -595,7 +661,7 @@ defmodule Fountain.ChatGPTAccounts do
   defp fresh?(%Account{access_expires_at: nil}), do: true
 
   defp fresh?(%Account{access_expires_at: at}) do
-    DateTime.diff(at, DateTime.utc_now(), :second) > _unsafe_platform_refresh_margin_seconds()
+    DateTime.diff(at, DateTime.utc_now(), :second) > platform_refresh_margin_seconds()
   end
 
   defp lapsed?(%Account{access_expires_at: %DateTime{} = at}),
@@ -606,12 +672,12 @@ defmodule Fountain.ChatGPTAccounts do
   defp stale_for_keepalive?(%Account{last_refreshed_at: nil}), do: true
 
   defp stale_for_keepalive?(%Account{last_refreshed_at: at}) do
-    DateTime.diff(DateTime.utc_now(), at, :day) >= _unsafe_platform_keepalive_days()
+    DateTime.diff(DateTime.utc_now(), at, :day) >= platform_keepalive_days()
   end
 
   @doc "How far ahead of the access token's expiry a refresh happens (`PLATFORM_CHATGPT_REFRESH_MARGIN_SECONDS`, default 900)."
-  @spec _unsafe_platform_refresh_margin_seconds() :: non_neg_integer()
-  def _unsafe_platform_refresh_margin_seconds do
+  @spec platform_refresh_margin_seconds() :: non_neg_integer()
+  def platform_refresh_margin_seconds do
     case Application.get_env(:fountain, :platform_chatgpt_refresh_margin_seconds) do
       n when is_integer(n) and n >= 0 -> n
       _ -> 900
@@ -619,8 +685,8 @@ defmodule Fountain.ChatGPTAccounts do
   end
 
   @doc "How long a grant may go unrefreshed before the keepalive renews it (`PLATFORM_CHATGPT_KEEPALIVE_DAYS`, default 6)."
-  @spec _unsafe_platform_keepalive_days() :: non_neg_integer()
-  def _unsafe_platform_keepalive_days do
+  @spec platform_keepalive_days() :: non_neg_integer()
+  def platform_keepalive_days do
     case Application.get_env(:fountain, :platform_chatgpt_keepalive_days) do
       n when is_integer(n) and n >= 0 -> n
       _ -> 6

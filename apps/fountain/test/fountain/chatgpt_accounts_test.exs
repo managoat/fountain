@@ -34,6 +34,27 @@ defmodule Fountain.ChatGPTAccountsTest do
 
     assert {:error, :stale_grant} =
              ChatGPTAccounts.credential_for_user(grant.id, owner.id, Ecto.UUID.generate())
+
+    # The metadata read produces the pin the credential read takes, so the
+    # two compose without a caller reaching for the schema.
+    pin = ChatGPTAccounts.status_for_user(owner.id)
+
+    assert {:ok, %Grant{}} =
+             ChatGPTAccounts.credential_for_user(pin.grant_id, owner.id, pin.generation)
+  end
+
+  test "every terminal code OAuth names survives the reason allowlist" do
+    owner = insert_verified_user()
+    grant = user_grant(owner)
+
+    for code <- Fountain.PlatformChatGPT.OAuth.terminal_codes() do
+      Account
+      |> Repo.get!(grant.id)
+      |> change(%{status: "revoked", revoked_reason: code})
+      |> Repo.update!()
+
+      assert ChatGPTAccounts.status_for_user(owner.id).revoked_reason == code
+    end
   end
 
   test "metadata reads neither decrypt nor refresh and sanitize an unknown failure reason" do
@@ -48,6 +69,8 @@ defmodule Fountain.ChatGPTAccountsTest do
     assert status.account_id == grant.account_id
     assert status.status == "revoked"
     assert status.revoked_reason == "provider_error"
+    assert status.grant_id == grant.id
+    assert status.generation == grant.generation
     refute Map.has_key?(status, :access_token_ciphertext)
     refute Map.has_key?(status, :refresh_token_ciphertext)
     refute inspect(status) =~ "raw-provider-secret"

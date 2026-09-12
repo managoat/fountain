@@ -36,6 +36,15 @@ defmodule Fountain.PlatformChatGPT.OAuth do
   def client_id, do: @client_id
 
   @doc """
+  The error codes that mean the refresh token will never work again, and so
+  the only ones a stored `revoked_reason` can hold. Callers that show a
+  reason to a tenant allowlist against this rather than restating it: the
+  list moved once already and a copy of it drifted.
+  """
+  @spec terminal_codes() :: [String.t()]
+  def terminal_codes, do: @terminal
+
+  @doc """
   Exchange a refresh token for a fresh set. `{:error, {:terminal, code}}`
   when the server says the token will never work again; any other failure
   is transient and the caller keeps what it has.

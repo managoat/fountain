@@ -244,10 +244,66 @@ defmodule Fountain.InferenceCredentials do
   True also when the model's provider needs none at all (a local model, a
   gateway): there is nothing missing, which is the same answer
   `missing_for_model/2` gives.
+
+  `opts` may name a launch's `:environment_id` and `:vault_id`. With either,
+  a secret of theirs named after a credential the provider accepts counts as
+  the tenant's own, because it is what will serve the conversation (ADR 0053
+  decision 5). With neither — every caller that has no launch in hand — this
+  is exactly the row question it has always been, and runs no extra query.
   """
-  @spec has_own?(binary(), String.t() | nil) :: boolean()
-  def has_own?(user_id, model) when is_binary(user_id),
-    do: is_nil(missing_for_model(user_id, model))
+  @spec has_own?(binary(), String.t() | nil, keyword()) :: boolean()
+  def has_own?(user_id, model, opts \\ []) when is_binary(user_id) do
+    case missing_for_model(user_id, model) do
+      nil -> true
+      {_provider, accepted} -> shadowed?(accepted, secret_keys(user_id, opts))
+    end
+  end
+
+  @doc """
+  Which of the static credential names this launch's environment or vault
+  defines.
+
+  Names, never values, and only the four `env_names/0` knows: this answers
+  "would a tenant secret serve this conversation", which is what keeps a
+  tenant who brought their own key off the platform ledger and out of the
+  deployment's daily ceiling.
+
+  Scoped by joining the owning row to `user_id`, so an id belonging to
+  another tenant contributes nothing rather than leaking the fact that it
+  exists. Both ids absent is the common case and runs no query.
+  """
+  @spec secret_keys(binary(), keyword()) :: [String.t()]
+  def secret_keys(user_id, opts \\ []) when is_binary(user_id) do
+    env_id = Keyword.get(opts, :environment_id)
+    vault_id = Keyword.get(opts, :vault_id)
+    names = Map.values(@env_names)
+
+    env_keys =
+      if env_id do
+        Repo.all(
+          from s in Fountain.Environments.Secret,
+            join: e in assoc(s, :environment),
+            where: e.user_id == ^user_id and s.environment_id == ^env_id and s.key in ^names,
+            select: s.key
+        )
+      else
+        []
+      end
+
+    vault_keys =
+      if vault_id do
+        Repo.all(
+          from s in Fountain.Vaults.VaultSecret,
+            join: v in assoc(s, :vault),
+            where: v.user_id == ^user_id and s.vault_id == ^vault_id and s.key in ^names,
+            select: s.key
+        )
+      else
+        []
+      end
+
+    Enum.uniq(env_keys ++ vault_keys)
+  end
 
   @doc """
   Which credential a conversation on `model` runs on (#1388, ADR 0038

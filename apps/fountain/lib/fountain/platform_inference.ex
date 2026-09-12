@@ -334,14 +334,22 @@ defmodule Fountain.PlatformInference do
   `runtime` is the agent's: a codex agent on an `openai` model may run on the
   deployment's ChatGPT grant instead of a key (ADR 0047), which the ceiling
   counts the same way.
+
+  `opts` names this launch's `:environment_id` and `:vault_id` so question 2
+  asks what the provision will answer. A secret of theirs named after a
+  credential serves the conversation instead of the platform key (ADR 0053
+  decision 5), so without them this door refused a tenant running on their
+  own key once the deployment had spent its day. The extra read happens only
+  when the first question already said yes and the account holds no row, so
+  a deployment with no platform key still costs nothing here.
   """
-  @spec gate(binary(), String.t() | nil, String.t() | nil) ::
+  @spec gate(binary(), String.t() | nil, String.t() | nil, keyword()) ::
           :ok | {:error, :platform_inference_unavailable}
-  def gate(user_id, model, runtime \\ nil) when is_binary(user_id) do
+  def gate(user_id, model, runtime \\ nil, opts \\ []) when is_binary(user_id) do
     provider = Managoat.Runtimes.Model.provider(model)
 
     if serves?(provider, runtime, Fountain.Broker.enabled_for?(user_id)) and
-         not Fountain.InferenceCredentials.has_own?(user_id, model) do
+         not Fountain.InferenceCredentials.has_own?(user_id, model, opts) do
       check_ceiling()
     else
       :ok

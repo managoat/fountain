@@ -12,6 +12,7 @@ defmodule Fountain.PlatformInferenceTest do
   import Ecto.Query, only: [from: 2]
 
   alias Fountain.Credits
+  alias Fountain.Environments
   alias Fountain.InferenceCredentials
   alias Fountain.InferenceCredentials.Source
   alias Fountain.PlatformInference
@@ -283,6 +284,69 @@ defmodule Fountain.PlatformInferenceTest do
       assert PlatformInference.gate(user.id, "anthropic/claude-opus-5") == :ok
       # And the same account without the key would have been refused.
       assert PlatformInference.gate(insert_verified_user().id, "anthropic/claude-opus-5") ==
+               {:error, :platform_inference_unavailable}
+    end
+
+    # ADR 0053 decision 5. A vault or environment secret named after a
+    # credential serves the conversation instead of the platform key, so a
+    # tenant who brought one was being refused on a ceiling they were not
+    # spending against. The launch's ids are what make the door ask the
+    # question the provision answers.
+    test "a tenant whose vault names the credential is not refused either", %{user: user} do
+      with_platform_key()
+      Application.put_env(:fountain, :platform_inference_daily_cents, 0)
+      burn_inference(user, 500)
+
+      vault = insert_vault(user_id: user.id)
+      insert_vault_secret(vault, key: "ANTHROPIC_API_KEY", value: "sk-from-the-vault")
+
+      assert PlatformInference.gate(user.id, "anthropic/claude-opus-5", nil, vault_id: vault.id) ==
+               :ok
+
+      # The same launch without the vault, and the same vault under another
+      # tenant, are both still refused.
+      assert PlatformInference.gate(user.id, "anthropic/claude-opus-5") ==
+               {:error, :platform_inference_unavailable}
+
+      assert PlatformInference.gate(
+               insert_verified_user().id,
+               "anthropic/claude-opus-5",
+               nil,
+               vault_id: vault.id
+             ) == {:error, :platform_inference_unavailable}
+    end
+
+    test "an environment naming the credential counts too, and an unrelated key does not",
+         %{user: user} do
+      with_platform_key()
+      Application.put_env(:fountain, :platform_inference_daily_cents, 0)
+      burn_inference(user, 500)
+
+      env = insert_env(user_id: user.id)
+      {:ok, dek} = Fountain.Crypto.load_tenant_key(user.id)
+      {:ok, _} = Environments.upsert_secret(env, %{"key" => "UNRELATED", "value" => "x"}, dek)
+
+      assert PlatformInference.gate(user.id, "anthropic/claude-opus-5", nil,
+               environment_id: env.id
+             ) == {:error, :platform_inference_unavailable}
+
+      {:ok, _} =
+        Environments.upsert_secret(env, %{"key" => "ANTHROPIC_API_KEY", "value" => "sk-e"}, dek)
+
+      assert PlatformInference.gate(user.id, "anthropic/claude-opus-5", nil,
+               environment_id: env.id
+             ) == :ok
+    end
+
+    test "a secret for another provider does not excuse this one", %{user: user} do
+      with_platform_key()
+      Application.put_env(:fountain, :platform_inference_daily_cents, 0)
+      burn_inference(user, 500)
+
+      vault = insert_vault(user_id: user.id)
+      insert_vault_secret(vault, key: "OPENAI_API_KEY", value: "sk-openai")
+
+      assert PlatformInference.gate(user.id, "anthropic/claude-opus-5", nil, vault_id: vault.id) ==
                {:error, :platform_inference_unavailable}
     end
 

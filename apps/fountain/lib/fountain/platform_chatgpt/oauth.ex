@@ -37,8 +37,8 @@ defmodule Fountain.PlatformChatGPT.OAuth do
 
   @refresh_connect_timeout 2_000
   @refresh_pool_timeout 1_000
-  @refresh_receive_timeout 3_000
-  @refresh_request_timeout 12_000
+  @refresh_receive_timeout 6_000
+  @refresh_request_timeout 9_000
 
   defp refresh_finch_options do
     [
@@ -95,7 +95,14 @@ defmodule Fountain.PlatformChatGPT.OAuth do
     # so the ceiling is the two added together, not the larger of them.
     # Measured: a provider dripping for 11s and then going silent took 22.8s
     # under 12/12 and the pool force-disconnected the connection mid-flight.
-    # 12 + 3 + 2 + 1 = 18s leaves the transaction two seconds of headroom.
+    # 9 + 6 + 2 + 1 = 18s leaves the transaction two seconds of headroom.
+    #
+    # Split that way round because `:receive_timeout` bounds the *first*
+    # receive as well as the gaps: finch enters `receive_response([], ...)`
+    # straight after the send (`http1/conn.ex:130`), so it is how long the
+    # auth server has to begin answering at all. `:request_timeout` covers
+    # the body, and this body is a few hundred bytes. Six seconds of server
+    # think time and nine for the whole response beats the reverse.
     #
     # `:request_timeout` applies to HTTP/1 only, hence the protocol pin. It
     # is scoped to this exchange: Req starts a separate Finch instance named

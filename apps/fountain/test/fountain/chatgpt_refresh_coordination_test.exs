@@ -254,18 +254,27 @@ defmodule Fountain.ChatGPTRefreshCoordinationTest do
   # pool for the next checkout to inherit.
   test "the lock is scoped to the transaction, not left on the pooled connection" do
     grant_id = Ecto.UUID.generate()
-    assert {:ok, :done} = RefreshLock.run(grant_id, fn -> {:ok, :done} end)
-    assert advisory_locks_held() == 0
 
-    # A rollback and a raise unwind by different routes; neither may strand a
-    # lock on the connection they borrowed.
-    assert {:error, :refresh_unavailable} =
-             RefreshLock.run(grant_id, fn -> Repo.rollback(:failed) end)
+    # `Repo.checkout/1` pins one connection for the whole body, so the lock
+    # and the `pg_backend_pid()` that looks for it are the same backend. Two
+    # connections in this pool and a free choice of either made the check
+    # miss a real session lock roughly half the time. This is a checkout and
+    # not a transaction, so `run/3`'s "never inside a transaction" contract
+    # still holds -- the xact lock has an enclosing transaction of its own.
+    Repo.checkout(fn ->
+      assert {:ok, :done} = RefreshLock.run(grant_id, fn -> {:ok, :done} end)
+      assert advisory_locks_held() == 0
 
-    assert advisory_locks_held() == 0
+      # A rollback and a raise unwind by different routes; neither may strand
+      # a lock on the connection they borrowed.
+      assert {:error, :refresh_unavailable} =
+               RefreshLock.run(grant_id, fn -> Repo.rollback(:failed) end)
 
-    assert catch_throw(RefreshLock.run(grant_id, fn -> throw(:boom) end)) == :boom
-    assert advisory_locks_held() == 0
+      assert advisory_locks_held() == 0
+
+      assert catch_throw(RefreshLock.run(grant_id, fn -> throw(:boom) end)) == :boom
+      assert advisory_locks_held() == 0
+    end)
   end
 
   test "rollback releases the lock without returning the callback's success" do
@@ -326,8 +335,15 @@ defmodule Fountain.ChatGPTRefreshCoordinationTest do
       started = System.monotonic_time(:millisecond)
       assert {:error, {:token, _timeout}} = PlatformChatGPT.refresh_serialized(:if_stale)
       elapsed = System.monotonic_time(:millisecond) - started
-      assert elapsed >= 11_000
-      assert elapsed < 19_000
+      # Chunks arrive every 250ms, so `:receive_timeout` never fires and
+      # `:request_timeout` is what ends this. Bound it by the thing that
+      # actually matters rather than by a copy of the constant: the whole
+      # exchange has to finish inside the transaction holding the
+      # connection. The lower bound only says it waited on the provider
+      # instead of failing fast.
+      assert elapsed >= 1_000
+      assert elapsed < Fountain.PlatformChatGPT.OAuth.refresh_timeout_ceiling_ms()
+      assert elapsed < RefreshLock.transaction_timeout_ms()
       current = Repo.get!(Account, original.id)
       assert current.lock_version == original.lock_version
       assert current.status == "active"
@@ -359,9 +375,9 @@ defmodule Fountain.ChatGPTRefreshCoordinationTest do
     end)
   end
 
-  # Every checkout in this pool ran `RefreshLock.run/3`, so any advisory lock
-  # still held by whichever connection answers is one that outlived its
-  # transaction. `pg_backend_pid()` scopes the count to this connection.
+  # Counts only locks held by the backend answering this query, which is why
+  # the caller pins the connection first: on a free choice between two, the
+  # query can land on the one that never ran the lock and see zero.
   defp advisory_locks_held do
     %{rows: [[held]]} =
       Repo.query!(

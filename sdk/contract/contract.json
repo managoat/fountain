@@ -382,6 +382,46 @@
         }
       }
     },
+    "DELETE /api/claimable-users/{id}/inference-credentials/{provider}": {
+      "operation_id": "FountainWeb.ClaimableUserController.delete_inference_credential",
+      "path_params": [
+        "id",
+        "provider"
+      ],
+      "responses": {
+        "204": {},
+        "401": {
+          "application/json": {
+            "ref": "Error"
+          }
+        },
+        "403": {
+          "application/json": {
+            "ref": "Error"
+          }
+        },
+        "404": {
+          "application/json": {
+            "ref": "Error"
+          }
+        },
+        "406": {
+          "application/json": {
+            "ref": "NegotiationError"
+          }
+        },
+        "422": {
+          "application/json": {
+            "ref": "Error"
+          }
+        },
+        "429": {
+          "application/json": {
+            "ref": "Error"
+          }
+        }
+      }
+    },
     "DELETE /api/connection-providers/{id}": {
       "operation_id": "FountainWeb.ConnectionProviderController.delete",
       "path_params": [
@@ -8097,6 +8137,54 @@
             "ref": "BuzzIdentityResponse"
           }
         },
+        "401": {
+          "application/json": {
+            "ref": "Error"
+          }
+        },
+        "403": {
+          "application/json": {
+            "ref": "Error"
+          }
+        },
+        "404": {
+          "application/json": {
+            "ref": "Error"
+          }
+        },
+        "406": {
+          "application/json": {
+            "ref": "NegotiationError"
+          }
+        },
+        "422": {
+          "application/json": {
+            "ref": "Error"
+          }
+        },
+        "429": {
+          "application/json": {
+            "ref": "Error"
+          }
+        }
+      }
+    },
+    "PUT /api/claimable-users/{id}/inference-credentials/{provider}": {
+      "operation_id": "FountainWeb.ClaimableUserController.put_inference_credential",
+      "path_params": [
+        "id",
+        "provider"
+      ],
+      "request_body": {
+        "content": {
+          "application/json": {
+            "ref": "InferenceCredentialRequest"
+          }
+        },
+        "required": false
+      },
+      "responses": {
+        "204": {},
         "401": {
           "application/json": {
             "ref": "Error"

@@ -134,6 +134,59 @@ defmodule Fountain.Principals do
     |> Repo.one()
   end
 
+  @doc """
+  Write or clear one provider credential on a principal, as the account
+  behind it (ADR 0053 decision 7).
+
+  A principal is a first-class tenant with its own credential rows, and a
+  `principal`-scoped key cannot write account state -- so without this an
+  application could open a principal for a customer and then have no way to
+  put that customer's inference key on it. That gap is what kept a business
+  managing several end customers on one shared account instead of one
+  principal each.
+
+  `viewer_id` is authorised exactly as `get_claimable_for/2` authorises a
+  read: the application that opened the principal, or the account that
+  claimed it. Anyone else gets `:not_found`, so a grant id cannot be probed.
+  The principal's own credential gains nothing from this route.
+
+  The value is encrypted under the **principal's** DEK and lands in the
+  principal's default credential set, because it is the principal's
+  credential; the owner is only who asked. The trail is the principal's too,
+  with the acting account named in the metadata.
+  """
+  @spec put_inference_credential(binary(), binary(), atom(), String.t() | nil, keyword()) ::
+          {:ok, Fountain.InferenceCredentials.Credential.t()}
+          | {:error, :not_found | :tenant_key_unavailable | Ecto.Changeset.t()}
+  def put_inference_credential(id, viewer_id, provider, value, opts \\ [])
+      when is_binary(id) and is_binary(viewer_id) do
+    with %ClaimableUser{user_id: principal_id} <- get_claimable_for(id, viewer_id) || :none,
+         {:ok, dek} <- load_principal_key(principal_id) do
+      Fountain.InferenceCredentials.put_credential(
+        principal_id,
+        dek,
+        provider,
+        value,
+        Keyword.update(
+          opts,
+          :metadata,
+          %{"by_account" => viewer_id},
+          &Map.put(&1, "by_account", viewer_id)
+        )
+      )
+    else
+      :none -> {:error, :not_found}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp load_principal_key(principal_id) do
+    case Fountain.Crypto.load_tenant_key(principal_id) do
+      {:ok, dek} -> {:ok, dek}
+      {:error, _reason} -> {:error, :tenant_key_unavailable}
+    end
+  end
+
   @doc "Every principal `owner_user_id` holds, oldest first."
   @spec list_owned(binary()) :: [binary()]
   def list_owned(owner_user_id) when is_binary(owner_user_id) do

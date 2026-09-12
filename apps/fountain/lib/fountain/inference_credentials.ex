@@ -298,11 +298,15 @@ defmodule Fountain.InferenceCredentials do
       # "what changed" while an account held one row; with several it does
       # not, and a trail that cannot say which key moved cannot explain the
       # turn that ran on it. Still no value, and still no ciphertext.
-      metadata: %{
-        "provider" => Atom.to_string(provider),
-        "set_id" => set.id,
-        "set" => set.name
-      }
+      # Merged over the caller's, so a surface acting for somebody else can
+      # name who asked (`Principals.put_inference_credential/5`) without this
+      # function knowing about it.
+      metadata:
+        Map.merge(Keyword.get(opts, :metadata, %{}), %{
+          "provider" => Atom.to_string(provider),
+          "set_id" => set.id,
+          "set" => set.name
+        })
     })
 
     ok

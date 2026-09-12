@@ -1085,6 +1085,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/claimable-users/{id}/inference-credentials/{provider}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set a provider credential on a principal
+         * @description Stores the credential encrypted under the principal's own tenant key. A principal is a first-class tenant and a `principal`-scoped key cannot write account state, so this is how the application that opened it (or the account that claimed it) puts a customer's inference key on it. The principal's own credential gains nothing from this route.
+         */
+        put: operations["FountainWeb.ClaimableUserController.put_inference_credential"];
+        post?: never;
+        /** Clear a provider credential on a principal */
+        delete: operations["FountainWeb.ClaimableUserController.delete_inference_credential"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/connection-providers": {
         parameters: {
             query?: never;
@@ -10328,6 +10349,163 @@ export interface operations {
             };
             /** @description Expired or released */
             410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    "FountainWeb.ClaimableUserController.put_inference_credential": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The grant's id. */
+                id: string;
+                provider: "anthropic_api_key" | "claude_code_oauth_token" | "openai_api_key" | "gemini_api_key";
+            };
+            cookie?: never;
+        };
+        /** @description Credential */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["InferenceCredentialRequest"];
+            };
+        };
+        responses: {
+            /** @description Stored */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Missing or invalid key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not a full-scope key */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No such grant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No acceptable representation */
+            406: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NegotiationError"];
+                };
+            };
+            /** @description Blank value or unknown provider */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    "FountainWeb.ClaimableUserController.delete_inference_credential": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The grant's id. */
+                id: string;
+                provider: "anthropic_api_key" | "claude_code_oauth_token" | "openai_api_key" | "gemini_api_key";
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Cleared */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Missing or invalid key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not a full-scope key */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No such grant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No acceptable representation */
+            406: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NegotiationError"];
+                };
+            };
+            /** @description Unknown provider */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };

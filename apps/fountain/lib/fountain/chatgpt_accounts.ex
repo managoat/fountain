@@ -1,0 +1,665 @@
+defmodule Fountain.ChatGPTAccounts do
+  @moduledoc """
+  Owner-scoped ChatGPT grant storage (ADR 0052).
+
+  User reads require an authenticated owner and never fall through to the
+  platform row. The `_unsafe_platform_*` functions implement the existing
+  admin lifecycle behind `Fountain.PlatformChatGPT`'s compatibility wrapper.
+  Token encryption is selected by immutable row ownership.
+
+  This foundation does not connect user grants, coordinate refresh across
+  nodes, or select user grants for conversations. Those paths remain unbuilt.
+  User credential reads refuse grants needing renewal rather than invoking
+  the existing platform-only refresher.
+  """
+
+  import Ecto.Query, only: [from: 2]
+
+  require Logger
+
+  alias Fountain.Audit
+  alias Fountain.ChatGPTAccounts.{Cipher, Grant}
+  alias Fountain.PlatformChatGPT.{Account, OAuth, Refresher, Tokens}
+  alias Fountain.Repo
+
+  @system_actor "system:platform_chatgpt"
+
+  @doc "Connection metadata only; does not decrypt tokens or start a refresh."
+  @spec status_for_user(String.t()) :: :not_connected | map()
+  def status_for_user(user_id) when is_binary(user_id) do
+    from(a in Account,
+      where: a.user_id == ^user_id,
+      select: %{
+        status: a.status,
+        kind: a.kind,
+        account_id: a.account_id,
+        account_email: a.account_email,
+        plan_type: a.plan_type,
+        access_expires_at: a.access_expires_at,
+        last_refreshed_at: a.last_refreshed_at,
+        revoked_reason: a.revoked_reason,
+        updated_at: a.updated_at
+      }
+    )
+    |> Repo.one()
+    |> case do
+      nil -> :not_connected
+      status -> Map.update!(status, :revoked_reason, &safe_reason/1)
+    end
+  end
+
+  @doc """
+  Internal server credential read for an explicitly selected user grant.
+
+  The owner scopes the first query. The returned bearer and provider metadata
+  come from one row version. No refresh or paid fallback occurs here; a grant
+  within the refresh margin returns `:refresh_required`. This function is not
+  exposed by an account API or connected to conversation selection yet.
+  """
+  @spec credential_for_user(String.t(), String.t(), Ecto.UUID.t()) ::
+          {:ok, Grant.t()} | {:error, atom()}
+  def credential_for_user(grant_id, user_id, generation)
+      when is_binary(grant_id) and is_binary(user_id) and is_binary(generation) do
+    case Repo.one(from(a in Account, where: a.user_id == ^user_id and a.id == ^grant_id)) do
+      nil -> {:error, :not_connected}
+      %Account{generation: ^generation} = account -> user_credential(account)
+      %Account{} -> {:error, :stale_grant}
+    end
+  end
+
+  defp user_credential(%Account{status: "revoked"}), do: {:error, :revoked}
+  defp user_credential(%Account{status: "expired"}), do: {:error, :expired}
+
+  defp user_credential(%Account{status: "active", kind: "chatgpt", account_id: id} = account)
+       when is_binary(id) and id != "" do
+    if fresh?(account) do
+      with {:ok, access_token} <- Cipher.decrypt_token(account, :access_token) do
+        {:ok, Grant.new(account, access_token)}
+      end
+    else
+      {:error, :refresh_required}
+    end
+  end
+
+  defp user_credential(_), do: {:error, :invalid_grant}
+
+  defp safe_reason(nil), do: nil
+
+  defp safe_reason(reason)
+       when reason in ~w(invalid_grant refresh_token_reused refresh_token_expired refresh_token_invalidated),
+       do: reason
+
+  defp safe_reason(_), do: "provider_error"
+
+  # ── reads ────────────────────────────────────────────────────────────────
+
+  @doc "Whether the deployment holds a usable grant right now (no refresh is attempted)."
+  @spec _unsafe_platform_active?() :: boolean()
+  def _unsafe_platform_active?, do: match?(%Account{status: "active"}, platform_row())
+
+  @doc """
+  The grant as `Fountain.InferenceCredentials.select/4` wants it:
+  `{:ok, access_token}` when it is active and refreshable, else `:none`.
+
+  `refresh: false` answers from the row alone, refreshing nothing: for a
+  caller that only asks whether a grant is there (a page render), not for
+  one about to hand the token to a sandbox.
+  """
+  @spec _unsafe_platform_credential(keyword()) :: {:ok, String.t()} | :none
+  def _unsafe_platform_credential(opts \\ []) do
+    if Keyword.get(opts, :refresh, true) do
+      case _unsafe_platform_access_token() do
+        {:ok, token} -> {:ok, token}
+        _ -> :none
+      end
+    else
+      case platform_row() do
+        %Account{status: "active"} = row ->
+          case Cipher.decrypt_token(row, :access_token) do
+            {:ok, token} -> {:ok, token}
+            _ -> :none
+          end
+
+        _ ->
+          :none
+      end
+    end
+  end
+
+  @doc """
+  A valid access token, refreshing when within the margin of expiry.
+  `{:error, :not_connected}`, `{:error, :revoked}` or `{:error, :expired}`
+  when there is nothing to hand out; a transient refresh failure comes
+  back as its reason and the caller keeps what it has.
+  """
+  @spec _unsafe_platform_access_token() :: {:ok, String.t()} | {:error, term()}
+  def _unsafe_platform_access_token do
+    case platform_row() do
+      nil -> {:error, :not_connected}
+      %Account{status: "revoked"} -> {:error, :revoked}
+      %Account{status: "expired"} -> {:error, :expired}
+      %Account{} = row -> serve(row)
+    end
+  end
+
+  defp serve(row) do
+    cond do
+      fresh?(row) -> Cipher.decrypt_token(row, :access_token)
+      is_nil(row.refresh_token_ciphertext) -> expire_or_serve(row)
+      true -> Refresher.refresh(:if_stale)
+    end
+  end
+
+  # A workspace token has no refresh token: it is served until it has
+  # really lapsed (the margin is for refreshing, not for cutting off), then
+  # the row goes `expired`.
+  defp expire_or_serve(row) do
+    if lapsed?(row) do
+      case mark_expired(row) do
+        :ok -> {:error, :expired}
+        :stale -> current_result(row)
+      end
+    else
+      Cipher.decrypt_token(row, :access_token)
+    end
+  end
+
+  @doc """
+  What the sandbox's `auth.json` carries beside the placeholder: the real
+  account id (not a secret; it goes in a header codex sends in the clear)
+  and an unsigned `id_token` built from the stored claims. Whatever the
+  row's status: the file holds a placeholder, and the token that matters is
+  the one the broker already took at selection. Only a row that is gone, or
+  one with no account id, is `:none`.
+  """
+  @spec _unsafe_platform_sandbox_auth() ::
+          {:ok, %{account_id: String.t(), id_token: String.t()}} | :none
+  def _unsafe_platform_sandbox_auth do
+    case platform_row() do
+      %Account{account_id: account_id, id_claims: claims} when is_binary(account_id) ->
+        {:ok, %{account_id: account_id, id_token: Tokens.synthesize_id_token(claims)}}
+
+      _ ->
+        :none
+    end
+  end
+
+  @doc """
+  The row for `/admin/inference`: `:not_connected`, or a map with `:status`
+  (`"active"` | `"revoked"` | `"expired"`), `:kind`, `:account_email`,
+  `:plan_type`, `:account_id`, `:access_expires_at`, `:last_refreshed_at`,
+  `:revoked_reason`, `:updated_at` and `:updated_by`.
+  """
+  @spec _unsafe_platform_status() :: :not_connected | map()
+  def _unsafe_platform_status do
+    case platform_row([:updated_by]) do
+      nil ->
+        :not_connected
+
+      row ->
+        %{
+          status: row.status,
+          kind: row.kind,
+          account_email: row.account_email,
+          plan_type: row.plan_type,
+          account_id: row.account_id,
+          access_expires_at: row.access_expires_at,
+          last_refreshed_at: row.last_refreshed_at,
+          revoked_reason: row.revoked_reason,
+          updated_at: row.updated_at,
+          updated_by: row.updated_by && row.updated_by.email
+        }
+    end
+  end
+
+  # ── connect / disconnect ─────────────────────────────────────────────────
+
+  @doc """
+  Connect from the `auth.json` a laptop's `codex login` wrote (OpenAI's own
+  CI recipe). Refused unless it is a ChatGPT login with a refresh token.
+  From here on that file is Fountain's: using it anywhere else breaks both.
+  """
+  @spec _unsafe_platform_connect_from_auth_json(String.t(), keyword()) ::
+          {:ok, Account.t()} | {:error, term()}
+  def _unsafe_platform_connect_from_auth_json(json, opts \\ []) do
+    with {:ok, tokens} <- Tokens.parse_auth_json(json) do
+      _unsafe_platform_connect_from_tokens(tokens, "paste", opts)
+    end
+  end
+
+  @doc """
+  Store a token set from a paste or the device flow. `method` is recorded
+  on the `admin.platform_chatgpt.connected` event. The `id_token` must
+  carry an account id: without it codex has nothing to send in
+  `chatgpt-account-id`, and the backend refuses the request.
+  """
+  @spec _unsafe_platform_connect_from_tokens(OAuth.tokens(), String.t(), keyword()) ::
+          {:ok, Account.t()} | {:error, term()}
+  def _unsafe_platform_connect_from_tokens(%{access_token: access} = tokens, method, opts \\ [])
+      when is_binary(access) and is_binary(method) do
+    with refresh when is_binary(refresh) and refresh != "" <-
+           Map.get(tokens, :refresh_token) || {:error, :no_refresh_token},
+         {:ok, claims} <- Tokens.claims(Map.get(tokens, :id_token) || "") do
+      actor_user_id = Keyword.get(opts, :actor_user_id)
+
+      attrs = %{
+        kind: "chatgpt",
+        refresh_token_ciphertext: Cipher.encrypt_platform_token(refresh),
+        access_token_ciphertext: Cipher.encrypt_platform_token(access),
+        id_claims: Map.drop(claims, ["email"]),
+        account_id: claims["account_id"],
+        account_email: claims["email"],
+        plan_type: claims["plan_type"],
+        access_expires_at: Tokens.expires_at(access),
+        last_refreshed_at: now(),
+        updated_by_user_id: actor_user_id
+      }
+
+      store(attrs, method, actor_user_id)
+    else
+      {:error, _} = error -> error
+      _ -> {:error, :no_refresh_token}
+    end
+  end
+
+  @doc """
+  Connect with a ChatGPT Business or Enterprise workspace access token
+  (`CODEX_ACCESS_TOKEN`): static, non-refreshing, and OpenAI's sanctioned
+  non-interactive credential, so where it exists it is the one to use.
+  `expires_on` is the expiry the admin console shows, or nil for none;
+  the row goes `expired` when it passes. The account id is taken from the
+  token when it is a JWT, else from `:account_id` in `opts`; without one
+  the connect is refused (`{:error, :no_account_id}`), because codex sends
+  it on every request and a row without it would fail every provision
+  while the page said "connected".
+  """
+  @spec _unsafe_platform_connect_workspace_token(String.t(), Date.t() | nil, keyword()) ::
+          {:ok, Account.t()} | {:error, term()}
+  def _unsafe_platform_connect_workspace_token(token, expires_on, opts \\ [])
+      when is_binary(token) do
+    token = String.trim(token)
+    actor_user_id = Keyword.get(opts, :actor_user_id)
+
+    with :ok <- validate_token(token),
+         {:ok, account_id, claims} <- workspace_claims(token, Keyword.get(opts, :account_id)) do
+      attrs = %{
+        kind: "workspace_token",
+        refresh_token_ciphertext: nil,
+        access_token_ciphertext: Cipher.encrypt_platform_token(token),
+        id_claims: claims,
+        account_id: account_id,
+        account_email: nil,
+        plan_type: claims["plan_type"] || "workspace",
+        access_expires_at: workspace_expiry(token, expires_on),
+        last_refreshed_at: now(),
+        updated_by_user_id: actor_user_id
+      }
+
+      store(attrs, "workspace_token", actor_user_id)
+    end
+  end
+
+  @doc """
+  Forget the grant. Running conversations keep the session they hold until
+  their next turn's re-read; new codex conversations fall through to the
+  platform `OPENAI_API_KEY`, or to no credential. `:ok` either way; the
+  event is recorded only when a row was there.
+  """
+  @spec _unsafe_platform_disconnect(keyword()) :: :ok
+  def _unsafe_platform_disconnect(opts \\ []) do
+    {:ok, deleted} =
+      Repo.transaction(fn ->
+        case locked_platform_row() do
+          nil -> nil
+          row -> Repo.delete!(row)
+        end
+      end)
+
+    case deleted do
+      nil ->
+        :ok
+
+      %Account{} = row ->
+        Audit.record_admin(%{
+          actor_user_id: Keyword.get(opts, :actor_user_id),
+          event_type: "admin.platform_chatgpt.disconnected",
+          metadata: %{"account_id" => row.account_id, "kind" => row.kind}
+        })
+
+        :ok
+    end
+  end
+
+  # `locked_platform_row/0` holds `FOR UPDATE` for the whole transaction, so
+  # the optimistic lock in `connect_changeset/2` cannot lose a race; it is
+  # there to advance `lock_version` on a reconnect, not to detect one. Two
+  # concurrent connects onto an empty table meet
+  # `platform_chatgpt_account_platform_row` instead and one is refused.
+  defp store(attrs, method, actor_user_id) do
+    result =
+      Repo.transaction(fn ->
+        case (locked_platform_row() || %Account{})
+             |> Account.connect_changeset(attrs)
+             |> Repo.insert_or_update() do
+          {:ok, account} -> account
+          {:error, changeset} -> Repo.rollback(changeset)
+        end
+      end)
+
+    case result do
+      {:ok, account} ->
+        Audit.record_admin(%{
+          actor_user_id: actor_user_id,
+          event_type: "admin.platform_chatgpt.connected",
+          metadata: %{
+            "method" => method,
+            "kind" => account.kind,
+            "account_id" => account.account_id,
+            "email" => account.account_email,
+            "plan" => account.plan_type
+          }
+        })
+
+        {:ok, account}
+
+      {:error, _changeset} ->
+        {:error, :invalid_grant}
+    end
+  end
+
+  # ── refresh ──────────────────────────────────────────────────────────────
+
+  @doc """
+  Refresh the grant now if nobody has for `PLATFORM_CHATGPT_KEEPALIVE_DAYS`,
+  whatever the access token's expiry says. `{:ok, :refreshed}`,
+  `{:ok, :skipped}` (nothing to do: not connected, not a refreshable grant,
+  or renewed recently), or the refresh's error.
+  """
+  @spec _unsafe_platform_keepalive() :: {:ok, :refreshed | :skipped} | {:error, term()}
+  def _unsafe_platform_keepalive do
+    case platform_row() do
+      %Account{status: "active", refresh_token_ciphertext: cipher} = row
+      when is_binary(cipher) ->
+        if stale_for_keepalive?(row) do
+          case Refresher.refresh(:force) do
+            {:ok, _token} -> {:ok, :refreshed}
+            {:error, _} = error -> error
+          end
+        else
+          {:ok, :skipped}
+        end
+
+      _ ->
+        {:ok, :skipped}
+    end
+  end
+
+  @doc false
+  # The body of a refresh, run by `Fountain.PlatformChatGPT.Refresher` and
+  # by nothing else: one at a time on this node, no database lock and no
+  # connection held across the HTTP round-trip. The row is re-read here
+  # because a queued caller may find the refresh already done, and the
+  # write checks the generation, version and active state this read started
+  # from. A losing refresher may serve a winner from the same generation,
+  # but cannot overwrite or serve a replacement account.
+  def _unsafe_platform_refresh_serialized(mode) do
+    case platform_row() do
+      nil ->
+        {:error, :not_connected}
+
+      %Account{status: "revoked"} ->
+        {:error, :revoked}
+
+      %Account{status: "expired"} ->
+        {:error, :expired}
+
+      %Account{refresh_token_ciphertext: nil} = row ->
+        Cipher.decrypt_token(row, :access_token)
+
+      row when mode == :if_stale ->
+        if fresh?(row), do: Cipher.decrypt_token(row, :access_token), else: do_refresh(row)
+
+      row ->
+        do_refresh(row)
+    end
+  end
+
+  defp do_refresh(current) do
+    with {:ok, refresh} <- Cipher.decrypt_token(current, :refresh_token) do
+      case OAuth.refresh(refresh) do
+        {:ok, %{access_token: access} = fresh} ->
+          # The rotated refresh token lands before the access token is
+          # handed out: a crash between the two would otherwise leave the
+          # row holding a refresh token the server has already retired.
+          swap_in(current, refresh_attrs(fresh), access)
+
+        {:error, {:terminal, code}} ->
+          case mark_revoked(current, code) do
+            :ok -> {:error, :revoked}
+            :stale -> current_result(current)
+          end
+
+        {:error, reason} ->
+          Logger.warning(
+            "platform chatgpt: refresh failed, keeping the current token: " <> inspect(reason)
+          )
+
+          {:error, reason}
+      end
+    end
+  end
+
+  # Refresh and terminal writes share a fence. A reconnect may reuse the
+  # same refresh token, and a refresh need not rotate it, so ciphertext alone
+  # is not a lifecycle version. Never serve a replacement generation here:
+  # the caller may already have pinned the old provider account metadata.
+  defp swap_in(current, attrs, access) do
+    sets = attrs |> Map.put(:updated_at, now()) |> Enum.to_list()
+
+    {n, _} =
+      current_query(current)
+      |> Repo.update_all(set: sets, inc: [lock_version: 1])
+
+    case n do
+      1 -> {:ok, access}
+      0 -> current_result(current)
+    end
+  end
+
+  defp current_query(row) do
+    from(a in Account,
+      where:
+        is_nil(a.user_id) and a.id == ^row.id and a.generation == ^row.generation and
+          a.lock_version == ^row.lock_version and a.status == "active"
+    )
+  end
+
+  defp current_result(previous) do
+    case platform_row() do
+      nil ->
+        {:error, :not_connected}
+
+      %Account{id: id, generation: generation} = current
+      when id == previous.id and generation == previous.generation ->
+        case current.status do
+          "active" -> Cipher.decrypt_token(current, :access_token)
+          "revoked" -> {:error, :revoked}
+          "expired" -> {:error, :expired}
+          other -> {:error, {:unknown_status, other}}
+        end
+
+      %Account{} ->
+        {:error, :stale_grant}
+    end
+  end
+
+  defp refresh_attrs(%{access_token: access} = fresh) do
+    base = %{
+      access_token_ciphertext: Cipher.encrypt_platform_token(access),
+      access_expires_at: Tokens.expires_at(access),
+      last_refreshed_at: now()
+    }
+
+    base =
+      case fresh[:refresh_token] do
+        rotated when is_binary(rotated) and rotated != "" ->
+          Map.put(base, :refresh_token_ciphertext, Cipher.encrypt_platform_token(rotated))
+
+        _ ->
+          base
+      end
+
+    case fresh[:id_token] && Tokens.claims(fresh[:id_token]) do
+      {:ok, claims} ->
+        Map.merge(base, %{
+          id_claims: Map.drop(claims, ["email"]),
+          account_id: claims["account_id"],
+          account_email: claims["email"],
+          plan_type: claims["plan_type"]
+        })
+
+      _ ->
+        base
+    end
+  end
+
+  defp mark_revoked(row, code) do
+    {count, _} =
+      current_query(row)
+      |> Repo.update_all(
+        set: [status: "revoked", revoked_reason: code, updated_at: now()],
+        inc: [lock_version: 1]
+      )
+
+    if count == 1 do
+      record_revocation(row, code)
+      :ok
+    else
+      :stale
+    end
+  end
+
+  defp record_revocation(row, code) do
+    Audit.record_admin(%{
+      actor_user_id: nil,
+      event_type: "admin.platform_chatgpt.revoked",
+      metadata: %{"actor" => @system_actor, "reason" => code, "account_id" => row.account_id}
+    })
+
+    Logger.warning(
+      "platform chatgpt: the auth server refused the refresh token (#{code}); " <>
+        "codex conversations fall back to PLATFORM_OPENAI_API_KEY. Reconnect at /admin/inference."
+    )
+  end
+
+  # `:stale` is narrow here in a way it is not on the refresh path: nothing
+  # blocks between the read in `_unsafe_platform_access_token/0` and this
+  # write, so only a reconnect landing inside those microseconds loses the
+  # fence. It is still routed through `current_result/1` rather than assumed
+  # away, because reporting `:expired` for a grant that is now active is the
+  # same class of wrong answer the fence exists to prevent.
+  defp mark_expired(row) do
+    {count, _} =
+      current_query(row)
+      |> Repo.update_all(set: [status: "expired", updated_at: now()], inc: [lock_version: 1])
+
+    if count == 1 do
+      Audit.record_admin(%{
+        actor_user_id: nil,
+        event_type: "admin.platform_chatgpt.expired",
+        metadata: %{"actor" => @system_actor, "kind" => row.kind, "account_id" => row.account_id}
+      })
+
+      :ok
+    else
+      :stale
+    end
+  end
+
+  # ── helpers ──────────────────────────────────────────────────────────────
+
+  defp locked_platform_row do
+    Repo.one(from(a in Account, where: is_nil(a.user_id), lock: "FOR UPDATE"))
+  end
+
+  defp platform_row(preload \\ []) do
+    from(a in Account, where: is_nil(a.user_id))
+    |> Repo.one()
+    |> case do
+      nil -> nil
+      row -> Repo.preload(row, preload)
+    end
+  end
+
+  # No expiry known: the token stands until the server refuses it.
+  defp fresh?(%Account{access_expires_at: nil}), do: true
+
+  defp fresh?(%Account{access_expires_at: at}) do
+    DateTime.diff(at, DateTime.utc_now(), :second) > _unsafe_platform_refresh_margin_seconds()
+  end
+
+  defp lapsed?(%Account{access_expires_at: %DateTime{} = at}),
+    do: DateTime.compare(at, DateTime.utc_now()) != :gt
+
+  defp lapsed?(_row), do: false
+
+  defp stale_for_keepalive?(%Account{last_refreshed_at: nil}), do: true
+
+  defp stale_for_keepalive?(%Account{last_refreshed_at: at}) do
+    DateTime.diff(DateTime.utc_now(), at, :day) >= _unsafe_platform_keepalive_days()
+  end
+
+  @doc "How far ahead of the access token's expiry a refresh happens (`PLATFORM_CHATGPT_REFRESH_MARGIN_SECONDS`, default 900)."
+  @spec _unsafe_platform_refresh_margin_seconds() :: non_neg_integer()
+  def _unsafe_platform_refresh_margin_seconds do
+    case Application.get_env(:fountain, :platform_chatgpt_refresh_margin_seconds) do
+      n when is_integer(n) and n >= 0 -> n
+      _ -> 900
+    end
+  end
+
+  @doc "How long a grant may go unrefreshed before the keepalive renews it (`PLATFORM_CHATGPT_KEEPALIVE_DAYS`, default 6)."
+  @spec _unsafe_platform_keepalive_days() :: non_neg_integer()
+  def _unsafe_platform_keepalive_days do
+    case Application.get_env(:fountain, :platform_chatgpt_keepalive_days) do
+      n when is_integer(n) and n >= 0 -> n
+      _ -> 6
+    end
+  end
+
+  # A workspace token is opaque or a JWT; either way the account id comes
+  # from the token's claims when it has them, else from the admin.
+  defp workspace_claims(token, given_account_id) do
+    case Tokens.claims(token) do
+      {:ok, claims} ->
+        {:ok, claims["account_id"], Map.drop(claims, ["email"])}
+
+      {:error, _} ->
+        case String.trim(given_account_id || "") do
+          "" -> {:error, :no_account_id}
+          id -> {:ok, id, %{"account_id" => id}}
+        end
+    end
+  end
+
+  defp workspace_expiry(token, expires_on) do
+    case {Tokens.expires_at(token), expires_on} do
+      {%DateTime{} = at, _} -> at
+      {nil, %Date{} = on} -> DateTime.new!(on, ~T[23:59:59], "Etc/UTC")
+      {nil, _} -> nil
+    end
+  end
+
+  # Long enough for any token seen so far, short enough that a pasted file
+  # is refused rather than stored as a token.
+  @max_token_bytes 8_192
+
+  defp validate_token(""), do: {:error, :invalid_token}
+  defp validate_token(t) when byte_size(t) > @max_token_bytes, do: {:error, :invalid_token}
+
+  defp validate_token(t) do
+    if Regex.match?(~r/[[:space:][:cntrl:]]/u, t), do: {:error, :invalid_token}, else: :ok
+  end
+
+  defp now, do: DateTime.utc_now() |> DateTime.truncate(:second)
+end

@@ -1,10 +1,10 @@
 defmodule Fountain.PlatformChatGPT.Account do
   @moduledoc """
-  The deployment's ChatGPT grant for the codex runtime (ADR 0047): one row
-  whose `user_id` is nil. The refresh token and the access token are
-  encrypted under the master key (`Fountain.Crypto.encrypt_platform/1`);
-  `id_claims` holds the non-secret claims codex reads back from its
-  `id_token`, and nothing else from it.
+  A ChatGPT grant in the historical platform account table (ADRs 0047/0052).
+  The null-owner row uses platform encryption; owned rows use their owner's
+  DEK through `Fountain.ChatGPTAccounts.Cipher`. Ownership is not cast by
+  lifecycle changesets and cannot be changed through this interface.
+  `id_claims` holds the non-secret claims codex reads from its `id_token`.
 
   `kind` says what the row holds: `"chatgpt"` is a ChatGPT sign-in with a
   rotating refresh token that `Fountain.PlatformChatGPT` owns;
@@ -17,14 +17,13 @@ defmodule Fountain.PlatformChatGPT.Account do
 
   `connect_changeset/2` is the only changeset here, because it is the only
   write that starts a new lifecycle. Refresh, revocation and expiry are
-  fenced `update_all` statements in `Fountain.PlatformChatGPT`, conditioned
+  fenced `update_all` statements in `Fountain.ChatGPTAccounts`, conditioned
   on the generation and version the caller read. A changeset for one of them
   would write on the primary key alone and so would skip the fence, which is
   why the three that used to exist were removed rather than left unused.
 
-  There is no plaintext column and no `_unsafe_` reader: the deployment owns
-  this, not a tenant, and the only writers are the admin surface and the
-  refresher.
+  There is no plaintext column. User linking is not yet built; the current
+  application writers remain the admin surface and platform refresher.
   """
 
   use Ecto.Schema

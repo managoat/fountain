@@ -10,6 +10,40 @@ defmodule Fountain.ChatGPTAccounts.Cipher do
   # field-specific AAD, preventing token-field swaps and cross-owner copies.
   def encrypt_platform_token(token) when is_binary(token), do: Crypto.encrypt_platform(token)
 
+  @doc false
+  def encrypt_refresh_tokens(%Account{} = account, %{access_token: access} = tokens)
+      when is_binary(access) do
+    fields =
+      case tokens[:refresh_token] do
+        refresh when is_binary(refresh) and refresh != "" ->
+          %{access_token: access, refresh_token: refresh}
+
+        _ ->
+          %{access_token: access}
+      end
+
+    encrypt_fields(account.user_id, fields)
+  end
+
+  defp encrypt_fields(nil, fields) do
+    {:ok,
+     Map.new(fields, fn {field, token} ->
+       {ciphertext_field(field), encrypt_platform_token(token)}
+     end)}
+  end
+
+  defp encrypt_fields(user_id, fields) when is_binary(user_id) do
+    with {:ok, dek} <- Crypto.load_tenant_key(user_id) do
+      {:ok,
+       Map.new(fields, fn {field, token} ->
+         {ciphertext_field(field), Crypto.encrypt(token, dek, aad(user_id, field))}
+       end)}
+    end
+  end
+
+  defp ciphertext_field(:access_token), do: :access_token_ciphertext
+  defp ciphertext_field(:refresh_token), do: :refresh_token_ciphertext
+
   @spec encrypt_user_tokens(String.t(), map()) :: {:ok, map()} | {:error, atom()}
   def encrypt_user_tokens(user_id, %{access_token: access, refresh_token: refresh})
       when is_binary(user_id) and is_binary(access) and is_binary(refresh) do

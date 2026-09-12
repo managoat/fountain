@@ -63,6 +63,36 @@ defmodule Fountain.ChatGPTFixtures do
     account
   end
 
+  @doc "A directly inserted user fixture; application linking remains unbuilt."
+  def user_grant!(user_id, opts \\ %{}) do
+    alias Fountain.ChatGPTAccounts.Cipher
+    alias Fountain.PlatformChatGPT.{Account, Tokens}
+
+    access = Map.get(opts, :access_token, access_token(60))
+    account_id = Map.get(opts, :account_id, "acct-user")
+
+    {:ok, encrypted} =
+      Cipher.encrypt_user_tokens(user_id, %{
+        access_token: access,
+        refresh_token: Map.get(opts, :refresh_token, "rt_user")
+      })
+
+    attrs =
+      Map.merge(encrypted, %{
+        kind: "chatgpt",
+        account_id: account_id,
+        plan_type: "pro",
+        id_claims: %{"account_id" => account_id, "user_id" => "user_1", "plan_type" => "pro"},
+        access_expires_at: Tokens.expires_at(access),
+        last_refreshed_at:
+          Map.get(opts, :last_refreshed_at, DateTime.utc_now() |> DateTime.truncate(:second))
+      })
+
+    %Account{user_id: user_id}
+    |> Account.connect_changeset(attrs)
+    |> Fountain.Repo.insert!()
+  end
+
   @doc """
   Stub `auth.openai.com`. `handlers` maps a request path to a function of
   the decoded JSON body returning `{status, body}`; a path with no handler

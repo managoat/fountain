@@ -57,6 +57,7 @@ defmodule Fountain.Application do
         # (#1040). Supervised and unlinked, a crash here is a log line.
         {Task.Supervisor, name: Fountain.TaskSupervisor},
         Fountain.PlatformChatGPT.Refresher,
+        Fountain.ChatGPTAccounts.RefreshSupervisor,
         FountainWeb.Plugs.RateLimit.Sweeper,
         Fountain.Conversations.Redaction,
         Fountain.FeatureFlags.Cache,

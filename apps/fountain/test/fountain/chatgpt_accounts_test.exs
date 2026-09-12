@@ -192,7 +192,11 @@ defmodule Fountain.ChatGPTAccountsTest do
           {%{status: "active", account_id: nil}, :invalid_grant}
         ] do
       Account |> Repo.get!(grant.id) |> change(attrs) |> Repo.update!()
-      assert {:error, ^reason} = read(grant, owner)
+
+      assert {:error, ^reason} =
+               ChatGPTAccounts.credential_for_user(grant.id, owner.id, grant.generation,
+                 refresh: false
+               )
     end
   end
 
@@ -200,7 +204,11 @@ defmodule Fountain.ChatGPTAccountsTest do
     owner = insert_verified_user()
     expiry = Fountain.PlatformChatGPT.Tokens.expires_at(access_token(60))
     grant = user_grant(owner, %{access_expires_at: expiry})
-    assert {:error, :refresh_required} = read(grant, owner)
+
+    assert {:error, :refresh_required} =
+             ChatGPTAccounts.credential_for_user(grant.id, owner.id, grant.generation,
+               refresh: false
+             )
   end
 
   test "encryption refuses an owner without a tenant key" do

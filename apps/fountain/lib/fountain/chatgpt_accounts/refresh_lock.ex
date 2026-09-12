@@ -12,8 +12,8 @@ defmodule Fountain.ChatGPTAccounts.RefreshLock do
   events inside the transaction. Its result is returned only after commit.
   `run/3` must not itself be called inside a transaction: the lock would
   attach to the enclosing one and outlive the callback by however long that
-  transaction runs. The one caller is `Fountain.PlatformChatGPT.Refresher`,
-  which holds none.
+  transaction runs. The platform refresher and user refresh workers call it
+  without an enclosing transaction.
 
   Whatever the callback does upstream has to finish inside
   `@transaction_timeout`, which is a wall clock over the whole checkout

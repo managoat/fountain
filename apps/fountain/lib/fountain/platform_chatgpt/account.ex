@@ -7,7 +7,7 @@ defmodule Fountain.PlatformChatGPT.Account do
   `id_claims` holds the non-secret claims codex reads from its `id_token`.
 
   `kind` says what the row holds: `"chatgpt"` is a ChatGPT sign-in with a
-  rotating refresh token that `Fountain.PlatformChatGPT` owns;
+  rotating refresh token managed server-side by `Fountain.ChatGPTAccounts`;
   `"workspace_token"` is a static Business/Enterprise access token with no
   refresh token, which lapses on its admin-set expiry.
 
@@ -23,7 +23,7 @@ defmodule Fountain.PlatformChatGPT.Account do
   why the three that used to exist were removed rather than left unused.
 
   There is no plaintext column. User linking is not yet built; the current
-  application writers remain the admin surface and platform refresher.
+  application writers are the admin surface and the owner-scoped refreshers.
   """
 
   use Ecto.Schema

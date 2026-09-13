@@ -17,12 +17,12 @@ defmodule Fountain.Conversations.ExecutionTransportTest do
     %{conv: conv, turn: turn, sandbox: sandbox, now: now}
   end
 
-  defp register(c, milliseconds \\ 10_000) do
+  defp register(c) do
     {:ok, execution} =
       ExecutionGuard._unsafe_register(
         c.turn.id,
         Ecto.UUID.generate(),
-        DateTime.add(DateTime.utc_now(), milliseconds, :millisecond)
+        DateTime.add(DateTime.utc_now(), 60, :second)
       )
 
     execution
@@ -58,10 +58,18 @@ defmodule Fountain.Conversations.ExecutionTransportTest do
     {pid, ref}
   end
 
+  defp timeout_task(task) do
+    # Deliver the same untrappable exit as :timer.kill_after/1, but only once
+    # the operation under test has reached its blocking provider call.
+    ref = Process.monitor(task)
+    Process.exit(task, :kill)
+    assert_receive {:DOWN, ^ref, :process, ^task, :killed}, 5_000
+  end
+
   defp identify(owner, ref), do: send(owner, {:session_info, %{ref: ref}, "19"})
   defp row(execution), do: Repo.get!(TurnExecution, execution.id)
 
-  defp await_state(execution, expected, attempts \\ 200)
+  defp await_state(execution, expected, attempts \\ 1_000)
   defp await_state(_execution, expected, 0), do: flunk("journal never reached #{expected}")
 
   defp await_state(execution, expected, attempts) do
@@ -133,16 +141,26 @@ defmodule Fountain.Conversations.ExecutionTransportTest do
   end
 
   test "identity received before a delayed spawn result still enables cleanup after expiry", c do
-    execution = register(c, 200)
+    execution = register(c)
+    test = self()
 
     {pid, ref} =
       launch(execution, fn owner, ref ->
         identify(owner, ref)
+        send(test, :identity_sent)
         receive do: (:release -> :ok)
       end)
 
-    assert_receive {:spawn, ^pid, ^ref, task}
-    await_state(execution, "awaiting_identity")
+    assert_receive {:spawn, ^pid, ^ref, task}, 5_000
+    assert_receive :identity_sent, 5_000
+    assert [{:session_info, %{ref: ^ref}, "19"}] = :sys.get_state(pid).buffer
+    assert row(execution).state == "active"
+    assert Process.alive?(task)
+
+    # Expire only after the identity has arrived, while the spawn result is
+    # still blocked. Setup and scheduler delays must not choose this ordering.
+    assert {:ok, _} = ExecutionGuard._unsafe_expire(execution.id, now: execution.deadline_at)
+    assert row(execution).state == "awaiting_identity"
     assert Repo.get!(Turn, c.turn.id).limit_reason == "wall_time_limit"
     send(task, :release)
     current = await_state(execution, "ready")
@@ -154,7 +172,9 @@ defmodule Fountain.Conversations.ExecutionTransportTest do
 
   test "an unconfirmed spawn is never replayed", c do
     execution = register(c)
-    {pid, _} = launch(execution, fn _, _ -> receive do: (:never -> :ok) end, io_timeout_ms: 100)
+    {pid, ref} = launch(execution, fn _, _ -> receive do: (:never -> :ok) end)
+    assert_receive {:spawn, ^pid, ^ref, task}, 5_000
+    timeout_task(task)
     await_state(execution, "awaiting_identity")
     assert {:error, :execution_fenced} = ExecutionTransport.await_ready(pid)
 
@@ -166,14 +186,19 @@ defmodule Fountain.Conversations.ExecutionTransportTest do
 
   test "a blocked writer times out and retires the session without replay", c do
     execution = register(c)
-    {pid, ref} = launch(execution, &identify/2, io_timeout_ms: 100)
+    {pid, ref} = launch(execution, &identify/2)
     assert {:ok, _} = ExecutionTransport.await_ready(pid)
+    test = self()
 
     expect(Sandbox, :write_stdin, fn %Command{ref: ^ref}, "prompt" ->
+      send(test, {:write_started, self()})
       receive do: (:never -> :ok)
     end)
 
-    assert {:error, :operation_unconfirmed} = ExecutionTransport.write(pid, "prompt")
+    writer = Task.async(fn -> ExecutionTransport.write(pid, "prompt") end)
+    assert_receive {:write_started, task}, 5_000
+    timeout_task(task)
+    assert {:error, :operation_unconfirmed} = Task.await(writer, 10_000)
     await_state(execution, "ready")
     assert {:error, :execution_fenced} = ExecutionTransport.write(pid, "prompt")
     assert Repo.get!(Turn, c.turn.id).status == "interrupted"
@@ -203,11 +228,15 @@ defmodule Fountain.Conversations.ExecutionTransportTest do
 
   test "an orphaned spawn task still times out after abrupt transport death", c do
     execution = register(c)
-    {pid, ref} = launch(execution, fn _, _ -> receive do: (:never -> :ok) end, io_timeout_ms: 200)
-    assert_receive {:spawn, ^pid, ^ref, task}
+    # Keep a real timer integration check: the task must expire on its own
+    # after its transport dies, with enough headroom to observe it first.
+    {pid, ref} =
+      launch(execution, fn _, _ -> receive do: (:never -> :ok) end, io_timeout_ms: 10_000)
+
+    assert_receive {:spawn, ^pid, ^ref, task}, 5_000
     task_ref = Process.monitor(task)
     Process.exit(pid, :kill)
-    assert_receive {:DOWN, ^task_ref, :process, ^task, :killed}, 2_000
+    assert_receive {:DOWN, ^task_ref, :process, ^task, :killed}, 20_000
     assert row(execution).spawn_submitted_at
     assert {:error, :transport_unavailable} = ExecutionTransport.write(pid, "late prompt")
     ExecutionGuard._unsafe_expire(execution.id, now: execution.deadline_at)

@@ -37,7 +37,7 @@ defmodule Fountain.Conversations.ExecutionDeadlineWorkerTest do
     })
   end
 
-  defp await_state(id, state, attempts \\ 100)
+  defp await_state(id, state, attempts \\ 500)
   defp await_state(_id, state, 0), do: flunk("journal never reached #{state}")
 
   defp await_state(id, state, attempts) do
@@ -55,14 +55,18 @@ defmodule Fountain.Conversations.ExecutionDeadlineWorkerTest do
     owner = self()
     rows = for _ <- 1..8, do: execution(c.user, true)
 
-    worker(:blocked_pool, fn attempt ->
-      send(owner, {:termination_started, attempt.id, self()})
-      receive do: (:release -> :ok)
-    end)
+    worker(
+      :blocked_pool,
+      fn attempt ->
+        send(owner, {:termination_started, attempt.id, self()})
+        receive do: (:release -> :ok)
+      end,
+      job_timeout_ms: 60_000
+    )
 
     processes =
       for _ <- rows do
-        assert_receive {:termination_started, _id, pid}, 2_000
+        assert_receive {:termination_started, _id, pid}, 5_000
         pid
       end
 
@@ -98,18 +102,18 @@ defmodule Fountain.Conversations.ExecutionDeadlineWorkerTest do
     owner = self()
     fixture = execution(c.user, true)
 
-    worker(
-      :timed_out,
-      fn attempt ->
-        send(owner, {:attempt, attempt, self()})
-        receive do: (:never_sent -> :ok)
-      end,
-      job_timeout_ms: 200
-    )
+    worker(:timed_out, fn attempt ->
+      send(owner, {:attempt, attempt, self()})
+      receive do: (:never_sent -> :ok)
+    end)
 
-    assert_receive {:attempt, attempt, pid}, 2_000
+    assert_receive {:attempt, attempt, pid}, 5_000
+    assert Repo.get!(TurnExecution, fixture.row.id).state == "submitted"
     ref = Process.monitor(pid)
-    assert_receive {:DOWN, ^ref, :process, ^pid, :killed}, 2_000
+    # :timer.kill_after/1 delivers this exit. Inject it after the durable
+    # claim reaches the provider so scan/expiry work cannot time out first.
+    Process.exit(pid, :kill)
+    assert_receive {:DOWN, ^ref, :process, ^pid, :killed}, 5_000
     assert Repo.get!(TurnExecution, fixture.row.id).state == "submitted"
     stop_supervised(:timed_out)
 
@@ -194,13 +198,15 @@ defmodule Fountain.Conversations.ExecutionDeadlineWorkerTest do
           send(owner, {:orphan_task, self()})
           receive do: (:never_sent -> :ok)
         end,
-        job_timeout_ms: 300
+        job_timeout_ms: 10_000
       )
 
-    assert_receive {:orphan_task, pid}, 2_000
+    # Unlike the synchronized timeout above, this exercises the real timer
+    # armed by the worker and its independence from the coordinator.
+    assert_receive {:orphan_task, pid}, 5_000
     ref = Process.monitor(pid)
     Process.exit(coordinator, :kill)
-    assert_receive {:DOWN, ^ref, :process, ^pid, :killed}, 2_000
+    assert_receive {:DOWN, ^ref, :process, ^pid, :killed}, 20_000
     assert Repo.get!(TurnExecution, fixture.row.id).state == "submitted"
     refute_received {:orphan_task, _}
   end

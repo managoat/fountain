@@ -127,42 +127,25 @@ defmodule Fountain.Conversations.Reattachment do
     Logger.error("sprite command error mid-turn: #{inspect(reason)} — failing the turn")
     state = finish_runner_reconnect(state, "failed")
 
-    # ownership: current_turn belongs to the conversation this server owns.
-    {:ok, turn} =
-      Conversations._unsafe_update_turn(state.current_turn, %{
-        status: "failed",
-        ended_at: DateTime.utc_now() |> DateTime.truncate(:second)
-      })
-
-    Output.publish_stage(state.conversation_id, "turn", "failed", %{
-      turn_id: turn.id,
-      turn_number: turn.turn_number,
-      reason: "sprite connection lost: #{inspect(reason)}"
-    })
-
-    TurnMachine.finalize_tracer(state.stream_tracer)
-
-    # An ACP turn can also end here — the adapter exits, is interrupted, or its
-    # socket drops before it ever answers `session/prompt`. The peer has nothing
-    # left to drive and must not outlive the turn.
+    # Stop the failed connection's local peer before committing the turn result.
+    # Completion rechecks the actor's binding after this callback can yield.
     Connection.stop_peer(Connection.from_state(state))
-    TurnMachine.end_span(state.current_turn_span, :error, %{"error" => inspect(reason)})
 
-    TurnMachine.emit_completed(TurnMachine.from_state(state), turn.status)
+    turn =
+      TurnMachine.finish(
+        TurnMachine.from_state(state),
+        "failed",
+        %{"error" => inspect(reason)},
+        %{reason: "sprite connection lost: #{inspect(reason)}"}
+      )
 
-    # ownership: state.conversation_id is the server's bound conversation.
-    conv = Conversations._unsafe_get_conversation!(state.conversation_id)
-    {:ok, _} = Conversations.update_conversation(conv, %{status: "idle"})
+    state = TurnMachine.into_state(state, turn)
 
     {:noreply,
      %{
        %{state | last_activity_at: DateTime.utc_now()}
        | current_command: nil,
          current_command_ref: nil,
-         current_turn: nil,
-         current_turn_span: nil,
-         turn_metrics: nil,
-         stream_tracer: nil,
          runner_reconnect: nil,
          runner_replay: nil,
          acp_peer: nil,

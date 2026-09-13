@@ -10,8 +10,8 @@ defmodule Fountain.SecretBindings do
   without a second field: the presence of a binding is the declaration.
 
   Everything here is tenant-scoped by `user_id`. Bindings are only consulted
-  for tenants the broker is on for (`Fountain.Broker.enabled_for?/1`); for
-  everyone else they are rows nobody reads.
+  on a deployment that brokers egress (`Fountain.Broker.configured?/0`); on
+  one without a broker they are rows nobody reads.
   """
 
   import Ecto.Query, warn: false

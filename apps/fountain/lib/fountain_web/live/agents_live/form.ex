@@ -214,7 +214,7 @@ defmodule FountainWeb.AgentsLive.Form do
   # connecting a new one, and an agent must stay editable after the flag goes
   # off (#1693).
   defp connections_for(user_id) do
-    if Fountain.Connections.manageable_for?(user_id),
+    if Fountain.Connections.manageable_for?(),
       do: Fountain.Connections.active_connections(user_id),
       else: []
   end

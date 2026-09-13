@@ -1,5 +1,5 @@
 defmodule FountainWeb.ConnectionControllerTest do
-  # Flips the broker ratchet (global app env).
+  # Turns the broker on and off (global app env).
   use FountainWeb.ConnCase, async: false
 
   import Fountain.BrokerTestHelpers
@@ -10,7 +10,7 @@ defmodule FountainWeb.ConnectionControllerTest do
   setup %{conn: conn} do
     user = insert_verified_user()
     {:ok, {_key, raw}} = Fountain.Accounts.create_api_key(user.id, "t")
-    enable_connections_for([user.id])
+    enable_connections()
 
     conn =
       conn
@@ -21,7 +21,7 @@ defmodule FountainWeb.ConnectionControllerTest do
   end
 
   test "an account the broker is not on for gets 404 on every route", %{conn: conn} do
-    Application.put_env(:fountain, :broker_tenants, [])
+    Application.delete_env(:fountain, :broker_listen_port)
 
     assert %{"error" => "connections_not_enabled"} =
              conn |> get("/api/connections") |> json_response(404)
@@ -36,7 +36,7 @@ defmodule FountainWeb.ConnectionControllerTest do
   } do
     c = insert_connection(user, account_email: "me@example.com", access_token: "never-shown-at")
     other = insert_verified_user()
-    enable_connections_for([user.id, other.id])
+    enable_connections()
     insert_connection(other, account_email: "them@example.com")
 
     body = conn |> get("/api/connections") |> json_response(200)

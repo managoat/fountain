@@ -25,7 +25,7 @@ defmodule Fountain.Conversations.ConversationServerBrokerTest do
     agent = insert_agent(user_id: user.id, runtime: "claude", environment_id: env.id)
 
     previous =
-      for key <- [:broker_listen_port, :broker_proxy_url, :broker_tenants],
+      for key <- [:broker_listen_port, :broker_proxy_url],
           do: {key, Application.get_env(:fountain, key)}
 
     on_exit(fn ->
@@ -39,10 +39,9 @@ defmodule Fountain.Conversations.ConversationServerBrokerTest do
     {:ok, user: user, agent: agent, env: env}
   end
 
-  defp configure_broker(tenants) do
+  defp configure_broker do
     Application.put_env(:fountain, :broker_listen_port, 14_322)
     Application.put_env(:fountain, :broker_proxy_url, "http://broker.test:14322")
-    Application.put_env(:fountain, :broker_tenants, tenants)
   end
 
   defp stub_turn_boundary do
@@ -66,13 +65,14 @@ defmodule Fountain.Conversations.ConversationServerBrokerTest do
     |> Enum.filter(&(&1.kind == "stage" and &1.stage == stage))
   end
 
-  describe "an unbrokered conversation" do
+  describe "a conversation on a deployment with no broker" do
     test "never calls the broker, and the sandbox gets the real value", %{
       user: user,
       agent: agent
     } do
-      # Configured, but this tenant is not on the ratchet.
-      configure_broker(["someone-else"])
+      # No listener, which is the only way to be unbrokered since the ADR 0019
+      # §9 ratchet retired. There is no "configured, but not this tenant".
+      Application.delete_env(:fountain, :broker_listen_port)
 
       conv = insert_conversation(user_id: user.id, agent: agent)
       stub_happy_sprite()
@@ -95,23 +95,6 @@ defmodule Fountain.Conversations.ConversationServerBrokerTest do
       refute Enum.any?(spawn_env, &match?({"HTTPS_PROXY", _}, &1))
       assert stage_events(conv.id, "broker") == []
     end
-
-    test "with BROKER_URL blank the ratchet is inert too", %{user: user, agent: agent} do
-      Application.delete_env(:fountain, :broker_listen_port)
-      Application.put_env(:fountain, :broker_tenants, [user.id])
-
-      conv = insert_conversation(user_id: user.id, agent: agent)
-      stub_happy_sprite()
-      _ref = stub_turn_boundary()
-
-      reject(Fountain.Broker, :prepare, 4)
-
-      {pid, _mon, :alive} = start_server(conv, initial_prompt: "hello")
-      on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
-
-      assert_receive {:spawned, _cmd, _args, opts}, 2_000
-      assert {"GITHUB_TOKEN", "ghp_real"} in Keyword.fetch!(opts, :env)
-    end
   end
 
   describe "reattaching an existing machine" do
@@ -129,7 +112,7 @@ defmodule Fountain.Conversations.ConversationServerBrokerTest do
       user: user,
       conv: conv
     } do
-      configure_broker([user.id])
+      configure_broker()
       test = self()
 
       stub(Managoat.Sandbox.Sprites, :apply_network_policy, fn _h, policy ->
@@ -158,7 +141,7 @@ defmodule Fountain.Conversations.ConversationServerBrokerTest do
         conv: conv,
         sandbox: sandbox
       } do
-        configure_broker([user.id])
+        configure_broker()
 
         stub(Managoat.Sandbox.Sprites, :apply_network_policy, fn _h, _policy ->
           {:error, unquote(reason)}
@@ -188,7 +171,7 @@ defmodule Fountain.Conversations.ConversationServerBrokerTest do
         initial: initial,
         terminal: terminal
       } do
-        configure_broker([user.id])
+        configure_broker()
         {:ok, sandbox} = Conversations.update_sandbox(sandbox, %{status: initial})
         test = self()
 
@@ -304,8 +287,12 @@ defmodule Fountain.Conversations.ConversationServerBrokerTest do
       refute Enum.any?(stage_events(conv.id, "reattach"), &(&1.state == "done"))
     end
 
-    test "a removed tenant gets its limited environment policy back", %{conv: conv, env: env} do
-      configure_broker(["someone-else"])
+    test "a machine with no broker gets its limited environment policy back", %{
+      conv: conv,
+      env: env
+    } do
+      # The machine may have been provisioned while this deployment brokered.
+      Application.delete_env(:fountain, :broker_listen_port)
 
       {:ok, _} =
         Environments.update_environment(env, %{
@@ -330,7 +317,7 @@ defmodule Fountain.Conversations.ConversationServerBrokerTest do
 
   describe "a brokered conversation" do
     setup %{user: user} do
-      configure_broker([user.id])
+      configure_broker()
       :ok
     end
 
@@ -740,7 +727,7 @@ defmodule Fountain.Conversations.ConversationServerBrokerTest do
     @caps %{"loadSession" => true, "sessionCapabilities" => %{"resume" => %{}}}
 
     setup %{user: user, agent: agent, env: env} do
-      configure_broker([user.id])
+      configure_broker()
 
       # The tenant's real key, not `stub_happy_sprite/1`'s zeros: a
       # connection's token is encrypted by the factory under the real one,

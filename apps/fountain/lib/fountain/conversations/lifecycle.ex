@@ -503,21 +503,20 @@ defmodule Fountain.Conversations.Lifecycle do
   @spec destroy(
           String.t(),
           String.t() | nil,
-          String.t(),
           Handle.t() | nil,
           :idle | :max_lifetime
         ) :: :ok | {:error, term()}
-  def destroy(conversation_id, sandbox_id, user_id, handle, reason) do
+  def destroy(conversation_id, sandbox_id, handle, reason) do
     # The server prepares before closing its adapter. Check again here for
     # direct callers; an existing fence adds no second request event.
     with :ok <- prepare_destroy(sandbox_id, reason) do
-      do_destroy(conversation_id, sandbox_id, user_id, handle, reason)
+      do_destroy(conversation_id, sandbox_id, handle, reason)
     end
   end
 
-  defp do_destroy(conversation_id, sandbox_id, user_id, handle, reason) do
+  defp do_destroy(conversation_id, sandbox_id, handle, reason) do
     if handle, do: _ = Managoat.Sandbox.destroy(handle)
-    Egress.release(user_id, conversation_id)
+    Egress.release(conversation_id)
 
     if sandbox_id do
       # Ownership: as home?/1 above.

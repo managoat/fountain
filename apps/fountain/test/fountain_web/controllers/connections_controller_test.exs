@@ -1,5 +1,5 @@
 defmodule FountainWeb.ConnectionsControllerTest do
-  # Flips the broker ratchet (global app env).
+  # Turns the broker on and off (global app env).
   use FountainWeb.ConnCase, async: false
 
   import Fountain.BrokerTestHelpers
@@ -9,7 +9,7 @@ defmodule FountainWeb.ConnectionsControllerTest do
 
   setup %{conn: conn} do
     user = insert_verified_user()
-    enable_connections_for([user.id])
+    enable_connections()
     {:ok, conn: login_user(conn, user), user: user}
   end
 
@@ -167,7 +167,7 @@ defmodule FountainWeb.ConnectionsControllerTest do
   end
 
   test "an account the broker is not on for is sent to /account", %{conn: conn} do
-    Application.put_env(:fountain, :broker_tenants, [])
+    Application.delete_env(:fountain, :broker_listen_port)
     conn = get(conn, ~p"/connections/google/start")
     assert redirected_to(conn) == ~p"/account"
   end

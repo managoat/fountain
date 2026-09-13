@@ -187,9 +187,9 @@ redaction that a new caller will one day forget.
     feature flag. On your own instance, add `connections` to `FEATURE_FLAGS_ON`
     after configuring the broker and provider apps. Hosted accounts are enrolled
     separately; see [feature status](../reference/feature-status.md).
-    On the hosted platform the broker is on for every account. Without it, a
-    secret enters the sandbox in the clear, and the bindings page and routes
-    are absent. On your own instance, read
+    The broker is on for every account of a deployment that runs one, and
+    the hosted platform runs one. Without a broker, a secret enters the
+    sandbox in the clear, and the bindings page and routes are absent. On your own instance, read
     [Feature status](../reference/feature-status.md).
 
 <!-- vale STE.IngForms = NO -->
@@ -231,7 +231,7 @@ You manage bindings on Account, then Credential bindings, or with
 `GET /api/secret-bindings` and its siblings, in the
 [Secret bindings section](../api.md#secret-bindings) of the API reference.
 The page and the routes are only
-there when the broker is on for the account. A binding is about the name of
+there when the deployment runs a broker. A binding is about the name of
 a secret. So it applies to every environment and vault that holds a secret
 of that name.
 <!-- vale STE.IngForms = YES -->

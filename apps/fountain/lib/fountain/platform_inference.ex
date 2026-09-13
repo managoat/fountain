@@ -348,7 +348,7 @@ defmodule Fountain.PlatformInference do
   def gate(user_id, model, runtime \\ nil, opts \\ []) when is_binary(user_id) do
     provider = Managoat.Runtimes.Model.provider(model)
 
-    if serves?(provider, runtime, Fountain.Broker.enabled_for?(user_id)) and
+    if serves?(provider, runtime, Fountain.Broker.configured?()) and
          not Fountain.InferenceCredentials.has_own?(user_id, model, opts) do
       check_ceiling()
     else

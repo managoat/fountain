@@ -40,7 +40,7 @@ defmodule FountainWeb.GmailMcpController do
     # gating this on the flag stopped the tools for a tenant whose flag went
     # off while their token kept being brokered elsewhere (#1693).
     with true <-
-           Fountain.Broker.enabled_for?(user.id) ||
+           Fountain.Broker.configured?() ||
              {:error, 403, "connections are not available here"},
          %Conversations.Conversation{} = conv <- get_conv(conv_id, user),
          :ok <- agent_names?(conv, connection_id),

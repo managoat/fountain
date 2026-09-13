@@ -20,7 +20,7 @@ defmodule Fountain.Conversations.EgressTest do
 
   setup do
     previous =
-      for key <- [:broker_listen_port, :broker_proxy_url, :broker_tenants],
+      for key <- [:broker_listen_port, :broker_proxy_url],
           do: {key, Application.get_env(:fountain, key)}
 
     on_exit(fn ->
@@ -35,40 +35,38 @@ defmodule Fountain.Conversations.EgressTest do
     {:ok, user: user}
   end
 
-  defp broker_on(tenants) do
+  defp broker_on do
     Application.put_env(:fountain, :broker_listen_port, 14_322)
     Application.put_env(:fountain, :broker_proxy_url, "http://broker.test:14322")
-    Application.put_env(:fountain, :broker_tenants, tenants)
   end
 
   defp broker_off do
     Application.delete_env(:fountain, :broker_listen_port)
-    Application.put_env(:fountain, :broker_tenants, [])
   end
 
   defp host_triples(bindings), do: Enum.map(bindings, &{&1.key, &1.host, &1.auth_type})
 
-  describe "the split rules for an unbrokered tenant" do
+  describe "the split rules where no broker is configured" do
     test "are all no-ops, and read no bindings", %{user: user} do
       broker_off()
       {:ok, _} = Fountain.SecretBindings.create_binding(user.id, binding_attrs("DATABASE_URL"))
       _conn = insert_connection(user)
 
-      refute Egress.brokered?(user.id)
+      refute Egress.brokered?()
       assert Egress.bindings(user.id) == %{}
 
       secrets = %{"GITHUB_TOKEN" => "ghp_real", "DATABASE_URL" => "postgres://x"}
-      assert Egress.split_brokered(user.id, secrets, %{}) == {secrets, %{}}
+      assert Egress.split_brokered(secrets, %{}) == {secrets, %{}}
       assert Egress.add_connection_secrets(user.id, secrets, %{}, nil) == {secrets, %{}, []}
 
       creds = %{anthropic_api_key: "sk-ant-api03-x"}
-      assert Egress.split_inference(user.id, creds, %{}, %{}) == {creds, %{}, %{}}
+      assert Egress.split_inference(creds, %{}, %{}) == {creds, %{}, %{}}
     end
   end
 
-  describe "split_brokered/3" do
+  describe "split_brokered/2" do
     test "catalog keys and bound keys become placeholders; the rest stay", %{user: user} do
-      broker_on([user.id])
+      broker_on()
       {:ok, _} = Fountain.SecretBindings.create_binding(user.id, binding_attrs("DATABASE_URL"))
       bindings = Egress.bindings(user.id)
 
@@ -76,7 +74,7 @@ defmodule Fountain.Conversations.EgressTest do
 
       secrets = %{"GITHUB_TOKEN" => "ghp_real", "DATABASE_URL" => "postgres://x", "PLAIN" => "p"}
 
-      assert {sandbox, brokered} = Egress.split_brokered(user.id, secrets, bindings)
+      assert {sandbox, brokered} = Egress.split_brokered(secrets, bindings)
 
       assert sandbox == %{
                "GITHUB_TOKEN" => "__github_token__",
@@ -88,15 +86,15 @@ defmodule Fountain.Conversations.EgressTest do
     end
   end
 
-  describe "split_inference/4" do
+  describe "split_inference/3" do
     test "placeholders for the runtime, values for the broker, the tenant's own wins",
          %{user: user} do
-      broker_on([user.id])
+      broker_on()
       creds = %{anthropic_api_key: "sk-ant-api03-real", openai_api_key: "sk-real"}
       own = %{"ANTHROPIC_API_KEY" => "tenant-secret"}
       own_bindings = %{"OPENAI_API_KEY" => [:tenant_binding]}
 
-      {env_creds, brokered, bindings} = Egress.split_inference(user.id, creds, own, own_bindings)
+      {env_creds, brokered, bindings} = Egress.split_inference(creds, own, own_bindings)
 
       assert env_creds == %{
                anthropic_api_key: "sk-ant-api03-__anthropic_api_key__",
@@ -118,7 +116,7 @@ defmodule Fountain.Conversations.EgressTest do
   describe "connections" do
     test "add_connection_secrets/4 brokers a connection's token with bearer bindings to its hosts",
          %{user: user} do
-      broker_on([user.id])
+      broker_on()
       conn = insert_connection(user)
 
       {merged, bindings, keys} =
@@ -133,7 +131,7 @@ defmodule Fountain.Conversations.EgressTest do
     end
 
     test "a tenant's own secret and own binding of the same name win", %{user: user} do
-      broker_on([user.id])
+      broker_on()
       conn = insert_connection(user)
       own = %{conn.env_key => "mine"}
       own_bindings = %{conn.env_key => [:mine]}
@@ -144,7 +142,7 @@ defmodule Fountain.Conversations.EgressTest do
 
     test "connection_bindings/3 adds the agent's remote MCP hosts to the provider's",
          %{user: user} do
-      broker_on([user.id])
+      broker_on()
       conn = insert_connection(user)
       remote = %{conn.env_key => ["mcp.example", hd(Fountain.Connections.Google.token_hosts())]}
 
@@ -155,7 +153,7 @@ defmodule Fountain.Conversations.EgressTest do
     end
 
     test "refresh_connection_secrets/3 swaps in a rotated token and says so", %{user: user} do
-      broker_on([user.id])
+      broker_on()
       conn = insert_connection(user)
       current = %{conn.env_key => conn.access_token, "OTHER" => "x"}
 
@@ -280,7 +278,7 @@ defmodule Fountain.Conversations.EgressTest do
 
       assert Map.keys(off) == ["plain"]
 
-      broker_on([user.id])
+      broker_on()
 
       assert %{mcp_servers: %{"served" => %{"url" => url}, "remote" => remote, "plain" => _}} =
                Egress.with_connection_servers(agent, user.id, "conv-1", "tok")
@@ -298,7 +296,7 @@ defmodule Fountain.Conversations.EgressTest do
 
   describe "the session" do
     test "the broker stage completes only after CA installation", %{user: user} do
-      broker_on([user.id])
+      broker_on()
       conv = insert_conversation(user_id: user.id)
 
       stub(Broker, :prepare, fn id, brokered, bindings, opts ->
@@ -359,7 +357,7 @@ defmodule Fountain.Conversations.EgressTest do
     end
 
     test "reprepare/5 replaces the proxy variables and nothing else", %{user: user} do
-      broker_on([user.id])
+      broker_on()
       stub(Broker, :prepare, fn _id, _b, _bi, _o -> {:ok, @session} end)
 
       old = %{@session | token: "av_sess_old"}
@@ -385,7 +383,7 @@ defmodule Fountain.Conversations.EgressTest do
     # provisioning, where it would have been noticed.
     test "reprepare/5 leaves an env_vars override of the CA defaults alone",
          %{user: user} do
-      broker_on([user.id])
+      broker_on()
       stub(Broker, :prepare, fn _id, _b, _bi, _o -> {:ok, @session} end)
 
       env =
@@ -413,7 +411,7 @@ defmodule Fountain.Conversations.EgressTest do
     end
 
     test "sandbox_env/1 is the session's proxy variables, or nothing", %{user: user} do
-      broker_on([user.id])
+      broker_on()
       assert Egress.sandbox_env(nil) == []
       assert Egress.sandbox_env(@session) == Broker.sandbox_env(@session)
     end
@@ -427,7 +425,7 @@ defmodule Fountain.Conversations.EgressTest do
         end)
 
       assert metric.tags == [:provider, :outcome]
-      broker_on([user.id])
+      broker_on()
       handler = {__MODULE__, make_ref()}
       :ok = :telemetry.attach(handler, metric.event_name, &__MODULE__.forward_ca_metric/4, self())
       on_exit(fn -> :telemetry.detach(handler) end)
@@ -476,11 +474,11 @@ defmodule Fountain.Conversations.EgressTest do
       stub(Broker, :release, fn conv_id -> send(test_pid, {:released, conv_id}) && :ok end)
 
       broker_off()
-      assert :ok = Egress.release(user.id, "c-off")
+      assert :ok = Egress.release("c-off")
       refute_receive {:released, "c-off"}, 100
 
-      broker_on([user.id])
-      assert :ok = Egress.release(user.id, "c-on")
+      broker_on()
+      assert :ok = Egress.release("c-on")
       assert_receive {:released, "c-on"}, 1_000
     end
   end

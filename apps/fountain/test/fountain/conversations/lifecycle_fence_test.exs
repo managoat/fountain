@@ -54,7 +54,7 @@ defmodule Fountain.Conversations.LifecycleFenceTest do
         :ok
       end)
 
-      assert :ok = Lifecycle.destroy(ctx.conv.id, ctx.sandbox.id, ctx.user.id, ctx.handle, :idle)
+      assert :ok = Lifecycle.destroy(ctx.conv.id, ctx.sandbox.id, ctx.handle, :idle)
       assert Repo.reload!(ctx.sandbox).status == "terminated"
       assert Fountain.Quotas.active_sandbox_count(ctx.user.id) == 0
 
@@ -95,7 +95,7 @@ defmodule Fountain.Conversations.LifecycleFenceTest do
 
       assert {:ok, {:error, :provider_transaction_open}} =
                Repo.transaction(fn ->
-                 Lifecycle.destroy(ctx.conv.id, sandbox_id, ctx.user.id, ctx.handle, :idle)
+                 Lifecycle.destroy(ctx.conv.id, sandbox_id, ctx.handle, :idle)
                end)
 
       assert Repo.reload!(ctx.sandbox).status == "ready"

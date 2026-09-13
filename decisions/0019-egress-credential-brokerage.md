@@ -8,7 +8,7 @@ adr: "0019"
 adr_status: "Accepted"
 date: 2026-08-14
 generated: { by: human:jhgaylor, at: 2026-08-14T04:45:00-04:00 }
-verified: { by: codex, at: 2026-09-05T20:00:00-04:00 }
+verified: { by: codex, at: 2026-09-12T00:00:00-04:00 }
 stale_after: 2027-03-03
 ---
 
@@ -17,8 +17,8 @@ stale_after: 2027-03-03
 **Status:** Accepted — **live in production for every tenant, on Fountain's own proxy.**
 `Fountain.Broker` and the provisioning wiring exist on `main` (#1090 PRs 1–3),
 behind `BROKER_LISTEN_PORT`: blank, and every conversation provisions exactly
-as it did before the module existed; set, and the tenants in
-`BROKER_TENANTS` are brokered. The proxy is `Managoat.Broker`, run inside the
+as it did before the module existed; set, and every tenant of the deployment
+is brokered. The proxy is `Managoat.Broker`, run inside the
 Fountain pods and published at `broker.inevitable.fyi` by the Traefik TCP
 router of §11. It was a vendor
 service, Agent Vault, until the flip of 2026-09-03; see the amendment. Its done-when was observed on a production
@@ -26,10 +26,12 @@ Sprites conversation the same day — see *Gate 1a* under *Gates*. Every gate is
 broker), 3 (inference credentials) and 4 (the egress trail). #1090 is closed and each
 later gate gets its own tracker.
 
-The ratchet of §9 ran its course. The hosted deployment named **one** tenant,
-the maintainer's own account, from home-cloud#131 (2026-08-25) until
-home-cloud#163 (2026-09-04), which set `BROKER_TENANTS` to `*` and brokers
-every account. `*` is the wildcard #1553 added for exactly this end state.
+The ratchet of §9 ran its course and is **retired** (amendment of
+2026-09-12). The hosted deployment named **one** tenant, the maintainer's own
+account, from home-cloud#131 (2026-08-25) until home-cloud#163 (2026-09-04),
+which set `BROKER_TENANTS` to `*` and brokers every account. `*` was the
+wildcard #1553 added for exactly this end state, and the code that read a
+tenant list is gone.
 The reason to widen was gate 3 rather than tenant secrets: platform inference
 credentials reach every conversation, while at the time of the flip every
 brokerable tenant secret in the deployment belonged to the maintainer and
@@ -82,7 +84,7 @@ below retain their original observation dates.
 | §6 Failure behavior | Built, with limits stated here | No plaintext fallback on broker failure. A failed wake preserves the disk. CA installation on reattach remains best effort; a failure is logged and may fail the next turn. |
 | §7 Non-HTTP labels | Not built | No `unbrokerable` field or classification UI/API exists. Non-HTTP credentials remain a residual plaintext delivery path. |
 | §8 Vendor | Changed | `Native` is the only backend. The Agent Vault client and its configuration were removed; the original vendor comparison is historical. |
-| §9 Rollout and escape hatch | Partly built | Configuration supports tenant ids and `*`. The proposed per-secret classification escape hatch is not implemented. Connections and binding management additionally require the `connections` rollout flag; that flag does not disable brokering. |
+| §9 Rollout and escape hatch | Built, and the ratchet retired | Brokerage is a property of the deployment alone: `Broker.configured?/0` is the whole gate, and `Broker.enabled_for?/1` and the `:broker_tenants` configuration no longer exist. The proposed per-secret classification escape hatch is not implemented. Connections and binding management additionally require the `connections` rollout flag; that flag does not disable brokering. |
 | §10 Bodies and rewriting | Partly built by design | The proxy sees HTTP bodies but streams them without substitution. `Injector` substitutes header values and request targets. Content-policy rewriting remains future work. |
 | §11 Topology and custody | Changed | Fountain runs the library listener in-process, stores sessions in its own database and derives the CA from the master key. There are no vendor vaults or separate broker database. |
 
@@ -408,9 +410,10 @@ Two knobs do the work instead, and neither is a new product surface:
   inference rules and connection rules. The explicit brokerable/unbrokerable
   classification proposed in §7 is still unbuilt.
 
-Rollout is an operator ratchet, not an option: a per-tenant enable we hold,
-flipped tenant by tenant as classification is proven. With two tenants holding
-secrets, that ratchet is short.
+Rollout **was** an operator ratchet, not an option: a per-tenant enable we
+held, flipped tenant by tenant as classification was proven. With two tenants
+holding secrets, that ratchet was short, and it is now retired. See the
+amendment of 2026-09-12: the deployment switch is the only one left.
 
 **The proposed classification escape hatch is not implemented.** A tenant
 cannot mark a secret `unbrokerable` in the UI or API. Secrets outside the
@@ -978,3 +981,62 @@ address. managoat/managoat_broker#22 argues it has changed: Agent Vault itself
 had a second, scope-keyed limiter resolved after authentication, alongside the
 IP-keyed one that caused the incident. That is an open library decision rather
 than a Fountain one, and nothing here changes until it lands.
+
+## Amendment (2026-09-12): the §9 ratchet is retired, and the two remaining non-broker paths are named
+
+The per-tenant ratchet is gone. `Fountain.Broker.enabled_for?/1` and the
+`:broker_tenants` configuration no longer exist, and `Broker.configured?/0` —
+"is `BROKER_LISTEN_PORT` set" — is the whole gate. A deployment that runs a
+broker brokers every tenant on it.
+
+**Why now, and why it is a removal rather than a default.** The ratchet existed
+to widen one id at a time while classification was proven, and it reached `*`
+on 2026-09-04. From that day the per-tenant arm was unreachable in production
+and untested anywhere except in the tests written for the ratchet itself. What
+it left behind was sixteen call sites of the shape `if brokered?(user_id) do X
+else identity end`, spread across `Egress`, `Connections`, `SecretBindings`,
+`ConversationServer`, `SpriteEnv`, `PlatformInference` and five web modules.
+Each of those `else` arms is a plaintext-credential path that nothing exercised
+and nobody could reach. Deleting them is the point; the tidier `Egress` is a
+side effect.
+
+Two functions changed arity rather than keeping an argument the answer no
+longer depends on: `Egress.brokered?/0` and `Connections.manageable_for?/0`.
+`Egress.split_brokered/2`, `split_inference/3`, `release/1` and
+`reattach_policy/3` lost the `user_id` they only forwarded, and
+`Lifecycle.destroy/4` lost the one it forwarded to `release`. A call site that
+still passed a tenant id would read as though the tenant were an input.
+
+**`BROKER_TENANTS` survives with one job, and it is not rollout.** A list of
+ids is now a boot error: booting on it would broker the tenants the list
+deliberately excluded, which is a widening no operator asked for, so boot
+refuses and names the removal. `*` stays accepted, because it carries the
+assertion of **#1686**. That guard fails the boot in the dangerous direction: a
+deployment that means to broker and loses its listener (the `envFrom` drift of
+#1495) does not half-broker anyone. Brokerage turns itself off for everyone,
+each sandbox gets plaintext GitHub, inference and connection credentials
+instead, and the console and the connections keep working, so nothing
+downstream can tell it from a deployment that meant to broker nobody. Removing
+the ratchet removes the tenant list that used to carry that intent, and `*` is
+the last place an operator can state it. It stays until brokerage is
+unconditional, at which point the assertion and the variable go together.
+
+**Two non-broker paths remain, and this amendment does not close either.**
+Neither is described here as decided, because neither is:
+
+- **The deployment off switch.** `BROKER_LISTEN_PORT` blank still means every
+  credential enters the sandbox in the clear and the environment's own
+  `networking_type` is what holds egress. **#2056** carries the decision, and
+  names its blockers: #1671 (the CA install fails on about 18% of setups, and a
+  mandatory broker has nothing to fall back to), #1638 (an explicit direct-egress
+  opt-in, which pulls the other way), the 49 of 55 conversation test files that
+  run the unbrokered path today, and the self-host boot requirements.
+- **The unenforced arm.** A provider without `:network_policy` still cannot
+  host a brokered conversation unless `BROKER_ALLOW_UNENFORCED` says so, which
+  is why no conversation runs on a self-hosted runner ([0022](0022-self-hosted-runner-provider.md))
+  on a brokered deployment. **#2057** carries that decision, together with the
+  ADR 0022 and ADR 0036 amendments it implies.
+
+Until those land, the honest statement of scope is the one in §9's first line,
+with the tenant clause struck: brokering is a property of **the deployment** and
+of the secret.

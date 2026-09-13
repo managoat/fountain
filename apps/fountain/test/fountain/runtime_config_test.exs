@@ -291,74 +291,57 @@ defmodule Fountain.RuntimeConfigTest do
       assert cfg[:broker_listen_port] == nil
     end
 
-    test "BROKER_TENANTS is blank for nobody, a list for some, `*` for everyone", %{base: base} do
-      on = %{
-        "BROKER_LISTEN_PORT" => "14322",
-        "BROKER_PROXY_URL" => "http://broker.example:14322"
-      }
-
-      tenants = fn value ->
-        read_prod_config(Map.merge(base, Map.put(on, "BROKER_TENANTS", value)))[:broker_tenants]
-      end
-
-      # Blank is nobody, and that is what makes the listener inert until an
-      # operator names someone.
-      assert tenants.("") == []
-
-      assert tenants.("a-user-id") == ["a-user-id"]
-      assert tenants.(" a-user-id , b-user-id ,, ") == ["a-user-id", "b-user-id"]
-
-      # The end state the ratchet widens towards. `:all` and not the string
-      # "*", so no call site can mistake a wildcard for a user id.
-      assert tenants.("*") == :all
-
-      # Trimmed like every other entry, so a manifest that pads the value
-      # brokers everyone rather than failing to boot over whitespace.
-      assert tenants.(" * ") == :all
-      assert tenants.("*,") == :all
-
-      # Nothing but separators is nobody, the same as blank.
-      assert tenants.(" , ") == []
-    end
-
-    test "named tenants with no listener is a boot error, not a silent fall back to plaintext",
-         %{base: base} do
-      # The fail-open direction of #1686. `enabled_for?/1` is
-      # `configured?() and ...`, so a deployment that names tenants and loses
-      # BROKER_LISTEN_PORT brokers nobody and hands every sandbox plaintext
-      # credentials, with nothing in the logs to say so.
-      for tenants <- ["*", "a-user-id", " a-user-id , b-user-id "] do
-        assert_raise RuntimeError,
-                     ~r/BROKER_TENANTS names tenants to broker, so BROKER_LISTEN_PORT/,
-                     fn ->
-                       read_prod_config(Map.put(base, "BROKER_TENANTS", tenants))
-                     end
-      end
-    end
-
-    test "tenants that trim away to nobody still boot without a listener", %{base: base} do
-      # The guard is on who is named, not on the variable being present: a
-      # manifest that sets BROKER_TENANTS to separators means nobody, which is
-      # the inert state the ratchet starts from.
-      for tenants <- ["", " , "] do
-        cfg = read_prod_config(Map.put(base, "BROKER_TENANTS", tenants))
-
-        assert cfg[:broker_tenants] == []
-        assert cfg[:broker_listen_port] == nil
-      end
-    end
-
-    test "a `*` mixed into a list is refused rather than read as an id", %{base: base} do
-      # Otherwise the list would silently broker one tenant whose id is "*"
-      # and nobody else, which reads at a glance like it brokers everyone.
-      assert_raise RuntimeError, ~r/BROKER_TENANTS must be either `\*` on its own/, fn ->
+    test "BROKER_TENANTS no longer configures anything", %{base: base} do
+      # The ADR 0019 §9 ratchet retired: a deployment with a listener brokers
+      # every tenant, so there is no :broker_tenants key to read any more.
+      cfg =
         read_prod_config(
           Map.merge(base, %{
             "BROKER_LISTEN_PORT" => "14322",
             "BROKER_PROXY_URL" => "http://broker.example:14322",
-            "BROKER_TENANTS" => "a-user-id,*"
+            "BROKER_TENANTS" => "*"
           })
         )
+
+      refute Keyword.has_key?(cfg, :broker_tenants)
+      assert cfg[:broker_listen_port] == 14_322
+    end
+
+    test "a list of tenants is refused, because the answer it asks for is gone", %{base: base} do
+      # Booting on it would broker the tenants the list deliberately left out,
+      # which is a widening the operator never asked for. Name the removal.
+      for tenants <- ["a-user-id", " a-user-id , b-user-id ", "a-user-id,*"] do
+        assert_raise RuntimeError, ~r/the per-tenant ratchet it belonged to is retired/, fn ->
+          read_prod_config(
+            Map.merge(base, %{
+              "BROKER_LISTEN_PORT" => "14322",
+              "BROKER_PROXY_URL" => "http://broker.example:14322",
+              "BROKER_TENANTS" => tenants
+            })
+          )
+        end
+      end
+    end
+
+    test "`*` with no listener is a boot error, not a silent fall back to plaintext",
+         %{base: base} do
+      # The fail-open direction of #1686, kept. A deployment that loses
+      # BROKER_LISTEN_PORT brokers nobody and hands every sandbox plaintext
+      # credentials, with nothing in the logs to say so. `*` is the last place
+      # a manifest states that it meant to broker, so it still asserts it.
+      for tenants <- ["*", " * ", "*,"] do
+        assert_raise RuntimeError,
+                     ~r/BROKER_TENANTS=\* says this deployment brokers egress/,
+                     fn -> read_prod_config(Map.put(base, "BROKER_TENANTS", tenants)) end
+      end
+    end
+
+    test "a blank value asserts nothing and still boots without a listener", %{base: base} do
+      # The guard is on the assertion, not on the variable being present.
+      for tenants <- ["", " , "] do
+        cfg = read_prod_config(Map.put(base, "BROKER_TENANTS", tenants))
+
+        assert cfg[:broker_listen_port] == nil
       end
     end
   end

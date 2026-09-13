@@ -21,7 +21,7 @@ defmodule FountainWeb.ConnectionsRolloutTest do
   setup do
     user = insert_verified_user()
     {_key, raw} = insert_api_key(user)
-    enable_connections_for([user.id])
+    enable_connections()
     {:ok, user: user, raw: raw}
   end
 
@@ -50,7 +50,7 @@ defmodule FountainWeb.ConnectionsRolloutTest do
 
   for flag <- [true, false] do
     test "the broker off closes every route, with the flag #{flag}", ctx do
-      Application.put_env(:fountain, :broker_tenants, [])
+      Application.delete_env(:fountain, :broker_listen_port)
       flag(unquote(flag))
 
       routes =

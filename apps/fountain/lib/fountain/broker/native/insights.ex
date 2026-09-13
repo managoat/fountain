@@ -88,7 +88,6 @@ defmodule Fountain.Broker.Native.Insights do
       backend: Broker.backend(),
       configured: Broker.configured?(),
       listener_up: listener_up?(),
-      tenants: Application.get_env(:fountain, :broker_tenants, []),
       retention_hours: Broker.log_retention_hours(),
       ca_expires_at: ca_expires_at(),
       sessions: session_counts()

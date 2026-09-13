@@ -1094,7 +1094,7 @@ export interface paths {
         };
         /**
          * List connections
-         * @description Every provider account the tenant has connected, active or revoked. Only for accounts the egress broker is on for (ADR 0019); 404 otherwise.
+         * @description Every provider account the tenant has connected, active or revoked. Only on a deployment that runs the egress broker (ADR 0019); 404 otherwise.
          */
         get: operations["FountainWeb.ConnectionController.index"];
         put?: never;
@@ -1906,7 +1906,7 @@ export interface paths {
         };
         /**
          * List secret bindings
-         * @description Every binding on the account: a secret name, the host it is attached to at the egress broker, and the auth shape. A secret with at least one enabled binding reaches the sandbox as a placeholder; one with none reaches it in the clear. Only for accounts the broker is on for (ADR 0019); 404 otherwise.
+         * @description Every binding on the account: a secret name, the host it is attached to at the egress broker, and the auth shape. A secret with at least one enabled binding reaches the sandbox as a placeholder; one with none reaches it in the clear. Only on a deployment that runs the broker (ADR 0019); 404 otherwise.
          */
         get: operations["FountainWeb.SecretBindingController.index"];
         put?: never;
@@ -3508,7 +3508,7 @@ export interface components {
         };
         /**
          * Connection
-         * @description A provider account the tenant signed in to once, whose credential Fountain holds (#1178). Agents get the capability, never the token: an agent's `mcp_servers` names the connection (`{"gmail": {"connection": "<id>"}}`) and Fountain serves the Gmail tools; and the access token is brokered under `env_key` for an MCP server the tenant runs. Only for accounts the egress broker is on for.
+         * @description A provider account the tenant signed in to once, whose credential Fountain holds (#1178). Agents get the capability, never the token: an agent's `mcp_servers` names the connection (`{"gmail": {"connection": "<id>"}}`) and Fountain serves the Gmail tools; and the access token is brokered under `env_key` for an MCP server the tenant runs. Only on a deployment that runs the egress broker.
          */
         Connection: {
             /** @description The connected account: an address, or the label the provider gave. */

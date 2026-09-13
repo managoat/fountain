@@ -13,8 +13,8 @@ defmodule Fountain.Connections do
   with (`mcp`). One OAuth client (`Fountain.Connections.OAuth`) serves
   every kind.
 
-  A connection reaches an agent three ways, all only for accounts the egress
-  broker is on for (`Fountain.Broker.enabled_for?/1`):
+  A connection reaches an agent three ways, all only on a deployment that
+  brokers egress (`Fountain.Broker.configured?/0`):
 
     * **A Fountain-served MCP server.** An agent's `mcp_servers` names a
       Google connection (`%{"gmail" => %{"connection" => id}}`) and the
@@ -55,15 +55,15 @@ defmodule Fountain.Connections do
   Whether this account may **add** a connection, a provider or a credential
   binding.
 
-  Two things have to be true. The egress broker is on for the tenant
-  (ADR 0019) — without it a token would have to enter a sandbox in the clear.
-  And the `connections` rollout flag is on for them. Gate every door that
+  Two things have to be true. This deployment brokers egress (ADR 0019) —
+  without a broker a token would have to enter a sandbox in the clear. And
+  the `connections` rollout flag is on for them. Gate every door that
   creates something on this one, and nothing else: see
-  `manageable_for?/1` for the rest.
+  `manageable_for?/0` for the rest.
   """
   @spec enabled_for?(String.t()) :: boolean()
   def enabled_for?(user_id) do
-    Fountain.Broker.enabled_for?(user_id) and
+    Fountain.Broker.configured?() and
       Fountain.FeatureFlags.enabled?(:connections, user_id)
   end
 
@@ -81,9 +81,14 @@ defmodule Fountain.Connections do
 
   A tenant with no rows gets an empty list rather than a 404, which is the
   price of never having to ask "do they still hold one?" before answering.
+
+  It took a `user_id` while brokerage was a per-tenant ratchet (ADR 0019 §9).
+  The ratchet retired, the broker is the deployment's, and an argument the
+  answer does not depend on would make every call site read as though it
+  still did.
   """
-  @spec manageable_for?(String.t()) :: boolean()
-  def manageable_for?(user_id), do: Fountain.Broker.enabled_for?(user_id)
+  @spec manageable_for?() :: boolean()
+  def manageable_for?, do: Fountain.Broker.configured?()
 
   # How close to expiry a token is considered stale. A turn may run for a
   # while on the token it started with, so refresh well ahead.

@@ -290,7 +290,7 @@ defmodule Fountain.Conversations.LifecycleActionsTest do
         send(test, :destroyed) && :ok
       end)
 
-      assert Lifecycle.destroy(ctx.conv.id, ctx.sandbox.id, ctx.user.id, handle(), :max_lifetime) ==
+      assert Lifecycle.destroy(ctx.conv.id, ctx.sandbox.id, handle(), :max_lifetime) ==
                :ok
 
       assert_received :destroyed
@@ -311,7 +311,7 @@ defmodule Fountain.Conversations.LifecycleActionsTest do
     test "no handle is nothing to tear down, and the rows still move", ctx do
       reject(&Managoat.Sandbox.destroy/1)
 
-      assert Lifecycle.destroy(ctx.conv.id, ctx.sandbox.id, ctx.user.id, nil, :idle) == :ok
+      assert Lifecycle.destroy(ctx.conv.id, ctx.sandbox.id, nil, :idle) == :ok
 
       assert Repo.reload(ctx.sandbox).status == "terminated"
       assert [{"done", meta}] = stages(ctx.conv.id, "sandbox")

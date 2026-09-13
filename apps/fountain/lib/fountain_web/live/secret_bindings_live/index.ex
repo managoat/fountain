@@ -3,7 +3,7 @@ defmodule FountainWeb.SecretBindingsLive.Index do
   `/account/bindings` — which hosts each secret is attached to at the egress
   broker, and how (ADR 0019 gate 1b).
 
-  Only for accounts the broker is on for: the nav link is hidden otherwise,
+  Only on a deployment that runs the broker: the nav link is hidden otherwise,
   and a direct visit is sent to `/account`. The page never sees a value —
   it lists the names of the secrets the account holds anywhere, and the
   bindings on each name. The `connections` rollout flag decides whether a
@@ -26,7 +26,7 @@ defmodule FountainWeb.SecretBindingsLive.Index do
     # Open for any brokered account. A binding that is attaching a credential
     # right now has to be visible and removable whatever the rollout flag
     # says; `may_bind?` is the flag, and it gates only the form (#1693).
-    if Fountain.Connections.manageable_for?(user.id) do
+    if Fountain.Connections.manageable_for?() do
       {:ok,
        socket
        |> assign(:page_title, "Credential bindings")

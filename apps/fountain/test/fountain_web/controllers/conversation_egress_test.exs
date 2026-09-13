@@ -10,7 +10,7 @@ defmodule FountainWeb.ConversationEgressTest do
     conv = insert_conversation(user_id: user.id)
 
     previous =
-      for k <- [:broker_listen_port, :broker_proxy_url, :broker_tenants],
+      for k <- [:broker_listen_port, :broker_proxy_url],
           do: {k, Application.get_env(:fountain, k)}
 
     on_exit(fn ->
@@ -24,7 +24,6 @@ defmodule FountainWeb.ConversationEgressTest do
 
     Application.put_env(:fountain, :broker_listen_port, 14_322)
     Application.put_env(:fountain, :broker_proxy_url, "http://broker.test:14322")
-    Application.put_env(:fountain, :broker_tenants, [user.id])
 
     conn =
       conn
@@ -41,7 +40,7 @@ defmodule FountainWeb.ConversationEgressTest do
   end
 
   test "an unbrokered account gets an empty page that says so", %{conn: conn, conv: conv} do
-    Application.put_env(:fountain, :broker_tenants, [])
+    Application.delete_env(:fountain, :broker_listen_port)
     reject(Broker, :request_log, 2)
 
     assert %{"data" => [], "brokered" => false} =

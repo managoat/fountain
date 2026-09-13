@@ -48,7 +48,7 @@ defmodule FountainWeb.HealthControllerTest do
     test "returns 503 when the broker listener is down", %{conn: conn} do
       # #1726: the listener starts after the endpoint, so a fresh pod can
       # serve HTTP with nothing bound to BROKER_LISTEN_PORT. Every provision
-      # routed there fails, because under BROKER_TENANTS=* there is no
+      # routed there fails, because a deployment with a broker has no
       # unbrokered path to fall back to.
       stub(Fountain.Health, :broker_listener, fn -> :error end)
 

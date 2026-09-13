@@ -11,7 +11,7 @@
 | Authorization server | Sentry runs its own. |
 | Client registration | Automatic (RFC 7591). You type no client id. |
 | Verified | 2026-09-01. Read [what verified means](index.md#what-verified-means). |
-| Status | Beta. Only for accounts the egress broker is on for. Read [Feature status](../../reference/feature-status.md). |
+| Status | Beta. Only on a deployment that runs the egress broker. Read [Feature status](../../reference/feature-status.md). |
 
 ## What you will need
 

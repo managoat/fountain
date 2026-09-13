@@ -14,7 +14,7 @@ goes to.
     feature flag. On your own instance, add `connections` to `FEATURE_FLAGS_ON`
     after configuring the broker and provider apps. Hosted accounts are enrolled
     separately; see [feature status](../../reference/feature-status.md).
-    Connections exist only for accounts the egress broker is on for
+    Connections exist only on a deployment that runs the egress broker
     (ADR 0019). Without the broker, a token would have to enter the sandbox
     in the clear, so the page and the routes are absent. The broker is on for
     every account on the hosted platform. On your own instance, read

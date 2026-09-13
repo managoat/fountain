@@ -25,8 +25,8 @@ defmodule Fountain.Health do
   * **The egress broker listener qualifies**, wherever one is configured. It
     is a supervised child started *after* `FountainWeb.Endpoint`
     (`Fountain.Application`), so a fresh pod answers HTTP for a moment with
-    nothing bound to `BROKER_LISTEN_PORT`. Under `BROKER_TENANTS=*` every
-    conversation is brokered and none can fall back, so a provision routed
+    nothing bound to `BROKER_LISTEN_PORT`. Every conversation of a deployment
+    with a broker is brokered and none can fall back, so a provision routed
     into that window does not degrade — it fails outright with
     `:listener_down` (#1726). Neither exclusion above reaches it. The
     listener is our own in-process socket, not a third party's, so it puts
@@ -37,13 +37,8 @@ defmodule Fountain.Health do
     `BROKER_LISTEN_PORT` is unset, so a deployment with brokerage off keeps
     exactly the probe it had.
 
-    Two things this check is honest about. Mid-ratchet — `BROKER_TENANTS`
-    naming a few ids rather than `*` (ADR 0019 §9) — it is stricter than it
-    has to be: a pod with no listener could still serve the tenants that are
-    not brokered, and this pulls it out of rotation for all of them. The gate
-    is `BROKER_LISTEN_PORT` because that is what decides whether a listener
-    exists at all, and no load balancer can sort brokered traffic from
-    unbrokered anyway. And it closes only the **starting** end. A pod whose
+    One thing this check is honest about: it closes only the **starting**
+    end. A pod whose
     listener stops while it drains cannot re-advertise itself unready in
     time; what closes that end is the listener's position in
     `Fountain.Application.children/0`, ahead of everything that can ask it to

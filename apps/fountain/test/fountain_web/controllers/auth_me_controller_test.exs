@@ -55,7 +55,7 @@ defmodule FountainWeb.AuthMeControllerTest do
       assert Map.fetch!(permanent, "expires_at") == nil
     end
 
-    test "carries brokered, false off the broker ratchet and true on it", %{conn: conn} do
+    test "carries brokered, false with no broker configured and true with one", %{conn: conn} do
       user = insert_verified_user()
       {_key_record, raw_key} = insert_api_key(user)
 
@@ -63,7 +63,7 @@ defmodule FountainWeb.AuthMeControllerTest do
                conn |> authed_with_key(raw_key) |> get("/api/auth/me") |> json_response(200)
 
       previous =
-        for k <- [:broker_listen_port, :broker_proxy_url, :broker_tenants],
+        for k <- [:broker_listen_port, :broker_proxy_url],
             do: {k, Application.get_env(:fountain, k)}
 
       on_exit(fn ->
@@ -77,7 +77,6 @@ defmodule FountainWeb.AuthMeControllerTest do
 
       Application.put_env(:fountain, :broker_listen_port, 14_322)
       Application.put_env(:fountain, :broker_proxy_url, "http://broker.test:14322")
-      Application.put_env(:fountain, :broker_tenants, [user.id])
 
       assert %{"brokered" => true} =
                conn |> authed_with_key(raw_key) |> get("/api/auth/me") |> json_response(200)

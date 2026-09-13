@@ -30,7 +30,7 @@ defmodule FountainWeb.ConnectionController do
     summary: "List connections",
     description:
       "Every provider account the tenant has connected, active or revoked. " <>
-        "Only for accounts the egress broker is on for (ADR 0019); 404 otherwise.",
+        "Only on a deployment that runs the egress broker (ADR 0019); 404 otherwise.",
     responses: [
       ok: {"Connections", "application/json", Schemas.ConnectionListResponse},
       not_found:
@@ -113,7 +113,7 @@ defmodule FountainWeb.ConnectionController do
   # not the rollout flag: an account that holds connections can always list
   # them and cut them off (#1693).
   defp require_connections(conn, _opts) do
-    if Fountain.Connections.manageable_for?(conn.assigns.current_user.id) do
+    if Fountain.Connections.manageable_for?() do
       conn
     else
       conn

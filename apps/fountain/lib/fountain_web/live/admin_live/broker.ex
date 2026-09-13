@@ -141,13 +141,13 @@ defmodule FountainWeb.AdminLive.Broker do
         <span class="font-medium">This deployment does not broker.</span>
         Set <code class="font-mono text-xs">BROKER_LISTEN_PORT</code>
         and <code class="font-mono text-xs">BROKER_PROXY_URL</code>
-        to run the proxy, then name tenants in <code class="font-mono text-xs">BROKER_TENANTS</code>.
+        to run the proxy. Every tenant here is brokered once it runs.
         The figures below are whatever the log still holds.
       </div>
 
       <section class="space-y-3">
         <h2 class="text-lg font-medium">Health</h2>
-        <div class="grid grid-cols-2 sm:grid-cols-5 gap-3">
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <.tile label="Listener">
             <span class={[
               "inline-flex items-center rounded px-1.5 py-0.5 text-sm font-medium border",
@@ -159,10 +159,6 @@ defmodule FountainWeb.AdminLive.Broker do
               {if @overview.listener_up, do: "up", else: "down"}
             </span>
             <:note>on this replica</:note>
-          </.tile>
-          <.tile label="Brokered tenants">
-            {tenants_label(@overview.tenants)}
-            <:note><code class="font-mono">BROKER_TENANTS</code></:note>
           </.tile>
           <.tile label="Live sessions">
             {@overview.sessions.live}
@@ -458,11 +454,6 @@ defmodule FountainWeb.AdminLive.Broker do
   defp window_label(24), do: "24h"
   defp window_label(168), do: "7d"
   defp window_label(hours), do: "#{hours}h"
-
-  defp tenants_label(:all), do: "all"
-  defp tenants_label([]), do: "none"
-  defp tenants_label(ids) when is_list(ids), do: "#{length(ids)}"
-  defp tenants_label(_), do: "—"
 
   defp share(_part, 0), do: "—"
   defp share(part, whole), do: "#{round(part / whole * 100)}% of requests"

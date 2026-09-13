@@ -238,7 +238,7 @@ defmodule FountainWeb.ConnectionProviderController do
     allowed? =
       if action_name(conn) in @creating,
         do: Fountain.Connections.enabled_for?(user_id),
-        else: Fountain.Connections.manageable_for?(user_id)
+        else: Fountain.Connections.manageable_for?()
 
     if allowed? do
       conn

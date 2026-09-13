@@ -159,8 +159,8 @@ that invited the daemon to run sandboxes and not to reconfigure networking.
   Running this on hardware surfaced the cost. `Provisioning.check_broker_support/4`
   ([0019](0019-egress-credential-brokerage.md) gate 1a) refuses a brokered
   conversation on any provider without `:network_policy` unless
-  `BROKER_ALLOW_UNENFORCED` is set. So for a tenant in `BROKER_TENANTS`, *no*
-  runner can host a conversation at all — process or microVM — and the launch
+  `BROKER_ALLOW_UNENFORCED` is set. So on a deployment that runs a broker,
+  *no* runner can host a conversation at all — process or microVM — and the launch
   fails with `backend_lacks_network_policy` before a sandbox exists. That is
   correct behaviour by 0019 and it makes the capability gap a blocker rather
   than a missing feature. Closing it needs two pieces: the runner advertises

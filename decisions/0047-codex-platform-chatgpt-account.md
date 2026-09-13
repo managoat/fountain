@@ -330,7 +330,8 @@ Run on 2026-09-08 by the maintainer and the agent together, on the
 maintainer's ChatGPT Pro account, with two throwaway `CODEX_HOME` sign-ins
 from codex-cli 0.153.4 (the version production sandboxes run). Measurement 2
 ran on a dev server on the maintainer's laptop with the broker listener on,
-`BROKER_TENANTS=*`, and a `fountain runner` inside a container built from
+`BROKER_TENANTS=*` (the ratchet has since retired; brokerage is now
+deployment-wide), and a `fountain runner` inside a container built from
 `images/e2b/e2b.Dockerfile` (the production sandbox image, arm64), so the
 sandbox dialled the broker over the container's host gateway.
 

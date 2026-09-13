@@ -359,7 +359,7 @@ defmodule Fountain.InferenceCredentials do
   specific answer because it is what Fountain itself exports.
 
   `opts` also carries `:brokered`, whether the conversation's credentials go
-  through the egress broker (`Fountain.Broker.enabled_for?/1`), default
+  through the egress broker (`Fountain.Broker.configured?/0`), default
   `true`. The grant is offered to brokered conversations only: unbrokered,
   the access token itself would land in the sandbox file, and the whole
   point of the grant is that a sandbox holds a placeholder. The platform

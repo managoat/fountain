@@ -43,6 +43,22 @@ upgrade, is in
 
 ### Changed
 
+- **Brokerage is a property of the deployment, and the per-tenant ratchet is
+  gone** (ADR 0019 §9, amended 2026-09-12). `Fountain.Broker.enabled_for?/1`
+  and the `:broker_tenants` configuration are removed, and
+  `Fountain.Broker.configured?/0` is the whole gate. This deletes sixteen
+  `if brokered?(user_id) do ... else ... end` branches across `Egress`,
+  `Connections`, `SecretBindings`, `ConversationServer`, `SpriteEnv`,
+  `PlatformInference` and the web layer, each of whose `else` arm was an
+  unreachable plaintext-credential path after the 2026-09-04 flip to `*`.
+  `Egress.brokered?/0` and `Connections.manageable_for?/0` lose their tenant
+  argument; so do `Egress.split_brokered/2`, `split_inference/3`, `release/1`,
+  `reattach_policy/3` and `Lifecycle.destroy/4`. The `/admin/broker` page drops
+  its "Brokered tenants" tile. The two non-broker paths that remain are the
+  `BROKER_LISTEN_PORT` off switch (#2056) and the `BROKER_ALLOW_UNENFORCED`
+  arm that decides whether a self-hosted runner can host a brokered
+  conversation (#2057); both are open decisions, named in the ADR.
+
 - **`sprite_name` on `POST /api/conversations` is now a suffix, not the whole
   machine name.** The server keeps the `fountain-<account>-` prefix every
   generated name already carried, so a name a caller chooses lands in their own

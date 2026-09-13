@@ -113,7 +113,7 @@ defmodule FountainWeb.StartLive do
       match?(
         {:error, :no_credential},
         InferenceCredentials.select(agent.model, own, agent.runtime,
-          brokered: Fountain.Broker.enabled_for?(user_id),
+          brokered: Fountain.Broker.configured?(),
           refresh: false
         )
       )

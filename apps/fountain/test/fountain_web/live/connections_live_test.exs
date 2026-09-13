@@ -1,5 +1,5 @@
 defmodule FountainWeb.ConnectionsLiveTest do
-  # Flips the broker ratchet (global app env).
+  # Turns the broker on and off (global app env).
   use FountainWeb.ConnCase, async: false
 
   import Phoenix.LiveViewTest
@@ -8,9 +8,9 @@ defmodule FountainWeb.ConnectionsLiveTest do
   alias Fountain.Connections
   alias Fountain.Connections.{Google, OAuth}
 
-  test "hidden and redirected for an account the broker is not on for", %{conn: conn} do
+  test "hidden and redirected where no broker is configured", %{conn: conn} do
     user = insert_verified_user()
-    enable_connections_for([])
+    disable_broker()
     conn = login_user(conn, user)
 
     refute conn |> get(~p"/account") |> html_response(200) =~ ~s(href="/account/connections")
@@ -19,7 +19,7 @@ defmodule FountainWeb.ConnectionsLiveTest do
 
   test "lists connections, links to the flow, revokes and removes", %{conn: conn} do
     user = insert_verified_user()
-    enable_connections_for([user.id])
+    enable_connections()
     c = insert_connection(user, account_email: "me@example.com", access_token: "never-in-html")
     conn = login_user(conn, user)
 
@@ -46,7 +46,7 @@ defmodule FountainWeb.ConnectionsLiveTest do
 
   test "says so when Google is not configured on this deployment", %{conn: conn} do
     user = insert_verified_user()
-    enable_connections_for([user.id])
+    enable_connections()
     previous = Application.get_env(:fountain, :google_oauth_client_id)
     on_exit(fn -> Application.put_env(:fountain, :google_oauth_client_id, previous) end)
     Application.put_env(:fountain, :google_oauth_client_id, nil)
@@ -61,7 +61,7 @@ defmodule FountainWeb.ConnectionsLiveTest do
          conn: conn
        } do
     user = insert_verified_user()
-    enable_connections_for([user.id])
+    enable_connections()
     {:ok, lv, html} = conn |> login_user(user) |> live(~p"/account/connections")
     assert html =~ "Providers"
     assert html =~ "Connect a remote MCP server"
@@ -139,7 +139,7 @@ defmodule FountainWeb.ConnectionsLiveTest do
 
   test "discovers a remote MCP server and offers to connect it", %{conn: conn} do
     user = insert_verified_user()
-    enable_connections_for([user.id])
+    enable_connections()
 
     Req.Test.stub(OAuth, fn req ->
       case {req.method, req.request_path} do
@@ -195,7 +195,7 @@ defmodule FountainWeb.ConnectionsLiveTest do
 
   test "an expired connection offers a reconnect", %{conn: conn} do
     user = insert_verified_user()
-    enable_connections_for([user.id])
+    enable_connections()
     p = insert_provider(user, slug: "svc")
     past = DateTime.utc_now() |> DateTime.add(-1, :second) |> DateTime.truncate(:second)
 

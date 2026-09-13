@@ -27,9 +27,8 @@ are now on for every account on the hosted platform, so this page no longer
 lists them. Until 2026-09-04 we enrolled each account by hand.
 
 On your own instance they stay off until you turn them on. Set
-`BROKER_LISTEN_PORT` and its siblings, then set `BROKER_TENANTS` to `*` for
-every user, or to a list of user ids while you widen it one at a time. Read
-the [configuration reference](../configuration.md).
+`BROKER_LISTEN_PORT` and its siblings. Every account on the deployment is
+then brokered. Read the [configuration reference](../configuration.md).
 
 ## Where to go next
 

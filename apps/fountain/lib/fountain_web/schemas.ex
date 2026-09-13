@@ -4504,7 +4504,7 @@ defmodule FountainWeb.Schemas do
           "an agent's `mcp_servers` names the connection " <>
           ~s|(`{"gmail": {"connection": "<id>"}}`) and Fountain serves the Gmail | <>
           "tools; and the access token is brokered under `env_key` for an MCP " <>
-          "server the tenant runs. Only for accounts the egress broker is on for.",
+          "server the tenant runs. Only on a deployment that runs the egress broker.",
       type: :object,
       properties: %{
         id: %Schema{type: :string, format: :uuid},

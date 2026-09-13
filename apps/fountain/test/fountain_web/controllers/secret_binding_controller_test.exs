@@ -17,7 +17,7 @@ defmodule FountainWeb.SecretBindingControllerTest do
     )
 
     previous =
-      for k <- [:broker_listen_port, :broker_proxy_url, :broker_tenants],
+      for k <- [:broker_listen_port, :broker_proxy_url],
           do: {k, Application.get_env(:fountain, k)}
 
     on_exit(fn ->
@@ -31,7 +31,6 @@ defmodule FountainWeb.SecretBindingControllerTest do
 
     Application.put_env(:fountain, :broker_listen_port, 14_322)
     Application.put_env(:fountain, :broker_proxy_url, "http://broker.test:14322")
-    Application.put_env(:fountain, :broker_tenants, [user.id])
 
     conn =
       conn
@@ -42,7 +41,7 @@ defmodule FountainWeb.SecretBindingControllerTest do
   end
 
   test "an account the broker is not on for gets 404 on every route", %{conn: conn} do
-    Application.put_env(:fountain, :broker_tenants, [])
+    Application.delete_env(:fountain, :broker_listen_port)
 
     assert %{"error" => "brokerage_not_enabled"} =
              conn |> get("/api/secret-bindings") |> json_response(404)

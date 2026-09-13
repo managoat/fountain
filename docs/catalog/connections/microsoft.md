@@ -16,7 +16,7 @@
 | Token hosts | `graph.microsoft.com`. |
 | Redirect URI | `<PUBLIC_URL>/connections/microsoft/callback`. |
 | Account label | The user principal name, from the Graph `/v1.0/me` endpoint. |
-| Status | Beta. Only for accounts the egress broker is on for. Read [Feature status](../../reference/feature-status.md). |
+| Status | Beta. Only on a deployment that runs the egress broker. Read [Feature status](../../reference/feature-status.md). |
 
 ## Configure it
 

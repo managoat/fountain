@@ -13,7 +13,7 @@ defmodule Fountain.BrokerNativeTest do
   alias Fountain.SecretBindings.Binding
   alias Managoat.Broker.Rule
 
-  @keys [:broker_listen_port, :broker_proxy_url, :broker_tenants]
+  @keys [:broker_listen_port, :broker_proxy_url]
 
   setup do
     previous = for key <- @keys, do: {key, Application.get_env(:fountain, key)}
@@ -30,7 +30,6 @@ defmodule Fountain.BrokerNativeTest do
     Application.put_env(:fountain, :broker_proxy_url, "http://broker.test:14322")
 
     user = insert_verified_user()
-    Application.put_env(:fountain, :broker_tenants, [user.id])
     conv = insert_conversation(user_id: user.id, agent: insert_agent(user_id: user.id))
 
     {:ok, user: user, conv: conv}
@@ -44,39 +43,12 @@ defmodule Fountain.BrokerNativeTest do
   end
 
   describe "the switch" do
-    test "BROKER_LISTEN_PORT selects the native backend", %{user: user} do
+    # There is no per-tenant arm to assert on: the ADR 0019 §9 ratchet retired,
+    # so the port is the whole switch and every tenant of a deployment that
+    # has one is brokered.
+    test "BROKER_LISTEN_PORT selects the native backend" do
       assert Broker.backend() == :native
       assert Broker.configured?()
-      assert Broker.enabled_for?(user.id)
-      refute Broker.enabled_for?("someone-else")
-    end
-
-    test ":all brokers every tenant, including one nobody enumerated", %{user: user} do
-      Application.put_env(:fountain, :broker_tenants, :all)
-
-      assert Broker.enabled_for?(user.id)
-      assert Broker.enabled_for?(Ecto.UUID.generate())
-      assert Broker.enabled_for?("someone-else")
-    end
-
-    test ":all still needs a backend, so off is still off" do
-      Application.put_env(:fountain, :broker_tenants, :all)
-      Application.delete_env(:fountain, :broker_listen_port)
-
-      refute Broker.configured?()
-      refute Broker.enabled_for?(Ecto.UUID.generate())
-    end
-
-    test "an empty list brokers nobody, which is what a blank BROKER_TENANTS means", %{user: user} do
-      Application.put_env(:fountain, :broker_tenants, [])
-
-      assert Broker.configured?()
-      refute Broker.enabled_for?(user.id)
-    end
-
-    test "a nil user id is never brokered, whatever the ratchet says" do
-      Application.put_env(:fountain, :broker_tenants, :all)
-      refute Broker.enabled_for?(nil)
     end
 
     test "with neither variable there is no backend and nothing answers" do
@@ -398,15 +370,15 @@ defmodule Fountain.BrokerNativeTest do
       assert :error = Sessions.lookup(session.token)
     end
 
-    test "session release works after tenant unenrollment or broker shutdown", %{
+    test "session release works after broker shutdown", %{
       user: user,
       conv: conv
     } do
       {:ok, first} = Broker.prepare(conv.id, %{"GH_TOKEN" => "g"}, %{}, user_id: user.id)
       {:ok, second} = Broker.prepare(conv.id, %{"GH_TOKEN" => "g"}, %{}, user_id: user.id)
 
-      Application.put_env(:fountain, :broker_tenants, [])
-      refute Broker.enabled_for?(user.id)
+      Application.delete_env(:fountain, :broker_listen_port)
+      refute Broker.configured?()
       assert :ok = Broker.release_session(user.id, conv.id, first.token)
       assert :error = Sessions.lookup(first.token)
       assert {:ok, _} = Sessions.lookup(second.token)

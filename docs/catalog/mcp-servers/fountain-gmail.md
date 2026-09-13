@@ -9,10 +9,10 @@
 |---|---|
 | Hosted by | Fountain |
 | Declared by | The agent. Its `mcp_servers` names a connection. |
-| Injected when | The agent names an active connection, and the egress broker is on for the account. |
+| Injected when | The agent names an active connection, and the deployment runs the egress broker. |
 | Endpoint | `POST /api/mcp/gmail/:conversation_id/:connection_id` |
 | Auth | The sandbox's own callback token, for that one conversation. |
-| Status | Beta. Only for accounts the egress broker is on for. Read [Feature status](../../reference/feature-status.md). |
+| Status | Beta. Only on a deployment that runs the egress broker. Read [Feature status](../../reference/feature-status.md). |
 
 ## Why it exists in this shape
 

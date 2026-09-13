@@ -15,8 +15,8 @@ defmodule Fountain.Conversations.Egress do
   `refresh_before_turn/1` takes the state and names them.
 
   The split rules, in order, as the server applies them at provision:
-  `bindings/1`, `add_connection_secrets/4`, `split_brokered/3`,
-  `split_inference/4`. Each is a no-op for an unbrokered tenant.
+  `bindings/1`, `add_connection_secrets/4`, `split_brokered/2`,
+  `split_inference/3`. Each is a no-op where no broker is configured.
   """
 
   alias Fountain.Broker
@@ -30,16 +30,22 @@ defmodule Fountain.Conversations.Egress do
   @typedoc "A proxy session as `Fountain.Broker.prepare/4` returns it, or nil when the conversation has none."
   @type session :: map() | nil
 
-  @doc "Whether this tenant's conversations are brokered: `Fountain.Broker.enabled_for?/1`."
-  @spec brokered?(String.t() | nil) :: boolean()
-  def brokered?(user_id), do: Broker.enabled_for?(user_id)
+  @doc """
+  Whether conversations here are brokered: `Fountain.Broker.configured?/0`.
+
+  It took a `user_id` while ADR 0019 §9's ratchet made brokerage per-tenant.
+  That retired on the 2026-09-04 flip to `*`, so the answer is the
+  deployment's and the argument would only suggest otherwise.
+  """
+  @spec brokered?() :: boolean()
+  def brokered?, do: Broker.configured?()
 
   # On a brokered conversation the catalog keys leave the secrets map here,
   # before the MCP substitution and the env are built from it, so both see
   # the placeholder and neither sees the value.
-  @spec split_brokered(String.t(), map(), Broker.bindings()) :: {map(), map()}
-  def split_brokered(user_id, secrets, bindings) do
-    if Broker.enabled_for?(user_id),
+  @spec split_brokered(map(), Broker.bindings()) :: {map(), map()}
+  def split_brokered(secrets, bindings) do
+    if Broker.configured?(),
       do: Broker.split(secrets, bindings),
       else: {secrets, %{}}
   end
@@ -55,7 +61,7 @@ defmodule Fountain.Conversations.Egress do
   @spec add_connection_secrets(String.t(), map(), Broker.bindings(), map() | nil) ::
           {map(), Broker.bindings(), [String.t()]}
   def add_connection_secrets(user_id, merged, bindings, agent) do
-    if Broker.enabled_for?(user_id) do
+    if Broker.configured?() do
       connections = active_connections_by_id(user_id)
       synthetic = Fountain.Connections.synthetic_secrets(user_id)
       remote_hosts = remote_connection_hosts(agent, connections)
@@ -193,7 +199,7 @@ defmodule Fountain.Conversations.Egress do
 
   def with_connection_servers(%{mcp_servers: servers} = agent, user_id, conversation_id, token)
       when is_map(servers) do
-    brokered = Broker.enabled_for?(user_id)
+    brokered = Broker.configured?()
     token = if brokered, do: token
     connections = if brokered, do: active_connections_by_id(user_id), else: %{}
 
@@ -215,7 +221,7 @@ defmodule Fountain.Conversations.Egress do
   # nobody consults, and this path stays free of a query.
   @spec bindings(String.t()) :: Broker.bindings()
   def bindings(user_id) do
-    if Broker.enabled_for?(user_id),
+    if Broker.configured?(),
       do: Fountain.SecretBindings.enabled_by_key(user_id),
       else: %{}
   end
@@ -224,10 +230,10 @@ defmodule Fountain.Conversations.Egress do
   # and the broker gets the values, with an implicit binding to the provider's
   # host. A tenant's own secret of the same name (already split above) wins
   # over the inference credential, as it wins in the environment.
-  @spec split_inference(String.t(), map(), map(), Broker.bindings()) ::
+  @spec split_inference(map(), map(), Broker.bindings()) ::
           {map(), map(), Broker.bindings()}
-  def split_inference(user_id, inference_creds, brokered, bindings) do
-    if Broker.enabled_for?(user_id) do
+  def split_inference(inference_creds, brokered, bindings) do
+    if Broker.configured?() do
       {env_creds, inference_brokered, implicit} =
         Broker.split_inference(inference_creds, bindings)
 
@@ -458,7 +464,7 @@ defmodule Fountain.Conversations.Egress do
 
   @doc "Keep the minted proxy session in server state; unbrokered state is unchanged."
   def prepare_state(state) do
-    if brokered?(state.user_id) do
+    if brokered?() do
       case prepare(state.conversation_id, state.brokered, state.broker_bindings,
              network: state.broker_network,
              user_id: state.user_id
@@ -512,9 +518,9 @@ defmodule Fountain.Conversations.Egress do
   # to a vendor proxy could, but teardown is not a place to start waiting on
   # the database either, and a broker session that outlives its sandbox is
   # swept by `Fountain.Workers.BrokerReaper` regardless.
-  @spec release(String.t() | nil, String.t()) :: :ok
-  def release(user_id, conversation_id) do
-    if Broker.enabled_for?(user_id) do
+  @spec release(String.t()) :: :ok
+  def release(conversation_id) do
+    if Broker.configured?() do
       conv_id = conversation_id
       Task.Supervisor.start_child(Fountain.TaskSupervisor, fn -> Broker.release(conv_id) end)
     end
@@ -539,10 +545,10 @@ defmodule Fountain.Conversations.Egress do
   restores a limited environment; unrestricted remains a no-op because the
   sandbox abstraction has no policy-reset operation.
   """
-  @spec reattach_policy(Managoat.Sandbox.Handle.t(), map() | nil, String.t(), String.t()) ::
+  @spec reattach_policy(Managoat.Sandbox.Handle.t(), map() | nil, String.t()) ::
           :ok | {:error, term()}
-  def reattach_policy(handle, env, conv_id, user_id) do
-    brokered? = brokered?(user_id)
+  def reattach_policy(handle, env, conv_id) do
+    brokered? = brokered?()
 
     with :ok <- Provisioning.check_broker_support(brokered?, handle.provider, env, conv_id) do
       apply_policy(handle, env, conv_id, brokered?)

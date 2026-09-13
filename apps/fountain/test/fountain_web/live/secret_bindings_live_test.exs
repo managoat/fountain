@@ -16,7 +16,7 @@ defmodule FountainWeb.SecretBindingsLiveTest do
     )
 
     previous =
-      for k <- [:broker_listen_port, :broker_proxy_url, :broker_tenants],
+      for k <- [:broker_listen_port, :broker_proxy_url],
           do: {k, Application.get_env(:fountain, k)}
 
     on_exit(fn ->
@@ -35,7 +35,7 @@ defmodule FountainWeb.SecretBindingsLiveTest do
 
   test "hidden and redirected for an account the broker is not on for", %{conn: conn} do
     user = insert_verified_user()
-    Application.put_env(:fountain, :broker_tenants, [])
+    Application.delete_env(:fountain, :broker_listen_port)
     conn = login_user(conn, user)
 
     refute conn |> get(~p"/account") |> html_response(200) =~ "Credential bindings"
@@ -44,7 +44,6 @@ defmodule FountainWeb.SecretBindingsLiveTest do
 
   test "lists, binds from a preset, toggles and unbinds", %{conn: conn} do
     user = insert_verified_user()
-    Application.put_env(:fountain, :broker_tenants, [user.id])
     env = insert_env(user_id: user.id)
 
     {:ok, _} =
@@ -93,7 +92,6 @@ defmodule FountainWeb.SecretBindingsLiveTest do
 
   test "a bad host is refused with the reason", %{conn: conn} do
     user = insert_verified_user()
-    Application.put_env(:fountain, :broker_tenants, [user.id])
     {:ok, lv, _} = conn |> login_user(user) |> live(~p"/account/bindings")
 
     html =

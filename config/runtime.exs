@@ -239,48 +239,47 @@ if broker_listen_port && is_nil(broker_proxy_url) do
   raise "BROKER_LISTEN_PORT is set, so BROKER_PROXY_URL must be set too"
 end
 
-# The operator ratchet of ADR 0019 §9. Blank is nobody, and stays nobody: a
-# deployment that turns the listener on without naming anyone brokers no
-# conversation, which is what made merging the broker inert. `*` is every
-# tenant, for a deployment that has finished widening one id at a time. A
-# comma separated list is those ids and no others.
+# The operator ratchet of ADR 0019 §9 is retired. It existed to widen the
+# hosted deployment one tenant at a time; it reached `*` on 2026-09-04, and a
+# deployment that runs a broker now brokers every tenant. `BROKER_LISTEN_PORT`
+# is the only switch, and no tenant is an input to it any more.
 #
-# `*` is a distinct value rather than a member of the list because the two
-# answer different questions: a list is checked with `in`, and a wildcard
-# short-circuits it. Encoding it as the literal string "*" inside the list
-# would make any tenant whose id happened to be "*" a wildcard, and would
-# read as a normal id at every call site.
-broker_tenants =
-  case (System.get_env("BROKER_TENANTS") || "")
-       |> String.split(",")
-       |> Enum.map(&String.trim/1)
-       |> Enum.reject(&(&1 == "")) do
-    [] ->
-      []
+# `BROKER_TENANTS` is still read, for two reasons.
+#
+# A list meant "these tenants and no others", and that answer no longer
+# exists. Booting on it would silently widen brokerage to tenants an operator
+# deliberately left out, so boot refuses and names the removal, the way the
+# retired `BROKER_URL` above does.
+#
+# `*` already meant what brokerage now always does, so it stays accepted — and
+# it keeps the one job of #1686. That guard fails the boot in the dangerous
+# direction: a deployment that means to broker and loses its listener (the
+# `envFrom` drift of #1495) does not half-broker anyone. Brokerage turns
+# itself off for everyone, each sandbox gets plaintext GitHub, inference and
+# connection credentials instead, and the console and the connections keep
+# working, so nothing downstream can tell it from a deployment that meant to
+# broker nobody. Removing the ratchet removes the tenant list that used to
+# carry that intent, which makes `*` the last place an operator can state it.
+# Until brokerage is unconditional, keep the assertion available.
+case (System.get_env("BROKER_TENANTS") || "")
+     |> String.split(",")
+     |> Enum.map(&String.trim/1)
+     |> Enum.reject(&(&1 == "")) do
+  [] ->
+    :ok
 
-    ["*"] ->
-      :all
+  ["*"] ->
+    if is_nil(broker_listen_port) do
+      raise "BROKER_TENANTS=* says this deployment brokers egress, so BROKER_LISTEN_PORT " <>
+              "must be set too. With no listener, brokerage is off for every tenant and " <>
+              "their sandboxes hold plaintext credentials; see docs/configuration.md."
+    end
 
-    ids ->
-      if "*" in ids do
-        raise "BROKER_TENANTS must be either `*` on its own or a list of user ids, not both"
-      end
-
-      ids
-  end
-
-# The same guard in the dangerous direction, and this one fails open rather
-# than loudly. `Fountain.Broker.enabled_for?/1` is `configured?() and ...`, so
-# naming tenants with no listener does not half-broker them: brokerage turns
-# itself off for everyone, and each sandbox gets plaintext GitHub, inference
-# and connection credentials instead, while the console and the connections
-# keep working. That is the `envFrom` drift of #1495 in reverse, and nothing
-# downstream can tell it from a deployment that meant to broker nobody, so
-# boot refuses it here (#1686).
-if broker_tenants != [] and is_nil(broker_listen_port) do
-  raise "BROKER_TENANTS names tenants to broker, so BROKER_LISTEN_PORT must be set too. " <>
-          "With no listener, brokerage is off for every tenant and their sandboxes hold " <>
-          "plaintext credentials; see docs/configuration.md."
+  _ids ->
+    raise "BROKER_TENANTS names a list of tenants, and the per-tenant ratchet it " <>
+            "belonged to is retired: a deployment with BROKER_LISTEN_PORT set brokers " <>
+            "every tenant. Remove BROKER_TENANTS, or set it to `*`, once you accept " <>
+            "that the tenants it excluded will be brokered too."
 end
 
 broker_session_ttl =
@@ -297,7 +296,6 @@ broker_session_ttl =
 
 config :fountain, :broker_listen_port, broker_listen_port
 config :fountain, :broker_proxy_url, broker_proxy_url
-config :fountain, :broker_tenants, broker_tenants
 config :fountain, :broker_session_ttl_seconds, broker_session_ttl
 config :fountain, :broker_allow_unenforced, System.get_env("BROKER_ALLOW_UNENFORCED") == "true"
 

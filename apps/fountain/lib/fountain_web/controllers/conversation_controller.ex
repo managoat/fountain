@@ -311,7 +311,7 @@ defmodule FountainWeb.ConversationController do
         {:error, :not_found}
 
       conv ->
-        if Fountain.Broker.enabled_for?(user.id) do
+        if Fountain.Broker.configured?() do
           opts = [limit: egress_limit(params["limit"])] ++ egress_before(params["before"])
 
           case Fountain.Broker.request_log(conv.id, opts) do

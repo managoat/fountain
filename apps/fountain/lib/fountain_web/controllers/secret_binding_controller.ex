@@ -39,8 +39,8 @@ defmodule FountainWeb.SecretBindingController do
       "Every binding on the account: a secret name, the host it is attached " <>
         "to at the egress broker, and the auth shape. A secret with at least " <>
         "one enabled binding reaches the sandbox as a placeholder; one with " <>
-        "none reaches it in the clear. Only for accounts the broker is on for " <>
-        "(ADR 0019); 404 otherwise.",
+        "none reaches it in the clear. Only on a deployment that runs the " <>
+        "broker (ADR 0019); 404 otherwise.",
     responses: [
       ok: {"Bindings", "application/json", Schemas.SecretBindingListResponse},
       not_found: {"Brokerage is not enabled for this account", "application/json", Schemas.Error},
@@ -183,7 +183,7 @@ defmodule FountainWeb.SecretBindingController do
     allowed? =
       if creating?(conn),
         do: Fountain.Connections.enabled_for?(user_id),
-        else: Fountain.Connections.manageable_for?(user_id)
+        else: Fountain.Connections.manageable_for?()
 
     if allowed? do
       conn

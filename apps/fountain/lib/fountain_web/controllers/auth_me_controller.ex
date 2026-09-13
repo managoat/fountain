@@ -40,10 +40,12 @@ defmodule FountainWeb.AuthMeController do
       # comped before billing was turned off — there is no balance for the
       # flag to be about (#480).
       comped: if(Fountain.Credits.enabled?(), do: user.comped, else: nil),
-      # Read-only: whether this account is on the broker ratchet (ADR 0019),
-      # so a client can label the mode instead of probing
-      # /api/secret-bindings for a 200 vs 404 (#1154).
-      brokered: Fountain.Broker.enabled_for?(user.id),
+      # Read-only: whether this deployment brokers egress (ADR 0019), so a
+      # client can label the mode instead of probing /api/secret-bindings for
+      # a 200 vs 404 (#1154). Deployment-wide since the §9 ratchet retired, so
+      # it is the same answer for every account here — still reported per
+      # request, because it is what this client's sandboxes will do.
+      brokered: Fountain.Broker.configured?(),
       connections_enabled: Fountain.Connections.enabled_for?(user.id)
     })
   end

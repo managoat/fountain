@@ -16,7 +16,7 @@
 | Token hosts | `gmail.googleapis.com`, `www.googleapis.com`. |
 | Redirect URI | `<PUBLIC_URL>/connections/google/callback`. |
 | Account label | The email address, from the OpenID userinfo endpoint. |
-| Status | Beta. Only for accounts the egress broker is on for. Read [Feature status](../../reference/feature-status.md). |
+| Status | Beta. Only on a deployment that runs the egress broker. Read [Feature status](../../reference/feature-status.md). |
 
 ## Configure it
 

@@ -37,9 +37,10 @@ defmodule Fountain.Broker do
     requests to the provider's host. A tenant secret of the same name with a
     binding of its own wins, as it wins in the environment.
   * Every other secret reaches the sandbox exactly as before.
-  * Only tenants listed in `BROKER_TENANTS`: the operator ratchet of §9.
-    Blank brokers nobody, a comma separated list brokers those ids, and `*`
-    brokers every tenant, which is the end state the ratchet widens towards.
+  * Every tenant of a deployment that has a broker. Brokerage was a
+    per-tenant ratchet (`BROKER_TENANTS`, ADR 0019 §9) while the hosted
+    deployment widened one id at a time; it reached `*` on 2026-09-04 and
+    the ratchet was retired. `BROKER_LISTEN_PORT` is the only question left.
 
   ## How a value is attached
 
@@ -137,28 +138,18 @@ defmodule Fountain.Broker do
     if is_integer(Application.get_env(:fountain, :broker_listen_port)), do: :native
   end
 
-  @doc "True when a backend is configured. Nothing here talks to a proxy otherwise."
+  @doc """
+  True when a backend is configured, which is the whole question: a
+  deployment with a broker brokers every tenant.
+
+  This used to be half of the answer, with `enabled_for?/1` checking a
+  per-tenant allowlist on top. That allowlist was the ADR 0019 §9 ratchet,
+  and it existed to widen the hosted deployment one id at a time. It
+  reached `*` on 2026-09-04 and was retired, so the tenant is no longer an
+  input. Nothing here talks to a proxy when this is false.
+  """
   @spec configured?() :: boolean()
   def configured?, do: backend() != nil
-
-  @doc """
-  True when the broker is configured and this tenant is on the ratchet.
-
-  `:broker_tenants` is either a list of user ids or `:all`, which
-  `BROKER_TENANTS=*` sets once a deployment has finished widening one id at
-  a time. It is never the string `"*"` inside the list: `config/runtime.exs`
-  refuses that spelling so a wildcard can never arrive disguised as an id.
-  """
-  @spec enabled_for?(String.t() | nil) :: boolean()
-  def enabled_for?(user_id) when is_binary(user_id) do
-    configured?() and
-      case Application.get_env(:fountain, :broker_tenants, []) do
-        :all -> true
-        ids when is_list(ids) -> user_id in ids
-      end
-  end
-
-  def enabled_for?(_), do: false
 
   @doc "The address the sandbox dials, without a credential."
   @spec proxy_url() :: String.t()

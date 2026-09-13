@@ -9,7 +9,7 @@ defmodule FountainWeb.ConnectionsLive.Index do
   trip itself is `FountainWeb.ConnectionsController`; this page only links
   to it and shows what came back.
 
-  Only for accounts the broker is on for: the nav link is hidden otherwise,
+  Only on a deployment that runs the broker: the nav link is hidden otherwise,
   and a direct visit is sent to `/account`. The `connections` rollout flag
   decides whether this page can *add* anything. With it off the page still
   lists what the account holds and still revokes and removes it, and every
@@ -96,7 +96,7 @@ defmodule FountainWeb.ConnectionsLive.Index do
     # holds can always be seen, revoked and removed. `may_connect?` carries
     # the rollout flag: with it off the page keeps every door that takes a
     # credential away and hides the ones that add one (#1693).
-    if Fountain.Connections.manageable_for?(user.id) do
+    if Fountain.Connections.manageable_for?() do
       {:ok,
        socket
        |> assign(:page_title, "Connections")

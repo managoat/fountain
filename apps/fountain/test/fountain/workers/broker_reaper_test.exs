@@ -10,7 +10,7 @@ defmodule Fountain.Workers.BrokerReaperTest do
   alias Fountain.Broker.Native.Session
   alias Fountain.Workers.BrokerReaper
 
-  @keys [:broker_listen_port, :broker_proxy_url, :broker_tenants, :broker_log_retention_hours]
+  @keys [:broker_listen_port, :broker_proxy_url, :broker_log_retention_hours]
 
   setup do
     previous = for k <- @keys, do: {k, Application.get_env(:fountain, k)}
@@ -27,7 +27,6 @@ defmodule Fountain.Workers.BrokerReaperTest do
     Application.put_env(:fountain, :broker_proxy_url, "http://broker.test:14322")
 
     user = insert_verified_user()
-    Application.put_env(:fountain, :broker_tenants, [user.id])
     conv = insert_conversation(user_id: user.id, agent: insert_agent(user_id: user.id))
 
     # One writer per test: `use GenServer` gives every child spec the module's

@@ -1544,7 +1544,7 @@ defmodule FountainWeb.MarketingHTML do
           "The real token never enters the sandbox. The broker attaches it on the way out, and the transcript keeps a placeholder.",
         hosted: "On for every account.",
         yours:
-          "Set BROKER_LISTEN_PORT and BROKER_PROXY_URL, and set BROKER_TENANTS to * or to a list of user ids.",
+          "Set BROKER_LISTEN_PORT and BROKER_PROXY_URL. Every account on the deployment is then brokered.",
         docs: "/docs/concepts/secrets"
       }
     ]

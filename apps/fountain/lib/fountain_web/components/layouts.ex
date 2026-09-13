@@ -103,7 +103,7 @@ defmodule FountainWeb.Layouts do
               <.nav_link
                 :if={
                   assigns[:current_user] &&
-                    Fountain.Connections.manageable_for?(assigns.current_user.id)
+                    Fountain.Connections.manageable_for?()
                 }
                 href={~p"/account/bindings"}
                 label="Credential bindings"
@@ -112,7 +112,7 @@ defmodule FountainWeb.Layouts do
               <.nav_link
                 :if={
                   assigns[:current_user] &&
-                    Fountain.Connections.manageable_for?(assigns.current_user.id)
+                    Fountain.Connections.manageable_for?()
                 }
                 href={~p"/account/connections"}
                 label="Connections"

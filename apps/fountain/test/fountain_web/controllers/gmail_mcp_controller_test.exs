@@ -1,5 +1,5 @@
 defmodule FountainWeb.GmailMcpControllerTest do
-  # Flips the broker ratchet (global app env).
+  # Turns the broker on and off (global app env).
   use FountainWeb.ConnCase, async: false
 
   import Fountain.BrokerTestHelpers
@@ -19,7 +19,7 @@ defmodule FountainWeb.GmailMcpControllerTest do
       )
 
     conv = insert_conversation(%{user_id: user.id, agent: agent, status: "idle"})
-    enable_connections_for([user.id])
+    enable_connections()
 
     {:ok, user: user, raw_key: raw_key, conv: conv, agent: agent, connection: connection}
   end
@@ -48,7 +48,7 @@ defmodule FountainWeb.GmailMcpControllerTest do
   end
 
   test "the broker off refuses Gmail", ctx do
-    Application.put_env(:fountain, :broker_tenants, [])
+    Application.delete_env(:fountain, :broker_listen_port)
     response = rpc(ctx.conn, ctx.raw_key, ctx.conv, ctx.connection, "tools/list", %{})
     assert response.status == 403
   end
@@ -236,7 +236,7 @@ defmodule FountainWeb.GmailMcpControllerTest do
 
     other = insert_verified_user()
     {_k, other_key} = insert_sprite_api_key(other)
-    enable_connections_for([ctx.user.id, other.id])
+    enable_connections()
     assert rpc(ctx.conn, other_key, ctx.conv, ctx.connection, "tools/list") |> json_response(404)
 
     theirs = insert_connection(other)
@@ -259,7 +259,7 @@ defmodule FountainWeb.GmailMcpControllerTest do
   end
 
   test "403 for an account the broker is not on for", ctx do
-    Application.put_env(:fountain, :broker_tenants, [])
+    Application.delete_env(:fountain, :broker_listen_port)
 
     assert rpc(ctx.conn, ctx.raw_key, ctx.conv, ctx.connection, "tools/list")
            |> json_response(403)

@@ -71,7 +71,7 @@ defmodule Fountain.Conversations.SpriteEnv do
   @spec select_inference(map() | nil, map(), String.t() | nil, map()) ::
           {InferenceCredentials.Source.t(), map()}
   def select_inference(agent, own_creds, runtime \\ nil, secrets \\ %{}) do
-    brokered? = (agent && Fountain.Broker.enabled_for?(agent.user_id)) || false
+    brokered? = Fountain.Broker.configured?()
     runtime = runtime || (agent && agent.runtime)
 
     case InferenceCredentials.select(agent && agent.model, own_creds, runtime,

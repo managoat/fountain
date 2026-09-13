@@ -20,7 +20,6 @@ defmodule Fountain.Conversations.ConversationServerPlatformInferenceTest do
       for key <- [
             :broker_listen_port,
             :broker_proxy_url,
-            :broker_tenants,
             :platform_anthropic_api_key,
             :platform_openai_api_key,
             :platform_gemini_api_key
@@ -135,7 +134,6 @@ defmodule Fountain.Conversations.ConversationServerPlatformInferenceTest do
     setup %{user: user} do
       Application.put_env(:fountain, :broker_listen_port, 14_322)
       Application.put_env(:fountain, :broker_proxy_url, "http://broker.test:14322")
-      Application.put_env(:fountain, :broker_tenants, [user.id])
       :ok
     end
 

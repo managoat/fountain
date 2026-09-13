@@ -41,7 +41,7 @@ many times. The fourth, the Conversation, is a run on a machine. The machine
 is the heavy work, and Fountain does it for you.
 
 <figure>
-<svg viewBox="0 0 740 336" role="img" aria-label="Three templates, one machine, in three stages. Stage one, write once: Agent, Environment and Vault are rows a tenant writes and reuses. Stage two, at launch: Fountain builds the machine, merges the Environment's secrets with the Vault's and the Vault wins, and starts the agent's runtime. Stage three, the machine: a sandbox receives its environment and runs one or more Conversations, each with its own transcript, on that one machine. The next turn lands on the same machine, an idle machine parks, and the concurrency ceiling reclaims it. On a hosted account with the egress broker on, the real values go to the broker instead, the sandbox gets a placeholder, and the sandbox reaches the internet only through the broker." style="max-width:100%;height:auto">
+<svg viewBox="0 0 740 336" role="img" aria-label="Three templates, one machine, in three stages. Stage one, write once: Agent, Environment and Vault are rows a tenant writes and reuses. Stage two, at launch: Fountain builds the machine, merges the Environment's secrets with the Vault's and the Vault wins, and starts the agent's runtime. Stage three, the machine: a sandbox receives its environment and runs one or more Conversations, each with its own transcript, on that one machine. The next turn lands on the same machine, an idle machine parks, and the concurrency ceiling reclaims it. Where a deployment runs the egress broker, the real values go to the broker instead, the sandbox gets a placeholder, and the sandbox reaches the internet only through the broker." style="max-width:100%;height:auto">
   <defs>
     <marker id="pr-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker>
     <marker id="pr-b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#c98a2b"/></marker>
@@ -82,7 +82,7 @@ is the heavy work, and Fountain does it for you.
     <text x="510" y="187" font-size="10">the next turn lands on it</text>
     <text x="510" y="199" font-size="9" fill="#8a93a3">idle parks it, the ceiling reclaims</text>
     <text x="502" y="272" font-size="12.5" font-weight="600" fill="#c98a2b">Egress broker</text>
-    <text x="502" y="288" font-size="10" fill="#c98a2b">hosted, when the broker is on</text>
+    <text x="502" y="288" font-size="10" fill="#c98a2b">where the deployment runs one</text>
     <text x="502" y="320" font-size="10" fill="#8a93a3">→ GitHub, model APIs, yours</text>
   </g>
   <g fill="none" stroke="currentColor" stroke-width="1.4" marker-end="url(#pr-a)">
@@ -101,7 +101,7 @@ is the heavy work, and Fountain does it for you.
     <text x="592" y="232" fill="#c98a2b" text-anchor="end">HTTPS_PROXY, the only exit</text>
   </g>
 </svg>
-<figcaption><b>Three templates, one machine.</b> Agent, Environment and Vault are rows you write once. At launch Fountain builds the sandbox from the Environment, merges the secrets with the Vault winning, and starts the Agent's runtime. Several Conversations can share one machine, and the next turn lands on the machine the last one left. An idle machine parks and the concurrency ceiling reclaims it. On a hosted account with the egress broker on, the real values go to the broker and the sandbox gets a placeholder, such as <code>__github_token__</code>; the sandbox reaches the internet only through the broker, which attaches the value. On any other account, the merged secrets enter the sandbox as environment variables.</figcaption>
+<figcaption><b>Three templates, one machine.</b> Agent, Environment and Vault are rows you write once. At launch Fountain builds the sandbox from the Environment, merges the secrets with the Vault winning, and starts the Agent's runtime. Several Conversations can share one machine, and the next turn lands on the machine the last one left. An idle machine parks and the concurrency ceiling reclaims it. Where a deployment runs the egress broker, the real values go to the broker and the sandbox gets a placeholder, such as <code>__github_token__</code>; the sandbox reaches the internet only through the broker, which attaches the value. Where none runs, the merged secrets enter the sandbox as environment variables.</figcaption>
 </figure>
 
 A Conversation starts. At that moment Fountain merges the Environment's
@@ -109,13 +109,12 @@ secrets with the Vault's secrets. **The Vault wins on a key collision.** That
 one rule is what makes the division into four usable and not merely tidy.
 [About vaults](concepts/vault.md) sets it out.
 
-What happens next depends on the account. On a self-hosted instance, and on a
-hosted account without the egress broker, the merged secrets enter the
-sandbox as environment variables. On a hosted account with the broker on, a
-bound secret does not. The sandbox gets a placeholder, such as
-`__github_token__`, and the broker puts the real value on each request to the
-bound host. [Where a secret comes from](concepts/secrets.md) follows one
-secret through both paths.
+What happens next depends on the deployment. Where no egress broker runs, the
+merged secrets enter the sandbox as environment variables. Where one runs, and
+one runs on the hosted platform, a bound secret does not. The sandbox gets a
+placeholder, such as `__github_token__`, and the broker puts the real value on
+each request to the bound host. [Where a secret comes from](concepts/secrets.md)
+follows one secret through both paths.
 
 Why an API for this, when you can run an agent in a sandbox by hand? Because
 the templates outlive the run. The machine, the secrets and the agent are

@@ -6,7 +6,7 @@ defmodule Fountain.HealthBrokerListenerTest do
   `async: false` because the check is selected by `:broker_listen_port`, which
   is application environment — global state an async test writing it would
   leak into whatever else was running (#1214 is the flake that taught this
-  repo the lesson). `Fountain.BrokerTestHelpers.enable_broker_for/1` is the
+  repo the lesson). `Fountain.BrokerTestHelpers.enable_broker/0` is the
   established way to set those keys and put them back afterwards.
 
   The listener binds port 0 rather than the helper's fixed port, so two
@@ -120,7 +120,7 @@ defmodule Fountain.HealthBrokerListenerTest do
   end
 
   defp configure_broker do
-    Fountain.BrokerTestHelpers.enable_broker_for([])
+    Fountain.BrokerTestHelpers.enable_broker()
     # Port 0: the OS picks a free one. `Fountain.Broker.backend/0` asks only
     # whether the value is an integer.
     Application.put_env(:fountain, :broker_listen_port, 0)

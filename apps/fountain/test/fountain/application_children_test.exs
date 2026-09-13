@@ -25,7 +25,7 @@ defmodule Fountain.ApplicationChildrenTest do
 
   describe "children/0 with the broker configured" do
     setup do
-      Fountain.BrokerTestHelpers.enable_broker_for([])
+      Fountain.BrokerTestHelpers.enable_broker()
       # Port 0 so nothing binds a fixed port; `children/0` only builds specs.
       Application.put_env(:fountain, :broker_listen_port, 0)
       :ok

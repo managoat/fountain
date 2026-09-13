@@ -501,7 +501,7 @@ defmodule FountainWeb.AgentsLive.NetworkPolicyNoteTest do
 end
 
 defmodule FountainWeb.AgentsLive.ConnectionsFormTest do
-  # async: false because it flips the broker ratchet (application-wide config).
+  # async: false because it turns the broker on (application-wide config).
   use FountainWeb.ConnCase, async: false
 
   import Phoenix.LiveViewTest
@@ -519,7 +519,7 @@ defmodule FountainWeb.AgentsLive.ConnectionsFormTest do
   describe "MCP servers that are not a command (#1178)" do
     test "a connection can be attached as an MCP server and survives a later save", %{conn: conn} do
       user = with_credential(insert_verified_user())
-      enable_connections_for([user.id])
+      enable_connections()
       connection = insert_connection(user, account_email: "me@example.com")
       agent = insert_agent(user_id: user.id)
       conn = login_user(conn, user)

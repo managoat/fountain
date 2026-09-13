@@ -692,7 +692,7 @@ defmodule Fountain.Conversations.ConversationServer do
         {merged, bindings, connection_keys} =
           Egress.add_connection_secrets(conv.user_id, tenant_secrets, bindings, agent)
 
-        {secrets, brokered} = Egress.split_brokered(conv.user_id, merged, bindings)
+        {secrets, brokered} = Egress.split_brokered(merged, bindings)
 
         # The tenant's own brokered keys: what the environment and vault
         # rows contributed, less the connection tokens (#1736). Read again
@@ -700,7 +700,7 @@ defmodule Fountain.Conversations.ConversationServer do
         tenant_keys = (brokered |> Map.keys() |> Enum.sort()) -- connection_keys
 
         {env_creds, brokered, bindings} =
-          Egress.split_inference(conv.user_id, inference_creds, brokered, bindings)
+          Egress.split_inference(inference_creds, brokered, bindings)
 
         state =
           %{
@@ -856,7 +856,7 @@ defmodule Fountain.Conversations.ConversationServer do
              ),
            :ok <-
              Fountain.Conversations.Provisioning.check_broker_support(
-               Egress.brokered?(state.user_id),
+               Egress.brokered?(),
                provider,
                env,
                state.conversation_id
@@ -917,7 +917,7 @@ defmodule Fountain.Conversations.ConversationServer do
                  sprite_env,
                  secrets,
                  state.conversation_id,
-                 Egress.brokered?(state.user_id)
+                 Egress.brokered?()
                ),
              :ok <-
                Provisioning.prepare_runtime_sprite(
@@ -1074,7 +1074,7 @@ defmodule Fountain.Conversations.ConversationServer do
              label: "sprite lookup on wake"
            ),
          {:ok, state} <- Egress.prepare_state(state),
-         :ok <- Egress.reattach_policy(handle, env, state.conversation_id, state.user_id) do
+         :ok <- Egress.reattach_policy(handle, env, state.conversation_id) do
       Output.publish_stage(state.conversation_id, "reattach", "started", %{
         sprite_name: sandbox.sprite_name,
         node: to_string(node())
@@ -1917,7 +1917,7 @@ defmodule Fountain.Conversations.ConversationServer do
   defp terminate_machine(state, sandbox) do
     state = drop_connection(state, "terminated")
     if state.handle, do: _ = Managoat.Sandbox.destroy(state.handle)
-    Egress.release(state.user_id, state.conversation_id)
+    Egress.release(state.conversation_id)
 
     {:ok, _} =
       Conversations.update_sandbox(sandbox, %{status: "terminated", terminated_at: now()})
@@ -1988,7 +1988,7 @@ defmodule Fountain.Conversations.ConversationServer do
     {:stop, :normal, %{state | handle: nil}}
   end
 
-  # The same shape for a destroy (`Lifecycle.destroy/5`).
+  # The same shape for a destroy (`Lifecycle.destroy/4`).
   defp destroy_sandbox(state, reason) do
     Logger.info(
       "reclaiming sandbox for conv #{state.conversation_id}: #{reason} " <>
@@ -2001,7 +2001,6 @@ defmodule Fountain.Conversations.ConversationServer do
       case Lifecycle.destroy(
              state.conversation_id,
              state.sandbox_id,
-             state.user_id,
              state.handle,
              reason
            ) do

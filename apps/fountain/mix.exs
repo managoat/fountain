@@ -50,8 +50,8 @@ defmodule Fountain.MixProject do
       # Apache-2.0, carries no reference back into Fountain, started life as an
       # app in this umbrella and has graduated to a managoat/managoat_<name>
       # repository that publishes to hex from its own CI. The pins are
-      # patch-level (~> 0.1.0) while everything is 0.x: a library's 0.2.0
-      # reaches Fountain only when someone bumps the pin here, on purpose.
+      # patch-level within each library's current minor release while everything
+      # is 0.x: a new minor reaches Fountain only when someone bumps its pin here.
       # A future library starts as {:managoat_<name>, in_umbrella: true}
       # again; umbrella_layout_test.exs checks it is listed here.
       {:managoat_acp, "~> 0.4.2"},

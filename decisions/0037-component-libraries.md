@@ -40,9 +40,11 @@ checks the subject and audits; `Fountain.OAuth` is the instance and
 `managoat_broker` (#1340: the native egress credential proxy from PR #1148,
 ported rather than rebased; `CONNECT` and absolute-form forward proxy, the
 derived CA, the header injector, behind a `Managoat.Broker.Store` behaviour
-that `fountain` implements over the `broker_sessions` table; `fountain` runs
-it beside the Agent Vault client, selected by `BROKER_LISTEN_PORT`, until
-the deployment flips) and `managoat_acp` (#1339: the client-side ACP
+that `fountain` implements over the `broker_sessions` table; it is the only
+backend since the 2026-09-03 deployment flip and Agent Vault client removal
+(#1487), enabled by `BROKER_LISTEN_PORT`; see the amendment in
+[0019](0019-egress-credential-brokerage.md#amendment-2026-09-03-production-flipped-and-the-vendor-client-is-gone))
+and `managoat_acp` (#1339: the client-side ACP
 session that outlives the turn, the JSON-RPC framing, the permission policy,
 the block normaliser, usage accounting, the tracer and a `ScriptedAgent`,
 behind a writer callback rather than a sandbox dependency; runtime

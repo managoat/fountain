@@ -11,6 +11,12 @@ server releases.
 
 ---
 
+## [1.31.1] - 2026-09-13
+
+### Fixed
+
+- Classify `sandbox_unavailable` as `NotReadyError`, preserving the server's `Retry-After` delay for callers retrying a refused sandbox binding (#2049).
+
 ## [1.31.0] — 2026-09-11
 
 ### Added

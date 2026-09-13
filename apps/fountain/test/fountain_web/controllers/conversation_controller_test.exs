@@ -1135,6 +1135,27 @@ defmodule FountainWeb.ConversationControllerTest do
   end
 
   describe "POST /api/conversations/:conversation_id/terminate" do
+    test "returns a retryable 503 when the actor's sandbox binding is unavailable", %{
+      conn: conn,
+      user: user,
+      raw_key: raw_key
+    } do
+      conv = insert_conversation(user_id: user.id)
+
+      expect(ConversationServer, :terminate_conversation, fn id, _opts ->
+        assert id == conv.id
+        {:error, :sandbox_unavailable}
+      end)
+
+      conn =
+        conn
+        |> authed_with_key(raw_key)
+        |> post("/api/conversations/#{conv.id}/terminate")
+
+      assert %{"error" => "sandbox_unavailable"} = json_response(conn, 503)
+      assert get_resp_header(conn, "retry-after") == ["30"]
+    end
+
     test "returns 204 on success", %{conn: conn, user: user, raw_key: raw_key} do
       conv = insert_conversation(user_id: user.id)
       stub(ConversationServer, :terminate_conversation, fn _id, _opts -> :ok end)

@@ -64,6 +64,13 @@
       "swift-kit": "yes",
       "elixir": "yes"
     },
+    "error-503-sandbox-unavailable-is-retryable": {
+      "typescript": "yes",
+      "python": "yes",
+      "swift": "yes",
+      "swift-kit": "yes",
+      "elixir": "yes"
+    },
     "error-code-outranks-status-conversation-busy": {
       "typescript": "yes",
       "python": "yes",

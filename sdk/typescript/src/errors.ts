@@ -214,6 +214,7 @@ export function errorForStatus(
       return new ConversationBusyError(message, init);
     case "provisioning":
     case "sprite_probe_failed":
+    case "sandbox_unavailable":
       return new NotReadyError(message, init);
     case "sandbox_quota_exceeded":
       return new QuotaExceededError(message, init);

@@ -188,7 +188,7 @@ extension FountainError {
       case "conversation_busy":
         return .conversationBusy(body)
       case "provisioning", "sprite_probe_failed", "sandbox_probe_failed",
-        "fleet_full", "runner_offline":
+        "fleet_full", "runner_offline", "sandbox_unavailable":
         return .notReady(body, retryAfter: retryAfter)
       case "sandbox_quota_exceeded":
         return .quotaExceeded(body)

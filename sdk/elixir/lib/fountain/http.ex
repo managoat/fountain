@@ -3,7 +3,7 @@ defmodule Fountain.HTTP do
 
   alias Fountain.{Config, Error}
 
-  @user_agent "fountain-sdk-elixir/0.2.0"
+  @user_agent "fountain-sdk-elixir/0.2.1"
   defstruct [:config, :transport, timeout: 30_000]
 
   @type t :: %__MODULE__{config: Config.t(), transport: module(), timeout: timeout()}

@@ -1,0 +1,72 @@
+{
+  "name": "error-503-sandbox-unavailable-is-retryable",
+  "title": "An unavailable sandbox returns a retryable error with Retry-After",
+  "contract": "errors",
+  "why": "A refused sandbox binding must tell the caller to retry instead of treating a valid request as invalid.",
+  "client": {
+    "api_key": "conformance-key"
+  },
+  "http": [
+    {
+      "match": {
+        "method": "GET",
+        "path": "/api/conversations/11111111-2222-3333-4444-555555555555/stream",
+        "query": {
+          "streams": "stage",
+          "wait": "false"
+        }
+      },
+      "respond": {
+        "status": 200,
+        "headers": {
+          "content-type": "text/event-stream"
+        },
+        "sse": [],
+        "close": "end"
+      }
+    },
+    {
+      "match": {
+        "method": "GET",
+        "path": "/api/conversations/11111111-2222-3333-4444-555555555555/turns"
+      },
+      "respond": {
+        "status": 200,
+        "json": {
+          "data": []
+        }
+      }
+    },
+    {
+      "match": {
+        "method": "POST",
+        "path": "/api/conversations/11111111-2222-3333-4444-555555555555/prompts"
+      },
+      "respond": {
+        "status": 503,
+        "headers": {
+          "retry-after": "30"
+        },
+        "json": {
+          "error": "sandbox_unavailable"
+        }
+      }
+    }
+  ],
+  "steps": [
+    {
+      "op": "send",
+      "conversation_id": "11111111-2222-3333-4444-555555555555",
+      "prompt": "again"
+    }
+  ],
+  "expect": {
+    "error": {
+      "kind": "not_ready",
+      "status": 503,
+      "code": "sandbox_unavailable",
+      "retry_after": 30,
+      "retryable": true
+    }
+  }
+}

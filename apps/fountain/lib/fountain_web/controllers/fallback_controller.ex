@@ -295,6 +295,15 @@ defmodule FountainWeb.FallbackController do
     })
   end
 
+  # A lifecycle fence can refuse an actor whose sandbox binding just changed.
+  # The request is valid, but must retry after the actor catches up (#2049).
+  def call(conn, {:error, :sandbox_unavailable}) do
+    conn
+    |> put_resp_header("retry-after", "30")
+    |> put_status(:service_unavailable)
+    |> json(%{error: "sandbox_unavailable"})
+  end
+
   # A reapply that would need the machine built again (#1565). 409 rather than
   # 422: the selection is valid, it just cannot be applied to the computer
   # this conversation is already on. `field` says which one forced it, so a

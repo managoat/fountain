@@ -83,7 +83,11 @@ defmodule Fountain.Error do
   end
 
   defp kind("conversation_busy", _), do: :conversation_busy
-  defp kind(code, _) when code in ~w(provisioning sprite_probe_failed fleet_full), do: :not_ready
+
+  defp kind(code, _)
+       when code in ~w(provisioning sprite_probe_failed fleet_full sandbox_unavailable),
+       do: :not_ready
+
   defp kind("sandbox_quota_exceeded", _), do: :quota_exceeded
 
   defp kind(code, _) when code in ~w(subscription_required insufficient_credits),

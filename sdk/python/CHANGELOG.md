@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.1
+
+- Classify `sandbox_unavailable` as `NotReadyError`, preserving the server's `Retry-After` delay for callers retrying a refused sandbox binding (#2049).
+
 ## 0.2.0
 
 - Add `Conversation.reapply()` for `POST /api/conversations/{id}/reapply`: re-select a conversation's agent, environment and vault on the machine it is already running.

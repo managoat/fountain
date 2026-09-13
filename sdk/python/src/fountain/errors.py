@@ -169,6 +169,7 @@ def error_for_status(
         "conversation_busy": ConversationBusyError,
         "provisioning": NotReadyError,
         "sprite_probe_failed": NotReadyError,
+        "sandbox_unavailable": NotReadyError,
         "fleet_full": NotReadyError,
         "sandbox_quota_exceeded": QuotaExceededError,
         "subscription_required": SubscriptionRequiredError,

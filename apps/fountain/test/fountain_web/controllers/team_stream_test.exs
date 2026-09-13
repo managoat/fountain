@@ -7,6 +7,7 @@ defmodule FountainWeb.TeamStreamTest do
   """
 
   use FountainWeb.ConnCase, async: false
+  use Mimic
 
   import Phoenix.ConnTest, only: [build_conn: 0]
 
@@ -87,6 +88,44 @@ defmodule FountainWeb.TeamStreamTest do
     })
   end
 
+  defp stream_ready(raw_key) do
+    parent = self()
+
+    Mimic.stub(Plug.Adapters.Test.Conn, :chunk, fn state, body ->
+      result = Mimic.call_original(Plug.Adapters.Test.Conn, :chunk, [state, body])
+
+      if body in [": connected\n\n", "event: team\ndata: {\"reason\":\"changed\"}\n\n"] do
+        # Both frames are written after follow_team has subscribed. Hold the
+        # stream here so fixture work cannot consume its 800 ms idle window.
+        ref = make_ref()
+        send(parent, {:stream_ready, self(), body, ref})
+        assert_receive {:continue_stream, ^ref}, 5_000
+      end
+
+      result
+    end)
+
+    # No Last-Event-ID: the queued broadcasts must reach the live loop, since
+    # replay is skipped for this connection.
+    task = stream_async(raw_key)
+
+    on_exit(fn ->
+      ref = Process.monitor(task.pid)
+      Process.exit(task.pid, :kill)
+      assert_receive {:DOWN, ^ref, :process, _, _}, 5_000
+    end)
+
+    {task, await_ready(task, ": connected\n\n")}
+  end
+
+  defp await_ready(task, body) do
+    pid = task.pid
+    assert_receive {:stream_ready, ^pid, ^body, ref}, 5_000
+    ref
+  end
+
+  defp continue_stream(task, ref), do: send(task.pid, {:continue_stream, ref})
+
   test "events from every teammate arrive on one connection, labelled", %{
     user: user,
     raw_key: key
@@ -98,13 +137,13 @@ defmodule FountainWeb.TeamStreamTest do
     # Not on the team: must not be streamed.
     other_conv = insert_conversation(user_id: user.id, agent: insert_agent(user_id: user.id))
 
-    task = stream_async(key)
-    Process.sleep(300)
+    {task, ready} = stream_ready(key)
 
     publish(ada_conv, %{kind: "output", stream: "acp", data: "from-ada"})
     publish(linus_conv, %{kind: "output", stream: "acp", data: "from-linus"})
     publish(other_conv, %{kind: "output", stream: "acp", data: "not-on-team"})
 
+    continue_stream(task, ready)
     conn = Task.await(task, 5_000)
     assert conn.status == 200
     assert Plug.Conn.get_resp_header(conn, "content-type") |> hd() =~ "text/event-stream"
@@ -156,16 +195,17 @@ defmodule FountainWeb.TeamStreamTest do
     insert_teammate_conv(user, ada)
     linus = insert_agent(user_id: user.id, name: "Linus")
 
-    task = stream_async(key)
-    Process.sleep(300)
+    {task, ready} = stream_ready(key)
 
     # Linus joins after the stream connected: the roster broadcast makes the
     # stream re-list and subscribe, so his first event still arrives.
     linus_conv = insert_teammate_conv(user, linus)
     Phoenix.PubSub.broadcast(Fountain.PubSub, "team:#{user.id}", {:team_changed, user.id})
-    Process.sleep(200)
+    continue_stream(task, ready)
+    followed = await_ready(task, "event: team\ndata: {\"reason\":\"changed\"}\n\n")
     publish(linus_conv, %{kind: "output", stream: "acp", data: "from-new-linus"})
 
+    continue_stream(task, followed)
     conn = Task.await(task, 5_000)
     assert conn.resp_body =~ "event: team\ndata: {\"reason\":\"changed\"}"
     assert conn.resp_body =~ "from-new-linus"

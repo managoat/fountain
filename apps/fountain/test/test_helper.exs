@@ -65,6 +65,9 @@ Mimic.copy(Horde.DynamicSupervisor)
 # server, which is what stops that test racing a loaded runner (#921).
 Mimic.copy(Horde.Registry)
 Mimic.copy(Req)
+# Team stream tests observe real chunks and hold readiness frames until their
+# publishers are done, before the controller starts its short idle timeout.
+Mimic.copy(Plug.Adapters.Test.Conn)
 
 # Stripe modules — needed by billing tests and webhook controller tests.
 # Billing itself is copied so the webhook controller's :retry/500 arm can be

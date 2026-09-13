@@ -41,6 +41,11 @@ public struct RequestOptions: Sendable {
 public struct APIClient: Sendable {
   public let config: FountainConfig
   let transport: any HTTPTransport
+  // Per-client seam for deterministic deadline tests; public clients always
+  // use Task.sleep, with the timeout starting when Run begins following.
+  var sleepForRunDeadline: @Sendable (UInt64) async throws -> Void = {
+    try await Task.sleep(nanoseconds: $0)
+  }
 
   static let userAgent = "fountain-sdk-swiftkit/\(fountainKitVersion)"
 

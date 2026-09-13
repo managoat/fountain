@@ -16,6 +16,10 @@ public struct FountainClient: Sendable {
     self.api = APIClient(config: config, transport: transport)
   }
 
+  init(api: APIClient) {
+    self.api = api
+  }
+
   public var config: FountainConfig { api.config }
 
   public var agents: AgentsResource { AgentsResource(client: api) }

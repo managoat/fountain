@@ -191,7 +191,7 @@ public final class Run: @unchecked Sendable {
     try await withThrowingTaskGroup(of: Void.self) { group in
       group.addTask { try await self.consume() }
       group.addTask {
-        try await Task.sleep(nanoseconds: UInt64(max(0, timeout) * 1_000_000_000))
+        try await self.client.sleepForRunDeadline(UInt64(max(0, timeout) * 1_000_000_000))
         throw DeadlineReached()
       }
       // Whichever lands first decides; the group cancels the other.

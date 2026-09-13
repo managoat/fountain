@@ -29,13 +29,15 @@ struct RecordedRequest: Sendable {
 /// hanging it.
 final class ScriptedTransport: HTTPTransport, @unchecked Sendable {
   private let exchanges: [JSONValue]
+  private let holdQuietTail: Bool
   private let lock = NSLock()
   private var consumed = Set<Int>()
   private var seen: [RecordedRequest] = []
   private var unanticipated: [RecordedRequest] = []
 
-  init(exchanges: [JSONValue]) {
+  init(exchanges: [JSONValue], holdQuietTail: Bool = false) {
     self.exchanges = exchanges
+    self.holdQuietTail = holdQuietTail
   }
 
   var requests: [RecordedRequest] {
@@ -80,7 +82,15 @@ final class ScriptedTransport: HTTPTransport, @unchecked Sendable {
         for chunk in chunks {
           let text = chunk.stringValue ?? chunk["text"]?.stringValue ?? ""
           if let delay = chunk["delay_ms"]?.intValue, delay > 0 {
-            try? await Task.sleep(nanoseconds: UInt64(delay) * 1_000_000)
+            if self.holdQuietTail && text.isEmpty {
+              // This fixture represents a stream that remains quiet beyond
+              // the run deadline. Let cancellation end it, even if processing
+              // the preceding output takes longer than its scripted delay.
+              let quiet = AsyncStream<Void> { _ in }
+              for await _ in quiet {}
+            } else {
+              try? await Task.sleep(nanoseconds: UInt64(delay) * 1_000_000)
+            }
           }
           if Task.isCancelled { return continuation.finish() }
           if !text.isEmpty { continuation.yield(Data(text.utf8)) }

@@ -17,10 +17,12 @@ import Testing
 /// under the `swift-kit` column.
 @Suite("Conformance")
 struct ConformanceTests {
-  @Test("scenario", arguments: ConformanceSuite.runnable)
+  @Test("scenario", .timeLimit(.minutes(1)), arguments: ConformanceSuite.runnable)
   func scenario(_ name: String) async throws {
     let scenario = try ConformanceSuite.scenario(named: name)
-    let transport = ScriptedTransport(exchanges: scenario.http)
+    let transport = ScriptedTransport(
+      exchanges: scenario.http,
+      holdQuietTail: scenario.name == "run-timeout-raises-and-keeps-partial-text")
     let observations = Observations()
 
     do {
@@ -40,6 +42,53 @@ struct ConformanceTests {
             \(problems.map { "  \($0)" }.joined(separator: "\n\n"))
             """))
     }
+  }
+
+  @Test(.timeLimit(.minutes(1)))
+  func timeoutKeepsTextWhenFirstFrameArrivesAfterTheOriginalDeadline() async throws {
+    var scenario = try ConformanceSuite.scenario(
+      named: "run-timeout-raises-and-keeps-partial-text")
+    var exchange = try #require(scenario.http[1].objectValue)
+    var response = try #require(exchange["respond"]?.objectValue)
+    var frames = try #require(response["sse"]?.arrayValue)
+    let first = try #require(frames[0].stringValue)
+    // Reproduce the mechanism on every run: delivery takes twice the
+    // scenario's 300 ms deadline before any output can be consumed.
+    frames[0] = .object(["text": .string(first), "delay_ms": .number(600)])
+    response["sse"] = .array(frames)
+    exchange["respond"] = .object(response)
+    scenario.http[1] = .object(exchange)
+    let transport = ScriptedTransport(exchanges: scenario.http, holdQuietTail: true)
+    let observations = Observations()
+    do {
+      try await drive(scenario, transport: transport, into: observations)
+    } catch {
+      observations.error = error
+    }
+    let problems = check(scenario, observations: observations, transport: transport)
+    #expect(problems.isEmpty, Comment(rawValue: problems.joined(separator: "\n")))
+  }
+
+  @Test(.timeLimit(.minutes(1)))
+  func publicClientDeadlineDoesNotWaitForOutput() async throws {
+    var scenario = try ConformanceSuite.scenario(
+      named: "run-timeout-raises-and-keeps-partial-text")
+    var exchange = try #require(scenario.http[1].objectValue)
+    var response = try #require(exchange["respond"]?.objectValue)
+    response["sse"] = .array([.object(["text": .string(""), "delay_ms": .number(1000)])])
+    exchange["respond"] = .object(response)
+    scenario.http[1] = .object(exchange)
+    let transport = ScriptedTransport(exchanges: scenario.http, holdQuietTail: true)
+    let client = FountainClient(config: scenario.config, transport: transport)
+    let run = try await client.run(
+      "hello", agent: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", timeout: 0.01)
+    do {
+      _ = try await run.value()
+      Issue.record("a silent stream must time out")
+    } catch FountainError.timedOut(let partialText) {
+      #expect(partialText.isEmpty)
+    }
+    #expect(transport.unmatched.isEmpty)
   }
 
   /// A scenario nobody has ruled on is a scenario nobody has read.
@@ -62,6 +111,32 @@ struct ConformanceTests {
   func deviation(_ deviation: Deviation) {}
 }
 
+/// Start the scenario's deadline only after the consumer has observed output.
+/// The timeout still expires through Run's real deadline/error path; this
+/// removes the race between a loaded Swift executor and the first SSE frame.
+/// Its matching quiet tail stays open until cancellation, so it cannot win
+/// while the consumer is waiting to be scheduled. The scenario's one-minute
+/// test limit makes missing output a bounded failure rather than a hang.
+private final class ObservedOutputDeadline: Sendable {
+  private let output: AsyncStream<Void>
+  private let continuation: AsyncStream<Void>.Continuation
+
+  init() {
+    (output, continuation) = AsyncStream.makeStream()
+  }
+
+  func outputObserved() {
+    continuation.yield(())
+    continuation.finish()
+  }
+
+  func sleep(nanoseconds: UInt64) async throws {
+    for await _ in output { break }
+    try Task.checkCancellation()
+    try await Task.sleep(nanoseconds: nanoseconds)
+  }
+}
+
 // MARK: - driving
 
 private func drive(
@@ -69,7 +144,12 @@ private func drive(
   transport: ScriptedTransport,
   into observations: Observations
 ) async throws {
-  let client = FountainClient(config: scenario.config, transport: transport)
+  let deadline = ObservedOutputDeadline()
+  var api = APIClient(config: scenario.config, transport: transport)
+  if scenario.name == "run-timeout-raises-and-keeps-partial-text" {
+    api.sleepForRunDeadline = { try await deadline.sleep(nanoseconds: $0) }
+  }
+  let client = FountainClient(api: api)
 
   for step in scenario.steps {
     guard let op = step["op"]?.stringValue else {
@@ -129,6 +209,7 @@ private func drive(
         timeout: step["timeout_ms"]?.intValue.map { Double($0) / 1000 }
       )
       for try await event in run.events {
+        if case .text = event { deadline.outputObserved() }
         observations.events.append(project(event))
         if case .permission(let request, _) = event,
           let option = (answers[request.requestID] ?? answers["*"])?.stringValue

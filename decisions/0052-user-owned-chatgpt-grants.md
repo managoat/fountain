@@ -13,9 +13,21 @@ stale_after: 2026-10-11
 
 # 0052 — Users link a ChatGPT subscription and Fountain manages the grant
 
-**Status:** Proposed; none of the user-level behavior below is built.
-The existing implementation described below was checked against `main` at
-`c5b0e86c` on 2026-09-11.
+**Status:** Proposed. The user-level surface (decisions 2, 4 and 5: the
+linking UI and API, selection, per-peer sandbox identity) was never built.
+Decisions 1, 3 and 6 were built by #2011–#2015 and #2017 on 2026-09-13;
+their platform half is live, and their tenant-owner half was plumbing that
+nothing in production inserted or read. **#2176 decision 1 (2026-09-14)
+removes that dormant half under #2188**: the `*_for_user` functions, the
+grant struct, the user refresh coordinator and its supervisor, the two
+keepalive workers and `ProtectedCompiler`. What stays: the
+`platform_chatgpt_account` table with its owner and version columns,
+`Reserved` (live in three changesets), and `Cipher` and `RefreshLock` (both
+serve the platform row). This ADR stays Proposed, to be rebuilt from the
+commit before that removal when decisions 2, 4 and 5 are taken up; the last
+commit that carried the code is recorded in #2188. The existing
+implementation described below was checked against `main` at `c5b0e86c` on
+2026-09-11, before that stack landed.
 
 Extends [0047](0047-codex-platform-chatgpt-account.md),
 [0008](0008-byo-inference-credentials.md), and
@@ -37,12 +49,16 @@ The existing implementation provides most of the transport:
   a unique non-null `user_id`, and a separate singleton platform row.
 - `PlatformChatGPT.OAuth`, `Tokens`, and `Device` implement the exchange;
   `CodexChatGPT`, `CodexTransport`, and the broker implement sandbox access.
-- `PlatformChatGPT` encrypts every token with the platform key and reads
-  only `user_id IS NULL`. `CodexChatGPT.prepare_sandbox/3` and
-  `Egress.refresh_platform_chatgpt/2` fetch that same global account.
-- `PlatformChatGPT.Refresher` serializes on one node. Across nodes, its
-  compare-and-swap prevents stale writes but does not prevent duplicate
-  refresh requests reaching OpenAI. Terminal-error writes also need fencing.
+- `ChatGPTAccounts.Cipher.encrypt_fields/2` dispatches on the owner: the
+  platform key for the null-owner row, the owner's DEK otherwise
+  (#2011–#2015). The `PlatformChatGPT` facade that read only
+  `user_id IS NULL` is gone (#2112). `CodexChatGPT.prepare_sandbox/3` and
+  `Egress.refresh_platform_chatgpt/2` fetch the platform (null-owner) row.
+- `PlatformChatGPT.Refresher` serializes on one node. Across nodes, before
+  #2013, its compare-and-swap prevented stale writes but did not prevent
+  duplicate refresh requests reaching OpenAI, and terminal-error writes
+  needed fencing; decision 3 below and 0047 decision 3 (as corrected)
+  describe the per-grant advisory try-lock that replaced it.
 - Codex writes a shared `$CODEX_HOME/auth.json`. Adding a second account
   source requires explicit handling of concurrent peers and account changes.
 - `Broker.Native.Sessions` stores materialized credential rules without
@@ -82,8 +98,7 @@ require their existing credentials.
 ### 1. Explicit ownership and encryption
 
 Introduce `Fountain.ChatGPTAccounts` with separate user and platform entry
-points. Admin callers use its `platform_*` functions directly; the initial
-`PlatformChatGPT` compatibility wrapper has been removed (#2100). User
+points. Admin callers use its `platform_*` functions directly. User
 methods require authenticated `user_id` and scope their first query by it.
 Never interpret an absent user ID as a request for the platform account.
 
@@ -105,6 +120,12 @@ returned by account APIs, exports, audit events, logs, or LiveView assigns.
 Account deletion cancels pending attempts and invalidates broker access as
 well as cascading the grant and tenant key. Export only non-secret metadata,
 consistent with [0009](0009-account-deletion-and-export.md).
+
+**Amended 2026-09-14:** the `PlatformChatGPT` compatibility wrapper kept
+while `ChatGPTAccounts` was introduced was removed by #2112 (#2100), so
+admin callers reach the `platform_*` functions directly. The user entry
+points this decision introduced are being removed under #2188 (#2176
+decision 1; see the status block).
 
 ### 2. Device-code linking in account settings and the API
 

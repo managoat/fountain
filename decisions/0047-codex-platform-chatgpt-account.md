@@ -119,12 +119,13 @@ checked against `main` at `59c5ebc8` on 2026-09-08.
   INSERT that an idle ACP peer never sees. New brokered sources go into
   `reread_secrets/1`.
 - **Codex provisioning.** `Managoat.Runtimes.Codex.prepare_sandbox/3` in the
-  hex library `managoat_runtimes` (pinned `~> 0.3.2` in
-  `apps/fountain/mix.exs`) pipes `OPENAI_API_KEY` into
+  hex library `managoat_runtimes` (pinned `~> 0.4.2` in
+  `apps/fountain/mix.exs`, 0.4.2 in the lock) pipes `OPENAI_API_KEY` into
   `codex login --with-api-key`, because codex 0.118+ reads only
   `~/.codex/auth.json`. Changing it is a library release and a pin bump: two
   PRs in two repositories, and the pin was mid-bump when this was built
-  (`~> 0.3.2` in `mix.exs`, 0.4.2 on hex). Decision 4 leaves it alone.
+  (`~> 0.3.2` in `mix.exs`, 0.4.2 on hex; it reached `~> 0.4.2` since).
+  Decision 4 leaves it alone.
 - **Codex transport** (#1674). `Fountain.Conversations.CodexTransport`
   rewrites the spawn's `CODEX_CONFIG` to declare and select
   `fountain_openai_http` (`supports_websockets: false`,
@@ -160,7 +161,16 @@ claims), `account_id`, `account_email`, `plan_type`, `access_expires_at`,
 `platform_inference_keys`), timestamps. Ciphertexts go through
 `Crypto.encrypt_platform/1`. The row gets a nullable `user_id` from day one
 so a per-tenant "connect your ChatGPT" is the same row with an owner rather
-than a second table, but that surface is not built here.
+than a second table, but that surface is not built here. The grant and the
+platform API keys stay two tables by decision (#2176 decision 3,
+2026-09-14): a platform API key is one static ciphertext per provider, the
+grant is a rotating token pair with status, claims, expiry, generation and a
+lock version, and folding them would be the one-row-many-columns shape 0053
+took apart. The one read over both, the deployment's credential for a
+provider and runtime, belongs in `Fountain.PlatformInference`, which already
+owns the stored-row-beats-env rule; #2183 moves the resolver's platform
+step there (not yet built at the time of this note, when the resolver still
+reads the grant from `ChatGPTAccounts.platform_credential/1` itself).
 
 ### 2. The admin connects from `/admin/inference`, by paste first and by device code second
 
@@ -178,11 +188,13 @@ now Fountain's, and using that same `auth.json` anywhere else will break both.
 
 `Fountain.ChatGPTAccounts.platform_access_token/0` refreshes when within the margin
 of `exp`, through `Fountain.PlatformChatGPT.Refresher`, one process per
-node, so the deployment's many conversations queue on one round-trip
-holding no database connection (unlike `Connections`, whose per-row lock
-spans one tenant, this grant is every tenant's); across nodes the write is
-a compare-and-swap on the refresh token the read started from, and a loser
-serves the winner's tokens. The rotated refresh token is persisted
+node, so the deployment's many conversations queue on one round-trip and
+only the holder keeps a database checkout across the provider request
+(unlike `Connections`, whose per-row lock spans one tenant, this grant is
+every tenant's); across nodes the upstream call runs under a per-grant
+advisory try-lock (`Fountain.ChatGPTAccounts.RefreshLock`, #2013, which
+0052 decision 3 describes), and a contender releases its checkout, backs
+off and serves the winner's committed tokens. The rotated refresh token is persisted
 **before** the new access token is handed out. The margin must exceed the longest turn the deployment
 expects, because codex cannot recover a 401 in this mode (decision 5); it
 starts at 15 minutes and is config. A keepalive worker
@@ -214,6 +226,15 @@ credential is offered to brokered tenants only; a self-hosted runner refuses
 brokering, so a runner conversation on the codex runtime sees no ChatGPT
 credential and takes the API-key path.
 
+**Amended 2026-09-14:** the runner sentence above no longer holds. #2057
+decided that a self-hosted runner is a `direct` sandbox that still brokers
+credentials (only containment is per-sandbox; #2056), and #2176 decision 4
+made "brokered" a deployment fact for grant selection: the resolver reads
+`Fountain.Broker.configured?/0`, not the sandbox. A runner conversation on
+the codex runtime on a brokered deployment (under `BROKER_ALLOW_UNENFORCED`)
+does take the grant and holds only the placeholder, which is worthless
+anywhere but at the broker. #2183 adds the test.
+
 ```json
 {
   "auth_mode": "chatgptAuthTokens",
@@ -231,9 +252,11 @@ credential and takes the API-key path.
 method whose `authenticate` reads a key from the env and runs
 `accountLogin({type: "apiKey"})`, rewriting the file above, and
 `Managoat.ACP.Peer` authenticated with the first api-key method an agent
-advertised. So the peer gained `:auth` (`managoat_acp` 0.4.1 on `main`, published as
-the 0.3.1 backport Fountain pins because `managoat_runtimes` 0.3.x holds
-`managoat_acp` at 0.3; the one library change this ADR needs): `Fountain.Conversations.CodexChatGPT.peer_auth/2`
+advertised. So the peer gained `:auth` (`managoat_acp` 0.4.1 on `main`,
+first taken as the 0.3.1 backport because `managoat_runtimes` 0.3.x held
+`managoat_acp` at 0.3; Fountain now pins `managoat_acp` and
+`managoat_runtimes` at `~> 0.4.2` in `apps/fountain/mix.exs`; the one
+library change this ADR needs): `Fountain.Conversations.CodexChatGPT.peer_auth/2`
 answers `:none` for a codex spawn carrying the grant and `:api_key` for
 everything else, and both peer-start sites (`TurnMachine.start_acp_peer/5`
 and `Reattachment.acp_peer/3`) pass it. With no `authenticate` call codex-acp
@@ -279,15 +302,17 @@ the transcript, the same failure shape a lapsed Connection has today.
 
 ### 6. Selection: tenant credential first, then the subscription for codex, then the platform API key
 
-`InferenceCredentials.select/3` keeps its rule that a tenant's own key
+`InferenceCredentials.resolve/4` (`InferenceCredentials.Resolver`, the
+production entry point since #2022; `select/4` survives only behind the
+verified-landing banner) keeps its rule that a tenant's own key
 always wins. For provider `openai` with no tenant credential, it takes the
 ChatGPT grant when the agent's runtime is `codex` and the grant is `active`
 and refreshable, else the platform `OPENAI_API_KEY`. The runtime is the
-third argument, threaded from `SpriteEnv.select_inference/2` and the
-verified-landing banner; `credentials_for_provider/1` is untouched, because
+third argument, threaded from provisioning (`SpriteEnv.resolve_inference/4`)
+and the verified-landing banner; `credentials_for_provider/1` is untouched, because
 it names what a *tenant* may hold and no tenant holds this.
-`PlatformInference.gate/3` counts the grant as platform-served
-(`serves?/2`), so the daily ceiling applies. The origin stays `:platform`, so the ledger prices the turn and the daily
+`PlatformInference.gate_source/1`, applied to the resolved source at
+admission, counts the grant as platform-served, so the daily ceiling applies. The origin stays `:platform`, so the ledger prices the turn and the daily
 ceiling counts it (0038 decision 3). The ceiling measures turn-hours, not
 the subscription's own five-hour and weekly windows; those are shared by
 every tenant on the grant, and when they trip codex reports it on the

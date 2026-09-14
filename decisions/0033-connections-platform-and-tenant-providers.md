@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Connections: a small platform provider registry, tenant-defined providers for everything else, and MCP-spec discovery for remote servers"
-description: "Built. A connection is a provider account Fountain holds the credential for and hands to an agent as a capability, never as a token in the sandbox. Google, Microsoft and Slack are the platform providers with Fountain-owned OAuth clients (a closed registry, grown only by amending this ADR); every other service is a provider the tenant defines from their own app registration, and a remote MCP server is a provider Fountain discovers (RFC 9728 / 8414) and registers a client with (RFC 7591). Only for accounts the egress broker is on for."
+description: "Built. A connection is a provider account Fountain holds the credential for and hands to an agent as a capability, never as a token in the sandbox. Google, Microsoft and Slack are the platform providers with Fountain-owned OAuth clients (a registry closed to core and grown by installing an extension, since 0054); every other service is a provider the tenant defines from their own app registration, and a remote MCP server is a provider Fountain discovers (RFC 9728 / 8414) and registers a client with (RFC 7591). Only for accounts the egress broker is on for."
 tags: [security, secrets, connections, oauth, mcp, egress]
 status: stable
 adr: "0033"
@@ -17,6 +17,13 @@ verified: { by: agent:claude-code, at: 2026-09-01T00:00:00-04:00 }
 Amended for #1299: decision 1 grew from "Google is the one platform
 provider" to a registry of three (Google, Microsoft, Slack), for the reason
 recorded there. Nothing described here is unbuilt.
+
+**Amended 2026-09-14 by [0054](0054-extensions-contribute-connection-providers.md):**
+decision 1's closed registry, "grown only by amending this ADR", is now
+"the host's own, then each installed extension's", grown by installing an
+extension (0054 decision 6, #2152). Core builds no platform provider;
+Google, Microsoft and Slack ship as `fountain_google`, `fountain_microsoft`
+and `fountain_slack`. The inline note in decision 1 records the move.
 
 ## Context
 

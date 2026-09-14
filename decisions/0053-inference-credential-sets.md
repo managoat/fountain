@@ -1,22 +1,27 @@
 ---
 type: ADR
 title: "An account holds several inference credential sets"
-description: "Proposed; the #2018 stack implements named sets, source resolution and durable bindings, process-only inputs, and current-owner principal writes. Codex uses an interim machine-lifetime source binding; per-peer auth isolation and managed user execution remain unbuilt."
+description: "Accepted. The #2018 stack (thirteen PRs, #2019 to #2046, merged 2026-09-13) built named sets, source resolution and durable bindings, process-only inputs, and current-owner principal writes. Codex uses an interim machine-lifetime source binding; per-peer auth isolation and managed user execution remain unbuilt."
 tags: [inference, billing, security, conversations, accounts]
-status: draft
+status: stable
 adr: "0053"
-adr_status: "Proposed"
+adr_status: "Accepted"
 date: 2026-09-12
-generated: { by: "process:codex", at: 2026-09-13T05:33:12-04:00 }
+generated: { by: claude-fable/5.1, at: 2026-09-14T07:45:43-04:00 }
+verified: { by: claude-fable/5.1, at: 2026-09-14T07:45:43-04:00 }
 stale_after: 2026-10-12
 ---
 
 # 0053 — An account holds several inference credential sets
 
-**Status:** Proposed. Implementation inventory for the #2018 PR stack on
-2026-09-13; this is not acceptance of the ADR or evidence of deployment.
+**Status:** Accepted, 2026-09-14 (#2176 decision 5). The #2018 stack
+merged on 2026-09-13 as thirteen PRs: #2019 (this ADR, then Proposed),
+#2022, #2023, #2025, #2027, #2028, #2031, #2034, #2042, #2043, #2044, #2045
+and #2046. What follows is the built-with-gaps inventory taken against that
+stack on 2026-09-13 and re-checked against `main` at `05c18224` on
+2026-09-14; acceptance is of the decisions, not evidence of deployment.
 
-The stack implements named/default credential rows, agent selection and
+The stack built named/default credential rows, agent selection and
 launch allowlists, account API/OpenAPI and console management, and
 current-owner principal credential writes. Its resolver identifies static
 set or environment/vault credentials, including runtime aliases, and carries
@@ -82,18 +87,21 @@ Three facts make this less obvious than adding a column.
 is invisible.** A vault or environment secret named `ANTHROPIC_API_KEY` wins
 in the sandbox environment; `Conversations.Egress` says so at the split
 (`egress.ex:223-226`) and `docs/concepts/secrets.md` publishes it. But
-`PlatformInference.gate/3` and `select/4` both ask
-`InferenceCredentials.has_own?/2`, which reads only the credential row. So on
-a deployment that holds platform keys the conversation is selected
-`:platform`, `TurnMachine.with_inference/2` stamps `"platform"`,
-`Workers.CreditPricer` bills the tenant for platform inference, the turn
-counts against `PLATFORM_INFERENCE_DAILY_CENTS`, and `check_ceiling/0` can
-refuse a later turn — while the tenant's own secret is what actually served
-every one of them. This is live on the hosted deployment, which has held
-platform keys since 2026-09-03. #1941 corrected an adjacent facet on
-2026-09-12 (a platform turn is now stamped when the deployment holds no
-platform API key at all); it did not reach this one, because the stamp is
-still derived from a selection that cannot see the secret.
+when this was written, `PlatformInference.gate/3` and `select/4` both asked
+`InferenceCredentials.has_own?/2`, which read only the credential row. So on
+a deployment that held platform keys the conversation was selected
+`:platform`, `TurnMachine.with_inference/2` stamped `"platform"`,
+`Workers.CreditPricer` billed the tenant for platform inference, the turn
+counted against `PLATFORM_INFERENCE_DAILY_CENTS`, and `check_ceiling/0` could
+refuse a later turn — while the tenant's own secret was what actually served
+every one of them. This was live on the hosted deployment, which has held
+platform keys since 2026-09-03, until #2023 (a tenant secret naming a
+credential resolves as `:own`) and #2025 (the door gate asks what the
+provision will answer) fixed it on 2026-09-13; `has_own?/2` no longer
+exists. #1941 had corrected an adjacent facet on
+2026-09-12 (a platform turn is stamped when the deployment holds no
+platform API key at all); it did not reach this one, because the stamp was
+still derived from a selection that could not see the secret.
 
 **Credentials are written to a shared disk.** `SpriteEnv.build/4` puts the
 inference pairs in the list that `Provisioning.write_env_file/2` renders to
@@ -271,10 +279,11 @@ also covers static workspace
 ChatGPT tokens on the managed path. Rotation is not the boundary:
 **protect managed credentials; resolve ordinary tenant overrides.**
 
-`PlatformInference.gate/3` runs at `start_conversation` before anything is
-provisioned and today receives only the user, the model and the runtime. It
-gains the launch's resolved environment and vault so that it asks the question
-the provision-time selection answers. Admission checks a resolved snapshot;
+Admission at `start_conversation`, before anything is provisioned, calls
+`InferenceCredentials.resolve/4` with the launch's environment and vault and
+then `PlatformInference.gate_source/1` on the resolved source (#2025), so it
+asks the question the provision-time selection answers. Admission checks a
+resolved snapshot;
 it cannot promise an outcome based on future configuration edits. Before
 provisioning writes auth state or starts a peer, validate the source revision
 and eligibility again. A changed source requires fresh resolution and all

@@ -43,9 +43,9 @@ Concretely:
 - New context module `Fountain.InferenceCredentials` handles get/put/decrypt. Plaintext is never stored or logged.
 - New validator `Fountain.InferenceCredentials.Validator` pings each provider on save (cheap auth-only call) so users find typos / revoked keys at the boundary instead of mid-turn.
 - `ConversationServer.handle_continue(:provision, ...)` loads the tenant DEK + decrypts inference credentials at conversation start; passes the decrypted map to `runtime_module.default_env(agent, credentials)`. Plaintext credentials live only in GenServer state for the conversation lifetime.
-- Runtime modules (Claude, Codex, Gemini, OpenCode) updated to read from the passed-in credentials map; no `Application.get_env` reads for inference keys.
+- Runtime modules (Claude, Codex, Gemini, OpenCode) updated to read from the passed-in credentials map; no `Application.get_env` reads for inference keys. (Since [ADR 0037](0037-component-libraries.md) the runtime modules are `Managoat.Runtimes.*` in the `managoat_runtimes` library, reached through `Fountain.RuntimeDispatch.for_agent/1`.)
 - Settings page at `/account/inference-credentials` lets users set/clear each credential.
-- New required step at the start of the onboarding wizard: "Connect a provider." Without at least one credential set, the wizard does not advance. (User can still use the wizard-level "Skip wizard" link.)
+- New required step at the start of the onboarding wizard: "Connect a provider." Without at least one credential set, the wizard does not advance. (User can still use the wizard-level "Skip wizard" link.) The wizard predates [ADR 0038](0038-onboarding-first-reply.md) and is gone; the dashboard asks `InferenceCredentials.has_any_credential?/1` instead.
 - Platform env vars `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN` removed from `render.yaml`, `.env.example`, and `config/runtime.exs`.
 
 ## Consequences

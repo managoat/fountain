@@ -450,8 +450,8 @@ defmodule Fountain.InferenceCredentials do
 
   # The environment variable each static credential is exported as. A tenant
   # secret of the same name overrides it in the sandbox (`Egress`'s gate-3
-  # split, published in `docs/concepts/secrets.md`), which is what
-  # `select/4`'s `:overrides` are normalized against.
+  # split, published in `docs/concepts/secrets.md`), which is what the
+  # resolver's tenant overrides are normalized against.
   #
   # The deployment's ChatGPT grant is deliberately absent: ADR 0052 decision 6
   # reserves `CODEX_CHATGPT_ACCESS_TOKEN` so no configuration can name it.
@@ -544,32 +544,43 @@ defmodule Fountain.InferenceCredentials do
   end
 
   @doc """
-  Select the credential kind the runtime will actually use.
+  Resolve the credential a conversation on `model` and `runtime` runs on: the
+  `Source` (scope, kind, identity, revision, and the configuration it was
+  resolved against) and the credentials map the runtime is handed, with the
+  selected provider's competing inputs removed and unrelated ones kept.
 
-  Tenant values override the selected set's value for the same kind, with
-  supported aliases normalized before runtime precedence is applied. Claude
-  prefers OAuth; OpenCode's Anthropic path accepts only an API key. Conflicting
-  alias values or unusable supplied credentials return an error. The returned
-  credentials exclude competing auth inputs for the selected provider and
-  preserve unrelated credentials.
+  One entry point, one order, under the per-user source lock
+  (`with_source_lock/2`) and with no provider I/O:
 
-  `opts` accepts actual `:overrides` values, and `:refresh` controls provider
-  refresh I/O. Platform policy (`Fountain.PlatformInference.credential_for/3`)
-  applies only when no tenant credential is selected for this
-  runtime/provider, and nothing anywhere is `Source.missing/0`, never an
-  error: the sandbox still provisions, with nothing to call.
+  1. **Which set.** An `:expected_source` names its own `set_id`; otherwise
+     the caller's `:credential_set_id`; otherwise the account default. An
+     explicit id that does not resolve is `:inference_credential_not_found`,
+     never a fallback.
+  2. **Decrypt the set** under the tenant DEK.
+  3. **Tenant overrides.** The environment's plain variables and secrets,
+     then the vault's secrets (`:environment_id`, `:vault_id`), normalized by
+     credential kind; two aliases that disagree inside one layer are
+     `:inference_credential_conflict`; the vault wins over the environment.
+  4. **Select.** An override wins over the set's value for the same kind;
+     the runtime's kind precedence picks (Claude prefers OAuth, OpenCode's
+     Anthropic path accepts only an API key). An empty selected value, or a
+     tenant value for the provider that the runtime cannot use, is
+     `:inference_credential_unusable`.
+  5. **Platform policy**, only when no tenant source was selected:
+     `Fountain.PlatformInference.credential_for/2`. Nothing anywhere is
+     `Source.missing/0`, never an error: the sandbox still provisions, with
+     nothing to call. Under an explicit `:credential_set_id`, `:missing` and
+     `:platform` are refused as unusable rather than substituted.
+  6. **Bind** the source's identity and revision per scope, then stamp the
+     model, runtime, environment and vault.
+  7. **Compare** the dumped source with `:expected_source`; a difference is
+     `:inference_source_changed`.
 
-  The returned `Source` describes origin, scope and kind. Production callers
-  use `resolve/4` for tenant-scoped loading, durable identity/revision metadata,
-  and expected-source validation. That resolver performs no provider I/O.
+  `opts` accepts exactly `:credential_set_id`, `:environment_id`, `:vault_id`
+  and `:expected_source`; anything else raises.
   """
-  @spec select(String.t() | nil, %{atom() => String.t()}, String.t() | nil, keyword()) ::
-          {:ok, Source.t(), %{atom() => String.t()}}
-          | {:error, :inference_credential_unusable | :inference_credential_conflict}
-  def select(model, own_creds, runtime \\ nil, opts \\ []) when is_map(own_creds) do
-    Fountain.InferenceCredentials.Resolver.select(model, own_creds, runtime, opts)
-  end
-
+  @spec resolve(binary(), String.t() | nil, String.t() | nil, keyword()) ::
+          {:ok, Source.t(), %{atom() => String.t()}} | {:error, atom()}
   def resolve(user_id, model, runtime, opts \\ []),
     do: Fountain.InferenceCredentials.Resolver.resolve(user_id, model, runtime, opts)
 

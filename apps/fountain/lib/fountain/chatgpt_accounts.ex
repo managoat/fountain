@@ -33,7 +33,7 @@ defmodule Fountain.ChatGPTAccounts do
       the server's reason code; a workspace token past its expiry marks it
       `expired`.
     * `platform_credential/1` -- `{:ok, token}` or `:none`, for
-      `Fountain.InferenceCredentials.select/4`, which takes the grant for a
+      `Fountain.PlatformInference.credential_for/2`, which takes the grant for a
       codex agent whose tenant has no OpenAI key of their own.
     * `platform_sandbox_auth/0` -- the account id and the synthesised
       `id_token` the sandbox file carries; never the real one.
@@ -75,7 +75,7 @@ defmodule Fountain.ChatGPTAccounts do
   def platform_active?, do: match?(%Account{status: "active"}, platform_row())
 
   @doc """
-  The grant as `Fountain.InferenceCredentials.select/4` wants it:
+  The grant as `Fountain.PlatformInference.credential_for/2` wants it:
   `{:ok, access_token}` when it is active and refreshable, else `:none`.
 
   `refresh: false` answers from the row alone, refreshing nothing: for a

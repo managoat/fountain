@@ -43,7 +43,8 @@ defmodule Fountain.Credits.ChatGPTInferenceTest do
 
   test "a grant-only turn is debited once and counted in daily spend; own credentials are not" do
     model = "openai/gpt-6-astra"
-    {:ok, source, _} = InferenceCredentials.select(model, %{}, "codex", refresh: false)
+    user = insert_empty_user()
+    {:ok, source, _} = InferenceCredentials.resolve(user.id, model, "codex", [])
 
     assert %Source{origin: :platform, scope: :platform, kind: :codex_chatgpt_access_token} =
              source
@@ -54,7 +55,6 @@ defmodule Fountain.Credits.ChatGPTInferenceTest do
         model: model
       })
 
-    user = insert_empty_user()
     agent = insert_agent(user_id: user.id, runtime: "codex", model: model)
     conv = insert_conversation(user_id: user.id, agent: agent)
     now = DateTime.utc_now()
@@ -70,8 +70,11 @@ defmodule Fountain.Credits.ChatGPTInferenceTest do
     assert entry.metadata["model"] == model
     assert Billing.platform_inference_spend_today(now) == before + cost
 
+    {:ok, dek} = Fountain.Crypto.load_tenant_key(user.id)
+    {:ok, _} = InferenceCredentials.put_credential(user.id, dek, :openai_api_key, "tenant-key")
+
     {:ok, %Source{origin: :own} = source, _} =
-      InferenceCredentials.select(model, %{openai_api_key: "tenant-key"}, "codex", refresh: false)
+      InferenceCredentials.resolve(user.id, model, "codex", [])
 
     own_usage =
       TurnMachine.with_inference(%{"input" => 1_000_000}, %{inference: source, model: model})

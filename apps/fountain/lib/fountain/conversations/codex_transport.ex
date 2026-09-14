@@ -145,7 +145,7 @@ defmodule Fountain.Conversations.CodexTransport do
 
   # The grant shape: the built-in would be selected, the spawn carries the
   # grant and no API key. A key beside the grant is the tenant's own or the
-  # platform's, and `select/3` never hands both out — but if both were
+  # platform's, and the resolver never hands both out — but if both were
   # present the key would win above, as it does everywhere else.
   defp chatgpt?(config, env) do
     Map.get(config, "model_provider", "openai") == "openai" and present?(env, @chatgpt_key) and

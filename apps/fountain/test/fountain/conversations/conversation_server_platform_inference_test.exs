@@ -475,7 +475,7 @@ defmodule Fountain.Conversations.ConversationServerPlatformInferenceTest do
     model = "openai/gpt-6-astra"
 
     assert {:ok, %Fountain.InferenceCredentials.Source{origin: :platform} = source, credentials} =
-             Fountain.InferenceCredentials.select(model, %{}, "codex", refresh: false)
+             Fountain.InferenceCredentials.resolve(user.id, model, "codex", [])
 
     assert Map.has_key?(credentials, :codex_chatgpt_access_token)
     agent = insert_agent(user_id: user.id, runtime: "codex", model: model)

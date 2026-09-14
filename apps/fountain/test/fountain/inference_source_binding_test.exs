@@ -11,48 +11,67 @@ defmodule Fountain.InferenceSourceBindingTest do
     %{user: user, dek: dek}
   end
 
-  test "runtime precedence and same-kind overrides select the value actually exported" do
-    own = %{claude_code_oauth_token: "oauth", anthropic_api_key: "api"}
+  defp vault_with(user, secrets) do
+    vault = insert_vault(user_id: user.id)
+    for {key, value} <- secrets, do: insert_vault_secret(vault, key: key, value: value)
+    vault
+  end
+
+  test "runtime precedence and same-kind overrides select the value actually exported", %{
+    user: user,
+    dek: dek
+  } do
+    {:ok, _} =
+      InferenceCredentials.put_credential(user.id, dek, :claude_code_oauth_token, "oauth")
+
+    {:ok, _} = InferenceCredentials.put_credential(user.id, dek, :anthropic_api_key, "api")
+    vault = vault_with(user, %{"ANTHROPIC_API_KEY" => "override"})
 
     assert {:ok, %{kind: :claude_code_oauth_token, scope: :credential},
             %{claude_code_oauth_token: "oauth"}} =
-             InferenceCredentials.select("anthropic/claude-sonnet-5", own, "claude",
-               overrides: %{"ANTHROPIC_API_KEY" => "override"}
+             InferenceCredentials.resolve(user.id, "anthropic/claude-sonnet-5", "claude",
+               vault_id: vault.id
              )
 
     assert {:ok, %{kind: :anthropic_api_key, scope: :tenant_secret},
             %{anthropic_api_key: "override"}} =
-             InferenceCredentials.select("anthropic/claude-sonnet-5", own, "opencode",
-               overrides: %{"ANTHROPIC_API_KEY" => "override"}
+             InferenceCredentials.resolve(user.id, "anthropic/claude-sonnet-5", "opencode",
+               vault_id: vault.id
              )
 
+    {:ok, oauth_only} = InferenceCredentials.create_set(user.id, "OAuth only")
+
+    {:ok, oauth_only} =
+      InferenceCredentials.put_credential_in(oauth_only, dek, :claude_code_oauth_token, "oauth")
+
     assert {:error, :inference_credential_unusable} =
-             InferenceCredentials.select(
-               "anthropic/claude-sonnet-5",
-               %{claude_code_oauth_token: "oauth"},
-               "opencode"
+             InferenceCredentials.resolve(user.id, "anthropic/claude-sonnet-5", "opencode",
+               credential_set_id: oauth_only.id
              )
   end
 
-  test "aliases normalize within a layer and reject only conflicting values for the selected provider" do
+  test "aliases normalize within a layer and reject only conflicting values for the selected provider",
+       %{user: user, dek: dek} do
+    google = vault_with(user, %{"GEMINI_API_KEY" => "google"})
+
     assert {:ok, %{kind: :gemini_api_key}, %{gemini_api_key: "google"}} =
-             InferenceCredentials.select("google/gemini-2.5-pro", %{}, "opencode",
-               overrides: %{"GEMINI_API_KEY" => "google"}
+             InferenceCredentials.resolve(user.id, "google/gemini-2.5-pro", "opencode",
+               vault_id: google.id
              )
 
-    conflicting = %{"GEMINI_API_KEY" => "one", "GOOGLE_GENERATIVE_AI_API_KEY" => "two"}
+    conflicting =
+      vault_with(user, %{"GEMINI_API_KEY" => "one", "GOOGLE_GENERATIVE_AI_API_KEY" => "two"})
 
     assert {:error, :inference_credential_conflict} =
-             InferenceCredentials.select("google/gemini-2.5-pro", %{}, "opencode",
-               overrides: conflicting
+             InferenceCredentials.resolve(user.id, "google/gemini-2.5-pro", "opencode",
+               vault_id: conflicting.id
              )
 
+    {:ok, _} = InferenceCredentials.put_credential(user.id, dek, :anthropic_api_key, "api")
+
     assert {:ok, %{kind: :anthropic_api_key}, _} =
-             InferenceCredentials.select(
-               "anthropic/claude-sonnet-5",
-               %{anthropic_api_key: "api"},
-               "claude",
-               overrides: conflicting
+             InferenceCredentials.resolve(user.id, "anthropic/claude-sonnet-5", "claude",
+               vault_id: conflicting.id
              )
   end
 

@@ -177,9 +177,10 @@ defmodule Fountain.PlatformChatGPTTest do
       connect!(%{access_token: stale})
       # No stub for /oauth/token: a refresh here would raise.
       assert ChatGPTAccounts.platform_credential(refresh: false) == {:ok, stale}
+      user = insert_verified_user()
 
       assert {:ok, %Source{origin: :platform}, %{codex_chatgpt_access_token: ^stale}} =
-               InferenceCredentials.select("openai/gpt-5.5-codex", %{}, "codex", refresh: false)
+               InferenceCredentials.resolve(user.id, "openai/gpt-5.5-codex", "codex", [])
 
       stub_refusal()
       assert ChatGPTAccounts.platform_access_token() == {:error, :revoked}
@@ -432,8 +433,17 @@ defmodule Fountain.PlatformChatGPTTest do
     end
   end
 
-  describe "InferenceCredentials.select/3 (ADR 0047 decision 6)" do
-    test "a codex agent with no tenant key takes the grant, at :platform" do
+  defp resolve(user, model, runtime),
+    do: InferenceCredentials.resolve(user.id, model, runtime, [])
+
+  describe "InferenceCredentials.resolve/4 (ADR 0047 decision 6)" do
+    setup do
+      user = insert_verified_user()
+      {:ok, dek} = Crypto.load_tenant_key(user.id)
+      %{user: user, dek: dek}
+    end
+
+    test "a codex agent with no tenant key takes the grant, at :platform", %{user: user, dek: dek} do
       broker_on()
       access = access_token()
       connect!(%{access_token: access})
@@ -441,73 +451,71 @@ defmodule Fountain.PlatformChatGPTTest do
       assert {:ok,
               %Source{origin: :platform, scope: :platform, kind: :codex_chatgpt_access_token},
               %{codex_chatgpt_access_token: ^access}} =
-               InferenceCredentials.select("openai/gpt-5.5-codex", %{}, "codex")
+               resolve(user, "openai/gpt-5.5-codex", "codex")
 
       # The tenant's other credentials survive the merge.
+      {:ok, _} = InferenceCredentials.put_credential(user.id, dek, :anthropic_api_key, "sk-ant")
+
       assert {:ok, %Source{origin: :platform},
               %{anthropic_api_key: "sk-ant", codex_chatgpt_access_token: ^access}} =
-               InferenceCredentials.select(
-                 "openai/gpt-5.5-codex",
-                 %{anthropic_api_key: "sk-ant"},
-                 "codex"
-               )
+               resolve(user, "openai/gpt-5.5-codex", "codex")
     end
 
-    test "an unbrokered deployment never takes the grant: the token would land in the sandbox" do
+    test "an unbrokered deployment never takes the grant: the token would land in the sandbox",
+         %{user: user} do
       broker_off()
       connect!()
 
       assert {:ok, %Source{origin: :own, scope: :missing}, %{}} =
-               InferenceCredentials.select("openai/gpt-5.5-codex", %{}, "codex")
+               resolve(user, "openai/gpt-5.5-codex", "codex")
 
       Application.put_env(:fountain, :platform_openai_api_key, "sk-platform")
 
       assert {:ok, %Source{origin: :platform, scope: :platform, kind: :openai_api_key},
-              %{openai_api_key: "sk-platform"}} =
-               InferenceCredentials.select("openai/gpt-5.5-codex", %{}, "codex")
+              %{openai_api_key: "sk-platform"}} = resolve(user, "openai/gpt-5.5-codex", "codex")
     end
 
-    test "the tenant's own OpenAI key always wins" do
+    test "the tenant's own OpenAI key always wins", %{user: user, dek: dek} do
       broker_on()
       connect!()
-      own = %{openai_api_key: "sk-mine"}
+      {:ok, _} = InferenceCredentials.put_credential(user.id, dek, :openai_api_key, "sk-mine")
 
-      assert {:ok, %Source{origin: :own, scope: :credential}, ^own} =
-               InferenceCredentials.select("openai/gpt-5.5-codex", own, "codex")
+      assert {:ok, %Source{origin: :own, scope: :credential}, %{openai_api_key: "sk-mine"}} =
+               resolve(user, "openai/gpt-5.5-codex", "codex")
     end
 
-    test "opencode on an openai model never takes the grant" do
+    test "opencode on an openai model never takes the grant", %{user: user} do
       broker_on()
       connect!()
 
       assert {:ok, %Source{origin: :own, scope: :missing}, %{}} =
-               InferenceCredentials.select("openai/gpt-5.5", %{}, "opencode")
+               resolve(user, "openai/gpt-5.5", "opencode")
 
       Application.put_env(:fountain, :platform_openai_api_key, "sk-platform")
 
       assert {:ok, %Source{origin: :platform, scope: :platform, kind: :openai_api_key},
-              %{openai_api_key: "sk-platform"}} =
-               InferenceCredentials.select("openai/gpt-5.5", %{}, "opencode")
+              %{openai_api_key: "sk-platform"}} = resolve(user, "openai/gpt-5.5", "opencode")
 
       assert {:ok, %Source{origin: :platform, scope: :platform, kind: :openai_api_key},
-              %{openai_api_key: "sk-platform"}} =
-               InferenceCredentials.select("openai/gpt-5.5", %{})
+              %{openai_api_key: "sk-platform"}} = resolve(user, "openai/gpt-5.5", nil)
     end
 
-    test "a revoked grant falls through to the platform key, and to nothing" do
+    # The resolver never dials out, so the refusal is met where a turn meets
+    # it, in the refresh before the turn; the row is `revoked` after that.
+    test "a revoked grant falls through to the platform key, and to nothing", %{user: user} do
       broker_on()
       connect!(%{access_token: access_token(60)})
       stub_refusal()
+      assert ChatGPTAccounts.platform_access_token() == {:error, :revoked}
       Application.put_env(:fountain, :platform_openai_api_key, "sk-platform")
 
       assert {:ok, %Source{origin: :platform, scope: :platform, kind: :openai_api_key},
-              %{openai_api_key: "sk-platform"}} =
-               InferenceCredentials.select("openai/gpt-5.5-codex", %{}, "codex")
+              %{openai_api_key: "sk-platform"}} = resolve(user, "openai/gpt-5.5-codex", "codex")
 
       Application.delete_env(:fountain, :platform_openai_api_key)
 
       assert {:ok, %Source{origin: :own, scope: :missing}, %{}} =
-               InferenceCredentials.select("openai/gpt-5.5-codex", %{}, "codex")
+               resolve(user, "openai/gpt-5.5-codex", "codex")
     end
 
     test "the ceiling gate counts the grant as platform-served" do

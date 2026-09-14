@@ -93,7 +93,7 @@ defmodule FountainWeb.StartLive do
 
   # Will this request reach a model at all?
   #
-  # `InferenceCredentials.select/2` is the one selection rule (#1388): the
+  # `InferenceCredentials.resolve/4` is the one selection rule (#1388): the
   # tenant's own key wins, this deployment's platform key covers an account
   # that has none, and a `:missing` source is the case where the sandbox
   # starts and the agent has nothing to call. The page says so rather
@@ -102,29 +102,26 @@ defmodule FountainWeb.StartLive do
   #
   # Asked here rather than reimplemented, so a deployment that turns a
   # platform key on stops showing the banner with no change to this file. It
-  # is also the reason the banner is per-*agent*: `select/2` keys off the
+  # is also the reason the banner is per-*agent*: the resolver keys off the
   # model's provider, and an account holding an Anthropic key still has
-  # nothing for an agent on a `gemini` model.
+  # nothing for an agent on a `gemini` model. One short transaction under
+  # the source lock per render, which this page tolerates.
   defp needs_credential?(_user_id, nil), do: false
 
   defp needs_credential?(user_id, agent) do
     # The agent's credential set, not the account's default (ADR 0053
     # decision 3): the banner asks whether *this* agent will reach a model,
     # and an agent pointed at a set that holds nothing will not, whatever the
-    # default set holds.
-    with {:ok, dek} <- Fountain.Crypto.load_tenant_key(user_id),
-         {:ok, own} <-
-           InferenceCredentials.decrypted_for(user_id, agent.inference_credential_id, dek) do
-      match?(
-        {:ok, %InferenceCredentials.Source{scope: :missing}, _},
-        InferenceCredentials.select(agent.model, own, agent.runtime,
-          brokered: Fountain.Broker.configured?(),
-          refresh: false
-        )
-      )
-    else
-      # A tenant key that will not load is a bigger problem than this banner,
-      # and it is not this page's to report.
+    # default set holds. Under an explicit set the resolver refuses that
+    # case as unusable rather than substituting the platform key, so a
+    # launch would be refused too: the same answer for this banner.
+    case InferenceCredentials.resolve(user_id, agent.model, agent.runtime,
+           credential_set_id: agent.inference_credential_id
+         ) do
+      {:ok, %InferenceCredentials.Source{scope: :missing}, _} -> true
+      {:error, :inference_credential_unusable} -> true
+      # A tenant key that will not load, a set that is gone: bigger problems
+      # than this banner, and not this page's to report.
       _ -> false
     end
   end

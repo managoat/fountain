@@ -23,7 +23,7 @@ defmodule Fountain.PlatformInference do
     * `status/0` — one entry per provider for the admin page: where the live
       key comes from, when and by whom it was set, and its last four
       characters.
-    * `credential_for/3` and `reference/3` — what the resolver asks when no
+    * `credential_for/2` and `reference/3` — what the resolver asks when no
       tenant source was selected: the deployment's credential for this
       provider and runtime (the ChatGPT grant for codex on a brokered
       deployment, ADR 0047, else the key), and the durable identity a
@@ -35,9 +35,9 @@ defmodule Fountain.PlatformInference do
       platform key" question, for the per-turn backstop in
       `Conversations.TurnMachine.gate/2`, which already knows the answer.
 
-  The *selection* rule lives in `Fountain.InferenceCredentials.select/2`, one
-  function, because it is a statement about credentials rather than about
-  money.
+  The *selection* rule lives in `Fountain.InferenceCredentials.resolve/4`,
+  one function, because it is a statement about credentials rather than
+  about money.
 
   ## The ceiling is a circuit breaker, not a quota
 
@@ -164,18 +164,14 @@ defmodule Fountain.PlatformInference do
   (#2057). On a deployment with no broker the token would land in the
   sandbox in the clear, so the grant is never selected there.
 
-  `refresh: true` lets a grant within its expiry margin be refreshed first,
-  which dials out; the resolver passes `false` and answers from the row.
+  Answered from the row alone, no provider I/O: a grant within its expiry
+  margin is served as it is, and `Fountain.Conversations.Egress` refreshes
+  it before the turn.
   """
-  @spec credential_for(String.t() | nil, String.t() | nil, keyword()) ::
-          {:ok, atom(), String.t()} | :none
-  def credential_for(provider, runtime, opts \\ [])
-
-  def credential_for("openai" = provider, "codex", opts) do
+  @spec credential_for(String.t() | nil, String.t() | nil) :: {:ok, atom(), String.t()} | :none
+  def credential_for("openai" = provider, "codex") do
     if Fountain.Broker.configured?() do
-      case Fountain.ChatGPTAccounts.platform_credential(
-             refresh: Keyword.get(opts, :refresh, false)
-           ) do
+      case Fountain.ChatGPTAccounts.platform_credential(refresh: false) do
         {:ok, token} -> {:ok, :codex_chatgpt_access_token, token}
         :none -> key_for(provider)
       end
@@ -184,7 +180,7 @@ defmodule Fountain.PlatformInference do
     end
   end
 
-  def credential_for(provider, _runtime, _opts), do: key_for(provider)
+  def credential_for(provider, _runtime), do: key_for(provider)
 
   @doc """
   The durable identity and revision of a platform source, for

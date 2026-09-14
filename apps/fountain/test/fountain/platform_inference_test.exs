@@ -95,7 +95,7 @@ defmodule Fountain.PlatformInferenceTest do
 
       assert {:ok, %Source{origin: :platform, kind: :gemini_api_key},
               %{gemini_api_key: "AIza-stored"}} =
-               InferenceCredentials.select("google/gemini-3.1-pro-preview", %{})
+               InferenceCredentials.resolve(admin.id, "google/gemini-3.1-pro-preview", nil, [])
 
       :ok = PlatformInference.clear_key("google")
       refute PlatformInference.enabled?()
@@ -192,61 +192,94 @@ defmodule Fountain.PlatformInferenceTest do
     end
   end
 
-  describe "InferenceCredentials.select/2" do
-    test "with no platform key an account with nothing is :missing, not a key" do
+  defp resolve(user, model), do: InferenceCredentials.resolve(user.id, model, nil, [])
+
+  defp own!(user, dek, kind, value) do
+    {:ok, _} = InferenceCredentials.put_credential(user.id, dek, kind, value)
+    :ok
+  end
+
+  describe "InferenceCredentials.resolve/4, the selection" do
+    setup do
+      user = insert_verified_user()
+      {:ok, dek} = Fountain.Crypto.load_tenant_key(user.id)
+      %{user: user, dek: dek}
+    end
+
+    test "with no platform key an account with nothing is :missing, not a key", %{user: user} do
       assert {:ok, %Source{origin: :own, scope: :missing}, %{}} =
-               InferenceCredentials.select("anthropic/claude-opus-5", %{})
+               resolve(user, "anthropic/claude-opus-5")
     end
 
-    test "the tenant's own credential wins over a configured platform key" do
+    test "the tenant's own credential wins over a configured platform key", %{
+      user: user,
+      dek: dek
+    } do
       with_platform_key()
-      own = %{anthropic_api_key: "sk-tenant"}
+      own!(user, dek, :anthropic_api_key, "sk-tenant")
 
-      assert {:ok, %Source{origin: :own, scope: :credential}, ^own} =
-               InferenceCredentials.select("anthropic/claude-opus-5", own)
+      assert {:ok, %Source{origin: :own, scope: :credential}, %{anthropic_api_key: "sk-tenant"}} =
+               resolve(user, "anthropic/claude-opus-5")
     end
 
-    test "an OAuth token is a credential for anthropic and wins too" do
+    test "an OAuth token is a credential for anthropic and wins too", %{user: user, dek: dek} do
       with_platform_key()
-      own = %{claude_code_oauth_token: "oauth"}
+      own!(user, dek, :claude_code_oauth_token, "oauth")
 
-      assert {:ok, %Source{origin: :own, scope: :credential}, ^own} =
-               InferenceCredentials.select("anthropic/claude-opus-5", own)
+      assert {:ok, %Source{origin: :own, scope: :credential}, %{claude_code_oauth_token: "oauth"}} =
+               resolve(user, "anthropic/claude-opus-5")
     end
 
-    test "the platform key is merged in, leaving the tenant's other credentials alone" do
+    test "the platform key is merged in, leaving the tenant's other credentials alone", %{
+      user: user,
+      dek: dek
+    } do
       with_platform_key()
-      own = %{openai_api_key: "sk-tenant-openai"}
+      own!(user, dek, :openai_api_key, "sk-tenant-openai")
 
-      assert {:ok, %Source{origin: :platform}, creds} =
-               InferenceCredentials.select("anthropic/claude-opus-5", own)
+      assert {:ok, %Source{origin: :platform}, creds} = resolve(user, "anthropic/claude-opus-5")
 
       assert creds.anthropic_api_key == "sk-platform"
       assert creds.openai_api_key == "sk-tenant-openai"
     end
 
-    test "a provider with no platform key configured is still :missing" do
+    test "a provider with no platform key configured is still :missing", %{user: user} do
       with_platform_key()
 
-      assert {:ok, %Source{origin: :own, scope: :missing}, %{}} =
-               InferenceCredentials.select("openai/gpt-5.5", %{})
+      assert {:ok, %Source{origin: :own, scope: :missing}, %{}} = resolve(user, "openai/gpt-5.5")
     end
 
-    test "a provider that needs no credential is :own, whatever is configured" do
+    test "a provider that needs no credential is :own, whatever is configured", %{user: user} do
       with_platform_key()
 
-      assert {:ok, %Source{origin: :own, scope: :none}, %{}} =
-               InferenceCredentials.select("ollama/llama3", %{})
-
-      assert {:ok, %Source{origin: :own, scope: :none}, %{}} =
-               InferenceCredentials.select(nil, %{})
+      assert {:ok, %Source{origin: :own, scope: :none}, %{}} = resolve(user, "ollama/llama3")
+      assert {:ok, %Source{origin: :own, scope: :none}, %{}} = resolve(user, nil)
     end
 
-    test "an empty explicit credential refuses rather than selecting the platform" do
+    # `put_credential/5` clears on an empty value, so the row is written
+    # directly: what a set holds after an import or a rollback, not a
+    # `put_credential/5` a caller can reach.
+    test "an empty explicit credential refuses rather than selecting the platform", %{
+      user: user,
+      dek: dek
+    } do
       with_platform_key()
+      {:ok, set} = InferenceCredentials.create_set(user.id, "Blank")
+
+      set
+      |> Ecto.Changeset.change(anthropic_api_key_ciphertext: Fountain.Crypto.encrypt("", dek))
+      |> Repo.update!()
 
       assert {:error, :inference_credential_unusable} =
-               InferenceCredentials.select("anthropic/claude-opus-5", %{anthropic_api_key: ""})
+               InferenceCredentials.resolve(user.id, "anthropic/claude-opus-5", nil,
+                 credential_set_id: set.id
+               )
+    end
+
+    test "an option the resolver does not read raises rather than being ignored", %{user: user} do
+      assert_raise ArgumentError, ~r/unknown keys \[:brokered\]/, fn ->
+        InferenceCredentials.resolve(user.id, "anthropic/claude-opus-5", nil, brokered: false)
+      end
     end
   end
 

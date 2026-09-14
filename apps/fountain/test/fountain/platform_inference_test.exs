@@ -250,18 +250,25 @@ defmodule Fountain.PlatformInferenceTest do
     end
   end
 
-  describe "gate/2" do
+  # What admission does (`Conversations.resolve_admission_inference/5`):
+  # resolve the launch's selection, then ask the ceiling about that source.
+  defp admit(user_id, model, opts \\ []) do
+    with {:ok, source, _credentials} <- InferenceCredentials.resolve(user_id, model, nil, opts),
+         do: PlatformInference.gate_source(source)
+  end
+
+  describe "resolve/4 then gate_source/1, the door check" do
     setup do
       %{user: insert_verified_user()}
     end
 
     test "with no platform key nothing is gated", %{user: user} do
-      assert PlatformInference.gate(user.id, "anthropic/claude-opus-5") == :ok
+      assert admit(user.id, "anthropic/claude-opus-5") == :ok
     end
 
     test "under the ceiling a platform account passes", %{user: user} do
       with_platform_key()
-      assert PlatformInference.gate(user.id, "anthropic/claude-opus-5") == :ok
+      assert admit(user.id, "anthropic/claude-opus-5") == :ok
     end
 
     test "over the ceiling a platform account is refused", %{user: user} do
@@ -269,7 +276,7 @@ defmodule Fountain.PlatformInferenceTest do
       Application.put_env(:fountain, :platform_inference_daily_cents, 10)
       burn_inference(user, 10)
 
-      assert PlatformInference.gate(user.id, "anthropic/claude-opus-5") ==
+      assert admit(user.id, "anthropic/claude-opus-5") ==
                {:error, :platform_inference_unavailable}
     end
 
@@ -281,9 +288,9 @@ defmodule Fountain.PlatformInferenceTest do
       {:ok, dek} = Fountain.Crypto.load_tenant_key(user.id)
       {:ok, _} = InferenceCredentials.put_credential(user.id, dek, :anthropic_api_key, "sk-mine")
 
-      assert PlatformInference.gate(user.id, "anthropic/claude-opus-5") == :ok
+      assert admit(user.id, "anthropic/claude-opus-5") == :ok
       # And the same account without the key would have been refused.
-      assert PlatformInference.gate(insert_verified_user().id, "anthropic/claude-opus-5") ==
+      assert admit(insert_verified_user().id, "anthropic/claude-opus-5") ==
                {:error, :platform_inference_unavailable}
     end
 
@@ -300,20 +307,16 @@ defmodule Fountain.PlatformInferenceTest do
       vault = insert_vault(user_id: user.id)
       insert_vault_secret(vault, key: "ANTHROPIC_API_KEY", value: "sk-from-the-vault")
 
-      assert PlatformInference.gate(user.id, "anthropic/claude-opus-5", nil, vault_id: vault.id) ==
+      assert admit(user.id, "anthropic/claude-opus-5", vault_id: vault.id) ==
                :ok
 
       # The same launch without the vault, and the same vault under another
       # tenant, are both still refused.
-      assert PlatformInference.gate(user.id, "anthropic/claude-opus-5") ==
+      assert admit(user.id, "anthropic/claude-opus-5") ==
                {:error, :platform_inference_unavailable}
 
-      assert PlatformInference.gate(
-               insert_verified_user().id,
-               "anthropic/claude-opus-5",
-               nil,
-               vault_id: vault.id
-             ) == {:error, :platform_inference_unavailable}
+      assert admit(insert_verified_user().id, "anthropic/claude-opus-5", vault_id: vault.id) ==
+               {:error, :platform_inference_unavailable}
     end
 
     test "an environment naming the credential counts too, and an unrelated key does not",
@@ -326,16 +329,13 @@ defmodule Fountain.PlatformInferenceTest do
       {:ok, dek} = Fountain.Crypto.load_tenant_key(user.id)
       {:ok, _} = Environments.upsert_secret(env, %{"key" => "UNRELATED", "value" => "x"}, dek)
 
-      assert PlatformInference.gate(user.id, "anthropic/claude-opus-5", nil,
-               environment_id: env.id
-             ) == {:error, :platform_inference_unavailable}
+      assert admit(user.id, "anthropic/claude-opus-5", environment_id: env.id) ==
+               {:error, :platform_inference_unavailable}
 
       {:ok, _} =
         Environments.upsert_secret(env, %{"key" => "ANTHROPIC_API_KEY", "value" => "sk-e"}, dek)
 
-      assert PlatformInference.gate(user.id, "anthropic/claude-opus-5", nil,
-               environment_id: env.id
-             ) == :ok
+      assert admit(user.id, "anthropic/claude-opus-5", environment_id: env.id) == :ok
     end
 
     test "a secret for another provider does not excuse this one", %{user: user} do
@@ -346,7 +346,7 @@ defmodule Fountain.PlatformInferenceTest do
       vault = insert_vault(user_id: user.id)
       insert_vault_secret(vault, key: "OPENAI_API_KEY", value: "sk-openai")
 
-      assert PlatformInference.gate(user.id, "anthropic/claude-opus-5", nil, vault_id: vault.id) ==
+      assert admit(user.id, "anthropic/claude-opus-5", vault_id: vault.id) ==
                {:error, :platform_inference_unavailable}
     end
 
@@ -361,7 +361,7 @@ defmodule Fountain.PlatformInferenceTest do
       )
       |> Repo.update!()
 
-      assert PlatformInference.gate(user.id, "anthropic/claude-opus-5") == :ok
+      assert admit(user.id, "anthropic/claude-opus-5") == :ok
     end
   end
 

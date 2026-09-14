@@ -23,8 +23,8 @@ defmodule Fountain.PlatformInference do
     * `status/0` — one entry per provider for the admin page: where the live
       key comes from, when and by whom it was set, and its last four
       characters.
-    * `gate/2` — the door check: may this user's next conversation on this
-      model start? `:ok` unless it would run on a platform key and the
+    * `gate_source/1` — the door check: may a conversation on this resolved
+      source start? `:ok` unless it would run on a platform key and the
       deployment has spent its day.
     * `check_ceiling/0` — the same ceiling without the "would it even use the
       platform key" question, for the per-turn backstop in
@@ -320,26 +320,18 @@ defmodule Fountain.PlatformInference do
   end
 
   @doc """
-  Gate the resolved inference source against the deployment's daily ceiling.
+  Gate a resolved inference source against the deployment's daily ceiling.
 
-  `opts` accepts the launch's `:environment_id`, `:vault_id`, and
-  `:credential_set_id`. The shared runtime-aware resolver reads that selection
-  and its overrides, so the gate and provisioning agree on whose credential
-  serves the run. A tenant source passes without consuming the platform
-  ceiling; a platform source checks it. Invalid explicit selections fail.
-
-  Admission can pass an already-resolved source to `gate_source/1` and persist
-  that same snapshot for provisioning and later turns.
+  Admission resolves the launch's selection with
+  `Fountain.InferenceCredentials.resolve/4`, asks this, and persists that
+  same snapshot for provisioning and later turns, so the gate and
+  provisioning agree on whose credential serves the run. A tenant source
+  passes without consuming the platform ceiling; a platform source checks
+  it. The per-account daily bound decided on #1709 lands here, beside the
+  ceiling, and needs the user: it will be `gate_source/2`.
   """
-  @spec gate(binary(), String.t() | nil, String.t() | nil, keyword()) ::
-          :ok | {:error, term()}
-  def gate(user_id, model, runtime \\ nil, opts \\ []) when is_binary(user_id) do
-    case Fountain.InferenceCredentials.resolve(user_id, model, runtime, opts) do
-      {:ok, source, _creds} -> gate_source(source)
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
+  @spec gate_source(Fountain.InferenceCredentials.Source.t()) ::
+          :ok | {:error, :platform_inference_unavailable}
   def gate_source(source) do
     if Fountain.InferenceCredentials.Source.platform?(source), do: check_ceiling(), else: :ok
   end

@@ -50,6 +50,23 @@ defmodule Fountain.PlatformChatGPTTest do
 
   defp row, do: Repo.one!(Account)
 
+  defp broker_on do
+    previous =
+      for key <- [:broker_listen_port, :broker_proxy_url],
+          do: {key, Application.get_env(:fountain, key)}
+
+    on_exit(fn ->
+      for {key, value} <- previous do
+        if is_nil(value),
+          do: Application.delete_env(:fountain, key),
+          else: Application.put_env(:fountain, key, value)
+      end
+    end)
+
+    Application.put_env(:fountain, :broker_listen_port, 14_322)
+    Application.put_env(:fountain, :broker_proxy_url, "http://broker.test:14322")
+  end
+
   defp decrypt!(cipher) do
     {:ok, value} = Crypto.decrypt_platform(cipher)
     value
@@ -478,11 +495,22 @@ defmodule Fountain.PlatformChatGPTTest do
 
     test "the ceiling gate counts the grant as platform-served" do
       user = insert_verified_user()
-      assert :ok = PlatformInference.gate(user.id, "openai/gpt-5.5-codex", "codex")
 
+      assert {:ok, %Source{scope: :missing} = source, _} =
+               InferenceCredentials.resolve(user.id, "openai/gpt-5.5-codex", "codex", [])
+
+      assert :ok = PlatformInference.gate_source(source)
+
+      # The grant is selected only on a brokered deployment (decision 4 of
+      # the selection order): configure one, as the egress tests do.
+      broker_on()
       connect!()
+
+      assert {:ok, %Source{scope: :platform, kind: :codex_chatgpt_access_token} = source, _} =
+               InferenceCredentials.resolve(user.id, "openai/gpt-5.5-codex", "codex", [])
+
       # With credits off the ceiling never trips, so the gate is :ok.
-      assert :ok = PlatformInference.gate(user.id, "openai/gpt-5.5-codex", "codex")
+      assert :ok = PlatformInference.gate_source(source)
     end
   end
 

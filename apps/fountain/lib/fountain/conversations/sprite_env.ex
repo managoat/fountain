@@ -20,10 +20,6 @@ defmodule Fountain.Conversations.SpriteEnv do
   alias Fountain.Environments.Environment
   alias Fountain.Vaults.Vault
 
-  # Load the per-tenant DEK and decrypted inference credentials. Both are
-  # held in GenServer state for the conversation lifetime; the DEK is used
-  # for ad-hoc decryption (vaults, environments) and the credentials map
-  # is passed to runtime modules via build_sprite_env.
   @doc """
   The credential set pinned in a conversation's source binding.
 
@@ -54,44 +50,6 @@ defmodule Fountain.Conversations.SpriteEnv do
         {:ok, dek, source, creds}
       end
     end)
-  end
-
-  # Explicit IDs are tenant-scoped and must exist. Only nil asks for the
-  # account default; a missing or foreign named set never falls back to it.
-  @spec load_tenant_state(String.t(), binary() | nil) :: {:ok, binary(), map()} | {:error, term()}
-  def load_tenant_state(user_id, set_id \\ nil) when is_binary(user_id) do
-    with {:ok, dek} <- Crypto.load_tenant_key(user_id),
-         {:ok, creds} <- InferenceCredentials.decrypted_for(user_id, set_id, dek) do
-      {:ok, dek, creds}
-    end
-  end
-
-  @doc """
-  Resolve a source and its runtime credential inputs from already-loaded values.
-
-  `runtime` falls back to the agent's runtime. `secrets` supplies actual
-  environment/vault values, normalized by the shared resolver. Same-kind
-  overrides win over credential rows, then runtime kind precedence selects
-  the auth input. Competing inputs are removed from the returned credentials.
-
-  This value-only helper returns a `:missing` source when nothing is found;
-  production admission and provisioning use `resolve_inference/4` to persist
-  and validate the source identity and revision. Invalid supplied credentials
-  return an actionable error rather than selecting platform inference.
-  """
-  @spec select_inference(map() | nil, map(), String.t() | nil, map()) ::
-          {InferenceCredentials.Source.t(), map()} | {:error, term()}
-  def select_inference(agent, own_creds, runtime \\ nil, secrets \\ %{}) do
-    brokered? = Fountain.Broker.configured?()
-    runtime = runtime || (agent && agent.runtime)
-
-    case InferenceCredentials.select(agent && agent.model, own_creds, runtime,
-           brokered: brokered?,
-           overrides: secrets
-         ) do
-      {:ok, source, creds} -> {source, creds}
-      {:error, reason} -> {:error, reason}
-    end
   end
 
   # Env secrets first, vault overrides last — vault wins on key collision.

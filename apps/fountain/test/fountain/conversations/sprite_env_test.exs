@@ -160,15 +160,6 @@ defmodule Fountain.Conversations.SpriteEnvTest do
     end
   end
 
-  describe "load_tenant_state/1" do
-    test "is the tenant key and the (empty) inference credentials" do
-      user = insert_verified_user()
-      {:ok, dek} = Fountain.Crypto.load_tenant_key(user.id)
-
-      assert {:ok, ^dek, %{}} = SpriteEnv.load_tenant_state(user.id)
-    end
-  end
-
   describe "the small pairs" do
     test "are empty for nil" do
       assert SpriteEnv.conversation_env(nil) == []

@@ -12,7 +12,6 @@ defmodule Fountain.AgentsCredentialSetTest do
   use Fountain.DataCase, async: true
 
   alias Fountain.Agents
-  alias Fountain.Conversations.SpriteEnv
   alias Fountain.Crypto
   alias Fountain.InferenceCredentials
   alias Fountain.InferenceCredentials.Source
@@ -50,10 +49,8 @@ defmodule Fountain.AgentsCredentialSetTest do
           })
         )
 
-      assert {:ok, ^dek, creds} =
-               SpriteEnv.load_tenant_state(user.id, agent.inference_credential_id)
-
-      assert creds == %{anthropic_api_key: "sk-second"}
+      assert InferenceCredentials.decrypted_for(user.id, agent.inference_credential_id, dek) ==
+               {:ok, %{anthropic_api_key: "sk-second"}}
     end
 
     test "an agent naming none runs on the default, as every agent did", %{user: user, dek: dek} do
@@ -65,8 +62,12 @@ defmodule Fountain.AgentsCredentialSetTest do
 
       assert is_nil(agent.inference_credential_id)
 
-      assert {:ok, _dek, %{anthropic_api_key: "sk-default"}} =
-               SpriteEnv.load_tenant_state(user.id, agent.inference_credential_id)
+      assert InferenceCredentials.decrypted_for(user.id, agent.inference_credential_id, dek) ==
+               {:ok, %{anthropic_api_key: "sk-default"}}
+    end
+
+    test "an account holding nothing reads as an empty map", %{user: user, dek: dek} do
+      assert InferenceCredentials.decrypted_for(user.id, nil, dek) == {:ok, %{}}
     end
 
     test "the selection sees the named set's credential", %{user: user, dek: dek} do
@@ -83,10 +84,13 @@ defmodule Fountain.AgentsCredentialSetTest do
           })
         )
 
-      {:ok, _dek, creds} = SpriteEnv.load_tenant_state(user.id, agent.inference_credential_id)
+      assert {:ok, %Source{origin: :own, scope: :credential, set_id: set_id},
+              %{anthropic_api_key: "sk-ant"}} =
+               InferenceCredentials.resolve(user.id, agent.model, agent.runtime,
+                 credential_set_id: agent.inference_credential_id
+               )
 
-      assert {%Source{origin: :own, scope: :credential}, _} =
-               SpriteEnv.select_inference(agent, creds)
+      assert set_id == anthropic.id
     end
   end
 
@@ -136,7 +140,9 @@ defmodule Fountain.AgentsCredentialSetTest do
       theirs = set_with(other_tenant, other_dek, "Theirs", :anthropic_api_key, "sk-theirs")
 
       assert {:error, :inference_credential_not_found} =
-               SpriteEnv.load_tenant_state(user.id, theirs.id)
+               InferenceCredentials.resolve(user.id, "anthropic/claude-opus-5", "claude",
+                 credential_set_id: theirs.id
+               )
     end
   end
 
@@ -161,8 +167,8 @@ defmodule Fountain.AgentsCredentialSetTest do
       reloaded = Repo.reload!(agent)
       assert is_nil(reloaded.inference_credential_id)
 
-      assert {:ok, _dek, %{anthropic_api_key: "sk-default"}} =
-               SpriteEnv.load_tenant_state(user.id, reloaded.inference_credential_id)
+      assert InferenceCredentials.decrypted_for(user.id, reloaded.inference_credential_id, dek) ==
+               {:ok, %{anthropic_api_key: "sk-default"}}
     end
   end
 

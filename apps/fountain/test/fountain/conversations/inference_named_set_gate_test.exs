@@ -3,6 +3,7 @@ defmodule Fountain.Conversations.InferenceNamedSetGateTest do
   use Mimic
 
   alias Fountain.{Conversations, Credits, Crypto, InferenceCredentials, PlatformInference}
+  alias Fountain.InferenceCredentials.Source
 
   setup do
     settings = [platform_anthropic_api_key: "sk-platform", platform_inference_daily_cents: 10]
@@ -47,8 +48,13 @@ defmodule Fountain.Conversations.InferenceNamedSetGateTest do
          ctx do
       refute InferenceCredentials.status_for_set(ctx.default).anthropic_api_key
 
+      # The account default holds nothing, so a launch naming no set would
+      # run on the platform key, and the ceiling is spent.
+      assert {:ok, %Source{scope: :platform} = on_platform, _} =
+               InferenceCredentials.resolve(ctx.user.id, ctx.agent.model, ctx.agent.runtime, [])
+
       assert {:error, :platform_inference_unavailable} =
-               PlatformInference.gate(ctx.user.id, ctx.agent.model, ctx.agent.runtime)
+               PlatformInference.gate_source(on_platform)
 
       attrs = %{"user_id" => ctx.user.id, "agent_id" => ctx.agent.id}
 

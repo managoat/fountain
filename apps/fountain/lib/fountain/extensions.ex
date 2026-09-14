@@ -326,7 +326,7 @@ defmodule Fountain.Extensions do
   @spec admin_overview([t()]) :: [{String.t(), term()}]
   def admin_overview(modules) when is_list(modules) do
     Enum.flat_map(modules, fn ext ->
-      safe_admin(ext, :admin_overview, fn -> ext.admin_overview() end)
+      safe_list(ext, :admin_overview, fn -> ext.admin_overview() end)
     end)
   end
 
@@ -343,11 +343,38 @@ defmodule Fountain.Extensions do
   @spec admin_user_columns([t()]) :: [{String.t(), %{String.t() => term()}}]
   def admin_user_columns(modules) when is_list(modules) do
     Enum.flat_map(modules, fn ext ->
-      safe_admin(ext, :admin_user_columns, fn -> ext.admin_user_columns() end)
+      safe_list(ext, :admin_user_columns, fn -> ext.admin_user_columns() end)
     end)
   end
 
-  defp safe_admin(ext, callback, fun) do
+  ## ─── Connection providers ────────────────────────────────────────────────
+
+  @doc """
+  Every installed extension's connection providers, concatenated in configured
+  order (ADR 0054, #2152).
+
+  `Fountain.Connections.Platform.all/0` appends these after the host's own, so
+  an extension's provider is one more row on the connections page and one more
+  reserved slug, driven by the same OAuth client. Isolated the way the admin
+  figures are: a raising extension costs its own providers and nobody else's,
+  because the alternative is a broken optional connector emptying the
+  connections page for every account.
+  """
+  @spec connection_providers() :: [Fountain.Connections.Provider.t()]
+  def connection_providers, do: connection_providers(installed())
+
+  @doc "See `connection_providers/0`. Takes the list, so a test can supply one."
+  @spec connection_providers([t()]) :: [Fountain.Connections.Provider.t()]
+  def connection_providers(modules) when is_list(modules) do
+    Enum.flat_map(modules, fn ext ->
+      safe_list(ext, :connection_providers, fn -> ext.connection_providers() end)
+    end)
+  end
+
+  # A list-returning, contribute-only callback: a raise, throw, exit or a
+  # non-list answer is logged and contributes nothing, so one extension's
+  # failure never reaches the page or the other extensions' rows.
+  defp safe_list(ext, callback, fun) do
     case fun.() do
       list when is_list(list) ->
         list
@@ -456,7 +483,12 @@ defmodule Fountain.Extensions do
          # The manual's rules live in Fountain.Manual, beside the merge that
          # depends on them: a slug the core manual already serves, and a mount
          # the host does not route.
-         :ok <- check_all(installed(modules), &Fountain.Manual.validate/1) do
+         :ok <- check_all(installed(modules), &Fountain.Manual.validate/1),
+         # An extension's providers are listed beside the host's on every
+         # account's connections page, so a bad one is refused at boot rather
+         # than rendered. Installed only, like the migrations: a disabled
+         # extension contributes none.
+         :ok <- check_connection_providers(installed(modules)) do
       # Only the ones this deployment will actually run: a configured extension
       # that is off here contributes no migrations, so its directory need not be
       # present. Resolution is what checks it, so this is the same code path the
@@ -519,7 +551,8 @@ defmodule Fountain.Extensions do
     admin_overview: 0,
     admin_user_columns: 0,
     oban_cron: 0,
-    docs: 0
+    docs: 0,
+    connection_providers: 0
   ]
 
   defp check_module(module) when is_atom(module) do
@@ -547,6 +580,90 @@ defmodule Fountain.Extensions do
 
   defp check_module(other) do
     {:error, "#{inspect(other)} is not a module"}
+  end
+
+  # The same shape `Fountain.Connections.Provider.changeset/3` holds a tenant
+  # slug to, so a reserved slug and a tenant slug can never differ only in
+  # what characters they allow.
+  @provider_slug_shape ~r/^[a-z][a-z0-9-]{1,63}$/
+
+  defp check_connection_providers(modules) do
+    taken = Fountain.Connections.Platform.builtin_slugs()
+
+    modules
+    |> Enum.reduce_while({:ok, taken}, fn ext, {:ok, taken} ->
+      with {:ok, providers} <- providers_of(ext),
+           {:ok, taken} <- check_providers(ext, providers, taken) do
+        {:cont, {:ok, taken}}
+      else
+        {:error, _} = error -> {:halt, error}
+      end
+    end)
+    |> case do
+      {:ok, _taken} -> :ok
+      {:error, _} = error -> error
+    end
+  end
+
+  defp providers_of(ext) do
+    case ext.connection_providers() do
+      list when is_list(list) ->
+        {:ok, list}
+
+      other ->
+        {:error,
+         "#{inspect(ext)} connection_providers/0 returned #{inspect(other)}, expected a list"}
+    end
+  rescue
+    error ->
+      {:error, "#{inspect(ext)} connection_providers/0 raised: " <> Exception.message(error)}
+  end
+
+  defp check_providers(ext, providers, taken) do
+    Enum.reduce_while(providers, {:ok, taken}, fn provider, {:ok, taken} ->
+      case check_provider(ext, provider, taken) do
+        :ok -> {:cont, {:ok, [provider.slug | taken]}}
+        {:error, _} = error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp check_provider(ext, %Fountain.Connections.Provider{} = p, taken) do
+    where = "#{inspect(ext)} connection_providers/0"
+
+    cond do
+      not is_binary(p.slug) or not Regex.match?(@provider_slug_shape, p.slug) ->
+        {:error,
+         "#{where} contributes a provider whose slug #{inspect(p.slug)} is not " <>
+           "lowercase letters, digits and dashes, 2 to 64 characters"}
+
+      p.user_id != nil ->
+        {:error,
+         "#{where} contributes #{inspect(p.slug)} with a user_id; an extension's " <>
+           "provider is config-backed and has none"}
+
+      p.id != p.slug ->
+        {:error, "#{where} contributes #{inspect(p.slug)} whose id is not its slug"}
+
+      p.kind not in Fountain.Connections.Provider.kinds() ->
+        {:error,
+         "#{where} contributes #{inspect(p.slug)} with kind #{inspect(p.kind)}; " <>
+           "expected one of #{inspect(Fountain.Connections.Provider.kinds())}"}
+
+      p.slug in taken ->
+        {:error,
+         "#{where} contributes #{inspect(p.slug)}, a slug another platform provider " <>
+           "already has"}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp check_provider(ext, other, _taken) do
+    {:error,
+     "#{inspect(ext)} connection_providers/0 contributes #{inspect(other)}; " <>
+       "expected a %Fountain.Connections.Provider{}"}
   end
 
   # One or more lowercase static segments. Deliberately narrow: a mount carrying

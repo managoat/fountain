@@ -17,6 +17,12 @@ defmodule Fountain.ExtensionsTest do
     Enabled,
     EnabledRaises,
     Exploding,
+    ProvidersBadSlug,
+    ProvidersDuplicateFixture,
+    ProvidersMalformed,
+    ProvidersRaise,
+    ProvidersTakeGoogle,
+    ProvidersWithUser,
     Silent,
     WrongShape
   }
@@ -216,6 +222,49 @@ defmodule Fountain.ExtensionsTest do
     end
   end
 
+  describe "connection_providers/1 (ADR 0054)" do
+    alias Fountain.Connections.Provider
+
+    test "collects what installed extensions contribute, in configured order" do
+      assert [%Provider{slug: "fixture-svc", user_id: nil, id: "fixture-svc"}] =
+               Enum.filter(Extensions.connection_providers(), &(&1.slug == "fixture-svc"))
+
+      assert Extensions.connection_providers([Enabled, Silent]) == Enabled.connection_providers()
+    end
+
+    test "is empty with nothing installed, and never reads a disabled extension" do
+      assert Extensions.connection_providers([]) == []
+      refute Enum.any?(Extensions.connection_providers(), &(&1.slug == "disabled-svc"))
+    end
+
+    test "a raising extension costs its own providers and not the page" do
+      log =
+        capture_log(fn ->
+          assert Extensions.connection_providers([ProvidersRaise, Enabled]) ==
+                   Enabled.connection_providers()
+        end)
+
+      assert log =~ "ProvidersRaise"
+      assert log =~ "fixture cannot list its providers"
+    end
+
+    test "an extension returning a non-list contributes none" do
+      defmodule ProvidersNotAList do
+        use Fountain.Extension, id: :fixture_providers_not_a_list
+        @impl true
+        def connection_providers, do: :nope
+      end
+
+      log =
+        capture_log(fn ->
+          assert Extensions.connection_providers([ProvidersNotAList, Enabled]) ==
+                   Enabled.connection_providers()
+        end)
+
+      assert log =~ "expected a list"
+    end
+  end
+
   describe "validate/2 accepts" do
     test "the list this suite actually runs" do
       assert Extensions.validate(Extensions.configured()) == :ok
@@ -227,6 +276,46 @@ defmodule Fountain.ExtensionsTest do
 
     test "an extension with no HTTP surface at all" do
       assert Extensions.validate([Silent]) == :ok
+    end
+  end
+
+  describe "validate/2 fails closed on a connection provider (ADR 0054)" do
+    test "that takes a slug the host already owns" do
+      assert {:error, message} = Extensions.validate([ProvidersTakeGoogle])
+      assert message =~ "ProvidersTakeGoogle"
+      assert message =~ ~s("google", a slug another platform provider already has)
+    end
+
+    test "that takes a slug another extension already contributes" do
+      assert {:error, message} = Extensions.validate([Enabled, ProvidersDuplicateFixture])
+      assert message =~ "ProvidersDuplicateFixture"
+      assert message =~ "fixture-svc"
+    end
+
+    test "that carries a user_id" do
+      assert {:error, message} = Extensions.validate([ProvidersWithUser])
+      assert message =~ "with a user_id"
+    end
+
+    test "that is not a provider struct" do
+      assert {:error, message} = Extensions.validate([ProvidersMalformed])
+      assert message =~ "expected a %Fountain.Connections.Provider{}"
+    end
+
+    test "whose slug is not a slug" do
+      assert {:error, message} = Extensions.validate([ProvidersBadSlug])
+      assert message =~ ~s(slug "Bad Slug" is not lowercase)
+    end
+
+    test "when listing them raises" do
+      assert {:error, message} = Extensions.validate([ProvidersRaise])
+      assert message =~ "connection_providers/0 raised: fixture cannot list its providers"
+    end
+
+    test "but not on a DISABLED extension's bad provider" do
+      # `Disabled` contributes a bare struct that would fail every check; it is
+      # never asked, the way its migrations are never resolved.
+      assert Extensions.validate([Disabled]) == :ok
     end
   end
 

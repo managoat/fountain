@@ -11,8 +11,9 @@ defmodule Fountain.ExtensionFixtures do
   Everything a test needs to vary is therefore a *different fixture*, not a
   different configuration.
 
-    * `Enabled` — the full contract: a prefix, a Phoenix router behind it, and
-      an MCP contribution keyed on the conversation id.
+    * `Enabled` — the full contract: a prefix, a Phoenix router behind it, an
+      MCP contribution keyed on the conversation id, and one connection
+      provider (ADR 0054) that the registry lists after the host's own.
     * `Disabled` — configured, `enabled?/0` false. Proves an installed-but-off
       extension is indistinguishable from an absent one.
     * `Silent` — enabled, no HTTP surface at all. Proves `nil`/`nil` is a
@@ -199,6 +200,42 @@ defmodule Fountain.ExtensionFixtures do
       [{column_header(), %{"nobody" => %{value: 3, alert?: true}}}]
     end
 
+    @doc "The slug of the connection provider this fixture contributes."
+    def provider_slug, do: "fixture-svc"
+
+    @doc """
+    One config-backed provider, the shape a platform provider has: no
+    `user_id`, the slug as its id, a plaintext client on the struct, and the
+    two quirk fields the OAuth client reads (#2152). Installed in the test VM,
+    so it is a row on every account's connections page and a reserved slug.
+    """
+    @impl true
+    def connection_providers do
+      [
+        %Fountain.Connections.Provider{
+          id: provider_slug(),
+          user_id: nil,
+          slug: provider_slug(),
+          name: "Fixture service",
+          kind: "oauth2",
+          authorize_url: "https://svc.fixture.example/oauth/authorize",
+          token_url: "https://svc.fixture.example/oauth/token",
+          revoke_url: nil,
+          userinfo_url: "https://svc.fixture.example/me",
+          account_label_path: "login",
+          scopes: ["read"],
+          client_id: "fixture-client",
+          client_secret: "fixture-secret",
+          token_endpoint_auth: "client_secret_post",
+          pkce: true,
+          env_key: "FIXTURE_SVC_ACCESS_TOKEN",
+          token_hosts: ["svc.fixture.example"],
+          client_source: "manual",
+          authorize_params: %{"prompt" => "fixture"}
+        }
+      ]
+    end
+
     @impl true
     def conversation_mcp_servers(conversation_id, callback_token) do
       # Also serves the conversation `Exploding` blows up on, so the isolation
@@ -235,6 +272,11 @@ defmodule Fountain.ExtensionFixtures do
     @impl true
     def conversation_mcp_servers(_conversation_id, _callback_token) do
       [%{"name" => "disabled-should-never-appear"}]
+    end
+
+    @impl true
+    def connection_providers do
+      [%Fountain.Connections.Provider{id: "disabled-svc", slug: "disabled-svc", kind: "oauth2"}]
     end
   end
 
@@ -377,6 +419,79 @@ defmodule Fountain.ExtensionFixtures do
 
     @impl true
     def admin_user_columns, do: raise("fixture cannot count either")
+  end
+
+  defmodule ProvidersRaise do
+    @moduledoc """
+    Raises from `connection_providers/0`. Deliberately NOT configured — it
+    would fail boot validation, which is the point of one of its tests, and
+    empty its own rows on every page render, which is the point of the other.
+    """
+    use Fountain.Extension, id: :fixture_providers_raise
+
+    @impl true
+    def connection_providers, do: raise("fixture cannot list its providers")
+  end
+
+  defmodule ProvidersTakeGoogle do
+    @moduledoc "Contributes a provider on the host's own `google` slug. NOT configured."
+    use Fountain.Extension, id: :fixture_providers_take_google
+
+    @impl true
+    def connection_providers do
+      [%Fountain.Connections.Provider{id: "google", slug: "google", kind: "oauth2"}]
+    end
+  end
+
+  defmodule ProvidersDuplicateFixture do
+    @moduledoc "Contributes the slug `Enabled` already contributes. NOT configured."
+    use Fountain.Extension, id: :fixture_providers_duplicate
+
+    @impl true
+    def connection_providers do
+      [
+        %Fountain.Connections.Provider{
+          id: Fountain.ExtensionFixtures.Enabled.provider_slug(),
+          slug: Fountain.ExtensionFixtures.Enabled.provider_slug(),
+          kind: "oauth2"
+        }
+      ]
+    end
+  end
+
+  defmodule ProvidersWithUser do
+    @moduledoc "Contributes a provider that carries a user_id. NOT configured."
+    use Fountain.Extension, id: :fixture_providers_with_user
+
+    @impl true
+    def connection_providers do
+      [
+        %Fountain.Connections.Provider{
+          id: "tenant-svc",
+          slug: "tenant-svc",
+          kind: "oauth2",
+          user_id: "00000000-0000-0000-0000-000000000000"
+        }
+      ]
+    end
+  end
+
+  defmodule ProvidersMalformed do
+    @moduledoc "Contributes things that are not provider structs. NOT configured."
+    use Fountain.Extension, id: :fixture_providers_malformed
+
+    @impl true
+    def connection_providers, do: [%{slug: "not-a-struct"}]
+  end
+
+  defmodule ProvidersBadSlug do
+    @moduledoc "Contributes a provider whose slug is not a slug. NOT configured."
+    use Fountain.Extension, id: :fixture_providers_bad_slug
+
+    @impl true
+    def connection_providers do
+      [%Fountain.Connections.Provider{id: "Bad Slug", slug: "Bad Slug", kind: "oauth2"}]
+    end
   end
 
   defmodule EnabledRaises do

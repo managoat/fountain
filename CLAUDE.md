@@ -66,8 +66,9 @@ fountain/                  umbrella root
                            from their own directories, so
                            `scripts/test-libraries.sh` runs them in CI. A new
                            extension needs a row in extension_guard_test.exs
-                           and a boundary test of its own; adding a tenth
-                           `Fountain.Extension` callback needs an ADR.
+                           and a boundary test of its own; adding a
+                           `Fountain.Extension` callback needs an ADR (0054
+                           added the eleventh, connection_providers/0).
                            Buzz also owns its supply chain (#1509):
                            buzz-acp.version, buzz-acp.source and the
                            buzz-acp-publish workflow's inputs live in its app,

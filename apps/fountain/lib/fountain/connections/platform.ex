@@ -7,6 +7,12 @@ defmodule Fountain.Connections.Platform do
   shape a tenant row has, so `Fountain.Connections.OAuth` drives every kind
   with one code path.
 
+  The registry is the host's own providers followed by every installed
+  extension's (`Fountain.Extension.connection_providers/0`, ADR 0054): a
+  connector that ships as an extension is one more row here, one more
+  reserved slug, and nothing else in core changes. The host's three are
+  `builtin_slugs/0`; `slugs/0` and `all/0` are the whole registry.
+
   A platform provider exists whether or not its deployment configured it:
   the providers list always names all of them, with `configured` false until
   the operator sets `<SLUG>_OAUTH_CLIENT_ID` / `_SECRET`, so a client (the
@@ -28,7 +34,7 @@ defmodule Fountain.Connections.Platform do
 
   alias Fountain.Connections.Provider
 
-  @slugs ~w(google microsoft slack)
+  @builtin ~w(google microsoft slack)
 
   @google_scopes ~w(openid email
     https://www.googleapis.com/auth/gmail.modify
@@ -46,19 +52,37 @@ defmodule Fountain.Connections.Platform do
   @slack_scopes ~w(channels:history channels:read chat:write
     im:history im:write users:read search:read)
 
-  @doc "The reserved platform slugs — no tenant provider may take one."
-  def slugs, do: @slugs
+  @doc "The slugs of the host's own platform providers, in catalog order."
+  @spec builtin_slugs() :: [String.t()]
+  def builtin_slugs, do: @builtin
 
-  @doc "Every platform provider, configured or not, in catalog order."
+  @doc """
+  The reserved platform slugs — the host's own and every installed
+  extension's. No tenant provider may take one.
+  """
+  @spec slugs() :: [String.t()]
+  def slugs, do: Enum.map(all(), & &1.slug)
+
+  @doc """
+  Every platform provider, configured or not: the host's own in catalog
+  order, then each installed extension's in configured order.
+  """
   @spec all() :: [Provider.t()]
-  def all, do: Enum.map(@slugs, &get/1)
+  def all, do: Enum.map(@builtin, &builtin/1) ++ Fountain.Extensions.connection_providers()
 
-  @doc "The platform provider for a slug, or nil."
+  @doc "The platform provider for a slug, the host's or an extension's, or nil."
   @spec get(String.t()) :: Provider.t() | nil
-  def get("google"), do: google()
-  def get("microsoft"), do: microsoft()
-  def get("slack"), do: slack()
+  def get(slug) when is_binary(slug) do
+    builtin(slug) ||
+      Enum.find(Fountain.Extensions.connection_providers(), &(&1.slug == slug))
+  end
+
   def get(_), do: nil
+
+  defp builtin("google"), do: google()
+  defp builtin("microsoft"), do: microsoft()
+  defp builtin("slack"), do: slack()
+  defp builtin(_), do: nil
 
   @doc "The env var that configures a platform provider's OAuth client id."
   def client_env_var(%Provider{slug: slug, user_id: nil}),

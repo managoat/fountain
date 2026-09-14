@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "First-party extensions: Buzz becomes an OTP app installed at build time and enabled at runtime"
-description: "Buzz leaves the Fountain core as fountain_buzz, an AGPL OTP application depending on :fountain that the host reaches only through ten Fountain.Extension callbacks. Build-time install, runtime enable, no hot code loading. The bundled image keeps every Buzz path, command and provider behavior; a new -core image carries none of it. Built so far: gates 2, 3 and 4 — the seam, migration and OpenAPI composition, and the move itself: apps/fountain_buzz exists and core names no FountainBuzz module. A second extension, fountain_support, moved the problem-report feature out under three of the ten callbacks and added none. Every gate but the repository split is built: the supply chain, the -core image and its release tags, the manual as a callback, and core marketing that renders only what its distribution can serve."
+description: "Buzz leaves the Fountain core as fountain_buzz, an AGPL OTP application depending on :fountain that the host reaches only through eleven Fountain.Extension callbacks. Build-time install, runtime enable, no hot code loading. The bundled image keeps every Buzz path, command and provider behavior; a new -core image carries none of it. Built so far: gates 2, 3 and 4 — the seam, migration and OpenAPI composition, and the move itself: apps/fountain_buzz exists and core names no FountainBuzz module. A second extension, fountain_support, moved the problem-report feature out under three of the ten callbacks and added none. Every gate but the repository split is built: the supply chain, the -core image and its release tags, the manual as a callback, and core marketing that renders only what its distribution can serve."
 tags: [buzz, extensions, packaging, architecture, licensing, support]
 status: stable
 adr: "0043"
@@ -16,7 +16,7 @@ stale_after: 2026-12-04
 
 **Status:** Accepted — **partially built.** Gates 2, 3 and 4 (#1505, #1506,
 #1507) are built, and so is the second extension (#1528, `fountain_support`),
-which used three of the ten callbacks and added none. `Fountain.Extension` (now ten callbacks — see decision 3),
+which used three of the ten callbacks and added none. `Fountain.Extension` (now eleven callbacks — see decision 3 and ADR 0054),
 `Fountain.Extensions`, the authenticated dispatch, the conversation MCP
 fan-out, `Fountain.Migrations` and `FountainWeb.ApiSpec.Compose` exist; and
 Buzz has moved: `apps/fountain_buzz` is an AGPL OTP application depending on
@@ -261,6 +261,15 @@ necessary — rather than becoming wrong — the day #883 lands and
 The callback set has now survived two extractions and one design without a
 tenth entry: `fountain_gmail` (#1529, **not built**) is specified against
 `api_mounts/0` and `conversation_mcp_servers/2` and adds nothing.
+
+**Amended 2026-09-14 (#2152, ADR 0054): an eleventh, for connection
+providers.** `connection_providers/0` returns config-backed
+`Fountain.Connections.Provider` structs that the host lists beside its own
+platform providers, reserves the slugs of, and drives with the one OAuth
+client. It exists so the Google, Microsoft and Slack providers can leave core
+with the products behind them; it is not a hot-path callback, wraps no host
+mutation and returns data, so it stays inside the three rules above. The
+decision, the validation and the convention for configuration are ADR 0054's.
 
 ### 4. `fountain_buzz` starts at `apps/fountain_buzz` and may graduate
 

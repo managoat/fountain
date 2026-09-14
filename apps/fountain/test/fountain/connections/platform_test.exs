@@ -5,19 +5,22 @@ defmodule Fountain.Connections.PlatformTest do
   alias Fountain.Connections.{OAuth, Platform, Provider}
 
   describe "the registry" do
-    test "lists every platform provider, configured or not, in catalog order" do
+    test "lists every platform provider, configured or not: the host's in catalog order, then each installed extension's" do
       assert [
                %Provider{slug: "google", user_id: nil, id: "google"},
                %Provider{slug: "microsoft", user_id: nil, id: "microsoft"},
-               %Provider{slug: "slack", user_id: nil, id: "slack"}
+               %Provider{slug: "slack", user_id: nil, id: "slack"},
+               %Provider{slug: "fixture-svc", user_id: nil, id: "fixture-svc"}
              ] = Platform.all()
 
-      assert Platform.slugs() == ~w(google microsoft slack)
+      assert Platform.builtin_slugs() == ~w(google microsoft slack)
+      assert Platform.slugs() == ~w(google microsoft slack fixture-svc)
       assert Provider.reserved_slugs() == Platform.slugs()
     end
 
-    test "get/1 answers a platform slug and nothing else" do
+    test "get/1 answers a platform slug, the host's or an extension's, and nothing else" do
       assert %Provider{slug: "microsoft"} = Platform.get("microsoft")
+      assert %Provider{slug: "fixture-svc", name: "Fixture service"} = Platform.get("fixture-svc")
       assert Platform.get("github") == nil
       assert Platform.get(Ecto.UUID.generate()) == nil
     end
@@ -59,6 +62,35 @@ defmodule Fountain.Connections.PlatformTest do
 
         assert "is a platform provider" in errors_on(cs).slug
       end
+    end
+  end
+
+  describe "an extension's provider (ADR 0054)" do
+    test "is one more platform provider to every caller in core" do
+      user = insert_verified_user()
+      own = insert_provider(user)
+
+      assert [_google, _microsoft, _slack, %Provider{slug: "fixture-svc"} = p, ^own] =
+               Connections.all_providers(user.id)
+
+      assert Connections.get_provider("fixture-svc", user.id) == p
+      assert Provider.platform?(p)
+      assert OAuth.configured?(p)
+
+      # The OAuth client reads its quirks off the struct like anyone else's.
+      url = OAuth.authorize_url(p, "https://f.example/cb", "state123")
+      query = URI.decode_query(URI.parse(url).query)
+      assert query["prompt"] == "fixture"
+      assert query["client_id"] == "fixture-client"
+      assert query["code_challenge_method"] == "S256" or query["code_challenge"] == nil
+
+      # A connection on it is a platform connection: no provider row, the
+      # slug names the registry entry.
+      grant = %{access_token: "t", refresh_token: "r", expires_at: nil, scopes: ["read"]}
+      assert {:ok, conn} = Connections.connect(user.id, "fixture-svc", grant)
+      assert conn.provider == "fixture-svc"
+      assert conn.provider_id == nil
+      assert %Provider{slug: "fixture-svc"} = Connections.provider_for(conn)
     end
   end
 

@@ -43,6 +43,10 @@ defmodule Fountain.Extension do
     * `c:docs/0` — a `Managoat.Docs` instance whose pages and nav join the
       manual at `/docs`. Its pages are embedded in the extension's own module,
       so a core distribution serves a manual that never mentions them.
+    * `c:connection_providers/0` — the connection providers this extension
+      owns, as config-backed `Fountain.Connections.Provider` structs. The host
+      lists them beside its own platform providers, reserves their slugs and
+      drives them with the one OAuth client (ADR 0054).
 
   ## Supervision is not a callback
 
@@ -253,6 +257,35 @@ defmodule Fountain.Extension do
   """
   @callback docs() :: module() | nil
 
+  @doc """
+  The connection providers this extension owns (ADR 0054, #2152).
+
+  Each is a `%Fountain.Connections.Provider{}` built from configuration, the
+  shape a platform provider has always had: `user_id: nil`, its slug as its
+  `id`, a `kind` of `oauth2` or `mcp`, and everything the OAuth client needs
+  on the struct — `authorize_params` and `token_body_nest` included. The host
+  lists them after its own platform providers, in configured order; refuses a
+  tenant provider that takes one of their slugs; and drives them with
+  `Fountain.Connections.OAuth`. An extension contributes the *provider*, never
+  the flow, so the token never passes through extension code.
+
+  A provider whose deployment has no client is still listed, with
+  `Fountain.Connections.OAuth.configured?/1` false, so a console can say "not
+  available here" rather than not knowing the provider could exist. By
+  convention the extension reads `<SLUG>_OAUTH_CLIENT_ID` / `_SECRET` /
+  `_SCOPES` into its own config namespace and builds the struct from there;
+  that is the env var the console names beside an unconfigured row.
+
+  Called on a page render and at every connect and refresh, so it must be
+  cheap: build from config, no IO. `Fountain.Extensions.validate!/0` refuses,
+  at boot, an entry that is not a provider struct, one carrying a `user_id`,
+  one whose `id` is not its slug, a slug of the wrong shape or kind, and a slug
+  the host or another extension already owns. A raise here is contained by
+  `Fountain.Extensions.connection_providers/0` and costs this extension's
+  providers only, never the host's.
+  """
+  @callback connection_providers() :: [Fountain.Connections.Provider.t()]
+
   @doc false
   defmacro __using__(opts) do
     id = Keyword.fetch!(opts, :id)
@@ -290,6 +323,9 @@ defmodule Fountain.Extension do
       @impl Fountain.Extension
       def docs, do: nil
 
+      @impl Fountain.Extension
+      def connection_providers, do: []
+
       defoverridable enabled?: 0,
                      api_mounts: 0,
                      conversation_mcp_servers: 2,
@@ -298,7 +334,8 @@ defmodule Fountain.Extension do
                      admin_overview: 0,
                      admin_user_columns: 0,
                      oban_cron: 0,
-                     docs: 0
+                     docs: 0,
+                     connection_providers: 0
     end
   end
 end

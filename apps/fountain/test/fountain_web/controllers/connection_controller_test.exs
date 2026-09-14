@@ -63,8 +63,11 @@ defmodule FountainWeb.ConnectionControllerTest do
   end
 
   test "providers names each platform provider, its scopes and where to start", %{conn: conn} do
-    assert %{"data" => [google, microsoft, slack]} =
+    # The host's three and the fixture extension's one (ADR 0054).
+    assert %{"data" => [google, microsoft, slack, fixture]} =
              conn |> get("/api/connections/providers") |> json_response(200)
+
+    assert fixture["id"] == "fixture-svc"
 
     assert google["id"] == "google"
     assert google["slug"] == "google"

@@ -21,10 +21,13 @@ defmodule Fountain.Connections.ProviderTest do
 
       assert [_] = Connections.list_providers(user.id)
 
+      # The three the host owns, the one the fixture extension contributes
+      # (ADR 0054), then the tenant's own.
       assert [
                %Provider{slug: "google", user_id: nil},
                %Provider{slug: "microsoft", user_id: nil},
                %Provider{slug: "slack", user_id: nil},
+               %Provider{slug: "fixture-svc", user_id: nil},
                ^p
              ] = Connections.all_providers(user.id)
 

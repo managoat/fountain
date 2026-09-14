@@ -16,40 +16,40 @@ defmodule Fountain.Conversations.SpriteEnv do
   """
 
   alias Fountain.{Crypto, Environments, InferenceCredentials, Vaults}
-  alias Fountain.Conversations.CallbackKey
+  alias Fountain.Conversations.{CallbackKey, InferenceResolution}
   alias Fountain.Environments.Environment
   alias Fountain.Vaults.Vault
 
   @doc """
-  The credential set pinned in a conversation's source binding.
-
-  For a new selection, the launch override wins over the agent's set, then
-  the account default. Admission persists the resolved source; wake and
-  resume retain that binding even after the agent or account default changes.
-  A stored nil set ID means that selection had no credential set and stays nil.
+  The source and credentials a provision runs on: the stored source
+  re-validated against the rows loaded now, under
+  `Fountain.Conversations.InferenceBinding.with_current/2`, then reserved.
+  A conversation admitted before sources were stored (no `inference_source`)
+  is a new selection on the set it or its agent names.
   """
-  @spec credential_set_id(map(), map() | nil) :: binary() | nil
-  def credential_set_id(conv, agent) do
-    case Map.get(conv, :inference_source) do
-      %{} = source -> source["set_id"]
-      _ -> Map.get(conv, :inference_credential_id) || (agent && agent.inference_credential_id)
-    end
-  end
-
   def resolve_inference(conv, agent, env, vault) do
     Fountain.Conversations.InferenceBinding.with_current(conv, fn conv ->
       with {:ok, dek} <- Crypto.load_tenant_key(conv.user_id),
-           {:ok, source, creds} <-
-             InferenceCredentials.resolve(conv.user_id, agent && agent.model, conv.runtime,
-               credential_set_id: credential_set_id(conv, agent),
-               environment_id: env && env.id,
-               vault_id: vault && vault.id,
-               expected_source: Map.get(conv, :inference_source)
-             ),
+           {:ok, source, creds} <- resolve(conv, agent, env, vault),
            :ok <- Fountain.Conversations.InferenceBinding.reserve(conv, source) do
         {:ok, dek, source, creds}
       end
     end)
+  end
+
+  defp resolve(%{inference_source: %{}} = conv, agent, env, vault) do
+    InferenceResolution.revalidate(conv, agent,
+      environment_id: env && env.id,
+      vault_id: vault && vault.id
+    )
+  end
+
+  defp resolve(conv, agent, env, vault) do
+    InferenceCredentials.resolve(conv.user_id, agent && agent.model, conv.runtime,
+      credential_set_id: InferenceResolution.credential_set_id(conv, agent),
+      environment_id: env && env.id,
+      vault_id: vault && vault.id
+    )
   end
 
   # Env secrets first, vault overrides last — vault wins on key collision.

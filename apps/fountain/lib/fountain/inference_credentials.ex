@@ -623,9 +623,10 @@ defmodule Fountain.InferenceCredentials do
     end
   end
 
+  # The set comes from the expected source; a `credential_set_id` beside it
+  # would be ignored.
   def validate_source(user_id, %Source{} = source) do
     opts = [
-      credential_set_id: source.set_id,
       environment_id: source.environment_id,
       vault_id: source.vault_id,
       expected_source: Source.dump(source)

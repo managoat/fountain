@@ -24,7 +24,7 @@ defmodule Fountain.Conversations do
   }
 
   alias Fountain.Conversations.Reapply
-  alias Fountain.Conversations.SpriteEnv
+  alias Fountain.Conversations.InferenceResolution
   alias Fountain.Conversations.{ExecutionAllowance, ExecutionGuard, ExecutionLimits}
   alias Fountain.Conversations.Lifecycle
   alias Fountain.InferenceCredentials
@@ -1440,10 +1440,11 @@ defmodule Fountain.Conversations do
       })
 
     with {:ok, source, _credentials} <-
-           InferenceCredentials.resolve(conv.user_id, agent.model, agent.runtime,
+           InferenceResolution.revalidate(conv, agent,
+             expected_source: expected,
+             runtime: agent.runtime,
              environment_id: env_id || agent.environment_id,
-             vault_id: vault_id,
-             expected_source: expected
+             vault_id: vault_id
            ),
          :ok <- Fountain.PlatformInference.gate_source(source) do
       {:ok, source}
@@ -4986,11 +4987,10 @@ defmodule Fountain.Conversations do
 
   defp resolve_admission_inference(user_id, agent, env_id, vault_id, set_id) do
     with {:ok, source, _credentials} <-
-           InferenceCredentials.resolve(user_id, agent.model, agent.runtime,
-             environment_id: env_id || agent.environment_id,
-             vault_id: vault_id,
-             credential_set_id:
-               SpriteEnv.credential_set_id(%{inference_credential_id: set_id}, agent)
+           InferenceResolution.select(user_id, agent,
+             credential_set_id: set_id,
+             environment_id: env_id,
+             vault_id: vault_id
            ),
          :ok <- Fountain.PlatformInference.gate_source(source) do
       {:ok, source}
@@ -5007,11 +5007,9 @@ defmodule Fountain.Conversations do
 
   defp resolve_saved_inference(conv, agent) do
     with {:ok, source, _credentials} <-
-           InferenceCredentials.resolve(conv.user_id, agent.model, conv.runtime,
+           InferenceResolution.revalidate(conv, agent,
              environment_id: conv.environment_id || agent.environment_id,
-             vault_id: conv.vault_id,
-             credential_set_id: SpriteEnv.credential_set_id(conv, agent),
-             expected_source: conv.inference_source
+             vault_id: conv.vault_id
            ),
          :ok <- Fountain.PlatformInference.gate_source(source) do
       {:ok, source}

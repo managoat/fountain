@@ -4,7 +4,7 @@ defmodule Fountain.Conversations.LaunchCredentialSetTest do
   decision 3), bounded by `agent.allowed_inference_credential_ids`.
 
   The precedence is the launch, then the agent, then the account's default,
-  and it is `SpriteEnv.credential_set_id/2` that says so -- one function, so
+  and it is `InferenceResolution.credential_set_id/2` that says so -- one function, so
   the provision and the door gate cannot disagree about which credential this
   conversation runs on.
   """
@@ -14,7 +14,7 @@ defmodule Fountain.Conversations.LaunchCredentialSetTest do
 
   alias Fountain.Agents
   alias Fountain.Conversations
-  alias Fountain.Conversations.SpriteEnv
+  alias Fountain.Conversations.InferenceResolution
   alias Fountain.Crypto
   alias Fountain.InferenceCredentials
 
@@ -61,19 +61,19 @@ defmodule Fountain.Conversations.LaunchCredentialSetTest do
       agent = %{inference_credential_id: default.id}
       conv = %{inference_credential_id: second.id}
 
-      assert SpriteEnv.credential_set_id(conv, agent) == second.id
+      assert InferenceResolution.credential_set_id(conv, agent) == second.id
     end
 
     test "the agent answers when the launch said nothing", %{default: default} do
-      assert SpriteEnv.credential_set_id(%{inference_credential_id: nil}, %{
+      assert InferenceResolution.credential_set_id(%{inference_credential_id: nil}, %{
                inference_credential_id: default.id
              }) == default.id
     end
 
     test "nil is the account's default, and a conversation with no agent has only that" do
-      assert SpriteEnv.credential_set_id(%{inference_credential_id: nil}, nil) == nil
+      assert InferenceResolution.credential_set_id(%{inference_credential_id: nil}, nil) == nil
 
-      assert SpriteEnv.credential_set_id(%{inference_credential_id: nil}, %{
+      assert InferenceResolution.credential_set_id(%{inference_credential_id: nil}, %{
                inference_credential_id: nil
              }) == nil
     end
@@ -104,7 +104,7 @@ defmodule Fountain.Conversations.LaunchCredentialSetTest do
 
       assert conv.inference_credential_id == second.id
       assert conv.inference_source["set_id"] == second.id
-      assert SpriteEnv.credential_set_id(conv, agent) == second.id
+      assert InferenceResolution.credential_set_id(conv, agent) == second.id
     end
 
     test "another tenant's set is not found, not attached", %{user: user} do

@@ -6,9 +6,9 @@ defmodule Fountain.Connections.OAuth do
   here touches the database, and the provider must already carry its
   plaintext `client_secret` (`Fountain.Connections.unlock_provider/1`).
 
-  What differs per provider is data on the record, not code here — except
-  the two platform quirks `Fountain.Connections.Platform` owns (extra
-  authorize parameters, and Slack's nested token response):
+  What differs per provider is data on the record, not code here — the
+  provider's `authorize_params` and `token_body_nest` included (#2152), so
+  this module names no service:
 
     * PKCE (S256) when `pkce` is set — always for `mcp` providers, which also
       send the `resource` parameter (RFC 8707) so the token is bound to the
@@ -26,7 +26,7 @@ defmodule Fountain.Connections.OAuth do
   again at the moment it is fetched, not only when it was saved.
   """
 
-  alias Fountain.Connections.{Platform, Provider}
+  alias Fountain.Connections.Provider
   alias Managoat.McpAuth.UrlGuard
 
   @type grant :: %{
@@ -62,7 +62,7 @@ defmodule Fountain.Connections.OAuth do
 
     query =
       base
-      |> Map.merge(Platform.authorize_params(p))
+      |> Map.merge(p.authorize_params || %{})
       |> Map.merge(pkce_params(p, verifier))
       |> Map.merge(resource_params(p))
       |> URI.encode_query()
@@ -212,9 +212,9 @@ defmodule Fountain.Connections.OAuth do
         {:ok, %{status: status, body: body}} when status in 200..299 ->
           case decode_token_body(body) do
             {:ok, decoded} ->
-              # Reshaped before the error check: Slack's success body has no
-              # top-level access_token until authed_user is lifted out.
-              decoded = Platform.normalize_token_body(p, decoded)
+              # Reshaped before the error check: a nested success body has no
+              # top-level access_token until the grant is lifted out.
+              decoded = normalize_token_body(p, decoded)
               if error_body?(decoded), do: token_error(status, decoded), else: {:ok, decoded}
 
             {:error, _} = err ->
@@ -232,6 +232,21 @@ defmodule Fountain.Connections.OAuth do
       end
     end
   end
+
+  # A provider's token response, reshaped to the RFC 6749 top level where
+  # the provider nests it under `token_body_nest` (Slack: `authed_user`).
+  defp normalize_token_body(%Provider{token_body_nest: key}, body)
+       when is_binary(key) and key != "" do
+    case body do
+      %{^key => %{"access_token" => _} = nested} ->
+        Map.merge(body, Map.take(nested, ~w(access_token refresh_token expires_in scope)))
+
+      _ ->
+        body
+    end
+  end
+
+  defp normalize_token_body(_p, body), do: body
 
   # Not every provider signals failure on the status line: Slack answers
   # HTTP 200 with `{"ok": false, "error": "invalid_refresh_token"}` and says

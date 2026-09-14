@@ -116,14 +116,6 @@ defmodule Fountain.AuditGuardrailTest do
     {"team schedule update", &__MODULE__.do_schedule_update/1, "team.schedule.updated"},
     {"team schedule delete", &__MODULE__.do_schedule_delete/1, "team.schedule.deleted"},
     {"team schedule run", &__MODULE__.do_schedule_run/1, "team.schedule.fired"},
-    # Team contacts: a teammate's email address and phone number (flag
-    # `team_comms`). Sends through the MCP tools are audited by the controller
-    # as `team.contact.sent` — an effect, not tenant state.
-    {"team contact provision", &__MODULE__.do_contact_provision/1, "team.contact.provisioned"},
-    {"team contact update", &__MODULE__.do_contact_update/1, "team.contact.updated"},
-    {"team contact opt-out", &__MODULE__.do_contact_opt_out/1, "team.contact.opted_out"},
-    {"team contact opt-in", &__MODULE__.do_contact_opt_in/1, "team.contact.opted_in"},
-    {"team contact release", &__MODULE__.do_contact_release/1, "team.contact.released"},
     {"runner register", &__MODULE__.do_runner_register/1, "runner.registered"},
     {"runner delete", &__MODULE__.do_runner_delete/1, "runner.deleted"},
     # Outbound webhooks (ADR 0024). The auto-disable path is the one with no
@@ -250,10 +242,6 @@ defmodule Fountain.AuditGuardrailTest do
           {Conversations, :_unsafe_fence_sandbox_for_teardown, 2},
           {Fountain.Accounts.Deletion, :destroy_sprites, 2},
           {Conversations, :delete_conversation, 2},
-          {Fountain.Team.Comms, :provision_contact, 4},
-          {Fountain.Team.Comms, :update_contact, 4},
-          {Fountain.Team.Comms, :set_opt_out, 3},
-          {Fountain.Team.Comms, :release_contact, 3},
           {Webhooks, :create_endpoint, 3},
           {Webhooks, :update_endpoint, 3},
           {Webhooks, :delete_endpoint, 2},
@@ -662,94 +650,6 @@ defmodule Fountain.AuditGuardrailTest do
       })
 
     s
-  end
-
-  # The flag is flipped for the duration of the call only; the providers are
-  # the Req.Test plugs from config/test.exs, stubbed in this process.
-  defp with_comms(user, fun) do
-    agent = insert_agent(user_id: user.id)
-
-    insert_conversation(
-      user_id: user.id,
-      agent: agent,
-      status: "idle",
-      channel_id: Fountain.Team.channel()
-    )
-
-    Req.Test.stub(Fountain.Team.Comms.AgentMail, fn conn ->
-      Req.Test.json(conn, %{"inbox_id" => "inbox_g", "email" => "g@agentmail.to"})
-    end)
-
-    Req.Test.stub(Fountain.Team.Comms.AgentPhone, fn conn ->
-      Req.Test.json(conn, %{"id" => "num_g", "phoneNumber" => "+15550000000"})
-    end)
-
-    previous = Application.get_env(:fountain, :feature_flag_overrides)
-    Application.put_env(:fountain, :feature_flag_overrides, %{"team_comms" => true})
-
-    try do
-      fun.(agent)
-    after
-      if previous,
-        do: Application.put_env(:fountain, :feature_flag_overrides, previous),
-        else: Application.delete_env(:fountain, :feature_flag_overrides)
-    end
-  end
-
-  def do_contact_provision(user) do
-    with_comms(user, fn agent ->
-      {:ok, _} =
-        Fountain.Team.Comms.provision_contact(user.id, agent.id, %{
-          "prompt_from_number" => "+15550001111"
-        })
-    end)
-  end
-
-  def do_contact_update(user) do
-    with_comms(user, fn agent ->
-      {:ok, _} =
-        Fountain.Team.Comms.provision_contact(user.id, agent.id, %{
-          "prompt_from_number" => "+15550001111"
-        })
-
-      {:ok, _} =
-        Fountain.Team.Comms.update_contact(user.id, agent.id, %{
-          "prompt_from_number" => "+15550002222"
-        })
-    end)
-  end
-
-  def do_contact_opt_out(user) do
-    with_comms(user, fn agent ->
-      {:ok, c} =
-        Fountain.Team.Comms.provision_contact(user.id, agent.id, %{
-          "prompt_from_number" => "+15550001111"
-        })
-
-      {:ok, _} = Fountain.Team.Comms.set_opt_out(c, true)
-    end)
-  end
-
-  def do_contact_opt_in(user) do
-    with_comms(user, fn agent ->
-      {:ok, c} =
-        Fountain.Team.Comms.provision_contact(user.id, agent.id, %{
-          "prompt_from_number" => "+15550001111"
-        })
-
-      {:ok, _} = Fountain.Team.Comms.set_opt_out(c, false)
-    end)
-  end
-
-  def do_contact_release(user) do
-    with_comms(user, fn agent ->
-      {:ok, _} =
-        Fountain.Team.Comms.provision_contact(user.id, agent.id, %{
-          "prompt_from_number" => "+15550001111"
-        })
-
-      :ok = Fountain.Team.Comms.release_contact(user.id, agent.id)
-    end)
   end
 
   def do_schedule_create(user), do: insert_schedule(user)

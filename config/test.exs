@@ -128,21 +128,14 @@ config :fountain, Fountain.OAuth,
 # runner tests switch it on explicitly.
 config :fountain, :runners_enabled, false
 
-# Teammate email + phone (flag `team_comms`) and the PostHog flag lookup:
-# every outbound call goes to a Req.Test plug, so a test that forgets to
-# stub fails loudly instead of reaching a real provider. The keys are set so
-# `Comms.configured?/0` holds; the flag itself stays off (no override, no
-# PostHog key) until a test flips `:feature_flag_overrides`.
-config :fountain, :agentmail_api_key, "am_test_key"
-config :fountain, :agentmail_req_options, plug: {Req.Test, Fountain.Team.Comms.AgentMail}
-config :fountain, :agentphone_api_key, "ap_test_key"
-config :fountain, :agentphone_req_options, plug: {Req.Test, Fountain.Team.Comms.AgentPhone}
-config :fountain, :agentphone_webhook_secret, "whsec_test"
+# The PostHog flag lookup goes to a Req.Test plug, so a test that forgets to
+# stub fails loudly instead of reaching PostHog. A flag stays off (no
+# override, no PostHog key) until a test flips `:feature_flag_overrides`.
 config :fountain, :posthog_req_options, plug: {Req.Test, Fountain.FeatureFlags}
 
 # Connections (#1178, #1299): every platform OAuth client set so the flows
-# are "configured", and Req.Test plugs so no test reaches a provider. Same
-# failure mode as AgentMail above: an unstubbed call fails loudly.
+# are "configured", and Req.Test plugs so no test reaches a provider: an
+# unstubbed call fails loudly.
 config :fountain, :google_oauth_client_id, "google-test-client-id"
 config :fountain, :google_oauth_client_secret, "google-test-client-secret"
 config :fountain, :microsoft_oauth_client_id, "microsoft-test-client-id"

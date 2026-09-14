@@ -2420,7 +2420,7 @@ defmodule FountainWeb.Schemas do
                   type: :integer,
                   nullable: true,
                   description:
-                    "Cents the ledger took this month: turns, rent and messages. " <>
+                    "Cents the ledger took this month: turns and platform inference. " <>
                       "The charged number, where turn_hours is the metered one. " <>
                       "Null with billing off."
                 },
@@ -2808,60 +2808,6 @@ defmodule FountainWeb.Schemas do
     })
   end
 
-  defmodule TeammateContact do
-    @moduledoc false
-    require OpenApiSpex
-
-    OpenApiSpex.schema(%{
-      title: "TeammateContact",
-      description:
-        "A teammate's own email address and phone number, provisioned by Fountain " <>
-          "(AgentMail + AgentPhone) behind the `team_comms` flag. The teammate reaches " <>
-          "both through MCP tools Fountain serves; no provider key enters its sandbox.",
-      type: :object,
-      properties: %{
-        email: %Schema{type: :string, nullable: true},
-        phone: %Schema{type: :string, nullable: true, description: "E.164"},
-        prompt_from_number: %Schema{
-          type: :string,
-          nullable: true,
-          description:
-            "E.164. The one number whose texts to `phone` arrive as prompts in the " <>
-              "teammate's conversation; texts from anyone else are ignored."
-        },
-        prompt_opted_out_at: %Schema{
-          type: :string,
-          format: :"date-time",
-          nullable: true,
-          description:
-            "Set when `prompt_from_number` texted STOP: its texts are dropped until it texts " <>
-              "START, or until the number is changed (new consent)."
-        },
-        inserted_at: %Schema{type: :string, format: :"date-time"}
-      },
-      required: [:email, :phone]
-    })
-  end
-
-  defmodule TeamContactRequest do
-    @moduledoc false
-    require OpenApiSpex
-
-    OpenApiSpex.schema(%{
-      title: "TeamContactRequest",
-      type: :object,
-      properties: %{
-        prompt_from_number: %Schema{
-          type: :string,
-          description:
-            "Your phone number: texts from it to the teammate's new number become prompts " <>
-              "in its conversation. Any common format; stored E.164. Required."
-        }
-      },
-      required: [:prompt_from_number]
-    })
-  end
-
   defmodule Teammate do
     @moduledoc false
     require OpenApiSpex
@@ -2918,13 +2864,6 @@ defmodule FountainWeb.Schemas do
             kind: %Schema{type: :string, enum: FountainWeb.TeamPresenter.preview_kinds()},
             text: %Schema{type: :string, nullable: true}
           }
-        },
-        contact: %Schema{
-          allOf: [TeammateContact],
-          nullable: true,
-          description:
-            "The teammate's own email address and phone number (flag `team_comms`), " <>
-              "or null when it has none."
         }
       },
       required: [:agent_id, :name, :agent, :conversation, :presence, :unread]
@@ -2933,27 +2872,6 @@ defmodule FountainWeb.Schemas do
 
   item_response(TeammateResponse, of: Teammate)
   list_response(TeammateListResponse, of: Teammate)
-
-  defmodule TeamCommsStatus do
-    @moduledoc false
-    require OpenApiSpex
-
-    OpenApiSpex.schema(%{
-      title: "TeamCommsStatus",
-      description:
-        "Whether teammates can be given an email address and phone number here: `enabled` " <>
-          "is the per-user feature flag (`team_comms`), `configured` whether this instance " <>
-          "has the provider keys. Both must hold to provision.",
-      type: :object,
-      properties: %{
-        enabled: %Schema{type: :boolean},
-        configured: %Schema{type: :boolean}
-      },
-      required: [:enabled, :configured]
-    })
-  end
-
-  item_response(TeamCommsStatusResponse, of: TeamCommsStatus)
 
   defmodule TeamAddRequest do
     @moduledoc false

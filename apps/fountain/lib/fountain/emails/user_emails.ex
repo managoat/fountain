@@ -8,7 +8,7 @@ defmodule Fountain.Emails.UserEmails do
   - Account suspended / unsuspended / deleted (from `Workers.AccountEmail`)
   - Email-change confirmation + notice (from `Workers.EmailChangeEmail`)
 
-  The welcome and the credit emails (credits low, exhausted, rent due) live
+  The welcome and the credit emails (credits low, exhausted) live
   in `Fountain.Emails.CreditsEmails` under ee/ (#475) — it borrows
   `from_address/0` and `support_phrase/0` from here so the whole mail
   surface keeps one sender and one support-contact policy.

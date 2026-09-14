@@ -2111,26 +2111,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/team/comms": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Can teammates be given an email address and phone number?
-         * @description The two gates for `POST /api/team/:agent_id/contact`: the caller's `team_comms` feature flag and whether this instance has the AgentMail/AgentPhone keys. A client shows the affordance when `enabled`, and explains itself when `configured` is false.
-         */
-        get: operations["FountainWeb.TeamController.comms_status"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/team/schedules": {
         parameters: {
             query?: never;
@@ -2194,34 +2174,6 @@ export interface paths {
          * @description Sets what the teammate is called — its conversation's title (#831). `name` null or blank goes back to the agent's name. The name carries over to the fresh conversation opened when this one is past resuming. Audited as `team.renamed`; the stream sends `team` so clients re-list.
          */
         patch: operations["FountainWeb.TeamController.update"];
-        trace?: never;
-    };
-    "/api/team/{agent_id}/contact": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Give a teammate an email address and a phone number
-         * @description Provisions an inbox (AgentMail) and a number (AgentPhone) under Fountain's own keys and records them on the teammate; from its next turn the teammate has `email_*` and `sms_*` MCP tools served by Fountain, and knows its own address and number. All or nothing: a provider failure on either channel leaves the teammate without both. Behind the `team_comms` flag — 404 when it is off for the caller, 503 when this instance has no provider keys.
-         */
-        post: operations["FountainWeb.TeamController.provision_contact"];
-        /**
-         * Take a teammate's email address and phone number away
-         * @description Deletes the inbox and releases the number upstream, then forgets them. A provider failure keeps the contact (nothing is orphaned) and is reported as 424.
-         */
-        delete: operations["FountainWeb.TeamController.release_contact"];
-        options?: never;
-        head?: never;
-        /**
-         * Change which number's texts reach the teammate
-         * @description Sets `prompt_from_number` on an existing contact. Nothing is bought or released — the teammate keeps its address and number.
-         */
-        patch: operations["FountainWeb.TeamController.update_contact"];
         trace?: never;
     };
     "/api/team/{agent_id}/conversations": {
@@ -3260,7 +3212,7 @@ export interface components {
                 usage: {
                     /** @description Conversations that ran a turn in the month, deleted or not. */
                     conversations?: number;
-                    /** @description Cents the ledger took this month: turns, rent and messages. The charged number, where turn_hours is the metered one. Null with billing off. */
+                    /** @description Cents the ledger took this month: turns and platform inference. The charged number, where turn_hours is the metered one. Null with billing off. */
                     credit_burned_cents?: number | null;
                     /** @description Active sandbox minutes inside the period, parked time excluded. */
                     sandbox_minutes?: number;
@@ -5070,23 +5022,6 @@ export interface components {
              */
             vault_id?: string | null;
         };
-        /**
-         * TeamCommsStatus
-         * @description Whether teammates can be given an email address and phone number here: `enabled` is the per-user feature flag (`team_comms`), `configured` whether this instance has the provider keys. Both must hold to provision.
-         */
-        TeamCommsStatus: {
-            configured: boolean;
-            enabled: boolean;
-        };
-        /** TeamCommsStatusResponse */
-        TeamCommsStatusResponse: {
-            data: components["schemas"]["TeamCommsStatus"];
-        };
-        /** TeamContactRequest */
-        TeamContactRequest: {
-            /** @description Your phone number: texts from it to the teammate's new number become prompts in its conversation. Any common format; stored E.164. Required. */
-            prompt_from_number: string;
-        };
         /** TeamMessageRequest */
         TeamMessageRequest: {
             images?: components["schemas"]["ImageInput"][] | null;
@@ -5185,8 +5120,6 @@ export interface components {
             agent: components["schemas"]["Agent"];
             /** Format: uuid */
             agent_id: string;
-            /** @description The teammate's own email address and phone number (flag `team_comms`), or null when it has none. */
-            contact?: components["schemas"]["TeammateContact"] | null;
             conversation: components["schemas"]["Conversation"];
             last_turn?: {
                 /** Format: uuid */
@@ -5214,24 +5147,6 @@ export interface components {
             unread: boolean;
             /** @description Summed over every conversation this agent has had under the team channel, not just the current one — the per-teammate figure. */
             usage_total?: components["schemas"]["UsageTotal"];
-        };
-        /**
-         * TeammateContact
-         * @description A teammate's own email address and phone number, provisioned by Fountain (AgentMail + AgentPhone) behind the `team_comms` flag. The teammate reaches both through MCP tools Fountain serves; no provider key enters its sandbox.
-         */
-        TeammateContact: {
-            email: string | null;
-            /** Format: date-time */
-            inserted_at?: string;
-            /** @description E.164 */
-            phone: string | null;
-            /** @description E.164. The one number whose texts to `phone` arrive as prompts in the teammate's conversation; texts from anyone else are ignored. */
-            prompt_from_number?: string | null;
-            /**
-             * Format: date-time
-             * @description Set when `prompt_from_number` texted STOP: its texts are dropped until it texts START, or until the number is changed (new consent).
-             */
-            prompt_opted_out_at?: string | null;
         };
         /**
          * TeammateConversation
@@ -15603,62 +15518,6 @@ export interface operations {
             };
         };
     };
-    "FountainWeb.TeamController.comms_status": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Status */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TeamCommsStatusResponse"];
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description No acceptable representation */
-            406: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["NegotiationError"];
-                };
-            };
-            /** @description Too Many Requests */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
     "FountainWeb.TeamScheduleController.index_all": {
         parameters: {
             query?: never;
@@ -15964,278 +15823,6 @@ export interface operations {
                 };
             };
             /** @description Name too long */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Too Many Requests */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
-    "FountainWeb.TeamController.provision_contact": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                agent_id: string;
-            };
-            cookie?: never;
-        };
-        /** @description The number whose texts become prompts */
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["TeamContactRequest"];
-            };
-        };
-        responses: {
-            /** @description Teammate, now with a contact */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TeammateResponse"];
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Not on the team, or the feature is off */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description No acceptable representation */
-            406: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["NegotiationError"];
-                };
-            };
-            /** @description Already has a contact */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Bad prompt_from_number */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Contact provider unavailable */
-            424: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Too Many Requests */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description A provider refused */
-            502: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description No provider keys on this instance */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
-    "FountainWeb.TeamController.release_contact": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                agent_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Released */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description No contact, or not on the team */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description No acceptable representation */
-            406: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["NegotiationError"];
-                };
-            };
-            /** @description A provider refused */
-            424: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Too Many Requests */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
-    "FountainWeb.TeamController.update_contact": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                agent_id: string;
-            };
-            cookie?: never;
-        };
-        /** @description The number whose texts become prompts */
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["TeamContactRequest"];
-            };
-        };
-        responses: {
-            /** @description Teammate */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TeammateResponse"];
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description No contact, or not on the team */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description No acceptable representation */
-            406: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["NegotiationError"];
-                };
-            };
-            /** @description Bad prompt_from_number */
             422: {
                 headers: {
                     [name: string]: unknown;

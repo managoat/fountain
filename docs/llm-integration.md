@@ -40,10 +40,9 @@ to an IDE is an idea that Fountain discussed and did not build. No package
 exists to install, and no config block works. Use the `/skill` file above. It
 gives an agentic IDE the full API surface in one fetch.
 
-Fountain does host three MCP servers, and each one serves a conversation's own
+Fountain does host two MCP servers, and each one serves a conversation's own
 sandbox, with that conversation's token. They are
-[fountain-team](catalog/mcp-servers/fountain-team.md),
-[fountain-comms](catalog/mcp-servers/fountain-comms.md) and
+[fountain-team](catalog/mcp-servers/fountain-team.md) and
 `fountain-buzz`. An IDE cannot connect
 to them. Everything they do is also on the [REST API](api.md#team).
 

@@ -195,8 +195,7 @@ and would not replace it.
 
 Fountain has the same problem when it receives a webhook. It solves that
 problem with `FountainWeb.CachingBodyReader`, which keeps the raw body
-available for the Stripe and AgentPhone webhooks. Copy it if you build a
-Phoenix receiver.
+available for the Stripe webhook. Copy it if you build a Phoenix receiver.
 
 ## The delivery contract
 

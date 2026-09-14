@@ -1,12 +1,13 @@
 # Changelog
 
-## Unreleased
+## 0.4.0
 
-### Removed
+### Breaking changes
 
-- `team.comms_status()`. Teammate email and phone (Team comms) is being
-  removed from the server; the `contact` key disappears from the teammate
-  record with it.
+- `team.comms_status()` is removed. Teammate email and phone (Team comms) is
+  gone from the server: `GET /api/team/comms`, the
+  `/api/team/:agent_id/contact` operations and the `contact` key on a
+  teammate no longer exist. Nothing else moves.
 
 ## 0.3.1
 

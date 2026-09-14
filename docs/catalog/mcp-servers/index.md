@@ -3,7 +3,7 @@
 An MCP server gives a runtime tools that it did not ship with. Fountain deals
 with two kinds. They work differently enough to keep apart.
 
-**Servers Fountain hosts.** Three of them, listed below. Nobody declares these
+**Servers Fountain hosts.** Two of them, listed below. Nobody declares these
 and no operator configures them. Fountain injects them into a conversation
 when that conversation qualifies.
 
@@ -12,21 +12,19 @@ an [Agent](../../concepts/agent.md). Fountain passes the declaration through.
 For remote servers with OAuth discovery, it keeps the dated list below. The
 authorization chain completed against each entry on the date shown.
 
-## The three Fountain hosts
+## The two Fountain hosts
 
 | Server | Injected when | Tools |
 |---|---|---|
 | [fountain-team](fountain-team.md) | The conversation is a teammate's. | `list_teammates`, `get_teammate`, `send_to_teammate`, `wait_for_teammate`, `read_teammate` |
 | `fountain-buzz` | The conversation's vault holds a Buzz identity. | `buzz_send_message`, `buzz_react` |
-| [fountain-comms](fountain-comms.md) | The teammate has a contact, behind flag `team_comms`. | `email_send`, `email_reply`, `email_list`, `email_get`, `sms_send`, `sms_list`, `my_contact_info` |
 
-All three share three properties, and each property carries weight.
+Both share three properties, and each property carries weight.
 
 **The sandbox never holds the credential.** That is the whole point.
-`fountain-comms` is the clearest case. Fountain owns the AgentMail and
-AgentPhone keys, and the teammate reaches email and SMS through tools alone.
-No provider key enters the sandbox, so an agent that leaks its environment
-leaks nothing that can send mail.
+`fountain-buzz` is the clearest case. Fountain holds the Buzz identity, and
+the teammate reaches the network through tools alone. No key enters the
+sandbox, so an agent that leaks its environment leaks nothing that can post.
 
 **They authenticate with the token the sandbox already holds.** Fountain
 serves each one over HTTP at a URL for that one conversation, and the sandbox
@@ -34,9 +32,9 @@ presents its own callback token. There is no second credential to manage, and
 the token reaches only that conversation's owner.
 
 **Fountain recomputes the injection at each turn.** A capability granted
-mid-session appears on the next turn, and not at the next provision. Give a
-teammate a contact while it works, with `POST /api/team/:agent_id/contact`,
-and it can send mail on its next reply. Read [Team](../../api.md#team).
+mid-session appears on the next turn, and not at the next provision. Add an
+agent to the team while it works, and it can message its teammates on its
+next reply. Read [Team](../../api.md#team).
 
 Fountain scopes each call to one tenant. A message that goes through a tool
 lands in the thread of the teammate who gets it. It lands exactly as a message

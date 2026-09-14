@@ -122,7 +122,7 @@ defmodule Fountain.Extensions do
 
   **A failing extension costs only its own servers.** A raise, throw or exit in
   one `conversation_mcp_servers/2` is caught here, logged, and contributes `[]`;
-  the other extensions and the host's own team, comms and caller servers are
+  the other extensions and the host's own team and caller servers are
   untouched and the turn goes on. The alternative — letting it propagate — kills
   the turn kick, which means a broken optional integration takes the
   conversation with it.

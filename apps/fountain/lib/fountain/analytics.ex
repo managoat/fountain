@@ -290,7 +290,7 @@ defmodule Fountain.Analytics do
   end
 
   # A context action name: dotted, lowercase, closed vocabulary
-  # (`agent.created`, `team.contact.provisioned`). Anything else arriving from
+  # (`agent.created`, `team.member.added`). Anything else arriving from
   # the audit trail is the `:api` pipeline's request-log row, which is named
   # after the request line and carries a UUID.
   @context_action ~r/^[a-z][a-z0-9_]*(\.[a-z0-9_]+)+$/

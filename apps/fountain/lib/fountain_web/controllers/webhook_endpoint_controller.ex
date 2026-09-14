@@ -2,12 +2,9 @@ defmodule FountainWeb.WebhookEndpointController do
   @moduledoc """
   Webhook endpoint CRUD, the delivery log, test sends and redelivery (#700).
 
-  `/api/webhooks` already had one route on it before this existed — AgentPhone's
-  inbound master webhook, which is a webhook Fountain *receives*. These are the
-  ones Fountain *sends*, and they live under the same prefix because that is
-  where an integrator looks. The inbound one keeps its explicit path
-  (`/api/webhooks/agentphone`) and is declared first in the router so a UUID
-  segment cannot swallow it.
+  These are the webhooks Fountain *sends*, as opposed to the ones it
+  receives (Stripe's, under `/api/stripe`); they live under `/api/webhooks`
+  because that is where an integrator looks.
   """
 
   use FountainWeb, :controller

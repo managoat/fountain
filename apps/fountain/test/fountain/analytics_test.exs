@@ -142,12 +142,12 @@ defmodule Fountain.AnalyticsTest do
     end
 
     test "stamps the flags already known for the person" do
-      Application.put_env(:fountain, :feature_flag_overrides, %{"team_comms" => true})
+      Application.put_env(:fountain, :feature_flag_overrides, %{"openai_compat" => true})
 
       Analytics.capture("agent.created", @user_id)
 
       assert_receive {:posthog, "/batch/", %{"batch" => [event]}}
-      assert event["properties"]["$feature/team_comms"] == true
+      assert event["properties"]["$feature/openai_compat"] == true
     end
 
     test "never makes a flag lookup happen" do
@@ -205,7 +205,7 @@ defmodule Fountain.AnalyticsTest do
     test "an ordinary context action is a product event" do
       assert Analytics.product_event?("agent.created", "ui")
       assert Analytics.product_event?("conversation.created", "api")
-      assert Analytics.product_event?("team.contact.provisioned", "self")
+      assert Analytics.product_event?("team.member.added", "self")
       assert Analytics.product_event?("credit.expired", "system:credit_expirer")
     end
 

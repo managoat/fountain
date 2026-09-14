@@ -151,11 +151,6 @@ apps/fountain/test/fountain/self_host_switches_test.exs	1958
 apps/fountain/test/fountain/sentry_config_test.exs	66
 apps/fountain/test/fountain/sobelow_gate_test.exs	4
 apps/fountain/test/fountain/sprites_token_config_test.exs	58
-apps/fountain/test/fountain/team/comms/inbound_test.exs	4088
-apps/fountain/test/fountain/team/comms/mcp_test.exs	1
-apps/fountain/test/fountain/team/comms/phone_test.exs	0
-apps/fountain/test/fountain/team/comms_plan_test.exs	2047
-apps/fountain/test/fountain/team/comms_test.exs	7756
 apps/fountain/test/fountain/team/mcp_test.exs	3630
 apps/fountain/test/fountain/team/schedules_test.exs	4698
 apps/fountain/test/fountain/team_test.exs	10050
@@ -195,7 +190,6 @@ apps/fountain/test/fountain_web/controllers/agent_avatar_api_test.exs	4910
 apps/fountain/test/fountain_web/controllers/agent_avatar_controller_test.exs	1734
 apps/fountain/test/fountain_web/controllers/agent_controller_test.exs	7247
 apps/fountain/test/fountain_web/controllers/agent_filter_test.exs	2852
-apps/fountain/test/fountain_web/controllers/agent_phone_webhook_controller_test.exs	1770
 apps/fountain/test/fountain_web/controllers/agent_version_controller_test.exs	2583
 apps/fountain/test/fountain_web/controllers/agui_controller_test.exs	7124
 apps/fountain/test/fountain_web/controllers/api_key_controller_test.exs	2958
@@ -250,7 +244,6 @@ apps/fountain/test/fountain_web/controllers/secret_binding_controller_test.exs	1
 apps/fountain/test/fountain_web/controllers/secret_controller_test.exs	3088
 apps/fountain/test/fountain_web/controllers/session_controller_test.exs	978
 apps/fountain/test/fountain_web/controllers/sse_stream_test.exs	8415
-apps/fountain/test/fountain_web/controllers/team_comms_controller_test.exs	5970
 apps/fountain/test/fountain_web/controllers/team_controller_test.exs	5972
 apps/fountain/test/fountain_web/controllers/team_mcp_controller_test.exs	1024
 apps/fountain/test/fountain_web/controllers/team_schedule_controller_test.exs	3106

@@ -27,22 +27,7 @@ defmodule FountainWeb.TeamJSON do
       # Across every conversation the agent has had on the team (#827).
       usage_total: teammate.usage_total,
       last_turn: last_turn && turn_summary(last_turn),
-      preview: preview(TeamPresenter.preview(teammate)),
-      # The teammate's own email address and phone number (flag
-      # `team_comms`), or null when it has none.
-      contact: contact(Map.get(teammate, :contact))
-    }
-  end
-
-  def contact(nil), do: nil
-
-  def contact(%Fountain.Team.Contact{} = c) do
-    %{
-      email: (Fountain.Team.Contact.email?(c) && c.email_address) || nil,
-      phone: (Fountain.Team.Contact.phone?(c) && c.phone_number) || nil,
-      prompt_from_number: c.prompt_from_number,
-      prompt_opted_out_at: c.prompt_opted_out_at,
-      inserted_at: c.inserted_at
+      preview: preview(TeamPresenter.preview(teammate))
     }
   end
 

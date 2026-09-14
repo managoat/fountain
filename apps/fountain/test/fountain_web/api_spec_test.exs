@@ -61,9 +61,6 @@ defmodule FountainWeb.ApiSpecTest do
       # Authenticated by Stripe-Signature, not a bearer token. Its caller is
       # Stripe, which does not read our spec.
       {"/api/stripe/webhook", :post},
-      # Likewise AgentPhone's webhook: authenticated by its HMAC signature,
-      # called by AgentPhone (flag `team_comms`).
-      {"/api/webhooks/agentphone", :post},
       # A browser-session route that happens to live under /api/ — CSRF-
       # protected, session-authenticated, and driven by the theme toggle.
       {"/api/settings/theme", :patch},
@@ -72,8 +69,6 @@ defmodule FountainWeb.ApiSpecTest do
       # client, which discovers tools via `tools/list`, not our OpenAPI spec.
       # Same: the team tools a teammate's sandbox calls (#851).
       {"/api/mcp/team/{conversation_id}", :post},
-      # Same: the teammate email/phone tools (flag `team_comms`).
-      {"/api/mcp/team-comms/{conversation_id}", :post},
       # Same: the Gmail tools for a Google connection (#1178).
       {"/api/mcp/gmail/{conversation_id}/{connection_id}", :post},
       # Same: the caller-defined tools of the bridge (#1202).

@@ -306,8 +306,7 @@ defmodule FountainBuzz.AgentControllerTest do
         |> put_req_header("content-type", "application/json")
         |> post("/api/buzz/agents", %{params(agent) | "pubkey" => String.duplicate("b", 64)})
 
-      # 402 rather than 429: the fix is a ceiling change, not a retry, which
-      # is the same reasoning the teammate-contact ceiling gives.
+      # 402 rather than 429: the fix is a ceiling change, not a retry.
       assert %{"error" => "identity_limit_reached", "count" => 1, "limit" => 1} =
                json_response(conn, 402)
     end

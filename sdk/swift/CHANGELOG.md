@@ -9,7 +9,8 @@ Notable changes to the Fountain Swift SDK follow
 
 `Team.commsStatus()` is removed from both products, with `TeamCommsStatus`,
 `TeammateContact` and `Teammate.contact`. Teammate email and phone (Team
-comms) is being removed from the server.
+comms) is gone from the server: `GET /api/team/comms` and the
+`/api/team/:agent_id/contact` operations no longer exist.
 
 Replace `FountainError.Kind.subscriptionRequired` with
 `FountainError.Kind.insufficientCredits` in the `Fountain` product, including

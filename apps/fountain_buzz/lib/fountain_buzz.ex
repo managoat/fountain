@@ -74,8 +74,7 @@ defmodule FountainBuzz do
   @doc """
   Identity counts for every tenant with at least one, in a single query — for
   the admin view, which shows the number on every row and must not run a count
-  per row (the same contract as `Fountain.Team.Comms.contact_counts/0` and
-  `Fountain.Quotas.active_sandbox_counts/0`).
+  per row (the same contract as `Fountain.Quotas.active_sandbox_counts/0`).
 
   Returns `%{user_id => count}`; tenants with no identities are absent.
   """

@@ -118,9 +118,6 @@ config :fountain,
 # with users.sandbox_limit_override winning when set. fleet_ceiling bounds
 # the sum across every tenant to what the providers allow. runtime.exs
 # overrides from SANDBOX_*.
-# Teammate contacts a tenant may hold at once — an abuse ceiling, not a price.
-config :fountain, :team_contact_ceiling, 10
-
 # Hosted Buzz agents a tenant may run at once. Each enabled identity is a
 # supervised `buzz-acp` OS process on Fountain's own pods (ADR 0020), so the
 # cost is standing rather than metered — no sandbox meter sees it. An abuse

@@ -3,7 +3,7 @@ defmodule FountainWeb.GmailMcpController do
   The MCP endpoint a sandbox calls to use a Google connection its agent
   names (#1178). Streamable-HTTP transport: one JSON-RPC message per POST, a
   JSON response back (or 202 for a notification) — the shape of
-  `FountainWeb.TeamCommsMcpController`.
+  `FountainWeb.TeamMcpController`.
 
   The sandbox authenticates with its callback token, so `current_user` is
   the conversation's owner. This controller checks the conversation is the

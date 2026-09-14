@@ -28,6 +28,19 @@ upgrade, is in
   `MARKETING_SITE=true` keeps one job: the manual's header and footer link
   the site's pages. Nothing in `docs/` linked the retired routes.
 
+- **Team comms is removed.** A teammate no longer gets an email address or
+  a phone number: `GET /api/team/comms`, the three
+  `/api/team/:agent_id/contact` operations, the `fountain-comms` MCP server,
+  `POST /api/webhooks/agentphone` and the `contact` field on a teammate are
+  gone, and the `team_comms` flag no longer exists. `AGENTMAIL_API_KEY`,
+  `AGENTMAIL_BASE_URL`, `AGENTMAIL_DOMAIN`, `AGENTPHONE_API_KEY`,
+  `AGENTPHONE_BASE_URL`, `AGENTPHONE_WEBHOOK_SECRET` and
+  `TEAM_CONTACT_CEILING` are no longer read. The migration drops the
+  `team_contacts` and `comms_messages` tables. If any teammate still holds
+  an inbox or a number, note their provider ids from `team_contacts` before
+  you upgrade, and release them with AgentMail and AgentPhone directly; the
+  migration does not call the providers. The feature had no users.
+
 - **Teammate contacts are no longer rented, and messages are no longer
   priced.** `CREDIT_NUMBER_CENTS`, `CREDIT_INBOX_CENTS`,
   `CREDIT_EMAIL_MESSAGE_CENTS`, `CREDIT_SMS_MESSAGE_CENTS`,

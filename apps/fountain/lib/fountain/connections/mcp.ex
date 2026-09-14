@@ -2,7 +2,7 @@ defmodule Fountain.Connections.Mcp do
   @moduledoc """
   The Gmail tools Fountain serves to a conversation whose agent names a
   Google connection (#1178). A pure JSON-RPC/tool layer over a `ctx`, the
-  same shape as `Fountain.Team.Comms.Mcp`: `handle/2` takes one request map
+  same shape as `Fountain.Team.Mcp`: `handle/2` takes one request map
   and returns one response map (or `:noreply` for a notification). The
   transport and the `ctx` live in `FountainWeb.GmailMcpController`.
 

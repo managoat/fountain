@@ -9,13 +9,8 @@ defmodule Fountain.Billing.UsageEvent do
   metering outage must never fail a conversation — the right contract for a
   count and the wrong one for a row the ledger keys on.
 
-  Comms messages used to be priced from the `comms_*` rows here, so a dropped
-  event was a message the customer was never charged for (#1143). Messages are
-  not priced at all any more; the `comms_*` types stay in the vocabulary, and
-  stay product-only.
-
-  Written from `ConversationServer` at key lifecycle points and from the comms
-  paths; never updated after insertion (no `updated_at`).
+  Written from `ConversationServer` at key lifecycle points; never updated
+  after insertion (no `updated_at`).
   """
 
   use Ecto.Schema
@@ -37,14 +32,13 @@ defmodule Fountain.Billing.UsageEvent do
     field :inserted_at, :utc_datetime
   end
 
-  # The closed vocabulary. Sandbox lifecycle, and the teammate messages.
+  # The closed vocabulary: the sandbox lifecycle.
   #
   # None of it is priced. `sandbox_terminated` never was — it is forensic
-  # only, and `SandboxUsage` reads the sandbox rows — and the `comms_*` types
-  # are a product count only. Do not add a type expecting it to bill.
+  # only, and `SandboxUsage` reads the sandbox rows. Do not add a type
+  # expecting it to bill.
   @valid_event_types ~w(sandbox_provisioned sandbox_provision_failed turn_started sandbox_terminated
-                         sandbox_suspended sandbox_resumed
-                         comms_email_sent comms_sms_sent comms_sms_received)
+                         sandbox_suspended sandbox_resumed)
 
   def changeset(usage_event, attrs) do
     usage_event

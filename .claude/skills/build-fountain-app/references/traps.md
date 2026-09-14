@@ -34,7 +34,7 @@ noted.
 ## Errors
 
 - Branch on `code`, not status: `conversation_busy` 400, `provisioning` / `sprite_probe_failed` / `fleet_full` 503 (carry `Retry-After`), `sandbox_quota_exceeded` 429, `insufficient_credits` 402 (`upgrade_url`), 422 `fieldErrors`. `starting` is deliberately *not* busy: attempt the send and let the server decide.
-- Both fountain-team and the workbench keep a `describeError(err)` table mapping codes to copy (`environment_not_allowed`, `runner_offline`, `no_runner_online`, `team_comms_not_enabled`, `provider_error` with `body.channel`, …). Start from theirs.
+- Both fountain-team and the workbench keep a `describeError(err)` table mapping codes to copy (`environment_not_allowed`, `runner_offline`, `no_runner_online`, `provider_error`, …). Start from theirs.
 
 ## Testing
 

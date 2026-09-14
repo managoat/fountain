@@ -316,9 +316,6 @@ defmodule FountainWeb.AdminLive.Users do
     }
 
     sandbox_counts = Quotas.active_sandbox_counts()
-    # One grouped query, not one per row — the same contract as the sandbox
-    # counts above. The page refreshes on a timer.
-    contact_counts = Fountain.Team.Comms.contact_counts()
     # Whatever installed extensions add (ADR 0043). Each is one grouped query
     # built once for the page, same contract as the counts above; the console
     # names no extension module. A hosted Buzz agent is a standing OS process
@@ -343,7 +340,6 @@ defmodule FountainWeb.AdminLive.Users do
         u
         |> Map.put(:active_sandboxes, Map.get(sandbox_counts, u.id, 0))
         |> Map.put(:sandbox_limit, Fountain.Quotas.sandbox_limit_for(u))
-        |> Map.put(:contact_count, Map.get(contact_counts, u.id, 0))
         |> Map.put(
           :extension_cells,
           Enum.map(extension_columns, fn {_header, cells} -> Map.get(cells, u.id, 0) end)
@@ -520,12 +516,9 @@ defmodule FountainWeb.AdminLive.Users do
                 Usage 30d
               </th>
               <th class="px-4 py-2">Sandboxes</th>
-              <%!-- Standing slots: a teammate contact is rented from the
-                    balance every month and costs while nobody uses it, which
-                    is exactly why it belongs on the row. An installed
-                    extension may add its own column beside this one (#1017's
-                    hosted-agent count is now one of those). --%>
-              <th class="px-4 py-2" title="Teammate contacts">Contacts</th>
+              <%!-- Standing slots: an installed extension may add a column of
+                    its own here (#1017's hosted-agent count is one of those),
+                    for a thing that costs while nobody uses it. --%>
               <th :for={{header, _cells} <- @extension_columns} class="px-4 py-2">{header}</th>
               <th class="px-4 py-2">Onboarding</th>
               <th class="px-4 py-2">
@@ -643,12 +636,6 @@ defmodule FountainWeb.AdminLive.Users do
                   />
                   <button class="text-xs text-zinc-500 hover:text-zinc-900 underline">set</button>
                 </form>
-              </td>
-              <td
-                class="px-4 py-2 text-xs text-zinc-500 tabular-nums whitespace-nowrap"
-                title={"#{u.contact_count} teammate contact(s)"}
-              >
-                {u.contact_count}
               </td>
               <.extension_cell :for={cell <- u.extension_cells} cell={cell} />
               <td class="px-4 py-2 text-zinc-500 text-xs">

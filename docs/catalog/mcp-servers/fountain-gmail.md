@@ -25,9 +25,9 @@ Fountain encrypts it with your tenant key, like a vault secret. The agent reache
 mailbox through these tools alone. Fountain gets a fresh access token for
 each call, on the server. The sandbox never sees one.
 
-This is the shape [fountain-comms](fountain-comms.md) has. When an agent
-needs a capability that a credential would grant, serve the capability. Do
-not ship the credential.
+This is the shape [fountain-team](fountain-team.md) has. When an agent needs
+a capability that a credential would grant, serve the capability. Do not
+ship the credential.
 
 ## Connect an account
 

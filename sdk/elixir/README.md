@@ -8,7 +8,7 @@ Add `fountain_sdk` to `mix.exs`:
 
 ```elixir
 def deps do
-  [{:fountain_sdk, "~> 0.3.0"}]
+  [{:fountain_sdk, "~> 0.4.0"}]
 end
 ```
 

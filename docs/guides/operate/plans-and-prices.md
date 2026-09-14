@@ -53,12 +53,6 @@ below zero, because a turn that crosses zero finishes. The next purchase
 brings it back. Fountain sends an email when the balance falls under 20
 percent of the opening credit, and another when it reaches zero.
 
-## Numbers and inboxes
-
-A teammate number and inbox cost nothing from the balance.
-`TEAM_CONTACT_CEILING` (10) is the most contacts one account may hold at once.
-It is an abuse ceiling, not a price.
-
 ## Hosted Buzz agents
 
 An enabled Buzz identity is a permanent `buzz-acp` process on the Fountain

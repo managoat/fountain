@@ -84,16 +84,6 @@ Remove a teammate and Fountain deletes its schedules.
 The team app, `fountain.team.schedules` in the SDK, and the
 [Schedules API](../api.md#schedules) all manage the same rows.
 
-## A teammate can have an email address and a phone number
-
-This is an alpha feature, and it is off by default on the hosted platform.
-Give a teammate a contact, and it gets an address and a number under keys
-that Fountain holds. Its sandbox never sees a key. The team app and
-`POST /api/team/:agent_id/contact` both give a teammate a contact. Read
-[fountain-comms](../catalog/mcp-servers/fountain-comms.md) for the tools,
-the [Team section](../api.md#team) of the API reference for the routes, and
-[Feature status](../reference/feature-status.md) for how to get it on.
-
 ## What a teammate is not
 
 **Not a primitive.** `POST /api/team` adds a teammate, and it creates no new

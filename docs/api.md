@@ -602,13 +602,12 @@ before you act on its current state. See Search in the
 
 ## Team
 
-A teammate is an agent with a stable conversation and optional communication
-channels. Follow [Teammates](concepts/teammates.md) for the model and
+A teammate is an agent with a stable conversation. Follow
+[Teammates](concepts/teammates.md) for the model and
 [Build a team chat](build/team-chat.md) for the app workflow.
 
 The Team operations in the [generated reference](/api/docs) describe roster,
-messages, contact provisioning, and access. Check capability availability
-before you offer email or phone features.
+messages, and access.
 
 ### Schedules
 

@@ -5,7 +5,7 @@ defmodule Fountain.FeatureFlags do
   `enabled?(flag, user)` answers a yes/no for one user. The sources, in order:
 
   1. **Static overrides** — `config :fountain, :feature_flag_overrides,
-     %{"team_comms" => true}` (from `FEATURE_FLAGS_ON=team_comms,...` in
+     %{"openai_compat" => true}` (from `FEATURE_FLAGS_ON=openai_compat,...` in
      `config/runtime.exs`). A self-hoster with no PostHog turns a feature on
      for everyone this way; tests use it to flip a flag without any HTTP.
   2. **PostHog** — `POST {host}/flags/?v=2` with the project API key and the
@@ -37,9 +37,6 @@ defmodule Fountain.FeatureFlags do
   @timeout_ms 2_000
 
   @flags %{
-    # A teammate can be given an email address and a phone number, and gets
-    # MCP tools to use them (AgentMail + AgentPhone, keys held by Fountain).
-    team_comms: "team_comms",
     # Provider registration and credential bindings have their own rollout.
     connections: "connections",
     # The OpenAI-compatible `/v1` endpoints (ADR 0035). Alpha: the dialect's

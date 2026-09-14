@@ -100,9 +100,7 @@ defmodule FountainWeb.LlmsController do
         "the bundled skill that lets an agent inside a sandbox spawn more"},
        {"catalog/skills/create-team", "the bundled skill that proposes a roster and creates it"},
        {"catalog/mcp-servers", "what you can attach, and `${VAR}` substitution in the config"},
-       {"catalog/mcp-servers/fountain-team", "lets a teammate see the roster and message it"},
-       {"catalog/mcp-servers/fountain-comms",
-        "gives a teammate its own email address and phone number"}
+       {"catalog/mcp-servers/fountain-team", "lets a teammate see the roster and message it"}
      ]},
     {"Build on it",
      [

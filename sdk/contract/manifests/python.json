@@ -106,7 +106,6 @@
     "SearchResponse": { "fields": ["data"] },
     "SecretListResponse": { "fields": ["data"] },
     "SecretResponse": { "fields": ["data"] },
-    "TeamCommsStatusResponse": { "fields": ["data"] },
     "TeamMessageRequest": { "optional": ["images"] },
     "TeamMessageResponse": { "fields": ["conversation_id"] },
     "TeamScheduleListResponse": { "fields": ["data"] },

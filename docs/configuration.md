@@ -155,7 +155,6 @@ at a dead end, with no error to see. Read [Email](guides/operate/email.md).
 | `FOUNTAIN_EXECUTION_DEADLINE_INTERVAL_MS` | `5000` | No. | The interval at which the coordinator looks for due deadlines. Each deadline is absolute and durable, so a larger value costs precision and not safety. |
 | `CREDIT_OPENING_CENTS` | `500` | No. | The credit a new account starts with, in cents. |
 | `CREDIT_OPENING_DAYS` | `14` | No. | How many days the opening credit lasts. |
-| `TEAM_CONTACT_CEILING` | `10` | No. | The most teammate contacts one account may hold at once. |
 | `BUZZ_IDENTITY_CEILING` | `10` | No. | The most hosted Buzz agents one account may run at once. Each one is a permanent process on the Fountain pods. |
 | `CREDIT_TURN_HOUR_CENTS` | `25` | No. | What a tenant pays for one hour of turn time, in whole cents, from their prepaid balance. |
 | `CREDIT_PACKS_CENTS` | `1000,2500,10000` | No. | The credit packs a tenant can buy, in cents, as a list. |
@@ -424,7 +423,7 @@ configure PostHog, the answer from PostHog decides.
 |---|---|---|---|
 | `POSTHOG_PROJECT_API_KEY` | — | — | The PostHog *project* API key. That is the public `phc_…` token, and not a personal key. Unset, Fountain looks up no flag remotely. |
 | `POSTHOG_HOST` | `https://us.i.posthog.com` | — | The PostHog ingestion host. Use `https://eu.i.posthog.com` for EU Cloud, or an instance you host yourself. |
-| `FEATURE_FLAGS_ON` | — | — | Comma-separated flag keys, forced on for each user, such as `team_comms` or `openai_compat`. It wins over PostHog. |
+| `FEATURE_FLAGS_ON` | — | — | Comma-separated flag keys, forced on for each user, such as `openai_compat`. It wins over PostHog. |
 
 For a hosted Connections rollout, leave the global override unset. Enable
 `connections` for the intended test accounts in PostHog, with evaluation
@@ -537,24 +536,3 @@ analytics failure cannot fail the operation it measures.
 | `POSTHOG_BROWSER_CAPTURE` | `true` | — | Set it to `false` to keep the PostHog browser library off the public pages. This also stops the session recordings. Server capture continues. |
 | `POSTHOG_PERSON_PII` | `true` | — | Set it to `false` to keep the account email out of PostHog. The person is then known by user id alone. |
 | `POSTHOG_INSTANCE` | `PHX_HOST` | — | The name of this deployment. Each event is a member of this PostHog group, so two deployments that report to one project stay apart. |
-
-## Teammate email and phone
-
-Behind the `team_comms` flag, you can give a teammate an email address, from
-[AgentMail](https://agentmail.to), and a phone number, from
-[AgentPhone](https://agentphone.ai). The teammate then gets MCP tools to send
-and read on both.
-
-Fountain holds the provider keys and serves the tools itself, so a key never
-enters a sandbox. With either key unset, the feature reports itself
-unavailable, even where the flag is on. `GET /api/team/comms` reports that
-state, and `POST /api/team/:agent_id/contact` provisions a contact. Read
-[Team](api.md#team).
-
-| Variable | Default | Required | Effect |
-|---|---|---|---|
-| `AGENTMAIL_API_KEY` | — | — | The AgentMail API key. Fountain creates a teammate inbox under it. |
-| `AGENTMAIL_BASE_URL` | `https://api.agentmail.to` | — | The AgentMail API host. Use `https://api.agentmail.eu` for the EU region. |
-| `AGENTMAIL_DOMAIN` | — | — | A custom domain that you verified, for a teammate address. Unset, Fountain uses AgentMail's shared domain. |
-| `AGENTPHONE_API_KEY` | — | — | The AgentPhone API key. Fountain provisions a teammate number under it. |
-| `AGENTPHONE_WEBHOOK_SECRET` | — | — | The secret that AgentPhone returned when somebody pointed the account's master webhook at `POST /api/webhooks/agentphone` on this instance. It verifies an inbound delivery. A text to a teammate's `prompt_from_number` then becomes a prompt in its conversation. Unset, the endpoint answers 503 and processes nothing inbound. |

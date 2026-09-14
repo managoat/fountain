@@ -81,8 +81,8 @@ defmodule FountainWeb.OpenAIController do
 
   plug :require_flag
 
-  # 404, not 403: the feature is absent for this account, exactly as
-  # `team_comms` reports itself (docs/reference/feature-status.md).
+  # 404, not 403: the feature is absent for this account
+  # (docs/reference/feature-status.md).
   defp require_flag(conn, _opts) do
     if Fountain.FeatureFlags.enabled?(:openai_compat, conn.assigns.current_user) do
       conn

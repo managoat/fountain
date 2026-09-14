@@ -519,7 +519,7 @@
     {
       "type": "bargauge",
       "title": "Time since each credit worker last finished",
-      "description": "Under ADR 0031 the balance is the gate, so the three workers that keep it honest are load-bearing: the pricer burns closed turns every ten minutes, the expirer sweeps unspent grants daily, and rent collects for numbers and inboxes daily. PER-REPLICA GAUGE: the stamp exists only on the pod that ran the Oban job, so this collapses with max and never avg. A worker with no bar at all has never stamped since the last rollout, which is the case a staleness number cannot express and FountainCreditWorkerSilent covers with an absent() arm. Do not read a missing bar as zero.",
+      "description": "Under ADR 0031 the balance is the gate, so the two workers that keep it honest are load-bearing: the pricer burns closed turns every ten minutes and the expirer sweeps unspent grants daily. PER-REPLICA GAUGE: the stamp exists only on the pod that ran the Oban job, so this collapses with max and never avg. A worker with no bar at all has never stamped since the last rollout, which is the case a staleness number cannot express and FountainCreditWorkerSilent covers with an absent() arm. Do not read a missing bar as zero.",
       "gridPos": {
         "h": 7,
         "w": 8,
@@ -808,7 +808,7 @@
     {
       "type": "stat",
       "title": "Emails that failed to send, last hour",
-      "description": "Every transactional email is on this path, including the credits-low, credits-exhausted and rent-due notices. A failure here is an account that never learns its balance ran out and finds out when its agent stops. Counted off the Swoosh delivery span, so all fourteen call sites are covered without one of them opting in. Both terms need or vector(0): neither series exists until it first fires.",
+      "description": "Every transactional email is on this path, including the credits-low and credits-exhausted notices. A failure here is an account that never learns its balance ran out and finds out when its agent stops. Counted off the Swoosh delivery span, so all fourteen call sites are covered without one of them opting in. Both terms need or vector(0): neither series exists until it first fires.",
       "gridPos": {
         "h": 7,
         "w": 4,

@@ -80,8 +80,8 @@ defmodule FountainSupport do
   `SUPPORT_GITHUB_REPO` / `SUPPORT_GITHUB_TOKEN` exist for this feature and
   nothing else, so they moved to `:fountain_support` with it (#1528).
   `SUPPORT_EMAIL` is the host's "contact support" address (#450): the account
-  emails and the team-comms replies name it too, so it stays the host's key and
-  this reads it the way any caller would. Moving it would have meant one env var
+  emails name it too, so it stays the host's key and this reads it the way any
+  caller would. Moving it would have meant one env var
   writing two config keys, or core reading the extension's.
   """
   @spec targets() :: %{email: String.t() | nil, github: {String.t(), String.t()} | nil}

@@ -128,14 +128,12 @@
     "SearchResponse": { "required": ["data", "meta"] },
     "Secret": {},
     "TeamAddRequest": {},
-    "TeamCommsStatus": {},
     "TeamSchedule": {},
     "TeamScheduleCreateRequest": {
       "optional": ["enabled", "one_off"]
     },
     "TeamScheduleUpdateRequest": {},
     "Teammate": {},
-    "TeammateContact": {},
     "Turn": {
       "required": ["id", "turn_number", "status"],
       "fields": ["exit_code", "prompt"]

@@ -168,16 +168,9 @@ services:
       # against it.
       #
       # FEATURE_FLAGS_ON is the no-PostHog path: a comma-separated list of flag
-      # keys forced on for every user. team_comms and openai_compat are two of
-      # the three; the third is the broker below.
+      # keys forced on for every user. openai_compat is one of the two; the
+      # other is the broker below.
       FEATURE_FLAGS_ON: ${FEATURE_FLAGS_ON:-}
-
-      # Teammate email and phone.
-      AGENTMAIL_API_KEY: ${AGENTMAIL_API_KEY:-}
-      AGENTMAIL_BASE_URL: ${AGENTMAIL_BASE_URL:-}
-      AGENTMAIL_DOMAIN: ${AGENTMAIL_DOMAIN:-}
-      AGENTPHONE_API_KEY: ${AGENTPHONE_API_KEY:-}
-      AGENTPHONE_WEBHOOK_SECRET: ${AGENTPHONE_WEBHOOK_SECRET:-}
 
       # Brokered credentials (ADR 0019): the real token never enters the
       # sandbox. BROKER_ALLOW_UNENFORCED is a development escape hatch and

@@ -980,9 +980,6 @@ config :fountain,
   sandbox_queue_max_depth: whole_number.("SANDBOX_QUEUE_MAX_DEPTH", 10),
   sandbox_queue_max_wait_seconds: whole_number.("SANDBOX_QUEUE_MAX_WAIT_SECONDS", 3600)
 
-# Teammate contacts one account may hold at once — an abuse ceiling.
-config :fountain, :team_contact_ceiling, whole_number.("TEAM_CONTACT_CEILING", 10)
-
 # Hosted Buzz agents one account may run at once — an abuse ceiling (#1017).
 config :fountain_buzz, :buzz_identity_ceiling, whole_number.("BUZZ_IDENTITY_CEILING", 10)
 
@@ -1119,7 +1116,7 @@ if config_env() == :prod do
   # Under `:fountain_support` rather than `:fountain` since #1528: these two
   # exist for the extension and nothing else, so a core-only release reads no
   # key for a feature it does not carry. SUPPORT_EMAIL above stays the host's,
-  # because the account emails and the team-comms replies name it too.
+  # because the account emails name it too.
   # Configuring an extension that is not installed is inert, not an error.
   config :fountain_support, :support_github_repo, System.get_env("SUPPORT_GITHUB_REPO")
   config :fountain_support, :support_github_token, System.get_env("SUPPORT_GITHUB_TOKEN")
@@ -1626,37 +1623,4 @@ config :fountain,
 case System.get_env("POSTHOG_INSTANCE") || System.get_env("PHX_HOST") do
   blank when blank in [nil, ""] -> :ok
   name -> config :fountain, :analytics_instance, name
-end
-
-# ── Teammate email + phone (flag `team_comms`) ───────────────────────────
-#
-# Fountain holds the AgentMail and AgentPhone keys; a teammate gets an inbox
-# and a number under them, and reaches both through MCP tools Fountain serves
-# (`Fountain.Team.Comms`). The keys never enter a sandbox. Unset, the feature
-# reports itself unavailable even when the flag is on.
-# Keys are set only when present, so config/test.exs keeps its own values.
-case System.get_env("AGENTMAIL_API_KEY") do
-  blank when blank in [nil, ""] -> :ok
-  key -> config :fountain, :agentmail_api_key, key
-end
-
-config :fountain,
-       :agentmail_base_url,
-       System.get_env("AGENTMAIL_BASE_URL", "https://api.agentmail.to")
-
-# Optional: a verified custom domain for teammate inboxes; unset uses
-# AgentMail's shared domain.
-config :fountain, :agentmail_domain, System.get_env("AGENTMAIL_DOMAIN")
-
-case System.get_env("AGENTPHONE_API_KEY") do
-  blank when blank in [nil, ""] -> :ok
-  key -> config :fountain, :agentphone_api_key, key
-end
-
-# The signing secret AgentPhone issued for this instance's master webhook
-# (POST /v1/webhooks → `secret`), which verifies POST /api/webhooks/agentphone.
-# Unset, the endpoint answers 503 and no inbound text becomes a prompt.
-case System.get_env("AGENTPHONE_WEBHOOK_SECRET") do
-  blank when blank in [nil, ""] -> :ok
-  secret -> config :fountain, :agentphone_webhook_secret, secret
 end

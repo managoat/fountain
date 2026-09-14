@@ -551,10 +551,8 @@ defmodule Fountain.Billing.Finance do
   @doc """
   How much of the period has actually elapsed, `0.0..1.0`.
 
-  Recurring monthly charges are pro-rated by this so a panel opened on the 3rd
-  reports three days of AgentMail rather than a month of it, and so the cost
-  column can be read against sandbox hours, which are only ever accrued
-  hours. A period entirely in the past is `1.0`.
+  Reported so the cost column can be read against sandbox hours, which are
+  only ever accrued hours. A period entirely in the past is `1.0`.
   """
   @spec period_fraction(DateTime.t(), DateTime.t(), DateTime.t()) :: float()
   def period_fraction(period_start, period_end, now) do

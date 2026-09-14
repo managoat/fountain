@@ -1,12 +1,13 @@
 # Changelog
 
-## [Unreleased]
+## [0.4.0] - 2026-09-13
 
-### Removed
+### Breaking changes
 
-- `comms_status/1` on `Fountain.Team`. Teammate email and phone (Team comms)
-  is being removed from the server; the `contact` key disappears from the
-  teammate record with it.
+- `comms_status/1` on `Fountain.Team` is removed. Teammate email and phone
+  (Team comms) is gone from the server: `GET /api/team/comms`, the
+  `/api/team/:agent_id/contact` operations and the `contact` key on a
+  teammate no longer exist. Nothing else moves.
 
 ## [0.3.1] - 2026-09-13
 

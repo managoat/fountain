@@ -153,7 +153,6 @@ defmodule Fountain.Conversations.McpServersTest do
       conv = %{conv | caller_tools: [%{"name" => "x"}]}
 
       assert McpServers.team(conv.id, nil) == []
-      assert McpServers.team_comms(conv.id, nil) == []
       assert McpServers.caller(conv, nil) == []
       assert McpServers.fountain_served(conv, nil) == []
     end
@@ -188,9 +187,8 @@ defmodule Fountain.Conversations.McpServersTest do
   end
 
   describe "fountain_served/2" do
-    test "is extensions, buzz, team, team comms, caller, in that order" do
-      # No Buzz identity and no teammate contact on this row, so those lists
-      # are empty; the order of the ones that remain is the order the server
+    test "is extensions, buzz, team, caller, in that order" do
+      # No Buzz identity on this row, so that list is empty; the order of the ones that remain is the order the server
       # appended them before #1371, with installed extensions prepended by
       # #1505.
       conv = insert_conversation(channel_id: Fountain.Team.channel())

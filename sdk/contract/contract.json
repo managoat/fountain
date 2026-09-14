@@ -817,45 +817,6 @@
         }
       }
     },
-    "DELETE /api/team/{agent_id}/contact": {
-      "operation_id": "FountainWeb.TeamController.release_contact",
-      "path_params": [
-        "agent_id"
-      ],
-      "responses": {
-        "204": {},
-        "401": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "403": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "404": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "406": {
-          "application/json": {
-            "ref": "NegotiationError"
-          }
-        },
-        "424": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "429": {
-          "application/json": {
-            "ref": "Error"
-          }
-        }
-      }
-    },
     "DELETE /api/team/{agent_id}/schedules/{id}": {
       "operation_id": "FountainWeb.TeamScheduleController.delete",
       "path_params": [
@@ -3434,37 +3395,6 @@
         }
       }
     },
-    "GET /api/team/comms": {
-      "operation_id": "FountainWeb.TeamController.comms_status",
-      "path_params": [],
-      "responses": {
-        "200": {
-          "application/json": {
-            "ref": "TeamCommsStatusResponse"
-          }
-        },
-        "401": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "403": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "406": {
-          "application/json": {
-            "ref": "NegotiationError"
-          }
-        },
-        "429": {
-          "application/json": {
-            "ref": "Error"
-          }
-        }
-      }
-    },
     "GET /api/team/schedules": {
       "operation_id": "FountainWeb.TeamScheduleController.index_all",
       "path_params": [],
@@ -4594,57 +4524,6 @@
           }
         },
         "required": false
-      },
-      "responses": {
-        "200": {
-          "application/json": {
-            "ref": "TeammateResponse"
-          }
-        },
-        "401": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "403": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "404": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "406": {
-          "application/json": {
-            "ref": "NegotiationError"
-          }
-        },
-        "422": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "429": {
-          "application/json": {
-            "ref": "Error"
-          }
-        }
-      }
-    },
-    "PATCH /api/team/{agent_id}/contact": {
-      "operation_id": "FountainWeb.TeamController.update_contact",
-      "path_params": [
-        "agent_id"
-      ],
-      "request_body": {
-        "content": {
-          "application/json": {
-            "ref": "TeamContactRequest"
-          }
-        },
-        "required": true
       },
       "responses": {
         "200": {
@@ -7019,77 +6898,6 @@
           }
         },
         "429": {
-          "application/json": {
-            "ref": "Error"
-          }
-        }
-      }
-    },
-    "POST /api/team/{agent_id}/contact": {
-      "operation_id": "FountainWeb.TeamController.provision_contact",
-      "path_params": [
-        "agent_id"
-      ],
-      "request_body": {
-        "content": {
-          "application/json": {
-            "ref": "TeamContactRequest"
-          }
-        },
-        "required": true
-      },
-      "responses": {
-        "201": {
-          "application/json": {
-            "ref": "TeammateResponse"
-          }
-        },
-        "401": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "403": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "404": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "406": {
-          "application/json": {
-            "ref": "NegotiationError"
-          }
-        },
-        "409": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "422": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "424": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "429": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "502": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "503": {
           "application/json": {
             "ref": "Error"
           }
@@ -13812,37 +13620,6 @@
       },
       "type": "object"
     },
-    "TeamCommsStatus": {
-      "properties": {
-        "configured": {
-          "required": true,
-          "type": "boolean"
-        },
-        "enabled": {
-          "required": true,
-          "type": "boolean"
-        }
-      },
-      "type": "object"
-    },
-    "TeamCommsStatusResponse": {
-      "properties": {
-        "data": {
-          "ref": "TeamCommsStatus",
-          "required": true
-        }
-      },
-      "type": "object"
-    },
-    "TeamContactRequest": {
-      "properties": {
-        "prompt_from_number": {
-          "required": true,
-          "type": "string"
-        }
-      },
-      "type": "object"
-    },
     "TeamMessageRequest": {
       "properties": {
         "images": {
@@ -14048,15 +13825,6 @@
           "required": true,
           "type": "string"
         },
-        "contact": {
-          "allOf": [
-            {
-              "ref": "TeammateContact"
-            }
-          ],
-          "nullable": true,
-          "required": false
-        },
         "conversation": {
           "ref": "Conversation",
           "required": true
@@ -14159,37 +13927,6 @@
             }
           ],
           "required": false
-        }
-      },
-      "type": "object"
-    },
-    "TeammateContact": {
-      "properties": {
-        "email": {
-          "nullable": true,
-          "required": true,
-          "type": "string"
-        },
-        "inserted_at": {
-          "format": "date-time",
-          "required": false,
-          "type": "string"
-        },
-        "phone": {
-          "nullable": true,
-          "required": true,
-          "type": "string"
-        },
-        "prompt_from_number": {
-          "nullable": true,
-          "required": false,
-          "type": "string"
-        },
-        "prompt_opted_out_at": {
-          "format": "date-time",
-          "nullable": true,
-          "required": false,
-          "type": "string"
         }
       },
       "type": "object"

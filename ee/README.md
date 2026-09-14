@@ -11,12 +11,12 @@ service. See `decisions/0027-agpl-relicensing.md`.
 
 ## Contents
 
-- **Credits** — `Fountain.Credits` and its ledger, purchases, rent, the
-  pricer, expirer and rent-collector workers, `Fountain.Billing` (Stripe
+- **Credits** — `Fountain.Credits` and its ledger, purchases, the pricer
+  and expirer workers, `Fountain.Billing` (Stripe
   Checkout and the credit webhooks), the usage-event schema, the finance
   panel and the billing LiveView.
 - **Credit and growth email** — `Fountain.Emails.BillingEmails` (welcome,
-  credits low, credits exhausted, rent due) and the `welcome_email` and
+  credits low, credits exhausted) and the `welcome_email` and
   `credits_email` workers.
 
 Account email (verification, password reset, suspension/deletion notices,

@@ -18,8 +18,8 @@ defmodule Fountain.ExtensionGuardTest do
   Prose. `apps/fountain/lib` may say the words "Buzz" or "support" in a comment,
   a docstring or a schema description, and does — the ADR calls that
   human-facing discovery metadata, and #1528 keeps the support-report
-  documentation in core deliberately. `SUPPORT_EMAIL` is core's too: the account emails and the team-comms replies
-  name it, so the key stays `config :fountain, :support_email` and only the
+  documentation in core deliberately. `SUPPORT_EMAIL` is core's too: the
+  account emails name it, so the key stays `config :fountain, :support_email` and only the
   GitHub forwarding keys moved. What is refused is *code* that names an
   extension.
 

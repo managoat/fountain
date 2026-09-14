@@ -125,9 +125,8 @@ defmodule FountainBuzz.AgentController do
           detail: "sandbox_mode must be ephemeral or persistent"
         })
 
-      # 402, the same status the credit gate uses, and for the same reason the
-      # contact ceiling does: the fix is a top-up or an operator decision, not
-      # a retry. The numbers are in the body so a provider can say which
+      # 402, the same status the credit gate uses, and for the same reason:
+      # the fix is a top-up or an operator decision, not a retry. The numbers are in the body so a provider can say which
       # ceiling it hit (#1017).
       {:error, {:identity_limit_reached, %{count: count, limit: limit}}} ->
         conn

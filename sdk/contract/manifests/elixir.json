@@ -118,7 +118,6 @@
     "SecretRequest": { "required": ["key", "value"] },
     "SecretResponse": { "required": ["data"] },
     "TeamAddRequest": { "required": ["agent_id"] },
-    "TeamCommsStatusResponse": { "required": ["data"] },
     "TeamMessageRequest": { "required": ["prompt"], "optional": ["images"] },
     "TeamMessageResponse": { "fields": ["conversation_id"] },
     "TeamRenameRequest": { "fields": ["name"] },

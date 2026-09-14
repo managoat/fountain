@@ -11,13 +11,16 @@ server releases.
 
 ---
 
-## [Unreleased]
+## [3.0.0] — 2026-09-13
 
-### Removed
+### Breaking changes
 
-- `team.commsStatus()` and the `TeamCommsStatus` and `TeammateContact` types.
-  Teammate email and phone (Team comms) is being removed from the server; the
-  `contact` field disappears from the teammate record with it.
+- `team.commsStatus()` and the `TeamCommsStatus` and `TeammateContact` types
+  are removed. Teammate email and phone (Team comms) is gone from the server:
+  `GET /api/team/comms`, the `/api/team/:agent_id/contact` operations and
+  the `contact` field on a teammate no longer exist, and the generated types
+  drop them. Nothing else moves; a caller that never used them upgrades
+  without a change.
 
 ## [2.1.0] — 2026-09-13
 

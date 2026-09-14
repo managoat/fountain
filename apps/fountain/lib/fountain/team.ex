@@ -62,8 +62,7 @@ defmodule Fountain.Team do
 
   @doc """
   Broadcast `{:team_changed, user_id}` on the team topic — the roster needs
-  re-listing. Also called by `Fountain.Team.Comms` when a teammate gains or
-  loses its email address and phone number.
+  re-listing.
   """
   def broadcast_changed(user_id),
     do: Phoenix.PubSub.broadcast(Fountain.PubSub, topic(user_id), {:team_changed, user_id})
@@ -137,14 +136,6 @@ defmodule Fountain.Team do
 
     last_turns = last_turns_by_conversation(Enum.map(groups, fn {conv, _} -> conv.id end))
 
-    # The teammate's email address and phone number, when it has them
-    # (`Fountain.Team.Comms`, flag `team_comms`); nil otherwise.
-    contacts =
-      Fountain.Team.Comms.contacts_by_agent(
-        user_id,
-        Enum.map(groups, fn {c, _} -> c.agent_id end)
-      )
-
     groups
     |> Enum.map(fn {conv, usage_total} ->
       %{
@@ -152,8 +143,7 @@ defmodule Fountain.Team do
         conversation: conv,
         last_turn: Map.get(last_turns, conv.id),
         name: teammate_name(conv),
-        usage_total: usage_total,
-        contact: Map.get(contacts, conv.agent_id)
+        usage_total: usage_total
       }
     end)
     |> Enum.sort_by(& &1.conversation.last_active_at, {:desc, DateTime})
@@ -329,23 +319,6 @@ defmodule Fountain.Team do
         # ownership: the scoped get_teammate above found this agent for user_id;
         # the delete is bounded by the same user_id + agent_id.
         _ = Fountain.Team.Schedules._unsafe_delete_for_teammate(user_id, agent_id)
-
-        # So does its email address and phone number, when it has them: the
-        # inbox and number are released upstream. A provider failure there
-        # keeps the contact row (nothing orphaned) and is logged, not raised —
-        # the removal the user asked for still happens.
-        case Fountain.Team.Comms.release_contact(user_id, agent_id, opts) do
-          :ok ->
-            :ok
-
-          {:error, :not_found} ->
-            :ok
-
-          {:error, reason} ->
-            Logger.warning(
-              "team: could not release the contact for agent #{agent_id} on removal: #{inspect(reason)}"
-            )
-        end
 
         record(user_id, "team.member.removed", conv, opts)
         broadcast_changed(user_id)

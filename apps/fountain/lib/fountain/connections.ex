@@ -123,9 +123,10 @@ defmodule Fountain.Connections do
 
   @doc """
   The provider a connection's tokens come from. A platform connection has
-  no provider row — its `provider` slug names the registry entry.
+  no provider row — its `provider` slug names the registry entry. Returns
+  nil when that extension is no longer available.
   """
-  @spec provider_for(Connection.t()) :: Provider.t()
+  @spec provider_for(Connection.t()) :: Provider.t() | nil
   def provider_for(%Connection{provider_id: nil, provider: slug}), do: Platform.get(slug)
 
   # Ownership established by the connection, which was fetched tenant-scoped.
@@ -136,7 +137,8 @@ defmodule Fountain.Connections do
   is what `Fountain.Connections.OAuth` drives. The platform provider carries
   it from config already.
   """
-  @spec unlock_provider(Provider.t()) :: {:ok, Provider.t()} | {:error, term()}
+  @spec unlock_provider(Provider.t() | nil) :: {:ok, Provider.t()} | {:error, term()}
+  def unlock_provider(nil), do: {:error, :provider_unavailable}
   def unlock_provider(%Provider{user_id: nil} = p), do: {:ok, p}
   def unlock_provider(%Provider{client_secret_ciphertext: nil} = p), do: {:ok, p}
 
@@ -199,7 +201,10 @@ defmodule Fountain.Connections do
 
   @doc "Run discovery again on an `mcp` provider, keeping its client where the server still names the same issuer."
   @spec rediscover_provider(Provider.t(), keyword()) :: {:ok, Provider.t()} | {:error, term()}
-  def rediscover_provider(%Provider{kind: "mcp"} = p, opts \\ []) do
+  def rediscover_provider(provider, opts \\ [])
+
+  def rediscover_provider(%Provider{kind: "mcp", user_id: uid} = p, opts)
+      when is_binary(uid) do
     with {:ok, dek} <- Crypto.load_tenant_key(p.user_id),
          {:ok, discovered} <-
            discovered_attrs(p.user_id, p.mcp_url, redirect_uri(p), %{
@@ -213,6 +218,8 @@ defmodule Fountain.Connections do
       |> audited_provider("connection_provider.updated", opts)
     end
   end
+
+  def rediscover_provider(%Provider{}, _opts), do: {:error, :not_found}
 
   # What discovery contributes to the provider row. A client is taken, in
   # order: one the tenant typed; the provider's own DCR client where the
@@ -485,19 +492,24 @@ defmodule Fountain.Connections do
   A valid access token for the connection, refreshing when it is within
   #{@refresh_margin_seconds}s of expiry. `{:error, :revoked}` for a revoked
   connection, including one the provider has just refused; `{:error,
-  :expired}` for one whose token lapsed with no refresh token.
+  :expired}` for one whose token lapsed with no refresh token. An unavailable
+  extension returns `{:error, :provider_unavailable}`, even for a fresh token.
   """
   @spec access_token(Connection.t()) :: {:ok, String.t()} | {:error, term()}
   def access_token(%Connection{status: "revoked"}), do: {:error, :revoked}
   def access_token(%Connection{status: "expired"}), do: {:error, :expired}
 
   def access_token(%Connection{} = conn) do
-    with {:ok, dek} <- Crypto.load_tenant_key(conn.user_id) do
+    with %Provider{} <- provider_for(conn),
+         {:ok, dek} <- Crypto.load_tenant_key(conn.user_id) do
       cond do
         fresh?(conn) -> decrypt(conn.access_token_ciphertext, dek)
         is_nil(conn.refresh_token_ciphertext) -> expire(conn, dek)
         true -> refresh_token(conn, dek)
       end
+    else
+      nil -> {:error, :provider_unavailable}
+      error -> error
     end
   end
 
@@ -544,9 +556,11 @@ defmodule Fountain.Connections do
   """
   @spec implicit_hosts(String.t(), String.t()) :: [String.t()]
   def implicit_hosts(user_id, key) when is_binary(user_id) and is_binary(key) do
-    case Repo.get_by(Connection, user_id: user_id, env_key: key) do
+    with %Connection{} = conn <- Repo.get_by(Connection, user_id: user_id, env_key: key),
+         %Provider{token_hosts: hosts} <- provider_for(conn) do
+      hosts
+    else
       nil -> []
-      conn -> provider_for(conn).token_hosts
     end
   end
 

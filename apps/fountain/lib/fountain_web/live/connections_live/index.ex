@@ -337,7 +337,7 @@ defmodule FountainWeb.ConnectionsLive.Index do
 
   def handle_event("rediscover", %{"id" => id}, socket) do
     case Connections.get_provider(id, socket.assigns.user_id) do
-      %Provider{kind: "mcp"} = p ->
+      %Provider{kind: "mcp", user_id: uid} = p when is_binary(uid) ->
         case Connections.rediscover_provider(p, Audited.attribution(socket)) do
           {:ok, p} ->
             {:noreply, socket |> put_flash(:info, discovered_message(p)) |> reload()}

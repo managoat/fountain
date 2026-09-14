@@ -195,7 +195,7 @@ defmodule FountainWeb.ConnectionProviderController do
   def discover(conn, %{"id" => id}) do
     user = conn.assigns.current_user
 
-    with %Provider{kind: "mcp"} = provider <-
+    with %Provider{kind: "mcp", user_id: uid} = provider when is_binary(uid) <-
            Connections.get_provider(id, user.id) || {:error, :not_found} do
       case Connections.rediscover_provider(provider, Audited.attribution(conn)) do
         {:ok, provider} -> render(conn, :show, provider: provider)

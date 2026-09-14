@@ -6,11 +6,19 @@ defmodule Fountain.InferenceCredentials.Source do
   distinguishes replacement within that source. Neither contains bearer material.
   A default change affects new selections only. Existing peers must match their
   stored binding before preparing auth or starting another turn.
+
+  `scope` says where the credential came from: the tenant's set
+  (`:credential`), a tenant secret named after one (`:tenant_secret`), the
+  deployment (`:platform`), nowhere because the provider needs none
+  (`:none`), or nowhere at all (`:missing`). Whether a source is the
+  platform's is a function of that, `platform?/1`; the `"origin"` key every
+  stored map carries (`"platform"` or `"own"`) is written by `dump/1` from
+  the scope and ignored by `load/1`, so rows written before it was derived
+  and the `expected_source` comparison keep their shape.
   """
   @type t :: %__MODULE__{}
-  @enforce_keys [:origin, :scope]
+  @enforce_keys [:scope]
   defstruct [
-    :origin,
     :scope,
     :kind,
     :identity,
@@ -22,13 +30,20 @@ defmodule Fountain.InferenceCredentials.Source do
     :vault_id
   ]
 
-  def credential, do: %__MODULE__{origin: :own, scope: :credential}
-  def tenant_secret, do: %__MODULE__{origin: :own, scope: :tenant_secret}
-  def none, do: %__MODULE__{origin: :own, scope: :none}
-  def platform, do: %__MODULE__{origin: :platform, scope: :platform}
-  def missing, do: %__MODULE__{origin: :own, scope: :missing}
-  def platform?(%__MODULE__{origin: :platform}), do: true
+  def credential, do: %__MODULE__{scope: :credential}
+  def tenant_secret, do: %__MODULE__{scope: :tenant_secret}
+  def none, do: %__MODULE__{scope: :none}
+  def platform, do: %__MODULE__{scope: :platform}
+  def missing, do: %__MODULE__{scope: :missing}
+  def platform?(%__MODULE__{scope: :platform}), do: true
   def platform?(_), do: false
+
+  @doc """
+  The `"origin"` a stored map carries: `"platform"` for a platform source,
+  else `"own"`.
+  """
+  @spec origin(t()) :: String.t()
+  def origin(%__MODULE__{} = source), do: if(platform?(source), do: "platform", else: "own")
 
   def dump(nil), do: nil
 
@@ -39,13 +54,13 @@ defmodule Fountain.InferenceCredentials.Source do
       {Atom.to_string(key),
        if(is_atom(value) and not is_nil(value), do: Atom.to_string(value), else: value)}
     end)
+    |> Map.put("origin", origin(source))
   end
 
   def load(nil), do: nil
 
   def load(%{} = source) do
     %__MODULE__{
-      origin: decode(source["origin"], [:own, :platform]),
       scope: decode(source["scope"], [:credential, :tenant_secret, :platform, :none, :missing]),
       kind:
         decode(source["kind"], [

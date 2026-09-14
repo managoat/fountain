@@ -93,7 +93,7 @@ defmodule Fountain.PlatformInferenceTest do
       assert PlatformInference.enabled?()
       assert PlatformInference.key_for("google") == {:ok, :gemini_api_key, "AIza-stored"}
 
-      assert {:ok, %Source{origin: :platform, kind: :gemini_api_key},
+      assert {:ok, %Source{scope: :platform, kind: :gemini_api_key},
               %{gemini_api_key: "AIza-stored"}} =
                InferenceCredentials.resolve(admin.id, "google/gemini-3.1-pro-preview", nil, [])
 
@@ -207,7 +207,7 @@ defmodule Fountain.PlatformInferenceTest do
     end
 
     test "with no platform key an account with nothing is :missing, not a key", %{user: user} do
-      assert {:ok, %Source{origin: :own, scope: :missing}, %{}} =
+      assert {:ok, %Source{scope: :missing}, %{}} =
                resolve(user, "anthropic/claude-opus-5")
     end
 
@@ -218,7 +218,7 @@ defmodule Fountain.PlatformInferenceTest do
       with_platform_key()
       own!(user, dek, :anthropic_api_key, "sk-tenant")
 
-      assert {:ok, %Source{origin: :own, scope: :credential}, %{anthropic_api_key: "sk-tenant"}} =
+      assert {:ok, %Source{scope: :credential}, %{anthropic_api_key: "sk-tenant"}} =
                resolve(user, "anthropic/claude-opus-5")
     end
 
@@ -226,7 +226,7 @@ defmodule Fountain.PlatformInferenceTest do
       with_platform_key()
       own!(user, dek, :claude_code_oauth_token, "oauth")
 
-      assert {:ok, %Source{origin: :own, scope: :credential}, %{claude_code_oauth_token: "oauth"}} =
+      assert {:ok, %Source{scope: :credential}, %{claude_code_oauth_token: "oauth"}} =
                resolve(user, "anthropic/claude-opus-5")
     end
 
@@ -237,7 +237,7 @@ defmodule Fountain.PlatformInferenceTest do
       with_platform_key()
       own!(user, dek, :openai_api_key, "sk-tenant-openai")
 
-      assert {:ok, %Source{origin: :platform}, creds} = resolve(user, "anthropic/claude-opus-5")
+      assert {:ok, %Source{scope: :platform}, creds} = resolve(user, "anthropic/claude-opus-5")
 
       assert creds.anthropic_api_key == "sk-platform"
       assert creds.openai_api_key == "sk-tenant-openai"
@@ -246,14 +246,14 @@ defmodule Fountain.PlatformInferenceTest do
     test "a provider with no platform key configured is still :missing", %{user: user} do
       with_platform_key()
 
-      assert {:ok, %Source{origin: :own, scope: :missing}, %{}} = resolve(user, "openai/gpt-5.5")
+      assert {:ok, %Source{scope: :missing}, %{}} = resolve(user, "openai/gpt-5.5")
     end
 
     test "a provider that needs no credential is :own, whatever is configured", %{user: user} do
       with_platform_key()
 
-      assert {:ok, %Source{origin: :own, scope: :none}, %{}} = resolve(user, "ollama/llama3")
-      assert {:ok, %Source{origin: :own, scope: :none}, %{}} = resolve(user, nil)
+      assert {:ok, %Source{scope: :none}, %{}} = resolve(user, "ollama/llama3")
+      assert {:ok, %Source{scope: :none}, %{}} = resolve(user, nil)
     end
 
     # `put_credential/5` clears on an empty value, so the row is written

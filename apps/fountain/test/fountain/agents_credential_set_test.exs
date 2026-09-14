@@ -84,8 +84,7 @@ defmodule Fountain.AgentsCredentialSetTest do
           })
         )
 
-      assert {:ok, %Source{origin: :own, scope: :credential, set_id: set_id},
-              %{anthropic_api_key: "sk-ant"}} =
+      assert {:ok, %Source{scope: :credential, set_id: set_id}, %{anthropic_api_key: "sk-ant"}} =
                InferenceCredentials.resolve(user.id, agent.model, agent.runtime,
                  credential_set_id: agent.inference_credential_id
                )

@@ -297,7 +297,6 @@ defmodule Fountain.Conversations.ConversationServerPlatformInferenceTest do
       state = :sys.get_state(pid)
 
       assert %Source{
-               origin: :platform,
                scope: :platform,
                kind: :anthropic_api_key,
                identity: "platform:environment:anthropic"
@@ -474,7 +473,7 @@ defmodule Fountain.Conversations.ConversationServerPlatformInferenceTest do
     refute Fountain.PlatformInference.enabled?()
     model = "openai/gpt-6-astra"
 
-    assert {:ok, %Fountain.InferenceCredentials.Source{origin: :platform} = source, credentials} =
+    assert {:ok, %Fountain.InferenceCredentials.Source{scope: :platform} = source, credentials} =
              Fountain.InferenceCredentials.resolve(user.id, model, "codex", [])
 
     assert Map.has_key?(credentials, :codex_chatgpt_access_token)

@@ -63,7 +63,7 @@ defmodule Fountain.Conversations.SpriteEnvInferenceTest do
     test "the tenant's own credential is scope :credential", %{user: user, dek: dek} do
       own!(user, dek, :anthropic_api_key, "sk-tenant")
 
-      assert {:ok, %Source{origin: :own, scope: :credential, kind: :anthropic_api_key},
+      assert {:ok, %Source{scope: :credential, kind: :anthropic_api_key},
               %{anthropic_api_key: "sk-tenant"}} = resolve(user, agent_on(user, @anthropic))
     end
 
@@ -71,7 +71,7 @@ defmodule Fountain.Conversations.SpriteEnvInferenceTest do
          %{user: user} do
       Application.put_env(:fountain, :platform_anthropic_api_key, "sk-platform")
 
-      assert {:ok, %Source{origin: :platform, scope: :platform}, creds} =
+      assert {:ok, %Source{scope: :platform}, creds} =
                resolve(user, agent_on(user, @anthropic))
 
       assert creds.anthropic_api_key == "sk-platform"
@@ -82,12 +82,12 @@ defmodule Fountain.Conversations.SpriteEnvInferenceTest do
       Application.put_env(:fountain, :platform_anthropic_api_key, "sk-platform")
       own!(user, dek, :anthropic_api_key, "sk-tenant")
 
-      assert {:ok, %Source{origin: :own}, %{anthropic_api_key: "sk-tenant"}} =
+      assert {:ok, %Source{scope: :credential}, %{anthropic_api_key: "sk-tenant"}} =
                resolve(user, agent_on(user, @anthropic))
     end
   end
 
-  # The two halves of what used to be one `:own`. Both keep `origin: :own`, so
+  # The two halves of what used to be one `:own`. Both dump `"origin" => "own"`, so
   # neither is platform-paid and the usage stamp is byte-for-byte what it was.
   # They are separate because they are opposite answers to "is anything wrong
   # here", and only the source can tell a surface which.
@@ -98,18 +98,18 @@ defmodule Fountain.Conversations.SpriteEnvInferenceTest do
     # reachable — a provider that stops being known, or a gateway model
     # reaching selection by another door.
     test "a provider that needs none is :none", %{user: user} do
-      assert {:ok, %Source{origin: :own, scope: :none}, %{}} =
+      assert {:ok, %Source{scope: :none}, %{}} =
                InferenceCredentials.resolve(user.id, "ollama/llama3", "opencode", [])
     end
 
     test "a conversation with no agent needs none either", %{user: user} do
-      assert {:ok, %Source{origin: :own, scope: :none}, %{}} =
+      assert {:ok, %Source{scope: :none}, %{}} =
                InferenceCredentials.resolve(user.id, nil, nil, [])
     end
 
     test "a provider that needs one nobody has is :missing, and still provisions",
          %{user: user} do
-      assert {:ok, %Source{origin: :own, scope: :missing}, %{}} =
+      assert {:ok, %Source{scope: :missing}, %{}} =
                resolve(user, agent_on(user, @anthropic))
     end
   end
@@ -125,7 +125,7 @@ defmodule Fountain.Conversations.SpriteEnvInferenceTest do
       Application.put_env(:fountain, :platform_anthropic_api_key, "sk-platform")
       vault = vault_with(user, %{"ANTHROPIC_API_KEY" => "sk-from-the-vault"})
 
-      assert {:ok, %Source{origin: :own, scope: :tenant_secret} = source, creds} =
+      assert {:ok, %Source{scope: :tenant_secret} = source, creds} =
                resolve(user, agent_on(user, @anthropic), vault_id: vault.id)
 
       assert creds == %{anthropic_api_key: "sk-from-the-vault"}
@@ -145,15 +145,14 @@ defmodule Fountain.Conversations.SpriteEnvInferenceTest do
       Application.put_env(:fountain, :platform_anthropic_api_key, "sk-platform")
       vault = vault_with(user, %{"OPENAI_API_KEY" => "sk-openai", "UNRELATED" => "x"})
 
-      assert {:ok, %Source{origin: :platform}, _} =
+      assert {:ok, %Source{scope: :platform}, _} =
                resolve(user, agent_on(user, @anthropic), vault_id: vault.id)
     end
 
     test "with no platform key it is still :own rather than :missing", %{user: user} do
       vault = vault_with(user, %{"ANTHROPIC_API_KEY" => "sk-from-the-vault"})
 
-      assert {:ok, %Source{origin: :own, scope: :tenant_secret},
-              %{anthropic_api_key: "sk-from-the-vault"}} =
+      assert {:ok, %Source{scope: :tenant_secret}, %{anthropic_api_key: "sk-from-the-vault"}} =
                resolve(user, agent_on(user, @anthropic), vault_id: vault.id)
     end
 
@@ -161,8 +160,7 @@ defmodule Fountain.Conversations.SpriteEnvInferenceTest do
       own!(user, dek, :anthropic_api_key, "sk-row")
       vault = vault_with(user, %{"ANTHROPIC_API_KEY" => "sk-from-the-vault"})
 
-      assert {:ok, %Source{origin: :own, scope: :tenant_secret},
-              %{anthropic_api_key: "sk-from-the-vault"}} =
+      assert {:ok, %Source{scope: :tenant_secret}, %{anthropic_api_key: "sk-from-the-vault"}} =
                resolve(user, agent_on(user, @anthropic), vault_id: vault.id)
     end
   end

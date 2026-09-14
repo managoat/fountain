@@ -897,12 +897,12 @@ defmodule Fountain.Conversations.TurnMachine do
   @spec with_inference(map() | nil, ctx()) :: map() | nil
   def with_inference(usage, ctx) when is_map(usage) do
     case Map.get(ctx, :inference) do
-      %Source{origin: :platform} ->
+      %Source{scope: :platform} ->
         usage
         |> Map.put("inference", "platform")
         |> put_model(:platform, Map.get(ctx, :model))
 
-      %Source{origin: :own} ->
+      %Source{scope: scope} when scope in [:credential, :tenant_secret, :none, :missing] ->
         if Fountain.PlatformInference.enabled?(),
           do: Map.put(usage, "inference", "own"),
           else: usage

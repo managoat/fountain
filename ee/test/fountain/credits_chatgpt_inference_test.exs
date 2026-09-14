@@ -46,7 +46,7 @@ defmodule Fountain.Credits.ChatGPTInferenceTest do
     user = insert_empty_user()
     {:ok, source, _} = InferenceCredentials.resolve(user.id, model, "codex", [])
 
-    assert %Source{origin: :platform, scope: :platform, kind: :codex_chatgpt_access_token} =
+    assert %Source{scope: :platform, kind: :codex_chatgpt_access_token} =
              source
 
     usage =
@@ -73,7 +73,7 @@ defmodule Fountain.Credits.ChatGPTInferenceTest do
     {:ok, dek} = Fountain.Crypto.load_tenant_key(user.id)
     {:ok, _} = InferenceCredentials.put_credential(user.id, dek, :openai_api_key, "tenant-key")
 
-    {:ok, %Source{origin: :own} = source, _} =
+    {:ok, %Source{scope: :credential} = source, _} =
       InferenceCredentials.resolve(user.id, model, "codex", [])
 
     own_usage =

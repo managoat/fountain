@@ -179,7 +179,7 @@ defmodule Fountain.PlatformChatGPTTest do
       assert ChatGPTAccounts.platform_credential(refresh: false) == {:ok, stale}
       user = insert_verified_user()
 
-      assert {:ok, %Source{origin: :platform}, %{codex_chatgpt_access_token: ^stale}} =
+      assert {:ok, %Source{scope: :platform}, %{codex_chatgpt_access_token: ^stale}} =
                InferenceCredentials.resolve(user.id, "openai/gpt-5.5-codex", "codex", [])
 
       stub_refusal()
@@ -448,15 +448,14 @@ defmodule Fountain.PlatformChatGPTTest do
       access = access_token()
       connect!(%{access_token: access})
 
-      assert {:ok,
-              %Source{origin: :platform, scope: :platform, kind: :codex_chatgpt_access_token},
+      assert {:ok, %Source{scope: :platform, kind: :codex_chatgpt_access_token},
               %{codex_chatgpt_access_token: ^access}} =
                resolve(user, "openai/gpt-5.5-codex", "codex")
 
       # The tenant's other credentials survive the merge.
       {:ok, _} = InferenceCredentials.put_credential(user.id, dek, :anthropic_api_key, "sk-ant")
 
-      assert {:ok, %Source{origin: :platform},
+      assert {:ok, %Source{scope: :platform},
               %{anthropic_api_key: "sk-ant", codex_chatgpt_access_token: ^access}} =
                resolve(user, "openai/gpt-5.5-codex", "codex")
     end
@@ -466,12 +465,12 @@ defmodule Fountain.PlatformChatGPTTest do
       broker_off()
       connect!()
 
-      assert {:ok, %Source{origin: :own, scope: :missing}, %{}} =
+      assert {:ok, %Source{scope: :missing}, %{}} =
                resolve(user, "openai/gpt-5.5-codex", "codex")
 
       Application.put_env(:fountain, :platform_openai_api_key, "sk-platform")
 
-      assert {:ok, %Source{origin: :platform, scope: :platform, kind: :openai_api_key},
+      assert {:ok, %Source{scope: :platform, kind: :openai_api_key},
               %{openai_api_key: "sk-platform"}} = resolve(user, "openai/gpt-5.5-codex", "codex")
     end
 
@@ -480,7 +479,7 @@ defmodule Fountain.PlatformChatGPTTest do
       connect!()
       {:ok, _} = InferenceCredentials.put_credential(user.id, dek, :openai_api_key, "sk-mine")
 
-      assert {:ok, %Source{origin: :own, scope: :credential}, %{openai_api_key: "sk-mine"}} =
+      assert {:ok, %Source{scope: :credential}, %{openai_api_key: "sk-mine"}} =
                resolve(user, "openai/gpt-5.5-codex", "codex")
     end
 
@@ -488,15 +487,15 @@ defmodule Fountain.PlatformChatGPTTest do
       broker_on()
       connect!()
 
-      assert {:ok, %Source{origin: :own, scope: :missing}, %{}} =
+      assert {:ok, %Source{scope: :missing}, %{}} =
                resolve(user, "openai/gpt-5.5", "opencode")
 
       Application.put_env(:fountain, :platform_openai_api_key, "sk-platform")
 
-      assert {:ok, %Source{origin: :platform, scope: :platform, kind: :openai_api_key},
+      assert {:ok, %Source{scope: :platform, kind: :openai_api_key},
               %{openai_api_key: "sk-platform"}} = resolve(user, "openai/gpt-5.5", "opencode")
 
-      assert {:ok, %Source{origin: :platform, scope: :platform, kind: :openai_api_key},
+      assert {:ok, %Source{scope: :platform, kind: :openai_api_key},
               %{openai_api_key: "sk-platform"}} = resolve(user, "openai/gpt-5.5", nil)
     end
 
@@ -509,12 +508,12 @@ defmodule Fountain.PlatformChatGPTTest do
       assert ChatGPTAccounts.platform_access_token() == {:error, :revoked}
       Application.put_env(:fountain, :platform_openai_api_key, "sk-platform")
 
-      assert {:ok, %Source{origin: :platform, scope: :platform, kind: :openai_api_key},
+      assert {:ok, %Source{scope: :platform, kind: :openai_api_key},
               %{openai_api_key: "sk-platform"}} = resolve(user, "openai/gpt-5.5-codex", "codex")
 
       Application.delete_env(:fountain, :platform_openai_api_key)
 
-      assert {:ok, %Source{origin: :own, scope: :missing}, %{}} =
+      assert {:ok, %Source{scope: :missing}, %{}} =
                resolve(user, "openai/gpt-5.5-codex", "codex")
     end
 

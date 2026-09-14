@@ -74,54 +74,6 @@ defmodule FountainWeb.ConnectionsControllerTest do
     refute get_session(conn, :connections_oauth_nonce)
   end
 
-  test "the slack round trip: user_scope out, authed_user token in (#1299)", %{
-    conn: conn,
-    user: user
-  } do
-    conn = get(conn, ~p"/connections/slack/start")
-    assert redirected_to(conn) =~ "https://slack.com/oauth/v2/authorize?"
-
-    params = conn |> redirected_to() |> URI.parse() |> Map.fetch!(:query) |> URI.decode_query()
-    assert params["scope"] == ""
-    assert params["user_scope"] =~ "chat:write"
-    assert params["client_id"] == "slack-test-client-id"
-    assert params["redirect_uri"] =~ "/connections/slack/callback"
-    state = params["state"]
-
-    Req.Test.stub(OAuth, fn req ->
-      case req.request_path do
-        "/api/oauth.v2.access" ->
-          Req.Test.json(req, %{
-            "ok" => true,
-            "authed_user" => %{
-              "id" => "U1",
-              "access_token" => "xoxp-7",
-              "scope" => "channels:history,chat:write",
-              "token_type" => "user"
-            }
-          })
-
-        "/api/auth.test" ->
-          Req.Test.json(req, %{"ok" => true, "user" => "jake", "team" => "goat"})
-      end
-    end)
-
-    conn =
-      conn
-      |> recycle()
-      |> get(~p"/connections/slack/callback", %{"code" => "the-code", "state" => state})
-
-    assert redirected_to(conn) == ~p"/account/connections"
-    assert Phoenix.Flash.get(conn.assigns.flash, :info) =~ "Connected jake"
-
-    assert [%{provider: "slack", provider_id: nil, env_key: "SLACK_ACCESS_TOKEN"} = stored] =
-             Connections.list_connections(user.id)
-
-    # no refresh token and no expiry: good until revoked
-    assert stored.refresh_token_ciphertext == nil
-    assert stored.expires_at == nil
-  end
-
   test "a callback whose state did not come from this session is refused", %{
     conn: conn,
     user: user

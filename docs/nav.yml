@@ -99,7 +99,6 @@ nav:
       - webflow (MCP server): catalog/mcp-servers/webflow.md
       - Connections: catalog/connections/index.md
       - google (connection): catalog/connections/google.md
-      - slack (connection): catalog/connections/slack.md
       - Agents: catalog/agents/index.md
       - fountain-contributor (agent): catalog/agents/fountain-contributor.md
   - Sandbox providers:

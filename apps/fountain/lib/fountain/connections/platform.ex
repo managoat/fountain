@@ -12,9 +12,9 @@ defmodule Fountain.Connections.Platform do
   connector that ships as an extension is one more row here, one more
   reserved slug, and nothing else in core changes. The host's own are
   `builtin_slugs/0`; `slugs/0` and `all/0` are the whole registry. Microsoft
-  is the first to have moved out (`fountain_microsoft`, ADR 0054 decision 6):
-  core builds Google and Slack, and knows Microsoft only as a row an
-  installed extension contributes.
+  and Slack have moved out (`fountain_microsoft`, `fountain_slack`, ADR 0054
+  decision 6): core builds Google alone, and knows the other two only as
+  rows an installed extension contributes.
 
   A platform provider exists whether or not its deployment configured it:
   the providers list always names all of them, with `configured` false until
@@ -25,7 +25,8 @@ defmodule Fountain.Connections.Platform do
   What used to be code here — Google's extra authorize parameters, Slack's
   `user_scope` and its `authed_user`-nested token response — is data on the
   struct now (`authorize_params`, `token_body_nest`, #2152), so the OAuth
-  client names no service and a provider can come from anywhere.
+  client names no service and a provider can come from anywhere, which is
+  what let Slack leave.
 
   One connection per provider covers several products: the Google account
   carries Gmail and Calendar. The granted scopes on the connection say which
@@ -37,16 +38,11 @@ defmodule Fountain.Connections.Platform do
 
   alias Fountain.Connections.Provider
 
-  @builtin ~w(google slack)
+  @builtin ~w(google)
 
   @google_scopes ~w(openid email
     https://www.googleapis.com/auth/gmail.modify
     https://www.googleapis.com/auth/calendar)
-
-  # User-token scopes (sent as `user_scope`): read and post in channels and
-  # DMs, and search, as the connected person.
-  @slack_scopes ~w(channels:history channels:read chat:write
-    im:history im:write users:read search:read)
 
   @doc "The slugs of the host's own platform providers, in catalog order."
   @spec builtin_slugs() :: [String.t()]
@@ -76,14 +72,13 @@ defmodule Fountain.Connections.Platform do
   def get(_), do: nil
 
   defp builtin("google"), do: google()
-  defp builtin("slack"), do: slack()
   defp builtin(_), do: nil
 
   @doc "The env var that configures a platform provider's OAuth client id."
   def client_env_var(%Provider{slug: slug, user_id: nil}),
     do: String.upcase(slug) <> "_OAUTH_CLIENT_ID"
 
-  @doc ~s|"Google", "Slack" — for "Connect a … account", an extension's too.|
+  @doc ~s|"Google" — for "Connect a … account", an extension's too.|
   def short_name(%Provider{slug: slug, user_id: nil}), do: String.capitalize(slug)
 
   # ── the providers ──────────────────────────────────────────────────────────
@@ -118,46 +113,6 @@ defmodule Fountain.Connections.Platform do
         "prompt" => "consent",
         "include_granted_scopes" => "true"
       }
-    }
-  end
-
-  @doc """
-  Slack, from `SLACK_OAUTH_CLIENT_ID` / `_SECRET`: a user token per
-  workspace, brokered to `slack.com`. Slack issues no refresh token unless
-  the app opts in to rotation, and no expiry either — the token stands until
-  revoked, which the generic client already treats correctly. The account
-  label comes from `auth.test` (`user`), so two workspaces where the person
-  has the same handle collapse into one connection; reconnecting replaces it.
-  """
-  def slack do
-    scopes = scopes(:slack_oauth_user_scopes, @slack_scopes)
-
-    %Provider{
-      id: "slack",
-      user_id: nil,
-      slug: "slack",
-      name: "Slack",
-      kind: "oauth2",
-      authorize_url: "https://slack.com/oauth/v2/authorize",
-      token_url: "https://slack.com/api/oauth.v2.access",
-      revoke_url: "https://slack.com/api/auth.revoke",
-      userinfo_url: "https://slack.com/api/auth.test",
-      account_label_path: "user",
-      scopes: scopes,
-      client_id: Application.get_env(:fountain, :slack_oauth_client_id),
-      client_secret: Application.get_env(:fountain, :slack_oauth_client_secret),
-      token_endpoint_auth: "client_secret_post",
-      pkce: false,
-      env_key: "SLACK_ACCESS_TOKEN",
-      token_hosts: ~w(slack.com),
-      client_source: "manual",
-      # Slack's `scope` parameter requests *bot* scopes; a connection is the
-      # person's own account, so the request goes in `user_scope` and `scope`
-      # is emptied rather than granting a bot the same names.
-      authorize_params: %{"scope" => "", "user_scope" => Enum.join(scopes, " ")},
-      # `oauth.v2.access` puts the user token (and, with token rotation on,
-      # its refresh token and expiry) under `authed_user`.
-      token_body_nest: "authed_user"
     }
   end
 

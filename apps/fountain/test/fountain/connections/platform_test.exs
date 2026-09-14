@@ -8,25 +8,22 @@ defmodule Fountain.Connections.PlatformTest do
     test "lists every platform provider, configured or not: the host's in catalog order, then each installed extension's" do
       # The host's own come first. What follows depends on which extensions
       # this VM installs — the fixture always (config/test.exs), and a real
-      # provider extension such as fountain_microsoft only where it loads
-      # (a root `mix test`, not a run from apps/fountain) — so the tail is
-      # asserted by membership rather than by shape.
-      assert [
-               %Provider{slug: "google", user_id: nil, id: "google"},
-               %Provider{slug: "slack", user_id: nil, id: "slack"}
-               | contributed
-             ] = Platform.all()
+      # provider extension such as fountain_microsoft or fountain_slack only
+      # where it loads (a root `mix test`, not a run from apps/fountain) — so
+      # the tail is asserted by membership rather than by shape.
+      assert [%Provider{slug: "google", user_id: nil, id: "google"} | contributed] =
+               Platform.all()
 
       assert %Provider{slug: "fixture-svc", user_id: nil, id: "fixture-svc"} =
                Enum.find(contributed, &(&1.slug == "fixture-svc"))
 
-      assert Platform.builtin_slugs() == ~w(google slack)
+      assert Platform.builtin_slugs() == ~w(google)
       assert Platform.slugs() == Enum.map(Platform.all(), & &1.slug)
       assert Provider.reserved_slugs() == Platform.slugs()
     end
 
     test "get/1 answers a platform slug, the host's or an extension's, and nothing else" do
-      assert %Provider{slug: "slack"} = Platform.get("slack")
+      assert %Provider{slug: "google"} = Platform.get("google")
       assert %Provider{slug: "fixture-svc", name: "Fixture service"} = Platform.get("fixture-svc")
       assert Platform.get("github") == nil
       assert Platform.get(Ecto.UUID.generate()) == nil
@@ -46,7 +43,7 @@ defmodule Fountain.Connections.PlatformTest do
     end
 
     test "names the config env var and the short name the console shows" do
-      assert Platform.client_env_var(Platform.get("slack")) == "SLACK_OAUTH_CLIENT_ID"
+      assert Platform.client_env_var(Platform.get("google")) == "GOOGLE_OAUTH_CLIENT_ID"
       assert Platform.short_name(Platform.get("google")) == "Google"
     end
 
@@ -74,7 +71,7 @@ defmodule Fountain.Connections.PlatformTest do
       user = insert_verified_user()
       own = insert_provider(user)
 
-      assert [_google, _slack | contributed] = Connections.all_providers(user.id)
+      assert [_google | contributed] = Connections.all_providers(user.id)
       assert List.last(contributed) == own
 
       assert %Provider{slug: "fixture-svc"} =
@@ -110,17 +107,16 @@ defmodule Fountain.Connections.PlatformTest do
              } = Platform.get("google").authorize_params
     end
 
-    test "slack moves the request to user_scope and empties scope" do
-      slack = Platform.get("slack")
+    test "an extension's provider gets its own parameters, and they reach the URL" do
+      # Slack's `user_scope` override lives on the fountain_slack extension's
+      # struct now; the fixture proves the same mechanism from core's side.
+      p = Platform.get("fixture-svc")
+      assert p.authorize_params == %{"prompt" => "fixture"}
 
-      assert slack.authorize_params["scope"] == ""
-      assert slack.authorize_params["user_scope"] == Enum.join(slack.scopes, " ")
-
-      # and the composed authorize URL carries that override
-      url = OAuth.authorize_url(slack, "https://f.example/cb", "state123")
+      url = OAuth.authorize_url(p, "https://f.example/cb", "state123")
       query = URI.decode_query(URI.parse(url).query)
-      assert query["scope"] == ""
-      assert query["user_scope"] =~ "chat:write"
+      assert query["prompt"] == "fixture"
+      assert query["scope"] == "read"
     end
 
     test "a tenant provider gets no extra parameters" do
@@ -137,32 +133,34 @@ defmodule Fountain.Connections.PlatformTest do
   end
 
   describe "token_body_nest on the struct" do
-    test "the client lifts slack's authed_user grant to the top level" do
-      slack = Platform.get("slack")
-      assert slack.token_body_nest == "authed_user"
+    test "the client lifts a nested grant to the top level" do
+      # Slack's `authed_user` nesting is the fountain_slack extension's now;
+      # the field is exercised here on a tenant provider so core proves the
+      # client's half without naming a service.
+      user = insert_verified_user()
+      p = insert_provider(user)
+      nested = %Provider{p | token_body_nest: "authed_user"}
 
       Req.Test.stub(OAuth, fn req ->
         case req.request_path do
-          "/api/oauth.v2.access" ->
+          "/oauth/token" ->
             Req.Test.json(req, %{
               "ok" => true,
-              "app_id" => "A1",
               "authed_user" => %{
-                "id" => "U1",
-                "access_token" => "xoxp-1",
-                "scope" => "channels:history,chat:write",
+                "access_token" => "nested-1",
+                "scope" => "read,write",
                 "token_type" => "user"
               }
             })
 
-          "/api/auth.test" ->
-            Req.Test.json(req, %{"ok" => true, "user" => "jake"})
+          "/user" ->
+            Req.Test.json(req, %{"login" => "jake"})
         end
       end)
 
-      assert {:ok, grant} = OAuth.exchange_code(slack, "code-1", "https://f.example/cb")
-      assert grant.access_token == "xoxp-1"
-      assert grant.scopes == ~w(channels:history chat:write)
+      assert {:ok, grant} = OAuth.exchange_code(nested, "code-1", "https://f.example/cb")
+      assert grant.access_token == "nested-1"
+      assert grant.scopes == ~w(read write)
       assert grant.refresh_token == nil
       assert grant.account_email == "jake"
     end

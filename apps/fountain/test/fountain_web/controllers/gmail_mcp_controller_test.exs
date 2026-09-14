@@ -244,17 +244,19 @@ defmodule FountainWeb.GmailMcpControllerTest do
   end
 
   test "400 for a connection on another platform provider: these are Gmail tools (#1299)", ctx do
-    slack = insert_connection(ctx.user, provider: "slack", account_email: "jake")
+    # The fixture extension's provider (ADR 0054): a platform connection that
+    # is not Google's, without naming a provider core no longer builds.
+    other = insert_connection(ctx.user, provider: "fixture-svc", account_email: "jake")
 
     agent =
       insert_agent(
         user_id: ctx.user.id,
-        mcp_servers: %{"slack" => %{"connection" => slack.id}}
+        mcp_servers: %{"fixture" => %{"connection" => other.id}}
       )
 
     conv = insert_conversation(%{user_id: ctx.user.id, agent: agent, status: "idle"})
 
-    body = rpc(ctx.conn, ctx.raw_key, conv, slack, "tools/list") |> json_response(400)
+    body = rpc(ctx.conn, ctx.raw_key, conv, other, "tools/list") |> json_response(400)
     assert body["error"] =~ "Google connections only"
   end
 

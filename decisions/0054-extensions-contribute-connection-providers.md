@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Extensions contribute connection providers"
-description: "Accepted. Fountain.Extension gains an eleventh callback, connection_providers/0: an extension hands the host config-backed Fountain.Connections.Provider structs and the host lists them beside its own, reserves their slugs and drives them with the one OAuth client. Built: the callback, the registry composition and the boot validation. Built since: the Microsoft provider moved into fountain_microsoft (#2152 step 4c). Not yet built: Google into fountain_google and Slack into fountain_slack, after which core owns no platform provider."
+description: "Accepted. Fountain.Extension gains an eleventh callback, connection_providers/0: an extension hands the host config-backed Fountain.Connections.Provider structs and the host lists them beside its own, reserves their slugs and drives them with the one OAuth client. Built: the callback, the registry composition and the boot validation. Built since: the Microsoft and Slack providers moved into fountain_microsoft and fountain_slack (#2152 steps 4c and 4d). Not yet built: Google into fountain_google, after which core owns no platform provider."
 tags: [connections, oauth, extensions, architecture]
 status: stable
 adr: "0054"
@@ -16,15 +16,16 @@ stale_after: 2026-11-14
 
 **Status:** Accepted — **partially built.** The callback, the registry
 composition in `Fountain.Connections.Platform` and the boot validation in
-`Fountain.Extensions` are built (#2152), and so is the first of the three
+`Fountain.Extensions` are built (#2152), and so are two of the three
 moves that make core own no platform provider: Microsoft is
-`apps/fountain_microsoft` (#2152 step 4c), a two-callback extension
-(`connection_providers/0`, `docs/0`) that reads `MICROSOFT_OAUTH_CLIENT_ID`
-/ `_SECRET` / `_SCOPES` into `config :fountain_microsoft` and owns the
-`microsoft (connection)` manual page. Google into `fountain_google` and
-Slack into `fountain_slack` are **not yet built**; until they land, those
-two builders stay in `Platform` and the registry is "the host's two, then
-each installed extension's".
+`apps/fountain_microsoft` (#2152 step 4c) and Slack is `apps/fountain_slack`
+(step 4d), each a two-callback extension (`connection_providers/0`,
+`docs/0`) that reads its `<SLUG>_OAUTH_*` variables into its own
+`config :fountain_<slug>` and owns its `(connection)` manual page. Slack's
+two quirks travel on the struct (`authorize_params`, `token_body_nest`),
+which is what step 1 was for. Google into `fountain_google` is **not yet
+built**; until it lands, that builder stays in `Platform` and the registry
+is "the host's one, then each installed extension's".
 
 ## Context
 

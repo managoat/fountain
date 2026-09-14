@@ -750,20 +750,19 @@ if github_client_id = System.get_env("GITHUB_OAUTH_CLIENT_ID") do
 end
 
 # OAuth clients for the platform connection providers (#1178, #1299): a
-# tenant signs in to Google or Slack once in the console and Fountain holds
-# the refresh token. Not the sign-in provider — that is GitHub above. Absent
+# tenant signs in to Google once in the console and Fountain holds the
+# refresh token. Not the sign-in provider — that is GitHub above. Absent
 # stays absent, so the console says a provider is not configured rather than
 # sending anyone to a consent screen with an empty client id. The env var
 # names stay literal here for the reference guard.
 #
 # A provider that ships as an extension reads its own variables into its own
-# otp_app (ADR 0054 decision 5): Microsoft's are further down, under
-# `:fountain_microsoft`, and core reads none of them.
+# otp_app (ADR 0054 decision 5): Microsoft's and Slack's are further down,
+# under `:fountain_microsoft` and `:fountain_slack`, and core reads none of
+# them.
 platform_oauth_clients = [
   {"GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET", :google_oauth_client_id,
-   :google_oauth_client_secret},
-  {"SLACK_OAUTH_CLIENT_ID", "SLACK_OAUTH_CLIENT_SECRET", :slack_oauth_client_id,
-   :slack_oauth_client_secret}
+   :google_oauth_client_secret}
 ]
 
 for {id_var, secret_var, id_key, secret_key} <- platform_oauth_clients do
@@ -781,8 +780,7 @@ end
 # verification: a deployment whose Google app is not verified for a scope
 # simply does not request it, and the provider's products light up to match.
 platform_oauth_scopes = [
-  {"GOOGLE_OAUTH_SCOPES", :google_oauth_scopes},
-  {"SLACK_OAUTH_USER_SCOPES", :slack_oauth_user_scopes}
+  {"GOOGLE_OAUTH_SCOPES", :google_oauth_scopes}
 ]
 
 for {var, key} <- platform_oauth_scopes do
@@ -811,6 +809,23 @@ end
 case System.get_env("MICROSOFT_OAUTH_SCOPES") do
   blank when blank in [nil, ""] -> :ok
   scopes -> config :fountain_microsoft, microsoft_oauth_scopes: String.split(scopes)
+end
+
+# Slack, likewise (`fountain_slack`). The scopes are user scopes, sent as
+# `user_scope`, which is why the variable is not named like the other two.
+case System.get_env("SLACK_OAUTH_CLIENT_ID") do
+  blank when blank in [nil, ""] ->
+    :ok
+
+  client_id ->
+    config :fountain_slack,
+      slack_oauth_client_id: client_id,
+      slack_oauth_client_secret: System.get_env("SLACK_OAUTH_CLIENT_SECRET")
+end
+
+case System.get_env("SLACK_OAUTH_USER_SCOPES") do
+  blank when blank in [nil, ""] -> :ok
+  scopes -> config :fountain_slack, slack_oauth_user_scopes: String.split(scopes)
 end
 
 # Stripe (§5.2)
@@ -1425,8 +1440,8 @@ end
 #
 # Each extension is installed *where it loads*. `apps/fountain` deliberately
 # depends on no sibling app, so `mix test` run from there — which is what CI's
-# partition script does — has none of `:fountain_buzz`, `:fountain_support`
-# or `:fountain_microsoft` on the code path, and naming them unconditionally
+# partition script does — has none of `:fountain_buzz`, `:fountain_support`,
+# `:fountain_microsoft` or `:fountain_slack` on the code path, and naming them unconditionally
 # would make `Fountain.Extensions.validate!/0` refuse to boot every
 # partition. That check
 # working exactly as intended, on a configuration that is wrong for that run.
@@ -1436,7 +1451,12 @@ end
 # the apps are built, where the answer is always false.
 installed_extensions =
   Enum.filter(
-    [FountainBuzz.Extension, FountainSupport.Extension, FountainMicrosoft.Extension],
+    [
+      FountainBuzz.Extension,
+      FountainSupport.Extension,
+      FountainMicrosoft.Extension,
+      FountainSlack.Extension
+    ],
     &Code.ensure_loaded?/1
   )
 

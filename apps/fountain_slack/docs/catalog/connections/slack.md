@@ -1,8 +1,9 @@
 # slack (connection)
 
-> A platform provider. The operator registers one Slack app, and every
-> tenant connects a workspace with it. The connection holds a user token,
-> so an agent acts as the connected person, not as a bot.
+> A platform provider, from the `fountain_slack` extension. The operator
+> registers one Slack app, and every tenant connects a workspace with it.
+> The connection holds a user token, so an agent acts as the connected
+> person, not as a bot.
 
 ## Summary
 
@@ -73,6 +74,6 @@ forget the token, through `auth.revoke`.
 ## Related
 
 - [Connections](index.md), the catalog hub.
-- [Google](google.md), the other platform provider in core, and Microsoft, from the `fountain_microsoft` extension.
+- [Google](google.md) and Microsoft, the other platform providers.
 - [Connect a service with your own OAuth app](../../guides/connect/own-oauth-app.md),
   for every other service.

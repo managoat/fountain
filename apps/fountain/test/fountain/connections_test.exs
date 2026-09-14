@@ -199,38 +199,7 @@ defmodule Fountain.ConnectionsTest do
     end
   end
 
-  describe "the other platform providers (#1299)" do
-    test "a slack exchange lifts authed_user, needs no refresh token, labels via auth.test" do
-      slack = Platform.get("slack")
-
-      Req.Test.stub(OAuth, fn conn ->
-        case conn.request_path do
-          "/api/oauth.v2.access" ->
-            Req.Test.json(conn, %{
-              "ok" => true,
-              "app_id" => "A1",
-              "authed_user" => %{
-                "id" => "U1",
-                "access_token" => "xoxp-99",
-                "scope" => "channels:history,chat:write",
-                "token_type" => "user"
-              }
-            })
-
-          "/api/auth.test" ->
-            assert Plug.Conn.get_req_header(conn, "authorization") == ["Bearer xoxp-99"]
-            Req.Test.json(conn, %{"ok" => true, "user" => "jake", "team" => "goat"})
-        end
-      end)
-
-      assert {:ok, grant} = OAuth.exchange_code(slack, "code", "https://f.example/cb")
-      assert grant.access_token == "xoxp-99"
-      assert grant.refresh_token == nil
-      assert grant.expires_at == nil
-      assert grant.scopes == ["channels:history", "chat:write"]
-      assert grant.account_email == "jake"
-    end
-
+  describe "the other platform providers (#1299, ADR 0054)" do
     test "a platform provider whose token expires still insists on a refresh token" do
       google = Platform.get("google")
 
@@ -264,10 +233,12 @@ defmodule Fountain.ConnectionsTest do
 
     test "provider_for and implicit_hosts read the registry through the slug" do
       user = insert_verified_user()
-      conn = insert_connection(user, provider: "slack", account_email: "jake")
+      conn = insert_connection(user, provider: "fixture-svc", account_email: "jake")
 
-      assert %Provider{slug: "slack", user_id: nil} = Connections.provider_for(conn)
-      assert Connections.implicit_hosts(user.id, "SLACK_ACCESS_TOKEN") == ["slack.com"]
+      assert %Provider{slug: "fixture-svc", user_id: nil} = Connections.provider_for(conn)
+
+      assert Connections.implicit_hosts(user.id, "FIXTURE_SVC_ACCESS_TOKEN") ==
+               ["svc.fixture.example"]
     end
   end
 

@@ -26,7 +26,7 @@ goes to.
 |---|---|---|
 | Who owns the OAuth client. | The operator of the instance. | You. |
 | Where you define it. | Instance configuration. | The Connections page, or `POST /api/connection-providers`. |
-| Which exist. | [Google](google.md) and [Slack](slack.md), with their slugs as ids. Microsoft, when the instance installs the `fountain_microsoft` extension. | As many as you define. |
+| Which exist. | [Google](google.md), with its slug as id. Microsoft and Slack, when the instance installs the `fountain_microsoft` and `fountain_slack` extensions. | As many as you define. |
 
 Fountain owns an OAuth client for each platform provider. It cannot own an
 app at every service, and a restricted scope needs verification of each app
@@ -103,4 +103,4 @@ refresh token replaces the stored one.
 
 - [Google](google.md), a platform provider. Gmail and Calendar.
 - Microsoft, a platform provider from the `fountain_microsoft` extension. Outlook mail, calendar and Teams chat. Its page, `microsoft (connection)`, is in this section when the extension is installed.
-- [Slack](slack.md), a platform provider. A user token per workspace.
+- Slack, a platform provider from the `fountain_slack` extension. A user token per workspace. Its page, `slack (connection)`, is in this section when the extension is installed.

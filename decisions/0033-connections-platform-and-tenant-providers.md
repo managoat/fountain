@@ -87,9 +87,9 @@ with effort:
    amending this ADR with the same test: why the tenant's own app cannot
    do the job. *Amended by ADR 0054:* a platform provider may ship as an
    extension rather than as a builder in core, and the registry becomes
-   "the host's own, then each installed extension's". Microsoft is the
-   first to have moved (`fountain_microsoft`, #2152 step 4c); Google and
-   Slack follow, after which core builds none of the three and the
+   "the host's own, then each installed extension's". Microsoft and Slack
+   have moved (`fountain_microsoft`, `fountain_slack`, #2152 steps 4c and
+   4d); Google follows, after which core builds none of the three and the
    registry grows by installing an extension.
 
 2. **Every other service is a provider the tenant defines.** A

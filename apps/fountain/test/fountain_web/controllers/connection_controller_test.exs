@@ -63,9 +63,10 @@ defmodule FountainWeb.ConnectionControllerTest do
   end
 
   test "providers names each platform provider, its scopes and where to start", %{conn: conn} do
-    # The host's two, then each installed extension's (ADR 0054): always the
-    # fixture's, and fountain_microsoft's where that app loads.
-    assert %{"data" => [google, slack | contributed]} =
+    # The host's one, then each installed extension's (ADR 0054): always the
+    # fixture's, and fountain_microsoft's and fountain_slack's where those
+    # apps load.
+    assert %{"data" => [google | contributed]} =
              conn |> get("/api/connections/providers") |> json_response(200)
 
     assert fixture = Enum.find(contributed, &(&1["id"] == "fixture-svc"))
@@ -84,11 +85,8 @@ defmodule FountainWeb.ConnectionControllerTest do
 
     # The contract a client leans on (#1299): scopes stay in the response, so
     # a catalog can light a product up by matching them.
-    assert slack["id"] == "slack"
-    assert slack["connect_url"] =~ "/connections/slack/start"
-    assert slack["configured"] == true
-    assert slack["env_key"] == "SLACK_ACCESS_TOKEN"
-    assert Enum.any?(slack["scopes"], &(&1 =~ ~r/chat/i))
+    assert fixture["env_key"] == "FIXTURE_SVC_ACCESS_TOKEN"
+    assert fixture["scopes"] == ["read"]
   end
 
   test "a sprite-scoped key cannot see connections", %{user: user} do

@@ -71,6 +71,13 @@ defmodule Fountain.ExtensionGuardTest do
       route: ~r|"/(api/)?microsoft|,
       route_except: [],
       priv: "**/*microsoft*"
+    },
+    %{
+      app: :fountain_slack,
+      module: ~r/\b(FountainSlack\.|Fountain\.Connections\.Platform\.slack\b)/,
+      route: ~r|"/(api/)?slack|,
+      route_except: [],
+      priv: "**/*slack*"
     }
   ]
 

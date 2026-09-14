@@ -50,10 +50,10 @@ fountain/                  umbrella root
       test/fountain/       context unit tests (async: true, DataCase)
       test/fountain_web/   controller/LiveView integration tests
       test/support/        DataCase, ConnCase, factory.ex
-    fountain_buzz/         the three first-party extensions (ADR 0043, tracker
+    fountain_buzz/         the four first-party extensions (ADR 0043, tracker
     fountain_support/      #1503, #1528 and #2152). Each is an AGPL OTP app that
     fountain_microsoft/    depends on :fountain, is named in
-                           `config :fountain, :extensions` and is reached only
+    fountain_slack/        `config :fountain, :extensions` and is reached only
                            through the `Fountain.Extension` callbacks. Buzz owns
                            FountainBuzz.*, buzz_identities and its migrations,
                            /api/buzz + /api/mcp/buzz, and the harness tree;
@@ -64,6 +64,9 @@ fountain/                  umbrella root
                            `MICROSOFT_OAUTH_*` config under
                            `:fountain_microsoft`, and the `microsoft
                            (connection)` manual page — no route, no table.
+                           Slack is the same shape: FountainSlack.*, the
+                           `slack` provider, `SLACK_OAUTH_*` under
+                           `:fountain_slack`, the `slack (connection)` page.
                            `apps/fountain` depends on none of them in any
                            direction and names no module of any
                            (extension_guard_test.exs); the release's

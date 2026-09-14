@@ -1,7 +1,6 @@
 defmodule Fountain.InferenceCredentials.Resolver do
   @moduledoc false
-  import Ecto.Query
-  alias Fountain.{Crypto, Environments, InferenceCredentials, Repo, Vaults}
+  alias Fountain.{Crypto, Environments, InferenceCredentials, PlatformInference, Repo, Vaults}
   alias Fountain.InferenceCredentials.Source
 
   def resolve(user_id, model, runtime, opts) do
@@ -25,11 +24,7 @@ defmodule Fountain.InferenceCredentials.Resolver do
                model,
                own,
                runtime,
-               Keyword.merge(opts,
-                 override_entries: overrides,
-                 refresh: false,
-                 brokered: Fountain.Broker.configured?()
-               )
+               Keyword.merge(opts, override_entries: overrides, refresh: false)
              ),
            :ok <-
              usable(if(expected, do: nil, else: Keyword.get(opts, :credential_set_id)), source),
@@ -142,20 +137,12 @@ defmodule Fountain.InferenceCredentials.Resolver do
   defp drop_competitors(creds, provider),
     do: Map.drop(creds, InferenceCredentials.credentials_for_provider(provider))
 
+  # Platform policy, only when no tenant source was selected: one question
+  # to the module that owns the deployment's credentials.
   defp platform(provider, runtime, own, opts) do
-    selected =
-      if provider == "openai" and runtime == "codex" and Keyword.get(opts, :brokered, true) do
-        case Fountain.ChatGPTAccounts.platform_credential(
-               refresh: Keyword.get(opts, :refresh, true)
-             ) do
-          {:ok, token} -> {:ok, :codex_chatgpt_access_token, token}
-          :none -> Fountain.PlatformInference.key_for(provider)
-        end
-      else
-        Fountain.PlatformInference.key_for(provider)
-      end
-
-    case selected do
+    case PlatformInference.credential_for(provider, runtime,
+           refresh: Keyword.get(opts, :refresh, true)
+         ) do
       {:ok, kind, value} ->
         {:ok, %{Source.platform() | kind: kind},
          Map.put(drop_competitors(own, provider), kind, value)}
@@ -225,48 +212,10 @@ defmodule Fountain.InferenceCredentials.Resolver do
       case source.scope do
         :credential -> {"credential:#{set.id}:#{source.kind}", set.revision}
         :tenant_secret -> {source.identity, source.revision}
-        :platform -> platform_reference(source.kind, creds, dek)
+        :platform -> PlatformInference.reference(source.kind, creds, dek)
         scope -> {Atom.to_string(scope), "1"}
       end
 
     %{source | identity: identity, revision: revision, set_id: set && set.id}
   end
-
-  defp platform_reference(:codex_chatgpt_access_token, _creds, _dek) do
-    # Ownership and generation are read from the same null-owner grant used
-    # by the platform policy. Token refresh does not replace this identity.
-    grant =
-      Repo.one(
-        from a in Fountain.PlatformChatGPT.Account,
-          where: is_nil(a.user_id) and a.status == "active"
-      )
-
-    {"platform:chatgpt:#{grant.id}", grant.generation}
-  end
-
-  defp platform_reference(kind, creds, dek) do
-    provider =
-      case kind do
-        :anthropic_api_key -> "anthropic"
-        :openai_api_key -> "openai"
-        :gemini_api_key -> "google"
-      end
-
-    case Repo.get(Fountain.PlatformInference.Key, provider) do
-      %{ciphertext: ciphertext, revision: revision} ->
-        case Crypto.decrypt_platform(ciphertext) do
-          {:ok, _} -> {"platform:stored:#{provider}", revision}
-          _ -> {"platform:environment:#{provider}", digest(dek, creds[kind])}
-        end
-
-      nil ->
-        {"platform:environment:#{provider}", digest(dek, creds[kind])}
-    end
-  end
-
-  # Keyed revision markers for plaintext configuration are not bearer values
-  # and do not permit an offline dictionary attack. Ownership comes from the
-  # scoped source row; the marker only detects replacement of its value.
-  defp digest(dek, value),
-    do: :crypto.mac(:hmac, :sha256, dek, to_string(value)) |> Base.encode16(case: :lower)
 end

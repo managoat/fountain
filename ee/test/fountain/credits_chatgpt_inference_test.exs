@@ -21,6 +21,21 @@ defmodule Fountain.Credits.ChatGPTInferenceTest do
       end
     end)
 
+    # The grant is selected only on a brokered deployment.
+    broker = [:broker_listen_port, :broker_proxy_url]
+    previous_broker = Enum.map(broker, &{&1, Application.get_env(:fountain, &1)})
+
+    on_exit(fn ->
+      for {key, value} <- previous_broker do
+        if is_nil(value),
+          do: Application.delete_env(:fountain, key),
+          else: Application.put_env(:fountain, key, value)
+      end
+    end)
+
+    Application.put_env(:fountain, :broker_listen_port, 14_322)
+    Application.put_env(:fountain, :broker_proxy_url, "http://broker.test:14322")
+
     Fountain.ChatGPTFixtures.connect!()
     refute PlatformInference.enabled?()
     :ok

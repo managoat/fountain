@@ -180,6 +180,110 @@ defmodule Fountain.Conversations.ConversationServerPlatformInferenceTest do
     end
   end
 
+  # #2176 decision 4. Credential swap is brokered on every sandbox the broker
+  # serves, contained or direct (#2057), so "brokered" is a deployment fact
+  # and a self-hosted runner on a brokered deployment takes the grant like
+  # any other sandbox: the broker holds the token, the runner holds the
+  # placeholder, which is worthless off the box. `BROKER_ALLOW_UNENFORCED` is
+  # what lets a provider without `:network_policy` host a brokered
+  # conversation at all (ADR 0019 gate 1a).
+  describe "the grant on a self-hosted runner" do
+    setup do
+      previous = Application.get_env(:fountain, :broker_allow_unenforced)
+      on_exit(fn -> Application.put_env(:fountain, :broker_allow_unenforced, previous) end)
+      Application.put_env(:fountain, :broker_allow_unenforced, true)
+
+      Application.put_env(:fountain, :broker_listen_port, 14_322)
+      Application.put_env(:fountain, :broker_proxy_url, "http://broker.test:14322")
+
+      for key <- [:platform_anthropic_api_key, :platform_openai_api_key, :platform_gemini_api_key],
+          do: Application.delete_env(:fountain, key)
+
+      :ok
+    end
+
+    test "a runner conversation on a brokered deployment selects the grant and holds only the placeholder",
+         %{user: user} do
+      access = Fountain.ChatGPTFixtures.access_token()
+      Fountain.ChatGPTFixtures.connect!(%{access_token: access})
+
+      agent = insert_agent(user_id: user.id, runtime: "codex", model: "openai/gpt-5.5-codex")
+
+      sandbox =
+        insert_sandbox(
+          user_id: user.id,
+          agent_id: agent.id,
+          provider: "runner",
+          status: "pending"
+        )
+
+      conv =
+        insert_conversation(
+          user_id: user.id,
+          agent: agent,
+          runtime: "codex",
+          sandbox_id: sandbox.id,
+          status: "pending"
+        )
+
+      test = self()
+      handle = %Managoat.Sandbox.Handle{provider: :runner, name: sandbox.machine_name}
+
+      # The provisioning steps `stub_happy_sprite/1` stubs on `Provisioning`
+      # and `SandboxSkills` apply to any provider; the sandbox calls go
+      # through the facade, which a runner reaches without a daemon here.
+      stub_happy_sprite()
+      stub(Managoat.Sandbox, :create, fn :runner, _name -> {:ok, handle} end)
+      stub(Managoat.Sandbox, :get, fn _handle -> {:ok, %{status: :running, raw: %{}}} end)
+      stub(Managoat.Sandbox, :exec, fn _handle, _cmd, _args, _opts -> {:ok, "", 0} end)
+      stub(Managoat.Sandbox, :write_file, fn _handle, _path, _data, _opts -> :ok end)
+      stub(Managoat.Sandbox, :list_sessions, fn _handle -> {:ok, []} end)
+      stub(Managoat.Sandbox, :public_url, fn _handle -> {:error, :unsupported} end)
+
+      stub(Managoat.Sandbox, :spawn, fn _handle, cmd, args, opts ->
+        send(test, {:spawned, cmd, args, opts})
+        {:ok, %Managoat.Sandbox.Command{provider: :runner, ref: make_ref()}}
+      end)
+
+      # The peer's first write after the spawn; nothing answers it here.
+      stub(Managoat.Sandbox, :write_stdin, fn _command, _data -> :ok end)
+      stub(Managoat.Sandbox, :close_stdin, fn _command -> :ok end)
+      stub(Managoat.Sandbox, :stop_command, fn _command -> :ok end)
+
+      stub(Fountain.Broker, :preflight, fn -> :ok end)
+      stub(Fountain.Broker, :ca_pem, fn -> {:ok, "PEM"} end)
+
+      stub(Fountain.Broker, :prepare, fn _c, brokered, bindings, _opts ->
+        send(test, {:prepared, brokered, bindings})
+        {:ok, @session}
+      end)
+
+      {pid, _mon, :alive} = start_server(conv, initial_prompt: "hello")
+      on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
+
+      state = :sys.get_state(pid)
+
+      assert %Source{scope: :platform, kind: :codex_chatgpt_access_token} =
+               state.inference_source
+
+      # The runtime's copy is the placeholder; the broker's copy is the token.
+      assert state.env_credentials.codex_chatgpt_access_token ==
+               "__codex_chatgpt_access_token__"
+
+      assert_receive {:prepared, brokered, bindings}, 2_000
+      assert brokered["CODEX_CHATGPT_ACCESS_TOKEN"] == access
+
+      assert [%{host: "chatgpt.com", auth_type: "substitute"}] =
+               bindings["CODEX_CHATGPT_ACCESS_TOKEN"]
+
+      # And the token never reaches the runner: not in the spawn env, under
+      # any name.
+      assert_receive {:spawned, _cmd, _args, opts}, 2_000
+      spawn_env = Keyword.fetch!(opts, :env)
+      refute Enum.any?(spawn_env, fn {_, v} -> v == access end)
+    end
+  end
+
   describe "the mark on the turn" do
     test "the server records which key it selected", %{user: user, agent: agent} do
       conv = insert_conversation(user_id: user.id, agent: agent)
@@ -359,6 +463,11 @@ defmodule Fountain.Conversations.ConversationServerPlatformInferenceTest do
   test "a grant-only deployment stamps the completed codex turn", %{user: user} do
     for key <- [:platform_anthropic_api_key, :platform_openai_api_key, :platform_gemini_api_key],
         do: Application.delete_env(:fountain, key)
+
+    # The grant is selected only on a brokered deployment; the setup restores
+    # both keys.
+    Application.put_env(:fountain, :broker_listen_port, 14_322)
+    Application.put_env(:fountain, :broker_proxy_url, "http://broker.test:14322")
 
     Fountain.ChatGPTFixtures.connect!()
     assert Fountain.ChatGPTAccounts.platform_active?()

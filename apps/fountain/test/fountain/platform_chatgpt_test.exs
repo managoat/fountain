@@ -50,7 +50,21 @@ defmodule Fountain.PlatformChatGPTTest do
 
   defp row, do: Repo.one!(Account)
 
+  # The grant is selected only on a brokered deployment, a deployment fact
+  # (`Fountain.Broker.configured?/0`); these set it the way the egress tests do.
   defp broker_on do
+    restore_broker_on_exit()
+    Application.put_env(:fountain, :broker_listen_port, 14_322)
+    Application.put_env(:fountain, :broker_proxy_url, "http://broker.test:14322")
+  end
+
+  defp broker_off do
+    restore_broker_on_exit()
+    Application.delete_env(:fountain, :broker_listen_port)
+    Application.delete_env(:fountain, :broker_proxy_url)
+  end
+
+  defp restore_broker_on_exit do
     previous =
       for key <- [:broker_listen_port, :broker_proxy_url],
           do: {key, Application.get_env(:fountain, key)}
@@ -62,9 +76,6 @@ defmodule Fountain.PlatformChatGPTTest do
           else: Application.put_env(:fountain, key, value)
       end
     end)
-
-    Application.put_env(:fountain, :broker_listen_port, 14_322)
-    Application.put_env(:fountain, :broker_proxy_url, "http://broker.test:14322")
   end
 
   defp decrypt!(cipher) do
@@ -161,6 +172,7 @@ defmodule Fountain.PlatformChatGPTTest do
     end
 
     test "credential(refresh: false) answers from the row and never dials out" do
+      broker_on()
       stale = access_token(60)
       connect!(%{access_token: stale})
       # No stub for /oauth/token: a refresh here would raise.
@@ -422,6 +434,7 @@ defmodule Fountain.PlatformChatGPTTest do
 
   describe "InferenceCredentials.select/3 (ADR 0047 decision 6)" do
     test "a codex agent with no tenant key takes the grant, at :platform" do
+      broker_on()
       access = access_token()
       connect!(%{access_token: access})
 
@@ -440,20 +453,22 @@ defmodule Fountain.PlatformChatGPTTest do
                )
     end
 
-    test "an unbrokered conversation never takes the grant: the token would land in the sandbox" do
+    test "an unbrokered deployment never takes the grant: the token would land in the sandbox" do
+      broker_off()
       connect!()
 
       assert {:ok, %Source{origin: :own, scope: :missing}, %{}} =
-               InferenceCredentials.select("openai/gpt-5.5-codex", %{}, "codex", brokered: false)
+               InferenceCredentials.select("openai/gpt-5.5-codex", %{}, "codex")
 
       Application.put_env(:fountain, :platform_openai_api_key, "sk-platform")
 
       assert {:ok, %Source{origin: :platform, scope: :platform, kind: :openai_api_key},
               %{openai_api_key: "sk-platform"}} =
-               InferenceCredentials.select("openai/gpt-5.5-codex", %{}, "codex", brokered: false)
+               InferenceCredentials.select("openai/gpt-5.5-codex", %{}, "codex")
     end
 
     test "the tenant's own OpenAI key always wins" do
+      broker_on()
       connect!()
       own = %{openai_api_key: "sk-mine"}
 
@@ -462,6 +477,7 @@ defmodule Fountain.PlatformChatGPTTest do
     end
 
     test "opencode on an openai model never takes the grant" do
+      broker_on()
       connect!()
 
       assert {:ok, %Source{origin: :own, scope: :missing}, %{}} =
@@ -479,6 +495,7 @@ defmodule Fountain.PlatformChatGPTTest do
     end
 
     test "a revoked grant falls through to the platform key, and to nothing" do
+      broker_on()
       connect!(%{access_token: access_token(60)})
       stub_refusal()
       Application.put_env(:fountain, :platform_openai_api_key, "sk-platform")

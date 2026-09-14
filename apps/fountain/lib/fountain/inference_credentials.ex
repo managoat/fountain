@@ -553,9 +553,9 @@ defmodule Fountain.InferenceCredentials do
   credentials exclude competing auth inputs for the selected provider and
   preserve unrelated credentials.
 
-  `opts` accepts actual `:overrides` values. `:brokered` controls platform
-  ChatGPT eligibility and `:refresh` controls provider refresh I/O. Platform
-  policy applies only when no tenant credential is selected for this
+  `opts` accepts actual `:overrides` values, and `:refresh` controls provider
+  refresh I/O. Platform policy (`Fountain.PlatformInference.credential_for/3`)
+  applies only when no tenant credential is selected for this
   runtime/provider, and nothing anywhere is `Source.missing/0`, never an
   error: the sandbox still provisions, with nothing to call.
 

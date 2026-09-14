@@ -23,6 +23,11 @@ defmodule Fountain.PlatformInference do
     * `status/0` — one entry per provider for the admin page: where the live
       key comes from, when and by whom it was set, and its last four
       characters.
+    * `credential_for/3` and `reference/3` — what the resolver asks when no
+      tenant source was selected: the deployment's credential for this
+      provider and runtime (the ChatGPT grant for codex on a brokered
+      deployment, ADR 0047, else the key), and the durable identity a
+      platform source is bound to.
     * `gate_source/1` — the door check: may a conversation on this resolved
       source start? `:ok` unless it would run on a platform key and the
       deployment has spent its day.
@@ -53,6 +58,8 @@ defmodule Fountain.PlatformInference do
       deployment that sets a platform key with credits off is paying its own
       inference bill knowingly and has no brake here.
   """
+
+  import Ecto.Query, only: [from: 2]
 
   require Logger
 
@@ -143,6 +150,90 @@ defmodule Fountain.PlatformInference do
   end
 
   def key_for(_provider), do: :none
+
+  @doc """
+  The deployment's credential for a provider and runtime: `{:ok, kind, value}`
+  in the shape `key_for/1` returns, or `:none`.
+
+  Codex on an OpenAI model takes the deployment's ChatGPT grant (ADR 0047
+  decision 6) when one is active and the deployment is brokered, and falls
+  through to the platform key otherwise; every other pairing is `key_for/1`.
+  "Brokered" is `Fountain.Broker.configured?/0`, a deployment fact rather
+  than a conversation's: the broker carries the value on every sandbox it
+  serves, so wherever the grant is selected the sandbox holds a placeholder
+  (#2057). On a deployment with no broker the token would land in the
+  sandbox in the clear, so the grant is never selected there.
+
+  `refresh: true` lets a grant within its expiry margin be refreshed first,
+  which dials out; the resolver passes `false` and answers from the row.
+  """
+  @spec credential_for(String.t() | nil, String.t() | nil, keyword()) ::
+          {:ok, atom(), String.t()} | :none
+  def credential_for(provider, runtime, opts \\ [])
+
+  def credential_for("openai" = provider, "codex", opts) do
+    if Fountain.Broker.configured?() do
+      case Fountain.ChatGPTAccounts.platform_credential(
+             refresh: Keyword.get(opts, :refresh, false)
+           ) do
+        {:ok, token} -> {:ok, :codex_chatgpt_access_token, token}
+        :none -> key_for(provider)
+      end
+    else
+      key_for(provider)
+    end
+  end
+
+  def credential_for(provider, _runtime, _opts), do: key_for(provider)
+
+  @doc """
+  The durable identity and revision of a platform source, for
+  `Fountain.InferenceCredentials.Source`: which deployment credential served
+  the run, and a marker that changes when it is replaced. Never bearer
+  material.
+
+  The ChatGPT grant is `platform:chatgpt:<grant id>` at the grant's
+  generation: a token refresh keeps the identity, a reconnect replaces it.
+  A stored key is `platform:stored:<provider>` at the row's revision. A key
+  from the environment is `platform:environment:<provider>` with a keyed
+  digest of the value under the tenant DEK, so a replaced variable reads as
+  a new revision without the source holding the key.
+  """
+  @spec reference(atom(), map(), binary()) :: {String.t(), term()}
+  def reference(:codex_chatgpt_access_token, _creds, _dek) do
+    # Ownership and generation are read from the same null-owner grant
+    # `credential_for/3` selected. Token refresh does not replace this
+    # identity.
+    grant =
+      Repo.one(
+        from a in Fountain.PlatformChatGPT.Account,
+          where: is_nil(a.user_id) and a.status == "active"
+      )
+
+    {"platform:chatgpt:#{grant.id}", grant.generation}
+  end
+
+  def reference(kind, creds, dek) do
+    {provider, _} =
+      Enum.find(@providers, fn {_provider, {credential, _}} -> credential == kind end)
+
+    case Repo.get(Key, provider) do
+      %{ciphertext: ciphertext, revision: revision} ->
+        case Crypto.decrypt_platform(ciphertext) do
+          {:ok, _} -> {"platform:stored:#{provider}", revision}
+          _ -> {"platform:environment:#{provider}", digest(dek, creds[kind])}
+        end
+
+      nil ->
+        {"platform:environment:#{provider}", digest(dek, creds[kind])}
+    end
+  end
+
+  # Keyed revision markers for plaintext configuration are not bearer values
+  # and do not permit an offline dictionary attack. Ownership comes from the
+  # scoped source row; the marker only detects replacement of its value.
+  defp digest(dek, value),
+    do: :crypto.mac(:hmac, :sha256, dek, to_string(value)) |> Base.encode16(case: :lower)
 
   # Stored first, then the variable. `:undecryptable` falls through to the
   # variable on purpose — see key_for/1.

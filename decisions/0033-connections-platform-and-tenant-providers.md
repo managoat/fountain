@@ -72,10 +72,12 @@ with effort:
    never register an app at Microsoft or Slack, so for them "connect your
    calendar" works only when Fountain owns the client — the tenant's own
    app cannot do the job because the tenant is not the person consenting.
-   What cannot be data on the record lives as two hooks in `Platform`
-   (extra authorize parameters — Google's offline pair, Slack's
-   `user_scope`; and Slack's `authed_user`-nested token response), so
-   `Fountain.Connections.OAuth` stays one code path. Scope lists are
+   What could not be data on the record — extra authorize parameters
+   (Google's offline pair, Slack's `user_scope`) and Slack's
+   `authed_user`-nested token response — was two hooks in `Platform` until
+   #2152 made them two fields on the struct (`authorize_params`,
+   `token_body_nest`), so `Fountain.Connections.OAuth` stays one code path
+   and names no service. Scope lists are
    operator-overridable (`<SLUG>_OAUTH_SCOPES`), which is the app-
    verification lever: a deployment does not request what its verification
    does not cover, and the products that need those scopes stay dark.

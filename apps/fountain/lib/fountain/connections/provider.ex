@@ -15,7 +15,20 @@ defmodule Fountain.Connections.Provider do
   The **platform** providers (Google, Microsoft, Slack) are the same
   struct, built from config by `Fountain.Connections.Platform`, with
   `user_id: nil` and their slug as the reserved id. One code path in
-  `Fountain.Connections.OAuth` serves every kind.
+  `Fountain.Connections.OAuth` serves every kind, because what differs per
+  service is data on the struct, including the two things that used to be
+  code (#2152):
+
+    * `authorize_params` — extra authorize-URL parameters, merged over the
+      standard ones (so a provider may override `scope` itself). Google's
+      offline pair; Slack's `user_scope`.
+    * `token_body_nest` — the key under which the provider nests the user's
+      grant in its token response (Slack: `authed_user`). The OAuth client
+      lifts `access_token`, `refresh_token`, `expires_in` and `scope` from
+      there to the RFC 6749 top level.
+
+  Both are virtual: the builder of a config-backed provider sets them, and a
+  tenant row has neither.
 
   The client secret is DEK-encrypted like a vault secret and never leaves
   the server; the access token a connection on this provider yields is
@@ -62,6 +75,8 @@ defmodule Fountain.Connections.Provider do
     field :issuer, :string
     field :mcp_metadata, :map, default: %{}
     field :client_source, :string
+    field :authorize_params, :map, virtual: true, default: %{}
+    field :token_body_nest, :string, virtual: true
     belongs_to :user, Fountain.Accounts.User
     timestamps(type: :utc_datetime)
   end

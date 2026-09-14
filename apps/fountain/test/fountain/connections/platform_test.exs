@@ -62,27 +62,24 @@ defmodule Fountain.Connections.PlatformTest do
     end
   end
 
-  describe "authorize_params/1" do
+  describe "authorize_params on the struct" do
     test "google sends the offline pair with incremental consent" do
       assert %{
                "access_type" => "offline",
                "prompt" => "consent",
                "include_granted_scopes" => "true"
-             } = Platform.authorize_params(Platform.get("google"))
+             } = Platform.get("google").authorize_params
     end
 
     test "microsoft asks for an account picker" do
-      assert Platform.authorize_params(Platform.get("microsoft")) == %{
-               "prompt" => "select_account"
-             }
+      assert Platform.get("microsoft").authorize_params == %{"prompt" => "select_account"}
     end
 
     test "slack moves the request to user_scope and empties scope" do
       slack = Platform.get("slack")
-      params = Platform.authorize_params(slack)
 
-      assert params["scope"] == ""
-      assert params["user_scope"] == Enum.join(slack.scopes, " ")
+      assert slack.authorize_params["scope"] == ""
+      assert slack.authorize_params["user_scope"] == Enum.join(slack.scopes, " ")
 
       # and the composed authorize URL carries that override
       url = OAuth.authorize_url(slack, "https://f.example/cb", "state123")
@@ -94,36 +91,68 @@ defmodule Fountain.Connections.PlatformTest do
     test "a tenant provider gets no extra parameters" do
       user = insert_verified_user()
       p = insert_provider(user)
-      assert Platform.authorize_params(p) == %{}
+      assert p.authorize_params == %{}
+
+      url = OAuth.authorize_url(p, "https://f.example/cb", "state123")
+      query = URI.decode_query(URI.parse(url).query)
+      assert query["scope"] == "read"
+      refute Map.has_key?(query, "user_scope")
+      refute Map.has_key?(query, "prompt")
     end
   end
 
-  describe "normalize_token_body/2" do
-    test "lifts slack's authed_user token to the top level" do
-      body = %{
-        "ok" => true,
-        "app_id" => "A1",
-        "authed_user" => %{
-          "id" => "U1",
-          "access_token" => "xoxp-1",
-          "scope" => "channels:history,chat:write",
-          "token_type" => "user"
-        }
-      }
+  describe "token_body_nest on the struct" do
+    test "the client lifts slack's authed_user grant to the top level" do
+      slack = Platform.get("slack")
+      assert slack.token_body_nest == "authed_user"
 
-      normalized = Platform.normalize_token_body(Platform.get("slack"), body)
-      assert normalized["access_token"] == "xoxp-1"
-      assert normalized["scope"] == "channels:history,chat:write"
-      refute Map.has_key?(normalized, "refresh_token")
+      Req.Test.stub(OAuth, fn req ->
+        case req.request_path do
+          "/api/oauth.v2.access" ->
+            Req.Test.json(req, %{
+              "ok" => true,
+              "app_id" => "A1",
+              "authed_user" => %{
+                "id" => "U1",
+                "access_token" => "xoxp-1",
+                "scope" => "channels:history,chat:write",
+                "token_type" => "user"
+              }
+            })
+
+          "/api/auth.test" ->
+            Req.Test.json(req, %{"ok" => true, "user" => "jake"})
+        end
+      end)
+
+      assert {:ok, grant} = OAuth.exchange_code(slack, "code-1", "https://f.example/cb")
+      assert grant.access_token == "xoxp-1"
+      assert grant.scopes == ~w(channels:history chat:write)
+      assert grant.refresh_token == nil
+      assert grant.account_email == "jake"
     end
 
-    test "leaves every other provider's body alone" do
-      body = %{"access_token" => "a", "authed_user" => %{"access_token" => "b"}}
-      assert Platform.normalize_token_body(Platform.get("google"), body) == body
-
+    test "every other provider's body is read as it came" do
       user = insert_verified_user()
       p = insert_provider(user)
-      assert Platform.normalize_token_body(p, body) == body
+      assert p.token_body_nest == nil
+
+      Req.Test.stub(OAuth, fn req ->
+        case req.request_path do
+          "/oauth/token" ->
+            Req.Test.json(req, %{
+              "access_token" => "a",
+              "expires_in" => 3600,
+              "authed_user" => %{"access_token" => "b"}
+            })
+
+          "/user" ->
+            Req.Test.json(req, %{"login" => "jake"})
+        end
+      end)
+
+      assert {:ok, %{access_token: "a"}} =
+               OAuth.exchange_code(p, "code-1", "https://f.example/cb")
     end
   end
 end

@@ -373,52 +373,6 @@ defmodule Fountain.Team.CommsTest do
     end
   end
 
-  describe "channel_counts/0" do
-    test "counts inboxes and numbers apart, because the providers charge apart" do
-      user = insert_verified_user()
-      other = insert_verified_user()
-
-      contact!(user, email: true, phone: true)
-      contact!(user, email: true, phone: false)
-      contact!(other, email: false, phone: true)
-
-      counts = Comms.channel_counts()
-
-      assert counts[user.id] == %{inboxes: 2, numbers: 1}
-      assert counts[other.id] == %{inboxes: 0, numbers: 1}
-    end
-
-    test "a blank provider id is not a channel" do
-      # `Contact.email?/1` treats "" as absent; the SQL has to agree, or a
-      # half-released contact gets billed for a channel it no longer has.
-      user = insert_verified_user()
-      contact!(user, email: true, phone: true)
-      Repo.update_all(Contact, set: [phone_number_id: ""])
-
-      assert Comms.channel_counts()[user.id] == %{inboxes: 1, numbers: 0}
-    end
-
-    test "a tenant with no contacts is absent, like contact_counts/0" do
-      user = insert_verified_user()
-      assert Comms.channel_counts()[user.id] == nil
-    end
-
-    defp contact!(user, opts) do
-      agent = insert_agent(user_id: user.id)
-      id = System.unique_integer([:positive])
-
-      Repo.insert!(%Contact{
-        user_id: user.id,
-        agent_id: agent.id,
-        email_address: if(opts[:email], do: "t#{id}@agentmail.to"),
-        email_inbox_id: if(opts[:email], do: "inbox_#{id}"),
-        phone_number: if(opts[:phone], do: "+1555000#{rem(id, 10_000)}"),
-        phone_number_id: if(opts[:phone], do: "num_#{id}"),
-        prompt_from_number: "+15550001111"
-      })
-    end
-  end
-
   describe "conversation_mcp_servers/2" do
     test "injects the tools for a teammate with a contact when the flag is on" do
       flag(true)

@@ -11,9 +11,8 @@ defmodule Fountain.Billing.Finance do
   ## Revenue
 
   Credits are the product (ADR 0031): a tenant's revenue is the credit it
-  burned in the period — turn hours, rent for numbers and inboxes
-  (`Fountain.Credits.Rent`), messages — reported under `credits/1` beside what
-  was granted and what was sold. A comped account burns credit like any other
+  burned in the period — turn hours and platform inference — reported under
+  `credits/1` beside what was granted and what was sold. A comped account burns credit like any other
   (the ledger is how a comp's cost is seen) but paid for none of it.
 
   ## Cost, and the rate card
@@ -27,15 +26,10 @@ defmodule Fountain.Billing.Finance do
   |---|---|---|
   | `:provider_hourly_cents` | `PROVIDER_HOURLY_CENTS` | cents per sandbox hour, per provider |
   | `:cost_basis` | `PROVIDER_COST_BASIS` | `active` (default) or `turn` — which hours that rate multiplies |
-  | `:agentmail_inbox_cents` | `AGENTMAIL_INBOX_CENTS` | cents per inbox per month |
-  | `:agentphone_number_cents` | `AGENTPHONE_NUMBER_CENTS` | cents per number per month |
-  | `:agentmail_message_cents` | `AGENTMAIL_MESSAGE_CENTS` | cents per email sent |
-  | `:agentphone_message_cents` | `AGENTPHONE_MESSAGE_CENTS` | cents per SMS, each way |
 
-  **Every rate may be fractional.** Per-message rates in particular usually
-  are — AgentMail bills roughly $0.002 an email, which as a whole number of
-  cents is zero. Rates stay fractional through the arithmetic and each cost
-  component rounds to whole cents exactly once, at the end.
+  **Every rate may be fractional.** Rates stay fractional through the
+  arithmetic and each cost component rounds to whole cents exactly once, at
+  the end.
 
   One rate card covers every provider, and it prices them all on the same
   basis. That is right while the providers Fountain actually bills for behave
@@ -51,7 +45,7 @@ defmodule Fountain.Billing.Finance do
   self-hosted instance sets none of it and gets exactly the hours report it
   had before.
 
-  ## Three kinds of cost, three shapes
+  ## Two kinds of cost, two shapes
 
   **Sandbox hours** come in two flavours and the panel prices whichever one
   the invoice actually tracks. `:active` is the whole window a sprite was
@@ -69,15 +63,8 @@ defmodule Fountain.Billing.Finance do
   move together, and on `:active` they do not.
 
   **Credits** are the usage revenue: what a period's grants put in, what
-  turns and contacts burned, what packs sold, and the deferred balance —
-  money taken and not yet burned, which is a liability rather than revenue
-  until it is.
-
-  **Contacts** are a monthly recurring charge per inbox and per number, so
-  they are pro-rated against the period rather than charged whole: a panel
-  looking at a week of a month should not show a month of AgentMail. The
-  channels are counted apart (`Team.Comms.channel_counts/0`) because the two
-  providers charge differently and a contact can hold either, neither or both.
+  turns burned, what packs sold, and the deferred balance — money taken and
+  not yet burned, which is a liability rather than revenue until it is.
 
   **Platform inference** is the one cost that is not priced from the rate
   card at all: it is read straight off the `burn_inference` ledger rows
@@ -89,13 +76,6 @@ defmodule Fountain.Billing.Finance do
   the panel exists to show that inference is passed through and sandbox time
   is where the margin is.
 
-  **Messages** are per-send, from the `comms_messages` rows the ledger also
-  prices (`FountainWeb.TeamCommsMcpController`, `Team.Comms.Inbound`). Inbound
-  counts: AgentPhone charges to receive. They moved off `usage_events` with
-  the pricer in #1143 — counting cost from a table whose writer can drop a row
-  while revenue reads one that cannot would put a discrepancy inside the view
-  built to find them.
-
   ## Cost, ownership and the tenants that are not there
 
   Sandbox seconds whose owner has been deleted keep a `nil` `user_id` all the
@@ -106,7 +86,7 @@ defmodule Fountain.Billing.Finance do
 
   ## Cost
 
-  `summary/1` is four queries plus the two `SandboxUsage.attribution/3`
+  `summary/1` is two queries plus the two `SandboxUsage.attribution/3`
   already runs — one pass for every tenant, not a query per row. The finance
   panel refreshes on a timer, and so does `/admin`.
   """
@@ -117,7 +97,6 @@ defmodule Fountain.Billing.Finance do
   alias Fountain.Billing
   alias Fountain.Billing.SandboxUsage
   alias Fountain.Repo
-  alias Fountain.Team.{Comms, CommsMessage}
 
   @typedoc "One tenant's money for a period. Every `*_cents` may be `nil` when the rate card is silent."
   @type tenant_row :: %{
@@ -132,14 +111,7 @@ defmodule Fountain.Billing.Finance do
           credit_balance_cents: integer(),
           active_hours: float(),
           idle_hours: float(),
-          inboxes: non_neg_integer(),
-          numbers: non_neg_integer(),
-          emails_sent: non_neg_integer(),
-          sms_sent: non_neg_integer(),
-          sms_received: non_neg_integer(),
           sandbox_cost_cents: non_neg_integer() | nil,
-          contact_cost_cents: non_neg_integer() | nil,
-          message_cost_cents: non_neg_integer() | nil,
           inference_cost_cents: non_neg_integer(),
           cost_cents: non_neg_integer() | nil,
           margin_cents: integer() | nil
@@ -153,21 +125,10 @@ defmodule Fountain.Billing.Finance do
   """
   @spec rate_card() :: %{
           providers: %{optional(String.t()) => non_neg_integer()},
-          basis: :active | :turn,
-          inbox_month: non_neg_integer() | nil,
-          number_month: non_neg_integer() | nil,
-          email: non_neg_integer() | nil,
-          sms: non_neg_integer() | nil
+          basis: :active | :turn
         }
   def rate_card(basis \\ nil) do
-    %{
-      providers: provider_rates(),
-      basis: basis || default_basis(),
-      inbox_month: rate(:agentmail_inbox_cents),
-      number_month: rate(:agentphone_number_cents),
-      email: rate(:agentmail_message_cents),
-      sms: rate(:agentphone_message_cents)
-    }
+    %{providers: provider_rates(), basis: basis || default_basis()}
   end
 
   @doc """
@@ -199,28 +160,12 @@ defmodule Fountain.Billing.Finance do
   not an error.
   """
   @spec priced?() :: boolean()
-  def priced? do
-    card = rate_card()
-
-    card.providers != %{} or
-      Enum.any?([card.inbox_month, card.number_month, card.email, card.sms], &(&1 != nil))
-  end
+  def priced?, do: rate_card().providers != %{}
 
   defp provider_rates do
     case Application.get_env(:fountain, :provider_hourly_cents) do
       map when is_map(map) -> map
       _ -> %{}
-    end
-  end
-
-  # Fractional cents are the normal case, not an edge one: AgentMail bills
-  # around $0.002 an email, so a whole-cent rate rounds it to zero and the
-  # panel reports email as free. Rates stay fractional through the
-  # arithmetic; each cost component rounds to whole cents once, at the end.
-  defp rate(key) do
-    case Application.get_env(:fountain, key) do
-      cents when is_number(cents) and cents >= 0 -> cents
-      _ -> nil
     end
   end
 
@@ -255,8 +200,6 @@ defmodule Fountain.Billing.Finance do
     fraction = period_fraction(period_start, period_end, now)
 
     usage = usage_by_user(rows)
-    channels = Comms.channel_counts()
-    messages = message_counts(period_start, period_end)
     ledger = ledger_by_user(period_start, period_end)
 
     tenants =
@@ -265,11 +208,8 @@ defmodule Fountain.Billing.Finance do
         &tenant_row(
           &1,
           Map.get(usage, &1.id, empty_usage()),
-          Map.get(channels, &1.id, %{inboxes: 0, numbers: 0}),
-          Map.get(messages, &1.id, empty_messages()),
           Map.get(ledger, &1.id, empty_ledger()),
-          card,
-          fraction
+          card
         )
       )
       |> Enum.sort_by(&sort_key/1)
@@ -298,8 +238,8 @@ defmodule Fountain.Billing.Finance do
 
   @doc """
   Revenue is credit (ADR 0031): what was **sold** (packs, cash in — a
-  liability until burned), what was **earned** (credit burned by turns, rent
-  and messages), and what comps cost (burn on comped accounts, which nobody
+  liability until burned), what was **earned** (credit burned by turns and
+  inference), and what comps cost (burn on comped accounts, which nobody
   paid for). There is no MRR.
   """
   @spec revenue([tenant_row()]) :: map()
@@ -339,17 +279,10 @@ defmodule Fountain.Billing.Finance do
         if(card.basis == :active,
           do: sum_or_nil(paid, &provider_cost_cents(&1.idle_seconds, &1.provider, card))
         ),
-      contact_cents: sum_or_nil(tenants, & &1.contact_cost_cents),
-      message_cents: sum_or_nil(tenants, & &1.message_cost_cents),
       # What the platform inference keys cost this period (#1388). Equal to
       # the `burn_inference` credit inside `revenue.earned_cents`, because
       # inference is sold at cost.
       inference_cents: tenants |> Enum.map(& &1.inference_cost_cents) |> Enum.sum(),
-      inboxes: tenants |> Enum.map(& &1.inboxes) |> Enum.sum(),
-      numbers: tenants |> Enum.map(& &1.numbers) |> Enum.sum(),
-      emails_sent: tenants |> Enum.map(& &1.emails_sent) |> Enum.sum(),
-      sms_sent: tenants |> Enum.map(& &1.sms_sent) |> Enum.sum(),
-      sms_received: tenants |> Enum.map(& &1.sms_received) |> Enum.sum(),
       by_provider: SandboxUsage.by_provider(rows)
     }
   end
@@ -427,22 +360,20 @@ defmodule Fountain.Billing.Finance do
 
   ## ── one tenant ──────────────────────────────────────────────────────────
 
-  defp tenant_row(user, usage, channels, messages, ledger, card, fraction) do
+  defp tenant_row(user, usage, ledger, card) do
     sandbox_cost =
       sum_or_nil(
         usage.by_provider,
         &provider_cost_cents(billed_seconds(&1, card.basis), &1.provider, card)
       )
 
-    contact_cost = contact_cost_cents(channels, card, fraction)
-    message_cost = message_cost_cents(messages, card)
     turn_seconds = billable_turn_seconds(usage)
 
     # Never nil: the inference bill is read off the ledger rather than priced
-    # from a rate card, so unlike the three above it is always known.
+    # from a rate card, so unlike the sandbox cost it is always known.
     inference_cost = ledger.inference
 
-    cost = add_or_nil([sandbox_cost, contact_cost, message_cost, inference_cost])
+    cost = add_or_nil([sandbox_cost, inference_cost])
 
     # Earned revenue is credit burned, unless the account is comped and the
     # burn was never paid for.
@@ -460,14 +391,7 @@ defmodule Fountain.Billing.Finance do
       credit_balance_cents: user.credit_balance_cents,
       active_hours: SandboxUsage.hours(usage.active_seconds),
       idle_hours: SandboxUsage.hours(usage.idle_seconds),
-      inboxes: channels.inboxes,
-      numbers: channels.numbers,
-      emails_sent: messages.emails_sent,
-      sms_sent: messages.sms_sent,
-      sms_received: messages.sms_received,
       sandbox_cost_cents: sandbox_cost,
-      contact_cost_cents: contact_cost,
-      message_cost_cents: message_cost,
       inference_cost_cents: inference_cost,
       cost_cents: cost,
       margin_cents: cost && revenue_cents - cost
@@ -487,8 +411,6 @@ defmodule Fountain.Billing.Finance do
     |> Enum.sum()
   end
 
-  # Monthly charges, pro-rated to the window. Zero units costs zero whether or
-  # not there is a rate — a tenant with no inbox is not unpriced.
   ## ── pricing helpers ─────────────────────────────────────────────────────
 
   # Which seconds a provider rate multiplies. The two row shapes in play name
@@ -512,43 +434,6 @@ defmodule Fountain.Billing.Finance do
       true -> nil
     end
   end
-
-  # Monthly charges, pro-rated to the window. Zero units costs zero whether or
-  # not there is a rate — a tenant with no inbox is not unpriced.
-  defp contact_cost_cents(%{inboxes: 0, numbers: 0}, _card, _fraction), do: 0
-
-  defp contact_cost_cents(%{inboxes: inboxes, numbers: numbers}, card, fraction) do
-    add_or_nil([
-      monthly_cost(inboxes, card.inbox_month, fraction),
-      monthly_cost(numbers, card.number_month, fraction)
-    ])
-  end
-
-  @doc false
-  def monthly_cost(0, _cents, _fraction), do: 0
-  def monthly_cost(_units, nil, _fraction), do: nil
-  def monthly_cost(units, cents, fraction), do: round(units * cents * fraction)
-
-  defp message_cost_cents(%{emails_sent: 0, sms_sent: 0, sms_received: 0}, _card), do: 0
-
-  defp message_cost_cents(messages, card) do
-    # Rounded once from the total rather than per channel: at $0.002 an email,
-    # rounding each channel first turns 400 emails and 10 texts into `0 + 20`
-    # instead of `80 + 20`.
-    [
-      per_message(messages.emails_sent, card.email),
-      # AgentPhone charges "$0.02/message (inbound and outbound)", so both
-      # directions are billed at the one rate.
-      per_message(messages.sms_sent + messages.sms_received, card.sms)
-    ]
-    |> add_or_nil()
-    |> then(&(&1 && round(&1)))
-  end
-
-  @doc false
-  def per_message(0, _cents), do: 0
-  def per_message(_count, nil), do: nil
-  def per_message(count, cents), do: count * cents
 
   # `nil` is contagious: a total missing one of its parts is not a total. It
   # must not silently become the sum of the parts that happened to be priced.
@@ -575,41 +460,6 @@ defmodule Fountain.Billing.Finance do
         }
     )
   end
-
-  # Message counts per tenant for the period, one grouped query over
-  # `comms_messages` — the same rows the ledger prices (#1143).
-  #
-  # This used to read `usage_events`, and had to move with the pricer. The
-  # panel exists to hold revenue against cost, so counting the cost side from
-  # a table whose writer can silently drop a row while the revenue side reads
-  # a table whose writer cannot would put a discrepancy inside the one view
-  # built to find discrepancies.
-  defp message_counts(period_start, period_end) do
-    from(m in CommsMessage,
-      where:
-        m.inserted_at >= ^period_start and m.inserted_at < ^period_end and
-          not is_nil(m.user_id),
-      group_by: [m.user_id, m.channel, m.direction],
-      select: {m.user_id, m.channel, m.direction, count(m.id)}
-    )
-    |> Repo.all()
-    |> Enum.reduce(%{}, fn {user_id, channel, direction, count}, acc ->
-      counts = Map.get(acc, user_id, empty_messages())
-
-      Map.put(acc, user_id, add_message_count(counts, channel, direction, count))
-    end)
-  end
-
-  defp add_message_count(counts, "email", _direction, n),
-    do: %{counts | emails_sent: counts.emails_sent + n}
-
-  defp add_message_count(counts, "sms", "inbound", n),
-    do: %{counts | sms_received: counts.sms_received + n}
-
-  defp add_message_count(counts, "sms", _outbound, n),
-    do: %{counts | sms_sent: counts.sms_sent + n}
-
-  defp empty_messages, do: %{emails_sent: 0, sms_sent: 0, sms_received: 0}
 
   # One pass over the ledger for the period: cents granted, burned and sold
   # per tenant. Expiries and clawbacks are neither — an expiry is credit that

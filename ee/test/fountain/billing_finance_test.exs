@@ -18,7 +18,6 @@ defmodule Fountain.Billing.FinanceTest do
 
   use Fountain.DataCase, async: false
 
-  alias Fountain.Accounts
   alias Fountain.Billing
   alias Fountain.Billing.Finance
   alias Fountain.Conversations
@@ -38,10 +37,6 @@ defmodule Fountain.Billing.FinanceTest do
       Map.new(
         [
           :provider_hourly_cents,
-          :agentmail_inbox_cents,
-          :agentphone_number_cents,
-          :agentmail_message_cents,
-          :agentphone_message_cents,
           :cost_basis
         ],
         &{&1, Application.get_env(:fountain, &1)}
@@ -109,27 +104,18 @@ defmodule Fountain.Billing.FinanceTest do
     test "a deployment that has set nothing prices nothing" do
       refute Finance.priced?()
 
-      assert %{providers: %{}, inbox_month: nil, number_month: nil, email: nil, sms: nil} =
-               Finance.rate_card()
+      assert %{providers: %{}} = Finance.rate_card()
     end
 
     test "one rate is enough to be priced" do
-      rate_card(agentmail_inbox_cents: 200)
+      rate_card(provider_hourly_cents: %{"sprites" => 200})
       assert Finance.priced?()
     end
 
-    test "a negative or non-integer rate is no rate at all" do
-      rate_card(agentmail_inbox_cents: -1, agentphone_number_cents: "200")
+    test "a fractional rate survives" do
+      rate_card(provider_hourly_cents: %{"sprites" => 10.76})
 
-      assert %{inbox_month: nil, number_month: nil} = Finance.rate_card()
-    end
-
-    test "a fractional rate survives, because per-message rates are fractional" do
-      # AgentMail bills about $0.002 an email. Read as whole cents that is
-      # zero, and every deployment that priced email would report it as free.
-      rate_card(agentmail_message_cents: 0.2, provider_hourly_cents: %{"sprites" => 10.76})
-
-      assert %{email: 0.2, providers: %{"sprites" => 10.76}} = Finance.rate_card()
+      assert %{providers: %{"sprites" => 10.76}} = Finance.rate_card()
       assert Finance.priced?()
     end
 
@@ -262,56 +248,6 @@ defmodule Fountain.Billing.FinanceTest do
       assert row.turn_hours == 0.0
     end
 
-    test "contacts are pro-rated to the window, and counted per channel" do
-      rate_card(agentmail_inbox_cents: 300, agentphone_number_cents: 500)
-      user = subscriber("solo")
-      contact(user, email: true, phone: true)
-      contact(user, email: true, phone: false)
-
-      row = row_for(summary(), user)
-
-      assert row.inboxes == 2
-      assert row.numbers == 1
-      # A full month elapsed, so no pro-rating: 2×300 + 1×500.
-      assert row.contact_cost_cents == 1100
-    end
-
-    test "half a period charges half a month of contacts" do
-      rate_card(agentmail_inbox_cents: 300, agentphone_number_cents: 500)
-      user = subscriber("solo")
-      contact(user, email: true, phone: true)
-
-      halfway = ~U[2026-05-16 12:00:00Z]
-      row = Finance.summary(period: @period, now: halfway) |> row_for(user)
-
-      assert_in_delta row.contact_cost_cents, 400, 5
-    end
-
-    test "no contacts costs zero even with no rate configured" do
-      user = subscriber("solo")
-
-      row = row_for(summary(), user)
-
-      # Nothing bought is a known price, not a missing one — otherwise every
-      # tenant on an unpriced-contacts deployment would have a nil cost.
-      assert row.contact_cost_cents == 0
-    end
-
-    test "sub-cent email rates accumulate instead of rounding away" do
-      # 400 emails at 0.2c is $0.80, not $0. Rounding per channel first would
-      # make the email column zero however much mail an agent sent.
-      rate_card(agentmail_message_cents: 0.2, agentphone_message_cents: 2)
-      user = subscriber("solo")
-
-      message(user, "comms_email_sent", 400)
-      message(user, "comms_sms_sent", 10)
-
-      row = row_for(summary(), user)
-
-      # 400 x 0.2c = 80c, plus 10 texts at 2c = 20c.
-      assert row.message_cost_cents == 100
-    end
-
     test "a fractional provider rate prices the hours it should" do
       rate_card(provider_hourly_cents: %{"sprites" => 10.76})
       user = subscriber("solo")
@@ -319,54 +255,6 @@ defmodule Fountain.Billing.FinanceTest do
 
       # 100 hours at 10.76c, whichever basis — they are equal here.
       assert row_for(summary(), user).sandbox_cost_cents == 1076
-    end
-
-    test "messages are counted each way and priced apart" do
-      rate_card(agentmail_message_cents: 2, agentphone_message_cents: 10)
-      user = subscriber("solo")
-
-      message(user, "comms_email_sent", 3)
-      message(user, "comms_sms_sent", 2)
-      message(user, "comms_sms_received", 4)
-
-      row = row_for(summary(), user)
-
-      assert row.emails_sent == 3
-      assert row.sms_sent == 2
-      assert row.sms_received == 4
-      # 3×2 email, plus 6 SMS both directions at 10.
-      assert row.message_cost_cents == 66
-    end
-
-    test "messages outside the period are not this period's cost" do
-      rate_card(agentmail_message_cents: 2)
-      user = subscriber("solo")
-
-      message(user, "comms_email_sent", 1, ~U[2026-04-15 00:00:00Z])
-      message(user, "comms_email_sent", 1, ~U[2026-05-15 00:00:00Z])
-
-      assert row_for(summary(), user).emails_sent == 1
-    end
-
-    test "the three parts add up to the tenant's cost" do
-      rate_card(
-        provider_hourly_cents: %{"sprites" => 100},
-        agentmail_inbox_cents: 300,
-        agentphone_number_cents: 500,
-        agentmail_message_cents: 2
-      )
-
-      user = subscriber("solo")
-      ran(user, "sprites", 4, 1)
-      contact(user, email: true, phone: true)
-      message(user, "comms_email_sent", 5)
-
-      row = row_for(summary(), user)
-
-      assert row.sandbox_cost_cents == 400
-      assert row.contact_cost_cents == 800
-      assert row.message_cost_cents == 10
-      assert row.cost_cents == 1210
     end
   end
 
@@ -570,46 +458,4 @@ defmodule Fountain.Billing.FinanceTest do
   end
 
   ## ── helpers ──────────────────────────────────────────────────────────────
-
-  defp contact(user, opts) do
-    agent = insert_agent(user_id: user.id)
-    id = System.unique_integer([:positive])
-
-    %Fountain.Team.Contact{}
-    |> Fountain.Team.Contact.changeset(%{
-      user_id: user.id,
-      agent_id: agent.id,
-      email_address: if(opts[:email], do: "t#{id}@example.com"),
-      email_inbox_id: if(opts[:email], do: "inbox_#{id}"),
-      phone_number: if(opts[:phone], do: "+1555000#{rem(id, 10_000)}"),
-      phone_number_id: if(opts[:phone], do: "num_#{id}"),
-      prompt_from_number: "+15551234567"
-    })
-    |> Repo.insert!()
-  end
-
-  # The cost side counts the same `comms_messages` rows the ledger prices
-  # (#1143). The old event-type names are kept as this helper's vocabulary
-  # because the assertions read better in them; they map to the row's
-  # channel/direction pair.
-  defp message(user, event_type, count, at \\ ~U[2026-05-10 00:00:00Z]) do
-    {channel, direction} =
-      case event_type do
-        "comms_email_sent" -> {"email", "outbound"}
-        "comms_sms_sent" -> {"sms", "outbound"}
-        "comms_sms_received" -> {"sms", "inbound"}
-      end
-
-    for _ <- 1..count do
-      %Fountain.Team.CommsMessage{}
-      |> Fountain.Team.CommsMessage.changeset(%{
-        user_id: user.id,
-        channel: channel,
-        direction: direction,
-        provider_message_id: "prov-#{System.unique_integer([:positive])}",
-        inserted_at: at
-      })
-      |> Repo.insert!()
-    end
-  end
 end

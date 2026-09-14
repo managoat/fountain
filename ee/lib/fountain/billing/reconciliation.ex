@@ -96,37 +96,15 @@ defmodule Fountain.Billing.Reconciliation do
     end
   end
 
-  # Sandbox providers from the attribution roll-up at the summary's basis;
-  # AgentMail is inboxes plus email, AgentPhone numbers plus SMS. Priced by
-  # `Finance`'s own functions so the two can never round differently.
+  # Sandbox providers from the attribution roll-up at the summary's basis.
+  # Priced by `Finance`'s own function so the two can never round differently.
   defp computed_by_provider(summary) do
     card = summary.rate_card
-    cost = summary.cost
-    fraction = summary.period_fraction
 
-    sandboxes =
-      Map.new(cost.by_provider, fn {provider, totals} ->
-        seconds = if(card.basis == :turn, do: totals.busy_seconds, else: totals.active_seconds)
-        {provider, Finance.provider_cost_cents(seconds, provider, card)}
-      end)
-
-    agentmail =
-      add([
-        Finance.monthly_cost(cost.inboxes, card.inbox_month, fraction),
-        Finance.per_message(cost.emails_sent, card.email)
-      ])
-
-    agentphone =
-      add([
-        Finance.monthly_cost(cost.numbers, card.number_month, fraction),
-        Finance.per_message(cost.sms_sent + cost.sms_received, card.sms)
-      ])
-
-    sandboxes |> Map.put("agentmail", agentmail) |> Map.put("agentphone", agentphone)
-  end
-
-  defp add(parts) do
-    if Enum.any?(parts, &is_nil/1), do: nil, else: Enum.sum(parts)
+    Map.new(summary.cost.by_provider, fn {provider, totals} ->
+      seconds = if(card.basis == :turn, do: totals.busy_seconds, else: totals.active_seconds)
+      {provider, Finance.provider_cost_cents(seconds, provider, card)}
+    end)
   end
 
   @doc """

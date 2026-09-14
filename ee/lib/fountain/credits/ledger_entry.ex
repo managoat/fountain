@@ -47,7 +47,7 @@ defmodule Fountain.Credits.LedgerEntry do
   # `Fountain.Credits.InferenceRates`. A turn on the tenant's own credential
   # burns none of it — Fountain paid nothing — so it sits beside `burn_turn`
   # rather than inside it.
-  @debit_reasons ~w(burn_turn burn_inference burn_rent burn_message burn_grant expire clawback_refund clawback_dispute)
+  @debit_reasons ~w(burn_turn burn_inference burn_grant expire clawback_refund clawback_dispute)
 
   @doc "Reasons that put money in. Every one is a positive row."
   def credit_reasons, do: @credit_reasons

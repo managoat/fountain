@@ -172,18 +172,13 @@ services:
       # the three; the third is the broker below.
       FEATURE_FLAGS_ON: ${FEATURE_FLAGS_ON:-}
 
-      # Teammate email and phone. A teammate contact is rented from the credit
-      # balance (ADR 0030), so the _CENTS knobs matter only with CREDITS_ENABLED.
+      # Teammate email and phone.
       AGENTMAIL_API_KEY: ${AGENTMAIL_API_KEY:-}
       AGENTMAIL_BASE_URL: ${AGENTMAIL_BASE_URL:-}
       AGENTMAIL_DOMAIN: ${AGENTMAIL_DOMAIN:-}
-      AGENTMAIL_INBOX_CENTS: ${AGENTMAIL_INBOX_CENTS:-}
-      AGENTMAIL_MESSAGE_CENTS: ${AGENTMAIL_MESSAGE_CENTS:-}
       AGENTPHONE_API_KEY: ${AGENTPHONE_API_KEY:-}
       AGENTPHONE_BASE_URL: ${AGENTPHONE_BASE_URL:-}
       AGENTPHONE_WEBHOOK_SECRET: ${AGENTPHONE_WEBHOOK_SECRET:-}
-      AGENTPHONE_MESSAGE_CENTS: ${AGENTPHONE_MESSAGE_CENTS:-}
-      AGENTPHONE_NUMBER_CENTS: ${AGENTPHONE_NUMBER_CENTS:-}
 
       # Brokered credentials (ADR 0019): the real token never enters the
       # sandbox. BROKER_ALLOW_UNENFORCED is a development escape hatch and

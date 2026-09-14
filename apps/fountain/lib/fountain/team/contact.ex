@@ -32,11 +32,6 @@ defmodule Fountain.Team.Contact do
     # Set when the registered number texted STOP; cleared by START or by a
     # fresh number (new consent). While set, its texts are not prompts.
     field :prompt_opted_out_at, :utc_datetime
-    # Rent (ADR 0030 decision 4): when the next month is due, and when a
-    # missed debit started the grace period. Written by
-    # `Fountain.Credits.Rent`, never cast from user input.
-    field :rent_paid_through, :utc_datetime
-    field :rent_due_at, :utc_datetime
 
     belongs_to :user, Fountain.Accounts.User
     belongs_to :agent, Fountain.Agents.Agent

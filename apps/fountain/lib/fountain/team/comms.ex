@@ -146,54 +146,6 @@ defmodule Fountain.Team.Comms do
     |> Map.new()
   end
 
-  @doc """
-  The two channels counted apart, for every tenant holding at least one
-  contact: `%{user_id => %{inboxes: n, numbers: n}}`.
-
-  `contact_counts/0` answers the *ceiling* question — a contact is one unit
-  whatever channels it ended up with. This answers the *cost* one, which
-  is a different number: AgentMail charges per inbox and AgentPhone per
-  number, at rates that have nothing to do with each other, so
-  `Fountain.Billing.Finance` cannot price a bare contact count.
-
-  The two usually agree. They come apart exactly where the schema says they
-  can: `provision_contact/4` is all-or-nothing, but a contact whose number was
-  later released keeps its inbox, and `Contact.email?/1` / `phone?/1` are what
-  decide either way. The counts here apply the same test in SQL — a null or
-  empty provider id is not a channel — so a half-released contact is billed
-  for the half that still exists.
-
-  One query, like `contact_counts/0`, and for the same reason: the finance
-  panel renders a row per tenant.
-  """
-  @spec channel_counts() :: %{
-          optional(binary()) => %{inboxes: non_neg_integer(), numbers: non_neg_integer()}
-        }
-  def channel_counts do
-    from(c in Contact,
-      group_by: c.user_id,
-      select: {
-        c.user_id,
-        %{
-          inboxes:
-            fragment(
-              "count(*) filter (where ? is not null and ? <> '')",
-              c.email_inbox_id,
-              c.email_inbox_id
-            ),
-          numbers:
-            fragment(
-              "count(*) filter (where ? is not null and ? <> '')",
-              c.phone_number_id,
-              c.phone_number_id
-            )
-        }
-      }
-    )
-    |> Repo.all()
-    |> Map.new()
-  end
-
   @doc "Contacts for many teammates at once, `%{agent_id => %Contact{}}`."
   def contacts_by_agent(user_id, agent_ids) when is_binary(user_id) and is_list(agent_ids) do
     from(c in Contact, where: c.user_id == ^user_id and c.agent_id in ^agent_ids)
@@ -226,9 +178,6 @@ defmodule Fountain.Team.Comms do
          %{name: name} = teammate <- Team.get_teammate(user_id, agent_id) || {:error, :not_found},
          :ok <- ensure_no_contact(user_id, agent_id),
          :ok <- check_contact_ceiling(user_id),
-         # A month of rent up front (ADR 0030 decision 4); refuses only
-         # under enforcement when the balance cannot cover it.
-         :ok <- Fountain.Credits.Rent.check_provision(user_id),
          {:ok, requested} <-
            Ecto.Changeset.apply_action(Contact.request_changeset(attrs), :insert),
          {:ok, inbox} <- create_inbox(name, teammate, opts),
@@ -253,7 +202,6 @@ defmodule Fountain.Team.Comms do
             "prompt_from_number" => not is_nil(contact.prompt_from_number)
           })
 
-          contact = charge_first_month(contact)
           Team.broadcast_changed(user_id)
           {:ok, contact}
 
@@ -429,9 +377,8 @@ defmodule Fountain.Team.Comms do
   end
 
   # The ceiling on how many teammates may hold a contact at once
-  # (`TEAM_CONTACT_CEILING`, ADR 0031). Contacts are rented from the balance
-  # a month at a time, so this is not an allowance — it is the bound on how
-  # much Fountain can be made to buy in one burst.
+  # (`TEAM_CONTACT_CEILING`): the bound on how much Fountain can be made to
+  # buy in one burst.
   defp check_contact_ceiling(user_id) do
     limit = Application.get_env(:fountain, :team_contact_ceiling, 10)
     count = contact_count(user_id)
@@ -441,24 +388,6 @@ defmodule Fountain.Team.Comms do
     else
       {:error, {:contact_limit_reached, %{count: count, limit: limit}}}
     end
-  end
-
-  # The first month's rent, after the row is committed (ADR 0030 decision
-  # 4). Best-effort by rescuing: the providers have already handed over a
-  # number, and a ledger hiccup must not strand it; the daily rent pass
-  # charges a never-charged contact from its next sweep.
-  defp charge_first_month(%Contact{} = contact) do
-    case Fountain.Credits.Rent.charge(contact, contact.inserted_at, actor: "system:credit_rent") do
-      {:ok, %Contact{} = charged} -> charged
-      _ -> contact
-    end
-  rescue
-    error ->
-      Logger.warning(
-        "first month rent failed for contact #{contact.id}: #{Exception.message(error)}"
-      )
-
-      contact
   end
 
   defp ensure_no_contact(user_id, agent_id) do

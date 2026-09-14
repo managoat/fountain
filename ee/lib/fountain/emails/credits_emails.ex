@@ -10,8 +10,6 @@ defmodule Fountain.Emails.CreditsEmails do
   - Welcome (once, on the verification transition, from `Workers.WelcomeEmail`)
   - Credits low and credits exhausted (from `Workers.CreditsEmail`, after a
     burn crosses the threshold or zero)
-  - Rent due (from `Workers.CreditsEmail`, on days 0, 3 and 6 of the grace
-    for a teammate's number or inbox)
 
   Shares `UserEmails.from_address/0` and `UserEmails.support_phrase/0` so the
   whole mail surface keeps one sender and one support-contact policy.
@@ -195,77 +193,6 @@ defmodule Fountain.Emails.CreditsEmails do
     Buy credits: #{billing_url}
 
     Credits you buy never expire and are spent after any credit that does.
-    """
-  end
-
-  @doc """
-  Rent for a teammate's number and inbox could not be paid; `days_left` of
-  the grace remain before the contact is released (ADR 0030 decision 4).
-  """
-  @spec deliver_rent_due_email(User.t(), Fountain.Team.Contact.t(), non_neg_integer()) ::
-          {:ok, term()} | {:error, term()}
-  def deliver_rent_due_email(%User{} = user, contact, days_left) do
-    billing_url = "#{Fountain.PublicUrl.base()}/account/billing"
-
-    what =
-      [contact.phone_number, contact.email_address]
-      |> Enum.reject(&is_nil/1)
-      |> Enum.join(" and ")
-
-    rent = Fountain.Credits.format_cents(Fountain.Credits.Rent.month_cents())
-
-    when_ =
-      case days_left do
-        0 -> "today"
-        1 -> "tomorrow"
-        n -> "in #{n} days"
-      end
-
-    new()
-    |> from(UserEmails.from_address())
-    |> to({user.email, user.email})
-    |> subject("Your teammate's number will be released #{when_}")
-    |> html_body(rent_due_html(what, rent, when_, billing_url))
-    |> text_body(rent_due_text(what, rent, when_, billing_url))
-    |> Mailer.deliver()
-  end
-
-  defp rent_due_html(what, rent, when_, billing_url) do
-    """
-    <!DOCTYPE html>
-    <html>
-    <body style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 24px;">
-      <h2>Your teammate's number will be released #{when_}</h2>
-      <p>
-        The monthly rent of <strong>#{rent}</strong> for <strong>#{what}</strong> could
-        not be taken from your credit balance. If the balance is still short #{when_},
-        the number and inbox are released, and a released number cannot be recovered.
-      </p>
-      <p style="margin: 32px 0;">
-        <a href="#{billing_url}"
-           style="background: #18181b; color: #fff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-size: 14px;">
-          Buy credits
-        </a>
-      </p>
-      <p style="color: #71717a; font-size: 13px;">
-        As soon as the balance covers the rent, it is paid and the number stays.
-      </p>
-    </body>
-    </html>
-    """
-  end
-
-  defp rent_due_text(what, rent, when_, billing_url) do
-    """
-    Your teammate's number will be released #{when_}
-
-    The monthly rent of #{rent} for #{what} could not be taken from your
-    credit balance. If the balance is still short #{when_}, the number and
-    inbox are released, and a released number cannot be recovered.
-
-    Buy credits: #{billing_url}
-
-    As soon as the balance covers the rent, it is paid and the number stays.
     """
   end
 end

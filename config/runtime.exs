@@ -863,9 +863,7 @@ case System.get_env("STRIPE_WEBHOOK_SECRET") do
     config :stripity_stripe, webhook_secret: secret
 end
 
-# Cents, whole or fractional. Fractional is the normal case for a per-message
-# rate: AgentMail bills about $0.002 an email, which as a whole number of cents
-# is zero, and the panel would report email as free.
+# Cents, whole or fractional.
 parse_cents = fn var, raw ->
   trimmed = String.trim(raw)
 
@@ -906,28 +904,9 @@ config :fountain,
        :cost_basis,
        if(System.get_env("PROVIDER_COST_BASIS") == "turn", do: :turn, else: :active)
 
-# Teammate contacts: what AgentMail charges per inbox per month, AgentPhone
-# per number per month, and each of them per message. The monthly pair is
-# pro-rated to whatever window the panel is showing; messages are counted from
-# the `comms_*` usage events. Unset means unpriced, which the panel reports as
-# `—` rather than as free.
-contact_rate = fn var ->
-  case System.get_env(var) do
-    value when value in [nil, ""] -> nil
-    value -> parse_cents.(var, value)
-  end
-end
-
-config :fountain, :agentmail_inbox_cents, contact_rate.("AGENTMAIL_INBOX_CENTS")
-config :fountain, :agentphone_number_cents, contact_rate.("AGENTPHONE_NUMBER_CENTS")
-config :fountain, :agentmail_message_cents, contact_rate.("AGENTMAIL_MESSAGE_CENTS")
-config :fountain, :agentphone_message_cents, contact_rate.("AGENTPHONE_MESSAGE_CENTS")
-
 # Prepaid credits (ADR 0030): what the *customer* pays, in whole cents, as
 # distinct from the provider costs above. CREDIT_TURN_HOUR_CENTS is one hour
 # of turn time (default 25, a placeholder until #1038 gives a cost number).
-# The four comms prices default to unset, and unset burns nothing: contacts
-# bill nothing today and turning a price on is a price increase (#1042).
 # CREDIT_PACKS_CENTS lists the packs a tenant can buy, e.g. "1000,2500,10000".
 credit_cents = fn var ->
   case System.get_env(var) do
@@ -1039,10 +1018,6 @@ config :fountain, :credits,
   opening_cents: credit_cents.("CREDIT_OPENING_CENTS") || 500,
   opening_days: credit_cents.("CREDIT_OPENING_DAYS") || 14,
   turn_hour_cents: credit_cents.("CREDIT_TURN_HOUR_CENTS") || 25,
-  number_cents: credit_cents.("CREDIT_NUMBER_CENTS"),
-  inbox_cents: credit_cents.("CREDIT_INBOX_CENTS"),
-  email_message_cents: credit_cents.("CREDIT_EMAIL_MESSAGE_CENTS"),
-  sms_message_cents: credit_cents.("CREDIT_SMS_MESSAGE_CENTS"),
   packs_cents: credit_packs
 
 # Claimable principals (ADR 0044). Defaults match config.exs; a deployment

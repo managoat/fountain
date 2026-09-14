@@ -14,7 +14,7 @@ defmodule Fountain.Credits.Telemetry do
   ### `[:fountain, :credits, :worker, :run]`
 
   "Did this worker run?" One event per pass, tagged `worker`
-  (`pricer` / `expirer` / `rent`), carrying `last_run_unix` and `total` (the
+  (`pricer` / `expirer`), carrying `last_run_unix` and `total` (the
   rows it wrote). `last_run_unix` is a wall-clock stamp rather than a counter
   because the alert is a staleness one, and a gauge survives a worker that
   never fires at all, which is exactly the case a counter cannot express.
@@ -28,14 +28,14 @@ defmodule Fountain.Credits.Telemetry do
   "Did money actually move?" Emitted by `Fountain.Credits.post/4` at the
   ledger write, not by a worker counting its own output, so the measurement
   cannot drift from the ledger. Tagged by `reason`, which is a closed
-  vocabulary, so one event answers turns, inference, messages, rent, expiry,
-  grants and purchases.
+  vocabulary, so one event answers turns, inference, expiry, grants and
+  purchases.
 
   That split is the point. A worker can run on schedule and still be broken,
   which is why "it ran" and "money moved" have to be separate signals.
   """
 
-  @workers ~w(pricer expirer rent)
+  @workers ~w(pricer expirer)
 
   @doc """
   Report that a credit worker finished a pass.

@@ -577,7 +577,7 @@
     {
       "type": "timeseries",
       "title": "Money through the ledger per hour, by reason",
-      "description": "Measured at the ledger write in Credits.post/4, not from a worker counting its own output, so it cannot drift from the ledger. reason is a closed vocabulary, so these lines are the whole story: burn_turn, burn_inference, burn_message and burn_rent take money out, grant_opening, grant_admin and purchase put it in, and expire, clawback_refund and clawback_dispute take back what was never spent. Every line is a positive number; direction is a separate label. A flat zero on burn_turn while turns complete is the signal FountainCreditPricerPricedNothing pages on.",
+      "description": "Measured at the ledger write in Credits.post/4, not from a worker counting its own output, so it cannot drift from the ledger. reason is a closed vocabulary, so these lines are the whole story: burn_turn and burn_inference take money out, grant_opening, grant_admin and purchase put it in, and expire, clawback_refund and clawback_dispute take back what was never spent. Every line is a positive number; direction is a separate label. A flat zero on burn_turn while turns complete is the signal FountainCreditPricerPricedNothing pages on.",
       "gridPos": {
         "h": 7,
         "w": 16,

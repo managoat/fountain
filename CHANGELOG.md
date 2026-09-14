@@ -28,6 +28,17 @@ upgrade, is in
   `MARKETING_SITE=true` keeps one job: the manual's header and footer link
   the site's pages. Nothing in `docs/` linked the retired routes.
 
+- **Teammate contacts are no longer rented, and messages are no longer
+  priced.** `CREDIT_NUMBER_CENTS`, `CREDIT_INBOX_CENTS`,
+  `CREDIT_EMAIL_MESSAGE_CENTS`, `CREDIT_SMS_MESSAGE_CENTS`,
+  `AGENTMAIL_INBOX_CENTS`, `AGENTPHONE_NUMBER_CENTS`,
+  `AGENTMAIL_MESSAGE_CENTS` and `AGENTPHONE_MESSAGE_CENTS` are no longer
+  read. The daily rent collector, the rent-due email and the finance panel's
+  contact and message lines are gone, and the ledger writes no `burn_rent` or
+  `burn_message` rows. Rows already written keep their reason. Team comms
+  itself (numbers, inboxes and the teammate tools) is removed in a following
+  change.
+
 - **A sandbox without a recorded build fingerprint now requires an explicit
   rebuild before configuration reapply** (#2102). The API returns
   `409 rebuild_required` with `field: "environment"` and a missing-build-evidence

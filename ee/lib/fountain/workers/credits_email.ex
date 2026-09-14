@@ -21,30 +21,13 @@ defmodule Fountain.Workers.CreditsEmail do
 
   alias Fountain.{Accounts, Credits, Emails.CreditsEmails}
 
-  @emails ~w(credits_low credits_exhausted rent_due)
+  @emails ~w(credits_low credits_exhausted)
 
   def emails, do: @emails
 
   @spec enqueue(String.t(), String.t()) :: {:ok, Oban.Job.t()} | {:error, term()}
   def enqueue(user_id, email) when is_binary(user_id) and email in @emails do
     %{"user_id" => user_id, "email" => email} |> new() |> Oban.insert()
-  end
-
-  @doc """
-  A rent reminder for one contact: `days_left` of the grace remain. Unique
-  per contact and day so the daily sweep cannot double-send.
-  """
-  @spec enqueue_rent_due(String.t(), String.t(), non_neg_integer()) ::
-          {:ok, Oban.Job.t()} | {:error, term()}
-  def enqueue_rent_due(user_id, contact_id, days_left) do
-    %{
-      "user_id" => user_id,
-      "email" => "rent_due",
-      "contact_id" => contact_id,
-      "days_left" => days_left
-    }
-    |> new(unique: [period: 2 * 86_400, fields: [:args]])
-    |> Oban.insert()
   end
 
   @doc """
@@ -76,24 +59,6 @@ defmodule Fountain.Workers.CreditsEmail do
   end
 
   @impl Oban.Worker
-  def perform(%Oban.Job{
-        args: %{
-          "user_id" => user_id,
-          "email" => "rent_due",
-          "contact_id" => contact_id,
-          "days_left" => days_left
-        }
-      }) do
-    with %{} = user <- Accounts.get_user(user_id),
-         %{rent_due_at: %DateTime{}} = contact <-
-           Fountain.Repo.get(Fountain.Team.Contact, contact_id) do
-      CreditsEmails.deliver_rent_due_email(user, contact, days_left) |> log(user, "rent_due")
-    else
-      # Paid or released in the meantime: the reminder would be a lie.
-      _ -> :ok
-    end
-  end
-
   def perform(%Oban.Job{args: %{"user_id" => user_id, "email" => email}}) when email in @emails do
     case Accounts.get_user(user_id) do
       nil ->

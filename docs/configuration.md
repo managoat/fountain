@@ -143,15 +143,11 @@ at a dead end, with no error to see. Read [Email](guides/operate/email.md).
 
 | Variable | Default | Required | Effect |
 |---|---|---|---|
-| `CREDITS_ENABLED` | `false` | — | Credits on. Off by default: on a self-hosted instance there is nothing to sell. On, every account holds a credit balance, turns and contacts burn it, and a zero balance refuses new work. |
+| `CREDITS_ENABLED` | `false` | — | Credits on. Off by default: on a self-hosted instance there is nothing to sell. On, every account holds a credit balance, turns burn it, and a zero balance refuses new work. |
 | `STRIPE_SECRET_KEY` | — | For billing. | The Stripe API key. |
 | `STRIPE_WEBHOOK_SECRET` | — | For billing. | Verifies the signature on a `POST /api/stripe/webhook`. |
 | `PROVIDER_HOURLY_CENTS` | — | No. | What you pay each sandbox provider, in cents per sandbox hour, as `sprites=10.76,e2b=5.45`. Rates can be fractional. A provider you leave out stays unpriced. |
 | `PROVIDER_COST_BASIS` | `active` | No. | Which hours the provider rate multiplies. An `active` counts every hour a sandbox was awake. A `turn` counts only the hours with a prompt in flight. Use `turn` where the provider drops to near-zero between prompts. |
-| `AGENTMAIL_INBOX_CENTS` | — | No. | What AgentMail charges for one inbox each month, in cents. |
-| `AGENTPHONE_NUMBER_CENTS` | — | No. | What AgentPhone charges for one number each month, in cents. |
-| `AGENTMAIL_MESSAGE_CENTS` | — | No. | What AgentMail charges for one email, in cents. Give the fraction, such as `0.2` for $2 per 1,000 emails. A whole number rounds this rate to zero. |
-| `AGENTPHONE_MESSAGE_CENTS` | — | No. | What AgentPhone charges for one SMS, in cents. Fountain counts an inbound message too, because AgentPhone charges for it. |
 | `SANDBOX_RESERVE_CENTS` | `200` | No. | The credit one live sandbox needs in the balance. A tenant may run `balance / reserve` sandboxes at once, between the floor and the ceiling. |
 | `SANDBOX_CAP_FLOOR` | `2` | No. | The fewest sandboxes a tenant with a positive balance may run at once. |
 | `SANDBOX_CAP_CEILING` | `20` | No. | The most sandboxes one tenant may run at once, unless an admin override raises it. |
@@ -166,10 +162,6 @@ at a dead end, with no error to see. Read [Email](guides/operate/email.md).
 | `TEAM_CONTACT_CEILING` | `10` | No. | The most teammate contacts one account may hold at once. |
 | `BUZZ_IDENTITY_CEILING` | `10` | No. | The most hosted Buzz agents one account may run at once. Each one is a permanent process on the Fountain pods. |
 | `CREDIT_TURN_HOUR_CENTS` | `25` | No. | What a tenant pays for one hour of turn time, in whole cents, from their prepaid balance. |
-| `CREDIT_NUMBER_CENTS` | — | No. | What a tenant pays for one phone number each month, in whole cents. Unset means the number burns nothing. |
-| `CREDIT_INBOX_CENTS` | — | No. | What a tenant pays for one inbox each month, in whole cents. Unset means the inbox burns nothing. |
-| `CREDIT_EMAIL_MESSAGE_CENTS` | — | No. | What a tenant pays for one email, in whole cents. Unset means an email burns nothing. |
-| `CREDIT_SMS_MESSAGE_CENTS` | — | No. | What a tenant pays for one SMS, sent or received, in whole cents. Unset means an SMS burns nothing. |
 | `CREDIT_PACKS_CENTS` | `1000,2500,10000` | No. | The credit packs a tenant can buy, in cents, as a list. |
 | `PRINCIPAL_DEFAULT_TTL_SECONDS` | `86400` | No. | How long a claimable principal lasts when the application names no `expires_in`. |
 | `PRINCIPAL_MAX_TTL_SECONDS` | `604800` | No. | The longest a claimable principal may last. Fountain clamps a longer `expires_in` to this. |
@@ -186,13 +178,11 @@ The admin finance panel at `/admin/finance` holds them next to your revenue,
 per tenant. The panel switches between the two hour bases per view. Compare
 both totals against a real invoice, then keep the basis that matches.
 
-Each rate can be fractional. Per-message rates usually are, and a whole number
-rounds them to zero.
+Each rate can be fractional.
 
-Set none of them and the panel still works. It shows hours, inboxes, numbers
-and message counts, and it shows `—` in each money column. A rate you do not
-set stays `—` and never becomes `$0`, because a cost of zero and a cost nobody
-told us about are different facts.
+Set none of them and the panel still works. It shows hours, and it shows `—`
+in each money column. A rate you do not set stays `—` and never becomes `$0`,
+because a cost of zero and a cost nobody told us about are different facts.
 
 ## Platform inference
 

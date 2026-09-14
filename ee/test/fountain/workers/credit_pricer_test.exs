@@ -1,6 +1,6 @@
 defmodule Fountain.Workers.CreditPricerTest do
   @moduledoc """
-  The pricer writes one burn per closed turn and per message, once, only on
+  The pricer writes one burn per closed turn, once, only on
   providers Fountain pays for, only from the configured instant.
   """
 
@@ -32,7 +32,7 @@ defmodule Fountain.Workers.CreditPricerTest do
     conv = setup_conv(user)
     turn = closed_turn(conv, ~U[2026-08-02 10:00:00Z], 3600)
 
-    assert %{turns: 1, messages: 0} = CreditPricer.run(since: @since, now: @now)
+    assert %{turns: 1} = CreditPricer.run(since: @since, now: @now)
     assert Credits.balance(user.id) == -25
 
     [entry] = Credits.list_entries(user.id)
@@ -44,7 +44,7 @@ defmodule Fountain.Workers.CreditPricerTest do
     assert entry.metadata["provider"] == "sprites"
 
     # Second run: nothing new.
-    assert %{turns: 0, messages: 0} = CreditPricer.run(since: @since, now: @now)
+    assert %{turns: 0} = CreditPricer.run(since: @since, now: @now)
     assert Credits.balance(user.id) == -25
   end
 
@@ -59,7 +59,7 @@ defmodule Fountain.Workers.CreditPricerTest do
     runner_conv = setup_conv(user, "runner")
     closed_turn(runner_conv, ~U[2026-08-02 11:00:00Z], 7200)
 
-    assert %{turns: 0, messages: 0} = CreditPricer.run(since: @since, now: @now)
+    assert %{turns: 0} = CreditPricer.run(since: @since, now: @now)
     assert Credits.balance(user.id) == 0
   end
 
@@ -83,7 +83,7 @@ defmodule Fountain.Workers.CreditPricerTest do
     conv = setup_conv(user)
     closed_turn(conv, ~U[2026-08-02 10:00:00Z], 60)
 
-    assert %{turns: 0, messages: 0} = CreditPricer.run(since: @since, now: @now)
+    assert %{turns: 0} = CreditPricer.run(since: @since, now: @now)
     assert Credits.list_entries(user.id) == []
   end
 
@@ -119,105 +119,6 @@ defmodule Fountain.Workers.CreditPricerTest do
     closed_turn(conv, ~U[2026-08-02 10:00:00Z], 3600)
 
     assert %{turns: 1} = CreditPricer.run(since: ~U[2026-01-01 00:00:00Z], now: @now)
-  end
-
-  describe "messages" do
-    setup do
-      cfg = Application.get_env(:fountain, :credits)
-      on_exit(fn -> Application.put_env(:fountain, :credits, cfg) end)
-      :ok
-    end
-
-    test "an unpriced message burns nothing" do
-      user = insert_empty_user()
-      {:ok, _} = Billing.record_usage(user.id, "comms_email_sent", nil, "contact", %{})
-      assert %{messages: 0} = CreditPricer.run(since: @since, now: @now)
-    end
-
-    defp priced_card(cfg) do
-      Application.put_env(
-        :fountain,
-        :credits,
-        Keyword.merge(cfg, email_message_cents: 1, sms_message_cents: 2)
-      )
-    end
-
-    defp comms_message(user, channel, direction) do
-      {:ok, _} =
-        Fountain.Team.Comms.record_message(%{
-          user_id: user.id,
-          channel: channel,
-          direction: direction,
-          provider_message_id: "prov-#{System.unique_integer([:positive])}"
-        })
-    end
-
-    test "a priced message burns once, inbound SMS included" do
-      user = insert_empty_user()
-      priced_card(Application.get_env(:fountain, :credits))
-
-      comms_message(user, "email", "outbound")
-      comms_message(user, "sms", "outbound")
-      # AgentPhone charges for a received SMS too, so inbound is priced.
-      comms_message(user, "sms", "inbound")
-
-      assert %{messages: 3} = CreditPricer.run(since: @since, now: DateTime.utc_now())
-      assert Credits.balance(user.id) == -5
-      assert %{messages: 0} = CreditPricer.run(since: @since, now: DateTime.utc_now())
-
-      reasons = Credits.list_entries(user.id) |> Enum.map(& &1.reason) |> Enum.uniq()
-      assert reasons == ["burn_message"]
-    end
-
-    # The whole point of #1143. `usage_events` rows come from a writer that
-    # rescues and logs, so a dropped one was a free message; they are the
-    # product signal now and the ledger must not read them. If this ever
-    # starts billing again, a comms message would be charged twice — once from
-    # each table.
-    test "a usage_events row is not priced" do
-      user = insert_empty_user()
-      priced_card(Application.get_env(:fountain, :credits))
-
-      {:ok, _} = Billing.record_usage(user.id, "comms_email_sent", nil, "contact", %{})
-      {:ok, _} = Billing.record_usage(user.id, "comms_sms_sent", nil, "contact", %{})
-      {:ok, _} = Billing.record_usage(user.id, "comms_sms_received", nil, "contact", %{})
-
-      assert %{messages: 0} = CreditPricer.run(since: @since, now: DateTime.utc_now())
-      assert Credits.balance(user.id) == 0
-    end
-
-    # The provider's id is the idempotency key, so a send retried after a
-    # timeout that in fact reached the provider bills once.
-    test "the same provider message id is one row and one charge" do
-      user = insert_empty_user()
-      priced_card(Application.get_env(:fountain, :credits))
-
-      attrs = %{
-        user_id: user.id,
-        channel: "sms",
-        direction: "outbound",
-        provider_message_id: "prov-retried"
-      }
-
-      assert {:ok, _} = Fountain.Team.Comms.record_message(attrs)
-      assert {:ok, :duplicate} = Fountain.Team.Comms.record_message(attrs)
-
-      assert %{messages: 1} = CreditPricer.run(since: @since, now: DateTime.utc_now())
-      assert Credits.balance(user.id) == -2
-    end
-
-    # A deleted account's rows are nilified rather than removed, and there is
-    # nobody left to charge. Without the guard the pricer would raise on a
-    # nil user_id every pass, taking the turn and inference passes with it.
-    test "a message whose account was deleted is skipped" do
-      user = insert_empty_user()
-      priced_card(Application.get_env(:fountain, :credits))
-
-      comms_message(user, "sms", "outbound")
-      Fountain.Repo.update_all(Fountain.Team.CommsMessage, set: [user_id: nil])
-
-      assert %{messages: 0} = CreditPricer.run(since: @since, now: DateTime.utc_now())
-    end
   end
 
   test "perform/1 prices a turn closed within the last seven days — no option needed" do
@@ -261,7 +162,7 @@ defmodule Fountain.Workers.CreditPricerBillingOffTest do
     Application.put_env(:fountain, :credits_enabled, false)
     on_exit(fn -> Application.put_env(:fountain, :credits_enabled, true) end)
 
-    assert %{turns: 0, messages: 0} =
+    assert %{turns: 0} =
              CreditPricer.run(since: ~U[2026-08-01 00:00:00Z], now: ~U[2026-08-03 12:00:00Z])
 
     assert Credits.balance(user.id) == 0

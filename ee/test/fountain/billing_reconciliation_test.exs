@@ -15,7 +15,7 @@ defmodule Fountain.Billing.ReconciliationTest do
   alias Fountain.Billing.Reconciliation
   alias Fountain.Repo
 
-  @rate_keys ~w(provider_hourly_cents agentmail_inbox_cents agentphone_number_cents agentmail_message_cents agentphone_message_cents)a
+  @rate_keys ~w(provider_hourly_cents)a
 
   setup do
     original = Map.new(@rate_keys, &{&1, Application.get_env(:fountain, &1)})
@@ -88,7 +88,6 @@ defmodule Fountain.Billing.ReconciliationTest do
 
   test "lines: computed per provider at the rate card, delta against the invoice, nil where unpriced" do
     Application.put_env(:fountain, :provider_hourly_cents, %{"sprites" => 100})
-    Application.put_env(:fountain, :agentmail_inbox_cents, 200)
     user = insert_verified_user()
     ran(user, 10)
 
@@ -109,12 +108,10 @@ defmodule Fountain.Billing.ReconciliationTest do
     assert by["sprites"].computed_cents == 1_000
     assert by["sprites"].recorded_cents == 1_100
     assert by["sprites"].delta_cents == 100
-    # No inboxes, so AgentMail computes to zero even though only the inbox rate is set.
-    assert by["agentmail"].computed_cents == 0
-    assert by["agentmail"].recorded_cents == nil and by["agentmail"].delta_cents == nil
     # No e2b hours and no e2b rate: nothing to compute.
     assert by["e2b"].computed_cents == nil
-    assert Enum.map(lines, & &1.provider) == ~w(sprites e2b daytona agentmail agentphone)
+    assert by["e2b"].recorded_cents == nil and by["e2b"].delta_cents == nil
+    assert Enum.map(lines, & &1.provider) == ~w(sprites e2b daytona)
   end
 
   test "the panel shows the lines, records an invoice from the form, and surfaces dropped events",

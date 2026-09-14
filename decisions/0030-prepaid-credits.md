@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Prepaid credits: a cents ledger burned by turn-hours, rent and messages"
-description: "Usage is paid from a Fountain-owned ledger of integer cents, opened by a grant at verification and topped up by one-time Stripe Checkout packs, burned at $0.25 per conversation turn-hour, a month of rent up front per number or inbox, and per message. Zero is a soft stop. Decision 2's tiers were retired by ADR 0031; the ledger decisions stand and are live on the hosted deployment. Auto top-up is not built."
+description: "Usage is paid from a Fountain-owned ledger of integer cents, opened by a grant at verification and topped up by one-time Stripe Checkout packs, burned at $0.25 per conversation turn-hour. Zero is a soft stop. Decision 2's tiers were retired by ADR 0031; rent and message pricing (decision 4 and the comms rows of decision 3) were retired with Team comms in 2026-09; the remaining ledger decisions stand and are live on the hosted deployment. Auto top-up is not built."
 tags: [billing, credits, entitlements, quotas, team-comms, finance]
 status: stable
 adr: "0030"
@@ -23,9 +23,18 @@ and the `credit_ledger` with lots (decisions 1, 5), `Workers.CreditPricer`
 as the daily backstop (2, expiry only), `Credits.grant_opening/2` posted at
 verification (ADR 0031 decision 3), `Credits.Purchases` with refund and
 dispute clawback (5), `Billing.check_spend/1` at every door and inside the
-reservation lock, the 402, admin grants and the runway emails (6, 7),
-`Credits.Rent` with the seven-day grace (4, 6), and `Billing.Reconciliation`
-on `/admin/finance` (8, #1038 steps 1 and 2). Every surface shows the balance.
+reservation lock, the 402, admin grants and the runway emails (6, 7), and
+`Billing.Reconciliation` on `/admin/finance` (8, #1038 steps 1 and 2). Every
+surface shows the balance.
+
+**Retired 2026-09-13, with Team comms:** decision 4 (rent) and the four
+comms rows of decision 3. `Credits.Rent`, the rent collector, the rent-due
+email, the message pass of the pricer and the finance panel's contact and
+message lines are deleted, and `CREDIT_NUMBER_CENTS`, `CREDIT_INBOX_CENTS`,
+`CREDIT_EMAIL_MESSAGE_CENTS` and `CREDIT_SMS_MESSAGE_CENTS` are no longer
+read. The feature had no users, and it was the only thing that made the
+Team context depend on ee/. Nothing below is rewritten; the sections read as
+they were decided.
 
 There are no operator switches: `CREDITS_ENABLED` means credits on —
 priced, granted, gated and shown — and off means none of it.

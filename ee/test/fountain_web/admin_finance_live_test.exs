@@ -13,14 +13,9 @@ defmodule FountainWeb.AdminFinanceLiveTest do
 
   alias Fountain.Accounts
   alias Fountain.Conversations
-  alias Fountain.Repo
 
   @rate_keys [
     :provider_hourly_cents,
-    :agentmail_inbox_cents,
-    :agentphone_number_cents,
-    :agentmail_message_cents,
-    :agentphone_message_cents,
     :cost_basis
   ]
 
@@ -159,8 +154,6 @@ defmodule FountainWeb.AdminFinanceLiveTest do
         "e2b" => 5.45,
         "daytona" => 5.45
       })
-
-      Application.put_env(:fountain, :agentmail_message_cents, 0.2)
 
       admin = insert_admin()
       user = subscriber("solo")

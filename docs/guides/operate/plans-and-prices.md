@@ -12,13 +12,6 @@ are no plans. Credits are the product.
 | Line | Price | Variable |
 |---|---|---|
 | One hour of agent time. | 25 cents. | `CREDIT_TURN_HOUR_CENTS`. |
-| A phone number, each month. | Unset. | `CREDIT_NUMBER_CENTS`. |
-| An email inbox, each month. | Unset. | `CREDIT_INBOX_CENTS`. |
-| One email sent. | Unset. | `CREDIT_EMAIL_MESSAGE_CENTS`. |
-| One SMS, sent or received. | Unset. | `CREDIT_SMS_MESSAGE_CENTS`. |
-
-An unset price costs nothing. To turn one on is a price increase, and an
-explicit act.
 
 An hour of agent time is an hour with a prompt in flight on a platform-paid
 provider (Sprites, E2B or Daytona). Time on a self-hosted runner spends nothing,
@@ -60,17 +53,9 @@ below zero, because a turn that crosses zero finishes. The next purchase
 brings it back. Fountain sends an email when the balance falls under 20
 percent of the opening credit, and another when it reaches zero.
 
-## Rent for numbers and inboxes
+## Numbers and inboxes
 
-Set `CREDIT_NUMBER_CENTS` and `CREDIT_INBOX_CENTS`, and each teammate contact
-costs one month of rent up front, then one month on each monthly
-anniversary. Fountain takes the rent from the balance. Fountain refuses a new
-contact when the balance cannot cover the first month. A contact with unpaid
-rent gets seven days of grace. Fountain sends a reminder on day 0, day 3 and
-day 6. On day 7 it releases the number and the inbox. You cannot recover a
-released number. A top-up during the grace pays the rent and keeps the
-number.
-
+A teammate number and inbox cost nothing from the balance.
 `TEAM_CONTACT_CEILING` (10) is the most contacts one account may hold at once.
 It is an abuse ceiling, not a price.
 

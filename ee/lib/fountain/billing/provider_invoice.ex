@@ -6,7 +6,7 @@ defmodule Fountain.Billing.ProviderInvoice do
 
   @type t :: %__MODULE__{}
 
-  @providers ~w(sprites e2b daytona agentmail agentphone)
+  @providers ~w(sprites e2b daytona)
 
   @primary_key {:id, :binary_id, autogenerate: true}
   schema "provider_invoices" do

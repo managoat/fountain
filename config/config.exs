@@ -83,18 +83,14 @@ config :fountain, Oban,
        # indexed query, usually empty — and a minute is the cron grain the
        # schedules are written in.
        {"* * * * *", Fountain.Workers.TeamScheduler},
-       # Every 10 minutes: price closed turns and comms messages into the
-       # credit ledger (ADR 0030) and sweep expired grants. Idempotent per
-       # turn, per event and per grant, so the cadence only sets how stale a
-       # balance can read. No-ops with billing off.
+       # Every 10 minutes: price closed turns into the credit ledger
+       # (ADR 0030) and sweep expired grants. Idempotent per turn and per
+       # grant, so the cadence only sets how stale a balance can read. No-ops
+       # with billing off.
        {"*/10 * * * *", Fountain.Workers.CreditPricer},
        # 06:23 UTC daily: the expiry sweep on its own, as a backstop for the
        # pricer's tick (ADR 0030 decision 2). Idempotent per grant.
        {"23 6 * * *", Fountain.Workers.CreditExpirer},
-       # 06:47 UTC daily: rent for numbers and inboxes, the grace reminders,
-       # and the release on day seven (ADR 0030 decision 4). No-ops until a
-       # rent price is set.
-       {"47 6 * * *", Fountain.Workers.CreditRentCollector},
        # Five-minute backstop for the event-driven sandbox queue (ADR 0042).
        # Normal drains come from a sandbox leaving a cap-counting status; this
        # catches a lost poke and expires work that waited too long.
@@ -145,18 +141,13 @@ config :fountain,
   sandbox_queue_max_wait_seconds: 3600
 
 # Prepaid credits (ADR 0030). Cents. `turn_hour_cents` is the customer price
-# of one hour of turn time; the comms prices are nil until an operator sets
-# them, and nil burns nothing (#1042). runtime.exs overrides from CREDIT_*.
+# of one hour of turn time. runtime.exs overrides from CREDIT_*.
 config :fountain, :credits,
   # The opening grant a new account gets (ADR 0031 decision 3), and how
   # long it lasts.
   opening_cents: 500,
   opening_days: 14,
   turn_hour_cents: 25,
-  number_cents: nil,
-  inbox_cents: nil,
-  email_message_cents: nil,
-  sms_message_cents: nil,
   packs_cents: [1_000, 2_500, 10_000]
 
 # Claimable principals (ADR 0044): the anonymous tenant an application opens

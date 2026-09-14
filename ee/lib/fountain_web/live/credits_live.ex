@@ -225,6 +225,7 @@ defmodule FountainWeb.Live.CreditsLive do
        do: "Inference on Fountain's key, #{model}"
 
   defp ledger_label(%{reason: "burn_inference"}), do: "Inference on Fountain's key"
+  # Rows from before Team comms was retired (#2143); nothing writes them now.
   defp ledger_label(%{reason: "burn_rent"}), do: "Number or inbox, one month"
   defp ledger_label(%{reason: "burn_message"}), do: "Message"
   defp ledger_label(%{reason: "expire"}), do: "Expired with the period"

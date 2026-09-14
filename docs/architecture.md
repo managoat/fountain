@@ -18,7 +18,7 @@ sidecar. To scale out is to run more replicas of the same image.
 | **Phoenix endpoint** | The one public listener. It serves the operator console, the REST API and the SSE streams, on one port. |
 | **Conversation server** | One process for each active conversation. It owns the sandbox. It provisions the sandbox, spawns a turn in it, streams the output back, and enforces the lifecycle bounds. It holds the decrypted tenant key in memory while it lives. Fountain registers it across the cluster, so exactly one exists for each conversation, whatever the replica count. |
 | **Rehydrator** | Runs once at boot. It finds the conversations that were live before the restart and starts their servers again. Those servers reattach to the sprite, which still runs, so a deploy kills no work. |
-| **Oban** | Background jobs, which are the credit pricer and expirer, the rent collector, the credit emails and the account exports on the `exports` queue. It also runs the cron schedule below. |
+| **Oban** | Background jobs, which are the credit pricer and expirer, the credit emails and the account exports on the `exports` queue. It also runs the cron schedule below. |
 | **Metrics listener** | A second, private HTTP listener on `METRICS_PORT`, which is 9568 in production and off elsewhere. It serves `/metrics` and `/health`. It is deliberately apart from the public endpoint, so that no ingress rule can expose it by accident. |
 
 Here is the scheduled work. All times are UTC.
@@ -29,9 +29,8 @@ Here is the scheduled work. All times are UTC.
 | 04:23 daily | The retention pruner. | Deletes a row past its retention. Log events and Stripe events go after 90 days, audit events after 365, and usage events after 400. A revoked API key or a finished sandbox request goes after 30. |
 | 05:41 daily | The unverified-account pruner. | Deletes an account that never verified its email, after 30 days, through the full deletion path. That covers sprites and audit. |
 | Each 5 minutes | The sandbox queue drainer. | Replays work that waits for sandbox capacity, and expires a request past its wait bound. A freed sandbox slot drains the queue at once; this run is the backstop. |
-| Each 10 minutes | The credit pricer. | Burns each closed turn and each priced message into the credit ledger, and sweeps each expired grant. |
+| Each 10 minutes | The credit pricer. | Burns each closed turn into the credit ledger, and sweeps each expired grant. |
 | 06:23 daily | The credit expirer. | Sweeps each expired grant. It is a backstop for the pricer. |
-| 06:47 daily | The rent collector. | Charges a month of rent for each teammate number and inbox on its anniversary, sends the reminders, and releases a contact after seven unpaid days. |
 
 ### Clustering
 

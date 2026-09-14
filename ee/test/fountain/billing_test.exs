@@ -42,7 +42,7 @@ defmodule Fountain.BillingTest do
         Fountain.Credits.debit(user.id, 40, "burn_turn", idempotency_key: "in-#{user.id}")
 
       {:ok, _} =
-        Fountain.Credits.debit(user.id, 7, "burn_message", idempotency_key: "in2-#{user.id}")
+        Fountain.Credits.debit(user.id, 7, "burn_inference", idempotency_key: "in2-#{user.id}")
 
       now = DateTime.utc_now()
       %{start: s, end: e} = Billing.month_range(0, now: now)

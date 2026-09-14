@@ -106,8 +106,7 @@ The credit machinery has a row of its own. It answers two questions apart from
 each other, because a worker can run on schedule and still move no money.
 
 - **Time since each credit worker last finished**. The pricer runs every ten
-  minutes. The expirer and the rent collector run once a day. A worker with no
-  bar has not run since the last rollout. Read the empty space as silence,
+  minutes. The expirer runs once a day. A worker with no bar has not run since the last rollout. Read the empty space as silence,
   never as zero.
 - **Money through the ledger per hour, by reason**. The number comes from the
   ledger write itself, so it cannot drift from the ledger. The reasons are a
@@ -120,9 +119,9 @@ each other, because a worker can run on schedule and still move no money.
 - **Stripe webhooks failed, last hour**. Purchases, refunds and disputes all
   arrive on one endpoint. A rejected signature answers 400, so the global 5xx
   rate never carried these.
-- **Emails that failed to send, last hour**. This path carries the credits-low,
-  credits-exhausted and rent-due notices. A failure here is an account that
-  never learns its balance ran out.
+- **Emails that failed to send, last hour**. This path carries the credits-low
+  and credits-exhausted notices. A failure here is an account that never
+  learns its balance ran out.
 
 The alerts over these same metrics live in the hosted overlay, not in the
 shipped chart. `FountainCreditPricerPricedNothing` is the reason. Turns bill on

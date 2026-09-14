@@ -10,10 +10,9 @@ defmodule Fountain.Billing.UsageEvent do
   count and the wrong one for a row the ledger keys on.
 
   Comms messages used to be priced from the `comms_*` rows here, so a dropped
-  event was a message the customer was never charged for. They are priced from
-  `Fountain.Team.CommsMessage` now, whose writer does not rescue and whose key
-  is the provider's own message id. The `comms_*` types stay in the
-  vocabulary, and stay product-only.
+  event was a message the customer was never charged for (#1143). Messages are
+  not priced at all any more; the `comms_*` types stay in the vocabulary, and
+  stay product-only.
 
   Written from `ConversationServer` at key lifecycle points and from the comms
   paths; never updated after insertion (no `updated_at`).
@@ -38,14 +37,11 @@ defmodule Fountain.Billing.UsageEvent do
     field :inserted_at, :utc_datetime
   end
 
-  # The closed vocabulary. Sandbox lifecycle, and the teammate messages that
-  # carry a per-message provider charge (`Fountain.Billing.Finance`).
+  # The closed vocabulary. Sandbox lifecycle, and the teammate messages.
   #
-  # None of it is priced from here. `sandbox_terminated` never was — it is
-  # forensic only, and `SandboxUsage` reads the sandbox rows — and since #1143
-  # the `comms_*` types are not either: `CreditPricer` prices comms messages
-  # from `comms_messages`, whose writer cannot silently drop one. Keep these
-  # for the product mirror; do not add a type expecting it to bill.
+  # None of it is priced. `sandbox_terminated` never was — it is forensic
+  # only, and `SandboxUsage` reads the sandbox rows — and the `comms_*` types
+  # are a product count only. Do not add a type expecting it to bill.
   @valid_event_types ~w(sandbox_provisioned sandbox_provision_failed turn_started sandbox_terminated
                          sandbox_suspended sandbox_resumed
                          comms_email_sent comms_sms_sent comms_sms_received)

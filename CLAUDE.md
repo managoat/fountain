@@ -152,7 +152,7 @@ fountain/                  umbrella root
                                (Conversations.Lifecycle.ask_timeout_ms/0),
                                and InferenceCredentials stay here
   ee/                      credits, Stripe and the credit emails (welcome,
-    lib/fountain/          credits-low/exhausted, rent-due), compiled into the
+    lib/fountain/          credits-low/exhausted), compiled into the
     lib/fountain_web/      same :fountain app via elixirc_paths. Licence: ee/ is
     test/                  Elastic 2.0, the server is AGPL-3.0 (0010, 0027).
                            Account email + Mailer are core (#475/#476).
@@ -178,7 +178,7 @@ fountain/                  umbrella root
 ## Credits are the product (ADR 0031)
 
 There are no plans, no tiers and no subscription. `CREDITS_ENABLED` means
-"credits on"; off, nothing is priced, granted, gated or shown. Six rules
+"credits on"; off, nothing is priced, granted, gated or shown. Five rules
 that are easy to get wrong:
 
 - **The gate is the balance.** `Billing.check_spend/1` is `Credits.gate/1`:
@@ -201,11 +201,6 @@ that are easy to get wrong:
   `SANDBOX_FLEET_CEILING` bounds live sandboxes across every tenant under a
   global advisory lock taken before the per-user one; `:fleet_full` is 503,
   not 402. Anything that displays a cap shows `Quotas.sandbox_limit_for/1`.
-- **Teammate contacts are rented from the balance, not a Stripe item.**
-  `Credits.Rent` takes `CREDIT_NUMBER_CENTS + CREDIT_INBOX_CENTS` a month up
-  front at provisioning and on each anniversary, with a seven-day grace before
-  release (ADR 0030 decision 4). `TEAM_CONTACT_CEILING` is an abuse ceiling,
-  not an allowance. Free numbers: comp the account, or grant credit.
 - **A turn hour is not a sandbox hour.** Turns burn credit against
   `SandboxUsage`'s `turn_seconds` (summed per turn, clipped to the period) on
   platform-paid providers only — an idle sandbox and a self-hosted runner
@@ -216,8 +211,8 @@ that are easy to get wrong:
   cached on `users.credit_balance_cents`, idempotent per row, never summed on
   a gate; every credit row is a lot with `remaining_cents`, and a debit
   consumes lots in order: the lot it names, earliest expiry, then purchased).
-  `CreditPricer` burns closed turns at `CREDIT_TURN_HOUR_CENTS` (default 25)
-  and comms messages when priced, seven days back;
+  `CreditPricer` burns closed turns at `CREDIT_TURN_HOUR_CENTS` (default 25),
+  seven days back;
   `CreditExpirer` (and the pricer's tick) expires unspent grants; `Credits.Purchases` sells packs
   through one-time Checkout and claws back on `charge.refunded` /
   `charge.dispute.created`. Stripe holds no subscription and no price.

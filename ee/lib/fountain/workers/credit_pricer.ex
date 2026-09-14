@@ -17,13 +17,6 @@ defmodule Fountain.Workers.CreditPricer do
       self-hosted runner costs Fountain no sandbox time but its tokens are
       still on Fountain's key. A turn on the tenant's own credential is not
       marked and is never seen here.
-    * **Messages.** Every `comms_messages` row burns its channel's price
-      under `burn_message:<message_id>`. A `nil` price burns nothing (#1042).
-      Inbound counts, because AgentPhone charges to receive an SMS as well as
-      to send one. These were priced from `usage_events` until #1143, where a
-      dropped row meant a free message: that table's writer rescues by
-      contract, so a metering outage never fails a conversation, which is the
-      wrong contract for a row the ledger keys on.
 
   Rows are written for every tenant, comped included: the ledger is also how
   `Finance` sees what a comp cost. Refusing spend is `Credits.gate/1`'s job,
@@ -53,7 +46,6 @@ defmodule Fountain.Workers.CreditPricer do
   alias Fountain.Credits
   alias Fountain.Credits.LedgerEntry
   alias Fountain.Repo
-  alias Fountain.Team.CommsMessage
 
   require Logger
 
@@ -66,13 +58,13 @@ defmodule Fountain.Workers.CreditPricer do
     Fountain.Credits.Telemetry.emit_run("pricer", counts)
 
     case counts do
-      %{turns: 0, inference: 0, messages: 0, expired: 0} ->
+      %{turns: 0, inference: 0, expired: 0} ->
         :ok
 
       counts ->
         Logger.info(
           "credit pricer: burned #{counts.turns} turns, #{counts.inference} platform-inference " <>
-            "turns, #{counts.messages} messages, expired #{counts.expired} grants"
+            "turns, expired #{counts.expired} grants"
         )
     end
 
@@ -81,13 +73,12 @@ defmodule Fountain.Workers.CreditPricer do
 
   @doc """
   Run every pass now. `:now` pins the clock; `:since` overrides the
-  configured floor. Returns `%{turns: n, inference: n, messages: n,
-  expired: n}` — rows written, not rows seen.
+  configured floor. Returns `%{turns: n, inference: n, expired: n}` — rows
+  written, not rows seen.
   """
   @spec run(keyword()) :: %{
           turns: non_neg_integer(),
           inference: non_neg_integer(),
-          messages: non_neg_integer(),
           expired: non_neg_integer()
         }
   def run(opts \\ []) do
@@ -106,13 +97,12 @@ defmodule Fountain.Workers.CreditPricer do
 
     if Credits.enabled?(),
       do: do_run(floor, now),
-      else: %{turns: 0, inference: 0, messages: 0, expired: 0}
+      else: %{turns: 0, inference: 0, expired: 0}
   end
 
   defp do_run(floor, now) do
     {turns, touched} = price_turns(floor)
     {inference, inference_touched} = price_inference(floor)
-    messages = price_messages(floor)
 
     touched
     |> MapSet.new()
@@ -121,7 +111,7 @@ defmodule Fountain.Workers.CreditPricer do
 
     # Burns first, so a turn consumes the grant before the grant is swept.
     %{expired: expired} = Fountain.Workers.CreditExpirer.run(now: now)
-    %{turns: turns, inference: inference, messages: messages, expired: expired}
+    %{turns: turns, inference: inference, expired: expired}
   end
 
   # ---------------------------------------------------------------------------
@@ -332,84 +322,6 @@ defmodule Fountain.Workers.CreditPricer do
 
             false
         end
-    end
-  end
-
-  # ---------------------------------------------------------------------------
-  # Messages
-  # ---------------------------------------------------------------------------
-
-  # Prices from `comms_messages`, not `usage_events` (#1143).
-  #
-  # `usage_events` rows are written by `Billing.record_usage/5`, which rescues
-  # and logs by contract, so a dropped row was a message nobody was ever
-  # charged for — and nothing reconciled it, because the look-back below only
-  # re-reads rows that exist. `Team.Comms.record_message/1` does not rescue,
-  # and its row is keyed on the provider's own message id, which is also what
-  # a reconciliation against a provider invoice would compare.
-  #
-  # The rate card is still per channel rather than per direction: AgentPhone
-  # charges for a received SMS as well as a sent one, which is why inbound
-  # rows are priced at all.
-  defp price_messages(floor) do
-    card = Credits.price_card()
-
-    prices = %{"email" => card.email_message, "sms" => card.sms_message}
-    priced_channels = for {channel, cents} <- prices, is_integer(cents) and cents > 0, do: channel
-
-    if priced_channels == [] do
-      0
-    else
-      floor
-      |> unpriced_messages(priced_channels)
-      |> Enum.count(&price_message(&1, Map.fetch!(prices, &1.channel)))
-    end
-  end
-
-  defp unpriced_messages(floor, channels) do
-    from(m in CommsMessage,
-      left_join: l in LedgerEntry,
-      on: l.idempotency_key == fragment("'burn_message:' || ?::text", m.id),
-      where: is_nil(l.id),
-      where: m.channel in ^channels,
-      where: m.inserted_at >= ^floor,
-      # A deleted account's rows are nilified rather than removed, and there is
-      # nobody left to charge.
-      where: not is_nil(m.user_id),
-      order_by: [asc: m.inserted_at],
-      limit: @batch,
-      select: %{
-        id: m.id,
-        user_id: m.user_id,
-        channel: m.channel,
-        direction: m.direction,
-        contact_id: m.contact_id
-      }
-    )
-    |> Repo.all()
-  end
-
-  defp price_message(message, cents) do
-    case Credits.debit(payer(message.user_id), cents, "burn_message",
-           idempotency_key: "burn_message:#{message.id}",
-           resource_type: "comms_message",
-           resource_id: message.id,
-           actor: "system:credit_pricer",
-           metadata: %{
-             "channel" => message.channel,
-             "direction" => message.direction,
-             "contact_id" => message.contact_id
-           }
-         ) do
-      {:ok, _} ->
-        true
-
-      {:ok, :duplicate, _} ->
-        false
-
-      {:error, reason} ->
-        Logger.warning("credit pricer: message #{message.id} not priced: #{inspect(reason)}")
-        false
     end
   end
 

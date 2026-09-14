@@ -22,9 +22,8 @@ admin panel or in the API.
 
 Credits are the product. Each account holds a balance in cents. A new account
 starts with `CREDIT_OPENING_CENTS` ($5) for `CREDIT_OPENING_DAYS` (14). Each
-turn burns `CREDIT_TURN_HOUR_CENTS` an hour. A phone number and an inbox each
-cost a month of rent up front. A message costs its price. A tenant buys more
-credit in packs. There are no plans and no subscription. See
+turn burns `CREDIT_TURN_HOUR_CENTS` an hour. A tenant buys more credit in
+packs. There are no plans and no subscription. See
 [Prices](plans-and-prices.md).
 
 A tenant may run as many sandboxes at once as the balance funds, between
@@ -34,10 +33,7 @@ provider plan allows.
 
 ## Start it
 
-1. Set the prices. `CREDIT_TURN_HOUR_CENTS` defaults to 25. Set
-   `CREDIT_NUMBER_CENTS`, `CREDIT_INBOX_CENTS`, `CREDIT_EMAIL_MESSAGE_CENTS`
-   and `CREDIT_SMS_MESSAGE_CENTS` if you charge for contacts. Unset, those
-   lines cost nothing.
+1. Set the price. `CREDIT_TURN_HOUR_CENTS` defaults to 25.
 2. Configure Stripe. The [Stripe integration guide](../../integrations/stripe.md)
    covers `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` and the three webhook
    events.

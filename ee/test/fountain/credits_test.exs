@@ -97,7 +97,7 @@ defmodule Fountain.CreditsTest do
     test "each reason family has its own audit action" do
       user = insert_empty_user()
       {:ok, _} = Credits.grant(user.id, 10, "purchase", idempotency_key: "a1")
-      {:ok, _} = Credits.debit(user.id, 1, "burn_rent", idempotency_key: "a2")
+      {:ok, _} = Credits.debit(user.id, 1, "burn_inference", idempotency_key: "a2")
       {:ok, _} = Credits.debit(user.id, 1, "expire", idempotency_key: "a3")
       {:ok, _} = Credits.debit(user.id, 1, "clawback_refund", idempotency_key: "a4")
 
@@ -228,10 +228,7 @@ defmodule Fountain.CreditsTest do
       assert Credits.turn_cost_cents(10 * 3600) == 250
     end
 
-    test "comms prices are unset by default and the packs ascend" do
-      card = Credits.price_card()
-      assert card.number_month == nil and card.inbox_month == nil
-      assert card.email_message == nil and card.sms_message == nil
+    test "the packs ascend" do
       assert Credits.packs() == [1_000, 2_500, 10_000]
     end
 

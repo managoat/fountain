@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Credits are the product: no tiers, concurrency as a balance-funded protection under a fleet ceiling"
-description: "Retire the subscription tiers. A tenant buys credit, burns it on turns, rent and messages, and may run as many sandboxes at once as their balance funds, up to a per-account ceiling and the fleet ceiling the providers allow. Stripe stays only as the till for one-time packs. Supersedes ADR 0026 and the subscription gate of ADR 0006; amends ADR 0030 decision 2. Built; persistent-home rent is not."
+description: "Retire the subscription tiers. A tenant buys credit, burns it on turns (rent and messages were retired with Team comms, 2026-09), and may run as many sandboxes at once as their balance funds, up to a per-account ceiling and the fleet ceiling the providers allow. Stripe stays only as the till for one-time packs. Supersedes ADR 0026 and the subscription gate of ADR 0006; amends ADR 0030 decision 2. Built; persistent-home rent is not."
 tags: [billing, credits, quotas, plans]
 status: stable
 adr: "0031"

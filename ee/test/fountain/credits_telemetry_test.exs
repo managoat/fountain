@@ -106,9 +106,9 @@ defmodule Fountain.CreditsTelemetryTest do
     end
 
     test "each worker is its own series" do
-      Telemetry.emit_run("rent", %{charged: 1, reminded: 0, released: 0})
+      Telemetry.emit_run("pricer", %{turns: 1, inference: 0, expired: 0})
 
-      assert_receive {:telemetry, %{total: 1}, %{worker: "rent"}}
+      assert_receive {:telemetry, %{total: 1}, %{worker: "pricer"}}
     end
   end
 end

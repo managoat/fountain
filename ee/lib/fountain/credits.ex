@@ -5,7 +5,7 @@ defmodule Fountain.Credits do
   A tenant's balance is a number of **cents**, cached on
   `users.credit_balance_cents` and backed by the append-only `credit_ledger`.
   Money comes in as a grant (the opening grant at verification, an operator's
-  grant) or a purchase, and goes out as a burn (turn hours, rent, messages),
+  grant) or a purchase, and goes out as a burn (turn hours, inference),
   an expiry, or a clawback after a refund or dispute.
 
   Three properties every writer relies on:
@@ -34,9 +34,8 @@ defmodule Fountain.Credits do
 
   ## Who writes and who reads
 
-  `Workers.CreditPricer` burns closed turns and priced messages;
-  `Credits.Rent` burns rent; `Workers.CreditExpirer` (and the pricer's tick)
-  expires grants; `Credits.Purchases` grants packs and claws them back;
+  `Workers.CreditPricer` burns closed turns and platform inference;
+  `Workers.CreditExpirer` (and the pricer's tick) expires grants; `Credits.Purchases` grants packs and claws them back;
   `grant_opening/2` is posted by `Accounts.verify_email/2`; an operator grants
   from the admin panel. `gate/1`, behind `Billing.check_spend/1`, is what
   every door reads (ADR 0031).
@@ -76,31 +75,15 @@ defmodule Fountain.Credits do
   @doc """
   The customer price card, in cents. `:turn_hour` is what one hour of
   `turn_seconds` burns (ADR 0030 decision 3; the number is a placeholder until
-  #1038 produces a provider cost). The four comms prices are `nil` until an
-  operator sets them, and a `nil` price burns nothing — turning one on is a
-  price increase and an explicit act (#1042).
+  #1038 produces a provider cost).
 
   Read from `config :fountain, :credits`; runtime.exs fills it from
-  `CREDIT_TURN_HOUR_CENTS`, `CREDIT_NUMBER_CENTS`, `CREDIT_INBOX_CENTS`,
-  `CREDIT_EMAIL_MESSAGE_CENTS` and `CREDIT_SMS_MESSAGE_CENTS`.
+  `CREDIT_TURN_HOUR_CENTS`.
   """
-  @spec price_card() :: %{
-          turn_hour: non_neg_integer(),
-          number_month: non_neg_integer() | nil,
-          inbox_month: non_neg_integer() | nil,
-          email_message: non_neg_integer() | nil,
-          sms_message: non_neg_integer() | nil
-        }
+  @spec price_card() :: %{turn_hour: non_neg_integer()}
   def price_card do
     cfg = Application.get_env(:fountain, :credits, [])
-
-    %{
-      turn_hour: Keyword.get(cfg, :turn_hour_cents, 25),
-      number_month: Keyword.get(cfg, :number_cents),
-      inbox_month: Keyword.get(cfg, :inbox_cents),
-      email_message: Keyword.get(cfg, :email_message_cents),
-      sms_message: Keyword.get(cfg, :sms_message_cents)
-    }
+    %{turn_hour: Keyword.get(cfg, :turn_hour_cents, 25)}
   end
 
   @doc """
@@ -153,8 +136,7 @@ defmodule Fountain.Credits do
   `Billing.check_spend/1` is the door; every spend calls that.
 
   Options: `:now` pins the clock for the expiry read; `:min` is the least
-  spendable balance that passes (default 1 cent — "positive"). Rent passes a
-  month's rent, so a contact is refused unless its first month is covered.
+  spendable balance that passes (default 1 cent — "positive").
   """
   @spec check_balance(User.t() | binary(), keyword()) :: :ok | {:error, :insufficient_credits}
   def check_balance(subject, opts \\ []) do
@@ -544,7 +526,7 @@ defmodule Fountain.Credits do
   # Emitting here rather than from each worker's return value is deliberate:
   # this is the ledger write, so the measurement cannot drift from the ledger
   # the way a separately-counted total can, and one event covers turns,
-  # inference, messages, rent, expiry, grants and purchases at once. It is
+  # inference, expiry, grants and purchases at once. It is
   # outside the transaction — `insert_and_move/3` has already returned — for
   # the reason ADR 0013 gives about audit rows: work inside a transaction that
   # can fail takes the transaction with it.

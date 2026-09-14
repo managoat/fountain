@@ -13,8 +13,7 @@ defmodule FountainWeb.Live.AdminFinanceLive do
     * **It shows no money it was not told.** The rate card
       (`Fountain.Billing.Finance.rate_card/0`) is config, and an unpriced line
       renders as `—`, never as `$0.00`. A deployment that has set nothing sees
-      hours, inboxes, numbers and message counts — a complete report in the
-      units it does know.
+      hours — a complete report in the units it does know.
     * **It does not assume which hours the provider bills.** Cost prices either
       every hour a sandbox was awake or only the hours with a prompt in
       flight, and the toggle switches between them. Which one is right is a
@@ -214,10 +213,8 @@ defmodule FountainWeb.Live.AdminFinanceLive do
       >
         <div class="font-medium">No rate card is configured, so there is no cost in dollars.</div>
         <div class="text-xs">
-          Hours, inboxes, numbers and messages below are real. Set <code>PROVIDER_HOURLY_CENTS</code>, <code>AGENTMAIL_INBOX_CENTS</code>, <code>AGENTPHONE_NUMBER_CENTS</code>,
-          <code>AGENTMAIL_MESSAGE_CENTS</code>
-          and <code>AGENTPHONE_MESSAGE_CENTS</code>
-          to price them. An unpriced line stays <code>—</code>; it never becomes $0.
+          The hours below are real. Set <code>PROVIDER_HOURLY_CENTS</code> to price them.
+          An unpriced line stays <code>—</code>; it never becomes $0.
         </div>
       </div>
 
@@ -236,7 +233,7 @@ defmodule FountainWeb.Live.AdminFinanceLive do
           <div class="text-xs text-zinc-500">Platform cost</div>
           <div class="text-2xl font-semibold tabular-nums">{money(total_cost(@finance))}</div>
           <div class="text-xs text-zinc-500">
-            sandboxes · contacts · messages
+            sandboxes · inference
           </div>
         </div>
         <div class="bg-white rounded shadow border border-zinc-200 px-4 py-3">
@@ -300,7 +297,7 @@ defmodule FountainWeb.Live.AdminFinanceLive do
 
       <section class="space-y-3">
         <h2 class="text-lg font-medium">Cost</h2>
-        <div class="grid grid-cols-2 lg:grid-cols-3 gap-3">
+        <div class="grid grid-cols-2 gap-3">
           <div class="bg-white rounded shadow border border-zinc-200 px-4 py-3">
             <div class="text-xs text-zinc-500">Sandboxes</div>
             <div class="text-xl font-semibold tabular-nums">
@@ -322,32 +319,6 @@ defmodule FountainWeb.Live.AdminFinanceLive do
               {format_hours(@finance.cost.active_hours)} awake in total; the idle part is charged
               at nothing on this basis
             </div>
-          </div>
-          <div class="bg-white rounded shadow border border-zinc-200 px-4 py-3">
-            <div class="text-xs text-zinc-500">Contacts (AgentMail · AgentPhone)</div>
-            <div class="text-xl font-semibold tabular-nums">
-              {money(@finance.cost.contact_cents)}
-            </div>
-            <div class="text-xs text-zinc-500 tabular-nums">
-              {@finance.cost.inboxes} {pluralize(@finance.cost.inboxes, "inbox", "inboxes")} · {@finance.cost.numbers} {pluralize(
-                @finance.cost.numbers,
-                "number",
-                "numbers"
-              )}
-            </div>
-            <div class="text-xs text-zinc-400">
-              monthly, pro-rated to {round(@finance.period_fraction * 100)}% of the month
-            </div>
-          </div>
-          <div class="bg-white rounded shadow border border-zinc-200 px-4 py-3">
-            <div class="text-xs text-zinc-500">Messages</div>
-            <div class="text-xl font-semibold tabular-nums">
-              {money(@finance.cost.message_cents)}
-            </div>
-            <div class="text-xs text-zinc-500 tabular-nums">
-              {@finance.cost.emails_sent} email · {@finance.cost.sms_sent} SMS out · {@finance.cost.sms_received} SMS in
-            </div>
-            <div class="text-xs text-zinc-400">inbound counts — AgentPhone charges to receive</div>
           </div>
           <div class="bg-white rounded shadow border border-zinc-200 px-4 py-3">
             <div class="text-xs text-zinc-500">Platform inference</div>
@@ -492,15 +463,13 @@ defmodule FountainWeb.Live.AdminFinanceLive do
                 >
                   Active h
                 </th>
-                <th class="px-3 py-2 text-right">Contacts</th>
-                <th class="px-3 py-2 text-right">Msgs</th>
                 <th class="px-3 py-2 text-right">Cost</th>
                 <th class="px-3 py-2 text-right">Margin</th>
               </tr>
             </thead>
             <tbody>
               <tr :if={@finance.tenants == []}>
-                <td colspan="10" class="px-3 py-6 text-center text-sm text-zinc-500">No accounts.</td>
+                <td colspan="8" class="px-3 py-6 text-center text-sm text-zinc-500">No accounts.</td>
               </tr>
               <tr
                 :for={t <- @finance.tenants}
@@ -545,15 +514,6 @@ defmodule FountainWeb.Live.AdminFinanceLive do
                     {Float.round(t.idle_hours, 1)} idle
                   </div>
                 </td>
-                <td class="px-3 py-2 text-right tabular-nums text-xs text-zinc-500">
-                  {contacts_cell(t)}
-                </td>
-                <td
-                  class="px-3 py-2 text-right tabular-nums text-xs text-zinc-500"
-                  title={"#{t.emails_sent} email · #{t.sms_sent} SMS out · #{t.sms_received} SMS in"}
-                >
-                  {t.emails_sent + t.sms_sent + t.sms_received}
-                </td>
                 <td class="px-3 py-2 text-right tabular-nums text-xs" title={cost_breakdown(t)}>
                   {money(t.cost_cents)}
                 </td>
@@ -595,7 +555,7 @@ defmodule FountainWeb.Live.AdminFinanceLive do
   defp negative?(cents), do: is_integer(cents) and cents < 0
 
   defp total_cost(%{cost: cost}) do
-    [cost.sandbox_cents, cost.contact_cents, cost.message_cents, cost.inference_cents]
+    [cost.sandbox_cents, cost.inference_cents]
     |> then(fn parts -> if Enum.any?(parts, &is_nil/1), do: nil, else: Enum.sum(parts) end)
   end
 
@@ -636,13 +596,8 @@ defmodule FountainWeb.Live.AdminFinanceLive do
     if rate == Float.round(rate), do: Integer.to_string(trunc(rate)), else: to_string(rate)
   end
 
-  defp contacts_cell(%{inboxes: 0, numbers: 0}), do: "—"
-  defp contacts_cell(%{inboxes: n, numbers: n}), do: "#{n}✉ #{n}☎"
-  defp contacts_cell(%{inboxes: i, numbers: n}), do: "#{i}✉ #{n}☎"
-
   defp cost_breakdown(t) do
-    "sandboxes #{money(t.sandbox_cost_cents)} · contacts #{money(t.contact_cost_cents)} · " <>
-      "messages #{money(t.message_cost_cents)} · inference #{money(t.inference_cost_cents)}"
+    "sandboxes #{money(t.sandbox_cost_cents)} · inference #{money(t.inference_cost_cents)}"
   end
 
   defp pluralize(1, singular, _plural), do: singular

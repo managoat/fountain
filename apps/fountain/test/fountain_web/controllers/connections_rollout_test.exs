@@ -210,7 +210,7 @@ defmodule FountainWeb.ConnectionsRolloutTest do
       flag(false)
       conn = login_user(build_conn(), ctx.user)
 
-      for path <- ["/connections/google/start", "/connections/google/callback"] do
+      for path <- ["/connections/fixture-svc/start", "/connections/fixture-svc/callback"] do
         assert conn |> get(path) |> redirected_to() == "/account"
       end
     end
@@ -262,7 +262,7 @@ defmodule FountainWeb.ConnectionsRolloutTest do
           "agent" => %{"mcp_servers" => %{"0" => %{"name" => "gmail", "kind" => "connection"}}}
         })
 
-      assert html =~ "me@example.com (google)"
+      assert html =~ "me@example.com (fixture-svc)"
     end
 
     test "an event that would add something is refused even when pushed at the page", ctx do

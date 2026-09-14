@@ -21,16 +21,16 @@ defmodule Fountain.Connections.ProviderTest do
 
       assert [_] = Connections.list_providers(user.id)
 
-      # The one the host owns, then whatever the installed extensions
-      # contribute (ADR 0054; always the fixture's, and fountain_microsoft's
-      # and fountain_slack's where those apps load), then the tenant's own.
-      assert [%Provider{slug: "google", user_id: nil} | contributed] =
-               Connections.all_providers(user.id)
+      # Whatever the installed extensions contribute (ADR 0054; always the
+      # fixture's, and fountain_google's, fountain_microsoft's and
+      # fountain_slack's where those apps load), then the tenant's own.
+      all = Connections.all_providers(user.id)
 
       assert %Provider{slug: "fixture-svc", user_id: nil} =
-               Enum.find(contributed, &(&1.slug == "fixture-svc"))
+               Enum.find(all, &(&1.slug == "fixture-svc"))
 
-      assert List.last(contributed) == p
+      assert Enum.all?(Enum.drop(all, -1), &(&1.user_id == nil))
+      assert List.last(all) == p
 
       assert Connections.redirect_uri(p) =~ "/connections/#{p.id}/callback"
     end
@@ -46,7 +46,9 @@ defmodule Fountain.Connections.ProviderTest do
         "client_secret" => "s"
       }
 
-      assert {:error, cs} = Connections.create_provider(user.id, Map.put(base, "slug", "google"))
+      assert {:error, cs} =
+               Connections.create_provider(user.id, Map.put(base, "slug", "fixture-svc"))
+
       assert "is a platform provider" in errors_on(cs).slug
 
       assert {:error, cs} =
@@ -116,7 +118,7 @@ defmodule Fountain.Connections.ProviderTest do
       assert Connections.get_provider(p.id, a.id)
       refute Connections.get_provider(p.id, b.id)
       refute Connections.get_provider("nope", a.id)
-      assert %Provider{slug: "google"} = Connections.get_provider("google", b.id)
+      assert %Provider{slug: "fixture-svc"} = Connections.get_provider("fixture-svc", b.id)
     end
 
     test "update keeps the secret when blank and audits the changed fields; delete takes the connections" do

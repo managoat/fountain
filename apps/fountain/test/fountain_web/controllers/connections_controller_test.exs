@@ -5,7 +5,7 @@ defmodule FountainWeb.ConnectionsControllerTest do
   import Fountain.BrokerTestHelpers
 
   alias Fountain.Connections
-  alias Fountain.Connections.{Google, OAuth}
+  alias Fountain.Connections.OAuth
 
   setup %{conn: conn} do
     user = insert_verified_user()
@@ -13,21 +13,24 @@ defmodule FountainWeb.ConnectionsControllerTest do
     {:ok, conn: login_user(conn, user), user: user}
   end
 
-  test "start sends the browser to Google with offline access and a signed state", %{conn: conn} do
-    conn = get(conn, ~p"/connections/google/start")
-    assert redirected_to(conn) =~ "https://accounts.google.com/o/oauth2/v2/auth?"
+  test "start sends the browser to the provider with its parameters and a signed state", %{
+    conn: conn
+  } do
+    conn = get(conn, ~p"/connections/fixture-svc/start")
+    assert redirected_to(conn) =~ "https://svc.fixture.example/oauth/authorize?"
 
     params = conn |> redirected_to() |> URI.parse() |> Map.fetch!(:query) |> URI.decode_query()
-    assert params["access_type"] == "offline"
-    assert params["prompt"] == "consent"
-    assert params["client_id"] == "google-test-client-id"
-    assert params["redirect_uri"] =~ "/connections/google/callback"
+    # The fixture extension's `authorize_params` (Google's offline pair lives
+    # on fountain_google's struct now) reach the URL through the same field.
+    assert params["prompt"] == "fixture"
+    assert params["client_id"] == "fixture-client"
+    assert params["redirect_uri"] =~ "/connections/fixture-svc/callback"
     assert is_binary(params["state"])
     assert get_session(conn, :connections_oauth)["nonce"]
   end
 
   test "the round trip stores a connection on the signed-in account", %{conn: conn, user: user} do
-    conn = get(conn, ~p"/connections/google/start")
+    conn = get(conn, ~p"/connections/fixture-svc/start")
 
     state =
       conn
@@ -39,30 +42,30 @@ defmodule FountainWeb.ConnectionsControllerTest do
 
     Req.Test.stub(OAuth, fn req ->
       case req.request_path do
-        "/token" ->
+        "/oauth/token" ->
           {:ok, body, _} = Plug.Conn.read_body(req)
           form = URI.decode_query(body)
           assert form["grant_type"] == "authorization_code"
           assert form["code"] == "the-code"
-          assert form["client_secret"] == "google-test-client-secret"
+          assert form["client_secret"] == "fixture-secret"
 
           Req.Test.json(req, %{
             "access_token" => "at-1",
             "refresh_token" => "rt-1",
             "expires_in" => 3599,
-            "scope" => "openid email https://www.googleapis.com/auth/gmail.modify"
+            "scope" => "read"
           })
 
-        "/v1/userinfo" ->
+        "/me" ->
           assert Plug.Conn.get_req_header(req, "authorization") == ["Bearer at-1"]
-          Req.Test.json(req, %{"email" => "jake@example.com", "email_verified" => true})
+          Req.Test.json(req, %{"login" => "jake@example.com"})
       end
     end)
 
     conn =
       conn
       |> recycle()
-      |> get(~p"/connections/google/callback", %{"code" => "the-code", "state" => state})
+      |> get(~p"/connections/fixture-svc/callback", %{"code" => "the-code", "state" => state})
 
     assert redirected_to(conn) == ~p"/account/connections"
     assert Phoenix.Flash.get(conn.assigns.flash, :info) =~ "Connected jake@example.com"
@@ -70,7 +73,7 @@ defmodule FountainWeb.ConnectionsControllerTest do
     assert [%{account_email: "jake@example.com", status: "active", scopes: scopes}] =
              Connections.list_connections(user.id)
 
-    assert "https://www.googleapis.com/auth/gmail.modify" in scopes
+    assert "read" in scopes
     refute get_session(conn, :connections_oauth_nonce)
   end
 
@@ -83,14 +86,14 @@ defmodule FountainWeb.ConnectionsControllerTest do
 
     Req.Test.stub(OAuth, fn _ -> flunk("no exchange for a bad state") end)
 
-    conn = get(conn, ~p"/connections/google/callback", %{"code" => "c", "state" => state})
+    conn = get(conn, ~p"/connections/fixture-svc/callback", %{"code" => "c", "state" => state})
     assert redirected_to(conn) == ~p"/account/connections"
     assert Phoenix.Flash.get(conn.assigns.flash, :error) =~ "did not start from this session"
     assert Connections.list_connections(user.id) == []
   end
 
-  test "a consent Google answered without a refresh token is explained", %{conn: conn, user: user} do
-    conn = get(conn, ~p"/connections/google/start")
+  test "a consent answered without a refresh token is explained", %{conn: conn, user: user} do
+    conn = get(conn, ~p"/connections/fixture-svc/start")
 
     state =
       conn
@@ -107,25 +110,25 @@ defmodule FountainWeb.ConnectionsControllerTest do
     conn =
       conn
       |> recycle()
-      |> get(~p"/connections/google/callback", %{"code" => "c", "state" => state})
+      |> get(~p"/connections/fixture-svc/callback", %{"code" => "c", "state" => state})
 
     assert Phoenix.Flash.get(conn.assigns.flash, :error) =~ "no refresh token"
     assert Connections.list_connections(user.id) == []
   end
 
   test "a denied consent comes back as a flash", %{conn: conn} do
-    conn = get(conn, ~p"/connections/google/callback", %{"error" => "access_denied"})
+    conn = get(conn, ~p"/connections/fixture-svc/callback", %{"error" => "access_denied"})
     assert Phoenix.Flash.get(conn.assigns.flash, :error) =~ "access_denied"
   end
 
   test "an account the broker is not on for is sent to /account", %{conn: conn} do
     Application.delete_env(:fountain, :broker_listen_port)
-    conn = get(conn, ~p"/connections/google/start")
+    conn = get(conn, ~p"/connections/fixture-svc/start")
     assert redirected_to(conn) == ~p"/account"
   end
 
   test "signed out, the flow is not reachable" do
-    conn = build_conn() |> get(~p"/connections/google/start")
+    conn = build_conn() |> get(~p"/connections/fixture-svc/start")
     assert redirected_to(conn) =~ "/auth/login"
   end
 
@@ -179,7 +182,7 @@ defmodule FountainWeb.ConnectionsControllerTest do
     user: user
   } do
     p = insert_provider(user)
-    conn = get(conn, ~p"/connections/google/start")
+    conn = get(conn, ~p"/connections/fixture-svc/start")
 
     state =
       conn

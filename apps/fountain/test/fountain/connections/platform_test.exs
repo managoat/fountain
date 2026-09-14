@@ -5,25 +5,22 @@ defmodule Fountain.Connections.PlatformTest do
   alias Fountain.Connections.{OAuth, Platform, Provider}
 
   describe "the registry" do
-    test "lists every platform provider, configured or not: the host's in catalog order, then each installed extension's" do
-      # The host's own come first. What follows depends on which extensions
-      # this VM installs — the fixture always (config/test.exs), and a real
-      # provider extension such as fountain_microsoft or fountain_slack only
-      # where it loads (a root `mix test`, not a run from apps/fountain) — so
-      # the tail is asserted by membership rather than by shape.
-      assert [%Provider{slug: "google", user_id: nil, id: "google"} | contributed] =
-               Platform.all()
+    test "is what installed extensions contribute, in configured order, and core builds none" do
+      # What this VM installs: the fixture always (config/test.exs), and a
+      # real provider extension (fountain_google, fountain_microsoft,
+      # fountain_slack) only where it loads — a root `mix test`, not a run
+      # from apps/fountain — so membership is asserted rather than shape.
+      assert Platform.builtin_slugs() == []
 
       assert %Provider{slug: "fixture-svc", user_id: nil, id: "fixture-svc"} =
-               Enum.find(contributed, &(&1.slug == "fixture-svc"))
+               Enum.find(Platform.all(), &(&1.slug == "fixture-svc"))
 
-      assert Platform.builtin_slugs() == ~w(google)
+      assert Platform.all() == Fountain.Extensions.connection_providers()
       assert Platform.slugs() == Enum.map(Platform.all(), & &1.slug)
       assert Provider.reserved_slugs() == Platform.slugs()
     end
 
-    test "get/1 answers a platform slug, the host's or an extension's, and nothing else" do
-      assert %Provider{slug: "google"} = Platform.get("google")
+    test "get/1 answers an installed extension's slug and nothing else" do
       assert %Provider{slug: "fixture-svc", name: "Fixture service"} = Platform.get("fixture-svc")
       assert Platform.get("github") == nil
       assert Platform.get(Ecto.UUID.generate()) == nil
@@ -42,16 +39,10 @@ defmodule Fountain.Connections.PlatformTest do
       end
     end
 
-    test "names the config env var and the short name the console shows" do
-      assert Platform.client_env_var(Platform.get("google")) == "GOOGLE_OAUTH_CLIENT_ID"
-      assert Platform.short_name(Platform.get("google")) == "Google"
-    end
-
-    test "google asks for gmail and calendar" do
-      assert "https://www.googleapis.com/auth/calendar" in Platform.get("google").scopes
-      assert "https://www.googleapis.com/auth/gmail.modify" in Platform.get("google").scopes
-      # calendar/v3 lives on www.googleapis.com, which the broker binding covers
-      assert "www.googleapis.com" in Platform.get("google").token_hosts
+    test "names the config env var and the short name the console shows, by convention" do
+      # ADR 0054 decision 5: `<SLUG>_OAUTH_CLIENT_ID`, and the slug capitalised.
+      assert Platform.client_env_var(Platform.get("fixture-svc")) == "FIXTURE-SVC_OAUTH_CLIENT_ID"
+      assert Platform.short_name(Platform.get("fixture-svc")) == "Fixture-svc"
     end
 
     test "a tenant cannot take a platform slug" do
@@ -71,7 +62,7 @@ defmodule Fountain.Connections.PlatformTest do
       user = insert_verified_user()
       own = insert_provider(user)
 
-      assert [_google | contributed] = Connections.all_providers(user.id)
+      assert [%Provider{user_id: nil} | _] = contributed = Connections.all_providers(user.id)
       assert List.last(contributed) == own
 
       assert %Provider{slug: "fixture-svc"} =
@@ -99,17 +90,9 @@ defmodule Fountain.Connections.PlatformTest do
   end
 
   describe "authorize_params on the struct" do
-    test "google sends the offline pair with incremental consent" do
-      assert %{
-               "access_type" => "offline",
-               "prompt" => "consent",
-               "include_granted_scopes" => "true"
-             } = Platform.get("google").authorize_params
-    end
-
     test "an extension's provider gets its own parameters, and they reach the URL" do
-      # Slack's `user_scope` override lives on the fountain_slack extension's
-      # struct now; the fixture proves the same mechanism from core's side.
+      # Google's offline pair and Slack's `user_scope` override live on their
+      # extensions' structs now; the fixture proves the mechanism from core.
       p = Platform.get("fixture-svc")
       assert p.authorize_params == %{"prompt" => "fixture"}
 

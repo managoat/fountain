@@ -39,7 +39,11 @@ defmodule FountainWeb.ExtensionProviderLifecycleTest do
   test "removing an extension with fresh and stale grants omits its credentials and permits local cleanup" do
     user = insert_verified_user()
     other = insert_verified_user()
-    retained = insert_connection(user, access_token: "retained-token")
+    # A tenant's own provider survives any extension coming or going; it is
+    # the connection that must keep working when the fixture's is gone.
+    retained =
+      insert_connection(user, provider: insert_provider(user), access_token: "retained-token")
+
     other_connection = insert_connection(other)
 
     connections =

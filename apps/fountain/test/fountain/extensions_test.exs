@@ -21,7 +21,6 @@ defmodule Fountain.ExtensionsTest do
     ProvidersDuplicateFixture,
     ProvidersMalformed,
     ProvidersRaise,
-    ProvidersTakeGoogle,
     ProvidersWithUser,
     Silent,
     WrongShape
@@ -280,12 +279,6 @@ defmodule Fountain.ExtensionsTest do
   end
 
   describe "validate/2 fails closed on a connection provider (ADR 0054)" do
-    test "that takes a slug the host already owns" do
-      assert {:error, message} = Extensions.validate([ProvidersTakeGoogle])
-      assert message =~ "ProvidersTakeGoogle"
-      assert message =~ ~s("google", a slug another platform provider already has)
-    end
-
     test "that takes a slug another extension already contributes" do
       assert {:error, message} = Extensions.validate([Enabled, ProvidersDuplicateFixture])
       assert message =~ "ProvidersDuplicateFixture"

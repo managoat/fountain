@@ -6,7 +6,7 @@ defmodule FountainWeb.ConnectionsLiveTest do
   import Fountain.BrokerTestHelpers
 
   alias Fountain.Connections
-  alias Fountain.Connections.{Google, OAuth}
+  alias Fountain.Connections.OAuth
 
   test "hidden and redirected where no broker is configured", %{conn: conn} do
     user = insert_verified_user()
@@ -27,9 +27,9 @@ defmodule FountainWeb.ConnectionsLiveTest do
 
     {:ok, lv, html} = live(conn, ~p"/account/connections")
     assert html =~ "me@example.com"
-    assert html =~ ~s(href="/connections/google/start")
+    assert html =~ ~s(href="/connections/fixture-svc/start")
     assert html =~ c.id
-    assert html =~ "GOOGLE_ACCESS_TOKEN"
+    assert html =~ "FIXTURE_SVC_ACCESS_TOKEN"
     refute html =~ "never-in-html"
 
     Req.Test.stub(OAuth, fn req -> Req.Test.json(req, %{}) end)
@@ -44,16 +44,16 @@ defmodule FountainWeb.ConnectionsLiveTest do
     refute Connections.get_connection(c.id, user.id)
   end
 
-  test "says so when Google is not configured on this deployment", %{conn: conn} do
+  test "says so when a platform provider is not configured on this deployment", %{conn: conn} do
     user = insert_verified_user()
     enable_connections()
-    previous = Application.get_env(:fountain, :google_oauth_client_id)
-    on_exit(fn -> Application.put_env(:fountain, :google_oauth_client_id, previous) end)
-    Application.put_env(:fountain, :google_oauth_client_id, nil)
+    # The fixture extension reads its client id from app env for exactly this.
+    on_exit(fn -> Application.delete_env(:fountain, :fixture_svc_client_id) end)
+    Application.put_env(:fountain, :fixture_svc_client_id, nil)
 
     {:ok, _lv, html} = conn |> login_user(user) |> live(~p"/account/connections")
     assert html =~ "Not configured on this deployment"
-    refute html =~ ~s(href="/connections/google/start")
+    refute html =~ ~s(href="/connections/fixture-svc/start")
   end
 
   test "adds an OAuth app from a preset, shows its redirect URI and connect link, edits and deletes it",

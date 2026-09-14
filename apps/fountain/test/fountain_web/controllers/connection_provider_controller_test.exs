@@ -59,28 +59,27 @@ defmodule FountainWeb.ConnectionProviderControllerTest do
     assert created["connect_url"] =~ "/connections/#{created["id"]}/start"
     refute inspect(created) =~ "top-secret"
 
-    # The host's one, each installed extension's (ADR 0054: always the
-    # fixture's, fountain_microsoft's and fountain_slack's where those apps
-    # load), then the tenant's.
-    assert %{"data" => [google | rest]} =
+    # Each installed extension's (ADR 0054: always the fixture's;
+    # fountain_google's, fountain_microsoft's and fountain_slack's where those
+    # apps load), then the tenant's. Core contributes none.
+    assert %{"data" => rest} =
              conn |> get("/api/connection-providers") |> json_response(200)
 
     {github, contributed} = List.pop_at(rest, -1)
 
-    assert google["id"] == "google"
     assert fixture = Enum.find(contributed, &(&1["id"] == "fixture-svc"))
     assert fixture["platform"] == true
     assert Enum.all?(contributed, &(&1["platform"] == true))
     assert github["id"] == created["id"]
 
     assert conn
-           |> get("/api/connection-providers/google")
+           |> get("/api/connection-providers/fixture-svc")
            |> json_response(200)
            |> Map.fetch!("platform")
 
     # The same list answers on the connections route, for older clients.
     assert %{"data" => same} = conn |> get("/api/connections/providers") |> json_response(200)
-    assert length(same) == length(rest) + 1
+    assert length(same) == length(rest)
 
     updated =
       conn
@@ -100,10 +99,10 @@ defmodule FountainWeb.ConnectionProviderControllerTest do
 
     # The platform provider is read-only.
     assert conn
-           |> patch("/api/connection-providers/google", %{"name" => "x"})
+           |> patch("/api/connection-providers/fixture-svc", %{"name" => "x"})
            |> json_response(404)
 
-    assert conn |> delete("/api/connection-providers/google") |> json_response(404)
+    assert conn |> delete("/api/connection-providers/fixture-svc") |> json_response(404)
 
     assert conn |> delete("/api/connection-providers/#{created["id"]}") |> response(204)
     assert Connections.list_providers(user.id) == []

@@ -116,8 +116,8 @@ defmodule Fountain.Connections do
     do: Platform.all() ++ list_providers(user_id)
 
   @doc """
-  A provider by id: a platform slug (`"google"`, `"microsoft"`, `"slack"`)
-  is the platform provider, anything else a tenant row. Nil for a row that
+  A provider by id: a platform slug (an installed extension's, such as
+  `"google"`) is the platform provider, anything else a tenant row. Nil for a row that
   is not the tenant's.
   """
   @spec get_provider(String.t(), String.t()) :: Provider.t() | nil

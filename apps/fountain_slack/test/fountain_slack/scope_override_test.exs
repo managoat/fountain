@@ -12,8 +12,8 @@ defmodule FountainSlack.ScopeOverrideTest do
     slack = Platform.get("slack")
     assert slack.scopes == ~w(chat:write users:read)
     assert slack.authorize_params["user_scope"] == "chat:write users:read"
-    # the host's own providers keep their defaults
-    assert "https://www.googleapis.com/auth/gmail.modify" in Platform.get("google").scopes
+    # the other providers keep their defaults
+    assert Platform.get("fixture-svc").scopes == ["read"]
   end
 
   test "an empty list is unset, not a request for no scopes" do

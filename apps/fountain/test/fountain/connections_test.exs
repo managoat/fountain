@@ -2,16 +2,16 @@ defmodule Fountain.ConnectionsTest do
   use Fountain.DataCase, async: true
 
   alias Fountain.{Connections, Crypto}
-  alias Fountain.Connections.{Connection, Google, McpServers, OAuth, Platform, Provider}
+  alias Fountain.Connections.{Connection, McpServers, OAuth, Platform, Provider}
 
   describe "connect/4" do
     test "stores the grant encrypted, active, under the provider's env key" do
       user = insert_verified_user()
       conn = insert_connection(user, account_email: "me@example.com", refresh_token: "r-1")
 
-      assert conn.provider == "google"
+      assert conn.provider == "fixture-svc"
       assert conn.status == "active"
-      assert conn.env_key == "GOOGLE_ACCESS_TOKEN"
+      assert conn.env_key == "FIXTURE_SVC_ACCESS_TOKEN"
       assert conn.account_email == "me@example.com"
       refute conn.refresh_token_ciphertext == "r-1"
 
@@ -67,7 +67,7 @@ defmodule Fountain.ConnectionsTest do
         )
 
       Req.Test.stub(OAuth, fn req ->
-        assert req.request_path == "/token"
+        assert req.request_path == "/oauth/token"
         {:ok, body, _} = Plug.Conn.read_body(req)
         params = URI.decode_query(body)
         assert params["grant_type"] == "refresh_token"
@@ -77,7 +77,7 @@ defmodule Fountain.ConnectionsTest do
 
       assert {:ok, "a-new"} = Connections.access_token(conn)
 
-      # Cached: the next read does not hit Google.
+      # Cached: the next read does not hit the provider.
       Req.Test.stub(OAuth, fn _ -> flunk("second read should be cached") end)
       fresh = Connections.get_connection(conn.id, user.id)
       assert {:ok, "a-new"} = Connections.access_token(fresh)
@@ -115,7 +115,7 @@ defmodule Fountain.ConnectionsTest do
   end
 
   describe "revoke/2" do
-    test "tells Google to forget the refresh token and marks the row" do
+    test "tells the provider to forget the refresh token and marks the row" do
       user = insert_verified_user()
       conn = insert_connection(user, refresh_token: "r-gone")
       test_pid = self()
@@ -129,7 +129,7 @@ defmodule Fountain.ConnectionsTest do
       assert {:ok, %Connection{status: "revoked", revoked_at: %DateTime{}}} =
                Connections.revoke(conn, actor: "ui")
 
-      assert_received {:revoked, "/revoke", "r-gone"}
+      assert_received {:revoked, "/oauth/revoke", "r-gone"}
     end
   end
 
@@ -140,13 +140,16 @@ defmodule Fountain.ConnectionsTest do
       active = insert_connection(user, access_token: "a-live", account_email: "a@example.com")
       {:ok, _} = Connections.revoke(insert_connection(user, account_email: "b@example.com"))
 
-      assert Connections.synthetic_secrets(user.id) == %{"GOOGLE_ACCESS_TOKEN" => "a-live"}
+      assert Connections.synthetic_secrets(user.id) == %{"FIXTURE_SVC_ACCESS_TOKEN" => "a-live"}
 
       assert Enum.sort(Connections.env_keys(user.id)) ==
-               ["GOOGLE_ACCESS_TOKEN", "GOOGLE_ACCESS_TOKEN_2"]
+               ["FIXTURE_SVC_ACCESS_TOKEN", "FIXTURE_SVC_ACCESS_TOKEN_2"]
 
-      assert Connections.implicit_hosts(user.id, active.env_key) == Google.token_hosts()
-      assert Connections.implicit_hosts(user.id, "GOOGLE_ACCESS_TOKEN_2") == Google.token_hosts()
+      assert Connections.implicit_hosts(user.id, active.env_key) == ["svc.fixture.example"]
+
+      assert Connections.implicit_hosts(user.id, "FIXTURE_SVC_ACCESS_TOKEN_2") ==
+               ["svc.fixture.example"]
+
       assert Connections.implicit_hosts(user.id, "OTHER") == []
     end
   end
@@ -175,49 +178,31 @@ defmodule Fountain.ConnectionsTest do
     end
   end
 
-  describe "OAuth.authorize_url/3 for Google" do
-    test "asks for offline access with a forced consent, so a refresh token comes back" do
-      url =
-        OAuth.authorize_url(
-          Google.provider(),
-          "https://f.example/connections/google/callback",
-          "st"
-        )
-
-      %URI{query: q} = URI.parse(url)
-      params = URI.decode_query(q)
-
-      assert params["access_type"] == "offline"
-      assert params["prompt"] == "consent"
-      assert params["state"] == "st"
-      assert params["redirect_uri"] == "https://f.example/connections/google/callback"
-      assert params["scope"] =~ "gmail.modify"
-      assert params["scope"] =~ "auth/calendar"
-    end
-  end
-
-  describe "the other platform providers (#1299, ADR 0054)" do
+  describe "the platform providers (#1299, ADR 0054)" do
     test "a platform provider whose token expires still insists on a refresh token" do
-      google = Platform.get("google")
+      # Google's rule, kept by every config-backed provider (`user_id: nil`):
+      # a repeat consent without a refresh token would be dead in an hour.
+      platform = Platform.get("fixture-svc")
 
       Req.Test.stub(OAuth, fn conn ->
         Req.Test.json(conn, %{"access_token" => "ya29-1", "expires_in" => 3600})
       end)
 
       assert {:error, :no_refresh_token} =
-               OAuth.exchange_code(google, "code", "https://f.example/cb")
+               OAuth.exchange_code(platform, "code", "https://f.example/cb")
     end
 
-    test "the same label on two platform providers is two connections, not one" do
+    test "the same label on a platform provider and a tenant's is two connections, not one" do
       user = insert_verified_user()
 
-      # The host's Google and the fixture extension's provider (ADR 0054):
-      # an extension's row is a platform provider to this context too.
-      google = insert_connection(user, account_email: "me@example.com")
+      # The fixture extension's provider (ADR 0054) and the tenant's own
+      # oauth2 provider: the label is scoped by provider, never global.
+      own = insert_provider(user)
+      tenant = insert_connection(user, provider: own, account_email: "me@example.com")
       fixture = insert_connection(user, provider: "fixture-svc", account_email: "me@example.com")
 
-      assert google.id != fixture.id
-      assert google.provider_id == nil and fixture.provider_id == nil
+      assert tenant.id != fixture.id
+      assert tenant.provider_id == own.id and fixture.provider_id == nil
       assert fixture.provider == "fixture-svc"
       assert fixture.env_key == "FIXTURE_SVC_ACCESS_TOKEN"
       assert length(Connections.list_connections(user.id)) == 2

@@ -97,7 +97,6 @@ nav:
       - stripe (MCP server): catalog/mcp-servers/stripe.md
       - webflow (MCP server): catalog/mcp-servers/webflow.md
       - Connections: catalog/connections/index.md
-      - google (connection): catalog/connections/google.md
       - Agents: catalog/agents/index.md
       - fountain-contributor (agent): catalog/agents/fountain-contributor.md
   - Sandbox providers:

@@ -74,6 +74,6 @@ forget the token, through `auth.revoke`.
 ## Related
 
 - [Connections](index.md), the catalog hub.
-- [Google](google.md) and Microsoft, the other platform providers.
+- Google and Microsoft, the other platform providers, each its own extension.
 - [Connect a service with your own OAuth app](../../guides/connect/own-oauth-app.md),
   for every other service.

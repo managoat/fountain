@@ -85,7 +85,7 @@ defmodule Fountain.ExtensionGuardTest do
       # keeps it out); the Gmail tool layer and client were the two modules
       # beside it that moved (#2152).
       module:
-        ~r/\b(FountainGoogle\.|Fountain\.Connections\.(Mcp|Gmail)\b|FountainWeb\.GmailMcp[A-Z])/,
+        ~r/\b(FountainGoogle\.|Fountain\.Connections\.(Mcp|Gmail|Google)\b|Fountain\.Connections\.Platform\.google\b|FountainWeb\.GmailMcp[A-Z])/,
       route: ~r|"/(api/)?mcp/gmail|,
       route_except: [],
       priv: "**/*gmail*"

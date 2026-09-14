@@ -536,7 +536,7 @@ defmodule FountainWeb.AgentsLive.ConnectionsFormTest do
           "agent" => %{"mcp_servers" => %{"0" => %{"name" => "gmail", "kind" => "connection"}}}
         })
 
-      assert html =~ "me@example.com (google)"
+      assert html =~ "me@example.com (fixture-svc)"
 
       view
       |> form("#agent-form", %{
@@ -558,7 +558,7 @@ defmodule FountainWeb.AgentsLive.ConnectionsFormTest do
 
       # Reopen and save with no change to the row: the entry is kept.
       {:ok, view, html} = live(conn, ~p"/agents/#{agent.id}/edit")
-      assert html =~ "me@example.com (google)"
+      assert html =~ "me@example.com (fixture-svc)"
 
       view
       |> form("#agent-form", %{

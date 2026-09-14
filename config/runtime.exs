@@ -750,52 +750,36 @@ if github_client_id = System.get_env("GITHUB_OAUTH_CLIENT_ID") do
 end
 
 # OAuth clients for the platform connection providers (#1178, #1299): a
-# tenant signs in to Google once in the console and Fountain holds the
-# refresh token. Not the sign-in provider — that is GitHub above. Absent
-# stays absent, so the console says a provider is not configured rather than
-# sending anyone to a consent screen with an empty client id. The env var
-# names stay literal here for the reference guard.
+# tenant signs in to Google, Microsoft or Slack once in the console and
+# Fountain holds the refresh token. Not the sign-in provider — that is GitHub
+# above. Every one of them ships as an extension (ADR 0054 decision 6) and
+# reads its own variables into its own otp_app; core reads none of them, so a
+# core-only release has no key for a provider it does not carry. Same shape
+# for each: absent stays absent, "" counts as absent, so the console says a
+# provider is not configured rather than sending anyone to a consent screen
+# with an empty client id; configuring an extension that is not installed is
+# inert, not an error. The env var names stay literal here for the reference
+# guard.
 #
-# A provider that ships as an extension reads its own variables into its own
-# otp_app (ADR 0054 decision 5): Microsoft's and Slack's are further down,
-# under `:fountain_microsoft` and `:fountain_slack`, and core reads none of
-# them.
-platform_oauth_clients = [
-  {"GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET", :google_oauth_client_id,
-   :google_oauth_client_secret}
-]
+# Google (`fountain_google`): the client, and `GOOGLE_OAUTH_SCOPES`, the lever
+# for app verification — a deployment whose Google app is not verified for a
+# scope simply does not request it, and the products that need it stay dark.
+case System.get_env("GOOGLE_OAUTH_CLIENT_ID") do
+  blank when blank in [nil, ""] ->
+    :ok
 
-for {id_var, secret_var, id_key, secret_key} <- platform_oauth_clients do
-  case System.get_env(id_var) do
-    blank when blank in [nil, ""] ->
-      :ok
-
-    client_id ->
-      config :fountain, [{id_key, client_id}, {secret_key, System.get_env(secret_var)}]
-  end
+  client_id ->
+    config :fountain_google,
+      google_oauth_client_id: client_id,
+      google_oauth_client_secret: System.get_env("GOOGLE_OAUTH_CLIENT_SECRET")
 end
 
-# The scopes each platform provider asks for, space-separated, overriding
-# the defaults in Fountain.Connections.Platform. The lever for app
-# verification: a deployment whose Google app is not verified for a scope
-# simply does not request it, and the provider's products light up to match.
-platform_oauth_scopes = [
-  {"GOOGLE_OAUTH_SCOPES", :google_oauth_scopes}
-]
-
-for {var, key} <- platform_oauth_scopes do
-  case System.get_env(var) do
-    blank when blank in [nil, ""] -> :ok
-    scopes -> config :fountain, [{key, String.split(scopes)}]
-  end
+case System.get_env("GOOGLE_OAUTH_SCOPES") do
+  blank when blank in [nil, ""] -> :ok
+  scopes -> config :fountain_google, google_oauth_scopes: String.split(scopes)
 end
 
-# The Microsoft connection provider ships as the `fountain_microsoft`
-# extension (ADR 0054 decision 6), so its OAuth client and scope override are
-# that application's configuration and not core's: a core-only release reads
-# no key for a provider it does not carry. Same shape as the host's above —
-# absent stays absent, and "" counts as absent. Configuring an extension that
-# is not installed is inert, not an error.
+# Microsoft (`fountain_microsoft`), likewise.
 case System.get_env("MICROSOFT_OAUTH_CLIENT_ID") do
   blank when blank in [nil, ""] ->
     :ok

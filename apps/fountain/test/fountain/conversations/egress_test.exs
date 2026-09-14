@@ -127,7 +127,7 @@ defmodule Fountain.Conversations.EgressTest do
       assert merged[conn.env_key] == conn.access_token
 
       assert host_triples(bindings[conn.env_key]) ==
-               Enum.map(Fountain.Connections.Google.token_hosts(), &{conn.env_key, &1, "bearer"})
+               Enum.map(["svc.fixture.example"], &{conn.env_key, &1, "bearer"})
     end
 
     test "a tenant's own secret and own binding of the same name win", %{user: user} do
@@ -144,12 +144,12 @@ defmodule Fountain.Conversations.EgressTest do
          %{user: user} do
       broker_on()
       conn = insert_connection(user)
-      remote = %{conn.env_key => ["mcp.example", hd(Fountain.Connections.Google.token_hosts())]}
+      remote = %{conn.env_key => ["mcp.example", "svc.fixture.example"]}
 
       hosts =
         Egress.connection_bindings(user.id, conn.env_key, remote) |> Enum.map(& &1.host)
 
-      assert hosts == Enum.uniq(Fountain.Connections.Google.token_hosts() ++ ["mcp.example"])
+      assert hosts == ["svc.fixture.example", "mcp.example"]
     end
 
     test "refresh_connection_secrets/3 swaps in a rotated token and says so", %{user: user} do

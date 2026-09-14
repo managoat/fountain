@@ -220,11 +220,14 @@ defmodule Fountain.ExtensionFixtures do
           kind: "oauth2",
           authorize_url: "https://svc.fixture.example/oauth/authorize",
           token_url: "https://svc.fixture.example/oauth/token",
-          revoke_url: nil,
+          revoke_url: "https://svc.fixture.example/oauth/revoke",
           userinfo_url: "https://svc.fixture.example/me",
           account_label_path: "login",
           scopes: ["read"],
-          client_id: "fixture-client",
+          # Read from app env so a console test can unset it and see the
+          # "not configured on this deployment" row; the default is what
+          # every other test sees.
+          client_id: Application.get_env(:fountain, :fixture_svc_client_id, "fixture-client"),
           client_secret: "fixture-secret",
           token_endpoint_auth: "client_secret_post",
           pkce: true,
@@ -431,16 +434,6 @@ defmodule Fountain.ExtensionFixtures do
 
     @impl true
     def connection_providers, do: raise("fixture cannot list its providers")
-  end
-
-  defmodule ProvidersTakeGoogle do
-    @moduledoc "Contributes a provider on the host's own `google` slug. NOT configured."
-    use Fountain.Extension, id: :fixture_providers_take_google
-
-    @impl true
-    def connection_providers do
-      [%Fountain.Connections.Provider{id: "google", slug: "google", kind: "oauth2"}]
-    end
   end
 
   defmodule ProvidersDuplicateFixture do

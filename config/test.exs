@@ -136,10 +136,10 @@ config :fountain, :posthog_req_options, plug: {Req.Test, Fountain.FeatureFlags}
 # Connections (#1178, #1299): every platform OAuth client set so the flows
 # are "configured", and Req.Test plugs so no test reaches a provider: an
 # unstubbed call fails loudly.
-config :fountain, :google_oauth_client_id, "google-test-client-id"
-config :fountain, :google_oauth_client_secret, "google-test-client-secret"
-# Microsoft's and Slack's pairs live under their extensions (ADR 0054
-# decision 5); each is read only where its app loads, and inert elsewhere.
+# Every platform provider's pair lives under its extension (ADR 0054
+# decision 5), read only where that app loads and inert elsewhere.
+config :fountain_google, :google_oauth_client_id, "google-test-client-id"
+config :fountain_google, :google_oauth_client_secret, "google-test-client-secret"
 config :fountain_microsoft, :microsoft_oauth_client_id, "microsoft-test-client-id"
 config :fountain_microsoft, :microsoft_oauth_client_secret, "microsoft-test-client-secret"
 config :fountain_slack, :slack_oauth_client_id, "slack-test-client-id"

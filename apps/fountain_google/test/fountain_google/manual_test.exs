@@ -28,6 +28,15 @@ defmodule FountainGoogle.ManualTest do
     refute @page in Fountain.Docs.slugs()
   end
 
+  test "the google (connection) page moved with the provider and keeps its URL (#2152 step 4b)" do
+    page = "catalog/connections/google"
+    assert {:ok, %{title: "google (connection)"}} = Manual.get(page)
+    assert Manual.path_for_slug(page) == "/docs/catalog/connections/google"
+    assert Fountain.Docs.get(page) == :error
+    assert {_, catalog} = Enum.find(Manual.nav(), &match?({"Catalog", _}, &1))
+    assert {"google (connection)", page} in catalog
+  end
+
   test "the sidebar puts it back in the Catalog section a reader knows" do
     nav = Manual.nav()
 

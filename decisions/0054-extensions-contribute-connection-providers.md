@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Extensions contribute connection providers"
-description: "Accepted. Fountain.Extension gains an eleventh callback, connection_providers/0: an extension hands the host config-backed Fountain.Connections.Provider structs and the host lists them beside its own, reserves their slugs and drives them with the one OAuth client. Built: the callback, the registry composition and the boot validation. Built since: the Microsoft and Slack providers moved into fountain_microsoft and fountain_slack (#2152 steps 4c and 4d). Not yet built: Google into fountain_google, after which core owns no platform provider."
+description: "Built. Fountain.Extension has an eleventh callback, connection_providers/0: an extension hands the host config-backed Fountain.Connections.Provider structs and the host lists them, reserves their slugs and drives them with the one OAuth client. Google, Microsoft and Slack each ship as an extension (fountain_google, fountain_microsoft, fountain_slack); core builds no platform provider and a core distribution lists none."
 tags: [connections, oauth, extensions, architecture]
 status: stable
 adr: "0054"
@@ -9,23 +9,20 @@ adr_status: "Accepted"
 date: 2026-09-14
 generated: { by: claude-fable/5.1, at: 2026-09-14T00:40:00-04:00 }
 verified: { by: claude-fable/5.1, at: 2026-09-14T00:40:00-04:00 }
-stale_after: 2026-11-14
 ---
 
 # 0054 — Extensions contribute connection providers
 
-**Status:** Accepted — **partially built.** The callback, the registry
-composition in `Fountain.Connections.Platform` and the boot validation in
-`Fountain.Extensions` are built (#2152), and so are two of the three
-moves that make core own no platform provider: Microsoft is
-`apps/fountain_microsoft` (#2152 step 4c) and Slack is `apps/fountain_slack`
-(step 4d), each a two-callback extension (`connection_providers/0`,
-`docs/0`) that reads its `<SLUG>_OAUTH_*` variables into its own
-`config :fountain_<slug>` and owns its `(connection)` manual page. Slack's
-two quirks travel on the struct (`authorize_params`, `token_body_nest`),
-which is what step 1 was for. Google into `fountain_google` is **not yet
-built**; until it lands, that builder stays in `Platform` and the registry
-is "the host's one, then each installed extension's".
+**Status:** Accepted — **built.** The callback, the registry composition in
+`Fountain.Connections.Platform` and the boot validation in
+`Fountain.Extensions` are built (#2152 step 4a), and so are the three moves
+that make core own no platform provider: Microsoft is
+`apps/fountain_microsoft` (step 4c), Slack is `apps/fountain_slack` (step
+4d) and Google is `apps/fountain_google` (step 4b), beside the Gmail MCP
+server it also serves. Each reads its `<SLUG>_OAUTH_*` variables into its
+own `config :fountain_<slug>` and owns its `(connection)` manual page.
+`Platform` keeps the registry functions and builds nothing;
+`builtin_slugs/0` is empty. Nothing described here is unbuilt.
 
 ## Context
 
@@ -103,11 +100,11 @@ service and a provider can come from anywhere.
    `fountain_google` beside the Gmail MCP server; Microsoft and Slack each
    become an extension of their own (`fountain_microsoft`, `fountain_slack`),
    because each is a product someone may want to add to a deployment and a
-   product nobody has to carry. When the three have moved, `Platform` keeps
-   the registry functions and loses its builders, and the nine env vars leave
-   `config/runtime.exs` for each extension's own configuration. ADR 0033
-   decision 1's "grown only by amending this ADR" becomes "grown by
-   installing an extension".
+   product nobody has to carry. Built: `Platform` keeps the registry
+   functions and has no builders, and the nine env vars are read in
+   `config/runtime.exs` into each extension's own configuration rather
+   than core's. ADR 0033 decision 1's "grown only by amending this ADR" is
+   "grown by installing an extension".
 
 ## Consequences
 
@@ -121,10 +118,10 @@ service and a provider can come from anywhere.
   (`fixture-svc`), so every test that enumerates the registry sees four
   platform providers rather than three. That is deliberate: the seam is
   proved on the real path the console and the API take, not on a copy of it.
-- Until decision 6 is built, a Google connection on a core distribution is
-  listed but has no product behind it once the Gmail server has moved. That
-  window is the reason the three moves follow in the same tracker rather than
-  waiting.
+- A core distribution lists no platform provider, so its connections page
+  offers only what the tenant defines. A deployment that stored platform
+  grants before the moves keeps them revocable and deletable and contributes
+  no token from them (`FountainGoogle.CoreUpgradeTest` and its siblings).
 
 ## Alternatives considered
 

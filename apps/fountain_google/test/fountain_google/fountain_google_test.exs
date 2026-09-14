@@ -20,7 +20,7 @@ defmodule FountainGoogleTest do
   setup do
     enable_broker()
     user = insert_verified_user()
-    connection = insert_connection(user, account_email: "me@example.com")
+    connection = insert_connection(user, provider: "google", account_email: "me@example.com")
     %{user: user, connection: connection}
   end
 
@@ -60,7 +60,12 @@ defmodule FountainGoogleTest do
 
   test "a connection that is not active, not Google, or not the tenant's is skipped", ctx do
     Req.Test.stub(OAuth, fn req -> Req.Test.json(req, %{}) end)
-    {:ok, revoked} = Connections.revoke(insert_connection(ctx.user, account_email: "r@x.test"))
+
+    {:ok, revoked} =
+      Connections.revoke(
+        insert_connection(ctx.user, provider: "google", account_email: "r@x.test")
+      )
+
     # Another platform provider's connection: the fixture extension's, since
     # Slack and Microsoft are extensions of their own now and are not loaded
     # in this suite (#2152).

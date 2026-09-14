@@ -60,10 +60,14 @@ fountain/                  umbrella root
                            /api/buzz + /api/mcp/buzz, and the harness tree;
                            Support owns FountainSupport.*, support_reports,
                            /api/support and the report forwarder; Google owns
-                           FountainGoogle.*, the Gmail tool layer and client,
-                           /api/mcp/gmail and the fountain-gmail manual page,
-                           and serves the `%{"connection" => id}` (no url)
-                           `mcp_servers` shape core deliberately drops.
+                           FountainGoogle.*: the `google` connection provider
+                           (`connection_providers/0`, ADR 0054) with its
+                           `GOOGLE_OAUTH_*` config under `:fountain_google`,
+                           the Gmail tool layer and client, /api/mcp/gmail,
+                           the `google (connection)` and fountain-gmail manual
+                           pages, and the `%{"connection" => id}` (no url)
+                           `mcp_servers` shape core deliberately drops. Core
+                           builds no platform provider of its own.
                            Microsoft owns FountainMicrosoft.*: the `microsoft`
                            connection provider (`connection_providers/0`,
                            ADR 0054), its `MICROSOFT_OAUTH_*` config under

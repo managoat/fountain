@@ -3,22 +3,28 @@ defmodule FountainGoogle.Extension do
   The one module the host knows about (ADR 0043, #2152).
 
   `config :fountain, :extensions, [..., FountainGoogle.Extension]` is the whole
-  of Fountain's knowledge of the Gmail tools. Nothing under `apps/fountain/lib`
-  names this module or any other `FountainGoogle.*` one —
-  `Fountain.ExtensionGuardTest` fails the build if that stops being true.
+  of Fountain's knowledge of Google: the connection provider and the Gmail
+  tools. Nothing under `apps/fountain/lib` names this module or any other
+  `FountainGoogle.*` one — `Fountain.ExtensionGuardTest` fails the build if
+  that stops being true.
 
-  ## Three callbacks, and no tenth
+  ## Four callbacks
 
   ADR 0043 decision 3 specified this extension against `api_mounts/0` and
   `conversation_mcp_servers/2` before it was built, as the design that showed
-  the seam needed no tenth entry. Built, it uses those two and `docs/0`, and
-  inherits the contribute-nothing default for the other seven:
+  the seam needed no tenth entry. Built, it uses those two, `docs/0`, and the
+  eleventh ADR 0054 added so the provider could follow the product
+  (`connection_providers/0`), and inherits the contribute-nothing default for
+  the other seven:
 
+    * `connection_providers/0` — the Google provider, the row a tenant clicks
+      "Connect a Google account" on. The host lists it, reserves its slug and
+      drives it with its own OAuth client; no token passes through here.
     * `api_mounts/0` — one mount, `/mcp/gmail`, so the endpoint keeps the path
       it had as a core route.
     * `conversation_mcp_servers/2` — the Gmail server, for a conversation whose
       agent names an active Google connection and no URL beside it.
-    * `docs/0` — the `fountain-gmail` manual page.
+    * `docs/0` — the `google (connection)` and `fountain-gmail` manual pages.
 
   No migration: the connection rows are the host's (`Fountain.Connections`),
   and this extension holds no state of its own. No OpenAPI operation either —
@@ -27,6 +33,14 @@ defmodule FountainGoogle.Extension do
   """
 
   use Fountain.Extension, id: :google
+
+  @doc """
+  The Google provider, `FountainGoogle.Provider.provider/0`, built from
+  `config :fountain_google` on every call so an operator's client and scope
+  settings are read as they stand (ADR 0054 decision 6, #2152 step 4b).
+  """
+  @impl true
+  def connection_providers, do: [FountainGoogle.Provider.provider()]
 
   @doc """
   The one path this extension serves: `/api/mcp/gmail`.
@@ -60,11 +74,13 @@ defmodule FountainGoogle.Extension do
   defdelegate conversation_mcp_servers(conversation_id, callback_token), to: FountainGoogle
 
   @doc """
-  The one manual page this extension owns.
+  The two manual pages this extension owns: `google (connection)` and
+  `fountain-gmail`.
 
-  It kept its slug across the move, so `/docs/catalog/mcp-servers/fountain-gmail`
-  is the URL it always was — on a bundled distribution. A core one serves no
-  such page, and its sidebar never names it.
+  Both kept their slugs across the move, so `/docs/catalog/connections/google`
+  and `/docs/catalog/mcp-servers/fountain-gmail` are the URLs they always
+  were — on a bundled distribution. A core one serves neither page, and its
+  sidebar never names them.
   """
   @impl true
   def docs, do: FountainGoogle.Docs

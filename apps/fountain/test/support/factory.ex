@@ -157,13 +157,17 @@ defmodule Fountain.Factory do
   # ── connections (#1178) ───────────────────────────────────────────────────
 
   @doc """
-  A stored Google connection with a refresh token and a fresh access token,
+  A stored platform connection with a refresh token and a fresh access token,
   as `Fountain.Connections.connect/4` would persist after a consent. No
-  network: the grant map is what `Google.exchange_code/2` returns.
+  network: the grant map is what `OAuth.exchange_code/4` returns. The
+  provider defaults to the fixture extension's (`fixture-svc`), the one
+  platform provider every suite has since Google, Microsoft and Slack became
+  extensions of their own (#2152); pass `provider: "google"` (a slug, or a
+  `%Provider{}` for a tenant's own) where a suite has that extension loaded.
   """
   def insert_connection(user, overrides \\ %{}) do
     overrides = Map.new(overrides, fn {k, v} -> {to_string(k), v} end)
-    provider = overrides["provider"] || "google"
+    provider = overrides["provider"] || "fixture-svc"
 
     grant = %{
       refresh_token: Map.get(overrides, "refresh_token", "refresh-#{uniq()}"),
@@ -171,7 +175,7 @@ defmodule Fountain.Factory do
       expires_at:
         overrides["expires_at"] ||
           DateTime.utc_now() |> DateTime.add(3600, :second) |> DateTime.truncate(:second),
-      scopes: overrides["scopes"] || Fountain.Connections.Google.scopes(),
+      scopes: overrides["scopes"] || ["read"],
       account_email: overrides["account_email"] || "user-#{uniq()}@example.com"
     }
 

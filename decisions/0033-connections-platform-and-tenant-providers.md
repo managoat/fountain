@@ -91,8 +91,9 @@ with effort:
    extension rather than as a builder in core, and the registry becomes
    "the host's own, then each installed extension's". Microsoft and Slack
    have moved (`fountain_microsoft`, `fountain_slack`, #2152 steps 4c and
-   4d); Google follows, after which core builds none of the three and the
-   registry grows by installing an extension.
+   4d) and so has Google (`fountain_google`, step 4b): core builds none of
+   the three, `Fountain.Connections.Platform.builtin_slugs/0` is empty, and
+   the registry grows by installing an extension.
 
 2. **Every other service is a provider the tenant defines.** A
    `connection_providers` row, tenant-scoped, of two kinds:

@@ -15,8 +15,8 @@ defmodule FountainMicrosoft.ScopeOverrideTest do
     on_exit(fn -> Application.delete_env(:fountain_microsoft, :microsoft_oauth_scopes) end)
 
     assert Platform.get("microsoft").scopes == ~w(openid offline_access Mail.Send)
-    # the host's own providers keep their defaults
-    assert "https://www.googleapis.com/auth/gmail.modify" in Platform.get("google").scopes
+    # the other providers keep their defaults
+    assert Platform.get("fixture-svc").scopes == ["read"]
   end
 
   test "an empty list is unset, not a request for no scopes" do

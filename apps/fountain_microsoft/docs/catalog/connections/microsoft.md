@@ -77,6 +77,6 @@ at Microsoft, remove the app from the account's app permissions.
 ## Related
 
 - [Connections](index.md), the catalog hub.
-- [Google](google.md) and Slack, the other platform providers.
+- Google and Slack, the other platform providers, each its own extension.
 - [Connect a service with your own OAuth app](../../guides/connect/own-oauth-app.md),
   for every other service.

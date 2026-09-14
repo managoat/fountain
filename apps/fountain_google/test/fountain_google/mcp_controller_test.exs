@@ -11,7 +11,13 @@ defmodule FountainGoogle.McpControllerTest do
   setup do
     user = insert_verified_user()
     {_key, raw_key} = insert_sprite_api_key(user)
-    connection = insert_connection(user, account_email: "me@example.com", access_token: "at-live")
+
+    connection =
+      insert_connection(user,
+        provider: "google",
+        account_email: "me@example.com",
+        access_token: "at-live"
+      )
 
     agent =
       insert_agent(
@@ -204,6 +210,7 @@ defmodule FountainGoogle.McpControllerTest do
 
     connection =
       insert_connection(ctx.user,
+        provider: "google",
         account_email: "me@example.com",
         expires_at: expired,
         refresh_token: "rt"

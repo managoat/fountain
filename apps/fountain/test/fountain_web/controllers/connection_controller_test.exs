@@ -5,7 +5,7 @@ defmodule FountainWeb.ConnectionControllerTest do
   import Fountain.BrokerTestHelpers
 
   alias Fountain.Connections
-  alias Fountain.Connections.{Google, OAuth}
+  alias Fountain.Connections.OAuth
 
   setup %{conn: conn} do
     user = insert_verified_user()
@@ -46,14 +46,14 @@ defmodule FountainWeb.ConnectionControllerTest do
                "id" => id,
                "account_email" => "me@example.com",
                "status" => "active",
-               "env_key" => "GOOGLE_ACCESS_TOKEN"
+               "env_key" => "FIXTURE_SVC_ACCESS_TOKEN"
              }
            ] = body["data"]
 
     assert id == c.id
     refute inspect(body) =~ "never-shown-at"
 
-    assert %{"id" => ^id, "provider" => "google"} =
+    assert %{"id" => ^id, "provider" => "fixture-svc"} =
              conn |> get("/api/connections/#{id}") |> json_response(200)
 
     Req.Test.stub(OAuth, fn req -> Req.Test.json(req, %{}) end)
@@ -63,25 +63,17 @@ defmodule FountainWeb.ConnectionControllerTest do
   end
 
   test "providers names each platform provider, its scopes and where to start", %{conn: conn} do
-    # The host's one, then each installed extension's (ADR 0054): always the
-    # fixture's, and fountain_microsoft's and fountain_slack's where those
-    # apps load.
-    assert %{"data" => [google | contributed]} =
+    # Each installed extension's (ADR 0054): always the fixture's, and
+    # fountain_google's, fountain_microsoft's and fountain_slack's where
+    # those apps load. Core contributes none.
+    assert %{"data" => contributed} =
              conn |> get("/api/connections/providers") |> json_response(200)
 
+    assert Enum.all?(contributed, &(&1["platform"] == true))
     assert fixture = Enum.find(contributed, &(&1["id"] == "fixture-svc"))
-    assert fixture["platform"] == true
+    assert fixture["slug"] == "fixture-svc"
     assert fixture["configured"] == true
     assert fixture["connect_url"] =~ "/connections/fixture-svc/start"
-
-    assert google["id"] == "google"
-    assert google["slug"] == "google"
-    assert google["platform"] == true
-    assert google["configured"] == true
-    assert google["env_key"] == "GOOGLE_ACCESS_TOKEN"
-    assert google["connect_url"] =~ "/connections/google/start"
-    assert "https://www.googleapis.com/auth/gmail.modify" in google["scopes"]
-    assert "https://www.googleapis.com/auth/calendar" in google["scopes"]
 
     # The contract a client leans on (#1299): scopes stay in the response, so
     # a catalog can light a product up by matching them.

@@ -523,9 +523,9 @@ defmodule FountainWeb.Router do
     # The team tools a teammate's sandbox calls to see and message the team (#851).
     post "/mcp/team/:conversation_id", TeamMcpController, :handle
 
-    # The Gmail tools for a Google connection the conversation's agent names
-    # (#1178). Same transport; the Google token stays server-side.
-    post "/mcp/gmail/:conversation_id/:connection_id", GmailMcpController, :handle
+    # The Gmail tools for a Google connection used to be `/mcp/gmail/...` here;
+    # they are the `fountain_google` extension's now (ADR 0043, #2152), mounted
+    # by `ExtensionDispatch` at the same path.
 
     # The tools a chat-completions / AG-UI client defined on its request,
     # served back to that conversation's sandbox (#1202). A call parks until

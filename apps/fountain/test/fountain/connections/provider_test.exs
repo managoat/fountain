@@ -478,7 +478,9 @@ defmodule Fountain.Connections.ProviderTest do
                "headers" => %{"Authorization" => "Bearer __linear_access_token__"}
              }
 
-      assert resolved["gmail"]["url"] =~ "/api/mcp/gmail/conv/"
+      # The connection-only entry is an extension's to serve, not core's
+      # (ADR 0043, #2152): dropped here, never given a URL.
+      refute Map.has_key?(resolved, "gmail")
       assert resolved["fs"] == %{"command" => "npx"}
 
       assert McpServers.remote_hosts(servers, by_id) == %{
@@ -487,8 +489,7 @@ defmodule Fountain.Connections.ProviderTest do
 
       # An unknown or inactive connection drops the remote entry rather than
       # shipping a URL the broker would not attach anything to.
-      assert McpServers.resolve(servers, "conv", "cb-token", %{}) |> Map.keys() |> Enum.sort() ==
-               ["fs", "gmail"]
+      assert McpServers.resolve(servers, "conv", "cb-token", %{}) |> Map.keys() == ["fs"]
 
       assert McpServers.remote_hosts(servers, %{}) == %{}
 

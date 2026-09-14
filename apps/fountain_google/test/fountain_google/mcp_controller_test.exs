@@ -1,11 +1,12 @@
-defmodule FountainWeb.GmailMcpControllerTest do
+defmodule FountainGoogle.McpControllerTest do
   # Turns the broker on and off (global app env).
   use FountainWeb.ConnCase, async: false
 
   import Fountain.BrokerTestHelpers
 
   alias Fountain.Connections
-  alias Fountain.Connections.{Gmail, Google, OAuth}
+  alias Fountain.Connections.OAuth
+  alias FountainGoogle.Gmail
 
   setup do
     user = insert_verified_user()

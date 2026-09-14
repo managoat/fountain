@@ -3,30 +3,33 @@ defmodule Fountain.Connections.McpServers do
   How a connection is named in an agent's `mcp_servers`, and how that entry
   becomes the server the sandbox actually talks to (#1178, #1186).
 
-  Two shapes name a connection instead of a token:
+  The shape core serves is a **remote server the tenant supplies**, naming a
+  connection instead of a token:
 
-      %{"gmail" => %{"connection" => "<connection id>"}}
       %{"linear" => %{"type" => "http", "url" => "https://mcp.linear.app/mcp",
                       "connection" => "<connection id>"}}
 
-  The first is the **Fountain-served** server: at spawn, `resolve/4` rewrites
-  it into an HTTP MCP server pointing at
-  `POST /api/mcp/gmail/:conversation_id/:connection_id`, authenticated by
-  the conversation's own callback token, which the sandbox already holds.
-  The connection id is validated at request time by
-  `FountainWeb.GmailMcpController`; a stale or revoked one fails there with
-  a reason the model can read.
+  At spawn, `resolve/4` keeps its URL and gives it
+  `Authorization: Bearer <placeholder>` for the connection's `env_key`. The
+  placeholder is the same one the sandbox's environment holds, so the broker
+  attaches the real token to that host (`remote_hosts/2` is the implicit
+  bearer binding the conversation adds), and a rotated token is re-uploaded
+  at each turn kick. No token enters the sandbox.
 
-  The second is a **remote server the tenant supplies**: the entry keeps its
-  URL and gains `Authorization: Bearer <placeholder>` for the connection's
-  `env_key`. The placeholder is the same one the sandbox's environment
-  holds, so the broker attaches the real token to that host
-  (`remote_hosts/2` is the implicit bearer binding the conversation adds),
-  and a rotated token is re-uploaded at each turn kick. No token enters the
-  sandbox either way.
+  An entry with a connection and **no URL** is an extension's to serve
+  (ADR 0043 `conversation_mcp_servers/2`, #2152):
 
-  Both shapes are the same thing a tenant would write for any remote MCP
-  server, so they flow through `.mcp.json` (claude) and `session/new`
+      %{"gmail" => %{"connection" => "<connection id>"}}
+
+  Core does not know what such an entry means. `resolve/4` drops it, so the
+  agent's own list never carries a half-built server, and an installed
+  extension that recognises the connection's provider hands the sandbox an
+  HTTP server of its own at every turn kick — authenticated by the
+  conversation's callback token, which the sandbox already holds. On a
+  deployment without that extension the agent runs without the server.
+
+  The remote shape is the same thing a tenant would write for any remote MCP
+  server, so it flows through `.mcp.json` (claude) and `session/new`
   (everyone else) without a new contract.
   """
 
@@ -46,13 +49,19 @@ defmodule Fountain.Connections.McpServers do
   end
 
   @doc """
-  Rewrite every connection entry into the HTTP server the sandbox calls.
+  Rewrite every remote connection entry into the HTTP server the sandbox
+  calls, and drop every connection entry that has no URL.
+
   `connections` maps a connection id to its `%Connection{}` (active ones
-  only; the caller fetched them tenant-scoped). With no callback token yet
-  (`nil`), Fountain-served entries are dropped rather than shipped
-  half-built — the turn kick recomputes with the token. A remote entry
-  whose connection is unknown or not active is dropped too, and the agent
-  runs without that server.
+  only; the caller fetched them tenant-scoped). A remote entry whose
+  connection is unknown or not active is dropped, and the agent runs without
+  that server. A connection entry with no URL is dropped whatever the
+  connections say: it is an extension's to serve, not this module's (see the
+  moduledoc). Every other entry passes through untouched.
+
+  `conversation_id` and `token` are accepted for the callers that have them
+  and are not read: nothing core builds here needs the conversation's
+  callback token any more.
   """
   def resolve(mcp_servers, conversation_id, token, connections \\ %{})
 
@@ -60,7 +69,7 @@ defmodule Fountain.Connections.McpServers do
       when not is_map(mcp_servers) or map_size(mcp_servers) == 0,
       do: mcp_servers
 
-  def resolve(mcp_servers, conversation_id, token, connections) when is_map(mcp_servers) do
+  def resolve(mcp_servers, _conversation_id, _token, connections) when is_map(mcp_servers) do
     Enum.reduce(mcp_servers, %{}, fn
       {name, %{"connection" => id, "url" => url} = entry}, acc
       when is_binary(id) and is_binary(url) ->
@@ -69,10 +78,8 @@ defmodule Fountain.Connections.McpServers do
           _ -> acc
         end
 
-      {name, %{"connection" => id}}, acc when is_binary(id) ->
-        if is_binary(token) and is_binary(conversation_id),
-          do: Map.put(acc, name, server(conversation_id, id, token)),
-          else: acc
+      {_name, %{"connection" => id}}, acc when is_binary(id) ->
+        acc
 
       {name, entry}, acc ->
         Map.put(acc, name, entry)
@@ -98,14 +105,6 @@ defmodule Fountain.Connections.McpServers do
   end
 
   def remote_hosts(_, _), do: %{}
-
-  defp server(conversation_id, connection_id, token) do
-    %{
-      "type" => "http",
-      "url" => Fountain.PublicUrl.base() <> "/api/mcp/gmail/#{conversation_id}/#{connection_id}",
-      "headers" => %{"Authorization" => "Bearer " <> token}
-    }
-  end
 
   # The tenant's entry, minus the connection it named, plus the bearer the
   # broker will replace. A header the tenant set themselves is kept.

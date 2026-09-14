@@ -26,6 +26,7 @@ UNRELATED_PREFIXES = (
     "docs/", "decisions/", "assets/", "apps/fountain/assets/",
     "apps/fountain/lib/fountain_web/live/", "apps/fountain/lib/fountain_web/components/",
     "apps/fountain/test/", "apps/fountain_buzz/test/", "apps/fountain_support/test/",
+    "apps/fountain_google/test/",
     "ee/test/",
 )
 UNRELATED_FILES = {

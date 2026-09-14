@@ -153,7 +153,10 @@ config :fountain, :platform_chatgpt_req_options, plug: {Req.Test, Fountain.Platf
 # answers for any host, so the resolution check is off here (#1186).
 config :managoat_mcp_auth, :req_options, plug: {Req.Test, Fountain.Connections.OAuth}
 config :managoat_mcp_auth, :allow_private_hosts, true
-config :fountain, :gmail_req_options, plug: {Req.Test, Fountain.Connections.Gmail}
+# The Google extension (ADR 0043): every call to the Gmail API goes to a
+# Req.Test plug, so a test that forgets to stub it fails rather than dialling
+# out. Under its own otp_app, like every extension key.
+config :fountain_google, :req_options, plug: {Req.Test, FountainGoogle.Gmail}
 
 # Product analytics (`Fountain.Analytics`). Capture is inert without a project
 # API key, which the suite deliberately does not set — so the default here is

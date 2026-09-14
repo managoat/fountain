@@ -1083,11 +1083,13 @@ defmodule Fountain.Conversations.ConversationServer do
       {state, _conv} = rotate_callback_api_key(state, conv)
       sprite_env = build_sprite_env(state, agent, env, secrets)
 
-      # The callback token just rotated, and for claude the connection MCP
-      # servers carry it in `.mcp.json` (#1178): rewrite the file so the
-      # next turn's tools authenticate. Idempotent for an agent without one.
-      # Best effort here, like the CA below: the turn's own failure says more
-      # than a refused wake would.
+      # The callback token just rotated. The connection entries in the file
+      # carry a broker placeholder rather than it since #2152 (an
+      # extension-served server reaches claude through `session/new` and is
+      # never in `.mcp.json`), so this rewrite keeps the file current with the
+      # agent's resolved servers rather than with the token. Idempotent for an
+      # agent without one. Best effort here, like the CA below: the turn's
+      # own failure says more than a refused wake would.
       case Provisioning.write_runtime_config(
              handle,
              state.runtime_module,

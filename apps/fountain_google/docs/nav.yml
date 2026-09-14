@@ -1,0 +1,17 @@
+# The Google extension's slice of the manual (ADR 0043, #2152).
+#
+# `FountainGoogle.Docs` parses this at compile time exactly as `Fountain.Docs`
+# parses the host's `docs/nav.yml`, and `Fountain.Manual` merges the result
+# into the sidebar. The two line shapes and the one-level-deep rule are the
+# same, and a line the parser cannot read raises here too.
+#
+# **The section title must match the host's**, or this page opens a second
+# section with the same name instead of joining the one a reader knows. That is
+# `Catalog` today; `Fountain.Manual.nav/0` merges by title, and
+# `FountainGoogle.ManualTest` asserts the merge put it where it was before the
+# move.
+#
+# Paths are relative to this directory.
+nav:
+  - Catalog:
+      - fountain-gmail: catalog/mcp-servers/fountain-gmail.md

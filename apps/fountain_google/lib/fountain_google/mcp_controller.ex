@@ -1,22 +1,25 @@
-defmodule FountainWeb.GmailMcpController do
+defmodule FountainGoogle.McpController do
   @moduledoc """
   The MCP endpoint a sandbox calls to use a Google connection its agent
-  names (#1178). Streamable-HTTP transport: one JSON-RPC message per POST, a
-  JSON response back (or 202 for a notification) — the shape of
+  names (#1178), served by the Google extension at
+  `POST /api/mcp/gmail/:conversation_id/:connection_id` (ADR 0043, #2152).
+  Streamable-HTTP transport: one JSON-RPC message per POST, a JSON response
+  back (or 202 for a notification) — the shape of the host's
   `FountainWeb.TeamMcpController`.
 
-  The sandbox authenticates with its callback token, so `current_user` is
-  the conversation's owner. This controller checks the conversation is the
-  caller's, that its agent still names this connection (an agent edited to
-  drop it stops the tools on the next call), and that the connection is the
-  same tenant's; `Fountain.Connections.Mcp` resolves the token per call and
-  answers `connection revoked` for one the tenant has cut.
+  The sandbox authenticates with its callback token through the host's `:api`
+  pipeline, so `current_user` is the conversation's owner. This controller
+  checks the conversation is the caller's, that its agent still names this
+  connection (an agent edited to drop it stops the tools on the next call),
+  and that the connection is the same tenant's; `FountainGoogle.Mcp` resolves
+  the token per call and answers `connection revoked` for one the tenant has
+  cut.
   """
   use FountainWeb, :controller
 
   alias Fountain.{Agents, Audit, Connections, Conversations}
-  alias Fountain.Connections.Mcp
   alias Fountain.Connections.McpServers
+  alias FountainGoogle.Mcp
 
   def handle(conn, %{"conversation_id" => conv_id, "connection_id" => connection_id}) do
     user = conn.assigns.current_user

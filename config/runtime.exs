@@ -1441,9 +1441,9 @@ end
 # Each extension is installed *where it loads*. `apps/fountain` deliberately
 # depends on no sibling app, so `mix test` run from there — which is what CI's
 # partition script does — has none of `:fountain_buzz`, `:fountain_support`,
-# `:fountain_microsoft` or `:fountain_slack` on the code path, and naming them unconditionally
-# would make `Fountain.Extensions.validate!/0` refuse to boot every
-# partition. That check
+# `:fountain_google`, `:fountain_microsoft` or `:fountain_slack` on the code
+# path, and naming them unconditionally would make
+# `Fountain.Extensions.validate!/0` refuse to boot every partition. That check
 # working exactly as intended, on a configuration that is wrong for that run.
 #
 # `Code.ensure_loaded?/1` can only answer that after compilation, which is why
@@ -1454,6 +1454,7 @@ installed_extensions =
     [
       FountainBuzz.Extension,
       FountainSupport.Extension,
+      FountainGoogle.Extension,
       FountainMicrosoft.Extension,
       FountainSlack.Extension
     ],

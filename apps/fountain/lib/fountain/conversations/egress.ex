@@ -188,10 +188,11 @@ defmodule Fountain.Conversations.Egress do
     {next, fresh_keys, next != brokered}
   end
 
-  # An agent whose `mcp_servers` names a connection gets the entry rewritten
-  # into the Fountain-served server (#1178), authenticated by the
-  # conversation's callback token. Not for an unbrokered tenant: the entry
-  # is dropped and the agent runs without it.
+  # An agent whose `mcp_servers` names a connection beside a URL gets the
+  # entry rewritten into the remote server with a broker placeholder (#1186);
+  # one that names a connection alone is dropped, because that shape is an
+  # extension's to serve (ADR 0043, #2152). Not for an unbrokered tenant
+  # either: every connection entry is dropped and the agent runs without it.
   @spec with_connection_servers(map() | nil, String.t(), String.t(), String.t() | nil) ::
           map() | nil
   def with_connection_servers(agent, user_id, conversation_id, callback_token)

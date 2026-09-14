@@ -7,9 +7,9 @@
 
 | | |
 |---|---|
-| Hosted by | Fountain |
+| Hosted by | Fountain, through the Google extension. A core distribution does not serve it. |
 | Declared by | The agent. Its `mcp_servers` names a connection. |
-| Injected when | The agent names an active connection, and the deployment runs the egress broker. |
+| Injected when | The agent names an active Google connection, and the deployment runs the egress broker. |
 | Endpoint | `POST /api/mcp/gmail/:conversation_id/:connection_id` |
 | Auth | The sandbox's own callback token, for that one conversation. |
 | Status | Beta. Only on a deployment that runs the egress broker. Read [Feature status](../../reference/feature-status.md). |
@@ -55,9 +55,11 @@ URL.
 }
 ```
 
-At spawn, Fountain rewrites the entry into an HTTP MCP server on this
-endpoint, authenticated by the conversation's callback token. The runtime
-sees a normal remote server.
+At each turn, the Google extension adds an HTTP MCP server on this endpoint
+to the session, authenticated by the conversation's callback token. The
+runtime sees a normal remote server. An entry with a connection and no URL
+is for an extension to serve, so on a deployment without the Google
+extension the agent runs without that server.
 
 ## The tools
 

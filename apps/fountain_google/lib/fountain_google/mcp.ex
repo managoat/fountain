@@ -1,10 +1,11 @@
-defmodule Fountain.Connections.Mcp do
+defmodule FountainGoogle.Mcp do
   @moduledoc """
-  The Gmail tools Fountain serves to a conversation whose agent names a
-  Google connection (#1178). A pure JSON-RPC/tool layer over a `ctx`, the
-  same shape as `Fountain.Team.Mcp`: `handle/2` takes one request map
-  and returns one response map (or `:noreply` for a notification). The
-  transport and the `ctx` live in `FountainWeb.GmailMcpController`.
+  The Gmail tools the Google extension serves to a conversation whose agent
+  names a Google connection (#1178, ADR 0043). A pure JSON-RPC/tool layer over
+  a `ctx`, the same shape as the host's `Fountain.Team.Mcp`: `handle/2`
+  takes one request map and returns one response map (or `:noreply` for a
+  notification). The transport and the `ctx` live in
+  `FountainGoogle.McpController`.
 
   The access token is resolved server-side per call through
   `Fountain.Connections.access_token/1`, so a token that expired mid-session
@@ -13,12 +14,12 @@ defmodule Fountain.Connections.Mcp do
 
   `ctx` fields:
     * `:connection` — the `%Fountain.Connections.Connection{}` the tools act for
-    * `:gmail`      — the client module (default `Fountain.Connections.Gmail`)
+    * `:gmail`      — the client module (default `FountainGoogle.Gmail`)
     * `:audit`      — `fn tool, summary -> _ end`, called for every send
   """
 
   alias Fountain.Connections
-  alias Fountain.Connections.Gmail
+  alias FountainGoogle.Gmail
 
   @protocol_version "2025-06-18"
   @server_info %{name: "fountain-gmail", version: "1"}

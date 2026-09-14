@@ -1,10 +1,12 @@
-defmodule Fountain.Connections.Gmail do
+defmodule FountainGoogle.Gmail do
   @moduledoc """
-  The slice of the Gmail API the Fountain-served MCP server uses (#1178),
-  over `Req`, with the access token supplied per call. Returns the JSON the
-  API returns; the MCP layer shapes it for the model.
+  The slice of the Gmail API the extension's MCP server uses (#1178), over
+  `Req`, with the access token supplied per call. Returns the JSON the API
+  returns; the MCP layer shapes it for the model.
 
-  Tests inject a `Req.Test` plug through `:gmail_req_options`.
+  Configuration is this app's own (`config :fountain_google`, ADR 0043):
+  `:timeout_ms` bounds a request, and tests inject a `Req.Test` plug through
+  `:req_options`.
   """
 
   @base_url "https://gmail.googleapis.com/gmail/v1/users/me"
@@ -119,9 +121,9 @@ defmodule Fountain.Connections.Gmail do
     Req.new(
       [
         base_url: @base_url,
-        receive_timeout: Application.get_env(:fountain, :gmail_timeout_ms, 20_000),
+        receive_timeout: Application.get_env(:fountain_google, :timeout_ms, 20_000),
         retry: false
-      ] ++ Application.get_env(:fountain, :gmail_req_options, [])
+      ] ++ Application.get_env(:fountain_google, :req_options, [])
     )
   end
 end

@@ -259,8 +259,9 @@ defmodule Fountain.Conversations.EgressTest do
          %{user: user} do
       conn = insert_connection(user)
 
-      # Three kinds of entry: one served by Fountain for the connection, one
-      # remote server the connection's token is attached to, and a plain one.
+      # Three kinds of entry: one that names the connection and no URL (an
+      # extension's to serve, ADR 0043 #2152), one remote server the
+      # connection's token is attached to, and a plain one.
       agent = %{
         mcp_servers: %{
           "served" => %{"connection" => conn.id},
@@ -269,8 +270,8 @@ defmodule Fountain.Conversations.EgressTest do
         }
       }
 
-      # Unbrokered: no token and no connections, so both connection entries
-      # are dropped and the agent runs on the plain one.
+      # Unbrokered: no connections, so both connection entries are dropped
+      # and the agent runs on the plain one.
       broker_off()
 
       assert %{mcp_servers: %{"plain" => _} = off} =
@@ -280,10 +281,13 @@ defmodule Fountain.Conversations.EgressTest do
 
       broker_on()
 
-      assert %{mcp_servers: %{"served" => %{"url" => url}, "remote" => remote, "plain" => _}} =
+      # Brokered: the remote entry resolves; the connection-only one is still
+      # dropped here, because core builds no server for it — the Google
+      # extension does, through `conversation_mcp_servers/2`.
+      assert %{mcp_servers: %{"remote" => remote, "plain" => _} = on} =
                Egress.with_connection_servers(agent, user.id, "conv-1", "tok")
 
-      assert url =~ "conv-1"
+      assert Map.keys(on) |> Enum.sort() == ["plain", "remote"]
       assert remote["url"] == "https://mcp.example/sse"
 
       assert Egress.with_connection_servers(nil, user.id, "conv-1", "tok") == nil

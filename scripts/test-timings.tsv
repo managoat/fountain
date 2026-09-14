@@ -216,7 +216,6 @@ apps/fountain/test/fountain_web/controllers/environment_controller_test.exs	4951
 apps/fountain/test/fountain_web/controllers/events_stream_test.exs	9682
 apps/fountain/test/fountain_web/controllers/export_controller_test.exs	2000
 apps/fountain/test/fountain_web/controllers/fallback_controller_test.exs	1749
-apps/fountain/test/fountain_web/controllers/gmail_mcp_controller_test.exs	3434
 apps/fountain/test/fountain_web/controllers/health_controller_test.exs	15
 apps/fountain/test/fountain_web/controllers/inference_credential_controller_test.exs	5676
 apps/fountain/test/fountain_web/controllers/list_counts_test.exs	2807

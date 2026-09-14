@@ -384,8 +384,8 @@ defmodule Fountain.Agents.Agent do
   end
 
   # An entry may name a connection instead of a server (#1178):
-  # `%{"connection" => "<id>"}`, rewritten at spawn into the Fountain-served
-  # server. Only the shape is checked here — a connection that is gone or
+  # `%{"connection" => "<id>"}`, which an installed extension serves at each
+  # turn (ADR 0043, #2152). Only the shape is checked here — a connection that is gone or
   # revoked by the time a conversation runs fails at the tool call with a
   # reason, which is the contract; a changeset cannot know the future.
   defp validate_mcp_servers(changeset) do

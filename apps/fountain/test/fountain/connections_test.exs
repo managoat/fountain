@@ -151,8 +151,13 @@ defmodule Fountain.ConnectionsTest do
     end
   end
 
-  describe "McpServers.resolve/3" do
-    test "rewrites a connection entry into the Fountain-served HTTP server and leaves the rest" do
+  describe "McpServers.resolve/4" do
+    # A connection entry with no URL is an extension's to serve (ADR 0043,
+    # #2152): core drops it whether or not it holds a callback token, and never
+    # builds a `/api/mcp/...` URL for it. The Google extension's own suite
+    # proves the server still reaches a turn, through
+    # `conversation_mcp_servers/2`.
+    test "drops a connection entry with no URL and leaves the rest" do
       id = Ecto.UUID.generate()
 
       servers = %{
@@ -160,21 +165,13 @@ defmodule Fountain.ConnectionsTest do
         "fs" => %{"command" => "npx", "args" => ["fs-server"]}
       }
 
-      resolved = McpServers.resolve(servers, "conv-1", "tok")
-
-      assert resolved["fs"] == servers["fs"]
-
-      assert %{"type" => "http", "url" => url, "headers" => %{"Authorization" => "Bearer tok"}} =
-               resolved["gmail"]
-
-      assert String.ends_with?(url, "/api/mcp/gmail/conv-1/#{id}")
-      assert McpServers.connection_ids(servers) == [id]
-    end
-
-    test "drops connection entries when there is no token yet" do
-      servers = %{"gmail" => %{"connection" => Ecto.UUID.generate()}, "x" => %{"command" => "x"}}
-      assert McpServers.resolve(servers, "conv-1", nil) == %{"x" => %{"command" => "x"}}
+      assert McpServers.resolve(servers, "conv-1", "tok") == %{"fs" => servers["fs"]}
+      assert McpServers.resolve(servers, "conv-1", nil) == %{"fs" => servers["fs"]}
       assert McpServers.resolve(%{}, "conv-1", "tok") == %{}
+
+      # The id is still the agent's to name: the extension's controller checks
+      # the agent names the connection through this.
+      assert McpServers.connection_ids(servers) == [id]
     end
   end
 

@@ -861,16 +861,20 @@ defmodule FountainWeb.ConnectionsLive.Index do
             </p>
             <%!-- The connection-only shape is the Google extension's to serve
                  (ADR 0043, #2152): offered only where that extension is
-                 installed, by id and never by module. --%>
+                 installed and the grant is the platform's, not a tenant
+                 provider sharing its slug. --%>
+            <% gmail? =
+              is_nil(c.provider_id) and c.provider == "google" and
+                Fountain.Extensions.installed?(:google) %>
             <p
-              :if={c.provider == "google" and Fountain.Extensions.installed?(:google)}
+              :if={gmail?}
               class="text-xs text-[var(--color-text-secondary)]"
             >
               In an agent's MCP servers:
               <code class="font-mono">{~s({"gmail": {"connection": "#{c.id}"}})}</code>
             </p>
             <p
-              :if={c.provider != "google" or not Fountain.Extensions.installed?(:google)}
+              :if={not gmail?}
               class="text-xs text-[var(--color-text-secondary)]"
             >
               In an agent's MCP servers:

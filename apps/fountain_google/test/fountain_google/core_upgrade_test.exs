@@ -79,4 +79,42 @@ defmodule FountainGoogle.CoreUpgradeTest do
     assert {:ok, _} = Connections.delete(expired)
     assert Connections.get_connection(expired.id, user.id) == nil
   end
+
+  test "tenant and platform accounts with the same slug and label coexist and reconnect separately" do
+    user = insert_verified_user()
+    Application.put_env(:fountain, :extensions, [])
+    provider = insert_provider(user, slug: "google")
+    tenant = insert_connection(user, provider: provider, account_email: "me@example.com")
+
+    Application.put_env(:fountain, :extensions, [FountainGoogle.Extension])
+    platform = insert_connection(user, provider: "google", account_email: "me@example.com")
+
+    assert tenant.id != platform.id
+    assert tenant.provider_id == provider.id
+    assert platform.provider_id == nil
+    assert tenant.env_key != platform.env_key
+
+    for {original, identity, token} <- [
+          {tenant, provider, "tenant-refreshed"},
+          {platform, "google", "platform-refreshed"}
+        ] do
+      reconnected =
+        insert_connection(user,
+          provider: identity,
+          account_email: "me@example.com",
+          access_token: token
+        )
+
+      assert reconnected.id == original.id
+      assert reconnected.env_key == original.env_key
+      assert Connections.access_token(reconnected) == {:ok, token}
+    end
+
+    assert length(Connections.list_connections(user.id)) == 2
+
+    assert Connections.synthetic_secrets(user.id) == %{
+             tenant.env_key => "tenant-refreshed",
+             platform.env_key => "platform-refreshed"
+           }
+  end
 end

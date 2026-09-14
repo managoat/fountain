@@ -44,6 +44,36 @@ defmodule Fountain.ConnectionsTest do
       assert Connections.list_connections(b.id) == []
       refute Connections.get_connection("not-a-uuid", a.id)
     end
+
+    test "database uniqueness follows provider identity even when a tenant slug changes" do
+      user = insert_verified_user()
+      tenant_provider = insert_provider(user)
+      {:ok, dek} = Crypto.load_tenant_key(user.id)
+
+      for {provider, index} <- [
+            {"fixture-svc", "connections_platform_account_index"},
+            {tenant_provider, "connections_tenant_provider_account_index"}
+          ] do
+        existing = insert_connection(user, provider: provider)
+
+        attrs = %{
+          user_id: user.id,
+          provider: if(existing.provider_id, do: "renamed", else: existing.provider),
+          provider_id: existing.provider_id,
+          account_email: existing.account_email,
+          env_key: "DUPLICATE_GRANT",
+          access_token: "duplicate"
+        }
+
+        assert {:error, changeset} =
+                 %Connection{}
+                 |> Connection.changeset(attrs, dek)
+                 |> Repo.insert(mode: :savepoint)
+
+        assert {"has already been taken", metadata} = changeset.errors[:user_id]
+        assert metadata[:constraint_name] == index
+      end
+    end
   end
 
   describe "access_token/1" do

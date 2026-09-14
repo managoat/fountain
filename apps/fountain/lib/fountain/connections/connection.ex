@@ -71,7 +71,12 @@ defmodule Fountain.Connections.Connection do
     |> put_change(:revoked_at, nil)
     |> encrypt(:refresh_token, :refresh_token_ciphertext, dek)
     |> encrypt(:access_token, :access_token_ciphertext, dek)
-    |> unique_constraint([:user_id, :provider, :account_email])
+    |> unique_constraint([:user_id, :provider, :account_email],
+      name: :connections_platform_account_index
+    )
+    |> unique_constraint([:user_id, :provider_id, :account_email],
+      name: :connections_tenant_provider_account_index
+    )
     |> unique_constraint([:user_id, :env_key])
   end
 

@@ -338,9 +338,10 @@ principal it owns. The principal's own key gains nothing.
 
 This is a shared implementation plan for the overlapping parts of ADRs 0052
 and 0053, not a second selection stack. The existing grant lifecycle,
-encryption, refresh and keepalive PRs (#2011–#2015), and the inactive protected
-compiler (#2017), remain prerequisites for managed grants and need no
-credential-set refactor. Broker releases through 0.14 provide library
+encryption, refresh and keepalive PRs (#2011–#2015) and the inactive protected
+compiler (#2017) were the prerequisites for managed grants; their tenant-owner
+half was deleted in #2188 (#2176 decision 1), so the "User grants" stage below
+starts from the platform path alone. Broker releases through 0.14 provide library
 capabilities; Fountain's durable authorization and activation remain unbuilt.
 
 | Stage | Deliverable | Required proof before its consumers activate |

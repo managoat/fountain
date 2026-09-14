@@ -25,9 +25,10 @@ keepalive workers and `ProtectedCompiler`. What stays: the
 `Reserved` (live in three changesets), and `Cipher` and `RefreshLock` (both
 serve the platform row). This ADR stays Proposed, to be rebuilt from the
 commit before that removal when decisions 2, 4 and 5 are taken up; the last
-commit that carried the code is recorded in #2188. The existing
-implementation described below was checked against `main` at `c5b0e86c` on
-2026-09-11, before that stack landed.
+commit of `main` that carried all of it is `105fb6d1`, the one before #2198
+merged (the workers went in #2198, the reads in the PR that closes #2188).
+The existing implementation described below was checked against `main` at
+`c5b0e86c` on 2026-09-11, before that stack landed.
 
 Extends [0047](0047-codex-platform-chatgpt-account.md),
 [0008](0008-byo-inference-credentials.md), and

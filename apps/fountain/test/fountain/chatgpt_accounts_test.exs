@@ -1,115 +1,29 @@
 defmodule Fountain.ChatGPTAccountsTest do
+  # The `user_id` column outlived the tenant-owner half of ADR 0052 (#2188).
+  # These tests hold two things about it: an owned row, should one ever be
+  # written, is invisible to every platform read and mutation, and its
+  # tokens never decrypt under the platform key (`Cipher`'s owner dispatch).
   use Fountain.DataCase, async: true
   use Mimic
 
   import ExUnit.CaptureLog
 
-  import Fountain.ChatGPTFixtures, only: [access_token: 0, access_token: 1]
+  import Fountain.ChatGPTFixtures, only: [access_token: 0]
 
   alias Fountain.ChatGPTAccounts
-  alias Fountain.ChatGPTAccounts.{Cipher, Grant}
+  alias Fountain.ChatGPTAccounts.Cipher
   alias Fountain.Crypto
   alias Fountain.PlatformChatGPT.Account
 
-  test "a user gets only their grant with a matching bearer and source snapshot" do
-    owner = insert_verified_user()
-    other = insert_verified_user()
-    grant = user_grant(owner)
-    other_grant = user_grant(other)
-
-    assert {:ok, %Grant{} = credential} = read(grant, owner)
-    assert credential.access_token == "user-access-token"
-
-    assert credential.source == %{
-             kind: :chatgpt,
-             owner_scope: {:user, owner.id},
-             grant_id: grant.id,
-             generation: grant.generation,
-             lock_version: grant.lock_version,
-             account_id: "acct-user",
-             plan_type: "pro",
-             id_claims: %{"account_id" => "acct-user", "user_id" => "provider-user"}
-           }
-
-    assert {:error, :not_connected} = read(grant, other)
-    assert {:error, :not_connected} = read(other_grant, owner)
-
-    assert {:error, :stale_grant} =
-             ChatGPTAccounts.credential_for_user(grant.id, owner.id, Ecto.UUID.generate())
-
-    # The metadata read produces the pin the credential read takes, so the
-    # two compose without a caller reaching for the schema.
-    pin = ChatGPTAccounts.status_for_user(owner.id)
-
-    assert {:ok, %Grant{}} =
-             ChatGPTAccounts.credential_for_user(pin.grant_id, owner.id, pin.generation)
-  end
-
-  test "every terminal code OAuth names survives the reason allowlist" do
-    owner = insert_verified_user()
-    grant = user_grant(owner)
-
-    for code <- Fountain.PlatformChatGPT.OAuth.terminal_codes() do
-      Account
-      |> Repo.get!(grant.id)
-      |> change(%{status: "revoked", revoked_reason: code})
-      |> Repo.update!()
-
-      assert ChatGPTAccounts.status_for_user(owner.id).revoked_reason == code
-    end
-  end
-
-  test "metadata reads neither decrypt nor refresh and sanitize an unknown failure reason" do
-    owner = insert_verified_user()
-    grant = user_grant(owner, %{revoked_reason: "raw-provider-secret", status: "revoked"})
-
-    stub(Crypto, :load_tenant_key, fn _ -> flunk("status loaded a token key") end)
-    stub(Crypto, :decrypt_platform, fn _ -> flunk("status decrypted a platform token") end)
-    stub(Crypto, :decrypt, fn _, _, _ -> flunk("status decrypted a tenant token") end)
-
-    status = ChatGPTAccounts.status_for_user(owner.id)
-    assert status.account_id == grant.account_id
-    assert status.status == "revoked"
-    assert status.revoked_reason == "provider_error"
-    assert status.grant_id == grant.id
-    assert status.generation == grant.generation
-    refute Map.has_key?(status, :access_token_ciphertext)
-    refute Map.has_key?(status, :refresh_token_ciphertext)
-    refute inspect(status) =~ "raw-provider-secret"
-    assert ChatGPTAccounts.status_for_user(Ecto.UUID.generate()) == :not_connected
-  end
-
-  test "an absent owner never requests platform ownership" do
-    assert_raise FunctionClauseError, fn -> ChatGPTAccounts.status_for_user(nil) end
-
-    assert_raise FunctionClauseError, fn ->
-      ChatGPTAccounts.credential_for_user(Ecto.UUID.generate(), nil, Ecto.UUID.generate())
-    end
-
+  test "an absent owner never requests platform encryption" do
     assert_raise FunctionClauseError, fn ->
       Cipher.encrypt_user_tokens(nil, %{access_token: "access", refresh_token: "refresh"})
     end
   end
 
-  test "platform rows remain inaccessible through a user credential read" do
-    owner = insert_verified_user()
-
-    platform =
-      %Account{}
-      |> Account.connect_changeset(%{
-        kind: "chatgpt",
-        access_token_ciphertext: Crypto.encrypt_platform("platform-access"),
-        last_refreshed_at: DateTime.utc_now() |> DateTime.truncate(:second)
-      })
-      |> Repo.insert!()
-
-    assert {:error, :not_connected} = read(platform, owner)
-    assert ChatGPTAccounts.status_for_user(owner.id) == :not_connected
-  end
-
   test "platform reads and admin mutations never select an owned grant" do
     owner = insert_verified_user()
-    grant = user_grant(owner)
+    grant = owned_row(owner)
 
     refute ChatGPTAccounts.platform_active?()
     assert ChatGPTAccounts.platform_status() == :not_connected
@@ -133,14 +47,14 @@ defmodule Fountain.ChatGPTAccountsTest do
     assert ChatGPTAccounts.platform_access_token() == {:ok, "wst_platform"}
     assert :ok = ChatGPTAccounts.platform_disconnect()
     assert Repo.get!(Account, grant.id) == grant
-    assert {:ok, %Grant{access_token: "user-access-token"}} = read(grant, owner)
   end
 
   test "tenant tokens use the tenant DEK and cannot be swapped between fields or owners" do
     owner = insert_verified_user()
     other = insert_verified_user()
-    grant = user_grant(owner)
+    grant = owned_row(owner)
 
+    assert {:ok, "user-access-token"} = Cipher.decrypt_token(grant, :access_token)
     assert {:ok, "user-refresh-token"} = Cipher.decrypt_token(grant, :refresh_token)
     assert :error = Crypto.decrypt_platform(grant.access_token_ciphertext)
 
@@ -161,9 +75,13 @@ defmodule Fountain.ChatGPTAccountsTest do
   # from `Fountain.PlatformChatGPT` because no test held it down.
   test "a token that will not decrypt says so in the log, for either owner" do
     owner = insert_verified_user()
-    grant = user_grant(owner, %{access_token_ciphertext: Crypto.encrypt_platform("platform")})
+    grant = owned_row(owner, %{access_token_ciphertext: Crypto.encrypt_platform("platform")})
 
-    tenant_log = capture_log(fn -> assert {:error, :undecryptable} = read(grant, owner) end)
+    tenant_log =
+      capture_log(fn ->
+        assert {:error, :undecryptable} = Cipher.decrypt_token(grant, :access_token)
+      end)
+
     assert tenant_log =~ "does not decrypt under the tenant key"
     assert tenant_log =~ owner.id
     assert tenant_log =~ "access_token"
@@ -189,55 +107,16 @@ defmodule Fountain.ChatGPTAccountsTest do
 
   test "a wrong DEK fails without attempting platform decryption" do
     owner = insert_verified_user()
-    grant = user_grant(owner)
+    grant = owned_row(owner)
     stub(Crypto, :load_tenant_key, fn _ -> {:ok, Crypto.generate_dek()} end)
     stub(Crypto, :decrypt_platform, fn _ -> flunk("tried platform encryption as a fallback") end)
-    assert {:error, :undecryptable} = read(grant, owner)
+    assert {:error, :undecryptable} = Cipher.decrypt_token(grant, :access_token)
   end
 
   test "platform ciphertext is not reinterpreted when found in an owned row" do
     owner = insert_verified_user()
-    grant = user_grant(owner, %{access_token_ciphertext: Crypto.encrypt_platform("platform")})
-    assert {:error, :undecryptable} = read(grant, owner)
-  end
-
-  test "credential inspection and generic JSON encoding do not export the bearer" do
-    owner = insert_verified_user()
-    grant = user_grant(owner)
-    assert {:ok, credential} = read(grant, owner)
-    refute inspect(credential) =~ "user-access-token"
-    refute inspect(credential) =~ "user-refresh-token"
-    assert {:error, %Protocol.UndefinedError{}} = Jason.encode(credential)
-  end
-
-  test "unusable and stale user grants return errors without touching platform refresh" do
-    owner = insert_verified_user()
-    grant = user_grant(owner)
-
-    for {attrs, reason} <- [
-          {%{status: "revoked"}, :revoked},
-          {%{status: "expired"}, :expired},
-          {%{status: "active", access_expires_at: ~U[2020-01-01 00:00:00Z]}, :refresh_required},
-          {%{status: "active", account_id: nil}, :invalid_grant}
-        ] do
-      Account |> Repo.get!(grant.id) |> change(attrs) |> Repo.update!()
-
-      assert {:error, ^reason} =
-               ChatGPTAccounts.credential_for_user(grant.id, owner.id, grant.generation,
-                 refresh: false
-               )
-    end
-  end
-
-  test "near-expiry tokens require refresh even before they lapse" do
-    owner = insert_verified_user()
-    expiry = Fountain.PlatformChatGPT.Tokens.expires_at(access_token(60))
-    grant = user_grant(owner, %{access_expires_at: expiry})
-
-    assert {:error, :refresh_required} =
-             ChatGPTAccounts.credential_for_user(grant.id, owner.id, grant.generation,
-               refresh: false
-             )
+    grant = owned_row(owner, %{access_token_ciphertext: Crypto.encrypt_platform("platform")})
+    assert {:error, :undecryptable} = Cipher.decrypt_token(grant, :access_token)
   end
 
   test "encryption refuses an owner without a tenant key" do
@@ -251,7 +130,7 @@ defmodule Fountain.ChatGPTAccountsTest do
   test "lifecycle changesets cannot transfer ownership" do
     owner = insert_verified_user()
     other = insert_verified_user()
-    grant = user_grant(owner)
+    grant = owned_row(owner)
 
     changed =
       grant
@@ -259,15 +138,11 @@ defmodule Fountain.ChatGPTAccountsTest do
       |> Repo.update!()
 
     assert changed.user_id == owner.id
-    assert {:error, :not_connected} = read(changed, other)
-    assert {:ok, _} = read(changed, owner)
   end
 
-  defp read(grant, owner),
-    do: ChatGPTAccounts.credential_for_user(grant.id, owner.id, grant.generation)
-
-  # No application writer for user grants exists until durable attempts land.
-  defp user_grant(owner, overrides \\ %{}) do
+  # Nothing in the application writes an owned row; this is the shape one
+  # would have, inserted straight through the schema.
+  defp owned_row(owner, overrides \\ %{}) do
     {:ok, encrypted} =
       Cipher.encrypt_user_tokens(owner.id, %{
         access_token: "user-access-token",

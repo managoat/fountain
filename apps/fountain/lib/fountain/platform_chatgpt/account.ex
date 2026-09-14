@@ -1,8 +1,10 @@
 defmodule Fountain.PlatformChatGPT.Account do
   @moduledoc """
-  A ChatGPT grant in the historical platform account table (ADRs 0047/0052).
-  The null-owner row uses platform encryption; owned rows use their owner's
-  DEK through `Fountain.ChatGPTAccounts.Cipher`. Ownership is not cast by
+  The deployment's ChatGPT grant (ADR 0047). The null-owner row uses
+  platform encryption; an owned row would use its owner's DEK through
+  `Fountain.ChatGPTAccounts.Cipher`, but none has ever existed: the
+  tenant-owner half of ADR 0052 that would have written one was deleted
+  (#2188), and `user_id` stays only as a column. Ownership is not cast by
   lifecycle changesets and cannot be changed through this interface.
   `id_claims` holds the non-secret claims codex reads from its `id_token`.
 
@@ -22,8 +24,8 @@ defmodule Fountain.PlatformChatGPT.Account do
   would write on the primary key alone and so would skip the fence, which is
   why the three that used to exist were removed rather than left unused.
 
-  There is no plaintext column. User linking is not yet built; the current
-  application writers are the admin surface and the owner-scoped refreshers.
+  There is no plaintext column. The application writers are the admin
+  surface and the platform refresher.
   """
 
   use Ecto.Schema

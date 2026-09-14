@@ -13,10 +13,7 @@ defmodule Fountain.PlatformChatGPT.Refresher do
   requests. Only the holder keeps a checkout; contenders release theirs
   between bounded retries. Generation/version checks still fence reconnect
   and disconnect while the provider call is in flight. The transaction is
-  bounded to 20 seconds and contention to 5 seconds. User grants use the
-  separate `Fountain.ChatGPTAccounts.RefreshCoordinator`;
-  `Fountain.Workers.ChatGPTKeepaliveSweep` schedules their keepalive jobs
-  across the fleet (ADR 0052).
+  bounded to 20 seconds and contention to 5 seconds.
   """
 
   use GenServer

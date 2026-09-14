@@ -64,13 +64,11 @@ defmodule Fountain.ChatGPTAccounts do
 
   `status_for_user/1` and `credential_for_user/3` read a tenant's own grant.
   Both are scoped by the owner and neither falls through to the platform
-  row. Near-expiry reads renew through bounded per-grant workers and the
-  PostgreSQL refresh lock, using only the owner's encryption key. Callers
-  re-read their pinned grant after renewal; the coordinator holds no tokens.
-  User linking and conversation selection remain unbuilt. A paginated daily
-  sweep schedules idle grants through these same bounded workers. No account
-  API exposes this internal credential read. Keepalive timing is provisional,
-  pending the provider lifetime measurement in ADR 0047.
+  row. Nothing renews a user grant any more: the bounded per-grant workers,
+  their coordinator and the daily sweep were deleted (#2188), so a
+  near-expiry read answers `:refresh_required` and `refresh_for_user/3`
+  answers `{:error, :refresh_unavailable}`. User linking was never built and
+  no row has ever had an owner; the reads themselves go next.
   """
 
   import Ecto.Query, only: [from: 2]
@@ -79,7 +77,7 @@ defmodule Fountain.ChatGPTAccounts do
 
   alias Fountain.Audit
   alias Fountain.Accounts.User
-  alias Fountain.ChatGPTAccounts.{Cipher, Grant, RefreshCoordinator, RefreshLock}
+  alias Fountain.ChatGPTAccounts.{Cipher, Grant, RefreshLock}
   alias Fountain.PlatformChatGPT.{Account, OAuth, Refresher, Tokens}
   alias Fountain.Repo
 
@@ -122,11 +120,10 @@ defmodule Fountain.ChatGPTAccounts do
   Internal server credential read for an explicitly selected user grant.
 
   The owner scopes the first query. The returned bearer and provider metadata
-  come from one row version. A near-expiry grant renews through the bounded
-  user coordinator, then the caller reads that same generation again. With
-  `refresh: false`, near-expiry grants return `:refresh_required`. Neither path
-  falls back to a different grant or paid inference. Only verified, claimed,
-  non-suspended owners can obtain or renew a credential.
+  come from one row version. A near-expiry grant is `:refresh_required`
+  whatever `:refresh` says, because nothing renews a user grant any more
+  (#2188). Neither path falls back to a different grant or paid inference.
+  Only verified, claimed, non-suspended owners can obtain a credential.
   """
   @spec credential_for_user(String.t(), String.t(), Ecto.UUID.t(), keyword()) ::
           {:ok, Grant.t()} | {:error, atom()}
@@ -135,9 +132,7 @@ defmodule Fountain.ChatGPTAccounts do
     with {:ok, account} <- pinned_user_grant(grant_id, user_id, generation) do
       case {user_credential(account), Keyword.get(opts, :refresh, true)} do
         {{:error, :refresh_required}, true} ->
-          with :ok <- refresh_for_user(grant_id, user_id, generation) do
-            credential_for_user(grant_id, user_id, generation, refresh: false)
-          end
+          refresh_for_user(grant_id, user_id, generation)
 
         {result, _} ->
           result
@@ -145,35 +140,14 @@ defmodule Fountain.ChatGPTAccounts do
     end
   end
 
-  @doc "Internal renewal admission; returns only status, never a bearer."
-  @spec refresh_for_user(String.t(), String.t(), Ecto.UUID.t()) :: :ok | {:error, atom()}
+  @doc "Internal renewal admission; returns only status, never a bearer, and never `:ok` now."
+  @spec refresh_for_user(String.t(), String.t(), Ecto.UUID.t()) :: {:error, atom()}
   def refresh_for_user(grant_id, user_id, generation)
       when is_binary(grant_id) and is_binary(user_id) and is_binary(generation) do
     with {:ok, account} <- pinned_user_grant(grant_id, user_id, generation),
          :ok <- user_account_state(account) do
-      RefreshCoordinator.run(grant_id, user_id, generation)
-    end
-  end
-
-  @doc false
-  def refresh_serialized_for_user(grant_id, user_id, generation)
-      when is_binary(grant_id) and is_binary(user_id) and is_binary(generation) do
-    with {:ok, observed} <- pinned_user_grant(grant_id, user_id, generation),
-         :ok <- user_account_state(observed) do
-      grant_id
-      |> RefreshLock.run(fn -> refresh_user_locked(observed) end)
-      |> finish_refresh()
-    end
-  end
-
-  defp refresh_user_locked(observed) do
-    with {:ok, current} <- pinned_user_grant(observed.id, observed.user_id, observed.generation),
-         :ok <- user_account_state(current) do
-      cond do
-        current.lock_version != observed.lock_version -> :ok
-        fresh?(current) and not stale_for_keepalive?(current) -> :ok
-        true -> do_refresh(current)
-      end
+      # The per-grant workers that used to run here are gone (#2188).
+      {:error, :refresh_unavailable}
     end
   end
 
@@ -223,29 +197,6 @@ defmodule Fountain.ChatGPTAccounts do
       on: u.id == a.user_id,
       where: not u.principal and not is_nil(u.email_verified_at) and is_nil(u.suspended_at)
     )
-  end
-
-  @doc "Internal fleet keepalive scan: one bounded page of IDs, never token material."
-  @spec _unsafe_due_user_grants(Ecto.UUID.t() | nil, pos_integer()) :: [map()]
-  def _unsafe_due_user_grants(after_id \\ nil, limit \\ 100)
-      when (is_nil(after_id) or is_binary(after_id)) and limit in 1..100 do
-    cutoff = DateTime.add(now(), -platform_keepalive_days() * 86_400, :second)
-
-    query =
-      from(a in Account,
-        where:
-          not is_nil(a.user_id) and a.status == "active" and a.kind == "chatgpt" and
-            not is_nil(a.refresh_token_ciphertext) and not is_nil(a.account_id) and
-            a.account_id != "",
-        where: is_nil(a.last_refreshed_at) or a.last_refreshed_at <= ^cutoff,
-        order_by: [asc: a.id],
-        limit: ^limit,
-        select: %{grant_id: a.id, user_id: a.user_id, generation: a.generation}
-      )
-      |> with_eligible_owner()
-
-    query = if after_id, do: from(a in query, where: a.id > ^after_id), else: query
-    Repo.all(query)
   end
 
   # Only a code `OAuth` itself names can reach a tenant: a reason that is not

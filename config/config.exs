@@ -25,8 +25,7 @@ config :fountain, Oban,
     mailer: 5,
     notifications: 5,
     schedules: 5,
-    webhooks: 10,
-    chatgpt_refresh: 4
+    webhooks: 10
   ],
   plugins: [
     # Oban's own job-table pruning: completed jobs older than 7 days.
@@ -74,10 +73,6 @@ config :fountain, Oban,
        # nobody has for six days (ADR 0047), so it
        # never idles past the auth server's window. No-op when not connected.
        {"29 4 * * *", Fountain.Workers.PlatformChatGPTKeepalive},
-       # Bounded user-grant pages; provider calls run in a separate queue so
-       # an unavailable auth server cannot hold up maintenance. The existing
-       # keepalive timing is provisional, pending the ADR 0047 measurement.
-       {"37 4 * * *", Fountain.Workers.ChatGPTKeepaliveSweep},
        {"31 3 * * *", Fountain.Workers.BrokerReaper},
        # Every minute: the tick for user-defined team schedules. Cheap — one
        # indexed query, usually empty — and a minute is the cron grain the

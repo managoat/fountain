@@ -61,13 +61,16 @@ defmodule FountainGoogleTest do
   test "a connection that is not active, not Google, or not the tenant's is skipped", ctx do
     Req.Test.stub(OAuth, fn req -> Req.Test.json(req, %{}) end)
     {:ok, revoked} = Connections.revoke(insert_connection(ctx.user, account_email: "r@x.test"))
-    slack = insert_connection(ctx.user, provider: "slack", account_email: "jake")
+    # Another platform provider's connection: the fixture extension's, since
+    # Slack and Microsoft are extensions of their own now and are not loaded
+    # in this suite (#2152).
+    other = insert_connection(ctx.user, provider: "fixture-svc", account_email: "jake")
     theirs = insert_connection(insert_verified_user())
 
     conv =
       conversation(ctx.user, %{
         "revoked" => %{"connection" => revoked.id},
-        "slack" => %{"connection" => slack.id},
+        "other" => %{"connection" => other.id},
         "theirs" => %{"connection" => theirs.id},
         "gone" => %{"connection" => Ecto.UUID.generate()},
         "gmail" => %{"connection" => ctx.connection.id}

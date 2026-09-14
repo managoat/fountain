@@ -258,9 +258,18 @@ constraint on the existing callback rather than a new one, and it stops being
 necessary — rather than becoming wrong — the day #883 lands and
 `Managoat.Runtimes.Claude.write_config/2` goes away.
 
-The callback set has now survived two extractions and one design without a
-tenth entry: `fountain_gmail` (#1529, **not built**) is specified against
-`api_mounts/0` and `conversation_mcp_servers/2` and adds nothing.
+The callback set has now survived three extractions without an eleventh
+entry: the Gmail extension, specified here as `fountain_gmail` (#1529)
+against `api_mounts/0` and `conversation_mcp_servers/2` before it existed,
+was built as `apps/fountain_google` under #2152 with #1529 (amended
+2026-09-14) on exactly those two plus `docs/0`, and added nothing. The name
+is the provider's rather than the product's because one Google connection
+covers Gmail and Calendar, and the Google connection provider itself follows
+into the same app. What it took from core with it is the meaning of
+the connection-only `mcp_servers` shape: `Fountain.Connections.McpServers`
+now drops `%{"connection" => id}` with no URL rather than rewriting it, and an
+extension that recognises the connection's provider serves the sandbox an HTTP
+server through the callback. The remote shape (URL + connection) stays core's.
 
 **Amended 2026-09-14 (#2152, ADR 0054): an eleventh, for connection
 providers.** `connection_providers/0` returns config-backed
@@ -486,8 +495,10 @@ the OpenAPI check and guarded the same way: if no card declares
   `fountain_support` moved the problem-report feature out with three of the nine
   callbacks and no tenth, which is the evidence decision 3 asked for: the seam
   fits a second feature without widening. Team comms, the Gmail tools and the
-  caller-tool bridge sit in the same `fountain_served/2` list with the same
-  shape; none of them moves in this campaign.
+  caller-tool bridge sat in the same `fountain_served/2` list with the same
+  shape; none of them moved in this campaign. The Gmail tools moved later, as
+  `fountain_google` (#2152, amended 2026-09-14), on the same three-callback
+  shape; team comms and the caller-tool bridge stay core's.
 - **What we give up:** a `managoat_buzz` library that other people could use.
   Nothing about hosted Buzz agents is useful without Fountain's tenants,
   vaults, agents and conversations, so there was nothing there to give.

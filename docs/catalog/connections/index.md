@@ -83,9 +83,10 @@ gets a placeholder bearer, and the broker attaches the token to that host.
 { "linear": { "type": "http", "url": "https://mcp.linear.app/mcp", "connection": "<id>" } }
 ```
 
-**A server Fountain hosts.** Only for Google today. The entry names the
-connection alone, and the token stays on the server. Read
-[fountain-gmail](../mcp-servers/fountain-gmail.md).
+**A server an extension hosts.** Only for Google today. The entry names the
+connection alone, and the token stays on the server. The Google extension,
+part of the standard distribution, serves it. Its page is `fountain-gmail` in
+the Catalog section of this manual.
 
 ## Status
 

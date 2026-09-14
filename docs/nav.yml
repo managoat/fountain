@@ -86,7 +86,6 @@ nav:
       - create-team (skill): catalog/skills/create-team.md
       - MCP servers: catalog/mcp-servers/index.md
       - fountain-team: catalog/mcp-servers/fountain-team.md
-      - fountain-gmail: catalog/mcp-servers/fountain-gmail.md
       - asana (MCP server): catalog/mcp-servers/asana.md
       - cloudflare (MCP server): catalog/mcp-servers/cloudflare.md
       - github (MCP server): catalog/mcp-servers/github.md

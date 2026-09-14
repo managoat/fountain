@@ -65,9 +65,11 @@ A tenant cannot edit these, and `google` is a reserved slug. `PATCH` and
 
 Two shapes use a Google connection.
 
-**The Fountain-served Gmail server.** The agent's `mcp_servers` names the
-connection alone. The token stays on the server. Read
-[fountain-gmail](../mcp-servers/fountain-gmail.md).
+**The Gmail server the Google extension serves.** The agent's `mcp_servers`
+names the connection alone. The token stays on the server. The extension is
+part of the standard distribution, and its page is `fountain-gmail` in the
+Catalog section of this manual. A core distribution has no such page, and an
+agent on it runs without that server.
 
 **A brokered token.** The sandbox holds `__google_access_token__`, and the
 broker attaches the real token as a bearer on requests to the token hosts.
@@ -85,6 +87,6 @@ next turn. **Revoke** tells Google to forget the grant.
 ## Related
 
 - [Connections](index.md), the catalog hub.
-- [fountain-gmail](../mcp-servers/fountain-gmail.md).
+- `fountain-gmail`, the Google extension's page in the Catalog section.
 - [Connect a service with your own OAuth app](../../guides/connect/own-oauth-app.md),
   for every other service.

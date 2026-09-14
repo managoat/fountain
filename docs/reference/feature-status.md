@@ -16,8 +16,10 @@ describes one of these features.
 
 **Alpha.** The feature works end to end, and we have not yet decided its final
 shape. Its API and its tools can change between releases without an upgrade
-note. Fountain refuses API calls when the flag is off: `404` for management routes,
-and `403` for the conversation-authenticated Gmail MCP endpoint.
+note. Fountain refuses API calls when the flag is off: `404` for management
+routes. The Gmail MCP endpoint, which the Google extension serves, answers
+`403` only on a deployment without the egress broker. A connection that
+exists keeps its tools when the flag goes off.
 
 ## Brokered credentials are on for every account
 

@@ -501,7 +501,7 @@ defmodule Fountain.Extensions do
   The static path prefixes the core router already claims under `/api`.
 
   Each is a segment list truncated at the first dynamic segment, so
-  `/api/mcp/gmail/:conversation_id/:connection_id` yields `["mcp", "gmail"]`.
+  `/api/mcp/team/:conversation_id` yields `["mcp", "team"]`.
   Read from the compiled route table, so it needs no maintenance: a route added
   to `FountainWeb.Router` reserves its path from the same commit.
   """

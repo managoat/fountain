@@ -16,11 +16,14 @@ defmodule Fountain.Connections do
   A connection reaches an agent three ways, all only on a deployment that
   brokers egress (`Fountain.Broker.configured?/0`):
 
-    * **A Fountain-served MCP server.** An agent's `mcp_servers` names a
-      Google connection (`%{"gmail" => %{"connection" => id}}`) and the
-      conversation gets `POST /api/mcp/gmail/:conversation_id/:connection_id`,
-      authenticated by its own callback token. The token never leaves the
-      server.
+    * **An extension-served MCP server.** An agent's `mcp_servers` names a
+      connection and no URL (`%{"gmail" => %{"connection" => id}}`); core
+      drops the entry and an installed extension that recognises the
+      provider serves the tools itself (ADR 0043, #2152). For a Google
+      connection the Google extension gives the conversation
+      `POST /api/mcp/gmail/:conversation_id/:connection_id`, authenticated by
+      its own callback token, and resolves the token per call through
+      `access_token/1`. The token never leaves the server.
     * **A remote MCP server the tenant supplies.** The entry carries a URL
       and a connection (`%{"type" => "http", "url" => ..., "connection" => id}`);
       at spawn it becomes the same server with a placeholder bearer, and the

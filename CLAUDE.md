@@ -50,18 +50,23 @@ fountain/                  umbrella root
       test/fountain/       context unit tests (async: true, DataCase)
       test/fountain_web/   controller/LiveView integration tests
       test/support/        DataCase, ConnCase, factory.ex
-    fountain_buzz/         the four first-party extensions (ADR 0043, tracker
+    fountain_buzz/         the five first-party extensions (ADR 0043, tracker
     fountain_support/      #1503, #1528 and #2152). Each is an AGPL OTP app that
-    fountain_microsoft/    depends on :fountain, is named in
-    fountain_slack/        `config :fountain, :extensions` and is reached only
+    fountain_google/       depends on :fountain, is named in
+    fountain_microsoft/    `config :fountain, :extensions` and is reached only
+    fountain_slack/
                            through the `Fountain.Extension` callbacks. Buzz owns
                            FountainBuzz.*, buzz_identities and its migrations,
                            /api/buzz + /api/mcp/buzz, and the harness tree;
                            Support owns FountainSupport.*, support_reports,
-                           /api/support and the report forwarder. Microsoft
-                           owns FountainMicrosoft.*: the `microsoft` connection
-                           provider (`connection_providers/0`, ADR 0054), its
-                           `MICROSOFT_OAUTH_*` config under
+                           /api/support and the report forwarder; Google owns
+                           FountainGoogle.*, the Gmail tool layer and client,
+                           /api/mcp/gmail and the fountain-gmail manual page,
+                           and serves the `%{"connection" => id}` (no url)
+                           `mcp_servers` shape core deliberately drops.
+                           Microsoft owns FountainMicrosoft.*: the `microsoft`
+                           connection provider (`connection_providers/0`,
+                           ADR 0054), its `MICROSOFT_OAUTH_*` config under
                            `:fountain_microsoft`, and the `microsoft
                            (connection)` manual page — no route, no table.
                            Slack is the same shape: FountainSlack.*, the

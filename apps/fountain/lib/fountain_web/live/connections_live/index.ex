@@ -440,8 +440,8 @@ defmodule FountainWeb.ConnectionsLive.Index do
         <h1 class="text-2xl font-semibold">Connections</h1>
         <p class="text-sm text-[var(--color-text-secondary)] mt-1">
           Sign in to a provider once. Fountain keeps the refresh token, encrypted with your
-          tenant key, and hands agents the capability rather than the credential: a
-          Fountain-served MCP server that uses the connection on their behalf, a remote MCP
+          tenant key, and hands agents the capability rather than the credential: an MCP
+          server an installed extension serves on the connection's behalf, a remote MCP
           server of yours with the token attached by the egress broker, or an access token
           brokered to the provider's hosts. No token ever enters a sandbox.
         </p>
@@ -859,11 +859,20 @@ defmodule FountainWeb.ConnectionsLive.Index do
               {c.provider} · brokered as <code class="font-mono">{c.env_key}</code>
               · id <code class="font-mono">{c.id}</code>
             </p>
-            <p :if={c.provider == "google"} class="text-xs text-[var(--color-text-secondary)]">
+            <%!-- The connection-only shape is the Google extension's to serve
+                 (ADR 0043, #2152): offered only where that extension is
+                 installed, by id and never by module. --%>
+            <p
+              :if={c.provider == "google" and Fountain.Extensions.installed?(:google)}
+              class="text-xs text-[var(--color-text-secondary)]"
+            >
               In an agent's MCP servers:
               <code class="font-mono">{~s({"gmail": {"connection": "#{c.id}"}})}</code>
             </p>
-            <p :if={c.provider != "google"} class="text-xs text-[var(--color-text-secondary)]">
+            <p
+              :if={c.provider != "google" or not Fountain.Extensions.installed?(:google)}
+              class="text-xs text-[var(--color-text-secondary)]"
+            >
               In an agent's MCP servers:
               <code class="font-mono">
                 {~s({"<name>": {"type": "http", "url": "https://…/mcp", "connection": "#{c.id}"}})}

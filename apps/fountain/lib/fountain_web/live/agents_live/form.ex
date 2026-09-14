@@ -592,8 +592,8 @@ defmodule FountainWeb.AgentsLive.Form do
   end
 
   # The stored shape for one form row (the inverse of agent_to_mcp_server_list/1).
-  # A connection entry is either the Fountain-served server (a bare
-  # connection) or a remote server of the tenant's (URL + connection, #1186).
+  # A connection entry is either a bare connection (an extension's to serve,
+  # ADR 0043 #2152) or a remote server of the tenant's (URL + connection, #1186).
   defp mcp_server_config(%{"kind" => "connection"} = s) do
     case String.trim(s["url"] || "") do
       "" -> %{"connection" => s["connection"]}
@@ -1157,9 +1157,10 @@ defmodule FountainWeb.AgentsLive.Form do
             />
             <p :if={server["kind"] == "connection"} class="text-xs text-zinc-500">
               With a URL, the sandbox calls that server and the egress broker attaches the
-              account's token to it. Without one, a Google account gets the Fountain-served
-              Gmail tools; any other provider needs a URL here, or a stdio server that reads
-              its brokered env key. Either way no token enters the sandbox.
+              account's token to it. Without one, a Google account gets the Gmail tools the
+              Google extension serves, where it is installed; any other provider needs a URL
+              here, or a stdio server that reads its brokered env key. Either way no token
+              enters the sandbox.
             </p>
 
             <div :if={server["kind"] == "raw"} class="text-xs text-zinc-500">

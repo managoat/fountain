@@ -75,11 +75,15 @@ defmodule FountainGoogle do
   end
 
   # `nil` is what a `for` filter needs to skip the entry: a connection that is
-  # gone, another tenant's, revoked or expired, or on another provider.
+  # gone, another tenant's, revoked or expired, or on another provider. A
+  # tenant provider can already own the `google` slug when this app is installed.
   defp google_connection(id, user_id) do
     case Connections.get_connection(id, user_id) do
-      %Connections.Connection{status: "active", provider: "google"} = connection -> connection
-      _other -> nil
+      %Connections.Connection{status: "active", provider: "google", provider_id: nil} = connection ->
+        connection
+
+      _other ->
+        nil
     end
   end
 

@@ -275,6 +275,54 @@ defmodule FountainGoogle.McpControllerTest do
            |> json_response(403)
   end
 
+  describe "installing Google after a tenant has claimed its slug" do
+    setup ctx do
+      extensions = Application.fetch_env!(:fountain, :extensions)
+      on_exit(fn -> Application.put_env(:fountain, :extensions, extensions) end)
+      Application.put_env(:fountain, :extensions, [])
+
+      provider = insert_provider(ctx.user, slug: "google")
+      connection = insert_connection(ctx.user, provider: provider)
+      assert connection.provider_id == provider.id
+
+      agent =
+        insert_agent(
+          user_id: ctx.user.id,
+          mcp_servers: %{
+            "tenant" => %{"connection" => connection.id},
+            "gmail" => %{"connection" => ctx.connection.id}
+          }
+        )
+
+      conv = insert_conversation(%{user_id: ctx.user.id, agent: agent, status: "idle"})
+      Application.put_env(:fountain, :extensions, [FountainGoogle.Extension])
+      assert :ok = Fountain.Extensions.validate!()
+
+      %{tenant_connection: connection, tenant_conv: conv}
+    end
+
+    test "only the platform grant contributes Gmail tools", ctx do
+      assert [%{name: "gmail"}] =
+               Fountain.Extensions.conversation_mcp_servers(ctx.tenant_conv.id, ctx.raw_key)
+    end
+
+    test "the endpoint rejects tenant grants before accessing their credentials", ctx do
+      Req.Test.stub(OAuth, fn _ -> flunk("tenant OAuth must not receive a request") end)
+      Req.Test.stub(Gmail, fn _ -> flunk("tenant credentials must not reach Gmail") end)
+
+      for {method, params} <- [
+            {"tools/list", %{}},
+            {"tools/call", %{"name" => "gmail_list_labels", "arguments" => %{}}}
+          ] do
+        body =
+          rpc(ctx.conn, ctx.raw_key, ctx.tenant_conv, ctx.tenant_connection, method, params)
+          |> json_response(400)
+
+        assert body["error"] =~ "Google connections only"
+      end
+    end
+  end
+
   test "a notification gets 202 and no body", ctx do
     conn =
       ctx.conn

@@ -61,8 +61,9 @@ defmodule FountainGoogle.McpController do
 
   # These are Gmail tools: another provider's token (#1299) would be sent to
   # the wrong API and fail confusingly. Its connection attaches by URL + env
-  # key instead; say so where the model can read it.
-  defp google_connection?(%Connections.Connection{provider: "google"}), do: :ok
+  # key instead; say so where the model can read it. A tenant provider can
+  # predate this extension and share its slug, so only platform grants qualify.
+  defp google_connection?(%Connections.Connection{provider: "google", provider_id: nil}), do: :ok
 
   defp google_connection?(_),
     do:

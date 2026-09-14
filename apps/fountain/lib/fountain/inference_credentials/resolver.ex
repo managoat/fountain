@@ -28,7 +28,6 @@ defmodule Fountain.InferenceCredentials.Resolver do
                Keyword.merge(opts,
                  override_entries: overrides,
                  refresh: false,
-                 allow_missing: true,
                  brokered: Fountain.Broker.configured?()
                )
              ),
@@ -84,11 +83,7 @@ defmodule Fountain.InferenceCredentials.Resolver do
           {value, identity, revision} = entries[kind]
           source = if identity, do: Source.tenant_secret(), else: Source.credential()
 
-          creds =
-            if value == :present,
-              do: own,
-              else: Map.put(drop_competitors(own, provider), kind, value)
-
+          creds = Map.put(drop_competitors(own, provider), kind, value)
           {:ok, %{source | kind: kind, identity: identity, revision: revision}, creds}
 
         Enum.any?(
@@ -113,12 +108,7 @@ defmodule Fountain.InferenceCredentials.Resolver do
         {:ok, entries}
 
       :error ->
-        values =
-          Keyword.get(
-            opts,
-            :overrides,
-            Map.new(Keyword.get(opts, :secret_keys, []), &{&1, :present})
-          )
+        values = Keyword.get(opts, :overrides, %{})
 
         normalize(
           values,
@@ -171,9 +161,7 @@ defmodule Fountain.InferenceCredentials.Resolver do
          Map.put(drop_competitors(own, provider), kind, value)}
 
       :none ->
-        if Keyword.get(opts, :allow_missing, false),
-          do: {:ok, Source.missing(), own},
-          else: {:error, :no_credential}
+        {:ok, Source.missing(), own}
     end
   end
 

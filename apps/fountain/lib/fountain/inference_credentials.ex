@@ -451,7 +451,7 @@ defmodule Fountain.InferenceCredentials do
   # The environment variable each static credential is exported as. A tenant
   # secret of the same name overrides it in the sandbox (`Egress`'s gate-3
   # split, published in `docs/concepts/secrets.md`), which is what
-  # `select/4`'s `:secret_keys` reads.
+  # `select/4`'s `:overrides` are normalized against.
   #
   # The deployment's ChatGPT grant is deliberately absent: ADR 0052 decision 6
   # reserves `CODEX_CHATGPT_ACCESS_TOKEN` so no configuration can name it.
@@ -553,10 +553,11 @@ defmodule Fountain.InferenceCredentials do
   credentials exclude competing auth inputs for the selected provider and
   preserve unrelated credentials.
 
-  `opts` accepts actual `:overrides` values, or legacy presence-only
-  `:secret_keys`. `:brokered` controls platform ChatGPT eligibility and
-  `:refresh` controls provider refresh I/O. Platform policy applies only when
-  no tenant credential is selected for this runtime/provider.
+  `opts` accepts actual `:overrides` values. `:brokered` controls platform
+  ChatGPT eligibility and `:refresh` controls provider refresh I/O. Platform
+  policy applies only when no tenant credential is selected for this
+  runtime/provider, and nothing anywhere is `Source.missing/0`, never an
+  error: the sandbox still provisions, with nothing to call.
 
   The returned `Source` describes origin, scope and kind. Production callers
   use `resolve/4` for tenant-scoped loading, durable identity/revision metadata,
@@ -564,8 +565,7 @@ defmodule Fountain.InferenceCredentials do
   """
   @spec select(String.t() | nil, %{atom() => String.t()}, String.t() | nil, keyword()) ::
           {:ok, Source.t(), %{atom() => String.t()}}
-          | {:error,
-             :no_credential | :inference_credential_unusable | :inference_credential_conflict}
+          | {:error, :inference_credential_unusable | :inference_credential_conflict}
   def select(model, own_creds, runtime \\ nil, opts \\ []) when is_map(own_creds) do
     Fountain.InferenceCredentials.Resolver.select(model, own_creds, runtime, opts)
   end

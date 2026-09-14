@@ -193,9 +193,9 @@ defmodule Fountain.PlatformInferenceTest do
   end
 
   describe "InferenceCredentials.select/2" do
-    test "with no platform key an account with nothing gets the refusal, not a key" do
-      assert InferenceCredentials.select("anthropic/claude-opus-5", %{}) ==
-               {:error, :no_credential}
+    test "with no platform key an account with nothing is :missing, not a key" do
+      assert {:ok, %Source{origin: :own, scope: :missing}, %{}} =
+               InferenceCredentials.select("anthropic/claude-opus-5", %{})
     end
 
     test "the tenant's own credential wins over a configured platform key" do
@@ -225,10 +225,11 @@ defmodule Fountain.PlatformInferenceTest do
       assert creds.openai_api_key == "sk-tenant-openai"
     end
 
-    test "a provider with no platform key configured is still refused" do
+    test "a provider with no platform key configured is still :missing" do
       with_platform_key()
 
-      assert InferenceCredentials.select("openai/gpt-5.5", %{}) == {:error, :no_credential}
+      assert {:ok, %Source{origin: :own, scope: :missing}, %{}} =
+               InferenceCredentials.select("openai/gpt-5.5", %{})
     end
 
     test "a provider that needs no credential is :own, whatever is configured" do

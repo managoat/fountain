@@ -74,7 +74,7 @@ defmodule Fountain.Conversations.SpriteEnv do
   overrides win over credential rows, then runtime kind precedence selects
   the auth input. Competing inputs are removed from the returned credentials.
 
-  This value-only helper preserves the legacy missing-credential result;
+  This value-only helper returns a `:missing` source when nothing is found;
   production admission and provisioning use `resolve_inference/4` to persist
   and validate the source identity and revision. Invalid supplied credentials
   return an actionable error rather than selecting platform inference.
@@ -90,7 +90,6 @@ defmodule Fountain.Conversations.SpriteEnv do
            overrides: secrets
          ) do
       {:ok, source, creds} -> {source, creds}
-      {:error, :no_credential} -> {InferenceCredentials.Source.missing(), own_creds}
       {:error, reason} -> {:error, reason}
     end
   end

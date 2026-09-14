@@ -95,8 +95,8 @@ defmodule FountainWeb.StartLive do
   #
   # `InferenceCredentials.select/2` is the one selection rule (#1388): the
   # tenant's own key wins, this deployment's platform key covers an account
-  # that has none, and `{:error, :no_credential}` is the case where the
-  # sandbox starts and the agent has nothing to call. The page says so rather
+  # that has none, and a `:missing` source is the case where the sandbox
+  # starts and the agent has nothing to call. The page says so rather
   # than letting a copied `curl` fail with a provider's auth error the
   # developer has to go and decode.
   #
@@ -116,7 +116,7 @@ defmodule FountainWeb.StartLive do
          {:ok, own} <-
            InferenceCredentials.decrypted_for(user_id, agent.inference_credential_id, dek) do
       match?(
-        {:error, :no_credential},
+        {:ok, %InferenceCredentials.Source{scope: :missing}, _},
         InferenceCredentials.select(agent.model, own, agent.runtime,
           brokered: Fountain.Broker.configured?(),
           refresh: false

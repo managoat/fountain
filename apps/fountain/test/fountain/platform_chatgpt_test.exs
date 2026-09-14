@@ -426,8 +426,8 @@ defmodule Fountain.PlatformChatGPTTest do
     test "an unbrokered conversation never takes the grant: the token would land in the sandbox" do
       connect!()
 
-      assert InferenceCredentials.select("openai/gpt-5.5-codex", %{}, "codex", brokered: false) ==
-               {:error, :no_credential}
+      assert {:ok, %Source{origin: :own, scope: :missing}, %{}} =
+               InferenceCredentials.select("openai/gpt-5.5-codex", %{}, "codex", brokered: false)
 
       Application.put_env(:fountain, :platform_openai_api_key, "sk-platform")
 
@@ -447,8 +447,8 @@ defmodule Fountain.PlatformChatGPTTest do
     test "opencode on an openai model never takes the grant" do
       connect!()
 
-      assert InferenceCredentials.select("openai/gpt-5.5", %{}, "opencode") ==
-               {:error, :no_credential}
+      assert {:ok, %Source{origin: :own, scope: :missing}, %{}} =
+               InferenceCredentials.select("openai/gpt-5.5", %{}, "opencode")
 
       Application.put_env(:fountain, :platform_openai_api_key, "sk-platform")
 
@@ -472,8 +472,8 @@ defmodule Fountain.PlatformChatGPTTest do
 
       Application.delete_env(:fountain, :platform_openai_api_key)
 
-      assert InferenceCredentials.select("openai/gpt-5.5-codex", %{}, "codex") ==
-               {:error, :no_credential}
+      assert {:ok, %Source{origin: :own, scope: :missing}, %{}} =
+               InferenceCredentials.select("openai/gpt-5.5-codex", %{}, "codex")
     end
 
     test "the ceiling gate counts the grant as platform-served" do

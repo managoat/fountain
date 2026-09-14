@@ -1443,8 +1443,7 @@ defmodule Fountain.Conversations do
            InferenceCredentials.resolve(conv.user_id, agent.model, agent.runtime,
              environment_id: env_id || agent.environment_id,
              vault_id: vault_id,
-             expected_source: expected,
-             refresh: false
+             expected_source: expected
            ),
          :ok <- Fountain.PlatformInference.gate_source(source) do
       {:ok, source}
@@ -4991,8 +4990,7 @@ defmodule Fountain.Conversations do
              environment_id: env_id || agent.environment_id,
              vault_id: vault_id,
              credential_set_id:
-               SpriteEnv.credential_set_id(%{inference_credential_id: set_id}, agent),
-             refresh: false
+               SpriteEnv.credential_set_id(%{inference_credential_id: set_id}, agent)
            ),
          :ok <- Fountain.PlatformInference.gate_source(source) do
       {:ok, source}
@@ -5013,8 +5011,7 @@ defmodule Fountain.Conversations do
              environment_id: conv.environment_id || agent.environment_id,
              vault_id: conv.vault_id,
              credential_set_id: SpriteEnv.credential_set_id(conv, agent),
-             expected_source: conv.inference_source,
-             refresh: false
+             expected_source: conv.inference_source
            ),
          :ok <- Fountain.PlatformInference.gate_source(source) do
       {:ok, source}

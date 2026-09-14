@@ -6,11 +6,16 @@ defmodule Fountain.Conversations.TerminationClusterTest do
   test "attribution reaches the remote actor's fence and its refusal reaches the caller" do
     receiver = peer()
     caller = peer()
-    {:ok, actor} = :peer.call(receiver, Contract, :receiver, [])
+
+    # The first Mimic stub recompiles its module in each cold peer VM. Give
+    # fixture setup its own budget; the actual distributed request below still
+    # uses the default five-second call timeout.
+    {:ok, actor} = :peer.call(receiver, Contract, :receiver, [], 30_000)
+    {:ok, client} = :peer.call(caller, Contract, :caller, [actor], 30_000)
     opts = [actor: "api", request_ip: "192.0.2.8", audit: false]
 
     assert {:error, :sandbox_unavailable} =
-             :peer.call(caller, Contract, :request_termination, [actor, opts])
+             :peer.call(caller, Contract, :request_termination, [client, opts])
 
     assert {"sandbox", fence} = :peer.call(receiver, Contract, :fence, [])
     assert fence[:actor] == "api"

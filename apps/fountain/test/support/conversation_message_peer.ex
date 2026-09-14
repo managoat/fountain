@@ -12,16 +12,12 @@ defmodule Fountain.Test.ConversationMessagePeer do
     GenServer.start(__MODULE__, %{conversation_id: "conversation", sandbox_id: "sandbox"})
   end
 
-  def request_termination(pid, opts) do
-    start_mimic([Fountain.Repo, ExecutionGuard, Horde.Registry])
-    Mimic.stub(Fountain.Repo, :in_transaction?, fn -> false end)
-    Mimic.stub(ExecutionGuard, :_unsafe_interrupt, fn "conversation" -> {:ok, :unbounded} end)
+  def caller(actor) do
+    GenServer.start(__MODULE__, {:caller, actor})
+  end
 
-    Mimic.stub(Horde.Registry, :lookup, fn Fountain.ConversationRegistry, "conversation" ->
-      [{pid, nil}]
-    end)
-
-    ConversationServer.terminate_conversation("conversation", opts)
+  def request_termination(caller, opts) do
+    GenServer.call(caller, {:request_termination, opts})
   end
 
   def fence, do: :persistent_term.get({__MODULE__, :fence})
@@ -34,6 +30,18 @@ defmodule Fountain.Test.ConversationMessagePeer do
   end
 
   @impl true
+  def init({:caller, actor}) do
+    start_mimic([Fountain.Repo, ExecutionGuard, Horde.Registry])
+    Mimic.stub(Fountain.Repo, :in_transaction?, fn -> false end)
+    Mimic.stub(ExecutionGuard, :_unsafe_interrupt, fn "conversation" -> {:ok, :unbounded} end)
+
+    Mimic.stub(Horde.Registry, :lookup, fn Fountain.ConversationRegistry, "conversation" ->
+      [{actor, nil}]
+    end)
+
+    {:ok, :caller}
+  end
+
   def init(state) do
     start_mimic([Conversations])
     Mimic.stub(Conversations, :_unsafe_get_sandbox, fn id -> %{id: id} end)
@@ -47,6 +55,10 @@ defmodule Fountain.Test.ConversationMessagePeer do
   end
 
   @impl true
+  def handle_call({:request_termination, opts}, _from, :caller) do
+    {:reply, ConversationServer.terminate_conversation("conversation", opts), :caller}
+  end
+
   def handle_call(message, from, state),
     do: ConversationServer.handle_call(message, from, state)
 end

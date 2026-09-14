@@ -76,8 +76,10 @@ with effort:
    (Google's offline pair, Slack's `user_scope`) and Slack's
    `authed_user`-nested token response — was two hooks in `Platform` until
    #2152 made them two fields on the struct (`authorize_params`,
-   `token_body_nest`), so `Fountain.Connections.OAuth` stays one code path
-   and names no service. Scope lists are
+   `token_body_nest`), so the OAuth client stays one code path and names
+   no service — which is what let it leave for `managoat_mcp_auth` as
+   `Managoat.McpAuth.Client` (#2152 step 3); `Fountain.Connections.OAuth`
+   is the adapter that maps a provider onto its config. Scope lists are
    operator-overridable (`<SLUG>_OAUTH_SCOPES`), which is the app-
    verification lever: a deployment does not request what its verification
    does not cover, and the products that need those scopes stay dark.
@@ -107,8 +109,10 @@ with effort:
      every provider but the first and a conforming authorization server
      would refuse it. A server without registration is saved without a
      client, and the console asks the tenant to paste one.
-   Both kinds are driven by one OAuth client, `Fountain.Connections.OAuth`,
-   which reads everything that differs per provider from the row: PKCE
+   Both kinds are driven by one OAuth client, `Managoat.McpAuth.Client`
+   (`managoat_mcp_auth` since #2152; `Fountain.Connections.OAuth` builds its
+   config from the row), which reads everything that differs per provider
+   from the row: PKCE
    (S256; always for `mcp`, which also sends the RFC 8707 `resource`
    parameter), the client-auth method, and the account-label strategy
    (`userinfo_url` + a JSON path, or a label the tenant types at connect).

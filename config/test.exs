@@ -147,8 +147,10 @@ config :fountain, :connections_req_options, plug: {Req.Test, Fountain.Connection
 # a Req.Test plug, so a test that forgets to stub it fails rather than dialling
 # out.
 config :fountain, :platform_chatgpt_req_options, plug: {Req.Test, Fountain.PlatformChatGPT.OAuth}
-# Discovery and the OAuth client refuse private hosts; the Req.Test stub
-# answers for any host, so the resolution check is off here (#1186).
+# Discovery and the OAuth client (Managoat.McpAuth.Client, whose Req options
+# Fountain.Connections.OAuth takes from :connections_req_options above) refuse
+# private hosts; the Req.Test stub answers for any host, so the resolution
+# check is off here (#1186).
 config :managoat_mcp_auth, :req_options, plug: {Req.Test, Fountain.Connections.OAuth}
 config :managoat_mcp_auth, :allow_private_hosts, true
 config :fountain, :gmail_req_options, plug: {Req.Test, Fountain.Connections.Gmail}

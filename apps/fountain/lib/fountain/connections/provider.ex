@@ -14,10 +14,10 @@ defmodule Fountain.Connections.Provider do
 
   The **platform** providers (Google, Microsoft, Slack) are the same
   struct, built from config by `Fountain.Connections.Platform`, with
-  `user_id: nil` and their slug as the reserved id. One code path in
-  `Fountain.Connections.OAuth` serves every kind, because what differs per
-  service is data on the struct, including the two things that used to be
-  code (#2152):
+  `user_id: nil` and their slug as the reserved id. One code path serves
+  every kind — `Managoat.McpAuth.Client`, which `Fountain.Connections.OAuth`
+  builds a config for — because what differs per service is data on the
+  struct, including the two things that used to be code (#2152):
 
     * `authorize_params` — extra authorize-URL parameters, merged over the
       standard ones (so a provider may override `scope` itself). Google's

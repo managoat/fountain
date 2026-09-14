@@ -10,8 +10,9 @@ defmodule Fountain.Connections do
   Slack — `Fountain.Connections.Platform`, #1299), or a provider the tenant
   defined — their own app registration at a service (`oauth2`), or a remote
   MCP server whose authorization server Fountain discovered and registered
-  with (`mcp`). One OAuth client (`Fountain.Connections.OAuth`) serves
-  every kind.
+  with (`mcp`). One OAuth client serves every kind:
+  `Managoat.McpAuth.Client`, through the `Fountain.Connections.OAuth`
+  adapter.
 
   A connection reaches an agent three ways, all only on a deployment that
   brokers egress (`Fountain.Broker.configured?/0`):
@@ -133,7 +134,7 @@ defmodule Fountain.Connections do
 
   @doc """
   The provider with its plaintext client secret on the virtual field, which
-  is what `Fountain.Connections.OAuth` drives. The platform provider carries
+  is what `Fountain.Connections.OAuth` hands the client. The platform provider carries
   it from config already.
   """
   @spec unlock_provider(Provider.t()) :: {:ok, Provider.t()} | {:error, term()}

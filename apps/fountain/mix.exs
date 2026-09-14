@@ -108,7 +108,7 @@ defmodule Fountain.MixProject do
       {:managoat_acp, "~> 0.4.2"},
       {:managoat_broker, "~> 0.14.0"},
       {:managoat_docs, "~> 0.1.0"},
-      {:managoat_mcp_auth, "~> 0.1.0"},
+      {:managoat_mcp_auth, "~> 0.2.0"},
       {:managoat_oauth, "~> 0.1.0"},
       {:managoat_runner, "~> 0.2.2"},
       {:managoat_runtimes, "~> 0.4.2"},

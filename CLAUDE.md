@@ -100,8 +100,13 @@ fountain/                  umbrella root
                            here. A future one starts as an app again;
                            CONTRIBUTING.md has both recipes.
         managoat_substitution  Managoat.Substitution, the ${VAR} engine
-        managoat_mcp_auth      Managoat.McpAuth, RFC 9728/8414/7591 MCP
-                               authorization discovery with the SSRF guard
+        managoat_mcp_auth      Managoat.McpAuth, the client side of MCP
+                               authorization: RFC 9728/8414/7591 discovery
+                               and registration, the SSRF guard, and (since
+                               0.2.0, #2152) Managoat.McpAuth.Client, the
+                               OAuth 2.0 code flow behind Connections;
+                               Fountain.Connections.OAuth maps a Provider
+                               onto its Config
         managoat_oauth         Managoat.OAuth, the OAuth 2.0 code+PKCE and
                                device-grant state machine as a `use` macro
                                over Managoat.OAuth.Host; Fountain.OAuth is the

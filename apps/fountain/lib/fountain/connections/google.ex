@@ -1,8 +1,8 @@
 defmodule Fountain.Connections.Google do
   @moduledoc """
   The Google platform provider's facts (#1178), for the console and the
-  catalog. Since #1186 the OAuth flow is `Fountain.Connections.OAuth`,
-  driven by the `Fountain.Connections.Provider` struct
+  catalog. Since #1186 the OAuth flow is `Managoat.McpAuth.Client` behind
+  `Fountain.Connections.OAuth`, driven by the `Fountain.Connections.Provider` struct
   `Fountain.Connections.Platform.google/0` builds from config; since #1299
   Google is one platform provider among several, and this module is a thin
   reading of the registry.

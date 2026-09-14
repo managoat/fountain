@@ -11,7 +11,6 @@ public struct Teammate: Sendable, Decodable, Identifiable, Hashable {
   public var usageTotal: Usage?
   public var lastTurn: LastTurn?
   public var preview: Preview?
-  public var contact: TeammateContact?
 
   public var id: String { agentID }
 
@@ -42,33 +41,11 @@ public struct Teammate: Sendable, Decodable, Identifiable, Hashable {
   }
 
   enum CodingKeys: String, CodingKey {
-    case name, agent, conversation, presence, unread, preview, contact
+    case name, agent, conversation, presence, unread, preview
     case agentID = "agent_id"
     case usageTotal = "usage_total"
     case lastTurn = "last_turn"
   }
-}
-
-/// Email/phone identity for a teammate (feature flag `team_comms`).
-public struct TeammateContact: Sendable, Decodable, Hashable {
-  public var email: String?
-  public var phone: String?
-  /// The E.164 number this teammate's prompts arrive from.
-  public var promptFromNumber: String?
-  public var promptOptedOutAt: Date?
-  public var insertedAt: Date?
-
-  enum CodingKeys: String, CodingKey {
-    case email, phone
-    case promptFromNumber = "prompt_from_number"
-    case promptOptedOutAt = "prompt_opted_out_at"
-    case insertedAt = "inserted_at"
-  }
-}
-
-public struct TeamCommsStatus: Sendable, Decodable, Hashable {
-  public var enabled: Bool
-  public var configured: Bool
 }
 
 /// A cron-driven prompt to a teammate. `cron` is 5 fields, UTC.

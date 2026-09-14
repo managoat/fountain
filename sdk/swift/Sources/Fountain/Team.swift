@@ -80,9 +80,6 @@ public final class Team: @unchecked Sendable {
   public func freshConversation(_ agent: String) async throws -> JSONObject {
     try await http.data("POST", "/api/team/\(try await agentID(agent))/conversations")
   }
-  public func commsStatus() async throws -> JSONObject {
-    try await http.data("GET", "/api/team/comms")
-  }
   public func stream(
     streams: [String]? = nil, after: Int = 0, wait: Bool = true, maxRetries: Int = 5
   ) -> AsyncThrowingStream<JSONObject, Error> {

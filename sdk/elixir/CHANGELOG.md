@@ -1,5 +1,13 @@
 # Changelog
 
+## [Unreleased]
+
+### Removed
+
+- `comms_status/1` on `Fountain.Team`. Teammate email and phone (Team comms)
+  is being removed from the server; the `contact` key disappears from the
+  teammate record with it.
+
 ## [0.3.1] - 2026-09-13
 
 - Forward `:sandbox_api_access` from `Fountain.run/3`. Explicit `"none"` keeps callback credentials out of a fresh ephemeral sandbox; omitting the option preserves a resumed channel's policy (#1711).

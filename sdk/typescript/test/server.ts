@@ -397,7 +397,6 @@ export class FakeFountain {
     if (path === "/api/team/schedules") {
       return json(res, 200, { data: [...this.schedules.values()].flat() });
     }
-    if (path === "/api/team/comms") return json(res, 200, { data: { enabled: false } });
 
     if (path === "/api/team") {
       if (method === "GET") return json(res, 200, { data: [...this.teammates.values()] });

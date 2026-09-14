@@ -42,7 +42,6 @@
     "GET /api/sandboxes/{sandbox_id}/git-status",
     "GET /api/search",
     "GET /api/team",
-    "GET /api/team/comms",
     "GET /api/team/schedules",
     "GET /api/team/stream",
     "GET /api/team/{agent_id}",

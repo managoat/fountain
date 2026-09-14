@@ -57,7 +57,6 @@
     "GET /api/sandboxes/{sandbox_id}/files",
     "GET /api/search",
     "GET /api/team",
-    "GET /api/team/comms",
     "GET /api/team/schedules",
     "GET /api/team/stream",
     "GET /api/team/{agent_id}",

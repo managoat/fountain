@@ -77,11 +77,12 @@
       "operations": [
         "GET /api/conversations/{conversation_id}/egress",
         "GET /api/secret-bindings/presets",
+        "GET /api/team/comms",
         "POST /api/team/{agent_id}/contact",
         "PATCH /api/team/{agent_id}/contact",
         "DELETE /api/team/{agent_id}/contact"
       ],
-      "reason": "Console-facing reads and the rented teammate contact (ADR 0030 decision 4). No SDK models these operations. FountainKit separately models connection providers and turn images."
+      "reason": "Console-facing reads and the teammate contact, which is being removed. No SDK models these operations. FountainKit separately models connection providers and turn images."
     },
     {
       "operations": ["GET /health", "GET /health/ready"],

@@ -120,7 +120,7 @@ run = Fountain.Team.message(client.team, "reviewer", "Review the latest PR")
   })
 ```
 
-`Fountain.Team` includes `list`, `get`, `add`, `remove`, `rename`, `message`, `conversation`, `history`, `fresh_conversation`, `comms_status`, and `stream`. `Fountain.TeamSchedules` includes `list`, `get`, `create`, `update`, `delete`, and `run`.
+`Fountain.Team` includes `list`, `get`, `add`, `remove`, `rename`, `message`, `conversation`, `history`, `fresh_conversation`, and `stream`. `Fountain.TeamSchedules` includes `list`, `get`, `create`, `update`, `delete`, and `run`.
 
 ## Connections and sandboxes
 

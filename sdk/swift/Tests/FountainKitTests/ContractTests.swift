@@ -121,7 +121,6 @@ private struct TypedOperation: Sendable, CustomTestStringConvertible {
     TypedOperation("POST /api/team/{agent_id}/conversations") {
       _ = try await $0.team.freshConversation("agent")
     },
-    TypedOperation("GET /api/team/comms") { _ = try await $0.team.commsStatus() },
     TypedOperation("GET /api/team/schedules") { _ = try await $0.team.allSchedules() },
     TypedOperation("GET /api/team/{agent_id}/schedules") {
       _ = try await $0.team.schedules("agent")

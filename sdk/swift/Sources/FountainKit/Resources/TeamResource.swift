@@ -83,10 +83,6 @@ public struct TeamResource: Sendable {
     try await client.data(.post, "/api/team/\(agentID)/conversations")
   }
 
-  public func commsStatus() async throws -> TeamCommsStatus {
-    try await client.data(.get, "/api/team/comms")
-  }
-
   /// One stream for the whole roster; events carry `conversation_id` and
   /// `agent_id`. `team`/`schedule` signals mean re-list.
   public func stream(_ request: StreamRequest = StreamRequest()) -> AsyncThrowingStream<

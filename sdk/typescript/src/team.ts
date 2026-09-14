@@ -11,7 +11,6 @@ import type {
   SchedulePatch,
   Stream,
   TeamAddInput,
-  TeamCommsStatus,
   TeamEvent,
   Teammate,
 } from "./types.ts";
@@ -148,11 +147,6 @@ export class Team {
       "POST",
       `/api/team/${await this.agentId(agent)}/conversations`,
     );
-  }
-
-  /** Can teammates here be given an email address and a phone number? */
-  async commsStatus(): Promise<TeamCommsStatus> {
-    return this.http.data<TeamCommsStatus>("GET", "/api/team/comms");
   }
 
   /**

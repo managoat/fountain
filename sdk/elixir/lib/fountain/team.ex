@@ -117,8 +117,6 @@ defmodule Fountain.Team do
         do: HTTP.data(value.http, "POST", "/api/team/#{id}/conversations")
       )
 
-  def comms_status(value), do: HTTP.data(value.http, "GET", "/api/team/comms")
-
   def stream(value, opts \\ []),
     do: SSE.stream_path(value.http, "/api/team/stream", Keyword.put_new(opts, :blocks, true))
 

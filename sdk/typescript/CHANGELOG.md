@@ -11,6 +11,14 @@ server releases.
 
 ---
 
+## [Unreleased]
+
+### Removed
+
+- `team.commsStatus()` and the `TeamCommsStatus` and `TeammateContact` types.
+  Teammate email and phone (Team comms) is being removed from the server; the
+  `contact` field disappears from the teammate record with it.
+
 ## [2.1.0] — 2026-09-13
 
 ### Added

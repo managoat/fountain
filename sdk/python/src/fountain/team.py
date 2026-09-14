@@ -99,9 +99,6 @@ class Team:
             "POST", "/api/team/%s/conversations" % self._agent_id(agent)
         )
 
-    def comms_status(self) -> Dict[str, Any]:
-        return self._http.data("GET", "/api/team/comms")
-
     def stream(
         self,
         *,

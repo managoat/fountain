@@ -81,8 +81,6 @@ export type Schedule = S["TeamSchedule"];
  */
 export type ScheduleInput = Optional<S["TeamScheduleCreateRequest"], "enabled" | "one_off">;
 export type SchedulePatch = S["TeamScheduleUpdateRequest"];
-export type TeamCommsStatus = S["TeamCommsStatus"];
-export type TeammateContact = S["TeammateContact"];
 
 // ── everything else the SDK surfaces ─────────────────────────────────────────
 

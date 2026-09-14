@@ -168,7 +168,7 @@ run = Fountain.Team.message(client.team, "watchtower", "Any disks over 80%?")
 ```
 
 `Fountain.Team` also has `list`, `get`, `remove`, `rename`, `conversation`,
-`history`, `fresh_conversation`, `comms_status` and `stream` functions.
+`history`, `fresh_conversation` and `stream` functions.
 `Fountain.TeamSchedules` has the five resource functions and `run` for an
 immediate schedule invocation.
 

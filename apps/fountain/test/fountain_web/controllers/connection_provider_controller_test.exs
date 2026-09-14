@@ -59,15 +59,18 @@ defmodule FountainWeb.ConnectionProviderControllerTest do
     assert created["connect_url"] =~ "/connections/#{created["id"]}/start"
     refute inspect(created) =~ "top-secret"
 
-    # The host's three, the fixture extension's one (ADR 0054), the tenant's.
-    assert %{"data" => [google, microsoft, slack, fixture, github]} =
+    # The host's two, each installed extension's (ADR 0054: always the
+    # fixture's, fountain_microsoft's where that app loads), then the tenant's.
+    assert %{"data" => [google, slack | rest]} =
              conn |> get("/api/connection-providers") |> json_response(200)
 
+    {github, contributed} = List.pop_at(rest, -1)
+
     assert google["id"] == "google"
-    assert microsoft["id"] == "microsoft"
     assert slack["id"] == "slack"
-    assert fixture["id"] == "fixture-svc"
+    assert fixture = Enum.find(contributed, &(&1["id"] == "fixture-svc"))
     assert fixture["platform"] == true
+    assert Enum.all?(contributed, &(&1["platform"] == true))
     assert github["id"] == created["id"]
 
     assert conn
@@ -76,8 +79,8 @@ defmodule FountainWeb.ConnectionProviderControllerTest do
            |> Map.fetch!("platform")
 
     # The same list answers on the connections route, for older clients.
-    assert %{"data" => [_, _, _, _, _]} =
-             conn |> get("/api/connections/providers") |> json_response(200)
+    assert %{"data" => same} = conn |> get("/api/connections/providers") |> json_response(200)
+    assert length(same) == length(rest) + 2
 
     updated =
       conn

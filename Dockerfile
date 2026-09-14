@@ -60,6 +60,7 @@ COPY apps/fountain/mix.exs ./apps/fountain/mix.exs
 # and whether this image carries its binaries (ADR 0043 decision 7).
 COPY apps/fountain_buzz/mix.exs ./apps/fountain_buzz/mix.exs
 COPY apps/fountain_support/mix.exs ./apps/fountain_support/mix.exs
+COPY apps/fountain_microsoft/mix.exs ./apps/fountain_microsoft/mix.exs
 # One line per umbrella library app (decisions/0037), when there is one: the
 # umbrella loads every child's mix.exs to resolve deps, so a missing one fails
 # `mix deps.get` here. Every managoat_* library has graduated to hex (#1345,

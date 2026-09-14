@@ -73,6 +73,6 @@ forget the token, through `auth.revoke`.
 ## Related
 
 - [Connections](index.md), the catalog hub.
-- [Google](google.md) and [Microsoft](microsoft.md), the other platform providers.
+- [Google](google.md), the other platform provider in core, and Microsoft, from the `fountain_microsoft` extension.
 - [Connect a service with your own OAuth app](../../guides/connect/own-oauth-app.md),
   for every other service.

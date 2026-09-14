@@ -138,8 +138,10 @@ config :fountain, :posthog_req_options, plug: {Req.Test, Fountain.FeatureFlags}
 # unstubbed call fails loudly.
 config :fountain, :google_oauth_client_id, "google-test-client-id"
 config :fountain, :google_oauth_client_secret, "google-test-client-secret"
-config :fountain, :microsoft_oauth_client_id, "microsoft-test-client-id"
-config :fountain, :microsoft_oauth_client_secret, "microsoft-test-client-secret"
+# Microsoft's pair lives under its extension (ADR 0054 decision 5); it is
+# read only where `apps/fountain_microsoft` loads, and inert elsewhere.
+config :fountain_microsoft, :microsoft_oauth_client_id, "microsoft-test-client-id"
+config :fountain_microsoft, :microsoft_oauth_client_secret, "microsoft-test-client-secret"
 config :fountain, :slack_oauth_client_id, "slack-test-client-id"
 config :fountain, :slack_oauth_client_secret, "slack-test-client-secret"
 config :fountain, :connections_req_options, plug: {Req.Test, Fountain.Connections.OAuth}

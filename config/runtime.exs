@@ -750,16 +750,18 @@ if github_client_id = System.get_env("GITHUB_OAUTH_CLIENT_ID") do
 end
 
 # OAuth clients for the platform connection providers (#1178, #1299): a
-# tenant signs in to Google, Microsoft or Slack once in the console and
-# Fountain holds the refresh token. Not the sign-in provider — that is
-# GitHub above. Absent stays absent, so the console says a provider is not
-# configured rather than sending anyone to a consent screen with an empty
-# client id. The env var names stay literal here for the reference guard.
+# tenant signs in to Google or Slack once in the console and Fountain holds
+# the refresh token. Not the sign-in provider — that is GitHub above. Absent
+# stays absent, so the console says a provider is not configured rather than
+# sending anyone to a consent screen with an empty client id. The env var
+# names stay literal here for the reference guard.
+#
+# A provider that ships as an extension reads its own variables into its own
+# otp_app (ADR 0054 decision 5): Microsoft's are further down, under
+# `:fountain_microsoft`, and core reads none of them.
 platform_oauth_clients = [
   {"GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET", :google_oauth_client_id,
    :google_oauth_client_secret},
-  {"MICROSOFT_OAUTH_CLIENT_ID", "MICROSOFT_OAUTH_CLIENT_SECRET", :microsoft_oauth_client_id,
-   :microsoft_oauth_client_secret},
   {"SLACK_OAUTH_CLIENT_ID", "SLACK_OAUTH_CLIENT_SECRET", :slack_oauth_client_id,
    :slack_oauth_client_secret}
 ]
@@ -780,7 +782,6 @@ end
 # simply does not request it, and the provider's products light up to match.
 platform_oauth_scopes = [
   {"GOOGLE_OAUTH_SCOPES", :google_oauth_scopes},
-  {"MICROSOFT_OAUTH_SCOPES", :microsoft_oauth_scopes},
   {"SLACK_OAUTH_USER_SCOPES", :slack_oauth_user_scopes}
 ]
 
@@ -789,6 +790,27 @@ for {var, key} <- platform_oauth_scopes do
     blank when blank in [nil, ""] -> :ok
     scopes -> config :fountain, [{key, String.split(scopes)}]
   end
+end
+
+# The Microsoft connection provider ships as the `fountain_microsoft`
+# extension (ADR 0054 decision 6), so its OAuth client and scope override are
+# that application's configuration and not core's: a core-only release reads
+# no key for a provider it does not carry. Same shape as the host's above —
+# absent stays absent, and "" counts as absent. Configuring an extension that
+# is not installed is inert, not an error.
+case System.get_env("MICROSOFT_OAUTH_CLIENT_ID") do
+  blank when blank in [nil, ""] ->
+    :ok
+
+  client_id ->
+    config :fountain_microsoft,
+      microsoft_oauth_client_id: client_id,
+      microsoft_oauth_client_secret: System.get_env("MICROSOFT_OAUTH_CLIENT_SECRET")
+end
+
+case System.get_env("MICROSOFT_OAUTH_SCOPES") do
+  blank when blank in [nil, ""] -> :ok
+  scopes -> config :fountain_microsoft, microsoft_oauth_scopes: String.split(scopes)
 end
 
 # Stripe (§5.2)
@@ -1403,9 +1425,10 @@ end
 #
 # Each extension is installed *where it loads*. `apps/fountain` deliberately
 # depends on no sibling app, so `mix test` run from there — which is what CI's
-# partition script does — has neither `:fountain_buzz` nor `:fountain_support`
-# on the code path, and naming them unconditionally would make
-# `Fountain.Extensions.validate!/0` refuse to boot every partition. That check
+# partition script does — has none of `:fountain_buzz`, `:fountain_support`
+# or `:fountain_microsoft` on the code path, and naming them unconditionally
+# would make `Fountain.Extensions.validate!/0` refuse to boot every
+# partition. That check
 # working exactly as intended, on a configuration that is wrong for that run.
 #
 # `Code.ensure_loaded?/1` can only answer that after compilation, which is why
@@ -1413,7 +1436,7 @@ end
 # the apps are built, where the answer is always false.
 installed_extensions =
   Enum.filter(
-    [FountainBuzz.Extension, FountainSupport.Extension],
+    [FountainBuzz.Extension, FountainSupport.Extension, FountainMicrosoft.Extension],
     &Code.ensure_loaded?/1
   )
 

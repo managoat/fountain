@@ -36,7 +36,6 @@ apps/fountain/test/fountain/compose_passthrough_config_test.exs	317
 apps/fountain/test/fountain/config_reference_test.exs	17
 apps/fountain/test/fountain/connections/mcp_discovery_test.exs	748
 apps/fountain/test/fountain/connections/mcp_server_catalog_test.exs	0
-apps/fountain/test/fountain/connections/platform_scope_override_test.exs	0
 apps/fountain/test/fountain/connections/platform_test.exs	904
 apps/fountain/test/fountain/connections/provider_test.exs	4332
 apps/fountain/test/fountain/connections_test.exs	3238

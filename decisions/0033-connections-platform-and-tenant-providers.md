@@ -85,7 +85,12 @@ with effort:
    Calendar; Microsoft → Outlook mail + calendar + Teams chat); the granted
    scopes on the connection say which. Growing the registry still means
    amending this ADR with the same test: why the tenant's own app cannot
-   do the job.
+   do the job. *Amended by ADR 0054:* a platform provider may ship as an
+   extension rather than as a builder in core, and the registry becomes
+   "the host's own, then each installed extension's". Microsoft is the
+   first to have moved (`fountain_microsoft`, #2152 step 4c); Google and
+   Slack follow, after which core builds none of the three and the
+   registry grows by installing an extension.
 
 2. **Every other service is a provider the tenant defines.** A
    `connection_providers` row, tenant-scoped, of two kinds:

@@ -469,9 +469,8 @@ defmodule FountainWeb.ConnectionsLive.Index do
           </button>
         </div>
         <p class="text-xs text-[var(--color-text-secondary)]">
-          Google, Microsoft and Slack use Fountain's own OAuth clients. For any other service,
-          register an app there with the redirect URI shown here, then paste its client id and
-          secret.
+          Platform providers use Fountain's own OAuth clients. For any other service, register
+          an app there with the redirect URI shown here, then paste its client id and secret.
         </p>
 
         <div

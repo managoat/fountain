@@ -61,6 +61,16 @@ defmodule Fountain.ExtensionGuardTest do
       route: ~r|"/(api/)?support|,
       route_except: [],
       priv: "**/*support_report*"
+    },
+    %{
+      app: :fountain_microsoft,
+      # The builder `Fountain.Connections.Platform.microsoft/0` is the name the
+      # provider carried before it moved (ADR 0054); core may say "Microsoft"
+      # in prose and in a schema description, and does.
+      module: ~r/\b(FountainMicrosoft\.|Fountain\.Connections\.Platform\.microsoft\b)/,
+      route: ~r|"/(api/)?microsoft|,
+      route_except: [],
+      priv: "**/*microsoft*"
     }
   ]
 

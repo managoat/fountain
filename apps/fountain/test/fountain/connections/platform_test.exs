@@ -6,20 +6,27 @@ defmodule Fountain.Connections.PlatformTest do
 
   describe "the registry" do
     test "lists every platform provider, configured or not: the host's in catalog order, then each installed extension's" do
+      # The host's own come first. What follows depends on which extensions
+      # this VM installs — the fixture always (config/test.exs), and a real
+      # provider extension such as fountain_microsoft only where it loads
+      # (a root `mix test`, not a run from apps/fountain) — so the tail is
+      # asserted by membership rather than by shape.
       assert [
                %Provider{slug: "google", user_id: nil, id: "google"},
-               %Provider{slug: "microsoft", user_id: nil, id: "microsoft"},
-               %Provider{slug: "slack", user_id: nil, id: "slack"},
-               %Provider{slug: "fixture-svc", user_id: nil, id: "fixture-svc"}
+               %Provider{slug: "slack", user_id: nil, id: "slack"}
+               | contributed
              ] = Platform.all()
 
-      assert Platform.builtin_slugs() == ~w(google microsoft slack)
-      assert Platform.slugs() == ~w(google microsoft slack fixture-svc)
+      assert %Provider{slug: "fixture-svc", user_id: nil, id: "fixture-svc"} =
+               Enum.find(contributed, &(&1.slug == "fixture-svc"))
+
+      assert Platform.builtin_slugs() == ~w(google slack)
+      assert Platform.slugs() == Enum.map(Platform.all(), & &1.slug)
       assert Provider.reserved_slugs() == Platform.slugs()
     end
 
     test "get/1 answers a platform slug, the host's or an extension's, and nothing else" do
-      assert %Provider{slug: "microsoft"} = Platform.get("microsoft")
+      assert %Provider{slug: "slack"} = Platform.get("slack")
       assert %Provider{slug: "fixture-svc", name: "Fixture service"} = Platform.get("fixture-svc")
       assert Platform.get("github") == nil
       assert Platform.get(Ecto.UUID.generate()) == nil
@@ -33,22 +40,19 @@ defmodule Fountain.Connections.PlatformTest do
         assert p.token_url =~ "https://"
         assert p.env_key =~ ~r/^[A-Z_]+_ACCESS_TOKEN$/
         assert p.token_hosts != []
-        # config/test.exs sets all three client id/secret pairs
+        # config/test.exs sets every platform client id/secret pair
         assert OAuth.configured?(p)
       end
     end
 
     test "names the config env var and the short name the console shows" do
       assert Platform.client_env_var(Platform.get("slack")) == "SLACK_OAUTH_CLIENT_ID"
-      assert Platform.client_env_var(Platform.get("microsoft")) == "MICROSOFT_OAUTH_CLIENT_ID"
       assert Platform.short_name(Platform.get("google")) == "Google"
-      assert Platform.short_name(Platform.get("microsoft")) == "Microsoft"
     end
 
-    test "google asks for gmail and calendar; microsoft keeps offline_access" do
+    test "google asks for gmail and calendar" do
       assert "https://www.googleapis.com/auth/calendar" in Platform.get("google").scopes
       assert "https://www.googleapis.com/auth/gmail.modify" in Platform.get("google").scopes
-      assert "offline_access" in Platform.get("microsoft").scopes
       # calendar/v3 lives on www.googleapis.com, which the broker binding covers
       assert "www.googleapis.com" in Platform.get("google").token_hosts
     end
@@ -70,8 +74,11 @@ defmodule Fountain.Connections.PlatformTest do
       user = insert_verified_user()
       own = insert_provider(user)
 
-      assert [_google, _microsoft, _slack, %Provider{slug: "fixture-svc"} = p, ^own] =
-               Connections.all_providers(user.id)
+      assert [_google, _slack | contributed] = Connections.all_providers(user.id)
+      assert List.last(contributed) == own
+
+      assert %Provider{slug: "fixture-svc"} =
+               p = Enum.find(contributed, &(&1.slug == "fixture-svc"))
 
       assert Connections.get_provider("fixture-svc", user.id) == p
       assert Provider.platform?(p)
@@ -101,10 +108,6 @@ defmodule Fountain.Connections.PlatformTest do
                "prompt" => "consent",
                "include_granted_scopes" => "true"
              } = Platform.get("google").authorize_params
-    end
-
-    test "microsoft asks for an account picker" do
-      assert Platform.get("microsoft").authorize_params == %{"prompt" => "select_account"}
     end
 
     test "slack moves the request to user_scope and empties scope" do

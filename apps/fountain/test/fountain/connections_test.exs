@@ -232,42 +232,42 @@ defmodule Fountain.ConnectionsTest do
     end
 
     test "a platform provider whose token expires still insists on a refresh token" do
-      microsoft = Platform.get("microsoft")
+      google = Platform.get("google")
 
       Req.Test.stub(OAuth, fn conn ->
-        Req.Test.json(conn, %{"access_token" => "graph-1", "expires_in" => 3600})
+        Req.Test.json(conn, %{"access_token" => "ya29-1", "expires_in" => 3600})
       end)
 
       assert {:error, :no_refresh_token} =
-               OAuth.exchange_code(microsoft, "code", "https://f.example/cb")
+               OAuth.exchange_code(google, "code", "https://f.example/cb")
     end
 
     test "the same label on two platform providers is two connections, not one" do
       user = insert_verified_user()
 
+      # The host's Google and the fixture extension's provider (ADR 0054):
+      # an extension's row is a platform provider to this context too.
       google = insert_connection(user, account_email: "me@example.com")
-      slack = insert_connection(user, provider: "slack", account_email: "me@example.com")
+      fixture = insert_connection(user, provider: "fixture-svc", account_email: "me@example.com")
 
-      assert google.id != slack.id
-      assert google.provider_id == nil and slack.provider_id == nil
-      assert slack.provider == "slack"
-      assert slack.env_key == "SLACK_ACCESS_TOKEN"
+      assert google.id != fixture.id
+      assert google.provider_id == nil and fixture.provider_id == nil
+      assert fixture.provider == "fixture-svc"
+      assert fixture.env_key == "FIXTURE_SVC_ACCESS_TOKEN"
       assert length(Connections.list_connections(user.id)) == 2
 
-      # reconnecting the slack account replaces the slack row only
-      again = insert_connection(user, provider: "slack", account_email: "me@example.com")
-      assert again.id == slack.id
+      # reconnecting the fixture account replaces the fixture row only
+      again = insert_connection(user, provider: "fixture-svc", account_email: "me@example.com")
+      assert again.id == fixture.id
       assert length(Connections.list_connections(user.id)) == 2
     end
 
     test "provider_for and implicit_hosts read the registry through the slug" do
       user = insert_verified_user()
-      conn = insert_connection(user, provider: "microsoft", account_email: "me@corp.example")
+      conn = insert_connection(user, provider: "slack", account_email: "jake")
 
-      assert %Provider{slug: "microsoft", user_id: nil} = Connections.provider_for(conn)
-
-      assert Connections.implicit_hosts(user.id, "MICROSOFT_ACCESS_TOKEN") ==
-               ["graph.microsoft.com"]
+      assert %Provider{slug: "slack", user_id: nil} = Connections.provider_for(conn)
+      assert Connections.implicit_hosts(user.id, "SLACK_ACCESS_TOKEN") == ["slack.com"]
     end
   end
 

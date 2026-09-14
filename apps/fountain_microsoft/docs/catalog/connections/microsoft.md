@@ -1,8 +1,9 @@
 # microsoft (connection)
 
-> A platform provider. The operator registers one Microsoft Entra app, and
-> every tenant connects a Microsoft account with it. One sign-in covers
-> Outlook mail, calendar and Teams chat, all on the Graph API.
+> A platform provider, from the `fountain_microsoft` extension. The operator
+> registers one Microsoft Entra app, and every tenant connects a Microsoft
+> account with it. One sign-in covers Outlook mail, calendar and Teams chat,
+> all on the Graph API.
 
 ## Summary
 
@@ -76,6 +77,6 @@ at Microsoft, remove the app from the account's app permissions.
 ## Related
 
 - [Connections](index.md), the catalog hub.
-- [Google](google.md) and [Slack](slack.md), the other platform providers.
+- [Google](google.md) and Slack, the other platform providers.
 - [Connect a service with your own OAuth app](../../guides/connect/own-oauth-app.md),
   for every other service.

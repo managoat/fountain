@@ -50,17 +50,22 @@ fountain/                  umbrella root
       test/fountain/       context unit tests (async: true, DataCase)
       test/fountain_web/   controller/LiveView integration tests
       test/support/        DataCase, ConnCase, factory.ex
-    fountain_buzz/         the two first-party extensions (ADR 0043, tracker
-    fountain_support/      #1503 and #1528). Each is an AGPL OTP app that
-                           depends on :fountain, is named in
+    fountain_buzz/         the three first-party extensions (ADR 0043, tracker
+    fountain_support/      #1503, #1528 and #2152). Each is an AGPL OTP app that
+    fountain_microsoft/    depends on :fountain, is named in
                            `config :fountain, :extensions` and is reached only
                            through the `Fountain.Extension` callbacks. Buzz owns
                            FountainBuzz.*, buzz_identities and its migrations,
                            /api/buzz + /api/mcp/buzz, and the harness tree;
                            Support owns FountainSupport.*, support_reports,
-                           /api/support and the report forwarder.
-                           `apps/fountain` depends on neither in any direction
-                           and names no module of either
+                           /api/support and the report forwarder. Microsoft
+                           owns FountainMicrosoft.*: the `microsoft` connection
+                           provider (`connection_providers/0`, ADR 0054), its
+                           `MICROSOFT_OAUTH_*` config under
+                           `:fountain_microsoft`, and the `microsoft
+                           (connection)` manual page — no route, no table.
+                           `apps/fountain` depends on none of them in any
+                           direction and names no module of any
                            (extension_guard_test.exs); the release's
                            `applications:` decides inclusion. Their suites run
                            from their own directories, so

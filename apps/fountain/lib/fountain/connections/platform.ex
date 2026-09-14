@@ -10,8 +10,11 @@ defmodule Fountain.Connections.Platform do
   The registry is the host's own providers followed by every installed
   extension's (`Fountain.Extension.connection_providers/0`, ADR 0054): a
   connector that ships as an extension is one more row here, one more
-  reserved slug, and nothing else in core changes. The host's three are
-  `builtin_slugs/0`; `slugs/0` and `all/0` are the whole registry.
+  reserved slug, and nothing else in core changes. The host's own are
+  `builtin_slugs/0`; `slugs/0` and `all/0` are the whole registry. Microsoft
+  is the first to have moved out (`fountain_microsoft`, ADR 0054 decision 6):
+  core builds Google and Slack, and knows Microsoft only as a row an
+  installed extension contributes.
 
   A platform provider exists whether or not its deployment configured it:
   the providers list always names all of them, with `configured` false until
@@ -25,27 +28,20 @@ defmodule Fountain.Connections.Platform do
   client names no service and a provider can come from anywhere.
 
   One connection per provider covers several products: the Google account
-  carries Gmail and Calendar, the Microsoft account Outlook mail, calendar
-  and Teams chat. The granted scopes on the connection say which products a
-  tenant actually consented to, and `<SLUG>_OAUTH_SCOPES` (space-separated)
-  lets an operator narrow or grow the default request — a deployment whose
-  Google app verification does not cover a scope simply does not ask for it.
+  carries Gmail and Calendar. The granted scopes on the connection say which
+  products a tenant actually consented to, and `<SLUG>_OAUTH_SCOPES`
+  (space-separated) lets an operator narrow or grow the default request — a
+  deployment whose Google app verification does not cover a scope simply
+  does not ask for it.
   """
 
   alias Fountain.Connections.Provider
 
-  @builtin ~w(google microsoft slack)
+  @builtin ~w(google slack)
 
   @google_scopes ~w(openid email
     https://www.googleapis.com/auth/gmail.modify
     https://www.googleapis.com/auth/calendar)
-
-  # `offline_access` is what makes Microsoft issue a refresh token;
-  # `User.Read` is what lets `/v1.0/me` name the account. The Teams channel
-  # scope (`ChannelMessage.Send`) needs admin consent on work tenants, so the
-  # default stops at chats; an operator adds it via MICROSOFT_OAUTH_SCOPES.
-  @microsoft_scopes ~w(openid email offline_access User.Read
-    Mail.ReadWrite Mail.Send Calendars.ReadWrite Chat.ReadWrite)
 
   # User-token scopes (sent as `user_scope`): read and post in channels and
   # DMs, and search, as the connected person.
@@ -80,7 +76,6 @@ defmodule Fountain.Connections.Platform do
   def get(_), do: nil
 
   defp builtin("google"), do: google()
-  defp builtin("microsoft"), do: microsoft()
   defp builtin("slack"), do: slack()
   defp builtin(_), do: nil
 
@@ -88,7 +83,7 @@ defmodule Fountain.Connections.Platform do
   def client_env_var(%Provider{slug: slug, user_id: nil}),
     do: String.upcase(slug) <> "_OAUTH_CLIENT_ID"
 
-  @doc ~s|"Google", "Microsoft", "Slack" — for "Connect a … account".|
+  @doc ~s|"Google", "Slack" — for "Connect a … account", an extension's too.|
   def short_name(%Provider{slug: slug, user_id: nil}), do: String.capitalize(slug)
 
   # ── the providers ──────────────────────────────────────────────────────────
@@ -123,36 +118,6 @@ defmodule Fountain.Connections.Platform do
         "prompt" => "consent",
         "include_granted_scopes" => "true"
       }
-    }
-  end
-
-  @doc """
-  Microsoft, from `MICROSOFT_OAUTH_CLIENT_ID` / `_SECRET`: one Azure AD app
-  on the `common` endpoint (work and personal accounts), one sign-in for
-  Outlook mail, calendar and Teams chat, all on `graph.microsoft.com`.
-  Microsoft publishes no OAuth revocation endpoint, so revoke is local only.
-  """
-  def microsoft do
-    %Provider{
-      id: "microsoft",
-      user_id: nil,
-      slug: "microsoft",
-      name: "Microsoft (Outlook, Calendar, Teams)",
-      kind: "oauth2",
-      authorize_url: "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
-      token_url: "https://login.microsoftonline.com/common/oauth2/v2.0/token",
-      revoke_url: nil,
-      userinfo_url: "https://graph.microsoft.com/v1.0/me",
-      account_label_path: "userPrincipalName",
-      scopes: scopes(:microsoft_oauth_scopes, @microsoft_scopes),
-      client_id: Application.get_env(:fountain, :microsoft_oauth_client_id),
-      client_secret: Application.get_env(:fountain, :microsoft_oauth_client_secret),
-      token_endpoint_auth: "client_secret_post",
-      pkce: true,
-      env_key: "MICROSOFT_ACCESS_TOKEN",
-      token_hosts: ~w(graph.microsoft.com),
-      client_source: "manual",
-      authorize_params: %{"prompt" => "select_account"}
     }
   end
 

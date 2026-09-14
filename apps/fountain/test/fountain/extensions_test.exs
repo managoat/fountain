@@ -518,9 +518,11 @@ defmodule Fountain.ExtensionsTest do
     test "truncates at the first dynamic segment" do
       prefixes = Extensions.core_route_prefixes()
 
-      # /api/mcp/gmail/:conversation_id/:connection_id stops at the static half,
-      # so a mount at /mcp/gmail is refused and one at /mcp/other is not.
-      assert ["mcp", "gmail"] in prefixes
+      # /api/mcp/team/:conversation_id stops at the static half, so a mount at
+      # /mcp/team is refused and one at /mcp/other is not. (/mcp/gmail used to
+      # be the example here; it is the Google extension's mount now, #2152.)
+      assert ["mcp", "team"] in prefixes
+      refute ["mcp", "gmail"] in prefixes
       refute Enum.any?(prefixes, fn segs -> Enum.any?(segs, &String.starts_with?(&1, ":")) end)
     end
 

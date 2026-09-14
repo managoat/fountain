@@ -2,13 +2,13 @@ defmodule Fountain.ExtensionGuardTest do
   @moduledoc """
   The compile-time boundary, checked as source (ADR 0043, #1507 and #1528).
 
-  The umbrella's dependency resolution proves `fountain_buzz -> fountain` and
-  `fountain_support -> fountain`: each extension lists
-  `{:fountain, in_umbrella: true}` and Fountain lists nothing. It proves nothing
-  at all about the other direction, because the way that breaks is not a
-  dependency — it is a stray module atom, a route, a migration or a config key
-  that compiles perfectly and only surprises somebody on the day a core-only
-  release fails to boot.
+  The umbrella's dependency resolution proves `fountain_buzz -> fountain`,
+  `fountain_support -> fountain` and `fountain_google -> fountain`: each
+  extension lists `{:fountain, in_umbrella: true}` and Fountain lists nothing.
+  It proves nothing at all about the other direction, because the way that
+  breaks is not a dependency — it is a stray module atom, a route, a migration
+  or a config key that compiles perfectly and only surprises somebody on the
+  day a core-only release fails to boot.
 
   So this walks the source. It is the test that has to fail on the PR that
   reintroduces the crossing, not on the deploy.
@@ -78,6 +78,17 @@ defmodule Fountain.ExtensionGuardTest do
       route: ~r|"/(api/)?slack|,
       route_except: [],
       priv: "**/*slack*"
+    },
+    %{
+      app: :fountain_google,
+      # `Fountain.Connections.McpServers` stays core's (the `\b` after `Mcp`
+      # keeps it out); the Gmail tool layer and client were the two modules
+      # beside it that moved (#2152).
+      module:
+        ~r/\b(FountainGoogle\.|Fountain\.Connections\.(Mcp|Gmail)\b|FountainWeb\.GmailMcp[A-Z])/,
+      route: ~r|"/(api/)?mcp/gmail|,
+      route_except: [],
+      priv: "**/*gmail*"
     }
   ]
 

@@ -207,6 +207,34 @@ defmodule Fountain.Conversations.LaunchCredentialSetTest do
 
       assert conv.inference_credential_id == second.id
     end
+
+    test "an unrestricted policy reaches a set created after the agent", %{user: user, dek: dek} do
+      agent = agent_for(user)
+      assert agent.inference_credential_access == "all_tenant_credential_sets"
+      {:ok, later} = InferenceCredentials.create_set(user.id, "Created later")
+      later = write_key(later, dek, :anthropic_api_key, "sk-later")
+
+      assert {:ok, conv} =
+               Launch.start_conversation(%{
+                 "agent_id" => agent.id,
+                 "user_id" => user.id,
+                 "inference_credential_id" => later.id
+               })
+
+      assert conv.inference_credential_id == later.id
+    end
+
+    test "another tenant's set is refused even when explicitly allowlisted", %{user: user} do
+      {:ok, theirs} = InferenceCredentials.create_set(insert_active_user().id, "Theirs")
+      agent = agent_for(user, %{"allowed_inference_credential_ids" => [theirs.id]})
+
+      assert {:error, :inference_credential_not_found} =
+               Launch.start_conversation(%{
+                 "agent_id" => agent.id,
+                 "user_id" => user.id,
+                 "inference_credential_id" => theirs.id
+               })
+    end
   end
 
   describe "deleting a set a conversation named" do

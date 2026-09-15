@@ -56,11 +56,12 @@ defmodule Fountain.Agents.Agent do
     field :allowed_environment_ids, {:array, :binary_id}
     field :environment_access, :string, read_after_writes: true, writable: :never
     # Credential sets a conversation may launch this agent on instead of the
-    # agent's (ADR 0053 decision 3). Same shape again: nil = any set the
-    # tenant owns, [] = none, non-empty = allowlist. Naming a set changes
-    # whose provider account pays for the turn, which is the reason it is
-    # scoped rather than free.
+    # agent's (ADR 0053 decision 3). Naming a set changes whose provider
+    # account pays for the turn, which is the reason it is scoped rather than
+    # free. Same compatibility input again: nil = all current/future sets the
+    # tenant owns, [] = none. PostgreSQL derives the authorization mode.
     field :allowed_inference_credential_ids, {:array, :binary_id}
+    field :inference_credential_access, :string, read_after_writes: true, writable: :never
     # Per-tool permission policy (#939): %{"default" => "auto_allow",
     # "Bash" => "auto_deny"}. Empty means no opinion, which resolves to
     # auto_allow — what every agent does today. A launch may supply its own,
@@ -150,6 +151,48 @@ defmodule Fountain.Agents.Agent do
       do: environment_id in ids
 
   def environment_allowed?(_agent, _environment_id), do: false
+
+  @doc """
+  Whether a persisted agent's explicit policy permits an inference credential
+  set ID.
+
+  Naming the set the agent already runs on is not an override, so it passes
+  whatever the policy says. Otherwise the same rules as `vault_allowed?/2`:
+  policy only, callers must still scope the set lookup to the tenant, and
+  unknown or unsaved policies and inconsistent in-memory edits fail closed.
+  """
+  def credential_set_allowed?(agent, credential_set_id)
+
+  def credential_set_allowed?(
+        %__MODULE__{__meta__: %{state: :loaded}, inference_credential_id: id},
+        id
+      )
+      when is_binary(id),
+      do: true
+
+  def credential_set_allowed?(
+        %__MODULE__{
+          __meta__: %{state: :loaded},
+          inference_credential_access: "all_tenant_credential_sets",
+          allowed_inference_credential_ids: nil
+        },
+        credential_set_id
+      )
+      when is_binary(credential_set_id),
+      do: true
+
+  def credential_set_allowed?(
+        %__MODULE__{
+          __meta__: %{state: :loaded},
+          inference_credential_access: "allowlist",
+          allowed_inference_credential_ids: ids
+        },
+        credential_set_id
+      )
+      when is_list(ids) and is_binary(credential_set_id),
+      do: credential_set_id in ids
+
+  def credential_set_allowed?(_agent, _credential_set_id), do: false
 
   @doc "Every runtime that can appear in persisted data, including the opt-in test fixture."
   def known_runtimes, do: @runtimes ++ ["fountain-fixture"]

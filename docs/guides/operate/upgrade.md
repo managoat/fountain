@@ -141,6 +141,21 @@ before starting the new server code, both old and new servers can keep writing
 the existing field during the rollout, and the same lock and timeout bounds and
 maintenance-window advice hold.
 
+## Credential set policy migration
+
+Migration `20260915230000` is the last of the three. It adds generated
+`inference_credential_access` columns to agents and saved agent versions.
+Existing clients keep sending `allowed_inference_credential_ids`: `null`
+permits all current and future credential sets owned by the tenant, `[]`
+permits no override, and a non-empty list permits only those IDs within the
+tenant. Naming the set the agent already runs on is not an override, so it
+stays permitted under every policy. Saved configs, SDK payloads and historical
+restores behave exactly as they do for vaults and environments.
+
+Run it the same way and under the same bounds as the two above. After this
+migration no allowlist on an agent relies on a null to mean "anything the
+tenant owns"; the policy is readable from the record.
+
 ## Principal credential expiry
 
 Every unrevoked key with `principal` scope must have an expiry. The database

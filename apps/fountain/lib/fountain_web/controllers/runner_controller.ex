@@ -19,6 +19,7 @@ defmodule FountainWeb.RunnerController do
 
   alias Fountain.Runners
   alias FountainWeb.Audited
+  alias FountainWeb.ChangesetJSON
   alias FountainWeb.Schemas
 
   action_fallback FountainWeb.FallbackController
@@ -148,10 +149,14 @@ defmodule FountainWeb.RunnerController do
         end
 
       {:error, changeset} ->
+        # `json/2`, not a view: this route pipes through `:api` without
+        # `:accepts_json` (a WebSocket client sends no JSON `Accept`), so no
+        # format is ever negotiated and `render/3` raises rather than
+        # answering. The body is the one `ChangesetJSON` renders everywhere
+        # else, which is what every SDK's `ValidationError` reads.
         conn
         |> put_status(:bad_request)
-        |> put_view(FountainWeb.ChangesetJSON)
-        |> render(:error, changeset: changeset)
+        |> json(ChangesetJSON.error(%{changeset: changeset}))
     end
   end
 

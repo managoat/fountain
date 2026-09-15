@@ -95,8 +95,8 @@ defmodule FountainWeb.MetricsTest do
              "untracked is a level, not a delta; as #{inspect(untracked.__struct__)} " <>
                "it accumulates forever instead of tracking the current leak count"
 
-      # released/parked/expired are per-run deltas — those are correct as sums.
-      for measurement <- [:released, :parked, :expired] do
+      # released/parked/expired/reconciled are per-run deltas — correct as sums.
+      for measurement <- [:released, :parked, :expired, :reconciled] do
         metric = by_name[[:fountain, :reaper, :run, measurement]]
         assert metric, "fountain.reaper.run.#{measurement} is no longer declared"
         assert metric.__struct__ == Telemetry.Metrics.Sum

@@ -353,6 +353,15 @@ defmodule FountainWeb.Telemetry do
         measurement: :expired,
         description: "Sandbox rows expired by SandboxReaper runs"
       ),
+      # Unlike the three above, a non-zero value here is not routine
+      # reclamation: it counts teardowns that fenced and then died before
+      # their terminal write, so the machine leaked until the reaper found
+      # it. Worth an operator's attention rather than a dashboard line alone.
+      sum("fountain.reaper.run.reconciled",
+        event_name: [:fountain, :reaper, :run],
+        measurement: :reconciled,
+        description: "Abandoned teardown fences finished by SandboxReaper runs"
+      ),
       # Untracked is a LEVEL, not a delta: every reaper run re-measures the
       # full set of sprites alive at sprites.dev with no sandbox row. As a
       # `sum` it accumulated each hourly observation — a steady 102 leaked

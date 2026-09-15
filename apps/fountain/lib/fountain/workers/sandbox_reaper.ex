@@ -26,7 +26,10 @@ defmodule Fountain.Workers.SandboxReaper do
 
   1. **Release stuck rows.** `pending`/`starting` past the grace period with no
      live `ConversationServer` become `failed`. This frees quota and is safe:
-     the row already cannot be used for anything.
+     the row already cannot be used for anything. Two siblings run with it:
+     `ready` rows past a lifetime bound are parked or expired, and rows whose
+     teardown fence committed but whose terminal write never landed are
+     finished.
 
   2. **Destroy sprites we know are dead.** A sandbox row in a terminal state
      whose sprite still exists at sprites.dev. Unambiguously ours,
@@ -72,6 +75,7 @@ defmodule Fountain.Workers.SandboxReaper do
   def perform(_job) do
     released = release_stuck_sandboxes()
     {parked, expired} = sweep_abandoned_sandboxes()
+    reconciled = sweep_fenced_teardowns()
 
     listings = list_by_provider()
     ok_listings = for {p, {:ok, names}} <- listings, into: %{}, do: {p, names}
@@ -82,7 +86,7 @@ defmodule Fountain.Workers.SandboxReaper do
 
     Logger.info(
       "reaper: released=#{released} parked=#{parked} expired=#{expired} " <>
-        "destroyed=#{destroyed} untracked=#{untracked} live=#{live}"
+        "reconciled=#{reconciled} destroyed=#{destroyed} untracked=#{untracked} live=#{live}"
     )
 
     result =
@@ -104,9 +108,12 @@ defmodule Fountain.Workers.SandboxReaper do
 
     # `parked` is its own measurement: parks are reversible bookkeeping, and
     # folding them into `expired` would silently change what that metric means.
+    # `reconciled` is its own for the opposite reason — it counts teardowns
+    # that died halfway, so a non-zero value is a defect somewhere upstream,
+    # not routine reclamation.
     :telemetry.execute(
       [:fountain, :reaper, :run],
-      %{released: released, parked: parked, expired: expired},
+      %{released: released, parked: parked, expired: expired, reconciled: reconciled},
       %{}
     )
 
@@ -339,6 +346,92 @@ defmodule Fountain.Workers.SandboxReaper do
     # destroyed disk is lost — the price of the ceiling, see decisions/0017).
     # The sandbox itself is destroyed by pass 2 on this same run, now that the
     # row is terminal.
+    sandbox
+  end
+
+  # ── pass 1c: teardown fences whose terminal write never landed ────────────
+
+  # A teardown fence is committed in its own transaction, before any provider
+  # I/O, and the terminal write lands after it (`Lifecycle.destroy/4`,
+  # `Termination.retire_terminated_sandbox/2`, `Accounts.Deletion`). Anything
+  # in between can lose: `Managoat.Sandbox.destroy/1` or `Egress.release/2`
+  # raises, the retirement write is refused, the pod dies, an account deletion
+  # halts mid-fence.
+  #
+  # What is left is a row with `teardown_requested_at` set and a live status,
+  # and no pass here could see it. Both sweeps above require
+  # `is_nil(reset_requested_at)`, which the fence always sets; pass 2 wants a
+  # terminal status; pass 3 counts the sprite as known. Meanwhile
+  # `Quotas.active_sandboxes/0` keeps counting the row against the tenant cap
+  # and the fleet ceiling, and the sprite bills. The only exit was an operator
+  # noticing and clicking Reap in /admin/sandboxes — and nothing surfaced the
+  # row for them to notice (#2021 item 7). #1894 named this shape for the
+  # *reset* fence and was answered by `SandboxResetReconciler` and the admin
+  # retry; the teardown fence had no equivalent.
+  #
+  # Finishing the teardown is the only answer that respects the intent already
+  # recorded and audited: the row goes terminal and pass 2 destroys the sprite
+  # on this same run, exactly as `expire/2` relies on. This never *starts* a
+  # teardown — `teardown_requested_at` is set by the fence alone, so a row only
+  # reaches here because a caller already decided this machine was to go away.
+  #
+  # `reset_requested_at` on its own is deliberately not a predicate here: an
+  # ordinary reset means "wipe and rebuild", not "terminate", and
+  # `SandboxResetReconciler` already retries those.
+  @fenced_teardown_grace_minutes 15
+
+  @doc """
+  Finishes teardowns that fenced and then died before the terminal write.
+
+  A fenced row with a live status is invisible to every other pass and holds
+  its quota slot forever, so this is the only thing that can free it. The grace
+  period is measured from the fence, which is long enough that a teardown still
+  in flight — including one walking a whole account's machines — is never
+  swept, and the liveness check refuses a row some server still holds.
+
+  Returns the number of rows terminated.
+  """
+  def sweep_fenced_teardowns do
+    cutoff =
+      DateTime.utc_now()
+      |> DateTime.add(-@fenced_teardown_grace_minutes * 60, :second)
+
+    Sandbox
+    |> where(
+      [s],
+      not is_nil(s.teardown_requested_at) and s.status not in ^@terminal_statuses and
+        s.teardown_requested_at < ^cutoff
+    )
+    |> Repo.all()
+    |> Repo.preload(:conversations)
+    |> Enum.reject(&Lifecycle.any_server_alive?/1)
+    |> Enum.map(&finish_teardown/1)
+    |> length()
+  end
+
+  defp finish_teardown(%Sandbox{} = sandbox) do
+    was = sandbox.status
+
+    {:ok, _} =
+      Conversations.update_sandbox(sandbox, %{
+        status: "terminated",
+        terminated_at: DateTime.utc_now() |> DateTime.truncate(:second)
+      })
+
+    Logger.warning(
+      "reaper: finished abandoned teardown of sandbox #{sandbox.id} " <>
+        "(#{sandbox.machine_name}) — fenced at #{sandbox.teardown_requested_at}, " <>
+        "still #{was} #{@fenced_teardown_grace_minutes}m later"
+    )
+
+    # The conversations are left alone for the same reason `expire/2` leaves
+    # them: reclaiming a machine is not deleting the thread that ran on it.
+    record_reap(sandbox, "sandbox.teardown_reconciled", %{
+      "previous_status" => was,
+      "teardown_requested_at" => DateTime.to_iso8601(sandbox.teardown_requested_at),
+      "grace_minutes" => @fenced_teardown_grace_minutes
+    })
+
     sandbox
   end
 

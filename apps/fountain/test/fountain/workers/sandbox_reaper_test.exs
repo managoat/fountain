@@ -13,6 +13,7 @@ defmodule Fountain.Workers.SandboxReaperTest do
 
   import ExUnit.CaptureLog
 
+  alias Fountain.Conversations.Lifecycle
   alias Fountain.Conversations.Sandbox
   alias Fountain.Repo
   alias Fountain.Workers.SandboxReaper
@@ -379,6 +380,156 @@ defmodule Fountain.Workers.SandboxReaperTest do
       end)
 
       assert destroyed_names() == [sandbox.machine_name]
+    end
+  end
+
+  describe "abandoned teardown fences" do
+    # Every row here is fenced through the real `Lifecycle` door, because the
+    # thing under test is precisely what that door leaves behind.
+    defp fence(sandbox, opts \\ []) do
+      {:ok, fenced} =
+        Lifecycle.fence_sandbox_for_teardown(sandbox, Keyword.put_new(opts, :reason, "test"))
+
+      fenced
+    end
+
+    defp age_fence(sandbox, minutes) do
+      at = DateTime.utc_now() |> DateTime.add(-minutes * 60, :second)
+
+      Repo.update_all(
+        from(s in Sandbox, where: s.id == ^sandbox.id),
+        set: [teardown_requested_at: at]
+      )
+
+      Repo.reload(sandbox)
+    end
+
+    defp fenced_sandbox(status \\ "ready") do
+      user = insert_verified_user()
+      sandbox = insert_sandbox(user_id: user.id, status: status)
+      conv = insert_conversation(user_id: user.id, sandbox: sandbox, status: "idle")
+      {user, fence(sandbox), conv}
+    end
+
+    test "a teardown that died before its terminal write is finished, freeing the slot" do
+      # The hole this pass exists for. The fence commits, then the destroy
+      # raises or the pod dies, and the row is left `ready` with the fence set:
+      # invisible to both sweeps above (they require is_nil(reset_requested_at),
+      # which the fence always sets), to the dead-sprite pass (it wants a
+      # terminal status) and to the untracked count (the sprite has a row).
+      # Quotas keeps charging for it and nothing else can ever clear it.
+      {user, sandbox, _conv} = fenced_sandbox()
+      assert Fountain.Quotas.active_sandbox_count(user.id) == 1
+      sandbox = age_fence(sandbox, 60)
+
+      capture_log(fn -> assert 1 = SandboxReaper.sweep_fenced_teardowns() end)
+
+      assert %{status: "terminated", terminated_at: %DateTime{}} = Repo.reload(sandbox)
+      assert Fountain.Quotas.active_sandbox_count(user.id) == 0
+    end
+
+    test "the conversation survives its machine being reclaimed" do
+      # Same rule as expire/2: reclaiming a machine is not deleting the thread
+      # that ran on it. assert_resumable/1 refuses a terminated conversation.
+      {_user, sandbox, conv} = fenced_sandbox()
+      age_fence(sandbox, 60)
+
+      capture_log(fn -> assert 1 = SandboxReaper.sweep_fenced_teardowns() end)
+
+      assert Repo.reload(conv).status == "idle"
+    end
+
+    test "a teardown still in flight is inside the grace window" do
+      # A fence is minutes old on every ordinary teardown, and an account
+      # deletion walks a whole tenant's machines between the fence and the
+      # destroy. Sweeping those would race a caller that is still working.
+      {_user, sandbox, _conv} = fenced_sandbox()
+      sandbox = age_fence(sandbox, 5)
+
+      assert 0 = SandboxReaper.sweep_fenced_teardowns()
+      assert Repo.reload(sandbox).status == "ready"
+    end
+
+    test "a fenced row a server still holds is left alone" do
+      {_user, sandbox, conv} = fenced_sandbox()
+      sandbox = age_fence(sandbox, 60)
+
+      stub(Fountain.Conversations.ConversationServer, :whereis, fn id ->
+        if id == conv.id, do: self(), else: nil
+      end)
+
+      assert 0 = SandboxReaper.sweep_fenced_teardowns()
+      assert Repo.reload(sandbox).status == "ready"
+    end
+
+    test "a reset fence with no teardown intent is not this pass's business" do
+      # `reset_requested_at` alone means wipe-and-rebuild, not terminate.
+      # SandboxResetReconciler retries those; terminating one here would
+      # destroy a home the tenant asked to keep.
+      user = insert_verified_user()
+
+      sandbox =
+        insert_sandbox(user_id: user.id, status: "ready", mode: "persistent")
+        |> Ecto.Changeset.change(
+          reset_requested_at: DateTime.utc_now() |> DateTime.add(-60 * 60, :second)
+        )
+        |> Repo.update!()
+
+      assert 0 = SandboxReaper.sweep_fenced_teardowns()
+      assert Repo.reload(sandbox).status == "ready"
+    end
+
+    test "an already terminal row needs no work, however long it has been fenced" do
+      {_user, sandbox, _conv} = fenced_sandbox()
+      age_fence(sandbox, 60)
+      sandbox = sandbox |> Ecto.Changeset.change(status: "terminated") |> Repo.update!()
+
+      assert 0 = SandboxReaper.sweep_fenced_teardowns()
+      assert Repo.reload(sandbox).status == "terminated"
+    end
+
+    test "a suspended row carrying a teardown fence is finished too" do
+      # A parked machine is still a leaked sprite once a teardown was
+      # requested for it, and Quotas counts a fenced row whatever its status.
+      {user, sandbox, _conv} = fenced_sandbox("suspended")
+      assert Fountain.Quotas.active_sandbox_count(user.id) == 1
+      sandbox = age_fence(sandbox, 60)
+
+      capture_log(fn -> assert 1 = SandboxReaper.sweep_fenced_teardowns() end)
+
+      assert Repo.reload(sandbox).status == "terminated"
+      assert Fountain.Quotas.active_sandbox_count(user.id) == 0
+    end
+
+    test "the tenant's own trail says what happened to the machine" do
+      {user, sandbox, _conv} = fenced_sandbox()
+      age_fence(sandbox, 60)
+
+      capture_log(fn -> assert 1 = SandboxReaper.sweep_fenced_teardowns() end)
+
+      assert [event] =
+               Fountain.Audit.list_for_user(user.id,
+                 action_prefix: "sandbox.teardown_reconciled"
+               )
+
+      assert event.actor == "system:sandbox_reaper"
+      assert event.resource_id == sandbox.id
+      assert event.metadata["previous_status"] == "ready"
+      assert event.metadata["sprite_name"] == sandbox.machine_name
+    end
+
+    test "finishing a teardown makes its sprite eligible for destruction the same run" do
+      # The point of the whole pass: the sprite was leaked, so the run that
+      # terminates the row must also be the run that destroys the machine.
+      {_user, sandbox, _conv} = fenced_sandbox()
+      age_fence(sandbox, 60)
+      stub_sprites([sandbox.machine_name])
+      capture_destroys()
+
+      capture_log(fn -> assert :ok = perform_job(SandboxReaper, %{}) end)
+
+      assert destroyed_names() == [sandbox.machine_name]
+      assert Repo.reload(sandbox).status == "terminated"
     end
   end
 

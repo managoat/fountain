@@ -3266,18 +3266,16 @@ defmodule Fountain.Conversations do
   def resolve_inference_credential_id(_id, _user_id, _agent),
     do: {:error, :inference_credential_not_found}
 
-  # Same three-way shape as the vault and environment allowlists, and the same
-  # deliberate nil default: a caller who can attach a vault can already
-  # override `ANTHROPIC_API_KEY` outright, so a stricter default here would
-  # guard nothing (#783 made this argument for the environment). Naming the
-  # agent's own set is not an override, so it passes regardless of the list.
-  defp check_credential_set_allowed(_id, %Agents.Agent{allowed_inference_credential_ids: nil}),
-    do: :ok
-
-  defp check_credential_set_allowed(id, %Agents.Agent{inference_credential_id: id}), do: :ok
-
-  defp check_credential_set_allowed(id, %Agents.Agent{allowed_inference_credential_ids: allowed}) do
-    if id in allowed, do: :ok, else: {:error, :inference_credential_not_allowed}
+  # Same persisted policy as the vault and environment allowlists, and the same
+  # deliberately unrestricted default: a caller who can attach a vault can
+  # already override `ANTHROPIC_API_KEY` outright, so a stricter default here
+  # would guard nothing (#783 made this argument for the environment). The
+  # policy also passes the agent's own set, because naming it is not an
+  # override. resolve_inference_credential_id enforces tenant ownership after.
+  defp check_credential_set_allowed(id, %Agents.Agent{} = agent) do
+    if Agents.Agent.credential_set_allowed?(agent, id),
+      do: :ok,
+      else: {:error, :inference_credential_not_allowed}
   end
 
   @doc """

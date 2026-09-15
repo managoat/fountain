@@ -7,8 +7,8 @@ defmodule FountainWeb.Plugs.CastRenderError do
       {"errors": [{"title": "Invalid value", "source": {"pointer": "/limit"},
                    "detail": "Invalid integer. Got: string"}]}
 
-  An **array**, keyed by pointer. Fountain's own validation failures are
-  `ChangesetError` — an object keyed by field:
+  An **array**, keyed by pointer. Fountain's own validation failures are an
+  object keyed by field:
 
       {"errors": {"limit": ["Invalid integer. Got: string"]}}
 
@@ -22,26 +22,21 @@ defmodule FountainWeb.Plugs.CastRenderError do
 
   ## Why the body carries both keys
 
-  The 27 operations do not all declare the same thing: 18 declare `Error`
-  (`{error}`), 7 declare `ChangesetError` (`{errors}`) and 2 declare
-  `AuthError` (`{error, message}`). Rendering only `ChangesetError` would fix
-  the 7 and leave the other 20 still disagreeing with their own document, and
-  re-declaring those 20 as `ChangesetError` would then be wrong for their
-  *other* 422s — the fallback controller renders sixteen coded
-  `%{error: ..., message: ...}` unprocessable-entity responses that have
-  nothing to do with schema validation.
-
-  So this renders both:
+  A 422 is not always a validation failure: `FountainWeb.FallbackController`
+  renders sixteen coded `%{error: ..., message: ...}` refusals with the same
+  status that have nothing to do with schema validation. So this renders both:
 
       {"error": "validation_failed",
        "errors": {"limit": ["Invalid integer. Got: string"]}}
 
-  which satisfies `Error`, `AuthError` and `ChangesetError` at once, because
-  none of them forbids the other's key. A client reading `body.error` for a
-  code gets one, a client reading `body.errors` for fields gets those, and
-  nothing has to branch on which kind of 422 it received. That is the property
-  worth having: the alternative shapes clients apart, and four SDKs would each
-  need to learn the difference.
+  A client reading `body.error` for a code gets one, a client reading
+  `body.errors` for fields gets those, and nothing has to branch on which kind
+  of 422 it received. That is the property worth having: the alternative
+  shapes clients apart, and four SDKs would each need to learn the difference.
+  Since #2324 every JSON error status declares the one `Error` schema, which
+  requires `error` and describes `errors` beside it; before that the 27
+  operations declared three different 422 schemas and this body was the one
+  that satisfied all of them.
 
   `FountainWeb.SchemaGuardrailTest` and the guard in `test_helper.exs` (#1427)
   are what keep this true — every one of those 27 operations validates its real
@@ -73,7 +68,7 @@ defmodule FountainWeb.Plugs.CastRenderError do
   #
   # A `Cast.Error` carries the path it failed at, so `[:limit]` is `"limit"` and
   # a nested `[:repos, 0, :url]` is `"repos/0/url"` — flattened because
-  # `ChangesetError` declares its values as arrays of strings, not as a tree.
+  # `Error` declares `errors` values as arrays of strings, not as a tree.
   # An error with no path at all is about the body as a whole; `"body"` is the
   # only key left to give it, and it is the one Ecto would not produce, so it
   # cannot collide with a real field.

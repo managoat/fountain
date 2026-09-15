@@ -165,10 +165,6 @@ defmodule FountainWeb.SchemaEnumGuardrailTest do
   @api_local %{
     {FountainWeb.Schemas.Block, "body.[].status"} =>
       "ACP PlanEntryStatus wire vocabulary; no Fountain domain list or upstream enum accessor",
-    {FountainWeb.Schemas.CredentialSetDeletionError, "error"} =>
-      "Fixed HTTP refusal code for deleting the default credential set; not a domain list",
-    {FountainWeb.Schemas.CredentialSetDeletionError, "reason"} =>
-      "Fixed deletion refusal reason rendered by InferenceCredentialSetController",
     {FountainWeb.Schemas.UsageAccounting, "completeness"} =>
       "Adapter claim validated by Managoat.ACP.Usage; the library exposes no enum accessor",
     {FountainWeb.Schemas.Turn, "model_selection.status"} =>

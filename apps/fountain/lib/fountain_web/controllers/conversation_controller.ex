@@ -94,7 +94,7 @@ defmodule FountainWeb.ConversationController do
     responses: [
       ok: {"Conversations", "application/json", Schemas.ConversationListResponse},
       bad_request: {"Unknown status or limit out of range", "application/json", Schemas.Error},
-      unprocessable_entity: {"Invalid filter", "application/json", Schemas.ChangesetError}
+      unprocessable_entity: {"Invalid filter", "application/json", Schemas.Error}
     ]
   )
 
@@ -194,8 +194,7 @@ defmodule FountainWeb.ConversationController do
       not_found: {"Not found", "application/json", Schemas.Error},
       forbidden:
         {"A sandbox token labelling another conversation", "application/json", Schemas.Error},
-      unprocessable_entity:
-        {"Invalid labels", "application/json", Schemas.UnprocessableEntityError}
+      unprocessable_entity: {"Invalid labels", "application/json", Schemas.Error}
     ]
   )
 
@@ -299,8 +298,7 @@ defmodule FountainWeb.ConversationController do
       ok: {"Egress", "application/json", Schemas.EgressListResponse},
       not_found: {"Not found", "application/json", Schemas.Error},
       forbidden: {"The key lacks full scope", "application/json", Schemas.Error},
-      bad_gateway:
-        {"The broker did not answer", "application/json", Schemas.BrokerUnavailableError}
+      bad_gateway: {"The broker did not answer", "application/json", Schemas.Error}
     ]
   )
 
@@ -513,17 +511,8 @@ defmodule FountainWeb.ConversationController do
         {"A sandbox token labelling the conversation a resume landed on", "application/json",
          Schemas.Error},
       not_found: {"Agent not found", "application/json", Schemas.Error},
-      unprocessable_entity:
-        {"Validation error", "application/json", Schemas.UnprocessableEntityError},
-      payment_required:
-        {"Insufficient credits", "application/json",
-         %OpenApiSpex.Schema{
-           type: :object,
-           properties: %{
-             error: %OpenApiSpex.Schema{type: :string},
-             upgrade_url: %OpenApiSpex.Schema{type: :string}
-           }
-         }}
+      unprocessable_entity: {"Validation error", "application/json", Schemas.Error},
+      payment_required: {"Insufficient credits", "application/json", Schemas.Error}
     ]
   )
 

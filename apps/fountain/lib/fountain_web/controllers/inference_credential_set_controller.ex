@@ -113,8 +113,7 @@ defmodule FountainWeb.InferenceCredentialSetController do
       forbidden: {"Insufficient scope", "application/json", Schemas.Error},
       not_found: {"No such set", "application/json", Schemas.Error},
       unprocessable_entity:
-        {"The default set cannot be deleted", "application/json",
-         Schemas.CredentialSetDeletionError}
+        {"The default set cannot be deleted", "application/json", Schemas.Error}
     ]
   )
 

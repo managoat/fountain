@@ -654,10 +654,15 @@ pagination, and returned metadata.
 
 ## Error responses
 
-Handle errors with the operation's status and documented machine-readable
-fields. Validation failures can include field errors; coded refusals need not.
-Do not assume every error uses the same envelope. Content-negotiation errors
-and compatibility endpoints can use different shapes.
+Every JSON error status declares one schema, `Error`. Its `error` field is
+the machine-readable code to branch on. The other fields accompany particular
+codes and are absent otherwise: `message` is a sentence for a human, `errors`
+holds field validation messages beside `validation_failed`, `upgrade_url`
+comes with `insufficient_credits`, and `active_sandboxes` and `limit` come
+with `sandbox_quota_exceeded`. On the key-authentication and scope refusals
+`error` is a sentence and `reason` carries the code. A 406 is the one
+exception: content negotiation fails before any operation runs and renders
+`{"errors": {"detail": "Not Acceptable"}}`.
 
 The [generated reference](/api/docs) declares shared pipeline errors alongside
 controller responses. Reconcile state after a timeout before you retry a

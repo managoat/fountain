@@ -17,8 +17,8 @@ defmodule FountainWeb.ChangesetJSON do
   the like — so before this, one status meant two incompatible shapes and an
   operation's declared 422 schema could only ever describe one of them. With a
   code here as well, every 422 in the API carries `error`, a client never has
-  to branch on which kind it got, and `Error`, `AuthError` and `ChangesetError`
-  are all satisfied by a validation body.
+  to branch on which kind it got, and the one `Error` schema every error
+  status declares (#2324) is satisfied by a validation body.
 
   `FountainWeb.Plugs.CastRenderError` renders the same two keys for a request
   the OpenAPI cast rejects, so the shape does not depend on which layer caught

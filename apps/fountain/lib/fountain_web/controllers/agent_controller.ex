@@ -109,7 +109,7 @@ defmodule FountainWeb.AgentController do
     request_body: {"Agent attributes", "application/json", Schemas.AgentRequest},
     responses: [
       created: {"Agent", "application/json", Schemas.AgentResponse},
-      unprocessable_entity: {"Validation error", "application/json", Schemas.ChangesetError}
+      unprocessable_entity: {"Validation error", "application/json", Schemas.Error}
     ]
   )
 
@@ -141,7 +141,7 @@ defmodule FountainWeb.AgentController do
       conflict:
         {"An agent is mid-turn on a persistent sandbox the change retires", "application/json",
          Schemas.Error},
-      unprocessable_entity: {"Validation error", "application/json", Schemas.ChangesetError}
+      unprocessable_entity: {"Validation error", "application/json", Schemas.Error}
     ]
   )
 

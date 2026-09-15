@@ -41,7 +41,7 @@ defmodule FountainWeb.SecretController do
     responses: [
       created: {"Secret", "application/json", Schemas.SecretResponse},
       not_found: {"Not found", "application/json", Schemas.Error},
-      unprocessable_entity: {"Validation error", "application/json", Schemas.ChangesetError}
+      unprocessable_entity: {"Validation error", "application/json", Schemas.Error}
     ]
   )
 

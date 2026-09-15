@@ -89,7 +89,6 @@
       "fields": ["body", "error", "id", "name", "options", "raw", "request_id", "summary", "tool_id"]
     },
     "CatalogResponse": { "required": ["data"] },
-    "ChangesetError": { "required": ["errors"] },
     "Connection": {},
     "ConnectionProvider": {},
     "ConnectionProviderRequest": {},
@@ -107,7 +106,7 @@
     "Environment": { "required": ["id", "name"] },
     "EnvironmentRequest": {},
     "EnvironmentUpdate": {},
-    "Error": { "required": ["error"] },
+    "Error": { "required": ["error"], "optional": ["active_sandboxes", "errors", "limit", "message", "upgrade_url"] },
     "ImageInput": {},
     "LogEvent": {
       "required": ["id", "kind", "ts"],

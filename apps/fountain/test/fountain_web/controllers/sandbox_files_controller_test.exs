@@ -182,7 +182,7 @@ defmodule FountainWeb.SandboxFilesControllerTest do
     test "path is required — the operation says so, and the cast plug enforces it", ctx do
       reject(&Managoat.Sandbox.exec/4)
 
-      # The cast plug renders ChangesetError like every other validation
+      # The cast plug renders `{error, errors}` like every other validation
       # failure now (#1431), so the field is a key rather than a pointer.
       assert %{"error" => "validation_failed", "errors" => %{"path" => [_ | _]}} =
                ctx.conn

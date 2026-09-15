@@ -109,7 +109,7 @@ defmodule FountainWeb.PasswordResetController do
       ok: {"Password updated", "application/json", Schemas.MessageResponse},
       unprocessable_entity:
         {"`expired`, `invalid_token`, missing fields, or a password that fails validation",
-         "application/json", Schemas.AuthError}
+         "application/json", Schemas.Error}
     ]
   )
 

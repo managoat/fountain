@@ -51,7 +51,7 @@ defmodule FountainWeb.EnvironmentController do
     request_body: {"Environment attributes", "application/json", Schemas.EnvironmentRequest},
     responses: [
       created: {"Environment", "application/json", Schemas.EnvironmentResponse},
-      unprocessable_entity: {"Validation error", "application/json", Schemas.ChangesetError}
+      unprocessable_entity: {"Validation error", "application/json", Schemas.Error}
     ]
   )
 
@@ -76,7 +76,7 @@ defmodule FountainWeb.EnvironmentController do
     responses: [
       ok: {"Environment", "application/json", Schemas.EnvironmentResponse},
       not_found: {"Not found", "application/json", Schemas.Error},
-      unprocessable_entity: {"Validation error", "application/json", Schemas.ChangesetError}
+      unprocessable_entity: {"Validation error", "application/json", Schemas.Error}
     ]
   )
 

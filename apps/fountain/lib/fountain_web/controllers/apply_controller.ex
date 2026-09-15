@@ -37,7 +37,7 @@ defmodule FountainWeb.ApplyController do
     request_body: {"Compiled manifest", "application/json", Schemas.ApplyRequest},
     responses: [
       ok: {"Per-resource results", "application/json", Schemas.ApplyResponse},
-      unprocessable_entity: {"Validation error", "application/json", Schemas.ChangesetError}
+      unprocessable_entity: {"Validation error", "application/json", Schemas.Error}
     ]
   )
 

@@ -86,7 +86,6 @@
       "fields": ["body", "name", "options", "request_id", "summary", "tool_id"]
     },
     "CatalogResponse": { "required": ["data"] },
-    "ChangesetError": { "required": ["errors"] },
     "ConnectionListResponse": { "required": ["data"] },
     "ConnectionProviderListResponse": { "required": ["data"] },
     "Conversation": { "required": ["id", "status"] },
@@ -100,7 +99,7 @@
     "Environment": { "required": ["id"], "fields": ["name"] },
     "EnvironmentListResponse": { "required": ["data"] },
     "EnvironmentResponse": { "required": ["data"] },
-    "Error": { "fields": ["error"] },
+    "Error": { "fields": ["error"], "optional": ["active_sandboxes", "errors", "limit", "message", "upgrade_url"] },
     "LogEvent": {
       "required": ["kind"],
       "fields": ["blocks", "data", "id", "stage", "state", "stream", "turn_id"]

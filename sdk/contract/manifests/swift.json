@@ -113,7 +113,6 @@
       "fields": ["body", "name", "options", "request_id", "summary", "tool_id"]
     },
     "CatalogResponse": { "required": ["data"] },
-    "ChangesetError": { "required": ["errors"] },
     "ConnectionListResponse": { "required": ["data"] },
     "ConnectionProviderListResponse": { "required": ["data"] },
     "Conversation": { "required": ["id"], "fields": ["sandbox_api_access", "status"] },
@@ -127,7 +126,7 @@
     "Environment": { "required": ["id", "name"], "optional": ["setup_timeout_seconds"] },
     "EnvironmentListResponse": { "required": ["data"] },
     "EnvironmentResponse": { "required": ["data"] },
-    "Error": { "required": ["error"] },
+    "Error": { "required": ["error"], "optional": ["active_sandboxes", "errors", "limit", "message", "reason", "upgrade_url"] },
     "LogEvent": {
       "required": ["id", "kind"],
       "fields": ["blocks", "data", "stage", "state", "stream", "turn_id"]

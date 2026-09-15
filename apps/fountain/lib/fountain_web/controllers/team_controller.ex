@@ -228,7 +228,7 @@ defmodule FountainWeb.TeamController do
     responses: [
       accepted: {"Queued", "application/json", Schemas.TeamMessageResponse},
       not_found: {"Not on the team", "application/json", Schemas.Error},
-      unprocessable_entity: {"Invalid labels", "application/json", Schemas.ChangesetError},
+      unprocessable_entity: {"Invalid labels", "application/json", Schemas.Error},
       forbidden:
         {"A sandbox token labelling another conversation", "application/json", Schemas.Error},
       bad_request: {"A turn is still running", "application/json", Schemas.Error}

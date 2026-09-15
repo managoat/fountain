@@ -80,7 +80,7 @@
         },
         "422": {
           "application/json": {
-            "ref": "CredentialSetDeletionError"
+            "ref": "Error"
           }
         },
         "429": {
@@ -2102,7 +2102,7 @@
         },
         "422": {
           "application/json": {
-            "ref": "ChangesetError"
+            "ref": "Error"
           }
         },
         "429": {
@@ -2160,7 +2160,7 @@
         },
         "502": {
           "application/json": {
-            "ref": "BrokerUnavailableError"
+            "ref": "Error"
           }
         }
       }
@@ -3998,7 +3998,7 @@
         },
         "422": {
           "application/json": {
-            "ref": "ChangesetError"
+            "ref": "Error"
           }
         },
         "429": {
@@ -4151,7 +4151,7 @@
         },
         "422": {
           "application/json": {
-            "ref": "UnprocessableEntityError"
+            "ref": "Error"
           }
         },
         "429": {
@@ -4202,7 +4202,7 @@
         },
         "422": {
           "application/json": {
-            "ref": "ChangesetError"
+            "ref": "Error"
           }
         },
         "429": {
@@ -4458,7 +4458,7 @@
         },
         "422": {
           "application/json": {
-            "ref": "ChangesetError"
+            "ref": "Error"
           }
         },
         "429": {
@@ -4510,7 +4510,7 @@
         },
         "422": {
           "application/json": {
-            "ref": "ChangesetError"
+            "ref": "Error"
           }
         },
         "429": {
@@ -5058,7 +5058,7 @@
         },
         "422": {
           "application/json": {
-            "ref": "ChangesetError"
+            "ref": "Error"
           }
         },
         "429": {
@@ -5102,7 +5102,7 @@
         },
         "422": {
           "application/json": {
-            "ref": "ChangesetError"
+            "ref": "Error"
           }
         },
         "429": {
@@ -5225,7 +5225,7 @@
         },
         "403": {
           "application/json": {
-            "ref": "AuthError"
+            "ref": "Error"
           }
         },
         "406": {
@@ -5235,7 +5235,7 @@
         },
         "422": {
           "application/json": {
-            "ref": "AuthError"
+            "ref": "Error"
           }
         },
         "429": {
@@ -5269,7 +5269,7 @@
         },
         "422": {
           "application/json": {
-            "ref": "AuthError"
+            "ref": "Error"
           }
         }
       }
@@ -5322,7 +5322,7 @@
         },
         "403": {
           "application/json": {
-            "ref": "AuthError"
+            "ref": "Error"
           }
         },
         "406": {
@@ -5332,7 +5332,7 @@
         },
         "422": {
           "application/json": {
-            "ref": "AuthError"
+            "ref": "Error"
           }
         },
         "429": {
@@ -5361,7 +5361,7 @@
         },
         "403": {
           "application/json": {
-            "ref": "AuthError"
+            "ref": "Error"
           }
         },
         "406": {
@@ -5371,7 +5371,7 @@
         },
         "422": {
           "application/json": {
-            "ref": "UnprocessableEntityError"
+            "ref": "Error"
           }
         }
       }
@@ -5424,7 +5424,7 @@
         },
         "422": {
           "application/json": {
-            "ref": "AuthError"
+            "ref": "Error"
           }
         }
       }
@@ -5453,7 +5453,7 @@
         },
         "403": {
           "application/json": {
-            "ref": "AuthError"
+            "ref": "Error"
           }
         },
         "406": {
@@ -5497,7 +5497,7 @@
         },
         "422": {
           "application/json": {
-            "ref": "AuthError"
+            "ref": "Error"
           }
         }
       }
@@ -5838,17 +5838,7 @@
         },
         "402": {
           "application/json": {
-            "properties": {
-              "error": {
-                "required": false,
-                "type": "string"
-              },
-              "upgrade_url": {
-                "required": false,
-                "type": "string"
-              }
-            },
-            "type": "object"
+            "ref": "Error"
           }
         },
         "403": {
@@ -5873,7 +5863,7 @@
         },
         "422": {
           "application/json": {
-            "ref": "UnprocessableEntityError"
+            "ref": "Error"
           }
         },
         "429": {
@@ -6243,7 +6233,7 @@
         },
         "422": {
           "application/json": {
-            "ref": "ChangesetError"
+            "ref": "Error"
           }
         },
         "429": {
@@ -6294,7 +6284,7 @@
         },
         "422": {
           "application/json": {
-            "ref": "ChangesetError"
+            "ref": "Error"
           }
         },
         "429": {
@@ -6645,7 +6635,7 @@
         },
         "422": {
           "application/json": {
-            "ref": "ChangesetError"
+            "ref": "Error"
           }
         },
         "429": {
@@ -6784,7 +6774,7 @@
         },
         "422": {
           "application/json": {
-            "ref": "ChangesetError"
+            "ref": "Error"
           }
         },
         "429": {
@@ -6835,7 +6825,7 @@
         },
         "422": {
           "application/json": {
-            "ref": "ChangesetError"
+            "ref": "Error"
           }
         },
         "429": {
@@ -7168,7 +7158,7 @@
         },
         "422": {
           "application/json": {
-            "ref": "ChangesetError"
+            "ref": "Error"
           }
         },
         "429": {
@@ -7374,7 +7364,7 @@
         },
         "422": {
           "application/json": {
-            "ref": "ChangesetError"
+            "ref": "Error"
           }
         },
         "429": {
@@ -7425,7 +7415,7 @@
         },
         "422": {
           "application/json": {
-            "ref": "ChangesetError"
+            "ref": "Error"
           }
         },
         "429": {
@@ -8569,19 +8559,6 @@
       },
       "type": "object"
     },
-    "AuthError": {
-      "properties": {
-        "error": {
-          "required": true,
-          "type": "string"
-        },
-        "message": {
-          "required": false,
-          "type": "string"
-        }
-      },
-      "type": "object"
-    },
     "AuthMeResponse": {
       "properties": {
         "brokered": {
@@ -8897,23 +8874,6 @@
         "tool_id": {
           "nullable": true,
           "required": false,
-          "type": "string"
-        }
-      },
-      "type": "object"
-    },
-    "BrokerUnavailableError": {
-      "properties": {
-        "error": {
-          "required": true,
-          "type": "string"
-        },
-        "message": {
-          "required": true,
-          "type": "string"
-        },
-        "reason": {
-          "required": true,
           "type": "string"
         }
       },
@@ -9251,25 +9211,6 @@
               "required": true,
               "type": "object"
             }
-          },
-          "required": true,
-          "type": "object"
-        }
-      },
-      "type": "object"
-    },
-    "ChangesetError": {
-      "properties": {
-        "error": {
-          "required": false,
-          "type": "string"
-        },
-        "errors": {
-          "additionalProperties": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
           },
           "required": true,
           "type": "object"
@@ -10198,29 +10139,6 @@
       },
       "type": "object"
     },
-    "CredentialSetDeletionError": {
-      "properties": {
-        "error": {
-          "enum": [
-            "credential_set_is_default"
-          ],
-          "required": true,
-          "type": "string"
-        },
-        "message": {
-          "required": true,
-          "type": "string"
-        },
-        "reason": {
-          "enum": [
-            "is_default"
-          ],
-          "required": true,
-          "type": "string"
-        }
-      },
-      "type": "object"
-    },
     "CreditsCheckoutRequest": {
       "properties": {
         "cents": {
@@ -10617,8 +10535,38 @@
     },
     "Error": {
       "properties": {
+        "active_sandboxes": {
+          "required": false,
+          "type": "integer"
+        },
         "error": {
           "required": true,
+          "type": "string"
+        },
+        "errors": {
+          "additionalProperties": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "required": false,
+          "type": "object"
+        },
+        "limit": {
+          "required": false,
+          "type": "integer"
+        },
+        "message": {
+          "required": false,
+          "type": "string"
+        },
+        "reason": {
+          "required": false,
+          "type": "string"
+        },
+        "upgrade_url": {
+          "required": false,
           "type": "string"
         }
       },
@@ -13226,29 +13174,6 @@
         "output": {
           "required": false,
           "type": "integer"
-        }
-      },
-      "type": "object"
-    },
-    "UnprocessableEntityError": {
-      "properties": {
-        "error": {
-          "required": true,
-          "type": "string"
-        },
-        "errors": {
-          "additionalProperties": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "required": false,
-          "type": "object"
-        },
-        "message": {
-          "required": false,
-          "type": "string"
         }
       },
       "type": "object"

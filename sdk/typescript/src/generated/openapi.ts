@@ -2974,19 +2974,6 @@ export interface components {
             };
         };
         /**
-         * AuthError
-         * @description An auth failure with a stable reason code.
-         */
-        AuthError: {
-            /**
-             * @description Reason code, e.g. `expired`, `invalid_token`, `invalid_current_password`.
-             * @example invalid_token
-             */
-            error: string;
-            /** @description Human-readable detail. */
-            message?: string;
-        };
-        /**
          * AuthMeResponse
          * @description Identity of the account the bearer token belongs to.
          */
@@ -3115,18 +3102,6 @@ export interface components {
             tool_id?: string | null;
         } & {
             [key: string]: unknown;
-        };
-        /**
-         * BrokerUnavailableError
-         * @description The egress broker did not answer the request log call.
-         */
-        BrokerUnavailableError: {
-            /** @description Always `broker_unavailable`. */
-            error: string;
-            /** @description A sentence for a human. */
-            message: string;
-            /** @description A stable word for a client to branch on: `econnrefused`, `timeout`, `nxdomain`, `api_error_<status>`, or `unknown`. The detail is in the server log, not here. */
-            reason: string;
         };
         /**
          * BuzzAccessUpdateRequest
@@ -3266,17 +3241,6 @@ export interface components {
                     default: string;
                     enabled: string[];
                 };
-            };
-        };
-        /**
-         * ChangesetError
-         * @description Validation errors keyed by field, with each value an array of messages, beside the code every Fountain error carries.
-         */
-        ChangesetError: {
-            /** @description `validation_failed`. */
-            error?: string;
-            errors: {
-                [key: string]: string[];
             };
         };
         /**
@@ -3699,14 +3663,6 @@ export interface components {
         ConversationTreeResponse: {
             data: components["schemas"]["ConversationTreeNode"][];
         };
-        /** CredentialSetDeletionError */
-        CredentialSetDeletionError: {
-            /** @enum {string} */
-            error: "credential_set_is_default";
-            message: string;
-            /** @enum {string} */
-            reason: "is_default";
-        };
         /**
          * CreditsCheckoutRequest
          * @example {
@@ -3894,9 +3850,30 @@ export interface components {
             /** @description Setup exec timeout in seconds; defaults to 120. The overall provisioning deadline still applies. */
             setup_timeout_seconds?: number;
         };
-        /** Error */
+        /**
+         * Error
+         * @description The one body every JSON error status carries (#2324). `error` is the code to branch on; the other keys accompany particular codes and are absent otherwise. A `406` is the exception: content negotiation fails before any controller runs and renders `NegotiationError` instead.
+         */
         Error: {
+            /** @description Sandboxes the account has in use, on `sandbox_quota_exceeded` (429). */
+            active_sandboxes?: number;
+            /**
+             * @description The machine-readable code: `validation_failed`, `not_found`, `insufficient_credits`, `sandbox_quota_exceeded`, `expired`, `invalid_token` and the rest. On the key-authentication and scope refusals it is a sentence and `reason` carries the code.
+             * @example validation_failed
+             */
             error: string;
+            /** @description Field validation messages keyed by field, beside `error: "validation_failed"`, whether the request died at the OpenAPI cast or in a changeset (#1431). */
+            errors?: {
+                [key: string]: string[];
+            };
+            /** @description The account's concurrent-sandbox cap, on `sandbox_quota_exceeded` (429). */
+            limit?: number;
+            /** @description A sentence for a human, when there is one. */
+            message?: string;
+            /** @description A second stable word. On the 401 and 403 refusals from key authentication and scope checks, `error` is prose and this is the code (`api_key_invalid`, `api_key_expired`, `insufficient_scope`). On `broker_unavailable`, `sandbox_not_resettable` and `credential_set_is_default`, `error` is the code and this narrows it (`econnrefused`, `timeout`, `is_default`, ...). */
+            reason?: string;
+            /** @description Where to buy credit, on `insufficient_credits` (402). */
+            upgrade_url?: string;
         };
         /**
          * Export
@@ -5044,17 +5021,6 @@ export interface components {
             output?: number;
         };
         /**
-         * UnprocessableEntityError
-         * @description A rejected request. Field validation failures include errors; other refusals carry an error and may include a message.
-         */
-        UnprocessableEntityError: {
-            error: string;
-            errors?: {
-                [key: string]: string[];
-            };
-            message?: string;
-        };
-        /**
          * UsageAccounting
          * @description The adapter's accounting claim, not independently verified billing. Interpret source, version and scope together. Reported does not imply whole-conversation coverage.
          */
@@ -5955,7 +5921,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["CredentialSetDeletionError"];
+                    "application/json": components["schemas"]["Error"];
                 };
             };
             /** @description Too Many Requests */
@@ -7546,7 +7512,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ChangesetError"];
+                    "application/json": components["schemas"]["Error"];
                 };
             };
             /** @description Too Many Requests */
@@ -7703,7 +7669,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ChangesetError"];
+                    "application/json": components["schemas"]["Error"];
                 };
             };
             /** @description Too Many Requests */
@@ -7858,7 +7824,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ChangesetError"];
+                    "application/json": components["schemas"]["Error"];
                 };
             };
             /** @description Too Many Requests */
@@ -8277,7 +8243,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ChangesetError"];
+                    "application/json": components["schemas"]["Error"];
                 };
             };
             /** @description Too Many Requests */
@@ -8671,7 +8637,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["AuthError"];
+                    "application/json": components["schemas"]["Error"];
                 };
             };
             /** @description No acceptable representation */
@@ -8689,7 +8655,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["AuthError"];
+                    "application/json": components["schemas"]["Error"];
                 };
             };
             /** @description Too Many Requests */
@@ -8741,7 +8707,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["AuthError"];
+                    "application/json": components["schemas"]["Error"];
                 };
             };
         };
@@ -8874,7 +8840,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["AuthError"];
+                    "application/json": components["schemas"]["Error"];
                 };
             };
             /** @description No acceptable representation */
@@ -8892,7 +8858,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["AuthError"];
+                    "application/json": components["schemas"]["Error"];
                 };
             };
             /** @description Too Many Requests */
@@ -8935,7 +8901,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["AuthError"];
+                    "application/json": components["schemas"]["Error"];
                 };
             };
             /** @description No acceptable representation */
@@ -8953,7 +8919,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["UnprocessableEntityError"];
+                    "application/json": components["schemas"]["Error"];
                 };
             };
         };
@@ -9030,7 +8996,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["AuthError"];
+                    "application/json": components["schemas"]["Error"];
                 };
             };
         };
@@ -9073,7 +9039,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["AuthError"];
+                    "application/json": components["schemas"]["Error"];
                 };
             };
             /** @description No acceptable representation */
@@ -9143,7 +9109,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["AuthError"];
+                    "application/json": components["schemas"]["Error"];
                 };
             };
         };
@@ -10842,7 +10808,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ChangesetError"];
+                    "application/json": components["schemas"]["Error"];
                 };
             };
             /** @description Too Many Requests */
@@ -10921,10 +10887,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        error?: string;
-                        upgrade_url?: string;
-                    };
+                    "application/json": components["schemas"]["Error"];
                 };
             };
             /** @description A sandbox token labelling the conversation a resume landed on */
@@ -10969,7 +10932,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["UnprocessableEntityError"];
+                    "application/json": components["schemas"]["Error"];
                 };
             };
             /** @description Tenant concurrency cap reached */
@@ -11068,7 +11031,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["BrokerUnavailableError"];
+                    "application/json": components["schemas"]["Error"];
                 };
             };
         };
@@ -11308,7 +11271,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["UnprocessableEntityError"];
+                    "application/json": components["schemas"]["Error"];
                 };
             };
             /** @description Too Many Requests */
@@ -12310,7 +12273,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ChangesetError"];
+                    "application/json": components["schemas"]["Error"];
                 };
             };
             /** @description Too Many Requests */
@@ -12458,7 +12421,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ChangesetError"];
+                    "application/json": components["schemas"]["Error"];
                 };
             };
             /** @description Too Many Requests */
@@ -12673,7 +12636,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ChangesetError"];
+                    "application/json": components["schemas"]["Error"];
                 };
             };
             /** @description Too Many Requests */
@@ -12828,7 +12791,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ChangesetError"];
+                    "application/json": components["schemas"]["Error"];
                 };
             };
             /** @description Too Many Requests */
@@ -15700,7 +15663,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ChangesetError"];
+                    "application/json": components["schemas"]["Error"];
                 };
             };
             /** @description Too Many Requests */
@@ -16258,7 +16221,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ChangesetError"];
+                    "application/json": components["schemas"]["Error"];
                 };
             };
             /** @description Too Many Requests */
@@ -16406,7 +16369,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ChangesetError"];
+                    "application/json": components["schemas"]["Error"];
                 };
             };
             /** @description Too Many Requests */
@@ -16561,7 +16524,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ChangesetError"];
+                    "application/json": components["schemas"]["Error"];
                 };
             };
             /** @description Too Many Requests */
@@ -16709,7 +16672,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ChangesetError"];
+                    "application/json": components["schemas"]["Error"];
                 };
             };
             /** @description Too Many Requests */
@@ -16859,7 +16822,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ChangesetError"];
+                    "application/json": components["schemas"]["Error"];
                 };
             };
             /** @description Too Many Requests */

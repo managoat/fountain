@@ -43,7 +43,7 @@ defmodule FountainSupport.ReportControllerTest do
 
     test "rejects a bad category or an empty message", %{conn: conn, raw_key: key} do
       # the OpenAPI cast rejects the enum before the context sees it, and
-      # renders it as ChangesetError like every other 422 (#1431)
+      # renders it as `{error, errors}` like every other validation 422 (#1431)
       assert %{"error" => "validation_failed", "errors" => %{"category" => [_ | _]}} =
                conn
                |> authed_with_key(key)

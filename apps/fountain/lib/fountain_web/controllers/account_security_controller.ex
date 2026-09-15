@@ -163,10 +163,10 @@ defmodule FountainWeb.AccountSecurityController do
       unauthorized: {"Missing or invalid key", "application/json", Schemas.Error},
       forbidden:
         {"`invalid_current_password`, or a key without full scope", "application/json",
-         Schemas.AuthError},
+         Schemas.Error},
       unprocessable_entity:
         {"`no_password` (OAuth-only account), missing fields, or a password that fails validation",
-         "application/json", Schemas.AuthError}
+         "application/json", Schemas.Error}
     ]
   )
 
@@ -233,10 +233,10 @@ defmodule FountainWeb.AccountSecurityController do
       unauthorized: {"Missing or invalid key", "application/json", Schemas.Error},
       forbidden:
         {"`invalid_current_password`, or a key without full scope", "application/json",
-         Schemas.AuthError},
+         Schemas.Error},
       unprocessable_entity:
         {"`no_password`, `invalid_email`, `same_email`, or missing fields", "application/json",
-         Schemas.AuthError}
+         Schemas.Error}
     ]
   )
 
@@ -324,7 +324,7 @@ defmodule FountainWeb.AccountSecurityController do
       ok: {"Email changed", "application/json", Schemas.EmailChangedResponse},
       unprocessable_entity:
         {"`email_taken`, `expired`, `invalid_token`, or a missing token", "application/json",
-         Schemas.AuthError}
+         Schemas.Error}
     ]
   )
 

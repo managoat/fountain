@@ -21,14 +21,14 @@ defmodule FountainWeb.Plugs.CastRenderErrorTest do
       assert message =~ "Invalid integer"
     end
 
-    test "carries both keys so it satisfies Error, AuthError and ChangesetError alike" do
-      # The reason this renderer emits two keys rather than one: the 27
-      # operations it answers for do not all declare the same 422 schema, and
-      # none of those schemas forbids the other's key.
+    test "carries both keys: the code every error has and the fields only a validation failure has" do
+      # `Error` requires `error` (#2324), and `errors` is the only useful thing
+      # about a validation failure; a client reads whichever it needs and never
+      # branches on which layer rejected the request.
       body = render([error(:invalid_type, [:name], type: :string, value: 1)])
 
-      assert Map.has_key?(body, "error"), "Error and AuthError require `error`"
-      assert Map.has_key?(body, "errors"), "ChangesetError requires `errors`"
+      assert Map.has_key?(body, "error"), "Error requires `error`"
+      assert Map.has_key?(body, "errors"), "a validation failure carries `errors`"
     end
 
     test "groups several failures on one field into one list, in order" do

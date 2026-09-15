@@ -52,13 +52,21 @@ defmodule FountainWeb.ApiPipelineResponsesTest do
     end
   end
 
-  test "composition preserves operation-specific schemas" do
+  test "composition preserves operation-specific responses" do
+    # Every JSON error status declares the one `Error` schema (#2324), so what
+    # a controller adds over the pipeline is the status itself and its
+    # description; the pipeline's 403 must not overwrite the egress
+    # operation's own wording.
     spec = ApiSpec.spec()
-    response = spec.paths["/api/conversations"].post.responses[402]
-    assert response.content["application/json"].schema.properties[:upgrade_url]
+    responses = spec.paths["/api/conversations/{conversation_id}/egress"].get.responses
+    assert responses[403].description == "The key lacks full scope"
 
-    assert spec.paths["/api/conversations"].post.responses[422].content["application/json"].schema ==
-             %OpenApiSpex.Reference{"$ref": "#/components/schemas/UnprocessableEntityError"}
+    assert responses[403].content["application/json"].schema ==
+             %OpenApiSpex.Reference{"$ref": "#/components/schemas/Error"}
+
+    responses = spec.paths["/api/conversations"].post.responses
+    assert responses[402].description == "Insufficient credits"
+    assert spec.components.schemas["Error"].properties[:upgrade_url]
   end
 
   test "real pipeline refusals validate without an allowlist" do

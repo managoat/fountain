@@ -36,7 +36,7 @@ defmodule FountainWeb.AuthTokenController do
       too_many_requests: {"Rate limited", "application/json", Schemas.Error},
       created: {"A new API key", "application/json", Schemas.AuthTokenResponse},
       unauthorized: {"Invalid email or password", "application/json", Schemas.Error},
-      forbidden: {"Email not verified", "application/json", Schemas.AuthError},
+      forbidden: {"Email not verified", "application/json", Schemas.Error},
       unprocessable_entity: {"Missing email or password", "application/json", Schemas.Error}
     ]
   )

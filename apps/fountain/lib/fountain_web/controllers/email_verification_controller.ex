@@ -107,7 +107,7 @@ defmodule FountainWeb.EmailVerificationController do
     responses: [
       ok: {"Verified (or already verified)", "application/json", Schemas.VerifyEmailResponse},
       unprocessable_entity:
-        {"`expired`, `invalid_token`, or a missing token", "application/json", Schemas.AuthError}
+        {"`expired`, `invalid_token`, or a missing token", "application/json", Schemas.Error}
     ]
   )
 

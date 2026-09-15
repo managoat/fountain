@@ -51,7 +51,7 @@ defmodule FountainWeb.VaultController do
     request_body: {"Vault attributes", "application/json", Schemas.VaultRequest},
     responses: [
       created: {"Vault", "application/json", Schemas.VaultResponse},
-      unprocessable_entity: {"Validation error", "application/json", Schemas.ChangesetError}
+      unprocessable_entity: {"Validation error", "application/json", Schemas.Error}
     ]
   )
 
@@ -74,7 +74,7 @@ defmodule FountainWeb.VaultController do
     responses: [
       ok: {"Vault", "application/json", Schemas.VaultResponse},
       not_found: {"Not found", "application/json", Schemas.Error},
-      unprocessable_entity: {"Validation error", "application/json", Schemas.ChangesetError}
+      unprocessable_entity: {"Validation error", "application/json", Schemas.Error}
     ]
   )
 

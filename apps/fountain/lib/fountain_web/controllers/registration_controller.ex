@@ -126,10 +126,9 @@ defmodule FountainWeb.RegistrationController do
     request_body: {"Credentials", "application/json", Schemas.RegisterRequest, required: true},
     responses: [
       created: {"Account created", "application/json", Schemas.RegisterResponse},
-      forbidden: {"Registration refused", "application/json", Schemas.AuthError},
+      forbidden: {"Registration refused", "application/json", Schemas.Error},
       unprocessable_entity:
-        {"Missing fields or validation errors", "application/json",
-         Schemas.UnprocessableEntityError}
+        {"Missing fields or validation errors", "application/json", Schemas.Error}
     ]
   )
 

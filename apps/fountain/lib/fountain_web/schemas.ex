@@ -3566,54 +3566,61 @@ defmodule FountainWeb.Schemas do
     })
   end
 
-  defmodule CredentialSetDeletionError do
-    @moduledoc false
-    require OpenApiSpex
-
-    OpenApiSpex.schema(%{
-      title: "CredentialSetDeletionError",
-      type: :object,
-      properties: %{
-        error: %Schema{type: :string, enum: ["credential_set_is_default"]},
-        message: %Schema{type: :string},
-        reason: %Schema{type: :string, enum: ["is_default"]}
-      },
-      required: [:error, :message, :reason]
-    })
-  end
-
   defmodule Error do
     @moduledoc false
     require OpenApiSpex
 
     OpenApiSpex.schema(%{
       title: "Error",
-      type: :object,
-      properties: %{error: %Schema{type: :string}},
-      required: [:error]
-    })
-  end
-
-  defmodule BrokerUnavailableError do
-    @moduledoc false
-    require OpenApiSpex
-
-    OpenApiSpex.schema(%{
-      title: "BrokerUnavailableError",
-      description: "The egress broker did not answer the request log call.",
+      description:
+        "The one body every JSON error status carries (#2324). `error` is the " <>
+          "code to branch on; the other keys accompany particular codes and are " <>
+          "absent otherwise. A `406` is the exception: content negotiation fails " <>
+          "before any controller runs and renders `NegotiationError` instead.",
       type: :object,
       properties: %{
-        error: %Schema{type: :string, description: "Always `broker_unavailable`."},
-        message: %Schema{type: :string, description: "A sentence for a human."},
+        error: %Schema{
+          type: :string,
+          description:
+            "The machine-readable code: `validation_failed`, `not_found`, " <>
+              "`insufficient_credits`, `sandbox_quota_exceeded`, `expired`, " <>
+              "`invalid_token` and the rest. On the key-authentication and scope " <>
+              "refusals it is a sentence and `reason` carries the code.",
+          example: "validation_failed"
+        },
+        message: %Schema{type: :string, description: "A sentence for a human, when there is one."},
         reason: %Schema{
           type: :string,
           description:
-            "A stable word for a client to branch on: `econnrefused`, `timeout`, " <>
-              "`nxdomain`, `api_error_<status>`, or `unknown`. The detail is in " <>
-              "the server log, not here."
+            "A second stable word. On the 401 and 403 refusals from key " <>
+              "authentication and scope checks, `error` is prose and this is the " <>
+              "code (`api_key_invalid`, `api_key_expired`, `insufficient_scope`). " <>
+              "On `broker_unavailable`, `sandbox_not_resettable` and " <>
+              "`credential_set_is_default`, `error` is the code and this narrows " <>
+              "it (`econnrefused`, `timeout`, `is_default`, ...)."
+        },
+        errors: %Schema{
+          type: :object,
+          description:
+            "Field validation messages keyed by field, beside " <>
+              "`error: \"validation_failed\"`, whether the request died at the " <>
+              "OpenAPI cast or in a changeset (#1431).",
+          additionalProperties: %Schema{type: :array, items: %Schema{type: :string}}
+        },
+        upgrade_url: %Schema{
+          type: :string,
+          description: "Where to buy credit, on `insufficient_credits` (402)."
+        },
+        active_sandboxes: %Schema{
+          type: :integer,
+          description: "Sandboxes the account has in use, on `sandbox_quota_exceeded` (429)."
+        },
+        limit: %Schema{
+          type: :integer,
+          description: "The account's concurrent-sandbox cap, on `sandbox_quota_exceeded` (429)."
         }
       },
-      required: [:error, :message, :reason]
+      required: [:error]
     })
   end
 
@@ -3730,82 +3737,6 @@ defmodule FountainWeb.Schemas do
         }
       },
       required: [:data]
-    })
-  end
-
-  defmodule ChangesetError do
-    @moduledoc false
-    require OpenApiSpex
-
-    OpenApiSpex.schema(%{
-      title: "ChangesetError",
-      description:
-        "Validation errors keyed by field, with each value an array of messages, " <>
-          "beside the code every Fountain error carries.",
-      type: :object,
-      properties: %{
-        errors: %Schema{
-          type: :object,
-          additionalProperties: %Schema{type: :array, items: %Schema{type: :string}}
-        },
-        # Always `validation_failed` on this body, and always present since
-        # #1431 — a 422 is not always a validation failure (the fallback
-        # controller renders coded refusals with the same status), so a client
-        # that branches on the code needs one here too. Keep this schema
-        # compatible; mixed refusals use UnprocessableEntityError.
-        error: %Schema{type: :string, description: "`validation_failed`."}
-      },
-      required: [:errors]
-    })
-  end
-
-  defmodule UnprocessableEntityError do
-    @moduledoc false
-    require OpenApiSpex
-
-    OpenApiSpex.schema(%{
-      title: "UnprocessableEntityError",
-      description:
-        "A rejected request. Field validation failures include errors; " <>
-          "other refusals carry an error and may include a message.",
-      type: :object,
-      properties: %{
-        error: %Schema{type: :string},
-        message: %Schema{type: :string},
-        errors: %Schema{
-          type: :object,
-          additionalProperties: %Schema{type: :array, items: %Schema{type: :string}}
-        }
-      },
-      required: [:error]
-    })
-  end
-
-  ## ─── Auth (#571) ───────────────────────────────────────────────────────────
-  #
-  # The `/api/auth/*` surface. Errors here carry a machine-readable `error`
-  # alongside the prose `message`, which the resource endpoints' plain
-  # `Schemas.Error` does not — a client retrying a reset needs to tell
-  # `expired` from `invalid_token` without parsing English.
-
-  defmodule AuthError do
-    @moduledoc false
-    require OpenApiSpex
-
-    OpenApiSpex.schema(%{
-      title: "AuthError",
-      description: "An auth failure with a stable reason code.",
-      type: :object,
-      properties: %{
-        error: %Schema{
-          type: :string,
-          description:
-            "Reason code, e.g. `expired`, `invalid_token`, `invalid_current_password`.",
-          example: "invalid_token"
-        },
-        message: %Schema{type: :string, description: "Human-readable detail."}
-      },
-      required: [:error]
     })
   end
 

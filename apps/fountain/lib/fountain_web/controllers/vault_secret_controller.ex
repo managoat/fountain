@@ -43,7 +43,7 @@ defmodule FountainWeb.VaultSecretController do
     responses: [
       created: {"Vault Secret", "application/json", Schemas.VaultSecretResponse},
       not_found: {"Not found", "application/json", Schemas.Error},
-      unprocessable_entity: {"Validation error", "application/json", Schemas.ChangesetError}
+      unprocessable_entity: {"Validation error", "application/json", Schemas.Error}
     ]
   )
 
@@ -79,7 +79,7 @@ defmodule FountainWeb.VaultSecretController do
     responses: [
       ok: {"Vault Secret", "application/json", Schemas.VaultSecretResponse},
       not_found: {"Not found", "application/json", Schemas.Error},
-      unprocessable_entity: {"Validation error", "application/json", Schemas.ChangesetError}
+      unprocessable_entity: {"Validation error", "application/json", Schemas.Error}
     ]
   )
 

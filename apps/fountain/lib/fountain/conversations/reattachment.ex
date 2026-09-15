@@ -331,9 +331,43 @@ defmodule Fountain.Conversations.Reattachment do
   end
 
   # ownership: `running_turn` came from `find_running_turn/1`, scoped to the
-  # conversation this server owns.
-  defp mark_orphan(_state, running_turn, why),
-    do: Conversations._unsafe_orphan_turn(running_turn, why)
+  # conversation this server owns — but not to the sandbox this actor is bound
+  # to, which is the fence every other lifecycle write in #1767 carries.
+  #
+  # Every caller above runs inside a live actor on the reattach path, and that
+  # path is reached precisely when this actor has been away: an actor on S1
+  # restarts and reattaches while the conversation has since been rebound to
+  # S2 with a successor actor running a turn on it. `find_running_turn/1` hands
+  # back the *successor's* turn, and without a fence this flips it to
+  # `interrupted` and the conversation to `idle` — the exact loss #1767 exists
+  # to close, in the function that is also the backstop for it.
+  #
+  # `expected_sandbox_id: state.sandbox_id` is the actor's own binding, set
+  # once from init args and never reassigned. `_unsafe_orphan_turn/3` re-locks
+  # the parent and compares under that lock, so a rebind answers
+  # `{:error, :ownership_changed}` and writes nothing. The stale actor then
+  # carries on with `current_turn: nil`, which is correct: a turn it no longer
+  # owns is not its to finish.
+  #
+  # `AutonomousTurnReaper` stays unfenced deliberately, and is unaffected by
+  # this: it fires only when `ConversationServer.whereis/1` is nil, so there is
+  # no actor whose binding it could compare against (#2021 item 1).
+  defp mark_orphan(state, running_turn, why) do
+    case Conversations._unsafe_orphan_turn(running_turn, why,
+           expected_sandbox_id: state.sandbox_id
+         ) do
+      {:error, :ownership_changed} ->
+        Logger.warning(
+          "reattach: not orphaning turn #{running_turn.id} (#{why}) — conversation " <>
+            "#{state.conversation_id} has been rebound away from sandbox #{state.sandbox_id}"
+        )
+
+        :noop
+
+      result ->
+        result
+    end
+  end
 
   def find_running_turn(conv_id) do
     import Ecto.Query

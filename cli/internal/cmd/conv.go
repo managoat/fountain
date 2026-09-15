@@ -39,6 +39,7 @@ func init() {
 	promptCmd.Flags().StringSliceP("image", "i", nil, "image file path (repeatable)")
 
 	convCmd.AddCommand(
+		newConversationCreateCommand(),
 		listCmd,
 		&cobra.Command{
 			Use:   "show <id>",

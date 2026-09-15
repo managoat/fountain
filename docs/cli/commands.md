@@ -196,6 +196,20 @@ Options:
       --respond-to string   owner-only | allowlist | anyone | nobody
 ```
 
+## `fountain conv create`
+
+Create from API-shaped JSON and print the API response
+
+```
+fountain conv create --file <path|-> [flags]
+```
+
+Options:
+
+```
+      --file string   conversation request JSON file, or - for stdin (required)
+```
+
 ## `fountain conv delete`
 
 Delete a conversation

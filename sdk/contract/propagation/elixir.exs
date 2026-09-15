@@ -1,0 +1,6 @@
+fixture = __DIR__ |> Path.join("fixture.json") |> File.read!() |> Jason.decode!()
+client = Fountain.new(base_url: System.fetch_env!("FOUNTAIN_BASE_URL"), api_key: "fixture")
+run = Fountain.run_request(client, fixture["request"], timeout: 5_000, collect_events: true)
+{:error, %Fountain.Error{status: 422, code: "fixture_stop"}} = Fountain.Run.await(run)
+response = Fountain.request!(client, "GET", "/api/conversations/c1")
+if response != %{"data" => fixture["response"]}, do: raise("response field was lost")

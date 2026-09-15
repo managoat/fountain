@@ -243,21 +243,22 @@ fail in the PR that makes the change rather than in somebody's application
 months later.
 
 If you touched `apps/fountain/lib/fountain_web/schemas.ex`, a controller's
-`operation/2`, or the router, rebuild the contract first:
+`operation/2`, or the router, regenerate the contract and supported wire models:
 
 ```bash
-scripts/sdk-contract/build.sh
-git diff --stat sdk/contract/contract.json
+mise exec -- python3 scripts/sdk-contract/generate.py
+git diff --stat sdk/contract/contract.json sdk/typescript/src/generated sdk/swift/Sources/FountainKit/Models/ConversationWire.generated.swift
 ```
 
-An empty diff means the wire did not move and you are done. A non-empty diff
-is the list of what every client now has to agree with. Work through it:
+An empty generated diff means the wire did not move; still run the checks for
+the changed server behavior. A non-empty diff lists the wire changes. Run the
+affected client checks (each command below is independent, from the root):
 
 ```bash
-cd sdk/typescript && npm run generate && npm run verify-contract
-cd sdk/python     && python3 scripts/verify_contract.py
-cd sdk/elixir     && mix test test/contract_test.exs
-swift test --filter ContractTests        # from the repository root
+npm --prefix sdk/typescript run verify-contract
+(cd sdk/python && python3 scripts/verify_contract.py)
+(cd sdk/elixir && mise exec -- mix test test/contract_test.exs)
+swift test --filter ContractTests
 ```
 
 Each verifier reads `sdk/contract/contract.json` and its own manifest under
@@ -275,6 +276,32 @@ Two things that are not optional:
 - **Commit `sdk/contract/contract.json`.** It is committed so the Swift job,
   which has no Elixir toolchain, can check against it. `dist/openapi.json` is
   the rebuilt input and stays ignored.
+
+### Shape-only conversation changes
+
+Use the API-shaped launch path for new conversation fields: TypeScript
+`runRequest`, Python/Elixir `run_request`, Swift `runRequest`, and
+`fountain conv create --file request.json` (or `--file -` for stdin).
+Pass raw IDs and wire names in map clients; FountainKit uses the generated
+`ConversationCreateRequest`. Local execution options stay outside the request.
+The existing convenience helpers remain supported and retain their explicit
+argument lists; add an ergonomic argument only when it merits a convenience API.
+
+An optional field with no new client behavior needs the server input/JSON-view
+change, its focused server test, and regeneration. TypeScript and FountainKit
+receive generated declarations; map clients and CLI JSON input forward it.
+Do not add the field to every SDK manifest or unrelated conformance scenario.
+Manifest claims still name dependencies of handwritten code: fields read by
+run following, error handling, resolvers, or legacy convenience builders.
+A new behavior still needs independent expectations in the relevant tests.
+
+Check determinism/staleness with
+`mise exec -- python3 scripts/sdk-contract/generate.py --check`.
+After building TypeScript (`npm --prefix sdk/typescript run build`), run
+`mise exec -- python3 scripts/sdk-contract/check-propagation.py` to inject an
+optional field into a temporary model and record the real SDK/CLI requests.
+This uses local fixture servers; it does not call a deployed Fountain or change
+production schemas. See [the inventory and prerequisites](sdk/contract/README.md#conversation-field-workflow).
 
 ### The schema has to match its own controller
 

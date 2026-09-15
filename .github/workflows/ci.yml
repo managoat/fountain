@@ -788,15 +788,7 @@ jobs:
       # API that drift apart. This is the arm that covers the WHOLE document;
       # the manifest checks below cover what each client reaches for by name.
       - name: SDK types match the spec
-        working-directory: sdk/typescript
-        run: |
-          npm run generate
-          if ! git diff --exit-code src/generated/openapi.ts; then
-            echo "::error::sdk/typescript/src/generated/openapi.ts is stale." >&2
-            echo "Run 'scripts/sdk-contract/build.sh' then 'npm run generate' in" >&2
-            echo "sdk/typescript, and commit the result." >&2
-            exit 1
-          fi
+        run: python3 scripts/sdk-contract/generate.py --target typescript --skip-export --check
 
   elixir-sdk:
     name: Elixir SDK (${{ matrix.elixir }} / OTP ${{ matrix.otp }})
@@ -873,6 +865,9 @@ jobs:
         working-directory: sdk/elixir
         run: MIX_ENV=dev mix hex.build
 
+      - name: Additive conversation fields (elixir)
+        run: python3 scripts/sdk-contract/check-propagation.py --client elixir
+
       - name: Elixir SDK contract
         working-directory: sdk/elixir
         run: mix test test/contract_test.exs
@@ -911,6 +906,9 @@ jobs:
       # assumptions, then exercise the built distribution below.
       - name: Python SDK compiles
         run: python -m compileall -q sdk/python/src sdk/python/scripts
+
+      - name: Additive conversation fields (python)
+        run: python3 scripts/sdk-contract/check-propagation.py --client python
 
       - name: Python SDK contract
         working-directory: sdk/python
@@ -1009,6 +1007,9 @@ jobs:
         working-directory: sdk/typescript
         run: node scripts/verify-package.mjs
 
+      - name: Additive conversation fields (typescript)
+        run: python3 scripts/sdk-contract/check-propagation.py --client typescript
+
       - name: TypeScript SDK contract
         working-directory: sdk/typescript
         run: npm run verify-contract
@@ -1059,6 +1060,9 @@ jobs:
       # that broke it existed: CI reported `ok (cached)` for a day while a
       # fresh run failed. The suite takes about two seconds; a cache that can
       # report green for a red tree is not worth that.
+      - name: Additive conversation fields (CLI)
+        run: python3 scripts/sdk-contract/check-propagation.py --client cli
+
       - name: CLI tests
         working-directory: cli
         run: go test -count=1 ./...
@@ -1154,7 +1158,7 @@ jobs:
           test "${kit_version}" = "${server_version}"
 
       - name: Generated Swift conversation models are current
-        run: python3 scripts/sdk-contract/generate-swift.py --check
+        run: python3 scripts/sdk-contract/generate.py --target swift --skip-export --check
 
       - name: Swift format
         run: swift format lint --strict --recursive Package.swift sdk/swift/Sources sdk/swift/Tests
@@ -1163,6 +1167,9 @@ jobs:
       # says "Swift SDK contract" in the checks list rather than hiding inside
       # a suite of forty. This job has no Elixir: the check reads the committed
       # sdk/contract/contract.json, which is why that file is committed (#1411).
+      - name: Additive conversation fields (swift)
+        run: python3 scripts/sdk-contract/check-propagation.py --client swift
+
       - name: Swift SDK contract
         run: swift test --configuration debug -Xswiftc -warnings-as-errors --filter ContractTests
 

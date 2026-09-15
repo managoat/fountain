@@ -5,13 +5,15 @@ this directory is how that description reaches TypeScript, Python, Swift and
 Elixir so a schema change fails in the PR that makes it rather than months
 later in somebody's application.
 
-## The three files
+## Artifacts and handwritten claims
 
 | File | Written by | Checked in |
 |---|---|---|
 | `../../dist/openapi.json` | `mix openapi.export`, canonicalised by `scripts/sdk-contract/build.py` | no — `dist/` is ignored |
 | `contract.json` | `scripts/sdk-contract/build.py` | yes |
 | `manifests/<sdk>.json` | a person | yes |
+| `../typescript/src/generated/openapi.ts` | openapi-typescript | yes |
+| `../swift/Sources/FountainKit/Models/ConversationWire.generated.swift` | `generate-swift.py` | yes |
 
 `dist/openapi.json` is the whole OpenAPI document with vendor extensions off.
 It moves with every prose edit and every release, which is why it is rebuilt
@@ -38,9 +40,20 @@ Add an inventory case there when adding a typed resource method.
 ## Rebuilding
 
 ```bash
-scripts/sdk-contract/build.sh          # rebuild the artifact and the contract
-scripts/sdk-contract/build.sh --check  # rebuild, then fail if the contract is stale
+mise exec -- python3 scripts/sdk-contract/generate.py          # all wire artifacts
+mise exec -- python3 scripts/sdk-contract/generate.py --check  # report stale outputs
 ```
+
+Install dependencies/toolchains first: the pinned Elixir/OTP and server deps,
+a local test database, Python 3, `npm ci` in `sdk/typescript`, and Swift 6.1.
+`MIX_ENV=test` can select the configured test database. The command exports the
+server contract, generates TypeScript, then generates the bounded FountainKit
+conversation models. Check mode leaves committed generated files unchanged.
+
+Split CI jobs use `--target typescript --skip-export --check` after the contract
+export, and `--target swift --skip-export --check` using only the committed
+contract. `build.sh` remains the lower-level export/contract command.
+
 
 The export boots the app, so it needs Elixir and a database URL. Everything
 downstream of it does not.
@@ -168,3 +181,57 @@ onto a component diffs `contract.json` to nothing.
 | Elixir | `mix test test/contract_test.exs` | `sdk/elixir` |
 
 `CONTRIBUTING.md` has the order to run them in when a PR changes the API.
+
+## Conversation field workflow
+
+The API-shaped SDK launch methods forward the supplied request; FountainKit
+passes its generated request directly. The CLI's `conv create --file` preserves
+JSON values and prints the response, including queued 202 job responses. Run
+methods require a nonblank prompt and immediate creation. Omission and explicit
+null stay distinct; local timeout/collection options never enter the body.
+
+| Representative addition | Handwritten work before | Handwritten work now | Generated output |
+|---|---|---|---|
+| Optional conversation launch field | Server schema/input handling; four SDK arguments/body allowlists; CLI flag; manifest/fixture edits when used | Server schema/input behavior and focused server test; a convenience argument only if deliberately offered | Contract, TypeScript request type, Swift property/initializer/CodingKey/null support |
+| Optional conversation response field | Server schema and JSON view; Swift property/CodingKey; declarations/claims and fixtures when read | Server schema and JSON view plus serialization test; client logic only if it reads the field | Contract, TypeScript response type, Swift model |
+| New run/permission/SSE behavior | Server and client behavior; hand-authored conformance expectations | Same behavioral work and independent expectations | Shape declarations only |
+
+The passthrough and model generation do not remove server domain validation or
+JSON serialization. They remove the need to register a shape-only field in
+every client. Existing manifest entries remain: they describe fields and enums
+that handwritten run/error/resolver/legacy-builder code still depends on.
+No endpoint coverage decision or behavioral manifest claim became redundant
+merely because a model is generated. The nullable response guard and actual
+controller-response/schema validation remain in place.
+
+### Propagation probe
+
+```bash
+npm --prefix sdk/typescript run build
+mise exec -- python3 scripts/sdk-contract/check-propagation.py
+# Or just the language installed in a CI job:
+python3 scripts/sdk-contract/check-propagation.py --client swift
+```
+
+Besides the generation prerequisites, the full probe needs Go and fetched
+`sdk/elixir` dependencies. It uses the built TypeScript output (so both Node
+20.19 and 24 run the same probe), source Python/Elixir, the Go CLI, and both
+Swift products. Each language job runs its own `--client` check in CI.
+
+`propagation/fixture.json` declares a synthetic optional boolean `future_flag`
+and false/null/empty/zero values. A loopback server records and compares each
+request exactly, then deliberately returns 422 to stop the SDK run at creation.
+A GET proves map responses preserve the new field; the CLI prints a created
+response with it. For FountainKit, the probe copies sources into a temporary
+Swift package, extends only its in-memory contract, generates the field,
+compiles a caller using it, and checks request encoding and response decoding.
+No fake field enters the published schema or checked-in generated model.
+The separate generator mutation test covers Conversation and Turn as well.
+
+This fixture proves propagation, not server acceptance of an invented field.
+It does not generate expected SSE/retry/permission/pagination/run-termination
+behavior; those scenarios remain independently authored in `sdk/conformance`.
+
+Regeneration is not a release instruction. Assess each SDK's public change
+under its existing version/publishing rules; preserve the Swift/server version
+relationship until the separate release-policy initiative #1414 changes it.

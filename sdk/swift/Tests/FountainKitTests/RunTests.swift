@@ -28,7 +28,8 @@ import Testing
 
   private func startedRun(appURL: URL? = nil) async throws -> Run {
     let transport = FakeTransport([
-      .init(json: #"{"data": {"id": "c1", "status": "running", "runtime": "claude"}}"#),
+      .init(
+        status: 201, json: #"{"data": {"id": "c1", "status": "running", "runtime": "claude"}}"#),
       .init(json: Self.stream),
       .init(json: #"{"data": {"id": "c1", "status": "idle", "runtime": "claude"}}"#),
     ])
@@ -60,8 +61,28 @@ import Testing
     #expect(transport.requests.first?.url?.path == "/api/conversations")
   }
 
-  @Test(arguments: [false, true])
-  func runRequestFollowsNewChannelTurnOne(fresh: Bool) async throws {
+  @Test func legacyEmptyValuesReachServerValidation() async throws {
+    let transport = FakeTransport(json: #"{"error":"unprocessable_entity"}"#, status: 422)
+    do {
+      _ = try await FountainClient.fake(transport).run(
+        "", agent: "a1", title: "", images: [], fresh: false, timeout: 1)
+      Issue.record("Expected server validation failure")
+    } catch let error as FountainError {
+      #expect(error.status == 422)
+    }
+    #expect(transport.requests.count == 1)
+    let body = try JSONDecoder().decode(
+      JSONValue.self, from: #require(transport.requests.first?.httpBody))
+    #expect(
+      body
+        == .object([
+          "agent_id": .string("a1"), "prompt": .string(""), "title": .string(""),
+          "images": .array([]), "fresh": .bool(false),
+        ]))
+  }
+
+  @Test(arguments: [false, true], [false, true])
+  func runRequestFollowsNewChannelTurnOne(fresh: Bool, legacy: Bool) async throws {
     let transport = FakeTransport([
       .init(
         status: 201,
@@ -72,13 +93,21 @@ import Testing
     ])
     let request = ConversationCreateRequest(
       agentID: "a1", prompt: "hello", channelID: "chat", fresh: fresh)
-    let result = try await FountainClient.fake(transport).runRequest(request, timeout: 1).value()
+    let client = FountainClient.fake(transport)
+    let run =
+      legacy
+      ? try await client.run(
+        request.prompt!, agent: "a1", images: request.images, channelID: "chat",
+        fresh: request.fresh, timeout: 1)
+      : try await client.runRequest(request, timeout: 1)
+    let result = try await run.value()
     #expect(result.turnNumber == 1)
     #expect(result.text == "Found it.")
     #expect(!transport.requests.contains { $0.url?.path.hasSuffix("/prompts") == true })
   }
 
-  @Test func runRequestDispatchesResumedPromptAndImagesOnce() async throws {
+  @Test(arguments: [false, true])
+  func runRequestDispatchesResumedPromptAndImagesOnce(legacy: Bool) async throws {
     var nextStream = Self.stream
       .replacingOccurrences(of: "t1", with: "t2")
       .replacingOccurrences(of: "turn_number\\\": 1", with: "turn_number\\\": 2")
@@ -101,7 +130,14 @@ import Testing
     let request = ConversationCreateRequest(
       agentID: "a1", prompt: "next",
       images: [ImageInput(data: "aGVsbG8=", mediaType: "image/png")], channelID: "chat")
-    let result = try await FountainClient.fake(transport).runRequest(request, timeout: 1).value()
+    let client = FountainClient.fake(transport)
+    let run =
+      legacy
+      ? try await client.run(
+        request.prompt!, agent: "a1", images: request.images, channelID: "chat",
+        fresh: request.fresh, timeout: 1)
+      : try await client.runRequest(request, timeout: 1)
+    let result = try await run.value()
     #expect(result.turnNumber == 2)
     #expect(result.text == "Found it.")
     #expect(
@@ -123,7 +159,8 @@ import Testing
     #expect(transport.requests[5].value(forHTTPHeaderField: "Last-Event-ID") == "4")
   }
 
-  @Test func runRequestSurfacesResumedPromptRejection() async throws {
+  @Test(arguments: [false, true])
+  func runRequestSurfacesResumedPromptRejection(legacy: Bool) async throws {
     let transport = FakeTransport([
       .init(
         json: #"{"data":{"id":"c1","status":"idle","runtime":"claude"},"meta":{"resumed":true}}"#),
@@ -133,7 +170,11 @@ import Testing
     ])
     let request = ConversationCreateRequest(agentID: "a1", prompt: "next", channelID: "chat")
     do {
-      _ = try await FountainClient.fake(transport).runRequest(request, timeout: 1)
+      let client = FountainClient.fake(transport)
+      _ =
+        legacy
+        ? try await client.run("next", agent: "a1", channelID: "chat", timeout: 1)
+        : try await client.runRequest(request, timeout: 1)
       Issue.record("A rejected prompt must fail the run")
     } catch let error as FountainError {
       guard case .conversationBusy = error else {
@@ -234,7 +275,8 @@ import Testing
       """
     let failed = #"{"data": {"id": "c1", "status": "failed", "runtime": "claude"}}"#
     let transport = FakeTransport([
-      .init(json: #"{"data": {"id": "c1", "status": "running", "runtime": "claude"}}"#),
+      .init(
+        status: 201, json: #"{"data": {"id": "c1", "status": "running", "runtime": "claude"}}"#),
       .init(json: dying),
       .init(json: failed),  // the check that the conversation really died
       .init(json: failed),  // the final status read

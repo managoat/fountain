@@ -5,6 +5,10 @@ Notable changes to the Fountain Swift SDK follow
 
 ## Unreleased
 
+### Fixed
+
+- Both products share conversation launch handling across `run` and `runRequest`. New channels follow turn one; resumed channels submit the prompt and images once before following the next turn (#2250).
+
 ### Added
 
 - `runRequest` in both products forwards API-shaped conversation requests with

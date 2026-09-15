@@ -66,7 +66,7 @@ public final class Fountain: @unchecked Sendable {
   ) -> Run {
     Run(
       http: api,
-      plan: RunPlan { [api, resolver] in
+      plan: RunPlan { [resolver] in
         guard
           let agentID = try await resolver.resolve(
             path: "/api/agents", what: "agent", nameOrID: agent)["id"]?.stringValue
@@ -89,13 +89,7 @@ public final class Fountain: @unchecked Sendable {
         if let sandbox { body["sandbox_id"] = .string(sandbox) }
         if let sandboxMode { body["sandbox_mode"] = .string(sandboxMode) }
         if let sandboxAPIAccess { body["sandbox_api_access"] = .string(sandboxAPIAccess) }
-        let conversation = try await api.data("POST", "/api/conversations", body: body)
-        var turnNumber = 1
-        if channelID != nil, let id = conversation["id"]?.stringValue {
-          let turns = try await api.list("/api/conversations/\(id)/turns")
-          turnNumber = (turns.compactMap { $0["turn_number"]?.intValue }.max() ?? 0) + 1
-        }
-        return (conversation, turnNumber, 0)
+        return try await self.startConversation(body)
       }, timeout: timeout, collectEvents: collectEvents)
   }
 
@@ -116,25 +110,30 @@ public final class Fountain: @unchecked Sendable {
       throw FountainError(.validation, "runRequest does not support queued creation")
     }
     return Run(
-      http: api,
-      plan: RunPlan { [api] in
-        let response = try await api.request("POST", "/api/conversations", body: .object(request))
-        let conversation = response["data"]?.objectValue ?? [:]
-        if response["meta"]?["resumed"]?.boolValue == true,
-          let id = conversation["id"]?.stringValue
-        {
-          // Resume only binds the channel. Capture history before submitting
-          // the prompt so even a fast follow-up is followed from its beginning.
-          let after = await Conversation(http: api, id: id).cursor()
-          let turns = try await api.list("/api/conversations/\(id)/turns")
-          let turnNumber = (turns.compactMap { $0["turn_number"]?.intValue }.max() ?? 0) + 1
-          var body: JSONObject = ["prompt": .string(prompt)]
-          if let images = request["images"] { body["images"] = images }
-          _ = try await api.request("POST", "/api/conversations/\(id)/prompts", body: .object(body))
-          return (conversation, turnNumber, after)
-        }
-        return (conversation, 1, 0)
-      }, timeout: timeout, collectEvents: collectEvents)
+      http: api, plan: RunPlan { try await self.startConversation(request) },
+      timeout: timeout, collectEvents: collectEvents)
+  }
+
+  private func startConversation(_ request: JSONObject) async throws -> (JSONObject, Int, Int) {
+    let response = try await api.request("POST", "/api/conversations", body: .object(request))
+    let conversation = response["data"]?.objectValue ?? [:]
+    if response["meta"]?["resumed"]?.boolValue == true,
+      let id = conversation["id"]?.stringValue
+    {
+      // Resume only binds the channel. Capture history before submitting
+      // the prompt so even a fast follow-up is followed from its beginning.
+      let prompt = request["prompt"]?.stringValue
+      let after = prompt == nil ? 0 : await Conversation(http: api, id: id).cursor()
+      let turns = try await api.list("/api/conversations/\(id)/turns")
+      let turnNumber = (turns.compactMap { $0["turn_number"]?.intValue }.max() ?? 0) + 1
+      if let prompt {
+        var body: JSONObject = ["prompt": .string(prompt)]
+        if let images = request["images"] { body["images"] = images }
+        _ = try await api.request("POST", "/api/conversations/\(id)/prompts", body: .object(body))
+      }
+      return (conversation, turnNumber, after)
+    }
+    return (conversation, 1, 0)
   }
 
   public func resume(_ conversationID: String) -> Conversation {

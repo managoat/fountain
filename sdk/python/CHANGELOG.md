@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.1
+
+### Fixed
+
+- Share conversation launch handling between the request API and the convenience helper. New channels follow turn one; resumed channels submit the prompt and images once before following the next turn (#2250).
+
 ## 0.5.0
 
 - Add `run_request(request, *, timeout=None, collect_events=False)` for API-shaped launch inputs without per-field keyword mappings (#2229).

@@ -322,7 +322,7 @@ extension FountainClient {
     fresh: Bool? = nil,
     timeout: TimeInterval? = nil
   ) async throws -> Run {
-    let opened = try await conversations.create(
+    return try await startConversation(
       ConversationCreateRequest(
         agentID: agent,
         prompt: prompt,
@@ -335,21 +335,7 @@ extension FountainClient {
         sandboxID: sandboxID,
         channelID: channelID,
         fresh: fresh
-      ))
-    // A channel id can land on an existing conversation, where the prompt
-    // queued a later turn than the first. Nothing else resumes, so
-    // nothing else pays for the extra round trip.
-    var turnNumber = 1
-    if channelID != nil, opened.resumed {
-      turnNumber = try await nextTurnNumber(opened.conversation.id)
-    }
-    return Run(
-      client: api,
-      conversation: opened.conversation,
-      turnNumber: turnNumber,
-      after: 0,
-      timeout: timeout
-    )
+      ), timeout: timeout)
   }
 
   /// Follow a generated conversation request without copying its fields.
@@ -366,15 +352,22 @@ extension FountainClient {
     guard request.queue != true else {
       throw ConversationRunInputError(message: "runRequest does not support queued creation")
     }
+    return try await startConversation(request, timeout: timeout)
+  }
+
+  private func startConversation(
+    _ request: ConversationCreateRequest, timeout: TimeInterval?
+  ) async throws -> Run {
     let opened = try await conversations.create(request)
-    if opened.resumed {
+    if opened.resumed, let prompt = request.prompt, !prompt.isEmpty {
       // Channel resume does not submit the launch prompt. The follow-up path
       // captures the cursor and next turn before sending the prompt once.
       return try await conversations.run(
         opened.conversation.id, prompt: prompt, images: request.images, timeout: timeout)
     }
+    let turnNumber = opened.resumed ? try await nextTurnNumber(opened.conversation.id) : 1
     return Run(
-      client: api, conversation: opened.conversation, turnNumber: 1,
+      client: api, conversation: opened.conversation, turnNumber: turnNumber,
       after: 0, timeout: timeout)
   }
 

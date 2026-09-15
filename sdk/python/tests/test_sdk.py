@@ -10,6 +10,7 @@ import unittest
 from unittest.mock import patch
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from itertools import product
 from urllib.parse import parse_qs, urlparse
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
@@ -401,35 +402,56 @@ class ClientTests(unittest.TestCase):
                 client.run_request({"agent_id": AGENT_ID, "prompt": "hi", "queue": True})
             self.assertEqual(fake.state.requests, [])
 
-    def test_run_request_follows_initial_turn_for_new_and_fresh_channels(self):
-        for fresh in (False, True):
-            with self.subTest(fresh=fresh), FakeFountain() as fake:
+    def test_legacy_empty_values_keep_wire_semantics_and_reach_server_validation(self):
+        with FakeFountain() as fake:
+            fake.state.fail = (422, {"error": "unprocessable_entity"})
+            client = Fountain(base_url=fake.base_url, api_key="fk_test")
+            with self.assertRaises(fountain.FountainError) as caught:
+                client.run("", agent=AGENT_ID, title="", images=[], fresh=False,
+                           timeout=1, collect_events=True).result()
+            self.assertEqual(caught.exception.status, 422)
+            self.assertEqual(len(fake.state.requests), 1)
+            self.assertEqual(fake.state.requests[0][3], {"agent_id": AGENT_ID, "title": ""})
+
+    @staticmethod
+    def launch_channel(client, entry, request, **options):
+        if entry == "run_request":
+            return client.run_request(request, **options)
+        body = dict(request)
+        prompt = body.pop("prompt")
+        agent = body.pop("agent_id")
+        return client.run(prompt, agent=agent, **body, **options)
+
+    def test_launch_follows_initial_turn_for_new_and_fresh_channels(self):
+        for entry, fresh in product(("run_request", "run"), (False, True)):
+            with self.subTest(entry=entry, fresh=fresh), FakeFountain() as fake:
                 fake.state.resume_channel = fresh
                 client = Fountain(base_url=fake.base_url, api_key="fk_test")
-                result = client.run_request({
+                result = self.launch_channel(client, entry, {
                     "agent_id": AGENT_ID, "prompt": "hi", "channel_id": "raw", "fresh": fresh,
                 }, timeout=1).result()
                 self.assertEqual(result.turn_number, 1)
                 self.assertEqual(result.text, "Found it.")
                 self.assertFalse(any(r[1].endswith("/prompts") for r in fake.state.requests))
 
-    def test_run_request_submits_prompt_and_images_to_resumed_channel(self):
-        with FakeFountain() as fake:
-            fake.state.resume_channel = True
-            fake.state.script_turn()
-            client = Fountain(base_url=fake.base_url, api_key="fk_test")
-            images = [{"data": "aGVsbG8=", "media_type": "image/png"}]
-            result = client.run_request({
-                "agent_id": AGENT_ID, "prompt": "next", "channel_id": "raw", "images": images,
-            }, timeout=1, collect_events=True).result()
-            self.assertEqual(result.conversation_id, "c-1")
-            self.assertEqual(result.turn_number, 2)
-            self.assertEqual(result.text, "Found it.")
-            prompts = [r for r in fake.state.requests if r[1].endswith("/prompts")]
-            self.assertEqual(len(prompts), 1)
-            self.assertEqual(prompts[0][3], {"prompt": "next", "images": images})
-            history = next(r for r in fake.state.requests if r[1].endswith("/turns"))
-            self.assertLess(fake.state.requests.index(history), fake.state.requests.index(prompts[0]))
+    def test_launch_submits_prompt_and_images_to_resumed_channel(self):
+        for entry in ("run_request", "run"):
+            with self.subTest(entry=entry), FakeFountain() as fake:
+                fake.state.resume_channel = True
+                fake.state.script_turn()
+                client = Fountain(base_url=fake.base_url, api_key="fk_test")
+                images = [{"data": "aGVsbG8=", "media_type": "image/png"}]
+                result = self.launch_channel(client, entry, {
+                    "agent_id": AGENT_ID, "prompt": "next", "channel_id": "raw", "images": images,
+                }, timeout=1, collect_events=True).result()
+                self.assertEqual(result.conversation_id, "c-1")
+                self.assertEqual(result.turn_number, 2)
+                self.assertEqual(result.text, "Found it.")
+                prompts = [r for r in fake.state.requests if r[1].endswith("/prompts")]
+                self.assertEqual(len(prompts), 1)
+                self.assertEqual(prompts[0][3], {"prompt": "next", "images": images})
+                history = next(r for r in fake.state.requests if r[1].endswith("/turns"))
+                self.assertLess(fake.state.requests.index(history), fake.state.requests.index(prompts[0]))
 
     def test_run_sends_explicit_sandbox_api_access_and_omits_the_default(self):
         for access in (None, "none", "owner"):

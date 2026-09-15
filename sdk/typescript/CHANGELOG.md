@@ -11,6 +11,12 @@ server releases.
 
 ---
 
+## [5.2.1] - 2026-09-15
+
+### Fixed
+
+- Share conversation launch handling between the request API and the convenience helper. New channels follow turn one; resumed channels submit the prompt and images once before following the next turn (#2250).
+
 ## [5.2.0] - 2026-09-15
 
 ### Added

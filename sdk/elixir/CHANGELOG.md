@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.5.1] - 2026-09-15
+
+### Fixed
+
+- Share conversation launch handling between the request API and the convenience helper. New channels follow turn one; resumed channels submit the prompt and images once before following the next turn (#2250).
+
 ## [0.5.0] - 2026-09-15
 
 ### Added

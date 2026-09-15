@@ -44,12 +44,16 @@ private func mockSession() -> URLSession { sharedMockSession }
 private func json(_ value: JSONValue) -> Data { try! JSONEncoder().encode(value) }
 
 @Suite(.serialized) struct TransportTests {
-  @Test func runRequestForwardsUnknownFieldsWithoutResolution() async throws {
-    let body: JSONObject = [
-      "agent_id": .string("raw-agent-id"), "prompt": .string("hello"),
-      "future_field": .object(["zero": .number(0), "empty": .array([])]),
-      "vault_id": .null, "fresh": .bool(false), "title": .string(""),
-    ]
+  @Test(arguments: [false, true])
+  func launchPreservesEachPublicBoundary(legacy: Bool) async throws {
+    let body: JSONObject =
+      legacy
+      ? ["agent_id": "11111111-1111-1111-1111-111111111111", "title": ""]
+      : [
+        "agent_id": .string("raw-agent-id"), "prompt": .string("hello"),
+        "future_field": .object(["zero": .number(0), "empty": .array([])]),
+        "vault_id": .null, "fresh": .bool(false), "title": .string(""),
+      ]
     MockURLProtocol.handler = { request, protocolInstance in
       #expect(request.httpMethod == "POST")
       #expect(request.url?.path == "/api/conversations")
@@ -76,36 +80,53 @@ private func json(_ value: JSONValue) -> Data { try! JSONEncoder().encode(value)
     }
     let fountain = try Fountain(
       apiKey: "secret", baseURL: "https://api.example.test", session: mockSession())
-    let run = try fountain.runRequest(body, timeout: 5, collectEvents: true)
+    let run =
+      legacy
+      ? fountain.run(
+        "", agent: "11111111-1111-1111-1111-111111111111", title: "", images: [], fresh: false,
+        timeout: 5, collectEvents: true)
+      : try fountain.runRequest(body, timeout: 5, collectEvents: true)
     await #expect(throws: FountainError.self) { try await run.value() }
   }
 
-  @Test(arguments: [false, true])
-  func runRequestFollowsNewChannelTurnOne(fresh: Bool) async throws {
+  @Test(arguments: [false, true], [false, true])
+  func runRequestFollowsNewChannelTurnOne(fresh: Bool, legacy: Bool) async throws {
     let router = ChannelRunRouter(resumed: false)
     MockURLProtocol.handler = router.handle
     let fountain = try Fountain(
       apiKey: "secret", baseURL: "https://api.example.test", session: mockSession())
-    let run = try fountain.runRequest(
-      [
-        "agent_id": "a1", "prompt": "hello", "channel_id": "chat", "fresh": .bool(fresh),
-      ], timeout: 1)
+    let run =
+      legacy
+      ? fountain.run(
+        "hello", agent: "11111111-1111-1111-1111-111111111111", channelID: "chat", fresh: fresh,
+        timeout: 1)
+      : try fountain.runRequest(
+        [
+          "agent_id": "a1", "prompt": "hello", "channel_id": "chat", "fresh": .bool(fresh),
+        ], timeout: 1)
     let result = try await run.value()
     #expect(result.turnNumber == 1)
     #expect(result.text == "answer 1")
     #expect(router.promptCount == 0)
   }
 
-  @Test func runRequestDispatchesResumedPromptAndImagesOnce() async throws {
+  @Test(arguments: [false, true])
+  func runRequestDispatchesResumedPromptAndImagesOnce(legacy: Bool) async throws {
     let router = ChannelRunRouter(resumed: true)
     MockURLProtocol.handler = router.handle
     let fountain = try Fountain(
       apiKey: "secret", baseURL: "https://api.example.test", session: mockSession())
     let images: JSONValue = [["data": "aGVsbG8=", "media_type": "image/png"]]
-    let run = try fountain.runRequest(
-      [
-        "agent_id": "a1", "prompt": "next", "channel_id": "chat", "images": images,
-      ], timeout: 1, collectEvents: true)
+    let run =
+      legacy
+      ? fountain.run(
+        "next", agent: "11111111-1111-1111-1111-111111111111",
+        images: [["data": "aGVsbG8=", "media_type": "image/png"]], channelID: "chat", timeout: 1,
+        collectEvents: true)
+      : try fountain.runRequest(
+        [
+          "agent_id": "a1", "prompt": "next", "channel_id": "chat", "images": images,
+        ], timeout: 1, collectEvents: true)
     let result = try await run.value()
     #expect(result.conversationID == "c1")
     #expect(result.turnNumber == 2)
@@ -114,15 +135,20 @@ private func json(_ value: JSONValue) -> Data { try! JSONEncoder().encode(value)
     #expect(router.promptBody == ["prompt": "next", "images": images])
   }
 
-  @Test func runRequestSurfacesResumedPromptRejection() async throws {
+  @Test(arguments: [false, true])
+  func runRequestSurfacesResumedPromptRejection(legacy: Bool) async throws {
     let router = ChannelRunRouter(resumed: true, rejectPrompt: true)
     MockURLProtocol.handler = router.handle
     let fountain = try Fountain(
       apiKey: "secret", baseURL: "https://api.example.test", session: mockSession())
-    let run = try fountain.runRequest(
-      [
-        "agent_id": "a1", "prompt": "next", "channel_id": "chat",
-      ], timeout: 1)
+    let run =
+      legacy
+      ? fountain.run(
+        "next", agent: "11111111-1111-1111-1111-111111111111", channelID: "chat", timeout: 1)
+      : try fountain.runRequest(
+        [
+          "agent_id": "a1", "prompt": "next", "channel_id": "chat",
+        ], timeout: 1)
     do {
       _ = try await run.value()
       Issue.record("A rejected prompt must fail the run")

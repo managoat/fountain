@@ -60,23 +60,7 @@ defmodule Fountain do
     Run.new(
       client.api,
       fn ->
-        response = HTTP.request!(client.api, "POST", "/api/conversations", body: request)
-        conversation = response["data"]
-
-        if get_in(response, ["meta", "resumed"]) == true do
-          # Resume binds the channel without sending its prompt. Capture history
-          # before submission so even a fast next turn is followed correctly.
-          {:ok, after_cursor} = Conversation.cursor(resume(client, conversation["id"]))
-          turn_number = next_turn_number(client.api, conversation["id"])
-
-          HTTP.request!(client.api, "POST", "/api/conversations/#{conversation["id"]}/prompts",
-            body: Map.take(request, ["prompt", "images"])
-          )
-
-          {conversation, turn_number, after_cursor}
-        else
-          {conversation, 1, 0}
-        end
+        start_conversation(client, request)
       end,
       opts
     )
@@ -114,12 +98,7 @@ defmodule Fountain do
           |> optional("sandbox_mode", opts[:sandbox_mode])
           |> optional("sandbox_api_access", opts[:sandbox_api_access])
 
-        conversation = HTTP.data!(client.api, "POST", "/api/conversations", body: body)
-
-        turn_number =
-          if opts[:channel_id], do: next_turn_number(client.api, conversation["id"]), else: 1
-
-        {conversation, turn_number, 0}
+        start_conversation(client, body)
       end,
       opts
     )
@@ -177,6 +156,32 @@ defmodule Fountain do
 
   def request!(%Client{api: http}, method, path, opts \\ []),
     do: HTTP.request!(http, method, path, opts)
+
+  defp start_conversation(client, request) do
+    response = HTTP.request!(client.api, "POST", "/api/conversations", body: request)
+    conversation = response["data"]
+
+    if get_in(response, ["meta", "resumed"]) == true do
+      # Resume binds the channel without sending its prompt. Capture history
+      # before submission so even a fast next turn is followed correctly.
+      has_prompt = is_binary(request["prompt"]) and request["prompt"] != ""
+
+      {:ok, after_cursor} =
+        if has_prompt, do: Conversation.cursor(resume(client, conversation["id"])), else: {:ok, 0}
+
+      turn_number = next_turn_number(client.api, conversation["id"])
+
+      if has_prompt do
+        HTTP.request!(client.api, "POST", "/api/conversations/#{conversation["id"]}/prompts",
+          body: Map.take(request, ["prompt", "images"])
+        )
+      end
+
+      {conversation, turn_number, after_cursor}
+    else
+      {conversation, 1, 0}
+    end
+  end
 
   defp next_turn_number(http, id),
     do:

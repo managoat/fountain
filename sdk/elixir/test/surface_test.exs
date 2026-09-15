@@ -126,7 +126,7 @@ defmodule Fountain.SurfaceTest do
     assert Jason.decode!(select_body) == %{"agent_id" => "a1", "vault_id" => nil}
   end
 
-  test "root run sends all options and channel continuation uses the next turn" do
+  test "root run sends all options and a fresh channel follows turn one" do
     owner = self()
 
     server =
@@ -150,7 +150,7 @@ defmodule Fountain.SurfaceTest do
             json(200, %{"data" => [%{"turn_number" => 4}]})
 
           {"GET", "/api/conversations/run1/stream"} ->
-            {200, [{"content-type", "text/event-stream"}], turn(5)}
+            {200, [{"content-type", "text/event-stream"}], turn(1)}
 
           {"GET", "/api/conversations/run1"} ->
             json(200, %{"data" => %{"id" => "run1", "status" => "done"}})
@@ -175,7 +175,7 @@ defmodule Fountain.SurfaceTest do
         sandbox_api_access: "owner"
       )
 
-    assert {:ok, %{turn_number: 5, state: :done}} = Fountain.Run.await(run)
+    assert {:ok, %{turn_number: 1, state: :done}} = Fountain.Run.await(run)
     assert_receive {:run_seen, %{method: "POST", path: "/api/conversations", body: body}}
 
     assert Jason.decode!(body) == %{

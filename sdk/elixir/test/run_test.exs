@@ -114,9 +114,60 @@ defmodule Fountain.RunTest do
     refute_receive {:wire_request, %{path: "/api/agents"}}
   end
 
-  for fresh <- [false, true] do
+  test "legacy empty values retain wire semantics and reach server validation" do
+    owner = self()
+
+    server =
+      Fountain.TestServer.start(fn request ->
+        send(owner, {:legacy_request, request})
+        json(422, %{"error" => "unprocessable_entity"})
+      end)
+
+    on_exit(fn -> Fountain.TestServer.stop(server) end)
+    client = Fountain.new(api_key: "key", base_url: server.url)
+
+    run =
+      Fountain.run(client, "",
+        agent: "11111111-1111-1111-1111-111111111111",
+        title: "",
+        images: [],
+        fresh: false,
+        timeout: 1_000,
+        collect_events: true
+      )
+
+    assert {:error, %Error{status: 422}} = Run.await(run)
+    assert_receive {:legacy_request, %{method: "POST", path: "/api/conversations", body: body}}
+
+    assert Jason.decode!(body) == %{
+             "agent_id" => "11111111-1111-1111-1111-111111111111",
+             "title" => ""
+           }
+
+    refute_receive {:legacy_request, _}
+  end
+
+  defp launch_channel(client, :run_request, request, options),
+    do: Fountain.run_request(client, request, options)
+
+  defp launch_channel(client, :run, request, options) do
+    Fountain.run(
+      client,
+      request["prompt"],
+      options ++
+        [
+          agent: "11111111-1111-1111-1111-111111111111",
+          channel_id: request["channel_id"],
+          fresh: request["fresh"],
+          images: request["images"]
+        ]
+    )
+  end
+
+  for entry <- [:run_request, :run], fresh <- [false, true] do
+    @entry entry
     @fresh fresh
-    test "run_request follows the initial turn of a new channel with fresh=#{fresh}" do
+    test "#{entry} follows the initial turn of a new channel with fresh=#{fresh}" do
       parent = self()
 
       server =
@@ -145,8 +196,9 @@ defmodule Fountain.RunTest do
       client = Fountain.new(api_key: "key", base_url: server.url)
 
       run =
-        Fountain.run_request(
+        launch_channel(
           client,
+          @entry,
           %{
             "agent_id" => "agent-1",
             "prompt" => "hello",
@@ -163,61 +215,70 @@ defmodule Fountain.RunTest do
     end
   end
 
-  test "run_request submits prompt and images to a resumed channel before following its next turn" do
-    parent = self()
-    {:ok, submitted} = Agent.start_link(fn -> false end)
+  for entry <- [:run_request, :run] do
+    @entry entry
+    test "#{entry} submits prompt and images to a resumed channel before following its next turn" do
+      parent = self()
+      {:ok, submitted} = Agent.start_link(fn -> false end)
 
-    server =
-      Fountain.TestServer.start(fn request ->
-        send(parent, {:channel_request, request})
+      server =
+        Fountain.TestServer.start(fn request ->
+          send(parent, {:channel_request, request})
 
-        case {request.method, request.path} do
-          {"POST", "/api/conversations"} ->
-            json(200, %{
-              "data" => %{"id" => "c1", "status" => "ready"},
-              "meta" => %{"resumed" => true}
-            })
+          case {request.method, request.path} do
+            {"POST", "/api/conversations"} ->
+              json(200, %{
+                "data" => %{"id" => "c1", "status" => "ready"},
+                "meta" => %{"resumed" => true}
+              })
 
-          {"GET", "/api/conversations/c1/turns"} ->
-            # Only the old turn exists until the prompt is actually submitted.
-            assert Agent.get(submitted, & &1) == false
-            json(200, %{"data" => [%{"turn_number" => 1, "status" => "completed"}]})
+            {"GET", "/api/conversations/c1/turns"} ->
+              # Only the old turn exists until the prompt is actually submitted.
+              assert Agent.get(submitted, & &1) == false
+              json(200, %{"data" => [%{"turn_number" => 1, "status" => "completed"}]})
 
-          {"POST", "/api/conversations/c1/prompts"} ->
-            Agent.update(submitted, fn _ -> true end)
-            json(200, %{"status" => "queued"})
+            {"POST", "/api/conversations/c1/prompts"} ->
+              Agent.update(submitted, fn _ -> true end)
+              json(200, %{"status" => "queued"})
 
-          {"GET", "/api/conversations/c1/stream"} ->
-            events = if Agent.get(submitted, & &1), do: run_events(2, 4), else: run_events()
-            {200, [{"content-type", "text/event-stream"}], events}
+            {"GET", "/api/conversations/c1/stream"} ->
+              events = if Agent.get(submitted, & &1), do: run_events(2, 4), else: run_events()
+              {200, [{"content-type", "text/event-stream"}], events}
 
-          {"GET", "/api/conversations/c1"} ->
-            json(200, %{"data" => %{"id" => "c1", "status" => "ready"}})
-        end
-      end)
+            {"GET", "/api/conversations/c1"} ->
+              json(200, %{"data" => %{"id" => "c1", "status" => "ready"}})
+          end
+        end)
 
-    on_exit(fn -> Fountain.TestServer.stop(server) end)
-    client = Fountain.new(api_key: "key", base_url: server.url)
-    images = [%{"data" => "aGVsbG8=", "media_type" => "image/png"}]
+      on_exit(fn -> Fountain.TestServer.stop(server) end)
+      client = Fountain.new(api_key: "key", base_url: server.url)
+      images = [%{"data" => "aGVsbG8=", "media_type" => "image/png"}]
 
-    run =
-      Fountain.run_request(
-        client,
-        %{"agent_id" => "agent-1", "prompt" => "next", "channel_id" => "raw", "images" => images},
-        timeout: 1_000,
-        collect_events: true
-      )
+      run =
+        launch_channel(
+          client,
+          @entry,
+          %{
+            "agent_id" => "agent-1",
+            "prompt" => "next",
+            "channel_id" => "raw",
+            "images" => images
+          },
+          timeout: 1_000,
+          collect_events: true
+        )
 
-    assert {:ok, result} = Run.await(run)
-    assert result.conversation_id == "c1"
-    assert result.turn_number == 2
-    assert result.text == "Hello\n\nworld"
+      assert {:ok, result} = Run.await(run)
+      assert result.conversation_id == "c1"
+      assert result.turn_number == 2
+      assert result.text == "Hello\n\nworld"
 
-    assert_receive {:channel_request,
-                    %{method: "POST", path: "/api/conversations/c1/prompts", body: body}}
+      assert_receive {:channel_request,
+                      %{method: "POST", path: "/api/conversations/c1/prompts", body: body}}
 
-    assert Jason.decode!(body) == %{"prompt" => "next", "images" => images}
-    refute_receive {:channel_request, %{path: "/api/conversations/c1/prompts"}}
+      assert Jason.decode!(body) == %{"prompt" => "next", "images" => images}
+      refute_receive {:channel_request, %{path: "/api/conversations/c1/prompts"}}
+    end
   end
 
   test "run_request rejects ambiguous keys and unsupported lifecycles before HTTP" do

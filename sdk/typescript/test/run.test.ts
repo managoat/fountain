@@ -517,37 +517,54 @@ describe("runRequest", () => {
     assert.ok(!Object.hasOwn(create!.body as object, "environment_id"));
   });
 
-  for (const fresh of [false, true]) {
-    test(`follows turn 1 when channel creation is new (fresh=${fresh})`, async () => {
-      if (fresh) fake.createConversation({ channel_id: "raw" });
-      fake.onTurn = (c, n) => fake.scriptTurn(c.id, { turnNumber: n, turnId: "t1", text: ["first"] });
-      const result = await client().runRequest({
-        agent_id: "11111111-1111-1111-1111-111111111111", prompt: "hi", channel_id: "raw", fresh,
-      }, { timeoutMs: 1000 });
-      assert.equal(result.turnNumber, 1);
-      assert.equal(result.text, "first");
-      assert.ok(!fake.requests.some(r => r.path.endsWith("/prompts")));
+  for (const entry of ["runRequest", "run"] as const) {
+    const launch = (request: { agent_id: string; prompt: string; channel_id: string; fresh?: boolean; images?: { data: string; media_type: "image/png" }[] }, options: { timeoutMs: number; collectEvents?: boolean }) =>
+      entry === "runRequest" ? client().runRequest(request, options) : client().run(request.prompt, {
+        agent: request.agent_id, channelId: request.channel_id, fresh: request.fresh, images: request.images, ...options,
+      });
+    for (const fresh of [false, true]) {
+      test(`${entry}: follows turn 1 when channel creation is new (fresh=${fresh})`, async () => {
+        if (fresh) fake.createConversation({ channel_id: "raw" });
+        fake.onTurn = (c, n) => fake.scriptTurn(c.id, { turnNumber: n, turnId: "t1", text: ["first"] });
+        const result = await launch({
+          agent_id: "11111111-1111-1111-1111-111111111111", prompt: "hi", channel_id: "raw", fresh,
+        }, { timeoutMs: 1000 });
+        assert.equal(result.turnNumber, 1);
+        assert.equal(result.text, "first");
+        assert.ok(!fake.requests.some(r => r.path.endsWith("/prompts")));
+      });
+    }
+
+    test(`${entry}: submits the prompt and images when channel creation resumes a conversation`, async () => {
+      const existing = fake.createConversation({ channel_id: "raw" });
+      existing.turns.push({ turn_number: 1, status: "completed" });
+      existing.turn_count = 1;
+      fake.scriptTurn(existing.id, { turnNumber: 1, turnId: "t1", text: ["old"] });
+      fake.onTurn = (c, n) => fake.scriptTurn(c.id, { turnNumber: n, turnId: "t2", text: ["next"] });
+      const images = [{ data: "aGVsbG8=", media_type: "image/png" as const }];
+      const result = await launch({
+        agent_id: "11111111-1111-1111-1111-111111111111", prompt: "hi", channel_id: "raw", images,
+      }, { timeoutMs: 1000, collectEvents: true });
+      assert.equal(result.conversationId, existing.id);
+      assert.equal(result.turnNumber, 2);
+      assert.equal(result.text, "next");
+      const prompts = fake.requests.filter(r => r.path.endsWith("/prompts"));
+      assert.equal(prompts.length, 1);
+      assert.deepEqual(prompts[0]?.body, { prompt: "hi", images });
+      const history = fake.requests.findIndex(r => r.path.endsWith("/turns"));
+      assert.ok(history >= 0 && history < fake.requests.indexOf(prompts[0]!));
     });
+
   }
 
-  test("submits the prompt and images when channel creation resumes a conversation", async () => {
-    const existing = fake.createConversation({ channel_id: "raw" });
-    existing.turns.push({ turn_number: 1, status: "completed" });
-    existing.turn_count = 1;
-    fake.scriptTurn(existing.id, { turnNumber: 1, turnId: "t1", text: ["old"] });
-    fake.onTurn = (c, n) => fake.scriptTurn(c.id, { turnNumber: n, turnId: "t2", text: ["next"] });
-    const images = [{ data: "aGVsbG8=", media_type: "image/png" as const }];
-    const result = await client().runRequest({
-      agent_id: "11111111-1111-1111-1111-111111111111", prompt: "hi", channel_id: "raw", images,
-    }, { timeoutMs: 1000, collectEvents: true });
-    assert.equal(result.conversationId, existing.id);
-    assert.equal(result.turnNumber, 2);
-    assert.equal(result.text, "next");
-    const prompts = fake.requests.filter(r => r.path.endsWith("/prompts"));
-    assert.equal(prompts.length, 1);
-    assert.deepEqual(prompts[0]?.body, { prompt: "hi", images });
-    const history = fake.requests.findIndex(r => r.path.endsWith("/turns"));
-    assert.ok(history >= 0 && history < fake.requests.indexOf(prompts[0]!));
+  test("legacy empty values keep their wire omissions and reach server validation", async () => {
+    fake.failNextWith = { status: 422, body: { error: "unprocessable_entity" } };
+    await assert.rejects(async () => client().run("", {
+      agent: "11111111-1111-1111-1111-111111111111", title: "", images: [], fresh: false,
+      timeoutMs: 1000, collectEvents: true,
+    }), (error: unknown) => error instanceof publicSDK.FountainError && error.status === 422);
+    assert.equal(fake.requests.length, 1);
+    assert.deepEqual(fake.requests[0]?.body, { agent_id: "11111111-1111-1111-1111-111111111111" });
   });
 
   test("refuses promptless and queued runs before sending anything", () => {

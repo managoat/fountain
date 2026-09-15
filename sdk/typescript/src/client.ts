@@ -149,16 +149,7 @@ export class Fountain {
           if (config.sandbox) body.sandbox_id = config.sandbox;
           if (config.sandboxMode) body.sandbox_mode = config.sandboxMode;
 
-          const conversation = await this.api.data<ConversationRecord>(
-            "POST",
-            "/api/conversations",
-            { body },
-          );
-
-          // `channel_id` may have resumed an existing conversation, in which
-          // case this prompt is not turn 1. Ask, rather than assume.
-          const turnNumber = config.channelId ? await this.nextTurnNumber(conversation.id) : 1;
-          return { conversation, turnNumber, after: 0 };
+          return this.startConversation(body);
         },
       },
       options,
@@ -178,28 +169,31 @@ export class Fountain {
       throw new TypeError("runRequest does not support queued creation; use api.request");
     }
     const body = { ...request };
-    return new Run(this.api, {
-      start: async () => {
-        const response = await this.api.request<{
-          data: ConversationRecord;
-          meta?: { resumed?: boolean };
-        }>("POST", "/api/conversations", { body });
-        const conversation = response.data;
-        if (response.meta?.resumed === true) {
-          // Resume only binds the channel; it does not submit the launch prompt.
-          // Capture history before sending, so fast turns cannot be skipped.
-          const after = await this.resume(conversation.id).cursor();
-          const turnNumber = await this.nextTurnNumber(conversation.id);
-          const promptBody: Record<string, unknown> = { prompt: body.prompt };
-          if (body.images !== undefined) promptBody.images = body.images;
-          await this.api.request("POST", `/api/conversations/${conversation.id}/prompts`, {
-            body: promptBody,
-          });
-          return { conversation, turnNumber, after };
-        }
-        return { conversation, turnNumber: 1, after: 0 };
-      },
-    }, options);
+    return new Run(this.api, { start: () => this.startConversation(body) }, options);
+  }
+
+  private async startConversation(body: Record<string, unknown>) {
+    const response = await this.api.request<{
+      data: ConversationRecord;
+      meta?: { resumed?: boolean };
+    }>("POST", "/api/conversations", { body });
+    const conversation = response.data;
+    if (response.meta?.resumed === true) {
+      // Resume only binds the channel; it does not submit the launch prompt.
+      // Capture history before sending, so fast turns cannot be skipped.
+      const hasPrompt = typeof body.prompt === "string" && body.prompt.length > 0;
+      const after = hasPrompt ? await this.resume(conversation.id).cursor() : 0;
+      const turnNumber = await this.nextTurnNumber(conversation.id);
+      const promptBody: Record<string, unknown> = { prompt: body.prompt };
+      if (body.images !== undefined) promptBody.images = body.images;
+      if (hasPrompt) {
+        await this.api.request("POST", `/api/conversations/${conversation.id}/prompts`, {
+          body: promptBody,
+        });
+      }
+      return { conversation, turnNumber, after };
+    }
+    return { conversation, turnNumber: 1, after: 0 };
   }
 
   /**

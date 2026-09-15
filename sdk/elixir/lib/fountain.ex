@@ -37,6 +37,51 @@ defmodule Fountain do
     }
   end
 
+  @doc """
+  Run a conversation request with API names and IDs, separately from local options.
+
+  `request` uses string keys and passes values unchanged. `opts` holds local
+  execution settings such as `:timeout` and `:collect_events`. This path never
+  resolves names or merges the options of `run/3`. Use `Fountain.HTTP.request/4`
+  for queued or promptless creation; a run follows an immediately started turn.
+  """
+  def run_request(%Client{} = client, request, opts \\ []) when is_map(request) do
+    unless Enum.all?(Map.keys(request), &is_binary/1),
+      do: raise(ArgumentError, "run_request requires string keys")
+
+    prompt = request["prompt"]
+
+    unless is_binary(prompt) and String.trim(prompt) != "",
+      do: raise(ArgumentError, "run_request requires a non-empty prompt")
+
+    unless request["queue"] in [nil, false],
+      do: raise(ArgumentError, "run_request does not support queued creation")
+
+    Run.new(
+      client.api,
+      fn ->
+        response = HTTP.request!(client.api, "POST", "/api/conversations", body: request)
+        conversation = response["data"]
+
+        if get_in(response, ["meta", "resumed"]) == true do
+          # Resume binds the channel without sending its prompt. Capture history
+          # before submission so even a fast next turn is followed correctly.
+          {:ok, after_cursor} = Conversation.cursor(resume(client, conversation["id"]))
+          turn_number = next_turn_number(client.api, conversation["id"])
+
+          HTTP.request!(client.api, "POST", "/api/conversations/#{conversation["id"]}/prompts",
+            body: Map.take(request, ["prompt", "images"])
+          )
+
+          {conversation, turn_number, after_cursor}
+        else
+          {conversation, 1, 0}
+        end
+      end,
+      opts
+    )
+  end
+
   @doc "Starts an agent run immediately and returns a broadcast-capable `Fountain.Run`."
   def run(%Client{} = client, prompt, opts) do
     agent = Keyword.fetch!(opts, :agent)

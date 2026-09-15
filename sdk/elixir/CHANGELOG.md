@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.5.0] - 2026-09-15
+
+### Added
+
+- `Fountain.run_request/3` forwards API-shaped conversation inputs independently of local execution options (#2230).
+
 ## [0.4.0] - 2026-09-13
 
 ### Breaking changes

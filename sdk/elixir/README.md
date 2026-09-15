@@ -172,3 +172,26 @@ release containing the credit-only server contract (`c3349343`).
 `insufficient_credits` and a generic HTTP 402 identify the credit gate.
 `subscription_required` has no special mapping; it follows the HTTP status.
 The response still exposes its original code and purchase URL.
+
+### API-shaped launches
+
+```elixir
+Fountain.run_request(client, %{
+  "agent_id" => agent_id,
+  "prompt" => "Review the repository",
+  "labels" => %{"source" => "nightly"},
+  "sandbox_api_access" => "none"
+}, timeout: 120_000, collect_events: true)
+|> Fountain.Run.await()
+```
+
+The request uses string keys and IDs directly; atom keys at its top level are
+refused rather than converted or merged. Explicit nil, false, zero and empty
+values survive; omitted keys remain omitted. Local options stay in the third
+argument. No names are resolved and no legacy run options are merged into the
+request; existing `Fountain.run/3` calls keep working. A run requires a non-empty
+prompt and cannot queue. Use the HTTP client for promptless or queued creation.
+
+With `channel_id`, `run_request` follows turn 1 when the server creates a
+conversation, including fresh launches. When the server resumes a channel,
+it submits the prompt and images to that conversation and follows the next turn.

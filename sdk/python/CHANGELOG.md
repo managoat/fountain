@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.0
+
+- Add `run_request(request, *, timeout=None, collect_events=False)` for API-shaped launch inputs without per-field keyword mappings (#2229).
+
 ## 0.4.0
 
 ### Breaking changes

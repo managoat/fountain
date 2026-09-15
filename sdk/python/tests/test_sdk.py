@@ -38,6 +38,7 @@ class State:
     def __init__(self) -> None:
         self.requests = []
         self.next_event = 1
+        self.resume_channel = False
         self.fail = None
         self.events = []
         self.cut_first_stream = False
@@ -55,32 +56,30 @@ class State:
         self.next_event += 1
         self.events.append(item)
 
-    def script_turn(self):
-        self.events = []
-        self.next_event = 1
+    def script_turn(self, turn_number=1):
         self.event(
             kind="stage",
             stream="stage",
             stage="turn",
             state="started",
-            data=json.dumps({"turn_number": 1, "turn_id": "turn-1"}),
+            data=json.dumps({"turn_number": turn_number, "turn_id": "turn-%s" % turn_number}),
         )
         self.event(
             kind="output",
             stream="acp",
-            turn_id="turn-1",
+            turn_id="turn-%s" % turn_number,
             blocks=[{"kind": "tool_use", "name": "Read"}],
         )
         self.event(
             kind="output",
             stream="acp",
-            turn_id="turn-1",
+            turn_id="turn-%s" % turn_number,
             blocks=[{"kind": "text", "body": "Found "}],
         )
         self.event(
             kind="output",
             stream="acp",
-            turn_id="turn-1",
+            turn_id="turn-%s" % turn_number,
             blocks=[{"kind": "text", "body": "it."}],
         )
         self.event(
@@ -89,7 +88,7 @@ class State:
             stage="turn",
             state="done",
             data=json.dumps(
-                {"turn_number": 1, "turn_id": "turn-1", "stop_reason": "end_turn"}
+                {"turn_number": turn_number, "turn_id": "turn-%s" % turn_number, "stop_reason": "end_turn"}
             ),
         )
 
@@ -218,10 +217,19 @@ class Handler(BaseHTTPRequestHandler):
         if not proceed:
             return
         if parsed.path == "/api/conversations":
+            if body.get("channel_id") and self.state.resume_channel and not body.get("fresh"):
+                return self._json(200, {
+                    "data": {"id": "c-1", "status": "ready", "turn_count": 1},
+                    "meta": {"resumed": True},
+                })
+            self.state.events = []
             self.state.script_turn()
             return self._json(
                 201, {"data": {"id": "c-1", "status": "running", "turn_count": 1}}
             )
+        if parsed.path == "/api/conversations/c-1/prompts":
+            self.state.script_turn(2)
+            return self._json(200, {"status": "queued"})
         if parsed.path == "/api/conversations/c-1/reapply":
             return self._json(200, {"data": {"id": "c-1", **(body or {})}})
         return self._json(404, {"error": "not_found"})
@@ -367,6 +375,62 @@ class TurnTests(unittest.TestCase):
 
 
 class ClientTests(unittest.TestCase):
+    def test_run_request_preserves_wire_fields_and_separates_local_options(self):
+        with FakeFountain() as fake:
+            client = Fountain(base_url=fake.base_url, api_key="fk_test")
+            body = {
+                "agent_id": AGENT_ID, "prompt": "find it", "title": "",
+                "vault_id": None, "images": [], "fresh": False, "queue": False,
+                "labels": {"attempt": "0"}, "permission_policy": {"ask_timeout": 0},
+                "sandbox_api_access": "none",
+            }
+            result = client.run_request(body, timeout=1, collect_events=True).result()
+            self.assertEqual(result.text, "Found it.")
+            create = next(r for r in fake.state.requests if r[:2] == ("POST", "/api/conversations"))
+            self.assertEqual(create[3], body)
+            self.assertNotIn("environment_id", create[3])
+            self.assertFalse(any(r[1] == "/api/agents" for r in fake.state.requests))
+
+    def test_run_request_refuses_unsupported_lifecycles_before_http(self):
+        with FakeFountain() as fake:
+            client = Fountain(base_url=fake.base_url, api_key="fk_test")
+            for prompt in (None, "", "  "):
+                with self.assertRaisesRegex(ValueError, "non-empty prompt"):
+                    client.run_request({"agent_id": AGENT_ID, "prompt": prompt})
+            with self.assertRaisesRegex(ValueError, "queued"):
+                client.run_request({"agent_id": AGENT_ID, "prompt": "hi", "queue": True})
+            self.assertEqual(fake.state.requests, [])
+
+    def test_run_request_follows_initial_turn_for_new_and_fresh_channels(self):
+        for fresh in (False, True):
+            with self.subTest(fresh=fresh), FakeFountain() as fake:
+                fake.state.resume_channel = fresh
+                client = Fountain(base_url=fake.base_url, api_key="fk_test")
+                result = client.run_request({
+                    "agent_id": AGENT_ID, "prompt": "hi", "channel_id": "raw", "fresh": fresh,
+                }, timeout=1).result()
+                self.assertEqual(result.turn_number, 1)
+                self.assertEqual(result.text, "Found it.")
+                self.assertFalse(any(r[1].endswith("/prompts") for r in fake.state.requests))
+
+    def test_run_request_submits_prompt_and_images_to_resumed_channel(self):
+        with FakeFountain() as fake:
+            fake.state.resume_channel = True
+            fake.state.script_turn()
+            client = Fountain(base_url=fake.base_url, api_key="fk_test")
+            images = [{"data": "aGVsbG8=", "media_type": "image/png"}]
+            result = client.run_request({
+                "agent_id": AGENT_ID, "prompt": "next", "channel_id": "raw", "images": images,
+            }, timeout=1, collect_events=True).result()
+            self.assertEqual(result.conversation_id, "c-1")
+            self.assertEqual(result.turn_number, 2)
+            self.assertEqual(result.text, "Found it.")
+            prompts = [r for r in fake.state.requests if r[1].endswith("/prompts")]
+            self.assertEqual(len(prompts), 1)
+            self.assertEqual(prompts[0][3], {"prompt": "next", "images": images})
+            history = next(r for r in fake.state.requests if r[1].endswith("/turns"))
+            self.assertLess(fake.state.requests.index(history), fake.state.requests.index(prompts[0]))
+
     def test_run_sends_explicit_sandbox_api_access_and_omits_the_default(self):
         for access in (None, "none", "owner"):
             with self.subTest(access=access), FakeFountain() as fake:

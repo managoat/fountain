@@ -1,6 +1,6 @@
 """The public Fountain client."""
 
-from typing import Any, Dict, Iterator, List, Optional, Union, cast
+from typing import Any, Dict, Iterator, List, Mapping, Optional, Union, cast
 
 from .config import ResolvedConfig, resolve_config
 from .conversation import Conversation
@@ -80,6 +80,44 @@ class Fountain:
                 self._next_turn_number(str(conversation["id"])) if channel_id else 1
             )
             return conversation, turn_number, 0
+
+        return Run(self.api, plan, timeout=timeout, collect_events=collect_events)
+
+    def run_request(
+        self,
+        request: Mapping[str, Any],
+        *,
+        timeout: Optional[float] = None,
+        collect_events: bool = False,
+    ) -> Run:
+        """Run an API-shaped launch using IDs and separate local options.
+
+        Values pass through unchanged. Use ``request`` for promptless or
+        queued creation, which cannot be followed by an immediate Run.
+        """
+        body = dict(request)
+        prompt = body.get("prompt")
+        if not isinstance(prompt, str) or not prompt.strip():
+            raise ValueError("run_request requires a non-empty prompt; use request for promptless creation")
+        if body.get("queue") is not None and body["queue"] is not False:
+            raise ValueError("run_request does not support queued creation; use request")
+
+        def plan() -> Any:
+            response = self.api.request("POST", "/api/conversations", body=body)
+            conversation = response["data"]
+            if response.get("meta", {}).get("resumed") is True:
+                # Resume binds the channel without submitting its prompt. Read
+                # history before sending so a fast next turn cannot be skipped.
+                conversation_id = str(conversation["id"])
+                after = self.resume(conversation_id).cursor()
+                turn_number = self._next_turn_number(conversation_id)
+                prompt_body = {key: body[key] for key in ("prompt", "images") if key in body}
+                self.api.request(
+                    "POST", "/api/conversations/%s/prompts" % conversation_id,
+                    body=prompt_body,
+                )
+                return conversation, turn_number, after
+            return conversation, 1, 0
 
         return Run(self.api, plan, timeout=timeout, collect_events=collect_events)
 

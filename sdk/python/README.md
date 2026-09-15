@@ -191,3 +191,26 @@ release containing the credit-only server contract (`c3349343`).
 `insufficient_credits` and a generic HTTP 402 identify the credit gate.
 `subscription_required` has no special mapping; it follows the HTTP status.
 The response still exposes its original code and purchase URL.
+
+### API-shaped launches
+
+```python
+result = client.run_request({
+    "agent_id": agent_id,
+    "prompt": "Review the repository",
+    "labels": {"source": "nightly"},
+    "sandbox_api_access": "none",
+}, timeout=120, collect_events=True).result()
+```
+
+`run_request` forwards the mapping's API names and IDs directly. Explicit
+`None`, `False`, zero and empty values survive; absent keys remain absent.
+Timeout and event collection are local keyword arguments, outside the request.
+This path never resolves names or merges legacy `run` keywords; existing
+`run(prompt, agent=...)` calls retain their behavior. A non-empty prompt is
+required and queued starts are refused before HTTP. Use `client.request` for
+promptless or queued conversation creation.
+
+With `channel_id`, `run_request` follows turn 1 when the server creates a
+conversation, including fresh launches. When the server resumes a channel,
+it submits the prompt and images to that conversation and follows the next turn.

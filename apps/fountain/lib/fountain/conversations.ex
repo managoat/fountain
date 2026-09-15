@@ -3213,16 +3213,15 @@ defmodule Fountain.Conversations do
   end
 
   # An override replaces the reviewed environment wholesale, so it is scoped
-  # the same way as a vault: nil = any tenant environment, [] = none, a
-  # non-empty list is an allowlist. Default nil is deliberate — a caller who
-  # can attach a vault can already override every key, so a stricter default
-  # here would guard nothing (#783). Naming the agent's own environment is not
-  # an override, so it passes regardless of the list.
-  defp check_environment_allowed(_id, %Agents.Agent{allowed_environment_ids: nil}), do: :ok
-  defp check_environment_allowed(id, %Agents.Agent{environment_id: id}), do: :ok
-
-  defp check_environment_allowed(id, %Agents.Agent{allowed_environment_ids: allowed}) do
-    if id in allowed, do: :ok, else: {:error, :environment_not_allowed}
+  # the same way as a vault: use the persisted policy, which also passes the
+  # agent's own environment because naming it is not an override. An
+  # unrestricted default is deliberate — a caller who can attach a vault can
+  # already override every key, so a stricter default here would guard
+  # nothing (#783). resolve_environment_id enforces tenant ownership after.
+  defp check_environment_allowed(id, %Agents.Agent{} = agent) do
+    if Agents.Agent.environment_allowed?(agent, id),
+      do: :ok,
+      else: {:error, :environment_not_allowed}
   end
 
   # Public for `Fountain.Conversations.Launch` (stage 7a of #2175), which

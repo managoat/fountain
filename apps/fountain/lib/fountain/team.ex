@@ -264,27 +264,22 @@ defmodule Fountain.Team do
   time: `%{environments: [%Environment{}], vaults: [%Vault{}]}`.
 
   Both lists are the user's own, narrowed by the agent's policies the way
-  `start_conversation/2` will enforce them. The agent's own environment is always offered — naming it is not an
-  override — and is what a blank pick means.
+  `start_conversation/2` will enforce them. The agent's own environment is
+  always offered — naming it is not an override — and is what a blank pick
+  means.
   """
   def addable_options(user_id, %Agents.Agent{} = agent) when is_binary(user_id) do
     %{
       environments:
         user_id
         |> Fountain.Environments.list_environments()
-        |> Enum.filter(
-          &environment_allowed?(&1.id, agent.allowed_environment_ids, agent.environment_id)
-        ),
+        |> Enum.filter(&Agents.Agent.environment_allowed?(agent, &1.id)),
       vaults:
         user_id
         |> Fountain.Vaults.list_vaults()
         |> Enum.filter(&Agents.Agent.vault_allowed?(agent, &1.id))
     }
   end
-
-  defp environment_allowed?(_id, nil, _own), do: true
-  defp environment_allowed?(id, _allowed, id), do: true
-  defp environment_allowed?(id, allowed, _own), do: id in allowed
 
   @doc """
   Remove `agent_id` from the team.

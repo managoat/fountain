@@ -573,6 +573,30 @@ defmodule Fountain.TeamTest do
       assert %{vaults: []} = Team.addable_options(user.id, %{agent | allowed_vault_ids: []})
     end
 
+    test "unrestricted policy includes future environments but never another tenant's" do
+      user = insert_verified_user()
+      own = insert_env(user_id: user.id, name: "own")
+      agent = insert_agent(user_id: user.id, environment_id: own.id)
+      future = insert_env(user_id: user.id, name: "future")
+      foreign = insert_env(user_id: insert_verified_user().id, name: "foreign")
+
+      assert %{environments: envs} = Team.addable_options(user.id, agent)
+      assert envs |> Enum.map(& &1.name) |> Enum.sort() == ["future", "own"]
+
+      assert {:ok, finite} =
+               Agents.update_agent(agent, %{
+                 "allowed_environment_ids" => [future.id, foreign.id]
+               })
+
+      assert %{environments: envs} = Team.addable_options(user.id, finite)
+      assert envs |> Enum.map(& &1.name) |> Enum.sort() == ["future", "own"]
+
+      # The agent's own environment survives a deny-all policy; nothing else does.
+      assert {:ok, closed} = Agents.update_agent(agent, %{"allowed_environment_ids" => []})
+      assert %{environments: envs} = Team.addable_options(user.id, closed)
+      assert Enum.map(envs, & &1.name) == ["own"]
+    end
+
     test "the user's environments and vaults, narrowed by the agent's allowlists" do
       user = insert_verified_user()
       own = insert_env(user_id: user.id, name: "own")

@@ -49,10 +49,12 @@ defmodule Fountain.Agents.Agent do
     field :allowed_vault_ids, {:array, :binary_id}
     field :vault_access, :string, read_after_writes: true, writable: :never
     # Environments a conversation may launch this agent under instead of its
-    # own (#783). Same shape: nil = any tenant environment, [] = none,
-    # non-empty = allowlist. An override *replaces* the reviewed environment
-    # wholesale, so it is scoped the same way a vault override is.
+    # own (#783). An override *replaces* the reviewed environment wholesale,
+    # so it is scoped the same way a vault override is — including the
+    # compatibility input: nil = all current/future tenant environments,
+    # [] = none. PostgreSQL derives the explicit authorization mode.
     field :allowed_environment_ids, {:array, :binary_id}
+    field :environment_access, :string, read_after_writes: true, writable: :never
     # Credential sets a conversation may launch this agent on instead of the
     # agent's (ADR 0053 decision 3). Same shape again: nil = any set the
     # tenant owns, [] = none, non-empty = allowlist. Naming a set changes
@@ -107,6 +109,47 @@ defmodule Fountain.Agents.Agent do
       do: vault_id in ids
 
   def vault_allowed?(_agent, _vault_id), do: false
+
+  @doc """
+  Whether a persisted agent's explicit policy permits an environment ID.
+
+  Naming the agent's own environment is not an override, so it passes whatever
+  the policy says. Otherwise the same rules as `vault_allowed?/2`: policy only,
+  callers must still scope the environment lookup to the tenant, and unknown or
+  unsaved policies and inconsistent in-memory edits fail closed.
+  """
+  def environment_allowed?(agent, environment_id)
+
+  def environment_allowed?(
+        %__MODULE__{__meta__: %{state: :loaded}, environment_id: id},
+        id
+      )
+      when is_binary(id),
+      do: true
+
+  def environment_allowed?(
+        %__MODULE__{
+          __meta__: %{state: :loaded},
+          environment_access: "all_tenant_environments",
+          allowed_environment_ids: nil
+        },
+        environment_id
+      )
+      when is_binary(environment_id),
+      do: true
+
+  def environment_allowed?(
+        %__MODULE__{
+          __meta__: %{state: :loaded},
+          environment_access: "allowlist",
+          allowed_environment_ids: ids
+        },
+        environment_id
+      )
+      when is_list(ids) and is_binary(environment_id),
+      do: environment_id in ids
+
+  def environment_allowed?(_agent, _environment_id), do: false
 
   @doc "Every runtime that can appear in persisted data, including the opt-in test fixture."
   def known_runtimes, do: @runtimes ++ ["fountain-fixture"]

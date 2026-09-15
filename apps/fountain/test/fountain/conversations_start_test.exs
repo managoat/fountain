@@ -666,6 +666,28 @@ defmodule Fountain.ConversationsStartTest do
       end
     end
 
+    test "a foreign environment is refused even when explicitly allowlisted", ctx do
+      foreign = insert_env(user_id: insert_active_user().id)
+      {:ok, agent} = Agents.update_agent(ctx.agent, %{allowed_environment_ids: [foreign.id]})
+
+      attrs = %{"agent_id" => agent.id, "user_id" => ctx.user.id, "environment_id" => foreign.id}
+      assert {:error, :environment_not_found} = Launch.start_conversation(attrs)
+    end
+
+    test "an unrestricted policy reaches an environment created after the agent", ctx do
+      future = insert_env(user_id: ctx.user.id)
+      assert ctx.agent.environment_access == "all_tenant_environments"
+
+      attrs = %{
+        "agent_id" => ctx.agent.id,
+        "user_id" => ctx.user.id,
+        "environment_id" => future.id
+      }
+
+      assert {:ok, conv} = Launch.start_conversation(attrs)
+      assert conv.environment_id == future.id
+    end
+
     test "allowed_environment_ids: a listed environment passes, an unlisted one is refused",
          ctx do
       third = insert_env(user_id: ctx.user.id)

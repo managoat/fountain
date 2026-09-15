@@ -123,6 +123,24 @@ window for busy or large tables and verify the migration completes before
 rolling the application. If it exceeds these bounds, keep the existing server
 running and plan a separate migration approach for that database size.
 
+## Environment policy migration
+
+Migration `20260915220000` does the same for the per-launch environment
+allowlist: it adds generated `environment_access` columns to agents and saved
+agent versions. Existing clients keep sending `allowed_environment_ids`: `null`
+permits all current and future environments owned by the tenant, `[]` permits
+no override, and a non-empty list permits only those IDs within the tenant.
+Naming the agent's own environment is not an override, so it stays permitted
+under every policy. SDK payloads and saved configs keep their existing shape,
+and a historical version behaves the way the vault one does — no environment
+key leaves the current policy unchanged, an explicit `null` restores
+unrestricted access.
+
+Everything said above about running the vault migration applies here: run it
+before starting the new server code, both old and new servers can keep writing
+the existing field during the rollout, and the same lock and timeout bounds and
+maintenance-window advice hold.
+
 ## Principal credential expiry
 
 Every unrevoked key with `principal` scope must have an expiry. The database

@@ -84,6 +84,7 @@ RESOURCE_ROOTS = [
     'AdminEvent',
     'AuthMeResponse',
     'AdminUserListResponse',
+    'LogEvent',
 ]
 
 SCHEMA_PATHS = {
@@ -131,6 +132,9 @@ ENUM_TYPES.update({
     ('TeammatePresence', 'state'): 'PresenceState',
     ('TeammateLastTurn', 'status'): 'TurnStatus',
     ('AuthMeResponse', 'role'): 'UserRole',
+    ('LogEvent', 'kind'): 'EventKind',
+    ('LogEvent', 'state'): 'EventState',
+    ('LogEvent', 'stream'): 'LogStream',
     # An array's items are typed under `<key>_item`. Without this the same
     # wire field is `SandboxAPIAccess` on Conversation and `String` here.
     ('Catalog', 'sandbox_api_access_item'): 'SandboxAPIAccess',
@@ -158,6 +162,11 @@ TYPE_OVERRIDES = {
     ('AuditEvent', 'metadata'): 'JSONValue',
     ('ApplyResult', 'errors'): 'JSONValue',
     ('ApplySecretResult', 'errors'): 'JSONValue',
+    # Block stays handwritten (#2269): its `body` is a two-branch oneOf and it
+    # carries both additionalProperties and properties, which generation
+    # refuses by design. Naming the type here stops the walk entering that
+    # schema while `blocks` keeps its published element type.
+    ('LogEvent', 'blocks'): '[Block]',
 }
 
 OPTIONAL_COMPAT.update({
@@ -200,6 +209,11 @@ OPTIONAL_COMPAT.update({
     # both Optional since the SDK shipped.
     ('AuthMeResponse', 'email_verified'),
     ('AuthMeResponse', 'role'),
+    # The REST row carries both, and the SSE frame carries neither `id` (it is
+    # the frame's own `id:` line, not a JSON key) nor, on the team stream,
+    # `duration_ms`. One published LogEvent decodes both shapes.
+    ('LogEvent', 'id'),
+    ('LogEvent', 'ts'),
 })
 
 # Properties this SDK exposes for the first time, on types that already
@@ -229,6 +243,25 @@ OPTIONAL_COMPAT.update({
 # safe. `Catalog.first_request` is the shape of the argument and is pinned
 # anyway, because a partial `first_request` was never possible.
 REQUIRED_BY_CONTRACT = set()
+
+# Properties this SDK publishes that the contract does not describe, each with
+# the reason it exists. Not a place to register ordinary API additions —
+# properties come from the contract, and an entry here is a claim that the
+# server sends a field the contract does not document. The SSE frame is that
+# case: all three stream operations declare `text/event-stream` with a bare
+# string schema, so the frame shape is documented in prose only. A ceiling test
+# holds the count, so a third entry means editing the number in the same diff.
+EXTRA_PROPERTIES = {
+    ('LogEvent', 'conversation_id'): (
+        {'type': 'string', 'required': False},
+        "The team and events streams carry the log events of more than one "
+        "conversation, so each frame names its own (events_controller.ex, "
+        "team_controller.ex). The REST row never carries it."),
+    ('LogEvent', 'agent_id'): (
+        {'type': 'string', 'required': False},
+        "The team stream alone adds it, mapping each event to the roster row "
+        "it belongs to (team_controller.ex)."),
+}
 
 INPUT_ORDERS = {
     'VaultUpdate': ['name', 'description', 'metadata'],
@@ -355,7 +388,7 @@ def unwrap(node):
 def camel(key):
     first, *rest = key.split("_")
     return first + "".join({"id": "ID", "ids": "IDs", "ip": "IP", "api": "API", "url": "URL",
-                            "uri": "URI", "uris": "URIs"}.get(p, p.title()) for p in rest)
+                            "uri": "URI", "uris": "URIs", "ms": "MS"}.get(p, p.title()) for p in rest)
 
 
 class Generator:
@@ -480,6 +513,9 @@ class Generator:
                         raise ValueError(f"Incompatible usage field: {key}")
                 else:
                     props[key] = dict(value, required=False)
+        for (extra_owner, key), (node, _) in EXTRA_PROPERTIES.items():
+            if extra_owner == owner:
+                props[key] = dict(node)
         fields = []
         for key, value in sorted(props.items()):
             if not self.baseline and (owner, key) in OPTIONAL_COMPAT:

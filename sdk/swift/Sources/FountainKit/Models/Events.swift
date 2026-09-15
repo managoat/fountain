@@ -1,36 +1,15 @@
 import Foundation
 
-/// One row of a conversation's log feed. `id` is a global monotonic integer:
-/// the pagination cursor on `/events` and the `Last-Event-ID` on the streams.
-public struct LogEvent: Sendable, Decodable, Identifiable, Hashable {
-  public var id: Int?
-  public var kind: EventKind
-  /// `stdout`/`stderr`/`acp` for output events; empty for stage events.
-  public var stream: LogStream?
-  /// Raw output text, or JSON-encoded metadata for stage events.
-  public var data: String?
-  /// Stage events: `provision`, `setup`, `turn`, `reattach`, `sandbox`,
-  /// `terminate`, or the synthetic `server`.
-  public var stage: String?
-  public var state: EventState?
-  public var durationMS: Int?
-  public var turnID: String?
-  public var ts: Date?
-  /// Only present with `?blocks=true` (absent, not null, without it).
-  public var blocks: [Block]?
-  /// Team/events streams only.
-  public var conversationID: String?
-  public var agentID: String?
-
-  enum CodingKeys: String, CodingKey {
-    case id, kind, stream, data, stage, state, ts, blocks
-    case durationMS = "duration_ms"
-    case turnID = "turn_id"
-    case conversationID = "conversation_id"
-    case agentID = "agent_id"
-  }
-
+/// `LogEvent` itself is generated from the contract. Two of its properties are
+/// not in the contract and come from the generator's `EXTRA_PROPERTIES`: the
+/// team and events streams add `conversation_id`, and the team stream adds
+/// `agent_id`. The three SSE operations declare `text/event-stream` with a bare
+/// string schema, so the frame shape is documented in prose rather than typed.
+extension LogEvent {
   /// Decoded stage metadata (the `data` field of a stage event is JSON).
+  ///
+  /// Computed, which is why it survives here: a Swift extension can add a
+  /// computed property to a generated type but never a stored one.
   public var stageData: JSONValue? {
     guard kind == .stage, let data, let bytes = data.data(using: .utf8) else { return nil }
     return try? JSONDecoder().decode(JSONValue.self, from: bytes)

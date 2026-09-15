@@ -358,6 +358,59 @@ class SwiftGeneration(unittest.TestCase):
                 with mock.patch.dict(swiftgen.ENUM_TYPES, {("Agent", "probe_kinds_item"): "Runtime"}):
                     self.assertIn("public var probeKinds: [Runtime]?", swiftgen.Generator(contract).render())
 
+    def test_the_undescribed_property_table_has_not_grown(self):
+        # The ratchet, the same shape as SchemaGuardAllowlist's ceiling in
+        # apps/fountain: the table may shrink freely, and growing it means
+        # editing this number in the same diff, so a reviewer sees it move.
+        # Every entry is a claim that the server sends a field the contract
+        # does not document, which is true of the SSE frame and should stay
+        # rare.
+        ceiling = 2
+        self.assertLessEqual(len(swiftgen.EXTRA_PROPERTIES), ceiling)
+        for (owner, key), (node, reason) in swiftgen.EXTRA_PROPERTIES.items():
+            with self.subTest(owner=owner, key=key):
+                self.assertTrue(reason.strip(), "every entry has to say why it exists")
+                self.assertIn("type", node)
+                # If the contract describes it, the entry is duplication now:
+                # the ordinary path would generate the property from the
+                # schema, and two sources for one field is the whole problem.
+                schema = self.contract["schemas"]
+                for segment in swiftgen.SCHEMA_PATHS.get(owner, [owner]):
+                    schema = schema[segment]
+                self.assertNotIn(
+                    key, schema.get("properties", {}),
+                    f"the contract now describes {owner}.{key}; delete the entry")
+
+    def test_undescribed_properties_reach_the_output(self):
+        # Scoped to the one struct: `conversation_id` is a real contract
+        # property on several other models, so a whole-file search would pass
+        # whether or not the table did anything.
+        def log_event(output):
+            body = output.split("public struct LogEvent:", 1)[1]
+            return body.split("\n}", 1)[0]
+
+        generated = log_event(swiftgen.Generator(copy.deepcopy(self.contract)).render())
+        self.assertIn('case conversationID = "conversation_id"', generated)
+        self.assertIn('case agentID = "agent_id"', generated)
+        # Optional because no shape always carries them: the REST row carries
+        # neither, and only the team stream carries agent_id.
+        self.assertIn("public var conversationID: String?", generated)
+        self.assertIn("public var agentID: String?", generated)
+        with mock.patch.object(swiftgen, "EXTRA_PROPERTIES", {}):
+            bare = log_event(swiftgen.Generator(copy.deepcopy(self.contract)).render())
+        self.assertNotIn("conversationID", bare)
+        self.assertNotIn("agentID", bare)
+
+    def test_the_published_duration_spelling_is_preserved(self):
+        # `duration_ms` published as `durationMS`, so `ms` joins the acronym
+        # map. Nothing generated ended in `Ms` before this, so no property is
+        # renamed by it — a rename is a source break neither guard can see,
+        # because both are keyed by the property name.
+        self.assertEqual(swiftgen.camel("duration_ms"), "durationMS")
+        output = swiftgen.Generator(copy.deepcopy(self.contract)).render()
+        self.assertIn("public var durationMS: Int?", output)
+        self.assertNotIn("durationMs", output)
+
     def test_generation_is_deterministic(self):
         self.assertEqual(swiftgen.Generator(self.contract).render(), swiftgen.Generator(self.contract).render())
 

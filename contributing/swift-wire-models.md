@@ -16,7 +16,10 @@ The generator reads the committed contract and does not require Elixir to run.
 | AuthMe | Generated. `role` and `email_verified` are pinned: the contract requires both and every published AuthMe had them Optional. `onboardingState` is retired, not pinned — #1393 dropped the column, so no server emits the key |
 | AdminUserPage | Decodes the generated `AdminUserListResponse` and its `Meta`; keeps `users` and the computed `hasMore`, and declares no wire keys of its own |
 | ConversationBindingUpdate / ConversationReapplyRequest | Intentionally handwritten: three states are behaviour a generated `Optional` cannot express, since "leave it alone" and "remove it" are different requests. `reapplyRequestSendsEveryFieldTheContractAccepts` derives the field list from the contract, so a property added to the request fails a test rather than being silently unsendable |
-| LogEvent, Block, PermissionOption, PermissionRequest | Remaining migration #2269: inventory raw/normalized differences and preserve custom decoding and stream/permission behavior |
+| LogEvent | Generated. `id` and `ts` are pinned because one published model decodes two shapes: the REST row carries both, the SSE frame carries no `id` at all (it is the frame's `id:` line). `conversation_id` and `agent_id` come from `EXTRA_PROPERTIES`, and `stageData` stays an extension because a Swift extension can add a computed property but never a stored one |
+| Block | Intentionally handwritten. Its `body` is a two-branch `oneOf` (a string, or the plan array) that feeds two published properties, and it is one of the contract's two nodes carrying both `additionalProperties` and `properties` — both of which generation refuses by design (#2277). It also keeps an open-shaped `extra` catch-all no schema records |
+| PermissionOption | Intentionally handwritten. The contract has no schema for it: `Block.options` items are open objects, so generation would retype it `[[String: JSONValue]]`. It also accepts both `optionId` and `option_id`, which nothing in the contract records |
+| PermissionRequest | Intentionally handwritten, and not a wire model: it is derived from a `Block` through `init?(block:)` and never decoded |
 | JSONValue, ConversationInputField and WireValue / enum wrappers | Intentionally handwritten value/behavior types; their raw-string decoding preserves unknown server values |
 | Swift Fountain map product | Uses JSON objects rather than duplicated typed wire properties; remains supported |
 | PageMeta (`Client/APIClient.swift`), APIErrorBody (`Errors/FountainError.swift`), TeamResource request bodies | Contract-shaped but handwritten outside `Models/`; unmigrated and outside #2269's four seams |
@@ -118,6 +121,26 @@ cannot reach the generator the check exists to stop. The both-shaped case is why
 `networking_config` entries exist, and the array case is why
 `Catalog.sandbox_api_access` types as `[SandboxAPIAccess]` beside the scalar
 `Conversation.sandbox_api_access`.
+
+Neither rule catches a property *disappearing*: they compare optionality, so a
+generated model that stops declaring a property is accepted. `PublicSurfaceTests`
+covers that, and it is the one test file that imports `FountainKit` without
+`@testable` — every other file in the target compiles against internals, so
+nothing else was compiling against the public API alone. Emptying
+`EXTRA_PROPERTIES` generates cleanly and fails that file to compile, which is
+the check working.
+
+`EXTRA_PROPERTIES` is the third table and the smallest: two properties this
+SDK publishes that the contract does not describe. Both are SSE-frame fields —
+the team and events streams add `conversation_id`, the team stream adds
+`agent_id` — and the frame has no schema to read them from, because all three
+stream operations declare `text/event-stream` with a bare string schema. An
+entry is a claim that the server sends a field the contract does not document,
+so a ceiling test holds the count at two the way `SchemaGuardAllowlist` holds
+its own, and a test fails an entry whose key the contract has since described:
+at that point the ordinary path generates it and the entry is duplication.
+Describing the frame properly would retire both entries and is the better fix
+when someone wants it.
 
 The 19 `TYPE_OVERRIDES` entries retain existing `JSONValue` APIs for
 deliberately dynamic payloads: metadata, packages, networking config,

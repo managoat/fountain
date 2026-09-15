@@ -1291,6 +1291,36 @@ public struct AdminUserListResponse: Sendable, Decodable, Hashable {
   }
 }
 
+public struct LogEvent: Sendable, Decodable, Hashable, Identifiable {
+  public var agentID: String?
+  public var blocks: [Block]?
+  public var conversationID: String?
+  public var data: String?
+  public var durationMS: Int?
+  public var id: Int?
+  public var kind: EventKind
+  public var stage: String?
+  public var state: EventState?
+  public var stream: LogStream?
+  public var ts: Date?
+  public var turnID: String?
+
+  enum CodingKeys: String, CodingKey {
+    case agentID = "agent_id"
+    case blocks = "blocks"
+    case conversationID = "conversation_id"
+    case data = "data"
+    case durationMS = "duration_ms"
+    case id = "id"
+    case kind = "kind"
+    case stage = "stage"
+    case state = "state"
+    case stream = "stream"
+    case ts = "ts"
+    case turnID = "turn_id"
+  }
+}
+
 public struct PendingPermissionRequest: Sendable, Decodable, Hashable {
   public var askedAt: Date?
   public var deadline: Date?

@@ -115,8 +115,14 @@ defmodule FountainWeb.StartLive do
     # default set holds. Under an explicit set the resolver refuses that
     # case as unusable rather than substituting the platform key, so a
     # launch would be refused too: the same answer for this banner.
+    #
+    # The agent's environment goes in as well, because admission passes it:
+    # a key in the environment shadows the set (a `:tenant_secret` source),
+    # and an agent whose set is empty still reaches a model through it. Ask
+    # without the environment and this page warns about a launch that works.
     case InferenceCredentials.resolve(user_id, agent.model, agent.runtime,
-           credential_set_id: agent.inference_credential_id
+           credential_set_id: agent.inference_credential_id,
+           environment_id: agent.environment_id
          ) do
       {:ok, %InferenceCredentials.Source{scope: :missing}, _} -> true
       {:error, :inference_credential_unusable} -> true

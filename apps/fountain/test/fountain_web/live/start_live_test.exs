@@ -101,6 +101,39 @@ defmodule FountainWeb.StartLiveTest do
 
       refute html =~ "no inference credential yet"
     end
+
+    # The banner asks the resolver the way admission does: the agent's set
+    # *and* its environment. An agent pointed at an empty set whose
+    # environment carries the key launches fine (the environment shadows the
+    # set), so the page must not warn. Asked with the set alone, the resolver
+    # refuses the empty explicit set as unusable and the banner appears for a
+    # working launch. `start_live_platform_banner_test.exs` covers the same
+    # shape with a platform key configured.
+    test "an agent whose set is empty but whose environment holds the key is not",
+         %{conn: conn, user: user} do
+      {:ok, dek} = Fountain.Crypto.load_tenant_key(user.id)
+      {:ok, set} = Fountain.InferenceCredentials.create_set(user.id, "Empty")
+      env = insert_env(user_id: user.id)
+
+      {:ok, _} =
+        Fountain.Environments.upsert_secret(
+          env,
+          %{"key" => "ANTHROPIC_API_KEY", "value" => "sk-ant-env-key-000000000000"},
+          dek
+        )
+
+      starter = Fountain.Agents.get_agent_by_name("starter", user.id)
+
+      {:ok, _} =
+        Fountain.Agents.update_agent(starter, %{
+          "inference_credential_id" => set.id,
+          "environment_id" => env.id
+        })
+
+      {:ok, _lv, html} = live(conn, ~p"/start")
+
+      refute html =~ "no inference credential yet"
+    end
   end
 
   describe "the request" do

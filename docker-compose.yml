@@ -36,7 +36,7 @@ services:
     # migrations applied at boot and downgrade unsupported — the exact
     # combination the versioning guide tells you never to run. Upgrade by
     # setting FOUNTAIN_IMAGE_TAG in .env (see .env.compose.example).
-    image: ghcr.io/managoat/fountain:${FOUNTAIN_IMAGE_TAG:-v0.17.1}
+    image: ghcr.io/managoat/fountain:${FOUNTAIN_IMAGE_TAG:-v0.18.0}
     # To run your own build instead of the published image, comment the line
     # above and uncomment this:
     #   build: .

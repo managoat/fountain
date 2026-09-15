@@ -34,7 +34,7 @@ primary_region = "iad"
   # `image` line and let Fly build the Dockerfile in this checkout. The build
   # compiles the umbrella, the Go CLI and fetches the pinned Buzz binaries, so
   # prefer the image unless you have changes to run.
-  image = "ghcr.io/managoat/fountain:v0.17.1"
+  image = "ghcr.io/managoat/fountain:v0.18.0"
 
 # Migrations run at boot, inside the app's own start sequence, and the
 # endpoint does not listen until they finish. There is deliberately no

@@ -20,6 +20,191 @@ Changes that have merged but not yet shipped are the files under
 [`changelog.d/`](https://github.com/managoat/fountain/tree/main/changelog.d);
 the release PR rolls them into a dated section here.
 
+## [0.18.0] - 2026-09-15
+
+### Upgrade notes
+
+- **The compatibility dialects are gone; native conversations are the only
+  API** (ADR 0057, #2252). Five paths are retired: `POST /v1/chat/completions`,
+  `GET /v1/models`, `GET /v1/models/{model}`, `POST /api/agui/{agent_id}` and
+  `POST /api/mcp/caller/{conversation_id}`. Before you upgrade, check whether
+  anything still calls one — a stock OpenAI client, an AG-UI front end, a
+  gateway pointed at `/v1`, or a sandbox answering request-defined tools. Each
+  now gets the ordinary unmatched-path answer, not a dialect error: `/v1` is
+  404 for every request, and `/api/agui/…` is 404 for an authenticated JSON
+  caller, 401 without a key and 406 for the `Accept: text/event-stream` an
+  AG-UI client sends, so a caller that only checks for a 404 will read the
+  other two as something else. Port it to conversations
+  (`POST /api/conversations`, then `/prompt`, `/events` and `/stream`) or to an
+  SDK over them; the four integration pages are migration pages at the same
+  URLs and each says what has no replacement:
+  [OpenAI-compatible](https://managoat.com/docs/integrations/openai-compatible),
+  [OpenBot/AG-UI](https://managoat.com/docs/integrations/openbot),
+  [LangChain](https://managoat.com/docs/integrations/langchain) and
+  [AI gateways](https://managoat.com/docs/integrations/gateways). Native
+  conversations, the SDKs over them, and OpenAI and Codex *inference*,
+  credentials and runtimes are all unchanged.
+
+- **Drop `openai_compat` from `FEATURE_FLAGS_ON`** (#2252). The flag no longer
+  exists; the variable itself is unchanged and still documented. Remove that
+  one entry and keep the rest — `connections` in particular still decides the
+  Connections creation rollout wherever PostHog is configured — and unset the
+  variable only if the list it leaves behind is empty.
+
+- **A client that sends `caller_tools` on conversation create or attach must
+  stop** (#2252). The field is gone with the bridge that read it, and the
+  `conversation.caller_tool.started` / `.done` webhook events are no longer
+  emitted. Nothing to do about stored webhook subscriptions: both names stay
+  valid filters, and no subscription is rewritten, widened or dropped. Tools
+  **configured on an agent** that call a client application are unaffected.
+  The `conversations.caller_tools` column is kept in this release and dropped
+  separately once the deployment floor advances (#2273), so this release
+  carries no data migration and rolling back to v0.17.1 restores the retired
+  surfaces intact.
+
+- **Swift SDK callers: two source-breaking model changes** (#2269, #2277).
+  `AuthMe.onboardingState` is gone — read `onboardingCompleted` instead — and
+  `Catalog.sandboxAPIAccess` is now `[SandboxAPIAccess]?` rather than
+  `[String]?`, so comparing an element to a bare `String` no longer compiles,
+  although a string literal still does. Both decode unchanged from any server.
+  TypeScript SDK 6.0.0 is the matching release there.
+
+### Added
+
+- Swift SDK: `AdminUserListResponse` and its nested `Meta` are generated from
+  the contract, so the `/api/admin/users` page-number envelope has one typed
+  definition (#2269).
+
+### Changed
+
+- Generate Swift agent, environment/vault, connection, team, account/catalog/apply and admin resource models from the contract while preserving existing public names, dynamic JSON APIs and nullable request semantics. Properties these models expose for the first time decode as optional, so a response from an older server still decodes (#2251).
+
+- Generate Swift Sandbox, Runner and conversation-tree wire models from the contract while retaining existing nested names and optional-property compatibility (#2251).
+
+- The integration pages for the OpenAI-compatible API, OpenBot/AG-UI,
+  LangChain and AI gateways are now migration pages at the same URLs: each
+  says what a call gets today, what to use instead, and what has no
+  replacement. ADR 0035 is superseded by ADR 0057, and ADR 0057 records the
+  correction that the retirement answer is a plain 404 only on `/v1` — the
+  `/api` paths keep the 401 and 406 that authentication and content
+  negotiation produce before dispatch (#2252).
+
+- Swift SDK: `AdminUserPage` decodes that envelope rather than declaring the
+  `data` / `meta` / `page` / `per_page` / `total` keys a second time (#2269).
+  Its public surface is unchanged: `users`, `page`, `perPage`, `total` and the
+  computed `hasMore`.
+
+- Swift SDK: `AuthMe` is generated from the contract rather than handwritten
+  (#2269). Property names, types and optionality are unchanged, `role` and
+  `email_verified` stay `Optional` although the contract requires both, and the
+  model additionally conforms to `Identifiable`.
+
+- Swift SDK: `LogEvent` is generated from the contract rather than handwritten
+  (#2269). Property names, types and optionality are unchanged — including
+  `durationMS`, `conversationID` and `agentID` — and `stageData` is unchanged.
+  `Block`, `PermissionOption` and `PermissionRequest` stay handwritten by
+  design; `contributing/swift-wire-models.md` records why for each.
+
+- Swift SDK: `Catalog.sandboxAPIAccess` is now `[SandboxAPIAccess]?` rather
+  than `[String]?`, matching `Conversation.sandboxAPIAccess`, which was already
+  typed. Comparing an element to a bare `String` no longer compiles; a string
+  literal still does, because `SandboxAPIAccess` is `ExpressibleByStringLiteral`
+  (#2277).
+
+### Removed
+
+- **Breaking.** The request-defined tool bridge is retired with the dialects
+  that fed it (ADR 0057, #2252): `POST /api/mcp/caller/{conversation_id}`,
+  the `caller_tools` field on conversation create and attach, the parked-call
+  state a turn carried, and the `conversation.caller_tool.started` /
+  `conversation.caller_tool.done` webhook events. Tools **configured on an
+  agent** that call a client application are unaffected — their MCP
+  configuration, `${VAR}` substitution, connection-backed servers and
+  callback-key scoping all work exactly as before, and a regression suite now
+  pins that. `conversation.caller_tool.started` and `.done` stay **valid
+  webhook filters** although nothing emits them any more: every endpoint
+  update re-validates the whole `event_types` array, so retiring the
+  vocabulary outright would refuse to save an endpoint that still named one
+  the next time its owner changed the URL. Stored subscriptions are left
+  exactly as their owners wrote them — nothing is rewritten, widened or
+  dropped on their behalf — which also keeps this release rollback-safe. The
+  `conversations.caller_tools` column is kept for now and dropped separately
+  (#2273) (#2252).
+
+- The runnable examples for the retired compatibility dialects:
+  `examples/openai-chat`, `examples/litellm-gateway` and
+  `examples/deepagents-contractor`. All three called endpoints that no longer
+  exist, and none has a native port: the first two existed to show that a
+  stock OpenAI client or gateway needed no code, and the third wrapped the
+  dialect as a LangChain `ChatOpenAI` model. `docs/integrations/langchain.md`
+  says plainly which capability ended rather than implying a migration
+  (ADR 0057, #2252).
+
+- **Breaking.** The OpenAI-compatible gateway (`POST /v1/chat/completions`,
+  `GET /v1/models`, `GET /v1/models/{model}`) and the AG-UI run endpoint
+  (`POST /api/agui/{agent_id}`) are retired (ADR 0057, #2252). A client that
+  still calls one gets the ordinary unmatched-path answer rather than a
+  dialect error: `/v1` is 404 for every request, and `/api/agui/…` is 404 for
+  an authenticated JSON caller, 401 without a key, and 406 for the
+  `Accept: text/event-stream` an AG-UI client sends. Their four operations and
+  five schemas leave the OpenAPI contract. Native conversations — creation,
+  prompts, `/events`, `/stream`, permissions and the SDKs over them — are
+  unchanged, as are OpenAI and Codex inference, credentials and runtimes,
+  which share nothing with the retired dialects but the vendor's name. A
+  conversation that still carries request-defined tools from the old bridge no
+  longer offers them to its agent, and `POST /api/mcp/caller/{conversation_id}`
+  — the endpoint a sandbox called to use them — is retired with them, so all
+  five retired paths answer as above (#2252).
+
+- The `openai_compat` feature flag, which gated the retired OpenAI-compatible
+  API (ADR 0057, #2252). `FEATURE_FLAGS_ON` itself is unchanged and still
+  documented. A deployment that listed `openai_compat` there removes that one
+  entry and keeps the rest: `connections` in particular still decides the
+  Connections creation rollout wherever PostHog is configured, so unset the
+  variable only if the list it leaves behind is empty. Without PostHog,
+  `connections` reads on by itself and no shipped feature needs a key here
+  (#2252).
+
+- **Swift SDK: `AuthMe.onboardingState` is gone** (#2269), finishing #1393 in
+  the last client that still carried it. The server dropped
+  `users.onboarding_state` in v0.16.0 (ADR 0038, settling NC-6 from ADR 0007)
+  and the TypeScript SDK dropped the field in its 1.17.0, so this property has
+  decoded `nil` from every reachable server for two releases. Read
+  `onboardingCompleted` instead; there is no replacement for a part-way step,
+  because the server no longer records one. A server old enough to still send
+  `onboarding_state` decodes fine — the key is simply ignored.
+
+### Fixed
+
+- Interrupting a conversation whose server is dead and whose sandbox is dead
+  or stranded (gone, never provisioned, or stuck `pending`/`starting` with
+  no server ever turning up) now reconciles the orphaned turn instead of
+  provisioning a fresh sandbox; the call answers `not_running` rather than
+  spinning up a machine and then timing out to `provisioning` (#2175).
+
+- Swift SDK: three generator shapes that retyped a field in silence now fail
+  generation and ask for an explicit decision — an inline object whose
+  synthesized name collides with a real contract schema (the field used to take
+  the unrelated schema's type), a node declaring both `additionalProperties` and
+  `properties` (the declared properties used to be discarded for
+  `[String: JSONValue]`), and an array of enum strings with no item type named
+  (it used to lose the typing its scalar sibling kept). None was reachable on
+  the current contract; each is now a generation-time error with a test (#2277).
+
+- Swift SDK: generation now refuses a property that a server older than the
+  change could not decode — one required here that the last release could leave
+  out, or one that release published as `Optional` — unless it is pinned
+  optional or recorded as a field no deployed server omits. Both baselines are
+  read from the last release tag, so a change cannot regenerate the output and
+  offer its own result as the baseline, and the decode side is read from that
+  release's contract rather than its Swift models, since a shape the SDK did
+  not expose is still one the server could return. The rule was written down but
+  applied by hand, and the only thing catching a miss was whether some test
+  happened to decode that type from a payload lacking the key; `Teammate`, the
+  return of four public `TeamResource` methods, had no such test, so a required
+  addition there would have broken every response from an older server whole
+  with every gate green (#2284).
+
 ## [0.17.1] - 2026-09-15
 
 ### Added

@@ -10,11 +10,19 @@ Foundation: [ADR 0056](../decisions/0056-conversation-request-inputs.md).
 | `docs/snippets/first-request.ts`, `Fountain.Onboarding`, start page | Server already has the selected agent ID; SDK follows the first turn | Use `runRequest` with `agent_id`; catalog and CLI share the same snippet |
 | CLI first-request renderer | Reads the catalog; substitutes selected ID and raw key | Already supports the ID placeholder; test both current and older name-based catalog snippets |
 | FountainKit README examples | Caller already has an agent ID; SDK owns following | Use generated `ConversationCreateRequest` and `runRequest`; state tagged-release availability |
-| TypeScript/Python/Elixir README examples | Many intentionally start from resource names | Keep name conveniences documented; direct IDs and complete field coverage go to the prominently linked request API |
+| TypeScript/Python/Elixir README examples | Many intentionally start from resource names | Keep name conveniences documented; direct IDs and complete field coverage use the existing API-shaped launch sections linked below |
 | Hermes `FountainTools._run` | User tool accepts names; plugin owns polling, turn tracking and wait=false | Resolve names and translate tool arguments once, then pass an API-shaped map through the internal client. Preserve the tool schema and polling behavior |
 | `examples/deepagents-contractor` | LangChain-compatible wrapper over the OpenAI-compatible endpoint; its `run` is not the native SDK helper | Retain until protocol retirement [#2252](https://github.com/managoat/fountain/issues/2252) provides its migration |
 | SDK conformance/tests | Exercise supported public conveniences and behavior | Keep independent coverage; do not mechanically migrate tests away from the compatibility API they verify |
 | CLI `run` and agent-manifest examples | User-facing name/flag conveniences and CLI-owned following | Retain the public CLI path; `conv create --file` is the complete API-shaped creation path |
+
+For resource IDs or full API-field coverage, use the existing request APIs:
+[TypeScript `runRequest`](../sdk/typescript/README.md#api-shaped-launches),
+[Python `run_request`](../sdk/python/README.md#api-shaped-launches), and
+[Elixir `run_request`](../sdk/elixir/README.md#api-shaped-launches).
+Local run options stay outside API-shaped request bodies. These packaged README
+sections already shipped with the foundation; this caller migration leaves
+those packages unchanged.
 
 No public SDK helper is removed by caller migration. The remaining name-based
 examples are evidence that those conveniences still serve a purpose. Their

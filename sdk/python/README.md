@@ -1,9 +1,5 @@
 # fountain-agent-sdk
 
-
-For raw resource IDs or full API-field coverage, use [`run_request`](#api-shaped-launches).
-`run` remains the convenience path for resource names. Local run options stay
-outside API-shaped request bodies.
 Give an agent a computer, your repositories, and your credentials in one call.
 
 ```python

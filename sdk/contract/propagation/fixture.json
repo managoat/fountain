@@ -10,8 +10,8 @@
         "type": "object",
         "required": false,
         "properties": {
-          "label": {"type": "string", "required": false},
-          "omitted": {"type": "boolean", "required": false}
+          "label": {"type": "string", "required": false, "nullable": true},
+          "omitted": {"type": "boolean", "required": false, "nullable": true}
         }
       },
       "selected": {"ref": "FutureOption", "required": false},
@@ -30,10 +30,10 @@
     "permission_policy": {"ask_timeout": 0},
     "future_options": {
       "enabled": false,
-      "nested": {"label": ""},
-      "selected": {"detail": {"enabled": false}},
+      "nested": {"label": null},
+      "selected": {"detail": {"enabled": null}},
       "items": [{"detail": {"enabled": true}}],
-      "by_name": {"first": {"detail": {"enabled": false}}}
+      "by_name": {"first": {"detail": {}}}
     }
   },
   "response": {
@@ -43,15 +43,21 @@
     "sandbox": null,
     "future_options": {
       "enabled": false,
-      "nested": {"label": ""},
-      "selected": {"detail": {"enabled": false}},
+      "nested": {"label": null},
+      "selected": {"detail": {"enabled": null}},
       "items": [{"detail": {"enabled": true}}],
-      "by_name": {"first": {"detail": {"enabled": false}}}
+      "by_name": {"first": {"detail": {}}}
     }
   },
   "schemas": {
     "FutureOption": {"type": "object", "properties": {"detail": {"ref": "FutureDetail", "required": false}}},
-    "FutureDetail": {"type": "object", "properties": {"enabled": {"type": "boolean", "required": false}}},
+    "FutureDetail": {
+      "type": "object",
+      "properties": {
+        "enabled": {"type": "boolean", "required": false, "nullable": true},
+        "omitted": {"type": "boolean", "required": false, "nullable": true}
+      }
+    },
     "FutureListOption": {"type": "object", "properties": {"detail": {"ref": "FutureDetail", "required": false}}},
     "FutureMapOption": {"type": "object", "properties": {"detail": {"ref": "FutureDetail", "required": false}}}
   }

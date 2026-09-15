@@ -4,4 +4,4 @@
 
 ### Fixed
 
-- Generate encoding support and public initializers for nested and referenced Swift conversation input models, including array and dictionary elements (#2241).
+- Generate encoding support and public initializers for nested and referenced Swift conversation input models, including array and dictionary elements; preserve omission, explicit null and values inside nullable child inputs and shared response models (#2241).

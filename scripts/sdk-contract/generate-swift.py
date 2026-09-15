@@ -108,6 +108,10 @@ class Generator:
         request = owner == "ConversationCreateRequest"
         encodable = owner in self.encodable
         decodable = owner not in {"ConversationCreateRequest", "ImageInput"}
+        nullable = [f for f in fields if f[3].get("nullable")]
+        # Keep Optional source APIs, but retain a separate null state anywhere
+        # a generated input accepts null, including shared response models.
+        input_fields = encodable and (request or bool(nullable))
         props = {key: value for key, _, _, value in fields}
         if decodable:
             conform = "Sendable, Codable, Hashable" if encodable else "Sendable, Decodable, Hashable"
@@ -118,7 +122,7 @@ class Generator:
         lines = [f"public struct {name}: {conform} {{"]
         for key, swift, typ, value in fields:
             optional = not value.get("required", False) or value.get("nullable", False)
-            if request and optional:
+            if input_fields and optional:
                 lines += [f"  private var _{swift}: ConversationInputField<{typ}> = .omitted",
                           f"  public var {swift}: {typ}? {{",
                           f"    get {{ _{swift}.value }}",
@@ -151,8 +155,7 @@ class Generator:
         lines += ["", "  enum CodingKeys: String, CodingKey {"]
         lines += [f'    case {swift} = "{key}"' for key, swift, _, _ in fields]
         lines += ["  }"]
-        if request:
-            nullable = [f for f in fields if f[3].get("nullable")]
+        if input_fields:
             lines += ["", "  /// Fields for which the API accepts an explicit JSON null.", "  public enum NullableField: Sendable {"]
             lines += [f"    case {swift}" for _, swift, _, _ in nullable]
             lines += ["  }", "", "  /// Send null. Assigning the property nil again restores omission.", "  public mutating func setNull(_ field: NullableField) {", "    switch field {"]
@@ -164,6 +167,15 @@ class Generator:
                 else:
                     lines += [f"    try container.encode({swift}, forKey: .{swift})"]
             lines += ["  }"]
+            if decodable:
+                lines += ["", "  public init(from decoder: any Decoder) throws {",
+                          "    let container = try decoder.container(keyedBy: CodingKeys.self)"]
+                for _, swift, typ, value in fields:
+                    if not value.get("required", False) or value.get("nullable", False):
+                        lines += [f"    _{swift} = try ConversationInputField.decode(from: container, forKey: .{swift})"]
+                    else:
+                        lines += [f"    {swift} = try container.decode({typ}.self, forKey: .{swift})"]
+                lines += ["  }"]
         return "\n".join(lines + ["}", ""])
 
     def render(self):

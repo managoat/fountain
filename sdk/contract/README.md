@@ -221,7 +221,9 @@ Swift products. Each language job runs its own `--client` check in CI.
 `propagation/fixture.json` declares a synthetic optional object `future_options`
 with nested objects, shared schema references, arrays and dictionaries, plus
 false/null/empty/zero values. Request-reachable generated models must be
-encodable and publicly constructible; shared response models must still decode.
+encodable and publicly constructible. Nullable input children distinguish
+omission, explicit null via `setNull`, and values; shared response models retain
+those states when decoded and re-encoded, along with Hashable conformance.
 A loopback server records and compares each request exactly, then deliberately
 returns 422 to stop the SDK run at creation.
 A GET proves map responses preserve the new field; the CLI prints a created

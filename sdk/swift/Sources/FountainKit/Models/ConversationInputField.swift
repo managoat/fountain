@@ -21,6 +21,19 @@ enum ConversationInputField<Value: Encodable & Sendable>: Sendable {
   }
 }
 
+extension ConversationInputField: Equatable where Value: Equatable {}
+extension ConversationInputField: Hashable where Value: Hashable {}
+
+extension ConversationInputField where Value: Decodable {
+  static func decode<Key: CodingKey>(
+    from container: KeyedDecodingContainer<Key>, forKey key: Key
+  ) throws -> Self {
+    guard container.contains(key) else { return .omitted }
+    if try container.decodeNil(forKey: key) { return .null }
+    return .value(try container.decode(Value.self, forKey: key))
+  }
+}
+
 /// A request cannot be followed as a run (blank prompt or queued creation).
 public struct ConversationRunInputError: Error, Sendable {
   public let message: String

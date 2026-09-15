@@ -7,9 +7,10 @@ defmodule Fountain.Conversations.Launch do
   Stage 7a of #2175 (one owner per conversation lifecycle verb) gave this
   module the channel door. Stage 7b added the fresh `start_conversation/2`
   family — the reservation, the admission inference resolve and the one
-  Horde `child_spec/3` builder every launch path now shares. `attach_conversation`
-  stays in `Fountain.Conversations` until stage 7c; `Conversations` keeps a
-  delegate for every public name here, so no caller moves.
+  Horde `child_spec/3` builder every launch path now shares. Stage 7c moved
+  the attach arm in behind it: `attach_conversation/3` and its two checks,
+  `check_attachable/4` and `check_attach_capacity/3`. `Conversations` still
+  keeps a delegate for every public name here, so no caller moves.
   """
 
   import Ecto.Query
@@ -71,7 +72,7 @@ defmodule Fountain.Conversations.Launch do
   # resolved the same way; only the sandbox step differs.
   def start_conversation(%{"sandbox_id" => sandbox_id} = attrs, opts)
       when is_binary(sandbox_id) and sandbox_id != "" do
-    Conversations.attach_conversation(sandbox_id, attrs, opts)
+    attach_conversation(sandbox_id, attrs, opts)
   end
 
   def start_conversation(%{"agent_id" => agent_id, "user_id" => user_id} = attrs, opts)
@@ -228,7 +229,7 @@ defmodule Fountain.Conversations.Launch do
 
       # The identity already has a home: this launch is a conversation on it.
       {:home, %Sandbox{} = home} ->
-        Conversations.attach_conversation(home.id, attrs, opts)
+        attach_conversation(home.id, attrs, opts)
 
       # Two persistent launches of one identity raced to create its home and
       # this one lost at the unique index. The winner's row is the home now;
@@ -248,7 +249,7 @@ defmodule Fountain.Conversations.Launch do
                    env_id || agent.environment_id,
                    vault_id
                  ) do
-            Conversations.attach_conversation(home.id, attrs, opts)
+            attach_conversation(home.id, attrs, opts)
           else
             _ -> err
           end
@@ -259,6 +260,269 @@ defmodule Fountain.Conversations.Launch do
       {:error, _} = err ->
         err
     end
+  end
+
+  # A conversation on a machine the caller already has (ADR 0023 gate 3).
+  #
+  # The launch is resolved exactly as a fresh one — agent, vault, environment,
+  # permission policy, parent, the account and billing gates — and then the
+  # sandbox is fetched tenant-scoped and checked instead of created: it must
+  # be `ready` or `suspended`, it must have been built for the same agent,
+  # environment and vault, and the runtime that shaped its disk must be the
+  # agent's runtime still. No quota reservation: nothing new is provisioned,
+  # and waking a `suspended` machine goes through the quota gate on the first
+  # prompt as every wake does. The conversation is opened `idle` with no
+  # server; a prompt supplied here is delivered through the ordinary wake
+  # path, so a `ready` machine reattaches and a `suspended` one resumes, and
+  # if that delivery is refused the row is removed again so a refused request
+  # creates nothing.
+  # `start_conversation/2`'s `sandbox_id` clause above, and its `{:home, _}`
+  # branches, are the only callers, so stage 7c of #2175 moved this in from
+  # `Fountain.Conversations`, where it was already `@doc false` and not part
+  # of that module's public surface.
+  defp attach_conversation(
+         sandbox_id,
+         %{"agent_id" => agent_id, "user_id" => user_id} = attrs,
+         opts
+       )
+       when is_binary(user_id) do
+    with :ok <- Conversations.require_provider_commit_boundary(),
+         :ok <- Fountain.Conversations.PromptInput.validate_initial(attrs),
+         %Agents.Agent{} = agent <- Agents.get_agent(agent_id, user_id) || {:error, :not_found},
+         :ok <- Conversations.check_execution_limits(user_id, attrs["execution_limits"]),
+         {:ok, _runtime_module} <- Fountain.RuntimeDispatch.for_agent(agent),
+         {:ok, vault_id} <- Conversations.resolve_vault_id(attrs["vault_id"], user_id, agent),
+         {:ok, env_id} <-
+           Conversations.resolve_environment_id(attrs["environment_id"], user_id, agent),
+         {:ok, cred_set_id} <-
+           Conversations.resolve_inference_credential_id(
+             attrs["inference_credential_id"],
+             user_id,
+             agent
+           ),
+         {:ok, perm_policy} <-
+           Conversations.resolve_permission_policy(attrs["permission_policy"], agent),
+         {:ok, parent_id} <-
+           Conversations.resolve_parent_id(attrs["parent_conversation_id"], user_id),
+         :ok <- Fountain.Accounts.check_not_suspended(user_id),
+         :ok <- Fountain.Billing.check_spend(user_id),
+         {:ok, inference_source} <-
+           resolve_admission_inference(user_id, agent, env_id, vault_id, cred_set_id),
+         %Sandbox{} = sandbox <-
+           Conversations.get_sandbox(sandbox_id, user_id) || {:error, :sandbox_not_found},
+         :ok <- check_sandbox_api_attach(sandbox, attrs["sandbox_api_access"]),
+         :ok <- check_attachable(sandbox, agent, vault_id, env_id),
+         :ok <- check_attach_capacity(sandbox, agent, attrs["prompt"]),
+         {:ok, conv} <-
+           create_attached_conversation(
+             %{
+               sandbox_id: sandbox.id,
+               agent_id: agent.id,
+               # Ownership: agent came from the scoped get_agent above.
+               agent_version_id: Agents._unsafe_current_version_id(agent.id),
+               vault_id: vault_id,
+               environment_id: env_id,
+               inference_credential_id: inference_source.set_id,
+               inference_source: Source.dump(inference_source),
+               user_id: user_id,
+               runtime: agent.runtime,
+               status: "idle",
+               source: attrs["source"] || "api",
+               parent_conversation_id: parent_id,
+               channel_id: attrs["channel_id"],
+               title: attrs["title"],
+               permission_policy: perm_policy,
+               # The bridge's tools (#1202) ride on both create paths: this
+               # one is what a home sandbox's second conversation takes.
+               caller_tools: attrs["caller_tools"] || [],
+               labels: attrs["labels"] || %{}
+             },
+             attrs["execution_limits"],
+             opts
+           ) do
+      Audit.record(%{
+        user_id: user_id,
+        action: "conversation.created",
+        resource_type: "conversation",
+        resource_id: conv.id,
+        actor: Keyword.get(opts, :actor, "self"),
+        request_ip: Keyword.get(opts, :request_ip),
+        metadata: %{
+          "agent_id" => agent.id,
+          "agent_name" => agent.name,
+          "source" => conv.source,
+          "with_prompt" => is_binary(attrs["prompt"]) and attrs["prompt"] != "",
+          "parent_conversation_id" => parent_id,
+          "sandbox_attached" => sandbox.id
+        }
+      })
+
+      Conversations.broadcast_sidebar_update(user_id)
+      deliver_attach_prompt(conv, attrs, opts)
+    else
+      nil -> {:error, :not_found}
+      {:error, _} = err -> err
+    end
+  end
+
+  # Commit policy with the new conversation, before analytics, audit or prompt
+  # delivery. Lock its owners and recheck ceilings after the early preflight.
+  defp create_attached_conversation(attrs, request, opts) do
+    result =
+      Repo.transaction(fn ->
+        :ok = InferenceCredentials.lock_source(attrs.user_id)
+        # Reservation re-reads the parent before the Codex sandbox row. Take
+        # the same machine lock before this path's earlier sandbox row lock.
+        Repo.query!("SELECT pg_advisory_xact_lock($1, $2)", [
+          @sandbox_lock_namespace,
+          :erlang.phash2(attrs.sandbox_id)
+        ])
+
+        # Deliberately unlocked. `users` is the row every credit posting takes
+        # `FOR UPDATE` (`Credits.insert_and_move/3` holds it across a ledger
+        # insert, lot consumption and the balance move), so locking it here
+        # would park admission behind an unrelated billing transaction. This
+        # read is an ownership recheck; the ceiling below is read the same way,
+        # and the insert's foreign keys are what actually enforce integrity.
+        Repo.one(
+          from u in Fountain.Accounts.User,
+            where: u.id == ^attrs.user_id,
+            select: u.id
+        ) || Repo.rollback(:not_found)
+
+        agent =
+          Repo.one(
+            from a in Agents.Agent,
+              where: a.id == ^attrs.agent_id and a.user_id == ^attrs.user_id,
+              lock: "FOR SHARE"
+          ) || Repo.rollback(:not_found)
+
+        case unbind_rotated_channel(attrs, opts) do
+          :ok -> :ok
+          {:error, reason} -> Repo.rollback(reason)
+        end
+
+        sandbox =
+          Repo.one(
+            from s in Sandbox,
+              where: s.id == ^attrs.sandbox_id and s.user_id == ^attrs.user_id,
+              lock: "FOR NO KEY UPDATE"
+          ) || Repo.rollback(:not_found)
+
+        with :ok <- check_attachable(sandbox, agent, attrs.vault_id, attrs.environment_id),
+             {:ok, limits} <- Conversations.resolve_admission_limits(attrs.user_id, request),
+             {:ok, conv} <- Conversations.insert_conversation_row(attrs),
+             :ok <- Conversations.reserve_inference(conv),
+             {:ok, allowance} <-
+               conv.id |> ExecutionAllowance.new_changeset(limits) |> Repo.insert() do
+          {conv, allowance}
+        else
+          {:error, reason} -> Repo.rollback(reason)
+        end
+      end)
+
+    with {:ok, {conv, allowance}} <- result do
+      Conversations.after_conversation_created(conv)
+      Conversations.record_execution_allowance_created(allowance, conv.user_id, opts)
+      {:ok, conv}
+    end
+  end
+
+  defp deliver_attach_prompt(conv, attrs, opts) do
+    prompt = attrs["prompt"]
+
+    if is_binary(prompt) and prompt != "" do
+      case ConversationServer.send_prompt(conv.id, prompt, attrs["images"] || [], opts) do
+        :ok ->
+          # ownership: conv is the row create_attached_conversation just
+          # inserted above, in this same attach.
+          {:ok, Conversations._unsafe_get_conversation!(conv.id)}
+
+        {:error, _} = err ->
+          # Nothing ran. Take the row back so a refused request created
+          # nothing, exactly like a refused fresh launch.
+          restore_rotated_channel(conv, opts)
+          _ = Repo.delete(conv)
+          Conversations.broadcast_sidebar_update(conv.user_id)
+          err
+      end
+    else
+      # ownership: conv is the row create_attached_conversation just
+      # inserted above, in this same attach.
+      {:ok, Conversations._unsafe_get_conversation!(conv.id)}
+    end
+  end
+
+  defp check_sandbox_api_attach(sandbox, access) do
+    # A fresh none launch must never inherit another conversation's credential,
+    # and attaching an owner conversation must not inject one into its machine.
+    has_none =
+      Repo.exists?(
+        from(c in Conversation,
+          where: c.sandbox_id == ^sandbox.id and c.sandbox_api_access == "none"
+        )
+      )
+
+    if access in [nil, "owner"] and not has_none,
+      do: :ok,
+      else: {:error, :invalid_sandbox_api_access}
+  end
+
+  defp check_attachable(%Sandbox{reset_requested_at: at}, _agent, _vault_id, _env_id)
+       when not is_nil(at),
+       do: {:error, :sandbox_reset_pending}
+
+  defp check_attachable(%Sandbox{status: status}, _agent, _vault_id, _env_id)
+       when status not in ["ready", "suspended"],
+       do: {:error, {:sandbox_not_attachable, status}}
+
+  defp check_attachable(%Sandbox{} = sandbox, %Agents.Agent{} = agent, vault_id, env_id) do
+    cond do
+      sandbox.agent_id != agent.id ->
+        {:error, :sandbox_identity_mismatch}
+
+      sandbox.vault_id != vault_id ->
+        {:error, :sandbox_identity_mismatch}
+
+      sandbox.environment_id != (env_id || agent.environment_id) ->
+        {:error, :sandbox_identity_mismatch}
+
+      # The disk was shaped by the runtime that first ran on it; an agent
+      # whose runtime changed since gets a new machine, not this one.
+      _unsafe_sandbox_runtime(sandbox.id) not in [nil, agent.runtime] ->
+        {:error, :sandbox_runtime_mismatch}
+
+      true ->
+        :ok
+    end
+  end
+
+  # With a prompt, the attach is a turn start too, so the capacity rule of
+  # step 4 applies at the door; without one, the later prompt is gated by
+  # `ConversationServer` as any prompt is.
+  defp check_attach_capacity(%Sandbox{} = sandbox, %Agents.Agent{runtime: runtime}, prompt)
+       when is_binary(prompt) and prompt != "" do
+    capacity = Fountain.RuntimeDispatch.concurrency(runtime)
+
+    # ownership: sandbox is the row attach_conversation's scoped get_sandbox
+    # fetched, or create_attached_conversation's own tenant-scoped
+    # FOR NO KEY UPDATE re-read.
+    if Conversations._unsafe_sandbox_at_capacity?(sandbox.id, nil, capacity),
+      do: {:error, :sandbox_at_capacity},
+      else: :ok
+  end
+
+  defp check_attach_capacity(_sandbox, _agent, _prompt), do: :ok
+
+  @doc "The runtime of the newest conversation on `sandbox_id`, or nil when it has none."
+  def _unsafe_sandbox_runtime(sandbox_id) when is_binary(sandbox_id) do
+    Repo.one(
+      from c in Conversation,
+        where: c.sandbox_id == ^sandbox_id,
+        order_by: [desc: c.inserted_at, desc: c.id],
+        limit: 1,
+        select: c.runtime
+    )
   end
 
   # Tenant row waits happen here, before the fleet lock, and the reservation
@@ -413,9 +677,11 @@ defmodule Fountain.Conversations.Launch do
 
   @doc """
   What admission resolves the launch's inference to: the requested or
-  default credential set, gated by platform inference. Public for
-  `Fountain.Conversations.attach_conversation/3`, which resolves the same way
-  (stage 7b of #2175); not a request-facing entry point.
+  default credential set, gated by platform inference. Shared by both
+  `start_conversation/2` clauses — the fresh path above and
+  `attach_conversation/3` below, which resolves the same way (stage 7c of
+  #2175 moved the second caller in beside the first); not a request-facing
+  entry point.
   """
   def resolve_admission_inference(user_id, agent, env_id, vault_id, set_id) do
     with {:ok, source, _credentials} <-
@@ -594,8 +860,9 @@ defmodule Fountain.Conversations.Launch do
   # Inside admission's transaction, before the attachment's sandbox row lock.
   # Keep the selected conversation stable while replacing its binding; reject
   # a competing rotation that has already moved it.
-  # Public for `Fountain.Conversations`, whose admission and
-  # `fail_initial_start` call it until stages 7b/7c of #2175 move them here.
+  # Public: `reserve_initial_conversation/4` and `create_attached_conversation/3`
+  # both call it, now that stage 7c of #2175 moved the last outside caller
+  # (`Fountain.Conversations`' attach) in here too.
   def unbind_rotated_channel(attrs, opts) do
     case Keyword.get(opts, :rotate_from) do
       nil ->
@@ -618,8 +885,9 @@ defmodule Fountain.Conversations.Launch do
   # Worker startup and attachment prompt delivery run after admission commits.
   # Restore only while this replacement still owns the binding; a later
   # rotation must win over this failure. Keep the old -> new row lock order.
-  # Public for `Fountain.Conversations`, whose admission and
-  # `fail_initial_start` call it until stages 7b/7c of #2175 move them here.
+  # Public: `fail_initial_start/2` and `deliver_attach_prompt/3` both call
+  # it, now that stage 7c of #2175 moved the last outside caller
+  # (`Fountain.Conversations`' attach) in here too.
   def restore_rotated_channel(conv, opts) do
     case Keyword.get(opts, :rotate_from) do
       nil -> :ok

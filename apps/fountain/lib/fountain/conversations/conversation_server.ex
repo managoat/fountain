@@ -22,7 +22,7 @@ defmodule Fountain.Conversations.ConversationServer do
 
   alias Fountain.Conversations.{BoundedTurn, CallbackKey, Checkpoints, Connection}
   alias Fountain.Conversations.{Conversation, DetachedRequest, Egress}
-  alias Fountain.Conversations.{Lifecycle, MachineEvents, McpServers, Output}
+  alias Fountain.Conversations.{Interruption, Lifecycle, MachineEvents, McpServers, Output}
   alias Fountain.Conversations.{Pending, Provisioning, ProvisionWatchdog, Reapply}
   alias Fountain.Conversations.{Reattachment, Redaction, SpriteEnv, Termination, TurnLaunch}
   alias Fountain.Conversations.TurnMachine
@@ -171,42 +171,12 @@ defmodule Fountain.Conversations.ConversationServer do
   end
 
   @doc """
-  Interrupt the turn in flight, if any.
-
-  A miss on the registry does not mean there is nothing to interrupt, and
-  `Conversations.wake_for_interrupt/1` owns what a miss means: it wakes a
-  conversation the row still calls `running`, and separates "no such
-  conversation" (`:not_found`) from "nothing to interrupt" (`:not_running`).
+  Interrupt the turn in flight, if any; see
+  `Fountain.Conversations.Interruption.interrupt/2`. The client half lives
+  there since #2213; this delegate keeps every caller
+  (`conversation_controller.ex`) and Mimic pin on `ConversationServer` valid.
   """
-  def interrupt(conv_id, opts \\ []) do
-    # ownership: public callers established the conversation's tenant before
-    # this boundary. Bounded cancellation commits before any actor/provider I/O.
-    result =
-      case Fountain.Conversations.ExecutionGuard._unsafe_interrupt(conv_id) do
-        {:ok, {:bounded, id}} ->
-          if pid = whereis(conv_id), do: send(pid, {:execution_retired, id})
-          :ok
-
-        {:ok, :unbounded} ->
-          case whereis(conv_id) do
-            nil -> interrupt_dead(conv_id)
-            pid -> call_server(pid, :interrupt)
-          end
-
-        {:error, _} = error ->
-          error
-      end
-
-    Termination.audit_lifecycle(conv_id, "conversation.interrupted", result, opts)
-    result
-  end
-
-  defp interrupt_dead(conv_id) do
-    case Conversations.wake_for_interrupt(conv_id) do
-      {:ok, pid} -> call_server(pid, :interrupt)
-      {:error, _} = err -> err
-    end
-  end
+  defdelegate interrupt(conv_id, opts \\ []), to: Interruption
 
   @doc """
   Answer an outstanding permission request (#940).
@@ -505,7 +475,7 @@ defmodule Fountain.Conversations.ConversationServer do
     else
       # ownership: this newly started actor fetched its parent above. A journal
       # left by another incarnation is retired, never reattached or replayed.
-      case Fountain.Conversations.ExecutionGuard._unsafe_interrupt(conv.id) do
+      case Fountain.Conversations.Interruption.retire_journal_before_reattach(conv.id) do
         {:ok, :unbounded} -> provision_with_rows(state, conv, sandbox)
         {:ok, {:bounded, _}} -> {:stop, :normal, state}
         {:error, _} -> {:stop, :normal, state}

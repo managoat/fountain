@@ -26,10 +26,21 @@ fences a machine forever; an operator can also reap a stuck row from
 `/admin/sandboxes` (#1768).
 Host/account policy and typed-limit admission are built: the admission campaign
 (#1787-#1793) shipped them on `main` before this ADR, and `turns.limit_reason`
-publishes a bounded outcome. The request side of the public limit surface,
-command transport, deadline scheduling, remaining lifecycle surfaces, SDK pins
-and production acceptance remain unbuilt. No API or scheduler activates bounded
-turns yet.
+publishes a bounded outcome.
+The journal is on every lifecycle verb's path: `Fountain.Conversations.Interruption`
+and `Fountain.Conversations.Termination` are the only two modules outside
+`ExecutionGuard` itself that call its interrupt and release-parent doors, so
+interrupt, terminate, release, delete and provision (the continue before a
+reattach) each retire the journal through one of those two owners (#2214). It
+is built gated off: `config/runtime.exs` derives the deadline worker's poll
+only from an operator-set `FOUNTAIN_EXECUTION_LIMITS`
+(`Fountain.Application.execution_deadline_children/0`), so a deployment that
+has not configured a host ceiling runs no poll and enforces no deadline. The
+request side of the public limit surface, SDK pins and production acceptance
+remain unbuilt; the command transport (`ExecutionTransport`) and the deadline
+scheduler (`ExecutionDeadlineWorker`) are built and idle until the ceiling is
+configured. No API or scheduler activates bounded turns yet; activation is
+the open decision, tracked in #1732.
 
 ## Context
 

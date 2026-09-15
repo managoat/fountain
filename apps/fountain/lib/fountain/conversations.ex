@@ -25,6 +25,8 @@ defmodule Fountain.Conversations do
 
   alias Fountain.Conversations.Reapply
   alias Fountain.Conversations.Wake
+  alias Fountain.Conversations.Interruption
+  alias Fountain.Conversations.Termination
   alias Fountain.Conversations.InferenceResolution
   alias Fountain.Conversations.{ExecutionAllowance, ExecutionGuard, ExecutionLimits}
   alias Fountain.Conversations.Lifecycle
@@ -1204,7 +1206,7 @@ defmodule Fountain.Conversations do
   @doc "Terminate the owned conversation only when no turn or remote execution remains open."
   def _unsafe_release_conversation(conversation_id, opts \\ []) do
     # ownership: the lifecycle client/actor received an already-owned conversation.
-    ExecutionGuard._unsafe_release_parent(
+    Termination.release_journal(
       conversation_id,
       fn current ->
         current |> Conversation.changeset(%{status: "terminated"}) |> Repo.update()
@@ -1308,7 +1310,7 @@ defmodule Fountain.Conversations do
   def delete_conversation(%Conversation{} = conv, opts \\ []) do
     # ownership: conv is the caller's tenant-scoped row. Persist cleanup before
     # any potentially blocking termination and before deleting that parent.
-    with {:ok, _} <- ExecutionGuard._unsafe_interrupt(conv.id) do
+    with {:ok, _} <- Interruption.retire_journal_before_reattach(conv.id) do
       delete_after_retirement(conv, opts)
     end
   end
@@ -1998,15 +2000,15 @@ defmodule Fountain.Conversations do
     end_running_turn(turn, sandbox_id, status, true, Map.new(Keyword.take(opts, [:exit_code])))
   end
 
-  @doc """
-  Mark an actor-owned turn interrupted while retaining the conversation's
-  status until the peer has stopped. Uses the same binding and terminal guards
-  as completion, with reply activation after commit.
-  """
-  def _unsafe_interrupt_turn(%Turn{} = turn, sandbox_id),
-    do: end_running_turn(turn, sandbox_id, "interrupted", false)
+  # Row write for the interrupted turn moved to `Fountain.Conversations.Interruption`
+  # in #2213 (one owner per lifecycle verb); this keeps the name every caller
+  # (`turn_machine.ex`, `interruption_admission_isolation_test.exs`) calls.
+  defdelegate _unsafe_interrupt_turn(turn, sandbox_id), to: Interruption
 
-  defp end_running_turn(turn, sandbox_id, status, idle?, attrs \\ %{}) do
+  # Door for `Fountain.Conversations.Interruption` (#2213), which shares this
+  # helper with `_unsafe_complete_turn/4` above and so cannot move with it.
+  @doc false
+  def end_running_turn(turn, sandbox_id, status, idle?, attrs \\ %{}) do
     # ownership: the actor supplied its original turn and sandbox binding.
     result =
       ExecutionGuard._unsafe_end_actor_turn(turn, sandbox_id, status, attrs, fn conv, ending ->
@@ -2047,86 +2049,10 @@ defmodule Fountain.Conversations do
     end
   end
 
-  @doc """
-  Release the conversation `TurnMachine.mark_interrupted/1` left running.
-
-  Caller requirement: call only from `TurnMachine.close_interrupted/1` after
-  its matching `mark_interrupted/1` successfully retired the turn. The public
-  `_unsafe_` helper does not enforce this requirement for another caller.
-
-  The binding check belongs to that successful mark: `_unsafe_interrupt_turn/2`
-  checks the actor's sandbox binding under the parent lock, and only success
-  sets `interrupted?`. `close_interrupted/1` calls this helper only when that
-  flag is true. Neither `from_state/1` nor `into_state/2` carries the flag, so
-  it cannot survive a mailbox round-trip. `ConversationServer.interrupt_turn/1`
-  runs both halves synchronously, separated only by `stop_acp_peer/1`, whose
-  `GenServer.stop/3` has a one-second timeout. The server's `sandbox_id` is set
-  at init and never changed. An actor already stale at the mark cannot reach
-  this write; a rebind after a successful mark can still reach it.
-
-  This half deliberately takes no `sandbox_id` and does not repeat the binding
-  check. It writes no turn result. Under the parent and turn locks, it requires
-  a `running` parent, an `interrupted` turn and `ExecutionGuard.latest_turn?/2`.
-  A successor admitted while the peer was stopping prevents the idle write;
-  an older turn left `running` does not. Admission inserts its turn and sets
-  the parent `running` in the same transaction under the same parent lock, so
-  it cannot slip between this check and the write.
-
-  Rechecking the binding here could leave the parent `running` after the
-  first half retired its last running turn. `AutonomousTurnReaper.sweep_stuck_turns/0`
-  selects running turns, and `ExecutionGuard._unsafe_recover_turn/3` returns
-  `:noop` for a retired turn, so those recovery paths cannot repair that state.
-  Other paths can idle the parent: `MachineEvents.gone/5` and the lifecycle's
-  park and reclaim paths do so when they run.
-
-  `follow_cotenants/2` sends `:machine_gone` before rebinding with `update_all`,
-  so a server that receives the cast has `gone/5`'s cleanup as a backstop.
-  `gone/5` ignores a notification naming another sandbox and
-  `_unsafe_finish_machine_gone/2` answers `:noop` for a moved conversation
-  (#2006), but its idle write is deliberately not conditioned on the binding,
-  so a parent left `running` with no running turn is still released. The
-  backstop this paragraph relies on therefore survives the rebind.
-  `MachineEvents.tell_cotenants/5` skips the cast when `ConversationServer.whereis/1` misses,
-  including a cross-pod registry miss, while the rebind still applies. The
-  parent can then remain `running` until another cleanup path runs.
-  `_unsafe_sandbox_busy_elsewhere?/4` reads co-tenant turns and `updated_at`
-  for conversations without turns, not the parent's status; a stuck parent
-  alone does not keep the shared sandbox busy or extend its billing lifetime.
-
-  This second half only releases the interrupted turn it marked. General
-  completion can separately release an already-ended latest turn without
-  changing its result or publishing another outcome.
-  """
-  def _unsafe_idle_interrupted_turn(%Turn{} = turn) do
-    {:ok, result} =
-      Repo.transaction(fn ->
-        conversation_query =
-          from(c in Conversation, where: c.id == ^turn.conversation_id, lock: "FOR UPDATE")
-
-        turn_query =
-          from(t in Turn,
-            where: t.id == ^turn.id and t.conversation_id == ^turn.conversation_id,
-            lock: "FOR UPDATE"
-          )
-
-        with %Conversation{status: "running"} = conv <- Repo.one(conversation_query),
-             %Turn{status: "interrupted"} <- Repo.one(turn_query),
-             true <- ExecutionGuard.latest_turn?(conv.id, turn.id) do
-          conv |> Conversation.changeset(%{status: "idle"}) |> Repo.update!()
-        else
-          _ -> :noop
-        end
-      end)
-
-    case result do
-      %Conversation{} = conv ->
-        broadcast_sidebar_update(conv.user_id)
-        :ok
-
-      :noop ->
-        :noop
-    end
-  end
+  # Row write for the interrupted turn's idle release moved to
+  # `Fountain.Conversations.Interruption` in #2213; this keeps the name
+  # `turn_machine.ex` calls.
+  defdelegate _unsafe_idle_interrupted_turn(turn), to: Interruption
 
   @doc """
   Finish an actor's machine-gone notification, and release a stranded parent.
@@ -2919,7 +2845,7 @@ defmodule Fountain.Conversations do
   def resolve_sandbox_api_access(_access, _mode), do: {:error, :invalid_sandbox_api_access}
 
   # ADR 0045's machine isolation is a claim about a machine, not about a row:
-  # a `none` conversation must be alone on a fresh one. `check_sandbox_api_attach/2`
+  # a `none` conversation must be alone on a fresh one. `Launch.check_sandbox_api_attach/2`
   # answers that by asking which conversations point at `sandbox.id`, so it can
   # only see machines Fountain knows it is sharing. A caller-supplied name can
   # name a machine that already exists — the provider adopts it rather than
@@ -2931,21 +2857,6 @@ defmodule Fountain.Conversations do
     do: {:error, :invalid_sandbox_api_access}
 
   def check_sandbox_api_name(_access, _name), do: :ok
-
-  defp check_sandbox_api_attach(sandbox, access) do
-    # A fresh none launch must never inherit another conversation's credential,
-    # and attaching an owner conversation must not inject one into its machine.
-    has_none =
-      Repo.exists?(
-        from(c in Conversation,
-          where: c.sandbox_id == ^sandbox.id and c.sandbox_api_access == "none"
-        )
-      )
-
-    if access in [nil, "owner"] and not has_none,
-      do: :ok,
-      else: {:error, :invalid_sandbox_api_access}
-  end
 
   # The launch's sandbox mode: the agent's default unless the launch names
   # one (ADR 0023). Not an allowlisted override like `environment_id` — the
@@ -3596,164 +3507,6 @@ defmodule Fountain.Conversations do
 
   defp reset_message(_owner), do: "The sandbox was reset by its owner. " <> @reset_tail
 
-  # A conversation on a machine the caller already has (ADR 0023 gate 3).
-  #
-  # The launch is resolved exactly as a fresh one — agent, vault, environment,
-  # permission policy, parent, the account and billing gates — and then the
-  # sandbox is fetched tenant-scoped and checked instead of created: it must
-  # be `ready` or `suspended`, it must have been built for the same agent,
-  # environment and vault, and the runtime that shaped its disk must be the
-  # agent's runtime still. No quota reservation: nothing new is provisioned,
-  # and waking a `suspended` machine goes through the quota gate on the first
-  # prompt as every wake does. The conversation is opened `idle` with no
-  # server; a prompt supplied here is delivered through the ordinary wake
-  # path, so a `ready` machine reattaches and a `suspended` one resumes, and
-  # if that delivery is refused the row is removed again so a refused request
-  # creates nothing.
-  # A door for `Fountain.Conversations.Launch` (#2217), whose fresh-start
-  # `start_conversation/2` clause calls it for the "sandbox_id" attach; not
-  # part of the context's public surface.
-  @doc false
-  def attach_conversation(
-        sandbox_id,
-        %{"agent_id" => agent_id, "user_id" => user_id} = attrs,
-        opts
-      )
-      when is_binary(user_id) do
-    with :ok <- require_provider_commit_boundary(),
-         :ok <- Fountain.Conversations.PromptInput.validate_initial(attrs),
-         %Agents.Agent{} = agent <- Agents.get_agent(agent_id, user_id) || {:error, :not_found},
-         :ok <- check_execution_limits(user_id, attrs["execution_limits"]),
-         {:ok, _runtime_module} <- Fountain.RuntimeDispatch.for_agent(agent),
-         {:ok, vault_id} <- resolve_vault_id(attrs["vault_id"], user_id, agent),
-         {:ok, env_id} <- resolve_environment_id(attrs["environment_id"], user_id, agent),
-         {:ok, cred_set_id} <-
-           resolve_inference_credential_id(attrs["inference_credential_id"], user_id, agent),
-         {:ok, perm_policy} <- resolve_permission_policy(attrs["permission_policy"], agent),
-         {:ok, parent_id} <- resolve_parent_id(attrs["parent_conversation_id"], user_id),
-         :ok <- Fountain.Accounts.check_not_suspended(user_id),
-         :ok <- Fountain.Billing.check_spend(user_id),
-         {:ok, inference_source} <-
-           Launch.resolve_admission_inference(user_id, agent, env_id, vault_id, cred_set_id),
-         %Sandbox{} = sandbox <- get_sandbox(sandbox_id, user_id) || {:error, :sandbox_not_found},
-         :ok <- check_sandbox_api_attach(sandbox, attrs["sandbox_api_access"]),
-         :ok <- check_attachable(sandbox, agent, vault_id, env_id),
-         :ok <- check_attach_capacity(sandbox, agent, attrs["prompt"]),
-         {:ok, conv} <-
-           create_attached_conversation(
-             %{
-               sandbox_id: sandbox.id,
-               agent_id: agent.id,
-               # Ownership: agent came from the scoped get_agent above.
-               agent_version_id: Agents._unsafe_current_version_id(agent.id),
-               vault_id: vault_id,
-               environment_id: env_id,
-               inference_credential_id: inference_source.set_id,
-               inference_source: Source.dump(inference_source),
-               user_id: user_id,
-               runtime: agent.runtime,
-               status: "idle",
-               source: attrs["source"] || "api",
-               parent_conversation_id: parent_id,
-               channel_id: attrs["channel_id"],
-               title: attrs["title"],
-               permission_policy: perm_policy,
-               # The bridge's tools (#1202) ride on both create paths: this
-               # one is what a home sandbox's second conversation takes.
-               caller_tools: attrs["caller_tools"] || [],
-               labels: attrs["labels"] || %{}
-             },
-             attrs["execution_limits"],
-             opts
-           ) do
-      Audit.record(%{
-        user_id: user_id,
-        action: "conversation.created",
-        resource_type: "conversation",
-        resource_id: conv.id,
-        actor: Keyword.get(opts, :actor, "self"),
-        request_ip: Keyword.get(opts, :request_ip),
-        metadata: %{
-          "agent_id" => agent.id,
-          "agent_name" => agent.name,
-          "source" => conv.source,
-          "with_prompt" => is_binary(attrs["prompt"]) and attrs["prompt"] != "",
-          "parent_conversation_id" => parent_id,
-          "sandbox_attached" => sandbox.id
-        }
-      })
-
-      broadcast_sidebar_update(user_id)
-      deliver_attach_prompt(conv, attrs, opts)
-    else
-      nil -> {:error, :not_found}
-      {:error, _} = err -> err
-    end
-  end
-
-  # Commit policy with the new conversation, before analytics, audit or prompt
-  # delivery. Lock its owners and recheck ceilings after the early preflight.
-  defp create_attached_conversation(attrs, request, opts) do
-    result =
-      Repo.transaction(fn ->
-        :ok = InferenceCredentials.lock_source(attrs.user_id)
-        # Reservation re-reads the parent before the Codex sandbox row. Take
-        # the same machine lock before this path's earlier sandbox row lock.
-        Repo.query!("SELECT pg_advisory_xact_lock($1, $2)", [
-          @sandbox_lock_namespace,
-          :erlang.phash2(attrs.sandbox_id)
-        ])
-
-        # Deliberately unlocked. `users` is the row every credit posting takes
-        # `FOR UPDATE` (`Credits.insert_and_move/3` holds it across a ledger
-        # insert, lot consumption and the balance move), so locking it here
-        # would park admission behind an unrelated billing transaction. This
-        # read is an ownership recheck; the ceiling below is read the same way,
-        # and the insert's foreign keys are what actually enforce integrity.
-        Repo.one(
-          from u in Fountain.Accounts.User,
-            where: u.id == ^attrs.user_id,
-            select: u.id
-        ) || Repo.rollback(:not_found)
-
-        agent =
-          Repo.one(
-            from a in Agents.Agent,
-              where: a.id == ^attrs.agent_id and a.user_id == ^attrs.user_id,
-              lock: "FOR SHARE"
-          ) || Repo.rollback(:not_found)
-
-        case Launch.unbind_rotated_channel(attrs, opts) do
-          :ok -> :ok
-          {:error, reason} -> Repo.rollback(reason)
-        end
-
-        sandbox =
-          Repo.one(
-            from s in Sandbox,
-              where: s.id == ^attrs.sandbox_id and s.user_id == ^attrs.user_id,
-              lock: "FOR NO KEY UPDATE"
-          ) || Repo.rollback(:not_found)
-
-        with :ok <- check_attachable(sandbox, agent, attrs.vault_id, attrs.environment_id),
-             {:ok, limits} <- resolve_admission_limits(attrs.user_id, request),
-             {:ok, conv} <- insert_conversation_row(attrs),
-             :ok <- reserve_inference(conv),
-             {:ok, allowance} <-
-               conv.id |> ExecutionAllowance.new_changeset(limits) |> Repo.insert() do
-          {conv, allowance}
-        else
-          {:error, reason} -> Repo.rollback(reason)
-        end
-      end)
-
-    with {:ok, {conv, allowance}} <- result do
-      after_conversation_created(conv)
-      record_execution_allowance_created(allowance, conv.user_id, opts)
-      {:ok, conv}
-    end
-  end
-
   # A nested transaction does not commit: workers and provider calls must not
   # escape a caller's transaction that can still roll back the accepted rows.
   # Public (door for `Fountain.Conversations.Wake`, #2211, and
@@ -3763,81 +3516,6 @@ defmodule Fountain.Conversations do
   @doc false
   def require_provider_commit_boundary do
     if Repo.in_transaction?(), do: {:error, :provider_transaction_open}, else: :ok
-  end
-
-  defp deliver_attach_prompt(conv, attrs, opts) do
-    prompt = attrs["prompt"]
-
-    if is_binary(prompt) and prompt != "" do
-      case ConversationServer.send_prompt(conv.id, prompt, attrs["images"] || [], opts) do
-        :ok ->
-          {:ok, _unsafe_get_conversation!(conv.id)}
-
-        {:error, _} = err ->
-          # Nothing ran. Take the row back so a refused request created
-          # nothing, exactly like a refused fresh launch.
-          Launch.restore_rotated_channel(conv, opts)
-          _ = Repo.delete(conv)
-          broadcast_sidebar_update(conv.user_id)
-          err
-      end
-    else
-      {:ok, _unsafe_get_conversation!(conv.id)}
-    end
-  end
-
-  defp check_attachable(%Sandbox{reset_requested_at: at}, _agent, _vault_id, _env_id)
-       when not is_nil(at),
-       do: {:error, :sandbox_reset_pending}
-
-  defp check_attachable(%Sandbox{status: status}, _agent, _vault_id, _env_id)
-       when status not in ["ready", "suspended"],
-       do: {:error, {:sandbox_not_attachable, status}}
-
-  defp check_attachable(%Sandbox{} = sandbox, %Agents.Agent{} = agent, vault_id, env_id) do
-    cond do
-      sandbox.agent_id != agent.id ->
-        {:error, :sandbox_identity_mismatch}
-
-      sandbox.vault_id != vault_id ->
-        {:error, :sandbox_identity_mismatch}
-
-      sandbox.environment_id != (env_id || agent.environment_id) ->
-        {:error, :sandbox_identity_mismatch}
-
-      # The disk was shaped by the runtime that first ran on it; an agent
-      # whose runtime changed since gets a new machine, not this one.
-      _unsafe_sandbox_runtime(sandbox.id) not in [nil, agent.runtime] ->
-        {:error, :sandbox_runtime_mismatch}
-
-      true ->
-        :ok
-    end
-  end
-
-  # With a prompt, the attach is a turn start too, so the capacity rule of
-  # step 4 applies at the door; without one, the later prompt is gated by
-  # `ConversationServer` as any prompt is.
-  defp check_attach_capacity(%Sandbox{} = sandbox, %Agents.Agent{runtime: runtime}, prompt)
-       when is_binary(prompt) and prompt != "" do
-    capacity = Fountain.RuntimeDispatch.concurrency(runtime)
-
-    if _unsafe_sandbox_at_capacity?(sandbox.id, nil, capacity),
-      do: {:error, :sandbox_at_capacity},
-      else: :ok
-  end
-
-  defp check_attach_capacity(_sandbox, _agent, _prompt), do: :ok
-
-  @doc "The runtime of the newest conversation on `sandbox_id`, or nil when it has none."
-  def _unsafe_sandbox_runtime(sandbox_id) when is_binary(sandbox_id) do
-    Repo.one(
-      from c in Conversation,
-        where: c.sandbox_id == ^sandbox_id,
-        order_by: [desc: c.inserted_at, desc: c.id],
-        limit: 1,
-        select: c.runtime
-    )
   end
 
   @doc "One of the caller's sandboxes, or nil. A foreign or malformed id reads as nil."
@@ -4578,43 +4256,11 @@ defmodule Fountain.Conversations do
   def wake_conversation(conv_id, initial_prompt \\ nil),
     do: Wake.wake_conversation(conv_id, initial_prompt)
 
-  @doc """
-  Reach a conversation whose `ConversationServer` is gone, so a caller can
-  interrupt the turn it left behind.
-
-  A missing server does not mean there is nothing to interrupt: the process
-  can have exited (deploy, Horde rebalance, a plain `{:stop, :normal, _}`)
-  while a turn was still marked `running`. Waking reattaches to a live sprite
-  session if one exists, or reconciles the orphaned turn itself when none
-  does. Only a row that says `running` is worth a wake — an idle, terminated
-  or unknown conversation has nothing running regardless, and must not pay
-  for one it does not need.
-
-  The two misses are different answers, and #1179 is what conflating them
-  looked like from a client. `:not_found` is no such conversation row.
-  `:not_running` is a row that exists in no state to be interrupted. Only the
-  first is a 404, because every caller establishes ownership before reaching
-  here, so answering "wrong id, or it belongs to another account" for a
-  conversation the same key can `GET` is a lie.
-  """
+  # The client half moved to `Fountain.Conversations.Interruption` in #2213
+  # (one owner per lifecycle verb); this keeps the name every caller
+  # (`conversation_server.ex`, `saved_allowance_wake_test.exs`) calls.
   @spec wake_for_interrupt(binary()) :: {:ok, pid()} | {:error, :not_found | :not_running}
-  def wake_for_interrupt(conv_id) when is_binary(conv_id) do
-    case _unsafe_get_conversation(conv_id) do
-      nil ->
-        {:error, :not_found}
-
-      %Conversation{status: "running"} ->
-        with {:ok, conv} <- Wake.wake_conversation_for(conv_id, nil, :interrupt),
-             pid when is_pid(pid) <- ConversationServer.whereis(conv.id) do
-          {:ok, pid}
-        else
-          _ -> {:error, :not_running}
-        end
-
-      _ ->
-        {:error, :not_running}
-    end
-  end
+  defdelegate wake_for_interrupt(conv_id), to: Interruption
 
   def sandbox_provider_atom(%{provider: provider}) when is_binary(provider),
     do: String.to_existing_atom(provider)

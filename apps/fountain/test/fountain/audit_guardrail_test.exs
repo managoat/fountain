@@ -531,7 +531,11 @@ defmodule Fountain.AuditGuardrailTest do
       )
 
     {:ok, probe} = GenServer.start_link(OkProbe, nil)
-    stub(Conversations, :wake_for_interrupt, fn _id -> {:ok, probe} end)
+    # The client half moved to Fountain.Conversations.Interruption (#2213)
+    # and calls its own local wake_for_interrupt/1, so the stub must target
+    # that module for ConversationServer.interrupt/2 (a defdelegate to it)
+    # to pick it up.
+    stub(Fountain.Conversations.Interruption, :wake_for_interrupt, fn _id -> {:ok, probe} end)
     :ok = ConversationServer.interrupt(conv.id, actor: "ui")
   end
 

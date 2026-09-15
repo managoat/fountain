@@ -161,6 +161,18 @@ defmodule Fountain.Conversations.Termination do
     end
   end
 
+  @doc """
+  The journal door for `Conversations._unsafe_release_conversation/2`: the
+  same durable-idle-parent release `ExecutionGuard._unsafe_release_parent/3`
+  performs, exposed so that module is the journal's only caller outside
+  `ExecutionGuard` itself. Arguments and return are the guard's, unchanged.
+  """
+  def release_journal(conversation_id, writer, opts \\ []) do
+    # ownership: the caller (Conversations._unsafe_release_conversation/2)
+    # already received an owned conversation id from its own caller.
+    Fountain.Conversations.ExecutionGuard._unsafe_release_parent(conversation_id, writer, opts)
+  end
+
   # Records a lifecycle action against the conversation's owner.
   #
   # Only on success: an attempt against a conversation that is not running

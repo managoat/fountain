@@ -219,7 +219,8 @@ Besides the generation prerequisites, the full probe needs Go and fetched
 Swift products. Each language job runs its own `--client` check in CI.
 
 `propagation/fixture.json` declares a synthetic optional object `future_options`
-with nested objects, shared schema references, arrays and dictionaries, plus
+with nested objects mixing required and nullable children, shared schema
+references, arrays and dictionaries, plus
 false/null/empty/zero values. Request-reachable generated models must be
 encodable and publicly constructible. Nullable input children distinguish
 omission, explicit null via `setNull`, and values; shared response models retain

@@ -5,3 +5,5 @@
 ### Fixed
 
 - Generate encoding support and public initializers for nested and referenced Swift conversation input models, including array and dictionary elements; preserve omission, explicit null and values inside nullable child inputs and shared response models (#2241).
+
+- Initialize required Swift model storage before nullable-property setters while preserving public initializer argument order (#2241).

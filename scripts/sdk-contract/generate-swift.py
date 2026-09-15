@@ -146,7 +146,11 @@ class Generator:
                 params.append(f'    {swift}: {typ}{"? = nil" if optional else ""}')
             lines += [p + ("," if i < len(params)-1 else "") for i, p in enumerate(params)]
             lines += ["  ) {"]
-            for key, swift, typ, value in ordered:
+            # Calling a computed input-property setter uses self. Initialize
+            # every required stored property first, without changing argument order.
+            assignments = sorted(ordered, key=lambda f: input_fields and (
+                not f[3].get("required", False) or f[3].get("nullable", False)))
+            for key, swift, typ, value in assignments:
                 if key == "permission_policy":
                     lines += ["    self.permissionPolicyValues = permissionPolicy?.mapValues(JSONValue.string)"]
                 else:

@@ -304,6 +304,60 @@ class SwiftGeneration(unittest.TestCase):
                 # the encoder cannot leave the key out of the request.
                 self.assertNotIn("_probeRequired", output)
 
+    def test_an_inline_name_colliding_with_a_schema_fails(self):
+        # build() resolves self.schemas before self.nested, so before this
+        # check the inline shape was discarded and the field took the unrelated
+        # schema's type with nothing to see in the output. The synthesized-name
+        # and schema-name sets do not intersect on today's contract.
+        self.contract["schemas"]["Connection"]["properties"]["provider"] = {
+            "type": "object", "required": True,
+            "properties": {"slug": {"type": "string", "required": True}},
+        }
+        with self.assertRaisesRegex(ValueError, "collides with schema ConnectionProvider"):
+            swiftgen.Generator(self.contract).render()
+
+    def test_a_node_with_both_properties_and_additional_properties_fails(self):
+        # `[String: JSONValue]` throws the declared properties away, which is
+        # the opposite of what the module promises for unknown shapes. The
+        # contract's only both-shaped nodes are the two `networking_config`,
+        # which TYPE_OVERRIDES already answers.
+        self.contract["schemas"]["Agent"]["properties"]["probe_open"] = {
+            "type": "object", "required": False, "additionalProperties": True,
+            "properties": {"slug": {"type": "string", "required": True}},
+        }
+        with self.assertRaisesRegex(ValueError, "Both additionalProperties and properties at Agent.probe_open"):
+            swiftgen.Generator(self.contract).render()
+        with mock.patch.dict(swiftgen.TYPE_OVERRIDES, {("Agent", "probe_open"): "JSONValue"}):
+            self.assertIn("public var probeOpen: JSONValue?", swiftgen.Generator(self.contract).render())
+
+    def test_an_enum_array_keeps_the_item_type_its_scalar_sibling_has(self):
+        output = swiftgen.Generator(copy.deepcopy(self.contract)).render()
+        # The same wire field, typed the same way in both places.
+        self.assertIn("public var sandboxAPIAccess: [SandboxAPIAccess]?", output)
+        self.assertIn("public var sandboxAPIAccess: SandboxAPIAccess?", output)
+        # Every wrapper `type()` looks through, because reading the item's own
+        # keys instead would pass the shape straight to the generator it is
+        # meant to stop: an `enum` inside `allOf` generated `[String]?`.
+        enum = {"type": "string", "enum": ["one", "two"]}
+        nothing = {"enum": ["None"], "nullable": True}
+        for label, items in [
+            ("direct", enum),
+            ("allOf", {"allOf": [enum]}),
+            ("anyOf", {"anyOf": [enum]}),
+            ("oneOf", {"oneOf": [enum]}),
+            ("nullable anyOf", {"anyOf": [enum, nothing]}),
+            ("allOf inside anyOf", {"anyOf": [{"allOf": [enum]}, nothing]}),
+        ]:
+            with self.subTest(items=label):
+                contract = copy.deepcopy(self.contract)
+                contract["schemas"]["Agent"]["properties"]["probe_kinds"] = {
+                    "type": "array", "required": False, "items": items,
+                }
+                with self.assertRaisesRegex(ValueError, "Untyped enum array at Agent.probe_kinds"):
+                    swiftgen.Generator(contract).render()
+                with mock.patch.dict(swiftgen.ENUM_TYPES, {("Agent", "probe_kinds_item"): "Runtime"}):
+                    self.assertIn("public var probeKinds: [Runtime]?", swiftgen.Generator(contract).render())
+
     def test_generation_is_deterministic(self):
         self.assertEqual(swiftgen.Generator(self.contract).render(), swiftgen.Generator(self.contract).render())
 

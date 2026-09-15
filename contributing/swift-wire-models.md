@@ -107,6 +107,18 @@ a deletion — but only for the pins their fixtures actually omit. A pin whose
 key some fixture still supplies can be dropped with every gate green, so a new
 pin needs the omission that proves it.
 
+Generation fails rather than retyping a field quietly: an inline object whose
+synthesized `<Owner><Key>` name collides with a contract schema, a node
+declaring both `additionalProperties` and `properties`, and an array of enum
+strings with no `(<owner>, <key>_item)` entry in `ENUM_TYPES`. Each needs a
+name or an override, not a default. The enum check reads the item through
+`unwrap()`, which is the one definition of the wrappers `type()` follows — a
+single-branch `allOf`, `anyOf` or `oneOf` — so an enum inside one of them
+cannot reach the generator the check exists to stop. The both-shaped case is why the two
+`networking_config` entries exist, and the array case is why
+`Catalog.sandbox_api_access` types as `[SandboxAPIAccess]` beside the scalar
+`Conversation.sandbox_api_access`.
+
 The 19 `TYPE_OVERRIDES` entries retain existing `JSONValue` APIs for
 deliberately dynamic payloads: metadata, packages, networking config,
 repositories, MCP servers, agent-version config and apply errors. Neither

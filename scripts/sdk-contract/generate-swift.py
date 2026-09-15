@@ -19,7 +19,6 @@ ROOT = Path(__file__).resolve().parents[2]
 OUTPUT = ROOT / "sdk/swift/Sources/FountainKit/Models/ConversationWire.generated.swift"
 # Existing public names/types, not an allowlist of supported properties.
 TYPE_NAMES = {"TurnUsage": "Usage", "UsageTotal": "Usage"}
-REUSED = set()
 # Public nested names are source compatibility, not schema/property lists.
 TYPE_NAMES.update({"SandboxCheckpoint": "Sandbox.Checkpoint",
                    "SandboxRunner": "Sandbox.RunnerRef",
@@ -127,6 +126,9 @@ ENUM_TYPES.update({
     ('SearchHit', 'kind'): 'SearchHitKind',
     ('TeammatePresence', 'state'): 'PresenceState',
     ('TeammateLastTurn', 'status'): 'TurnStatus',
+    # An array's items are typed under `<key>_item`. Without this the same
+    # wire field is `SandboxAPIAccess` on Conversation and `String` here.
+    ('Catalog', 'sandbox_api_access_item'): 'SandboxAPIAccess',
 })
 
 TYPE_OVERRIDES = {
@@ -321,6 +323,26 @@ def released_properties():
     return shipped
 
 
+def unwrap(node):
+    """What `type()` will resolve this node to, past the wrappers it follows.
+
+    `type()` looks through a single-branch `allOf`, and through an `anyOf` or
+    `oneOf` once the `["None"]` nullable branch is dropped. A check that reads a
+    node's own keys has to look through the same wrappers or it inspects the
+    wrapper instead — which is how an `enum` inside `allOf` slipped past the
+    array check below while generating exactly the type that check exists to
+    refuse.
+    """
+    if "allOf" in node and len(node["allOf"]) == 1:
+        return unwrap(node["allOf"][0])
+    for composition in ("anyOf", "oneOf"):
+        if composition in node:
+            branches = [b for b in node[composition] if b.get("enum") != ["None"]]
+            if len(branches) == 1:
+                return unwrap(branches[0])
+    return node
+
+
 def camel(key):
     first, *rest = key.split("_")
     return first + "".join({"id": "ID", "ids": "IDs", "ip": "IP", "api": "API", "url": "URL",
@@ -358,8 +380,7 @@ class Generator:
         if ref == "UsageTotal":
             ref = "TurnUsage"
         self.dependencies.setdefault(owner, set()).add(ref)
-        if ref not in REUSED:
-            self.pending.append(ref)
+        self.pending.append(ref)
         return TYPE_NAMES.get(ref, ref)
 
     def type(self, owner, key, node):
@@ -369,25 +390,41 @@ class Generator:
             return ENUM_TYPES[owner, key]
         if "ref" in node:
             return self.reference(owner, node["ref"])
-        if "allOf" in node and len(node["allOf"]) == 1:
-            return self.type(owner, key, node["allOf"][0])
+        peeled = unwrap(node)
+        if peeled is not node:
+            return self.type(owner, key, peeled)
         for composition in ("anyOf", "oneOf"):
             if composition in node:
-                branches = [b for b in node[composition] if b.get("enum") != ["None"]]
-                if len(branches) == 1:
-                    return self.type(owner, key, branches[0])
                 raise ValueError(f"Unsupported union at {owner}.{key}")
         kind = node.get("type")
         if kind == "array":
+            # A scalar enum takes a WireValue type from ENUM_TYPES. Inside an
+            # array the lookup key is `<key>_item`, so a missing entry types the
+            # field `[String]` while its scalar sibling stays typed.
+            if unwrap(node["items"]).get("enum") and (owner, key + "_item") not in ENUM_TYPES:
+                raise ValueError(f"Untyped enum array at {owner}.{key}: name its item type in ENUM_TYPES")
             return f'[{self.type(owner, key + "_item", node["items"])}]'
         if kind == "object":
             if "additionalProperties" in node:
+                # A node carrying both is a declared shape that also allows
+                # extras, and `[String: …]` throws the declared properties
+                # away — the opposite of what this module promises for unknown
+                # shapes. Which one the Swift type follows is a decision.
+                if node.get("properties"):
+                    raise ValueError(f"Both additionalProperties and properties at {owner}.{key}: "
+                                     "name the Swift type in TYPE_OVERRIDES")
                 extra = node["additionalProperties"]
                 value = "JSONValue" if extra is True or extra == {} else self.type(owner, key + "_value", extra)
                 return f"[String: {value}]"
             if not node.get("properties"):
                 return "[String: JSONValue]"
             name = INLINE_TYPES.get((owner, key), owner + camel(key)[0].upper() + camel(key)[1:])
+            # build() resolves self.schemas before self.nested, so a name that
+            # collides with a real schema discards this shape and types the
+            # field as that unrelated schema, with nothing to see in the output.
+            if name in self.schemas:
+                raise ValueError(f"Inline shape at {owner}.{key} collides with schema {name}: "
+                                 "give it a distinct name in INLINE_TYPES")
             # Reused inline models must remain the same shape. A contract
             # divergence needs an explicit migration, never first-wins output.
             shape = {k: v for k, v in node.items() if k not in {"required", "nullable"}}

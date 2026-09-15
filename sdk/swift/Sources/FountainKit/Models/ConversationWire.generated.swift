@@ -1141,7 +1141,7 @@ public struct Catalog: Sendable, Decodable, Hashable {
   public var models: [String: [String]]?
   public var packageManagers: [String]?
   public var runtimes: [String]?
-  public var sandboxAPIAccess: [String]?
+  public var sandboxAPIAccess: [SandboxAPIAccess]?
   public var sandboxProviders: Catalog.SandboxProviders?
 
   enum CodingKeys: String, CodingKey {

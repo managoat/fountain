@@ -249,6 +249,12 @@ one dedicated verified account. It stays absent by default and rejects other
 accounts. The four built-in runtimes keep their existing installation paths.
 This is a testing seam for #1611 and #1007, not a custom-harness registry.
 
+It is not in the published contract, so no generated SDK offers it as a
+runtime. A deployment that names `DEPLOYED_ACP_FIXTURE_USER_ID` names it in
+the OpenAPI document that deployment serves at `/api/openapi.json` — including
+after the flag goes false, because the agents it created outlive it — and
+`runtimes` on `GET /api/catalog` reports what the instance currently admits.
+
 The external `deterministic` profile provisions a real sandbox, verifies the
 installed fixture program's digest through the file API, and submits seven
 structured prompts over the public conversation API. It checks incremental

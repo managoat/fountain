@@ -108,6 +108,17 @@ defmodule Fountain.Agents.Agent do
 
   def vault_allowed?(_agent, _vault_id), do: false
 
+  @doc """
+  The runtimes Fountain ships, and the only ones the published contract names.
+
+  `fountain-fixture` is deliberately absent (#1716): it is a test harness for
+  one configured account on one deployment, not product surface, and an SDK
+  generated from the contract should not offer it. A deployment that names a
+  fixture account adds it to the spec that deployment serves — see
+  `FountainWeb.ApiSpec.FixtureRuntime`.
+  """
+  def packaged_runtimes, do: @runtimes
+
   @doc "Every runtime that can appear in persisted data, including the opt-in test fixture."
   def known_runtimes, do: @runtimes ++ ["fountain-fixture"]
 

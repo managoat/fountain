@@ -17,12 +17,18 @@ defmodule FountainWeb.DisabledFixtureAgentTest do
         user_id: user.id
       })
 
-    Application.delete_env(:fountain, :deployed_acp_fixture)
+    # How a deployment disables it: `DEPLOYED_ACP_FIXTURE_ENABLED` goes false
+    # and the account stays named, which is what keeps this agent's runtime in
+    # the enum this deployment serves while it is still around (#1716).
+    Application.put_env(:fountain, :deployed_acp_fixture, %{enabled: false, user_id: user.id})
+    OpenApiSpex.Plug.Cache.adapter().erase(FountainWeb.ApiSpec)
 
     on_exit(fn ->
       if previous,
         do: Application.put_env(:fountain, :deployed_acp_fixture, previous),
         else: Application.delete_env(:fountain, :deployed_acp_fixture)
+
+      OpenApiSpex.Plug.Cache.adapter().erase(FountainWeb.ApiSpec)
     end)
 
     %{agent: agent, user: user, raw_key: raw_key}

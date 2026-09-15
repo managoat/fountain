@@ -15,7 +15,23 @@ defmodule Fountain.DeployedACPFixture do
 
   def enabled? do
     case Application.get_env(:fountain, :deployed_acp_fixture) do
-      %{enabled: true, user_id: id} when is_binary(id) -> match?({:ok, _}, Ecto.UUID.cast(id))
+      %{enabled: true} -> configured?()
+      _ -> false
+    end
+  end
+
+  @doc """
+  Whether this deployment names a fixture account at all, enabled or not.
+
+  Admission asks `enabled?/0`. This is the weaker question the OpenAPI
+  document asks (#1716): a deployment that turns the flag off still holds the
+  agents the fixture created — they are retained on purpose so their owner can
+  edit and delete them — and its spec has to name their runtime for as long as
+  it can serve one. Keep `DEPLOYED_ACP_FIXTURE_USER_ID` set until they are gone.
+  """
+  def configured? do
+    case Application.get_env(:fountain, :deployed_acp_fixture) do
+      %{user_id: id} when is_binary(id) -> match?({:ok, _}, Ecto.UUID.cast(id))
       _ -> false
     end
   end

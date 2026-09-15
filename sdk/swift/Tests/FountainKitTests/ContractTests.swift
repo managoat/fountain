@@ -204,6 +204,35 @@ private func contractJSON(_ path: String) throws -> [String: Any] {
 
 @Suite("FountainKitContractTests")
 struct FountainKitContractTests {
+  /// The three-state binding API is behaviour, not a field list, so
+  /// `ConversationReapplyRequest` stays handwritten and keeps its own encoder
+  /// (#2269). What must not drift is which fields that encoder knows about: a
+  /// property added to the contract's request needs a case of its own, and
+  /// until now nothing said so — the request would simply never send it.
+  ///
+  /// Asked of behaviour rather than of a declaration: populate every state and
+  /// compare the keys that actually reach the wire against the contract.
+  @Test func reapplyRequestSendsEveryFieldTheContractAccepts() throws {
+    let schemas = try #require(try contractJSON("contract.json")["schemas"] as? [String: Any])
+    let schema = try #require(schemas["ConversationReapplyRequest"] as? [String: Any])
+    let declared = Set(try #require(schema["properties"] as? [String: Any]).keys)
+
+    let request = ConversationReapplyRequest(
+      agentID: "a-1", environment: .use("e-1"), vault: .use("v-1"))
+    let body = try JSONEncoder().encode(request)
+    let wire = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
+    #expect(Set(wire.keys) == declared)
+
+    // The same fields, cleared rather than set, still reach the wire — as JSON
+    // null, which is what distinguishes "remove it" from "leave it alone".
+    let cleared = ConversationReapplyRequest(environment: .clear, vault: .clear)
+    let clearedBody = try JSONEncoder().encode(cleared)
+    let clearedWire = try #require(
+      JSONSerialization.jsonObject(with: clearedBody) as? [String: Any])
+    #expect(Set(clearedWire.keys) == declared.subtracting(["agent_id"]))
+    #expect(clearedWire.values.allSatisfy { $0 is NSNull })
+  }
+
   @Test(arguments: TypedOperation.all)
   fileprivate func typedOperationIsClaimed(_ scenario: TypedOperation) async throws {
     let manifest = try contractJSON("manifests/swift.json")

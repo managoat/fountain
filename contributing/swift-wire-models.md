@@ -15,7 +15,7 @@ The generator reads the committed contract and does not require Elixir to run.
 | APIKey, CreatedAPIKey, AuditEvent, SearchHit, Catalog/nested types, ApplyResult/nested types, AdminUser, AdminSandbox, AdminEvent | Generated from endpoint payload shapes, including shapes nested inside envelopes |
 | AuthMe | Generated. `role` and `email_verified` are pinned: the contract requires both and every published AuthMe had them Optional. `onboardingState` is retired, not pinned — #1393 dropped the column, so no server emits the key |
 | AdminUserPage | Decodes the generated `AdminUserListResponse` and its `Meta`; keeps `users` and the computed `hasMore`, and declares no wire keys of its own |
-| ConversationBindingUpdate / ConversationReapplyRequest | Remaining migration #2269: retain three-state bindings while deriving underlying wire fields |
+| ConversationBindingUpdate / ConversationReapplyRequest | Intentionally handwritten: three states are behaviour a generated `Optional` cannot express, since "leave it alone" and "remove it" are different requests. `reapplyRequestSendsEveryFieldTheContractAccepts` derives the field list from the contract, so a property added to the request fails a test rather than being silently unsendable |
 | LogEvent, Block, PermissionOption, PermissionRequest | Remaining migration #2269: inventory raw/normalized differences and preserve custom decoding and stream/permission behavior |
 | JSONValue, ConversationInputField and WireValue / enum wrappers | Intentionally handwritten value/behavior types; their raw-string decoding preserves unknown server values |
 | Swift Fountain map product | Uses JSON objects rather than duplicated typed wire properties; remains supported |

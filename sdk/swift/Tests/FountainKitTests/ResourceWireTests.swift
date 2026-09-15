@@ -138,7 +138,13 @@ import Testing
       AdminUserPage.self,
       #"{"data":[{"id":"u1","email":"user@example.test","role":"future_role"}],"meta":{"page":1,"per_page":10,"total":11}}"#
     )
+    // Each number named, not just `hasMore`: with 1/10/11 a page/perPage swap
+    // still computes `hasMore`, so the convenience alone proves no mapping.
+    #expect(page.page == 1 && page.perPage == 10 && page.total == 11)
     #expect(page.hasMore && page.users.first?.role?.rawValue == "future_role")
+    let lastPage = try decode(
+      AdminUserPage.self, #"{"data":[],"meta":{"page":2,"per_page":10,"total":11}}"#)
+    #expect(lastPage.hasMore == false && lastPage.users.isEmpty)
     let sandbox = try decode(
       AdminSandbox.self, #"{"id":"s1","status":"future_status","provider":"future_provider"}"#)
     #expect(sandbox.status?.rawValue == "future_status")

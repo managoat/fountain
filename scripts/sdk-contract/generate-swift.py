@@ -83,6 +83,7 @@ RESOURCE_ROOTS = [
     'AdminSandbox',
     'AdminEvent',
     'AuthMeResponse',
+    'AdminUserListResponse',
 ]
 
 SCHEMA_PATHS = {
@@ -105,6 +106,7 @@ TYPE_NAMES.update({
     'CatalogSandboxProviders': 'Catalog.SandboxProviders',
     'CatalogApps': 'Catalog.Apps',
     'AuthMeResponse': 'AuthMe',
+    'AdminUserListResponseMeta': 'AdminUserListResponse.Meta',
 })
 
 INLINE_TYPES.update({

@@ -1281,6 +1281,16 @@ public struct AuthMe: Sendable, Decodable, Hashable, Identifiable {
   }
 }
 
+public struct AdminUserListResponse: Sendable, Decodable, Hashable {
+  public var data: [AdminUser]
+  public var meta: AdminUserListResponse.Meta
+
+  enum CodingKeys: String, CodingKey {
+    case data = "data"
+    case meta = "meta"
+  }
+}
+
 public struct PendingPermissionRequest: Sendable, Decodable, Hashable {
   public var askedAt: Date?
   public var deadline: Date?
@@ -1527,6 +1537,20 @@ extension ApplyResult {
       case action = "action"
       case errors = "errors"
       case key = "key"
+    }
+  }
+}
+
+extension AdminUserListResponse {
+  public struct Meta: Sendable, Decodable, Hashable {
+    public var page: Int
+    public var perPage: Int
+    public var total: Int
+
+    enum CodingKeys: String, CodingKey {
+      case page = "page"
+      case perPage = "per_page"
+      case total = "total"
     }
   }
 }

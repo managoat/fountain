@@ -10,15 +10,22 @@ defmodule Fountain.Conversations.InferenceResolution do
   **re-validation**: the stored source is the `expected_source`, the
   resolver takes the set from it, and a different result is
   `:inference_source_changed`. Each site used to build its own keyword
-  list, and two of them passed a `credential_set_id` beside an
-  `expected_source` that already carries `set_id` (the resolver ignores
-  the former whenever the latter is present).
+  list.
 
   A re-validation still names the environment and vault the conversation
   runs against **now**, not the ones the stored source names: wake passes
   the agent's current environment and provision the rows it loaded, and a
   configuration that moved since admission is exactly what the comparison
-  is there to refuse. Only the set was redundant.
+  is there to refuse.
+
+  It also still names the set the conversation or its agent points at.
+  The resolver ignores that whenever an `expected_source` is present (the
+  stored source carries `set_id`), but a conversation admitted before
+  sources were stored has none, and re-validating it is a new selection:
+  on the set it names, not the account default. Channel resume reserves
+  what this returns, and the binding's legacy branch persists it, so
+  dropping the set here would pin such a conversation to the wrong
+  credential for good.
   """
 
   alias Fountain.InferenceCredentials
@@ -67,7 +74,8 @@ defmodule Fountain.Conversations.InferenceResolution do
   reapply: the conversation's `inference_source` is the expected source and
   its `runtime` the runtime, the agent's model is the model, and
   `:environment_id` / `:vault_id` are the rows it runs against now. The set
-  comes from the expected source.
+  comes from the expected source; with none stored, from the conversation
+  or its agent (`credential_set_id/2`).
 
   Reapply is the one caller that overrides `:expected_source` (the stored
   source with the new configuration merged in) and `:runtime` (the agent's,
@@ -82,6 +90,7 @@ defmodule Fountain.Conversations.InferenceResolution do
       agent && agent.model,
       Keyword.get(opts, :runtime, conv.runtime),
       expected_source: Keyword.get(opts, :expected_source, conv.inference_source),
+      credential_set_id: credential_set_id(conv, agent),
       environment_id: opts[:environment_id],
       vault_id: opts[:vault_id]
     )

@@ -63,6 +63,7 @@ def swift_package(directory):
     generator = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(generator)
     contract = json.loads((ROOT / "sdk/contract/contract.json").read_text())
+    contract["schemas"].update(FIXTURE["schemas"])
     for owner in ["ConversationCreateRequest", "Conversation", "Turn"]:
         contract["schemas"][owner]["properties"][FIXTURE["field"]] = FIXTURE["schema"]
     (sources / "FountainKit/Models/ConversationWire.generated.swift").write_text(generator.Generator(contract).render())

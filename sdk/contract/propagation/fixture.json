@@ -1,22 +1,58 @@
 {
-  "field": "future_flag",
-  "schema": {"type": "boolean", "required": false, "nullable": true},
+  "field": "future_options",
+  "schema": {
+    "type": "object",
+    "required": false,
+    "nullable": true,
+    "properties": {
+      "enabled": {"type": "boolean", "required": false},
+      "nested": {
+        "type": "object",
+        "required": false,
+        "properties": {
+          "label": {"type": "string", "required": false},
+          "omitted": {"type": "boolean", "required": false}
+        }
+      },
+      "selected": {"ref": "FutureOption", "required": false},
+      "items": {"type": "array", "required": false, "items": {"ref": "FutureListOption"}},
+      "by_name": {"type": "object", "required": false, "additionalProperties": {"ref": "FutureMapOption"}}
+    }
+  },
   "request": {
     "agent_id": "11111111-1111-1111-1111-111111111111",
     "prompt": "fixture",
-    "future_flag": false,
     "title": "",
     "vault_id": null,
     "fresh": false,
     "images": [],
     "labels": {},
-    "permission_policy": {"ask_timeout": 0}
+    "permission_policy": {"ask_timeout": 0},
+    "future_options": {
+      "enabled": false,
+      "nested": {"label": ""},
+      "selected": {"detail": {"enabled": false}},
+      "items": [{"detail": {"enabled": true}}],
+      "by_name": {"first": {"detail": {"enabled": false}}}
+    }
   },
   "response": {
     "id": "c1",
     "runtime": "claude",
     "status": "idle",
     "sandbox": null,
-    "future_flag": false
+    "future_options": {
+      "enabled": false,
+      "nested": {"label": ""},
+      "selected": {"detail": {"enabled": false}},
+      "items": [{"detail": {"enabled": true}}],
+      "by_name": {"first": {"detail": {"enabled": false}}}
+    }
+  },
+  "schemas": {
+    "FutureOption": {"type": "object", "properties": {"detail": {"ref": "FutureDetail", "required": false}}},
+    "FutureDetail": {"type": "object", "properties": {"enabled": {"type": "boolean", "required": false}}},
+    "FutureListOption": {"type": "object", "properties": {"detail": {"ref": "FutureDetail", "required": false}}},
+    "FutureMapOption": {"type": "object", "properties": {"detail": {"ref": "FutureDetail", "required": false}}}
   }
 }

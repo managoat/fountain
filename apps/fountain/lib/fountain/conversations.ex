@@ -24,10 +24,11 @@ defmodule Fountain.Conversations do
   }
 
   alias Fountain.Conversations.Reapply
+  alias Fountain.Conversations.Wake
   alias Fountain.Conversations.InferenceResolution
   alias Fountain.Conversations.{ExecutionAllowance, ExecutionGuard, ExecutionLimits}
   alias Fountain.Conversations.Lifecycle
-  alias Fountain.Conversations.MachineEvents
+  alias Fountain.Conversations.Launch
   alias Fountain.InferenceCredentials
   alias Fountain.InferenceCredentials.Source
   alias Fountain.Conversations.InferenceBinding
@@ -375,7 +376,10 @@ defmodule Fountain.Conversations do
   # sandbox looking like it was still running years later.
   #
   # Only fills a gap — a caller that passes its own `terminated_at` keeps it.
-  defp stamp_terminated_at(changeset) do
+  # A door for `Fountain.Conversations.Launch` (#2217); not part of the
+  # context's public surface.
+  @doc false
+  def stamp_terminated_at(changeset) do
     status = Ecto.Changeset.get_field(changeset, :status)
 
     if status in @billable_terminal and
@@ -394,8 +398,11 @@ defmodule Fountain.Conversations do
   # in places, and double-counting a sandbox would overstate a bill. Provision
   # transitions only — a `suspended → ready` wake reattaches to a sprite whose
   # provision was already recorded, so re-emitting would double-count it.
-  defp record_sandbox_usage(was, %Sandbox{status: "ready"} = sandbox)
-       when was in ["pending", "starting"] do
+  # A door for `Fountain.Conversations.Launch` (#2217); not part of the
+  # context's public surface.
+  @doc false
+  def record_sandbox_usage(was, %Sandbox{status: "ready"} = sandbox)
+      when was in ["pending", "starting"] do
     Fountain.Billing.record_usage(
       sandbox.user_id,
       "sandbox_provisioned",
@@ -410,7 +417,7 @@ defmodule Fountain.Conversations do
   # sandbox parked (see above) — but the parked interval needs a start and an
   # end of its own so the duration roll-up can subtract it from
   # sandbox_terminated's duration_ms instead of billing parked time (#665).
-  defp record_sandbox_usage("suspended", %Sandbox{status: "ready"} = sandbox) do
+  def record_sandbox_usage("suspended", %Sandbox{status: "ready"} = sandbox) do
     Fountain.Billing.record_usage(
       sandbox.user_id,
       "sandbox_resumed",
@@ -424,8 +431,8 @@ defmodule Fountain.Conversations do
   # billing compute from here (0017). Paired with sandbox_resumed (or, for a
   # sandbox that never wakes again, with sandbox_terminated) so the duration
   # roll-up can tell parked time apart from run time (#665).
-  defp record_sandbox_usage(was, %Sandbox{status: "suspended"} = sandbox)
-       when was not in @billable_terminal do
+  def record_sandbox_usage(was, %Sandbox{status: "suspended"} = sandbox)
+      when was not in @billable_terminal do
     Fountain.Billing.record_usage(
       sandbox.user_id,
       "sandbox_suspended",
@@ -435,8 +442,8 @@ defmodule Fountain.Conversations do
     )
   end
 
-  defp record_sandbox_usage(was, %Sandbox{status: status} = sandbox)
-       when status in @billable_terminal and was not in @billable_terminal do
+  def record_sandbox_usage(was, %Sandbox{status: status} = sandbox)
+      when status in @billable_terminal and was not in @billable_terminal do
     # A sandbox that dies before reaching "ready" never emitted
     # sandbox_provisioned, but it is about to emit sandbox_terminated with a
     # duration — so the conversation count and the sandbox minutes on the
@@ -474,7 +481,7 @@ defmodule Fountain.Conversations do
     )
   end
 
-  defp record_sandbox_usage(_was, _sandbox), do: :ok
+  def record_sandbox_usage(_was, _sandbox), do: :ok
 
   defp sandbox_duration_ms(%Sandbox{inserted_at: nil}), do: 0
 
@@ -940,7 +947,10 @@ defmodule Fountain.Conversations do
   # transaction with the sandbox and the execution allowance, so it cannot
   # share `create_conversation/1` outright; keeping the insert itself in one
   # function is what stops the two shapes drifting.
-  defp insert_conversation_row(attrs) do
+  # A door for `Fountain.Conversations.Launch` (#2217); not part of the
+  # context's public surface.
+  @doc false
+  def insert_conversation_row(attrs) do
     %Conversation{} |> Conversation.changeset(attrs) |> Repo.insert()
   end
 
@@ -953,7 +963,10 @@ defmodule Fountain.Conversations do
   # `reserve_initial_conversation/3` — and
   # `conversation_creation_seam_test.exs` drives each of them and fails if one
   # stops firing.
-  defp after_conversation_created(%Conversation{} = conv) do
+  # A door for `Fountain.Conversations.Launch` (#2217); not part of the
+  # context's public surface.
+  @doc false
+  def after_conversation_created(%Conversation{} = conv) do
     Fountain.Activation.conversation_created(conv)
   end
 
@@ -1105,9 +1118,11 @@ defmodule Fountain.Conversations do
     end
   end
 
-  defp audit_labels(_conv, nil, _opts), do: :ok
+  # Public for `Fountain.Conversations.Launch` (stage 7a of #2175), which
+  # owns the channel door; not a request-facing entry point.
+  def audit_labels(_conv, nil, _opts), do: :ok
 
-  defp audit_labels(conv, {written, removed, merged}, opts),
+  def audit_labels(conv, {written, removed, merged}, opts),
     do: record_labels_set(conv, written, removed, merged, opts)
 
   defp record_labels_set(conv, written, removed, merged, opts) do
@@ -1265,8 +1280,9 @@ defmodule Fountain.Conversations do
   # The lock turn admission takes, so a reapply and a turn start cannot
   # interleave on one machine. `nil` is a conversation whose machine has not
   # been minted yet; there is nothing to serialize against.
-  # A door for `Fountain.Conversations.Reapply` (#2215); not part of the
-  # context's public surface.
+  # A door for `Fountain.Conversations.Reapply` (#2215) and
+  # `Fountain.Conversations.Launch` (#2216); not part of the context's public
+  # surface.
   @doc false
   def with_sandbox_lock(sandbox_id, fun) do
     Repo.transaction(fn ->
@@ -1653,7 +1669,10 @@ defmodule Fountain.Conversations do
     end
   end
 
-  defp record_execution_allowance_created(allowance, user_id, opts) do
+  # A door for `Fountain.Conversations.Launch` (#2217); not part of the
+  # context's public surface.
+  @doc false
+  def record_execution_allowance_created(allowance, user_id, opts) do
     Audit.record(%{
       user_id: user_id,
       action: "conversation.execution_allowance_created",
@@ -2821,124 +2840,32 @@ defmodule Fountain.Conversations do
   alias Fountain.Conversations.ConversationServer
 
   @doc """
-  Like `start_conversation/2`, but a conversation already bound to
-  `attrs["channel_id"]` is resumed instead of a new one being opened.
-
-  The channel key is opaque and client-supplied — a Buzz channel id from ACP
-  `session/new` `_meta.channelId` (#774). A client that forgets its sessions
-  (a restarted `buzz-acp`) then lands back on the same conversation, and so
-  the same sandbox and workspace, rather than opening a fresh one per restart.
-
-  Resumes the **latest live** conversation for the same user + agent + vault
-  + environment override + channel — `terminated` and `failed` ones are past
-  resuming, so a new one is opened and becomes the binding. So is one whose
-  *sandbox* is `terminated` or `failed` (#779): the machine is gone, and the
-  workspace with it, so the channel gets a new conversation on a working one
-  rather than a continuous-looking transcript on a blank disk. A `suspended`
-  sandbox is parked, not gone, and still resumes. Returns `{:ok, conv,
-  :resumed}` or `{:ok, conv, :created}`; without a `channel_id` it always
-  creates.
-
-  `attrs["fresh"]` (`true`) skips the resume this once: the conversation
-  currently bound to the channel is unbound (its `channel_id` cleared — it
-  keeps running, and the sandbox reaper retires it like any other idle one)
-  and a new one is opened as the binding. It is how a chat harness relays its
-  owner's `!rotate` — ACP `session/new` `_meta.freshSession` — through a
-  binding that would otherwise hand the old conversation straight back.
-  Unbinding, rather than relying on "newest wins", keeps the outcome
-  independent of `inserted_at`'s one-second precision. Admission commits the
-  old unbinding and the replacement together. A refused replacement preserves
-  the old binding; a later startup/prompt failure restores it unless another
-  rotation has already moved the binding. Concurrent rotations of the same
-  binding return a channel validation error to the loser.
-
-  Two concurrent first calls for one channel can both create; the next call
-  resumes whichever is newer. Nothing is audited on the resume path unless
-  `attrs["labels"]` actually changes something: it is the same conversation,
-  so labels merge into the row it hands back (#1637) and that write records
-  `conversation.labels_set` like any other.
+  Start a conversation, or resume the one already bound to `attrs["channel_id"]`.
+  See `Fountain.Conversations.Launch.start_or_resume_conversation/2`.
   """
-  def start_or_resume_conversation(attrs, opts \\ [])
+  def start_or_resume_conversation(attrs, opts \\ []),
+    do: Launch.start_or_resume_conversation(attrs, opts)
 
-  def start_or_resume_conversation(
-        %{"channel_id" => channel_id, "agent_id" => agent_id, "user_id" => user_id} = attrs,
-        opts
-      )
-      when is_binary(channel_id) and channel_id != "" do
-    with %Agents.Agent{} = agent <- Agents.get_agent(agent_id, user_id) || {:error, :not_found},
-         :ok <- check_execution_limits(user_id, attrs["execution_limits"]),
-         {:ok, vault_id} <- resolve_vault_id(attrs["vault_id"], user_id, agent),
-         {:ok, env_id} <- resolve_environment_id(attrs["environment_id"], user_id, agent),
-         {:ok, set_id} <-
-           resolve_inference_credential_id(attrs["inference_credential_id"], user_id, agent) do
-      case find_channel_conversation(user_id, agent.id, vault_id, env_id, channel_id, set_id) do
-        %Conversation{} = conv ->
-          if fresh_requested?(attrs) do
-            with {:ok, fresh} <-
-                   start_conversation(attrs, Keyword.put(opts, :rotate_from, conv.id)),
-                 do: {:ok, fresh, :created}
-          else
-            with {:ok, conv} <- resume_channel(conv, agent, attrs, opts),
-                 do: {:ok, conv, :resumed}
-          end
-
-        nil ->
-          with {:ok, conv} <- start_conversation(attrs, opts), do: {:ok, conv, :created}
-      end
-    end
-  end
-
-  def start_or_resume_conversation(attrs, opts) do
-    with {:ok, conv} <- start_conversation(attrs, opts), do: {:ok, conv, :created}
-  end
-
-  defp resume_channel(conv, agent, attrs, opts) do
-    result =
-      InferenceCredentials.with_source_lock(conv.user_id, fn ->
-        with_sandbox_lock(conv.sandbox_id, fn ->
-          # Match turn admission and teardown: sandbox advisory lock, then
-          # conversation row, then allowance. Taking the allowance first lets
-          # narrowing hold the conversation while waiting on our allowance,
-          # deadlocking the later label/source write. Codex reservation takes
-          # the sandbox row only after this conversation lock too.
-          current =
-            Repo.one(
-              from c in Conversation,
-                where: c.id == ^conv.id and c.user_id == ^conv.user_id,
-                lock: "FOR UPDATE",
-                preload: [:sandbox, :agent, :vault, :agent_version]
-            )
-
-          with %Conversation{} = current <- current || {:error, :not_found},
-               :ok <-
-                 if(current.sandbox_id == conv.sandbox_id,
-                   do: :ok,
-                   else: {:error, :provisioning}
-                 ),
-               :ok <- _unsafe_check_saved_execution_allowance(current.id),
-               :ok <- check_sandbox_api_resume(current, attrs["sandbox_api_access"]),
-               {:ok, source} <- resolve_saved_inference(current, agent),
-               {:ok, current, audit} <- resume_labels(current, attrs["labels"], opts),
-               :ok <- InferenceBinding.reserve(current, source) do
-            {:ok, {Repo.reload!(current), audit}}
-          end
-        end)
-      end)
-
-    with {:ok, {conv, audit}} <- result do
-      audit_labels(conv, audit, opts)
-      {:ok, conv}
-    end
-  end
+  @doc """
+  The conversation a channel binding resumes, without opening one.
+  See `Fountain.Conversations.Launch.channel_conversation/1`.
+  """
+  @spec channel_conversation(map()) :: Conversation.t() | nil
+  defdelegate channel_conversation(attrs), to: Launch
 
   # No runtime has integrated end-to-end enforcement yet. Refuse a requested
   # control before reserving capacity, attaching or unbinding a channel; an
   # SDK option alone must not make admission promise a bounded execution.
-  defp check_execution_limits(user_id, request) do
+  # Public for `Fountain.Conversations.Launch` (stage 7a of #2175), which
+  # owns the channel door; not a request-facing entry point.
+  def check_execution_limits(user_id, request) do
     with {:ok, _limits} <- resolve_admission_limits(user_id, request), do: :ok
   end
 
-  defp resolve_admission_limits(user_id, request) do
+  # A door for `Fountain.Conversations.Launch` (#2217); not part of the
+  # context's public surface.
+  @doc false
+  def resolve_admission_limits(user_id, request) do
     # Ownership: each caller just fetched the agent by this authenticated user.
     # Read the current account policy, never a request-supplied or cached map.
     case {Fountain.Accounts.get_user(user_id), ExecutionLimits.host_ceiling()} do
@@ -2965,548 +2892,31 @@ defmodule Fountain.Conversations do
   # The same scoped ownership rule as set_conversation_labels/4, applied to
   # the row resume_channel read under admission's source lock. Keep the audit
   # outside that transaction so a failed audit cannot undo a successful resume.
-  defp resume_labels(%Conversation{} = conv, nil, _opts), do: {:ok, conv, nil}
+  # Public for `Fountain.Conversations.Launch` (stage 7a of #2175), which
+  # owns the channel door; not a request-facing entry point.
+  def resume_labels(%Conversation{} = conv, nil, _opts), do: {:ok, conv, nil}
 
-  defp resume_labels(%Conversation{} = conv, labels, opts) do
+  def resume_labels(%Conversation{} = conv, labels, opts) do
     if sandbox_owns?(conv, Keyword.get(opts, :sandbox_key_id)),
       do: merge_labels(conv, labels),
       else: {:error, :sprite_may_not_label_another_conversation}
   end
 
-  # `true` or `"true"` — the ACP adapter sends a JSON boolean, a hand-built
-  # request may send a string. Anything else is not a request.
-  defp fresh_requested?(%{"fresh" => fresh}), do: fresh in [true, "true"]
-  defp fresh_requested?(_attrs), do: false
-
-  # The rotated-away conversation stops being the channel's binding. Nothing
-  # else about it changes: if it is mid-turn it finishes, and it stays in the
-  # user's list under its own id.
-  defp unbind_channel(%Conversation{} = conv) do
-    conv
-    |> Ecto.Changeset.change(channel_id: nil)
-    |> Repo.update()
-  end
-
-  # Inside admission's transaction, before the attachment's sandbox row lock.
-  # Keep the selected conversation stable while replacing its binding; reject
-  # a competing rotation that has already moved it.
-  defp unbind_rotated_channel(attrs, opts) do
-    case Keyword.get(opts, :rotate_from) do
-      nil ->
-        :ok
-
-      id ->
-        case lock_rotation_conversation(id, attrs) do
-          %Conversation{channel_id: channel} = conv when channel == attrs.channel_id ->
-            with {:ok, _} <- unbind_channel(conv), do: :ok
-
-          :busy ->
-            {:error, rotation_conflict("the previous conversation is busy; retry the rotation")}
-
-          _ ->
-            {:error, rotation_conflict("binding changed; retry the rotation")}
-        end
-    end
-  end
-
-  # Worker startup and attachment prompt delivery run after admission commits.
-  # Restore only while this replacement still owns the binding; a later
-  # rotation must win over this failure. Keep the old -> new row lock order.
-  defp restore_rotated_channel(conv, opts) do
-    case Keyword.get(opts, :rotate_from) do
-      nil -> :ok
-      id -> report_restore(conv, id, attempt_restore(conv, id))
-    end
-  end
-
-  defp attempt_restore(conv, id) do
-    Repo.transaction(fn ->
-      with %Conversation{channel_id: nil} = previous <- lock_rotation_conversation(id, conv),
-           %Conversation{channel_id: channel} = replacement
-           when channel == conv.channel_id <- lock_rotation_conversation(conv.id, conv) do
-        replacement |> Ecto.Changeset.change(channel_id: nil) |> Repo.update!()
-        previous |> Ecto.Changeset.change(channel_id: channel) |> Repo.update!()
-        :restored
-      else
-        # Contention on a row this compensation cannot wait for.
-        :busy -> Repo.rollback(:busy)
-        # A newer rotation already owns the binding, or the rows moved. That
-        # rotation must win over this failure, so leaving them alone is right.
-        _ -> :superseded
-      end
-    end)
-  rescue
-    e -> {:error, e}
-  end
-
-  defp report_restore(_conv, _id, {:ok, _outcome}), do: :ok
-
-  # A compensation, not a rollback: nothing retries it and no caller can act on
-  # it. Failing silently leaves a channel bound to nothing, which is the bug
-  # this path exists to prevent wearing a different hat, so say so.
-  defp report_restore(conv, id, other) do
-    Logger.warning(
-      "conv #{conv.id}: could not restore channel #{inspect(conv.channel_id)} to conv #{id} " <>
-        "after a failed rotation: #{inspect(other)}"
-    )
-
-    :ok
-  end
-
-  defp rotation_conflict(message) do
-    %Conversation{}
-    |> Ecto.Changeset.change()
-    |> Ecto.Changeset.add_error(:channel_id, message)
-  end
-
-  # How long a rotation may wait for the row it is replacing. On the fresh path
-  # this runs inside `with_sandbox_reservation/3`, which holds the global fleet
-  # advisory lock, and the row it wants is the one `_unsafe_create_turn_on_sandbox/3`
-  # takes `FOR UPDATE` — so an unbounded wait would let one busy channel stall
-  # provisioning for every tenant. Turn admission holds that row for a handful
-  # of local queries, so this is orders of magnitude more than it ever
-  # legitimately needs, and exceeding it means contention worth reporting
-  # rather than waiting out.
-  @rotation_lock_timeout_ms 250
-
-  defp lock_rotation_conversation(id, attrs) do
-    # Channel/ownership writes must serialize, but FK references may proceed.
-    #
-    # The bound is scoped to this read and handed straight back: `SET LOCAL`
-    # lasts for the whole transaction, and admission goes on to insert rows
-    # whose foreign keys take `KEY SHARE` on `users` — which a credit posting's
-    # `FOR UPDATE` conflicts with. Leaving 250ms in force over those would turn
-    # a slow billing write into an unrescued error on a path that has none.
-    Repo.query!("SET LOCAL lock_timeout = '#{@rotation_lock_timeout_ms}ms'")
-
-    conversation =
-      from(c in Conversation,
-        where: c.id == ^id and c.user_id == ^attrs.user_id and c.agent_id == ^attrs.agent_id,
-        lock: "FOR NO KEY UPDATE"
-      )
-      |> where_vault(attrs.vault_id)
-      |> where_environment(attrs.environment_id)
-      |> Repo.one()
-
-    Repo.query!("SET LOCAL lock_timeout = DEFAULT")
-    conversation
-  rescue
-    e in Postgrex.Error ->
-      if e.postgres[:code] == :lock_not_available do
-        :busy
-      else
-        reraise(e, __STACKTRACE__)
-      end
-  end
-
-  # The newest conversation still worth resuming for this binding. `vault_id`
-  # is part of the key: two entries on one agent with different vaults are
-  # different identities (#727) and must not share a conversation. So is the
-  # environment override (#783): an identity that switches environments must
-  # not resume a conversation provisioned from the old one.
-  #
-  # The sandbox is part of it too (#779): the 24 hour ceiling destroys a
-  # sandbox while its conversation stays `idle`, and resuming that row wakes
-  # onto a *fresh* machine with the workspace gone (#778 makes the turn work;
-  # #936 is the memory it loses) inside a transcript that reads as continuous.
-  # A channel is better served by a new conversation on a working machine, so
-  # the binding follows the machine, not just the conversation row.
-  # `suspended` is not in the list: that sandbox is parked, not gone, and its
-  # disk wakes back up with the workspace on it.
   @doc """
-  The conversation a channel binding resumes, resolved exactly as
-  `start_or_resume_conversation/2` resolves it (same vault/environment/set selection),
-  without opening one when there is none. For a request that must land on an
-  existing conversation or fail — a tool answer on the bridge (#1202) — where
-  opening a sandbox for a thread that has no parked call would be the wrong
-  side effect. Tenant-scoped through `attrs["user_id"]`.
+  Start a conversation: a fresh sandbox + conversation, or an attach onto one
+  the caller already has (`attrs["sandbox_id"]`, ADR 0023 gate 3).
+  See `Fountain.Conversations.Launch.start_conversation/2`.
   """
-  @spec channel_conversation(map()) :: Conversation.t() | nil
-  def channel_conversation(
-        %{"channel_id" => channel_id, "agent_id" => agent_id, "user_id" => user_id} = attrs
-      )
-      when is_binary(channel_id) and channel_id != "" do
-    with %Agents.Agent{} = agent <- Agents.get_agent(agent_id, user_id),
-         {:ok, vault_id} <- resolve_vault_id(attrs["vault_id"], user_id, agent),
-         {:ok, env_id} <- resolve_environment_id(attrs["environment_id"], user_id, agent),
-         {:ok, set_id} <-
-           resolve_inference_credential_id(attrs["inference_credential_id"], user_id, agent) do
-      find_channel_conversation(user_id, agent.id, vault_id, env_id, channel_id, set_id)
-    else
-      _ -> nil
-    end
-  end
+  def start_conversation(attrs, opts \\ []), do: Launch.start_conversation(attrs, opts)
 
-  def channel_conversation(_attrs), do: nil
-
-  defp find_channel_conversation(user_id, agent_id, vault_id, env_id, channel_id, set_id) do
-    from(c in Conversation,
-      join: s in assoc(c, :sandbox),
-      where:
-        c.user_id == ^user_id and c.agent_id == ^agent_id and c.channel_id == ^channel_id and
-          c.status not in ["terminated", "failed"] and
-          s.status not in ["terminated", "failed"],
-      order_by: [desc: c.inserted_at],
-      limit: 1
-    )
-    |> where_vault(vault_id)
-    |> where_environment(env_id)
-    |> where_credential_set(set_id)
-    |> Repo.one()
-  end
-
-  # An explicit set is part of a channel selection. An omitted set resumes
-  # the channel's durable source, even after the account's default changes.
-  defp where_credential_set(query, nil), do: query
-
-  defp where_credential_set(query, id),
-    do: from(c in query, where: c.inference_credential_id == ^id)
-
-  defp where_vault(query, nil), do: from(c in query, where: is_nil(c.vault_id))
-  defp where_vault(query, vault_id), do: from(c in query, where: c.vault_id == ^vault_id)
-
-  defp where_environment(query, nil), do: from(c in query, where: is_nil(c.environment_id))
-  defp where_environment(query, id), do: from(c in query, where: c.environment_id == ^id)
-
-  @doc """
-  Create a new sandbox + conversation pair, start a ConversationServer
-  to drive it, optionally seed with the first prompt. Returns the
-  persisted Conversation (preloaded).
-
-  ## Required attrs
-    - `agent_id`              — agent to run
-    - `prompt`                — optional first prompt (sends turn 1 immediately)
-    - `sprite_name`           — optional suffix for the sandbox name, which is always
-                                "fountain-<short-user-id>-<suffix>"; defaults to a random
-                                suffix. Refused with `sandbox_api_access: "none"`, and on
-                                the runner provider, whose names carry placement (#1632)
-    - `vault_id`              — optional vault whose secrets override the env's
-    - `environment_id`        — optional environment to provision from instead of the
-                                agent's own (#783); subject to `agent.allowed_environment_ids`
-    - `permission_policy`     — optional per-tool permission override (#939); may only
-                                narrow the agent's own policy, never widen it
-    - `sandbox_api_access`    — "owner" (default) or "none"; none requires a fresh ephemeral sandbox
-    - `source`                — optional; one of "ui", "api", "agent" (default "api")
-    - `parent_conversation_id` — optional; UUID of the conversation that spawned this one
-    - `title`                 — optional display title (the team page names a teammate with it)
-    - `labels`                — optional `key => value` strings (#1637); see `Conversations.Labels`
-  """
-  def start_conversation(attrs, opts \\ [])
-
-  # `sandbox_id`: attach to a machine the caller already has instead of
-  # provisioning one (ADR 0023 gate 3). Everything about the launch is
-  # resolved the same way; only the sandbox step differs.
-  def start_conversation(%{"sandbox_id" => sandbox_id} = attrs, opts)
-      when is_binary(sandbox_id) and sandbox_id != "" do
-    attach_conversation(sandbox_id, attrs, opts)
-  end
-
-  def start_conversation(%{"agent_id" => agent_id, "user_id" => user_id} = attrs, opts)
-      when is_binary(user_id) do
-    with :ok <- require_provider_commit_boundary(),
-         :ok <- Fountain.Conversations.PromptInput.validate_initial(attrs),
-         %Agents.Agent{} = agent <- Agents.get_agent(agent_id, user_id) || {:error, :not_found},
-         :ok <- check_execution_limits(user_id, attrs["execution_limits"]),
-         {:ok, runtime_module} <- Fountain.RuntimeDispatch.for_agent(agent),
-         {:ok, vault_id} <- resolve_vault_id(attrs["vault_id"], user_id, agent),
-         {:ok, env_id} <- resolve_environment_id(attrs["environment_id"], user_id, agent),
-         {:ok, cred_set_id} <-
-           resolve_inference_credential_id(attrs["inference_credential_id"], user_id, agent),
-         {:ok, mode} <- resolve_sandbox_mode(attrs["sandbox_mode"], agent),
-         {:ok, api_access} <- resolve_sandbox_api_access(attrs["sandbox_api_access"], mode),
-         :ok <- check_sandbox_api_name(api_access, attrs["sprite_name"]),
-         {:ok, perm_policy} <- resolve_permission_policy(attrs["permission_policy"], agent),
-         {:ok, parent_id} <- resolve_parent_id(attrs["parent_conversation_id"], user_id),
-         :ok <- Fountain.Accounts.check_not_suspended(user_id),
-         :ok <- Fountain.Billing.check_spend(user_id),
-         {:ok, inference_source} <-
-           resolve_admission_inference(user_id, agent, env_id, vault_id, cred_set_id),
-         # A persistent launch lands on the identity's home when there is one
-         # (ADR 0023 gate 6): `{:home, sandbox}` leaves the `with` and attaches
-         # below. Only when there is none does a machine get provisioned, and
-         # it is stamped as the home.
-         :new <- home_or_new(mode, user_id, agent, env_id || agent.environment_id, vault_id),
-         {:ok, provider} <- resolve_sandbox_provider(agent),
-         {:ok, machine_name} <- mint_machine_name(provider, user_id, attrs["sprite_name"]),
-         {:ok, {sandbox, conv, allowance}} <-
-           reserve_initial_conversation(
-             %{
-               environment_id: env_id || agent.environment_id,
-               # The identity the disk is built from (ADR 0023); an attach
-               # later must name the same three.
-               agent_id: agent.id,
-               vault_id: vault_id,
-               mode: mode,
-               machine_name: machine_name,
-               status: "pending",
-               provider: Atom.to_string(provider),
-               user_id: user_id
-             },
-             %{
-               agent_id: agent.id,
-               # Ownership: agent came from the scoped get_agent above.
-               agent_version_id: Agents._unsafe_current_version_id(agent.id),
-               vault_id: vault_id,
-               environment_id: env_id,
-               inference_credential_id: inference_source.set_id,
-               inference_source: Source.dump(inference_source),
-               user_id: user_id,
-               runtime: agent.runtime,
-               status: "pending",
-               source: attrs["source"] || "api",
-               parent_conversation_id: parent_id,
-               channel_id: attrs["channel_id"],
-               title: attrs["title"],
-               sandbox_api_access: api_access,
-               permission_policy: perm_policy,
-               caller_tools: attrs["caller_tools"] || [],
-               labels: attrs["labels"] || %{}
-             },
-             attrs["execution_limits"],
-             opts
-           ) do
-      after_conversation_created(conv)
-      record_execution_allowance_created(allowance, user_id, opts)
-
-      # Recorded here rather than in either branch below: both of them return
-      # {:ok, conv}. The row exists and the sandbox reservation is spent even
-      # when the server fails to start, so "a conversation was created" is
-      # true either way, and a trail that only logged the happy path would
-      # under-report exactly the runs someone is trying to explain.
-      #
-      # The prompt is described, never quoted — see `send_prompt/4`.
-      Audit.record(%{
-        user_id: user_id,
-        action: "conversation.created",
-        resource_type: "conversation",
-        resource_id: conv.id,
-        actor: Keyword.get(opts, :actor, "self"),
-        request_ip: Keyword.get(opts, :request_ip),
-        metadata: %{
-          "agent_id" => agent.id,
-          "agent_name" => agent.name,
-          "source" => conv.source,
-          "with_prompt" => is_binary(attrs["prompt"]) and attrs["prompt"] != "",
-          "parent_conversation_id" => parent_id
-        }
-      })
-
-      # No prompt in the child spec — see start_conversation_server/4.
-      start_result =
-        Horde.DynamicSupervisor.start_child(
-          Fountain.ConversationSupervisor,
-          {ConversationServer,
-           [
-             conversation_id: conv.id,
-             sandbox_id: sandbox.id,
-             runtime_module: runtime_module
-           ]}
-        )
-
-      case start_result do
-        {:ok, pid} ->
-          if is_binary(attrs["prompt"]) and attrs["prompt"] != "" do
-            ConversationServer.queue_initial_prompt(
-              pid,
-              attrs["prompt"],
-              attrs["images"] || []
-            )
-          end
-
-          result = _unsafe_get_conversation!(conv.id)
-
-          if result.parent_conversation_id do
-            root_id = get_root_conversation_id(result.id)
-            broadcast_graph_update(root_id)
-          end
-
-          broadcast_sidebar_update(user_id)
-          {:ok, result}
-
-        {:error, reason} ->
-          # The conversation row was created successfully; mark it and its
-          # sandbox failed so the status is visible on the conversation page,
-          # then return it so callers (UI + API) navigate there rather than
-          # leaving the user stuck on the new-conversation form.
-          Logger.error(
-            "ConversationServer failed to start for conv #{conv.id}: #{inspect(reason)}"
-          )
-
-          if fail_initial_start(conv, sandbox) == :failed,
-            do: restore_rotated_channel(conv, opts)
-
-          case get_conversation(conv.id, user_id) do
-            nil ->
-              {:error, :not_found}
-
-            result ->
-              broadcast_sidebar_update(user_id)
-              {:ok, result}
-          end
-      end
-    else
-      nil ->
-        {:error, :not_found}
-
-      # The identity already has a home: this launch is a conversation on it.
-      {:home, %Sandbox{} = home} ->
-        attach_conversation(home.id, attrs, opts)
-
-      # Two persistent launches of one identity raced to create its home and
-      # this one lost at the unique index. The winner's row is the home now;
-      # land on it rather than fail a request that asked for nothing unusual.
-      {:error, %Ecto.Changeset{errors: errors}} = err ->
-        if Keyword.has_key?(errors, :home) do
-          with %Agents.Agent{} = agent <- Agents.get_agent(agent_id, user_id),
-               {:ok, vault_id} <- resolve_vault_id(attrs["vault_id"], user_id, agent),
-               {:ok, env_id} <- resolve_environment_id(attrs["environment_id"], user_id, agent),
-               %Sandbox{} = home <-
-                 _unsafe_find_home(user_id, agent.id, env_id || agent.environment_id, vault_id) do
-            attach_conversation(home.id, attrs, opts)
-          else
-            _ -> err
-          end
-        else
-          err
-        end
-
-      {:error, _} = err ->
-        err
-    end
-  end
-
-  # Tenant row waits happen here, before the fleet lock, and the reservation
-  # runs inside them. `with_sandbox_reservation/3` holds
-  # `pg_advisory_xact_lock(@fleet_lock_key)` — one lock shared by every tenant —
-  # so anything that can wait on another transaction must be settled before it
-  # is taken, or one account stalls provisioning for all of them.
-  #
-  # A delayed start error owns only its original, still-pending binding.
-  # Match turn admission's machine -> parent -> sandbox lock order. Status
-  # changes commit together; metering follows commit and provider I/O is absent.
-  defp fail_initial_start(conv, sandbox) do
-    {:ok, result} =
-      Repo.transaction(fn ->
-        Repo.query!("SELECT pg_advisory_xact_lock($1, $2)", [
-          @sandbox_lock_namespace,
-          :erlang.phash2(sandbox.id)
-        ])
-
-        parent = Repo.one(from c in Conversation, where: c.id == ^conv.id, lock: "FOR UPDATE")
-        machine = Repo.one(from s in Sandbox, where: s.id == ^sandbox.id, lock: "FOR UPDATE")
-
-        if pending_initial_binding?(parent, machine, conv, sandbox) and
-             _unsafe_running_turns_elsewhere(sandbox.id, nil) == 0 do
-          parent |> Conversation.changeset(%{status: "failed"}) |> Repo.update!()
-
-          machine
-          |> Sandbox.changeset(%{status: "failed"})
-          |> stamp_terminated_at()
-          |> Repo.update!()
-        else
-          :stale
-        end
-      end)
-
-    case result do
-      %Sandbox{} = failed ->
-        record_sandbox_usage("pending", failed)
-        :failed
-
-      :stale ->
-        :stale
-    end
-  end
-
-  defp pending_initial_binding?(%Conversation{} = parent, %Sandbox{} = machine, conv, sandbox) do
-    Map.take(parent, [:user_id, :sandbox_id, :status]) ==
-      %{user_id: conv.user_id, sandbox_id: sandbox.id, status: "pending"} and
-      Map.take(machine, [:user_id, :provider, :machine_name, :status]) ==
-        %{
-          user_id: conv.user_id,
-          provider: sandbox.provider,
-          machine_name: sandbox.machine_name,
-          status: "pending"
-        }
-  end
-
-  defp pending_initial_binding?(_, _, _, _), do: false
-
-  # An unlocked read was not enough: `create_sandbox/1` and the conversation
-  # insert take `KEY SHARE` on `users` through their foreign keys, and
-  # `Credits.insert_and_move/3` holds that row `FOR UPDATE` across a ledger
-  # insert, lot consumption and the balance move. Taking `FOR SHARE` out here
-  # both settles the wait outside the fleet lock and satisfies those foreign
-  # keys, so the inserts below cannot block on it. The rotation unbind is the
-  # same category of wait and joins them.
-  #
-  # This is one transaction: the nested `Repo.transaction` inside
-  # `with_sandbox_reservation/3` joins it rather than opening another, so the
-  # sandbox, conversation and allowance still commit or roll back together.
-  # That is also why the `case` below re-raises the inner rollback with its
-  # reason: a nested rollback the outer transaction does not re-raise reaches
-  # the caller as `{:error, :rollback}`, which would turn every credits, quota
-  # and fleet refusal into a 500 instead of a 402, 422 or 503.
-  #
-  # The wait does not disappear, it changes hands. This transaction holds
-  # `users FOR SHARE` for its whole life, the fleet-lock wait included, and
-  # `FOR SHARE` conflicts with `FOR UPDATE` — so this tenant's credit postings
-  # now queue behind its own in-flight launch, which may itself be queued
-  # behind every other tenant's. Turn burns, purchases, grants, expiry and
-  # refund clawbacks all post through `Credits.insert_and_move/3`. A
-  # tenant-scoped wait beats a fleet-wide one, which is why it is the right
-  # trade, but a slow credit posting starts here.
-  defp reserve_initial_conversation(sandbox_attrs, conversation_attrs, request, opts) do
-    Repo.transaction(fn ->
-      # Set/secret mutations take this same tenant lock. Take it before the
-      # fleet reservation so a source edit cannot stall every tenant's launch.
-      :ok = InferenceCredentials.lock_source(conversation_attrs.user_id)
-
-      Repo.one(
-        from u in Fountain.Accounts.User,
-          where: u.id == ^conversation_attrs.user_id,
-          select: u.id,
-          lock: "FOR SHARE"
-      ) || Repo.rollback(:not_found)
-
-      Repo.one(
-        from a in Agents.Agent,
-          where:
-            a.id == ^conversation_attrs.agent_id and a.user_id == ^conversation_attrs.user_id,
-          select: a.id,
-          lock: "FOR SHARE"
-      ) || Repo.rollback(:not_found)
-
-      case unbind_rotated_channel(conversation_attrs, opts) do
-        :ok -> :ok
-        {:error, reason} -> Repo.rollback(reason)
-      end
-
-      result =
-        Fountain.Quotas.with_sandbox_reservation(conversation_attrs.user_id, fn ->
-          with {:ok, limits} <- resolve_admission_limits(conversation_attrs.user_id, request),
-               {:ok, sandbox} <- create_sandbox(sandbox_attrs),
-               {:ok, conv} <-
-                 insert_conversation_row(Map.put(conversation_attrs, :sandbox_id, sandbox.id)),
-               :ok <- reserve_inference(conv),
-               {:ok, allowance} <-
-                 conv.id |> ExecutionAllowance.new_changeset(limits) |> Repo.insert() do
-            {:ok, {sandbox, conv, allowance}}
-          end
-        end)
-
-      case result do
-        {:ok, reserved} -> reserved
-        {:error, reason} -> Repo.rollback(reason)
-      end
-    end)
-  end
-
-  defp resolve_sandbox_api_access(access, _mode) when access in [nil, "owner"],
+  # A door for `Fountain.Conversations.Launch` (#2217); not part of the
+  # context's public surface.
+  @doc false
+  def resolve_sandbox_api_access(access, _mode) when access in [nil, "owner"],
     do: {:ok, "owner"}
 
-  defp resolve_sandbox_api_access("none", "ephemeral"), do: {:ok, "none"}
-  defp resolve_sandbox_api_access(_access, _mode), do: {:error, :invalid_sandbox_api_access}
+  def resolve_sandbox_api_access("none", "ephemeral"), do: {:ok, "none"}
+  def resolve_sandbox_api_access(_access, _mode), do: {:error, :invalid_sandbox_api_access}
 
   # ADR 0045's machine isolation is a claim about a machine, not about a row:
   # a `none` conversation must be alone on a fresh one. `check_sandbox_api_attach/2`
@@ -3514,14 +2924,13 @@ defmodule Fountain.Conversations do
   # only see machines Fountain knows it is sharing. A caller-supplied name can
   # name a machine that already exists — the provider adopts it rather than
   # failing — so the two cannot be asked for together (#1632).
-  defp check_sandbox_api_name("none", name) when is_binary(name) and name != "",
+  # A door for `Fountain.Conversations.Launch` (#2217); not part of the
+  # context's public surface.
+  @doc false
+  def check_sandbox_api_name("none", name) when is_binary(name) and name != "",
     do: {:error, :invalid_sandbox_api_access}
 
-  defp check_sandbox_api_name(_access, _name), do: :ok
-
-  defp check_sandbox_api_resume(_conv, nil), do: :ok
-  defp check_sandbox_api_resume(%Conversation{sandbox_api_access: access}, access), do: :ok
-  defp check_sandbox_api_resume(_conv, _access), do: {:error, :invalid_sandbox_api_access}
+  def check_sandbox_api_name(_access, _name), do: :ok
 
   defp check_sandbox_api_attach(sandbox, access) do
     # A fresh none launch must never inherit another conversation's credential,
@@ -3541,29 +2950,17 @@ defmodule Fountain.Conversations do
   # The launch's sandbox mode: the agent's default unless the launch names
   # one (ADR 0023). Not an allowlisted override like `environment_id` — the
   # mode is not a security boundary; the tenant scope on the sandbox is.
-  defp resolve_sandbox_mode(mode, %Agents.Agent{sandbox_mode: default}) when mode in [nil, ""],
+  # A door for `Fountain.Conversations.Launch` (#2217); not part of the
+  # context's public surface.
+  @doc false
+  def resolve_sandbox_mode(mode, %Agents.Agent{sandbox_mode: default}) when mode in [nil, ""],
     do: {:ok, default || "ephemeral"}
 
-  defp resolve_sandbox_mode(mode, _agent) when is_binary(mode) do
+  def resolve_sandbox_mode(mode, _agent) when is_binary(mode) do
     if mode in Sandbox.modes(), do: {:ok, mode}, else: {:error, :invalid_sandbox_mode}
   end
 
-  defp resolve_sandbox_mode(_mode, _agent), do: {:error, :invalid_sandbox_mode}
-
-  # `:new` when a machine has to be provisioned; `{:home, sandbox}` when the
-  # identity already has one to land on. A home still provisioning from its
-  # first launch cannot take a second conversation yet — its prompt would be
-  # handed to the wrong server — so it reads as `:provisioning`, the same
-  # retry-shortly answer a mid-provision conversation gives.
-  defp home_or_new("ephemeral", _user_id, _agent, _env_id, _vault_id), do: :new
-
-  defp home_or_new("persistent", user_id, %Agents.Agent{id: agent_id}, env_id, vault_id) do
-    case _unsafe_find_home(user_id, agent_id, env_id, vault_id) do
-      nil -> :new
-      %Sandbox{status: s} when s in ["pending", "starting"] -> {:error, :provisioning}
-      %Sandbox{} = home -> {:home, home}
-    end
-  end
+  def resolve_sandbox_mode(_mode, _agent), do: {:error, :invalid_sandbox_mode}
 
   @doc """
   The live home of an agent identity — the one persistent sandbox for
@@ -4213,12 +3610,16 @@ defmodule Fountain.Conversations do
   # path, so a `ready` machine reattaches and a `suspended` one resumes, and
   # if that delivery is refused the row is removed again so a refused request
   # creates nothing.
-  defp attach_conversation(
-         sandbox_id,
-         %{"agent_id" => agent_id, "user_id" => user_id} = attrs,
-         opts
-       )
-       when is_binary(user_id) do
+  # A door for `Fountain.Conversations.Launch` (#2217), whose fresh-start
+  # `start_conversation/2` clause calls it for the "sandbox_id" attach; not
+  # part of the context's public surface.
+  @doc false
+  def attach_conversation(
+        sandbox_id,
+        %{"agent_id" => agent_id, "user_id" => user_id} = attrs,
+        opts
+      )
+      when is_binary(user_id) do
     with :ok <- require_provider_commit_boundary(),
          :ok <- Fountain.Conversations.PromptInput.validate_initial(attrs),
          %Agents.Agent{} = agent <- Agents.get_agent(agent_id, user_id) || {:error, :not_found},
@@ -4233,7 +3634,7 @@ defmodule Fountain.Conversations do
          :ok <- Fountain.Accounts.check_not_suspended(user_id),
          :ok <- Fountain.Billing.check_spend(user_id),
          {:ok, inference_source} <-
-           resolve_admission_inference(user_id, agent, env_id, vault_id, cred_set_id),
+           Launch.resolve_admission_inference(user_id, agent, env_id, vault_id, cred_set_id),
          %Sandbox{} = sandbox <- get_sandbox(sandbox_id, user_id) || {:error, :sandbox_not_found},
          :ok <- check_sandbox_api_attach(sandbox, attrs["sandbox_api_access"]),
          :ok <- check_attachable(sandbox, agent, vault_id, env_id),
@@ -4322,7 +3723,7 @@ defmodule Fountain.Conversations do
               lock: "FOR SHARE"
           ) || Repo.rollback(:not_found)
 
-        case unbind_rotated_channel(attrs, opts) do
+        case Launch.unbind_rotated_channel(attrs, opts) do
           :ok -> :ok
           {:error, reason} -> Repo.rollback(reason)
         end
@@ -4355,7 +3756,12 @@ defmodule Fountain.Conversations do
 
   # A nested transaction does not commit: workers and provider calls must not
   # escape a caller's transaction that can still roll back the accepted rows.
-  defp require_provider_commit_boundary do
+  # Public (door for `Fountain.Conversations.Wake`, #2211, and
+  # `Fountain.Conversations.Launch`, #2217): `start_conversation/2`
+  # and `attach_conversation/3` below call it locally; `Wake.wake_conversation_for/3`
+  # calls it as a remote door since that function moved out of this module.
+  @doc false
+  def require_provider_commit_boundary do
     if Repo.in_transaction?(), do: {:error, :provider_transaction_open}, else: :ok
   end
 
@@ -4370,7 +3776,7 @@ defmodule Fountain.Conversations do
         {:error, _} = err ->
           # Nothing ran. Take the row back so a refused request created
           # nothing, exactly like a refused fresh launch.
-          restore_rotated_channel(conv, opts)
+          Launch.restore_rotated_channel(conv, opts)
           _ = Repo.delete(conv)
           broadcast_sidebar_update(conv.user_id)
           err
@@ -4478,7 +3884,10 @@ defmodule Fountain.Conversations do
 
   # sobelow_skip ["SQL.Query"] — static SQL with a bound $1 UUID parameter.
   # sobelow_skip ["SQL.Query"] — static SQL with a bound $1 UUID parameter.
-  defp get_root_conversation_id(conversation_id) do
+  # A door for `Fountain.Conversations.Launch` (#2217); not part of the
+  # context's public surface.
+  @doc false
+  def get_root_conversation_id(conversation_id) do
     sql = """
     WITH RECURSIVE ancestors(id, parent_conversation_id) AS (
       SELECT id, parent_conversation_id FROM conversations WHERE id = $1
@@ -4501,7 +3910,10 @@ defmodule Fountain.Conversations do
     end
   end
 
-  defp broadcast_graph_update(root_id) do
+  # A door for `Fountain.Conversations.Launch` (#2217); not part of the
+  # context's public surface.
+  @doc false
+  def broadcast_graph_update(root_id) do
     Phoenix.PubSub.broadcast(
       Fountain.PubSub,
       "conversations:graph:#{root_id}",
@@ -4542,13 +3954,18 @@ defmodule Fountain.Conversations do
   # unique index makes that "cannot" rather than "will not". A name that
   # already carries the prefix — one an earlier launch handed back — is taken
   # as it stands.
-  defp mint_machine_name(:runner, user_id, nil), do: Fountain.Runners.mint_sandbox_name(user_id)
+  # Public (door for `Fountain.Conversations.Wake`, #2211, and
+  # `Fountain.Conversations.Launch`, #2217):
+  # `create_fresh_sandbox_and_start/4` moved there and calls this remotely;
+  # `start_conversation/2` below still calls it locally.
+  @doc false
+  def mint_machine_name(:runner, user_id, nil), do: Fountain.Runners.mint_sandbox_name(user_id)
 
-  defp mint_machine_name(_provider, user_id, nil),
+  def mint_machine_name(_provider, user_id, nil),
     do: {:ok, machine_name_prefix(user_id) <> short_id()}
 
   # An empty override is no override, the way an empty sandbox_mode is.
-  defp mint_machine_name(provider, user_id, ""), do: mint_machine_name(provider, user_id, nil)
+  def mint_machine_name(provider, user_id, ""), do: mint_machine_name(provider, user_id, nil)
 
   # On the runner provider the name *is* the placement (ADR 0022): the runner
   # id rides in it, because `Managoat.Sandbox` hands an adapter nothing else,
@@ -4564,10 +3981,10 @@ defmodule Fountain.Conversations do
   # Account-scoped names already break that route (the prefixed name no longer
   # parses), but they break it into a 201 over a row nothing can place; this
   # clause is what makes it a plain refusal instead.
-  defp mint_machine_name(:runner, _user_id, name) when is_binary(name),
+  def mint_machine_name(:runner, _user_id, name) when is_binary(name),
     do: {:error, :sprite_name_not_supported}
 
-  defp mint_machine_name(_provider, user_id, name) when is_binary(name) do
+  def mint_machine_name(_provider, user_id, name) when is_binary(name) do
     prefix = machine_name_prefix(user_id)
     suffix = String.replace_prefix(name, prefix, "")
 
@@ -4587,10 +4004,13 @@ defmodule Fountain.Conversations do
   #
   # A legitimate spawn comes from inside a sprite holding that tenant's own
   # token, so ownership always matches; a mismatch is a bug or an attack.
-  defp resolve_parent_id(nil, _user_id), do: {:ok, nil}
-  defp resolve_parent_id("", _user_id), do: {:ok, nil}
+  # A door for `Fountain.Conversations.Launch` (#2217); not part of the
+  # context's public surface.
+  @doc false
+  def resolve_parent_id(nil, _user_id), do: {:ok, nil}
+  def resolve_parent_id("", _user_id), do: {:ok, nil}
 
-  defp resolve_parent_id(id, user_id) when is_binary(id) and is_binary(user_id) do
+  def resolve_parent_id(id, user_id) when is_binary(id) and is_binary(user_id) do
     # A header that is not a uuid is not a conversation anyone owns.
     # `get_conversation/2` reads it as nil rather than raising (#1679), so this
     # stays the plain lookup it was.
@@ -4600,8 +4020,9 @@ defmodule Fountain.Conversations do
     end
   end
 
-  # A door for `Fountain.Conversations.Reapply` (#2215); not part of the
-  # context's public surface.
+  # A door for `Fountain.Conversations.Reapply` (#2215) and
+  # `Fountain.Conversations.Launch` (#2216); not part of the context's public
+  # surface.
   @doc false
   def resolve_vault_id(nil, _user_id, _agent), do: {:ok, nil}
   def resolve_vault_id("", _user_id, _agent), do: {:ok, nil}
@@ -4625,8 +4046,9 @@ defmodule Fountain.Conversations do
   # from this environment instead of the agent's own, and stays pinned to it
   # across wakes. Resolved exactly like the vault — a scoped fetch (a foreign
   # id reads as not found, so it cannot be probed) behind the agent's allowlist.
-  # A door for `Fountain.Conversations.Reapply` (#2215); not part of the
-  # context's public surface.
+  # A door for `Fountain.Conversations.Reapply` (#2215) and
+  # `Fountain.Conversations.Launch` (#2216); not part of the context's public
+  # surface.
   @doc false
   def resolve_environment_id(nil, _user_id, _agent), do: {:ok, nil}
   def resolve_environment_id("", _user_id, _agent), do: {:ok, nil}
@@ -4653,27 +4075,25 @@ defmodule Fountain.Conversations do
     if id in allowed, do: :ok, else: {:error, :environment_not_allowed}
   end
 
-  defp resolve_admission_inference(user_id, agent, env_id, vault_id, set_id) do
-    with {:ok, source, _credentials} <-
-           InferenceResolution.select(user_id, agent,
-             credential_set_id: set_id,
-             environment_id: env_id,
-             vault_id: vault_id
-           ),
-         :ok <- Fountain.PlatformInference.gate_source(source) do
-      {:ok, source}
-    end
-  end
-
-  defp reserve_inference(conv) do
+  # A door for `Fountain.Conversations.Launch` (#2217); not part of the
+  # context's public surface.
+  @doc false
+  def reserve_inference(conv) do
     InferenceBinding.reserve(conv, Source.load(conv.inference_source))
   end
 
-  defp check_saved_inference(conv, agent) do
+  # Public (door for `Fountain.Conversations.Wake`, #2211): both callers
+  # (`wake_conversation_for/3`, `create_fresh_sandbox_and_start/4`) moved
+  # there and call this remotely; `resolve_saved_inference/2` below stays
+  # private, since `resume_channel/4` still calls it locally.
+  @doc false
+  def check_saved_inference(conv, agent) do
     with {:ok, _source} <- resolve_saved_inference(conv, agent), do: :ok
   end
 
-  defp resolve_saved_inference(conv, agent) do
+  # Public for `Fountain.Conversations.Launch` (stage 7a of #2175), which
+  # owns the channel door; not a request-facing entry point.
+  def resolve_saved_inference(conv, agent) do
     with {:ok, source, _credentials} <-
            InferenceResolution.revalidate(conv, agent,
              environment_id: conv.environment_id || agent.environment_id,
@@ -4695,11 +4115,13 @@ defmodule Fountain.Conversations do
   # in credential set share a machine, because the credential reaches the
   # runtime as process env. InferenceBinding additionally reserves compatible
   # Codex auth state before any shared auth-file write.
-  defp resolve_inference_credential_id(nil, _user_id, _agent), do: {:ok, nil}
-  defp resolve_inference_credential_id("", _user_id, _agent), do: {:ok, nil}
+  # Public for `Fountain.Conversations.Launch` (stage 7a of #2175), which
+  # owns the channel door; not a request-facing entry point.
+  def resolve_inference_credential_id(nil, _user_id, _agent), do: {:ok, nil}
+  def resolve_inference_credential_id("", _user_id, _agent), do: {:ok, nil}
 
-  defp resolve_inference_credential_id(id, user_id, agent)
-       when is_binary(id) and is_binary(user_id) do
+  def resolve_inference_credential_id(id, user_id, agent)
+      when is_binary(id) and is_binary(user_id) do
     with :ok <- check_credential_set_allowed(id, agent) do
       case Fountain.InferenceCredentials.get_set(id, user_id) do
         nil -> {:error, :inference_credential_not_found}
@@ -4708,7 +4130,7 @@ defmodule Fountain.Conversations do
     end
   end
 
-  defp resolve_inference_credential_id(_id, _user_id, _agent),
+  def resolve_inference_credential_id(_id, _user_id, _agent),
     do: {:error, :inference_credential_not_found}
 
   # Same three-way shape as the vault and environment allowlists, and the same
@@ -5149,116 +4571,12 @@ defmodule Fountain.Conversations do
     end
   end
 
-  @doc """
-  Resume a conversation whose ConversationServer is gone (e.g. after a
-  BEAM restart, or in the gap between Rehydrator runs).
-
-  Strategy:
-  1. If the existing sandbox is `ready` and the sprite is still alive at
-     sprites.dev, start a fresh `ConversationServer` pointing at it. The
-     server will go through reattach mode and pick up any running
-     detachable session.
-  2. Otherwise, provision a fresh sprite, mark the old sandbox
-     terminated, and start the server pointing at the new sandbox. The
-     runtime session does not follow — it lived on the old disk — so the
-     server clears `runtime_session_id` once the fresh sprite is up and the
-     next turn starts a new one (#778). The Fountain conversation, its
-     transcript and its title carry over; the agent's in-context memory
-     does not.
-
-  Returns `{:error, :gone}` if the conversation is in a terminal status
-  (`terminated`, `failed`) — those don't auto-resume.
-  """
-  def wake_conversation(conv_id, initial_prompt \\ nil) do
-    wake_conversation_for(conv_id, initial_prompt, :work)
-  end
-
-  defp wake_conversation_for(conv_id, initial_prompt, purpose) do
-    # Ownership is established by callers before reaching this internal wake
-    # path. The agent fetched below is the conversation's own agent_id,
-    # same tenant by construction.
-    with :ok <- require_provider_commit_boundary(),
-         %Conversation{} = conv <- _unsafe_get_conversation(conv_id) || {:error, :not_found},
-         :ok <- assert_resumable(conv),
-         # Preflight only: no database lock spans provider I/O. Turn admission
-         # checks again under its transaction. Cancellation must remain reachable.
-         :ok <-
-           if(purpose == :interrupt,
-             do: :ok,
-             else: _unsafe_check_saved_execution_allowance(conv.id)
-           ),
-         # Ownership: conv.agent_id belongs to this established-owner conversation.
-         %Agents.Agent{} = agent <-
-           (conv.agent_id && Agents._unsafe_get_agent(conv.agent_id)) || {:error, :no_agent},
-         {:ok, runtime_module} <- Fountain.RuntimeDispatch.for_agent(conv) do
-      case maybe_reuse_sandbox(conv) do
-        {:reuse, sandbox_id} ->
-          # Reuse provisions nothing, so the fresh-path gates below never ran
-          # here — a canceled or suspended user could restart a server against
-          # a live sprite and keep prompting (#313). Same checks. Reusing a
-          # `ready` sandbox adds no concurrency, so no quota; waking a
-          # `suspended` one re-adds compute, so wake_suspended_sandbox re-runs
-          # the quota gate. The per-turn gate in ConversationServer is the
-          # backstop; this one makes the refusal synchronous at the API door.
-          with :ok <- Fountain.Accounts.check_not_suspended(conv.user_id),
-               :ok <- Fountain.Billing.check_spend(conv.user_id),
-               :ok <- check_saved_inference(conv, agent),
-               {:ok, _} <- wake_suspended_sandbox(conv.user_id, sandbox_id) do
-            case start_conversation_server(conv, sandbox_id, runtime_module, initial_prompt) do
-              {:error, {:already_started, winner_pid}} ->
-                # Lost a concurrent wake of the same conversation to another
-                # caller reusing the same sandbox. Mirrors the handoff in
-                # create_fresh_sandbox_and_start/4 (#330), but reuse provisions
-                # no row of its own, so there is nothing here to clean up —
-                # just hand the prompt to the winner, which drops it if a turn
-                # is already running.
-                if is_binary(initial_prompt) and initial_prompt != "" do
-                  ConversationServer.queue_initial_prompt(winner_pid, initial_prompt)
-                end
-
-                {:ok, _unsafe_get_conversation!(conv.id)}
-
-              other ->
-                other
-            end
-          end
-
-        {:provisioning, sandbox_id} ->
-          # The row says a server is (or was) provisioning this sandbox. The
-          # registry may simply not have caught up with a server started on
-          # another node — `session/new` and the first prompt arrive ~30 ms
-          # apart and can land on different pods — so wait for it before
-          # concluding it is dead. If it turns up, hand it the prompt exactly
-          # as the `already_started` branches do; if it does not, the
-          # provision died with its BEAM and a fresh one is right (#800).
-          case ConversationServer.await_registered(conv.id) do
-            {:ok, pid} ->
-              Logger.info(
-                "conv #{conv.id}: server for pending sandbox #{sandbox_id} " <>
-                  "appeared during the registry settle window; handing off the prompt"
-              )
-
-              if is_binary(initial_prompt) and initial_prompt != "" do
-                ConversationServer.queue_initial_prompt(pid, initial_prompt)
-              end
-
-              {:ok, _unsafe_get_conversation!(conv.id)}
-
-            :timeout ->
-              create_fresh_sandbox_and_start(conv, agent, runtime_module, initial_prompt)
-          end
-
-        :create_new ->
-          create_fresh_sandbox_and_start(conv, agent, runtime_module, initial_prompt)
-
-        {:error, _} = err ->
-          err
-      end
-    else
-      nil -> {:error, :not_found}
-      {:error, _} = err -> err
-    end
-  end
+  # `Wake.wake_conversation/2` holds the docstring, the strategy notes and
+  # the `{:error, :gone}` contract (#2211); this stays the public name every
+  # caller (conversation_server.ex `send_prompt/4` and `interrupt_dead/1`, and
+  # the Mimic stub in audit_guardrail_test.exs) keeps calling.
+  def wake_conversation(conv_id, initial_prompt \\ nil),
+    do: Wake.wake_conversation(conv_id, initial_prompt)
 
   @doc """
   Reach a conversation whose `ConversationServer` is gone, so a caller can
@@ -5286,7 +4604,7 @@ defmodule Fountain.Conversations do
         {:error, :not_found}
 
       %Conversation{status: "running"} ->
-        with {:ok, conv} <- wake_conversation_for(conv_id, nil, :interrupt),
+        with {:ok, conv} <- Wake.wake_conversation_for(conv_id, nil, :interrupt),
              pid when is_pid(pid) <- ConversationServer.whereis(conv.id) do
           {:ok, pid}
         else
@@ -5295,85 +4613,6 @@ defmodule Fountain.Conversations do
 
       _ ->
         {:error, :not_running}
-    end
-  end
-
-  # Probe the existing sandbox: if it's `ready` or `suspended` and sprites.dev
-  # confirms the sprite still exists, we can reattach without provisioning a
-  # new one. Otherwise, fall through to creating a fresh sandbox.
-  defp maybe_reuse_sandbox(%Conversation{sandbox_id: nil}), do: :create_new
-
-  defp maybe_reuse_sandbox(%Conversation{sandbox_id: sandbox_id}) do
-    case _unsafe_get_sandbox(sandbox_id) do
-      %Sandbox{reset_requested_at: at, status: status}
-      when not is_nil(at) and status not in ["terminated", "failed"] ->
-        {:error, :sandbox_reset_pending}
-
-      %{status: status, machine_name: name} = sandbox
-      when status in ["ready", "suspended"] and is_binary(name) ->
-        probe_reusable_sandbox(sandbox, sandbox_id)
-
-      # A provision is in flight — or was, in a BEAM that is gone. The
-      # caller waits for the registry before deciding which (#800).
-      %{status: status} when status in ["pending", "starting"] ->
-        {:provisioning, sandbox_id}
-
-      _ ->
-        :create_new
-    end
-  end
-
-  # The row's provider is sticky: a parked sandbox wakes on the backend that
-  # holds its disk, never on whatever the instance default is by now. A row
-  # whose (non-default) provider lost its credentials fails retryably — the
-  # same protect-the-parked-disk reasoning as :sprite_probe_failed below;
-  # falling through to :create_new would retire the row and orphan (or lose)
-  # the parked sandbox. Re-adding the credentials restores wakes.
-  defp probe_reusable_sandbox(%{status: status, machine_name: name} = sandbox, sandbox_id) do
-    provider = sandbox_provider_atom(sandbox)
-
-    if provider != Fountain.SandboxProviders.default_provider() and
-         not Fountain.SandboxProviders.enabled?(provider) do
-      Logger.warning(
-        "sandbox #{sandbox_id} is on disabled provider #{provider}; refusing to wake or retire"
-      )
-
-      {:error, {:sandbox_provider_disabled, provider}}
-    else
-      probe_sandbox(provider, name, status, sandbox_id)
-    end
-  end
-
-  defp probe_sandbox(provider, name, status, sandbox_id) do
-    case Managoat.Sandbox.get(Managoat.Sandbox.build_handle(provider, name)) do
-      {:ok, _info} ->
-        {:reuse, sandbox_id}
-
-      {:error, :not_found} ->
-        :create_new
-
-      # The machine behind a runner-backed sandbox is not connected (#834):
-      # the same protect-the-disk rule as below, named, so the caller can say
-      # "the machine is off" rather than "the provider is unreachable".
-      {:error, {:unavailable, :runner_offline}} ->
-        {:error, :runner_offline}
-
-      {:error, reason} ->
-        # A transient probe failure must not cost the disk: falling to
-        # :create_new retires this row, and the reaper then destroys the
-        # still-live sprite — with the agent's memory on it. Only a
-        # definitive not-found gives up the sandbox; anything else fails the
-        # wake retryably (503 + Retry-After at the API).
-        #
-        # This clause was `suspended`-only until #799: a `ready` row is the
-        # same parked disk once its server is gone (a deploy, a crash, a
-        # partition), and the 2026-08-18 incident showed the provider going
-        # unreachable for 70 s with nine `ready` rows behind it.
-        Logger.warning(
-          "sprite probe failed for #{status} sandbox #{sandbox_id}: #{inspect(reason)}"
-        )
-
-        {:error, :sprite_probe_failed}
     end
   end
 
@@ -5401,322 +4640,6 @@ defmodule Fountain.Conversations do
       {:ok, provider}
     else
       {:error, {:sandbox_provider_disabled, provider}}
-    end
-  end
-
-  # Waking a suspended sandbox turns a parked sprite back into compute, so it
-  # re-runs the quota gate — under the same advisory lock as creation, with the
-  # row re-read inside. Two concurrent wakes both probe `suspended`; the loser
-  # re-reads the winner's `ready` flip and must not double-stamp the clock.
-  # `exclude: sandbox_id` makes the check identical for both ("does the user
-  # have capacity besides this sandbox"), so the loser is never spuriously
-  # refused at the cap for a wake that added no concurrency.
-  defp wake_suspended_sandbox(user_id, sandbox_id) do
-    case _unsafe_get_sandbox(sandbox_id) do
-      %Sandbox{status: "suspended"} ->
-        Fountain.Quotas.with_sandbox_reservation(user_id, [exclude: sandbox_id], fn ->
-          case _unsafe_get_sandbox(sandbox_id) do
-            %Sandbox{status: "suspended"} = sandbox ->
-              resume_and_wake(sandbox)
-
-            sandbox ->
-              {:ok, sandbox}
-          end
-        end)
-
-      sandbox ->
-        {:ok, sandbox}
-    end
-  end
-
-  # Resume BEFORE the row flips: if the provider's wake call fails, the row
-  # stays `suspended` and the wake fails retryably — the parked disk is the
-  # agent's memory, and a row marked ready over a still-parked backend would
-  # strand it. For Sprites resume is a probe (waking is a side effect of the
-  # next exec); for pause/stop providers it is the call that restarts the
-  # sandbox.
-  defp resume_and_wake(sandbox) do
-    handle =
-      Managoat.Sandbox.build_handle(sandbox_provider_atom(sandbox), sandbox.machine_name)
-
-    case Managoat.Sandbox.resume(handle) do
-      {:ok, _handle} ->
-        update_sandbox(sandbox, %{
-          status: "ready",
-          last_resumed_at: DateTime.utc_now() |> DateTime.truncate(:second)
-        })
-
-      {:error, reason} ->
-        Logger.warning(
-          "resume failed for suspended sandbox #{sandbox.id} (#{inspect(reason)}); " <>
-            "leaving it parked"
-        )
-
-        {:error, :sandbox_resume_failed}
-    end
-  end
-
-  # The child spec deliberately carries no prompt.
-  #
-  # Horde redistributes children when cluster membership changes — which every
-  # deploy does — and restarts each one from its *stored child spec*. A prompt
-  # baked into that spec is therefore replayed on every rebalance, silently
-  # re-running the user's last message against the agent. Production
-  # accumulated 38 turns from 2 distinct prompts on one conversation this way,
-  # one duplicate per rollout, and the agent on the other end spent several
-  # turns pointing out it was being asked the same thing repeatedly.
-  #
-  # So the prompt is delivered out of band, after the server exists. A cast is
-  # queued behind handle_continue(:provision), so it is processed once
-  # provisioning finishes; if provisioning fails the server stops and the cast
-  # dies with it, which is the right outcome — no turn on a failed provision.
-  defp start_conversation_server(conv, sandbox_id, runtime_module, initial_prompt) do
-    with {:ok, pid} <-
-           Horde.DynamicSupervisor.start_child(
-             Fountain.ConversationSupervisor,
-             {ConversationServer,
-              [
-                conversation_id: conv.id,
-                sandbox_id: sandbox_id,
-                runtime_module: runtime_module
-              ]}
-           ) do
-      if is_binary(initial_prompt) and initial_prompt != "" do
-        ConversationServer.queue_initial_prompt(pid, initial_prompt)
-      end
-
-      {:ok, _unsafe_get_conversation!(conv.id)}
-    end
-  end
-
-  defp create_fresh_sandbox_and_start(conv, agent, runtime_module, initial_prompt) do
-    # The sandbox being replaced is excluded: it is retired immediately below,
-    # so counting it would block a wake that leaves concurrency unchanged.
-    # Waking a dormant conversation provisions a fresh sprite, so it is subject
-    # to the same gate as creating one. Without this, prompting an existing
-    # conversation was an unmetered way past billing entirely.
-    # The replacement keeps the mode of the machine it replaces: a home whose
-    # sprite is gone is re-provisioned as the home, and every conversation on
-    # it follows (move_cotenants/3). The old row is retired *first* for a
-    # home — the partial unique index allows one live home per identity, and
-    # the probe has already said this sprite is gone (ADR 0023 gate 6).
-    old = if conv.sandbox_id, do: _unsafe_get_sandbox(conv.sandbox_id)
-    mode = (old && old.mode) || "ephemeral"
-    if mode == "persistent", do: _ = mark_old_sandbox_terminated(conv.sandbox_id)
-
-    with :ok <- Fountain.Accounts.check_not_suspended(conv.user_id),
-         :ok <- Fountain.Billing.check_spend(conv.user_id),
-         :ok <- check_saved_inference(conv, agent),
-         # A fresh sandbox is a fresh placement decision — re-resolve from
-         # the agent, so a conversation whose old sandbox died can migrate
-         # providers naturally.
-         {:ok, provider} <- resolve_sandbox_provider(agent),
-         {:ok, machine_name} <- mint_machine_name(provider, conv.user_id, nil),
-         # Same reservation as start_conversation/1 — see the note there (#330).
-         {:ok, new_sandbox} <-
-           Fountain.Quotas.with_sandbox_reservation(
-             conv.user_id,
-             [exclude: conv.sandbox_id],
-             fn ->
-               create_sandbox(%{
-                 environment_id: conv.environment_id || agent.environment_id,
-                 agent_id: conv.agent_id,
-                 vault_id: conv.vault_id,
-                 mode: mode,
-                 machine_name: machine_name,
-                 status: "pending",
-                 provider: Atom.to_string(provider),
-                 user_id: conv.user_id
-               })
-             end
-           ) do
-      # The row is repointed *after* the server starts, not before (#717).
-      #
-      # The old order repointed first, so a wake that then lost the start race
-      # left the conversation pointing at the sandbox it had just terminated,
-      # while the winner ran on a different one — a conversation that reads as
-      # terminated in the API and the UI while it is happily serving turns, and
-      # an orphan `ready` row nothing references. `fountain acp` reproduced it
-      # on every session, because `session/new` and the first prompt arrive a
-      # second apart and the prompt takes this path before the registry has the
-      # new server.
-      #
-      # Deferring leaves a much smaller window — between the server starting
-      # and the row being updated — in which the row still names the old
-      # sandbox. That one is transient and self-correcting; the old one was
-      # permanent.
-      #
-      # #800 closed the other half: a prompt that finds a `pending` row now
-      # waits for the registry (`ConversationServer.await_registered/2`)
-      # before coming here, so the first server — often on another pod, and
-      # so invisible to this node's registry for a beat — is found and
-      # handed the prompt instead of being raced by a second provision.
-      case start_conversation_server(conv, new_sandbox.id, runtime_module, initial_prompt) do
-        {:ok, _} ->
-          old_sandbox_id = conv.sandbox_id
-          _ = mark_old_sandbox_terminated(old_sandbox_id)
-
-          {:ok, conv} =
-            update_conversation(conv, %{sandbox_id: new_sandbox.id, status: "pending"})
-
-          # The machine was gone for everyone on it, not just the conversation
-          # that noticed (ADR 0023 gate 5).
-          move_cotenants(old_sandbox_id, new_sandbox, conv.id)
-
-          {:ok, _unsafe_get_conversation!(conv.id)}
-
-        {:error, {:already_started, winner_pid}} ->
-          # Lost a concurrent wake of the same conversation. The winner's
-          # server is running against its own sandbox; this one's just-created
-          # row would otherwise sit pending — holding a quota slot — until the
-          # reaper's pass an hour later, so a user at their cap could lock
-          # themselves out by double-clicking (#330). Clean up our own row and
-          # hand the prompt to the winner, which drops it if a turn is already
-          # running — exactly right for a double-click.
-          #
-          # The conversation is left alone: the winner owns it, and it is the
-          # winner's sandbox the row should name.
-          _ = mark_old_sandbox_terminated(new_sandbox.id)
-
-          if is_binary(initial_prompt) and initial_prompt != "" do
-            ConversationServer.queue_initial_prompt(winner_pid, initial_prompt)
-          end
-
-          {:ok, _unsafe_get_conversation!(conv.id)}
-
-        {:error, _} = err ->
-          # Nothing ever ran on this sandbox. Retiring it keeps a failed wake
-          # from holding a quota slot until the reaper's next pass — the same
-          # reasoning as the branch above.
-          _ = mark_old_sandbox_terminated(new_sandbox.id)
-          err
-      end
-    end
-  end
-
-  defp assert_resumable(%Conversation{status: s}) when s in ~w(terminated failed) do
-    {:error, :gone}
-  end
-
-  defp assert_resumable(_), do: :ok
-
-  # A wake that found the sprite gone re-provisioned a machine for the
-  # conversation that woke. Every other live conversation on the old row was
-  # on the same dead disk, so it follows onto the new one (ADR 0023 gate 5) —
-  # the alternative leaves each co-tenant pointing at a `terminated` row and
-  # provisioning yet another machine on its own next prompt, and the shared
-  # disk they were sharing ends up as N disks.
-  #
-  # `old_sandbox_id` is the row the waking conversation *used* to name; by the
-  # time this runs the waking conversation itself already names the new one,
-  # so it is not among the co-tenants.
-  #
-  # It follows only if it declared the same identity. The replacement was
-  # built from the *waking* conversation's environment and vault, so handing
-  # it to a co-tenant that names a different pair would run that conversation
-  # on another binding's environment files and vault material, and would make
-  # the machine depend on which conversation happened to wake first
-  # (#1636). One that declared something else keeps pointing at the retired
-  # row instead, which its own next wake reads as `:create_new` and builds
-  # from its own identity.
-  #
-  # Either way the disk is gone for all of them, so all of them are told. A
-  # co-tenant whose server is somehow alive holds a handle to the dead sprite;
-  # it is told the machine is gone, cuts any turn, and stops, so its next
-  # prompt takes the wake path. `runtime_session_id` is cleared for each: a
-  # fresh disk has no session to resume (#778).
-  defp move_cotenants(nil, _new_sandbox, _conv_id), do: :ok
-
-  defp move_cotenants(old_sandbox_id, %Sandbox{} = new_sandbox, conv_id)
-       when is_binary(old_sandbox_id) do
-    case _unsafe_list_cotenants_with_identity(old_sandbox_id, conv_id) do
-      [] ->
-        :ok
-
-      cotenants ->
-        identity = {new_sandbox.environment_id, new_sandbox.vault_id}
-
-        {following, on_their_own} =
-          Enum.split_with(cotenants, fn {_id, env_id, vault_id} ->
-            {env_id, vault_id} == identity
-          end)
-
-        follow_cotenants(Enum.map(following, &elem(&1, 0)), old_sandbox_id, new_sandbox.id)
-        strand_cotenants(Enum.map(on_their_own, &elem(&1, 0)), old_sandbox_id)
-        :ok
-    end
-  end
-
-  defp follow_cotenants([], _old_sandbox_id, _new_sandbox_id), do: :ok
-
-  defp follow_cotenants(ids, old_sandbox_id, new_sandbox_id) do
-    message =
-      "The sandbox this conversation was on is gone; it moved to a fresh one together " <>
-        "with the conversations that shared it. The transcript is kept, but the agent " <>
-        "starts a new session and will not remember the earlier turns."
-
-    MachineEvents.tell_cotenants(ids, old_sandbox_id, "replaced", "sprite_gone", message)
-
-    now = DateTime.utc_now() |> DateTime.truncate(:second)
-
-    Repo.update_all(from(c in Conversation, where: c.id in ^ids),
-      set: [sandbox_id: new_sandbox_id, runtime_session_id: nil, updated_at: now]
-    )
-
-    Enum.each(ids, fn id ->
-      publish_stage(id, "sandbox", "done", %{
-        event: "replaced",
-        reason: "sprite_gone",
-        sandbox_id: new_sandbox_id,
-        message: message
-      })
-    end)
-  end
-
-  defp strand_cotenants([], _old_sandbox_id), do: :ok
-
-  defp strand_cotenants(ids, old_sandbox_id) do
-    message =
-      "The sandbox this conversation was on is gone. It named a different environment " <>
-        "or vault from the conversation that replaced the machine, so it did not follow " <>
-        "onto that one; its next prompt builds a machine from what it declares. The " <>
-        "transcript is kept, and the agent starts a new session."
-
-    MachineEvents.tell_cotenants(ids, old_sandbox_id, "reset", "sprite_gone", message)
-
-    now = DateTime.utc_now() |> DateTime.truncate(:second)
-
-    # `sandbox_id` is left naming the retired row on purpose: `wake_conversation/2`
-    # reads a terminated row as `:create_new` and provisions from this
-    # conversation's own environment and vault.
-    Repo.update_all(from(c in Conversation, where: c.id in ^ids),
-      set: [runtime_session_id: nil, updated_at: now]
-    )
-
-    Enum.each(ids, fn id ->
-      publish_stage(id, "sandbox", "done", %{
-        event: "reset",
-        reason: "sprite_gone",
-        message: message
-      })
-    end)
-  end
-
-  defp mark_old_sandbox_terminated(nil), do: :ok
-
-  defp mark_old_sandbox_terminated(sandbox_id) do
-    case _unsafe_get_sandbox(sandbox_id) do
-      nil ->
-        :ok
-
-      sb when sb.status in ["terminated", "failed"] ->
-        :ok
-
-      sb ->
-        update_sandbox(sb, %{
-          status: "terminated",
-          terminated_at: DateTime.utc_now() |> DateTime.truncate(:second)
-        })
     end
   end
 end

@@ -456,3 +456,29 @@ release containing the credit-only server contract (`c3349343`).
 `insufficient_credits` and a generic HTTP 402 identify the credit gate.
 `subscription_required` has no special mapping; it follows the HTTP status.
 The response still exposes its original code and purchase URL.
+
+### API-shaped launches
+
+Use `client.runRequest(request, options)` to send any conversation creation
+field using its API name. `ConversationInput` is derived from OpenAPI; new
+fields require regeneration, not a new helper option.
+
+```ts
+await client.runRequest({
+  agent_id: agent.id,
+  prompt: "Review the repository",
+  labels: { source: "nightly" },
+  sandbox_api_access: "none",
+}, { timeoutMs: 120_000, collectEvents: true });
+```
+
+This path uses IDs directly and forwards values unchanged, including explicit
+null, false and empty collections. Omitted properties stay omitted. Local run
+options are a separate argument. It does not combine raw fields with the
+name-based options of `run(prompt, config)`; existing `run` calls still work.
+A run needs a non-empty prompt and cannot queue (`queue: true` is refused
+before HTTP). Use `client.api.request` for promptless or queued creation.
+
+With `channel_id`, `runRequest` follows turn 1 when the server creates a
+conversation, including fresh launches. When the server resumes a channel,
+it submits the prompt and images to that conversation and follows the next turn.

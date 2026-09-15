@@ -11,6 +11,12 @@ server releases.
 
 ---
 
+## [5.2.0] - 2026-09-15
+
+### Added
+
+- `runRequest(request, options)` forwards API-shaped conversation inputs, with generated `ConversationInput` types and separate local run options (#2228).
+
 ## [5.1.0] — 2026-09-14
 
 ### Added

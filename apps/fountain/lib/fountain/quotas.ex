@@ -29,7 +29,7 @@ defmodule Fountain.Quotas do
   ~nothing (decisions/0017) — which means this set is narrower than the admin
   sandbox view's "anything non-terminal": the admin table will list a suspended
   sandbox that the per-user counter ignores. Waking one re-runs the quota gate
-  (`Conversations.wake_suspended_sandbox/2`). Unconfirmed resets also count,
+  (`Conversations.Wake.wake_suspended_sandbox/2`). Unconfirmed resets also count,
   even on parked machines, and cannot use the replacement exclusion.
   """
 

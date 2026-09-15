@@ -37,7 +37,7 @@ defmodule Fountain.Conversations.Rehydrator do
   require Logger
 
   alias Fountain.{Agents, Conversations}
-  alias Fountain.Conversations.ConversationServer
+  alias Fountain.Conversations.Launch
 
   def run(opts \\ []) do
     if clustering_enabled?() do
@@ -137,13 +137,7 @@ defmodule Fountain.Conversations.Rehydrator do
          {:ok, runtime_module} <- Fountain.RuntimeDispatch.for_agent(conv) do
       Fountain.ConversationSupervisor
       |> Horde.DynamicSupervisor.start_child(
-        {ConversationServer,
-         [
-           conversation_id: conv.id,
-           sandbox_id: conv.sandbox_id,
-           runtime_module: runtime_module,
-           initial_prompt: nil
-         ]}
+        Launch.child_spec(conv.id, conv.sandbox_id, runtime_module, initial_prompt: nil)
       )
       |> case do
         {:ok, pid} ->

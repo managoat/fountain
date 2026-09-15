@@ -1,3 +1,4 @@
+import type { ConversationInput } from "./schemas.ts";
 import { HttpClient, type FetchLike, type RequestOptions } from "./http.ts";
 import { resolveConfig, type ConfigOptions, type ResolvedConfig } from "./config.ts";
 import { Resolver } from "./resolve.ts";
@@ -162,6 +163,43 @@ export class Fountain {
       },
       options,
     );
+  }
+
+  /**
+   * Run an API-shaped launch request using IDs, without name resolution.
+   * Every request field goes to the server; local execution settings stay in
+   * options. For a promptless or queued creation, use api.request instead.
+   */
+  runRequest(request: ConversationInput, options: RunOptions = {}): Run {
+    if (typeof request.prompt !== "string" || !request.prompt.trim()) {
+      throw new TypeError("runRequest requires a non-empty prompt; use api.request for promptless creation");
+    }
+    if (request.queue != null && request.queue !== false) {
+      throw new TypeError("runRequest does not support queued creation; use api.request");
+    }
+    const body = { ...request };
+    return new Run(this.api, {
+      start: async () => {
+        const response = await this.api.request<{
+          data: ConversationRecord;
+          meta?: { resumed?: boolean };
+        }>("POST", "/api/conversations", { body });
+        const conversation = response.data;
+        if (response.meta?.resumed === true) {
+          // Resume only binds the channel; it does not submit the launch prompt.
+          // Capture history before sending, so fast turns cannot be skipped.
+          const after = await this.resume(conversation.id).cursor();
+          const turnNumber = await this.nextTurnNumber(conversation.id);
+          const promptBody: Record<string, unknown> = { prompt: body.prompt };
+          if (body.images !== undefined) promptBody.images = body.images;
+          await this.api.request("POST", `/api/conversations/${conversation.id}/prompts`, {
+            body: promptBody,
+          });
+          return { conversation, turnNumber, after };
+        }
+        return { conversation, turnNumber: 1, after: 0 };
+      },
+    }, options);
   }
 
   /**

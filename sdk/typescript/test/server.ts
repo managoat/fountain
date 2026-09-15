@@ -47,6 +47,7 @@ export interface FakeConversation {
   id: string;
   status: string;
   agent_id: string;
+  channel_id?: string;
   vault_id?: string | null;
   environment_id?: string | null;
   title?: string | null;
@@ -324,7 +325,12 @@ export class FakeFountain {
     }
 
     if (path === "/api/conversations" && req.method === "POST") {
-      return json(res, 201, { data: this.createConversation(body as Record<string, unknown>) });
+      const request = body as Record<string, unknown>;
+      const existing = request.channel_id && !request.fresh
+        ? [...this.conversations.values()].find(c => c.channel_id === request.channel_id)
+        : undefined;
+      if (existing) return json(res, 200, { data: summary(existing), meta: { resumed: true } });
+      return json(res, 201, { data: this.createConversation(request), meta: { resumed: false } });
     }
     if (path === "/api/conversations" && req.method === "GET") {
       return json(res, 200, { data: [...this.conversations.values()].map(summary) });
@@ -585,6 +591,7 @@ export class FakeFountain {
       id,
       status: "running",
       agent_id: String(body.agent_id ?? ""),
+      channel_id: body.channel_id as string | undefined,
       vault_id: (body.vault_id as string) ?? null,
       environment_id: (body.environment_id as string) ?? null,
       title: (body.title as string) ?? null,

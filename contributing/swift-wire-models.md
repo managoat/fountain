@@ -39,7 +39,66 @@ exception and takes contract requiredness, because `first_request` arrived
 whole in #1443 and no server has ever emitted it partially. A type no older
 server can produce at all takes contract requiredness directly.
 
-Two guards, neither of them complete on its own.
+Three guards. The first enforces the rule itself; the other two protect the
+table it is written in.
+
+Generation fails when a property would be non-Optional on a type that has
+already shipped and is either new there or was Optional before. Pinning the
+property clears the failure, or `REQUIRED_BY_CONTRACT` records that no deployed
+server emits the type without it — an entry there is a claim about every server
+in the field, which is why it is empty.
+
+The two rules below are answered independently and a property can owe both,
+because the remedies differ. `REQUIRED_BY_CONTRACT` reaches only the decode
+rule: "every deployed server sends this key" can establish that decoding is
+safe, but it cannot make an already-public `T?` becoming `T` source-compatible.
+The source rule therefore has no override at all. Keep the pin; a change that
+really means to drop a published Optional should add its own door and say why,
+rather than borrow an escape hatch written for a different question. Before this guard the rule was applied
+by hand and a miss was caught only if some fixture happened to decode that type
+from a payload lacking the key. For 25 of 27 decodable schemas one did;
+`Teammate`, the return of four public `TeamResource` methods, had no fixture at
+all, so a required property there would have shipped (#2284).
+
+Both baselines come from the last release tag, because a baseline has to be
+immutable with respect to the change being checked. The committed output is
+not: a change that makes a property required and commits the regenerated file
+would offer its own candidate as the record of what shipped and authorize
+itself. That is why the `swift-sdk` and `workflow-checks` jobs fetch tags.
+
+The released **contract** answers the decode question — can an older server
+produce this shape, and can it leave this key out. A property that release
+already required may be non-Optional; anything else must not be. This is asked
+of the contract and not of the released SDK, because absence from the SDK is
+not absence from the server: `CatalogMcpServersItem` is a shape the v0.17.1
+server already emitted and the v0.17.1 Swift models simply did not expose, so
+reading it as a wholly new type would let a required addition break an older
+server's whole `Catalog` response. A shape the released contract never
+described takes contract requiredness, since no released server can return it.
+This is also why `REQUIRED_BY_CONTRACT` is still empty: `first_request`
+arrived whole in #1443, so the released contract requires its four members and
+they need no pin — the exception this file used to state in prose is now read
+from the release.
+
+The released **Swift** answers the source question — did this SDK already
+publish the property as Optional. Decoding can be safe while flipping a
+published `x?` to `x` still breaks a consumer's code, and 38 of the pins are
+held by this rule alone. It reads every public property of every model under
+`Models/` at the tag, wherever that model lived then, so `Teammate` counts from
+when it was handwritten; handwritten nested types were declared inside their
+parent and generated ones in an extension, and both read as the same key. A
+name that is a Swift keyword is published escaped — `Catalog.SandboxProviders`'s
+`` `default` `` is the one today — and both sides normalize to the bare name, so
+a pin on it cannot be deleted in silence. The rule is only as good as that
+parser, so a test counts the release's own `public var` declarations instead of
+trusting a list.
+
+The guard covers decodable models only. An input root is encoded and never
+decoded, so no older server's response is in question, and pinning a request
+property would let a field the server requires be omitted and the request
+rejected instead — a required addition to a request is a contract change the
+compiler surfaces, not a compatibility break.
+
 `test_optional_compat_pins_reach_a_live_property` fails when a pin stops naming
 a live property, which is how a contract rename turns a pin into a silent
 no-op; it cannot see a pin that was deleted. `ResourceWireTests` and

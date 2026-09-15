@@ -8,8 +8,10 @@ shapes fail rather than silently becoming an untyped field.
 import argparse
 import copy
 import difflib
+import functools
 import json
 from pathlib import Path
+import re
 import subprocess
 import sys
 
@@ -208,6 +210,15 @@ OPTIONAL_COMPAT.update({
     ('ConnectionProvider', 'token_hosts'),
 })
 
+# The escape hatch for the decode rule alone: a property this SDK may expose as
+# non-Optional because no deployed server can emit that type without it. It
+# says nothing about source compatibility, so it cannot authorize flipping a
+# property the last release published as Optional. Empty by design — an entry is a claim about every
+# server in the field, not somewhere to send a property that merely looks
+# safe. `Catalog.first_request` is the shape of the argument and is pinned
+# anyway, because a partial `first_request` was never possible.
+REQUIRED_BY_CONTRACT = set()
+
 INPUT_ORDERS = {
     'VaultUpdate': ['name', 'description', 'metadata'],
     'EnvironmentUpdate': ['name', 'packages', 'env_vars', 'setup_script', 'setup_timeout_seconds', 'networking_type', 'networking_config', 'repositories', 'metadata'],
@@ -216,6 +227,100 @@ INPUT_ORDERS = {
     'AgentSkillsItem': ['name', 'content', 'source', 'ref'],
 }
 
+RELEASED_MODELS = "sdk/swift/Sources/FountainKit/Models"
+DECLARATION = re.compile(r"(\s*)(?:public\s+)?(?:final\s+)?(?:struct|enum|class|actor|extension)\s+(\w+)")
+# A property whose name is a Swift keyword is published escaped — `default` is
+# the one today — and the generated side spells it the same way, so both sides
+# normalize to the bare name rather than missing each other.
+PROPERTY = re.compile(r"\s*public var `?(\w+)`?:\s*([^{]+)")
+
+
+def public_properties(text, into):
+    """Record `{(type, property): decodes from an absent key}` from Swift source.
+
+    Both shapes these models have used are read the same way: a nested type
+    declared inside its parent, which is how they were handwritten, and one
+    declared in an extension, which is how they are generated. A type keeps the
+    same key across the migration that moved it.
+    """
+    scopes = []
+    for line in text.splitlines():
+        if not line.strip():
+            continue
+        indent = len(line) - len(line.lstrip())
+        while scopes and indent <= scopes[-1][0]:
+            scopes.pop()
+        declaration = DECLARATION.match(line)
+        if declaration:
+            scopes.append((indent, declaration.group(2)))
+            continue
+        prop = PROPERTY.match(line)
+        if prop and scopes:
+            key = (".".join(scope for _, scope in scopes), prop.group(1))
+            # Optional in any source wins: the permissive reading is the one
+            # that keeps a payload from an older server decoding.
+            into[key] = into.get(key, False) or prop.group(2).strip().endswith("?")
+    return into
+
+
+def released(*args):
+    """Read a path out of the last release, which is the only immutable record.
+
+    The baseline has to be immutable with respect to the change being checked.
+    The working tree is not: a change that makes a property required and
+    commits the regenerated file would offer its own candidate as the record of
+    what shipped and authorize itself. A tag cannot move.
+    """
+    def git(*command):
+        done = subprocess.run(["git", "-C", str(ROOT), *command], text=True, capture_output=True)
+        if done.returncode:
+            raise ValueError(
+                f"Cannot read the last release (git {' '.join(command)}): "
+                f"{done.stderr.strip()}. This needs the release tags: a shallow "
+                "checkout has to fetch them (fetch-tags with fetch-depth: 0).")
+        return done.stdout
+    tag = git("describe", "--tags", "--abbrev=0", "--match", "v[0-9]*").strip()
+    return git(*[argument.replace("<tag>", tag) for argument in args])
+
+
+@functools.lru_cache(maxsize=None)
+def released_requiredness():
+    """Which properties the last released server always sent.
+
+    Absence from the released *SDK* is not evidence that the released *server*
+    could not emit a shape: `CatalogMcpServersItem` is a contract shape from
+    before v0.17.1 that the v0.17.1 Swift models simply did not expose. So the
+    question "can an older server produce this, and can it omit this key" is
+    asked of the released contract, not of the released Swift.
+    """
+    contract = json.loads(released("show", "<tag>:sdk/contract/contract.json"))
+    generator = Generator(contract, baseline=True)
+    generator.build()
+    return {(owner, key): bool(value.get("required")) and not value.get("nullable")
+            for owner, fields in generator.models.items()
+            for key, _, _, value in fields}
+
+
+@functools.lru_cache(maxsize=None)
+def released_properties():
+    """What the last released SDK exposes, read from its tag.
+
+    The baseline has to be immutable with respect to the change being checked.
+    The committed output is not: a change that makes a property required and
+    commits the regenerated file would offer its own candidate as the record of
+    what shipped and authorize itself. A tag cannot move, and "already shipped"
+    means released, which is what the rule in contributing/swift-wire-models.md
+    is about. Every model the release carries counts, wherever it lived then —
+    `Teammate` shipped handwritten and is generated now.
+    """
+    shipped = {}
+    for path in released("ls-tree", "-r", "--name-only", "<tag>", "--", RELEASED_MODELS).split():
+        public_properties(released("show", f"<tag>:{path}"), shipped)
+    if not shipped:
+        raise ValueError(f"The last release carries no public Swift properties under {RELEASED_MODELS}")
+    return shipped
+
+
 def camel(key):
     first, *rest = key.split("_")
     return first + "".join({"id": "ID", "ids": "IDs", "ip": "IP", "api": "API", "url": "URL",
@@ -223,13 +328,23 @@ def camel(key):
 
 
 class Generator:
-    def __init__(self, contract):
+    def __init__(self, contract, baseline=False):
+        # A baseline generator reads an older contract to answer one question:
+        # which properties did that server always send. It applies no pins,
+        # runs no guard, and tolerates roots the older contract never had.
+        self.baseline = baseline
         self.schemas = copy.deepcopy(contract["schemas"])
         for name, path in SCHEMA_PATHS.items():
             node = contract["schemas"]
             for key in path:
+                if key not in node:
+                    if baseline:
+                        node = None
+                        break
+                    raise ValueError(f"The contract has no {name} at {'.'.join(path)}")
                 node = node[key]
-            self.schemas[name] = node
+            if node is not None:
+                self.schemas[name] = node
         self.pending = ["Conversation", "Turn", "ConversationCreateRequest", "ImageInput", "TurnUsage", "UsageAccounting", "SandboxDetail", "Runner", "ConversationTreeNode"] + RESOURCE_ROOTS
         self.done = set()
         self.nested = {}
@@ -321,7 +436,7 @@ class Generator:
                     props[key] = dict(value, required=False)
         fields = []
         for key, value in sorted(props.items()):
-            if (owner, key) in OPTIONAL_COMPAT:
+            if not self.baseline and (owner, key) in OPTIONAL_COMPAT:
                 value["required"] = False
             swift = "permissionPolicyValues" if key == "permission_policy" else ("`default`" if key == "default" else camel(key))
             fields.append((key, swift, self.type(owner, key, value), value))
@@ -412,7 +527,65 @@ class Generator:
             return f"extension {parent} {{\n" + "\n".join("  " + line for line in rendered.splitlines()) + "\n}\n"
         return rendered
 
-    def render(self):
+    def compatibility_failures(self, shipped, always_sent):
+        """The direction OPTIONAL_COMPAT exists for, which nothing else guards.
+
+        These structs have no custom `init(from:)`, so one missing key fails the
+        whole enclosing response rather than the property. Two questions, one
+        per baseline, because neither answers the other:
+
+        `always_sent` is the released contract, and answers whether an older
+        server can produce this shape at all and whether it can omit the key.
+        This is the decode rule. It has to be asked of the contract rather than
+        of the released SDK, because absence from the SDK is not absence from
+        the server: `CatalogMcpServersItem` is a shape the v0.17.1 server
+        already emitted and the v0.17.1 Swift models simply did not expose, so
+        a required property added to it breaks an older server's whole
+        `Catalog` response while looking like a wholly new type.
+
+        `shipped` is the released Swift, and answers whether this SDK already
+        published the property as Optional. That is a source-compatibility
+        question: flipping `x?` to `x` breaks a consumer's code even when every
+        server always sends the key.
+
+        Pinning the property satisfies both, and it is the only thing that
+        satisfies the second. `test_optional_compat_pins_reach_a_live_property`
+        only checks that pins still name a property, never that a property that
+        needs one has it.
+        """
+        published = {owner for owner, _ in shipped}
+        emitted = {owner for owner, _ in always_sent}
+        failures = []
+        for owner, fields in self.models.items():
+            # An input-only model is encoded and never decoded, so no response
+            # from an older server is in question. Pinning a request property
+            # would be worse than useless: it would let a field the server
+            # requires be omitted, and the request rejected instead.
+            if owner in self.input_roots:
+                continue
+            name = TYPE_NAMES.get(owner, owner)
+            for key, swift, _, value in fields:
+                if not value.get("required", False) or value.get("nullable", False):
+                    continue
+                # Each rule is answered on its own, and a property can owe
+                # both. A shape the released contract never described cannot
+                # come back from a released server, so it takes contract
+                # requiredness; anything it did describe must survive the keys
+                # that server could leave out.
+                if (owner in emitted and not always_sent.get((owner, key), False)
+                        and (owner, key) not in REQUIRED_BY_CONTRACT):
+                    failures.append(f"{name}.{swift} is required here and the last release could omit it")
+                # REQUIRED_BY_CONTRACT does not reach this rule. It claims that
+                # every deployed server sends the key, which can establish that
+                # decoding is safe but cannot make an already-public `T?`
+                # becoming `T` source-compatible. There is deliberately no
+                # override here: keep the pin, and let a change that really
+                # means to drop a published Optional add its own door and say so.
+                if name in published and shipped.get((name, swift.strip("`")), False):
+                    failures.append(f"{name}.{swift} shipped Optional and the contract now requires it")
+        return failures
+
+    def build(self):
         # Discover the whole graph before emitting models: a response model
         # visited first can also be used by a later request field.
         models = {}
@@ -421,10 +594,26 @@ class Generator:
             if owner in self.done:
                 continue
             self.done.add(owner)
-            models[owner] = self.fields(owner, self.schemas.get(owner, self.nested.get(owner)))
+            node = self.schemas.get(owner, self.nested.get(owner))
+            if node is None:
+                if self.baseline:
+                    continue  # The release never carried this shape.
+                raise ValueError(f"The contract has no schema for {owner}")
+            models[owner] = self.fields(owner, node)
         # Kept for the compatibility tables' own guard: a pin naming a property
         # the contract no longer has stops applying silently.
         self.models = models
+        return models
+
+    def render(self):
+        models = self.build()
+        failures = self.compatibility_failures(released_properties(), released_requiredness())
+        if failures:
+            raise ValueError(
+                "A response from a server older than this change would fail to decode: "
+                + "; ".join(sorted(failures))
+                + ". Pin each in OPTIONAL_COMPAT and add the omission that proves it, "
+                "or record in REQUIRED_BY_CONTRACT that no deployed server omits it.")
         pending = list(self.encodable)
         while pending:
             owner = pending.pop()

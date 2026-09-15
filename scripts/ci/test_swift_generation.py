@@ -3,7 +3,9 @@ import copy
 import importlib.util
 import json
 from pathlib import Path
+import re
 import unittest
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location("swiftgen", ROOT / "scripts/sdk-contract/generate-swift.py")
@@ -67,10 +69,13 @@ class SwiftGeneration(unittest.TestCase):
                 self.assertIn("public var futureSwitch: Bool?", output)
                 if owner in swiftgen.INPUT_ORDERS:
                     self.assertIn("case .futureSwitch: _futureSwitch = .null", output)
-        for path in [
-            ["Teammate", "properties", "presence"],
-            ["CatalogResponse", "properties", "data", "properties", "apps"],
-            ["ApplySecretResult"],
+        # A required nested addition renders non-Optional, which is what the
+        # compatibility guard stops by default, so these probes take the
+        # exemption the guard offers rather than a pin.
+        for path, owner in [
+            (["Teammate", "properties", "presence"], "TeammatePresence"),
+            (["CatalogResponse", "properties", "data", "properties", "apps"], "CatalogApps"),
+            (["ApplySecretResult"], "ApplySecretResult"),
         ]:
             with self.subTest(path=path):
                 contract = copy.deepcopy(self.contract)
@@ -78,7 +83,8 @@ class SwiftGeneration(unittest.TestCase):
                 for key in path:
                     node = node[key]
                 node["properties"]["future_label"] = {"type": "string", "required": True}
-                output = swiftgen.Generator(contract).render()
+                with mock.patch.object(swiftgen, "REQUIRED_BY_CONTRACT", {(owner, "future_label")}):
+                    output = swiftgen.Generator(contract).render()
                 self.assertEqual(output.count('case futureLabel = "future_label"'), 1)
                 self.assertIn("public var futureLabel: String\n", output)
 
@@ -109,6 +115,194 @@ class SwiftGeneration(unittest.TestCase):
                 self.assertIn(owner, generator.models)
                 fields = {field[0]: field[3] for field in generator.models[owner]}
                 self.assertIn(key, fields)
+
+    def test_a_newly_required_property_needs_a_pin_or_an_exemption(self):
+        # The direction that breaks consumers, and the one the pin test above
+        # cannot see. `Teammate` is the type that proved it (#2284): four public
+        # TeamResource methods decode it and no fixture ever did, so a required
+        # addition reached a release with every gate green.
+        for owner, shipped in [("Teammate", "Teammate"), ("Catalog", "Catalog")]:
+            with self.subTest(owner=owner):
+                contract = copy.deepcopy(self.contract)
+                node = contract["schemas"]
+                for key in swiftgen.SCHEMA_PATHS.get(owner, [owner]):
+                    node = node[key]
+                node["properties"]["probe_required"] = {"type": "string", "required": True}
+                with self.assertRaisesRegex(ValueError, f"{shipped}.probeRequired is required here"):
+                    swiftgen.Generator(contract).render()
+                # Either recorded decision satisfies the guard; only silence fails.
+                with mock.patch.object(
+                    swiftgen, "OPTIONAL_COMPAT", swiftgen.OPTIONAL_COMPAT | {(owner, "probe_required")}
+                ):
+                    self.assertIn("public var probeRequired: String?", swiftgen.Generator(contract).render())
+                with mock.patch.object(swiftgen, "REQUIRED_BY_CONTRACT", {(owner, "probe_required")}):
+                    self.assertIn("public var probeRequired: String\n", swiftgen.Generator(contract).render())
+
+    def test_a_property_this_sdk_published_optional_stays_optional(self):
+        # The second rule, and the only one covering a property the released
+        # server always sent: decoding is safe, but flipping the published `x?`
+        # to `x` breaks a consumer's code. 38 of the pins are held by this rule
+        # alone, so without it they could be deleted for a silent API change.
+        always_sent = swiftgen.released_requiredness()
+        shipped = swiftgen.released_properties()
+        held = [(owner, key) for owner, key in sorted(swiftgen.OPTIONAL_COMPAT)
+                if always_sent.get((owner, key))
+                and shipped.get((swiftgen.TYPE_NAMES.get(owner, owner), swiftgen.camel(key)))]
+        self.assertGreater(len(held), 20)
+        # The second is published escaped, because `default` is a Swift keyword.
+        # The parser missed it while the generated side spelled it `` `default` ``,
+        # so this live pin could be deleted with every gate green.
+        for owner, key, message in [
+            ("AdminSandbox", "status", "AdminSandbox.status shipped Optional"),
+            ("CatalogSandboxProviders", "default", r"Catalog.SandboxProviders.`default` shipped Optional"),
+        ]:
+            with self.subTest(owner=owner, key=key):
+                self.assertIn((owner, key), held)
+                pins = {pin for pin in swiftgen.OPTIONAL_COMPAT if pin != (owner, key)}
+                with mock.patch.object(swiftgen, "OPTIONAL_COMPAT", pins):
+                    with self.assertRaisesRegex(ValueError, message):
+                        swiftgen.Generator(copy.deepcopy(self.contract)).render()
+
+    def test_the_exemption_cannot_authorize_a_source_break(self):
+        # REQUIRED_BY_CONTRACT claims every deployed server sends the key. That
+        # can establish decoding is safe; it cannot make an already-public `T?`
+        # becoming `T` source-compatible, so it must not reach that rule — or
+        # the documented escape hatch re-authorizes the regression the escaped
+        # `default` pin exists to prevent.
+        owner, key = ("CatalogSandboxProviders", "default")
+        pins = {pin for pin in swiftgen.OPTIONAL_COMPAT if pin != (owner, key)}
+        with mock.patch.object(swiftgen, "OPTIONAL_COMPAT", pins):
+            with mock.patch.object(swiftgen, "REQUIRED_BY_CONTRACT", {(owner, key)}):
+                with self.assertRaisesRegex(ValueError, r"Catalog.SandboxProviders.`default` shipped Optional"):
+                    swiftgen.Generator(copy.deepcopy(self.contract)).render()
+        # It still answers the rule it is for: a property no release published.
+        contract = copy.deepcopy(self.contract)
+        contract["schemas"]["Teammate"]["properties"]["probe_required"] = {
+            "type": "string", "required": True,
+        }
+        with mock.patch.object(swiftgen, "REQUIRED_BY_CONTRACT", {("Teammate", "probe_required")}):
+            self.assertIn("public var probeRequired: String\n", swiftgen.Generator(contract).render())
+
+    def test_a_property_can_owe_both_rules(self):
+        # The rules are answered independently, so a property that trips both
+        # reports both: the remedies differ and only one has an escape hatch.
+        contract = copy.deepcopy(self.contract)
+        contract["schemas"]["Agent"]["properties"]["description"]["required"] = True
+        generator = swiftgen.Generator(copy.deepcopy(contract))
+        try:
+            generator.render()
+        except ValueError:
+            pass
+        reported = generator.compatibility_failures(
+            swiftgen.released_properties(), swiftgen.released_requiredness())
+        self.assertIn("Agent.description is required here and the last release could omit it", reported)
+        self.assertIn("Agent.description shipped Optional and the contract now requires it", reported)
+
+    def test_the_released_swift_parser_reads_every_published_property(self):
+        # The source rule is only as good as this parser: a property it cannot
+        # see has no baseline, so its pin can be deleted in silence. Escaped
+        # names were the hole. Count the release's own declarations rather than
+        # trusting a list, so the next unusual spelling fails here.
+        declarations = 0
+        for path in swiftgen.released("ls-tree", "-r", "--name-only", "<tag>", "--", swiftgen.RELEASED_MODELS).split():
+            text = swiftgen.released("show", f"<tag>:{path}")
+            declarations += len([line for line in text.splitlines()
+                                 if re.match(r"\s*public var ", line)])
+        self.assertEqual(len(swiftgen.released_properties()), declarations)
+        self.assertEqual(swiftgen.released_properties()["Catalog.SandboxProviders", "default"], True)
+
+    def test_the_released_tag_is_the_baseline_for_both_questions(self):
+        # No baseline file to keep in step; both come from the last release.
+        # The released contract says what that server always sent.
+        always_sent = swiftgen.released_requiredness()
+        self.assertTrue(always_sent["Teammate", "name"])
+        self.assertFalse(always_sent["Agent", "description"])
+        # A shape the released SDK never exposed is still one that server
+        # emitted, so it is in this baseline even though it is not in the next.
+        self.assertTrue(always_sent["CatalogMcpServersItem", "slug"])
+        # The released Swift says what this SDK already published as Optional,
+        # including the models that shipped handwritten. Handwritten nested
+        # types were declared inside their parent and generated ones in an
+        # extension; both have to read as the same key.
+        shipped = swiftgen.released_properties()
+        self.assertEqual(shipped["Teammate", "name"], False)
+        self.assertEqual(shipped["Teammate", "usageTotal"], True)
+        self.assertEqual(shipped["Teammate.Presence", "label"], True)
+        self.assertEqual(shipped["Sandbox.RunnerRef", "online"], True)
+        self.assertNotIn("CatalogMcpServersItem", {owner for owner, _ in shipped})
+        generator = swiftgen.Generator(copy.deepcopy(self.contract))
+        generator.render()
+        self.assertEqual(generator.compatibility_failures(shipped, always_sent), [])
+        # Neither baseline knowing the type means no older server emits it.
+        self.assertEqual(generator.compatibility_failures({}, {}), [])
+
+    def test_a_shape_the_sdk_never_exposed_is_still_an_older_server_shape(self):
+        # Absence from the released SDK is not absence from the released
+        # server. `CatalogMcpServersItem` is a contract shape from before
+        # v0.17.1 that the v0.17.1 Swift models did not expose, so treating it
+        # as wholly new lets a required addition break an older server's whole
+        # `Catalog` response — one bad item kills the enclosing response.
+        for path in [
+            ["CatalogResponse", "properties", "data", "properties", "mcp_servers", "items"],
+            ["CatalogResponse", "properties", "data", "properties", "first_request"],
+        ]:
+            with self.subTest(path=path[-2]):
+                contract = copy.deepcopy(self.contract)
+                node = contract["schemas"]
+                for key in path:
+                    node = node[key]
+                node["properties"]["probe_required"] = {"type": "string", "required": True}
+                with self.assertRaisesRegex(ValueError, "probeRequired is required here"):
+                    swiftgen.Generator(contract).render()
+
+    def test_a_property_the_release_always_sent_may_be_required(self):
+        # The other side of the same rule, and why REQUIRED_BY_CONTRACT is
+        # still empty: `first_request` arrived whole in #1443, so the released
+        # contract requires its four members and no pin is needed for them.
+        always_sent = swiftgen.released_requiredness()
+        for key in ["curl", "placeholders", "prompt", "typescript"]:
+            self.assertTrue(always_sent["CatalogFirstRequest", key])
+        output = swiftgen.Generator(copy.deepcopy(self.contract)).render()
+        self.assertIn("public var prompt: String\n", output)
+        self.assertEqual(swiftgen.REQUIRED_BY_CONTRACT, set())
+
+    def test_a_regenerated_candidate_cannot_authorize_itself(self):
+        # The realistic bypass: a change makes a property required and commits
+        # the regenerated output, so a baseline read from the working tree sees
+        # the candidate's own field as already shipped and reports nothing.
+        contract = copy.deepcopy(self.contract)
+        contract["schemas"]["Teammate"]["properties"]["probe_required"] = {
+            "type": "string", "required": True,
+        }
+        with mock.patch.object(swiftgen, "REQUIRED_BY_CONTRACT", {("Teammate", "probe_required")}):
+            candidate = swiftgen.Generator(copy.deepcopy(contract)).render()
+            generator = swiftgen.Generator(copy.deepcopy(contract))
+            generator.render()
+        self.assertIn("public var probeRequired: String\n", candidate)
+        candidate_baseline = swiftgen.public_properties(candidate, {})
+        self.assertEqual(generator.compatibility_failures(candidate_baseline, {}), [])
+        self.assertTrue(generator.compatibility_failures(
+            swiftgen.released_properties(), swiftgen.released_requiredness()))
+        with self.assertRaisesRegex(ValueError, "Teammate.probeRequired"):
+            swiftgen.Generator(copy.deepcopy(contract)).render()
+
+    def test_input_only_models_answer_to_the_request_contract(self):
+        # This guard is about decoding a response. An input root is encoded and
+        # never decoded, and pinning a request property would let a field the
+        # server requires be omitted and the request rejected — so a required
+        # addition there is not this rule's business.
+        for owner in sorted(swiftgen.Generator(self.contract).input_roots):
+            with self.subTest(owner=owner):
+                contract = copy.deepcopy(self.contract)
+                node = contract["schemas"]
+                for key in swiftgen.SCHEMA_PATHS.get(owner, [owner]):
+                    node = node[key]
+                node["properties"]["probe_required"] = {"type": "string", "required": True}
+                output = swiftgen.Generator(contract).render()
+                self.assertIn("public var probeRequired: String\n", output)
+                # Not omissible: no ConversationInputField storage behind it, so
+                # the encoder cannot leave the key out of the request.
+                self.assertNotIn("_probeRequired", output)
 
     def test_generation_is_deterministic(self):
         self.assertEqual(swiftgen.Generator(self.contract).render(), swiftgen.Generator(self.contract).render())

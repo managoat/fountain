@@ -154,6 +154,11 @@ import Testing
   /// pins are covered the same way in SandboxWireTests. This is not the whole
   /// table: when you add a pin, add the omission that proves it, because a pin
   /// whose key some fixture still supplies can be deleted with every gate green.
+  ///
+  /// It is also not what decides whether a property needs a pin at all — that is
+  /// the generator's own compatibility guard, because a fixture list only covers
+  /// the types someone remembered. `Teammate` is here because it was the type
+  /// nobody did (#2284).
   @Test func payloadsFromAnOlderServerStillDecode() throws {
     // The second entry and the empty sandbox_providers object decode the nested
     // types with every pinned key absent; a supplied key proves nothing here.
@@ -191,5 +196,22 @@ import Testing
     let schedule = try decode(
       TeamSchedule.self, #"{"id":"s1","agent_id":"a1","cron":"* * * * *","prompt":"go"}"#)
     #expect(schedule.enabled == nil && schedule.oneOff == nil)
+
+    // Four public TeamResource methods return this, and a missing key fails all
+    // of them, not one property. The payload carries only what the contract
+    // requires of Teammate, Agent and Conversation; presence.label is pinned and
+    // omitted here to prove its pin too.
+    let teammate = try decode(
+      Teammate.self,
+      #"""
+      {"agent":{"id":"a1","name":"agent","runtime":"acp"},"agent_id":"a1",
+       "conversation":{"id":"c1","runtime":"acp","status":"idle"},"name":"agent",
+       "presence":{"state":"online"},"unread":false}
+      """#
+    )
+    #expect(teammate.id == "a1" && teammate.name == "agent" && teammate.unread == false)
+    #expect(teammate.presence.state == .online && teammate.presence.label == nil)
+    #expect(teammate.usageTotal == nil && teammate.lastTurn == nil && teammate.preview == nil)
+    #expect(teammate.agent.model == nil && teammate.conversation.title == nil)
   }
 }

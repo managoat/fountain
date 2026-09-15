@@ -1128,7 +1128,15 @@ jobs:
         os: [ubuntu-24.04, macos-15]
 
     steps:
+      # The generator's compatibility guard reads the last release's Swift
+      # models from their tag, so this job needs tags and their trees. The
+      # committed output cannot serve as that baseline: a change that makes a
+      # property required and regenerates would offer its own candidate as the
+      # record of what shipped (#2284).
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
+        with:
+          fetch-depth: 0
+          fetch-tags: true
 
       - name: Set up Swift on Linux
         if: ${{ runner.os == 'Linux' }}
@@ -1658,8 +1666,11 @@ jobs:
         with:
           persist-credentials: false
           # The changelog guard diffs the PR's merge commit against its
-          # first parent, so it needs one level of history.
-          fetch-depth: 2
+          # first parent, so it needs one level of history; the Swift
+          # generation tests read the last release's models from their tag, so
+          # they need tags and their trees (#2284).
+          fetch-depth: 0
+          fetch-tags: true
       - name: Reject conflict markers
         run: python3 scripts/conflict-markers.py
       - name: Test CI decisions

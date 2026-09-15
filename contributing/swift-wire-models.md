@@ -13,7 +13,7 @@ The generator reads the committed contract and does not require Elixir to run.
 | Environment, EnvironmentInput, Vault, VaultInput, Secret | Generated; preserve JSONValue conveniences. Secret unions the environment/vault schemas and rejects conflicting shared definitions |
 | Connection, ConnectionProvider, Teammate and nested types, TeamSchedule/Input | Generated; retain unknown enum handling and derived teammate identity |
 | APIKey, CreatedAPIKey, AuditEvent, SearchHit, Catalog/nested types, ApplyResult/nested types, AdminUser, AdminSandbox, AdminEvent | Generated from endpoint payload shapes, including shapes nested inside envelopes |
-| AuthMe | Remaining migration [#2269](https://github.com/managoat/fountain/issues/2269): decide compatibility for `onboardingState`, absent from the current wire contract |
+| AuthMe | Generated. `role` and `email_verified` are pinned: the contract requires both and every published AuthMe had them Optional. `onboardingState` is retired, not pinned — #1393 dropped the column, so no server emits the key |
 | AdminUserPage | Remaining migration #2269: retain page/hasMore behavior while deriving its data/meta envelope |
 | ConversationBindingUpdate / ConversationReapplyRequest | Remaining migration #2269: retain three-state bindings while deriving underlying wire fields |
 | LogEvent, Block, PermissionOption, PermissionRequest | Remaining migration #2269: inventory raw/normalized differences and preserve custom decoding and stream/permission behavior |

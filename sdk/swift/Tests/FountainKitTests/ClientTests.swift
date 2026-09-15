@@ -212,11 +212,12 @@ import Testing
   }
 
   @Test func authMeIsUnenveloped() async throws {
-    // Shape verified against GET /api/auth/me on 2026-08-31 (no envelope).
+    // Shape verified against GET /api/auth/me on 2026-08-31 (no envelope);
+    // `onboarding_state` left with #1393, which dropped the column.
     let transport = FakeTransport(
       json: """
         {"id":"50e06232-0000-0000-0000-000000000000","email":"user@example.com","role":"admin",
-         "onboarding_state":"completed","email_verified":true,"comped":false,"brokered":true,
+         "email_verified":true,"comped":false,"brokered":true,
          "onboarding_completed":true,"connections_enabled":false,"connections_manageable":true}
         """)
     let me = try await FountainClient.fake(transport).auth.me()

@@ -1255,6 +1255,32 @@ public struct AdminEvent: Sendable, Decodable, Hashable, Identifiable {
   }
 }
 
+public struct AuthMe: Sendable, Decodable, Hashable, Identifiable {
+  public var brokered: Bool?
+  public var comped: Bool?
+  public var connectionsEnabled: Bool?
+  public var connectionsManageable: Bool?
+  public var email: String
+  public var emailVerified: Bool?
+  public var expiresAt: Date?
+  public var id: String
+  public var onboardingCompleted: Bool?
+  public var role: UserRole?
+
+  enum CodingKeys: String, CodingKey {
+    case brokered = "brokered"
+    case comped = "comped"
+    case connectionsEnabled = "connections_enabled"
+    case connectionsManageable = "connections_manageable"
+    case email = "email"
+    case emailVerified = "email_verified"
+    case expiresAt = "expires_at"
+    case id = "id"
+    case onboardingCompleted = "onboarding_completed"
+    case role = "role"
+  }
+}
+
 public struct PendingPermissionRequest: Sendable, Decodable, Hashable {
   public var askedAt: Date?
   public var deadline: Date?

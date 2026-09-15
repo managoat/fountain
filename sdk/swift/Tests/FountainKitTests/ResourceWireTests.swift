@@ -197,6 +197,20 @@ import Testing
       TeamSchedule.self, #"{"id":"s1","agent_id":"a1","cron":"* * * * *","prompt":"go"}"#)
     #expect(schedule.enabled == nil && schedule.oneOff == nil)
 
+    // `role` and `email_verified` are required by the contract and pinned,
+    // because every AuthMe this SDK has published had them Optional. The
+    // `onboarding_state` key is here because a server older than #1393 still
+    // sends it and this SDK no longer has the property: an unknown key is
+    // ignored, a missing pinned one would not be.
+    let me = try decode(
+      AuthMe.self,
+      #"{"id":"u1","email":"user@example.test","onboarding_state":"completed"}"#)
+    #expect(me.id == "u1" && me.email == "user@example.test")
+    #expect(me.role == nil && me.emailVerified == nil)
+    #expect(me.comped == nil && me.brokered == nil && me.expiresAt == nil)
+    #expect(me.connectionsEnabled == nil && me.connectionsManageable == nil)
+    #expect(me.onboardingCompleted == nil)
+
     // Four public TeamResource methods return this, and a missing key fails all
     // of them, not one property. The payload carries only what the contract
     // requires of Teammate, Agent and Conversation; presence.label is pinned and

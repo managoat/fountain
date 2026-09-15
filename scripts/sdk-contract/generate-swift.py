@@ -82,6 +82,7 @@ RESOURCE_ROOTS = [
     'AdminUser',
     'AdminSandbox',
     'AdminEvent',
+    'AuthMeResponse',
 ]
 
 SCHEMA_PATHS = {
@@ -103,6 +104,7 @@ TYPE_NAMES.update({
     'TeammatePreview': 'Teammate.Preview',
     'CatalogSandboxProviders': 'Catalog.SandboxProviders',
     'CatalogApps': 'Catalog.Apps',
+    'AuthMeResponse': 'AuthMe',
 })
 
 INLINE_TYPES.update({
@@ -126,6 +128,7 @@ ENUM_TYPES.update({
     ('SearchHit', 'kind'): 'SearchHitKind',
     ('TeammatePresence', 'state'): 'PresenceState',
     ('TeammateLastTurn', 'status'): 'TurnStatus',
+    ('AuthMeResponse', 'role'): 'UserRole',
     # An array's items are typed under `<key>_item`. Without this the same
     # wire field is `SandboxAPIAccess` on Conversation and `String` here.
     ('Catalog', 'sandbox_api_access_item'): 'SandboxAPIAccess',
@@ -191,6 +194,10 @@ OPTIONAL_COMPAT.update({
     ('TeammateLastTurn', 'status'),
     ('TeammateLastTurn', 'turn_number'),
     ('TeammatePresence', 'label'),
+    # `GET /api/auth/me` requires both, and the handwritten model published
+    # both Optional since the SDK shipped.
+    ('AuthMeResponse', 'email_verified'),
+    ('AuthMeResponse', 'role'),
 })
 
 # Properties this SDK exposes for the first time, on types that already

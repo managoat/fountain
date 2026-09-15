@@ -87,6 +87,78 @@ A saved agent model change takes effect on the next user turn, including on
 an existing ACP connection. The conversation, session, transcript and worktree
 remain in place. A change during a running turn applies to the next turn.
 
+## The sandbox codex builds for itself
+
+Codex applies a sandbox policy of its own **inside** the Fountain sandbox. The
+pinned `codex-acp` adapter sends that policy with each session, and its default
+is a writable workspace and nothing else.
+
+| What the adapter sends | Default |
+|---|---|
+| The mode | `workspaceWrite` |
+| `writableRoots` | `[]` |
+| `networkAccess` | `false` |
+
+Two things a first turn often does are refused by that default. A write
+outside the workspace fails, which includes the `.git` of a clone that lives
+elsewhere, so a command that cuts a worktree from a shared clone cannot write
+its entry. And every network call fails, so `git fetch`, a package install and
+a `curl` the agent runs itself all fail.
+
+`~/.codex/config.toml` does not widen it. The adapter sends an explicit
+per-session policy, and that policy wins over the file, in the same way the
+`CODEX_CONFIG` overlay wins over a `model_provider` written into it.
+
+### Give codex full access
+
+Set `INITIAL_AGENT_MODE` to `agent-full-access` in the
+[environment's](../../concepts/environment.md) `env_vars`. The adapter reads it
+from the process environment when it opens the session.
+
+```yaml
+apiVersion: fountain.dev/v1
+kind: Environment
+metadata:
+  name: codex-full-access
+spec:
+  env_vars:
+    INITIAL_AGENT_MODE: agent-full-access
+```
+
+Six things follow from that.
+
+- **It is all or nothing.** The value names a mode, not a list. There is no way
+  today to say "the workspace, plus this one root, plus the network". Neither
+  an Agent nor an Environment carries a writable-roots field, and Fountain
+  renders nothing into the adapter's policy on your behalf.
+  [#1684](https://github.com/managoat/fountain/issues/1684) tracks the general
+  version. The policy will live on the Environment when it is built, beside
+  the repositories and the network policy it belongs with.
+- **It is not a permission policy.** The agent's
+  [permission policy](../../concepts/permissions.md) answers each
+  `session/request_permission` while a turn runs. This is the sandbox codex
+  builds before it asks anything. Full access does not loosen a policy of
+  `ask` or `auto_deny`, and a policy of `auto_allow` does not widen this
+  sandbox.
+- **It does not widen Fountain's own egress.** An environment with
+  `networking_type: limited`, and the credential broker where it is on, still
+  decide which hosts a request reaches. Full access lets codex attempt the
+  call. The
+  [network policy](../../concepts/environment.md#the-network-policy-is-not-symmetric)
+  decides whether it lands, and a host that is not allowed still gets a 403
+  that names it.
+- **Every conversation on that environment gets it.** Give the agents that
+  need full access an environment of their own. A launch can then name it with
+  `environment_id`, within the agent's `allowed_environment_ids`, rather than
+  widening the environment everything else shares.
+- **The value is scrubbed from the logs.** It is longer than the 8-byte
+  redaction floor, so an agent that prints its environment shows
+  `INITIAL_AGENT_MODE=[REDACTED]`. That is the scrubber working, and not a
+  variable that failed to arrive. Read
+  [Where a secret comes from](../../concepts/secrets.md#hop-5-a-hop-back-fountain-scrubs-the-output).
+- **It is codex only.** claude, gemini and opencode do not express a sandbox
+  this way. The variable reaches them and means nothing to them.
+
 ## Limits
 
 The CLI takes the bare model id, so Fountain removes the `openai/` prefix

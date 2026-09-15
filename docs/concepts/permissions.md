@@ -6,6 +6,12 @@ file, or fetch a URL. A **permission policy** says what happens at that moment.
 The runtime asks Fountain first. Fountain answers from the policy. The tool
 then runs, or it does not.
 
+**A permission policy is not the runtime's own sandbox.** Some runtimes build
+one before they ask anything, and no verdict here widens it. Codex is the one
+that catches people: it confines its writes and blocks its network by default,
+so a tool this policy permits can still fail. Read
+[the sandbox codex builds for itself](../catalog/runtimes/codex.md#the-sandbox-codex-builds-for-itself).
+
 ## The three answers
 
 | Verdict | What Fountain does |

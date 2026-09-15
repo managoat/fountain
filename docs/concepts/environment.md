@@ -81,6 +81,11 @@ setup does not start the agent. This controls setup, not inference time or spend
 `unrestricted` does nothing. A Sprites sandbox is open by default, so the
 value changes nothing.
 
+It is also not the last word on what the agent can reach. A runtime can hold a
+sandbox of its own inside the machine, and Fountain's policy does not open it.
+Codex blocks its own network access by default, whatever this field says. Read
+[the sandbox codex builds for itself](../catalog/runtimes/codex.md#the-sandbox-codex-builds-for-itself).
+
 `limited` holds egress to the domains in `networking_config.allowed_hosts`.
 That is the only `networking_config` key Fountain reads today.
 

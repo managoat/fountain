@@ -14,6 +14,7 @@ means. Where the two deploy paths differ, both commands appear.
 | A conversation sits in `running` with no output, or it went `failed`. | [A conversation is stuck or failed](conversation-stuck-or-failed.md) |
 | A sandbox fails to start while the rest of the system is healthy. | [Sandbox errors](sandbox-errors.md) |
 | A turn fails and says your organization disabled subscription access. | [Which credential claude uses](../catalog/runtimes/claude.md#which-credential-it-uses) |
+| A codex agent cannot write outside its workspace, or cannot reach the network. | [The sandbox codex builds for itself](../catalog/runtimes/codex.md#the-sandbox-codex-builds-for-itself) |
 | Pods restart, or they sit NotReady. | [Pods restart or never go ready](pods-restarting.md) |
 | Registration completes, but nobody gets past "check your email". | [Nobody can log in](nobody-can-log-in.md) |
 | Fountain rate-limits everyone at once. | [Nobody can log in](nobody-can-log-in.md) |

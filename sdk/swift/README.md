@@ -71,6 +71,11 @@ are preserved. Existing initializer arguments and the string-only
 complete policy, including numeric values. Reading the legacy property returns
 only string entries; setting it replaces the complete policy.
 
+With a channel ID, both `runRequest` methods follow turn 1 when the server
+creates a conversation, including fresh launches. When the server resumes an
+existing conversation, they submit the prompt and images once, then follow the
+next turn. A rejected follow-up surfaces the API error.
+
 Both run paths reject a missing/blank prompt and `queue: true` before HTTP.
 Use the generic request API for queued creation; its 202 response is a job.
 `FountainKit.conversations.create` also rejects queued creation because it returns

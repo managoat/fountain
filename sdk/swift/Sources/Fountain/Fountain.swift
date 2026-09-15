@@ -118,13 +118,22 @@ public final class Fountain: @unchecked Sendable {
     return Run(
       http: api,
       plan: RunPlan { [api] in
-        let conversation = try await api.data("POST", "/api/conversations", body: request)
-        var turnNumber = 1
-        if request["channel_id"]?.stringValue != nil, let id = conversation["id"]?.stringValue {
+        let response = try await api.request("POST", "/api/conversations", body: .object(request))
+        let conversation = response["data"]?.objectValue ?? [:]
+        if response["meta"]?["resumed"]?.boolValue == true,
+          let id = conversation["id"]?.stringValue
+        {
+          // Resume only binds the channel. Capture history before submitting
+          // the prompt so even a fast follow-up is followed from its beginning.
+          let after = await Conversation(http: api, id: id).cursor()
           let turns = try await api.list("/api/conversations/\(id)/turns")
-          turnNumber = (turns.compactMap { $0["turn_number"]?.intValue }.max() ?? 0) + 1
+          let turnNumber = (turns.compactMap { $0["turn_number"]?.intValue }.max() ?? 0) + 1
+          var body: JSONObject = ["prompt": .string(prompt)]
+          if let images = request["images"] { body["images"] = images }
+          _ = try await api.request("POST", "/api/conversations/\(id)/prompts", body: .object(body))
+          return (conversation, turnNumber, after)
         }
-        return (conversation, turnNumber, 0)
+        return (conversation, 1, 0)
       }, timeout: timeout, collectEvents: collectEvents)
   }
 

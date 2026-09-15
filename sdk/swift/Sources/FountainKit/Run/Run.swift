@@ -367,12 +367,14 @@ extension FountainClient {
       throw ConversationRunInputError(message: "runRequest does not support queued creation")
     }
     let opened = try await conversations.create(request)
-    var turnNumber = 1
-    if request.channelID != nil, opened.resumed {
-      turnNumber = try await nextTurnNumber(opened.conversation.id)
+    if opened.resumed {
+      // Channel resume does not submit the launch prompt. The follow-up path
+      // captures the cursor and next turn before sending the prompt once.
+      return try await conversations.run(
+        opened.conversation.id, prompt: prompt, images: request.images, timeout: timeout)
     }
     return Run(
-      client: api, conversation: opened.conversation, turnNumber: turnNumber,
+      client: api, conversation: opened.conversation, turnNumber: 1,
       after: 0, timeout: timeout)
   }
 

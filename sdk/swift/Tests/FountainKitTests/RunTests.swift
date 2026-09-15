@@ -61,6 +61,91 @@ import Testing
   }
 
   @Test(arguments: [false, true])
+  func runRequestFollowsNewChannelTurnOne(fresh: Bool) async throws {
+    let transport = FakeTransport([
+      .init(
+        status: 201,
+        json:
+          #"{"data":{"id":"c1","status":"running","runtime":"claude"},"meta":{"resumed":false}}"#),
+      .init(json: Self.stream),
+      .init(json: #"{"data":{"id":"c1","status":"idle","runtime":"claude"}}"#),
+    ])
+    let request = ConversationCreateRequest(
+      agentID: "a1", prompt: "hello", channelID: "chat", fresh: fresh)
+    let result = try await FountainClient.fake(transport).runRequest(request, timeout: 1).value()
+    #expect(result.turnNumber == 1)
+    #expect(result.text == "Found it.")
+    #expect(!transport.requests.contains { $0.url?.path.hasSuffix("/prompts") == true })
+  }
+
+  @Test func runRequestDispatchesResumedPromptAndImagesOnce() async throws {
+    var nextStream = Self.stream
+      .replacingOccurrences(of: "t1", with: "t2")
+      .replacingOccurrences(of: "turn_number\\\": 1", with: "turn_number\\\": 2")
+    for id in 1...4 {
+      nextStream =
+        nextStream
+        .replacingOccurrences(of: "id: \(id)\n", with: "id: \(id + 4)\n")
+        .replacingOccurrences(of: "\"id\":\(id),", with: "\"id\":\(id + 4),")
+    }
+    let transport = FakeTransport([
+      .init(
+        json: #"{"data":{"id":"c1","status":"idle","runtime":"claude"},"meta":{"resumed":true}}"#),
+      .init(json: "id: 4\nevent: stage\ndata: {\"id\":4,\"kind\":\"stage\"}\n\n"),
+      .init(json: #"{"data":[{"id":"t1","prompt":"old","turn_number":1,"status":"completed"}]}"#),
+      .init(json: #"{"status":"queued"}"#),
+      .init(json: #"{"data":{"id":"c1","status":"running","runtime":"claude"}}"#),
+      .init(json: nextStream),
+      .init(json: #"{"data":{"id":"c1","status":"idle","runtime":"claude"}}"#),
+    ])
+    let request = ConversationCreateRequest(
+      agentID: "a1", prompt: "next",
+      images: [ImageInput(data: "aGVsbG8=", mediaType: "image/png")], channelID: "chat")
+    let result = try await FountainClient.fake(transport).runRequest(request, timeout: 1).value()
+    #expect(result.turnNumber == 2)
+    #expect(result.text == "Found it.")
+    #expect(
+      transport.requests.map { $0.url!.path } == [
+        "/api/conversations", "/api/conversations/c1/stream", "/api/conversations/c1/turns",
+        "/api/conversations/c1/prompts", "/api/conversations/c1",
+        "/api/conversations/c1/stream", "/api/conversations/c1",
+      ])
+    let body = try JSONDecoder().decode(
+      JSONValue.self, from: #require(transport.requests[3].httpBody))
+    #expect(
+      body
+        == .object([
+          "prompt": .string("next"),
+          "images": .array([
+            .object(["data": .string("aGVsbG8="), "media_type": .string("image/png")])
+          ]),
+        ]))
+    #expect(transport.requests[5].value(forHTTPHeaderField: "Last-Event-ID") == "4")
+  }
+
+  @Test func runRequestSurfacesResumedPromptRejection() async throws {
+    let transport = FakeTransport([
+      .init(
+        json: #"{"data":{"id":"c1","status":"idle","runtime":"claude"},"meta":{"resumed":true}}"#),
+      .init(json: ""),
+      .init(json: #"{"data":[]}"#),
+      .init(status: 400, json: #"{"error":"conversation_busy"}"#),
+    ])
+    let request = ConversationCreateRequest(agentID: "a1", prompt: "next", channelID: "chat")
+    do {
+      _ = try await FountainClient.fake(transport).runRequest(request, timeout: 1)
+      Issue.record("A rejected prompt must fail the run")
+    } catch let error as FountainError {
+      guard case .conversationBusy = error else {
+        Issue.record("Unexpected prompt error: \(error)")
+        return
+      }
+    }
+    #expect(transport.requests.last?.url?.path == "/api/conversations/c1/prompts")
+    #expect(transport.requests.count == 4)
+  }
+
+  @Test(arguments: [false, true])
   func runTranscriptLinksUseTheAppOrDashboard(configured: Bool) async throws {
     let appURL = configured ? URL(string: "https://talk.fountain.test/base/")! : nil
     let expected =

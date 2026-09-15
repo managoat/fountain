@@ -80,6 +80,58 @@ private func json(_ value: JSONValue) -> Data { try! JSONEncoder().encode(value)
     await #expect(throws: FountainError.self) { try await run.value() }
   }
 
+  @Test(arguments: [false, true])
+  func runRequestFollowsNewChannelTurnOne(fresh: Bool) async throws {
+    let router = ChannelRunRouter(resumed: false)
+    MockURLProtocol.handler = router.handle
+    let fountain = try Fountain(
+      apiKey: "secret", baseURL: "https://api.example.test", session: mockSession())
+    let run = try fountain.runRequest(
+      [
+        "agent_id": "a1", "prompt": "hello", "channel_id": "chat", "fresh": .bool(fresh),
+      ], timeout: 1)
+    let result = try await run.value()
+    #expect(result.turnNumber == 1)
+    #expect(result.text == "answer 1")
+    #expect(router.promptCount == 0)
+  }
+
+  @Test func runRequestDispatchesResumedPromptAndImagesOnce() async throws {
+    let router = ChannelRunRouter(resumed: true)
+    MockURLProtocol.handler = router.handle
+    let fountain = try Fountain(
+      apiKey: "secret", baseURL: "https://api.example.test", session: mockSession())
+    let images: JSONValue = [["data": "aGVsbG8=", "media_type": "image/png"]]
+    let run = try fountain.runRequest(
+      [
+        "agent_id": "a1", "prompt": "next", "channel_id": "chat", "images": images,
+      ], timeout: 1, collectEvents: true)
+    let result = try await run.value()
+    #expect(result.conversationID == "c1")
+    #expect(result.turnNumber == 2)
+    #expect(result.text == "answer 2")
+    #expect(router.promptCount == 1)
+    #expect(router.promptBody == ["prompt": "next", "images": images])
+  }
+
+  @Test func runRequestSurfacesResumedPromptRejection() async throws {
+    let router = ChannelRunRouter(resumed: true, rejectPrompt: true)
+    MockURLProtocol.handler = router.handle
+    let fountain = try Fountain(
+      apiKey: "secret", baseURL: "https://api.example.test", session: mockSession())
+    let run = try fountain.runRequest(
+      [
+        "agent_id": "a1", "prompt": "next", "channel_id": "chat",
+      ], timeout: 1)
+    do {
+      _ = try await run.value()
+      Issue.record("A rejected prompt must fail the run")
+    } catch let error as FountainError {
+      #expect(error.code == "conversation_busy")
+    }
+    #expect(router.promptCount == 1)
+  }
+
   @Test func runRequestRejectsInvalidInputsBeforeHTTP() throws {
     MockURLProtocol.handler = { _, instance in
       Issue.record("Invalid run input reached HTTP")
@@ -632,4 +684,93 @@ private func eventLabels(_ stream: AsyncThrowingStream<RunEvent, Error>) async t
     }
   }
   return output
+}
+
+/// Models the server's channel contract: creation starts turn 1; resume does
+/// not start anything until a separate prompt request arrives.
+private final class ChannelRunRouter: @unchecked Sendable {
+  private let lock = NSLock()
+  private let resumed: Bool
+  private let rejectPrompt: Bool
+  private var currentTurn = 1
+  private var capturedHistory = false
+  private var capturedCursor = false
+  private(set) var promptCount = 0
+  private(set) var promptBody: JSONObject?
+
+  init(resumed: Bool, rejectPrompt: Bool = false) {
+    self.resumed = resumed
+    self.rejectPrompt = rejectPrompt
+  }
+
+  func handle(_ request: URLRequest, _ instance: MockURLProtocol) {
+    lock.lock()
+    defer { lock.unlock() }
+    switch (request.httpMethod, request.url?.path) {
+    case ("POST", "/api/conversations"):
+      instance.respond(
+        status: resumed ? 200 : 201,
+        data: json(
+          [
+            "data": ["id": "c1", "status": resumed ? "idle" : "running"],
+            "meta": ["resumed": .bool(resumed)],
+          ] as JSONValue))
+    case ("GET", "/api/conversations/c1/turns"):
+      capturedHistory = true
+      instance.respond(data: json(["data": [["turn_number": .integer(currentTurn)]]] as JSONValue))
+    case ("POST", "/api/conversations/c1/prompts"):
+      #expect(capturedHistory && capturedCursor)
+      promptCount += 1
+      var data = request.httpBody ?? Data()
+      if let stream = request.httpBodyStream {
+        stream.open()
+        defer { stream.close() }
+        var buffer = [UInt8](repeating: 0, count: 1024)
+        while stream.hasBytesAvailable {
+          let count = stream.read(&buffer, maxLength: buffer.count)
+          if count <= 0 { break }
+          data.append(contentsOf: buffer.prefix(count))
+        }
+      }
+      promptBody = try? JSONDecoder().decode(JSONObject.self, from: data)
+      if rejectPrompt {
+        instance.respond(status: 400, data: json(["error": "conversation_busy"] as JSONValue))
+      } else {
+        currentTurn += 1
+        instance.respond(data: json(["status": "queued"] as JSONValue))
+      }
+    case ("GET", "/api/conversations/c1/stream"):
+      let query = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems
+      let discovery = query?.contains(where: { $0.name == "wait" && $0.value == "false" }) == true
+      if discovery {
+        capturedCursor = true
+      } else if resumed {
+        #expect(promptCount == 1 && !rejectPrompt)
+        #expect(request.value(forHTTPHeaderField: "Last-Event-ID") == "3")
+      }
+      let start = (currentTurn - 1) * 3 + 1
+      let events = """
+        id: \(start)
+        event: stage
+        data: {"id":\(start),"kind":"stage","stage":"turn","state":"started","data":"{\\"turn_number\\":\(currentTurn),\\"turn_id\\":\\"t\(currentTurn)\\"}"}
+
+        id: \(start + 1)
+        event: output
+        data: {"id":\(start + 1),"kind":"output","stream":"acp","turn_id":"t\(currentTurn)","blocks":[{"kind":"text","body":"answer \(currentTurn)"}]}
+
+        id: \(start + 2)
+        event: stage
+        data: {"id":\(start + 2),"kind":"stage","stage":"turn","state":"done","data":"{\\"turn_number\\":\(currentTurn),\\"turn_id\\":\\"t\(currentTurn)\\"}"}
+
+
+        """
+      instance.respond(
+        headers: ["Content-Type": "text/event-stream"], data: Data(events.utf8), finish: discovery)
+    case ("GET", "/api/conversations/c1"):
+      instance.respond(data: json(["data": ["id": "c1", "status": "idle"]] as JSONValue))
+    default:
+      Issue.record("Unexpected channel request: \(request)")
+      instance.respond(status: 500)
+    }
+  }
 }

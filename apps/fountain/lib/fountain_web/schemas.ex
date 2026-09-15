@@ -111,7 +111,7 @@ defmodule FountainWeb.Schemas do
         id: %Schema{type: :string, format: :uuid},
         status: %Schema{type: :string, enum: ~w(pending running idle failed terminated)},
         title: %Schema{type: :string, nullable: true},
-        runtime: %Schema{type: :string, enum: Fountain.Agents.Agent.known_runtimes()},
+        runtime: %Schema{type: :string, enum: Fountain.Agents.Agent.packaged_runtimes()},
         mid_turn: %Schema{
           type: :boolean,
           description: "True while this conversation is running a turn on the machine."
@@ -534,7 +534,7 @@ defmodule FountainWeb.Schemas do
           nullable: true,
           description: "Per-launch environment override; null means the agent's environment."
         },
-        runtime: %Schema{type: :string, enum: Fountain.Agents.Agent.known_runtimes()},
+        runtime: %Schema{type: :string, enum: Fountain.Agents.Agent.packaged_runtimes()},
         acp: %Schema{
           type: :boolean,
           readOnly: true,
@@ -1079,14 +1079,12 @@ defmodule FountainWeb.Schemas do
               "codex, google for gemini; opencode accepts any of the three. Other " <>
               "providers are rejected: Fountain has no credentials to export for " <>
               "them. The model id is not checked against a list, so a newly " <>
-              "released model works without a Fountain release. The isolated fountain-fixture " <>
-              "runtime is the exception: it accepts only fixture/deterministic-v1. Null " <>
-              "on the acp runtime, which resolves no inference credential and reads no " <>
-              "model.",
+              "released model works without a Fountain release. Null on the acp " <>
+              "runtime, which resolves no inference credential and reads no model.",
           nullable: true,
           pattern: "^[a-z0-9_-]+/[a-z0-9._-]+$"
         },
-        runtime: %Schema{type: :string, enum: Fountain.Agents.Agent.known_runtimes()},
+        runtime: %Schema{type: :string, enum: Fountain.Agents.Agent.packaged_runtimes()},
         runtime_command: %Schema{
           type: :string,
           nullable: true,
@@ -1289,7 +1287,7 @@ defmodule FountainWeb.Schemas do
           nullable: true,
           pattern: "^[a-z0-9_-]+/[a-z0-9._-]+$"
         },
-        runtime: %Schema{type: :string, enum: Fountain.Agents.Agent.known_runtimes()},
+        runtime: %Schema{type: :string, enum: Fountain.Agents.Agent.packaged_runtimes()},
         runtime_command: %Schema{
           type: :string,
           nullable: true,
@@ -1438,7 +1436,7 @@ defmodule FountainWeb.Schemas do
         # Nullable for the same reason AgentRequest's is: converting an agent
         # to the acp runtime has to be able to clear the model.
         model: %Schema{type: :string, nullable: true, pattern: "^[a-z0-9_-]+/[a-z0-9._-]+$"},
-        runtime: %Schema{type: :string, enum: Fountain.Agents.Agent.known_runtimes()},
+        runtime: %Schema{type: :string, enum: Fountain.Agents.Agent.packaged_runtimes()},
         runtime_command: %Schema{
           type: :string,
           nullable: true,

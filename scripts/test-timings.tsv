@@ -171,6 +171,7 @@ apps/fountain/test/fountain/workers/unverified_account_pruner_test.exs	2195
 apps/fountain/test/fountain/workers/verification_email_test.exs	973
 apps/fountain/test/fountain/workers/webhook_delivery_test.exs	4022
 apps/fountain/test/fountain_web/api_key_scope_test.exs	3797
+apps/fountain/test/fountain_web/api_spec/fixture_runtime_test.exs	420
 apps/fountain/test/fountain_web/api_spec_test.exs	62
 apps/fountain/test/fountain_web/audit_coverage_test.exs	8584
 apps/fountain/test/fountain_web/audit_identity_test.exs	1710

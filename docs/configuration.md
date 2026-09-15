@@ -74,7 +74,7 @@ custom harnesses. See [Test the deployed ACP path](integrations/acp.md#test-the-
 | Variable | Default | Required | Meaning |
 |---|---|---|---|
 | `DEPLOYED_ACP_FIXTURE_ENABLED` | `false` | — | Set exactly `true` to offer the fixed `fountain-fixture` runtime on a test deployment. The account UUID below is also required. |
-| `DEPLOYED_ACP_FIXTURE_USER_ID` | — | With the fixture enabled | UUID of the dedicated verified test account allowed to create and launch fixture agents. Other accounts are refused. |
+| `DEPLOYED_ACP_FIXTURE_USER_ID` | — | With the fixture enabled | UUID of the dedicated verified test account allowed to create and launch fixture agents. Other accounts are refused. Naming it is also what puts `fountain-fixture` into the runtime enums of the OpenAPI document this deployment serves, so keep it set while any fixture agent still exists — those outlive the flag so their owner can delete them. |
 
 ## Webhooks
 

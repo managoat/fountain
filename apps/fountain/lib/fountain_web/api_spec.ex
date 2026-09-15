@@ -6,7 +6,7 @@ defmodule FountainWeb.ApiSpec do
 
   alias OpenApiSpex.{Components, Info, OpenApi, Paths, SecurityScheme, Server}
   alias FountainWeb.{Endpoint, Router}
-  alias FountainWeb.ApiSpec.{Compose, PipelineResponses}
+  alias FountainWeb.ApiSpec.{Compose, FixtureRuntime, PipelineResponses}
 
   @behaviour OpenApi
 
@@ -54,5 +54,8 @@ defmodule FountainWeb.ApiSpec do
     # what it was before extensions existed.
     |> Compose.compose!()
     |> PipelineResponses.apply(Router)
+    # Last, on resolved components: a deployment that names an account for the
+    # opt-in test fixture names its runtime in its own spec, nowhere else (#1716).
+    |> FixtureRuntime.widen()
   end
 end

@@ -49,7 +49,7 @@ request.
 ## The same request from the SDK
 
 ```bash
-npm install @managoat/fountain-sdk
+npm install @managoat/fountain-sdk@^5.2.0
 ```
 
 ```ts
@@ -57,7 +57,9 @@ npm install @managoat/fountain-sdk
 ```
 
 `new Fountain()` reads `FOUNTAIN_API_KEY` and `FOUNTAIN_BASE_URL` from the
-environment, exactly as the CLI does. There are
+environment, exactly as the CLI does. The request uses the same agent ID as
+the curl example; copy it from your start page. `runRequest` accepts API fields
+directly, with local timeout/event options passed separately. There are
 [Python](python-sdk.md), [Elixir](elixir-sdk.md) and [Swift](swift-sdk.md)
 clients over the same API.
 

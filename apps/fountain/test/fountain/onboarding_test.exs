@@ -30,7 +30,7 @@ defmodule Fountain.OnboardingTest do
       assert Onboarding.curl_template() =~ "/api/conversations"
       assert Onboarding.curl_template() =~ "Authorization: Bearer"
       assert Onboarding.typescript_template() =~ "@managoat/fountain-sdk"
-      assert Onboarding.typescript_template() =~ "fountain.run("
+      assert Onboarding.typescript_template() =~ "fountain.runRequest("
     end
 
     test "carry every placeholder between them, so the manual reads as instructions" do
@@ -66,24 +66,25 @@ defmodule Fountain.OnboardingTest do
   end
 
   describe "typescript/1" do
-    test "names the agent and fills the constructor a copied snippet needs" do
+    test "uses the agent ID and fills the constructor a copied snippet needs" do
       rendered =
         Onboarding.typescript(
           base_url: "https://fountain.example",
           api_key: "ftn_abc123",
-          agent: "starter"
+          agent_id: "agent-uuid"
         )
 
-      assert rendered =~ ~S|{ agent: "starter" }|
+      assert rendered =~ ~S|agent_id: "agent-uuid"|
 
       assert rendered =~
                ~S|new Fountain({ apiKey: "ftn_abc123", baseUrl: "https://fountain.example" })|
 
       refute rendered =~ "new Fountain()"
+      refute rendered =~ "$FOUNTAIN_AGENT_ID"
     end
 
     test "keeps the bare constructor when there is nothing to put in it" do
-      assert Onboarding.typescript(agent: "starter") =~ "new Fountain()"
+      assert Onboarding.typescript(agent_id: "agent-uuid") =~ "new Fountain()"
     end
   end
 
@@ -101,7 +102,11 @@ defmodule Fountain.OnboardingTest do
   test "a fully substituted render carries no placeholder into anyone's terminal" do
     rendered =
       Onboarding.curl(base_url: "https://x.test", api_key: "ftn_k", agent_id: "a") <>
-        Onboarding.typescript(base_url: "https://x.test", api_key: "ftn_k", agent: "starter")
+        Onboarding.typescript(
+          base_url: "https://x.test",
+          api_key: "ftn_k",
+          agent_id: "agent-uuid"
+        )
 
     for token <- Onboarding.placeholders() do
       refute String.contains?(rendered, token), "#{token} survived substitution"

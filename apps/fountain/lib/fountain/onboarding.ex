@@ -29,7 +29,6 @@ defmodule Fountain.Onboarding do
   | `$FOUNTAIN_BASE_URL` | this instance's public URL |
   | `$FOUNTAIN_API_KEY` | the key the landing just minted |
   | `$FOUNTAIN_AGENT_ID` | the agent the request runs against |
-  | `$FOUNTAIN_AGENT_NAME` | that agent's name, which is what the SDK takes |
   | `new Fountain()` | `new Fountain({apiKey, baseUrl})`, since a copied snippet has no environment |
 
   The shell snippet keeps environment variables rather than inlining anything,
@@ -82,7 +81,7 @@ defmodule Fountain.Onboarding do
   @doc """
   The TypeScript for a real key and a real agent.
 
-  Options: `:base_url`, `:api_key`, `:agent`. A copied snippet runs in a
+  Options: `:base_url`, `:api_key`, `:agent_id`. A copied snippet runs in a
   terminal that has never heard of this account, so the bare `new Fountain()`
   the manual shows — which reads `FOUNTAIN_API_KEY` from the environment, as
   the CLI does — becomes an explicit constructor here.
@@ -90,7 +89,7 @@ defmodule Fountain.Onboarding do
   @spec typescript(keyword()) :: String.t()
   def typescript(opts \\ []) do
     @typescript
-    |> replace("$FOUNTAIN_AGENT_NAME", opts[:agent])
+    |> replace("$FOUNTAIN_AGENT_ID", opts[:agent_id])
     |> constructor(opts[:api_key], opts[:base_url])
   end
 
@@ -103,7 +102,7 @@ defmodule Fountain.Onboarding do
   """
   @spec placeholders() :: [String.t()]
   def placeholders do
-    ~w($FOUNTAIN_BASE_URL $FOUNTAIN_API_KEY $FOUNTAIN_AGENT_ID $FOUNTAIN_AGENT_NAME)
+    ~w($FOUNTAIN_BASE_URL $FOUNTAIN_API_KEY $FOUNTAIN_AGENT_ID)
   end
 
   @doc """

@@ -159,19 +159,9 @@ class FountainClient:
 
     # ── conversations ──────────────────────────────────────────────────────
 
-    def create_conversation(
-        self,
-        agent_id: str,
-        prompt: str,
-        *,
-        vault_id: str | None = None,
-        environment_id: str | None = None,
-    ) -> dict:
-        body: dict[str, Any] = {"agent_id": agent_id, "prompt": prompt}
-        if vault_id:
-            body["vault_id"] = vault_id
-        if environment_id:
-            body["environment_id"] = environment_id
+    def create_conversation(self, request: dict[str, Any]) -> dict:
+        """Send an API-shaped body; tool argument/name translation belongs to the caller."""
+        body = dict(request)
         out = self.request("POST", "/api/conversations", body=body)
         return (out or {}).get("data") or {}
 

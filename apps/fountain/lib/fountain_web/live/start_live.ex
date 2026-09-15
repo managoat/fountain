@@ -198,7 +198,7 @@ defmodule FountainWeb.StartLive do
     Onboarding.typescript(
       base_url: assigns.base_url,
       api_key: assigns.raw_key,
-      agent: assigns.agent && assigns.agent.name
+      agent_id: assigns.agent && assigns.agent.id
     )
   end
 

@@ -146,9 +146,12 @@ class FountainTools:
         agent = client.resolve_agent(_required(args, "agent"))
         vault_id = client.resolve_vault(args.get("vault"))
         environment_id = client.resolve_environment(args.get("environment"))
-        conv = client.create_conversation(
-            agent["id"], prompt, vault_id=vault_id, environment_id=environment_id
-        )
+        request = {"agent_id": agent["id"], "prompt": prompt}
+        if vault_id:
+            request["vault_id"] = vault_id
+        if environment_id:
+            request["environment_id"] = environment_id
+        conv = client.create_conversation(request)
         conv_id = conv.get("id")
         if not conv_id:
             raise FountainError(f"POST /api/conversations returned no id: {conv!r}")

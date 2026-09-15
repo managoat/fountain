@@ -205,22 +205,25 @@ func TestWaitForVerificationStopsOnANonVerificationRefusal(t *testing.T) {
 // The CLI substitutes exactly what the server could not: the raw key it holds
 // and the agent it resolved. Everything else in the text is the server's.
 func TestFirstRequestRenderSubstitutesKeyAndAgent(t *testing.T) {
-	req := firstRequest{
-		Curl:       `curl -H "Authorization: Bearer $FOUNTAIN_API_KEY" -d '{"agent_id": "$FOUNTAIN_AGENT_ID"}'`,
-		TypeScript: `run("hi", { agent: "$FOUNTAIN_AGENT_NAME" })`,
-	}
-
-	curl, ts := req.render("ftn_secret", namedAgent{ID: "agent-uuid", Name: "starter"})
-
-	if !strings.Contains(curl, "Bearer ftn_secret") || !strings.Contains(curl, `"agent-uuid"`) {
-		t.Fatalf("curl not substituted: %s", curl)
-	}
-	if !strings.Contains(ts, `agent: "starter"`) {
-		t.Fatalf("typescript not substituted: %s", ts)
-	}
-	for _, token := range []string{apiKeyPlaceholder, agentIDPlaceholder, agentNamePlaceholder} {
-		if strings.Contains(curl+ts, token) {
-			t.Fatalf("%s survived into what the developer pastes", token)
+	for _, example := range []struct{ input, want string }{
+		{`runRequest({ agent_id: "$FOUNTAIN_AGENT_ID", prompt: "hi" })`, `agent_id: "agent-uuid"`},
+		{`run("hi", { agent: "$FOUNTAIN_AGENT_NAME" })`, `agent: "starter"`},
+	} {
+		req := firstRequest{
+			Curl:       `curl -H "Authorization: Bearer $FOUNTAIN_API_KEY" -d '{"agent_id": "$FOUNTAIN_AGENT_ID"}'`,
+			TypeScript: example.input,
+		}
+		curl, ts := req.render("ftn_secret", namedAgent{ID: "agent-uuid", Name: "starter"})
+		if !strings.Contains(curl, "Bearer ftn_secret") || !strings.Contains(curl, `"agent-uuid"`) {
+			t.Fatalf("curl not substituted: %s", curl)
+		}
+		if !strings.Contains(ts, example.want) {
+			t.Fatalf("typescript not substituted: %s", ts)
+		}
+		for _, token := range []string{apiKeyPlaceholder, agentIDPlaceholder, agentNamePlaceholder} {
+			if strings.Contains(curl+ts, token) {
+				t.Fatalf("%s survived into what the developer pastes", token)
+			}
 		}
 	}
 }

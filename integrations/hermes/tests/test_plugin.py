@@ -117,10 +117,19 @@ class ClientTests(unittest.TestCase):
         )
         with mock.patch("urllib.request.urlopen", side_effect=response):
             with self.assertRaises(FountainError) as caught:
-                FountainClient("https://fountain.test", TOKEN).create_conversation("a-1", "")
+                FountainClient("https://fountain.test", TOKEN).create_conversation({"agent_id": "a-1", "prompt": ""})
         self.assertEqual(caught.exception.status, 422)
         self.assertEqual(caught.exception.body, body)
         self.assertIn('"prompt": ["can\'t be blank"]', str(caught.exception))
+
+    def test_create_forwards_api_fields_without_a_projection(self):
+        body = {"agent_id": "a-1", "prompt": "hello", "future_field": {"zero": 0},
+                "vault_id": None, "fresh": False, "labels": {}, "images": [], "title": ""}
+        with FakeFountain() as fake:
+            client = FountainClient(fake.base_url, TOKEN)
+            self.assertTrue(client.create_conversation(body)["id"])
+            sent = [(method, path, payload) for method, path, payload, _ in fake.state.requests]
+            self.assertEqual(sent, [("POST", "/api/conversations", body)])
 
     def test_agent_resolution(self):
         with FakeFountain() as fake:
@@ -288,7 +297,7 @@ class RunTests(unittest.TestCase):
             clock = FakeClock()
             # Another client created it and ran turn 1; turn 2 is in flight.
             other = FountainClient(fake.base_url, TOKEN)
-            conv = other.create_conversation("a-1", "one")
+            conv = other.create_conversation({"agent_id": "a-1", "prompt": "one"})
             script_turn(st, conv["id"], 1, ["old answer"])
             st.add_turn(conv["id"], "two")
             turn2 = st.turns[conv["id"]][1]

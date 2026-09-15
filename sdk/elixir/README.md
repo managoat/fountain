@@ -1,5 +1,9 @@
 # Fountain Elixir SDK
 
+
+For raw resource IDs or full API-field coverage, use [`run_request`](#api-shaped-launches).
+`run` remains the convenience path for resource names. Local run options stay
+outside API-shaped request bodies.
 The official Elixir client for [Fountain](https://github.com/managoat/fountain). It covers agent runs and follow-ups, reconnecting event streams, permission requests, resources and secrets, teammates and schedules, connections, conversation history, and sandbox lifecycle/files.
 
 ## Installation

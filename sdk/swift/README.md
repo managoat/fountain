@@ -110,6 +110,11 @@ watchOS 8, and Linux FoundationNetworking, with no third-party dependencies.
 
 ## The typed client
 
+The `runRequest` examples below require a revision containing #2240 (available
+on `main`); the v0.17.0 tag predates that API. The supported name-based `run`
+examples above remain available in v0.17.0. Rollout issue #2248 tracks the next
+tagged Swift release.
+
 `FountainKit` is the same API with the JSON resolved into types: `Agent`,
 `Conversation`, `LogEvent`, `Block`, `AuthMe`, `AdminUser`, and a resource
 namespace each. Errors are an enum (`FountainError`) you branch on by case
@@ -125,7 +130,8 @@ for agent in try await client.agents.list() {
     print(agent.name, agent.model)
 }
 
-let run = try await client.run("Review this repository", agent: agent.id)
+let request = ConversationCreateRequest(agentID: "YOUR_AGENT_ID", prompt: "Review this repository")
+let run = try await client.runRequest(request)
 for try await event in run.events {
     if case .text(let chunk) = event { print(chunk, terminator: "") }
 }
@@ -147,7 +153,7 @@ let catalog = try await client.catalog()
 var config = client.config
 config.appURL = catalog.apps?.conversations.flatMap { $0.isEmpty ? nil : URL(string: $0) }
 let linkedClient = FountainClient(config: config)
-let linkedRun = try await linkedClient.run("Review this repository", agent: agent.id)
+let linkedRun = try await linkedClient.runRequest(request)
 ```
 
 For an existing conversation, `client.conversationURL(id, apps: catalog.apps)`

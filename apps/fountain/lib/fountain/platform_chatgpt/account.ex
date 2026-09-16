@@ -24,6 +24,13 @@ defmodule Fountain.PlatformChatGPT.Account do
   would write on the primary key alone and so would skip the fence, which is
   why the three that used to exist were removed rather than left unused.
 
+  `usage_exhausted_at` and `usage_exhausted_until` record that the account ran
+  out of Codex usage and when the provider said it resets (#2362). They are
+  written by `Fountain.ChatGPTAccounts.platform_record_exhausted/3`, a fenced
+  `update_all` like the other lifecycle writes, and never change `status`:
+  the token is still good, and the grant is skipped for new selections only
+  until the reset passes.
+
   There is no plaintext column. The application writers are the admin
   surface and the platform refresher.
   """
@@ -53,6 +60,8 @@ defmodule Fountain.PlatformChatGPT.Account do
     field :last_refreshed_at, :utc_datetime
     field :status, :string, default: "active"
     field :revoked_reason, :string
+    field :usage_exhausted_at, :utc_datetime
+    field :usage_exhausted_until, :utc_datetime
 
     belongs_to :updated_by, Fountain.Accounts.User, foreign_key: :updated_by_user_id
 
@@ -80,10 +89,25 @@ defmodule Fountain.PlatformChatGPT.Account do
     |> put_change(:status, "active")
     |> put_change(:revoked_reason, nil)
     |> put_change(:generation, Ecto.UUID.generate())
+    |> clear_exhaustion_on_new_account()
     |> version_existing()
     |> validate_required([:kind, :access_token_ciphertext, :last_refreshed_at])
     |> validate_inclusion(:kind, @kinds)
     |> unique_constraint(:user_id, name: :platform_chatgpt_account_platform_row)
+  end
+
+  # Codex usage limits belong to the ChatGPT account, not to its token
+  # (#2362): reconnecting the same account keeps the recorded exhaustion,
+  # because its next turn would fail with the same reset time. A different
+  # account starts clean.
+  defp clear_exhaustion_on_new_account(changeset) do
+    if changed?(changeset, :account_id) do
+      changeset
+      |> put_change(:usage_exhausted_at, nil)
+      |> put_change(:usage_exhausted_until, nil)
+    else
+      changeset
+    end
   end
 
   defp version_existing(%{data: %{__meta__: %{state: :loaded}}} = changeset),

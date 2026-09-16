@@ -56,6 +56,7 @@ defmodule Fountain.Audit.AdminEvent do
     admin.platform_chatgpt.disconnected
     admin.platform_chatgpt.revoked
     admin.platform_chatgpt.expired
+    admin.platform_chatgpt.exhausted
   )
 
   def event_types, do: @event_types

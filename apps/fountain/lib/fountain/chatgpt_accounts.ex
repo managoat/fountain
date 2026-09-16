@@ -45,6 +45,12 @@ defmodule Fountain.ChatGPTAccounts do
     * `platform_keepalive/0` -- refresh a grant nobody has used for
       `platform_keepalive_days/0`, so it never idles past the auth
       server's window (`Fountain.Workers.PlatformChatGPTKeepalive`).
+    * `platform_record_exhausted/4` and `platform_exhausted_until/1` -- the
+      account ran out of Codex usage (#2362). A codex turn on the grant that
+      fails with `usageLimitExceeded` records the reset time on the row, and
+      `Fountain.PlatformInference.credential_for/2` skips the grant for new
+      selections until it passes. Nothing is retried, and `status` stays
+      `active`: the token is good, the account's quota is not.
     * `platform_status/0` -- what the admin page shows.
 
   The refresh margin must exceed the longest turn the deployment expects:
@@ -63,6 +69,7 @@ defmodule Fountain.ChatGPTAccounts do
 
   alias Fountain.Audit
   alias Fountain.ChatGPTAccounts.{Cipher, RefreshLock}
+  alias Fountain.InferenceCredentials.Source
   alias Fountain.PlatformChatGPT.{Account, OAuth, Refresher, Tokens}
   alias Fountain.Repo
 
@@ -162,10 +169,129 @@ defmodule Fountain.ChatGPTAccounts do
   end
 
   @doc """
+  When the grant's account may serve Codex again, or nil: the recorded reset
+  time while it is still in the future (#2362). A reset that has passed reads
+  as nil without a write, so nothing has to clear it.
+  """
+  @spec platform_exhausted_until(DateTime.t()) :: DateTime.t() | nil
+  def platform_exhausted_until(now \\ DateTime.utc_now()) do
+    case platform_row() do
+      %Account{} = row -> exhausted_until(row, now)
+      nil -> nil
+    end
+  end
+
+  @doc """
+  Record that the grant's ChatGPT account ran out of Codex usage until
+  `until` (#2362, ADR 0047 decision 6). `reset` is `:provider` when `until`
+  was read from the provider's refusal and `:default` when it was not
+  (`Fountain.PlatformChatGPT.UsageLimit`).
+
+  Only a turn that actually ran on the platform grant counts: `source` must
+  be the platform `:codex_chatgpt_access_token` source, and the write is
+  fenced on the grant id and generation it names, so a late report from a
+  grant that has since been replaced changes nothing. Any other source,
+  such as a tenant's own credential hitting its own limit, is `:ignored`.
+
+  `{:ok, :recorded}` when the row changed, which is the only time the
+  `admin.platform_chatgpt.exhausted` event is written (after the write,
+  never inside it, and never a token). `{:ok, :unchanged}` when the row
+  already said so: several in-flight turns on one account fail together, and
+  a trail that logs each of them is noise. A provider reset replaces a
+  different recorded one; a default window never extends one still running.
+  """
+  @spec platform_record_exhausted(
+          Source.t() | nil,
+          DateTime.t(),
+          :provider | :default,
+          DateTime.t()
+        ) :: {:ok, :recorded | :unchanged} | :ignored
+  def platform_record_exhausted(source, until, reset, now \\ DateTime.utc_now())
+
+  def platform_record_exhausted(
+        %Source{
+          scope: :platform,
+          kind: :codex_chatgpt_access_token,
+          identity: "platform:chatgpt:" <> id,
+          revision: generation
+        },
+        %DateTime{} = until,
+        reset,
+        now
+      )
+      when reset in [:provider, :default] and is_binary(generation) do
+    with {:ok, id} <- Ecto.UUID.cast(id),
+         {:ok, generation} <- Ecto.UUID.cast(generation) do
+      now = DateTime.truncate(now, :second)
+      until = DateTime.truncate(until, :second)
+
+      {count, rows} =
+        Fountain.InferenceCredentials.with_platform_source_lock(fn ->
+          from(a in Account,
+            where:
+              is_nil(a.user_id) and a.id == ^id and a.generation == ^generation and
+                a.status == "active",
+            select: %{account_id: a.account_id, kind: a.kind}
+          )
+          |> exhaustion_changes(reset, until, now)
+          |> Repo.update_all(
+            set: [usage_exhausted_at: now, usage_exhausted_until: until, updated_at: now]
+          )
+        end)
+
+      case {count, rows} do
+        {1, [row]} ->
+          record_exhaustion(row, until, reset)
+          {:ok, :recorded}
+
+        _ ->
+          {:ok, :unchanged}
+      end
+    else
+      _ -> :ignored
+    end
+  end
+
+  def platform_record_exhausted(_source, _until, _reset, _now), do: :ignored
+
+  defp exhaustion_changes(query, :provider, until, _now),
+    do:
+      from(a in query,
+        where: is_nil(a.usage_exhausted_until) or a.usage_exhausted_until != ^until
+      )
+
+  defp exhaustion_changes(query, :default, _until, now),
+    do:
+      from(a in query,
+        where: is_nil(a.usage_exhausted_until) or a.usage_exhausted_until <= ^now
+      )
+
+  defp record_exhaustion(row, until, reset) do
+    Audit.record_admin(%{
+      actor_user_id: nil,
+      event_type: "admin.platform_chatgpt.exhausted",
+      metadata: %{
+        "actor" => @system_actor,
+        "kind" => row.kind,
+        "account_id" => row.account_id,
+        "until" => DateTime.to_iso8601(until),
+        "reset" => Atom.to_string(reset)
+      }
+    })
+
+    Logger.warning(
+      "platform chatgpt: the account hit its Codex usage limit; new codex conversations " <>
+        "skip the grant until #{DateTime.to_iso8601(until)} (#{reset} reset) and use " <>
+        "PLATFORM_OPENAI_API_KEY when one is set"
+    )
+  end
+
+  @doc """
   The row for `/admin/inference`: `:not_connected`, or a map with `:status`
   (`"active"` | `"revoked"` | `"expired"`), `:kind`, `:account_email`,
   `:plan_type`, `:account_id`, `:access_expires_at`, `:last_refreshed_at`,
-  `:revoked_reason`, `:updated_at` and `:updated_by`.
+  `:revoked_reason`, `:exhausted_until` (nil unless the account's Codex
+  usage is spent and has not reset, #2362), `:updated_at` and `:updated_by`.
   """
   @spec platform_status() :: :not_connected | map()
   def platform_status do
@@ -183,6 +309,7 @@ defmodule Fountain.ChatGPTAccounts do
           access_expires_at: row.access_expires_at,
           last_refreshed_at: row.last_refreshed_at,
           revoked_reason: row.revoked_reason,
+          exhausted_until: exhausted_until(row, DateTime.utc_now()),
           updated_at: row.updated_at,
           updated_by: row.updated_by && row.updated_by.email
         }
@@ -598,6 +725,12 @@ defmodule Fountain.ChatGPTAccounts do
   end
 
   # ── helpers ──────────────────────────────────────────────────────────────
+
+  defp exhausted_until(%Account{usage_exhausted_until: %DateTime{} = until}, now) do
+    if DateTime.compare(until, now) == :gt, do: until, else: nil
+  end
+
+  defp exhausted_until(_row, _now), do: nil
 
   defp locked_platform_row do
     Repo.one(from(a in Account, where: is_nil(a.user_id), lock: "FOR UPDATE"))

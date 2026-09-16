@@ -554,6 +554,25 @@ defmodule Fountain.Conversations.TurnMachine do
     end
   end
 
+  # #2362: the deployment's ChatGPT grant (ADR 0047) ran out of Codex usage.
+  # codex-acp answers the prompt with an internal error carrying
+  # `codexErrorInfo: "usageLimitExceeded"` and the provider's reset sentence
+  # (`Fountain.PlatformChatGPT.UsageLimit`). This turn still fails as it
+  # would have, and nothing is retried; what changes is the next selection,
+  # which skips the grant until the reset. Recorded only when this turn ran
+  # on the platform grant: a tenant's own credential hitting its own limit
+  # says nothing about the deployment's account, and the context refuses
+  # any other source.
+  def handle(%__MODULE__{} = turn, {:failed, {:acp_error, :prompt, error} = reason}, ctx) do
+    with %Source{scope: :platform, kind: :codex_chatgpt_access_token} = source <-
+           Map.get(ctx, :inference),
+         {:ok, until, reset} <- Fountain.PlatformChatGPT.UsageLimit.exhaustion(error) do
+      Fountain.ChatGPTAccounts.platform_record_exhausted(source, until, reset)
+    end
+
+    handle_failed(turn, reason)
+  end
+
   # A failed peer is not reusable: end the turn it was driving (if any) and
   # drop the connection, so the next prompt spawns a fresh adapter.
   def handle(%__MODULE__{} = turn, {:failed, reason}, _ctx), do: handle_failed(turn, reason)

@@ -164,6 +164,15 @@ defmodule Fountain.PlatformInference do
   (#2057). On a deployment with no broker the token would land in the
   sandbox in the clear, so the grant is never selected there.
 
+  An active grant whose account has spent its Codex usage is skipped while
+  the recorded reset is in the future
+  (`Fountain.ChatGPTAccounts.platform_exhausted_until/1`, #2362), and the
+  platform key serves instead: metered per token, still under the daily
+  ceiling, since `gate_source/1` gates whatever this selected. With no key to
+  fall back to, the grant is still selected, so the turn fails with the
+  provider's own reset time rather than with no credential at all. The skip
+  ends by itself when the reset passes.
+
   Answered from the row alone, no provider I/O: a grant within its expiry
   margin is served as it is, and `Fountain.Conversations.Egress` refreshes
   it before the turn.
@@ -172,7 +181,7 @@ defmodule Fountain.PlatformInference do
   def credential_for("openai" = provider, "codex") do
     if Fountain.Broker.configured?() do
       case Fountain.ChatGPTAccounts.platform_credential(refresh: false) do
-        {:ok, token} -> {:ok, :codex_chatgpt_access_token, token}
+        {:ok, token} -> grant_unless_exhausted(provider, token)
         :none -> key_for(provider)
       end
     else
@@ -181,6 +190,15 @@ defmodule Fountain.PlatformInference do
   end
 
   def credential_for(provider, _runtime), do: key_for(provider)
+
+  defp grant_unless_exhausted(provider, token) do
+    with %DateTime{} <- Fountain.ChatGPTAccounts.platform_exhausted_until(),
+         {:ok, _kind, _key} = key <- key_for(provider) do
+      key
+    else
+      _ -> {:ok, :codex_chatgpt_access_token, token}
+    end
+  end
 
   @doc """
   The durable identity and revision of a platform source, for

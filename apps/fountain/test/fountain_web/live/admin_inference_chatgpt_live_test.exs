@@ -58,6 +58,40 @@ defmodule FountainWeb.AdminInferenceChatGPTLiveTest do
       refute html =~ "rt_original"
     end
 
+    # #2362: an active grant whose account spent its Codex usage says so, and
+    # until when, and stops saying so once the reset has passed.
+    test "exhausted names the reset and the fallback", %{conn: conn, admin: admin} do
+      account = connect!(%{actor_user_id: admin.id})
+
+      source = %Fountain.InferenceCredentials.Source{
+        scope: :platform,
+        kind: :codex_chatgpt_access_token,
+        identity: "platform:chatgpt:#{account.id}",
+        revision: account.generation
+      }
+
+      assert {:ok, :recorded} =
+               ChatGPTAccounts.platform_record_exhausted(
+                 source,
+                 ~U[2099-09-20 11:40:00Z],
+                 :provider
+               )
+
+      {:ok, _lv, html} = open(conn, admin)
+      assert html =~ "Connected as"
+      assert html =~ "hit its Codex usage limit until 2099-09-20 11:40 UTC"
+      assert html =~ "OpenAI platform key"
+      assert html =~ "usage limit"
+
+      Repo.update_all(Fountain.PlatformChatGPT.Account,
+        set: [usage_exhausted_until: ~U[2020-01-01 00:00:00Z]]
+      )
+
+      {:ok, _lv, html} = open(conn, admin)
+      refute html =~ "Codex usage limit"
+      assert html =~ "Connected as"
+    end
+
     test "revoked names the reason", %{conn: conn, admin: admin} do
       connect!(%{access_token: access_token(1)})
       stub_refusal("refresh_token_expired")

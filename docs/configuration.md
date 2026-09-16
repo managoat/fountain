@@ -246,6 +246,22 @@ sandbox holds a placeholder, and the egress broker puts the real token into
 the request to `chatgpt.com`. Each connect and disconnect leaves an
 `admin.platform_chatgpt` event on the admin activity page.
 
+A ChatGPT account has Codex usage limits. When a codex turn on the account
+fails because the account is at its limit, that turn fails. Fountain does
+not retry it. Fountain records the reset time from the error message and
+shows it at `/admin/inference`. It also records an
+`admin.platform_chatgpt.exhausted` event. Until the reset time, new codex
+conversations use `PLATFORM_OPENAI_API_KEY` instead of the account. Those
+turns are billed per token, and the daily ceiling applies. If no OpenAI
+platform key is set, codex conversations continue to use the account.
+After the reset time, the account is used again.
+
+The limit belongs to the ChatGPT account, not to its token. If you reconnect
+the same account, the reset time stays. If you connect a different account,
+Fountain clears it. If the error message has no time that Fountain can read,
+Fountain skips the account for one hour. A conversation that already runs on
+the account stays on it. Its later turns fail until the reset time.
+
 A personal subscription is one account for every tenant on the deployment.
 That pattern is behind reported account bans, and it is an operator's own
 risk. The page says so.

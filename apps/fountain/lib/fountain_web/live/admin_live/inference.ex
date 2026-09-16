@@ -429,6 +429,11 @@ defmodule FountainWeb.AdminLive.Inference do
     ({@chatgpt.plan_type || "unknown plan"}){if @chatgpt.updated_by,
       do: ", by #{@chatgpt.updated_by}"}. Last renewed {format_ts(@chatgpt.last_refreshed_at)}{if @chatgpt.access_expires_at,
       do: "; the access token expires #{format_ts(@chatgpt.access_expires_at)}"}.
+    <span :if={@chatgpt.exhausted_until} class="block mt-1 text-amber-800">
+      The account has hit its Codex usage limit until {format_ts(@chatgpt.exhausted_until)} UTC.
+      Until then, new codex conversations run on the OpenAI platform key when one is set,
+      billed per token under the daily ceiling.
+    </span>
     """
   end
 
@@ -447,12 +452,16 @@ defmodule FountainWeb.AdminLive.Inference do
   end
 
   defp chatgpt_label(:not_connected), do: "not connected"
+  defp chatgpt_label(%{status: "active", exhausted_until: %DateTime{}}), do: "usage limit"
   defp chatgpt_label(%{status: "active", kind: "workspace_token"}), do: "workspace token"
   defp chatgpt_label(%{status: "active"}), do: "connected"
   defp chatgpt_label(%{status: "revoked"}), do: "revoked"
   defp chatgpt_label(%{status: "expired"}), do: "expired"
 
   defp chatgpt_badge_class(:not_connected), do: "bg-zinc-100 text-zinc-500 border-zinc-200"
+
+  defp chatgpt_badge_class(%{status: "active", exhausted_until: %DateTime{}}),
+    do: "bg-amber-100 text-amber-800 border-amber-200"
 
   defp chatgpt_badge_class(%{status: "active"}),
     do: "bg-green-100 text-green-800 border-green-200"

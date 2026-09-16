@@ -274,18 +274,25 @@ defmodule Fountain.Accounts.Deletion do
         # is nilified moments later anyway — they would be orphans describing a
         # cascade.
         #
-        # Both keys, because they mean different things and this is the one
-        # caller that wants both. `:audit` silences `conversation.terminated`;
-        # `:audit_destroy` travels through the server to
-        # `_unsafe_destroy_machine/2` and silences `sandbox.destroyed`. A
-        # machine whose conversation still has a live server is torn down *by
-        # that server*, so without the second key this path was the one place
-        # account deletion still left an orphaned machine event — one per
-        # deleted account that had a server (ADR 0058 stage 5b, review round 2).
-        # The machines with no live server are handled by `destroy_sprite/2`
-        # below, which reads the same `:audit`.
+        # Two keys that mean different things, and only one of them varies.
+        #
+        # `:audit` silences `conversation.terminated`, and it is hardcoded
+        # `false` for every caller of this function — `account.deleted` already
+        # says everything went away, and `Principals` closing a claimable
+        # principal (ADR 0044) is not asking for a per-conversation row either.
+        # Threading it through `:audit` instead would start recording one per
+        # live conversation on the principals path, which no release or expiry
+        # has ever done.
+        #
+        # `:audit_destroy` silences the machine's `sandbox.destroyed`, and that
+        # one *does* follow the caller's `:audit`: `delete_user/2` is about to
+        # nilify the `user_id` those rows carry, and `Principals` is not, so it
+        # keeps its machine events (ADR 0058 stage 5b, review rounds 2-3). It
+        # travels through the server, which is the only way to reach a machine
+        # whose conversation still has one — the rest are handled by
+        # `destroy_sprite/2` below, off the same `:audit`.
         Termination.terminate_conversation(id,
-          audit: audit?,
+          audit: false,
           audit_destroy: audit?
         )
       catch

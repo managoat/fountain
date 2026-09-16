@@ -21,6 +21,10 @@
   which is gone moments later, so they would survive as anonymous rows
   describing the cascade; `account.deleted` already names the account and
   counts the computers. The teardown request for each one is still recorded.
+  Only closing an account is silent this way: stopping the compute of a
+  released or expired claimable principal keeps its rows, so each of its
+  computers is still recorded as destroyed. Neither records a per-conversation
+  event, which is unchanged.
 
 - `sprites_destroyed`, in the `account.deleted` event and in the deletion API
   response, now counts the computers torn down rather than the provider

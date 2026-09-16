@@ -503,6 +503,60 @@ defmodule Fountain.Machines.DestroyForcedTest do
       assert destroyed.metadata["reason"] == "principal_closed"
     end
 
+    test "stopping a principal's compute records the destroy but no conversation rows", ctx do
+      # The two events this path leaves are deliberately split (ADR 0044,
+      # ADR 0058 stage 5b). `sandbox.destroyed` is recorded — nothing is being
+      # deleted, `user_id` survives, and a machine torn down is worth an event.
+      # `conversation.terminated` is not: releasing or expiring a claimable
+      # principal has never left a row per live conversation, and
+      # `destroy_sprites/2` hardcodes that for every caller.
+      #
+      # The regression this pins is one keyword wide: threading the
+      # conversation audit through the caller's `:audit`, as the machine one
+      # correctly is, turns the principals path chatty while leaving the
+      # deletion path looking right.
+      {:ok, probe} =
+        GenServer.start_link(DestroyingProbe, %{owner: self(), sandbox_id: ctx.sandbox.id})
+
+      stub(ConversationServer, :whereis, fn id -> if id == ctx.conv.id, do: probe, else: nil end)
+      capture_provider()
+
+      # Zero, and not because nothing happened: the server destroyed the
+      # machine, so the late fence loop — which is what this count comes from —
+      # found no live row left to tear down. Unchanged by this stage; a machine
+      # a live server takes down has never been in `sprites_destroyed`.
+      capture_log(fn ->
+        assert 0 ==
+                 Deletion.destroy_sprites(ctx.user,
+                   reason: "principal_closed",
+                   actor: "system:principal_sweep"
+                 )
+      end)
+
+      assert Repo.reload!(ctx.sandbox).status == "terminated"
+      assert destroyed_names() == [ctx.sandbox.machine_name]
+      assert_received {:server_opts, opts}
+      assert Keyword.get(opts, :audit_destroy) == true
+
+      assert [destroyed] = events(ctx.user.id, "sandbox.destroyed")
+
+      # `self`, not `system:principal_sweep`, and that is the pre-existing gap
+      # the round-2 protocol review named rather than anything this stage did:
+      # `do_destroy_sprites/2` has never forwarded `:actor` to
+      # `terminate_conversation/2`, so a machine torn down by a live server is
+      # attributed to nobody in particular whoever asked for it. The
+      # *no-server* path does carry it — the sibling test above asserts
+      # `system:principal_sweep` — which is why this is worth pinning rather
+      # than leaving to be rediscovered. Forwarding it would also move the
+      # deletion path's `sandbox.teardown_requested` from `self` to
+      # `admin:<id>`, so it is a trail change of its own and belongs with 5c.
+      assert destroyed.actor == "self"
+
+      assert events(ctx.user.id, "conversation.terminated") == [],
+             "closing a principal recorded a per-conversation event; `main` recorded " <>
+               "none and no release or expiry has ever asked for one"
+    end
+
     test "a provider error does not abort the deletion", ctx do
       expect(Managoat.Sandbox.Sprites, :destroy, fn _ -> {:error, :unavailable} end)
 

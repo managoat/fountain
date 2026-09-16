@@ -54,7 +54,8 @@ defmodule Fountain.Machines.DestroyForcedTest do
   # cannot do: actually destroy the machine.
   #
   # `handle_call({:terminate_conv, opts}, ...)` is a transcription of
-  # `conversation_server.ex`'s `terminate_machine/2`, reduced to the two lines
+  # `Fountain.Conversations.ConversationServer`'s `terminate_machine/2` —
+  # search that name there if this ever stops matching — reduced to the two lines
   # this file is about — `terminating_conversation_id: nil`, and the call to
   # `Termination._unsafe_destroy_machine/2` with the server's whole opts list.
   # A probe that merely replies `:ok` leaves the row `ready`, so account
@@ -733,11 +734,16 @@ defmodule Fountain.Machines.DestroyForcedTest do
       assert expired.metadata["reason"] == "idle; suspend call failed"
     end
 
-    test "a run spends at most @destroy_limit provider destroys across both passes", ctx do
+    test "pass 1 spends at most @destroy_limit provider destroys in one sweep", ctx do
       # Before stage 5b the cap sat on pass 2, which made every provider
       # destroy the reaper made. Pass 1 now destroys in the call, so an
       # uncapped sweep would fire one per abandoned row — the burst the
       # constraint was written against.
+      #
+      # Named for pass 1 alone, deliberately: a whole *run* can make up to
+      # `@destroy_limit + @pass_two_floor` calls, because pass 2 keeps a floor
+      # when pass 1 saturates (the test below makes exactly that many). The
+      # number is a drain rate, not a ceiling on the run.
       limit = 25
 
       extra =
@@ -768,7 +774,15 @@ defmodule Fountain.Machines.DestroyForcedTest do
       # nothing, so an outage that reclaimed no machines also stopped the
       # leftover-sprite pass collecting the ones already known dead — and those
       # bill on, with no other pass looking at them.
-      leaked = insert_sandbox(user_id: ctx.user.id, status: "terminated")
+      # Six leaked sprites and 26 refusals, and both numbers are load-bearing.
+      # With `perform/1` subtracting refusals again, pass 2's budget is
+      # `max(@pass_two_floor, 25 - 0 - 26)` — the floor, 5 — so a fixture with
+      # five or fewer leaked sprites passes either way and pins nothing. Six is
+      # the first number that tells the two apart.
+      leaked =
+        for _ <- 1..6 do
+          insert_sandbox(user_id: ctx.user.id, status: "terminated")
+        end
 
       refused =
         for _ <- 1..26 do
@@ -778,15 +792,16 @@ defmodule Fountain.Machines.DestroyForcedTest do
         end
 
       refuse_destroys_of(Enum.map([ctx.sandbox | refused], & &1.id))
-      live_provider([leaked.machine_name])
+      live_provider(Enum.map(leaked, & &1.machine_name))
 
       with_bounds([sandbox_idle_timeout_minutes: 60, sandbox_max_lifetime_hours: 24], fn ->
         capture_log(fn -> assert :ok = perform_job(SandboxReaper, %{}) end)
       end)
 
-      # Every expiry refused, no provider call made by pass 1, and pass 2 still
-      # collected the machine behind the terminal row.
-      assert destroyed_names() == [leaked.machine_name]
+      # Every expiry refused, no provider call made by pass 1, and pass 2 with
+      # its budget intact — all six, not the five the floor alone would allow.
+      assert Enum.sort(destroyed_names()) ==
+               Enum.sort(Enum.map(leaked, & &1.machine_name))
     end
 
     test "refusals leave pass 1's own budget for the rows behind them", ctx do

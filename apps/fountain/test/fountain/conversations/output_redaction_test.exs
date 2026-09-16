@@ -225,6 +225,45 @@ defmodule Fountain.Conversations.OutputRedactionTest do
       assert stored_text(ctx.conversation_id) == Redaction.placeholder() <> "!"
     end
 
+    for size <- [8_194, 16_384] do
+      test "a self-overlapping #{size}-byte value past the cap retains a few integers", %{
+        ctx: ctx
+      } do
+        # The third review's reproduction: a value that overlaps itself at
+        # every offset, and one byte short of it in output. Copying a remainder
+        # per matching prefix retained 33 MB (100 MB at 16 KiB) while
+        # `held_bytes` said 0.
+        size = unquote(size)
+        Redaction.put(ctx.conversation_id, [{"RUN", String.duplicate("a", size)}])
+        start = %Output{bytes: Output.byte_budget() - 1_000}
+
+        output = Output.log(start, ctx, "stdout", String.duplicate("a", size - 1))
+        refute output.capped
+        assert stored_bytes(ctx.conversation_id, "stdout") == Redaction.placeholder()
+
+        retained = :erlang.external_size(output.carry)
+        assert retained < 2_000, "carry retains #{retained} bytes"
+
+        for binary <- binaries(output.carry) do
+          assert :binary.referenced_byte_size(binary) < 2_000
+        end
+
+        # The value's last byte, and then output that could still be its
+        # continuation, is dropped rather than written.
+        output = Output.log(output, ctx, "stdout", "a")
+        output = Output.log(output, ctx, "stdout", String.duplicate("a", size - 2))
+        assert stored_bytes(ctx.conversation_id, "stdout") == Redaction.placeholder()
+
+        # Once nothing can still be a continuation, output flows again.
+        output
+        |> Output.log(ctx, "stdout", "visible\n")
+        |> Output.flush()
+
+        assert stored_bytes(ctx.conversation_id, "stdout") ==
+                 Redaction.placeholder() <> "visible\n"
+      end
+    end
+
     test "a tail cut from a huge chunk does not pin the chunk", %{ctx: ctx} do
       # A tail over 64 bytes: a shorter sub-binary is copied by the runtime.
       Redaction.put(ctx.conversation_id, [{"KEY", String.duplicate("q", 400)}])

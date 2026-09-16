@@ -78,16 +78,21 @@ defmodule Fountain.Conversations.RedactionCarry do
       notification is kept: a tail is written into the *next* chunk's line, or
       at the end into a minimal `session/update`, so an oversized chunk's
       `_meta` is not carried;
-    * while the fail-safe below is consuming, remainders of registered values,
-      which are bounded by what was registered, not by what the sandbox wrote.
+    * while the fail-safe below is consuming, at most `max_continuations/0`
+      `{value index, offset}` pairs and three integers. The values themselves
+      stay in the registry; nothing of them is copied.
 
   The tail is at most twice the longest registered value, so only a value
   longer than half of `max_hold/0` can reach the cap. When it would, the
   channel does not keep the tail and does not release it in plaintext. It
-  writes `Redaction.placeholder/0` in its place, and remembers the remainder of
-  every value the tail could be the start of. What continues one in the
-  chunks that follow is dropped. The trade-off is over-redaction: if the tail
-  was not in fact a secret's start, some text is shown as the placeholder.
+  writes `Redaction.placeholder/0` in its place, and remembers where in each
+  registered value the tail could have stopped. What continues one in the
+  chunks that follow is dropped. When there are too many such places (a value
+  that overlaps itself, like a run of one byte, has one per byte) or the
+  registry changes before the value finishes, it stops tracking them and drops
+  as many bytes as the longest continuation could still need. The trade-off is
+  over-redaction: if the tail was not in fact a secret's start, some text is
+  shown as the placeholder, or dropped.
 
   Everything here is pure. `Output` owns the state and decides when to flush.
   """
@@ -98,12 +103,23 @@ defmodule Fountain.Conversations.RedactionCarry do
   @max_hold 8_192
   @max_unit 4_096
   @max_session 256
+  @max_continuations 64
 
   @type channel :: %{
           held: nil | {binary(), binary()},
           tail: binary(),
-          consuming: [binary()],
+          consuming: nil | consuming(),
           session: nil | binary()
+        }
+  @typedoc """
+  The fail-safe's continuations: `{index, offset}` pairs into the value list
+  whose `:erlang.phash2/1` is `fingerprint`, or `nil` pairs once only a count
+  of bytes to drop (`skip`, the longest remaining continuation) is kept.
+  """
+  @type consuming :: %{
+          fingerprint: non_neg_integer(),
+          pairs: nil | [{non_neg_integer(), pos_integer()}],
+          skip: non_neg_integer()
         }
   @type t :: %{
           raw: %{optional(String.t()) => channel()},
@@ -117,6 +133,10 @@ defmodule Fountain.Conversations.RedactionCarry do
   @doc "The most tail bytes one channel keeps."
   @spec max_hold() :: pos_integer()
   def max_hold, do: @max_hold
+
+  @doc "The most exact continuations the fail-safe tracks before it only counts."
+  @spec max_continuations() :: pos_integer()
+  def max_continuations, do: @max_continuations
 
   @doc "The largest chunk a channel holds whole."
   @spec max_unit() :: pos_integer()
@@ -171,7 +191,7 @@ defmodule Fountain.Conversations.RedactionCarry do
     channel = Map.get(carry.raw, stream, idle())
 
     case Redaction.patterns(conversation_id) do
-      [] when channel.held == nil and channel.tail == "" and channel.consuming == [] ->
+      [] when channel.held == nil and channel.tail == "" and channel.consuming == nil ->
         {[{stream, data}], carry}
 
       patterns ->
@@ -241,9 +261,9 @@ defmodule Fountain.Conversations.RedactionCarry do
 
   # ── one channel ───────────────────────────────────────────────────────────
 
-  defp idle, do: %{held: nil, tail: "", consuming: [], session: nil}
+  defp idle, do: %{held: nil, tail: "", consuming: nil, session: nil}
 
-  defp idle?(%{held: nil, tail: "", consuming: []}), do: true
+  defp idle?(%{held: nil, tail: "", consuming: nil}), do: true
   defp idle?(_channel), do: false
 
   defp channels(%{raw: raw, text: text}), do: Map.values(raw) ++ Map.values(text)
@@ -251,7 +271,7 @@ defmodule Fountain.Conversations.RedactionCarry do
   # One chunk (`text`, arriving as `unit`) through a channel: the rows to write,
   # each `{:unit, bytes}` (a chunk exactly as it arrived) or `{:text, text}`
   # (text to write in the current chunk's form), and the channel after.
-  defp advance(%{held: nil, tail: "", consuming: []} = channel, patterns, text, unit) do
+  defp advance(%{held: nil, tail: "", consuming: nil} = channel, patterns, text, unit) do
     cond do
       hold_from(patterns, text) == byte_size(text) ->
         {[{:unit, unit}], channel}
@@ -287,7 +307,7 @@ defmodule Fountain.Conversations.RedactionCarry do
   # Write as far as the cut, keep the rest. Over the cap, the tail is replaced
   # rather than kept (see "What is retained, and the fail-safe").
   defp tail_step(channel, patterns, data) do
-    {data, consuming} = consume(channel.consuming, data)
+    {data, consuming} = consume(channel.consuming, patterns, data)
     text = channel.tail <> data
     cut = hold_from(patterns, text)
     tail = binary_part(text, cut, byte_size(text) - cut)
@@ -302,43 +322,100 @@ defmodule Fountain.Conversations.RedactionCarry do
     end
   end
 
-  # The remainders of every value `tail` could be the start of.
+  # Where each value could have been cut off at the end of `tail`: `{i, k}` when
+  # `tail` ends with the first `k` bytes of value `i`. Past
+  # `@max_continuations` it stops listing them and keeps only `skip`, the most
+  # bytes any continuation still needs, which is the longest value's length
+  # less its shortest matching prefix.
   defp in_progress(patterns, tail) do
     size = byte_size(tail)
 
-    for pattern <- patterns,
-        k <- min(byte_size(pattern) - 1, size)..1//-1,
-        binary_part(tail, size - k, k) == binary_part(pattern, 0, k),
-        uniq: true,
-        do: :binary.copy(binary_part(pattern, k, byte_size(pattern) - k))
+    {pairs, skip} =
+      patterns
+      |> Enum.with_index()
+      |> Enum.reduce({[], 0}, fn {pattern, i}, {pairs, skip} ->
+        Enum.reduce_while(1..min(byte_size(pattern) - 1, size)//1, {pairs, skip}, fn k,
+                                                                                     {pairs, skip} ->
+          if binary_part(tail, size - k, k) == binary_part(pattern, 0, k) do
+            skip = max(skip, byte_size(pattern) - k)
+
+            # Once over the cap, the shortest matching prefix already gave this
+            # value its longest remainder; the rest of its offsets add nothing.
+            if is_list(pairs) and length(pairs) < @max_continuations,
+              do: {:cont, {[{i, k} | pairs], skip}},
+              else: {:halt, {nil, skip}}
+          else
+            {:cont, {pairs, skip}}
+          end
+        end)
+      end)
+
+    if pairs == [],
+      do: nil,
+      else: %{fingerprint: :erlang.phash2(patterns), pairs: pairs, skip: skip}
   end
 
-  # Drop what continues a value the fail-safe already replaced. A remainder
-  # the data completes ends it; one the data only begins stays pending.
-  defp consume([], data), do: {data, []}
+  # Drop what continues a value the fail-safe already replaced.
+  #
+  # With pairs: a continuation the data completes ends there; one the data only
+  # begins stays pending; the most any of them consumed is dropped. Without
+  # pairs, or when the registry is no longer the list the pairs index into,
+  # `skip` bytes are dropped outright. That is safe because every value that
+  # could have been cut off in the replaced tail needs at most `skip` more
+  # bytes: `skip` is the largest remainder over all of them, and it only ever
+  # counts down by bytes actually dropped. It errs toward dropping output that
+  # was not a secret, never toward writing one.
+  defp consume(nil, _patterns, data), do: {data, nil}
 
-  defp consume(remainders, data) do
+  defp consume(%{pairs: pairs, fingerprint: fingerprint} = consuming, patterns, data)
+       when is_list(pairs) do
+    if :erlang.phash2(patterns) == fingerprint do
+      consume_pairs(consuming, List.to_tuple(patterns), data)
+    else
+      consume(%{consuming | pairs: nil}, patterns, data)
+    end
+  end
+
+  defp consume(%{skip: skip}, _patterns, data) do
+    dropped = min(skip, byte_size(data))
+    rest = binary_part(data, dropped, byte_size(data) - dropped)
+    left = skip - dropped
+    {rest, if(left == 0, do: nil, else: %{fingerprint: 0, pairs: nil, skip: left})}
+  end
+
+  defp consume_pairs(consuming, patterns, data) do
     size = byte_size(data)
 
     results =
-      Enum.map(remainders, fn rest ->
-        n = :binary.longest_common_prefix([rest, data])
+      Enum.map(consuming.pairs, fn {i, k} ->
+        pattern = elem(patterns, i)
+        remaining = byte_size(pattern) - k
+        n = :binary.longest_common_prefix([binary_part(pattern, k, remaining), data])
 
         cond do
-          n == byte_size(rest) -> {:done, n}
-          n == size -> {:more, binary_part(rest, n, byte_size(rest) - n)}
+          n == remaining -> {:done, n}
+          n == size -> {:more, {i, k + n}}
           true -> :miss
         end
       end)
 
-    pending = for {:more, rest} <- results, do: rest
+    pending =
+      results
+      |> Enum.flat_map(fn
+        {:more, pair} -> [pair]
+        _ -> []
+      end)
+      |> Enum.uniq()
 
-    skip =
+    dropped =
       if pending != [],
         do: size,
         else: Enum.max(for({:done, n} <- results, do: n), fn -> 0 end)
 
-    {binary_part(data, skip, size - skip), pending}
+    rest = binary_part(data, dropped, size - dropped)
+    skip = consuming.skip - min(consuming.skip, dropped)
+
+    {rest, if(pending == [], do: nil, else: %{consuming | pairs: pending, skip: max(skip, 1)})}
   end
 
   # ── acp lines ─────────────────────────────────────────────────────────────

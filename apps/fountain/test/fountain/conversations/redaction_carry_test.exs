@@ -228,6 +228,28 @@ defmodule Fountain.Conversations.RedactionCarryTest do
     assert run(conv_id, "acp", [line("alivE")], @bound) == [{"acp", line("alivE")}]
   end
 
+  test "a registry change while the fail-safe consumes drops the remainder by count", %{
+    conv_id: conv_id
+  } do
+    long = "LONG-" <> Enum.map_join(1..3_000, &Integer.to_string/1)
+    Redaction.put(conv_id, [{"CERT", long}])
+    cut = RedactionCarry.max_hold() + 100
+    rest = binary_part(long, cut, byte_size(long) - cut)
+
+    {rows, carry} =
+      RedactionCarry.feed(RedactionCarry.new(), conv_id, "stdout", binary_part(long, 0, cut))
+
+    assert rows == [{"stdout", Redaction.placeholder()}]
+
+    # A rotation adds a longer value, which sorts first, so the continuation's
+    # index now names the wrong one. The fail-safe drops by count instead:
+    # exactly what the value could still need.
+    Redaction.add(conv_id, [{"ROTATED", String.duplicate("z", byte_size(long) + 10)}])
+    {rows, carry} = RedactionCarry.feed(carry, conv_id, "stdout", rest <> " end")
+    assert rows == [{"stdout", " end"}]
+    assert RedactionCarry.empty?(carry)
+  end
+
   test "hold_from/2 holds only a tail that begins a value" do
     patterns = ["abcdefgh"]
     assert RedactionCarry.hold_from(patterns, "xyz") == 3

@@ -128,6 +128,52 @@ defmodule Fountain.Conversations.SpriteEnvTest do
       assert "a-callback-token-value" in registered
       refute "ab" in registered
     end
+
+    # ADR 0019 takes a bound credential out of the secrets map and leaves a
+    # placeholder, so it never reaches the sprite env this registry is built
+    # from. That is exactly why it has to be registered explicitly: an upstream
+    # that echoes the header back returns the credential as ordinary tool
+    # output, and `log_events` stores what a sprite writes verbatim.
+    test "registers a brokered credential that never enters the sprite" do
+      conv_id = "conv-#{System.unique_integer([:positive])}"
+      on_exit(fn -> Redaction.delete(conv_id) end)
+
+      sprite_env =
+        SpriteEnv.build(nil, nil, %{"BOUND_TOKEN" => "__bound_token_placeholder__"},
+          runtime_module: SilentRuntime,
+          env_credentials: %{},
+          callback_token: nil,
+          conversation_id: conv_id,
+          sandbox_id: nil,
+          broker_credentials: %{"BOUND_TOKEN" => "the-real-brokered-credential"}
+        )
+
+      assert {"BOUND_TOKEN", "__bound_token_placeholder__"} in sprite_env,
+             "the sandbox still sees only the placeholder"
+
+      refute Enum.any?(sprite_env, fn {_k, v} -> v == "the-real-brokered-credential" end),
+             "the credential must not be put into the sprite env to get it redacted"
+
+      assert "the-real-brokered-credential" in Redaction.lookup(conv_id)
+
+      assert Redaction.redact(conv_id, "upstream echoed the-real-brokered-credential back") ==
+               "upstream echoed [REDACTED] back"
+    end
+
+    test "a run with no broker registers exactly what it did before" do
+      conv_id = "conv-#{System.unique_integer([:positive])}"
+      on_exit(fn -> Redaction.delete(conv_id) end)
+
+      SpriteEnv.build(nil, nil, %{"LONG" => "a-value-long-enough-to-redact"},
+        runtime_module: SilentRuntime,
+        env_credentials: %{},
+        callback_token: nil,
+        conversation_id: conv_id,
+        sandbox_id: nil
+      )
+
+      assert "a-value-long-enough-to-redact" in Redaction.lookup(conv_id)
+    end
   end
 
   describe "merge_secrets/3" do

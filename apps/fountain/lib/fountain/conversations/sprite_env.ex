@@ -110,7 +110,24 @@ defmodule Fountain.Conversations.SpriteEnv do
 
     # Register before anything can log. Provisioning writes output from its
     # very first step, and the secrets are already in the sprite by then.
-    Fountain.Conversations.Redaction.put(conversation_id, sprite_env)
+    #
+    # `:broker_credentials` are the values `Broker.split/2` took *out* of the
+    # secrets above, swapping each for a placeholder so the sandbox never holds
+    # one (ADR 0019). They are therefore absent from `sprite_env`, and building
+    # the registry from the env alone left them unscrubbed — which matters
+    # because keeping a credential out of the sandbox does not keep it out of
+    # the sandbox's *output*. The broker injects it into an outbound request,
+    # and an upstream that echoes a header back returns it as ordinary tool
+    # output, which `log_events` stores verbatim and the stream serves. The one
+    # value brokering exists to withhold from the agent was the one value never
+    # redacted from what the agent reads.
+    broker_credentials = Keyword.get(opts, :broker_credentials, %{})
+
+    Fountain.Conversations.Redaction.put(
+      conversation_id,
+      sprite_env ++ Enum.map(broker_credentials, fn {k, v} -> {to_string(k), v} end)
+    )
+
     sprite_env
   end
 

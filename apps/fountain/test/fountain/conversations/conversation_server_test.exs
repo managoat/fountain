@@ -1047,7 +1047,7 @@ defmodule Fountain.Conversations.ConversationServerTest do
 
       notify(pid, ref, %{
         "sessionUpdate" => "agent_message_chunk",
-        "content" => %{"type" => "text", "text" => "hello from the sprite"}
+        "content" => %{"type" => "text", "text" => "hello from the sprite."}
       })
 
       events = Conversations._unsafe_list_log_events(conv.id)

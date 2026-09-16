@@ -29,8 +29,9 @@ defmodule Fountain.Conversations.RedactionCarryTest do
   @stream "a SECRETAB-short-and-longer b SECRETAB-short c ABCDEFGH-overlap-IJKLMNOP " <>
             "d multi\nline \"quoted\" key e clé-secrète-ünïcødé f SECRETAB-shor"
 
-  # Twice the longest value, less one: the most one channel may hold.
-  @bound 2 * (@values |> Enum.map(&byte_size/1) |> Enum.max()) - 1
+  # A whole chunk, or a tail of twice the longest value less one: the most
+  # one channel may hold.
+  @bound RedactionCarry.max_unit() + 2 * (@values |> Enum.map(&byte_size/1) |> Enum.max())
 
   setup do
     conv_id = Ecto.UUID.generate()
@@ -170,7 +171,7 @@ defmodule Fountain.Conversations.RedactionCarryTest do
 
   test "the review's reproduction: a tool update between the halves", %{conv_id: conv_id} do
     Redaction.put(conv_id, [{"K", "abcdefgh"}])
-    rows = run(conv_id, "acp", [line("abc"), tool_line(1), line("defgh")], 15)
+    rows = run(conv_id, "acp", [line("abc"), tool_line(1), line("defgh")], @bound)
 
     # The tool line goes out first; `abc` waited for `defgh`.
     assert [{"acp", tool}, {"acp", text}] = rows
@@ -182,7 +183,8 @@ defmodule Fountain.Conversations.RedactionCarryTest do
     Redaction.put(conv_id, [{"K", "abcdefgh"}])
     pieces = ["abc" | List.duplicate("defghabc", 1_001)]
 
-    rows = run(conv_id, "acp", Enum.map(pieces, &line/1), 2 * 8 - 1)
+    # The first line is held whole; from then on only the `abc` tail is.
+    rows = run(conv_id, "acp", Enum.map(pieces, &line/1), byte_size(line("abc")))
 
     # One row per completed value, plus the unfinished `abc` at the flush.
     assert length(rows) == 1_002
@@ -198,18 +200,32 @@ defmodule Fountain.Conversations.RedactionCarryTest do
     assert RedactionCarry.empty?(carry)
   end
 
-  test "a line of another kind is written at once, and the text tail stays", %{
+  test "a line of another kind is written at once, and what is held stays whole", %{
     conv_id: conv_id
   } do
     other = tool_line(1)
 
-    {[{"acp", first}], carry} =
+    {[], carry} =
       RedactionCarry.feed(RedactionCarry.new(), conv_id, "acp", line("ends in SECRET"))
 
-    assert first == line("ends in ")
     assert {[{"acp", ^other}], carry} = RedactionCarry.feed(carry, conv_id, "acp", other)
     refute RedactionCarry.empty?(carry)
-    assert RedactionCarry.flush(carry, conv_id) == [{"acp", line("SECRET")}]
+    assert RedactionCarry.flush(carry, conv_id) == [{"acp", line("ends in SECRET")}]
+  end
+
+  test "a chunk that turns out not to begin a value is written as it arrived", %{
+    conv_id: conv_id
+  } do
+    # The session-isolation shape: `live` ends in a byte some value starts
+    # with. It is held whole and written unchanged, not as `liv` and `E`.
+    Redaction.put(conv_id, [{"K", "Esecret-value"}])
+    rows = run(conv_id, "acp", [line("alivE"), line(" and well")], @bound)
+    assert rows == [{"acp", line("alivE")}, {"acp", line(" and well")}]
+
+    assert run(conv_id, "stdout", ["alivE", " and well"], @bound) ==
+             [{"stdout", "alivE"}, {"stdout", " and well"}]
+
+    assert run(conv_id, "acp", [line("alivE")], @bound) == [{"acp", line("alivE")}]
   end
 
   test "hold_from/2 holds only a tail that begins a value" do

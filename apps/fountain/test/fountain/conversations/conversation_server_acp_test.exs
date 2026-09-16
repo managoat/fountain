@@ -319,7 +319,7 @@ defmodule Fountain.Conversations.ConversationServerACPTest do
 
       notify(pid, ref, %{
         "sessionUpdate" => "agent_message_chunk",
-        "content" => %{"type" => "text", "text" => "the answer"}
+        "content" => %{"type" => "text", "text" => "the answer."}
       })
 
       events = Conversations._unsafe_list_log_events(conv.id)

@@ -50,15 +50,6 @@ defmodule Fountain.Conversations.OutputRedactionTest do
     |> IO.iodata_to_binary()
   end
 
-  defp tool_call(id, input) do
-    "session/update"
-    |> Managoat.ACP.Protocol.notification(%{
-      sessionId: "sess-2359",
-      update: %{sessionUpdate: "tool_call", toolCallId: id, title: "Bash", rawInput: input}
-    })
-    |> IO.iodata_to_binary()
-  end
-
   defp tool_update(id, status) do
     "session/update"
     |> Managoat.ACP.Protocol.notification(%{
@@ -73,9 +64,6 @@ defmodule Fountain.Conversations.OutputRedactionTest do
 
   defp split(value, at),
     do: {binary_part(value, 0, at), binary_part(value, at, byte_size(value) - at)}
-
-  # One row's text; the writer re-encodes a shortened line, so compare text.
-  defp text_of(row), do: Blocks.assistant_text([row])
 
   defp stored_text(conv_id), do: conv_id |> rows() |> Blocks.assistant_text()
 
@@ -160,13 +148,13 @@ defmodule Fountain.Conversations.OutputRedactionTest do
     test "flush/1 writes what is held, under the turn it arrived in", %{ctx: ctx, turn: turn} do
       {head, _tail} = split(@secret, 10)
 
+      # Held whole: a small line keeps its boundaries and its bytes.
       output = Output.log(%Output{bytes: 0}, ctx, "acp", chunk("ends with " <> head))
-      assert Enum.map(rows(ctx.conversation_id), &text_of/1) == ["ends with"]
+      assert rows(ctx.conversation_id) == []
 
       %Output{carry: nil} = Output.flush(output)
-      assert [_, row] = rows(ctx.conversation_id)
-      assert row.turn_id == turn.id
-      assert stored_text(ctx.conversation_id) == "ends with " <> head
+      assert [row] = rows(ctx.conversation_id)
+      assert {row.turn_id, row.data} == {turn.id, chunk("ends with " <> head)}
     end
 
     test "output for another turn writes what is held first, under its own turn", %{
@@ -181,14 +169,76 @@ defmodule Fountain.Conversations.OutputRedactionTest do
       |> Output.log(ctx, "acp", chunk("ends with " <> head))
       |> Output.log(%{ctx | turn_id: next.id}, "acp", chunk("a new turn"))
 
-      assert [first, held, second] = rows(ctx.conversation_id)
-      assert {first.turn_id, text_of(first)} == {turn.id, "ends with"}
-      assert {held.turn_id, text_of(held)} == {turn.id, head}
+      assert [first, second] = rows(ctx.conversation_id)
+      assert {first.turn_id, first.data} == {turn.id, chunk("ends with " <> head)}
       assert {second.turn_id, second.data} == {next.id, chunk("a new turn")}
     end
   end
 
   describe "what the carry retains" do
+    test "a prefix-only frame with huge metadata retains none of it", %{ctx: ctx} do
+      # The second review's reproduction: text that is only a registered
+      # prefix, padded with megabytes of `_meta`. Keeping the decoded
+      # notification as a template kept the padding, uncharged, while
+      # `held_bytes` said 3. The second case makes the kept text and session
+      # id long enough to be sub-binaries that could pin the frame.
+      long_value = String.duplicate("q", 400)
+
+      for {value, text, session} <- [
+            {"abcdefgh", "abc", "sess-2359"},
+            {long_value, String.duplicate("q", 300), String.duplicate("s", 200)}
+          ] do
+        Redaction.put(ctx.conversation_id, [{"KEY", value}])
+
+        line =
+          "session/update"
+          |> Managoat.ACP.Protocol.notification(%{
+            sessionId: session,
+            _meta: %{padding: String.duplicate("p", 10_000_000)},
+            update: %{sessionUpdate: "agent_message_chunk", content: %{type: "text", text: text}}
+          })
+          |> IO.iodata_to_binary()
+
+        start = %Output{bytes: Output.byte_budget() - 1_000}
+        output = Output.log(start, ctx, "acp", line)
+
+        assert rows(ctx.conversation_id) == []
+        refute output.capped
+
+        # All retained state, not the tail counter: its serialized size, and
+        # every binary in it, by the bytes it keeps alive.
+        assert :erlang.external_size(output.carry) < 2_000
+
+        for binary <- binaries(output.carry) do
+          assert :binary.referenced_byte_size(binary) < 2_000
+        end
+      end
+
+      # The held text still completes a value, and is still redacted.
+      Redaction.put(ctx.conversation_id, [{"KEY", "abcdefgh"}])
+
+      %Output{bytes: 0}
+      |> Output.log(ctx, "acp", chunk("abc"))
+      |> Output.log(ctx, "acp", chunk("defgh!"))
+      |> Output.flush()
+
+      assert stored_text(ctx.conversation_id) == Redaction.placeholder() <> "!"
+    end
+
+    test "a tail cut from a huge chunk does not pin the chunk", %{ctx: ctx} do
+      # A tail over 64 bytes: a shorter sub-binary is copied by the runtime.
+      Redaction.put(ctx.conversation_id, [{"KEY", String.duplicate("q", 400)}])
+      huge = String.duplicate("x", 1_000_000) <> String.duplicate("q", 300)
+
+      for {stream, data} <- [{"stdout", huge}, {"acp", chunk(huge)}] do
+        output = Output.log(%Output{bytes: 0}, ctx, stream, data)
+
+        for binary <- binaries(output.carry) do
+          assert :binary.referenced_byte_size(binary) < 2_000
+        end
+      end
+    end
+
     test "stays bounded when every chunk both completes and begins a value", %{ctx: ctx} do
       # The review's reproduction: with `abcdefgh` registered, `abc` and then
       # `defghabc` over and over. Holding whole lines walked the cut back to
@@ -201,8 +251,8 @@ defmodule Fountain.Conversations.OutputRedactionTest do
       output =
         Enum.reduce(1..1_001, Output.log(start, ctx, "acp", chunk("abc")), fn _, output ->
           output = Output.log(output, ctx, "acp", chunk("defghabc"))
-          held = RedactionCarry.held_bytes(output.carry && output.carry.held)
-          assert held <= 2 * byte_size("abcdefgh") - 1
+          # After the first line, only the unresolved `abc` tail is kept.
+          assert RedactionCarry.held_bytes(output.carry && output.carry.held) <= 15
           output
         end)
 
@@ -307,6 +357,12 @@ defmodule Fountain.Conversations.OutputRedactionTest do
       assert stored_text(ctx.conversation_id) == Redaction.placeholder()
     end
   end
+
+  defp binaries(term) when is_binary(term), do: [term]
+  defp binaries(term) when is_map(term), do: term |> Map.to_list() |> binaries()
+  defp binaries(term) when is_list(term), do: Enum.flat_map(term, &binaries/1)
+  defp binaries(term) when is_tuple(term), do: term |> Tuple.to_list() |> binaries()
+  defp binaries(_term), do: []
 
   defp collect_frames(acc \\ []) do
     receive do

@@ -23,7 +23,15 @@
   binding, and was found by the deployed-instance suite's `secrets` profile
   running against production (#1614). It is not a cross-tenant disclosure: the
   conversation, its events and its stream are scoped to the account that owns
-  the credential. What it did expose is the credential to the **agent**, in
-  its own tool output, which is precisely what brokering exists to prevent —
-  so an agent that can be talked into exfiltrating what it reads could reach a
-  credential it was never meant to see.
+  the credential. What it fixes is the credential sitting in plaintext in
+  `log_events` — a table without the envelope encryption the secret itself
+  has — and being served through the conversation's history and stream, to
+  the Conversations app and to anything else reading output through Fountain.
+
+  **What it does not change:** the agent itself still sees an echoed
+  credential. The echo arrives inside the sandbox, where the runtime reads the
+  tool's output and hands it to the model before Fountain persists anything,
+  and redaction applies only at that later point. Brokering keeps a credential
+  out of the sandbox's environment and files; it cannot stop an upstream from
+  handing that credential back to the agent in a response. Bind a secret only
+  to hosts that do not return it.

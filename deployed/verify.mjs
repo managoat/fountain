@@ -251,6 +251,10 @@ export async function verifyMain(argv, env = process.env, { hostReceiverFn = hos
     console.log(`  evidence   ${resolve(out, 'results')}`);
     if (report?.cleanup?.remaining) {
       const target = receiver?.hosted ? resolve(out, 'cleanup-target.json') : configPath;
+      // cleanup-replay reads the environment and nothing else, so a run whose
+      // keys came from the keychain has to say so: the command is useless to
+      // an operator who never exported them.
+      if (resolved.fromKeychain.length) console.log('  replay     export the two suite keys first; cleanup-replay reads only the environment');
       console.log(`  replay     node deployed/cleanup-replay.mjs --config ${target} \\\n               --results ${resolve(out, 'results')} --out ${resolve(out, 'cleanup')}`);
     }
     return code;

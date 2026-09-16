@@ -132,7 +132,10 @@ defmodule FountainWeb.FallbackController do
     |> json(%{
       error: "inference_source_changed",
       message:
-        "the conversation's credential source was changed or deleted; start a new conversation with an available source"
+        "the conversation's credential source was changed or deleted, or platform selection moved " <>
+          "(for Codex, when the platform ChatGPT account's usage limit starts or resets); " <>
+          "start a new conversation with an available source, on a sandbox not bound to the old " <>
+          "one (sandbox_mode ephemeral, or reset the persistent home)"
     })
   end
 
@@ -162,7 +165,10 @@ defmodule FountainWeb.FallbackController do
     |> json(%{
       error: "codex_inference_conflict",
       message:
-        "this sandbox is reserved for a different Codex credential source or revision; use the same source or a fresh sandbox"
+        "this sandbox is reserved for a different Codex credential source or revision; a " <>
+          "persistent home keeps the source it started on, including across the platform ChatGPT " <>
+          "account's usage limit and its reset. Use the same source or a fresh sandbox: launch " <>
+          "with sandbox_mode ephemeral, or reset the home with DELETE /api/sandboxes/{id}"
     })
   end
 

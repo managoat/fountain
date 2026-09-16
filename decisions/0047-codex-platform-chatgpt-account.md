@@ -380,11 +380,30 @@ So selection now remembers the exhaustion:
   same account keeps it, because its next turn would fail with the same
   reset. Disconnecting deletes the row.
 - **Unchanged.** The failing turn still fails and nothing is retried, so
-  there is still no fallback within a turn. A conversation already bound to
-  the grant stays bound (ADR 0053): its later turns on a live peer keep
-  failing until the reset, and a wake or provision inside the window is
-  refused as `inference_source_changed`, the same answer a reconnect gives.
-  New conversations take the key.
+  there is still no fallback within a turn.
+- **Machine bindings are kept, at both switches.** Selection changes for new
+  selections only; a switch needs a new compatible sandbox. A new
+  conversation is not always a new sandbox: a persistent launch lands on the
+  agent's home (`Launch.home_or_new/5`), and
+  `InferenceBinding.compatible_machine/2` keeps a Codex machine bound to the
+  kind, identity and revision it started on (ADR 0053). Neither switch
+  replaces a home or clears its binding. So:
+  - *Grant to key, once the limit is confirmed.* A persistent launch onto a
+    grant-bound home is `409 codex_inference_conflict`. A grant-bound
+    conversation's turns on a live peer fail at the provider until the
+    reset, and its wake or provision is `409 inference_source_changed`
+    until then.
+  - *Key to grant, once the reset passes.* A persistent launch onto a
+    key-bound home is `409 codex_inference_conflict`, and a key-bound
+    conversation's wake or provision is `409 inference_source_changed`.
+
+  The supported way onto the new selection is a sandbox not bound to the old
+  source: a launch with `sandbox_mode: "ephemeral"`, or
+  `DELETE /api/sandboxes/{id}` to reset the home (which retires the machine),
+  after which the next persistent launch builds a new one. Both error
+  messages and the admin notice say so.
+  `platform_chatgpt_exhaustion_launch_test.exs` pins both switches through
+  `Launch.start_conversation/2` and `InferenceResolution.revalidate/3`.
 
 ### 7. Audit records the grant's life, never a token
 

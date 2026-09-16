@@ -431,8 +431,10 @@ defmodule FountainWeb.AdminLive.Inference do
       do: "; the access token expires #{format_ts(@chatgpt.access_expires_at)}"}.
     <span :if={@chatgpt.exhausted_until} class="block mt-1 text-amber-800">
       The account has hit its Codex usage limit until {format_ts(@chatgpt.exhausted_until)} UTC.
-      Until then, new codex conversations run on the OpenAI platform key when one is set,
-      billed per token under the daily ceiling.
+      Until then, new codex conversations on a new sandbox run on the OpenAI platform key when one
+      is set, billed per token under the daily ceiling. Existing persistent homes and their
+      conversations stay on the source they were bound to, here and again after the reset:
+      launches onto them fail with codex_inference_conflict until the home is reset.
     </span>
     """
   end

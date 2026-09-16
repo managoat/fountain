@@ -265,8 +265,29 @@ the limit, or the check fails, Fountain records nothing.
 The limit belongs to the ChatGPT account, not to its token. If you reconnect
 the same account, the reset time stays. If you connect a different account,
 Fountain clears it. If ChatGPT confirms the limit but gives no reset time,
-Fountain skips the account for one hour. A conversation that already runs on
-the account stays on it. Its later turns fail until the reset time.
+Fountain skips the account for one hour.
+
+The switch applies to new selections only. A codex sandbox stays bound to
+the credential it started on, and Fountain does not move it. A new
+conversation is not always a new sandbox: with `sandbox_mode: persistent`, it
+lands on the agent's persistent home. So each switch has the same effects:
+
+- **When the limit is confirmed.** A persistent home that started on the
+  account refuses new persistent conversations with
+  `409 codex_inference_conflict`. A conversation that runs on the account
+  stays on it. Its turns fail until the reset time. If its sandbox parks,
+  wake and provision fail with `409 inference_source_changed` until the reset
+  time.
+- **When the reset time passes.** The same happens in reverse. A persistent
+  home that started on `PLATFORM_OPENAI_API_KEY` refuses new persistent
+  conversations with `409 codex_inference_conflict`. A conversation that runs
+  on the key fails wake and provision with `409 inference_source_changed`.
+
+To run on the new selection, use a sandbox that is not bound to the old
+credential. Start the conversation with `sandbox_mode: ephemeral`, or reset
+the persistent home with `DELETE /api/sandboxes/{id}`. The next persistent
+conversation then builds a new home. A reset replaces the home's disk. See
+[Sandboxes](api.md#sandboxes).
 
 A personal subscription is one account for every tenant on the deployment.
 That pattern is behind reported account bans, and it is an operator's own

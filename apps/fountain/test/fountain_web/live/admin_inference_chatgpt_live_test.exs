@@ -76,6 +76,8 @@ defmodule FountainWeb.AdminInferenceChatGPTLiveTest do
       assert html =~ "Connected as"
       assert html =~ "hit its Codex usage limit until 2099-09-20 11:40 UTC"
       assert html =~ "OpenAI platform key"
+      assert html =~ "Existing persistent homes and their"
+      assert html =~ "stay on the source they were bound to"
       assert html =~ "usage limit"
 
       Repo.update_all(Fountain.PlatformChatGPT.Account,

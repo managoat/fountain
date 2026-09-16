@@ -94,6 +94,20 @@ defmodule FountainWeb.FallbackControllerTest do
     end
   end
 
+  # #2362: a persistent home keeps its Codex source when the platform ChatGPT
+  # account's usage limit starts or resets, so both refusals name the way to a
+  # sandbox that is not bound to the old source.
+  test "Codex source refusals name the sandbox that is not bound to the old source", %{
+    conn: conn
+  } do
+    for reason <- [:inference_source_changed, :codex_inference_conflict] do
+      body = conn |> FountainWeb.FallbackController.call({:error, reason}) |> json_response(409)
+      assert body["message"] =~ "usage limit"
+      assert body["message"] =~ "sandbox_mode ephemeral"
+      assert body["message"] =~ "reset"
+    end
+  end
+
   describe "{:error, %Ecto.Changeset{}} → 422" do
     test "POST /api/agents with missing required fields returns 422 with errors body", %{
       conn: conn

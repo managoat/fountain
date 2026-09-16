@@ -150,11 +150,19 @@ defmodule Fountain.Conversations do
   @doc """
   Update a sandbox, emitting usage events on billable transitions.
 
-  Every sandbox status change in the system goes through here — fresh
-  provisioning, the wake path, and the terminate-when-the-server-is-already-dead
-  path in `Fountain.Conversations.Termination.terminate_conversation/2`. Metering at this choke point means a
-  new caller cannot forget to record usage, which is how `Billing.emit/5` ended
-  up with no call sites at all despite being documented, schema'd and tested.
+  Almost every sandbox status change goes through here — fresh provisioning,
+  the wake path, the park. Metering at this choke point means a new caller
+  cannot forget to record usage, which is how `Billing.emit/5` ended up with no
+  call sites at all despite being documented, schema'd and tested.
+
+  **The one other writer is the machine's owner** (ADR 0058):
+  `Fountain.Machines.Lease.cas_update/3` writes the row under the lease epoch,
+  because a compare-and-set is the thing that makes a superseded owner
+  invisible and this function's `FOR UPDATE` read cannot express it. It is not
+  outside the metering: it calls `sandbox_status_effects/2` below, which is the
+  same two effects this one runs, and `Fountain.Machines.DestroyTest` pins them
+  per site. A new writer that is neither of these two is the failure mode above,
+  returning.
 
   The persisted previous status decides the transition. Terminal rows reject
   attempts to become active again, including callbacks holding an older struct.
@@ -165,6 +173,35 @@ defmodule Fountain.Conversations do
 
   def update_sandbox(%Sandbox{} = sandbox, attrs),
     do: update_sandbox_if(sandbox, attrs, fn _ -> :ok end)
+
+  # The two effects a sandbox status change owes, for a writer that is not
+  # `update_sandbox/2`.
+  #
+  # `update_sandbox_if/3` runs `record_sandbox_usage/2` and
+  # `maybe_poke_sandbox_queue/2` after its own transaction and, deliberately,
+  # with the status its `FOR UPDATE` read saw rather than a fresh one (#2309).
+  # `Fountain.Machines.Lease.cas_update/3` — the machine owner's write since
+  # ADR 0058 — is a single guarded `update_all` and runs neither, so the owner
+  # calls this after its finalize commits, outside every transaction, with the
+  # row the write returned and the status it had before it.
+  #
+  # Both halves matter and neither is optional. `record_sandbox_usage/2` is the
+  # metering choke point this context exists to keep honest — a terminal write
+  # that skips it leaves `sandbox_terminated` unrecorded, and that row is what
+  # a provider bill is reconciled against. `maybe_poke_sandbox_queue/2` is what
+  # turns a freed quota slot into a drain (ADR 0042 decision 5): without it a
+  # tenant at their cap waits for the five-minute cron instead of a second.
+  #
+  # A door for `Fountain.Machines` (ADR 0058); not part of the context's public
+  # surface, like the two it calls.
+  @doc false
+  @spec sandbox_status_effects(Sandbox.t(), String.t()) :: :ok
+  def sandbox_status_effects(%Sandbox{} = written, previous_status)
+      when is_binary(previous_status) do
+    record_sandbox_usage(previous_status, written)
+    maybe_poke_sandbox_queue(previous_status, written)
+    :ok
+  end
 
   @doc """
   Update a sandbox for provisioning, wake or park, returning `:retired` when

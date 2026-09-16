@@ -129,20 +129,26 @@ defmodule Fountain.Conversations.Termination do
   Commit the teardown fence for a conversation that is ending, on behalf of
   its live `ConversationServer`.
 
+  `_unsafe_`: it takes a bare `sandbox_id` and writes the row and an audit
+  event with no tenant scoping of its own (`contributing/server.md`). Its
+  ownership is the caller's — a `ConversationServer` that established this
+  conversation and its sandbox at `init/1` — which used to be visible from the
+  fact that the function lived on the server. Prefixed now that it does not.
+
   The decision the server needs *before* it closes its adapter: `{:ok,
   sandbox}` to tear the machine down, `{:error, :sandbox_kept}` to leave it
   standing for a home or a co-tenant. The fence itself is
   `Fountain.Conversations.Lifecycle`'s — a rule about the machine, not a
-  conversation verb — and `destroy_machine/3` below repeats it idempotently
+  conversation verb — and `_unsafe_destroy_machine/2` below repeats it idempotently
   when it runs, so this is a pre-check, not the fence of record.
 
   Ownership is the caller's: the server established this conversation and its
   sandbox at `init/1`, and the conditional fence rechecks the binding under
   the lock anyway.
   """
-  @spec fence_machine(String.t() | nil, String.t(), keyword()) ::
+  @spec _unsafe_fence_machine(String.t() | nil, String.t(), keyword()) ::
           {:ok, Sandbox.t()} | {:error, term()}
-  def fence_machine(sandbox_id, conversation_id, opts) do
+  def _unsafe_fence_machine(sandbox_id, conversation_id, opts) do
     opts =
       opts
       |> Keyword.put(:terminating_conversation_id, conversation_id)
@@ -161,6 +167,10 @@ defmodule Fountain.Conversations.Termination do
   Destroy the machine of a conversation that is ending, through its owner
   (ADR 0058 stage 5).
 
+  `_unsafe_`, for the same reason as `_unsafe_fence_machine/3` above: a bare
+  `sandbox_id` and no tenant scoping here. Both callers established the
+  conversation this machine belongs to first.
+
   One door for both halves of terminate — the live server's and the dead
   server's — so the fence, the provider destroy, the terminal write and the
   `sandbox.destroyed` event are the same five steps whichever half ran.
@@ -172,7 +182,7 @@ defmodule Fountain.Conversations.Termination do
       the first and only look at the machine. A persistent home or a live
       co-tenant then answers `{:ok, :kept}` and nothing is touched — the
       kept-machine semantics this path has always had.
-    * **`nil`**, from a live server that already ran `fence_machine/3` and
+    * **`nil`**, from a live server that already ran `_unsafe_fence_machine/3` and
       acted on its verdict. The protocol still fences — a repeat, which writes
       no second intent and is what keeps a mixed-version fleet safe — but it
       must not decide the binding a second time. By then the turn has been
@@ -187,9 +197,9 @@ defmodule Fountain.Conversations.Termination do
   what the fence's `sandbox.teardown_requested` event has always said, and
   changing that would rewrite a trail operators already read.
   """
-  @spec destroy_machine(String.t(), keyword()) ::
+  @spec _unsafe_destroy_machine(String.t(), keyword()) ::
           {:ok, Fountain.Machines.Destroy.outcome()} | {:error, term()}
-  def destroy_machine(sandbox_id, opts) do
+  def _unsafe_destroy_machine(sandbox_id, opts) do
     Machine.destroy(sandbox_id,
       actor: Keyword.get(opts, :actor, "self"),
       reason: :terminated,
@@ -204,7 +214,7 @@ defmodule Fountain.Conversations.Termination do
 
   The conditional fence preserves homes and other live co-tenants and blocks
   new attachments; past it, the machine is destroyed at the provider and the
-  row retired, through `destroy_machine/3`. **This is where it used to stop.**
+  row retired, through `_unsafe_destroy_machine/2`. **This is where it used to stop.**
   Before ADR 0058 stage 5 this path fenced the row, wrote it terminal and left
   the sprite standing for `Workers.SandboxReaper`'s next pass to notice and
   collect — up to an hour of a machine nobody could reach still billing. The
@@ -228,7 +238,7 @@ defmodule Fountain.Conversations.Termination do
         # decision: it keeps a home or a machine a co-tenant still holds.
         opts = Keyword.put(opts, :terminating_conversation_id, conv.id)
 
-        case destroy_machine(conv.sandbox_id, opts) do
+        case _unsafe_destroy_machine(conv.sandbox_id, opts) do
           {:ok, _outcome} -> :ok
           {:error, _} = error -> error
         end

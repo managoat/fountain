@@ -24,6 +24,49 @@ defmodule FountainWeb.FallbackControllerTest do
     assert body["message"] =~ "self-hosted runner"
   end
 
+  test "every refusal the machine owner can answer has a clause of its own", %{conn: conn} do
+    # `Fountain.Machines.Machine.destroy/2` normalizes the protocol's precise
+    # vocabulary (`:machine_busy`, `:superseded`, `{:database, sqlstate}`) into
+    # these three before anything user-facing sees it (ADR 0058 stage 5), and a
+    # terminate renders whatever it answers through here. A tuple would have no
+    # clause at all — a 500 — and a retryable refusal caught by the terminal
+    # safety net would be a 422 that no SDK retries. `destroy_test.exs` pins the
+    # other half: that nothing the door answers is a tuple.
+    for {reason, status} <- [
+          {:sandbox_unavailable, 503},
+          {:not_found, 404},
+          {:provider_transaction_open, 422}
+        ] do
+      conn = FountainWeb.FallbackController.call(conn, {:error, reason})
+      assert json_response(conn, status)["error"] == Atom.to_string(reason)
+    end
+  end
+
+  test "the protocol's own words land on the safety net, which is why they are translated" do
+    # Stated here so the cost of *not* translating is on the record next to the
+    # clauses above. `:machine_busy` is retryable contention and `:superseded`
+    # is a destroy somebody else completed; rendered raw they are a 422 with an
+    # "unmapped error atom" warning per request — a permanent status for a
+    # transient condition, outside every SDK's retry mapping and outside the
+    # `terminate`/`delete` operations' declared responses. ADR 0058 schedules
+    # the retryable refusal for stage 6, across every transient vocabulary at
+    # once; stage 5a answers `:sandbox_unavailable` instead, which is already
+    # a 503 above. `machines/destroy_test.exs` is what proves the door does it.
+    for reason <- [:machine_busy, :superseded] do
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          body =
+            Phoenix.ConnTest.build_conn()
+            |> FountainWeb.FallbackController.call({:error, reason})
+            |> json_response(422)
+
+          assert body["error"] == Atom.to_string(reason)
+        end)
+
+      assert log =~ "unmapped error atom"
+    end
+  end
+
   test "unusable opening input names itself rather than falling to the safety net", %{conn: conn} do
     for {reason, error} <- [invalid_prompt: "invalid_prompt", invalid_images: "invalid_images"] do
       body =

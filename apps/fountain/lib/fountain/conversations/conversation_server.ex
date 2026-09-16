@@ -1597,7 +1597,7 @@ defmodule Fountain.Conversations.ConversationServer do
   # ownership: init/1 established this actor's conversation and sandbox; the
   # conditional fence rechecks this actor's parent and owner.
   defp prepare_termination(state, opts),
-    do: Termination.fence_machine(state.sandbox_id, state.conversation_id, opts)
+    do: Termination._unsafe_fence_machine(state.sandbox_id, state.conversation_id, opts)
 
   defp terminate_kept_machine(state) do
     # The machine is shared, or it is the agent's home (ADR 0023): end this
@@ -1624,15 +1624,19 @@ defmodule Fountain.Conversations.ConversationServer do
   # provider destroy, the terminal write and the `sandbox.destroyed` event are
   # the protocol's. `terminating_conversation_id: nil` because the kept-or-
   # destroy decision was `prepare_termination/2`'s and is not reopened here;
-  # `Termination.destroy_machine/2` says why. A refusal is logged, not raised:
-  # this conversation ends either way, and `Workers.SandboxReaper` collects a
-  # superseded destroy.
+  # `Termination._unsafe_destroy_machine/2` says why. A refusal is logged, not
+  # raised: this conversation ends either way, and `Workers.SandboxReaper`
+  # collects a destroy that could not finish.
+  #
+  # ownership: init/1 established this actor's conversation and sandbox, and
+  # `prepare_termination/2` above has just re-checked the binding under the
+  # per-sandbox lock.
   defp terminate_machine(state, opts) do
     state = if state.current_turn, do: interrupt_turn(state), else: state
     state = drop_connection(state, "terminated")
     opts = Keyword.put(opts, :terminating_conversation_id, nil)
 
-    case Termination.destroy_machine(state.sandbox_id, opts) do
+    case Termination._unsafe_destroy_machine(state.sandbox_id, opts) do
       {:ok, _outcome} -> :ok
       {:error, reason} -> Logger.warning("conv #{state.conversation_id}: #{inspect(reason)}")
     end

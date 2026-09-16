@@ -450,6 +450,37 @@ defmodule Fountain.Workers.SandboxReaperTest do
       assert Repo.reload(sandbox).status == "ready"
     end
 
+    test "a fenced row whose machine owner still holds the lease is left alone" do
+      # Since ADR 0058 a destroy in flight looks exactly like an abandoned
+      # teardown to everything else here: fenced, live status, no server. The
+      # lease is what tells them apart. Finishing one from underneath its owner
+      # writes the row without the owner's epoch and leaves the `transition`
+      # stamp on — and, worse than the write, reports `reconciled`, which
+      # `perform/1` documents as a defect upstream. A destroy that merely took
+      # longer than the grace window is not a defect.
+      {_user, sandbox, _conv} = fenced_sandbox()
+      sandbox = age_fence(sandbox, 60)
+
+      {:ok, 1} = Fountain.Machines.Lease.claim(sandbox.id, "owner@node", 60_000)
+
+      assert 0 = SandboxReaper.sweep_fenced_teardowns()
+      assert Repo.reload(sandbox).status == "ready"
+    end
+
+    test "a fenced row whose owner's lease has expired is swept as before" do
+      # The other half, and the reason the skip is `lease_until` rather than
+      # "has a lease at all": a holder that died mid-destroy leaves the lease
+      # behind, and that row is exactly the abandonment this pass is for.
+      {_user, sandbox, _conv} = fenced_sandbox()
+      sandbox = age_fence(sandbox, 60)
+
+      {:ok, 1} = Fountain.Machines.Lease.claim(sandbox.id, "dead-pod@node", 1)
+      Process.sleep(10)
+
+      capture_log(fn -> assert 1 = SandboxReaper.sweep_fenced_teardowns() end)
+      assert Repo.reload(sandbox).status == "terminated"
+    end
+
     test "a fenced row a server still holds is left alone" do
       {_user, sandbox, conv} = fenced_sandbox()
       sandbox = age_fence(sandbox, 60)

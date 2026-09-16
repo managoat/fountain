@@ -710,8 +710,19 @@ defmodule Fountain.Conversations.Lifecycle do
     end
   end
 
-  defp teardown_actor("admin:" <> _), do: "admin"
-  defp teardown_actor(actor), do: actor
+  @doc """
+  The actor string a machine-lifecycle event records, from the one a caller
+  gave.
+
+  ADR 0013 reserves `admin:<operator_id>` for account deletion alone, so an
+  operator reaping a machine from /admin/sandboxes records the plain `admin`
+  the vocabulary allows. Public since ADR 0058 stage 5 so `sandbox.destroyed`
+  and this module's own `sandbox.teardown_requested` cannot disagree about who
+  did it: the two events describe one operation.
+  """
+  @spec teardown_actor(String.t()) :: String.t()
+  def teardown_actor("admin:" <> _), do: "admin"
+  def teardown_actor(actor), do: actor
 
   defp do_fence_sandbox_for_teardown(sandbox, ending_id) do
     Repo.transaction(fn ->

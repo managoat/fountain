@@ -200,6 +200,44 @@ defmodule Fountain.Conversations.TerminationActorFenceTest do
     assert unchanged == ctx.state
   end
 
+  test "a conversation rebound after the fence still destroys the machine it left", ctx do
+    # The `terminating_conversation_id: nil` deviation, guarded where the code
+    # is. `prepare_termination/2` fences and decides kept-vs-destroy; the
+    # adapter then closes, and a rebind can land in between. Handing the
+    # protocol's fence the conversation id a second time would make that second
+    # decision `:sandbox_kept` — the conversation is no longer on this machine,
+    # so the fence's `lock_terminating_conversation/2` refuses — and this
+    # machine would be left fenced, live and billing with no server to finish
+    # it. Until now the only thing that caught it was an incidental assertion
+    # in `ee/test/fountain/conversations/termination_billing_test.exs`.
+    replacement = insert_sandbox(user_id: ctx.user.id, status: "ready")
+
+    expect(Managoat.Sandbox, :close_stdin, fn :adapter ->
+      assert Repo.reload!(ctx.sandbox).reset_requested_at, "the fence had not committed"
+
+      {:ok, _} =
+        Conversations.update_conversation(ctx.conv, %{
+          sandbox_id: replacement.id,
+          status: "running"
+        })
+
+      :ok
+    end)
+
+    expect(Managoat.Sandbox, :destroy, fn handle ->
+      assert handle == ctx.handle, "destroyed the replacement, not the machine being left"
+      :ok
+    end)
+
+    assert {:stop, :normal, {:error, :sandbox_unavailable}, _} =
+             terminate(ctx, {:terminate_conv, []})
+
+    assert Repo.reload!(ctx.sandbox).status == "terminated"
+    assert Repo.reload!(replacement).status == "ready"
+    refute Repo.reload!(replacement).reset_requested_at
+    assert Repo.reload!(ctx.conv).sandbox_id == replacement.id
+  end
+
   test "a provider error still retires the fenced row for reconciliation", ctx do
     expect(Managoat.Sandbox, :destroy, fn _ -> {:error, :unavailable} end)
     assert {:stop, :normal, :ok, _} = terminate(ctx, {:terminate_conv, []})

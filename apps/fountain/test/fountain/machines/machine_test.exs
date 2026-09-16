@@ -300,7 +300,9 @@ defmodule Fountain.Machines.MachineTest do
       # The difference from `who_is_here/1`, which falls back to a direct read:
       # that verb only looked, and this one writes. A write with nowhere to run
       # has to say so, or two nodes end up destroying one machine by different
-      # routes.
+      # routes. `:sandbox_unavailable` and not the reason itself — it is a
+      # tuple, the answer travels to `FallbackController`, and the door's job
+      # is to keep the system's vocabulary (`destroy_test.exs`).
       stub(Horde.DynamicSupervisor, :start_child, fn Fountain.MachineSupervisor, _child ->
         {:error, :no_capacity}
       end)
@@ -309,8 +311,14 @@ defmodule Fountain.Machines.MachineTest do
       reject(Managoat.Sandbox, :destroy, 1)
 
       with_gate(true, fn ->
-        assert {:error, {:machine_unreachable, :no_capacity}} =
-                 Machine.destroy(ctx.sandbox.id, actor: "api", reason: :terminated)
+        log =
+          ExUnit.CaptureLog.capture_log(fn ->
+            assert {:error, :sandbox_unavailable} =
+                     Machine.destroy(ctx.sandbox.id, actor: "api", reason: :terminated)
+          end)
+
+        assert log =~ "machine_unreachable"
+        assert log =~ "no_capacity"
       end)
 
       assert Fountain.Repo.reload!(ctx.sandbox).status == "ready"

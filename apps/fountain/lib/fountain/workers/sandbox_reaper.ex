@@ -389,6 +389,10 @@ defmodule Fountain.Workers.SandboxReaper do
   in flight — including one walking a whole account's machines — is never
   swept, and the liveness check refuses a row some server still holds.
 
+  Since ADR 0058 a row whose machine lease has not expired is skipped too: an
+  owner is working on it, and this pass would be finishing a destroy that has
+  not failed. An expired lease, or none, is the abandonment this pass is for.
+
   Returns the number of rows terminated.
   """
   def sweep_fenced_teardowns do
@@ -402,6 +406,17 @@ defmodule Fountain.Workers.SandboxReaper do
       not is_nil(s.teardown_requested_at) and s.status not in ^@terminal_statuses and
         s.teardown_requested_at < ^cutoff
     )
+    # A machine whose owner holds a live lease is not an abandoned teardown; it
+    # is a destroy in flight (ADR 0058). The grace period alone stopped being
+    # enough once the owner started doing the work: a destroy that outlives it
+    # matches every other condition here, and finishing it from underneath
+    # writes the row terminal without the owner's epoch and *leaves the
+    # `transition` stamp on*, which is the state the owner then has to clean up
+    # on its next pass. Worse than the write is the signal — this pass reports
+    # `reconciled`, which `perform/1` documents as a defect upstream, so a slow
+    # but healthy destroy would raise an alarm about itself. An expired lease is
+    # exactly the case this pass is for and is still swept.
+    |> where([s], is_nil(s.lease_until) or s.lease_until <= ^DateTime.utc_now())
     |> Repo.all()
     |> Repo.preload(:conversations)
     |> Enum.reject(&Lifecycle.any_server_alive?/1)

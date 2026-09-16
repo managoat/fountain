@@ -18,11 +18,13 @@ defmodule Fountain.Machines.DestroyTest do
   use Mimic
 
   alias Fountain.Audit
+  alias Fountain.Conversations
   alias Fountain.Conversations.ConversationServer
   alias Fountain.Conversations.Sandbox
   alias Fountain.Machines.Destroy
   alias Fountain.Machines.Lease
   alias Fountain.Machines.Machine
+  alias Fountain.Workers.SandboxReaper
   alias Managoat.Sandbox.Handle
 
   setup do
@@ -62,6 +64,28 @@ defmodule Fountain.Machines.DestroyTest do
           2_000 -> Process.demonitor(ref, [:flush])
         end
     end
+  end
+
+  # The row a destroy leaves when its owner dies between the intent and the
+  # finalize: fenced, stamped, lease held by a node that is not coming back.
+  defp abandon_mid_destroy(ctx) do
+    {:ok, fenced} =
+      Fountain.Conversations.Lifecycle.fence_sandbox_for_teardown(ctx.sandbox,
+        actor: "self",
+        reason: "conversation_terminated"
+      )
+
+    Repo.update_all(from(s in Sandbox, where: s.id == ^fenced.id),
+      set: [
+        lease_epoch: 1,
+        lease_node: "dead-pod@node",
+        lease_until: DateTime.add(DateTime.utc_now(), -60, :second),
+        transition: "destroying",
+        transition_reason: "terminated"
+      ]
+    )
+
+    :ok
   end
 
   defp with_gate(value, fun) do
@@ -193,6 +217,40 @@ defmodule Fountain.Machines.DestroyTest do
       assert destroyed.metadata["reason"] == "terminated"
     end
 
+    test "an admin actor is folded to `admin` on both events", ctx do
+      # ADR 0013 reserves `admin:<operator_id>` for account deletion alone, and
+      # the fence has always folded it (`Lifecycle.teardown_actor/1`). The two
+      # events describe one operation, so they cannot disagree about who did
+      # it. Unreachable from stage 5a's three callers; 5b's admin reap is the
+      # first that supplies the id form, which is why it is pinned now.
+      stub(Managoat.Sandbox, :destroy, fn _ -> :ok end)
+
+      assert {:ok, :destroyed} =
+               Destroy.run(ctx.sandbox.id, opts(ctx, actor: "admin:#{Ecto.UUID.generate()}"))
+
+      assert [fence] = events(ctx, "sandbox.teardown_requested")
+      assert [destroyed] = events(ctx, "sandbox.destroyed")
+      assert fence.actor == "admin"
+      assert destroyed.actor == "admin", "the destroy kept an operator id the fence folded away"
+    end
+
+    test "a caller's extra metadata reaches the fence's event", ctx do
+      # `main`'s `retire_terminated_sandbox/2` forwarded the caller's whole opts
+      # list to the fence, which merges `:metadata` into
+      # `sandbox.teardown_requested` — the door an account deletion uses to say
+      # whose account it was, on an event whose `user_id` its own delete is
+      # about to nilify. Rebuilding an explicit opts list would have dropped it
+      # silently; no caller passes it today, so nothing else would notice.
+      stub(Managoat.Sandbox, :destroy, fn _ -> :ok end)
+
+      assert {:ok, :destroyed} =
+               Destroy.run(ctx.sandbox.id, opts(ctx, metadata: %{"deleted_user" => "u-1"}))
+
+      assert [fence] = events(ctx, "sandbox.teardown_requested")
+      assert fence.metadata["deleted_user"] == "u-1"
+      assert fence.metadata["reason"] == "terminated"
+    end
+
     test "the co-tenants are told once, after the machine is gone", ctx do
       other =
         insert_conversation(
@@ -300,6 +358,39 @@ defmodule Fountain.Machines.DestroyTest do
       end
     end
 
+    test "a machine somebody else already stopped still tells the co-tenants", ctx do
+      # `main`'s `do_destroy/4` called `stop_cotenants/5` unconditionally — the
+      # `status not in [terminated, failed]` guard covered only the row write.
+      # A co-tenant server still holding a handle to a machine that is already
+      # gone is precisely what the notice exists to stop, and whether this
+      # conversation or an admin reap retired the row does not change that.
+      other =
+        insert_conversation(
+          user_id: ctx.user.id,
+          agent: ctx.agent,
+          sandbox: ctx.sandbox,
+          status: "idle"
+        )
+
+      stand_in_server(other.id)
+      {:ok, _} = Conversations.update_sandbox(ctx.sandbox, %{status: "terminated"})
+      reject(Managoat.Sandbox, :destroy, 1)
+
+      assert {:ok, :already_terminal} =
+               Destroy.run(ctx.sandbox.id,
+                 actor: "system:conversation_server",
+                 reason: :max_lifetime,
+                 notify: {ctx.conv.id, "reclaimed", "max_lifetime", "the ceiling"}
+               )
+
+      sandbox_id = ctx.sandbox.id
+
+      assert_receive {:cotenant,
+                      {:"$gen_cast",
+                       {:machine_gone, ^sandbox_id, "reclaimed", "max_lifetime", "the ceiling"}}},
+                     2_000
+    end
+
     test "a refusal is returned as it came, with nothing destroyed", ctx do
       expect(Fountain.Conversations.Lifecycle, :fence_sandbox_for_teardown, fn _, _ ->
         {:error, :sandbox_unavailable}
@@ -363,6 +454,207 @@ defmodule Fountain.Machines.DestroyTest do
       assert [destroyed] = events(ctx, "sandbox.destroyed")
       assert destroyed.metadata["provider"] == "daytona"
       assert destroyed.metadata["sprite_name"] == renamed
+    end
+
+    test "a raising adapter is treated as an error return, not as a crash", ctx do
+      # `main` let the raise through and left a fenced row in a live status for
+      # `SandboxReaper` to puzzle over. The machine was not reached either way,
+      # so the row retires and the trail records the destroy.
+      expect(Managoat.Sandbox, :destroy, fn _ ->
+        raise RuntimeError, "SPRITES_TOKEN is not set — cannot talk to sprites.dev"
+      end)
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          assert {:ok, :destroyed} = Destroy.run(ctx.sandbox.id, opts(ctx))
+        end)
+
+      assert log =~ "provider destroy failed for #{ctx.sandbox.machine_name}"
+      assert log =~ "SPRITES_TOKEN is not set"
+      assert row(ctx).status == "terminated"
+      assert is_nil(row(ctx).transition)
+      assert [_] = events(ctx, "sandbox.destroyed")
+    end
+  end
+
+  describe "the lease is always given back" do
+    test "a raise inside the operation still releases it", ctx do
+      # Without the `after`, the lease stays held for its whole TTL and the
+      # next terminate of this machine waits out `busy_wait_ms` and then
+      # refuses — a second failure caused by the first one's cleanup.
+      # The stub handles the second run below; the expectation is consumed
+      # first and is the one that raises.
+      stub(Lease, :cas_update, fn id, epoch, attrs ->
+        Mimic.call_original(Lease, :cas_update, [id, epoch, attrs])
+      end)
+
+      expect(Lease, :cas_update, fn _id, _epoch, _attrs -> raise RuntimeError, "boom" end)
+
+      assert_raise RuntimeError, "boom", fn -> Destroy.run(ctx.sandbox.id, opts(ctx)) end
+
+      held = row(ctx)
+      assert held.lease_epoch == 1, "the lease was never claimed, so this proves nothing"
+      assert is_nil(held.lease_node), "the lease was not released on the way out"
+      assert is_nil(held.lease_until)
+
+      # And why it matters: the next destroy claims at once rather than waiting.
+      stub(Managoat.Sandbox, :destroy, fn _ -> :ok end)
+      assert {:ok, :destroyed} = Destroy.run(ctx.sandbox.id, opts(ctx))
+      assert row(ctx).lease_epoch == 2
+    end
+  end
+
+  describe "a finished destroy wearing its own stamp" do
+    # The shape `SandboxReaper.finish_teardown/1` leaves behind: it writes
+    # `terminated` through `Conversations.update_sandbox/2`, which knows nothing
+    # about `transition`, so the stamp stays on. Before the status check in
+    # front of the takeover clause, this re-destroyed the machine at the
+    # provider and recorded a second `sandbox.destroyed` for one already gone.
+    for terminal <- ["terminated", "failed"] do
+      test "a #{terminal} row still stamped destroying is not destroyed again", ctx do
+        abandon_mid_destroy(ctx)
+
+        {:ok, _} =
+          Conversations.update_sandbox(Repo.reload!(ctx.sandbox), %{status: unquote(terminal)})
+
+        assert row(ctx).transition == "destroying", "the reaper-shaped row was not built"
+
+        reject(Managoat.Sandbox, :destroy, 1)
+
+        assert {:ok, :already_terminal} = Destroy.run(ctx.sandbox.id, opts(ctx))
+
+        cleaned = row(ctx)
+        assert cleaned.status == unquote(terminal)
+        # The stamp is cleared: while it sits on a terminal row, "is this
+        # machine mid-destroy?" cannot be answered from the row at all, which
+        # is the column's only job.
+        assert is_nil(cleaned.transition)
+        assert is_nil(cleaned.transition_reason)
+        assert events(ctx, "sandbox.destroyed") == []
+      end
+    end
+
+    test "the reaper's own sweep is what produces that shape", ctx do
+      # Built with the reaper rather than forged, so the regression above
+      # cannot drift away from what production actually leaves.
+      abandon_mid_destroy(ctx)
+
+      Repo.update_all(from(s in Sandbox, where: s.id == ^ctx.sandbox.id),
+        set: [
+          teardown_requested_at: DateTime.add(DateTime.utc_now(), -20 * 60, :second),
+          lease_until: DateTime.add(DateTime.utc_now(), -60, :second)
+        ]
+      )
+
+      ExUnit.CaptureLog.capture_log(fn ->
+        assert SandboxReaper.sweep_fenced_teardowns() == 1
+      end)
+
+      swept = row(ctx)
+      assert swept.status == "terminated"
+      assert swept.transition == "destroying"
+
+      reject(Managoat.Sandbox, :destroy, 1)
+      assert {:ok, :already_terminal} = Destroy.run(ctx.sandbox.id, opts(ctx))
+      assert is_nil(row(ctx).transition)
+      assert events(ctx, "sandbox.destroyed") == []
+    end
+  end
+
+  describe "refusals a caller can act on" do
+    test "a write refusal from the finalize reaches the caller", ctx do
+      # The invariant the old `termination_fallback_test.exs` assertion carried
+      # ("a refused terminal write is returned, with the admission fence
+      # intact") and that nothing held once the retire path stopped writing
+      # through `update_sandbox/2`. `{:database, _}` is `Lease.guarded/2`'s
+      # rescue — #2309's `57014` is the shape it was written for.
+      expect(Managoat.Sandbox, :destroy, fn _ -> :ok end)
+
+      expect(Lease, :cas_update, fn id, epoch, attrs ->
+        Mimic.call_original(Lease, :cas_update, [id, epoch, attrs])
+      end)
+
+      expect(Lease, :cas_update, fn _id, _epoch, _attrs -> {:error, {:database, "57014"}} end)
+
+      assert {:error, {:database, "57014"}} = Destroy.run(ctx.sandbox.id, opts(ctx))
+
+      refused = row(ctx)
+      assert refused.status == "ready", "a refused finalize wrote the row anyway"
+      assert refused.teardown_requested_at, "the admission fence was rolled back with it"
+      assert events(ctx, "sandbox.destroyed") == []
+    end
+
+    test "the door answers in the vocabulary the rest of the system speaks", ctx do
+      # Everything `Destroy.run/2` can say, as `Machine.destroy/2` says it. The
+      # precise word goes to the log; what travels is an atom every caller and
+      # `FountainWeb.FallbackController` already know.
+      for {from, to} <- [
+            {{:ok, :destroyed}, {:ok, :destroyed}},
+            {{:ok, :kept}, {:ok, :kept}},
+            {{:ok, :already_terminal}, {:ok, :already_terminal}},
+            {{:error, :superseded}, {:ok, :already_terminal}},
+            {{:error, :machine_busy}, {:error, :sandbox_unavailable}},
+            {{:error, {:database, "57014"}}, {:error, :sandbox_unavailable}},
+            {{:error, {:machine_unreachable, :no_capacity}}, {:error, :sandbox_unavailable}},
+            {{:error, {:invalid, :sandbox_id}}, {:error, :sandbox_unavailable}},
+            {{:error, :lost}, {:error, :sandbox_unavailable}},
+            {{:error, :transaction_open}, {:error, :provider_transaction_open}},
+            {{:error, :not_found}, {:error, :not_found}},
+            {{:error, :sandbox_unavailable}, {:error, :sandbox_unavailable}}
+          ] do
+        expect(Destroy, :run, fn _id, _opts -> from end)
+
+        ExUnit.CaptureLog.capture_log(fn ->
+          assert Machine.destroy(ctx.sandbox.id, actor: "api", reason: :terminated) == to,
+                 "#{inspect(from)} should become #{inspect(to)}"
+        end)
+      end
+    end
+
+    test "nothing the door can answer is a tuple", ctx do
+      # The property behind the table above, stated once, because a tuple
+      # reaching `FallbackController` has no clause there at all — a 500 on a
+      # terminate. `fallback_controller_test.exs` pins the other half: that
+      # each atom below has a clause of its own.
+      for shape <- [
+            {:error, :machine_busy},
+            {:error, :superseded},
+            {:error, {:database, "57014"}},
+            {:error, {:machine_unreachable, {:timeout, {GenServer, :call, []}}}},
+            {:error, {:invalid, :sandbox_id}},
+            {:error, :transaction_open},
+            {:error, :lost}
+          ] do
+        expect(Destroy, :run, fn _id, _opts -> shape end)
+
+        ExUnit.CaptureLog.capture_log(fn ->
+          case Machine.destroy(ctx.sandbox.id, actor: "api", reason: :terminated) do
+            {:ok, outcome} -> assert is_atom(outcome), "#{inspect(shape)} leaked a tuple"
+            {:error, reason} -> assert is_atom(reason), "#{inspect(shape)} leaked a tuple"
+          end
+        end)
+      end
+    end
+
+    test "an enclosing transaction is refused by the door, in both modes", ctx do
+      # `Destroy.run/2`'s own guard is process-local, so with the gate on it
+      # runs in the owner — never inside this caller's transaction — and cannot
+      # fire. Checking before the dispatch is what keeps "same protocol either
+      # way" true of step 1 as well.
+      reject(Managoat.Sandbox, :destroy, 1)
+
+      for gate <- [false, true] do
+        with_gate(gate, fn ->
+          assert {:ok, {:error, :provider_transaction_open}} =
+                   Repo.transaction(fn ->
+                     Machine.destroy(ctx.sandbox.id, actor: "api", reason: :terminated)
+                   end)
+        end)
+      end
+
+      assert row(ctx).lease_epoch == 0
+      refute row(ctx).teardown_requested_at
+      assert Machine.whereis(ctx.sandbox.id) == nil, "the gate-on refusal started an owner"
     end
   end
 
@@ -440,13 +732,16 @@ defmodule Fountain.Machines.DestroyTest do
       log =
         ExUnit.CaptureLog.capture_log(fn ->
           assert {:error, :machine_busy} =
-                   Destroy.run(ctx.sandbox.id, opts(ctx, lease_ttl_ms: 400))
+                   Destroy.run(ctx.sandbox.id, opts(ctx, busy_wait_ms: 400))
         end)
 
       waited = System.monotonic_time(:millisecond) - started
 
       assert waited >= 200, "gave up without waiting (#{waited}ms)"
       assert waited < 4_000, "waited past its own bound (#{waited}ms)"
+      # The bound is the *wait*, not the lease: the holder above took a 30s
+      # lease and this gave up in well under a second. `machine_bounds_test.exs`
+      # pins the default the call sites run with.
       assert log =~ "lease held by other@node"
 
       busy = row(ctx)
@@ -472,7 +767,7 @@ defmodule Fountain.Machines.DestroyTest do
       Ecto.Adapters.SQL.Sandbox.allow(Repo, self(), releaser)
       send(releaser, :go)
 
-      assert {:ok, :destroyed} = Destroy.run(ctx.sandbox.id, opts(ctx, lease_ttl_ms: 5_000))
+      assert {:ok, :destroyed} = Destroy.run(ctx.sandbox.id, opts(ctx, busy_wait_ms: 5_000))
       assert_received {:released, :ok}
       assert row(ctx).status == "terminated"
       assert row(ctx).lease_epoch == 2

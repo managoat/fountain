@@ -84,6 +84,13 @@ Mimic.copy(FountainWeb.OAuth)
 Mimic.copy(Fountain.Mailer)
 Mimic.copy(Fountain.InferenceCredentials)
 Mimic.copy(Fountain.Workers.SandboxQueueDrainer)
+# The machine owner's one write primitive (ADR 0058). Copied so a destroy's
+# finalize can be handed a database fault — the `{:database, sqlstate}` shape
+# `Lease.guarded/2` produces for #2309's `57014` — without one to reproduce.
+Mimic.copy(Fountain.Machines.Lease)
+# The protocol behind `Machine.destroy/2`, copied so the door's translation of
+# its refusals into the system's vocabulary can be driven one shape at a time.
+Mimic.copy(Fountain.Machines.Destroy)
 
 # ─── The schema guard (#1427) ────────────────────────────────────────────────
 #

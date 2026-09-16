@@ -34,6 +34,17 @@ defmodule Fountain.Machines.Machine do
   moving them still changed nothing. With the gate off, `who_is_here/1` reads
   `Occupancy` directly and starts nothing at all, so the gate governs whether
   the process exists, never what the answer is.
+
+  ## The read that walks past a busy owner
+
+  A GenServer is serial, so a destroy occupies this process for as long as it
+  takes, and a `who_is_here/1` that arrives meanwhile waits behind it. Past
+  `@call_timeout` that read gives up, logs, and reads `Occupancy` directly —
+  correct today, because the verb is read-only and a slightly late reading of
+  who is on a machine harms nobody. It stops being correct at stage 8, when
+  `attach`, `detach` and `admit_turn` come through this same door and the
+  answer is what a durable decision is made on: a writer that walks past the
+  owner is two owners again. The fallback has to go before those land.
   """
 
   # `:transient` — an idle-stop exits `:normal` and Horde leaves it stopped,
@@ -49,6 +60,7 @@ defmodule Fountain.Machines.Machine do
   alias Fountain.Machines
   alias Fountain.Machines.Destroy
   alias Fountain.Machines.Occupancy
+  alias Fountain.Repo
 
   # Long enough that a burst of questions about one machine — a lifecycle
   # check, a reaper pass and a park decision inside the same minute — reuses
@@ -61,10 +73,14 @@ defmodule Fountain.Machines.Machine do
   @call_timeout 15_000
 
   # A destroy is a provider round trip plus four short transactions, and it may
-  # wait out another destroy's lease first (`Destroy`'s own TTL bounds that).
-  # A minute is generous for seconds of work; the point of the ceiling is that
-  # a caller blocked behind a wedged owner gives up rather than hanging.
-  @destroy_timeout 60_000
+  # wait out another destroy's lease first — `Destroy.busy_wait_ms/0`, five
+  # seconds. This has to sit clearly *above* that bound and clearly *below*
+  # `conversation_call_timeout_ms` (30s), the ceiling a `ConversationServer`'s
+  # own client gives up at. Equal to the protocol's bound, a destroy that waits
+  # its full wait races this timeout and a success gets reported as a failure;
+  # equal to the client's, a caller learns nothing before its own caller has
+  # given up. `machine_bounds_test.exs` pins the ordering.
+  @destroy_timeout 20_000
 
   # A start that loses the Horde race registers on another node, and the
   # registry is a CRDT: the winner can be invisible here for a few
@@ -80,6 +96,15 @@ defmodule Fountain.Machines.Machine do
     sandbox_id = Keyword.fetch!(args, :sandbox_id)
     GenServer.start_link(__MODULE__, args, name: via(sandbox_id))
   end
+
+  @doc """
+  How long a caller waits on the owner for a destroy.
+
+  Public so `machine_bounds_test.exs` can pin it between
+  `Destroy.busy_wait_ms/0` below it and `conversation_call_timeout_ms` above.
+  """
+  @spec destroy_timeout_ms() :: pos_integer()
+  def destroy_timeout_ms, do: @destroy_timeout
 
   @doc "The cluster-wide name of the owner of `sandbox_id`."
   @spec via(String.t()) :: {:via, module(), {module(), String.t()}}
@@ -136,17 +161,80 @@ defmodule Fountain.Machines.Machine do
   run inside the owner when `MACHINE_OWNER_ENABLED` is on and inline on the
   caller when it is off. `opts` are the protocol's, documented there.
 
+  **This is the door, so this is where the protocol's vocabulary becomes the
+  system's.** `Destroy` answers precisely — `:machine_busy`, `:superseded`,
+  `{:database, sqlstate}` — and those words are for the log and for this
+  module. A caller of this function gets one of the three outcomes or an atom
+  the rest of Fountain already knows, because the answer travels: a terminate
+  runs on a request process, and `FountainWeb.FallbackController` renders
+  whatever comes out of it. A tuple has no clause there at all (a 500), and a
+  retryable refusal rendered as an unmapped 422 is worse than one rendered as
+  the 503 `:sandbox_unavailable` already is. Stage 6 adds the retryable
+  refusal ADR 0058 names, to every transient-error vocabulary at once; 5a does
+  not get to invent half of it. See `refusal/2`.
+
   Unlike `who_is_here/1` there is no falling back to a direct read when the
   owner cannot be reached. That verb only looked; this one writes, and a write
   that was refused a place to run has to say so rather than find another one.
   """
-  @spec destroy(String.t(), keyword()) :: {:ok, Destroy.outcome()} | {:error, term()}
+  @spec destroy(String.t(), keyword()) ::
+          {:ok, Destroy.outcome()}
+          | {:error, :sandbox_unavailable | :not_found | :provider_transaction_open}
   def destroy(sandbox_id, opts) when is_binary(sandbox_id) and is_list(opts) do
-    if Machines.enabled?() do
-      destroy_in_owner(sandbox_id, opts, 1)
-    else
-      Destroy.run(sandbox_id, opts)
+    cond do
+      # Checked here, not only in the protocol. `Destroy.run/2`'s own guard is
+      # process-local, so with the gate on it runs in the owner — which is
+      # never inside this caller's transaction — and cannot fire. Worse than
+      # useless there: the owner's `Lease.claim` would block on the
+      # per-sandbox advisory lock this open transaction holds, while the
+      # caller blocks in `GenServer.call` until `@destroy_timeout`.
+      Repo.in_transaction?() ->
+        {:error, :provider_transaction_open}
+
+      Machines.enabled?() ->
+        sandbox_id |> destroy_in_owner(opts, 1) |> refusal(sandbox_id)
+
+      true ->
+        sandbox_id |> Destroy.run(opts) |> refusal(sandbox_id)
     end
+  end
+
+  # The protocol's answers, in the words the rest of the system uses.
+  #
+  # `:superseded` is not a failure to report: another owner took the machine
+  # over and is the one that says what happened to it. From here the machine is
+  # stopping or stopped, which is `:already_terminal` — the same thing a caller
+  # is told when somebody else got there first, because it is the same event.
+  #
+  # Everything left is "this machine could not be reached right now", which is
+  # what `:sandbox_unavailable` already means (503, `retry-after: 30`,
+  # retryable in all four SDKs). Contention, a database fault out of `Lease`
+  # and an unreachable owner are all that shape. The precise reason goes to the
+  # log, where an operator can find it; it does not go on the wire.
+  defp refusal({:ok, _outcome} = ok, _sandbox_id), do: ok
+
+  defp refusal({:error, :superseded}, sandbox_id) do
+    Logger.info("machine #{sandbox_id}: destroy superseded; another owner finished it")
+    {:ok, :already_terminal}
+  end
+
+  # A caller bug, and every sibling verb's word for it.
+  defp refusal({:error, :transaction_open}, _sandbox_id),
+    do: {:error, :provider_transaction_open}
+
+  # The fence's own refusals, which every caller of this path already handled
+  # before ADR 0058 and which `FallbackController` maps.
+  defp refusal({:error, reason}, _sandbox_id)
+       when reason in [:not_found, :sandbox_unavailable, :provider_transaction_open],
+       do: {:error, reason}
+
+  defp refusal({:error, reason}, sandbox_id) do
+    Logger.warning(
+      "machine #{sandbox_id}: destroy unavailable (#{inspect(reason)}); " <>
+        "answering :sandbox_unavailable"
+    )
+
+    {:error, :sandbox_unavailable}
   end
 
   # The same gone-owner retry as `ask_owner/2`, and the same reason: the idle

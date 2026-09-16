@@ -35,12 +35,14 @@ defmodule Fountain.Conversations.ConversationServerSizeTest do
   # `terminate_machine/2` — the provider call, the terminal write and the
   # `now/0` helper that was left with no other caller — and moved the fence
   # and the destroy request to `Conversations.Termination`, whose verb they
-  # belong to (#2175). The file is 2210 lines on this branch.
+  # belong to (#2175). The file is 2214 lines on this branch.
   #
-  # 2220 is that 2210 plus 10 lines, the same headroom every previous pin
-  # kept for review rounds. Nothing is stacked below this PR, so the number
-  # is not measured against a moving base; stages 6-8 lower it again as the
-  # server's remaining machine writes leave.
+  # 2220 is that plus 6 rather than the usual 10: the pin only ever shrinks,
+  # and 2214 + 10 would be 2224, above the 2223 it is coming down from. Six
+  # lines is thin for a review round, which is the honest state of this file —
+  # stages 6-8 take the server's remaining machine writes out and lower it
+  # properly. Nothing is stacked below this PR, so the number is not measured
+  # against a moving base.
   @pin 2220
 
   @server "apps/fountain/lib/fountain/conversations/conversation_server.ex"

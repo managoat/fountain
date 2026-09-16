@@ -3,10 +3,10 @@ defmodule Fountain.AgentsCredentialSetTest do
   An agent names the credential set its conversations run on, and bounds
   which set a launch may name instead (ADR 0053 decision 3).
 
-  Nothing reads `allowed_inference_credential_ids` yet -- the launch override
-  it bounds arrives in the next PR. It is stored and versioned here so the
-  allowlist exists before anything can be launched past it, which is the
-  order `allowed_environment_ids` was built in too.
+  This file covers storing, owning and versioning the set and the allowlist.
+  Enforcing `allowed_inference_credential_ids` at launch is tested in
+  `Fountain.Conversations.LaunchCredentialSetTest`, and the explicit policy it
+  derives (#2107) in `Fountain.Agents.CredentialSetAccessTest`.
   """
 
   use Fountain.DataCase, async: true

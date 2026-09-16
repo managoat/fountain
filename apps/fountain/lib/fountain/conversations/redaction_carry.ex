@@ -1,7 +1,7 @@
 defmodule Fountain.Conversations.RedactionCarry do
   @moduledoc """
-  Holds back sandbox output whose end could be the start of a registered value,
-  so the value reaches `Conversations.log!/1` whole (#2359).
+  Holds back the end of a text stream when it could be the start of a
+  registered value, so the value reaches `Conversations.log!/1` whole (#2359).
 
   `Redaction.redact/2` runs once per row, so it only matches a value that is
   whole inside one row. Output arrives in chunks, and the boundaries between
@@ -10,35 +10,59 @@ defmodule Fountain.Conversations.RedactionCarry do
   broadcast, and `turns.reply_text`, which joins a turn's text, stored the
   value whole.
 
-  ## What is held
+  ## Channels
 
-  Only a tail that is a proper prefix of some registered value: at most one
-  byte fewer than the longest value, plus any whole match that tail overlaps,
-  because `:binary.matches/2` prefers the longest value at a position and a
-  longer value may be about to arrive. Output that cannot be a value's start
-  is released at once. A conversation with nothing registered holds nothing.
+  A channel is one continuous text stream: `stdout` and `stderr` as raw bytes,
+  and on the `acp` stream the text of each chunk kind (`agent_message_chunk`,
+  `agent_thought_chunk`, `user_message_chunk`), which is what a client joins
+  into a reply. Each channel keeps its own tail.
 
-  Cutting at that point and redacting each side gives the same result as
-  redacting the whole stream. No match of the whole stream crosses the cut:
-  a match that would cross it starts inside the held tail. The matches before
-  the cut are the ones the whole stream selects, because selection runs left
-  to right and none of them reaches past the cut. This is the
-  `SandboxFiles.redact_to_cap` argument (#1907) in streaming form: move the cut
-  back to a match's start, never forward past a fragment.
+  A chunk's text is written as far as the cut `hold_from/2` finds, and only
+  the unresolved tail after the cut is kept. On `acp` the chunk line is
+  written with that shorter text, or not at all when nothing remains. It is
+  written byte for byte when nothing was held before and nothing is held now,
+  which is almost always, so reattach replay dedup (which matches rows by exact
+  content) keeps working.
 
-  ## Two shapes of stream
+  Any other `acp` line — a tool call, a `tool_call_update`, a plan — is
+  written at once and does **not** release a text tail. A tool update between
+  two text chunks does not end the reply's text (both halves still join into
+  one `reply_text`), so a tail flushed at that line would put the fragment the
+  boundary exists to hide into the transcript. The cost is order: at most a
+  tail's worth of text lands after a line it streamed before. What is written
+  before the tail resolves cannot contain a fragment: a tool line carries no
+  reply text, and the text written up to the cut contains none by the argument
+  below.
 
-  `stdout` and `stderr` rows are raw bytes, so their tail bytes are held and
-  prepended to the stream's next chunk.
+  ## The cut
 
-  An `acp` row is one JSON-RPC line, and holding bytes of it would cut the
-  frame. The carry therefore reads the decoded text of consecutive
-  `*_message_chunk` / `agent_thought_chunk` lines and holds **whole lines**. A
-  line whose text does not end in a possible prefix is written byte for byte,
-  so reattach replay dedup (`TurnMachine`, which matches rows by exact content)
-  keeps working. Only when a value really spans lines are those lines written
-  as one row: the first line with the joined text. Any other line releases
-  what is held first, so the transcript keeps its order.
+  The tail is the shortest suffix of the channel's text that is a proper
+  prefix of some registered value. It is at most one byte fewer than the
+  longest value. If a complete match straddles that point, the cut moves back
+  to the match's start, because `:binary.matches/2` prefers the longest value
+  at a position and a longer one may be arriving. That adds at most one more
+  value's length. A match that is already whole before the cut is written, and
+  redacted by the writer, at once; nothing behind a resolved match is kept.
+
+  Cutting there and redacting each side gives the same result as redacting the
+  whole stream. No match of the whole stream crosses the cut: a match that
+  would cross it starts inside the held tail. The matches before the cut are
+  the ones the whole stream selects, because selection runs left to right and
+  none of them reaches past the cut. This is the `SandboxFiles.redact_to_cap`
+  argument (#1907) in streaming form.
+
+  ## The bound, and the fail-safe
+
+  A channel never holds more than `max_hold/0` bytes, whatever the sandbox
+  writes. The tail above is at most twice the longest registered value, so
+  only a value longer than half the cap can reach it. When it would, the
+  channel does not hold the tail and does not release it in plaintext. It
+  writes `Redaction.placeholder/0` in its place, and remembers every value the
+  tail could be the start of. The chunks that follow are checked against those
+  values' remainders, and what continues one is dropped. The trade-off is
+  over-redaction: if the tail was not in fact a secret's start, some text is
+  shown as the placeholder. That output was, by construction, the first
+  several kilobytes of a registered value.
 
   Everything here is pure. `Output` owns the state and decides when to flush.
   """
@@ -46,20 +70,37 @@ defmodule Fountain.Conversations.RedactionCarry do
   alias Fountain.Conversations.Redaction
 
   @chunk_kinds ~w(agent_message_chunk agent_thought_chunk user_message_chunk)
+  @max_hold 8_192
 
-  @type held_lines :: nil | %{kind: String.t(), lines: [{binary(), map(), binary()}]}
-  @type t :: %{raw: %{optional(String.t()) => binary()}, lines: held_lines()}
+  @type channel :: %{
+          required(:tail) => binary(),
+          required(:consuming) => [binary()],
+          optional(:template) => map()
+        }
+  @type t :: %{
+          raw: %{optional(String.t()) => channel()},
+          text: %{optional(String.t()) => channel()}
+        }
 
   @doc "Nothing held."
   @spec new() :: t()
-  def new, do: %{raw: %{}, lines: nil}
+  def new, do: %{raw: %{}, text: %{}}
 
-  @doc "True when nothing is held."
+  @doc "The most bytes one channel holds."
+  @spec max_hold() :: pos_integer()
+  def max_hold, do: @max_hold
+
+  @doc "True when nothing is held and no value is being consumed."
   @spec empty?(t() | nil) :: boolean()
   def empty?(nil), do: true
+  def empty?(carry), do: Enum.all?(channels(carry), &idle?/1)
 
-  def empty?(%{raw: raw, lines: lines}),
-    do: is_nil(lines) and Enum.all?(raw, &(elem(&1, 1) == ""))
+  @doc "The largest tail any one channel holds, in bytes."
+  @spec held_bytes(t() | nil) :: non_neg_integer()
+  def held_bytes(nil), do: 0
+
+  def held_bytes(carry),
+    do: carry |> channels() |> Enum.map(&byte_size(&1.tail)) |> Enum.max(fn -> 0 end)
 
   @doc """
   One chunk in: the `{stream, data}` rows that are safe to write now, in order,
@@ -67,46 +108,53 @@ defmodule Fountain.Conversations.RedactionCarry do
   """
   @spec feed(t(), String.t(), String.t(), binary()) :: {[{String.t(), binary()}], t()}
   def feed(carry, conversation_id, "acp", line) do
-    case Redaction.lookup(conversation_id) do
-      [] when is_nil(carry.lines) ->
-        {[{"acp", line}], carry}
+    with {kind, map, text} <- text_chunk(line),
+         channel = Map.get(carry.text, kind, idle()),
+         values = Redaction.lookup(conversation_id),
+         false <- values == [] and idle?(channel) do
+      {out, channel} = step(channel, values, text)
 
-      values ->
-        {out, held} = feed_line(carry.lines, values, line)
-        {Enum.map(out, &{"acp", &1}), %{carry | lines: held}}
+      rows =
+        cond do
+          out == text -> [line]
+          out == "" -> []
+          true -> [encode(map, out)]
+        end
+
+      channel = Map.put(channel, :template, map)
+      {Enum.map(rows, &{"acp", &1}), %{carry | text: Map.put(carry.text, kind, channel)}}
+    else
+      _verbatim -> {[{"acp", line}], carry}
     end
   end
 
   def feed(carry, conversation_id, stream, data) do
-    held = Map.get(carry.raw, stream, "")
+    channel = Map.get(carry.raw, stream, idle())
 
     case Redaction.patterns(conversation_id) do
-      [] when held == "" ->
+      [] when channel.tail == "" and channel.consuming == [] ->
         {[{stream, data}], carry}
 
       patterns ->
-        text = held <> data
-        cut = hold_from(patterns, text)
-        rest = binary_part(text, cut, byte_size(text) - cut)
-        out = if cut == 0, do: [], else: [{stream, binary_part(text, 0, cut)}]
-        {out, %{carry | raw: Map.put(carry.raw, stream, rest)}}
+        {out, channel} = step(channel, patterns, data)
+        rows = if out == "", do: [], else: [{stream, out}]
+        {rows, %{carry | raw: Map.put(carry.raw, stream, channel)}}
     end
   end
 
-  @doc "Everything held, as rows to write now. Lines a value spans are still joined."
+  @doc """
+  Everything held, as rows to write now. A tail that never became a value is
+  not one, so it is written as it is.
+  """
   @spec flush(t(), String.t()) :: [{String.t(), binary()}]
-  def flush(carry, conversation_id) do
-    lines =
-      case carry.lines do
-        nil ->
-          []
+  def flush(carry, _conversation_id) do
+    text =
+      for {_kind, %{tail: tail, template: map}} <- Enum.sort(carry.text),
+          tail != "",
+          do: {"acp", encode(map, tail)}
 
-        %{lines: lines} ->
-          lines |> emit(Redaction.lookup(conversation_id)) |> Enum.map(&{"acp", &1})
-      end
-
-    raw = for {stream, bytes} <- Enum.sort(carry.raw), bytes != "", do: {stream, bytes}
-    lines ++ raw
+    raw = for {stream, %{tail: tail}} <- Enum.sort(carry.raw), tail != "", do: {stream, tail}
+    text ++ raw
   end
 
   @doc """
@@ -139,95 +187,77 @@ defmodule Fountain.Conversations.RedactionCarry do
     Enum.any?(patterns, &(byte_size(&1) > n and binary_part(&1, 0, n) == suffix))
   end
 
-  # ── acp lines ─────────────────────────────────────────────────────────────
-
-  defp feed_line(held, values, line) do
-    case text_chunk(line) do
-      {kind, map, text} when values != [] ->
-        {released, pending} =
-          case held do
-            %{kind: ^kind, lines: lines} -> {[], lines}
-            _ -> {release(held, values), []}
-          end
-
-        {out, rest} = settle(pending ++ [{line, map, text}], values)
-        {released ++ out, if(rest == [], do: nil, else: %{kind: kind, lines: rest})}
-
-      _other ->
-        {release(held, values) ++ [line], nil}
-    end
-  end
-
-  defp release(nil, _values), do: []
-  defp release(%{lines: lines}, values), do: emit(lines, values)
-
-  # The lines that are safe to write, and the lines still held. The cut moves
-  # back to the start of the line it falls in, and again while a match
-  # crosses that start, so no value is split between what is written and
-  # what waits.
-  defp settle(lines, values) do
-    {text, starts} = texts(lines)
-    ends = Enum.map(Enum.zip(lines, starts), fn {{_, _, t}, at} -> at + byte_size(t) end)
-    matches = :binary.matches(text, values)
-
-    case held_index(hold_from(values, text), starts, ends, matches) do
-      nil ->
-        {emit(lines, values), []}
-
-      index ->
-        {ready, rest} = Enum.split(lines, index)
-        {emit(ready, values), rest}
-    end
-  end
-
-  defp held_index(cut, starts, ends, matches) do
-    with index when is_integer(index) <- Enum.find_index(ends, &(&1 > cut)) do
-      start = Enum.at(starts, index)
-
-      case Enum.find(matches, &crosses?(&1, start)) do
-        {earlier, _length} -> held_index(earlier, starts, ends, matches)
-        nil -> index
-      end
-    end
-  end
-
   defp crosses?({start, length}, at), do: start < at and start + length > at
 
-  # Lines a match crosses are written as one row; every other line verbatim.
-  defp emit([], _values), do: []
+  # ── one channel ───────────────────────────────────────────────────────────
 
-  defp emit(lines, values) do
-    {text, starts} = texts(lines)
-    matches = if values == [], do: [], else: :binary.matches(text, values)
+  defp idle, do: %{tail: "", consuming: []}
 
-    lines
-    |> Enum.zip(starts)
-    |> Enum.reduce([], fn
-      {line, start}, [group | groups] ->
-        if Enum.any?(matches, &crosses?(&1, start)),
-          do: [[line | group] | groups],
-          else: [[line], group | groups]
+  defp idle?(%{tail: "", consuming: []}), do: true
+  defp idle?(_channel), do: false
 
-      {line, _start}, [] ->
-        [[line]]
-    end)
-    |> Enum.reverse()
-    |> Enum.map(&(&1 |> Enum.reverse() |> join()))
+  defp channels(%{raw: raw, text: text}), do: Map.values(raw) ++ Map.values(text)
+
+  # What can be written now, and the channel after. Over the cap, the tail is
+  # replaced rather than kept (see "The bound, and the fail-safe").
+  defp step(channel, patterns, data) do
+    {data, consuming} = consume(channel.consuming, data)
+    text = channel.tail <> data
+    cut = hold_from(patterns, text)
+    tail = binary_part(text, cut, byte_size(text) - cut)
+    out = binary_part(text, 0, cut)
+
+    if byte_size(tail) > @max_hold do
+      {out <> Redaction.placeholder(),
+       %{channel | tail: "", consuming: in_progress(patterns, tail)}}
+    else
+      {out, %{channel | tail: tail, consuming: consuming}}
+    end
   end
 
-  defp join([{line, _map, _text}]), do: line
+  # The remainders of every value `tail` could be the start of.
+  defp in_progress(patterns, tail) do
+    size = byte_size(tail)
 
-  defp join([{_line, map, _text} | _] = group) do
-    text = Enum.map_join(group, &elem(&1, 2))
-    Jason.encode!(put_in(map, ["params", "update", "content", "text"], text)) <> "\n"
+    for pattern <- patterns,
+        k <- min(byte_size(pattern) - 1, size)..1//-1,
+        binary_part(tail, size - k, k) == binary_part(pattern, 0, k),
+        uniq: true,
+        do: binary_part(pattern, k, byte_size(pattern) - k)
   end
 
-  defp texts(lines) do
-    {starts, _size} =
-      Enum.map_reduce(lines, 0, fn {_line, _map, text}, at -> {at, at + byte_size(text)} end)
+  # Drop what continues a value the fail-safe already replaced. A remainder
+  # the data completes ends it; one the data only begins stays pending.
+  defp consume([], data), do: {data, []}
 
-    {Enum.map_join(lines, &elem(&1, 2)), starts}
+  defp consume(remainders, data) do
+    size = byte_size(data)
+
+    results =
+      Enum.map(remainders, fn rest ->
+        n = :binary.longest_common_prefix([rest, data])
+
+        cond do
+          n == byte_size(rest) -> {:done, n}
+          n == size -> {:more, binary_part(rest, n, byte_size(rest) - n)}
+          true -> :miss
+        end
+      end)
+
+    pending = for {:more, rest} <- results, do: rest
+
+    skip =
+      if pending != [],
+        do: size,
+        else: Enum.max(for({:done, n} <- results, do: n), fn -> 0 end)
+
+    {binary_part(data, skip, size - skip), pending}
   end
+
+  # ── acp lines ─────────────────────────────────────────────────────────────
+
+  defp encode(map, text),
+    do: Jason.encode!(put_in(map, ["params", "update", "content", "text"], text)) <> "\n"
 
   # A text chunk, decoded. The substring test keeps the decode off every line
   # that cannot be one, which is most of them.

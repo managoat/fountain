@@ -49,18 +49,24 @@ defmodule Fountain.Conversations.Redaction do
   and whole again in `turns.reply_text`, which joins a turn's text (#2359).
 
   `Fountain.Conversations.RedactionCarry` closes that before rows reach the
-  writer. Output whose end could be the start of a registered value is held
-  back and joined to what follows; nothing else waits. So for every sandbox
-  stream `Output.log/4` writes, a registered value that arrives whole across
-  any number of chunks reaches `log!/1` whole, and is redacted there.
+  writer. Only the end of a text stream that could be the start of a
+  registered value is held, per stream and per ACP chunk kind, and it is joined
+  to that stream's next text. Tool lines between two text chunks do not
+  release it. Nothing else waits, and what is held is bounded
+  (`RedactionCarry.max_hold/0`). So for every sandbox stream `Output.log/4`
+  writes, a registered value that arrives whole across any number of chunks,
+  with anything in between, reaches `log!/1` whole, and is redacted there.
 
   Some cases fall outside that guarantee:
 
     * A value the process never finishes is not a value. Its prefix is
       written as it is when the turn ends.
-    * A server that stops mid-turn loses what it holds. Nothing leaks, and a
-      reattach's replay normally writes those lines again, because they were
-      never persisted and so are not deduplicated.
+    * A value long enough to overflow the hold is replaced by the placeholder
+      as it streams, and the rest of it is dropped as it arrives. That errs
+      toward redacting text that only looked like the value's start.
+    * A server that stops mid-turn loses what it holds. Nothing leaks. A
+      reattach's replay does not deduplicate a line whose text the carry
+      shortened, so that text can appear twice.
     * Output written outside `Output` (provisioning steps) is written whole
       and needs no carry.
   """

@@ -1,8 +1,11 @@
 defmodule Fountain.Conversations.RedactionCarryTest do
   @moduledoc """
-  The carry's one promise (#2359): however a stream is cut into chunks,
-  redacting what the carry releases, row by row, gives the same text as
-  redacting the stream whole.
+  The carry's promises (#2359).
+
+  First, however a stream is cut into chunks, and wherever tool lines fall
+  between them, redacting what the carry releases row by row gives the same
+  text as redacting the stream whole. Second, it never holds more than a
+  bounded tail while it does so (review of #2364).
 
   Checked over every cut of streams built to catch the cases a naive hold
   misses. One value is a prefix of another, so a whole match may still grow.
@@ -26,6 +29,9 @@ defmodule Fountain.Conversations.RedactionCarryTest do
   @stream "a SECRETAB-short-and-longer b SECRETAB-short c ABCDEFGH-overlap-IJKLMNOP " <>
             "d multi\nline \"quoted\" key e clé-secrète-ünïcødé f SECRETAB-shor"
 
+  # Twice the longest value, less one: the most one channel may hold.
+  @bound 2 * (@values |> Enum.map(&byte_size/1) |> Enum.max()) - 1
+
   setup do
     conv_id = Ecto.UUID.generate()
     Redaction.put(conv_id, Enum.map(@values, &{"K", &1}))
@@ -33,52 +39,69 @@ defmodule Fountain.Conversations.RedactionCarryTest do
     {:ok, conv_id: conv_id}
   end
 
-  defp raw(conv_id, pieces) do
+  defp run(conv_id, stream, inputs, bound) do
     {rows, carry} =
-      Enum.reduce(pieces, {[], RedactionCarry.new()}, fn piece, {rows, carry} ->
-        {out, carry} = RedactionCarry.feed(carry, conv_id, "stdout", piece)
+      Enum.reduce(inputs, {[], RedactionCarry.new()}, fn input, {rows, carry} ->
+        {out, carry} = RedactionCarry.feed(carry, conv_id, stream, input)
+        assert RedactionCarry.held_bytes(carry) <= bound
         {rows ++ out, carry}
       end)
 
-    Enum.map_join(rows ++ RedactionCarry.flush(carry, conv_id), fn {"stdout", data} ->
-      Redaction.redact(conv_id, data)
-    end)
+    rows ++ RedactionCarry.flush(carry, conv_id)
+  end
+
+  defp raw(conv_id, pieces) do
+    conv_id
+    |> run("stdout", pieces, @bound)
+    |> Enum.map_join(fn {"stdout", data} -> Redaction.redact(conv_id, data) end)
   end
 
   defp line(text) do
+    update(%{
+      "sessionUpdate" => "agent_message_chunk",
+      "content" => %{"type" => "text", "text" => text}
+    })
+  end
+
+  defp tool_line(n),
+    do:
+      update(%{
+        "sessionUpdate" => "tool_call_update",
+        "toolCallId" => "t#{n}",
+        "status" => "in_progress"
+      })
+
+  defp update(update) do
     Jason.encode!(%{
       "jsonrpc" => "2.0",
       "method" => "session/update",
-      "params" => %{
-        "sessionId" => "s",
-        "update" => %{
-          "sessionUpdate" => "agent_message_chunk",
-          "content" => %{"type" => "text", "text" => text}
-        }
-      }
+      "params" => %{"sessionId" => "s", "update" => update}
     }) <> "\n"
   end
 
-  defp lines(conv_id, pieces) do
-    {rows, carry} =
-      Enum.reduce(pieces, {[], RedactionCarry.new()}, fn piece, {rows, carry} ->
-        {out, carry} = RedactionCarry.feed(carry, conv_id, "acp", line(piece))
-        {rows ++ out, carry}
+  # The text a client joins out of the stored rows: `tools` is the set of piece
+  # indexes a tool line follows.
+  defp lines(conv_id, pieces, tools \\ MapSet.new()) do
+    inputs =
+      pieces
+      |> Enum.with_index()
+      |> Enum.flat_map(fn {piece, i} ->
+        if i in tools, do: [line(piece), tool_line(i)], else: [line(piece)]
       end)
 
-    rows = rows ++ RedactionCarry.flush(carry, conv_id)
+    rows = run(conv_id, "acp", inputs, @bound)
 
-    Enum.map_join(rows, fn {"acp", data} ->
-      # What `log!/1` stores, read back the way a client reads it.
-      data
-      |> then(&Redaction.redact(conv_id, &1))
-      |> Jason.decode!()
-      |> get_in(["params", "update", "content", "text"])
-    end)
+    # Every tool line is written exactly once.
+    assert Enum.count(rows, fn {"acp", data} -> data =~ "tool_call_update" end) ==
+             Enum.count(tools, &(&1 < length(pieces)))
+
+    rows
+    |> Enum.map(fn {"acp", data} -> Redaction.redact(conv_id, data) |> Jason.decode!() end)
+    |> Enum.map_join(&(get_in(&1, ["params", "update", "content", "text"]) || ""))
   end
 
   # Cuts on codepoint boundaries: an ACP chunk's text is a JSON string.
-  defp graphemes_cut(text, cuts) do
+  defp codepoints_cut(text, cuts) do
     chars = String.codepoints(text)
 
     cuts
@@ -109,32 +132,61 @@ defmodule Fountain.Conversations.RedactionCarryTest do
     end
   end
 
-  test "every single cut of a message", %{conv_id: conv_id} do
+  test "every single cut of a message, with a tool line at the cut", %{conv_id: conv_id} do
     whole = Redaction.redact(conv_id, @stream)
 
     for at <- 0..String.length(@stream) do
-      assert lines(conv_id, graphemes_cut(@stream, [at])) == whole, "cut at codepoint #{at}"
+      pieces = codepoints_cut(@stream, [at])
+      assert lines(conv_id, pieces) == whole, "cut at codepoint #{at}"
+      assert lines(conv_id, pieces, MapSet.new([0])) == whole, "tool at codepoint #{at}"
     end
   end
 
-  test "one chunk per byte and per codepoint", %{conv_id: conv_id} do
+  test "one chunk per byte, and per codepoint with a tool line after each", %{conv_id: conv_id} do
     whole = Redaction.redact(conv_id, @stream)
+    pieces = String.codepoints(@stream)
     assert raw(conv_id, for(<<b <- @stream>>, do: <<b>>)) == whole
-    assert lines(conv_id, String.codepoints(@stream)) == whole
+    assert lines(conv_id, pieces) == whole
+    assert lines(conv_id, pieces, MapSet.new(0..(length(pieces) - 1))) == whole
   end
 
-  property "any number of cuts", %{conv_id: conv_id} do
+  property "any cuts, with tool lines anywhere between them", %{conv_id: conv_id} do
     whole = Redaction.redact(conv_id, @stream)
     bytes = byte_size(@stream)
     codepoints = String.length(@stream)
 
     check all(
             byte_cuts <- list_of(integer(0..bytes), max_length: 12),
-            codepoint_cuts <- list_of(integer(0..codepoints), max_length: 12)
+            codepoint_cuts <- list_of(integer(0..codepoints), max_length: 12),
+            tools <- list_of(integer(0..12), max_length: 8)
           ) do
       assert raw(conv_id, bytes_cut(@stream, byte_cuts)) == whole
-      assert lines(conv_id, graphemes_cut(@stream, codepoint_cuts)) == whole
+
+      text = lines(conv_id, codepoints_cut(@stream, codepoint_cuts), MapSet.new(tools))
+      assert text == whole
+      for value <- @values, do: refute(text =~ value)
     end
+  end
+
+  test "the review's reproduction: a tool update between the halves", %{conv_id: conv_id} do
+    Redaction.put(conv_id, [{"K", "abcdefgh"}])
+    rows = run(conv_id, "acp", [line("abc"), tool_line(1), line("defgh")], 15)
+
+    # The tool line goes out first; `abc` waited for `defgh`.
+    assert [{"acp", tool}, {"acp", text}] = rows
+    assert tool == tool_line(1)
+    assert text == line("abcdefgh")
+  end
+
+  test "the review's reproduction: a repeated boundary stays bounded", %{conv_id: conv_id} do
+    Redaction.put(conv_id, [{"K", "abcdefgh"}])
+    pieces = ["abc" | List.duplicate("defghabc", 1_001)]
+
+    rows = run(conv_id, "acp", Enum.map(pieces, &line/1), 2 * 8 - 1)
+
+    # One row per completed value, plus the unfinished `abc` at the flush.
+    assert length(rows) == 1_002
+    assert List.last(rows) == {"acp", line("abc")}
   end
 
   test "a line that cannot begin a value is released verbatim at once", %{conv_id: conv_id} do
@@ -146,19 +198,18 @@ defmodule Fountain.Conversations.RedactionCarryTest do
     assert RedactionCarry.empty?(carry)
   end
 
-  test "a line of another kind releases what is held, first", %{conv_id: conv_id} do
-    held = line("ends in SECRET")
+  test "a line of another kind is written at once, and the text tail stays", %{
+    conv_id: conv_id
+  } do
+    other = tool_line(1)
 
-    other =
-      ~s({"jsonrpc":"2.0","method":"session/update","params":{"update":{"sessionUpdate":"tool_call"}}}\n)
+    {[{"acp", first}], carry} =
+      RedactionCarry.feed(RedactionCarry.new(), conv_id, "acp", line("ends in SECRET"))
 
-    {[], carry} = RedactionCarry.feed(RedactionCarry.new(), conv_id, "acp", held)
+    assert first == line("ends in ")
+    assert {[{"acp", ^other}], carry} = RedactionCarry.feed(carry, conv_id, "acp", other)
     refute RedactionCarry.empty?(carry)
-
-    assert {[{"acp", ^held}, {"acp", ^other}], carry} =
-             RedactionCarry.feed(carry, conv_id, "acp", other)
-
-    assert RedactionCarry.empty?(carry)
+    assert RedactionCarry.flush(carry, conv_id) == [{"acp", line("SECRET")}]
   end
 
   test "hold_from/2 holds only a tail that begins a value" do

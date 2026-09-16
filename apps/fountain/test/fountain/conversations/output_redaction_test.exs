@@ -17,7 +17,7 @@ defmodule Fountain.Conversations.OutputRedactionTest do
   use Fountain.DataCase, async: true
 
   alias Fountain.Conversations
-  alias Fountain.Conversations.{Blocks, Output, Redaction}
+  alias Fountain.Conversations.{Blocks, Output, Redaction, RedactionCarry}
 
   @secret "sk-synthetic-2359-a1b2c3d4e5f6g7h8i9j0"
 
@@ -59,11 +59,23 @@ defmodule Fountain.Conversations.OutputRedactionTest do
     |> IO.iodata_to_binary()
   end
 
+  defp tool_update(id, status) do
+    "session/update"
+    |> Managoat.ACP.Protocol.notification(%{
+      sessionId: "sess-2359",
+      update: %{sessionUpdate: "tool_call_update", toolCallId: id, status: status}
+    })
+    |> IO.iodata_to_binary()
+  end
+
   defp feed(output, ctx, stream, pieces),
     do: Enum.reduce(pieces, output, &Output.log(&2, ctx, stream, &1))
 
   defp split(value, at),
     do: {binary_part(value, 0, at), binary_part(value, at, byte_size(value) - at)}
+
+  # One row's text; the writer re-encodes a shortened line, so compare text.
+  defp text_of(row), do: Blocks.assistant_text([row])
 
   defp stored_text(conv_id), do: conv_id |> rows() |> Blocks.assistant_text()
 
@@ -110,26 +122,49 @@ defmodule Fountain.Conversations.OutputRedactionTest do
       assert stored_text(ctx.conversation_id) == "[#{Redaction.placeholder()}]"
     end
 
-    test "held text is flushed before a different line, in order", %{ctx: ctx} do
-      {head, _tail} = split(@secret, 10)
+    test "a tool update between the halves does not release the first half", %{
+      ctx: ctx,
+      turn: turn
+    } do
+      # The review's reproduction: `abc`, an in-progress tool_call_update,
+      # `defgh`. Flushing the text tail at the tool line wrote `abc` in the
+      # clear, and the reply text joined it to `defgh` again.
+      Phoenix.PubSub.subscribe(Fountain.PubSub, "conv:#{ctx.conversation_id}")
+      Redaction.put(ctx.conversation_id, [{"SHORT_KEY", "abcdefgh"}])
+      update = tool_update("t1", "in_progress")
 
       %Output{bytes: 0}
-      |> feed(ctx, "acp", [chunk("almost " <> head), tool_call("t1", %{command: "ls"})])
+      |> feed(ctx, "acp", [chunk("abc"), update, chunk("defgh")])
       |> Output.flush()
 
-      assert [first, second] = rows(ctx.conversation_id)
-      assert first.data == chunk("almost " <> head)
-      assert second.data == tool_call("t1", %{command: "ls"})
+      frames = collect_frames()
+      stored = rows(ctx.conversation_id)
+
+      # The tool line is not held back behind the text tail.
+      assert [^update | _] = Enum.map(stored, & &1.data)
+
+      for events <- [stored, frames] do
+        text = Blocks.assistant_text(events)
+        refute text =~ "abcdefgh"
+        refute text =~ "abc"
+        assert text == Redaction.placeholder()
+
+        # Nor across any consecutive text frames.
+        pieces = events |> Enum.flat_map(&Blocks.for_event/1) |> Enum.map(& &1.body)
+        refute Enum.join(pieces) =~ "abcdefgh"
+      end
+
+      refute (Conversations._unsafe_turn_reply_text(turn) || "") =~ "abc"
     end
 
     test "flush/1 writes what is held, under the turn it arrived in", %{ctx: ctx, turn: turn} do
       {head, _tail} = split(@secret, 10)
 
       output = Output.log(%Output{bytes: 0}, ctx, "acp", chunk("ends with " <> head))
-      assert rows(ctx.conversation_id) == []
+      assert Enum.map(rows(ctx.conversation_id), &text_of/1) == ["ends with"]
 
       %Output{carry: nil} = Output.flush(output)
-      assert [row] = rows(ctx.conversation_id)
+      assert [_, row] = rows(ctx.conversation_id)
       assert row.turn_id == turn.id
       assert stored_text(ctx.conversation_id) == "ends with " <> head
     end
@@ -146,9 +181,56 @@ defmodule Fountain.Conversations.OutputRedactionTest do
       |> Output.log(ctx, "acp", chunk("ends with " <> head))
       |> Output.log(%{ctx | turn_id: next.id}, "acp", chunk("a new turn"))
 
-      assert [first, second] = rows(ctx.conversation_id)
-      assert {first.turn_id, first.data} == {turn.id, chunk("ends with " <> head)}
+      assert [first, held, second] = rows(ctx.conversation_id)
+      assert {first.turn_id, text_of(first)} == {turn.id, "ends with"}
+      assert {held.turn_id, text_of(held)} == {turn.id, head}
       assert {second.turn_id, second.data} == {next.id, chunk("a new turn")}
+    end
+  end
+
+  describe "what the carry retains" do
+    test "stays bounded when every chunk both completes and begins a value", %{ctx: ctx} do
+      # The review's reproduction: with `abcdefgh` registered, `abc` and then
+      # `defghabc` over and over. Holding whole lines walked the cut back to
+      # the first line and kept all of them. A little room under the real
+      # budget stands in for a small one, as `OutputTest` does.
+      Redaction.put(ctx.conversation_id, [{"SHORT_KEY", "abcdefgh"}])
+      budget = Output.byte_budget()
+      start = %Output{bytes: budget - 4_000}
+
+      output =
+        Enum.reduce(1..1_001, Output.log(start, ctx, "acp", chunk("abc")), fn _, output ->
+          output = Output.log(output, ctx, "acp", chunk("defghabc"))
+          held = RedactionCarry.held_bytes(output.carry && output.carry.held)
+          assert held <= 2 * byte_size("abcdefgh") - 1
+          output
+        end)
+
+      # Rows were written while streaming, redacted, until the budget ran out.
+      assert output.capped
+      stored = rows(ctx.conversation_id)
+      assert length(stored) > 10
+      refute Blocks.assistant_text(stored) =~ "abc"
+    end
+
+    test "a value longer than the cap is replaced, never held or leaked", %{ctx: ctx} do
+      cap = RedactionCarry.max_hold()
+      long = "LONG-" <> String.duplicate("0123456789", div(cap, 10) + 200)
+      Redaction.put(ctx.conversation_id, [{"HUGE_CERT", long}])
+      {head, tail} = split(long, cap + 1_000)
+
+      output = Output.log(%Output{bytes: 0}, ctx, "stdout", "cert: " <> head)
+      assert RedactionCarry.held_bytes(output.carry && output.carry.held) <= cap
+
+      output
+      |> feed(ctx, "stdout", [
+        binary_part(tail, 0, 700),
+        binary_part(tail, 700, byte_size(tail) - 700) <> " end\n"
+      ])
+      |> Output.flush()
+
+      bytes = stored_bytes(ctx.conversation_id, "stdout")
+      assert bytes == "cert: #{Redaction.placeholder()} end\n"
     end
   end
 

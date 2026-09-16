@@ -15,17 +15,98 @@ that conversations work, and selecting an unimplemented profile fails setup.
 
 ## Run
 
-Provision a dedicated verified test account on your instance and mint its
-full-scope API key outside the suite. Registration can remain disabled. Put
-the key in `FOUNTAIN_SUITE_KEY` through your local environment or CI secret
-store; the suite does not search your home directory or log credential values.
+Point it at a deployment and read the verdict:
 
-Copy `deployed/target.example.json` to a local target file and set `base_url`.
-Each run requires a new output directory; its parent must already exist.
+```bash
+scripts/verify-deployment.sh https://fountain.example.com
+scripts/verify-deployment.sh http://localhost:4000 probe
+```
+
+The script resolves `FOUNTAIN_SUITE_KEY` and `FOUNTAIN_SUITE_OTHER_KEY` from
+the environment, falling back to the macOS keychain, and calls
+`deployed/verify.mjs`, which composes the target and prints the failing checks,
+the remaining-resource count and the evidence directory. Provision those two
+accounts once per deployment; see [below](#provision-test-accounts).
+
+Use `verify.mjs` directly on a machine without the keychain, or to change what
+the run declares:
+
+```bash
+node deployed/verify.mjs https://fountain.example.com --profile execution \
+  --runtime codex --model openai/gpt-5.5 --sandbox e2b
+```
+
+`verify.mjs --help` lists the flags. It composes the profile list, limits and
+execution timings through `lib/target.mjs`, the same module `ci.mjs` uses, so a
+local verdict and a CI verdict mean the same thing. Plaintext HTTP is accepted
+only for a loopback target. A deployment adapter, a provider matrix and a
+rollout digest belong to an environment rather than a caller, so they stay in
+`ci.mjs`; see [Run in CI](../docs/guides/operate/deploy.md#run-in-ci).
+
+### The underlying CLI
+
+`cli.mjs` takes a hand-authored target file, and is what to reach for when a
+run needs a field the flags do not cover, or when replaying a cleanup manifest.
+Copy `deployed/target.example.json` and set `base_url`. Each run requires a new
+output directory; its parent must already exist.
 
 ```bash
 node deployed/cli.mjs run --config /tmp/fountain-target.json --out /tmp/fountain-run-001
 ```
+
+### Provision test accounts
+
+The suite never creates its own accounts: it asserts through the same public
+API a client uses, so its credentials come from outside. Every profile except
+`probe` proves tenant isolation, which needs a second account whose resources
+the first cannot see.
+
+Registration may stay closed to the public; these calls work regardless. On a
+deployment you administer:
+
+1. Register both accounts and verify their email addresses.
+
+   ```bash
+   curl -fsS -X POST "$BASE/api/auth/register" -H 'content-type: application/json' \
+     -d '{"email":"suite@example.com","password":"..."}'
+   ```
+
+   Verification is what allows a key to be minted at all: `POST /api/auth/token`
+   answers 403 `email_unverified` until the address is confirmed. Follow the
+   emailed link, or post the emailed token to `POST /api/auth/verify`.
+
+2. Exchange each password for a key, then mint the key the suite will use.
+
+   ```bash
+   curl -fsS -X POST "$BASE/api/auth/token" -H 'content-type: application/json' \
+     -d '{"email":"suite@example.com","password":"..."}'
+   curl -fsS -X POST "$BASE/api/auth/api-keys" -H "authorization: Bearer $TOKEN" \
+     -H 'content-type: application/json' -d '{"name":"deployed suite"}'
+   ```
+
+   Keep the two accounts' keys in `FOUNTAIN_SUITE_KEY` and
+   `FOUNTAIN_SUITE_OTHER_KEY`. The suite reads only the variables its target
+   file names; it does not search your home directory and does not log a
+   credential value.
+
+3. Give the primary account a way to pay for its turns. On a deployment with
+   credits enabled, comp it: `POST /api/admin/users/:id/comp` as an
+   administrator. Otherwise give it credits, or configure its own inference
+   keys, as any other account would.
+
+4. Check what onboarding created. A verification link lands in the browser at
+   `/start`, which provisions a `starter` agent and mints a second, live API
+   key labelled `quickstart`. Revoke that key: the suite does not use it, and
+   it is a standing credential on an account whose keys otherwise live in a
+   secret store. Posting the token to `POST /api/auth/verify` instead skips
+   both.
+
+`secrets`, `mcp` and `webhooks` additionally need Connections enabled on both
+accounts; an account may be brokered and still have `connections_enabled`
+false, which fails those profiles at setup.
+
+Removing a suite account afterwards removes its fixtures with it. Keep the
+accounts if you intend to verify this deployment again.
 
 The default expected wire contract is `sdk/contract/contract.json` from the
 suite checkout. Pin the checkout to the release you intend to verify, or set

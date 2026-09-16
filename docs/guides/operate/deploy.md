@@ -175,7 +175,36 @@ account for execution checks. Keep both accounts separate from customer data;
 registration can remain closed. Limit provider spending on that account with
 the provider's own budget controls.
 
-Start with a local Compose target:
+Load the two keys into `FOUNTAIN_SUITE_KEY` and `FOUNTAIN_SUITE_OTHER_KEY`
+through your secret store, then point the suite at the instance:
+
+```bash
+scripts/verify-deployment.sh http://localhost:4000 basic
+scripts/verify-deployment.sh https://fountain.example.com
+```
+
+The first checks a local Compose instance's API surface. The second runs the
+default `streaming` profile against a remote one: a real conversation with two
+tool-using turns, live output, reconnect, replay and history. It prints the
+failing checks, how many fixtures are left behind and where the evidence is.
+Plaintext HTTP is accepted only for a loopback target.
+
+Select coverage with the second argument: `probe` for identity, capability and
+health checks, `basic` for the API surface without a sandbox, `execution` for
+two turns without streaming conformance, `canary` for both, or `streaming` for
+everything. Missing required credentials or capabilities fail the run; they
+never become passing skips.
+
+Change what the run declares with flags, which
+`node deployed/verify.mjs --help` lists in full:
+
+```bash
+node deployed/verify.mjs https://fountain.example.com --profile execution \
+  --runtime codex --model openai/gpt-5.5 --sandbox e2b
+```
+
+For a run that needs a field those flags do not cover, write a target file and
+use the underlying CLI. The same two keys apply:
 
 ```json
 {
@@ -188,15 +217,12 @@ Start with a local Compose target:
 }
 ```
 
-Save it as `/tmp/fountain-target.json`, load the two keys into the named
-environment variables through your secret store, then run:
-
 ```bash
 node deployed/cli.mjs run --config /tmp/fountain-target.json --out /tmp/fountain-check-001
 ```
 
-For a remote self-hosted instance, change `base_url` to its HTTPS ingress.
-For a real conversation, select `streaming` and add explicit execution settings:
+For a real conversation through that path, select `streaming` and add explicit
+execution settings:
 
 ```json
 {
@@ -219,10 +245,7 @@ For a real conversation, select `streaming` and add explicit execution settings:
 
 Merge those fields into the target file. This checks a nonce artifact, two
 real tool-using turns, tenant isolation, live output, reconnect, replay and
-history agreement, then terminates and deletes its fixtures. Select `basic`
-for API-only checks, `execution` for two turns without streaming conformance,
-or `probe` for identity, capability and health checks. Missing required
-credentials or capabilities fail; they never become passing skips.
+history agreement, then terminates and deletes its fixtures.
 
 ### Run in CI
 

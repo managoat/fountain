@@ -3,6 +3,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { run } from './lib/runner.mjs';
+import { composeTarget, PROFILES } from './lib/target.mjs';
 import { runMatrix, validateMatrix } from './matrix.mjs';
 
 const matrixSubset = profile => ({ 'matrix-canary': 'canary', 'matrix-scheduled': 'scheduled', 'matrix-full': 'full' })[profile];
@@ -21,17 +22,15 @@ function settingObject(env, name) {
 export function ciConfig(env) {
   if (!['staging', 'production'].includes(env.SUITE_TARGET)) throw new SetupError('Target is not approved');
   if (env.SUITE_ENABLED !== 'true') throw new SetupError('Target environment is not enabled');
-  if (!['probe', 'basic', 'execution', 'streaming', 'canary', 'secrets', 'mcp', 'webhooks', 'schedules'].includes(env.SUITE_PROFILE) && !matrixSubset(env.SUITE_PROFILE)) throw new SetupError('Profile is not approved');
-  const config = settingObject(env, 'SUITE_TARGET_JSON');
+  if (!PROFILES.includes(env.SUITE_PROFILE) && !matrixSubset(env.SUITE_PROFILE)) throw new SetupError('Profile is not approved');
+  const target = settingObject(env, 'SUITE_TARGET_JSON');
   let url;
-  try { url = new URL(config.base_url); }
+  try { url = new URL(target.base_url); }
   catch { throw new SetupError('SUITE_TARGET_JSON must contain a valid base_url'); }
   if (url.protocol !== 'https:') throw new SetupError('CI targets require HTTPS ingress');
-  config.credentials = { primary: 'FOUNTAIN_SUITE_KEY', secondary: 'FOUNTAIN_SUITE_OTHER_KEY' };
-  config.profiles = matrixSubset(env.SUITE_PROFILE) ? ['probe'] : env.SUITE_PROFILE === 'canary' ? ['basic', 'execution'] : [env.SUITE_PROFILE];
-  // Bound exposure even if an environment variable accidentally requests a longer run.
-  config.limits = { request_ms: 30000, run_ms: env.SUITE_PROFILE === 'schedules' ? 900000 : 420000, cleanup_ms: 90000, resources: 12 };
-  if (config.execution) config.execution = { ...config.execution, provision_ms: 120000, turn_ms: 90000, max_turns: env.SUITE_PROFILE === 'webhooks' ? 0 : ['secrets', 'schedules'].includes(env.SUITE_PROFILE) ? 1 : 2 };
+  target.credentials = { primary: 'FOUNTAIN_SUITE_KEY', secondary: 'FOUNTAIN_SUITE_OTHER_KEY' };
+  // A matrix run drives its own cells from the probe profile.
+  const config = composeTarget(target, matrixSubset(env.SUITE_PROFILE) ? 'probe' : env.SUITE_PROFILE);
   if (env.SUITE_MODE === 'rollout') {
     if (!config.deployment) throw new SetupError('Rollout requires an environment-owned deployment adapter');
     config.deployment.expected_digest = env.SUITE_EXPECTED_DIGEST;

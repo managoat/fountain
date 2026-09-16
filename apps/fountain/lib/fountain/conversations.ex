@@ -1702,11 +1702,15 @@ defmodule Fountain.Conversations do
   for a sandbox with no server at all. `nil` idle seconds (the bound is off)
   is never busy.
 
-  The reading of the machine lives in `Fountain.Machines.Occupancy` (ADR 0058
-  stage 4), which is the one answer to "is anyone here" that
+  The query and the verdict both live in `Fountain.Machines.Occupancy` (ADR
+  0058 stage 4), which is the one answer to "is anyone here" that
   `Lifecycle._unsafe_sandbox_held_by_other?/2` and the two liveness scans also
-  take. The verdict stays here, because it is not theirs: this one applies the
+  take. The semantics that separate them stay separate: this one applies the
   idle window, and `held_by_other?/2` deliberately does not.
+
+  Still the same two short-circuiting `EXISTS` probes over the co-tenants that
+  it has always run — this sits on the conversation server's lifecycle tick,
+  so it takes `Occupancy`'s by-id form rather than loading the whole machine.
   """
   def _unsafe_sandbox_busy_elsewhere?(
         sandbox_id,
@@ -1719,9 +1723,7 @@ defmodule Fountain.Conversations do
 
   def _unsafe_sandbox_busy_elsewhere?(sandbox_id, conv_id, idle_seconds, now)
       when is_integer(idle_seconds) do
-    sandbox_id
-    |> Occupancy.load()
-    |> Occupancy.busy_elsewhere?(conv_id, idle_seconds, now)
+    Occupancy.busy_elsewhere?(sandbox_id, conv_id, idle_seconds, now)
   end
 
   # Turns carry no user_id of their own, so resolve it through the conversation.

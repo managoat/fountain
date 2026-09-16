@@ -38,6 +38,12 @@ defmodule Fountain.Machines.Occupancy do
   "nobody is here", which is the exact mistake this module exists to stop
   being possible in four places at once.
 
+  `busy_elsewhere?/4` additionally takes a **sandbox id** in place of a
+  struct, and then runs the two short-circuiting `EXISTS` probes the predicate
+  has always run rather than loading the machine. Its caller is the
+  conversation server's lifecycle tick; see the function's own doc for why
+  that path does not pay for the full reading.
+
   ## `live` is not a subset of `bound`
 
   `bound` excludes `terminated` and `failed` conversations. `live` does not:
@@ -193,12 +199,57 @@ defmodule Fountain.Machines.Occupancy do
   the conversation's own `updated_at` for one that never took a turn. `nil`
   idle seconds — the bound is off — is never busy.
 
-  Requires `load/1`: the idle window is a question about turns.
-  """
-  @spec busy_elsewhere?(t(), String.t(), non_neg_integer() | nil, DateTime.t()) :: boolean()
-  def busy_elsewhere?(occupancy, conv_id, idle_seconds, now \\ DateTime.utc_now())
+  ## Two costs, one answer
 
-  def busy_elsewhere?(%__MODULE__{}, _conv_id, nil, _now), do: false
+  Given a **sandbox id**, this asks the two short-circuiting `EXISTS` probes
+  the predicate has always run: one query for the co-tenants, then a turn
+  probe scoped to them that stops at the first matching row, and a second one
+  only if the first found nothing. Given a **loaded struct**, it answers from
+  the reading already in hand and runs no query at all.
+
+  The by-id form is the one on the hot path. `Lifecycle.busy_elsewhere?/2`
+  asks it from the conversation server's lifecycle tick, once per server, and
+  the busiest production home carries 36 conversations (ADR 0023) — so a
+  `GROUP BY` over every turn of every conversation on the machine, plus the
+  sandbox row that only `last_activity_at` reads, is 38 queries' worth of work
+  per tick to answer a question two `EXISTS` short-circuit. `load/1` stays the
+  fuller reading for `Machine.who_is_here/1`, which wants the whole struct
+  anyway.
+
+  The two forms must agree, and `occupancy_test.exs` pins that differentially
+  against the pre-ADR-0058 query on every edge the semantics have: a `nil`
+  `ended_at`, a timestamp exactly on the cutoff, the disjunction split across
+  two turn rows, a terminated co-tenant holding a `running` row.
+  """
+  @spec busy_elsewhere?(t() | String.t(), String.t(), non_neg_integer() | nil, DateTime.t()) ::
+          boolean()
+  def busy_elsewhere?(occupancy_or_sandbox_id, conv_id, idle_seconds, now \\ DateTime.utc_now())
+
+  def busy_elsewhere?(_occupancy_or_sandbox_id, _conv_id, nil, _now), do: false
+
+  def busy_elsewhere?(sandbox_id, conv_id, idle_seconds, now)
+      when is_binary(sandbox_id) and is_binary(conv_id) and is_integer(idle_seconds) do
+    cutoff = cutoff(idle_seconds, now)
+
+    case bound_ids(sandbox_id, except: conv_id) do
+      [] ->
+        false
+
+      cotenants ->
+        Repo.exists?(
+          from t in Turn,
+            where:
+              t.conversation_id in ^cotenants and
+                (t.status == "running" or t.inserted_at > ^cutoff or t.ended_at > ^cutoff)
+        ) or
+          Repo.exists?(
+            from c in Conversation,
+              left_join: t in Turn,
+              on: t.conversation_id == c.id,
+              where: c.id in ^cotenants and is_nil(t.id) and c.updated_at > ^cutoff
+          )
+    end
+  end
 
   def busy_elsewhere?(%__MODULE__{activity: :unloaded} = occupancy, _conv_id, _idle, _now) do
     raise ArgumentError, unloaded_message(occupancy, "busy_elsewhere?/4", :activity)
@@ -206,7 +257,7 @@ defmodule Fountain.Machines.Occupancy do
 
   def busy_elsewhere?(%__MODULE__{} = occupancy, conv_id, idle_seconds, now)
       when is_binary(conv_id) and is_integer(idle_seconds) do
-    cutoff = now |> DateTime.add(-idle_seconds, :second) |> DateTime.truncate(:second)
+    cutoff = cutoff(idle_seconds, now)
 
     case cotenant_ids(occupancy, conv_id) do
       [] ->
@@ -256,13 +307,27 @@ defmodule Fountain.Machines.Occupancy do
   # that stand a process in for a server stub it there.
   defp registered?(conv_id), do: ConversationServer.whereis(conv_id) != nil
 
-  defp bound_ids(sandbox_id) do
-    Repo.all(
+  defp bound_ids(sandbox_id, opts \\ []) do
+    query =
       from c in Conversation,
         where: c.sandbox_id == ^sandbox_id and c.status not in @terminal,
         order_by: [asc: c.inserted_at, asc: c.id],
         select: c.id
-    )
+
+    query =
+      case Keyword.get(opts, :except) do
+        nil -> query
+        conv_id -> from c in query, where: c.id != ^conv_id
+      end
+
+    Repo.all(query)
+  end
+
+  # The idle window's left edge. `truncate(:second)` matters: every timestamp
+  # it is compared against is `:utc_datetime`, so a microsecond tail on the
+  # cutoff would move the boundary for a row sitting exactly on it.
+  defp cutoff(idle_seconds, now) do
+    now |> DateTime.add(-idle_seconds, :second) |> DateTime.truncate(:second)
   end
 
   defp conversation_rows(sandbox_id) do

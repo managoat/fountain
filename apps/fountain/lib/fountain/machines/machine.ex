@@ -24,6 +24,12 @@ defmodule Fountain.Machines.Machine do
   gate governs whether the process exists, never what the answer is.
   """
 
+  # `:transient` — an idle-stop exits `:normal` and Horde leaves it stopped,
+  # which is what makes this one process per *active* machine; an abnormal
+  # exit is restarted, and the replacement then holds a registry slot for a
+  # full idle window although nobody asked it anything. That is the right
+  # trade from stage 5 on, when the owner holds a lease it must reclaim, and
+  # it is merely harmless now, when it holds nothing.
   use GenServer, restart: :transient
 
   require Logger
@@ -103,20 +109,40 @@ defmodule Fountain.Machines.Machine do
   """
   @spec who_is_here(String.t()) :: Occupancy.t()
   def who_is_here(sandbox_id) when is_binary(sandbox_id) do
-    if Machines.enabled?() do
-      case ensure_started(sandbox_id) do
-        {:ok, pid} ->
+    if Machines.enabled?(), do: ask_owner(sandbox_id, 1), else: Occupancy.load(sandbox_id)
+  end
+
+  # The pid can be gone between the lookup and the call — the idle timer fires
+  # on its own schedule, and a Horde registry entry can outlive the process it
+  # names while the CRDT catches up. `GenServer.call` *exits* on that, which
+  # would make a read-only verb crash its caller. So: one retry with a freshly
+  # started owner, then the direct read. Whatever happens, the caller gets a
+  # struct, which is what the @spec promises.
+  defp ask_owner(sandbox_id, retries_left) do
+    case ensure_started(sandbox_id) do
+      {:ok, pid} ->
+        try do
           GenServer.call(pid, :who_is_here, @call_timeout)
+        catch
+          :exit, reason when retries_left > 0 ->
+            Logger.debug("machine #{sandbox_id}: owner went away (#{inspect(reason)}); retrying")
+            ask_owner(sandbox_id, retries_left - 1)
 
-        {:error, reason} ->
-          Logger.warning(
-            "machine #{sandbox_id}: no owner (#{inspect(reason)}); reading occupancy directly"
-          )
+          :exit, reason ->
+            Logger.warning(
+              "machine #{sandbox_id}: owner unreachable (#{inspect(reason)}); " <>
+                "reading occupancy directly"
+            )
 
-          Occupancy.load(sandbox_id)
-      end
-    else
-      Occupancy.load(sandbox_id)
+            Occupancy.load(sandbox_id)
+        end
+
+      {:error, reason} ->
+        Logger.warning(
+          "machine #{sandbox_id}: no owner (#{inspect(reason)}); reading occupancy directly"
+        )
+
+        Occupancy.load(sandbox_id)
     end
   end
 

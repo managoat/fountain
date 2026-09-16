@@ -8,6 +8,8 @@ defmodule Fountain.Machines.MachineTest do
 
   use Fountain.DataCase, async: false
 
+  alias Fountain.Conversations
+  alias Fountain.Conversations.Lifecycle
   alias Fountain.Machines
   alias Fountain.Machines.Machine
   alias Fountain.Machines.Occupancy
@@ -45,6 +47,10 @@ defmodule Fountain.Machines.MachineTest do
     end
   end
 
+  defp registry_entries do
+    Horde.Registry.select(Fountain.MachineRegistry, [{{:"$1", :"$2", :_}, [], [{{:"$1", :"$2"}}]}])
+  end
+
   defp with_gate(value, fun) do
     previous = Application.fetch_env(:fountain, :machine_owner_enabled)
     Application.put_env(:fountain, :machine_owner_enabled, value)
@@ -73,21 +79,38 @@ defmodule Fountain.Machines.MachineTest do
       assert {:ok, ^pid} = Machine.ensure_started(ctx.sandbox.id)
     end
 
-    test "a concurrent start that loses the registry race still gets the winner", ctx do
+    test "twenty concurrent starts produce one owner", ctx do
       # `whereis/1` can miss a winner that is registered but not yet
-      # propagated, so the start is attempted and comes back
-      # `{:error, {:already_started, pid}}`. That is a success, not a failure.
+      # propagated, so the losers reach `start_child` and come back
+      # `{:error, {:already_started, pid}}`, which is a success. Run it for
+      # real rather than sequentially: the interleaving is the thing under
+      # test, and two sequential calls never take the losing branch.
+      results =
+        1..20
+        |> Task.async_stream(fn _ -> Machine.ensure_started(ctx.sandbox.id) end,
+          max_concurrency: 20,
+          timeout: 10_000
+        )
+        |> Enum.map(fn {:ok, result} -> result end)
+
+      assert Enum.all?(results, &match?({:ok, pid} when is_pid(pid), &1)),
+             "some starts failed: #{inspect(Enum.reject(results, &match?({:ok, _}, &1)))}"
+
+      pids = results |> Enum.map(fn {:ok, pid} -> pid end) |> Enum.uniq()
+
+      assert length(pids) == 1, "#{length(pids)} owners for one machine: #{inspect(pids)}"
+      assert Horde.DynamicSupervisor.count_children(Fountain.MachineSupervisor).active == 1
+    end
+
+    test "the losing branch returns the winner rather than an error", ctx do
       {:ok, winner} = Machine.ensure_started(ctx.sandbox.id)
 
-      raced =
-        Horde.DynamicSupervisor.start_child(
-          Fountain.MachineSupervisor,
-          {Machine, sandbox_id: ctx.sandbox.id}
-        )
+      assert {:error, {:already_started, ^winner}} =
+               Horde.DynamicSupervisor.start_child(
+                 Fountain.MachineSupervisor,
+                 {Machine, sandbox_id: ctx.sandbox.id}
+               )
 
-      assert {:error, {:already_started, ^winner}} = raced
-
-      # And the shape ensure_started/2 turns that into.
       assert {:ok, ^winner} = Machine.ensure_started(ctx.sandbox.id)
     end
 
@@ -144,6 +167,48 @@ defmodule Fountain.Machines.MachineTest do
 
     test "the gate defaults to off", _ctx do
       refute Machines.enabled?()
+    end
+
+    test "a call to an owner that has already idle-stopped still answers", ctx do
+      # `GenServer.call` *exits* on a dead pid, and the idle timer fires on
+      # its own schedule — so between the lookup and the call the owner can
+      # be gone. A read-only verb must not take its caller down with it.
+      with_gate(true, fn ->
+        {:ok, pid} = Machine.ensure_started(ctx.sandbox.id, idle_ms: 40)
+        ref = Process.monitor(pid)
+        assert_receive {:DOWN, ^ref, :process, ^pid, :normal}, 2_000
+
+        # The stale pid, called directly, is what `who_is_here/1` can hold.
+        assert catch_exit(GenServer.call(pid, :who_is_here, 1_000))
+
+        assert %Occupancy{} = occupancy = Machine.who_is_here(ctx.sandbox.id)
+        assert Enum.sort(occupancy.bound) == Enum.sort([ctx.a.id, ctx.b.id])
+      end)
+    end
+
+    test "with the gate on, no predicate starts an owner", ctx do
+      # This is the documented behaviour as of stage 4: the flag is reserved
+      # and has no effect, because nothing in lib/ asks the owner anything.
+      # `docs/configuration.md` says exactly that, so this is the guard on the
+      # words as much as on the code. Stage 5 gives the owner its first caller
+      # and this test changes with it.
+      with_gate(true, fn ->
+        assert Machines.enabled?()
+        assert registry_entries() == []
+
+        preloaded = Fountain.Repo.preload(ctx.sandbox, :conversations, force: true)
+
+        assert Conversations._unsafe_sandbox_busy_elsewhere?(ctx.sandbox.id, ctx.a.id, 3600)
+        assert Lifecycle._unsafe_sandbox_held_by_other?(ctx.sandbox.id, ctx.a.id)
+        assert Lifecycle.live_conversation_ids(preloaded) == []
+        refute Lifecycle.any_server_alive?(preloaded)
+        assert Conversations._unsafe_list_cotenant_ids(ctx.sandbox.id, ctx.a.id) == [ctx.b.id]
+
+        assert registry_entries() == [], "an owner was started: #{inspect(registry_entries())}"
+
+        assert Horde.DynamicSupervisor.count_children(Fountain.MachineSupervisor).active == 0,
+               "MachineSupervisor has children"
+      end)
     end
   end
 

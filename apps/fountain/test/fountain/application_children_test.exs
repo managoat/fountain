@@ -43,7 +43,7 @@ defmodule Fountain.ApplicationChildrenTest do
       # Fountain.ConversationSupervisor rather than by an inbound request.
       ids = ids()
 
-      assert before?(ids, Managoat.Broker, Horde.DynamicSupervisor)
+      assert before?(ids, Managoat.Broker, Fountain.ConversationSupervisor)
     end
 
     test "the listener starts before Oban, so it outlives every job" do
@@ -101,6 +101,20 @@ defmodule Fountain.ApplicationChildrenTest do
     test "the endpoint is last" do
       assert List.last(ids()) == FountainWeb.Endpoint
     end
+
+    test "the machine owner outlives the conversation servers that ask it" do
+      # ADR 0058. Reverse termination again: the per-sandbox owner starts
+      # before the conversation pair so it is still up while a draining
+      # ConversationServer asks it who is on the machine. Both halves of each
+      # pair, because a registry that stopped first would make the supervisor
+      # unable to name its own children.
+      ids = ids()
+
+      assert before?(ids, Fountain.MachineRegistry, Fountain.ConversationSupervisor)
+      assert before?(ids, Fountain.MachineSupervisor, Fountain.ConversationSupervisor)
+      assert before?(ids, Fountain.MachineRegistry, Fountain.MachineSupervisor)
+      assert before?(ids, Fountain.MachineSupervisor, FountainWeb.Endpoint)
+    end
   end
 
   describe "children/0 with the broker off" do
@@ -121,6 +135,14 @@ defmodule Fountain.ApplicationChildrenTest do
   defp ids, do: Enum.map(Fountain.Application.children(), &id/1)
 
   defp id({DynamicSupervisor, opts}), do: Keyword.fetch!(opts, :name)
+  # Both Horde pairs are `{Horde.Registry, …}` / `{Horde.DynamicSupervisor, …}`,
+  # so collapsing them to the module would put two entries under one id — and
+  # `before?/3` takes the FIRST match, so an assertion naming the module would
+  # silently follow whichever pair happens to come first in the list. Since
+  # ADR 0058 added the machine pair ahead of the conversation one, that is not
+  # hypothetical. Name them by what they register as.
+  defp id({Horde.Registry, opts}), do: Keyword.fetch!(opts, :name)
+  defp id({Horde.DynamicSupervisor, opts}), do: Keyword.fetch!(opts, :name)
   defp id({module, _opts}), do: module
   defp id(module) when is_atom(module), do: module
 

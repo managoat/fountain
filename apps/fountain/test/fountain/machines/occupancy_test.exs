@@ -13,6 +13,7 @@ defmodule Fountain.Machines.OccupancyTest do
   use Fountain.DataCase, async: true
 
   alias Fountain.Conversations
+  alias Fountain.Conversations.{Conversation, Lifecycle, Turn}
   alias Fountain.Machines.Occupancy
   alias Fountain.Repo
 
@@ -66,6 +67,45 @@ defmodule Fountain.Machines.OccupancyTest do
   end
 
   defp preloaded(sandbox), do: Repo.preload(sandbox, :conversations, force: true)
+
+  # Every SQL statement `fun` caused, in order. Counting queries is the only
+  # way to assert "runs no query at all" — the property that keeps
+  # `any_server_alive?/1` usable inside the reaper's per-row scans — and the
+  # only way to catch a cheap path quietly becoming an expensive one.
+  #
+  # A telemetry handler is global (it fires for every query in the VM), and
+  # this file is `async: true`, so the handler records only what *this* test
+  # process ran. Ecto emits the event from the process that issued the query,
+  # and every path measured here queries on the caller's connection, so that
+  # filter is exact rather than approximate.
+  defp count_queries(fun) do
+    me = self()
+    handler = {__MODULE__, make_ref()}
+
+    :telemetry.attach(
+      handler,
+      [:fountain, :repo, :query],
+      fn _event, _measurements, meta, _config ->
+        if self() == me, do: send(me, {:query, meta.query})
+      end,
+      nil
+    )
+
+    try do
+      result = fun.()
+      {result, drain_queries([])}
+    after
+      :telemetry.detach(handler)
+    end
+  end
+
+  defp drain_queries(acc) do
+    receive do
+      {:query, query} -> drain_queries([query | acc])
+    after
+      0 -> Enum.reverse(acc)
+    end
+  end
 
   describe "the struct" do
     test "load/1 reads the bound conversations, the turns and the last activity", ctx do
@@ -256,13 +296,287 @@ defmodule Fountain.Machines.OccupancyTest do
     test "from_preloaded/1 runs no query at all", ctx do
       sandbox = preloaded(ctx.sandbox)
 
-      # Nothing to assert about SQL from here, so assert the shape that makes
-      # it true: the association is read, never fetched.
-      occ = Occupancy.from_preloaded(sandbox)
+      {occ, queries} = count_queries(fn -> Occupancy.from_preloaded(sandbox) end)
 
+      assert queries == [], "expected no query, got:\n#{Enum.join(queries, "\n")}"
       assert Enum.sort(occ.bound) == Enum.sort([ctx.a.id, ctx.b.id])
       assert occ.activity == :unloaded
       assert occ.running_turns == :unloaded
+    end
+
+    test "the zero-query path survives into the reaper's two callers", ctx do
+      # `Lifecycle.any_server_alive?/1` sits inside three `SandboxReaper`
+      # scans, once per candidate row. A query added here would be an N+1 in
+      # a sweep over every ready sandbox in the fleet, and nothing else in
+      # the suite would notice.
+      sandbox = preloaded(ctx.sandbox)
+
+      {_, live} = count_queries(fn -> Lifecycle.live_conversation_ids(sandbox) end)
+      {_, alive} = count_queries(fn -> Lifecycle.any_server_alive?(sandbox) end)
+
+      assert live == [], Enum.join(live, "\n")
+      assert alive == [], Enum.join(alive, "\n")
+    end
+  end
+
+  describe "what each path costs" do
+    # The predicates differ in cost as deliberately as they differ in meaning,
+    # and the cheap ones are cheap because of where they are called from. A
+    # refactor that collapses them is exactly what these numbers catch.
+    setup ctx do
+      # Five conversations, four turns each: enough that a rollup over every
+      # turn on the machine is visibly not what the cheap path does.
+      for _ <- 1..3 do
+        conv =
+          insert_conversation(
+            user_id: ctx.user.id,
+            agent: ctx.agent,
+            sandbox: ctx.sandbox,
+            status: "idle"
+          )
+
+        for _ <- 1..4, do: insert_turn(conv, %{status: "completed", prompt: "x"})
+      end
+
+      :ok
+    end
+
+    test "bindings/1 and the two predicates on it run one query each", ctx do
+      {_, bindings} = count_queries(fn -> Occupancy.bindings(ctx.sandbox.id) end)
+
+      {_, held} =
+        count_queries(fn ->
+          Lifecycle._unsafe_sandbox_held_by_other?(ctx.sandbox.id, ctx.a.id)
+        end)
+
+      {_, cotenants} =
+        count_queries(fn ->
+          Conversations._unsafe_list_cotenant_ids(ctx.sandbox.id, ctx.a.id)
+        end)
+
+      assert length(bindings) == 1, Enum.join(bindings, "\n")
+      assert length(held) == 1, Enum.join(held, "\n")
+      assert length(cotenants) == 1, Enum.join(cotenants, "\n")
+    end
+
+    test "busy_elsewhere?/4 by id short-circuits and never reads the sandbox row", ctx do
+      insert_turn(ctx.b, %{status: "running", prompt: "go", started_at: now()})
+
+      {result, queries} =
+        count_queries(fn ->
+          Conversations._unsafe_sandbox_busy_elsewhere?(ctx.sandbox.id, ctx.a.id, 3600)
+        end)
+
+      assert result
+
+      # The co-tenant probe plus one EXISTS that stopped at the running turn.
+      # The second EXISTS never runs, because the first answered.
+      assert length(queries) == 2, Enum.join(queries, "\n")
+
+      # This is on the conversation server's lifecycle tick. The sandbox row
+      # is only wanted for `last_activity_at`, which this predicate never
+      # reads, and a GROUP BY over every turn on the machine is the opposite
+      # of a short circuit.
+      refute Enum.any?(queries, &String.contains?(&1, ~s(FROM "sandboxes")))
+      refute Enum.any?(queries, &String.contains?(&1, "GROUP BY"))
+    end
+
+    test "load/1 pays for the whole reading, because the owner wants it", ctx do
+      {_, queries} = count_queries(fn -> Occupancy.load(ctx.sandbox.id) end)
+
+      assert length(queries) == 3, Enum.join(queries, "\n")
+    end
+  end
+
+  describe "the two forms of busy_elsewhere?/4 agree with the query they replaced" do
+    # A differential check against `_unsafe_sandbox_busy_elsewhere?/4` as it
+    # stood at `adr/0058-machine-owner`, copied verbatim into `old/4` below.
+    # Both new forms — by id and from a loaded struct — must match it on every
+    # edge the semantics have. The struct form folds the query's per-row
+    # disjunction into per-conversation maxima, which is only sound because
+    # `∃r (P ∨ Q ∨ R) ≡ (∃r P) ∨ (∃r Q) ∨ (∃r R)` and `max(x) > c ≡ ∃x > c`
+    # with NULLs dropped; these cases are what hold that reasoning to account.
+
+    defp old(_sandbox_id, _conv_id, nil, _now), do: false
+
+    defp old(sandbox_id, conv_id, idle_seconds, now) when is_integer(idle_seconds) do
+      cutoff = now |> DateTime.add(-idle_seconds, :second) |> DateTime.truncate(:second)
+
+      cotenants =
+        Repo.all(
+          from c in Conversation,
+            where:
+              c.sandbox_id == ^sandbox_id and c.id != ^conv_id and
+                c.status not in ["terminated", "failed"],
+            select: c.id
+        )
+
+      case cotenants do
+        [] ->
+          false
+
+        cotenants ->
+          Repo.exists?(
+            from t in Turn,
+              where:
+                t.conversation_id in ^cotenants and
+                  (t.status == "running" or t.inserted_at > ^cutoff or t.ended_at > ^cutoff)
+          ) or
+            Repo.exists?(
+              from c in Conversation,
+                left_join: t in Turn,
+                on: t.conversation_id == c.id,
+                where: c.id in ^cotenants and is_nil(t.id) and c.updated_at > ^cutoff
+            )
+      end
+    end
+
+    # Asserts all three agree, and returns the verdict so the caller can pin
+    # which way it went — "they agree on false" is only half a test.
+    defp agree(sandbox_id, conv_id, idle, now) do
+      was = old(sandbox_id, conv_id, idle, now)
+      by_id = Occupancy.busy_elsewhere?(sandbox_id, conv_id, idle, now)
+
+      from_struct =
+        sandbox_id |> Occupancy.load() |> Occupancy.busy_elsewhere?(conv_id, idle, now)
+
+      assert by_id == was, "by-id diverged: was #{inspect(was)}, now #{inspect(by_id)}"
+
+      assert from_struct == was,
+             "struct form diverged: was #{inspect(was)}, now #{inspect(from_struct)}"
+
+      was
+    end
+
+    defp stamped(conv, attrs, inserted_at) do
+      conv
+      |> insert_turn(attrs)
+      |> Ecto.Changeset.change(inserted_at: inserted_at)
+      |> Repo.update!()
+    end
+
+    test "a nil ended_at on a non-running turn, inside and outside the window", ctx do
+      t = now()
+      old_at = DateTime.add(t, -7200, :second)
+
+      stamped(ctx.b, %{status: "failed", prompt: "x", started_at: old_at, ended_at: nil}, old_at)
+      refute agree(ctx.sandbox.id, ctx.a.id, 3600, t)
+
+      stamped(ctx.b, %{status: "failed", prompt: "y", started_at: t, ended_at: nil}, t)
+      assert agree(ctx.sandbox.id, ctx.a.id, 3600, t)
+    end
+
+    test "a timestamp exactly on the cutoff is not inside the window", ctx do
+      t = now()
+      cutoff = DateTime.add(t, -3600, :second)
+
+      stamped(ctx.b, %{status: "completed", prompt: "x", ended_at: cutoff}, cutoff)
+      refute agree(ctx.sandbox.id, ctx.a.id, 3600, t)
+
+      # One second later is.
+      refute agree(ctx.sandbox.id, ctx.a.id, 3599, t)
+      assert agree(ctx.sandbox.id, ctx.a.id, 3601, t)
+    end
+
+    test "the disjunction split across two turn rows, both ways round", ctx do
+      t = now()
+      old_at = DateTime.add(t, -7200, :second)
+      recent = DateTime.add(t, -60, :second)
+
+      # Row 1 inserted recently but ended long ago; row 2 the reverse. Neither
+      # row satisfies both halves, and the answer is still busy.
+      stamped(ctx.b, %{status: "completed", prompt: "x", ended_at: old_at}, recent)
+      assert agree(ctx.sandbox.id, ctx.a.id, 3600, t)
+
+      other =
+        insert_conversation(
+          user_id: ctx.user.id,
+          agent: ctx.agent,
+          sandbox: ctx.sandbox,
+          status: "idle"
+        )
+
+      stamped(other, %{status: "completed", prompt: "y", ended_at: recent}, old_at)
+      assert agree(ctx.sandbox.id, ctx.a.id, 3600, t)
+    end
+
+    test "a terminated co-tenant carrying a running turn row does not count", ctx do
+      t = now()
+      insert_turn(ctx.b, %{status: "running", prompt: "go", started_at: t})
+      assert agree(ctx.sandbox.id, ctx.a.id, 3600, t)
+
+      {:ok, _} = Conversations.update_conversation(ctx.b, %{status: "terminated"})
+      refute agree(ctx.sandbox.id, ctx.a.id, 3600, t)
+
+      {:ok, _} = Conversations.update_conversation(ctx.b, %{status: "failed"})
+      refute agree(ctx.sandbox.id, ctx.a.id, 3600, t)
+    end
+
+    test "turns on a conversation bound to another sandbox never count", ctx do
+      t = now()
+      elsewhere = insert_sandbox(user_id: ctx.user.id, status: "ready")
+
+      stranger =
+        insert_conversation(
+          user_id: ctx.user.id,
+          agent: ctx.agent,
+          sandbox: elsewhere,
+          status: "idle"
+        )
+
+      insert_turn(stranger, %{status: "running", prompt: "go", started_at: t})
+
+      ctx.b
+      |> Ecto.Changeset.change(updated_at: DateTime.add(t, -7200, :second))
+      |> Repo.update!()
+
+      refute agree(ctx.sandbox.id, ctx.a.id, 3600, t)
+    end
+
+    test "idle seconds of nil and of zero", ctx do
+      t = now()
+      insert_turn(ctx.b, %{status: "running", prompt: "go", started_at: t})
+
+      refute agree(ctx.sandbox.id, ctx.a.id, nil, t)
+      # A zero window still sees a running turn: mid-turn is not a clock
+      # question.
+      assert agree(ctx.sandbox.id, ctx.a.id, 0, t)
+    end
+
+    test "three co-tenants with only the third busy", ctx do
+      t = now()
+      stale = DateTime.add(t, -7200, :second)
+
+      for conv <- [ctx.b] do
+        conv |> Ecto.Changeset.change(updated_at: stale) |> Repo.update!()
+      end
+
+      quiet =
+        for _ <- 1..2 do
+          conv =
+            insert_conversation(
+              user_id: ctx.user.id,
+              agent: ctx.agent,
+              sandbox: ctx.sandbox,
+              status: "idle"
+            )
+
+          stamped(conv, %{status: "completed", prompt: "x", ended_at: stale}, stale)
+          conv
+        end
+
+      refute agree(ctx.sandbox.id, ctx.a.id, 3600, t)
+
+      [_, third] = quiet
+      insert_turn(third, %{status: "running", prompt: "go", started_at: t})
+      assert agree(ctx.sandbox.id, ctx.a.id, 3600, t)
+    end
+
+    test "no co-tenants at all", ctx do
+      t = now()
+      {:ok, _} = Conversations.update_conversation(ctx.b, %{status: "terminated"})
+
+      refute agree(ctx.sandbox.id, ctx.a.id, 3600, t)
     end
   end
 end

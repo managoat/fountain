@@ -161,7 +161,7 @@ export function configFrom(path, env = process.env) {
 
 const xml = value => String(value).replace(/[<>&"']/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;' })[c]);
 export function writeReport(out, report, redactor) {
-  const safe = redactor.value(report);
+  const safe = redactor.strings(report);
   atomicJson(resolve(out, 'result.json'), safe);
   const cases = safe.checks.map(c => `<testcase name="${xml(c.name)}" time="${(c.duration_ms / 1000).toFixed(3)}">` +
     (c.status === 'failed' ? `<failure message="${xml(c.error)}"/>` : c.status === 'skipped' ? `<skipped message="${xml(c.reason)}"/>` : '') + '</testcase>');

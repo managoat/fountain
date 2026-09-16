@@ -22,6 +22,28 @@ export class Redactor {
     if (typeof value === 'string') this.add(value);
     else if (value && typeof value === 'object') Object.values(value).forEach(item => this.collect(item));
   }
+  // For data the suite composed itself, rather than data an instance sent us.
+  //
+  // `value` guesses at credentials from key names, which is right for a
+  // response body and wrong for the report: its evidence lives under keys like
+  // `secrets` and `credential_keys`, so the guess replaced whole findings with
+  // "[REDACTED]" and, worse, `collect` promoted every string inside them to a
+  // redaction token. A leak record carries `transport: "sse"`, which then
+  // rewrote every later "passed" into "pa[REDACTED]d" — corrupting check
+  // statuses in result.json and the failure counts junit.xml derives from them.
+  //
+  // Registered secrets are still removed from every string here. Nothing in
+  // the report arrives unregistered: values the suite generated are added
+  // explicitly, and anything read from the instance already passed through
+  // `value` on the way in.
+  strings(value) {
+    if (typeof value === 'string') return this.text(value);
+    if (Array.isArray(value)) return value.map(item => this.strings(item));
+    if (value && typeof value === 'object') {
+      return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, this.strings(item)]));
+    }
+    return value;
+  }
 }
 
 export class Client {

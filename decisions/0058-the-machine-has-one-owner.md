@@ -36,9 +36,10 @@ capacity." Its Outcome records that the process was not built:
 > handle and sprite env ever need to move into one owner.
 
 This is the revisit. On `main` at `c3f568596` (2026-09-16),
-`Conversations.update_sandbox/2` is called from 24 sites in 11 files, and the
-provider's create, resume, suspend, destroy and checkpoint from 17 sites in 9
-files:
+`Conversations.update_sandbox/2` is called from 24 sites in 11 files (28 row
+writes counting its sibling `claim_sandbox/2`, three in the server and one in
+`Lifecycle.park/4`), and the provider's create, resume, suspend, destroy and
+checkpoint from 17 sites in 9 files:
 
 | Writer | `update_sandbox` sites | provider mutations | protected by |
 |---|---|---|---|
@@ -243,7 +244,7 @@ stage: `area:sandbox`, `area:conversations`, `lang:elixir`, `P2`.
 | # | Stage | Kind | Done when |
 |---|---|---|---|
 | 1 | This ADR; `scripts/decisions-index.sh`; `okf validate decisions`; 0023's Outcome points here; #2307 closed by it; the three #2255 decisions answered on the issue (one predicate; the reaper asks the owner; the admin audit moves into `destroy/3`); #1089 told the owner is its prerequisite | docs | merged |
-| 2 | **The ratchet.** `apps/fountain/test/fountain/machines/direct_writes_test.exs` enumerates every `update_sandbox(`, `update_sandbox_row(` and `Managoat.Sandbox.{create,resume,suspend,destroy,create_checkpoint}(` call outside `lib/fountain/machines/`, pinned at the numbers measured on `main` when it lands (24 row writes; 17 provider mutations at `c3f568596`), failing when the count rises. Same convention as `conversation_server_size_test.exs`: a PR lowers the pin and never raises it. `.credo.exs` ownership entries for the new namespace | test | verified by reverting: one added direct write fails it |
+| 2 | **The ratchet.** `apps/fountain/test/fountain/machines/direct_writes_test.exs` enumerates every `update_sandbox(`, `update_sandbox_row(` and `Managoat.Sandbox.{create,resume,suspend,destroy,create_checkpoint}(` call outside `lib/fountain/machines/`, pinned at the numbers measured on `main` when it lands (28 row writes counting `claim_sandbox(`, 17 provider mutations, at `c3f568596`), failing when the count rises. Same convention as `conversation_server_size_test.exs`: a PR lowers the pin and never raises it. `.credo.exs` ownership entries for the new namespace | test | verified by reverting: one added direct write fails it |
 | 3 | **Lease columns and `Fountain.Machines.Lease`.** Additive migration: `lease_epoch bigint not null default 0`, `lease_node`, `lease_until`, `transition`, `transition_reason`, all otherwise nullable, nothing reads them. `Lease.claim/2`, `renew/2`, `release/2`, `take_over/2`, each one short transaction under the existing sandbox advisory lock with a compare-and-set on the epoch; `Lease.cas_update/3` is the one write primitive the owner will use | schema + pure module | two concurrent claimers tested with `pg_blocking_pids`; a stale-epoch write affects zero rows; a SQL fault (a `BEFORE INSERT` trigger raising SQLSTATE 57014, the #2309 proof) leaks nothing out of a transaction; the migration version checked against every open stack |
 | 4 | **The process, read-only.** `Fountain.Machines.Machine` GenServer, `Fountain.MachineRegistry`, `ensure_started/1`, `whereis/1`, idle-stop. One verb, `who_is_here/1`: bound conversations, admitted turns, last activity, from the rows. The four predicates delegate to it (#2255 decision 1). No writes. Behind the gate | new module | ratchet unchanged; no changelog fragment |
 | 5 | **Destroy through the owner.** `Machine.destroy/3`: `transition: destroying` → provider destroy → compare-and-set finalize → `sandbox.destroyed` audit with the actor. Retarget `Termination.retire_terminated_sandbox/2`, the destroy-home family, `Termination.reap_sandbox/1` (the admin reap), `Accounts.Deletion.destroy_sprites/2`, `Lifecycle.destroy/4`. Under the gate the teardown fence is the transition. #2255 tranche 2 lands here as behaviour under an owner rather than as a move | behaviour | account deletion nilifies `user_id`, so the owner destroys an ownerless row (the #2329 trap); deletion's teardown stays non-fatal (0009); full suite and the deployed suite; changelog fragment; ratchet −9 |

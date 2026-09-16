@@ -22,6 +22,13 @@ defmodule Fountain.Conversations.Sandbox do
   # the partial unique index (ADR 0023).
   @modes ~w(ephemeral persistent)
 
+  # The in-flight states of ADR 0058. A `transition` is durable intent, not a
+  # lock: the machine's owner writes it before any provider I/O, does the I/O
+  # outside every transaction, and clears it by compare-and-set on the same
+  # lease epoch. A reader that finds one sees what is being done to the
+  # machine rather than racing it.
+  @transitions ~w(provisioning resuming parking destroying retargeting)
+
   @type t :: %__MODULE__{}
 
   schema "sandboxes" do
@@ -56,6 +63,18 @@ defmodule Fountain.Conversations.Sandbox do
     # The skill selection this machine was last reconciled to, so the next
     # reconciliation knows which entries under the skills root are ours.
     field :applied_skills, {:array, :map}
+    # The machine owner's lease and its in-flight state (ADR 0058).
+    # `lease_epoch` is monotonic and never reused; `lease_node` and
+    # `lease_until` say who holds the machine and until when; `transition` and
+    # `transition_reason` are the durable intent behind a provider round trip.
+    # Written only by `Fountain.Machines.Lease`, always as a compare-and-set on
+    # the epoch, and deliberately absent from `changeset/2` — an owner's write
+    # is not something a caller's attrs may reach.
+    field :lease_epoch, :integer, default: 0
+    field :lease_node, :string
+    field :lease_until, :utc_datetime_usec
+    field :transition, :string
+    field :transition_reason, :string
     belongs_to :environment, Environment
     # The identity the disk was materialized from, with the environment
     # (ADR 0023): env vars, packages, repos and setup scripts are written at
@@ -74,6 +93,9 @@ defmodule Fountain.Conversations.Sandbox do
 
   @doc "The sandbox modes (ADR 0023)."
   def modes, do: @modes
+
+  @doc "The in-flight states a machine's owner may stamp (ADR 0058)."
+  def transitions, do: @transitions
 
   def changeset(sandbox, attrs) do
     sandbox

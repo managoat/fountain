@@ -10,10 +10,12 @@
   administrator's retry of the same computer can no longer be at the provider
   at the same time. One of them holds the computer, the others wait or stand
   off, and the computer is deleted once. `DELETE /api/sandboxes/:id` can
-  therefore answer `503 sandbox_unavailable` with a `retry-after` when another
-  teardown of that computer is running; the reset fence stays in place, so
-  retrying is safe and Fountain retries on its own. The admin panel's **Retry
-  reset** says so rather than reporting the fence as cleared.
+  therefore answer `503 sandbox_unavailable` when another teardown of that
+  computer is running. The reset is still accepted: the computer is fenced
+  before that answer and Fountain completes the reset on its own, so sending
+  the request again reports the reset already pending rather than starting a
+  second one. The admin panel's **Retry reset** says the computer is busy
+  rather than reporting the fence as cleared.
 
 - A provider client that raises while a reset is deleting a computer no longer
   takes the caller down with it (#2344, ADR 0058). It reads as what it is — a

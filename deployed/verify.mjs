@@ -104,7 +104,10 @@ export function targetOrigin(baseUrl) {
   return url;
 }
 
-export function verifyConfig(args, env) {
+// Everything a run can be refused for that costs nothing to check. It runs
+// before a receiver is hosted, so a bad profile or a missing key never opens a
+// public tunnel first.
+export function assertRunnable(args, env) {
   if (!VERIFY_PROFILES.includes(args.profile)) {
     const elsewhere = PROFILES.includes(args.profile)
       ? `The ${args.profile} profile needs configuration this command cannot supply; write a target file and use deployed/cli.mjs`
@@ -115,6 +118,21 @@ export function verifyConfig(args, env) {
   if (!env.FOUNTAIN_SUITE_KEY) throw new Error('Set FOUNTAIN_SUITE_KEY to the primary test account key');
   if (needsSecondary(args.profile) && !env.FOUNTAIN_SUITE_OTHER_KEY) {
     throw new Error(`The ${args.profile} profile proves tenant isolation; set FOUNTAIN_SUITE_OTHER_KEY to a different account's key`);
+  }
+  return url;
+}
+
+// Composes the whole target in one place, receiver settings included, so what
+// is written to target.json is what the runner loads. A profile that needs a
+// receiver cannot compose without one: the settings are not an afterthought
+// patched onto the config once a tunnel happens to be up.
+export function verifyConfig(args, env, receiverSettings) {
+  const url = assertRunnable(args, env);
+  if (hostsReceiver(args.profile) && !receiverSettings) {
+    throw new Error(`The ${args.profile} profile needs a receiver; none was configured`);
+  }
+  if (!hostsReceiver(args.profile) && receiverSettings) {
+    throw new Error(`The ${args.profile} profile uses no receiver`);
   }
   const target = {
     base_url: url.href,
@@ -130,6 +148,7 @@ export function verifyConfig(args, env) {
   if (needsExecution(args.profile)) {
     target.execution = { runtime: args.runtime, model: args.model, sandbox_provider: args.sandbox };
   }
+  if (receiverSettings) target[args.profile] = receiverSettings;
   return composeTarget(target, args.profile);
 }
 
@@ -170,16 +189,18 @@ export async function verifyMain(argv, env = process.env) {
   const origin = targetOrigin(positionals[0]).origin;
   const resolved = resolveCredentials(origin, env, { service: values.keychain });
   env = resolved.env;
-  const config = verifyConfig({ ...values, baseUrl: positionals[0] }, env);
+  const args = { ...values, baseUrl: positionals[0] };
+  // Refuse everything cheap before a receiver is hosted: an unknown profile or
+  // a missing key must not cost a tunnel first.
+  assertRunnable(args, env);
   if (resolved.fromKeychain.length) console.log(`  keys       keychain ${values.keychain} for ${origin}`);
   const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z');
   const out = resolve(values.out || resolve(env.TMPDIR || '/tmp', `fountain-verify-${stamp}`));
   // Each run owns a new directory, so one verdict never overwrites another's
   // evidence or cleanup manifest.
   mkdirSync(out, { mode: 0o700, recursive: false });
-  console.log(`  target     ${config.base_url}`);
-  console.log(`  profiles   ${config.profiles.join(', ')}`);
-  if (config.execution) console.log(`  execution  ${config.execution.runtime} / ${config.execution.model} / ${config.execution.sandbox_provider}`);
+  console.log(`  target     ${origin}`);
+  console.log(`  profile    ${values.profile}`);
   console.log(`  out        ${out}`);
   const controller = new AbortController();
   const cancel = () => controller.abort(new Error('Interrupted'));
@@ -187,8 +208,9 @@ export async function verifyMain(argv, env = process.env) {
   process.on('SIGTERM', cancel);
   let receiver;
   try {
-    receiver = await openReceiver(values, config, env, controller.signal);
-    if (receiver) config[values.profile] = receiver.settings;
+    receiver = await openReceiver(values, env, controller.signal);
+    const config = verifyConfig(args, env, receiver?.settings);
+    if (config.execution) console.log(`  execution  ${config.execution.runtime} / ${config.execution.model} / ${config.execution.sandbox_provider}`);
     const configPath = resolve(out, 'target.json');
     writeFileSync(configPath, JSON.stringify(config, null, 2), { mode: 0o600 });
     const code = await run({ configPath, out: resolve(out, 'results'), signal: controller.signal,
@@ -205,7 +227,7 @@ export async function verifyMain(argv, env = process.env) {
   }
 }
 
-function openReceiver(values, config, env, signal) {
+function openReceiver(values, env, signal) {
   if (!hostsReceiver(values.profile)) {
     if (values['receiver-url'] || values['blocked-url']) throw new Error(`The ${values.profile} profile uses no receiver`);
     return undefined;

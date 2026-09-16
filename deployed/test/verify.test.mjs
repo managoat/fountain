@@ -4,6 +4,7 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { verifyConfig, summarize, resolveCredentials, targetOrigin, VERIFY_PROFILES, CREDENTIALS } from '../verify.mjs';
+import { hostsReceiver } from '../lib/local-receiver.mjs';
 import { ciConfig } from '../ci.mjs';
 import { configFrom } from '../lib/runner.mjs';
 import { PROFILES } from '../lib/target.mjs';
@@ -17,29 +18,41 @@ test('an unknown profile names the approved ones instead of running', () => {
 });
 
 // Advertising a profile this command cannot configure only produces targets
-// that fail setup. Each advertised one is validated through the real loader.
+// that fail setup. Each advertised one is composed exactly as a run composes
+// it — receiver settings included — and loaded through the real loader.
+const stubReceiver = profile => (profile === 'secrets'
+  ? { allowed_url: 'https://allowed.example.com/', blocked_url: 'https://blocked.example.com/',
+      admin_credential: 'FOUNTAIN_RECEIVER_ADMIN_KEY', bootstrap_hosts: ['registry.npmjs.org'] }
+  : profile === 'mcp'
+    ? { receiver_url: 'https://mcp.example.com/', admin_credential: 'FOUNTAIN_MCP_ADMIN_KEY', auth_mode: 'static_bearer' }
+    : { receiver_url: 'https://hook.example.com/', admin_credential: 'FOUNTAIN_WEBHOOK_ADMIN_KEY',
+        delivery_ms: 180000, observe_ms: 30000 });
+
 test('every advertised profile composes a target the runner accepts', () => {
   const dir = mkdtempSync(join(tmpdir(), 'fountain-verify-profiles-'));
+  const env = { ...keys, FOUNTAIN_RECEIVER_ADMIN_KEY: 'x'.repeat(64),
+    FOUNTAIN_MCP_ADMIN_KEY: 'x'.repeat(64), FOUNTAIN_WEBHOOK_ADMIN_KEY: 'x'.repeat(64) };
   try {
     for (const profile of VERIFY_PROFILES) {
+      const composed = verifyConfig(args({ profile }), env, hostsReceiver(profile) ? stubReceiver(profile) : undefined);
       const path = join(dir, `${profile}.json`);
-      writeFileSync(path, JSON.stringify(verifyConfig(args({ profile }), keys)));
-      const loaded = configFrom(path, keys);
-      assert.deepEqual(loaded.profiles, verifyConfig(args({ profile }), keys).profiles, profile);
+      writeFileSync(path, JSON.stringify(composed));
+      assert.deepEqual(configFrom(path, env).profiles, composed.profiles, profile);
     }
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
-test('a profile this command cannot configure is refused and points at the CLI', () => {
-  for (const profile of ['secrets', 'mcp', 'webhooks', 'schedules']) {
-    assert.ok(!VERIFY_PROFILES.includes(profile));
-    assert.throws(() => verifyConfig(args({ profile }), keys),
-      /needs configuration this command cannot supply.*cli\.mjs/s, profile);
-  }
+test('a receiver profile cannot compose without its receiver, and vice versa', () => {
+  assert.throws(() => verifyConfig(args({ profile: 'secrets' }), keys), /needs a receiver/);
+  assert.throws(() => verifyConfig(args({ profile: 'streaming' }), keys, stubReceiver('mcp')), /uses no receiver/);
 });
 
-// The suite's redaction contract covers what it prints and persists, so a
-// credential in the URL has to be refused before either happens.
+test('a profile this command cannot configure is refused and points at the CLI', () => {
+  assert.ok(!VERIFY_PROFILES.includes('schedules'));
+  assert.throws(() => verifyConfig(args({ profile: 'schedules' }), keys),
+    /needs configuration this command cannot supply.*cli\.mjs/s);
+});
+
 test('a credential-bearing target is refused without echoing it', () => {
   const secret = 'ftn_fake_userinfo_secret_probe';
   for (const target of [`https://user:${secret}@example.test`, `https://${secret}@example.test`]) {
@@ -147,8 +160,10 @@ test('an expected contract is carried through and otherwise left to the default'
 // The button is only worth having if its verdict means what CI's verdict
 // means. Both compose through lib/target.mjs; this pins that they agree.
 test('a local run composes the same profiles, limits and turns as CI', () => {
+  const env = { ...keys, FOUNTAIN_RECEIVER_ADMIN_KEY: 'x'.repeat(64),
+    FOUNTAIN_MCP_ADMIN_KEY: 'x'.repeat(64), FOUNTAIN_WEBHOOK_ADMIN_KEY: 'x'.repeat(64) };
   for (const profile of VERIFY_PROFILES) {
-    const local = verifyConfig(args({ profile }), keys);
+    const local = verifyConfig(args({ profile }), env, hostsReceiver(profile) ? stubReceiver(profile) : undefined);
     const ci = ciConfig({
       SUITE_TARGET: 'production', SUITE_ENABLED: 'true', SUITE_PROFILE: profile, SUITE_MODE: 'public',
       SUITE_TARGET_JSON: JSON.stringify({ base_url: 'https://example.test',

@@ -291,13 +291,22 @@ defmodule Fountain.Accounts.Deletion do
         # travels through the server, which is the only way to reach a machine
         # whose conversation still has one — the rest are handled by
         # `destroy_sprite/2` below, off the same `:audit`.
-        # `:actor` and `:request_ip` too, since ADR 0058 stage 5c. Without them
-        # the live-server path recorded `self` on both machine events while
+        # `:actor` and `:request_ip` too, since ADR 0058 stage 5c, and the one
+        # event they move is `sandbox.destroyed` on the **principals** path.
+        # Without them the live-server path recorded `self` there while
         # `destroy_sprite/2` — the same operation, on the machines whose
         # conversations happened to have no server — recorded the caller's
-        # `admin:<id>` or `system:principal_sweep`. Which actor a computer's
-        # teardown was attributed to depended on whether a GenServer was up,
-        # which is not a fact about who asked.
+        # `system:principal_sweep`. Which actor a computer's teardown was
+        # attributed to depended on whether a GenServer was up, which is not a
+        # fact about who asked.
+        #
+        # It changes nothing for `delete_user/2`, for two independent reasons:
+        # `fence_sprites/2` above already fenced *every* live row as the
+        # caller, so `sandbox.teardown_requested` never had a live-server split
+        # (the protocol's fence is the idempotent repeat and writes no second
+        # event), and `audit_destroy: false` suppresses `sandbox.destroyed`
+        # there entirely. #2344's own note that this "also moves the deletion
+        # path's teardown actor" is wrong for the first of those reasons.
         Termination.terminate_conversation(id,
           audit: false,
           audit_destroy: audit?,

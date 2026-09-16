@@ -435,8 +435,11 @@ defmodule Fountain.Machines.DestroyResetTest do
       assert {:error, :sandbox_unavailable} =
                Conversations.retry_pending_sandbox_reset(fenced)
 
-      assert {:error, :sandbox_unavailable} =
-               perform_job(SandboxResetReconciler, %{sandbox_id: fenced.id})
+      # A snooze, not an error. The job made no provider call and has nothing
+      # to reconcile yet, so spending one of `max_attempts: 10` on it would let
+      # contention alone discard a job that has never once asked a provider
+      # anything — and stage 6 makes contention ordinary.
+      assert {:snooze, 60} = perform_job(SandboxResetReconciler, %{sandbox_id: fenced.id})
 
       assert Repo.reload!(ctx.home).status == "ready"
     end
@@ -488,8 +491,7 @@ defmodule Fountain.Machines.DestroyResetTest do
       assert :ok = perform_job(SandboxResetReconciler, %{})
       assert all_enqueued(worker: SandboxResetReconciler) == []
 
-      assert {:error, :sandbox_unavailable} =
-               perform_job(SandboxResetReconciler, %{sandbox_id: fenced.id})
+      assert {:snooze, 60} = perform_job(SandboxResetReconciler, %{sandbox_id: fenced.id})
 
       assert destroyed() == [],
              "the reconciler called the provider on a machine another destroy was " <>

@@ -124,8 +124,7 @@ defmodule Fountain.Workers.SandboxResetReconcilerTest do
 
         # The second guard, for a job enqueued before the lease was taken: the
         # retry refuses rather than calling the provider beside the holder.
-        assert {:error, :sandbox_unavailable} =
-                 perform_job(SandboxResetReconciler, %{sandbox_id: home.id})
+        assert {:snooze, 60} = perform_job(SandboxResetReconciler, %{sandbox_id: home.id})
 
         assert Repo.reload!(home).status == "ready"
 

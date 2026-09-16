@@ -101,6 +101,29 @@ defmodule FountainWeb.SandboxController do
     with %Sandbox{} = sandbox <- Conversations.get_sandbox(id, user.id) || {:error, :not_found},
          {:ok, _} <- Conversations.reset_sandbox(sandbox, Audited.attribution(conn)) do
       send_resp(conn, :no_content, "")
+    else
+      # Rendered here rather than through `FallbackController`, which answers
+      # `:sandbox_unavailable` with no `message` because it serves several
+      # operations that mean different things by it. On *this* one the word has
+      # a precise meaning worth saying: the fence has committed, so the reset is
+      # accepted and Fountain will finish it — a caller that reads a bare 503 as
+      # "nothing happened, send it again" gets a permanent
+      # `409 sandbox_reset_pending` instead, since the fence it just wrote is
+      # what refuses the repeat. Every other refusal on this endpoint carries a
+      # sentence; the CLI prints the body verbatim.
+      {:error, :sandbox_unavailable} ->
+        conn
+        |> put_resp_header("retry-after", "30")
+        |> put_status(:service_unavailable)
+        |> json(%{
+          error: "sandbox_unavailable",
+          message:
+            "another teardown of this sandbox is running; the reset is fenced and " <>
+              "Fountain completes it, and sending it again answers sandbox_reset_pending"
+        })
+
+      other ->
+        other
     end
   end
 

@@ -46,10 +46,16 @@ defmodule Fountain.Machines.Lease do
 
   Nothing user-facing happens here, so nothing here is audited: a lease is
   control-plane bookkeeping, and the events an operation owes — `sandbox.destroyed`
-  and its siblings — are recorded by the owner's verbs in later stages.
+  and its siblings — are recorded by the owner's verbs.
 
-  Nothing calls this module yet. `Fountain.Machines.Machine` (stage 4 onward)
-  is its only intended caller.
+  `Fountain.Machines.Destroy` is the only caller of the write half, since stage
+  5a: it claims a lease around one destroy, stamps the transition and finalizes
+  with `cas_update/3`, and releases. Two readers outside this namespace look at
+  `lease_until` on the row to decide whether an owner is already working on a
+  machine — `Workers.SandboxReaper.sweep_fenced_teardowns/0` (5a) and
+  `Conversations.machine_lease_live?/1`, behind the reset reconciler and its
+  retry (5c). They read the column; they never write one. `park` and
+  `ensure_up` bring the standing lease and the renew timer in stages 6 and 7.
   """
 
   import Ecto.Query

@@ -113,7 +113,14 @@ defmodule FountainWeb.SandboxResetControllerTest do
     conn =
       ExUnit.CaptureLog.with_log(fn -> reset(ctx, ctx.home.id) end) |> elem(0)
 
-    assert json_response(conn, 503) == %{"error" => "sandbox_unavailable"}
+    # With a message, unlike the shared `FallbackController` clause, and the
+    # message is the one thing a caller must not get wrong here: the fence
+    # committed before the refusal, so "send it again" is exactly the wrong
+    # advice — the next call answers 409 from the fence this one wrote.
+    assert %{"error" => "sandbox_unavailable", "message" => message} =
+             json_response(conn, 503)
+
+    assert message =~ "sandbox_reset_pending"
     assert get_resp_header(conn, "retry-after") == ["30"]
 
     # The fence committed before the machine was ever claimed, and a refusal
@@ -124,6 +131,12 @@ defmodule FountainWeb.SandboxResetControllerTest do
     current = Conversations._unsafe_get_sandbox!(ctx.home.id)
     assert current.status == "ready"
     assert current.reset_requested_at
+
+    # And the reason the message says what it says: the fence this call wrote
+    # is what refuses the next one, busy owner or not. `docs/concepts/sandboxes.md`
+    # makes this promise to readers.
+    assert %{"error" => "sandbox_reset_pending"} =
+             ctx |> reset(ctx.home.id) |> json_response(409)
 
     assert Fountain.Audit.list_for_user(ctx.user.id)
            |> Enum.map(& &1.action)

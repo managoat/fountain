@@ -21,9 +21,16 @@
   reserved and the automatic retry picks the computer up, which is what a
   provider *error* has always done.
 
-- Closing an account records the operator or the sweep that asked for it as
-  the actor on both of each computer's teardown events, whether or not that
-  computer's conversation still had a live server (#2344, ADR 0058).
-  Attribution used to depend on which of the two paths a computer took, so the
-  same operation recorded `admin:<id>` for some of a tenant's computers and an
-  anonymous `self` for others.
+- Stopping the compute of a released or expired claimable principal records the
+  sweep that asked for it on every computer it destroys (#2344, ADR 0058).
+  `sandbox.destroyed` used to say `self` for a computer whose conversation
+  still had a live server and `system:principal_sweep` for the rest, so who a
+  teardown was attributed to depended on whether a process happened to be
+  running. Closing an account is unaffected: it records no `sandbox.destroyed`
+  at all, and its teardown requests already named the operator.
+
+- A completed reset records whoever asked for it (#2344, ADR 0058). When a
+  reset and Fountain's automatic retry of the same reset met, the retry used to
+  finish the work and `sandbox.reset` was attributed to it; the caller now
+  finishes its own reset and the trail says so. A reset the automatic retry
+  really does complete on its own still names the retry.

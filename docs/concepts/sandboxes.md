@@ -50,7 +50,7 @@ conversation on that machine runs a turn. Let the turn end, or stop it, then
 send the request again.
 
 Only a `ready` or `suspended` machine resets. A machine in the `pending` or
-`starting` status answers `409 sandbox_not_resettable` with that status. It
+`starting` status answers `422 sandbox_not_resettable` with that status. It
 has no disk to replace yet.
 
 A reset blocks new turns before it calls the provider. It releases capacity
@@ -61,13 +61,16 @@ send a second delete.
 
 One operation at a time acts on a machine. If a different teardown of the same
 machine is already running, the reset returns `503 sandbox_unavailable` with a
-`Retry-After` header. The fence stays in place. Send the request again, or let
-the automatic retry find it. Every five minutes, Fountain finds pending resets and
-queues a separate retry for each machine. Failed deletes retry with backoff;
-a provider without credentials waits until it is enabled again. The fence
-and capacity reservation stay in place until deletion is confirmed. A long
-outage remains eligible for later retries even after a retry job exhausts its
-attempts.
+`Retry-After` header. The fence is already in place, so the reset is accepted
+and queued: Fountain completes it, and a repeat of the request answers
+`409 sandbox_reset_pending`.
+
+Every five minutes, Fountain finds pending resets and queues a separate retry
+for each machine. Failed deletes retry with backoff; a provider without
+credentials waits until it is enabled again. A machine another teardown is
+working on is left to that teardown. The fence and capacity reservation stay in
+place until deletion is confirmed. A long outage remains eligible for later
+retries even after a retry job exhausts its attempts.
 
 For a persistent machine with a pending reset in `ready` or `suspended`, an
 administrator can choose **Retry reset** on the admin sandbox list. This

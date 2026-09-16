@@ -38,8 +38,22 @@ defmodule Fountain.Workers.SandboxResetReconciler do
           case Conversations.retry_pending_sandbox_reset(sandbox,
                  actor: "system:sandbox_reset_reconciler"
                ) do
-            {:ok, _} -> :ok
-            {:error, reason} -> {:error, reason}
+            {:ok, _} ->
+              :ok
+
+            # Not a failed delete: another teardown of this machine holds its
+            # lease and this job has nothing to reconcile yet (ADR 0058 stage
+            # 5c). Snoozing rather than erroring keeps the job's `max_attempts`
+            # for the thing they are for — a provider that will not confirm —
+            # so contention, which stage 6 makes ordinary, cannot exhaust a job
+            # into `discarded` without a single provider call being made. The
+            # sweep's own guard keeps most of these out of the queue; this is
+            # the one that arrives after the lease is taken.
+            {:error, :sandbox_unavailable} ->
+              {:snooze, 60}
+
+            {:error, reason} ->
+              {:error, reason}
           end
         else
           {:snooze, 300}

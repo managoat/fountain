@@ -365,8 +365,16 @@ defmodule FountainWeb.FallbackController do
     })
   end
 
-  # A lifecycle fence can refuse an actor whose sandbox binding just changed.
-  # The request is valid, but must retry after the actor catches up (#2049).
+  # Two sources, both retryable and both meaning "this machine cannot be
+  # reached right now". A lifecycle fence refusing an actor whose sandbox
+  # binding just changed (#2049), and — since ADR 0058 — the machine's owner
+  # refusing while another operation holds its lease.
+  #
+  # No `message`, because the two do not mean the same thing to a caller and a
+  # generic sentence would be worse than none. An operation with something
+  # precise to say renders its own: `SandboxController.delete/2` does, because
+  # there the fence has already committed and the obvious reading of a bare 503
+  # is the wrong one.
   def call(conn, {:error, :sandbox_unavailable}) do
     conn
     |> put_resp_header("retry-after", "30")

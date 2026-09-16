@@ -133,6 +133,64 @@ defmodule Fountain.Machines.DirectWritesTest do
              "raising it.\n" <> breakdown(provider_counts, root)
   end
 
+  # The three options stage 5c added to `Fountain.Machines.Destroy` each turn a
+  # rule of the protocol off, and each is safe only because of something the
+  # *caller* guarantees. `fence: :held_by_caller` asserts `reset_requested_at`
+  # and nothing narrower, and that timestamp is shared with the teardown fence
+  # (`Lifecycle.do_fence_sandbox_for_teardown/2` writes
+  # `reset_requested_at: current.reset_requested_at || now` beside
+  # `teardown_requested_at`), so the assertion says "a fence", not "the reset's
+  # fence". What keeps it exact is that exactly one caller passes the option,
+  # and that caller re-reads the row under the reset's own rules first.
+  #
+  # `on_provider_error: :refuse` leaves a fenced row live on a provider error,
+  # which is a leak for anything whose fence is not retryable; `provider:
+  # :already_gone` skips the provider call on a caller's word.
+  #
+  # So the "exactly one caller" claim is load-bearing, and stage 6 is about to
+  # add park's own fence. This pins it the way `@provider_mutations` above pins
+  # the call-site count: by file, so a new caller has to come here and say why.
+  @reset_option_files ["apps/fountain/lib/fountain/conversations.ex"]
+  @forwarding_files ["apps/fountain/lib/fountain/conversations/termination.ex"]
+
+  # The literal option values, plus the key that only these callers use. Not
+  # `provider:` on its own — `provider: "sprites"` is everywhere — and not
+  # `fence:` on its own, for the same reason.
+  @reset_option_markers [":held_by_caller", ":already_gone", "on_provider_error"]
+
+  test "only the reset family turns off a rule of the destroy protocol" do
+    root = Path.expand("../../../../..", __DIR__)
+    files = source_files(root)
+
+    # The scan has to be shown to reach the two files that legitimately name
+    # these options, or a broken climb would pass by finding nothing — the
+    # failure mode `machine_bounds_test.exs` was written with in round 2 of 5a.
+    relative = MapSet.new(files, &Path.relative_to(&1, root))
+
+    for expected <- @reset_option_files ++ @forwarding_files do
+      assert expected in relative,
+             "the scan missed #{expected} (#{MapSet.size(relative)} files seen); it cannot " <>
+               "pin who passes the protocol's opt-outs if it does not read them"
+    end
+
+    named =
+      files
+      |> Enum.filter(fn file ->
+        content = file |> File.read!() |> strip_docs_and_comments()
+        Enum.any?(@reset_option_markers, &String.contains?(content, &1))
+      end)
+      |> Enum.map(&Path.relative_to(&1, root))
+      |> Enum.sort()
+
+    assert named == Enum.sort(@reset_option_files ++ @forwarding_files),
+           "the destroy protocol's opt-outs (#{Enum.join(@reset_option_markers, ", ")}) are " <>
+             "named outside `lib/fountain/machines/` by:\n  " <>
+             Enum.join(named, "\n  ") <>
+             "\n\nEach one turns off a rule the protocol otherwise enforces, and each is " <>
+             "safe only because of what its caller already did (ADR 0058 stage 5c, #2344). " <>
+             "A new caller is a decision, not a refactor: add it here with the reason."
+  end
+
   defp source_files(root) do
     top_level =
       ["apps/fountain/lib", "ee/lib"]

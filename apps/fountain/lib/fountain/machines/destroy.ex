@@ -304,11 +304,14 @@ defmodule Fountain.Machines.Destroy do
     end
 
     Enum.each(
-      [fence: [:teardown, :held_by_caller], provider: [:destroy, :already_gone]],
+      [
+        fence: [:teardown, :held_by_caller],
+        provider: [:destroy, :already_gone],
+        on_provider_error: [:finalize, :refuse]
+      ],
       &validated_choice(opts, &1)
     )
 
-    validated_choice(opts, {:on_provider_error, [:finalize, :refuse]})
     opts
   end
 

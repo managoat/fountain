@@ -2813,6 +2813,13 @@ defmodule Fountain.Conversations do
   If a retry retires the row while this call awaits the provider, this caller
   returns `{:ok, :skipped}` without repeating completion notifications.
 
+  A fourth refusal joins the three above in ADR 0058 stage 5c:
+  `:sandbox_unavailable`, when another teardown of this machine holds its
+  owner's lease. It is the only one answered **after** the fence has committed,
+  so it does not mean the reset was refused — the machine is fenced and
+  `SandboxResetReconciler` finishes it. Sending the request again answers
+  `:sandbox_reset_pending`, from the fence this call wrote.
+
   See `create_agent/2` for the rest of `opts` (`:actor`, `:request_ip`).
   """
   def reset_sandbox(%Sandbox{} = sandbox, opts \\ []) do

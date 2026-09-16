@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import { run } from './lib/runner.mjs';
 import { composeTarget, PROFILES } from './lib/target.mjs';
+import { externalReceiver, hostReceiver, hostsReceiver } from './lib/local-receiver.mjs';
 
 // One command for the operator question "does this deployment work": a URL and
 // a profile, no hand-authored target file. It composes the same run as
@@ -40,11 +41,12 @@ function keychainLookup(service, account) {
   } catch { return undefined; }
 }
 
-// The profiles this command can fully configure. The rest need receiver
-// origins, schedule windows or fixture settings that no flag here supplies, so
-// advertising them would only produce targets that fail setup: they are
-// configured in a target file and run through cli.mjs.
-export const VERIFY_PROFILES = PROFILES.filter(name => !['secrets', 'mcp', 'webhooks', 'schedules'].includes(name));
+// The profiles this command can fully configure. The outbound three are back
+// now that a run can host and publish their receiver itself. `schedules` still
+// needs windows no flag here supplies, so it stays a target-file job: an
+// advertised profile that cannot be configured only produces a run that fails
+// setup.
+export const VERIFY_PROFILES = PROFILES.filter(name => name !== 'schedules');
 
 export const help = `Verify a deployed Fountain (Node 24+)
 
@@ -58,8 +60,15 @@ export const help = `Verify a deployed Fountain (Node 24+)
   --contract   expected wire contract file, relative to the output directory
   --keychain   macOS keychain service to read keys from (default: ${KEYCHAIN_SERVICE})
 
-The secrets, mcp, webhooks and schedules profiles need configuration no flag
-here supplies. Write a target file and run deployed/cli.mjs for those.
+The secrets, mcp and webhooks profiles assert on outbound behaviour, so they
+need a receiver the deployment can reach. By default the run hosts one and
+publishes it over Cloudflare quick tunnels for the duration:
+
+  --receiver-url   use an already-hosted receiver instead of tunnelling
+  --blocked-url    the secrets profile's second origin, onto the same receiver
+
+The schedules profile needs schedule windows no flag here supplies. Write a
+target file and run deployed/cli.mjs for that one.
 
 Credentials come from FOUNTAIN_SUITE_KEY and FOUNTAIN_SUITE_OTHER_KEY. On
 macOS, a key not already exported is read from the keychain under an account
@@ -150,6 +159,8 @@ export async function verifyMain(argv, env = process.env) {
     contract: { type: 'string' },
     out: { type: 'string' },
     keychain: { type: 'string', default: KEYCHAIN_SERVICE },
+    'receiver-url': { type: 'string' },
+    'blocked-url': { type: 'string' },
     help: { type: 'boolean', short: 'h' },
   } });
   if (values.help) { console.log(help); return 0; }
@@ -166,8 +177,6 @@ export async function verifyMain(argv, env = process.env) {
   // Each run owns a new directory, so one verdict never overwrites another's
   // evidence or cleanup manifest.
   mkdirSync(out, { mode: 0o700, recursive: false });
-  const configPath = resolve(out, 'target.json');
-  writeFileSync(configPath, JSON.stringify(config, null, 2), { mode: 0o600 });
   console.log(`  target     ${config.base_url}`);
   console.log(`  profiles   ${config.profiles.join(', ')}`);
   if (config.execution) console.log(`  execution  ${config.execution.runtime} / ${config.execution.model} / ${config.execution.sandbox_provider}`);
@@ -176,15 +185,34 @@ export async function verifyMain(argv, env = process.env) {
   const cancel = () => controller.abort(new Error('Interrupted'));
   process.on('SIGINT', cancel);
   process.on('SIGTERM', cancel);
+  let receiver;
   try {
-    const code = await run({ configPath, out: resolve(out, 'results'), signal: controller.signal, env });
+    receiver = await openReceiver(values, config, env, controller.signal);
+    if (receiver) config[values.profile] = receiver.settings;
+    const configPath = resolve(out, 'target.json');
+    writeFileSync(configPath, JSON.stringify(config, null, 2), { mode: 0o600 });
+    const code = await run({ configPath, out: resolve(out, 'results'), signal: controller.signal,
+      env: { ...env, ...receiver?.env } });
     summarize(readReport(resolve(out, 'results')));
     console.log(`  evidence   ${resolve(out, 'results')}`);
     return code;
   } finally {
+    // A borrowed origin outliving its run would leave a public hostname
+    // pointed at this machine.
+    await receiver?.stop();
     process.off('SIGINT', cancel);
     process.off('SIGTERM', cancel);
   }
+}
+
+function openReceiver(values, config, env, signal) {
+  if (!hostsReceiver(values.profile)) {
+    if (values['receiver-url'] || values['blocked-url']) throw new Error(`The ${values.profile} profile uses no receiver`);
+    return undefined;
+  }
+  const options = { receiverUrl: values['receiver-url'], blockedUrl: values['blocked-url'] };
+  if (options.receiverUrl || options.blockedUrl) return externalReceiver(values.profile, options, env);
+  return hostReceiver(values.profile, { signal, log: console.log });
 }
 
 function readReport(results) {

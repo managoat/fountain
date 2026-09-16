@@ -187,13 +187,28 @@ The first checks a local Compose instance's API surface. The second runs the
 default `streaming` profile against a remote one: a real conversation with two
 tool-using turns, live output, reconnect, replay and history. It prints the
 failing checks, how many fixtures are left behind and where the evidence is.
-Plaintext HTTP is accepted only for a loopback target.
+Plaintext HTTP is accepted only for a loopback target, and a URL carrying
+credentials, a query or a fragment is refused before anything is written.
+
+On macOS a key you have not exported is read from the keychain, under an
+account naming the exact target it belongs to:
+
+```bash
+security add-generic-password -U -s fountain-deployed-suite \
+  -a 'https://fountain.example.com|FOUNTAIN_SUITE_KEY' -w
+```
+
+A stored key is only ever offered to that origin, so one kept for a production
+instance is never sent to a local one, and pointing the command at an unrelated
+host finds nothing rather than disclosing a key to it.
 
 Select coverage with the second argument: `probe` for identity, capability and
 health checks, `basic` for the API surface without a sandbox, `execution` for
 two turns without streaming conformance, `canary` for both, or `streaming` for
 everything. Missing required credentials or capabilities fail the run; they
-never become passing skips.
+never become passing skips. The integration profiles — `secrets`, `mcp`,
+`webhooks` and `schedules` — need configuration these flags do not supply, and
+run from a target file through `deployed/cli.mjs`.
 
 Change what the run declares with flags, which
 `node deployed/verify.mjs --help` lists in full:

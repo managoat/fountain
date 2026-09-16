@@ -6,7 +6,8 @@
   checks, how many fixtures were left behind and where the evidence landed.
   A second argument selects coverage, from `probe` up to the default
   `streaming`, which completes two real tool-using turns and checks live
-  output, reconnect, replay and paginated history. It reads
+  output, reconnect, replay and paginated history. The integration profiles
+  keep their existing target-file route through `deployed/cli.mjs`. It reads
   `FOUNTAIN_SUITE_KEY` and `FOUNTAIN_SUITE_OTHER_KEY` from the environment,
   falling back to the macOS keychain, so a routine run puts no credential in
   shell history. `node deployed/verify.mjs --help` covers the flags, and

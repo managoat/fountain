@@ -22,14 +22,22 @@ scripts/verify-deployment.sh https://fountain.example.com
 scripts/verify-deployment.sh http://localhost:4000 probe
 ```
 
-The script resolves `FOUNTAIN_SUITE_KEY` and `FOUNTAIN_SUITE_OTHER_KEY` from
-the environment, falling back to the macOS keychain, and calls
-`deployed/verify.mjs`, which composes the target and prints the failing checks,
-the remaining-resource count and the evidence directory. Provision those two
-accounts once per deployment; see [below](#provision-test-accounts).
+The script is ergonomics over `deployed/verify.mjs`, which composes the target
+and prints the failing checks, the remaining-resource count and the evidence
+directory. Credentials come from `FOUNTAIN_SUITE_KEY` and
+`FOUNTAIN_SUITE_OTHER_KEY`; on macOS, a key that is not exported is read from
+the keychain under an account naming the exact target, so a key stored for one
+deployment is never offered to another. There is no unbound fallback: point it
+somewhere nothing is stored for and it asks you to export the keys. Provision
+the two accounts once per deployment; see
+[below](#provision-test-accounts).
 
-Use `verify.mjs` directly on a machine without the keychain, or to change what
-the run declares:
+`probe`, `basic`, `execution`, `streaming` and `canary` run from here. The
+`secrets`, `mcp`, `webhooks` and `schedules` profiles need receiver origins,
+schedule windows or fixture settings that no flag supplies; write a target
+file and use [the CLI](#the-underlying-cli) for those.
+
+Use `verify.mjs` directly to change what the run declares:
 
 ```bash
 node deployed/verify.mjs https://fountain.example.com --profile execution \
@@ -61,8 +69,14 @@ API a client uses, so its credentials come from outside. Every profile except
 `probe` proves tenant isolation, which needs a second account whose resources
 the first cannot see.
 
-Registration may stay closed to the public; these calls work regardless. On a
-deployment you administer:
+`POST /api/auth/register` is the public registration route and is subject to
+`REGISTRATION_ENABLED`: with registration closed it answers 403
+`registration_closed`, and administering the deployment does not bypass that.
+So either provision these accounts while registration is open and close it
+again afterwards, or reuse two accounts that already exist. Verification runs
+need no registration setting at all — only the two keys.
+
+On a deployment you administer, with registration open:
 
 1. Register both accounts and verify their email addresses.
 
@@ -88,6 +102,16 @@ deployment you administer:
    `FOUNTAIN_SUITE_OTHER_KEY`. The suite reads only the variables its target
    file names; it does not search your home directory and does not log a
    credential value.
+
+   To let `verify.mjs` find them without exporting them, store each under an
+   account naming the deployment it belongs to. A key is only ever offered to
+   that exact origin, so one stored for production is never sent to a local
+   instance or to anyone else's host:
+
+   ```bash
+   security add-generic-password -U -s fountain-deployed-suite \
+     -a 'https://fountain.example.com|FOUNTAIN_SUITE_KEY' -w
+   ```
 
 3. Give the primary account a way to pay for its turns. On a deployment with
    credits enabled, comp it: `POST /api/admin/users/:id/comp` as an

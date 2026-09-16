@@ -120,6 +120,12 @@ defmodule Fountain.AuditGuardrailTest do
     # machine's owner records it, so every door onto a destroy — terminate, a
     # reclaim, and the forced teardowns of stage 5b — is covered by one entry.
     {"machine destroy", &__MODULE__.do_machine_destroy/1, "sandbox.destroyed"},
+    # Two of stage 5b's forced-teardown doors, named separately from the entry
+    # above. That one drives `Machine.destroy/2` itself and would stay green if
+    # a site stopped going through it; these drive the sites.
+    {"admin reap of a machine with no server", &__MODULE__.do_machine_reap/1,
+     "sandbox.destroyed"},
+    {"agent home teardown", &__MODULE__.do_home_teardown/1, "sandbox.destroyed"},
     {"account compute teardown", &__MODULE__.do_account_compute_teardown/1,
      "sandbox.teardown_requested"},
     {"role change", &__MODULE__.do_role_change/1, "account.role_changed"},
@@ -218,6 +224,10 @@ defmodule Fountain.AuditGuardrailTest do
       "conditional actor bookkeeping; the sandbox stage records a current notification, and " <>
         "releasing a parent the rebind stranded repairs machine state rather than tenant state",
     "ConversationServer per-turn state" => "high-volume machine state; log_events covers it",
+    "Fountain.Machines.Destroy.run/2 with audit: false, from Accounts.Deletion.delete_user/2" =>
+      "the delete that follows nilifies audit_events.user_id, so a per-machine sandbox.destroyed " <>
+        "would survive as an anonymous row describing a cascade; account.deleted carries the " <>
+        "identity, and the fence's sandbox.teardown_requested is still recorded (#2344, ADR 0058)",
     "Fountain.Machines.Destroy.run/2 on a row whose user_id is nil" =>
       "account deletion nilifies user_id before its machines are torn down (#2329), so the " <>
         "destroy has no tenant to attribute; the deletion's own trail is the record of it",
@@ -637,6 +647,21 @@ defmodule Fountain.AuditGuardrailTest do
   def do_machine_destroy(user) do
     sandbox = insert_sandbox(user_id: user.id, status: "ready")
     {:ok, :destroyed} = Machine.destroy(sandbox.id, actor: "api", reason: :terminated)
+  end
+
+  def do_machine_reap(user) do
+    sandbox = insert_sandbox(user_id: user.id, status: "ready")
+    admin = insert_verified_user()
+    {:ok, :released} = Termination.reap_sandbox(sandbox.id, admin_user_id: admin.id)
+  end
+
+  def do_home_teardown(user) do
+    agent = insert_agent(user_id: user.id)
+
+    home =
+      insert_sandbox(user_id: user.id, agent_id: agent.id, mode: "persistent", status: "ready")
+
+    :ok = Termination.destroy_home(home, actor: "ui")
   end
 
   def do_teardown_fence(user) do

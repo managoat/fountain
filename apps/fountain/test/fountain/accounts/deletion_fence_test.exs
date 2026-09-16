@@ -8,6 +8,7 @@ defmodule Fountain.Accounts.DeletionFenceTest do
   alias Fountain.Conversations.ConversationServer
   alias Fountain.Conversations.Lifecycle
   alias Fountain.Conversations.Termination
+  alias Fountain.Machines.Destroy
 
   setup do
     user = insert_verified_user()
@@ -129,12 +130,51 @@ defmodule Fountain.Accounts.DeletionFenceTest do
     refute Repo.reload!(ctx.sandbox).reset_requested_at
   end
 
-  test "provider failure still retires the fenced row and counts no confirmed deletion", ctx do
+  test "provider failure still retires the fenced row and still counts the machine", ctx do
+    # The count changed meaning in ADR 0058 stage 5b and this is the test that
+    # pinned the old one. It used to be "provider destroys this run confirmed",
+    # because this module made the provider call itself and could see the
+    # answer. The call is now `Fountain.Machines.Destroy`'s, which logs a
+    # provider error and retires the fenced row anyway — deliberately, so a
+    # machine is never left in a live status nobody can find — so what reaches
+    # here is "the machine was torn down", which is also what
+    # `account.deleted`'s `sprites_destroyed` has always read as. The row going
+    # terminal is what the reaper reconciles the leftover sprite against, and
+    # the provider failure is in the log either way.
     expect(Managoat.Sandbox.Sprites, :destroy, fn _ -> {:error, :unavailable} end)
-    assert Deletion.destroy_sprites(ctx.user) == 0
+    assert Deletion.destroy_sprites(ctx.user) == 1
     assert Repo.reload!(ctx.sandbox).status == "terminated"
     assert Repo.reload!(ctx.sandbox).reset_requested_at
     assert Fountain.Quotas.active_sandbox_count(ctx.user.id) == 0
+  end
+
+  test "a refused destroy does not count the machine and does not abort the run", ctx do
+    # The shape that is still zero: not a provider that answered badly, but a
+    # destroy that never ran. `Machines.Destroy` refuses while another owner
+    # holds the machine's lease (`:machine_busy`, which the door renders as
+    # `:sandbox_unavailable`), and the deletion has to walk on — ADR 0009
+    # decision 2 — leaving the fenced row to
+    # `SandboxReaper.sweep_fenced_teardowns/0` and destroying the rest now.
+    other = insert_sandbox(user_id: ctx.user.id, status: "ready")
+    busy = ctx.sandbox.id
+
+    stub(Destroy, :run, fn
+      ^busy, _opts -> {:error, :machine_busy}
+      id, opts -> Mimic.call_original(Destroy, :run, [id, opts])
+    end)
+
+    expect(Managoat.Sandbox.Sprites, :destroy, fn handle ->
+      assert handle.name == other.machine_name
+      :ok
+    end)
+
+    log = ExUnit.CaptureLog.capture_log(fn -> assert Deletion.destroy_sprites(ctx.user) == 1 end)
+
+    assert log =~ "destroy #{ctx.sandbox.machine_name} refused"
+    assert log =~ ":sandbox_unavailable"
+    assert Repo.reload!(ctx.sandbox).status == "ready"
+    assert Repo.reload!(ctx.sandbox).teardown_requested_at
+    assert Repo.reload!(other).status == "terminated"
   end
 
   test "an actor-retired machine is not destroyed or counted again", ctx do

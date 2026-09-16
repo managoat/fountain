@@ -73,9 +73,18 @@ defmodule Fountain.Machines.DirectWritesTest do
   # `Managoat.Sandbox.destroy/1` calls the first two of those made. The third
   # never called the provider at all — it now does, through the owner, which is
   # a call this ratchet does not see because `lib/fountain/machines/` is
-  # exempt. Stage 5b takes the forced-teardown side and 5c the reset family.
-  @row_writes 25
-  @provider_mutations 15
+  # exempt.
+  #
+  # 25 -> 21 and 15 -> 13: stage 5b moved the forced-teardown side. Four
+  # terminal writes went — `Termination._unsafe_retire_home/1` (deleted) and
+  # `Termination.reap_sandbox/2`'s dead-server arm, `Accounts.Deletion`'s
+  # `destroy_sprite/1` and `SandboxReaper.expire/2` — and the two
+  # `Managoat.Sandbox.destroy/1` calls the first and third of those made. The
+  # reaper's expiry, like the dead-server terminate before it, had no provider
+  # call of its own to remove: it left the machine for pass 2, and now destroys
+  # it through the owner. Stage 5c takes the reset family.
+  @row_writes 21
+  @provider_mutations 13
 
   @provider_verbs ~w(create_checkpoint create resume suspend destroy)
 

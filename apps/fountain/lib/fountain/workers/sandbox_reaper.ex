@@ -55,7 +55,7 @@ defmodule Fountain.Workers.SandboxReaper do
   require Logger
 
   alias Fountain.Conversations
-  alias Fountain.Conversations.{Lifecycle, Sandbox, Turn}
+  alias Fountain.Conversations.{Lifecycle, Sandbox, Termination, Turn}
   alias Fountain.Repo
 
   # Long enough to clear the slowest legitimate provision: package installs get
@@ -196,7 +196,8 @@ defmodule Fountain.Workers.SandboxReaper do
   Sweeps `ready` sandboxes with no live server past a lifetime bound: past the
   idle bound they are parked to `suspended` (the sprite stays, scaled to zero,
   and the next prompt reattaches — decisions/0017); past the max-lifetime
-  ceiling they are terminated, and pass 2 destroys the sprite this same run.
+  ceiling they are destroyed through the machine's owner, sprite and all
+  (ADR 0058 stage 5b; it used to be the row here and the sprite on pass 2).
 
   This is the half of #167 that the ConversationServer cannot do. The server
   enforces its own bounds while it is alive, but a sandbox whose server
@@ -246,7 +247,7 @@ defmodule Fountain.Workers.SandboxReaper do
             end
 
           {sandbox, {:expired, :max_lifetime}}, {p, e} ->
-            expire(sandbox, "past max lifetime")
+            expire(sandbox, :max_lifetime, "past max lifetime")
             {p, e + 1}
 
           {_sandbox, :ok}, acc ->
@@ -295,7 +296,7 @@ defmodule Fountain.Workers.SandboxReaper do
       :parked
     else
       :destroy ->
-        expire(sandbox, "idle on a provider without suspend")
+        expire(sandbox, :idle, "idle on a provider without suspend")
         :expired
 
       {:error, reason} ->
@@ -304,7 +305,7 @@ defmodule Fountain.Workers.SandboxReaper do
             "expiring instead"
         )
 
-        expire(sandbox, "idle; suspend call failed")
+        expire(sandbox, :idle, "idle; suspend call failed")
         :expired
     end
   end
@@ -327,25 +328,59 @@ defmodule Fountain.Workers.SandboxReaper do
     sandbox
   end
 
-  defp expire(sandbox, reason) do
-    {:ok, _} =
-      Conversations.update_sandbox(sandbox, %{
-        status: "terminated",
-        terminated_at: DateTime.utc_now() |> DateTime.truncate(:second)
-      })
+  # A machine past a lifetime bound with nobody holding it. Since ADR 0058
+  # stage 5b this goes through the machine's owner rather than writing the row
+  # itself, so the provider machine dies **in this call** instead of on pass 2
+  # of the same run. Pass 2 is still the safety net and still sees this row:
+  # it lists terminal rows whose sprite is still at the provider, and a machine
+  # this destroy reached is no longer in that listing, so there is no second
+  # provider call for it.
+  #
+  # `terminating_conversation_id: nil`, which is the whole reason this sweep
+  # can do anything at all. An abandoned `ready` row usually still has
+  # conversations bound to it — that is what makes it abandoned rather than
+  # empty — and a conversation id here would make the fence answer
+  # `:sandbox_kept` on every one of them, on a machine with no server, past its
+  # ceiling, that nothing else would ever expire. It would bill forever.
+  #
+  # Two events, deliberately. `sandbox.expired` is the reaper's own record of
+  # *why* the machine was taken away — the bound it crossed, in the tenant's
+  # trail where "my agent's sandbox vanished" gets an answer (#551) — and
+  # `sandbox.destroyed` from the protocol is the record that it *was*. Kept on
+  # the same success-only rule the rest of this worker follows: a refusal
+  # records nothing, because nothing happened to the tenant's machine.
+  #
+  # A refusal is logged and the sweep carries on. These are machines the fleet
+  # has already lost track of; one that cannot be reached right now must not
+  # stop the other passes, and `sweep_fenced_teardowns/0` finishes a row whose
+  # fence committed and whose destroy did not.
+  defp expire(sandbox, reason_atom, reason) do
+    # ownership: `sandbox` came from this worker's own fleet-wide scan; the
+    # reaper is a system sweep with no tenant of its own (`contributing/server.md`).
+    case Termination._unsafe_destroy_machine(sandbox.id,
+           actor: "system:sandbox_reaper",
+           destroy_reason: reason_atom,
+           reason: "sandbox_expired",
+           terminating_conversation_id: nil
+         ) do
+      {:ok, outcome} ->
+        Logger.info(
+          "reaper: expired abandoned sandbox #{sandbox.id} (#{sandbox.machine_name}) — " <>
+            "ready with no live server, #{reason} (#{outcome})"
+        )
 
-    Logger.info(
-      "reaper: expired abandoned sandbox #{sandbox.id} (#{sandbox.machine_name}) — " <>
-        "ready with no live server, #{reason}"
-    )
+        record_reap(sandbox, "sandbox.expired", %{"reason" => reason})
 
-    record_reap(sandbox, "sandbox.expired", %{"reason" => reason})
+      {:error, refusal} ->
+        Logger.warning(
+          "reaper: could not expire abandoned sandbox #{sandbox.id} " <>
+            "(#{sandbox.machine_name}): #{inspect(refusal)}"
+        )
+    end
 
     # The conversation is deliberately left alone. It stays resumable, and the
     # next prompt provisions a fresh sandbox (the runtime session on the
     # destroyed disk is lost — the price of the ceiling, see decisions/0017).
-    # The sandbox itself is destroyed by pass 2 on this same run, now that the
-    # row is terminal.
     sandbox
   end
 
@@ -371,9 +406,9 @@ defmodule Fountain.Workers.SandboxReaper do
   #
   # Finishing the teardown is the only answer that respects the intent already
   # recorded and audited: the row goes terminal and pass 2 destroys the sprite
-  # on this same run, exactly as `expire/2` relies on. This never *starts* a
-  # teardown — `teardown_requested_at` is set by the fence alone, so a row only
-  # reaches here because a caller already decided this machine was to go away.
+  # on this same run. This never *starts* a teardown — `teardown_requested_at`
+  # is set by the fence alone, so a row only reaches here because a caller
+  # already decided this machine was to go away.
   #
   # `reset_requested_at` on its own is deliberately not a predicate here: an
   # ordinary reset means "wipe and rebuild", not "terminate", and
@@ -454,7 +489,7 @@ defmodule Fountain.Workers.SandboxReaper do
         "still #{was} #{@fenced_teardown_grace_minutes}m later"
     )
 
-    # The conversations are left alone for the same reason `expire/2` leaves
+    # The conversations are left alone for the same reason `expire/3` leaves
     # them: reclaiming a machine is not deleting the thread that ran on it.
     record_reap(sandbox, "sandbox.teardown_reconciled", %{
       "previous_status" => was,

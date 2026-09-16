@@ -46,6 +46,33 @@ defmodule Fountain.Workers.SandboxReaperTest do
     end)
   end
 
+  # A provider that answers listings from what is actually still there.
+  # `stub_sprites/1` plus `capture_destroys/0` model one that keeps naming a
+  # machine after it has been deleted, which is fine for a test about what the
+  # reaper refuses to touch and useless for one about how many times it calls
+  # the provider — pass 2 filters on the listing, so a static listing hides a
+  # second destroy of a machine pass 1 already took. The two share an agent so
+  # the destroy and the listing cannot disagree.
+  defp live_provider(names) do
+    test = self()
+    {:ok, live} = Agent.start_link(fn -> MapSet.new(names) end)
+
+    stub(Managoat.Sandbox.Sprites.Client, :list_all_names, fn ->
+      {:ok, Agent.get(live, & &1)}
+    end)
+
+    stub(Managoat.Sandbox.Sprites.Client, :get!, fn -> :client end)
+    stub(Sprites, :sprite, fn :client, name -> {:handle, name} end)
+
+    stub(Sprites, :destroy, fn {:handle, name} ->
+      Agent.update(live, &MapSet.delete(&1, name))
+      send(test, {:destroyed, name})
+      :ok
+    end)
+
+    live
+  end
+
   defp destroyed_names do
     receive do
       {:destroyed, name} -> [name | destroyed_names()]
@@ -367,17 +394,44 @@ defmodule Fountain.Workers.SandboxReaperTest do
       assert Repo.reload(sandbox).status == "suspended"
     end
 
-    test "expiring a sandbox makes its sprite eligible for destruction the same run" do
+    test "expiring a sandbox destroys its sprite in pass 1, and pass 2 does not repeat it" do
+      # This used to assert that pass 1 made the sprite *eligible* for pass 2.
+      # Since ADR 0058 stage 5b the expiry destroys the machine itself, through
+      # the owner, and pass 2 is the safety net rather than the mechanism. The
+      # thing worth pinning is therefore that it happens exactly once: `perform/1`
+      # lists the provider *after* the abandoned sweep, so a machine pass 1 has
+      # already destroyed is not in the listing pass 2 filters on.
+      #
+      # The listing is read through `live_names/0` rather than a fixed set, so
+      # the stub models a provider that stops naming a machine somebody
+      # destroyed. A static list cannot see a double destroy at all — it reports
+      # the sprite as present however many times it has been deleted, which is
+      # what made the old assertion pass either way.
       user = insert_verified_user()
       sandbox = insert_sandbox(user_id: user.id, status: "ready")
       conv = insert_conversation(user_id: user.id, sandbox: sandbox)
       age_rows(sandbox, conv, 60 * 24 * 83)
-      stub_sprites([sandbox.machine_name])
-      capture_destroys()
+      live_provider([sandbox.machine_name])
 
       with_bounds([sandbox_idle_timeout_minutes: 60, sandbox_max_lifetime_hours: 24], fn ->
         capture_log(fn -> assert :ok = perform_job(SandboxReaper, %{}) end)
       end)
+
+      assert destroyed_names() == [sandbox.machine_name]
+      assert Repo.reload(sandbox).status == "terminated"
+    end
+
+    test "a terminal row whose sprite outlived its destroy is still collected by pass 2" do
+      # The other half of the pair above, and the reason pass 2 stays: a machine
+      # the expiry could not reach is still named by the provider on the next
+      # run, and pass 2 destroys it then. Modelled by a row that is already
+      # terminal — the state a failed destroy leaves — so pass 1 has no verdict
+      # on it at all.
+      user = insert_verified_user()
+      sandbox = insert_sandbox(user_id: user.id, status: "terminated")
+      live_provider([sandbox.machine_name])
+
+      capture_log(fn -> assert :ok = perform_job(SandboxReaper, %{}) end)
 
       assert destroyed_names() == [sandbox.machine_name]
     end
@@ -429,7 +483,7 @@ defmodule Fountain.Workers.SandboxReaperTest do
     end
 
     test "the conversation survives its machine being reclaimed" do
-      # Same rule as expire/2: reclaiming a machine is not deleting the thread
+      # Same rule as expire/3: reclaiming a machine is not deleting the thread
       # that ran on it. assert_resumable/1 refuses a terminated conversation.
       {_user, sandbox, conv} = fenced_sandbox()
       age_fence(sandbox, 60)

@@ -97,8 +97,21 @@ defmodule Fountain.Accounts.Deletion do
   defp do_delete_user(user, opts) do
     delete_owned_principals(user, opts)
 
-    with sprites when is_integer(sprites) <-
-           destroy_sprites(user, Keyword.put_new(opts, :reason, "account_deleted")) do
+    sprite_opts =
+      opts
+      |> Keyword.put_new(:reason, "account_deleted")
+      # No per-machine `sandbox.destroyed`, for the reason this module already
+      # passes `audit: false` to `terminate_conversation/2` below: the delete a
+      # few lines down nilifies `audit_events.user_id`, so each of those rows
+      # would survive as an orphan describing a cascade, and `account.deleted`
+      # carries the identity that makes the trail readable (#2344, ADR 0058
+      # stage 5b). Set here rather than in `destroy_sprites/2` because this is
+      # the only caller that is about to delete the tenant — `Principals`
+      # stopping a released principal's compute keeps its rows, and its
+      # machines are worth an event each.
+      |> Keyword.put(:audit, false)
+
+    with sprites when is_integer(sprites) <- destroy_sprites(user, sprite_opts) do
       delete_user_row(user, sprites, opts)
     end
   end
@@ -186,7 +199,10 @@ defmodule Fountain.Accounts.Deletion do
   or calling a provider. Known machines are admission-fenced before actor
   shutdown; machines found afterward are fenced before provider deletion.
   Forced cleanup may interrupt already-admitted turns. Options carry actor,
-  request_ip and a reason for the committed teardown request.
+  request_ip and a reason for the committed teardown request, plus `:audit` —
+  `false` suppresses the per-machine `sandbox.destroyed` event, which only
+  `delete_user/2` passes, because only it is about to nilify the `user_id`
+  those rows would be attributed to.
 
   Ask a live ConversationServer to tear itself down where one exists, so the
   sprite goes through the same path as a user-initiated terminate. Otherwise
@@ -269,7 +285,7 @@ defmodule Fountain.Accounts.Deletion do
     |> Enum.reduce_while(0, fn sandbox, count ->
       case Lifecycle.fence_sandbox_for_teardown(sandbox, opts) do
         {:ok, %{status: status} = fenced} when status in @non_terminal ->
-          {:cont, count + if(destroy_sprite(fenced), do: 1, else: 0)}
+          {:cont, count + if(destroy_sprite(fenced, opts), do: 1, else: 0)}
 
         {:ok, _retired} ->
           {:cont, count}
@@ -287,37 +303,73 @@ defmodule Fountain.Accounts.Deletion do
     |> Repo.all()
   end
 
-  defp destroy_sprite(%Sandbox{machine_name: name} = sandbox) when is_binary(name) do
-    # The row's provider, never the instance default: a sandbox is destroyed
-    # on the backend that holds it (ADR 0018), and this path used to hardcode
-    # :sprites, which "destroyed" E2B/Daytona/runner sandboxes against the
-    # wrong adapter.
-    provider = Fountain.Conversations.sandbox_provider_atom(sandbox)
-    handle = Managoat.Sandbox.build_handle(provider, name)
+  # The machine goes through its owner (ADR 0058 stage 5b): the fence above is
+  # repeated there idempotently, then the provider destroy, the terminal write
+  # and — for every caller but `delete_user/2` — the `sandbox.destroyed` event
+  # are the protocol's. What this used to do itself was the provider call and
+  # the terminal write, with the row's own provider rather than the instance
+  # default (ADR 0018), a rule the protocol keeps: it builds the handle from
+  # the row too.
+  #
+  # `terminating_conversation_id: nil`. Stopping a tenant's compute is an
+  # operation on the machine, not on a conversation, and the conversations that
+  # had live servers were terminated moments ago. A conversation id here would
+  # let a persistent home, or a conversation whose server was already gone,
+  # answer `:sandbox_kept` — and a machine a deleted account still owns is the
+  # permanent leak `@non_terminal` exists to prevent.
+  #
+  # Still not fatal, and now for a second reason: the protocol swallows a
+  # provider error to retire the fenced row, and a refusal it does return is
+  # logged here. Either way the row is on its way terminal and `SandboxReaper`
+  # reconciles the leftover, which is ADR 0009 decision 2 unchanged.
+  #
+  # ownership: `sandbox` came from `live_sandboxes/1`, scoped to the caller's
+  # own `user_id`.
+  defp destroy_sprite(%Sandbox{machine_name: name} = sandbox, opts) when is_binary(name) do
+    case Termination._unsafe_destroy_machine(sandbox.id,
+           actor: Keyword.get(opts, :actor, "self"),
+           destroy_reason: destroy_reason(opts),
+           reason: Keyword.get(opts, :reason, "compute_stopped"),
+           request_ip: Keyword.get(opts, :request_ip),
+           metadata: Keyword.get(opts, :metadata),
+           audit_destroy: Keyword.get(opts, :audit, true),
+           terminating_conversation_id: nil
+         ) do
+      {:ok, :destroyed} ->
+        true
 
-    result =
-      case Managoat.Sandbox.destroy(handle) do
-        :ok ->
-          true
+      # Somebody else had already stopped it, so this run did not destroy a
+      # machine and must not count one. `:kept` is unreachable with no
+      # terminating conversation and is folded in here rather than asserted
+      # away, because a count is the wrong place to crash an account deletion.
+      {:ok, _outcome} ->
+        false
 
-        {:error, reason} ->
-          # Not fatal. SandboxReaper reconciles terminal rows whose sprite still
-          # exists, which is precisely this leftover.
-          Logger.warning("account deletion: destroy #{name} failed: #{inspect(reason)}")
-          false
-      end
-
-    Conversations.update_sandbox(sandbox, %{
-      status: "terminated",
-      terminated_at: DateTime.utc_now() |> DateTime.truncate(:second)
-    })
-
-    result
+      {:error, reason} ->
+        Logger.warning("account deletion: destroy #{name} refused: #{inspect(reason)}")
+        false
+    end
   rescue
     e ->
       Logger.warning("account deletion: destroy raised for #{name}: #{inspect(e)}")
       false
   end
 
-  defp destroy_sprite(_), do: false
+  # `machine_name` is `NOT NULL` and required by `Sandbox.changeset/2`, so this
+  # clause is reachable only from a caller that hands over something that is not
+  # a sandbox row at all. Kept rather than removed: this path must never raise
+  # its way out of an account deletion.
+  defp destroy_sprite(_sandbox, _opts), do: false
+
+  # The machine's transition reason, from the fence reason the caller already
+  # distinguishes its paths by: `delete_user/2` sets `"account_deleted"`,
+  # `Principals` sets `"principal_closed"`, and a bare `destroy_sprites/2` is
+  # the documented "stop this tenant's compute".
+  defp destroy_reason(opts) do
+    case Keyword.get(opts, :reason) do
+      "account_deleted" -> :account_deleted
+      "principal_closed" -> :principal_closed
+      _other -> :compute_stopped
+    end
+  end
 end

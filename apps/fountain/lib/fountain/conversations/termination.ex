@@ -171,12 +171,16 @@ defmodule Fountain.Conversations.Termination do
   `sandbox_id` and no tenant scoping here. Both callers established the
   conversation this machine belongs to first.
 
-  One door for both halves of terminate — the live server's and the dead
-  server's — so the fence, the provider destroy, the terminal write and the
-  `sandbox.destroyed` event are the same five steps whichever half ran.
+  One door for every destroy this tree asks for — both halves of terminate,
+  and since stage 5b the forced teardowns (`destroy_home/2`, `reap_sandbox/2`,
+  `Accounts.Deletion` and `Workers.SandboxReaper`'s expiry) — so the fence, the
+  provider destroy, the terminal write and the `sandbox.destroyed` event are
+  the same five steps whichever caller ran.
 
-  **`:terminating_conversation_id` says which call's fence decides**, and the
-  two halves answer it differently:
+  **`:terminating_conversation_id` says which call's fence decides**, and it is
+  required rather than defaulted: a caller that does not state it has not
+  thought about the one option that decides whether the machine survives. The
+  halves answer it differently:
 
     * **the conversation's id**, from the dead-server path, where this fence is
       the first and only look at the machine. A persistent home or a live
@@ -190,22 +194,40 @@ defmodule Fountain.Conversations.Termination do
       machine in between would make the second decision `:sandbox_kept`,
       leaving this machine fenced, live and billing with no server left to
       finish it (`ee/test/.../termination_billing_test.exs` is that race).
+    * **`nil` again**, from every forced teardown. A home whose agent is gone,
+      a tenant's machines during account deletion, an abandoned machine past
+      its ceiling and an admin reap are all operations *on the machine*, not
+      on one conversation, and none of them has a conversation to keep it for.
+      There the fence is the first look at the machine and `nil` is what keeps
+      it forced: an idle conversation still bound to the row must not turn the
+      destroy into `{:ok, :kept}`, because an unexpirable machine bills
+      forever.
 
-  The two reasons are deliberately different words. `:terminated` is the
-  machine's transition and what the `sandbox.destroyed` event says happened;
-  `"conversation_terminated"` (or whatever the caller passed as `:reason`) is
-  what the fence's `sandbox.teardown_requested` event has always said, and
-  changing that would rewrite a trail operators already read.
+  The two reasons are deliberately different words, and different options.
+  `:destroy_reason` is the machine's transition and what the
+  `sandbox.destroyed` event says happened (`:terminated` unless the caller
+  names another); `:reason` is what the fence's `sandbox.teardown_requested`
+  event has always said, and changing that would rewrite a trail operators
+  already read.
+
+  `:audit_destroy` is the machine event's own switch and is spelled apart from
+  `:audit` on purpose. `terminate_conversation/2`'s `:audit` means the
+  *conversation* event, and it arrives here in the same opts list on the
+  dead-server path (`retire_terminated_sandbox/2` forwards its caller's opts
+  whole); letting it silence the machine event too would mean every
+  `delete_conversation/2` quietly stopped recording `sandbox.destroyed`.
   """
   @spec _unsafe_destroy_machine(String.t(), keyword()) ::
           {:ok, Fountain.Machines.Destroy.outcome()} | {:error, term()}
   def _unsafe_destroy_machine(sandbox_id, opts) do
     Machine.destroy(sandbox_id,
       actor: Keyword.get(opts, :actor, "self"),
-      reason: :terminated,
+      reason: Keyword.get(opts, :destroy_reason, :terminated),
       fence_reason: Keyword.get(opts, :reason, "conversation_terminated"),
       terminating_conversation_id: Keyword.fetch!(opts, :terminating_conversation_id),
-      request_ip: Keyword.get(opts, :request_ip)
+      request_ip: Keyword.get(opts, :request_ip),
+      metadata: Keyword.get(opts, :metadata),
+      audit: Keyword.get(opts, :audit_destroy, true)
     )
   end
 
@@ -284,6 +306,12 @@ defmodule Fountain.Conversations.Termination do
     if Fountain.Repo.in_transaction?() do
       {:error, :provider_transaction_open}
     else
+      # Defaulted here rather than only in `destroy_homes_for_agent/2`, so the
+      # fence's `sandbox.teardown_requested` and the protocol's
+      # `sandbox.destroyed` never disagree about why the machine went away when
+      # this function is called on its own.
+      opts = Keyword.put_new(opts, :reason, "agent_deleted")
+
       # ownership: this sandbox belongs to the agent whose deletion is in
       # progress — established by destroy_homes_for_agent/2's own scoped
       # query above, or by a test's scoped fetch before calling here directly.
@@ -297,43 +325,65 @@ defmodule Fountain.Conversations.Termination do
         |> Enum.reject(&(&1.status in ["terminated", "failed"]))
         |> Enum.each(&__MODULE__.terminate_conversation(&1.id, actor: "system:home_reset"))
 
-        _unsafe_retire_home(fenced)
+        retire_home(fenced, opts)
       end
     end
   end
 
-  # Destroy the sprite behind a home and retire its row. Best-effort on the
-  # provider side: a destroy error is logged and the row still goes
-  # `terminated`, so the reaper's sweep sees a terminal row rather than a
-  # live one nobody can find. What happens to the conversations on the home
-  # is the caller's decision — agent delete terminates them, a reset keeps
-  # them.
+  # Destroy the machine behind a home and retire its row, through the machine's
+  # owner (ADR 0058 stage 5b). Everything this used to do itself — the provider
+  # call, the terminal write, and now the `sandbox.destroyed` event it never
+  # recorded — is the protocol's.
   #
-  # `terminated_at` is deliberately not passed. A caller that already retired
-  # the row under its machine lock — `do_reset_sandbox/2` does, so that a
-  # bounded registration cannot slip in behind the destroy — keeps the stamp it
-  # wrote, and `update_sandbox/2` sees no change to make. A caller that did not
-  # gets one from `stamp_terminated_at/1`. Passing `utc_now()` here instead
-  # moved the stamp to *after* the provider call, so it disagreed with the
-  # `duration_ms` on the `sandbox_terminated` usage row by the length of a
-  # destroy — and that row is what a provider bill is reconciled against.
-  defp _unsafe_retire_home(%Sandbox{} = sandbox) do
-    handle =
-      Managoat.Sandbox.build_handle(
-        Conversations.sandbox_provider_atom(sandbox),
-        sandbox.machine_name
+  # The fence above is kept and is not the protocol's. It has to commit
+  # *before* the conversations are stopped, so nothing can attach to the home
+  # while their servers are shutting down (`forced_home_fence_test.exs` pins
+  # that order); the protocol's own fence is the idempotent repeat, writing no
+  # second `sandbox.teardown_requested` and preserving both timestamps — the
+  # same shape `ConversationServer.terminate_machine/2` has had since 5a.
+  #
+  # `terminating_conversation_id: nil`: the agent is gone, so its home has
+  # nothing left to be a home *for* (ADR 0023 step 5), and the conversations
+  # that were on it have just been terminated. Handing the fence one of their
+  # ids would make `mode == "persistent"` answer `:sandbox_kept` and leave the
+  # machine standing and billing with no agent to reach it.
+  #
+  # A refusal is logged and answered `:ok`, which is what this path has always
+  # done with a failure it could not undo: the fence has committed, the
+  # conversations are stopped, and `destroy_homes_for_agent/2` must still be
+  # able to delete the agent. `Workers.SandboxReaper.sweep_fenced_teardowns/0`
+  # finishes a fenced row whose destroy never landed. Before this stage the
+  # equivalent was a provider error, logged in exactly the same spirit.
+  #
+  # `terminated_at` is nobody's argument any more. This used to pass none so
+  # that `update_sandbox/2` would stamp it from `stamp_terminated_at/1` at the
+  # *start* of the retirement rather than after the provider call — the gap
+  # mattered because `Billing.SandboxUsage` reconciles a provider bill against
+  # it. `Lease.stamp_terminated_at/2` keeps that behaviour: `COALESCE` fills
+  # the column only when it is empty, so a caller that already stamped it under
+  # its own lock keeps the stamp it wrote.
+  defp retire_home(%Sandbox{} = sandbox, opts) do
+    result =
+      _unsafe_destroy_machine(sandbox.id,
+        actor: "system:home_reset",
+        destroy_reason: :home_destroyed,
+        reason: Keyword.get(opts, :reason, "agent_deleted"),
+        request_ip: Keyword.get(opts, :request_ip),
+        terminating_conversation_id: nil
       )
 
-    case Managoat.Sandbox.destroy(handle) do
-      :ok ->
+    case result do
+      {:ok, _outcome} ->
         :ok
 
       {:error, reason} ->
-        Logger.warning("home #{sandbox.machine_name} destroy failed: #{inspect(reason)}")
-    end
+        Logger.warning(
+          "home #{sandbox.machine_name} destroy refused (#{inspect(reason)}); " <>
+            "the row stays fenced for the reaper"
+        )
 
-    {:ok, _} = Conversations.update_sandbox(sandbox, %{status: "terminated"})
-    :ok
+        :ok
+    end
   end
 
   @doc """
@@ -343,10 +393,12 @@ defmodule Fountain.Conversations.Termination do
   A conversation with a live `ConversationServer` is terminated through the
   server, which destroys the sprite and ends the conversation — that is what
   stopping a runaway agent means. A sandbox with no live server (including a
-  `suspended` one) just has its row marked terminated: the conversation stays
-  resumable (next prompt gets a fresh sandbox, with the agent's memory lost —
-  decisions/0017) and the reaper destroys the sprite on its next pass, the
-  same split `SandboxReaper.sweep_abandoned_sandboxes/0` uses.
+  `suspended` one) is destroyed through the machine's owner
+  (`_unsafe_destroy_machine/2`): the conversation stays resumable (next prompt
+  gets a fresh sandbox, with the agent's memory lost — decisions/0017), and
+  since ADR 0058 stage 5b the sprite goes in this call rather than on the
+  reaper's next pass. The reaper's terminal-row pass is still the safety net
+  for a destroy that could not finish.
 
   With `admin_user_id:` in `opts`, a successful reap records
   `admin.sandbox.reaped` here, outside any transaction (this function opens
@@ -373,12 +425,7 @@ defmodule Fountain.Conversations.Termination do
           live_ids = Lifecycle.live_conversation_ids(sandbox)
 
           if live_ids == [] do
-            now = DateTime.utc_now() |> DateTime.truncate(:second)
-
-            {:ok, _} =
-              Conversations.update_sandbox(sandbox, %{status: "terminated", terminated_at: now})
-
-            {:ok, :released}
+            release_machine(sandbox, opts)
           else
             # A reclaimed sandbox took the tenant's conversations down with it,
             # which is worth a row each — this is the one termination they did
@@ -394,6 +441,54 @@ defmodule Fountain.Conversations.Termination do
 
     audit_reap(sandbox_id, result, opts)
     result
+  end
+
+  # The arm with nobody home: no live `ConversationServer` anywhere in the
+  # cluster, so there is no actor to ask and this is a machine operation with
+  # no conversation behind it.
+  #
+  # It used to write the row `terminated` and stop, leaving the sprite for
+  # `Workers.SandboxReaper`'s pass over terminal rows — the same up-to-an-hour
+  # gap stage 5a closed on the dead-server terminate. Now it goes through the
+  # machine's owner, so the provider machine dies in this call and
+  # `sandbox.destroyed` records it (ADR 0058 stage 5b).
+  #
+  # `terminating_conversation_id: nil`, and that is the point of the reap: an
+  # admin stopping a runaway machine, or a suspension taking a tenant's compute
+  # away, must not be turned into `{:ok, :kept}` by an idle conversation still
+  # bound to the row, or by the row being a persistent home. Reaping a home is
+  # exactly what /admin/sandboxes is for.
+  #
+  # The outcome word stays `:released` whatever the protocol answers. It is the
+  # admin surfaces' and `reap_all_for_user/1`'s vocabulary and it lands in
+  # `admin.sandbox.reaped`'s metadata; a machine somebody else had already
+  # stopped was reported as released before this stage too, because the old
+  # write was an unconditional `update_sandbox/2`.
+  #
+  # ownership: `sandbox` came from the scoped read in `reap_sandbox/2` above,
+  # whose own caller is an admin surface or a suspension.
+  defp release_machine(%Sandbox{} = sandbox, opts) do
+    case _unsafe_destroy_machine(sandbox.id,
+           actor: reap_actor(opts),
+           destroy_reason: :admin_reap,
+           reason: "reaped",
+           terminating_conversation_id: nil
+         ) do
+      {:ok, _outcome} -> {:ok, :released}
+      {:error, _} = error -> error
+    end
+  end
+
+  # `admin:<id>` so both machine events fold it to the plain `admin` ADR 0013
+  # allows (`Lifecycle.teardown_actor/1`); the id itself is reserved for
+  # `account.deleted`, and `admin.sandbox.reaped` already carries it.
+  # `reap_all_for_user/1` identifies no admin, and its sweep is the reaper's
+  # own work on a suspended tenant.
+  defp reap_actor(opts) do
+    case Keyword.get(opts, :admin_user_id) do
+      nil -> "system:sandbox_reaper"
+      admin_user_id -> "admin:#{admin_user_id}"
+    end
   end
 
   # Only on success, and only when the caller identified an admin. A failed

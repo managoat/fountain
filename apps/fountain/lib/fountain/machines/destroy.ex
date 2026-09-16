@@ -10,7 +10,18 @@ defmodule Fountain.Machines.Destroy do
   `Termination.retire_terminated_sandbox/2` each had their own version, and
   the third one had no provider call at all — it fenced the row, retired it,
   and left the sprite for the reaper's next pass. This module is those five
-  steps once, and the three sites now ask for them.
+  steps once, and the sites now ask for them.
+
+  Stage 5b added the forced-teardown side to the same door:
+  `Termination.destroy_home/2` (an agent's homes when the agent is deleted),
+  `Accounts.Deletion.destroy_sprites/2`, `SandboxReaper.expire/3` and
+  `Termination.reap_sandbox/2`'s dead-server arm. What makes those *forced* is
+  one option: they pass `terminating_conversation_id: nil`, so the fence has no
+  conversation to keep the machine for and `{:ok, :kept}` is unreachable — a
+  home is destroyed because its agent is gone, and an expired machine nobody
+  can reach is destroyed even though idle conversations are still bound to it.
+  Passing a conversation id on any of those paths would answer `:kept` and
+  leave the machine billing forever, which is the 5a lesson stated as a rule.
 
   ## The steps
 
@@ -48,7 +59,9 @@ defmodule Fountain.Machines.Destroy do
   8. **Audit** `sandbox.destroyed` after the finalize has committed and
      outside every transaction, carrying the actor the caller supplied
      (ADR 0013's vocabulary, unchanged). `sandbox.teardown_requested` from
-     step 3 stays where it is.
+     step 3 stays where it is, and `audit: false` does not reach it — a caller
+     may silence the completion it is about to delete the subject of, never
+     the intent the fence recorded.
   9. **Tell the co-tenants**, through `MachineEvents.tell_cotenants/5`, the
      one sender of that cast — when the caller supplies the notice to send.
 
@@ -174,6 +187,17 @@ defmodule Fountain.Machines.Destroy do
     * `:metadata` — extra keys merged into the fence's event, for a caller
       whose own delete is about to nilify `user_id` on the row it names.
     * `:request_ip` — attribution, passed to both events.
+    * `:audit` — `false` suppresses the `sandbox.destroyed` event. The fence's
+      `sandbox.teardown_requested` is unaffected: that one is
+      `Lifecycle.fence_sandbox_for_teardown/2`'s and is written whatever this
+      says. Defaults to `true`, and exactly one caller passes `false` —
+      `Fountain.Accounts.Deletion`, whose own `terminate_conversation(audit:
+      false)` has always suppressed the per-conversation events for the same
+      reason: `audit_events.user_id` is nilified by the delete seconds later,
+      so a per-machine row would survive as an orphan describing a cascade,
+      and `account.deleted` already carries the identity (#2344, stage 5b).
+      Note this is *not* the `user_id: nil` skip below — at destroy time the
+      row still names its tenant, so that clause does not fire.
     * `:notify` — `{conversation_id, event, reason, message}`, the notice to
       cast to the machine's other conversations once it is gone. Omitted by a
       caller whose fence already established there are none.
@@ -493,16 +517,37 @@ defmodule Fountain.Machines.Destroy do
 
   # ── after the finalize ────────────────────────────────────────────────────
 
-  # Account deletion nilifies `user_id` before its machines are torn down (the
-  # #2329 trap), which leaves a destroy with no tenant to attribute. An audit
-  # row with a nil `user_id` is a system event surfaced only in admin views and
-  # would say nothing here that the deletion's own trail does not, so this one
-  # is skipped rather than recorded unattributed. The forced-teardown side is
-  # stage 5b and decides that case for itself; no caller in stage 5a reaches
-  # this clause.
-  defp audit(%Sandbox{user_id: nil}, _opts), do: :ok
-
+  # Two ways a completed destroy records nothing, from opposite ends of the
+  # same delete.
+  #
+  # `audit: false` is a caller that has asked for silence, and one does:
+  # `Accounts.Deletion` is about to delete the tenant, which nilifies
+  # `audit_events.user_id`, so a per-machine row would outlive its subject as
+  # an orphan describing a cascade. That is the same judgement its own
+  # `terminate_conversation(audit: false)` already makes about the
+  # per-conversation events, and the reason `account.deleted` denormalises the
+  # identity into its own metadata (#2344, stage 5b decision).
+  #
+  # A nil `user_id` is a row that has *already* lost its tenant — the #2329
+  # trap, an account deletion that nilified before its machines were torn down.
+  # An audit row with no `user_id` is a system event surfaced only in admin
+  # views and would say nothing the deletion's own trail does not, so it is
+  # skipped rather than recorded unattributed. Stage 5b's deletion caller does
+  # not reach this clause (it suppresses through `:audit`, while `user_id` is
+  # still set); `Principals` release and a partly-completed delete can.
+  #
+  # The fence's `sandbox.teardown_requested` is not suppressed by either: it is
+  # `Lifecycle.fence_sandbox_for_teardown/2`'s event, written before this is
+  # ever consulted, and a teardown that was requested still happened.
   defp audit(%Sandbox{} = sandbox, opts) do
+    cond do
+      not Keyword.get(opts, :audit, true) -> :ok
+      is_nil(sandbox.user_id) -> :ok
+      true -> record_destroyed(sandbox, opts)
+    end
+  end
+
+  defp record_destroyed(%Sandbox{} = sandbox, opts) do
     Audit.record(%{
       user_id: sandbox.user_id,
       action: "sandbox.destroyed",
@@ -511,9 +556,9 @@ defmodule Fountain.Machines.Destroy do
       # Folded the same way the fence folds it (`Lifecycle.teardown_actor/1`):
       # ADR 0013 reserves `admin:<operator_id>` for account deletion alone, so
       # an operator reaping a machine records the plain `admin` the vocabulary
-      # allows. Unreachable from stage 5a's three callers; 5b's admin reap is
-      # the first one that supplies the id form, and the two events a destroy
-      # leaves have to agree on the actor whichever stage wrote the caller.
+      # allows. Stage 5b's admin reap is the first caller that supplies the id
+      # form, and the two events a destroy leaves have to agree on the actor
+      # whichever stage wrote the caller.
       actor: Lifecycle.teardown_actor(Keyword.fetch!(opts, :actor)),
       request_ip: Keyword.get(opts, :request_ip),
       metadata: %{

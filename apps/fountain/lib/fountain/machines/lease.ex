@@ -144,6 +144,15 @@ defmodule Fountain.Machines.Lease do
 
   Deliberately takes no advisory lock: a single guarded `update_all` is already
   atomic, and the serialization this needs was done when the epoch was taken.
+
+  It does not consult `lease_until` either, and that is the contract, not an
+  omission: an expired lease nobody has taken over is still the current epoch,
+  and the holder finishing the work it started is what should happen. What the
+  CAS buys is that the moment a takeover has happened, the old holder's write
+  is invisible — which is the ADR's answer to a partitioned node completing a
+  provider call. Nothing here refuses a write for a lapsed clock alone —
+  `renew/4` does not either, since it too answers on the epoch — so a holder
+  that wants to stop early keeps that deadline itself.
   """
   @spec cas_update(Ecto.UUID.t(), epoch(), map() | keyword()) ::
           {:ok, Sandbox.t()} | {:error, :stale | :transaction_open | {:invalid, atom()} | term()}

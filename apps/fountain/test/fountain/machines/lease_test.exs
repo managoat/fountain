@@ -119,6 +119,25 @@ defmodule Fountain.Machines.LeaseTest do
       assert Repo.get!(Sandbox, ctx.sandbox.id).lease_node == "fountain@test-b"
     end
 
+    test "an expired lease still writes until somebody takes it over", ctx do
+      now = DateTime.utc_now()
+      assert {:ok, 1} = Lease.claim(ctx.sandbox.id, ctx.node, @ttl_ms, now)
+      expired = DateTime.add(now, @ttl_ms + 1_000, :millisecond)
+
+      # The clock lapsed and nobody claimed. The epoch is still this holder's,
+      # so the work it started still finishes — the CAS buys invisibility
+      # after a takeover, not a deadline of its own. Pinned because a later
+      # stage reading `lease_until` as an authorization would be wrong.
+      assert {:ok, _} = Lease.cas_update(ctx.sandbox.id, 1, %{transition: "destroying"})
+      assert :ok = Lease.renew(ctx.sandbox.id, 1, @ttl_ms, expired)
+
+      # Once it really has expired and been taken, the same write is gone.
+      later = DateTime.add(expired, 2 * @ttl_ms, :millisecond)
+      assert {:ok, 2} = Lease.take_over(ctx.sandbox.id, "fountain@test-b", @ttl_ms, later)
+      assert {:error, :stale} = Lease.cas_update(ctx.sandbox.id, 1, %{transition: nil})
+      assert Repo.get!(Sandbox, ctx.sandbox.id).transition == "destroying"
+    end
+
     test "cas_update refuses a value or a key the owner may not write", ctx do
       assert {:ok, epoch} = Lease.claim(ctx.sandbox.id, ctx.node, @ttl_ms)
       before = Repo.get!(Sandbox, ctx.sandbox.id)

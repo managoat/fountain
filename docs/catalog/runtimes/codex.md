@@ -90,20 +90,36 @@ remain in place. A change during a running turn applies to the next turn.
 ## The sandbox codex builds for itself
 
 Codex applies a sandbox policy of its own **inside** the Fountain sandbox. The
-pinned `codex-acp` adapter sends that policy with each session, and its default
-is a writable workspace and nothing else.
+pinned `codex-acp` adapter sends that policy with each session. By default a
+command can write to the workspace and to the temporary directories, and it
+cannot reach the network.
 
 | What the adapter sends | Default |
 |---|---|
-| The mode | `workspaceWrite` |
+| The sandbox | `workspaceWrite` |
 | `writableRoots` | `[]` |
 | `networkAccess` | `false` |
+| `excludeSlashTmp` | `false`, so `/tmp` is writable |
+| `excludeTmpdirEnvVar` | `false`, so `$TMPDIR` is writable |
+| The approval policy | `on-request` |
+| The approvals reviewer | `auto_review` |
 
-Two things a first turn often does are refused by that default. A write
-outside the workspace fails, which includes the `.git` of a clone that lives
-elsewhere, so a command that cuts a worktree from a shared clone cannot write
-its entry. And every network call fails, so `git fetch`, a package install and
-a `curl` the agent runs itself all fail.
+Inside that sandbox, two things a first turn often does are refused. A write
+outside the workspace and the temporary directories fails. That includes the
+`.git` of a clone that lives elsewhere, so a command that cuts a worktree from
+a shared clone cannot write its entry. And a network call fails, so
+`git fetch`, a package install and a `curl` the agent runs itself all fail.
+
+A refusal is not always the end. Because the approval policy is `on-request`,
+codex can ask to run a refused command outside the sandbox, or ask for network
+or file-system access. Codex's automatic reviewer judges that request first,
+and it can approve or deny it without asking Fountain. A request that reaches
+Fountain arrives as `session/request_permission`, and the agent's
+[permission policy](../../concepts/permissions.md) answers it. An approval can
+let that one command run, or grant the access for the turn or the session.
+The reviewer and the policy can also deny the request, and codex does not ask
+every time. Try this route before full access, which removes both the sandbox
+and the approvals.
 
 `~/.codex/config.toml` does not widen it. The adapter sends an explicit
 per-session policy, and that policy wins over the file, in the same way the
@@ -111,8 +127,10 @@ per-session policy, and that policy wins over the file, in the same way the
 
 ### Give codex full access
 
-Set `INITIAL_AGENT_MODE` to `agent-full-access` in the
-[environment's](../../concepts/environment.md) `env_vars`. The adapter reads it
+Full access is for an agent that needs the network, or writes outside its
+workspace, on every turn and without asking. Set `INITIAL_AGENT_MODE` to
+`agent-full-access` in the [environment's](../../concepts/environment.md)
+`env_vars`. The adapter reads it
 from the process environment when it opens the session.
 
 ```yaml
@@ -135,7 +153,8 @@ Six things follow from that.
   operation that sends no request. So a policy of `ask` or `auto_deny` no
   longer stops those commands and edits. Give full access only to agents whose
   policy you would set to `auto_allow`. The reverse does not hold: a policy of
-  `auto_allow` does not widen the sandbox.
+  `auto_allow` does not remove the sandbox. It approves only the requests that
+  codex sends to Fountain.
 - **It is all or nothing.** The value names a mode, not a list. There is no way
   today to say "the workspace, plus this one root, plus the network". Neither
   an Agent nor an Environment carries a writable-roots field, and Fountain

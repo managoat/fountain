@@ -7,11 +7,13 @@ The runtime asks Fountain first. Fountain answers from the policy. The tool
 then runs, or it does not.
 
 **A permission policy is not the runtime's own sandbox.** Some runtimes build
-one before they ask anything, and no verdict here widens it. Codex is the one
-that catches people: it confines its writes and blocks its network by default,
-so a tool this policy permits can still fail. The setting that widens that
-sandbox also stops codex asking, so this policy then sees none of codex's own
-commands or file edits. Read
+one before they ask anything, and a verdict here answers only the requests the
+runtime sends. Codex is the one that catches people: it confines its writes and
+blocks its network by default, so a tool this policy permits can still fail
+inside that sandbox. Codex can ask to go outside it, and an allow verdict here
+can grant that request. Codex's own reviewer can also decide a request without
+asking Fountain. The setting that removes that sandbox also stops codex asking,
+so this policy then sees none of codex's own commands or file edits. Read
 [the sandbox codex builds for itself](../catalog/runtimes/codex.md#the-sandbox-codex-builds-for-itself).
 
 ## The three answers

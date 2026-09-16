@@ -83,7 +83,8 @@ value changes nothing.
 
 It is also not the last word on what the agent can reach. A runtime can hold a
 sandbox of its own inside the machine, and Fountain's policy does not open it.
-Codex blocks its own network access by default, whatever this field says. Read
+By default codex blocks its own network access until it asks for access and
+gets an approval, whatever this field says. Read
 [the sandbox codex builds for itself](../catalog/runtimes/codex.md#the-sandbox-codex-builds-for-itself).
 
 `limited` holds egress to the domains in `networking_config.allowed_hosts`.

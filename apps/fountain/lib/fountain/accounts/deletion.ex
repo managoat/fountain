@@ -219,15 +219,14 @@ defmodule Fountain.Accounts.Deletion do
     end
   end
 
-  # A refused fence is logged and the run continues, because the alternative
-  # strands the row it refused on: a halt here leaves `reset_requested_at` set
-  # on a `ready` sandbox whose account is still there, and every `SandboxReaper`
-  # pass filters that row out — `release_stuck_sandboxes/0` and
-  # `sweep_abandoned_sandboxes/0` both require `is_nil(reset_requested_at)`, the
-  # dead-sprite pass wants a terminal status, and the untracked sweep counts the
-  # sprite as known. It would keep burning a `Quotas.active_sandboxes/0` slot
-  # and the fleet ceiling with nothing left able to reclaim it. ADR 0009
-  # decision 2 makes sprite teardown best-effort for this reason, and #1767
+  # A refused fence is logged and the run continues. A halt here would leave
+  # the rows already fenced `ready` with `teardown_requested_at` set, and their
+  # machines running, while the account is still there. The reaper's other
+  # passes skip such a row; only `SandboxReaper.sweep_fenced_teardowns/0`
+  # finishes it, and only after its grace period (#2329). Until then the row
+  # holds a `Quotas.active_sandboxes/0` slot and a fleet slot, and the machine
+  # bills. Carrying on tears the rest down now rather than leaving it to that
+  # sweep. ADR 0009 decision 2 makes sprite teardown best-effort, and #1767
   # asks that failed cleanup stay recoverable by reconciliation.
   defp fence_sprites(user_id, opts) do
     # ownership: live_sandboxes/1 scopes every row to this caller-owned user_id.

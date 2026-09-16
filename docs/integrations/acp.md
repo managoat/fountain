@@ -252,7 +252,8 @@ This is a testing seam for #1611 and #1007, not a custom-harness registry.
 It is not in the published contract, so no generated SDK offers it as a
 runtime. A deployment that names `DEPLOYED_ACP_FIXTURE_USER_ID` names it in
 the OpenAPI document that deployment serves at `/api/openapi.json` — including
-after the flag goes false, because the agents it created outlive it — and
+after the flag goes false, because the agents it created and their
+conversations outlive it — and
 `runtimes` on `GET /api/catalog` reports what the instance currently admits.
 
 The external `deterministic` profile provisions a real sandbox, verifies the

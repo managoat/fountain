@@ -6,6 +6,8 @@
   SDK's type. The contract now names the five shipped runtimes. A deployment
   that sets `DEPLOYED_ACP_FIXTURE_USER_ID` still names it in the OpenAPI
   document that deployment serves, so nothing changes for the deployed
-  deterministic suite. Keep that variable set while any fixture agent still
-  exists, even after `DEPLOYED_ACP_FIXTURE_ENABLED` goes false: those agents
-  are retained so their owner can edit and delete them.
+  deterministic suite. Keep that variable set while any fixture agent or
+  fixture conversation still exists, even after `DEPLOYED_ACP_FIXTURE_ENABLED`
+  goes false: agents are retained so their owner can edit and delete them, and
+  deleting an agent keeps its conversations, whose conversation and sandbox
+  responses still report the `fountain-fixture` runtime.

@@ -39,8 +39,9 @@ defmodule FountainWeb.ApiSpec.FixtureRuntime do
   end
 
   # `configured?/0`, not `enabled?/0`: turning the flag off stops admission but
-  # keeps the agents the fixture created, and this deployment still has to
-  # serve their runtime inside its own declared enum.
+  # keeps the agents the fixture created and the conversations they ran — and
+  # those conversations survive their agent's deletion — so this deployment
+  # still has to serve their runtime inside its own declared enum.
   defp gated_runtimes do
     if DeployedACPFixture.configured?(),
       do: Agent.known_runtimes() -- Agent.packaged_runtimes(),

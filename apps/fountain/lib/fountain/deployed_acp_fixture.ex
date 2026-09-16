@@ -25,9 +25,11 @@ defmodule Fountain.DeployedACPFixture do
 
   Admission asks `enabled?/0`. This is the weaker question the OpenAPI
   document asks (#1716): a deployment that turns the flag off still holds the
-  agents the fixture created — they are retained on purpose so their owner can
-  edit and delete them — and its spec has to name their runtime for as long as
-  it can serve one. Keep `DEPLOYED_ACP_FIXTURE_USER_ID` set until they are gone.
+  agents the fixture created — retained on purpose so their owner can edit and
+  delete them — and the conversations they ran, which outlive even the agent's
+  deletion. Its spec has to name their runtime for as long as it can serve one,
+  in an agent, a conversation or a sandbox's conversation list. Keep
+  `DEPLOYED_ACP_FIXTURE_USER_ID` set until both are gone.
   """
   def configured? do
     case Application.get_env(:fountain, :deployed_acp_fixture) do

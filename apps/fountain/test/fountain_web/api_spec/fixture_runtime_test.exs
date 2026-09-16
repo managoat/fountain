@@ -82,8 +82,9 @@ defmodule FountainWeb.ApiSpec.FixtureRuntimeTest do
     end
   end
 
-  # An agent the fixture created outlives the flag on purpose (#2128), and the
-  # schema guard validates what this deployment renders for it.
+  # An agent the fixture created outlives the flag on purpose (#2128), its
+  # conversations outlive the agent, and the schema guard validates what this
+  # deployment renders for both.
   test "turning the flag off keeps the fixture in the enum while the account is named" do
     configure(%{enabled: false, user_id: Ecto.UUID.generate()})
 

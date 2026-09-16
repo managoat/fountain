@@ -139,6 +139,23 @@ test('history enforces cursor progress without assuming consecutive global IDs',
   await assert.rejects(history({ request: async () => ({ body: { data: [], meta: { has_more: true, next_cursor: null } } }) }, randomUUID()), /stuck/);
 });
 
+test('history budgets events rather than pages, so small pages read a long transcript', async () => {
+  const pages = (total, size) => {
+    let served = 0;
+    return { request: async (_method, path) => {
+      const limit = Number(new URL(path, 'https://x.test').searchParams.get('limit'));
+      assert.equal(limit, size);
+      const data = Array.from({ length: Math.min(limit, total - served) }, (_, i) => ({ id: served + i + 1 }));
+      served += data.length;
+      return { body: { data, meta: { has_more: served < total, next_cursor: served } } };
+    } };
+  };
+  const long = await history(pages(570, 3), randomUUID(), undefined, 3);
+  assert.equal(long.events.length, 570);
+  assert.equal(long.pages, 190);
+  await assert.rejects(history(pages(31, 3), randomUUID(), undefined, 3, 30), /30-event budget/);
+});
+
 test('execution requires an explicit two-turn authorization and both credentials', t => {
   const { dir } = fixtures(t, () => {});
   const path = join(dir, 'config.json');

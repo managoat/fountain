@@ -4,11 +4,13 @@ import { streamEvents } from './sse.mjs';
 export function phaseSignal(parent, ms) { return AbortSignal.any([parent, AbortSignal.timeout(ms)]); }
 export function ensure(ok, message) { if (!ok) throw new Error(message); }
 
-export async function history(client, id, signal, pageSize = 100) {
-  const events = [];
+// The budget counts events, not pages, so a small page size cannot shrink the
+// transcript it reads. A thinking model streams a chunk per token.
+export async function history(client, id, signal, pageSize = 100, maxEvents = 10000) {
+  const events = [], maxPages = Math.ceil(maxEvents / pageSize);
   let cursor = 0, pages = 0;
   while (true) {
-    if (++pages > 100) throw new Error('Event history exceeded page budget');
+    if (++pages > maxPages) throw new Error(`Event history exceeded its ${maxEvents}-event budget`);
     const { body } = await client.request('GET', `/api/conversations/${id}/events?blocks=true&limit=${pageSize}&after=${cursor}`, { expected: 200, signal });
     for (const event of body.data) {
       ensure(event.id > cursor, 'History cursor did not advance in order');

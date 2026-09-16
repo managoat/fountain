@@ -25,7 +25,8 @@ export function compareEvents(actual, expected, { after = 0, through }) {
 }
 
 export async function verifyReplay(ctx, conversationId, first, second, signal) {
-  const paginated = await history(ctx.client, conversationId, signal, 3);
+  // Small enough that any real conversation spans pages, large enough to stay cheap.
+  const paginated = await history(ctx.client, conversationId, signal, 25);
   ensure(paginated.pages > 1, 'Fixture did not exercise history pagination');
   Object.assign(ctx.report.streaming, { history_pages: paginated.pages, high_water_cursor: second.cursor });
   const all = [];

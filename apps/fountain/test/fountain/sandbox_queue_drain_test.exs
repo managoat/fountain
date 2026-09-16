@@ -59,7 +59,12 @@ defmodule Fountain.SandboxQueueDrainTest do
       mode: "persistent",
       status: "ready"
     )
-    |> Ecto.Changeset.change(transition: "parking")
+    |> Ecto.Changeset.change(
+      transition: "parking",
+      lease_epoch: 1,
+      lease_node: "fountain@other",
+      lease_until: DateTime.add(DateTime.utc_now(), 30_000, :millisecond)
+    )
     |> Repo.update!()
 
     agent

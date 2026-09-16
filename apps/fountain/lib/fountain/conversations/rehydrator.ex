@@ -164,13 +164,17 @@ defmodule Fountain.Conversations.Rehydrator do
     end
   end
 
-  # A machine its owner is mid-operation on is not a machine to start a server
+  # A machine whose owner holds a live lease is not a machine to start a server
   # on (ADR 0058 stage 6a). The sweep reads `ready` rows, and a `ready` row can
-  # carry a stamped `transition` or a live lease: a destroy, a reset or — from
-  # stage 6b — a park is between its intent and its finalize, and the row it
-  # will write is not the row this preloaded struct shows. Starting a server
-  # there gives the machine a second writer during the one window the owner
-  # exists to prevent.
+  # be one a destroy, a reset or — from stage 6b — a park is holding between
+  # its intent and its finalize; the row it will write is not the row this
+  # preloaded struct shows. Starting a server there gives the machine a second
+  # writer during the one window the owner exists to prevent.
+  #
+  # A row whose lease has expired is started, stamped `transition` or not: that
+  # is an owner that died, not one working, and a boot sweep that skipped it
+  # would leave the conversation with no server until something else gave up on
+  # the row (round 1).
   #
   # Skipping, not failing: the next boot sweep or the conversation's own next
   # prompt comes back, and by then the operation has finished or its lease has

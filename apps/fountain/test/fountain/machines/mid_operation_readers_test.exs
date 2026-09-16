@@ -1,6 +1,6 @@
 defmodule Fountain.Machines.MidOperationReadersTest do
   @moduledoc """
-  The readers that refuse a machine its owner is mid-operation on (ADR 0058
+  The readers that refuse a machine whose owner holds a live lease (ADR 0058
   stage 6a, #2307 constraint 2's reader half).
 
   Nothing writes `transition: "parking"` yet — stage 6b's park protocol does.
@@ -14,6 +14,13 @@ defmodule Fountain.Machines.MidOperationReadersTest do
   sites share the function) and `Rehydrator`'s boot sweep each turn
   `Machine.busy?/2` into `:sandbox_unavailable` — the word the system already
   has, 503 with a `Retry-After`.
+
+  **A live lease is the whole of the question** (round 1). A stamped
+  `transition` whose lease has expired is an owner that *died* mid-operation,
+  and every door here must read such a row exactly as `main` does — refusing it
+  withheld a machine for as long as the sweep that gives up on the row takes to
+  run. Each door has that case beside its refusal, asserting the `main` verdict
+  rather than merely "not 503".
 
   Two orderings are load-bearing and each has a case here: the reset fence
   answers before the transition check, because a refused reset leaves
@@ -67,23 +74,34 @@ defmodule Fountain.Machines.MidOperationReadersTest do
     # That the gate does not decide this is pinned in `machine_test.exs`,
     # which is `async: false` — writing `:machine_owner_enabled` from an async
     # module is what `async_global_config_guardrail_test.exs` refuses.
-    test "a stamped transition or a live lease, and nothing else", ctx do
+    test "a live lease, and nothing else", ctx do
       refute Machine.busy?(ctx.sandbox)
 
-      for transition <- Sandbox.transitions() do
-        assert Machine.busy?(stamp(ctx.sandbox, transition: transition)),
-               "#{transition} did not read as mid-operation"
-      end
-
-      clean = stamp(ctx.sandbox, transition: nil)
-      refute Machine.busy?(clean)
-
-      assert Machine.busy?(stamp(clean, held()))
-      refute Machine.busy?(stamp(clean, held(-1_000)))
+      assert Machine.busy?(stamp(ctx.sandbox, held()))
+      refute Machine.busy?(stamp(ctx.sandbox, held(-1_000)))
 
       # A `lease_until` with no holder is a row held by nobody, and reads as
       # such — the half the two SQL copies of this rule had dropped.
-      refute Machine.busy?(stamp(clean, lease_node: nil))
+      refute Machine.busy?(stamp(ctx.sandbox, lease_node: nil))
+    end
+
+    test "a stamped transition is not, on its own, an owner at work", ctx do
+      # The round-1 correction. A transition with no live lease is an owner
+      # that died mid-operation; `SandboxReaper.sweep_fenced_teardowns/0` calls
+      # exactly that row abandoned, and two readers of one row must not
+      # disagree. Refusing on it answered 503 until the sweep that gives up on
+      # the row ran — hourly, so 16 to 75 minutes.
+      released = stamp(ctx.sandbox, lease_epoch: 1, lease_node: nil, lease_until: nil)
+
+      for transition <- Sandbox.transitions() do
+        refute Machine.busy?(stamp(released, transition: transition)),
+               "#{transition} with no live lease read as an owner at work"
+      end
+
+      # And with a live lease under it, every one of them is.
+      for transition <- Sandbox.transitions() do
+        assert Machine.busy?(stamp(released, Keyword.put(held(), :transition, transition)))
+      end
     end
   end
 
@@ -93,11 +111,38 @@ defmodule Fountain.Machines.MidOperationReadersTest do
       assert {:reuse, _} = Wake.maybe_reuse_sandbox(conv_with_sandbox(ctx))
     end
 
-    test "a parking row is refused before the provider is asked", ctx do
+    test "a parking row under a live lease is refused before the provider is asked", ctx do
       reject(Managoat.Sandbox, :get, 1)
-      stamp(ctx.sandbox, transition: "parking")
+      stamp(ctx.sandbox, Keyword.put(held(), :transition, "parking"))
 
       assert {:error, :sandbox_unavailable} = Wake.maybe_reuse_sandbox(conv_with_sandbox(ctx))
+    end
+
+    test "a parking row whose lease died probes and reuses, exactly as on main", ctx do
+      # The abandoned-operation case. `main` probes the provider here and hands
+      # the caller the machine; so does 6a.
+      expect(Managoat.Sandbox, :get, fn _ -> {:ok, %{}} end)
+      stamp(ctx.sandbox, transition: "parking", lease_epoch: 1, lease_node: nil, lease_until: nil)
+
+      assert {:reuse, _} = Wake.maybe_reuse_sandbox(conv_with_sandbox(ctx))
+    end
+
+    test "an abandoned destroy still reaches a fresh machine, as on main", ctx do
+      # The surfaces review's exact probe: a teardown-fenced `ready` row whose
+      # owner died between the provider call and the finalize, its sprite
+      # already gone. `main` answered `:create_new` and the user got a machine
+      # at once; refusing it was the blocking finding.
+      expect(Managoat.Sandbox, :get, fn _ -> {:error, :not_found} end)
+
+      stamp(ctx.sandbox,
+        teardown_requested_at: DateTime.utc_now(),
+        transition: "destroying",
+        lease_epoch: 1,
+        lease_node: nil,
+        lease_until: nil
+      )
+
+      assert :create_new = Wake.maybe_reuse_sandbox(conv_with_sandbox(ctx))
     end
 
     test "a live lease is refused before the provider is asked", ctx do
@@ -114,20 +159,32 @@ defmodule Fountain.Machines.MidOperationReadersTest do
       assert {:reuse, _} = Wake.maybe_reuse_sandbox(conv_with_sandbox(ctx))
     end
 
-    test "a suspended row mid-operation is refused too", ctx do
+    test "a suspended row under a live lease is refused too", ctx do
       reject(Managoat.Sandbox, :get, 1)
-      stamp(ctx.sandbox, status: "suspended", transition: "resuming")
+      stamp(ctx.sandbox, Keyword.merge(held(), status: "suspended", transition: "resuming"))
 
       assert {:error, :sandbox_unavailable} = Wake.maybe_reuse_sandbox(conv_with_sandbox(ctx))
     end
 
-    test "a provisioning row mid-operation is refused rather than waited for", ctx do
+    test "a provisioning row under a live lease is refused rather than waited for", ctx do
       # `{:provisioning, id}` sends the caller to `await_registered/2` and then
       # to a fresh machine. A row an owner is holding is not that: it has a
       # writer, and the wake should come back.
-      stamp(ctx.sandbox, status: "pending", transition: "provisioning")
+      stamp(ctx.sandbox, Keyword.merge(held(), status: "pending", transition: "provisioning"))
 
       assert {:error, :sandbox_unavailable} = Wake.maybe_reuse_sandbox(conv_with_sandbox(ctx))
+    end
+
+    test "a provisioning row whose lease died still waits for the registry, as on main", ctx do
+      stamp(ctx.sandbox,
+        status: "pending",
+        transition: "provisioning",
+        lease_epoch: 1,
+        lease_node: nil,
+        lease_until: nil
+      )
+
+      assert {:provisioning, _} = Wake.maybe_reuse_sandbox(conv_with_sandbox(ctx))
     end
 
     test "the reset fence wins over the transition it leaves behind", ctx do
@@ -176,9 +233,37 @@ defmodule Fountain.Machines.MidOperationReadersTest do
       assert {:ok, _conv} = attach(ctx, ctx.sandbox)
     end
 
-    test "a parking row is refused", ctx do
+    test "a parking row under a live lease is refused", ctx do
       assert {:error, :sandbox_unavailable} =
-               attach(ctx, stamp(ctx.sandbox, transition: "parking"))
+               attach(ctx, stamp(ctx.sandbox, Keyword.put(held(), :transition, "parking")))
+    end
+
+    test "a parking row whose lease died attaches, exactly as on main", ctx do
+      row =
+        stamp(ctx.sandbox,
+          transition: "parking",
+          lease_epoch: 1,
+          lease_node: nil,
+          lease_until: nil
+        )
+
+      assert {:ok, _conv} = attach(ctx, row)
+    end
+
+    test "a permanent refusal outranks the transient one", ctx do
+      # `Machine.busy?/2` is the *last* arm of the `cond`, after identity and
+      # runtime (round 1, locks review). A mismatched attach onto a busy
+      # machine must keep its permanent 422 rather than being told to retry at
+      # something that will never work.
+      other_agent = insert_agent(user_id: ctx.user.id)
+      busy = stamp(ctx.sandbox, held())
+
+      assert {:error, :sandbox_identity_mismatch} =
+               Launch.start_conversation(%{
+                 "agent_id" => other_agent.id,
+                 "user_id" => ctx.user.id,
+                 "sandbox_id" => busy.id
+               })
     end
 
     test "a live lease is refused", ctx do
@@ -212,7 +297,7 @@ defmodule Fountain.Machines.MidOperationReadersTest do
       # reproduces that window deterministically, without depending on two
       # processes' timing.
       stub(Fountain.RuntimeDispatch, :concurrency, fn _runtime ->
-        stamp(ctx.sandbox, transition: "parking")
+        stamp(ctx.sandbox, held())
         99
       end)
 

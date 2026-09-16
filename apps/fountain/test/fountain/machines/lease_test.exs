@@ -89,6 +89,22 @@ defmodule Fountain.Machines.LeaseTest do
       refute Lease.live?(forged)
     end
 
+    test "live?/2 refuses a map that is missing either column" do
+      # Round 1, locks review. The first version matched `%{lease_node: nil}`
+      # and `%{lease_until: nil}` in turn, so a map *missing* the holder key
+      # fell through to the deadline clause and read as held on the deadline
+      # alone — the drift this function exists to remove, back as a map shape,
+      # and reachable through the `select` maps its callers hand-write.
+      future = DateTime.add(DateTime.utc_now(), 60_000, :millisecond)
+
+      assert_raise FunctionClauseError, fn -> Lease.live?(%{lease_until: future}) end
+      assert_raise FunctionClauseError, fn -> Lease.live?(%{lease_node: "fountain@a"}) end
+      assert_raise FunctionClauseError, fn -> Lease.live?(%{}) end
+
+      assert Lease.live?(%{lease_node: "fountain@a", lease_until: future})
+      refute Lease.live?(%{lease_node: nil, lease_until: future})
+    end
+
     test "live?/2 takes a selected map, not only a row", ctx do
       # `SandboxResetReconciler`'s sweep selects the two columns beside the id
       # rather than loading rows, and asks the same predicate.

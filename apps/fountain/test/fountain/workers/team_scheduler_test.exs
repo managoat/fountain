@@ -123,11 +123,54 @@ defmodule Fountain.Workers.TeamSchedulerTest do
       assert :ok = perform_job(TeamScheduleRun, %{"schedule_id" => s.id, "fired_at" => stale})
 
       assert Schedules.get_schedule(s.id, user.id).last_error ==
-               "teammate's computer was being started or stopped"
+               "Fountain was working on the teammate's computer"
     end
 
-    test "the snooze list is the queue's, not a copy of it" do
-      assert :sandbox_unavailable in Fountain.SandboxQueue.transient_errors()
+    test "every reason the queue snoozes on, this worker snoozes on" do
+      # The property, not membership (round 1, surfaces review). The first
+      # version asserted `:sandbox_unavailable in
+      # SandboxQueue.transient_errors()`, which says only that the *queue's*
+      # list contains the word — put an inline copy back in this worker and it
+      # still passed.
+      #
+      # This drives the worker with every reason on the queue's list, so a
+      # second list here that is missing any of them fails, and a reason added
+      # to the queue's list later is covered the day it is added.
+      user = insert_verified_user()
+      ada = insert_agent(user_id: user.id)
+
+      insert_conversation(
+        user_id: user.id,
+        agent: ada,
+        status: "idle",
+        channel_id: Team.channel()
+      )
+
+      s = create!(user, ada)
+      reasons = Fountain.SandboxQueue.transient_errors()
+      assert :sandbox_unavailable in reasons, "the scan is not reaching the queue's list"
+
+      for reason <- reasons do
+        stub(ConversationServer, :send_prompt, fn _, _, _, _ -> {:error, reason} end)
+        fresh = DateTime.utc_now() |> DateTime.to_iso8601()
+
+        assert {:snooze, 30} =
+                 perform_job(TeamScheduleRun, %{"schedule_id" => s.id, "fired_at" => fresh}),
+               "a firing that met #{inspect(reason)} was consumed rather than retried"
+      end
+
+      # And the source half: the worker reads the queue's list rather than
+      # spelling one out, which is what makes Mix rebuild it when that list
+      # changes.
+      source = Path.expand("../../../lib/fountain/workers/team_schedule_run.ex", __DIR__)
+      assert File.exists?(source), "the scan missed #{source}"
+      body = File.read!(source)
+
+      assert body =~ "@transient_errors SandboxQueue.transient_errors()"
+
+      refute body =~ ~r/@transient_errors\s+(~w|\[)/,
+             "team_schedule_run.ex spells out a snooze list of its own again; " <>
+               "read `SandboxQueue.transient_errors/0` instead (ADR 0058 stage 6a)"
     end
 
     test "a deleted or paused schedule is a no-op" do

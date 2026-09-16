@@ -118,9 +118,20 @@ defmodule Fountain.Machines.Lease do
   """
   @spec live?(Sandbox.t() | map(), DateTime.t()) :: boolean()
   def live?(sandbox, now \\ DateTime.utc_now())
-  def live?(%{lease_node: nil}, _now), do: false
-  def live?(%{lease_until: nil}, _now), do: false
-  def live?(%{lease_until: until}, now), do: DateTime.compare(until, now) == :gt
+
+  def live?(%{lease_node: node, lease_until: until}, now)
+      when is_binary(node) and not is_nil(until),
+      do: DateTime.compare(until, now) == :gt
+
+  # Both keys, always, and a `FunctionClauseError` for a map carrying neither
+  # (round 1, locks review). The first draft matched `%{lease_node: nil}` and
+  # `%{lease_until: nil}` in turn, so a map *missing* `:lease_node` fell through
+  # to the deadline clause and read as held on the deadline alone — the exact
+  # drift this function was written to remove, back as a map-shape hazard, and
+  # reachable: `SandboxResetReconciler`'s sweep hand-writes its `select` map, so
+  # a `select` that forgot the holder would have called every fenced row held
+  # with every test still green.
+  def live?(%{lease_node: _, lease_until: _}, _now), do: false
 
   @doc """
   Take the lease on `sandbox_id` for `node`, for `ttl_ms` from `now`.

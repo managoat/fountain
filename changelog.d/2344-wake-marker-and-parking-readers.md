@@ -27,5 +27,6 @@
   ADR 0058). Nothing is shown for it and no request reads it: it exists so
   Fountain's cleanup pass can tell a computer somebody just woke from one that
   was abandoned, on any replica, without waiting for the cluster registry to
-  catch up. Reclaiming an abandoned computer is unchanged, including its
-  timing.
+  catch up. What a cleanup pass reclaims is unchanged; a computer whose wake was
+  interrupted is now reclaimed on a later pass rather than the current one,
+  which on the hourly schedule can be up to about an hour and a quarter later.

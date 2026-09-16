@@ -59,11 +59,18 @@ defmodule Fountain.Conversations.Wake do
       when not is_nil(at) and status not in @terminal_statuses ->
         {:error, :sandbox_reset_pending}
 
-      # An owner is mid-operation on this machine (ADR 0058 stage 6a): a
-      # `transition` is stamped, or a lease is live. Refused *before* the
-      # probe, so a machine somebody is parking or destroying gets no provider
-      # call from this wake, and refused with the word the whole system
-      # already has for "not right now" — 503 with a `Retry-After`.
+      # An owner holds a live lease on this machine (ADR 0058 stage 6a).
+      # Refused *before* the probe, so a machine somebody is destroying — or,
+      # from 6b, parking — gets no provider call from this wake, and refused
+      # with the word the whole system already has for "not right now": 503
+      # with a `Retry-After: 30`, which is honest because the operation is
+      # live and one provider round trip from settling.
+      #
+      # A stamped `transition` on a lease-less row is *not* refused, and that
+      # is the round-1 correction: such a row is an owner that died
+      # mid-operation, which the reaper's own fenced-teardown sweep calls
+      # abandoned, and refusing it kept a caller from the fresh machine `main`
+      # would have given it for as long as an hour. `Machine.busy?/2` says why.
       #
       # After the reset fence, deliberately. A reset that the owner refused
       # leaves `transition: "destroying"` on a live row with its lease

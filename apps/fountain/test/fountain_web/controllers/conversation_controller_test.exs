@@ -1178,7 +1178,10 @@ defmodule FountainWeb.ConversationControllerTest do
         |> authed_with_key(raw_key)
         |> post("/api/conversations/#{conv.id}/terminate")
 
-      assert %{"error" => "sandbox_unavailable"} = json_response(conn, 503)
+      assert %{"error" => "sandbox_unavailable", "message" => message} =
+               json_response(conn, 503)
+
+      assert message =~ "send the request again"
       assert get_resp_header(conn, "retry-after") == ["30"]
     end
 

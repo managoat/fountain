@@ -16,9 +16,9 @@ defmodule Fountain.Machines.Machine do
   and one `sandbox.destroyed` audit event. `park`, `ensure_up`, `attach` and
   `admit_turn` arrive in stages 6b to 8.
 
-  Beside them is one pure predicate, `busy?/2` (stage 6a): whether an owner is
-  mid-operation on a machine, from the row the caller already holds. It is the
-  question every reader that was about to start work on a machine now asks
+  Beside them is one pure predicate, `busy?/2` (stage 6a): whether an owner
+  holds a live lease on a machine, from the row the caller already holds. It is
+  the question every reader that was about to start work on a machine now asks
   first, and the answer it turns into is `:sandbox_unavailable`.
 
   ## What the gate chooses
@@ -164,19 +164,42 @@ defmodule Fountain.Machines.Machine do
   end
 
   @doc """
-  Is an owner mid-operation on this machine (ADR 0058 stage 6a)?
+  Is an owner mid-operation on this machine, right now (ADR 0058 stage 6a)?
 
-  True when the row carries a stamped `transition` — the durable intent an
-  owner writes before provider I/O and clears when it finalizes — or a live
-  lease (`Fountain.Machines.Lease.live?/2`). Either one says the row a reader
-  is looking at is not the row that is about to exist.
+  **A live lease, and nothing else.** `Fountain.Machines.Lease.live?/2`: a
+  holder, and a deadline that has not passed. That is the same question
+  `Lease.claim/4` answers when it refuses a claimant, so a reader and a
+  claimant cannot disagree about who owns a machine.
 
   The readers that ask are the three that would otherwise start work on the
-  machine underneath the owner: `Wake.maybe_reuse_sandbox/1`,
+  machine underneath its owner: `Wake.maybe_reuse_sandbox/1`,
   `Launch.check_attachable/4` and `Rehydrator`'s boot sweep. Each turns `true`
   into the refusal the system already has, `:sandbox_unavailable` — 503 with a
-  `Retry-After`, `NotReadyError` in all four SDKs, snoozed by the launch queue
-  and the schedule runner.
+  `Retry-After: 30`, `NotReadyError` in all four SDKs, snoozed by the launch
+  queue and the schedule runner. Thirty seconds is an honest number precisely
+  because this is a *live* operation: one provider round trip, and the machine
+  settles.
+
+  **A stamped `transition` is deliberately not enough** (round 1, surfaces
+  review). It was, in the first draft of this function, and it was wrong. A
+  `transition` with no live lease is not an owner working — it is an owner that
+  *died* mid-operation, and nothing resolves that row until a sweep gives up on
+  it: `SandboxReaper.sweep_fenced_teardowns/0` on the hourly cron, or
+  `SandboxResetReconciler` every five minutes. Treating it as busy meant every
+  wake and attach onto an abandoned destroy answered 503 for between 16 and 75
+  minutes, where `main` probed the provider, found the machine gone and handed
+  the caller a fresh one immediately; a team schedule gave up inside that window
+  (`@wait_for`, 30 minutes) and a queued start could expire in it
+  (`@default_max_wait_seconds`, an hour). `sweep_fenced_teardowns/0` calls such
+  a row abandoned in as many words; two readers of one row must not disagree
+  about it.
+
+  So a stamped transition on a lease-less row reads exactly as it does on
+  `main`: the wake probes, the attach checks identity, the boot sweep starts a
+  server. Stage 6b's park takes a lease for the length of its checkpoint and
+  suspend, so a park in flight is refused here; a *stale* `parking` row left by
+  a dead owner is resolved by the park protocol's own takeover, from the owner's
+  side, which is where an abandoned operation belongs.
 
   Takes a `Sandbox` the caller has already read, so the check costs no query,
   and the clock, so a sweep can judge a page of rows against one instant.
@@ -184,9 +207,9 @@ defmodule Fountain.Machines.Machine do
   **Two things it deliberately does not do.**
 
   It is not gated on `MACHINE_OWNER_ENABLED`. The gate chooses where a verb
-  runs, never whether the protocol applies: `Destroy.run/2` takes a lease and
-  stamps `destroying` with the gate off, inline on its caller, so with the gate
-  off these rows exist and must be refused just the same.
+  runs, never whether the protocol applies: `Destroy.run/2` takes a lease with
+  the gate off, inline on its caller, so with the gate off these rows exist and
+  must be refused just the same.
 
   It says nothing about a terminal row, and callers must decide that first. A
   finalize writes `terminated` and releases the lease as two statements, so
@@ -195,9 +218,7 @@ defmodule Fountain.Machines.Machine do
   checks the terminal statuses before it asks.
   """
   @spec busy?(Sandbox.t() | map(), DateTime.t()) :: boolean()
-  def busy?(sandbox, now \\ DateTime.utc_now())
-  def busy?(%{transition: transition}, _now) when is_binary(transition), do: true
-  def busy?(sandbox, now), do: Lease.live?(sandbox, now)
+  def busy?(sandbox, now \\ DateTime.utc_now()), do: Lease.live?(sandbox, now)
 
   @doc """
   Destroy the machine behind `sandbox_id`: `Fountain.Machines.Destroy.run/2`,

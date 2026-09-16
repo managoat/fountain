@@ -365,21 +365,29 @@ defmodule FountainWeb.FallbackController do
     })
   end
 
-  # Two sources, both retryable and both meaning "this machine cannot be
-  # reached right now". A lifecycle fence refusing an actor whose sandbox
-  # binding just changed (#2049), and — since ADR 0058 — the machine's owner
-  # refusing while another operation holds its lease.
+  # Three sources now, all retryable and all meaning "Fountain is doing
+  # something else to this machine right now". A lifecycle fence refusing an
+  # actor whose sandbox binding just changed (#2049); the machine's owner
+  # refusing a teardown while another operation holds its lease (ADR 0058 stage
+  # 5); and — since stage 6a, the commonest of the three — a wake or an attach
+  # onto a machine whose owner holds a live lease.
   #
-  # No `message`, because the two do not mean the same thing to a caller and a
-  # generic sentence would be worse than none. An operation with something
-  # precise to say renders its own: `SandboxController.delete/2` does, because
-  # there the fence has already committed and the obvious reading of a bare 503
-  # is the wrong one.
+  # It carried no `message` while there were two, on the grounds that they did
+  # not mean the same thing to a caller. The third made that the wrong trade
+  # (round 1, surfaces review): it is the one most callers meet, the CLI prints
+  # `http 503: sandbox_unavailable` with nothing else when the body has no
+  # `message`, and the one sentence below is true of all three. An operation
+  # with something *more* precise to say still renders its own:
+  # `SandboxController.delete/2` does, because there the fence has already
+  # committed and "send it again" is the wrong advice.
   def call(conn, {:error, :sandbox_unavailable}) do
     conn
     |> put_resp_header("retry-after", "30")
     |> put_status(:service_unavailable)
-    |> json(%{error: "sandbox_unavailable"})
+    |> json(%{
+      error: "sandbox_unavailable",
+      message: "Fountain is finishing another operation on this sandbox; send the request again"
+    })
   end
 
   # A reapply that would need the machine built again (#1565). 409 rather than

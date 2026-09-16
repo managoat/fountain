@@ -568,23 +568,6 @@ defmodule Fountain.Conversations.Launch do
 
   defp check_attachable(%Sandbox{} = sandbox, %Agents.Agent{} = agent, vault_id, env_id) do
     cond do
-      # An owner is mid-operation on this machine (ADR 0058 stage 6a): a
-      # `transition` is stamped, or a lease is live. An attach binds a new
-      # conversation to a machine that is about to be parked, destroyed or
-      # rebuilt, and the identity checks below are made against a row that is
-      # not the row that is about to exist.
-      #
-      # Third, after the two clauses above, and that order is the contract.
-      # `reset_requested_at` still answers `:sandbox_reset_pending` — a refused
-      # reset leaves `transition: "destroying"` on a live row with its lease
-      # released (stage 5c), and the fence is the precise thing to say about it
-      # (409, "the reset is queued"), not "retry in 30s". The status clause
-      # above has already taken every non-`ready`/`suspended` row, so nothing
-      # terminal reaches here: a machine that finished is
-      # `{:sandbox_not_attachable, status}`, not a retry.
-      Machine.busy?(sandbox) ->
-        {:error, :sandbox_unavailable}
-
       sandbox.agent_id != agent.id ->
         {:error, :sandbox_identity_mismatch}
 
@@ -598,6 +581,26 @@ defmodule Fountain.Conversations.Launch do
       # whose runtime changed since gets a new machine, not this one.
       _unsafe_sandbox_runtime(sandbox.id) not in [nil, agent.runtime] ->
         {:error, :sandbox_runtime_mismatch}
+
+      # An owner holds a live lease on this machine (ADR 0058 stage 6a): a
+      # destroy, a reset, or — from 6b — a park, between its intent and its
+      # finalize. An attach would bind a new conversation to a row that is not
+      # the row about to exist.
+      #
+      # **Last, after every permanent refusal**, and that order is the contract
+      # (round 1, locks review). This was the first arm, which made an
+      # identity-mismatched attach onto a busy machine answer a retryable 503
+      # instead of the 422 it answers on `main` — telling a caller to try again
+      # at something that will never work. A permanent no outranks a temporary
+      # one; the only refusal that still precedes it is the reset fence, in the
+      # clause above, which is more specific rather than less permanent (409,
+      # "the reset is queued", not "retry in 30s").
+      #
+      # The status clause above has already taken every non-`ready`/`suspended`
+      # row, so nothing terminal reaches here: a machine that finished is
+      # `{:sandbox_not_attachable, status}`.
+      Machine.busy?(sandbox) ->
+        {:error, :sandbox_unavailable}
 
       true ->
         :ok

@@ -31,6 +31,7 @@ defmodule Fountain.Conversations do
   alias Fountain.InferenceCredentials
   alias Fountain.InferenceCredentials.Source
   alias Fountain.Machines.Lease
+  alias Fountain.Machines.Machine
   alias Fountain.Machines.Occupancy
   alias Fountain.PermissionPolicy
   alias Fountain.Repo
@@ -1174,16 +1175,38 @@ defmodule Fountain.Conversations do
   distributed-ordering gap: "not here" is not "nowhere". So the registration
   gets a durable half. In order:
 
-    1. `woken_at = now` on the sandbox row, under `with_sandbox_lock/2`, in its
-       own short transaction, committed *before* anything is asked of Horde. It
-       is an `update_all` on the primary key rather than a changeset: this is
-       control-plane bookkeeping about a process, not a state change on the
-       machine, so it deliberately does not run `update_sandbox/2`'s guards,
-       metering or queue poke, and it is not routed through
-       `Machines.Lease.cas_update/3` either — a starter holds no lease and
-       must not appear to.
+    1. Under `with_sandbox_lock/2`, in one short transaction: re-read the row
+       `FOR UPDATE`, refuse with `{:error, :sandbox_unavailable}` if an owner
+       holds a live lease on it (`Machines.Machine.busy?/2`), and otherwise
+       stamp `woken_at = now`. Committed *before* anything is asked of Horde.
     2. `Horde.DynamicSupervisor.start_child/2`, outside that lock and outside
        any transaction.
+
+  **Why the check is here as well as in the readers** (round 1, locks review).
+  `Wake.maybe_reuse_sandbox/1` reads the row with no lock at all, so a
+  `Lease.claim/4` landing between that read and this call would otherwise get a
+  `ConversationServer` started on a machine somebody is destroying — the
+  check-then-act window #2307 constraint 1 names. This door already takes the
+  very advisory lock `Lease.claim/4` takes, so asking again inside it closes
+  that window for nothing. The attach door never had it: its second verdict is
+  made under a `FOR NO KEY UPDATE` re-read, which conflicts with the claim's
+  `FOR UPDATE` and so genuinely serialises rather than merely arriving later.
+
+  The marker itself is an `update_all` on the primary key rather than a
+  changeset: control-plane bookkeeping about a process, not a state change on
+  the machine, so it deliberately does not run `update_sandbox/2`'s guards,
+  metering or queue poke, and it is not routed through
+  `Machines.Lease.cas_update/3` either — a starter holds no lease and must not
+  appear to.
+
+  **Refuses an enclosing transaction**, the same guard `Machines.Destroy.run/2`
+  carries and for the same reason (#2307 constraint 3): `with_sandbox_lock/2`
+  is a plain `Repo.transaction`, so nested it would join the caller's via a
+  savepoint and hold `pg_advisory_xact_lock(4316, …)` until the *outer* commit
+  — across `start_child`, breaking both promises above with nothing failing.
+  No caller does this today; the guard is here because "For 6b" names this
+  function as the seam a park will hold a wake against, which is when one
+  becomes likely.
 
   **Horde's answer is passed back verbatim, including
   `{:error, {:already_started, pid}}`**, because the two callers do not mean
@@ -1207,9 +1230,10 @@ defmodule Fountain.Conversations do
   costs fifteen minutes; killing a live server costs the queued prompt on it.
 
   `sandbox_id` may be `nil` (nothing to mark, as `with_sandbox_lock/2` already
-  allows), and a marker write that matches no row is logged and stepped over —
-  a vanished sandbox is the child's problem to discover, not a reason to refuse
-  to start it here.
+  allows), and a row that is gone by the time the lock is taken is logged and
+  stepped over — a vanished sandbox is the child's problem to discover, not a
+  reason to refuse to start it here. A *busy* machine is the one case that does
+  refuse, and it refuses with the word its readers use.
   """
   # The child spec is whatever `Horde.DynamicSupervisor.start_child/2` takes,
   # which is `DynamicSupervisor`'s own contract: every caller here passes
@@ -1219,33 +1243,76 @@ defmodule Fountain.Conversations do
           Supervisor.child_spec() | {module(), term()} | module()
         ) :: {:ok, pid()} | {:error, term()}
   def register_server(sandbox_id, child_spec) do
-    :ok = mark_woken(sandbox_id)
-
-    Horde.DynamicSupervisor.start_child(Fountain.ConversationSupervisor, child_spec)
+    with :ok <- mark_woken(sandbox_id) do
+      Horde.DynamicSupervisor.start_child(Fountain.ConversationSupervisor, child_spec)
+    end
   end
 
   defp mark_woken(nil), do: :ok
 
   defp mark_woken(sandbox_id) do
-    {:ok, count} =
-      with_sandbox_lock(sandbox_id, fn ->
-        {count, _} =
-          Repo.update_all(
-            from(s in Sandbox, where: s.id == ^sandbox_id),
-            set: [woken_at: DateTime.utc_now()]
-          )
-
-        {:ok, count}
-      end)
-
-    if count == 0 do
-      Logger.warning(
-        "register_server: no sandbox #{sandbox_id} to mark woken; starting the server anyway"
-      )
+    if Repo.in_transaction?() do
+      {:error, :transaction_open}
+    else
+      sandbox_id |> claim_registration() |> report_registration(sandbox_id)
     end
+  end
+
+  defp claim_registration(sandbox_id) do
+    with_sandbox_lock(sandbox_id, fn ->
+      # The verdict is made on the locked read, never on the struct a caller
+      # brought: a pre-lock reading is stale by construction, which is what
+      # makes this worth doing twice.
+      current =
+        Repo.one(
+          from s in Sandbox,
+            where: s.id == ^sandbox_id,
+            select: %{lease_node: s.lease_node, lease_until: s.lease_until},
+            lock: "FOR UPDATE"
+        )
+
+      cond do
+        is_nil(current) ->
+          {:ok, :no_row}
+
+        Machine.busy?(current) ->
+          {:error, :sandbox_unavailable}
+
+        true ->
+          {count, _} =
+            Repo.update_all(
+              from(s in Sandbox, where: s.id == ^sandbox_id),
+              set: [woken_at: DateTime.utc_now()]
+            )
+
+          {:ok, count}
+      end
+    end)
+  end
+
+  # A row that vanished between the caller's read and this lock is not a reason
+  # to refuse to start the server: a server on a machine whose row is gone
+  # discovers that for itself, and refusing here would turn a rare race into a
+  # failed wake.
+  defp report_registration({:ok, :no_row}, sandbox_id) do
+    Logger.warning(
+      "register_server: no sandbox #{sandbox_id} to mark woken; starting the server anyway"
+    )
 
     :ok
   end
+
+  defp report_registration({:ok, 1}, _sandbox_id), do: :ok
+
+  defp report_registration({:ok, 0}, sandbox_id) do
+    Logger.warning(
+      "register_server: sandbox #{sandbox_id} vanished under the lock; starting the server anyway"
+    )
+
+    :ok
+  end
+
+  defp report_registration({:error, _reason} = error, _sandbox_id), do: error
 
   @doc """
   Best-effort terminate the running ConversationServer (destroys the sprite

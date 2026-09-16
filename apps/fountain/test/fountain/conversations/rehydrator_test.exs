@@ -99,21 +99,41 @@ defmodule Fountain.Conversations.RehydratorTest do
     assert Repo.reload!(limited).status == "running"
   end
 
-  # ADR 0058 stage 6a. The sweep reads `ready` rows, and a `ready` row can be a
-  # machine its owner is between intent and finalize on: a destroy, a reset,
+  # ADR 0058 stage 6a. The sweep reads `ready` rows, and a `ready` row can be
+  # one an owner holds between its intent and its finalize: a destroy, a reset,
   # and from stage 6b a park. Starting a server there gives the machine a
   # second writer during the one window the owner exists to prevent. Skipping
   # is right rather than failing: the next boot, or the conversation's own next
   # prompt, comes back after the lease has gone.
-  for {label, kind} <- [{"a stamped transition", :transition}, {"a live lease", :lease}] do
-    test "boot skips a machine with #{label}" do
-      conv = resumable("idle")
-      conv.sandbox |> Ecto.Changeset.change(busy(unquote(kind))) |> Repo.update!()
+  test "boot skips a machine whose owner holds a live lease" do
+    conv = resumable("idle")
+    conv.sandbox |> Ecto.Changeset.change(held()) |> Repo.update!()
 
-      log = ExUnit.CaptureLog.capture_log(fn -> assert sweep() == 0 end)
-      assert log =~ "machine_busy"
-      refute_received {:worker_start, _}
-      assert Repo.reload!(conv).status == "idle"
+    log = ExUnit.CaptureLog.capture_log(fn -> assert sweep() == 0 end)
+    assert log =~ "machine_busy"
+    refute_received {:worker_start, _}
+    assert Repo.reload!(conv).status == "idle"
+  end
+
+  for transition <- ["parking", "destroying", "resuming"] do
+    test "boot starts a server on a #{transition} row whose lease died" do
+      # Round 1: a stamped transition with no live lease is an owner that died,
+      # not one working. Skipping it left the conversation with no server until
+      # something else gave up on the row — the hourly reaper, for a teardown.
+      conv = resumable("idle")
+
+      conv.sandbox
+      |> Ecto.Changeset.change(
+        transition: unquote(transition),
+        lease_epoch: 1,
+        lease_node: nil,
+        lease_until: nil
+      )
+      |> Repo.update!()
+
+      assert sweep() == 1
+      assert_received {:worker_start, args}
+      assert args[:conversation_id] == conv.id
     end
   end
 
@@ -121,11 +141,7 @@ defmodule Fountain.Conversations.RehydratorTest do
     conv = resumable("idle")
 
     conv.sandbox
-    |> Ecto.Changeset.change(
-      lease_epoch: 1,
-      lease_node: "fountain@other",
-      lease_until: DateTime.add(DateTime.utc_now(), -1_000, :millisecond)
-    )
+    |> Ecto.Changeset.change(held(-1_000))
     |> Repo.update!()
 
     assert sweep() == 1
@@ -143,17 +159,16 @@ defmodule Fountain.Conversations.RehydratorTest do
     refute_received {:worker_start, _}
   end
 
-  # The two shapes of "an owner is mid-operation on this machine" (ADR 0058).
-  # Written straight onto the row: no changeset casts these columns, which is
-  # itself part of the design — only `Machines.Lease` writes them.
-  defp busy(:transition), do: [transition: "parking"]
-
-  defp busy(:lease),
-    do: [
+  # A lease somebody holds (ADR 0058) — the whole of what makes a machine busy
+  # to a reader. Written straight onto the row: no changeset casts these
+  # columns, which is itself part of the design.
+  defp held(ttl_ms \\ 30_000) do
+    [
       lease_epoch: 1,
       lease_node: "fountain@other",
-      lease_until: DateTime.add(DateTime.utc_now(), 30_000, :millisecond)
+      lease_until: DateTime.add(DateTime.utc_now(), ttl_ms, :millisecond)
     ]
+  end
 
   defp resumable(status) do
     agent = insert_agent()

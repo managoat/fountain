@@ -10,10 +10,13 @@ defmodule Fountain.Machines.RegisterServerTest do
 
   What these pin is the ordering (the child sees the marker already written),
   the lock (a holder of the per-sandbox lock delays the registration, proven
-  with PostgreSQL's own wait report rather than with timing), that every
-  starter comes through the door, and that Horde's own answer is passed back
-  unchanged — the two callers do not agree on what `{:already_started, _}`
-  means and normalizing it here would break one of them (#717).
+  with PostgreSQL's own wait report rather than with timing), the two refusals
+  the door makes — an enclosing transaction, and a machine whose owner holds a
+  live lease, the latter decided *inside* the lock so a claim landing after the
+  caller's own read still wins (round 1, locks review) — that every starter
+  comes through the door, and that Horde's own answer is passed back unchanged:
+  the two callers do not agree on what `{:already_started, _}` means and
+  normalizing it here would break one of them (#717).
 
   `async: false`: the lock case runs unboxed, on real connections, because the
   SQL sandbox puts every process on one transaction and a lock taken there is
@@ -200,6 +203,59 @@ defmodule Fountain.Machines.RegisterServerTest do
     end
   end
 
+  describe "the door's refusals" do
+    test "an enclosing transaction is refused before the lock is taken", ctx do
+      # `with_sandbox_lock/2` is a plain `Repo.transaction`, so nested it joins
+      # the caller's through a savepoint and holds the advisory lock until the
+      # *outer* commit — across `start_child`, breaking both of the door's
+      # promises with nothing failing (#2307 constraint 3). The same guard
+      # `Machines.Destroy.run/2` carries.
+      assert {:ok, {:error, :transaction_open}} =
+               Repo.transaction(fn ->
+                 Conversations.register_server(
+                   ctx.sandbox.id,
+                   probe_spec(sandbox_id: ctx.sandbox.id)
+                 )
+               end)
+
+      refute_received {:started, _, _}
+      refute Repo.reload!(ctx.sandbox).woken_at
+    end
+
+    test "a machine whose owner holds a live lease is refused, and starts nothing", ctx do
+      {:ok, 1} = Lease.claim(ctx.sandbox.id, "fountain@other", 30_000)
+
+      assert {:error, :sandbox_unavailable} =
+               Conversations.register_server(
+                 ctx.sandbox.id,
+                 probe_spec(sandbox_id: ctx.sandbox.id)
+               )
+
+      refute_received {:started, _, _}
+      refute Repo.reload!(ctx.sandbox).woken_at
+    end
+
+    test "an expired lease is not a refusal", ctx do
+      {:ok, 1} = Lease.claim(ctx.sandbox.id, "fountain@other", 30_000)
+
+      ctx.sandbox
+      |> Ecto.Changeset.change(
+        lease_until: DateTime.add(DateTime.utc_now(), -1_000, :millisecond)
+      )
+      |> Repo.update!()
+
+      assert {:ok, pid} =
+               Conversations.register_server(
+                 ctx.sandbox.id,
+                 probe_spec(sandbox_id: ctx.sandbox.id)
+               )
+
+      assert_receive {:started, ^pid, _}, 5_000
+      assert Repo.reload!(ctx.sandbox).woken_at
+      stop(pid)
+    end
+  end
+
   describe "under the per-sandbox lock" do
     test "a holder of the sandbox lock delays the marker and the child with it" do
       Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
@@ -264,6 +320,81 @@ defmodule Fountain.Machines.RegisterServerTest do
             stop(pid)
 
             assert Repo.get!(Sandbox, tenant.sandbox.id).woken_at
+          after
+            Task.shutdown(registering, :brutal_kill)
+          end
+        after
+          Task.shutdown(blocker, :brutal_kill)
+          discard(tenant)
+        end
+      end)
+    end
+
+    test "a lease taken while the door waits on the lock is still seen" do
+      # The window the in-lock re-check closes (round 1, locks review).
+      # `Wake.maybe_reuse_sandbox/1` reads the row with no lock at all, so a
+      # `Lease.claim/4` landing between that read and this call would otherwise
+      # get a `ConversationServer` started on a machine somebody is destroying.
+      # Here the lease is taken *after* the door has already blocked on the
+      # advisory lock, which is as late as a claim can possibly be: a verdict
+      # made before the lock would miss it, and this one does not.
+      Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
+        tenant = committed_tenant()
+        owner = self()
+
+        blocker =
+          independent(fn ->
+            Repo.transaction(fn ->
+              Repo.query!("SELECT pg_advisory_xact_lock($1, $2)", [
+                @sandbox_lock_namespace,
+                :erlang.phash2(tenant.sandbox.id)
+              ])
+
+              send(owner, :locked)
+
+              receive do
+                :claim -> :ok
+              after
+                10_000 -> raise "claim barrier timed out"
+              end
+
+              # Straight onto the row rather than through `Lease.claim/4`,
+              # which refuses to run inside this open transaction — the same
+              # columns it would write.
+              Repo.update_all(
+                from(s in Sandbox, where: s.id == ^tenant.sandbox.id),
+                set: [
+                  lease_epoch: 1,
+                  lease_node: "fountain@other",
+                  lease_until: DateTime.add(DateTime.utc_now(), 30_000, :millisecond)
+                ]
+              )
+            end)
+          end)
+
+        try do
+          assert_receive {:backend, _, _}, 5_000
+          assert_receive :locked, 5_000
+
+          registering =
+            independent(fn ->
+              Conversations.register_server(tenant.sandbox.id, %{
+                id: {__MODULE__, :late_claim_probe},
+                start: {Probe, :start_link, [[owner: owner]]},
+                restart: :temporary
+              })
+            end)
+
+          try do
+            assert_receive {:backend, _, registering_backend}, 5_000
+            await_blocked(registering_backend, System.monotonic_time(:millisecond) + 5_000)
+
+            send(blocker.pid, :claim)
+            assert {:ok, {1, nil}} = Task.await(blocker, 15_000)
+
+            assert {:error, :sandbox_unavailable} = Task.await(registering, 15_000)
+            refute_received {:started, _, _}
+            refute Repo.get!(Sandbox, tenant.sandbox.id).woken_at
           after
             Task.shutdown(registering, :brutal_kill)
           end

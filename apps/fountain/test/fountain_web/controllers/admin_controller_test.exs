@@ -437,7 +437,16 @@ defmodule FountainWeb.AdminControllerTest do
         end)
         |> elem(0)
 
-      assert json_response(conn, 503) == %{"error" => "sandbox_unavailable"}
+      # The `message` arrived with ADR 0058 stage 6a: the wake and attach doors
+      # made this the commonest 503 in the product, and a bare body prints as
+      # `http 503: sandbox_unavailable` in the CLI.
+      assert json_response(conn, 503) == %{
+               "error" => "sandbox_unavailable",
+               "message" =>
+                 "Fountain is finishing another operation on this sandbox; " <>
+                   "send the request again"
+             }
+
       assert get_resp_header(conn, "retry-after") == ["30"]
       assert Fountain.Conversations._unsafe_get_sandbox!(sandbox.id).status == "ready"
     end

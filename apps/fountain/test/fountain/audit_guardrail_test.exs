@@ -24,6 +24,18 @@ defmodule Fountain.AuditGuardrailTest do
   use Fountain.DataCase, async: true
   use Mimic
 
+  # Ending a conversation whose server is gone now destroys its machine through
+  # `Fountain.Machines.Machine` (ADR 0058 stage 5) rather than leaving the
+  # sprite for the reaper, so these tests reach the provider where they did not
+  # before. Nothing here is about the provider, so the adapter seam answers
+  # yes and the assertions stay about the rows and the trail. Stubbed at
+  # `Managoat.Sandbox.Sprites` rather than at the `Managoat.Sandbox` facade so
+  # a test that drives either layer itself still overrides it.
+  setup do
+    stub(Managoat.Sandbox.Sprites, :destroy, fn _handle -> :ok end)
+    :ok
+  end
+
   alias Fountain.{
     Agents,
     Audit,
@@ -43,6 +55,7 @@ defmodule Fountain.AuditGuardrailTest do
   alias Fountain.Conversations.Reapply
   alias Fountain.Conversations.Termination
   alias Fountain.Conversations.Wake
+  alias Fountain.Machines.Machine
 
   defmodule OkProbe do
     @moduledoc false
@@ -103,6 +116,10 @@ defmodule Fountain.AuditGuardrailTest do
     {"sandbox reset", &__MODULE__.do_sandbox_reset/1, "sandbox.reset"},
     {"pending sandbox reset retry", &__MODULE__.do_pending_reset_retry/1, "sandbox.reset"},
     {"sandbox teardown fence", &__MODULE__.do_teardown_fence/1, "sandbox.teardown_requested"},
+    # The completed destroy, beside the intent above (ADR 0058 stage 5). The
+    # machine's owner records it, so every door onto a destroy — terminate, a
+    # reclaim, and the forced teardowns of stage 5b — is covered by one entry.
+    {"machine destroy", &__MODULE__.do_machine_destroy/1, "sandbox.destroyed"},
     {"account compute teardown", &__MODULE__.do_account_compute_teardown/1,
      "sandbox.teardown_requested"},
     {"role change", &__MODULE__.do_role_change/1, "account.role_changed"},
@@ -201,6 +218,9 @@ defmodule Fountain.AuditGuardrailTest do
       "conditional actor bookkeeping; the sandbox stage records a current notification, and " <>
         "releasing a parent the rebind stranded repairs machine state rather than tenant state",
     "ConversationServer per-turn state" => "high-volume machine state; log_events covers it",
+    "Fountain.Machines.Destroy.run/2 on a row whose user_id is nil" =>
+      "account deletion nilifies user_id before its machines are torn down (#2329), so the " <>
+        "destroy has no tenant to attribute; the deletion's own trail is the record of it",
     "Accounts.touch_api_key/1" => "a last-used stamp on every authenticated request",
     "Runners.touch/1 and reconnects" =>
       "a last-seen stamp on every heartbeat; a reconnect refreshes the same row",
@@ -612,6 +632,11 @@ defmodule Fountain.AuditGuardrailTest do
     insert_sandbox(user_id: user.id, status: "ready")
     stub(Managoat.Sandbox.Sprites, :destroy, fn _ -> :ok end)
     1 = Fountain.Accounts.Deletion.destroy_sprites(user)
+  end
+
+  def do_machine_destroy(user) do
+    sandbox = insert_sandbox(user_id: user.id, status: "ready")
+    {:ok, :destroyed} = Machine.destroy(sandbox.id, actor: "api", reason: :terminated)
   end
 
   def do_teardown_fence(user) do

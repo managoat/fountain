@@ -1,6 +1,10 @@
 defmodule Fountain.Machines.MachineTest do
   @moduledoc """
-  The read-only owner (ADR 0058 stage 4).
+  The owner process and its two doors (ADR 0058 stages 4 and 5).
+
+  The destroy protocol itself is `destroy_test.exs`; what is pinned here is
+  the door — which side of the gate the work runs on, and what a caller is
+  told when the owner cannot be reached at all.
 
   `async: false`: the gate is application environment, and the process reads
   the repo from outside the test process, which needs the shared sandbox.
@@ -222,11 +226,12 @@ defmodule Fountain.Machines.MachineTest do
     end
 
     test "with the gate on, no predicate starts an owner", ctx do
-      # This is the documented behaviour as of stage 4: the flag is reserved
-      # and has no effect, because nothing in lib/ asks the owner anything.
-      # `docs/configuration.md` says exactly that, so this is the guard on the
-      # words as much as on the code. Stage 5 gives the owner its first caller
-      # and this test changes with it.
+      # A read never needs the process. `Machine.destroy/2` is the one verb
+      # that does (stage 5), and the predicates below are not it:
+      # `held_by_other?/2` in particular runs inside the teardown fence's own
+      # advisory-locked transaction and reads that transaction's uncommitted
+      # rows, so it must stay on the caller's connection and never go behind a
+      # GenServer call (#2348 review).
       with_gate(true, fn ->
         assert Machines.enabled?()
         assert registry_entries() == []
@@ -244,6 +249,72 @@ defmodule Fountain.Machines.MachineTest do
         assert Horde.DynamicSupervisor.count_children(Fountain.MachineSupervisor).active == 0,
                "MachineSupervisor has children"
       end)
+    end
+  end
+
+  describe "destroy/2" do
+    setup ctx do
+      stub(Managoat.Sandbox, :destroy, fn _handle -> :ok end)
+      # Alone on the machine: a co-tenant would make the fence keep it.
+      Fountain.Repo.delete!(ctx.b)
+      :ok
+    end
+
+    test "with the gate off it runs inline and starts nothing", ctx do
+      with_gate(false, fn ->
+        assert {:ok, :destroyed} =
+                 Machine.destroy(ctx.sandbox.id,
+                   actor: "api",
+                   reason: :terminated,
+                   terminating_conversation_id: ctx.a.id
+                 )
+
+        assert registry_entries() == [], "the gate was off and an owner started"
+      end)
+
+      assert Fountain.Repo.reload!(ctx.sandbox).status == "terminated"
+    end
+
+    test "with the gate on it runs in the owner, which survives to answer again", ctx do
+      with_gate(true, fn ->
+        {:ok, owner} = Machine.ensure_started(ctx.sandbox.id)
+        Mimic.allow(Managoat.Sandbox, self(), owner)
+
+        assert {:ok, :destroyed} =
+                 Machine.destroy(ctx.sandbox.id,
+                   actor: "api",
+                   reason: :terminated,
+                   terminating_conversation_id: ctx.a.id
+                 )
+
+        # The idle window is re-armed by the call rather than left to fire
+        # mid-destroy, so the owner is still there for the next verb.
+        assert Machine.whereis(ctx.sandbox.id) == owner
+        assert %Occupancy{} = Machine.who_is_here(ctx.sandbox.id)
+      end)
+
+      assert Fountain.Repo.reload!(ctx.sandbox).status == "terminated"
+    end
+
+    test "an owner that cannot be started refuses rather than writing anyway", ctx do
+      # The difference from `who_is_here/1`, which falls back to a direct read:
+      # that verb only looked, and this one writes. A write with nowhere to run
+      # has to say so, or two nodes end up destroying one machine by different
+      # routes.
+      stub(Horde.DynamicSupervisor, :start_child, fn Fountain.MachineSupervisor, _child ->
+        {:error, :no_capacity}
+      end)
+
+      stub(Horde.Registry, :lookup, fn Fountain.MachineRegistry, _key -> [] end)
+      reject(Managoat.Sandbox, :destroy, 1)
+
+      with_gate(true, fn ->
+        assert {:error, {:machine_unreachable, :no_capacity}} =
+                 Machine.destroy(ctx.sandbox.id, actor: "api", reason: :terminated)
+      end)
+
+      assert Fountain.Repo.reload!(ctx.sandbox).status == "ready"
+      refute Fountain.Repo.reload!(ctx.sandbox).teardown_requested_at
     end
   end
 

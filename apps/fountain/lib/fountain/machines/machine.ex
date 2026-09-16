@@ -1,6 +1,6 @@
 defmodule Fountain.Machines.Machine do
   @moduledoc """
-  The owner of one machine (ADR 0058) — **read-only for now**.
+  The owner of one machine (ADR 0058).
 
   One process per *active* sandbox, registered in `Fountain.MachineRegistry`
   under the sandbox id and supervised by `Fountain.MachineSupervisor`, both
@@ -8,20 +8,32 @@ defmodule Fountain.Machines.Machine do
   a minute with nothing asked of it, and `ensure_started/1` brings it back:
   there is a process per active machine, not one per row.
 
-  Today it answers one verb, `who_is_here/1`, which returns the
-  `Fountain.Machines.Occupancy` struct. It holds no state beyond the sandbox
-  id and its idle timer, it does not claim the lease
-  (`Fountain.Machines.Lease`, stage 3), and it writes nothing — not the row,
-  not the provider, not an audit event. The lease, the transition column and
-  the verbs that need them (`destroy`, `park`, `ensure_up`, `attach`,
-  `admit_turn`) arrive in stages 5 to 8.
+  Two verbs so far. `who_is_here/1` returns the `Fountain.Machines.Occupancy`
+  struct and reads nothing else. `destroy/2` runs
+  `Fountain.Machines.Destroy.run/2` — the one destroy protocol, lease and all
+  — and is the only thing here that writes: the row through
+  `Fountain.Machines.Lease`, the provider through `Managoat.Sandbox.destroy/1`
+  and one `sandbox.destroyed` audit event. `park`, `ensure_up`, `attach` and
+  `admit_turn` arrive in stages 6 to 8.
+
+  ## What the gate chooses
+
+  With `MACHINE_OWNER_ENABLED` on, `destroy/2` is a call into this process, so
+  two destroys of one machine queue behind one another in its mailbox. With it
+  off, `Destroy.run/2` runs inline on the caller. **Same protocol either way**
+  — the same fence, the same lease, the same compare-and-set, the same event —
+  because the thing that makes a destroy safe against a concurrent destroy is
+  the lease on the row, not the mailbox in front of it. The process is an
+  optimization of the contention, not the correctness. That is also why there
+  is no second, older destroy path left behind the gate: there is one, and the
+  flag picks where it runs.
 
   Asking through a process for an answer available from a pure function looks
   like ceremony, and it is the point: `who_is_here/1` is the door every writer
-  will come through once the writes move here, so the callers move first,
-  while moving them still changes nothing. With `MACHINE_OWNER_ENABLED` off,
-  `who_is_here/1` reads `Occupancy` directly and starts nothing at all, so the
-  gate governs whether the process exists, never what the answer is.
+  comes through once the writes move here, so the callers moved first, while
+  moving them still changed nothing. With the gate off, `who_is_here/1` reads
+  `Occupancy` directly and starts nothing at all, so the gate governs whether
+  the process exists, never what the answer is.
   """
 
   # `:transient` — an idle-stop exits `:normal` and Horde leaves it stopped,
@@ -35,6 +47,7 @@ defmodule Fountain.Machines.Machine do
   require Logger
 
   alias Fountain.Machines
+  alias Fountain.Machines.Destroy
   alias Fountain.Machines.Occupancy
 
   # Long enough that a burst of questions about one machine — a lifecycle
@@ -46,6 +59,12 @@ defmodule Fountain.Machines.Machine do
   # The call is one to three indexed reads. A timeout longer than the default
   # would only ever hide a repo that is already in trouble.
   @call_timeout 15_000
+
+  # A destroy is a provider round trip plus four short transactions, and it may
+  # wait out another destroy's lease first (`Destroy`'s own TTL bounds that).
+  # A minute is generous for seconds of work; the point of the ceiling is that
+  # a caller blocked behind a wedged owner gives up rather than hanging.
+  @destroy_timeout 60_000
 
   # A start that loses the Horde race registers on another node, and the
   # registry is a CRDT: the winner can be invisible here for a few
@@ -112,6 +131,51 @@ defmodule Fountain.Machines.Machine do
     if Machines.enabled?(), do: ask_owner(sandbox_id, 1), else: Occupancy.load(sandbox_id)
   end
 
+  @doc """
+  Destroy the machine behind `sandbox_id`: `Fountain.Machines.Destroy.run/2`,
+  run inside the owner when `MACHINE_OWNER_ENABLED` is on and inline on the
+  caller when it is off. `opts` are the protocol's, documented there.
+
+  Unlike `who_is_here/1` there is no falling back to a direct read when the
+  owner cannot be reached. That verb only looked; this one writes, and a write
+  that was refused a place to run has to say so rather than find another one.
+  """
+  @spec destroy(String.t(), keyword()) :: {:ok, Destroy.outcome()} | {:error, term()}
+  def destroy(sandbox_id, opts) when is_binary(sandbox_id) and is_list(opts) do
+    if Machines.enabled?() do
+      destroy_in_owner(sandbox_id, opts, 1)
+    else
+      Destroy.run(sandbox_id, opts)
+    end
+  end
+
+  # The same gone-owner retry as `ask_owner/2`, and the same reason: the idle
+  # timer fires on its own schedule and a Horde registry entry can name a
+  # process that has already exited. One retry with a freshly started owner,
+  # then a refusal. A `:timeout` is not retried — the owner is alive and busy,
+  # and asking it twice only doubles the wait.
+  defp destroy_in_owner(sandbox_id, opts, retries_left) do
+    case ensure_started(sandbox_id) do
+      {:ok, pid} ->
+        try do
+          GenServer.call(pid, {:destroy, opts}, @destroy_timeout)
+        catch
+          :exit, reason
+          when retries_left > 0 and elem(reason, 0) in [:noproc, :normal, :shutdown] ->
+            Logger.debug("machine #{sandbox_id}: owner went away before destroy; retrying")
+            destroy_in_owner(sandbox_id, opts, retries_left - 1)
+
+          :exit, reason ->
+            Logger.warning("machine #{sandbox_id}: destroy unreachable (#{inspect(reason)})")
+            {:error, {:machine_unreachable, reason}}
+        end
+
+      {:error, reason} ->
+        Logger.warning("machine #{sandbox_id}: no owner to destroy through (#{inspect(reason)})")
+        {:error, {:machine_unreachable, reason}}
+    end
+  end
+
   # The pid can be gone between the lookup and the call — the idle timer fires
   # on its own schedule, and a Horde registry entry can outlive the process it
   # names while the CRDT catches up. `GenServer.call` *exits* on that, which
@@ -170,10 +234,23 @@ defmodule Fountain.Machines.Machine do
     {:reply, Occupancy.load(state.sandbox_id), arm_idle(state)}
   end
 
+  # Serialization, not safety: `Destroy.run/2`'s lease is what makes two
+  # destroys of one machine correct, and running them one at a time here is
+  # what keeps the second one from waiting out the first one's lease to find
+  # out. It runs in the owner rather than in a task so the mailbox is the
+  # queue; `@destroy_timeout` on the client side is the ceiling on that queue.
+  def handle_call({:destroy, opts}, _from, state) do
+    {:reply, Destroy.run(state.sandbox_id, opts), arm_idle(state)}
+  end
+
   @impl true
   def handle_info({:idle, token}, %{idle_token: token} = state) do
-    # Nothing durable to release: no lease, no provider handle, no in-flight
-    # write. `ensure_started/1` starts a replacement on the next question.
+    # Nothing durable to release. A destroy's lease is claimed and released
+    # inside its own `handle_call`, and a GenServer handles one message at a
+    # time, so this message is only ever reached between operations — never
+    # with one in flight. `ensure_started/1` starts a replacement on the next
+    # question. The standing lease of stages 6 and 7 changes that, and will
+    # have to be given up here.
     {:stop, :normal, state}
   end
 

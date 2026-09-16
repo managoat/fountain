@@ -19,7 +19,15 @@ defmodule Fountain.Conversations.ConversationAuditTest do
   alias Fountain.Conversations.Launch
   alias Fountain.Conversations.Termination
 
+  # Ending a conversation whose server is gone now destroys its machine through
+  # `Fountain.Machines.Machine` (ADR 0058 stage 5) rather than leaving the
+  # sprite for the reaper, so these tests reach the provider where they did not
+  # before. Nothing here is about the provider, so the adapter seam answers
+  # yes and the assertions stay about the rows and the trail. Stubbed at
+  # `Managoat.Sandbox.Sprites` rather than at the `Managoat.Sandbox` facade so
+  # a test that drives either layer itself still overrides it.
   setup do
+    stub(Managoat.Sandbox.Sprites, :destroy, fn _handle -> :ok end)
     user = insert_verified_user()
     env = insert_env(user_id: user.id)
     # These start real servers with the real runtime module and assert the

@@ -1100,7 +1100,7 @@ defmodule Fountain.Conversations.ConversationServer do
 
   def handle_call({:terminate_conv, opts}, _from, state) when is_list(opts) do
     case prepare_termination(state, opts) do
-      {:ok, sandbox} -> terminate_machine(state, sandbox)
+      {:ok, _sandbox} -> terminate_machine(state, opts)
       {:error, :sandbox_kept} -> terminate_kept_machine(state)
       {:error, _} = error -> {:reply, error, state}
     end
@@ -1594,22 +1594,10 @@ defmodule Fountain.Conversations.ConversationServer do
   defp fail_transport(state, reason),
     do: Reattachment.fail_transport(Pending.resolve_held(state, "turn_ended"), reason)
 
-  defp prepare_termination(state, opts) do
-    opts =
-      opts
-      |> Keyword.put(:terminating_conversation_id, state.conversation_id)
-      |> Keyword.put_new(:reason, "conversation_terminated")
-
-    # ownership: init/1 established this actor's conversation and sandbox.
-    case Conversations._unsafe_get_sandbox(state.sandbox_id) do
-      nil ->
-        {:error, :sandbox_unavailable}
-
-      sandbox ->
-        # ownership: the conditional fence rechecks this actor's parent and owner.
-        Lifecycle.fence_sandbox_for_teardown(sandbox, opts)
-    end
-  end
+  # ownership: init/1 established this actor's conversation and sandbox; the
+  # conditional fence rechecks this actor's parent and owner.
+  defp prepare_termination(state, opts),
+    do: Termination.fence_machine(state.sandbox_id, state.conversation_id, opts)
 
   defp terminate_kept_machine(state) do
     # The machine is shared, or it is the agent's home (ADR 0023): end this
@@ -1630,15 +1618,26 @@ defmodule Fountain.Conversations.ConversationServer do
     })
   end
 
-  defp terminate_machine(state, sandbox) do
+  # The machine goes through its owner (ADR 0058 stage 5): the fence
+  # `prepare_termination/2` committed is repeated there — idempotently, no
+  # second `sandbox.teardown_requested`, both timestamps preserved — and the
+  # provider destroy, the terminal write and the `sandbox.destroyed` event are
+  # the protocol's. `terminating_conversation_id: nil` because the kept-or-
+  # destroy decision was `prepare_termination/2`'s and is not reopened here;
+  # `Termination.destroy_machine/2` says why. A refusal is logged, not raised:
+  # this conversation ends either way, and `Workers.SandboxReaper` collects a
+  # superseded destroy.
+  defp terminate_machine(state, opts) do
     state = if state.current_turn, do: interrupt_turn(state), else: state
     state = drop_connection(state, "terminated")
-    if state.handle, do: _ = Managoat.Sandbox.destroy(state.handle)
+    opts = Keyword.put(opts, :terminating_conversation_id, nil)
+
+    case Termination.destroy_machine(state.sandbox_id, opts) do
+      {:ok, _outcome} -> :ok
+      {:error, reason} -> Logger.warning("conv #{state.conversation_id}: #{inspect(reason)}")
+    end
+
     Egress.release(state.conversation_id)
-
-    {:ok, _} =
-      Conversations.update_sandbox(sandbox, %{status: "terminated", terminated_at: now()})
-
     finish_termination(state, %{})
   end
 
@@ -2208,6 +2207,4 @@ defmodule Fountain.Conversations.ConversationServer do
         state,
         Output.log(Output.from_state(state), Output.ctx(state), stream, data)
       )
-
-  defp now, do: DateTime.utc_now() |> DateTime.truncate(:second)
 end

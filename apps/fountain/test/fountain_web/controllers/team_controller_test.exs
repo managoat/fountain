@@ -6,7 +6,15 @@ defmodule FountainWeb.TeamControllerTest do
   alias Fountain.Conversations.ConversationServer
   alias Fountain.Conversations.Termination
 
+  # Ending a conversation whose server is gone now destroys its machine through
+  # `Fountain.Machines.Machine` (ADR 0058 stage 5) rather than leaving the
+  # sprite for the reaper, so these tests reach the provider where they did not
+  # before. Nothing here is about the provider, so the adapter seam answers
+  # yes. Stubbed at `Managoat.Sandbox.Sprites` rather than at the
+  # `Managoat.Sandbox` facade so a test that drives either layer itself still
+  # overrides it.
   setup do
+    stub(Managoat.Sandbox.Sprites, :destroy, fn _handle -> :ok end)
     user = insert_verified_user()
     {_key, raw_key} = insert_api_key(user)
     {:ok, user: user, raw_key: raw_key}

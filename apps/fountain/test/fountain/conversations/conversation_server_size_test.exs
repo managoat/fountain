@@ -31,16 +31,17 @@ defmodule Fountain.Conversations.ConversationServerSizeTest do
   only fails at the moment the last one lands.
   """
 
-  # 2364 → 2223. Retiring the tool bridge (ADR 0057, #2252) took the four
-  # parked-call entry points, their `handle_call` clauses, the deadline
-  # handler and the `caller_calls` field out of the server; `Pending` lost
-  # the other half in the same change. The file is 2213 lines on this branch.
+  # 2223 → 2220. ADR 0058 stage 5a took the server's own destroy out of
+  # `terminate_machine/2` — the provider call, the terminal write and the
+  # `now/0` helper that was left with no other caller — and moved the fence
+  # and the destroy request to `Conversations.Termination`, whose verb they
+  # belong to (#2175). The file is 2210 lines on this branch.
   #
-  # 2223 is that 2213 plus 10 lines, the same headroom every previous pin
-  # kept for review rounds. This is a deletion, not a move, so nothing is in
-  # flight below the file — but if stage 3 of the retirement lands after
-  # this, it lowers the pin again.
-  @pin 2223
+  # 2220 is that 2210 plus 10 lines, the same headroom every previous pin
+  # kept for review rounds. Nothing is stacked below this PR, so the number
+  # is not measured against a moving base; stages 6-8 lower it again as the
+  # server's remaining machine writes leave.
+  @pin 2220
 
   @server "apps/fountain/lib/fountain/conversations/conversation_server.ex"
 

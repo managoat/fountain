@@ -1,5 +1,6 @@
 defmodule Fountain.ConversationsContextTest do
   use Fountain.DataCase, async: true
+  use Mimic
 
   alias Fountain.Conversations
   alias Fountain.Conversations.{Conversation, Sandbox}
@@ -8,6 +9,18 @@ defmodule Fountain.ConversationsContextTest do
   # Split out of the 2,215-line conversations_context_test.exs (#899): ExUnit
   # parallelises across modules, never within one, so that single module was a
   # 29.4s floor for whichever partition drew it.
+
+  # Ending a conversation whose server is gone now destroys its machine through
+  # `Fountain.Machines.Machine` (ADR 0058 stage 5) rather than leaving the
+  # sprite for the reaper, so these tests reach the provider where they did not
+  # before. Nothing here is about the provider, so the adapter seam answers
+  # yes and the assertions stay about the rows and the trail. Stubbed at
+  # `Managoat.Sandbox.Sprites` rather than at the `Managoat.Sandbox` facade so
+  # a test that drives either layer itself still overrides it.
+  setup do
+    stub(Managoat.Sandbox.Sprites, :destroy, fn _handle -> :ok end)
+    :ok
+  end
 
   # Sandboxes
   # ────────────────────────────────────────────────────────────────────────────

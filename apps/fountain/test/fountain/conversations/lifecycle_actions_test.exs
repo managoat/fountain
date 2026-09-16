@@ -292,11 +292,16 @@ defmodule Fountain.Conversations.LifecycleActionsTest do
   end
 
   describe "destroy/5" do
+    # The machine destroyed is the one named on the *row*, not the one in the
+    # caller's handle (ADR 0058 stage 5): the owner reads the machine it owns,
+    # and the handle argument is left only to tag the telemetry. Before stage 5
+    # this expected `%Handle{name: "s"}`, the handle this test made up.
     test "tears the sandbox down, terminates the row and idles the conversation", ctx do
       ref = listen([:fountain, :sandbox, :reclaimed])
       test = self()
+      machine_name = ctx.sandbox.machine_name
 
-      expect(Managoat.Sandbox, :destroy, fn %Handle{name: "s"} ->
+      expect(Managoat.Sandbox, :destroy, fn %Handle{provider: :sprites, name: ^machine_name} ->
         send(test, :destroyed) && :ok
       end)
 
@@ -318,8 +323,14 @@ defmodule Fountain.Conversations.LifecycleActionsTest do
       assert_received {^ref, %{count: 1}, %{reason: :max_lifetime, provider: :sprites}}
     end
 
-    test "no handle is nothing to tear down, and the rows still move", ctx do
-      reject(&Managoat.Sandbox.destroy/1)
+    # Before stage 5 this asserted the opposite — `reject(&destroy/1)`, "no
+    # handle is nothing to tear down" — and a reclaim whose caller had already
+    # dropped its handle left the machine running with a terminal row behind
+    # it, for the reaper to find. The row names the machine, so the owner can
+    # always reach it.
+    test "a caller with no handle still destroys the machine the row names", ctx do
+      machine_name = ctx.sandbox.machine_name
+      expect(Managoat.Sandbox, :destroy, fn %Handle{name: ^machine_name} -> :ok end)
 
       assert Lifecycle.destroy(ctx.conv.id, ctx.sandbox.id, nil, :idle) == :ok
 

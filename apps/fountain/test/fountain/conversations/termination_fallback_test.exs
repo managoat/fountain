@@ -2,7 +2,7 @@ defmodule Fountain.Conversations.TerminationFallbackTest do
   use Fountain.DataCase, async: true
   use Mimic
 
-  alias Fountain.{Audit, Conversations}
+  alias Fountain.Audit
   alias Fountain.Conversations.ConversationServer
   alias Fountain.Conversations.Launch
   alias Fountain.Conversations.Lifecycle
@@ -17,21 +17,48 @@ defmodule Fountain.Conversations.TerminationFallbackTest do
     %{user: user, agent: agent, sandbox: sandbox, conv: conv}
   end
 
-  test "fences attachments before retiring the row and attributes the intent", ctx do
-    expect(Conversations, :update_sandbox, fn sandbox, attrs ->
+  # Two things changed here at ADR 0058 stage 5, and the assertions moved with
+  # them. The dead-server path now **destroys the machine**, where before it
+  # fenced the row, wrote it terminal and left the sprite for the reaper — so
+  # the moment this test observes the fence from is the provider destroy
+  # rather than a stubbed `Conversations.update_sandbox/2`, which this path no
+  # longer calls at all. And the completed destroy records its own
+  # `sandbox.destroyed` beside the fence's intent.
+  test "fences attachments, destroys the machine and attributes both events", ctx do
+    machine_name = ctx.sandbox.machine_name
+
+    expect(Managoat.Sandbox, :destroy, fn %Managoat.Sandbox.Handle{name: ^machine_name} ->
       refute Repo.in_transaction?()
-      assert Repo.reload!(sandbox).reset_requested_at
+      fenced = Repo.reload!(ctx.sandbox)
+      assert fenced.reset_requested_at
+      assert fenced.teardown_requested_at
+      # Durable intent, stamped before the provider call and before the row is
+      # terminal: a reader sees what is being done to the machine (ADR 0058).
+      assert fenced.transition == "destroying"
+      assert fenced.status == "ready"
       assert {:error, :sandbox_reset_pending} = attach(ctx)
-      Mimic.call_original(Conversations, :update_sandbox, [sandbox, attrs])
+      :ok
     end)
 
     assert :ok = terminate(ctx)
-    assert Repo.reload!(ctx.sandbox).status == "terminated"
+    retired = Repo.reload!(ctx.sandbox)
+    assert retired.status == "terminated"
+    assert retired.terminated_at
+    assert is_nil(retired.transition)
     assert Repo.reload!(ctx.conv).status == "terminated"
+
     assert [intent] = events(ctx, "sandbox.teardown_requested")
     assert intent.actor == "ui"
     assert intent.request_ip == "192.0.2.5"
     assert intent.metadata["reason"] == "conversation_terminated"
+
+    assert [destroyed] = events(ctx, "sandbox.destroyed")
+    assert destroyed.actor == "ui"
+    assert destroyed.request_ip == "192.0.2.5"
+    assert destroyed.metadata["reason"] == "terminated"
+    assert destroyed.metadata["provider"] == "sprites"
+    assert destroyed.metadata["sprite_name"] == machine_name
+
     assert [_] = events(ctx, "conversation.terminated")
   end
 
@@ -60,13 +87,22 @@ defmodule Fountain.Conversations.TerminationFallbackTest do
     assert events(ctx, "conversation.terminated") == []
   end
 
-  test "a retirement write error is returned with the admission fence intact", ctx do
-    expect(Conversations, :update_sandbox, fn _, _ -> {:error, :write_refused} end)
-    assert {:error, :write_refused} = terminate(ctx)
-    assert Repo.reload!(ctx.sandbox).status == "ready"
+  # Before stage 5 the terminal write was the last step of this path, so a
+  # refused write was the caller's error and this asserted `{:error,
+  # :write_refused}` with the row left `ready`. The last step is now the
+  # provider destroy's finalize, and a provider that cannot be reached must not
+  # strand a fenced machine in a live status nobody will look at again — the
+  # same rule the live-server path has always had ("a provider error still
+  # retires the fenced row for reconciliation").
+  test "a provider error still retires the fenced row and records the destroy", ctx do
+    expect(Managoat.Sandbox, :destroy, fn _ -> {:error, :unavailable} end)
+
+    assert :ok = terminate(ctx)
+    assert Repo.reload!(ctx.sandbox).status == "terminated"
     assert Repo.reload!(ctx.sandbox).reset_requested_at
     assert [_] = events(ctx, "sandbox.teardown_requested")
-    assert events(ctx, "conversation.terminated") == []
+    assert [_] = events(ctx, "sandbox.destroyed")
+    assert [_] = events(ctx, "conversation.terminated")
   end
 
   test "a persistent machine remains available without a teardown intent", ctx do

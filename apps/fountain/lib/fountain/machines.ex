@@ -6,12 +6,15 @@ defmodule Fountain.Machines do
   `Fountain.MachineRegistry` under the sandbox id, which will become the only
   writer of `sandboxes.status` and the only caller of the provider's create,
   resume, suspend, destroy and checkpoint. It is being built in stages behind
-  `MACHINE_OWNER_ENABLED`; today it answers one read-only question,
-  `Machine.who_is_here/1`, and writes nothing.
+  `MACHINE_OWNER_ENABLED`. Today it answers one read-only question,
+  `Machine.who_is_here/1`, and owns one write: `Machine.destroy/2`, the single
+  destroy protocol in `Fountain.Machines.Destroy` (stage 5).
 
-  While the gate is off every existing fence stays in force and every caller
-  takes the path it took before — `Occupancy` is reachable without the
-  process, so nothing about the answer depends on the flag.
+  The gate chooses *where* a destroy runs — inside the owner process, or
+  inline on the caller — and nothing else. The protocol, the fence it writes,
+  the lease it takes and the event it records are the same on both sides, so
+  every existing fence stays in force with the flag off and a mixed-version
+  fleet stays safe with it on.
   """
 
   @doc """

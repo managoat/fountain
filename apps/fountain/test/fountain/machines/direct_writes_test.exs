@@ -64,8 +64,18 @@ defmodule Fountain.Machines.DirectWritesTest do
 
   # Measured against `main` on this branch, 2026-09-16. See the per-file
   # breakdown this test prints on failure for what makes up each number.
-  @row_writes 28
-  @provider_mutations 17
+  #
+  # 28 -> 25 and 17 -> 15: ADR 0058 stage 5a moved the three conversation-side
+  # destroys behind `Fountain.Machines.Destroy`. Gone from the count are the
+  # terminal writes in `Lifecycle.do_destroy/4`,
+  # `ConversationServer.terminate_machine/2` and
+  # `Termination.retire_terminated_sandbox/2`, and the two
+  # `Managoat.Sandbox.destroy/1` calls the first two of those made. The third
+  # never called the provider at all — it now does, through the owner, which is
+  # a call this ratchet does not see because `lib/fountain/machines/` is
+  # exempt. Stage 5b takes the forced-teardown side and 5c the reset family.
+  @row_writes 25
+  @provider_mutations 15
 
   @provider_verbs ~w(create_checkpoint create resume suspend destroy)
 

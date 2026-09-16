@@ -33,6 +33,7 @@ defmodule Fountain.Conversations.Termination do
 
   alias Fountain.Conversations
   alias Fountain.Conversations.{Conversation, Lifecycle, Sandbox}
+  alias Fountain.Machines.Machine
   alias Fountain.Repo
 
   @doc """
@@ -125,47 +126,111 @@ defmodule Fountain.Conversations.Termination do
   end
 
   @doc """
+  Commit the teardown fence for a conversation that is ending, on behalf of
+  its live `ConversationServer`.
+
+  The decision the server needs *before* it closes its adapter: `{:ok,
+  sandbox}` to tear the machine down, `{:error, :sandbox_kept}` to leave it
+  standing for a home or a co-tenant. The fence itself is
+  `Fountain.Conversations.Lifecycle`'s — a rule about the machine, not a
+  conversation verb — and `destroy_machine/3` below repeats it idempotently
+  when it runs, so this is a pre-check, not the fence of record.
+
+  Ownership is the caller's: the server established this conversation and its
+  sandbox at `init/1`, and the conditional fence rechecks the binding under
+  the lock anyway.
+  """
+  @spec fence_machine(String.t() | nil, String.t(), keyword()) ::
+          {:ok, Sandbox.t()} | {:error, term()}
+  def fence_machine(sandbox_id, conversation_id, opts) do
+    opts =
+      opts
+      |> Keyword.put(:terminating_conversation_id, conversation_id)
+      |> Keyword.put_new(:reason, "conversation_terminated")
+
+    # ownership: the caller's server established this conversation and its
+    # sandbox at init/1; the conditional fence rechecks the binding under the
+    # per-sandbox lock before it commits anything.
+    case sandbox_id && Conversations._unsafe_get_sandbox(sandbox_id) do
+      nil -> {:error, :sandbox_unavailable}
+      sandbox -> Lifecycle.fence_sandbox_for_teardown(sandbox, opts)
+    end
+  end
+
+  @doc """
+  Destroy the machine of a conversation that is ending, through its owner
+  (ADR 0058 stage 5).
+
+  One door for both halves of terminate — the live server's and the dead
+  server's — so the fence, the provider destroy, the terminal write and the
+  `sandbox.destroyed` event are the same five steps whichever half ran.
+
+  **`:terminating_conversation_id` says which call's fence decides**, and the
+  two halves answer it differently:
+
+    * **the conversation's id**, from the dead-server path, where this fence is
+      the first and only look at the machine. A persistent home or a live
+      co-tenant then answers `{:ok, :kept}` and nothing is touched — the
+      kept-machine semantics this path has always had.
+    * **`nil`**, from a live server that already ran `fence_machine/3` and
+      acted on its verdict. The protocol still fences — a repeat, which writes
+      no second intent and is what keeps a mixed-version fleet safe — but it
+      must not decide the binding a second time. By then the turn has been
+      interrupted and the adapter closed, and a conversation rebound to another
+      machine in between would make the second decision `:sandbox_kept`,
+      leaving this machine fenced, live and billing with no server left to
+      finish it (`ee/test/.../termination_billing_test.exs` is that race).
+
+  The two reasons are deliberately different words. `:terminated` is the
+  machine's transition and what the `sandbox.destroyed` event says happened;
+  `"conversation_terminated"` (or whatever the caller passed as `:reason`) is
+  what the fence's `sandbox.teardown_requested` event has always said, and
+  changing that would rewrite a trail operators already read.
+  """
+  @spec destroy_machine(String.t(), keyword()) ::
+          {:ok, Fountain.Machines.Destroy.outcome()} | {:error, term()}
+  def destroy_machine(sandbox_id, opts) do
+    Machine.destroy(sandbox_id,
+      actor: Keyword.get(opts, :actor, "self"),
+      reason: :terminated,
+      fence_reason: Keyword.get(opts, :reason, "conversation_terminated"),
+      terminating_conversation_id: Keyword.fetch!(opts, :terminating_conversation_id),
+      request_ip: Keyword.get(opts, :request_ip)
+    )
+  end
+
+  @doc """
   Retire the machine of an authorized, terminated conversation with no actor.
-  The conditional fence preserves homes and other live co-tenants, and blocks
-  new attachments before the terminal write. No provider I/O runs here; the
-  reaper handles terminal rows. The caller owns the conversation lifecycle
-  audit; the fence records teardown intent using the supplied attribution.
+
+  The conditional fence preserves homes and other live co-tenants and blocks
+  new attachments; past it, the machine is destroyed at the provider and the
+  row retired, through `destroy_machine/3`. **This is where it used to stop.**
+  Before ADR 0058 stage 5 this path fenced the row, wrote it terminal and left
+  the sprite standing for `Workers.SandboxReaper`'s next pass to notice and
+  collect — up to an hour of a machine nobody could reach still billing. The
+  reaper's terminal-row pass is still the safety net; it is no longer the
+  mechanism.
+
+  The caller owns the conversation lifecycle audit; the two machine events —
+  the fence's intent and the destroy — carry the supplied attribution.
   """
   def retire_terminated_sandbox(%{sandbox_id: nil}, _opts), do: :ok
 
   def retire_terminated_sandbox(conv, opts) do
-    opts =
-      opts
-      |> Keyword.put(:terminating_conversation_id, conv.id)
-      |> Keyword.put_new(:reason, "conversation_terminated")
-
-    # ownership: this sandbox belongs to the conversation authorized by the caller.
+    # ownership: this sandbox belongs to the conversation authorized by the
+    # caller; the fence inside the protocol rechecks the binding under its lock.
     case Conversations._unsafe_get_sandbox(conv.sandbox_id) do
       nil ->
         {:error, :sandbox_unavailable}
 
-      sandbox ->
-        # ownership: the authorized conversation supplies this sandbox; the fence rechecks binding.
-        case Lifecycle.fence_sandbox_for_teardown(sandbox, opts) do
-          {:ok, %{status: status}} when status in ["terminated", "failed"] ->
-            :ok
+      _sandbox ->
+        # Nothing has fenced this machine yet, so the protocol's fence is the
+        # decision: it keeps a home or a machine a co-tenant still holds.
+        opts = Keyword.put(opts, :terminating_conversation_id, conv.id)
 
-          {:ok, fenced} ->
-            now = DateTime.utc_now() |> DateTime.truncate(:second)
-
-            with {:ok, _} <-
-                   Conversations.update_sandbox(fenced, %{
-                     status: "terminated",
-                     terminated_at: now
-                   }) do
-              :ok
-            end
-
-          {:error, :sandbox_kept} ->
-            :ok
-
-          {:error, _} = error ->
-            error
+        case destroy_machine(conv.sandbox_id, opts) do
+          {:ok, _outcome} -> :ok
+          {:error, _} = error -> error
         end
     end
   end

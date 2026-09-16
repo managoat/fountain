@@ -58,6 +58,11 @@ defmodule Fountain.Conversations.Lifecycle do
   was established at `init/1`. The decision and its consequence sit in one
   file so a reader of `idle_action/1` can see what `:destroy` costs.
 
+  Since ADR 0058 stage 5, the destroy half of that consequence is not written
+  here: `destroy/4` asks `Fountain.Machines.Machine.destroy/2` for the machine
+  and keeps only the conversation's side of a reclaim. The park half still is,
+  until stage 6.
+
   ## The teardown fence
 
   This module also owns the forced-teardown admission fence
@@ -79,6 +84,7 @@ defmodule Fountain.Conversations.Lifecycle do
   alias Fountain.Conversations.Egress
   alias Fountain.Conversations.HomeCheckpoint
   alias Fountain.Conversations.{Conversation, Sandbox}
+  alias Fountain.Machines.Machine
   alias Fountain.Machines.Occupancy
   alias Fountain.Repo
   alias Managoat.Sandbox.Handle
@@ -448,10 +454,15 @@ defmodule Fountain.Conversations.Lifecycle do
   end
 
   @doc """
-  Fence admission before the server closes its adapter or destroys the machine.
+  Fence admission before the server closes its adapter.
   The caller owns the sandbox through its conversation, as in `home?/1`.
   Refuses an enclosing transaction; a successful fence commits before returning.
   Already-admitted turns may still be interrupted by this forced reclaim.
+
+  A pre-check, not the fence of record: `destroy/4` reaches the same fence
+  through `Machine.destroy/2`, and a repeat adds no second request event. What
+  this buys the server is the *timing* — it closes its adapter knowing nothing
+  can be admitted behind it, and a refusal here costs no teardown at all.
   """
   @spec prepare_destroy(String.t() | nil, :idle | :max_lifetime) :: :ok | {:error, term()}
   def prepare_destroy(sandbox_id, reason) do
@@ -465,9 +476,10 @@ defmodule Fountain.Conversations.Lifecycle do
       true ->
         with %Conversations.Sandbox{} = sandbox <- Conversations._unsafe_get_sandbox(sandbox_id),
              # `lifecycle_fence_test.exs` pins this fence through `Lifecycle`
-             # with Mimic, to simulate a race on the second (recheck) call from
-             # `destroy/4` below. A self-call written `__MODULE__.fence_sandbox_for_teardown(...)`
-             # keeps that stub able to intercept it, as
+             # with Mimic, to simulate a race on the second call —
+             # `Machines.Destroy`'s, once the adapter is already closed. A
+             # self-call written `__MODULE__.fence_sandbox_for_teardown(...)`
+             # keeps that stub able to intercept this one too, as
              # `Interruption.interrupt_dead/1` does for `wake_for_interrupt/1`.
              {:ok, _} <-
                __MODULE__.fence_sandbox_for_teardown(sandbox,
@@ -486,6 +498,24 @@ defmodule Fountain.Conversations.Lifecycle do
   Tear down the sandbox; the conversation stays `idle` and resumable (setting
   it `terminated` here would make a cost control into data loss). Serves both
   the max-lifetime ceiling and the idle bound on a provider that cannot park.
+
+  The machine half — the fence, the provider destroy, the terminal write and
+  the co-tenant notice — is `Fountain.Machines.Machine.destroy/2` (ADR 0058
+  stage 5). What is left here is the conversation half: the egress release,
+  the conversation's own status, its stage event and the telemetry the server
+  matches on, none of which the machine's owner knows or should.
+
+  **No `:terminating_conversation_id`**, deliberately. This is a reclaim, not
+  a terminate: the bound has been reached over the whole machine (ADR 0023
+  step 5, `busy_elsewhere?/2` and `max_lifetime_action/2` decide it), so a
+  home or a machine with idle co-tenants on it is the case this destroys
+  rather than the case it keeps. Handing the fence a terminating conversation
+  would turn every one of those into `:sandbox_kept` and leave an unparkable
+  machine billing forever, which is the bound's whole reason to exist.
+
+  `handle` is now only the provider tag on the telemetry. The machine to
+  destroy is read off the row, so a reclaim whose caller has already dropped
+  its handle destroys the machine rather than leaking it.
   """
   @spec destroy(
           String.t(),
@@ -494,29 +524,38 @@ defmodule Fountain.Conversations.Lifecycle do
           :idle | :max_lifetime
         ) :: :ok | {:error, term()}
   def destroy(conversation_id, sandbox_id, handle, reason) do
-    # The server prepares before closing its adapter. Check again here for
-    # direct callers; an existing fence adds no second request event.
-    with :ok <- prepare_destroy(sandbox_id, reason) do
-      do_destroy(conversation_id, sandbox_id, handle, reason)
+    # Checked here as well as in the protocol, and with this module's own word
+    # for it: `Machine.destroy/2` is not reached at all when there is no
+    # machine, and a caller inside a transaction must be refused either way.
+    if Repo.in_transaction?() do
+      {:error, :provider_transaction_open}
+    else
+      with :ok <- reclaim_machine(conversation_id, sandbox_id, reason) do
+        do_destroy(conversation_id, handle, reason)
+      end
     end
   end
 
-  defp do_destroy(conversation_id, sandbox_id, handle, reason) do
-    if handle, do: _ = Managoat.Sandbox.destroy(handle)
-    Egress.release(conversation_id)
+  # No machine was ever minted for this conversation; there is nothing to
+  # reclaim and the rows below still move.
+  defp reclaim_machine(_conversation_id, nil, _reason), do: :ok
 
-    if sandbox_id do
-      # Ownership: as home?/1 above.
-      sandbox = Conversations._unsafe_get_sandbox!(sandbox_id)
-
-      if sandbox.status not in ["terminated", "failed"] do
-        {:ok, _} =
-          Conversations.update_sandbox(sandbox, %{
-            status: "terminated",
-            terminated_at: DateTime.utc_now() |> DateTime.truncate(:second)
-          })
-      end
+  defp reclaim_machine(conversation_id, sandbox_id, reason) do
+    case Machine.destroy(sandbox_id,
+           actor: "system:conversation_server",
+           reason: reason,
+           notify: {conversation_id, "reclaimed", to_string(reason), reclaim_message(reason)}
+         ) do
+      # `:kept` is unreachable without a terminating conversation and
+      # `:already_terminal` is a machine someone else finished first; both
+      # leave this conversation's own bookkeeping below to do.
+      {:ok, _outcome} -> :ok
+      {:error, _} = error -> error
     end
+  end
+
+  defp do_destroy(conversation_id, handle, reason) do
+    Egress.release(conversation_id)
 
     conv = Conversations._unsafe_get_conversation!(conversation_id)
     if conv.status == "running", do: Conversations.update_conversation(conv, %{status: "idle"})
@@ -532,18 +571,15 @@ defmodule Fountain.Conversations.Lifecycle do
       message: reclaim_message(reason)
     })
 
+    # The co-tenants were told by `Machine.destroy/2`, before this, as part of
+    # the machine operation itself — `stop_cotenants/5` below is still the park
+    # path's, and `MachineEvents.tell_cotenants/5` is still the one sender.
     :telemetry.execute([:fountain, :sandbox, :reclaimed], %{count: 1}, %{
       reason: reason,
       provider: provider(handle)
     })
 
-    stop_cotenants(
-      sandbox_id,
-      conversation_id,
-      "reclaimed",
-      to_string(reason),
-      reclaim_message(reason)
-    )
+    :ok
   end
 
   @doc """

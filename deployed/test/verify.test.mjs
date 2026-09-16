@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { verifyConfig, summarize, resolveCredentials, targetOrigin, verifyMain, VERIFY_PROFILES, CREDENTIALS } from '../verify.mjs';
@@ -202,11 +202,17 @@ test('a run that wrote no report says so instead of claiming a pass', () => {
 test('an interrupt while the receiver is coming up exits 130, not 2', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'fountain-verify-interrupt-'));
   try {
-    const env = { ...keys, FOUNTAIN_RECEIVER_ADMIN_KEY: 'x'.repeat(64), TMPDIR: dir };
-    const started = verifyMain(['https://example.test', '--profile', 'mcp', '--out', join(dir, 'run')], env);
-    // The hosting phase is in flight; interrupt it the way the CLI does.
-    setTimeout(() => process.emit('SIGINT'), 20);
-    const code = await started;
-    assert.equal(code, 130, 'an operator cancellation is not a setup failure');
+    const env = { ...keys, TMPDIR: dir };
+    let stopped = false;
+    // Stands in for hosting: hosting spawns cloudflared, and this must not
+    // depend on that binary being present or on how fast it starts.
+    const hostReceiverFn = (profile, { signal }) => new Promise((resolve, reject) => {
+      signal.addEventListener('abort', () => { stopped = true; reject(new Error('Interrupted')); }, { once: true });
+    });
+    const started = verifyMain(['https://example.test', '--profile', 'mcp'], env, { hostReceiverFn });
+    setTimeout(() => process.emit('SIGINT'), 10);
+    assert.equal(await started, 130, 'an operator cancellation is not a setup failure');
+    assert.equal(stopped, true, 'the hosting phase is told to stop');
+    assert.deepEqual(readdirSync(dir), [], 'a cancelled run leaves no evidence directory');
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });

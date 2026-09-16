@@ -178,7 +178,9 @@ export function summarize(report, log = console.log) {
   for (const check of skipped) log(`  skipped    ${check.name}${check.reason ? `: ${check.reason}` : ''}`);
 }
 
-export async function verifyMain(argv, env = process.env) {
+// `hostReceiverFn` is a seam for tests: hosting spawns cloudflared, and a
+// test must not depend on that binary existing or on how fast it starts.
+export async function verifyMain(argv, env = process.env, { hostReceiverFn = hostReceiver } = {}) {
   const { values, positionals } = parseArgs({ args: argv, allowPositionals: true, options: {
     profile: { type: 'string', default: 'streaming' },
     runtime: { type: 'string', default: 'claude' },
@@ -212,7 +214,7 @@ export async function verifyMain(argv, env = process.env) {
   let receiver, out;
   try {
     try {
-      receiver = await openReceiver(values, env, controller.signal);
+      receiver = await openReceiver(values, env, controller.signal, hostReceiverFn);
     } catch (error) {
       // Hosting a receiver is the first abortable phase. Ctrl-C during it is
       // an operator cancelling, not a setup failure, and the exit code the
@@ -260,14 +262,14 @@ export async function verifyMain(argv, env = process.env) {
   }
 }
 
-function openReceiver(values, env, signal) {
+function openReceiver(values, env, signal, hostReceiverFn = hostReceiver) {
   if (!hostsReceiver(values.profile)) {
     if (values['receiver-url'] || values['blocked-url']) throw new Error(`The ${values.profile} profile uses no receiver`);
     return undefined;
   }
   const options = { receiverUrl: values['receiver-url'], blockedUrl: values['blocked-url'] };
   if (options.receiverUrl || options.blockedUrl) return externalReceiver(values.profile, options, env);
-  return hostReceiver(values.profile, { signal, log: console.log });
+  return hostReceiverFn(values.profile, { signal, log: console.log });
 }
 
 function readReport(results) {

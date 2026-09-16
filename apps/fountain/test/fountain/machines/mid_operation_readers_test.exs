@@ -80,9 +80,11 @@ defmodule Fountain.Machines.MidOperationReadersTest do
       assert Machine.busy?(stamp(ctx.sandbox, held()))
       refute Machine.busy?(stamp(ctx.sandbox, held(-1_000)))
 
-      # A `lease_until` with no holder is a row held by nobody, and reads as
-      # such — the half the two SQL copies of this rule had dropped.
-      refute Machine.busy?(stamp(ctx.sandbox, lease_node: nil))
+      # A future `lease_until` with no holder is a row held by nobody, and
+      # reads as such — the half the two SQL copies of this rule had dropped.
+      # The deadline has to be in the future or this passes from the deadline
+      # clause and never reaches the holder one (round 1, behaviour review).
+      refute Machine.busy?(stamp(ctx.sandbox, Keyword.merge(held(), lease_node: nil)))
     end
 
     test "a stamped transition is not, on its own, an owner at work", ctx do
@@ -127,14 +129,20 @@ defmodule Fountain.Machines.MidOperationReadersTest do
       assert {:reuse, _} = Wake.maybe_reuse_sandbox(conv_with_sandbox(ctx))
     end
 
-    test "an abandoned destroy still reaches a fresh machine, as on main", ctx do
-      # The surfaces review's exact probe: a teardown-fenced `ready` row whose
-      # owner died between the provider call and the finalize, its sprite
-      # already gone. `main` answered `:create_new` and the user got a machine
-      # at once; refusing it was the blocking finding.
-      expect(Managoat.Sandbox, :get, fn _ -> {:error, :not_found} end)
+    test "an abandoned destroy answers its fence here, on this tree and on main", ctx do
+      # The shape `Destroy` really leaves behind, which is not the one the
+      # round-1 note reached for: it fences *before* it stamps, and the
+      # teardown fence writes `reset_requested_at` beside
+      # `teardown_requested_at`. So a destroy whose owner died carries both,
+      # and this door answers the fence from its first clause — on `main` too.
+      # The wake door was therefore never the live 6a regression; the
+      # rehydrator's sweep was, because its query has no reset filter
+      # (`rehydrator_test.exs` pins that). Recorded here so a later reader does
+      # not go looking for a difference that is not at this door.
+      reject(Managoat.Sandbox, :get, 1)
 
       stamp(ctx.sandbox,
+        reset_requested_at: DateTime.utc_now(),
         teardown_requested_at: DateTime.utc_now(),
         transition: "destroying",
         lease_epoch: 1,
@@ -142,7 +150,25 @@ defmodule Fountain.Machines.MidOperationReadersTest do
         lease_until: nil
       )
 
-      assert :create_new = Wake.maybe_reuse_sandbox(conv_with_sandbox(ctx))
+      assert {:error, :sandbox_reset_pending} = Wake.maybe_reuse_sandbox(conv_with_sandbox(ctx))
+    end
+
+    test "an abandoned park has no fence to answer, and reuses as on main", ctx do
+      # And this is why the definition matters at 6b. A park carries no fence,
+      # so a park whose owner died reaches `busy?/2` with nothing in front of
+      # it: under the round-0 definition every wake onto it answered 503 until
+      # a sweep gave up on the row, with no fence to make that the right
+      # answer.
+      expect(Managoat.Sandbox, :get, fn _ -> {:ok, %{}} end)
+
+      stamp(ctx.sandbox,
+        transition: "parking",
+        lease_epoch: 1,
+        lease_node: nil,
+        lease_until: nil
+      )
+
+      assert {:reuse, _} = Wake.maybe_reuse_sandbox(conv_with_sandbox(ctx))
     end
 
     test "a live lease is refused before the provider is asked", ctx do
@@ -283,6 +309,43 @@ defmodule Fountain.Machines.MidOperationReadersTest do
     test "a terminal row keeps its own answer", ctx do
       row = stamp(ctx.sandbox, Keyword.merge(held(), status: "terminated"))
       assert {:error, {:sandbox_not_attachable, "terminated"}} = attach(ctx, row)
+    end
+
+    test "only the locked re-read can refuse when the lease arrives after the preflight", ctx do
+      # The locked `FOR NO KEY UPDATE` re-read's own coverage (round 1,
+      # behaviour review). The previous version of this case carried a prompt,
+      # which put `ConversationServer.send_prompt/4` — and so `Wake` — in the
+      # path *after* the attach committed, so the `:sandbox_unavailable` it
+      # asserted could come from either reader and deleting both guards left it
+      # green.
+      #
+      # No prompt here, so `Wake` is never reached, and the hook is
+      # `InferenceCredentials.lock_source/1`, which `create_attached_conversation/3`
+      # calls as the first statement inside its transaction — after the
+      # preflight `check_attachable/4` has already passed and before the
+      # `FOR NO KEY UPDATE` re-read. Only the locked check can produce this
+      # answer.
+      test_pid = self()
+
+      stub(Fountain.InferenceCredentials, :lock_source, fn _user_id ->
+        send(test_pid, {:preflight_saw, Repo.reload!(ctx.sandbox).lease_node})
+        stamp(ctx.sandbox, held())
+        :ok
+      end)
+
+      assert {:error, :sandbox_unavailable} =
+               Launch.start_conversation(%{
+                 "agent_id" => ctx.agent.id,
+                 "user_id" => ctx.user.id,
+                 "sandbox_id" => ctx.sandbox.id
+               })
+
+      # The row was unheld when the preflight ran, so the preflight cannot be
+      # what refused.
+      assert_received {:preflight_saw, nil}
+
+      # And the locked arm rolled its transaction back: nothing was created.
+      assert Repo.aggregate(from(c in Conversation), :count) == 1
     end
 
     test "the verdict that counts is the one under the admission lock", ctx do

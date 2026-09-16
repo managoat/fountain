@@ -137,6 +137,33 @@ defmodule Fountain.Conversations.RehydratorTest do
     end
   end
 
+  test "boot starts a server on an abandoned destroy, as on main" do
+    # The one door where the round-0 definition was a live regression today
+    # (round 1, behaviour review). `Destroy` fences before it stamps, so a
+    # destroy whose owner died carries `reset_requested_at` *and*
+    # `teardown_requested_at` beside its `destroying` — and `Wake` and the
+    # attach door both answer the fence before they ever ask `busy?`. This
+    # sweep does not: its query selects `ready` rows with no reset filter, so
+    # it reached `busy?` and skipped a row it had always started a server on.
+    conv = resumable("idle")
+    now = DateTime.utc_now()
+
+    conv.sandbox
+    |> Ecto.Changeset.change(
+      reset_requested_at: now,
+      teardown_requested_at: now,
+      transition: "destroying",
+      lease_epoch: 1,
+      lease_node: nil,
+      lease_until: nil
+    )
+    |> Repo.update!()
+
+    assert sweep() == 1
+    assert_received {:worker_start, args}
+    assert args[:conversation_id] == conv.id
+  end
+
   test "boot starts a server once the lease has expired" do
     conv = resumable("idle")
 

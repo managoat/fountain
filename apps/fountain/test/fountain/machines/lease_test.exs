@@ -79,8 +79,10 @@ defmodule Fountain.Machines.LeaseTest do
       assert {:ok, 1} = Lease.claim(ctx.sandbox.id, ctx.node, @ttl_ms)
       before = Repo.get!(Sandbox, ctx.sandbox.id)
 
-      # Epoch 0 is what every row starts at, so it is the epoch a caller that
-      # never held the lease would quote.
+      # Epoch 0 is the default on every row and epoch 1 is the first a claim
+      # ever hands out, so 0 is superseded here as well as never held. The
+      # never-held half is its own test below; this one is the ordinary
+      # overtaken-owner case.
       assert {:error, :stale} = Lease.cas_update(ctx.sandbox.id, 0, %{status: "failed"})
       assert Repo.get!(Sandbox, ctx.sandbox.id) == before
 
@@ -117,6 +119,102 @@ defmodule Fountain.Machines.LeaseTest do
       assert {:error, :stale} = Lease.cas_update(ctx.sandbox.id, 1, %{status: "terminated"})
       assert Repo.get!(Sandbox, ctx.sandbox.id).status == "pending"
       assert Repo.get!(Sandbox, ctx.sandbox.id).lease_node == "fountain@test-b"
+    end
+
+    test "epoch 0 is not a lease anybody took", ctx do
+      before = Repo.get!(Sandbox, ctx.sandbox.id)
+      assert before.lease_epoch == 0
+
+      # Every row starts at epoch 0 with no holder. If the epoch alone were the
+      # guard, a caller that had never claimed could renew a lease into
+      # existence — leaving `lease_until` set with `lease_node` nil, which
+      # `live?/2` reads as held and which no node can then claim for a whole
+      # TTL. Refused before the query: claims start at 1.
+      assert {:error, :lost} = Lease.renew(ctx.sandbox.id, 0, @ttl_ms)
+      assert {:error, :lost} = Lease.release(ctx.sandbox.id, 0)
+      assert {:error, :stale} = Lease.cas_update(ctx.sandbox.id, 0, %{status: "ready"})
+      assert Repo.get!(Sandbox, ctx.sandbox.id) == before
+
+      # And the machine is still claimable, which is the point.
+      assert {:ok, 1} = Lease.claim(ctx.sandbox.id, ctx.node, @ttl_ms)
+    end
+
+    test "a release cannot be undone by a renew that lands after it", ctx do
+      assert {:ok, 1} = Lease.claim(ctx.sandbox.id, ctx.node, @ttl_ms)
+      assert :ok = Lease.release(ctx.sandbox.id, 1)
+
+      # `release/2` keeps the epoch on purpose, so the epoch stays matchable.
+      # A renew from the surrendered holder — stage 4's idle-stop racing its
+      # own heartbeat — must not re-arm the lease it just gave up.
+      assert {:error, :lost} = Lease.renew(ctx.sandbox.id, 1, @ttl_ms)
+      assert {:error, :lost} = Lease.release(ctx.sandbox.id, 1)
+      assert {:error, :stale} = Lease.cas_update(ctx.sandbox.id, 1, %{status: "ready"})
+
+      released = Repo.get!(Sandbox, ctx.sandbox.id)
+      refute released.lease_until
+      refute released.lease_node
+      assert released.status == "pending"
+
+      assert {:ok, 2} = Lease.claim(ctx.sandbox.id, "fountain@next", @ttl_ms)
+    end
+
+    test "cas_update does not revive a retired machine", ctx do
+      assert {:ok, epoch} = Lease.claim(ctx.sandbox.id, ctx.node, @ttl_ms)
+      assert {:ok, _} = Lease.cas_update(ctx.sandbox.id, epoch, %{status: "terminated"})
+
+      # The same refusal `Conversations.update_sandbox/2` gets from
+      # `prevent_sandbox_revival/1`. Holding the lease is not permission to
+      # un-retire a row, and `:retired` says so rather than `:stale`, which
+      # would send the owner looking for a takeover that never happened.
+      assert {:error, :retired} = Lease.cas_update(ctx.sandbox.id, epoch, %{status: "ready"})
+      assert Repo.get!(Sandbox, ctx.sandbox.id).status == "terminated"
+
+      # Terminal to terminal still goes through, exactly as it does through
+      # `update_sandbox/2`, and a write that never names a status is untouched
+      # by this.
+      assert {:ok, _} = Lease.cas_update(ctx.sandbox.id, epoch, %{status: "failed"})
+
+      assert {:ok, reaped} =
+               Lease.cas_update(ctx.sandbox.id, epoch, %{transition_reason: "reaped"})
+
+      assert reaped.transition_reason == "reaped"
+    end
+
+    test "a caller's own bug is an answer, not a raise", ctx do
+      assert {:ok, epoch} = Lease.claim(ctx.sandbox.id, ctx.node, @ttl_ms)
+      before = Repo.get!(Sandbox, ctx.sandbox.id)
+
+      # A duplicate key in a keyword list reaches Ecto as two `SET status =`
+      # clauses and raises `Ecto.QueryError` from inside the transaction.
+      assert {:error, {:invalid, :status}} =
+               Lease.cas_update(ctx.sandbox.id, epoch, status: "failed", status: "suspended")
+
+      # `is_binary/1` admits a string that is not a UUID; the query would raise
+      # `Ecto.Query.CastError` on it.
+      for call <- [
+            fn -> Lease.claim("not-a-uuid", ctx.node, @ttl_ms) end,
+            fn -> Lease.take_over("not-a-uuid", ctx.node, @ttl_ms) end,
+            fn -> Lease.renew("not-a-uuid", 1, @ttl_ms) end,
+            fn -> Lease.release("not-a-uuid", 1) end,
+            fn -> Lease.cas_update("not-a-uuid", 1, %{status: "ready"}) end
+          ] do
+        assert call.() == {:error, {:invalid, :sandbox_id}}
+      end
+
+      assert Repo.get!(Sandbox, ctx.sandbox.id) == before
+    end
+
+    test "a transition reason is free text, not a 255-byte column", ctx do
+      assert {:ok, epoch} = Lease.claim(ctx.sandbox.id, ctx.node, @ttl_ms)
+      reason = String.duplicate("why this machine went away, at length. ", 40)
+
+      assert {:ok, written} =
+               Lease.cas_update(ctx.sandbox.id, epoch, %{
+                 transition: "destroying",
+                 transition_reason: reason
+               })
+
+      assert written.transition_reason == reason
     end
 
     test "an expired lease still writes until somebody takes it over", ctx do
@@ -301,12 +399,17 @@ defmodule Fountain.Machines.LeaseTest do
                    Lease.claim(tenant.sandbox.id, "fountain@test-a", @ttl_ms)
 
           assert code == :query_canceled
+
+          # Worth little on its own — the trigger is BEFORE UPDATE, so the row
+          # could not have changed either way. Kept because it would catch a
+          # later rewrite that moves the fault after a first write.
           assert Repo.get!(Sandbox, tenant.sandbox.id) == before
 
           drop_fault()
 
-          # The advisory lock went back with the rollback. On another
-          # connection this blocks forever if it did not.
+          # This is the load-bearing assertion. The advisory lock went back with
+          # the rollback; on another connection this blocks forever if it did
+          # not, and `Task.await` fails rather than hanging the suite.
           second =
             independent(fn -> Lease.claim(tenant.sandbox.id, "fountain@test-b", @ttl_ms) end)
 

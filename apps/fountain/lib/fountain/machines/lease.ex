@@ -12,10 +12,25 @@ defmodule Fountain.Machines.Lease do
   rows and tells its caller `:stale` or `:lost`, which is how a partitioned
   node that completes a provider call it started makes no visible change.
 
+  An epoch on its own is not a lease. `lease_epoch` defaults to `0` on every
+  row, `release/2` keeps the epoch it surrendered, and neither of those is a
+  lease anybody holds — so `renew/4`, `release/2` and `cas_update/3` all match
+  on the holder columns as well as the epoch, and refuse an epoch below `1`
+  before they query at all. Without that, a caller that never claimed could
+  renew a lease into existence and make a machine unclaimable for a whole TTL.
+
   Takeover is by expiry and nothing else. A TTL on its own is not a hand-over:
   `take_over/4` still serializes on the sandbox lock, still re-reads the row
   `FOR UPDATE`, and still refuses while `lease_until` is in the future. A lease
   is surrendered early only by `release/2`, and even that keeps the epoch.
+
+  The clock is the claiming node's, not the database's: `lease_until` is
+  written from one BEAM node's `DateTime.utc_now()` and compared against
+  another's. Skew is not a correctness hole — early takeover is what the
+  compare-and-set already makes safe, and late takeover only delays recovery —
+  but it is N clocks rather than one. Moving to `fragment("now()")` is a
+  decision for the process that owns the renew timer (stage 4), not for this
+  module, which has no timer of its own.
 
   Every function here is one short transaction and refuses to run inside an
   enclosing one (`{:error, :transaction_open}`), the same guard
@@ -46,13 +61,17 @@ defmodule Fountain.Machines.Lease do
   @type epoch :: non_neg_integer()
 
   @typedoc "Why a claim was refused: someone else holds a lease that has not expired."
-  @type held :: {:held, String.t() | nil, DateTime.t()}
+  @type held :: {:held, String.t(), DateTime.t()}
 
   # The only columns a machine's owner may write through `cas_update/3`.
   # `lease_*` are absent on purpose — a lease changes hands through the
   # functions below, under the lock, and never as a side effect of a state
   # write.
   @writable ~w(status transition transition_reason terminated_at last_resumed_at)a
+
+  # Where a sandbox stops. Kept in step with `@billable_terminal` in
+  # `Fountain.Conversations`, whose `prevent_sandbox_revival/1` this mirrors.
+  @terminal_statuses ~w(terminated failed)
 
   @doc """
   Take the lease on `sandbox_id` for `node`, for `ttl_ms` from `now`.
@@ -66,10 +85,12 @@ defmodule Fountain.Machines.Lease do
   quotes it on every subsequent write.
   """
   @spec claim(Ecto.UUID.t(), String.t(), pos_integer(), DateTime.t()) ::
-          {:ok, epoch()} | {:error, :not_found | :lost | :transaction_open | held() | term()}
+          {:ok, epoch()}
+          | {:error,
+             :not_found | :lost | :transaction_open | {:invalid, :sandbox_id} | held() | term()}
   def claim(sandbox_id, node, ttl_ms, now \\ DateTime.utc_now())
       when is_binary(sandbox_id) and is_binary(node) and is_integer(ttl_ms) and ttl_ms > 0 do
-    guarded(fn -> do_claim(:claim, sandbox_id, node, ttl_ms, now) end)
+    guarded(sandbox_id, fn -> do_claim(:claim, sandbox_id, node, ttl_ms, now) end)
   end
 
   @doc """
@@ -83,29 +104,41 @@ defmodule Fountain.Machines.Lease do
   not run out is not a hand-over, and this function will not make one.
   """
   @spec take_over(Ecto.UUID.t(), String.t(), pos_integer(), DateTime.t()) ::
-          {:ok, epoch()} | {:error, :not_found | :lost | :transaction_open | held() | term()}
+          {:ok, epoch()}
+          | {:error,
+             :not_found | :lost | :transaction_open | {:invalid, :sandbox_id} | held() | term()}
   def take_over(sandbox_id, node, ttl_ms, now \\ DateTime.utc_now())
       when is_binary(sandbox_id) and is_binary(node) and is_integer(ttl_ms) and ttl_ms > 0 do
-    guarded(fn -> do_claim(:take_over, sandbox_id, node, ttl_ms, now) end)
+    guarded(sandbox_id, fn -> do_claim(:take_over, sandbox_id, node, ttl_ms, now) end)
   end
 
   @doc """
   Extend the lease held at `epoch` to `ttl_ms` past `now`.
 
-  One `update_all` guarded by the epoch — no lock and no read, because the
-  epoch *is* the check. Zero rows means the lease was taken over or the row is
-  gone; either way this holder no longer owns the machine and must stop.
+  One `update_all` guarded by the epoch *and the holder columns* — no lock and
+  no read beyond that. `{:error, :lost}` covers every way this caller is not
+  the holder: the lease was taken over, it was released (`release/2` keeps the
+  epoch, so the epoch alone would still match and this would re-arm the lease
+  it just gave up), it was never claimed, or the row is gone. Either way the
+  caller no longer owns the machine and must stop.
+
+  It does **not** extend a lease into existence. A row nobody has claimed has
+  `lease_node` and `lease_until` nil at epoch 0, and stays that way.
   """
   @spec renew(Ecto.UUID.t(), epoch(), pos_integer(), DateTime.t()) ::
-          :ok | {:error, :lost | :transaction_open | term()}
+          :ok | {:error, :lost | :transaction_open | {:invalid, :sandbox_id} | term()}
   def renew(sandbox_id, epoch, ttl_ms, now \\ DateTime.utc_now())
       when is_binary(sandbox_id) and is_integer(epoch) and is_integer(ttl_ms) and ttl_ms > 0 do
-    guarded(fn ->
-      until = DateTime.add(now, ttl_ms, :millisecond)
+    guarded(sandbox_id, fn ->
+      if taken_epoch?(epoch) do
+        until = DateTime.add(now, ttl_ms, :millisecond)
 
-      case Repo.update_all(held_by(sandbox_id, epoch), set: [lease_until: until]) do
-        {1, _} -> :ok
-        {0, _} -> {:error, :lost}
+        case Repo.update_all(held_by(sandbox_id, epoch), set: [lease_until: until]) do
+          {1, _} -> :ok
+          {0, _} -> {:error, :lost}
+        end
+      else
+        {:error, :lost}
       end
     end)
   end
@@ -115,15 +148,24 @@ defmodule Fountain.Machines.Lease do
 
   Clears `lease_node` and `lease_until` and keeps `lease_epoch` where it is:
   epochs are monotonic and never reused, so the next claimant still gets a
-  strictly higher one and this holder's outstanding writes still fail. Zero
-  rows means the lease had already moved on.
+  strictly higher one and this holder's outstanding writes still fail. Guarded
+  on the holder columns too, so releasing twice is `{:error, :lost}` rather
+  than a second success — after the first, this caller is no longer the holder,
+  and saying otherwise is what let a late `renew/4` undo it.
   """
-  @spec release(Ecto.UUID.t(), epoch()) :: :ok | {:error, :lost | :transaction_open | term()}
+  @spec release(Ecto.UUID.t(), epoch()) ::
+          :ok | {:error, :lost | :transaction_open | {:invalid, :sandbox_id} | term()}
   def release(sandbox_id, epoch) when is_binary(sandbox_id) and is_integer(epoch) do
-    guarded(fn ->
-      case Repo.update_all(held_by(sandbox_id, epoch), set: [lease_node: nil, lease_until: nil]) do
-        {1, _} -> :ok
-        {0, _} -> {:error, :lost}
+    guarded(sandbox_id, fn ->
+      if taken_epoch?(epoch) do
+        case Repo.update_all(held_by(sandbox_id, epoch),
+               set: [lease_node: nil, lease_until: nil]
+             ) do
+          {1, _} -> :ok
+          {0, _} -> {:error, :lost}
+        end
+      else
+        {:error, :lost}
       end
     end)
   end
@@ -131,43 +173,55 @@ defmodule Fountain.Machines.Lease do
   @doc """
   Write machine state, if and only if `epoch` is still the lease.
 
-  The one write primitive the owner uses. One `update_all` matching on
-  `(id, lease_epoch)`, returning the row it wrote; zero rows is `:stale`, which
-  is the whole protocol in one word — a superseded owner changes nothing and
-  learns so.
+  The one write primitive the owner uses. One `update_all` matching on the
+  epoch *and the holder columns*, returning the row it wrote; zero rows is
+  `:stale`, which is the whole protocol in one word — a superseded owner
+  changes nothing and learns so. A lease that was released, or an epoch no
+  claim ever handed out, is `:stale` for the same reason: neither is held.
 
-  `attrs` may name only #{inspect(@writable)}, with atom keys. `status` is
-  checked against `Sandbox.statuses/0` and `transition` against
+  `attrs` may name only #{inspect(@writable)}, with atom keys, each at most
+  once. `status` must be a member of `Sandbox.statuses/0` and `transition` of
   `Sandbox.transitions/0` (`nil` clears it, which is how a transition
-  finalizes) before anything is written; anything else is
-  `{:error, {:invalid, field}}` and the row is untouched.
+  finalizes); anything else is `{:error, {:invalid, field}}` and the row is
+  untouched. That is **membership, not legality** — whether a particular
+  transition is allowed from a particular state belongs to `Machines.Policy`
+  in a later stage, and nothing here decides it. The one exception is
+  retirement: a terminal row is never written back to a live status, the same
+  refusal `Conversations.update_sandbox/2` gets from
+  `prevent_sandbox_revival/1`, reported as `{:error, :retired}` so the owner
+  does not mistake it for a takeover.
 
   Deliberately takes no advisory lock: a single guarded `update_all` is already
   atomic, and the serialization this needs was done when the epoch was taken.
 
-  It does not consult `lease_until` either, and that is the contract, not an
-  omission: an expired lease nobody has taken over is still the current epoch,
-  and the holder finishing the work it started is what should happen. What the
+  It does not consult `lease_until`, and that is the contract, not an
+  omission: an expired lease nobody has taken over is still held by its owner,
+  and that owner finishing the work it started is what should happen. What the
   CAS buys is that the moment a takeover has happened, the old holder's write
-  is invisible — which is the ADR's answer to a partitioned node completing a
-  provider call. Nothing here refuses a write for a lapsed clock alone —
-  `renew/4` does not either, since it too answers on the epoch — so a holder
-  that wants to stop early keeps that deadline itself.
+  is invisible — the ADR's answer to a partitioned node completing a provider
+  call. Nothing here refuses a write for a lapsed clock alone — `renew/4` does
+  not either — so a holder that wants to stop early keeps that deadline itself.
   """
   @spec cas_update(Ecto.UUID.t(), epoch(), map() | keyword()) ::
-          {:ok, Sandbox.t()} | {:error, :stale | :transaction_open | {:invalid, atom()} | term()}
+          {:ok, Sandbox.t()}
+          | {:error, :stale | :retired | :transaction_open | {:invalid, atom()} | term()}
   def cas_update(sandbox_id, epoch, attrs) when is_binary(sandbox_id) and is_integer(epoch) do
-    guarded(fn ->
-      with {:ok, sets} <- cast_attrs(attrs) do
-        # `updated_at` moves with a state change but not with a renewal: a
-        # lease heartbeat every few seconds would otherwise make the column
-        # mean nothing to anyone reading the table.
-        sets = Keyword.put(sets, :updated_at, DateTime.utc_now() |> DateTime.truncate(:second))
+    guarded(sandbox_id, fn ->
+      if taken_epoch?(epoch) do
+        with {:ok, sets} <- cast_attrs(attrs) do
+          # `updated_at` moves with a state change but not with a renewal: a
+          # lease heartbeat every few seconds would otherwise make the column
+          # mean nothing to anyone reading the table.
+          sets = Keyword.put(sets, :updated_at, DateTime.utc_now() |> DateTime.truncate(:second))
+          query = sandbox_id |> held_by(epoch) |> refuse_revival(sets) |> select([s], s)
 
-        case Repo.update_all(select(held_by(sandbox_id, epoch), [s], s), set: sets) do
-          {1, [sandbox]} -> {:ok, sandbox}
-          {0, _} -> {:error, :stale}
+          case Repo.update_all(query, set: sets) do
+            {1, [sandbox]} -> {:ok, sandbox}
+            {0, _} -> {:error, zero_row_reason(sandbox_id, epoch)}
+          end
         end
+      else
+        {:error, :stale}
       end
     end)
   end
@@ -186,18 +240,24 @@ defmodule Fountain.Machines.Lease do
         is_nil(current) ->
           {:error, :not_found}
 
-        live?(current.until, now) ->
+        live?(current, now) ->
           {:error, {:held, current.node, current.until}}
 
         true ->
           epoch = current.epoch + 1
           until = DateTime.add(now, ttl_ms, :millisecond)
 
-          # Guarded by the epoch the locked read saw, not just the id. The row
-          # is held `FOR UPDATE`, so this cannot lose — and if it ever did,
-          # answering `:lost` is better than a `MatchError` unwinding through
-          # the transaction (#2329).
-          case Repo.update_all(held_by(sandbox_id, current.epoch),
+          # The one place a bare `(id, lease_epoch)` predicate is right: the
+          # row is unheld by definition — that is what is being claimed — and
+          # the advisory lock plus this `FOR UPDATE` already decided who wins,
+          # so `held_by/2`'s holder columns would refuse every first claim.
+          # Guarded on the epoch the locked read saw all the same, because
+          # answering `:lost` beats a `MatchError` unwinding out of the
+          # transaction (#2329).
+          case Repo.update_all(
+                 from(s in Sandbox,
+                   where: s.id == ^sandbox_id and s.lease_epoch == ^current.epoch
+                 ),
                  set: [lease_epoch: epoch, lease_node: node, lease_until: until]
                ) do
             {1, _} ->
@@ -211,10 +271,14 @@ defmodule Fountain.Machines.Lease do
     end)
   end
 
-  # An absent or past `lease_until` is an expired lease and the only thing
-  # takeover ever waits for.
-  defp live?(nil, _now), do: false
-  defp live?(until, now), do: DateTime.compare(until, now) == :gt
+  # A lease is live only if somebody holds it and the clock has not run out.
+  # Both halves matter: a `lease_until` with no `lease_node` would refuse a
+  # claim and name the holder as `nil`, which tells an operator a machine is
+  # held by nothing. `held_by/2` makes that state unreachable; this makes it
+  # unreadable as "held" even so.
+  defp live?(%{node: nil}, _now), do: false
+  defp live?(%{until: nil}, _now), do: false
+  defp live?(%{until: until}, now), do: DateTime.compare(until, now) == :gt
 
   defp log_claim(:take_over, sandbox_id, node, epoch, %{node: previous}) do
     Logger.info(
@@ -225,16 +289,57 @@ defmodule Fountain.Machines.Lease do
 
   defp log_claim(:claim, _sandbox_id, _node, _epoch, _current), do: :ok
 
-  defp held_by(sandbox_id, epoch),
-    do: from(s in Sandbox, where: s.id == ^sandbox_id and s.lease_epoch == ^epoch)
+  # A lease that is really held, at exactly this epoch. The epoch alone is not
+  # enough, twice over: `lease_epoch` defaults to 0 on every row, so an
+  # epoch-only match makes the lease nobody took quotable by anybody; and
+  # `release/2` keeps the epoch on purpose, so it would leave a surrendered
+  # lease re-armable by a `renew/4` that lands after it. Requiring the holder
+  # columns closes both, and `taken_epoch?/1` refuses 0 before the query.
+  defp held_by(sandbox_id, epoch) do
+    from s in Sandbox,
+      where:
+        s.id == ^sandbox_id and s.lease_epoch == ^epoch and
+          not is_nil(s.lease_node) and not is_nil(s.lease_until)
+  end
+
+  # `do_claim/5` hands out 1 first, so anything below it is not an epoch a
+  # claim ever produced — it is the column default wearing an epoch's clothes.
+  defp taken_epoch?(epoch), do: epoch >= 1
+
+  # Mirrors `Fountain.Conversations.prevent_sandbox_revival/1`: holding the
+  # lease is not permission to un-retire a row. Terminal-to-terminal still goes
+  # through and a write that never names a status is not a revival, so the two
+  # refusals agree exactly.
+  defp refuse_revival(query, sets) do
+    case Keyword.get(sets, :status) do
+      nil -> query
+      status when status in @terminal_statuses -> query
+      _live -> from(s in query, where: s.status not in @terminal_statuses)
+    end
+  end
+
+  # Only on the refusal path, so the write itself stays one statement. Without
+  # it a revival and a takeover are the same zero rows, and an owner told
+  # `:stale` would go looking for a successor that never existed.
+  defp zero_row_reason(sandbox_id, epoch) do
+    case Repo.one(from s in held_by(sandbox_id, epoch), select: s.status) do
+      status when status in @terminal_statuses -> :retired
+      _ -> :stale
+    end
+  end
 
   defp cast_attrs(attrs) when attrs == %{} or attrs == [], do: {:error, {:invalid, :attrs}}
 
   defp cast_attrs(attrs) do
     Enum.reduce_while(attrs, {:ok, []}, fn {field, value}, {:ok, sets} ->
-      case cast_attr(field, value) do
-        {:ok, casted} -> {:cont, {:ok, [{field, casted} | sets]}}
-        :error -> {:halt, {:error, {:invalid, field}}}
+      # A keyword list can name the same column twice, which reaches Ecto as
+      # two `SET` clauses and raises `Ecto.QueryError` mid-transaction. It is a
+      # caller's bug either way, so it is refused here like any other bad attr.
+      with {:ok, casted} <- cast_attr(field, value),
+           false <- List.keymember?(sets, field, 0) do
+        {:cont, {:ok, [{field, casted} | sets]}}
+      else
+        _ -> {:halt, {:error, {:invalid, field}}}
       end
     end)
   end
@@ -256,22 +361,38 @@ defmodule Fountain.Machines.Lease do
   # write is built in code, not forwarded from a caller's map.
   defp cast_attr(_field, _value), do: :error
 
-  # A database fault is an answer, not a crash. Ecto rolls the transaction back
+  # The three things every entry point checks before it touches the database,
+  # and the one it catches after.
+  #
+  # A database fault is an answer, not a crash: Ecto rolls the transaction back
   # on the way out — releasing the transaction-scoped advisory lock with it —
-  # and the caller gets the SQLSTATE rather than an exception to handle at
-  # every call site (#2309's `57014` is the shape this is written for).
-  defp guarded(fun) do
-    if Repo.in_transaction?() do
-      {:error, :transaction_open}
-    else
-      try do
-        fun.()
-      rescue
-        error in Postgrex.Error -> {:error, {:database, sqlstate(error)}}
-      end
+  # and the caller gets a reason rather than an exception to handle at every
+  # call site (#2309's `57014` is the shape this is written for). The rescue
+  # covers faults the database raises, server-side and connection alike, and
+  # nothing else: a malformed `attrs` or a `sandbox_id` that is not a UUID
+  # would reach Ecto as `Ecto.QueryError` or `Ecto.Query.CastError`, and those
+  # are caller bugs, refused up front instead of dressed up as database faults.
+  defp guarded(sandbox_id, fun) do
+    cond do
+      Repo.in_transaction?() ->
+        {:error, :transaction_open}
+
+      # `is_binary/1` on the public functions admits any string; the `@spec`
+      # says `Ecto.UUID.t()` and the query would raise on anything else.
+      Ecto.UUID.cast(sandbox_id) == :error ->
+        {:error, {:invalid, :sandbox_id}}
+
+      true ->
+        try do
+          fun.()
+        rescue
+          error in [Postgrex.Error, DBConnection.ConnectionError] ->
+            {:error, {:database, sqlstate(error)}}
+        end
     end
   end
 
   defp sqlstate(%Postgrex.Error{postgres: %{code: code}}), do: code
+  defp sqlstate(%DBConnection.ConnectionError{}), do: :connection_error
   defp sqlstate(_error), do: :unknown
 end

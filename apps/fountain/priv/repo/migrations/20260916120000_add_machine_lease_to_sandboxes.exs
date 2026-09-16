@@ -20,7 +20,7 @@ defmodule Fountain.Repo.Migrations.AddMachineLeaseToSandboxes do
       add :lease_node, :string
       add :lease_until, :utc_datetime_usec
       add :transition, :string
-      add :transition_reason, :string
+      add :transition_reason, :text
     end
   end
 

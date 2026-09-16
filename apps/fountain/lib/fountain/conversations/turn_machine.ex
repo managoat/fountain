@@ -554,20 +554,21 @@ defmodule Fountain.Conversations.TurnMachine do
     end
   end
 
-  # #2362: the deployment's ChatGPT grant (ADR 0047) ran out of Codex usage.
-  # codex-acp answers the prompt with an internal error carrying
-  # `codexErrorInfo: "usageLimitExceeded"` and the provider's reset sentence
-  # (`Fountain.PlatformChatGPT.UsageLimit`). This turn still fails as it
-  # would have, and nothing is retried; what changes is the next selection,
-  # which skips the grant until the reset. Recorded only when this turn ran
-  # on the platform grant: a tenant's own credential hitting its own limit
-  # says nothing about the deployment's account, and the context refuses
-  # any other source.
+  # #2362: the prompt failed with codex-acp's `usageLimitExceeded`, on a turn
+  # bound to the deployment's ChatGPT grant (ADR 0047). The report is only a
+  # hint: it comes from the sandbox, and a tenant's `setup_script` can put a
+  # fake adapter there that says this without contacting OpenAI, while the
+  # grant is every tenant's. So nothing is written from it. The context asks
+  # the ChatGPT backend itself, in the background, throttled, and records the
+  # exhaustion only when the backend confirms it
+  # (`ChatGPTAccounts.platform_confirm_exhausted/2`). This turn fails as it
+  # would have, and nothing is retried. A turn on any other source starts no
+  # check.
   def handle(%__MODULE__{} = turn, {:failed, {:acp_error, :prompt, error} = reason}, ctx) do
     with %Source{scope: :platform, kind: :codex_chatgpt_access_token} = source <-
            Map.get(ctx, :inference),
-         {:ok, until, reset} <- Fountain.PlatformChatGPT.UsageLimit.exhaustion(error) do
-      Fountain.ChatGPTAccounts.platform_record_exhausted(source, until, reset)
+         true <- Fountain.PlatformChatGPT.UsageLimit.hint?(error) do
+      Fountain.ChatGPTAccounts.platform_check_exhaustion(source)
     end
 
     handle_failed(turn, reason)

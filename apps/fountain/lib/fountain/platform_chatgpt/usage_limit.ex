@@ -1,150 +1,149 @@
 defmodule Fountain.PlatformChatGPT.UsageLimit do
   @moduledoc """
-  Reads a Codex "usage limit" refusal out of a failed prompt (#2362).
+  Whether the deployment's ChatGPT account has really spent its Codex usage
+  (#2362), asked of OpenAI rather than of the sandbox.
 
-  ## Where it arrives
+  ## A report from the sandbox is only a hint
 
-  codex-acp (`@agentclientprotocol/codex-acp`, pinned in
-  `Managoat.Runtimes.ACP`) turns the Codex app-server's `error` notification
-  into the `session/prompt` response. For `codexErrorInfo:
-  "usageLimitExceeded"` that response is a JSON-RPC internal error whose
-  `data` carries the kind and the provider's sentence:
-
-      %{"code" => -32603, "message" => "Internal error",
-        "data" => %{"codexErrorInfo" => "usageLimitExceeded",
-                    "message" => "You've hit your usage limit. Visit
-                      https://chatgpt.com/codex/settings/usage to purchase
-                      more credits or try again at Sep 20th, 2026 11:40 AM."}}
-
+  codex-acp answers a refused `session/prompt` with a JSON-RPC internal
+  error whose `data.codexErrorInfo` is `"usageLimitExceeded"`, and
   `Managoat.ACP.Peer` reports it as `{:failed, {:acp_error, :prompt, error}}`.
-  The kind is read off `data.codexErrorInfo` when it is there, and found
-  anywhere in the payload otherwise, the way the peer finds
-  `oauth_org_not_allowed`: the adapter's placement may move, and a substring
-  search cannot raise on a shape nobody anticipated.
+  `hint?/1` recognises that shape. It is **never** evidence: the adapter runs
+  in a tenant's sandbox, and a tenant's `setup_script` can replace it with a
+  program that answers any prompt with this error without contacting
+  OpenAI. The grant is shared by every tenant, so a hint only asks the
+  server to check.
 
-  ## The reset time is prose
+  ## The check
 
-  The adapter keeps the account's rate-limit snapshot (`resetsAt`, epoch
-  seconds) in its own session state and does not send it over ACP, so the
-  only reset time Fountain sees is the sentence. Codex formats it in the
-  sandbox's local time zone as `Sep 20th, 2026 11:40 AM`, or as `11:40 AM`
-  when the reset is the same day. A sandbox runs in UTC, so it is read as
-  UTC; a bare time already past today is tomorrow's.
+  `fetch/2` asks `GET https://chatgpt.com/backend-api/wham/usage` with the
+  grant's access token and its `ChatGPT-Account-Id`: the endpoint Codex's
+  own client reads its rate limits from (`codex-rs/backend-client`,
+  `rate_limit_status_url/0`, read 2026-09-16). The server makes the call over
+  TLS with a token the sandbox never holds, so nothing in a sandbox can shape
+  the answer. The body carries
 
-  Parsing is defensive. A sentence with no readable time, a time in the
-  past, or one further out than `max_window_seconds/0` gets
-  `default_window_seconds/0` from now instead, and says so (`:default`), so
-  a change in Codex's wording costs an hour of metered turns rather than a
-  week of them or none at all.
+      %{"rate_limit" => %{"allowed" => false, "limit_reached" => true,
+          "primary_window" => %{"used_percent" => 100, "reset_at" => 1790163600,
+                                "reset_after_seconds" => 322_000, ...},
+          "secondary_window" => ...},
+        "credits" => %{"has_credits" => false, "unlimited" => false}}
+
+  and `limited/2` reads it: limited when `allowed` is false, or when
+  `limit_reached` is true with no credits to spend instead. The reset is the
+  latest `reset_at` (else `now + reset_after_seconds`) of the windows at 100
+  percent, or of every window when none says so. A limited account with no
+  usable reset gets `default_window_seconds/0`; one further out than
+  `max_window_seconds/0` is cut to it. Anything else, including a failed or
+  unexpected response, is not a limit.
   """
 
   @default_window_seconds 3_600
   @max_window_seconds 8 * 86_400
+  @default_base_url "https://chatgpt.com/backend-api"
 
-  @months ~w(jan feb mar apr may jun jul aug sep oct nov dec)
-
-  @doc "How long the grant is skipped when the refusal names no readable reset time: one hour."
+  @doc "How long a confirmed limit with no usable reset time lasts: one hour."
   @spec default_window_seconds() :: pos_integer()
   def default_window_seconds, do: @default_window_seconds
 
-  @doc """
-  The furthest a parsed reset is trusted: eight days, one more than Codex's
-  weekly window. Anything later is read as a misparse.
-  """
+  @doc "The furthest a confirmed reset is trusted: eight days, one more than Codex's weekly window."
   @spec max_window_seconds() :: pos_integer()
   def max_window_seconds, do: @max_window_seconds
 
-  @doc "Whether a failed prompt's error is Codex's usage-limit refusal."
-  @spec exceeded?(term()) :: boolean()
-  def exceeded?(%{"data" => %{"codexErrorInfo" => "usageLimitExceeded"}}), do: true
-  def exceeded?(error), do: error |> inspect() |> String.contains?("usageLimitExceeded")
+  @doc """
+  Whether a failed prompt's error claims Codex's usage limit. A hint to
+  check, never a fact: see the moduledoc.
+  """
+  @spec hint?(term()) :: boolean()
+  def hint?(%{"data" => %{"codexErrorInfo" => "usageLimitExceeded"}}), do: true
+  def hint?(error), do: error |> inspect() |> String.contains?("usageLimitExceeded")
 
   @doc """
-  `{:ok, until, :provider | :default}` for a usage-limit refusal: when the
-  grant may be selected again, truncated to the second, and whether that
-  came from the provider's sentence. `:none` for any other error.
+  Ask the ChatGPT backend for the account's Codex usage.
+  `{:limited, until}`, `:not_limited`, or `{:error, reason}` when the
+  answer could not be had or read; only the first is a limit.
   """
-  @spec exhaustion(term(), DateTime.t()) :: {:ok, DateTime.t(), :provider | :default} | :none
-  def exhaustion(error, now \\ DateTime.utc_now()) do
-    if exceeded?(error) do
-      now = DateTime.truncate(now, :second)
+  @spec fetch(String.t(), String.t() | nil, DateTime.t()) ::
+          {:limited, DateTime.t()} | :not_limited | {:error, term()}
+  def fetch(access_token, account_id, now \\ DateTime.utc_now())
+      when is_binary(access_token) do
+    headers =
+      [
+        {"authorization", "Bearer " <> access_token},
+        {"accept", "application/json"},
+        {"user-agent", "codex-cli"}
+      ] ++ if(is_binary(account_id), do: [{"chatgpt-account-id", account_id}], else: [])
 
-      case reset_at(message(error), now) do
-        {:ok, at} ->
-          {:ok, at, :provider}
+    [
+      url: base_url() <> "/wham/usage",
+      headers: headers,
+      connect_options: [timeout: 2_000],
+      receive_timeout: 6_000,
+      retry: false
+    ]
+    |> Keyword.merge(Application.get_env(:fountain, :platform_chatgpt_req_options, []))
+    |> Req.new()
+    |> Req.get()
+    |> case do
+      {:ok, %Req.Response{status: 200, body: %{} = body}} -> limited(body, now)
+      {:ok, %Req.Response{status: status}} -> {:error, {:usage, status}}
+      {:error, reason} -> {:error, {:usage, reason}}
+    end
+  end
 
-        :error ->
-          {:ok, DateTime.add(now, @default_window_seconds, :second), :default}
-      end
+  @doc "Read a `/wham/usage` body. See the moduledoc."
+  @spec limited(map(), DateTime.t()) :: {:limited, DateTime.t()} | :not_limited | {:error, term()}
+  def limited(%{"rate_limit" => %{} = rate_limit} = body, now) do
+    now = DateTime.truncate(now, :second)
+
+    if limited?(rate_limit, Map.get(body, "credits")) do
+      {:limited, reset(rate_limit, now)}
     else
-      :none
+      :not_limited
     end
   end
 
-  defp message(%{"data" => %{"message" => message}}) when is_binary(message), do: message
-  defp message(error), do: inspect(error)
+  def limited(_body, _now), do: {:error, :unexpected_usage_body}
 
-  @full ~r/try again at\s+([A-Za-z]{3})[a-z]*\.?\s+(\d{1,2})(?:st|nd|rd|th)?,\s+(\d{4})\s+(\d{1,2}):(\d{2})\s*([AaPp][Mm])/
-  @time_only ~r/try again at\s+(\d{1,2}):(\d{2})\s*([AaPp][Mm])/
+  defp limited?(%{"allowed" => false}, _credits), do: true
 
-  defp reset_at(text, now) do
-    parsed =
-      case Regex.run(@full, text) do
-        [_, month, day, year, hour, minute, meridiem] ->
-          with {:ok, month} <- month(month),
-               {:ok, date} <- Date.new(int(year), month, int(day)),
-               {:ok, time} <- time(hour, minute, meridiem) do
-            DateTime.new(date, time, "Etc/UTC")
-          end
-
-        nil ->
-          case Regex.run(@time_only, text) do
-            [_, hour, minute, meridiem] ->
-              with {:ok, time} <- time(hour, minute, meridiem),
-                   {:ok, today} <- DateTime.new(DateTime.to_date(now), time, "Etc/UTC") do
-                if DateTime.compare(today, now) == :gt,
-                  do: {:ok, today},
-                  else: {:ok, DateTime.add(today, 86_400, :second)}
-              end
-
-            nil ->
-              :error
-          end
-      end
-
-    with {:ok, at} <- parsed, true <- plausible?(at, now) do
-      {:ok, at}
-    else
-      _ -> :error
-    end
+  defp limited?(%{"limit_reached" => true}, credits) do
+    not match?(%{"has_credits" => true}, credits) and
+      not match?(%{"unlimited" => true}, credits)
   end
 
-  defp plausible?(at, now) do
-    seconds = DateTime.diff(at, now, :second)
-    seconds > 0 and seconds <= @max_window_seconds
+  defp limited?(_rate_limit, _credits), do: false
+
+  defp reset(rate_limit, now) do
+    windows =
+      ["primary_window", "secondary_window"]
+      |> Enum.map(&Map.get(rate_limit, &1))
+      |> Enum.filter(&is_map/1)
+
+    spent = Enum.filter(windows, &(is_number(&1["used_percent"]) and &1["used_percent"] >= 100))
+
+    if(spent == [], do: windows, else: spent)
+    |> Enum.map(&window_reset(&1, now))
+    |> Enum.reject(&is_nil/1)
+    |> Enum.filter(&(DateTime.compare(&1, now) == :gt))
+    |> Enum.max(DateTime, fn -> DateTime.add(now, @default_window_seconds, :second) end)
+    |> cap(DateTime.add(now, @max_window_seconds, :second))
+    |> DateTime.truncate(:second)
   end
 
-  defp month(name) do
-    case Enum.find_index(@months, &(&1 == String.downcase(name))) do
-      nil -> :error
-      index -> {:ok, index + 1}
-    end
+  defp cap(at, limit), do: if(DateTime.compare(at, limit) == :gt, do: limit, else: at)
+
+  defp window_reset(%{"reset_at" => at}, _now) when is_integer(at) and at > 0,
+    do: DateTime.from_unix!(at)
+
+  defp window_reset(%{"reset_after_seconds" => seconds}, now)
+       when is_integer(seconds) and seconds > 0,
+       do: DateTime.add(now, seconds, :second)
+
+  defp window_reset(_window, _now), do: nil
+
+  defp base_url do
+    Application.get_env(:fountain, :platform_chatgpt_backend_url, @default_base_url)
+    |> String.trim_trailing("/")
   end
-
-  defp time(hour, minute, meridiem) do
-    hour = int(hour)
-    pm? = String.downcase(meridiem) == "pm"
-
-    hour =
-      cond do
-        hour == 12 and not pm? -> 0
-        hour == 12 -> 12
-        pm? -> hour + 12
-        true -> hour
-      end
-
-    Time.new(hour, int(minute), 0)
-  end
-
-  defp int(digits), do: String.to_integer(digits)
 end

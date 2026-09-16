@@ -61,21 +61,16 @@ defmodule FountainWeb.AdminInferenceChatGPTLiveTest do
     # #2362: an active grant whose account spent its Codex usage says so, and
     # until when, and stops saying so once the reset has passed.
     test "exhausted names the reset and the fallback", %{conn: conn, admin: admin} do
-      account = connect!(%{actor_user_id: admin.id})
+      connect!(%{actor_user_id: admin.id})
 
-      source = %Fountain.InferenceCredentials.Source{
-        scope: :platform,
-        kind: :codex_chatgpt_access_token,
-        identity: "platform:chatgpt:#{account.id}",
-        revision: account.generation
-      }
-
-      assert {:ok, :recorded} =
-               ChatGPTAccounts.platform_record_exhausted(
-                 source,
-                 ~U[2099-09-20 11:40:00Z],
-                 :provider
-               )
+      # What `ChatGPTAccounts.platform_confirm_exhausted/2` writes once the
+      # backend confirms; the confirmation itself is tested beside it.
+      Repo.update_all(Fountain.PlatformChatGPT.Account,
+        set: [
+          usage_exhausted_at: ~U[2099-09-16 20:00:00Z],
+          usage_exhausted_until: ~U[2099-09-20 11:40:00Z]
+        ]
+      )
 
       {:ok, _lv, html} = open(conn, admin)
       assert html =~ "Connected as"

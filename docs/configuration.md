@@ -248,17 +248,23 @@ the request to `chatgpt.com`. Each connect and disconnect leaves an
 
 A ChatGPT account has Codex usage limits. When a codex turn on the account
 fails because the account is at its limit, that turn fails. Fountain does
-not retry it. Fountain records the reset time from the error message and
-shows it at `/admin/inference`. It also records an
+not retry it. The error comes from the sandbox, and a tenant can change what
+runs in the sandbox, so Fountain does not trust the error. Fountain asks
+ChatGPT for the account's usage itself, with the account's own token. It
+asks at most once every five minutes.
+
+If ChatGPT confirms the limit, Fountain records the reset time that ChatGPT
+gives and shows it at `/admin/inference`. It also records an
 `admin.platform_chatgpt.exhausted` event. Until the reset time, new codex
 conversations use `PLATFORM_OPENAI_API_KEY` instead of the account. Those
 turns are billed per token, and the daily ceiling applies. If no OpenAI
 platform key is set, codex conversations continue to use the account.
-After the reset time, the account is used again.
+After the reset time, the account is used again. If ChatGPT does not confirm
+the limit, or the check fails, Fountain records nothing.
 
 The limit belongs to the ChatGPT account, not to its token. If you reconnect
 the same account, the reset time stays. If you connect a different account,
-Fountain clears it. If the error message has no time that Fountain can read,
+Fountain clears it. If ChatGPT confirms the limit but gives no reset time,
 Fountain skips the account for one hour. A conversation that already runs on
 the account stays on it. Its later turns fail until the reset time.
 

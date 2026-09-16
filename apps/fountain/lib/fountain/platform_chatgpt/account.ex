@@ -24,10 +24,12 @@ defmodule Fountain.PlatformChatGPT.Account do
   would write on the primary key alone and so would skip the fence, which is
   why the three that used to exist were removed rather than left unused.
 
-  `usage_exhausted_at` and `usage_exhausted_until` record that the account ran
-  out of Codex usage and when the provider said it resets (#2362). They are
-  written by `Fountain.ChatGPTAccounts.platform_record_exhausted/3`, a fenced
-  `update_all` like the other lifecycle writes, and never change `status`:
+  `usage_exhausted_at` and `usage_exhausted_until` record that OpenAI
+  confirmed the account ran out of Codex usage, and the reset time it gave
+  (#2362). `usage_checked_at` is when the server last asked, which throttles
+  the asking. All three are written by
+  `Fountain.ChatGPTAccounts.platform_confirm_exhausted/2` with fenced
+  `update_all`s like the other lifecycle writes, and never change `status`:
   the token is still good, and the grant is skipped for new selections only
   until the reset passes.
 
@@ -62,6 +64,7 @@ defmodule Fountain.PlatformChatGPT.Account do
     field :revoked_reason, :string
     field :usage_exhausted_at, :utc_datetime
     field :usage_exhausted_until, :utc_datetime
+    field :usage_checked_at, :utc_datetime
 
     belongs_to :updated_by, Fountain.Accounts.User, foreign_key: :updated_by_user_id
 
@@ -105,6 +108,7 @@ defmodule Fountain.PlatformChatGPT.Account do
       changeset
       |> put_change(:usage_exhausted_at, nil)
       |> put_change(:usage_exhausted_until, nil)
+      |> put_change(:usage_checked_at, nil)
     else
       changeset
     end

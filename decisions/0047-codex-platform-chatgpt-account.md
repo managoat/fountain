@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Run the codex runtime on the platform's ChatGPT account"
-description: "An admin signs the Fountain server in to ChatGPT once; the server keeps the rotating refresh token, the broker carries the access token to chatgpt.com, and a codex sandbox holds only a placeholder. Built and measured in #1755: four of the five G0 measurements pass, a codex turn has run on the grant through Fountain, and the idle-lifetime measurement is due 2026-09-17. Amended 2026-09-16 (#2362): a grant whose account has spent its Codex usage is skipped for the platform API key until the provider's reset time; the failing turn is not retried."
+description: "An admin signs the Fountain server in to ChatGPT once; the server keeps the rotating refresh token, the broker carries the access token to chatgpt.com, and a codex sandbox holds only a placeholder. Built and measured in #1755: four of the five G0 measurements pass, a codex turn has run on the grant through Fountain, and the idle-lifetime measurement is due 2026-09-17. Amended 2026-09-16 (#2362): a grant whose account OpenAI confirms has spent its Codex usage is skipped for the platform API key until the reset time OpenAI gives; a sandbox's report only triggers the server-side check, and the failing turn is not retried."
 tags: [inference, broker, codex, security, billing]
 status: draft
 adr: "0047"
@@ -25,8 +25,10 @@ say) and ran its first turn on the grant the same hour; see G2 below.
 
 **Amended 2026-09-16 ([#2362](https://github.com/managoat/fountain/issues/2362)):**
 decision 6 now skips a grant whose account has spent its Codex usage, for
-new selections until the provider's reset time, in favour of the platform
-API key. The failing turn is not retried.
+new selections until the reset time, in favour of the platform API key. A
+sandbox's `usageLimitExceeded` only prompts the server to ask OpenAI; the
+exhaustion is recorded only when OpenAI confirms it. The failing turn is not
+retried.
 
 Amends [0038](0038-onboarding-first-reply.md) decision 3 (platform inference
 keys) with a second kind of platform credential, and
@@ -332,31 +334,43 @@ turn failed with `usageLimitExceeded` although `PLATFORM_OPENAI_API_KEY` was
 set, and a reconnect of the same account failed with the same reset time.
 So selection now remembers the exhaustion:
 
-- **Where it is seen.** codex-acp answers `session/prompt` with a JSON-RPC
-  internal error whose `data` carries `codexErrorInfo: "usageLimitExceeded"`
-  and the provider's sentence. `Conversations.TurnMachine` reads it from the
-  `{:failed, {:acp_error, :prompt, error}}` report
-  (`PlatformChatGPT.UsageLimit`), and records it only when the turn's bound
-  source is the platform `:codex_chatgpt_access_token` source. A tenant's
-  own credential hitting its own limit records nothing.
-- **The reset time is prose.** The adapter keeps the account's rate-limit
-  snapshot (`resetsAt`) in its own session state and never sends it over
-  ACP, so the only reset time Fountain has is the sentence ("try again at
-  Sep 20th, 2026 11:40 AM", or a bare time on the same day). Codex formats it
-  in the sandbox's local zone; it is read as UTC. An unreadable time, a past
-  time, or one more than eight days out gets a one-hour window instead.
+- **What the sandbox says is only a hint.** codex-acp answers
+  `session/prompt` with a JSON-RPC internal error whose `data` carries
+  `codexErrorInfo: "usageLimitExceeded"`. `Conversations.TurnMachine` sees it
+  as `{:failed, {:acp_error, :prompt, error}}` and, when the turn's bound
+  source is the platform `:codex_chatgpt_access_token` source, asks for a
+  check. It writes nothing. The adapter runs in the tenant's sandbox, where a
+  `setup_script` can replace it with a program that prints this error without
+  contacting OpenAI, and the grant is every tenant's; review of #2363 showed
+  the first version of this amendment, which recorded the report directly,
+  let one tenant move every tenant onto the metered key.
+- **What the server confirms.** `ChatGPTAccounts.platform_confirm_exhausted/2`
+  asks `GET https://chatgpt.com/backend-api/wham/usage` with the grant's
+  access token and `ChatGPT-Account-Id`, the endpoint Codex's own client
+  reads its rate limits from (`codex-rs/backend-client`). The call is the
+  server's, over TLS, with a token the sandbox never holds. The account is
+  limited when `rate_limit.allowed` is false, or `limit_reached` is true with
+  no credits; the reset is the backend's `reset_at` (or
+  `reset_after_seconds`) for the spent window, cut to eight days, or one hour
+  when the backend gives none. Not limited, a failed call or an unreadable
+  body records nothing. The prose reset time in the adapter's message is not
+  used.
+- **Throttled.** One fenced `UPDATE` of `usage_checked_at` claims the check
+  (grant id, generation, `active`, no check in the last five minutes), so a
+  stream of hints makes at most one call per five minutes across all nodes,
+  and never while an exhaustion is already recorded. The call runs in a
+  `Fountain.TaskSupervisor` task, outside any lock or transaction, as the
+  refresher's does.
 - **Where it lives.** `usage_exhausted_at` and `usage_exhausted_until` on
   the grant row, in the database, so every node agrees. The write is fenced
   on the grant id and generation the turn was bound to and taken under the
   platform source lock; `status` stays `active`. The
-  `admin.platform_chatgpt.exhausted` event (account id, kind, `until`, and
-  whether the reset was the provider's or the default) is written only when
-  the row changes, after the write, never with a token. Several in-flight
-  turns failing together leave one event.
+  `admin.platform_chatgpt.exhausted` event (account id, kind, `until`) is
+  written only when the row changes, after the write, never with a token.
 - **Selection.** `PlatformInference.credential_for("openai", "codex")`
   skips the grant while the reset is in the future and a platform OpenAI key
   exists, and serves the key. With no key the grant is still selected, so
-  the turn fails with the provider's reset time rather than with no
+  the turn fails with the provider's own message rather than with no
   credential. The resolved source is the key's, so `gate_source/1` and the
   daily ceiling apply to exactly what was selected, and the ledger prices the
   turns per token. Brokered-ness is unchanged: the key path is the one an
@@ -401,7 +415,7 @@ where it is available it is the one to use.
 | Before each turn | `refresh_before_turn/1` re-reads the access token and rewrites the live session's rules if it rotated. | Nothing. |
 | Idle week | Keepalive worker refreshes so the grant does not lapse. | "Last renewed 3 days ago." |
 | Refresh refused | Row marked `revoked` with the reason code; codex falls through to the platform API key or `:no_credential`. | "Sign-in lost: refresh token was already used. Reconnect." with a Connect button. |
-| Subscription rate limit | The failing turn fails and reports the reset time on the transcript. Since #2362 the row records the reset (`usage_exhausted_until`) and an `exhausted` event, and new codex conversations take the platform API key until it passes (decision 6, amended). | "The account has hit its Codex usage limit until 2026-09-20 11:40 UTC", and a "usage limit" badge. |
+| Subscription rate limit | The failing turn fails and reports the reset time on the transcript. Since #2362 that report makes the server ask `/wham/usage` (throttled); only a confirmed limit records the backend's reset (`usage_exhausted_until`) and an `exhausted` event, and new codex conversations then take the platform API key until it passes (decision 6, amended). | "The account has hit its Codex usage limit until 2026-09-20 11:40 UTC", and a "usage limit" badge. |
 | Disconnect | Deletes the row, records `disconnected`. Running conversations keep their session until the next turn's re-read. | Row returns to "Not connected". |
 
 ## Measured

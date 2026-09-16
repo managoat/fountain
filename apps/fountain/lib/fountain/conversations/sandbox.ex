@@ -92,7 +92,8 @@ defmodule Fountain.Conversations.Sandbox do
       :vault_id,
       :user_id
     ])
-    |> validate_required([:machine_name, :status, :provider, :mode, :user_id])
+    |> validate_required([:machine_name, :status, :provider, :mode])
+    |> validate_owner()
     |> validate_inclusion(:status, @statuses)
     |> validate_inclusion(:mode, @modes)
     |> validate_inclusion(:provider, Fountain.SandboxProviders.known_providers())
@@ -106,5 +107,20 @@ defmodule Fountain.Conversations.Sandbox do
       name: :sandboxes_home_identity_index,
       message: "a home for this agent, environment and vault already exists"
     )
+  end
+
+  # Deleting a user nilifies `sandboxes.user_id` (the row is kept for billing
+  # and audit), and account deletion carries on past a destroy that raised, so
+  # a live row can outlive its owner. Retiring that row must still be possible
+  # — otherwise the only write that frees its fleet slot and lets the reaper
+  # destroy its machine is refused forever. Anything short of a terminal write
+  # still needs an owner, as does every new row.
+  defp validate_owner(changeset) do
+    orphan_retiring? =
+      changeset.data.__meta__.state == :loaded and is_nil(changeset.data.user_id) and
+        not Map.has_key?(changeset.changes, :user_id) and
+        get_field(changeset, :status) in ~w(terminated failed)
+
+    if orphan_retiring?, do: changeset, else: validate_required(changeset, :user_id)
   end
 end

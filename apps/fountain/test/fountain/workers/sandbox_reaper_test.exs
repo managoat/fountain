@@ -531,6 +531,48 @@ defmodule Fountain.Workers.SandboxReaperTest do
       assert destroyed_names() == [sandbox.machine_name]
       assert Repo.reload(sandbox).status == "terminated"
     end
+
+    test "a fence left behind by a deleted account is finished, and cleanup still runs" do
+      # Account deletion carries on past a destroy that raised, then deleting
+      # the user nilifies `sandboxes.user_id` and cascades the conversations
+      # away. The row still needs its terminal write, and a refused one used to
+      # raise out of perform/1 before the provider listing — so one departed
+      # account blocked machine cleanup for the whole fleet, every run.
+      {user, orphan, _conv} = fenced_sandbox()
+      Repo.delete!(user)
+      orphan = age_fence(orphan, 60)
+      assert is_nil(orphan.user_id)
+
+      other = insert_sandbox(status: "terminated")
+      stub_sprites([orphan.machine_name, other.machine_name])
+      capture_destroys()
+
+      capture_log(fn -> assert :ok = perform_job(SandboxReaper, %{}) end)
+
+      assert Enum.sort(destroyed_names()) == Enum.sort([orphan.machine_name, other.machine_name])
+      assert %{status: "terminated", terminated_at: %DateTime{}} = Repo.reload(orphan)
+    end
+
+    test "a row whose terminal write is refused does not stop the rest" do
+      # The refused row stays for the next run or an operator; its neighbour
+      # is still finished, and nothing raises out of the pass.
+      {_user, refused, _conv} = fenced_sandbox()
+      {_user, finished, _conv} = fenced_sandbox()
+      refused = age_fence(refused, 60)
+      finished = age_fence(finished, 60)
+
+      stub(Fountain.Conversations, :update_sandbox, fn sandbox, attrs ->
+        if sandbox.id == refused.id,
+          do: {:error, :not_found},
+          else: Mimic.call_original(Fountain.Conversations, :update_sandbox, [sandbox, attrs])
+      end)
+
+      log = capture_log(fn -> assert 1 = SandboxReaper.sweep_fenced_teardowns() end)
+
+      assert log =~ "could not finish abandoned teardown of sandbox #{refused.id}"
+      assert Repo.reload(refused).status == "ready"
+      assert Repo.reload(finished).status == "terminated"
+    end
   end
 
   describe "leaked sprites" do

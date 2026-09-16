@@ -16,6 +16,12 @@ defmodule Fountain.Conversations.SandboxTest do
     Sandbox.changeset(%Sandbox{}, Map.merge(valid_attrs(), overrides))
   end
 
+  defp persisted(fields) do
+    %Sandbox{machine_name: "sprite-abc123", status: "ready"}
+    |> struct!(fields)
+    |> Ecto.put_meta(state: :loaded)
+  end
+
   describe "machine name storage and API boundary" do
     test "there is one internal name backed by the existing column" do
       assert Sandbox.__schema__(:field_source, :machine_name) == :sprite_name
@@ -189,6 +195,28 @@ defmodule Fountain.Conversations.SandboxTest do
 
     test "errors when user_id is missing" do
       errors = changeset(%{user_id: nil}) |> errors_on()
+      assert "can't be blank" in errors.user_id
+    end
+
+    # A deleted account nilifies `sandboxes.user_id` on rows it may not have
+    # finished retiring. Those rows must still be able to go terminal, and
+    # nothing else.
+    for status <- ~w(terminated failed) do
+      test "a persisted row whose owner was deleted can still become #{status}" do
+        orphan = persisted(user_id: nil)
+        assert Sandbox.changeset(orphan, %{status: unquote(status)}).valid?
+      end
+    end
+
+    test "a persisted row whose owner was deleted cannot be reused" do
+      orphan = persisted(user_id: nil)
+      errors = Sandbox.changeset(orphan, %{status: "ready"}) |> errors_on()
+      assert "can't be blank" in errors.user_id
+    end
+
+    test "retiring a row cannot also clear its owner" do
+      owned = persisted(user_id: Ecto.UUID.generate())
+      errors = Sandbox.changeset(owned, %{status: "terminated", user_id: nil}) |> errors_on()
       assert "can't be blank" in errors.user_id
     end
   end

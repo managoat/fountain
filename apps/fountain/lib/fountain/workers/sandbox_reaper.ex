@@ -405,18 +405,33 @@ defmodule Fountain.Workers.SandboxReaper do
     |> Repo.all()
     |> Repo.preload(:conversations)
     |> Enum.reject(&Lifecycle.any_server_alive?/1)
-    |> Enum.map(&finish_teardown/1)
-    |> length()
+    |> Enum.count(&(finish_teardown(&1) == :ok))
   end
 
+  # A row this pass cannot retire is logged and skipped rather than matched on.
+  # These rows are already the leftovers of a failure, and a raise here would
+  # stop `perform/1` before the provider listing — one bad row would block
+  # machine cleanup for the whole fleet, every run, for as long as it stayed.
   defp finish_teardown(%Sandbox{} = sandbox) do
-    was = sandbox.status
+    case Conversations.update_sandbox(sandbox, %{
+           status: "terminated",
+           terminated_at: DateTime.utc_now() |> DateTime.truncate(:second)
+         }) do
+      {:ok, _} ->
+        report_finished_teardown(sandbox)
 
-    {:ok, _} =
-      Conversations.update_sandbox(sandbox, %{
-        status: "terminated",
-        terminated_at: DateTime.utc_now() |> DateTime.truncate(:second)
-      })
+      {:error, reason} ->
+        Logger.error(
+          "reaper: could not finish abandoned teardown of sandbox #{sandbox.id} " <>
+            "(#{sandbox.machine_name}): #{inspect(reason)}"
+        )
+
+        :error
+    end
+  end
+
+  defp report_finished_teardown(sandbox) do
+    was = sandbox.status
 
     Logger.warning(
       "reaper: finished abandoned teardown of sandbox #{sandbox.id} " <>
@@ -432,7 +447,7 @@ defmodule Fountain.Workers.SandboxReaper do
       "grace_minutes" => @fenced_teardown_grace_minutes
     })
 
-    sandbox
+    :ok
   end
 
   # ── pass 2: terminal rows whose sprite is still there ─────────────────────

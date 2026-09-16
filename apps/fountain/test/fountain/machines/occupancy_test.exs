@@ -75,9 +75,12 @@ defmodule Fountain.Machines.OccupancyTest do
   #
   # A telemetry handler is global (it fires for every query in the VM), and
   # this file is `async: true`, so the handler records only what *this* test
-  # process ran. Ecto emits the event from the process that issued the query,
-  # and every path measured here queries on the caller's connection, so that
-  # filter is exact rather than approximate.
+  # process ran — otherwise a concurrent test's queries would land in the
+  # count. Ecto emits the event from the process that issued the query, and
+  # every path measured here is synchronous on the caller's connection, so the
+  # filter sees all of it. A path that ever queried from a child process would
+  # go uncounted; if one appears, match `Process.get(:"$callers")` too rather
+  # than trusting a zero.
   defp count_queries(fun) do
     me = self()
     handler = {__MODULE__, make_ref()}

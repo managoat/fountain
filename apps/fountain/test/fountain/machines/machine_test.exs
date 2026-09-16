@@ -7,6 +7,7 @@ defmodule Fountain.Machines.MachineTest do
   """
 
   use Fountain.DataCase, async: false
+  use Mimic
 
   alias Fountain.Conversations
   alias Fountain.Conversations.Lifecycle
@@ -169,21 +170,55 @@ defmodule Fountain.Machines.MachineTest do
       refute Machines.enabled?()
     end
 
-    test "a call to an owner that has already idle-stopped still answers", ctx do
-      # `GenServer.call` *exits* on a dead pid, and the idle timer fires on
-      # its own schedule — so between the lookup and the call the owner can
-      # be gone. A read-only verb must not take its caller down with it.
+    test "an idle-stopped owner is simply replaced on the next question", ctx do
       with_gate(true, fn ->
         {:ok, pid} = Machine.ensure_started(ctx.sandbox.id, idle_ms: 40)
         ref = Process.monitor(pid)
         assert_receive {:DOWN, ^ref, :process, ^pid, :normal}, 2_000
 
-        # The stale pid, called directly, is what `who_is_here/1` can hold.
+        # The stale pid, called directly, is what the race below hands
+        # `who_is_here/1`. Here the registry has already dropped it, so the
+        # lookup misses and a fresh owner starts — no exit to survive.
         assert catch_exit(GenServer.call(pid, :who_is_here, 1_000))
 
         assert %Occupancy{} = occupancy = Machine.who_is_here(ctx.sandbox.id)
         assert Enum.sort(occupancy.bound) == Enum.sort([ctx.a.id, ctx.b.id])
+        refute Machine.whereis(ctx.sandbox.id) == pid
       end)
+    end
+
+    test "an owner that dies between the lookup and the call is retried, not raised", ctx do
+      # The real race, which the test above cannot reach: `ensure_started/2`
+      # hands back a pid and the idle timer fires before the call lands.
+      # `GenServer.call` *exits* on that, and a read-only verb must not take
+      # its caller down with it.
+      #
+      # Driven deterministically by making the first registry lookup in THIS
+      # process return a pid that is already dead. Mimic stubs are per-process,
+      # so the Horde supervisor's own internals are untouched and the retry
+      # starts a genuine owner.
+      dead = spawn(fn -> :ok end)
+      ref = Process.monitor(dead)
+      assert_receive {:DOWN, ^ref, :process, ^dead, _}, 1_000
+
+      {:ok, lookups} = Agent.start_link(fn -> 0 end)
+
+      stub(Horde.Registry, :lookup, fn Fountain.MachineRegistry, _key ->
+        case Agent.get_and_update(lookups, &{&1, &1 + 1}) do
+          0 -> [{dead, nil}]
+          _ -> []
+        end
+      end)
+
+      with_gate(true, fn ->
+        assert %Occupancy{} = occupancy = Machine.who_is_here(ctx.sandbox.id)
+        assert Enum.sort(occupancy.bound) == Enum.sort([ctx.a.id, ctx.b.id])
+      end)
+
+      # The discriminator between retrying and giving up: the answer is a
+      # struct either way, but only the retry starts a real owner. Without it
+      # this test would pass against a bare `Occupancy.load/1` fallback.
+      assert Horde.DynamicSupervisor.count_children(Fountain.MachineSupervisor).active == 1
     end
 
     test "with the gate on, no predicate starts an owner", ctx do

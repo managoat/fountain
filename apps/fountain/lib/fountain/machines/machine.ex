@@ -118,13 +118,19 @@ defmodule Fountain.Machines.Machine do
   # would make a read-only verb crash its caller. So: one retry with a freshly
   # started owner, then the direct read. Whatever happens, the caller gets a
   # struct, which is what the @spec promises.
+  #
+  # Only a *gone* owner is retried. A `:timeout` means the owner is alive and
+  # slow — almost certainly a repo that is already in trouble — and retrying
+  # that would make one caller wait two `@call_timeout`s before it gave up, so
+  # it falls straight through to the direct read.
   defp ask_owner(sandbox_id, retries_left) do
     case ensure_started(sandbox_id) do
       {:ok, pid} ->
         try do
           GenServer.call(pid, :who_is_here, @call_timeout)
         catch
-          :exit, reason when retries_left > 0 ->
+          :exit, reason
+          when retries_left > 0 and elem(reason, 0) in [:noproc, :normal, :shutdown] ->
             Logger.debug("machine #{sandbox_id}: owner went away (#{inspect(reason)}); retrying")
             ask_owner(sandbox_id, retries_left - 1)
 

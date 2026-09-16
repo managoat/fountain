@@ -4,6 +4,7 @@ import { parseArgs } from 'node:util';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { run } from './lib/runner.mjs';
 import { composeTarget, PROFILES } from './lib/target.mjs';
 import { externalReceiver, hostReceiver, hostsReceiver } from './lib/local-receiver.mjs';
@@ -202,19 +203,13 @@ export async function verifyMain(argv, env = process.env) {
   // a missing key must not cost a tunnel first.
   assertRunnable(args, env);
   if (resolved.fromKeychain.length) console.log(`  keys       keychain ${values.keychain} for ${origin}`);
-  const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z');
-  const out = resolve(values.out || resolve(env.TMPDIR || '/tmp', `fountain-verify-${stamp}`));
-  // Each run owns a new directory, so one verdict never overwrites another's
-  // evidence or cleanup manifest.
-  mkdirSync(out, { mode: 0o700, recursive: false });
   console.log(`  target     ${origin}`);
   console.log(`  profile    ${values.profile}`);
-  console.log(`  out        ${out}`);
   const controller = new AbortController();
   const cancel = () => controller.abort(new Error('Interrupted'));
   process.on('SIGINT', cancel);
   process.on('SIGTERM', cancel);
-  let receiver;
+  let receiver, out;
   try {
     try {
       receiver = await openReceiver(values, env, controller.signal);
@@ -226,6 +221,13 @@ export async function verifyMain(argv, env = process.env) {
       throw error;
     }
     const config = verifyConfig(args, env, receiver?.settings);
+    // Only now, when nothing is left to refuse. A run that never started
+    // should leave no evidence directory behind to be mistaken for one that
+    // did. Two runs in the same second get their own, hence the suffix.
+    const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.(\d+)Z$/, '$1');
+    out = resolve(values.out || resolve(env.TMPDIR || '/tmp', `fountain-verify-${stamp}-${randomUUID().slice(0, 8)}`));
+    mkdirSync(out, { mode: 0o700, recursive: false });
+    console.log(`  out        ${out}`);
     if (config.execution) console.log(`  execution  ${config.execution.runtime} / ${config.execution.model} / ${config.execution.sandbox_provider}`);
     // An ephemeral receiver and its borrowed origins are gone once the run
     // ends, and the run's target names both. Replaying cleanup through it

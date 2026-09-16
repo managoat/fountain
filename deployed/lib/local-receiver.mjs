@@ -43,12 +43,14 @@ export function externalReceiver(profile, { receiverUrl, blockedUrl, bootstrapHo
       ? 'The secrets profile needs --receiver-url and --blocked-url, two hostnames onto the same receiver'
       : `The ${profile} profile takes one --receiver-url`);
   }
-  if (!env[spec.credential]) throw new Error(`Set ${spec.credential} to the hosted receiver's admin credential`);
   const settings = spec.settings(origins, { bootstrapHosts });
   // The profile's own validator, applied here rather than at load: these
   // settings are written to target.json on the way to the runner, so a URL
-  // carrying a password would be persisted before anything refused it.
+  // carrying a password would be persisted before anything refused it. It
+  // runs before the credential check, so a URL is refused for what it is
+  // rather than for what the environment happens to be missing.
   validateOrigins(profile, settings);
+  if (!env[spec.credential]) throw new Error(`Set ${spec.credential} to the hosted receiver's admin credential`);
   return { settings, env: {}, async stop() {} };
 }
 

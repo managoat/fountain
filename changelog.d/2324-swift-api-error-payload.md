@@ -9,4 +9,5 @@
   `reason` (`is_default`, `ephemeral` or the sandbox status, `timeout` and
   the like). The key-auth and scope
   refusals, whose `error` is a sentence, still report `reason` as the code.
-  The new `APIErrorBody.reason` carries the body's `reason` as sent.
+  The new `APIErrorBody.reason` carries the body's `reason` as sent, and a
+  new initializer overload takes it; the published initializer is unchanged.

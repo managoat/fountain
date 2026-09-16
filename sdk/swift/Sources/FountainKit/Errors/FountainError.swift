@@ -23,10 +23,29 @@ public struct APIErrorBody: Sendable, Equatable {
   /// lose it.
   public var httpStatus: Int?
 
+  /// The initializer v0.19.0 published, kept so a stored reference to it
+  /// (`APIErrorBody.init(code:message:fieldErrors:upgradeURL:activeSandboxes:limit:httpStatus:)`)
+  /// still compiles; a defaulted `reason` would have replaced its signature.
   public init(
     code: String? = nil,
     message: String? = nil,
-    reason: String? = nil,
+    fieldErrors: [String: [String]] = [:],
+    upgradeURL: String? = nil,
+    activeSandboxes: Int? = nil,
+    limit: Int? = nil,
+    httpStatus: Int? = nil
+  ) {
+    self.init(
+      code: code, message: message, reason: nil, fieldErrors: fieldErrors,
+      upgradeURL: upgradeURL, activeSandboxes: activeSandboxes, limit: limit,
+      httpStatus: httpStatus)
+  }
+
+  /// `reason` has no default here, so `APIErrorBody()` keeps one candidate.
+  public init(
+    code: String? = nil,
+    message: String? = nil,
+    reason: String?,
     fieldErrors: [String: [String]] = [:],
     upgradeURL: String? = nil,
     activeSandboxes: Int? = nil,

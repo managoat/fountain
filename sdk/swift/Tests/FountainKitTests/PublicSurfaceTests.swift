@@ -79,6 +79,14 @@ struct PublicSurfaceTests {
     let status: Int? = refusal.httpStatus
     #expect(errorCode == "sandbox_quota_exceeded" && errorMessage == "m" && errorReason == nil)
     #expect(fields.isEmpty && upgrade == nil && active == 3 && quota == 3 && status == nil)
+    // Both initializers are public: the v0.19.0 signature, which a consumer may
+    // hold as a function value, and the one that also takes `reason`.
+    let makeError = APIErrorBody.init(
+      code:message:fieldErrors:upgradeURL:activeSandboxes:limit:httpStatus:)
+    let built = makeError("conversation_busy", nil, [:], nil, nil, nil, 400)
+    let narrowed = APIErrorBody(code: "broker_unavailable", reason: "timeout")
+    #expect(built.code == "conversation_busy" && built.reason == nil && built.httpStatus == 400)
+    #expect(narrowed.reason == "timeout" && APIErrorBody() == APIErrorBody(reason: nil))
     let payload = try JSONDecoder().decode(
       APIErrorPayload.self, from: Data(#"{"errors":{"detail":"Not Acceptable"}}"#.utf8))
     let rawCode: String? = payload.error

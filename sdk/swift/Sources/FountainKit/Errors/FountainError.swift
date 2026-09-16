@@ -5,11 +5,12 @@ import Foundation
 /// read into the values a caller branches on. `Retry-After` arrives as a
 /// response header, not in the body.
 public struct APIErrorBody: Sendable, Equatable {
-  /// The machine-readable code (the body's `error` field, or its `reason`
-  /// when one is sent). Branch on this.
+  /// The machine-readable code. Branch on this. It is the body's `error`,
+  /// unless `error` is a sentence and `reason` carries the code.
   public var code: String?
   public var message: String?
-  /// The body's `reason`, as sent.
+  /// The body's `reason`, as sent. Where `error` is already a code, this
+  /// narrows it: `broker_unavailable` carries `timeout`, for example.
   public var reason: String?
   /// Validation errors: field → messages. A bare string becomes a one-element array.
   public var fieldErrors: [String: [String]]
@@ -58,9 +59,11 @@ extension APIErrorBody: Decodable {
       activeSandboxes: payload.activeSandboxes,
       limit: payload.limit
     )
-    // Auth failures invert the convention: `error` is prose, `reason` is
-    // the machine code (`api_key_invalid`, `api_key_expired`, ...).
-    if let reason = payload.reason {
+    // The key-auth and scope refusals invert the convention: `error` is a
+    // sentence ("Invalid or missing API key") and `reason` is the code
+    // (`api_key_invalid`). Where `error` is already a code, `reason` only
+    // narrows it and the code stays (#2324).
+    if let reason = payload.reason, !(payload.error.map(isMachineCode) ?? false) {
       message = message ?? payload.error
       code = reason
     }
@@ -70,6 +73,12 @@ extension APIErrorBody: Decodable {
       value.stringValue.map { [$0] } ?? value.arrayValue?.compactMap(\.stringValue)
     }
   }
+}
+
+/// Whether an `error` value is a code (`credential_set_is_default`) rather
+/// than a sentence meant for a person.
+private func isMachineCode(_ value: String) -> Bool {
+  !value.isEmpty && value.allSatisfy { $0.isASCII && ($0.isLowercase || $0.isNumber || $0 == "_") }
 }
 
 /// Server codes that are worth retrying after a delay.

@@ -339,6 +339,23 @@ import Testing
     }
   }
 
+  @Test func aCodedErrorKeepsItsCodeWhenReasonNarrowsIt() async throws {
+    // `reason` only takes over when `error` is a sentence. Here both are
+    // codes and `reason` narrows `error`, so the code stays (#2324).
+    let transport = FakeTransport(
+      json:
+        #"{"error":"credential_set_is_default","message":"m","reason":"is_default"}"#,
+      status: 422
+    )
+    do {
+      try await FountainClient.fake(transport).vaults.delete("v-1")
+      Issue.record("expected throw")
+    } catch let error as FountainError {
+      #expect(error.code == "credential_set_is_default")
+      #expect(error.body?.reason == "is_default" && error.body?.message == "m")
+    }
+  }
+
   @Test func aBodyWithoutErrorStillDecodes() async throws {
     // Phoenix's own error pages and the 406 send `errors` alone, as a
     // detail string rather than field -> messages. `error` is pinned

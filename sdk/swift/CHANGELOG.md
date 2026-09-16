@@ -15,6 +15,8 @@ Notable changes to the Fountain Swift SDK follow
 
 - Generate the Sandbox, Runner and conversation-tree model families from the contract. Preserve public nested types, unknown enums and legacy optional decoding; Usage now includes additive fields from both turn and total schemas (#2251).
 
+- Decode `APIErrorBody` through the generated `APIErrorPayload` (the contract's `Error` schema). Published members keep their names and optionality. `code` stays the body's `error` when that is already a code and `reason` only narrows it, so `credential_set_is_default`, `sandbox_not_resettable` and `broker_unavailable` are no longer reported as their `reason`; the key-auth and scope refusals, whose `error` is a sentence, still take `reason` as the code. New `APIErrorBody.reason` carries the body's `reason` as sent (#2324).
+
 - Generate `PageMeta` from the contract's cursor envelope. `hasMore`, `limit` and `nextCursor` keep their Optional types; `offset` moves to the new `SearchResponse.Meta` (non-Optional members), since only `GET /api/search` ever sent it. `Page<T>` becomes `Page<Items, Meta>`: `audit.list` and `conversations.events` return `Page<[…], PageMeta>`, `search.search` returns `Page<[SearchHit], SearchResponse.Meta>`; `page.meta?.hasMore` reads as before. The generated `AuditEventListResponse`, `LogEventListResponse` and `SearchResponse` are public (#2300).
 
 - Generate `TeamResource`'s `add`, `rename` and `message` request bodies from the contract. `TeamResource`'s public method signatures and wire behaviour are unchanged, including `rename` always sending an explicit JSON `null` for a `nil` name rather than omitting the key. The generated `TeamMessageRequest` additionally carries `labels`, a contract field neither method exposes yet (#2300).

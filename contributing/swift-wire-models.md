@@ -24,7 +24,7 @@ The generator reads the committed contract and does not require Elixir to run.
 | JSONValue, ConversationInputField and WireValue / enum wrappers | Intentionally handwritten value/behavior types; their raw-string decoding preserves unknown server values |
 | Swift Fountain map product | Uses JSON objects rather than duplicated typed wire properties; remains supported |
 | PageMeta, SearchResponse.Meta, AuditEventListResponse, LogEventListResponse, SearchResponse | Generated (#2300). The cursor envelope (`has_more`, `limit`, `next_cursor`) is declared inline on `AuditEventListResponse` and `LogEventListResponse`, never as a named schema; both declarations are named `PageMeta` in `INLINE_TYPES` and the reused-inline-shape guard is what proves they match. `has_more` and `limit` are pinned: the contract requires both and every published `PageMeta` had them Optional. `/api/search` pages by offset, a different shape, so it has its own `SearchResponse.Meta`, wholly new and therefore at contract requiredness. The handwritten `PageMeta` (in `Client/APIClient.swift`, not `Models/`) was the union of both shapes, so `offset` is a recorded removal in `REMOVED_PROPERTIES`. `Page<Items, Meta>` carries whichever meta the endpoint declares |
-| APIErrorBody (`Errors/FountainError.swift`) | Handwritten for now. Since #2324 the contract declares one `Error` schema on every JSON error status, carrying `error` plus the optional `message`, `reason`, `errors`, `upgrade_url`, `active_sandboxes` and `limit`, so the payload can be generated from it. The behaviour over it stays handwritten — `reason` outranking `error`, `errors` accepting a string or an array per field, the client-stamped `httpStatus`, `FountainError.from(status:body:)` — the split `AdminUserPage` has over `AdminUserListResponse`. Every currently-Optional member takes an `OPTIONAL_COMPAT` pin when it moves |
+| APIErrorPayload, APIErrorBody (`Errors/FountainError.swift`) | `APIErrorPayload` is generated from the `Error` schema every JSON error status declares since #2325; the name keeps `Error` from shadowing `Swift.Error`. `APIErrorBody` stays handwritten behaviour over it, the split `AdminUserPage` has over `AdminUserListResponse`: `code`, the normalised `fieldErrors`, the client-stamped `httpStatus` and `FountainError.from(status:body:)`. `reason` takes over `code` only when `error` is not code-shaped (lowercase letters, digits, underscores): on the key-auth and scope refusals `error` is a sentence and `reason` is the code, while on `broker_unavailable`, `sandbox_not_resettable` and `credential_set_is_default` both are codes and `reason` narrows, so `code` stays `error` and `reason` is published as sent (#2324). `error` is pinned although the released `Error` required it, so the guard never asked: Phoenix's `ErrorJSON` and the 406 `NegotiationError` send `errors` alone, and the released `ChangesetError` left `error` optional. `errors` is `JSONValue` in `TYPE_OVERRIDES` because those same bodies send `{"detail": "..."}` and servers before #1431 sent an array; a typed map would fail the whole body, `code` included. `ClientTests.aBodyWithoutErrorStillDecodes` is the omission that proves the pin. Every other member is already Optional in the contract |
 
 ## Compatibility rules
 
@@ -184,9 +184,11 @@ document anywhere, so a ceiling test holds the count at 0 the way
 contract has since described: at that point the ordinary path generates it
 and the entry is duplication.
 
-The 19 `TYPE_OVERRIDES` entries retain existing `JSONValue` APIs for
+The 22 `TYPE_OVERRIDES` entries retain existing `JSONValue` APIs for
 deliberately dynamic payloads: metadata, packages, networking config,
-repositories, MCP servers, agent-version config and apply errors. Neither
+repositories, MCP servers, agent-version config, apply errors and the error
+body's `errors`; `LogEvent.blocks` and `TeamMessageRequest.labels` are the
+two that name a different type, each with its reason beside it. Neither
 table is a registry to extend for ordinary API additions. Aliased Skill
 definitions must agree, and Secret reads both environment and vault schemas.
 Conflicting shared definitions fail generation.

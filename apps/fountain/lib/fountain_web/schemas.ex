@@ -6,7 +6,12 @@ defmodule FountainWeb.Schemas do
   """
 
   import FountainWeb.SchemaWrappers,
-    only: [list_response: 2, item_response: 2, networking_config_description: 0]
+    only: [
+      list_response: 2,
+      item_response: 2,
+      update_of: 2,
+      networking_config_description: 0
+    ]
 
   alias OpenApiSpex.Schema
 
@@ -1377,109 +1382,6 @@ defmodule FountainWeb.Schemas do
               "any vault the tenant owns; an empty list forbids attaching any vault; " <>
               "a non-empty list is an allowlist."
         },
-        # `Agent.changeset/2` has cast this since the allowlist shipped and
-        # `AgentUpdate` declares it, but this schema did not — so a client
-        # generated from the spec could set the allowlist on PATCH and not on
-        # POST, while the endpoint accepted it either way.
-        allowed_environment_ids: %Schema{
-          type: :array,
-          items: %Schema{type: :string, format: :uuid},
-          nullable: true,
-          description:
-            "Environments a conversation may launch this agent under instead of its " <>
-              "own. Same shape as allowed_vault_ids: null (default) allows any " <>
-              "environment the tenant owns; an empty list forbids overriding; a " <>
-              "non-empty list is an allowlist. The agent's own environment always passes."
-        },
-        inference_credential_id: %Schema{
-          type: :string,
-          format: :uuid,
-          nullable: true,
-          description:
-            "The credential set this agent's conversations run on. null (default) " <>
-              "is the account's default set, which is what every agent had before " <>
-              "an account could hold more than one."
-        },
-        allowed_inference_credential_ids: %Schema{
-          type: :array,
-          items: %Schema{type: :string, format: :uuid},
-          nullable: true,
-          description:
-            "Credential sets a conversation may launch this agent on instead of the " <>
-              "agent's (inference_credential_id on create). Same shape as " <>
-              "allowed_vault_ids: null (default) allows any set the tenant owns; an " <>
-              "empty list forbids overriding; a non-empty list is an allowlist. The " <>
-              "agent's own set always passes."
-        }
-      },
-      # `model` is required for every runtime but acp, which needs none. A
-      # conditional requirement is not expressible here, so the changeset is
-      # where it is enforced and a missing model is a 422 rather than a 400.
-      required: [:name, :runtime]
-    })
-  end
-
-  defmodule AgentUpdate do
-    require OpenApiSpex
-
-    @moduledoc """
-    Partial update — every field is optional. Used by `PUT /api/agents/:id`.
-    """
-
-    OpenApiSpex.schema(%{
-      title: "AgentUpdate",
-      type: :object,
-      properties: %{
-        name: %Schema{type: :string, minLength: 1, maxLength: 200},
-        description: %Schema{type: :string},
-        system: %Schema{type: :string},
-        # Nullable for the same reason AgentRequest's is: converting an agent
-        # to the acp runtime has to be able to clear the model.
-        model: %Schema{type: :string, nullable: true, pattern: "^[a-z0-9_-]+/[a-z0-9._-]+$"},
-        runtime: %Schema{type: :string, enum: Fountain.Agents.Agent.packaged_runtimes()},
-        runtime_command: %Schema{
-          type: :string,
-          nullable: true,
-          description:
-            "The command the acp runtime launches inside the sandbox, as a shell line " <>
-              "resolved there (for example `chant acp`). Required when runtime is " <>
-              "acp, and rejected on every other runtime, which resolves its own " <>
-              "executable. A free string by design: it runs under the same isolation " <>
-              "as an environment's setup script."
-        },
-        sandbox_provider: %Schema{
-          type: :string,
-          enum: ~w(sprites e2b daytona runner),
-          nullable: true,
-          description:
-            "Sandbox backend override; null inherits the instance default " <>
-              "(SANDBOX_PROVIDER). Only providers configured on this instance are accepted"
-        },
-        sandbox_mode: %Schema{
-          type: :string,
-          enum: ~w(ephemeral persistent),
-          description:
-            "Where a conversation of this agent runs by default (ADR 0023). ephemeral: a " <>
-              "sandbox per conversation, reclaimed with it. persistent: one sandbox per " <>
-              "agent identity (agent, environment, vault) — the agent's computer — that " <>
-              "every conversation of that identity lands on and shares; it survives a " <>
-              "conversation ending and is parked, not destroyed, at the ceiling. A launch " <>
-              "may name the other with sandbox_mode on POST /api/conversations."
-        },
-        permission_policy: %Schema{
-          allOf: [PermissionPolicy],
-          nullable: true,
-          description:
-            "Per-tool permission policy: a map of key to verdict, plus an optional " <>
-              "\"default\" key. A key is matched against the tool card's title first and " <>
-              "then ACP's kind (execute, edit, read, fetch, \u2026); prefer a kind, because " <>
-              "claude titles a tool call with the command it is about to run. Unset keys " <>
-              "fall back to the default, and an unset default is auto_allow. \"ask\" holds " <>
-              "the tool until a human answers it on the conversation stream, and denies if " <>
-              "nobody does before the timeout. A conversation may narrow this at launch, " <>
-              "never widen it. A runtime that never asks (opencode) refuses anything " <>
-              "stricter than auto_allow with 422 permission_policy_unenforceable."
-        },
         allowed_environment_ids: %Schema{
           type: :array,
           items: %Schema{type: :string, format: :uuid},
@@ -1509,56 +1411,16 @@ defmodule FountainWeb.Schemas do
               "allowed_vault_ids: null (default) allows any set the tenant owns; an " <>
               "empty list forbids overriding; a non-empty list is an allowlist. The " <>
               "agent's own set always passes."
-        },
-        environment_id: %Schema{type: :string, format: :uuid, nullable: true},
-        skills: %Schema{
-          type: :array,
-          description:
-            "Each entry is either inline (`{name, content}` — full SKILL.md text written to the sprite) " <>
-              "or github (`{source, ref?, name?}` — installed on the sprite via the skills.sh CLI, " <>
-              "optionally pinned to a tag/branch/sha via `ref`). " <>
-              "Exactly one of `content` or `source` must be set on each entry.",
-          items: %Schema{
-            type: :object,
-            properties: %{
-              name: %Schema{
-                type: :string,
-                description: "Skill name (required for inline entries)."
-              },
-              content: %Schema{
-                type: :string,
-                description: "Full SKILL.md body for inline entries."
-              },
-              source: %Schema{
-                type: :string,
-                description: "GitHub `owner/repo` for skills.sh-sourced entries.",
-                pattern: "^[A-Za-z0-9._/-]+$"
-              },
-              ref: %Schema{
-                type: :string,
-                description:
-                  "Optional tag, branch, or sha pinning a github-sourced skill " <>
-                    "(installed as `owner/repo@ref`). Without it the default branch " <>
-                    "is fetched at spawn time.",
-                pattern: "^[A-Za-z0-9._/-]+$"
-              }
-            }
-          }
-        },
-        mcp_servers: %Schema{type: :object, additionalProperties: true},
-        metadata: %Schema{type: :object, additionalProperties: true},
-        allowed_vault_ids: %Schema{
-          type: :array,
-          items: %Schema{type: :string, format: :uuid},
-          nullable: true,
-          description:
-            "Vaults a conversation may attach to this agent. null (default) allows " <>
-              "any vault the tenant owns; an empty list forbids attaching any vault; " <>
-              "a non-empty list is an allowlist."
         }
-      }
+      },
+      # `model` is required for every runtime but acp, which needs none. A
+      # conditional requirement is not expressible here, so the changeset is
+      # where it is enforced and a missing model is a 422 rather than a 400.
+      required: [:name, :runtime]
     })
   end
+
+  update_of(AgentUpdate, AgentRequest)
 
   defmodule Repository do
     @moduledoc false
@@ -1690,47 +1552,7 @@ defmodule FountainWeb.Schemas do
     })
   end
 
-  defmodule EnvironmentUpdate do
-    require OpenApiSpex
-
-    @moduledoc """
-    Partial update — every field is optional. The server merges into the
-    existing record. Used by `PUT /api/environments/:id`.
-    """
-
-    OpenApiSpex.schema(%{
-      title: "EnvironmentUpdate",
-      type: :object,
-      properties: %{
-        name: %Schema{type: :string, minLength: 1, maxLength: 200},
-        packages: %Schema{type: :object, additionalProperties: true},
-        env_vars: %Schema{type: :object, additionalProperties: %Schema{type: :string}},
-        setup_script: %Schema{type: :string},
-        setup_timeout_seconds: %Schema{
-          type: :integer,
-          minimum: 1,
-          maximum: 900,
-          description:
-            "Setup exec timeout in seconds; defaults to 120. The overall provisioning deadline still applies."
-        },
-        networking_type: %Schema{type: :string, enum: ~w(unrestricted limited)},
-        networking_config: %Schema{
-          type: :object,
-          description: networking_config_description(),
-          properties: %{
-            allowed_hosts: %Schema{
-              type: :array,
-              items: %Schema{type: :string},
-              description: "Domains the sandbox may reach when networking_type is limited."
-            }
-          },
-          additionalProperties: true
-        },
-        repositories: %Schema{type: :array, items: Repository},
-        metadata: %Schema{type: :object, additionalProperties: true}
-      }
-    })
-  end
+  update_of(EnvironmentUpdate, EnvironmentRequest)
 
   defmodule Secret do
     @moduledoc false
@@ -1813,23 +1635,7 @@ defmodule FountainWeb.Schemas do
     })
   end
 
-  defmodule VaultUpdate do
-    require OpenApiSpex
-
-    @moduledoc """
-    Partial update — every field is optional. Used by `PUT /api/vaults/:id`.
-    """
-
-    OpenApiSpex.schema(%{
-      title: "VaultUpdate",
-      type: :object,
-      properties: %{
-        name: %Schema{type: :string, minLength: 1, maxLength: 200},
-        description: %Schema{type: :string},
-        metadata: %Schema{type: :object, additionalProperties: true}
-      }
-    })
-  end
+  update_of(VaultUpdate, VaultRequest)
 
   defmodule VaultSecret do
     @moduledoc false

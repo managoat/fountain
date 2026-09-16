@@ -59,6 +59,52 @@ defmodule FountainWeb.SchemaWrappersTest do
     end
   end
 
+  describe "update_of/2" do
+    @updates [
+      {Schemas.AgentUpdate, Schemas.AgentRequest},
+      {Schemas.EnvironmentUpdate, Schemas.EnvironmentRequest},
+      {Schemas.VaultUpdate, Schemas.VaultRequest}
+    ]
+
+    test "is the request with nothing required" do
+      for {update, request} <- @updates do
+        assert request.schema().required != nil
+        assert update.schema().required == nil
+        assert update.schema().properties == request.schema().properties
+        assert update.schema().type == request.schema().type
+      end
+    end
+
+    # Without the reset, build_schema keeps the request's own title and
+    # x-struct, and the spec would publish two components both claiming to be
+    # the request.
+    test "names the schema and its struct after the update module" do
+      for {update, _request} <- @updates do
+        assert update.schema().title == update |> Module.split() |> List.last()
+        assert update.schema()."x-struct" == update
+        assert %{__struct__: ^update} = struct(update)
+      end
+    end
+
+    # OpenApiSpex writes a property's default into the cast params. The
+    # schedule create request defaults `enabled: true`; derived as an update,
+    # every PATCH that left `enabled` out would switch a paused schedule on.
+    test "refuses a request whose properties carry a default" do
+      assert_raise ArgumentError, ~r/TeamScheduleCreateRequest.*:enabled/, fn ->
+        FountainWeb.SchemaWrappers.partial(Schemas.TeamScheduleCreateRequest.schema())
+      end
+    end
+
+    test "casts a body that omits what the request requires" do
+      spec = FountainWeb.ApiSpec.spec()
+
+      for {update, request} <- @updates do
+        assert {:ok, _} = OpenApiSpex.cast_value(%{}, update.schema(), spec)
+        assert {:error, _} = OpenApiSpex.cast_value(%{}, request.schema(), spec)
+      end
+    end
+  end
+
   # OpenApiSpex gives every schema module a struct and a Jason encoder. The
   # hand-written envelopes had them; losing them silently would change what
   # `x-struct` reports in the published spec.

@@ -2728,7 +2728,7 @@ export interface components {
         };
         /** AgentRequest */
         AgentRequest: {
-            /** @description Environments a conversation may launch this agent under instead of its own. Same shape as allowed_vault_ids: null (default) allows any environment the tenant owns; an empty list forbids overriding; a non-empty list is an allowlist. The agent's own environment always passes. */
+            /** @description Environments a conversation may launch this agent under instead of its own (environment_id on create). Same shape as allowed_vault_ids: null (default) allows any environment the tenant owns; an empty list forbids overriding; a non-empty list is an allowlist. The agent's own environment always passes. */
             allowed_environment_ids?: string[] | null;
             /** @description Credential sets a conversation may launch this agent on instead of the agent's (inference_credential_id on create). Same shape as allowed_vault_ids: null (default) allows any set the tenant owns; an empty list forbids overriding; a non-empty list is an allowlist. The agent's own set always passes. */
             allowed_inference_credential_ids?: string[] | null;

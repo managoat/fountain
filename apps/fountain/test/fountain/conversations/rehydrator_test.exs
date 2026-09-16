@@ -99,6 +99,40 @@ defmodule Fountain.Conversations.RehydratorTest do
     assert Repo.reload!(limited).status == "running"
   end
 
+  # ADR 0058 stage 6a. The sweep reads `ready` rows, and a `ready` row can be a
+  # machine its owner is between intent and finalize on: a destroy, a reset,
+  # and from stage 6b a park. Starting a server there gives the machine a
+  # second writer during the one window the owner exists to prevent. Skipping
+  # is right rather than failing: the next boot, or the conversation's own next
+  # prompt, comes back after the lease has gone.
+  for {label, kind} <- [{"a stamped transition", :transition}, {"a live lease", :lease}] do
+    test "boot skips a machine with #{label}" do
+      conv = resumable("idle")
+      conv.sandbox |> Ecto.Changeset.change(busy(unquote(kind))) |> Repo.update!()
+
+      log = ExUnit.CaptureLog.capture_log(fn -> assert sweep() == 0 end)
+      assert log =~ "machine_busy"
+      refute_received {:worker_start, _}
+      assert Repo.reload!(conv).status == "idle"
+    end
+  end
+
+  test "boot starts a server once the lease has expired" do
+    conv = resumable("idle")
+
+    conv.sandbox
+    |> Ecto.Changeset.change(
+      lease_epoch: 1,
+      lease_node: "fountain@other",
+      lease_until: DateTime.add(DateTime.utc_now(), -1_000, :millisecond)
+    )
+    |> Repo.update!()
+
+    assert sweep() == 1
+    assert_received {:worker_start, args}
+    assert args[:conversation_id] == conv.id
+  end
+
   test "boot still leaves non-ready sandboxes to lazy recovery" do
     for status <- ["pending", "starting", "suspended", "terminated", "failed"] do
       conv = resumable("idle")
@@ -108,6 +142,18 @@ defmodule Fountain.Conversations.RehydratorTest do
     assert sweep() == 0
     refute_received {:worker_start, _}
   end
+
+  # The two shapes of "an owner is mid-operation on this machine" (ADR 0058).
+  # Written straight onto the row: no changeset casts these columns, which is
+  # itself part of the design — only `Machines.Lease` writes them.
+  defp busy(:transition), do: [transition: "parking"]
+
+  defp busy(:lease),
+    do: [
+      lease_epoch: 1,
+      lease_node: "fountain@other",
+      lease_until: DateTime.add(DateTime.utc_now(), 30_000, :millisecond)
+    ]
 
   defp resumable(status) do
     agent = insert_agent()

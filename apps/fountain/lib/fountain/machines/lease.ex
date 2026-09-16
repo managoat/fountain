@@ -29,7 +29,7 @@ defmodule Fountain.Machines.Lease do
   another's. Skew is not a correctness hole — early takeover is what the
   compare-and-set already makes safe, and late takeover only delays recovery —
   but it is N clocks rather than one. Moving to `fragment("now()")` is a
-  decision for the process that owns the renew timer (stage 4), not for this
+  decision for the process that owns the renew timer (stage 7), not for this
   module, which has no timer of its own.
 
   Every function here is one short statement or transaction, and refuses to run
@@ -50,12 +50,20 @@ defmodule Fountain.Machines.Lease do
 
   `Fountain.Machines.Destroy` is the only caller of the write half, since stage
   5a: it claims a lease around one destroy, stamps the transition and finalizes
-  with `cas_update/3`, and releases. Two readers outside this namespace look at
-  `lease_until` on the row to decide whether an owner is already working on a
-  machine — `Workers.SandboxReaper.sweep_fenced_teardowns/0` (5a) and
-  `Conversations.machine_lease_live?/1`, behind the reset reconciler and its
-  retry (5c). They read the column; they never write one. `park` and
-  `ensure_up` bring the standing lease and the renew timer in stages 6 and 7.
+  with `cas_update/3`, and releases.
+
+  The read half has more callers, and `live?/2` is all of them. Until stage 6a
+  there were three separate readings of "is an owner working on this machine",
+  two of them SQL `where` clauses and one an Elixir predicate, and they had
+  already drifted — the SQL pair tested `lease_until` alone where `claim/4`
+  decides on the holder columns too. They are now one function:
+  `Workers.SandboxReaper.sweep_fenced_teardowns/0` (5a),
+  `Workers.SandboxResetReconciler`'s sweep and
+  `Conversations.retry_pending_sandbox_reset/2` (5c), and — new in 6a — the
+  three readers that refuse a wake, an attach or a rehydrate onto a machine
+  mid-operation, through `Machines.Machine.busy?/2`. They read the columns;
+  they never write one. `park` and `ensure_up` bring the standing lease and the
+  renew timer in stages 6b and 7.
   """
 
   import Ecto.Query
@@ -81,6 +89,38 @@ defmodule Fountain.Machines.Lease do
   # Where a sandbox stops. Kept in step with `@billable_terminal` in
   # `Fountain.Conversations`, whose `prevent_sandbox_revival/1` this mirrors.
   @terminal_statuses ~w(terminated failed)
+
+  @doc """
+  Is somebody holding this machine right now?
+
+  **The one definition, for readers inside this namespace and out.** Stage 6a
+  replaced three copies of it — `SandboxReaper.sweep_fenced_teardowns/0`'s and
+  `SandboxResetReconciler`'s `where` clauses, both written in SQL, and
+  `Conversations.machine_lease_live?/1`, written in Elixir — with this. Three
+  renderings of one rule is three chances to disagree about what an unheld row
+  looks like, and the SQL pair had already dropped the `lease_node` half that
+  `claim/4` decides on.
+
+  Takes a `Sandbox` (or any map carrying `:lease_node` and `:lease_until`, so a
+  query may `select` the two columns rather than the row) and the clock to
+  judge against. Both halves matter: a `lease_until` with no `lease_node` would
+  refuse a claim and name the holder as `nil`, which tells an operator a machine
+  is held by nothing. `held_by/2` makes that state unreachable; this makes it
+  unreadable as "held" even so.
+
+  **The clock is the caller's `now`, a BEAM node's.** That is the clock
+  `claim/4` writes `lease_until` with, so comparing against another node's is
+  the skew this module's moduledoc already accounts for: early is safe because
+  of the compare-and-set, late only delays recovery. Passing `now` in rather
+  than taking it here is what lets a sweep judge every row in one pass against
+  one instant. Moving the whole module to `fragment("now()")` belongs with the
+  renew timer (stage 7), not here.
+  """
+  @spec live?(Sandbox.t() | map(), DateTime.t()) :: boolean()
+  def live?(sandbox, now \\ DateTime.utc_now())
+  def live?(%{lease_node: nil}, _now), do: false
+  def live?(%{lease_until: nil}, _now), do: false
+  def live?(%{lease_until: until}, now), do: DateTime.compare(until, now) == :gt
 
   @doc """
   Take the lease on `sandbox_id` for `node`, for `ttl_ms` from `now`.
@@ -261,7 +301,11 @@ defmodule Fountain.Machines.Lease do
         Repo.one(
           from s in Sandbox,
             where: s.id == ^sandbox_id,
-            select: %{epoch: s.lease_epoch, node: s.lease_node, until: s.lease_until},
+            select: %{
+              epoch: s.lease_epoch,
+              lease_node: s.lease_node,
+              lease_until: s.lease_until
+            },
             lock: "FOR UPDATE"
         )
 
@@ -270,7 +314,7 @@ defmodule Fountain.Machines.Lease do
           {:error, :not_found}
 
         live?(current, now) ->
-          {:error, {:held, current.node, current.until}}
+          {:error, {:held, current.lease_node, current.lease_until}}
 
         true ->
           epoch = current.epoch + 1
@@ -300,16 +344,7 @@ defmodule Fountain.Machines.Lease do
     end)
   end
 
-  # A lease is live only if somebody holds it and the clock has not run out.
-  # Both halves matter: a `lease_until` with no `lease_node` would refuse a
-  # claim and name the holder as `nil`, which tells an operator a machine is
-  # held by nothing. `held_by/2` makes that state unreachable; this makes it
-  # unreadable as "held" even so.
-  defp live?(%{node: nil}, _now), do: false
-  defp live?(%{until: nil}, _now), do: false
-  defp live?(%{until: until}, now), do: DateTime.compare(until, now) == :gt
-
-  defp log_claim(:take_over, sandbox_id, node, epoch, %{node: previous}) do
+  defp log_claim(:take_over, sandbox_id, node, epoch, %{lease_node: previous}) do
     Logger.info(
       "machine lease taken over on sandbox #{sandbox_id} by #{node} at epoch #{epoch}; " <>
         "previous holder #{previous || "none"} had expired"

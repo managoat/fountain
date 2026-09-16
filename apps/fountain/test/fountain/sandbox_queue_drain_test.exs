@@ -46,6 +46,25 @@ defmodule Fountain.SandboxQueueDrainTest do
     agent
   end
 
+  # A persistent agent whose home is up but held: an owner is between its
+  # intent and its finalize, so a start for it reads `{:error,
+  # :sandbox_unavailable}` (ADR 0058 stage 6a) — the other transient shape.
+  defp agent_mid_operation(user) do
+    agent = insert_agent(user_id: user.id, sandbox_mode: "persistent")
+
+    insert_sandbox(
+      user_id: user.id,
+      agent_id: agent.id,
+      environment_id: agent.environment_id,
+      mode: "persistent",
+      status: "ready"
+    )
+    |> Ecto.Changeset.change(transition: "parking")
+    |> Repo.update!()
+
+    agent
+  end
+
   # The conversation row and the sandbox reservation are what this module is
   # about; the runtime behind them is not. Stubbing the supervisor keeps the
   # replay a database fact rather than a provisioning race.
@@ -156,6 +175,23 @@ defmodule Fountain.SandboxQueueDrainTest do
       user = insert_active_user()
       agent = agent_mid_provision(user)
       request = enqueue!(user, agent)
+
+      assert %{started: 0, failed: 0, expired: 0} = SandboxQueue.drain(user.id)
+
+      reloaded = Repo.get!(Request, request.id)
+      assert reloaded.status == "queued"
+      assert reloaded.error == nil
+      assert reloaded.attrs["prompt"] == "hi"
+    end
+
+    test "a machine its owner is mid-operation on goes back in line too" do
+      # ADR 0058 stage 6a: a start that lands on a home its owner is parking,
+      # destroying or rebuilding answers `:sandbox_unavailable`, which clears by
+      # itself in one provider round trip. Before 6a added it to
+      # `@transient_errors` this burned the prompt on a condition that had
+      # already passed.
+      user = insert_active_user()
+      request = enqueue!(user, agent_mid_operation(user))
 
       assert %{started: 0, failed: 0, expired: 0} = SandboxQueue.drain(user.id)
 

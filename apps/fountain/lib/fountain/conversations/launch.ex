@@ -32,6 +32,7 @@ defmodule Fountain.Conversations.Launch do
 
   alias Fountain.InferenceCredentials
   alias Fountain.InferenceCredentials.Source
+  alias Fountain.Machines.Machine
   alias Fountain.Repo
 
   # Advisory-lock namespace for per-sandbox machine operations — must match
@@ -173,9 +174,16 @@ defmodule Fountain.Conversations.Launch do
         }
       })
 
+      # Through the one registration door (ADR 0058 stage 6a), like every other
+      # starter: it stamps the sandbox's `woken_at` marker under the
+      # per-sandbox lock before Horde is asked for anything, so the reaper's
+      # `pending`/`starting` pass sees this launch as a database fact rather
+      # than waiting on registry propagation. Horde's answer comes back
+      # verbatim, so the `{:error, reason}` arm below still catches
+      # `{:already_started, _}` and fails the launch exactly as it did.
       start_result =
-        Horde.DynamicSupervisor.start_child(
-          Fountain.ConversationSupervisor,
+        Conversations.register_server(
+          sandbox.id,
           child_spec(conv.id, sandbox.id, runtime_module)
         )
 
@@ -560,6 +568,23 @@ defmodule Fountain.Conversations.Launch do
 
   defp check_attachable(%Sandbox{} = sandbox, %Agents.Agent{} = agent, vault_id, env_id) do
     cond do
+      # An owner is mid-operation on this machine (ADR 0058 stage 6a): a
+      # `transition` is stamped, or a lease is live. An attach binds a new
+      # conversation to a machine that is about to be parked, destroyed or
+      # rebuilt, and the identity checks below are made against a row that is
+      # not the row that is about to exist.
+      #
+      # Third, after the two clauses above, and that order is the contract.
+      # `reset_requested_at` still answers `:sandbox_reset_pending` — a refused
+      # reset leaves `transition: "destroying"` on a live row with its lease
+      # released (stage 5c), and the fence is the precise thing to say about it
+      # (409, "the reset is queued"), not "retry in 30s". The status clause
+      # above has already taken every non-`ready`/`suspended` row, so nothing
+      # terminal reaches here: a machine that finished is
+      # `{:sandbox_not_attachable, status}`, not a retry.
+      Machine.busy?(sandbox) ->
+        {:error, :sandbox_unavailable}
+
       sandbox.agent_id != agent.id ->
         {:error, :sandbox_identity_mismatch}
 

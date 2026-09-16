@@ -27,6 +27,7 @@ defmodule Fountain.Workers.SandboxResetReconciler do
 
   alias Fountain.Conversations
   alias Fountain.Conversations.Sandbox
+  alias Fountain.Machines.Lease
   alias Fountain.Repo
 
   @impl Oban.Worker
@@ -65,11 +66,13 @@ defmodule Fountain.Workers.SandboxResetReconciler do
   end
 
   def perform(%Oban.Job{args: %{}}) do
+    now = DateTime.utc_now()
+
     from(s in Sandbox,
       where:
         s.mode == "persistent" and s.status in ["ready", "suspended"] and
           not is_nil(s.reset_requested_at),
-      select: s.id
+      select: %{id: s.id, lease_node: s.lease_node, lease_until: s.lease_until}
     )
     # A machine whose owner holds a live lease is not a lost caller; it is a
     # destroy in flight (ADR 0058 stage 5c), and this sweep exists for the
@@ -84,9 +87,15 @@ defmodule Fountain.Workers.SandboxResetReconciler do
     # reuses the reset fence), so rows this sweep sees include machines being
     # destroyed outright, not only resets — which is exactly the race this
     # guard closes.
-    |> where([s], is_nil(s.lease_until) or s.lease_until <= ^DateTime.utc_now())
+    #
+    # Asked through `Lease.live?/2` since ADR 0058 stage 6a, which is why the
+    # query selects the two lease columns beside the id: one predicate, one
+    # clock, rather than this module's own SQL rendering of it. The rows it
+    # loads and drops are the contended ones, which the guard was going to drop
+    # anyway.
     |> Repo.all()
-    |> Enum.reduce_while(:ok, fn id, :ok ->
+    |> Enum.reject(&Lease.live?(&1, now))
+    |> Enum.reduce_while(:ok, fn %{id: id}, :ok ->
       case %{sandbox_id: id} |> new() |> Oban.insert() do
         {:ok, _} -> {:cont, :ok}
         {:error, reason} -> {:halt, {:error, reason}}

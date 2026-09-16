@@ -95,6 +95,41 @@ defmodule Fountain.Workers.TeamSchedulerTest do
       assert Schedules.get_schedule(s.id, user.id).last_error == "teammate was busy"
     end
 
+    test "snoozes on a machine its owner is mid-operation on" do
+      # ADR 0058 stage 6a. This worker's snooze list used to be spelled out
+      # inline beside `SandboxQueue`'s, so a refusal added to one was a refusal
+      # the other consumed instead of retrying — the shape #2286's fourth
+      # review round found. It reads the queue's list now, so this case and the
+      # queue's own drain case cannot disagree.
+      user = insert_verified_user()
+      ada = insert_agent(user_id: user.id)
+
+      insert_conversation(
+        user_id: user.id,
+        agent: ada,
+        status: "idle",
+        channel_id: Team.channel()
+      )
+
+      s = create!(user, ada)
+      stub(ConversationServer, :send_prompt, fn _, _, _, _ -> {:error, :sandbox_unavailable} end)
+
+      fresh = DateTime.utc_now() |> DateTime.to_iso8601()
+
+      assert {:snooze, 30} =
+               perform_job(TeamScheduleRun, %{"schedule_id" => s.id, "fired_at" => fresh})
+
+      stale = DateTime.utc_now() |> DateTime.add(-3600, :second) |> DateTime.to_iso8601()
+      assert :ok = perform_job(TeamScheduleRun, %{"schedule_id" => s.id, "fired_at" => stale})
+
+      assert Schedules.get_schedule(s.id, user.id).last_error ==
+               "teammate's computer was being started or stopped"
+    end
+
+    test "the snooze list is the queue's, not a copy of it" do
+      assert :sandbox_unavailable in Fountain.SandboxQueue.transient_errors()
+    end
+
     test "a deleted or paused schedule is a no-op" do
       user = insert_verified_user()
       ada = insert_agent(user_id: user.id)

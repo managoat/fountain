@@ -62,18 +62,35 @@ defmodule Fountain.Conversations.TerminationFallbackTest do
     assert [_] = events(ctx, "conversation.terminated")
   end
 
-  test "an attachment that wins before the fence keeps the sandbox", ctx do
+  # Rewritten at ADR 0058 stage 6a. This used to assert that an attach landing
+  # between the lease claim and the fence *won* — it kept the machine, and the
+  # destroy then found a cotenant and stood down. Stage 6a moves the point at
+  # which a machine stops taking new work from the fence back to the lease
+  # claim, which is where the ADR puts it ("the owner is a lease first"): an
+  # attach that meets a live lease is refused with `:sandbox_unavailable`, 503
+  # and retryable, and the destroy it raced runs to completion.
+  #
+  # The window this closes is the one #2307 constraint 2 names. What the caller
+  # loses is a machine it would have saved by a few milliseconds' luck; what it
+  # gets is a retry that lands on a settled machine instead of a binding to one
+  # somebody is halfway through destroying. Stage 8 makes the same refusal
+  # structural, when `attach` itself goes through the owner.
+  test "an attachment that arrives after the lease is claimed is refused", ctx do
     expect(Lifecycle, :fence_sandbox_for_teardown, fn sandbox, opts ->
-      assert {:ok, successor} = attach(ctx)
-      assert successor.sandbox_id == sandbox.id
+      assert {:error, :sandbox_unavailable} = attach(ctx)
       Mimic.call_original(Lifecycle, :fence_sandbox_for_teardown, [sandbox, opts])
     end)
 
+    expect(Managoat.Sandbox, :destroy, fn _ -> :ok end)
+
     assert :ok = terminate(ctx)
     assert Repo.reload!(ctx.conv).status == "terminated"
-    assert Repo.reload!(ctx.sandbox).status == "ready"
-    refute Repo.reload!(ctx.sandbox).reset_requested_at
-    assert events(ctx, "sandbox.teardown_requested") == []
+
+    # No cotenant stood in its way, so the machine is gone — where before the
+    # refused attach would have been a cotenant and kept it `ready`.
+    assert Repo.reload!(ctx.sandbox).status == "terminated"
+    assert [_] = events(ctx, "sandbox.teardown_requested")
+    assert [_] = events(ctx, "sandbox.destroyed")
   end
 
   test "a fence refusal leaves the machine available and records no completed termination", ctx do

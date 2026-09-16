@@ -23,11 +23,21 @@ defmodule Fountain.Workers.TeamScheduleRun do
 
   require Logger
 
+  alias Fountain.SandboxQueue
   alias Fountain.Team.Schedules
 
   # How long a firing waits for a busy teammate before it is dropped.
   @wait_for 30 * 60
   @snooze 30
+
+  # `SandboxQueue`'s own transient-error list rather than a second copy of it
+  # (ADR 0058 stage 6a). The two said the same thing until 6a added
+  # `sandbox_unavailable` to the queue's, and a list spelled out here is a list
+  # that gets found one refusal late. A module attribute because the guard
+  # below needs one; assigning it from `SandboxQueue.transient_errors()` makes
+  # this module compile-time dependent on `SandboxQueue`, which Mix orders
+  # correctly on its own.
+  @transient_errors SandboxQueue.transient_errors()
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: %{"schedule_id" => id} = args}) do
@@ -49,9 +59,10 @@ defmodule Fountain.Workers.TeamScheduleRun do
           # same wait: it may come back within the window.
           # A shared machine busy with another conversation's turn
           # (`:sandbox_at_capacity`) frees itself the same way a busy
-          # teammate does.
-          {:error, reason}
-          when reason in [:busy, :provisioning, :runner_offline, :sandbox_at_capacity] ->
+          # teammate does. So does a machine its owner is mid-operation on
+          # (`:sandbox_unavailable`, ADR 0058), on a shorter clock than any
+          # of them.
+          {:error, reason} when reason in @transient_errors ->
             if stale?(args), do: :ok, else: {:snooze, @snooze}
 
           {:error, reason} ->

@@ -38,7 +38,12 @@ defmodule Fountain.Conversations.Wake do
     Sandbox
   }
 
+  alias Fountain.Machines.Machine
   alias Fountain.Repo
+
+  # Where a sandbox stops. A terminal row is never a machine an owner is still
+  # working on, whatever its lease or transition says.
+  @terminal_statuses ~w(terminated failed)
 
   # Probe the existing sandbox: if it's `ready` or `suspended` and sprites.dev
   # confirms the sprite still exists, we can reattach without provisioning a
@@ -51,22 +56,50 @@ defmodule Fountain.Conversations.Wake do
   def maybe_reuse_sandbox(%Conversation{sandbox_id: sandbox_id}) do
     case Conversations._unsafe_get_sandbox(sandbox_id) do
       %Sandbox{reset_requested_at: at, status: status}
-      when not is_nil(at) and status not in ["terminated", "failed"] ->
+      when not is_nil(at) and status not in @terminal_statuses ->
         {:error, :sandbox_reset_pending}
 
-      %{status: status, machine_name: name} = sandbox
-      when status in ["ready", "suspended"] and is_binary(name) ->
-        probe_reusable_sandbox(sandbox, sandbox_id)
-
-      # A provision is in flight — or was, in a BEAM that is gone. The
-      # caller waits for the registry before deciding which (#800).
-      %{status: status} when status in ["pending", "starting"] ->
-        {:provisioning, sandbox_id}
+      # An owner is mid-operation on this machine (ADR 0058 stage 6a): a
+      # `transition` is stamped, or a lease is live. Refused *before* the
+      # probe, so a machine somebody is parking or destroying gets no provider
+      # call from this wake, and refused with the word the whole system
+      # already has for "not right now" — 503 with a `Retry-After`.
+      #
+      # After the reset fence, deliberately. A reset that the owner refused
+      # leaves `transition: "destroying"` on a live row with its lease
+      # released (stage 5c), and `:sandbox_reset_pending` is the precise
+      # answer there: the fence is in place, the reconciler will finish it,
+      # and a retry of the reset is 409 rather than "try again in 30s".
+      # The more specific word wins by being asked first.
+      #
+      # Before the status clauses, and only for a non-terminal row. A finalize
+      # writes `terminated` and releases the lease as two statements, so a
+      # terminal row with a live lease is a real momentary state and it means
+      # the machine is gone — which is `:create_new` below, not a retry.
+      %Sandbox{status: status} = sandbox when status not in @terminal_statuses ->
+        if Machine.busy?(sandbox),
+          do: {:error, :sandbox_unavailable},
+          else: classify_reusable(sandbox, sandbox_id)
 
       _ ->
         :create_new
     end
   end
+
+  # The reuse verdict for a machine no owner is working on. Split out of
+  # `maybe_reuse_sandbox/1` when the mid-operation check went in front of it,
+  # so there is one place that check cannot be skipped.
+  defp classify_reusable(%{status: status, machine_name: name} = sandbox, sandbox_id)
+       when status in ["ready", "suspended"] and is_binary(name),
+       do: probe_reusable_sandbox(sandbox, sandbox_id)
+
+  # A provision is in flight — or was, in a BEAM that is gone. The
+  # caller waits for the registry before deciding which (#800).
+  defp classify_reusable(%{status: status}, sandbox_id)
+       when status in ["pending", "starting"],
+       do: {:provisioning, sandbox_id}
+
+  defp classify_reusable(_sandbox, _sandbox_id), do: :create_new
 
   # The row's provider is sticky: a parked sandbox wakes on the backend that
   # holds its disk, never on whatever the instance default is by now. A row
@@ -207,9 +240,16 @@ defmodule Fountain.Conversations.Wake do
   # path. `conv` is the caller's own tenant-scoped row, so the re-fetch below
   # reads under that same ownership.
   def start_conversation_server(conv, sandbox_id, runtime_module, initial_prompt) do
+    # Through the one registration door (ADR 0058 stage 6a): it stamps the
+    # sandbox's `woken_at` marker under the per-sandbox lock before Horde is
+    # asked for anything, so a reaper on another node sees this wake as a
+    # database fact rather than waiting on registry propagation (#2307
+    # constraint 4). It hands Horde's answer back verbatim, so the
+    # `{:already_started, winner_pid}` both call sites of this function
+    # compensate for still arrives unchanged.
     with {:ok, pid} <-
-           Horde.DynamicSupervisor.start_child(
-             Fountain.ConversationSupervisor,
+           Conversations.register_server(
+             sandbox_id,
              Launch.child_spec(conv.id, sandbox_id, runtime_module)
            ) do
       if is_binary(initial_prompt) and initial_prompt != "" do

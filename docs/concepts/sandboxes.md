@@ -65,6 +65,13 @@ machine is already running, the reset returns `503 sandbox_unavailable` with a
 and queued: Fountain completes it, and a repeat of the request answers
 `409 sandbox_reset_pending`.
 
+A prompt that wakes a machine, and an attach that opens a conversation on one,
+answer `503 sandbox_unavailable` with a `Retry-After` header for the same
+reason: Fountain is in the middle of an operation on that machine. Send the
+request again. Each SDK reports this as a not-ready error, the launch queue and
+a team schedule wait and try again on their own, and the boot sweep leaves the
+machine to the operation that holds it.
+
 Every five minutes, Fountain finds pending resets and queues a separate retry
 for each machine. Failed deletes retry with backoff; a provider without
 credentials waits until it is enabled again. A machine another teardown is

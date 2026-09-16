@@ -52,6 +52,23 @@ defmodule Fountain.Machines.MachineTest do
     end
   end
 
+  describe "busy?/2" do
+    test "the gate does not decide whether a machine is mid-operation", ctx do
+      # ADR 0058 stage 6a. `Destroy.run/2` takes a lease and stamps
+      # `destroying` with `MACHINE_OWNER_ENABLED` off, inline on its caller, so
+      # a row mid-operation exists either way and the readers that refuse it
+      # must not consult the gate. The rest of `busy?/2` is pinned in
+      # `mid_operation_readers_test.exs`, which is async and so may not write
+      # this key.
+      parking =
+        ctx.sandbox |> Ecto.Changeset.change(transition: "parking") |> Repo.update!()
+
+      for value <- [true, false] do
+        with_gate(value, fn -> assert Machine.busy?(parking) end)
+      end
+    end
+  end
+
   defp registry_entries do
     Horde.Registry.select(Fountain.MachineRegistry, [{{:"$1", :"$2", :_}, [], [{{:"$1", :"$2"}}]}])
   end

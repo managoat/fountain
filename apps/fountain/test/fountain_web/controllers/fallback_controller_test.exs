@@ -42,16 +42,31 @@ defmodule FountainWeb.FallbackControllerTest do
     end
   end
 
+  test "sandbox_unavailable is retryable on the wire, and stage 6a changed nothing about it",
+       %{conn: conn} do
+    # ADR 0058 stage 6a made this the refusal a wake, an attach and a
+    # rehydrate answer when a machine's owner is mid-operation, instead of
+    # minting a second word for it (Jake, 2026-09-16; #2304 was written for
+    # the second word and closed unmerged). That decision rests on this
+    # response already being right: 503 with a `Retry-After`, which every SDK
+    # maps to `NotReadyError`. It is pinned here so a change to the clause is
+    # a change to the decision.
+    conn = FountainWeb.FallbackController.call(conn, {:error, :sandbox_unavailable})
+
+    assert json_response(conn, 503)["error"] == "sandbox_unavailable"
+    assert Plug.Conn.get_resp_header(conn, "retry-after") == ["30"]
+  end
+
   test "the protocol's own words land on the safety net, which is why they are translated" do
     # Stated here so the cost of *not* translating is on the record next to the
     # clauses above. `:machine_busy` is retryable contention and `:superseded`
     # is a destroy somebody else completed; rendered raw they are a 422 with an
     # "unmapped error atom" warning per request — a permanent status for a
     # transient condition, outside every SDK's retry mapping and outside the
-    # `terminate`/`delete` operations' declared responses. ADR 0058 schedules
-    # the retryable refusal for stage 6, across every transient vocabulary at
-    # once; stage 5a answers `:sandbox_unavailable` instead, which is already
-    # a 503 above. `machines/destroy_test.exs` is what proves the door does it.
+    # `terminate`/`delete` operations' declared responses. Stage 5a answered
+    # `:sandbox_unavailable` instead, which is already a 503 above, and stage
+    # 6a made that permanent rather than minting the second word the ADR had
+    # scheduled. `machines/destroy_test.exs` is what proves the door does it.
     for reason <- [:machine_busy, :superseded] do
       log =
         ExUnit.CaptureLog.capture_log(fn ->

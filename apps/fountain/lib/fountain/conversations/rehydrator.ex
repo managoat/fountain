@@ -37,7 +37,8 @@ defmodule Fountain.Conversations.Rehydrator do
   require Logger
 
   alias Fountain.{Agents, Conversations}
-  alias Fountain.Conversations.Launch
+  alias Fountain.Conversations.{Launch, Sandbox}
+  alias Fountain.Machines.Machine
 
   def run(opts \\ []) do
     if clustering_enabled?() do
@@ -132,11 +133,12 @@ defmodule Fountain.Conversations.Rehydrator do
   defp spawn_server(conv) do
     # Ownership: internal boot sweep; each conversation supplies its own agent_id.
     with :ok <- Conversations._unsafe_check_saved_execution_allowance(conv.id),
+         :ok <- check_machine_free(conv),
          %Agents.Agent{} = _agent <-
            (conv.agent_id && Agents._unsafe_get_agent(conv.agent_id)) || {:skip, :no_agent},
          {:ok, runtime_module} <- Fountain.RuntimeDispatch.for_agent(conv) do
-      Fountain.ConversationSupervisor
-      |> Horde.DynamicSupervisor.start_child(
+      conv.sandbox_id
+      |> Conversations.register_server(
         Launch.child_spec(conv.id, conv.sandbox_id, runtime_module, initial_prompt: nil)
       )
       |> case do
@@ -161,4 +163,24 @@ defmodule Fountain.Conversations.Rehydrator do
         :skipped
     end
   end
+
+  # A machine its owner is mid-operation on is not a machine to start a server
+  # on (ADR 0058 stage 6a). The sweep reads `ready` rows, and a `ready` row can
+  # carry a stamped `transition` or a live lease: a destroy, a reset or — from
+  # stage 6b — a park is between its intent and its finalize, and the row it
+  # will write is not the row this preloaded struct shows. Starting a server
+  # there gives the machine a second writer during the one window the owner
+  # exists to prevent.
+  #
+  # Skipping, not failing: the next boot sweep or the conversation's own next
+  # prompt comes back, and by then the operation has finished or its lease has
+  # expired. `{:skip, _}` is the sweep's own "not now" shape.
+  defp check_machine_free(%{sandbox: %Sandbox{} = sandbox}) do
+    if Machine.busy?(sandbox), do: {:skip, :machine_busy}, else: :ok
+  end
+
+  # `_unsafe_list_resumable_conversations/0` joins the sandbox and preloads it,
+  # so the clause above is the one that runs. A conversation without one has no
+  # machine to be busy.
+  defp check_machine_free(_conv), do: :ok
 end

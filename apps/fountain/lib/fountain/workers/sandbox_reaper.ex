@@ -56,6 +56,7 @@ defmodule Fountain.Workers.SandboxReaper do
 
   alias Fountain.Conversations
   alias Fountain.Conversations.{Lifecycle, Sandbox, Termination, Turn}
+  alias Fountain.Machines.Lease
   alias Fountain.Repo
 
   # Long enough to clear the slowest legitimate provision: package installs get
@@ -96,6 +97,21 @@ defmodule Fountain.Workers.SandboxReaper do
 
   @terminal_statuses ~w(terminated failed)
   @active_statuses ~w(pending starting)
+
+  # A row whose server died mid-wake looks identical to an abandoned one until
+  # the new server registers in Horde — whose registry is an async CRDT, so
+  # `Lifecycle.any_server_alive?/1` can briefly miss a live server on another
+  # node. Two database facts get this grace before a row counts as unheld:
+  # `updated_at`, which the wake path touches when it flips
+  # `suspended -> ready`, and — since ADR 0058 stage 6a — `woken_at`, which
+  # `Conversations.register_server/2` commits under the per-sandbox advisory
+  # lock *before* it asks Horde for anything. `updated_at` only covers a wake
+  # that changed the row; `woken_at` covers a wake that found the row already
+  # `ready` and started a server on it, which is the case the registry lag
+  # actually bites (#2307 constraint 4). Fifteen minutes is far longer than
+  # propagation takes, and it is also the window a marker whose caller died
+  # before its `start_child` ages out over.
+  @abandoned_grace_minutes 15
 
   @impl Oban.Worker
   def perform(_job) do
@@ -184,13 +200,22 @@ defmodule Fountain.Workers.SandboxReaper do
 
   @doc false
   def release_stuck_sandboxes do
-    cutoff = DateTime.utc_now() |> DateTime.add(-@stuck_after_minutes * 60, :second)
+    now = DateTime.utc_now()
+    cutoff = DateTime.add(now, -@stuck_after_minutes * 60, :second)
 
     Sandbox
     |> where(
       [s],
       s.status in ^@active_statuses and is_nil(s.reset_requested_at) and s.updated_at < ^cutoff
     )
+    # The wake-registration marker, on its own grace (ADR 0058 stage 6a). Not
+    # this pass's 60-minute cutoff: the marker answers "did somebody start a
+    # server here that the registry has not published yet", and the answer goes
+    # stale in seconds, so it gets the same fifteen minutes the abandoned sweep
+    # gives it. A row that has been `pending` for an hour and was woken two
+    # minutes ago is a row a wake is holding, however long the provision has
+    # taken.
+    |> where([s], ^woken_grace(now))
     |> Repo.all()
     |> Repo.preload(:conversations)
     |> Enum.reject(&Lifecycle.any_server_alive?/1)
@@ -218,6 +243,15 @@ defmodule Fountain.Workers.SandboxReaper do
     |> length()
   end
 
+  # The marker half of "is anybody holding this row", as a composable
+  # condition, so the two liveness passes ask it in exactly the same words.
+  # `nil` is never woken — every row on the way in, and every row whose wake
+  # predates stage 6a's migration.
+  defp woken_grace(now) do
+    cutoff = DateTime.add(now, -@abandoned_grace_minutes * 60, :second)
+    dynamic([s], is_nil(s.woken_at) or s.woken_at < ^cutoff)
+  end
+
   # A live ConversationServer means provisioning is still in flight somewhere in
   # the cluster, however long it has taken. Horde's registry is cluster-wide, so
   # this is not just a local check — `Lifecycle.any_server_alive?/1` is the one
@@ -243,14 +277,6 @@ defmodule Fountain.Workers.SandboxReaper do
   end
 
   # ── pass 1b: ready sandboxes nobody is holding ────────────────────────────
-
-  # A `ready` row whose server died mid-wake looks identical to an abandoned
-  # one until the new server registers in Horde — whose registry is an async
-  # CRDT, so `Lifecycle.any_server_alive?/1` can briefly miss a live server on
-  # another node. The wake path touches `updated_at` when it flips
-  # `suspended → ready`, so a grace period on `updated_at` makes a just-woken
-  # row untouchable for far longer than registry propagation takes.
-  @abandoned_grace_minutes 15
 
   @doc """
   Sweeps `ready` sandboxes with no live server past a lifetime bound: past the
@@ -296,6 +322,12 @@ defmodule Fountain.Workers.SandboxReaper do
           [s],
           s.status == "ready" and is_nil(s.reset_requested_at) and s.updated_at < ^grace_cutoff
         )
+        # And the wake-registration marker on the same grace (ADR 0058 stage
+        # 6a). This is the pass the registry lag actually bites: a wake that
+        # finds a `ready` row and starts a server on it writes no status, so
+        # `updated_at` alone says nothing happened, and a reaper on another
+        # node can still read the registry as empty. See `@abandoned_grace_minutes`.
+        |> where([s], ^woken_grace(now))
         |> Repo.all()
         |> Repo.preload(:conversations)
         |> Enum.reject(&Lifecycle.any_server_alive?/1)
@@ -545,9 +577,8 @@ defmodule Fountain.Workers.SandboxReaper do
   Returns the number of rows terminated.
   """
   def sweep_fenced_teardowns do
-    cutoff =
-      DateTime.utc_now()
-      |> DateTime.add(-@fenced_teardown_grace_minutes * 60, :second)
+    now = DateTime.utc_now()
+    cutoff = DateTime.add(now, -@fenced_teardown_grace_minutes * 60, :second)
 
     Sandbox
     |> where(
@@ -565,10 +596,20 @@ defmodule Fountain.Workers.SandboxReaper do
     # `reconciled`, which `perform/1` documents as a defect upstream, so a slow
     # but healthy destroy would raise an alarm about itself. An expired lease is
     # exactly the case this pass is for and is still swept.
-    |> where([s], is_nil(s.lease_until) or s.lease_until <= ^DateTime.utc_now())
+    #
+    # Asked in Elixir, through `Lease.live?/2`, rather than as a `where` of its
+    # own: stage 6a folded the three copies of this question into that one
+    # predicate, and a SQL rendering beside it is the fourth copy, free to
+    # drift from what `Lease.claim/4` actually decides on — as the two SQL
+    # copies had already drifted, testing `lease_until` without its holder. The
+    # rows this loads that the old `where` would not are bounded by the
+    # conditions above it: a teardown fence, non-terminal, fifteen minutes old.
     |> Repo.all()
     |> Repo.preload(:conversations)
-    |> Enum.reject(&Lifecycle.any_server_alive?/1)
+    # One pass, and `or` short-circuits, so a row a lease is holding still
+    # costs no registry scan — the order the two `where`-then-`reject` steps
+    # had before.
+    |> Enum.reject(&(Lease.live?(&1, now) or Lifecycle.any_server_alive?(&1)))
     |> Enum.count(&(finish_teardown(&1) == :ok))
   end
 

@@ -14,7 +14,12 @@ defmodule Fountain.Machines.Machine do
   — and is the only thing here that writes: the row through
   `Fountain.Machines.Lease`, the provider through `Managoat.Sandbox.destroy/1`
   and one `sandbox.destroyed` audit event. `park`, `ensure_up`, `attach` and
-  `admit_turn` arrive in stages 6 to 8.
+  `admit_turn` arrive in stages 6b to 8.
+
+  Beside them is one pure predicate, `busy?/2` (stage 6a): whether an owner is
+  mid-operation on a machine, from the row the caller already holds. It is the
+  question every reader that was about to start work on a machine now asks
+  first, and the answer it turns into is `:sandbox_unavailable`.
 
   ## What the gate chooses
 
@@ -57,8 +62,10 @@ defmodule Fountain.Machines.Machine do
 
   require Logger
 
+  alias Fountain.Conversations.Sandbox
   alias Fountain.Machines
   alias Fountain.Machines.Destroy
+  alias Fountain.Machines.Lease
   alias Fountain.Machines.Occupancy
   alias Fountain.Repo
 
@@ -157,6 +164,42 @@ defmodule Fountain.Machines.Machine do
   end
 
   @doc """
+  Is an owner mid-operation on this machine (ADR 0058 stage 6a)?
+
+  True when the row carries a stamped `transition` — the durable intent an
+  owner writes before provider I/O and clears when it finalizes — or a live
+  lease (`Fountain.Machines.Lease.live?/2`). Either one says the row a reader
+  is looking at is not the row that is about to exist.
+
+  The readers that ask are the three that would otherwise start work on the
+  machine underneath the owner: `Wake.maybe_reuse_sandbox/1`,
+  `Launch.check_attachable/4` and `Rehydrator`'s boot sweep. Each turns `true`
+  into the refusal the system already has, `:sandbox_unavailable` — 503 with a
+  `Retry-After`, `NotReadyError` in all four SDKs, snoozed by the launch queue
+  and the schedule runner.
+
+  Takes a `Sandbox` the caller has already read, so the check costs no query,
+  and the clock, so a sweep can judge a page of rows against one instant.
+
+  **Two things it deliberately does not do.**
+
+  It is not gated on `MACHINE_OWNER_ENABLED`. The gate chooses where a verb
+  runs, never whether the protocol applies: `Destroy.run/2` takes a lease and
+  stamps `destroying` with the gate off, inline on its caller, so with the gate
+  off these rows exist and must be refused just the same.
+
+  It says nothing about a terminal row, and callers must decide that first. A
+  finalize writes `terminated` and releases the lease as two statements, so
+  `terminated` with a live lease is a real, momentary state, and it means the
+  machine is gone — which is a fresh machine, not a retry. Every caller here
+  checks the terminal statuses before it asks.
+  """
+  @spec busy?(Sandbox.t() | map(), DateTime.t()) :: boolean()
+  def busy?(sandbox, now \\ DateTime.utc_now())
+  def busy?(%{transition: transition}, _now) when is_binary(transition), do: true
+  def busy?(sandbox, now), do: Lease.live?(sandbox, now)
+
+  @doc """
   Destroy the machine behind `sandbox_id`: `Fountain.Machines.Destroy.run/2`,
   run inside the owner when `MACHINE_OWNER_ENABLED` is on and inline on the
   caller when it is off. `opts` are the protocol's, documented there.
@@ -169,9 +212,21 @@ defmodule Fountain.Machines.Machine do
   runs on a request process, and `FountainWeb.FallbackController` renders
   whatever comes out of it. A tuple has no clause there at all (a 500), and a
   retryable refusal rendered as an unmapped 422 is worse than one rendered as
-  the 503 `:sandbox_unavailable` already is. Stage 6 adds the retryable
-  refusal ADR 0058 names, to every transient-error vocabulary at once; 5a does
-  not get to invent half of it. See `refusal/2`.
+  the 503 `:sandbox_unavailable` already is.
+
+  **And `:sandbox_unavailable` is the refusal, for good** (Jake, stage 6a).
+  The ADR spoke of "one retryable refusal added to every transient-error
+  vocabulary at once", and 5a wrote here that stage 6 would add it. Stage 6a
+  looked at what a new word would buy and decided it was nothing: a wake or an
+  attach that meets a machine mid-operation means exactly what a refused
+  destroy means — come back shortly — and `:sandbox_unavailable` is already
+  503 with a `Retry-After`, `NotReadyError` in all four SDKs, and snoozed by
+  the launch queue and the schedule runner. A second word would have to be
+  taught to five clients (#2304, written and closed unmerged) to say the same
+  thing. What stage 6a did add is the vocabulary sites this one was still
+  missing: `SandboxQueue.@transient_errors` and, through it,
+  `TeamScheduleRun`'s snooze guard, plus `Team.Schedules.describe_error/1`.
+  See `refusal/2`.
 
   Unlike `who_is_here/1` there is no falling back to a direct read when the
   owner cannot be reached. That verb only looked; this one writes, and a write

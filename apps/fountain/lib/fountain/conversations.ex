@@ -30,6 +30,7 @@ defmodule Fountain.Conversations do
   alias Fountain.Conversations.Lifecycle
   alias Fountain.InferenceCredentials
   alias Fountain.InferenceCredentials.Source
+  alias Fountain.Machines.Lease
   alias Fountain.Machines.Occupancy
   alias Fountain.PermissionPolicy
   alias Fountain.Repo
@@ -1155,6 +1156,95 @@ defmodule Fountain.Conversations do
         {:error, reason} -> Repo.rollback(reason)
       end
     end)
+  end
+
+  @doc """
+  Start a `ConversationServer` and publish that fact where every node can see
+  it (ADR 0058 stage 6a, #2307 constraint 4).
+
+  **The only door onto `Fountain.ConversationSupervisor`.** All three starters
+  — `Launch.start_conversation/2`'s fresh path, `Wake.start_conversation_server/4`
+  and `Rehydrator.spawn_server/1` — come through here, and
+  `machines/register_server_test.exs` pins that nothing else names the
+  supervisor.
+
+  Horde's registry is an asynchronous CRDT. A reaper pass on another node can
+  read `ConversationServer.whereis/1` as `nil` for a beat after a server
+  registers here, and no amount of re-reading that registry closes a real
+  distributed-ordering gap: "not here" is not "nowhere". So the registration
+  gets a durable half. In order:
+
+    1. `woken_at = now` on the sandbox row, under `with_sandbox_lock/2`, in its
+       own short transaction, committed *before* anything is asked of Horde. It
+       is an `update_all` on the primary key rather than a changeset: this is
+       control-plane bookkeeping about a process, not a state change on the
+       machine, so it deliberately does not run `update_sandbox/2`'s guards,
+       metering or queue poke, and it is not routed through
+       `Machines.Lease.cas_update/3` either — a starter holds no lease and
+       must not appear to.
+    2. `Horde.DynamicSupervisor.start_child/2`, outside that lock and outside
+       any transaction.
+
+  **Horde's answer is passed back verbatim, including
+  `{:error, {:already_started, pid}}`**, because the two callers do not mean
+  the same thing by it and normalizing it here would break one of them.
+  `Rehydrator.spawn_server/1` reads it as success: its sweep started a server
+  another node had already started, and the server is running, which is what it
+  asked for. `Wake.start_conversation_server/4` reads it as *losing a race it
+  has to compensate for*: on the fresh-sandbox path the loser has just created
+  a sandbox row of its own, and the winner is serving the conversation on a
+  different machine, so the loser retires its row and hands the prompt over
+  (#717, #330). Swallowing the tuple here would repoint the conversation at the
+  loser's machine — the exact bug #717 closed.
+
+  What this door does own is that the marker is committed first, and that the
+  two starters cannot drift on it.
+
+  The two are not atomic, and that is why the marker is a *grace* condition
+  rather than a veto: a caller that dies between them leaves a marker with no
+  child, and `SandboxReaper`'s two liveness passes ignore a marker older than
+  `@abandoned_grace_minutes`. Being late to reap a genuinely abandoned row
+  costs fifteen minutes; killing a live server costs the queued prompt on it.
+
+  `sandbox_id` may be `nil` (nothing to mark, as `with_sandbox_lock/2` already
+  allows), and a marker write that matches no row is logged and stepped over —
+  a vanished sandbox is the child's problem to discover, not a reason to refuse
+  to start it here.
+  """
+  # The child spec is whatever `Horde.DynamicSupervisor.start_child/2` takes,
+  # which is `DynamicSupervisor`'s own contract: every caller here passes
+  # `Launch.child_spec/3`'s `{ConversationServer, args}` tuple rather than a map.
+  @spec register_server(
+          String.t() | nil,
+          Supervisor.child_spec() | {module(), term()} | module()
+        ) :: {:ok, pid()} | {:error, term()}
+  def register_server(sandbox_id, child_spec) do
+    :ok = mark_woken(sandbox_id)
+
+    Horde.DynamicSupervisor.start_child(Fountain.ConversationSupervisor, child_spec)
+  end
+
+  defp mark_woken(nil), do: :ok
+
+  defp mark_woken(sandbox_id) do
+    {:ok, count} =
+      with_sandbox_lock(sandbox_id, fn ->
+        {count, _} =
+          Repo.update_all(
+            from(s in Sandbox, where: s.id == ^sandbox_id),
+            set: [woken_at: DateTime.utc_now()]
+          )
+
+        {:ok, count}
+      end)
+
+    if count == 0 do
+      Logger.warning(
+        "register_server: no sandbox #{sandbox_id} to mark woken; starting the server anyway"
+      )
+    end
+
+    :ok
   end
 
   @doc """
@@ -2922,7 +3012,22 @@ defmodule Fountain.Conversations do
 
         %Sandbox{mode: "persistent", status: status, reset_requested_at: at} = current
         when status in ["ready", "suspended"] and not is_nil(at) ->
-          if machine_lease_live?(current),
+          # Whether some owner is working on this machine right now (ADR 0058).
+          # A retry is a *reconciliation* — it exists for a reset whose caller
+          # was lost — so a machine another operation is holding is not its
+          # business: the holder is either finishing this same reset or
+          # destroying the machine outright, and either way one provider call
+          # is the right number.
+          #
+          # `Machines.Destroy` would serialize the two anyway (the second claim
+          # waits out the first and then finds the row terminal), so this is
+          # not what makes the retry safe. What it buys is that the retry does
+          # not burn its five second wait, and that a reconciler sweep walking
+          # a backlog does not queue behind every live destroy in it.
+          #
+          # `Lease.live?/2` since stage 6a: this used to be a copy of the rule,
+          # written here, next to two more written in SQL.
+          if Lease.live?(current),
             do: {:error, :sandbox_unavailable},
             else: do_pending_reset_retry(current, opts)
 
@@ -2942,27 +3047,6 @@ defmodule Fountain.Conversations do
       record_reset_completed(completed, _unsafe_list_holder_ids(current.id), opts)
     end
   end
-
-  # Whether some owner is working on this machine right now (ADR 0058). A
-  # retry is a *reconciliation* — it exists for a reset whose caller was lost —
-  # so a machine another operation is holding is not its business: the holder
-  # is either finishing this same reset or destroying the machine outright, and
-  # either way one provider call is the right number.
-  #
-  # `Machines.Destroy` would serialize the two anyway (the second claim waits
-  # out the first and then finds the row terminal), so this is not what makes
-  # the retry safe. What it buys is that the retry does not burn its five
-  # second wait, and that a reconciler sweep walking a backlog does not queue
-  # behind every live destroy in it.
-  #
-  # The BEAM clock, the same one `SandboxReaper.sweep_fenced_teardowns/0` uses
-  # for the guard this mirrors. `Lease` writes `lease_until` from the same
-  # clock, so the two agree; the database clock enters with the renew timer in
-  # stage 6.
-  defp machine_lease_live?(%Sandbox{lease_until: nil}), do: false
-
-  defp machine_lease_live?(%Sandbox{lease_until: until}),
-    do: DateTime.compare(until, DateTime.utc_now()) == :gt
 
   defp record_reset_completed(completed, ids, opts) do
     reason = Keyword.get(opts, :reason, "home_reset")

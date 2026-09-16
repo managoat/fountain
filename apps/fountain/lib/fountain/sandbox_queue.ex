@@ -51,11 +51,18 @@ defmodule Fountain.SandboxQueue do
   @claim_timeout_seconds 300
 
   # Not this request's fault and not this tenant's ceiling: the turn in flight
-  # ends, the home sandbox finishes provisioning, the runner comes back. The
-  # request goes back in line rather than burning its prompt on a condition
-  # that clears by itself. `Fountain.Workers.TeamScheduleRun` snoozes on
-  # exactly this list, for exactly this reason.
-  @transient_errors ~w(busy provisioning runner_offline sandbox_at_capacity)a
+  # ends, the home sandbox finishes provisioning, the runner comes back, the
+  # machine's owner finishes the operation it is in the middle of. The request
+  # goes back in line rather than burning its prompt on a condition that clears
+  # by itself. `Fountain.Workers.TeamScheduleRun` reads this list, for exactly
+  # this reason.
+  #
+  # `sandbox_unavailable` is ADR 0058's refusal, added in stage 6a: a wake or
+  # an attach onto a machine its owner is parking, destroying or rebuilding.
+  # It is the shortest-lived of these — one provider round trip — and it was
+  # the one missing, which is how a queued start could be failed by a condition
+  # that had already cleared.
+  @transient_errors ~w(busy provisioning runner_offline sandbox_at_capacity sandbox_unavailable)a
 
   # Every replay and every terminal write the drain makes is attributed to the
   # queue, not to whoever originally asked. The audit vocabulary is closed
@@ -69,6 +76,22 @@ defmodule Fountain.SandboxQueue do
   drainer's replay from a person's own call without hardcoding the string.
   """
   def actor, do: @system_actor
+
+  @doc """
+  The retryable reasons this queue snoozes on rather than treats as terminal.
+
+  **One definition.** `Fountain.Workers.TeamScheduleRun` reads its own snooze
+  guard from this at compile time (`@transient_errors
+  SandboxQueue.transient_errors()`) rather than keeping a second list. It kept
+  one, spelled out inline, until ADR 0058 stage 6a. The two agreed on the day
+  6a read them and would have drifted that same day: adding
+  `sandbox_unavailable` here without going and finding the other copy leaves a
+  schedule firing at a machine mid-operation consumed rather than retried,
+  which is the shape #2286's fourth review round caught on the previous
+  spelling of this refusal.
+  """
+  @spec transient_errors() :: [atom()]
+  def transient_errors, do: @transient_errors
 
   # Its own advisory-lock namespace. The depth bound counts rows in
   # `sandbox_requests` and has nothing to serialize against a sandbox

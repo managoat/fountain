@@ -75,6 +75,18 @@ defmodule Fountain.Conversations.Sandbox do
     field :lease_until, :utc_datetime_usec
     field :transition, :string
     field :transition_reason, :string
+    # A starter's durable publication of its own registration (ADR 0058 stage
+    # 6a, #2307 constraint 4). Horde's registry is an asynchronous CRDT, so a
+    # reaper on another node can read `ConversationServer.whereis/1` as `nil`
+    # moments after a server registers. `Fountain.Conversations.register_server/2`
+    # commits this under the per-sandbox advisory lock *before* it asks Horde
+    # for a child, and the reaper's two liveness passes treat a fresh one as
+    # "held", the same way a fresh `updated_at` already is. Written by that one
+    # door and nowhere else — absent from `changeset/2` for the same reason the
+    # lease columns are, and never routed through `Lease.cas_update/3`, whose
+    # writes are a lease holder's state changes rather than control-plane
+    # bookkeeping any starter makes.
+    field :woken_at, :utc_datetime_usec
     belongs_to :environment, Environment
     # The identity the disk was materialized from, with the environment
     # (ADR 0023): env vars, packages, repos and setup scripts are written at

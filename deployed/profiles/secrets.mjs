@@ -43,7 +43,10 @@ print('fixture-plain-echo=' + plain, flush=True)
 print('fixture-receiver-echo=' + result.stdout, flush=True)
 print('fixture-placeholder=' + bound, flush=True)
 denied = subprocess.run(['curl', '--silent', '--show-error', '--max-time', '20', '-X', 'POST', '--data-binary', '{}', '-o', '/dev/null', '--write-out', '%{http_connect}', ${JSON.stringify(`${blocked}/capture/${runId}/blocked/${nonce}`)}], text=True, capture_output=True, timeout=25)
-if denied.returncode != 56 or denied.stdout != '403':
+# The proxy's CONNECT answer is the signal; curl's exit code for a refused tunnel
+# is not. Older curl reported it as 56 (receive error), newer curl as 7
+# (couldn't connect) — the sandbox image's curl returns 7 for exactly this 403.
+if denied.returncode not in (7, 56) or denied.stdout != '403':
     raise RuntimeError('Blocked receiver did not get the expected CONNECT 403')
 print('fixture-secret-done:' + ${JSON.stringify(nonce)}, flush=True)
 FOUNTAIN_SUITE_PY`;
@@ -133,8 +136,20 @@ export async function secrets(ctx) {
     // Echo evidence often lives in tool_result blocks/raw events, so inspect
     // the full durable event shape, not just the model's final text.
     const persisted = JSON.stringify(turn.stored);
-    ensure(persisted.includes(`fixture-secret-done:${nonce}`) && persisted.includes('fixture-plain-echo=[REDACTED]') &&
-      persisted.includes(`fixture-placeholder=__${binding.key.toLowerCase()}__`) && persisted.includes('fixture-receiver-echo='), 'Durable output lacks the actual script completion/redacted echo evidence');
+    // One message per missing marker: a single combined message made the
+    // failing one findable only by searching the traces by hand.
+    //
+    // The placeholder is not asserted here. Fountain registers every sandbox
+    // environment value for redaction, and the placeholder is one, so durable
+    // output shows `fixture-placeholder=[REDACTED]` and a plain form cannot be
+    // required. Substitution is still proven twice: the script raises before
+    // it prints its completion marker if the variable held anything but the
+    // placeholder, and the receiver records `placeholder_matches` below.
+    for (const [marker, missing] of [
+      [`fixture-secret-done:${nonce}`, 'the script did not complete; its checks failed before the last line'],
+      ['fixture-plain-echo=[REDACTED]', 'the unbound secret was not echoed, or was echoed without redaction'],
+      ['fixture-receiver-echo=', "the receiver's reply was not echoed"],
+    ]) ensure(persisted.includes(marker), `Durable output lacks evidence: ${missing}`);
     report.secrets.model_text_present = Boolean(text);
   })) return;
   await check('secrets/receiver-and-egress-evidence', async () => {
@@ -146,7 +161,13 @@ export async function secrets(ctx) {
       ensure(body.brokered === true, 'Broker evidence disappeared');
       rows = body.data;
       const host = row => row.host?.split(':')[0];
-      const allowed = rows.filter(row => host(row) === receiver.allowed.hostname && row.path === `/capture/${report.run_id}/allowed/${nonce}` && row.method === 'POST');
+      // Not by path: since #2132 the broker stores every egress path as
+      // `/[REDACTED]`, because a path can carry a token, so a path match can
+      // never succeed. The row is still this run's: the log is this run's own
+      // conversation, the allowed hostname is this run's receiver, and the
+      // script makes one POST to it. The nonce itself is proven by the
+      // receiver's `nonce_matches` observation checked just below.
+      const allowed = rows.filter(row => host(row) === receiver.allowed.hostname && row.method === 'POST');
       const blocked = rows.filter(row => host(row) === receiver.blocked.hostname && row.status === 403 && row.method === 'CONNECT');
       if (allowed.length && blocked.length) {
         ensure(allowed.length === 1 && allowed[0].status === 200 && allowed[0].credential_keys.includes(binding.key) && typeof allowed[0].service === 'string', 'Egress log did not record the expected bound credential request');

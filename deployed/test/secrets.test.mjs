@@ -194,7 +194,10 @@ test('missing broker feature fails setup before receiver access or resource muta
 test('sandbox script carries only names/nonces, reads actual environment values and makes bounded curl attempts', () => {
   const script = secretScript({ allowed: 'https://allowed.example.test', blocked: 'https://blocked.example.test', runId: randomUUID(), nonce: randomUUID(), boundKey: 'SUITE_BOUND', plainKey: 'SUITE_PLAIN' });
   assert.match(script, /os\.environ\["SUITE_BOUND"\]/);
-  assert.match(script, /denied\.returncode != 56 or denied\.stdout != '403'/);
+  // A refused tunnel is identified by the proxy's CONNECT 403. Both curl exit codes
+  // curl has used for it are accepted, and nothing else, so a request that
+  // succeeded or failed some other way still fails the fixture.
+  assert.match(script, /denied\.returncode not in \(7, 56\) or denied\.stdout != '403'/);
   assert.equal((script.match(/subprocess\.run/g) ?? []).length, 2);
   assert.ok(!script.includes('FOUNTAIN_RECEIVER_ADMIN_KEY'));
 });

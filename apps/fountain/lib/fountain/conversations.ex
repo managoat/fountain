@@ -30,6 +30,7 @@ defmodule Fountain.Conversations do
   alias Fountain.Conversations.Lifecycle
   alias Fountain.InferenceCredentials
   alias Fountain.InferenceCredentials.Source
+  alias Fountain.Machines.Occupancy
   alias Fountain.PermissionPolicy
   alias Fountain.Repo
 
@@ -1649,16 +1650,14 @@ defmodule Fountain.Conversations do
   The other conversations still holding `sandbox_id` — not `terminated` or
   `failed` — as ids: the machine's co-tenants, for a lifecycle decision one
   of them is about to make for all of them.
+
+  The same reading of the machine as the predicates above and below it
+  (`Fountain.Machines.Occupancy`, ADR 0058 stage 4), returned as a list rather
+  than a verdict.
   """
   def _unsafe_list_cotenant_ids(sandbox_id, conv_id)
       when is_binary(sandbox_id) and is_binary(conv_id) do
-    Repo.all(
-      from c in Conversation,
-        where:
-          c.sandbox_id == ^sandbox_id and c.id != ^conv_id and
-            c.status not in ["terminated", "failed"],
-        select: c.id
-    )
+    sandbox_id |> Occupancy.bindings() |> Occupancy.cotenant_ids(conv_id)
   end
 
   @doc """
@@ -1702,6 +1701,12 @@ defmodule Fountain.Conversations do
   never took a turn — the same fold `SandboxReaper.last_activity_at/1` makes
   for a sandbox with no server at all. `nil` idle seconds (the bound is off)
   is never busy.
+
+  The reading of the machine lives in `Fountain.Machines.Occupancy` (ADR 0058
+  stage 4), which is the one answer to "is anyone here" that
+  `Lifecycle._unsafe_sandbox_held_by_other?/2` and the two liveness scans also
+  take. The verdict stays here, because it is not theirs: this one applies the
+  idle window, and `held_by_other?/2` deliberately does not.
   """
   def _unsafe_sandbox_busy_elsewhere?(
         sandbox_id,
@@ -1714,26 +1719,9 @@ defmodule Fountain.Conversations do
 
   def _unsafe_sandbox_busy_elsewhere?(sandbox_id, conv_id, idle_seconds, now)
       when is_integer(idle_seconds) do
-    cutoff = now |> DateTime.add(-idle_seconds, :second) |> DateTime.truncate(:second)
-
-    case _unsafe_list_cotenant_ids(sandbox_id, conv_id) do
-      [] ->
-        false
-
-      cotenants ->
-        Repo.exists?(
-          from t in Turn,
-            where:
-              t.conversation_id in ^cotenants and
-                (t.status == "running" or t.inserted_at > ^cutoff or t.ended_at > ^cutoff)
-        ) or
-          Repo.exists?(
-            from c in Conversation,
-              left_join: t in Turn,
-              on: t.conversation_id == c.id,
-              where: c.id in ^cotenants and is_nil(t.id) and c.updated_at > ^cutoff
-          )
-    end
+    sandbox_id
+    |> Occupancy.load()
+    |> Occupancy.busy_elsewhere?(conv_id, idle_seconds, now)
   end
 
   # Turns carry no user_id of their own, so resolve it through the conversation.

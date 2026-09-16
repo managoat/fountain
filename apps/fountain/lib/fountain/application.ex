@@ -112,6 +112,26 @@ defmodule Fountain.Application do
         # cluster-aware replacements. Single-node behavior is
         # unchanged; on multiple nodes they sync state and let
         # processes be addressed across the cluster.
+        #
+        # The per-sandbox owner (ADR 0058) comes first of the three pairs, and
+        # that is the draining end again: reverse termination stops it *after*
+        # the conversation supervisor, so a server shutting down can still ask
+        # its machine who is here. One `Fountain.Machines.Machine` per *active*
+        # machine, registered under the sandbox id, idle-stopping when nothing
+        # has asked it anything — so this holds no child at all on a quiet
+        # node. Started unconditionally: an empty registry and an empty
+        # dynamic supervisor cost nothing, and supervision that appears and
+        # disappears with a runtime flag is its own failure mode.
+        # `MACHINE_OWNER_ENABLED` governs whether anything starts a child
+        # here, not whether the tree can hold one.
+        {Horde.Registry, [name: Fountain.MachineRegistry, keys: :unique, members: :auto]},
+        {Horde.DynamicSupervisor,
+         [
+           name: Fountain.MachineSupervisor,
+           strategy: :one_for_one,
+           distribution_strategy: Horde.UniformDistribution,
+           members: :auto
+         ]},
         {Horde.Registry, [name: Fountain.ConversationRegistry, keys: :unique, members: :auto]},
         {Horde.DynamicSupervisor,
          [

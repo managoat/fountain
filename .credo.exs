@@ -96,6 +96,9 @@
                # and writing the conversation the server holds open
                "lib/fountain/conversations/connection.ex",
                "lib/fountain/conversations/output.ex",
+               # the machine owner (ADR 0058): ownership is the sandbox row's
+               # lease, established at claim; called only from its own process
+               "lib/fountain/machines/",
                # system-level sweeps, run with no user in scope
                "lib/fountain/conversations/rehydrator.ex",
                "lib/fountain/workers/",

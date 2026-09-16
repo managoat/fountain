@@ -78,7 +78,8 @@ defmodule Fountain.Conversations.Lifecycle do
   alias Fountain.Conversations.MachineEvents
   alias Fountain.Conversations.Egress
   alias Fountain.Conversations.HomeCheckpoint
-  alias Fountain.Conversations.{Conversation, ConversationServer, Sandbox}
+  alias Fountain.Conversations.{Conversation, Sandbox}
+  alias Fountain.Machines.Occupancy
   alias Fountain.Repo
   alias Managoat.Sandbox.Handle
 
@@ -564,6 +565,11 @@ defmodule Fountain.Conversations.Lifecycle do
   # `server_alive?/1`. One scan, exposed in the two shapes those callers need:
   # the conversation ids for the one that acts on them, the boolean for the
   # one that only decides.
+  #
+  # Both now read `Fountain.Machines.Occupancy` (ADR 0058 stage 4), which is
+  # the same scan for every "is anyone here" question rather than for these
+  # two alone. `from_preloaded/1` is the constructor that runs no query, which
+  # is what keeps this usable inside the reaper's per-row passes.
   @doc """
   Conversation ids on `sandbox` with a live, registered `ConversationServer`.
 
@@ -572,10 +578,9 @@ defmodule Fountain.Conversations.Lifecycle do
   reaper's own stuck/abandoned scan), so this runs no query of its own.
   """
   @spec live_conversation_ids(Sandbox.t()) :: [String.t()]
-  def live_conversation_ids(%Sandbox{conversations: conversations}) when is_list(conversations) do
-    conversations
-    |> Enum.filter(&(ConversationServer.whereis(&1.id) != nil))
-    |> Enum.map(& &1.id)
+  def live_conversation_ids(%Sandbox{conversations: conversations} = sandbox)
+      when is_list(conversations) do
+    sandbox |> Occupancy.from_preloaded() |> Occupancy.live_ids()
   end
 
   @doc """
@@ -585,7 +590,7 @@ defmodule Fountain.Conversations.Lifecycle do
   """
   @spec any_server_alive?(Sandbox.t()) :: boolean()
   def any_server_alive?(%Sandbox{} = sandbox) do
-    live_conversation_ids(sandbox) != []
+    sandbox |> Occupancy.from_preloaded() |> Occupancy.any_live?()
   end
 
   # Teardown fence (#2258): the machine-policy rule an admin reap, a
@@ -600,16 +605,17 @@ defmodule Fountain.Conversations.Lifecycle do
   and from then on the retired thread's lifecycle must not reach the disk
   its successor is running on. `_unsafe_`: callers have established
   ownership of `conv_id` already (a GenServer, or a scoped fetch before it).
+
+  Status only, no clock: `Conversations._unsafe_sandbox_busy_elsewhere?/4` is
+  the same question with the idle window applied, and the two answer
+  differently on purpose. Both read `Fountain.Machines.Occupancy` (ADR 0058
+  stage 4); this one takes `bindings/1`, the constructor that reads the
+  conversation rows and nothing else, because its caller asks inside a
+  transaction under the per-sandbox advisory lock.
   """
   def _unsafe_sandbox_held_by_other?(sandbox_id, conv_id)
       when is_binary(sandbox_id) and is_binary(conv_id) do
-    Repo.exists?(
-      from(c in Conversation,
-        where:
-          c.sandbox_id == ^sandbox_id and c.id != ^conv_id and
-            c.status not in ["terminated", "failed"]
-      )
-    )
+    sandbox_id |> Occupancy.bindings() |> Occupancy.held_by_other?(conv_id)
   end
 
   @doc """

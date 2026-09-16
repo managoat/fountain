@@ -660,6 +660,15 @@ config :fountain, :checkpoint_creation_enabled, checkpoint_creation_enabled
 config :managoat_sandbox, Managoat.Sandbox.Sprites,
   checkpoint_creation_enabled: checkpoint_creation_enabled
 
+# The per-sandbox owner (ADR 0058, #2344). Off by default and staying off
+# until every serving replica reads the lease and transition columns — two
+# owners across a rolling deploy is the failure the lease exists to stop, and
+# a flag flipped ahead of the schema is how you get one. While it is off, every
+# existing fence stays in force and `Fountain.Machines.Occupancy` answers
+# directly, so the flag decides whether the owner process exists, never what
+# the answer is.
+config :fountain, :machine_owner_enabled, System.get_env("MACHINE_OWNER_ENABLED") == "true"
+
 # Webhooks (#700). On by default; a deployment with no outbound HTTP egress
 # can switch dispatch off entirely. WEBHOOK_ALLOW_HTTP relaxes the https-only
 # rule on endpoint URLs, which is for a self-hosted instance calling a

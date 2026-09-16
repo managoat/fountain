@@ -113,8 +113,8 @@ policy unchanged on restore; an explicit `null` restores unrestricted access.
 Run this migration before starting the new server code. PostgreSQL derives the
 mode on every write, so old and new servers can continue writing the existing
 field during the rollout. No client upgrade or list of current vaults is needed.
-The remaining wire-contract retirement is tracked in
-[issue #2107](https://github.com/managoat/fountain/issues/2107).
+`allowed_vault_ids` stays the API input: the explicit mode is internal and is
+not part of the wire contract.
 
 These stored columns rewrite both tables and hold exclusive locks until the
 migration commits. Each statement has a five-second lock wait and a 30-second

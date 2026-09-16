@@ -335,6 +335,21 @@ import Testing
       Issue.record("expected throw")
     } catch let error as FountainError {
       #expect(error.code == "api_key_expired")
+      #expect(error.body?.message == "Invalid or missing API key")
+    }
+  }
+
+  @Test func aBodyWithoutErrorStillDecodes() async throws {
+    // Phoenix's own error pages and the 406 send `errors` alone, as a
+    // detail string rather than field -> messages. `error` is pinned
+    // Optional in the generated payload so these still reach the caller.
+    let transport = FakeTransport(json: #"{"errors":{"detail":"Not Acceptable"}}"#, status: 406)
+    do {
+      _ = try await FountainClient.fake(transport).auth.me()
+      Issue.record("expected throw")
+    } catch let error as FountainError {
+      #expect(error.status == 406 && error.code == nil)
+      #expect(error.fieldErrors == ["detail": ["Not Acceptable"]])
     }
   }
 

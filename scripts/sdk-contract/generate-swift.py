@@ -91,6 +91,7 @@ RESOURCE_ROOTS = [
     'AuditEventListResponse',
     'LogEventListResponse',
     'SearchResponse',
+    'Error',
 ]
 
 SCHEMA_PATHS = {
@@ -115,6 +116,11 @@ TYPE_NAMES.update({
     'AuthMeResponse': 'AuthMe',
     'AdminUserListResponseMeta': 'AdminUserListResponse.Meta',
     'SearchResponseMeta': 'SearchResponse.Meta',
+    # The payload every JSON error status declares (#2324). `Error` would
+    # shadow `Swift.Error` throughout the module; `APIErrorBody` stays the
+    # handwritten behaviour over it, as `AdminUserPage` is over
+    # `AdminUserListResponse`.
+    'Error': 'APIErrorPayload',
 })
 
 INLINE_TYPES.update({
@@ -187,6 +193,13 @@ TYPE_OVERRIDES = {
     # ever exposed this field, so there is no prior [String: String?] API to
     # preserve; JSONValue matches the other open-ended dictionaries above.
     ('TeamMessageRequest', 'labels'): '[String: JSONValue]',
+    # The contract declares field -> [message], and that is what every 422
+    # sends. Other error bodies reuse the key with a different shape: Phoenix's
+    # own ErrorJSON and the 406 `NegotiationError` send `{"detail": "..."}`,
+    # and servers before #1431 sent the cast failure as an array. A typed map
+    # would fail the whole body on those, `code` included, so the key stays
+    # open and `APIErrorBody.fieldErrors` normalises it.
+    ('Error', 'errors'): 'JSONValue',
 }
 
 OPTIONAL_COMPAT.update({
@@ -239,6 +252,12 @@ OPTIONAL_COMPAT.update({
     # #2300, which is why the released baseline reads the whole module).
     ('PageMeta', 'has_more'),
     ('PageMeta', 'limit'),
+    # Every current error body carries `error`, but three shapes that reach
+    # the same decoder do not: Phoenix's ErrorJSON and the 406 send `errors`
+    # alone, and the released contract's `ChangesetError` left `error`
+    # optional. The released `Error` schema required it, so the guard cannot
+    # see this one; the handwritten `APIErrorBody.code` was always Optional.
+    ('Error', 'error'),
 })
 
 # Properties this SDK exposes for the first time, on types that already

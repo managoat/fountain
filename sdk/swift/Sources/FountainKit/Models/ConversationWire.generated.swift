@@ -1499,6 +1499,26 @@ public struct SearchResponse: Sendable, Decodable, Hashable {
   }
 }
 
+public struct APIErrorPayload: Sendable, Decodable, Hashable {
+  public var activeSandboxes: Int?
+  public var error: String?
+  public var errors: JSONValue?
+  public var limit: Int?
+  public var message: String?
+  public var reason: String?
+  public var upgradeURL: String?
+
+  enum CodingKeys: String, CodingKey {
+    case activeSandboxes = "active_sandboxes"
+    case error = "error"
+    case errors = "errors"
+    case limit = "limit"
+    case message = "message"
+    case reason = "reason"
+    case upgradeURL = "upgrade_url"
+  }
+}
+
 public struct PendingPermissionRequest: Sendable, Decodable, Hashable {
   public var askedAt: Date?
   public var deadline: Date?

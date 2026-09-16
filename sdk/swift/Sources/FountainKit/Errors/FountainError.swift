@@ -1,12 +1,16 @@
 import Foundation
 
-/// The Fountain API error body: `{"error": code, "message": ..., "errors": {...},
-/// "upgrade_url": ..., "active_sandboxes": ..., "limit": ...}`.
-/// `Retry-After` arrives as a response header, not in the body.
+/// The Fountain API error body: the generated `APIErrorPayload` (`error`,
+/// `message`, `reason`, `errors`, `upgrade_url`, `active_sandboxes`, `limit`)
+/// read into the values a caller branches on. `Retry-After` arrives as a
+/// response header, not in the body.
 public struct APIErrorBody: Sendable, Equatable {
-  /// The machine-readable code (the body's `error` field). Branch on this.
+  /// The machine-readable code (the body's `error` field, or its `reason`
+  /// when one is sent). Branch on this.
   public var code: String?
   public var message: String?
+  /// The body's `reason`, as sent.
+  public var reason: String?
   /// Validation errors: field → messages. A bare string becomes a one-element array.
   public var fieldErrors: [String: [String]]
   public var upgradeURL: String?
@@ -21,6 +25,7 @@ public struct APIErrorBody: Sendable, Equatable {
   public init(
     code: String? = nil,
     message: String? = nil,
+    reason: String? = nil,
     fieldErrors: [String: [String]] = [:],
     upgradeURL: String? = nil,
     activeSandboxes: Int? = nil,
@@ -29,6 +34,7 @@ public struct APIErrorBody: Sendable, Equatable {
   ) {
     self.code = code
     self.message = message
+    self.reason = reason
     self.fieldErrors = fieldErrors
     self.upgradeURL = upgradeURL
     self.activeSandboxes = activeSandboxes
@@ -38,37 +44,30 @@ public struct APIErrorBody: Sendable, Equatable {
 }
 
 extension APIErrorBody: Decodable {
-  enum CodingKeys: String, CodingKey {
-    case code = "error"
-    case message
-    case reason
-    case errors
-    case upgradeURL = "upgrade_url"
-    case activeSandboxes = "active_sandboxes"
-    case limit
+  public init(from decoder: any Decoder) throws {
+    self.init(payload: try APIErrorPayload(from: decoder))
   }
 
-  public init(from decoder: any Decoder) throws {
-    let container = try decoder.container(keyedBy: CodingKeys.self)
-    code = try? container.decodeIfPresent(String.self, forKey: .code)
-    message = try? container.decodeIfPresent(String.self, forKey: .message)
+  /// The behaviour the contract cannot express, over the generated payload.
+  init(payload: APIErrorPayload) {
+    self.init(
+      code: payload.error,
+      message: payload.message,
+      reason: payload.reason,
+      upgradeURL: payload.upgradeURL,
+      activeSandboxes: payload.activeSandboxes,
+      limit: payload.limit
+    )
     // Auth failures invert the convention: `error` is prose, `reason` is
     // the machine code (`api_key_invalid`, `api_key_expired`, ...).
-    if let reason = try? container.decodeIfPresent(String.self, forKey: .reason) {
-      message = message ?? code
+    if let reason = payload.reason {
+      message = message ?? payload.error
       code = reason
     }
-    upgradeURL = try? container.decodeIfPresent(String.self, forKey: .upgradeURL)
-    activeSandboxes = try? container.decodeIfPresent(Int.self, forKey: .activeSandboxes)
-    limit = try? container.decodeIfPresent(Int.self, forKey: .limit)
-    httpStatus = nil
-    // `errors` values may be a string or an array of strings per field.
-    if let map = try? container.decodeIfPresent([String: [String]].self, forKey: .errors) {
-      fieldErrors = map
-    } else if let map = try? container.decodeIfPresent([String: String].self, forKey: .errors) {
-      fieldErrors = map.mapValues { [$0] }
-    } else {
-      fieldErrors = [:]
+    // A 422 sends field → [message]; Phoenix's own error pages and the 406
+    // send `{"detail": "..."}`, which reads as one field with one message.
+    fieldErrors = (payload.errors?.objectValue ?? [:]).compactMapValues { value in
+      value.stringValue.map { [$0] } ?? value.arrayValue?.compactMap(\.stringValue)
     }
   }
 }

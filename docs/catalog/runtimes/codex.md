@@ -127,6 +127,15 @@ spec:
 
 Six things follow from that.
 
+- **It also turns off codex's own approvals.** The mode sets the adapter's
+  approval policy to `never` as well as the sandbox to `dangerFullAccess`. Codex
+  then runs its shell commands and file edits without asking. Fountain applies
+  the agent's [permission policy](../../concepts/permissions.md) only when a
+  runtime sends `session/request_permission`, and it cannot hold or deny an
+  operation that sends no request. So a policy of `ask` or `auto_deny` no
+  longer stops those commands and edits. Give full access only to agents whose
+  policy you would set to `auto_allow`. The reverse does not hold: a policy of
+  `auto_allow` does not widen the sandbox.
 - **It is all or nothing.** The value names a mode, not a list. There is no way
   today to say "the workspace, plus this one root, plus the network". Neither
   an Agent nor an Environment carries a writable-roots field, and Fountain
@@ -134,12 +143,6 @@ Six things follow from that.
   [#1684](https://github.com/managoat/fountain/issues/1684) tracks the general
   version. The policy will live on the Environment when it is built, beside
   the repositories and the network policy it belongs with.
-- **It is not a permission policy.** The agent's
-  [permission policy](../../concepts/permissions.md) answers each
-  `session/request_permission` while a turn runs. This is the sandbox codex
-  builds before it asks anything. Full access does not loosen a policy of
-  `ask` or `auto_deny`, and a policy of `auto_allow` does not widen this
-  sandbox.
 - **It does not widen Fountain's own egress.** An environment with
   `networking_type: limited`, and the credential broker where it is on, still
   decide which hosts a request reaches. Full access lets codex attempt the

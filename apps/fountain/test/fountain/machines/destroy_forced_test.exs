@@ -141,15 +141,43 @@ defmodule Fountain.Machines.DestroyForcedTest do
 
   defp no_servers, do: stub(ConversationServer, :whereis, fn _ -> nil end)
 
+  # A provider that answers listings from what is still there, so pass 2 of a
+  # whole reaper run can be observed: it filters terminal rows against the live
+  # listing, and a fixed listing would keep naming a machine after it was
+  # deleted. Same shape as `sandbox_reaper_test.exs`'s helper of this name.
+  defp live_provider(names) do
+    test = self()
+    {:ok, live} = Agent.start_link(fn -> MapSet.new(names) end)
+
+    stub(Managoat.Sandbox.Sprites.Client, :list_all_names, fn -> {:ok, Agent.get(live, & &1)} end)
+    stub(Managoat.Sandbox.Sprites.Client, :get!, fn -> :client end)
+
+    stub(Managoat.Sandbox.Sprites, :destroy, fn handle ->
+      Agent.update(live, &MapSet.delete(&1, handle.name))
+      send(test, {:destroyed, handle.name})
+      :ok
+    end)
+  end
+
   # A destroy nobody can run right now: the protocol's own `:machine_busy`,
   # which `Machine.destroy/2` renders as `:sandbox_unavailable`. Stubbed rather
   # than produced with a real held lease, because a real one costs the caller
   # `Destroy.busy_wait_ms/0` — five seconds — and no call site may shorten that
   # (`machine_bounds_test.exs`).
-  defp refuse_destroy_of(sandbox_id) do
-    stub(Destroy, :run, fn
-      ^sandbox_id, _opts -> {:error, :machine_busy}
-      other, opts -> Mimic.call_original(Destroy, :run, [other, opts])
+  defp refuse_destroy_of(sandbox_id), do: refuse_destroys_of([sandbox_id])
+
+  # One stub for a whole set. `stub/3` replaces rather than accumulates, so
+  # calling `refuse_destroy_of/1` in a loop leaves only the last id refused —
+  # which is a quiet way to write a test that proves nothing about a run.
+  defp refuse_destroys_of(sandbox_ids) do
+    refused = MapSet.new(sandbox_ids)
+
+    stub(Destroy, :run, fn id, opts ->
+      if MapSet.member?(refused, id) do
+        {:error, :machine_busy}
+      else
+        Mimic.call_original(Destroy, :run, [id, opts])
+      end
     end)
   end
 
@@ -677,6 +705,126 @@ defmodule Fountain.Machines.DestroyForcedTest do
       terminal = Enum.count(all, &(Repo.reload!(&1).status == "terminated"))
       assert terminal == limit
       assert Enum.count(all, &(Repo.reload!(&1).status == "ready")) == 1
+    end
+
+    test "a refused expiry does not spend the run's provider-destroy budget", ctx do
+      # The budget bounds calls to the provider, and the refusal that happens in
+      # practice — another owner holding the lease — is decided before the fence
+      # and makes no call. Charging it meant a run of refusals left pass 2 with
+      # nothing, so an outage that reclaimed no machines also stopped the
+      # leftover-sprite pass collecting the ones already known dead — and those
+      # bill on, with no other pass looking at them.
+      leaked = insert_sandbox(user_id: ctx.user.id, status: "terminated")
+
+      refused =
+        for _ <- 1..26 do
+          s = insert_sandbox(user_id: ctx.user.id, status: "ready")
+          c = insert_conversation(user_id: ctx.user.id, sandbox: s, status: "idle")
+          age(s, c, 60 * 24 * 83)
+        end
+
+      refuse_destroys_of(Enum.map([ctx.sandbox | refused], & &1.id))
+      live_provider([leaked.machine_name])
+
+      with_bounds([sandbox_idle_timeout_minutes: 60, sandbox_max_lifetime_hours: 24], fn ->
+        capture_log(fn -> assert :ok = perform_job(SandboxReaper, %{}) end)
+      end)
+
+      # Every expiry refused, no provider call made by pass 1, and pass 2 still
+      # collected the machine behind the terminal row.
+      assert destroyed_names() == [leaked.machine_name]
+    end
+
+    test "refusals leave pass 1's own budget for the rows behind them", ctx do
+      # The other half: a refusal must not consume the budget *within* the
+      # sweep either, or a burst of contended rows at the front pushes healthy
+      # ones behind them past the limit and they are deferred for no reason.
+      # 25 refused and 2 reclaimable, against a budget of 25.
+      refused =
+        for _ <- 1..25 do
+          s = insert_sandbox(user_id: ctx.user.id, status: "ready")
+          c = insert_conversation(user_id: ctx.user.id, sandbox: s, status: "idle")
+          age(s, c, 60 * 24 * 83)
+        end
+
+      other = insert_sandbox(user_id: ctx.user.id, status: "ready")
+      other_conv = insert_conversation(user_id: ctx.user.id, sandbox: other, status: "idle")
+      other = age(other, other_conv, 60 * 24 * 83)
+
+      refuse_destroys_of(Enum.map(refused, & &1.id))
+      capture_provider()
+
+      sweep(fn -> assert {0, 2, 25} = SandboxReaper.sweep_abandoned_sandboxes() end)
+
+      assert Enum.sort(destroyed_names()) ==
+               Enum.sort([ctx.sandbox.machine_name, other.machine_name])
+    end
+
+    test "pass 2 keeps a floor even when pass 1 saturates the budget", ctx do
+      # A backlog big enough to spend the whole budget every run would otherwise
+      # leave pass 2 nothing, run after run, for as long as the backlog lasts —
+      # and its rows are already terminal, so no other pass looks at them and
+      # their machines bill unnoticed. The floor keeps it draining at a trickle.
+      for _ <- 1..30 do
+        s = insert_sandbox(user_id: ctx.user.id, status: "ready")
+        c = insert_conversation(user_id: ctx.user.id, sandbox: s, status: "idle")
+        age(s, c, 60 * 24 * 83)
+      end
+
+      leaked =
+        for _ <- 1..6 do
+          insert_sandbox(user_id: ctx.user.id, status: "terminated")
+        end
+
+      live_provider(Enum.map(leaked, & &1.machine_name))
+
+      with_bounds([sandbox_idle_timeout_minutes: 60, sandbox_max_lifetime_hours: 24], fn ->
+        capture_log(fn -> assert :ok = perform_job(SandboxReaper, %{}) end)
+      end)
+
+      names = destroyed_names()
+      leaked_names = MapSet.new(leaked, & &1.machine_name)
+      collected = Enum.count(names, &MapSet.member?(leaked_names, &1))
+
+      assert collected == 5,
+             "pass 1 saturated the budget and pass 2 collected #{collected} leaked " <>
+               "sprite(s); without a floor it collects none, run after run, while those " <>
+               "machines keep billing"
+    end
+
+    test "the idle arm defers rather than expiring once the budget is spent", ctx do
+      # `expire_within/3`'s other clause, and the one an outage reaches: a
+      # provider whose suspend is down sends the whole idle backlog to the
+      # destroy path at once. Past the budget a row is left exactly as it was —
+      # no fence, no provider call, counted as neither expired nor refused — so
+      # the next run sees it unchanged.
+      idle =
+        for _ <- 1..26 do
+          s = insert_sandbox(user_id: ctx.user.id, status: "ready")
+          c = insert_conversation(user_id: ctx.user.id, sandbox: s, status: "idle")
+          age(s, c, 60 * 5)
+        end
+
+      stub(Lifecycle, :idle_action, fn _provider -> :destroy end)
+      capture_provider()
+
+      # 26 idle rows plus the describe's own row past the ceiling, against a
+      # budget of 25.
+      sweep(fn -> assert {0, 25, 0} = SandboxReaper.sweep_abandoned_sandboxes() end)
+
+      assert length(destroyed_names()) == 25
+
+      deferred = Enum.filter([ctx.sandbox | idle], &(Repo.reload!(&1).status == "ready"))
+      assert length(deferred) == 2
+
+      for row <- deferred do
+        reloaded = Repo.reload!(row)
+
+        refute reloaded.teardown_requested_at,
+               "a deferred row was fenced — the next run must see it exactly as it was"
+
+        refute reloaded.reset_requested_at
+      end
     end
 
     test "a refused destroy records nothing and does not stop the sweep", ctx do

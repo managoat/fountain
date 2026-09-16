@@ -90,6 +90,10 @@ defmodule Fountain.Workers.SandboxReaper do
   # is bounded by the same backlog that causes it.
   @destroy_limit 25
 
+  # The trickle `pass_two_budget/1` guarantees pass 2 when pass 1 saturates.
+  # Small on purpose: it is an anti-starvation floor, not a second budget.
+  @pass_two_floor 5
+
   @terminal_statuses ~w(terminated failed)
   @active_statuses ~w(pending starting)
 
@@ -102,8 +106,8 @@ defmodule Fountain.Workers.SandboxReaper do
     listings = list_by_provider()
     ok_listings = for {p, {:ok, names}} <- listings, into: %{}, do: {p, names}
     # One budget of provider destroys for the whole run, spent by pass 1 first
-    # (ADR 0058 stage 5b). See `@destroy_limit`.
-    destroyed = destroy_dead_sprites(ok_listings, @destroy_limit - expired - refused)
+    # (ADR 0058 stage 5b). See `@destroy_limit` and `pass_two_budget/1`.
+    destroyed = destroy_dead_sprites(ok_listings, pass_two_budget(expired))
     untracked = report_untracked(ok_listings)
 
     live = ok_listings |> Map.values() |> Enum.map(&MapSet.size/1) |> Enum.sum()
@@ -159,6 +163,22 @@ defmodule Fountain.Workers.SandboxReaper do
 
     result
   end
+
+  # What is left of the run's budget for pass 2, with a floor under it.
+  #
+  # Pass 1 has priority (`@destroy_limit` says why), and a backlog big enough
+  # to saturate it would otherwise leave pass 2 exactly nothing, run after run,
+  # for as long as the backlog lasts. The rows pass 2 collects are already
+  # terminal, so no other pass looks at them and nobody would notice: their
+  # machines would bill until the backlog cleared. The floor keeps that pass
+  # making progress at a trickle whatever pass 1 is doing.
+  #
+  # It means a saturated run makes at most `@destroy_limit + @pass_two_floor`
+  # provider calls rather than `@destroy_limit`. That is the intended reading:
+  # the number is a drain rate that keeps a backlog from arriving at the
+  # provider all at once, not a hard ceiling, and starving a whole pass
+  # indefinitely is the worse failure.
+  defp pass_two_budget(expired), do: max(@pass_two_floor, @destroy_limit - expired)
 
   # ── pass 1: rows stuck mid-provision ──────────────────────────────────────
 
@@ -295,11 +315,23 @@ defmodule Fountain.Workers.SandboxReaper do
   # the machine's owner and the owner can say no. Counting the verdict instead
   # of the outcome — which is what this did when `expire/2` could not fail —
   # reports a still-running, still-billing machine as expired.
+  #
+  # **A refusal does not spend the budget**, and that asymmetry is deliberate.
+  # The budget exists to bound calls to the provider, and the refusal that
+  # matters in practice — `:machine_busy`, another owner holding the lease —
+  # is decided before the fence and makes no call at all. Charging it anyway
+  # meant a run of 25 refusals left pass 2 with nothing, so an outage that
+  # reclaimed no machines *also* stopped the leftover-sprite pass collecting
+  # the ones already known dead, and those keep billing with no other pass
+  # looking at them. A refusal from the *finalize* does follow a provider call,
+  # so this can undercount by that much; over-counting a handful of calls
+  # during an outage is the better error than locking out the pass that cleans
+  # up after one.
   defp sweep_verdict({sandbox, {:expired, :idle}}, {p, e, r, left}) do
     case idle_sweep(sandbox, left) do
       :parked -> {p + 1, e, r, left}
       :expired -> {p, e + 1, r, left - 1}
-      :refused -> {p, e, r + 1, left - 1}
+      :refused -> {p, e, r + 1, left}
       :deferred -> {p, e, r, left}
     end
   end
@@ -307,7 +339,7 @@ defmodule Fountain.Workers.SandboxReaper do
   defp sweep_verdict({sandbox, {:expired, :max_lifetime}}, {p, e, r, left}) when left > 0 do
     case expire(sandbox, :max_lifetime, "past max lifetime") do
       :expired -> {p, e + 1, r, left - 1}
-      :refused -> {p, e, r + 1, left - 1}
+      :refused -> {p, e, r + 1, left}
     end
   end
 

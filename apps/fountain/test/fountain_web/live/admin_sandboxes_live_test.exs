@@ -197,14 +197,14 @@ defmodule FountainWeb.AdminSandboxesLiveTest do
 
       stub(Fountain.Machines.Destroy, :run, fn _id, _opts -> {:error, :machine_busy} end)
 
-      html =
+      log =
         ExUnit.CaptureLog.capture_log(fn ->
-          send(self(), {:html, reap_click(lv, sandbox)})
+          send(self(), {:rendered, reap_click(lv, sandbox)})
         end)
 
-      assert html =~ "refused"
-      assert_received {:html, rendered}
-      assert rendered =~ "Sandbox busy"
+      assert log =~ "refused"
+      assert_received {:rendered, html}
+      assert html =~ "Sandbox busy"
 
       # Untouched, and still listed, so the next click is the whole remedy.
       assert Fountain.Conversations._unsafe_get_sandbox!(sandbox.id).status == "ready"

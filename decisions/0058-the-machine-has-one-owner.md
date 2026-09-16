@@ -29,26 +29,27 @@ keeps the idle and ceiling clock over the union of their activity; enforces
 capacity." Its Outcome records that the process was not built:
 
 > There is no `SandboxServer` process. The machine-operation lock is a
-> per-sandbox Postgres advisory lock taken by the conversation that needs it,
-> the refcount is the conversation rows on the sandbox, and the idle clock is
+> per-sandbox Postgres advisory lock taken by the conversation that needs it
+> (`Conversations` around `pg_advisory_xact_lock`), the refcount is the
+> conversation rows on the sandbox, and the idle clock is
 > `SandboxReaper.last_activity_at/1` over all of them. [...] Revisit if the
 > handle and sprite env ever need to move into one owner.
 
 This is the revisit. On `main` at `c3f568596` (2026-09-16),
 `Conversations.update_sandbox/2` is called from 24 sites in 11 files, and the
-provider's create, resume, suspend, destroy and checkpoint from 19 sites in 10
+provider's create, resume, suspend, destroy and checkpoint from 17 sites in 9
 files:
 
 | Writer | `update_sandbox` sites | provider mutations | protected by |
 |---|---|---|---|
 | `conversations/conversation_server.ex` | 7 | 4 | its own state; `expected_sandbox_id` on ending writes |
-| `workers/sandbox_reaper.ex` | 3 | 3 | a bare `ConversationServer.whereis/1` scan; no fence |
+| `workers/sandbox_reaper.ex` | 3 | 2 | a bare registry-liveness scan (`Lifecycle.any_server_alive?/1`); no fence |
 | `conversations/termination.ex` | 3 | 1 | the teardown fence (`teardown_requested_at`) |
 | `conversations/provisioning.ex`, `provision_watchdog.ex` | 2 | 3 | a retirement changeset match |
 | `conversations/wake.ex` | 2 | 1 | the quota reservation lock, not the sandbox lock |
 | `conversations/reapply.ex` | 2 | — | `configuration_revision` |
 | `conversations.ex`, `conversations/lifecycle.ex` | 3 | 4 | the advisory transaction lock; `_unsafe_sandbox_held_by_other?/2` |
-| `home_checkpoint.ex`, `accounts/deletion.ex`, `execution_deadline_worker.ex` | 2 | 3 | each its own |
+| `home_checkpoint.ex`, `accounts/deletion.ex` | 2 | 2 | each its own |
 
 Every one of those protections is compensation for the owner that was not
 built. `reset_requested_at` and `teardown_requested_at` are fence columns a
@@ -56,10 +57,13 @@ writer must check because no one owns the state they fence.
 `expected_sandbox_id` (the nine-PR #1767 campaign; #2021 lists the writes it
 still misses) is a compare-and-set token each ending write carries because the
 row has no single writer. The retirement changeset match is copied four times
-(#2039). Four unrelated predicates answer "is anyone else on this sandbox"
-(#2255): `_unsafe_sandbox_held_by_other?/2`, `_unsafe_sandbox_busy_elsewhere?/4`,
-the `whereis/1` scan inside `_unsafe_reap_sandbox/1`, and
-`SandboxReaper.server_alive?/1`.
+(#2039). Four unrelated readings answer "is anyone else on this sandbox"
+(#2255 listed them at `269f2fe6`): `_unsafe_sandbox_held_by_other?/2`
+(status only), `_unsafe_sandbox_busy_elsewhere?/4` (status and the idle
+window), `Lifecycle.live_conversation_ids/1` with `any_server_alive?/1`
+(registry liveness over a preloaded row), and `_unsafe_list_cotenant_ids/2`.
+#2257 and #2309 had already folded the reaper's and the admin reap's bare
+`whereis/1` scans into the third, so at `c3f568596` the names are these.
 
 The clearest evidence is #2286. It tried to make the reaper's idle park safe
 with a lock and a durable claim, went five adversarial review rounds, each
@@ -74,8 +78,9 @@ during a rolling deploy.
 
 #2175 and #2255 gave each conversation lifecycle verb one owner — `Launch`,
 `Wake`, `Termination`, `Reapply`, `Interruption` — and did it by pure moves
-that landed in a day. The decision recorded on #2175 that day, "the machine
-stays in the server (ADR 0023 stands)", is the one this ADR reopens. The verbs
+that landed in a day. Decision 3 recorded on #2175 that day — "The machine
+stays in the conversation server. ADR 0023 stands; no `SandboxServer`." — is
+the one this ADR reopens. The verbs
 now have owners; the thing they all act on still has none. This is the shape
 Erlang has a standard answer for: state with many concurrent writers and
 external I/O in the middle of its transitions gets a process.
@@ -238,10 +243,10 @@ stage: `area:sandbox`, `area:conversations`, `lang:elixir`, `P2`.
 | # | Stage | Kind | Done when |
 |---|---|---|---|
 | 1 | This ADR; `scripts/decisions-index.sh`; `okf validate decisions`; 0023's Outcome points here; #2307 closed by it; the three #2255 decisions answered on the issue (one predicate; the reaper asks the owner; the admin audit moves into `destroy/3`); #1089 told the owner is its prerequisite | docs | merged |
-| 2 | **The ratchet.** `apps/fountain/test/fountain/machines/direct_writes_test.exs` enumerates every `update_sandbox(`, `update_sandbox_row(` and `Managoat.Sandbox.{create,resume,suspend,destroy,create_checkpoint}(` call outside `lib/fountain/machines/`, pinned at today's 24 + 19, failing when the count rises. Same convention as `conversation_server_size_test.exs`: a PR lowers the pin and never raises it. `.credo.exs` ownership entries for the new namespace | test | verified by reverting: one added direct write fails it |
+| 2 | **The ratchet.** `apps/fountain/test/fountain/machines/direct_writes_test.exs` enumerates every `update_sandbox(`, `update_sandbox_row(` and `Managoat.Sandbox.{create,resume,suspend,destroy,create_checkpoint}(` call outside `lib/fountain/machines/`, pinned at the numbers measured on `main` when it lands (24 row writes; 17 provider mutations at `c3f568596`), failing when the count rises. Same convention as `conversation_server_size_test.exs`: a PR lowers the pin and never raises it. `.credo.exs` ownership entries for the new namespace | test | verified by reverting: one added direct write fails it |
 | 3 | **Lease columns and `Fountain.Machines.Lease`.** Additive migration: `lease_epoch bigint not null default 0`, `lease_node`, `lease_until`, `transition`, `transition_reason`, all otherwise nullable, nothing reads them. `Lease.claim/2`, `renew/2`, `release/2`, `take_over/2`, each one short transaction under the existing sandbox advisory lock with a compare-and-set on the epoch; `Lease.cas_update/3` is the one write primitive the owner will use | schema + pure module | two concurrent claimers tested with `pg_blocking_pids`; a stale-epoch write affects zero rows; a SQL fault (a `BEFORE INSERT` trigger raising SQLSTATE 57014, the #2309 proof) leaks nothing out of a transaction; the migration version checked against every open stack |
 | 4 | **The process, read-only.** `Fountain.Machines.Machine` GenServer, `Fountain.MachineRegistry`, `ensure_started/1`, `whereis/1`, idle-stop. One verb, `who_is_here/1`: bound conversations, admitted turns, last activity, from the rows. The four predicates delegate to it (#2255 decision 1). No writes. Behind the gate | new module | ratchet unchanged; no changelog fragment |
-| 5 | **Destroy through the owner.** `Machine.destroy/3`: `transition: destroying` → provider destroy → compare-and-set finalize → `sandbox.destroyed` audit with the actor. Retarget `Termination.retire_terminated_sandbox/2`, the destroy-home family, `_unsafe_reap_sandbox/1`, `Accounts.Deletion.destroy_sprites/2`, `Lifecycle.destroy/4`. Under the gate the teardown fence is the transition. #2255 tranche 2 lands here as behaviour under an owner rather than as a move | behaviour | account deletion nilifies `user_id`, so the owner destroys an ownerless row (the #2329 trap); deletion's teardown stays non-fatal (0009); full suite and the deployed suite; changelog fragment; ratchet −9 |
+| 5 | **Destroy through the owner.** `Machine.destroy/3`: `transition: destroying` → provider destroy → compare-and-set finalize → `sandbox.destroyed` audit with the actor. Retarget `Termination.retire_terminated_sandbox/2`, the destroy-home family, `Termination.reap_sandbox/1` (the admin reap), `Accounts.Deletion.destroy_sprites/2`, `Lifecycle.destroy/4`. Under the gate the teardown fence is the transition. #2255 tranche 2 lands here as behaviour under an owner rather than as a move | behaviour | account deletion nilifies `user_id`, so the owner destroys an ownerless row (the #2329 trap); deletion's teardown stays non-fatal (0009); full suite and the deployed suite; changelog fragment; ratchet −9 |
 | 6 | **Park through the owner; closes #2307.** `Machine.park/2`: refused while any turn is admitted; `transition: parking`; checkpoint and suspend outside any transaction; finalize by compare-and-set. `SandboxReaper.idle_sweep/1` and `Lifecycle.park/4` send the request. A wake that reads `parking` returns the new retryable refusal; constraint 6's vocabulary list is the checklist (`SandboxQueue.@transient_errors`, the schedule snooze guard, `Team.Schedules.describe_error/1`, the fallback controller's 503 mapping, docs/sdk.md, the SDK mappings). The salvage branch's tests come across | behaviour | admission wins the lock and the reaper skips (the #2286 reproduction) per path; a finalize lost after a successful suspend is compensated at takeover, tested; changelog fragment |
 | 7 | **Provision and resume through the owner.** `Machine.ensure_up/1` replaces `Provisioning`'s create and `ProvisionWatchdog`, `Wake`'s suspended resume and the rehydrator's start; two wakes on one machine resume it once. The rehydrator starts conversation servers through the owner so registration has a durable marker (constraint 4). Ephemeral becomes the policy "destroy on last detach" in `Machines.Policy`. Recovery checks the account-suspension and credit gates before resuming compute; an interrupt never provisions (#2262 stands) | behaviour | full suite, deployed suite, and a production smoke shaped like 0023's gate 7; changelog fragment |
 | 8 | **Binding and admission; the fences come out.** `attach/2`, `detach/1`, `admit_turn/2`, `end_turn/1` with capacity counted per runtime; `retarget/2` for `Reapply`. Under the gate, `expected_sandbox_id` leaves `ExecutionGuard`, `Wake`, `Conversations` and the server; the epoch is the fence. `{:machine_gone, …}` is sent by the owner only. The server's last `update_sandbox` and `Managoat.Sandbox.destroy` sites go and the size pin drops with them | behaviour | ratchet reads zero under the gate |

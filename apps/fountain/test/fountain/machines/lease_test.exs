@@ -180,6 +180,71 @@ defmodule Fountain.Machines.LeaseTest do
       assert reaped.transition_reason == "reaped"
     end
 
+    test "an epoch below 1 is refused even where a row somehow has a holder", ctx do
+      # Unreachable through this module: `do_claim/5` is the only writer of the
+      # holder columns and always moves the epoch to 1 or more. Forged straight
+      # into the row so `taken_epoch?/1` is pinned on its own — `held_by/2`'s
+      # holder columns mask it on every reachable row, which is exactly how a
+      # defence-in-depth guard gets deleted in a refactor with nothing red.
+      Repo.update_all(from(x in Sandbox, where: x.id == ^ctx.sandbox.id),
+        set: [
+          lease_epoch: 0,
+          lease_node: "ghost@node",
+          lease_until: DateTime.add(DateTime.utc_now(), @ttl_ms, :millisecond)
+        ]
+      )
+
+      assert {:error, :lost} = Lease.renew(ctx.sandbox.id, 0, @ttl_ms)
+      assert {:error, :lost} = Lease.release(ctx.sandbox.id, 0)
+      assert {:error, :stale} = Lease.cas_update(ctx.sandbox.id, 0, %{status: "ready"})
+      assert Repo.get!(Sandbox, ctx.sandbox.id).status == "pending"
+    end
+
+    test "a terminal status carries its own terminated_at", ctx do
+      assert {:ok, epoch} = Lease.claim(ctx.sandbox.id, ctx.node, @ttl_ms)
+
+      # `Billing.SandboxUsage` reads `terminated_at` as the end of the billed
+      # interval, and a writer that fails a machine never passes one. Without
+      # this stamp `cas_update/3` would leave a retired sandbox reading as
+      # still running, which is the bug `stamp_terminated_at/1` was written for.
+      assert {:ok, live} = Lease.cas_update(ctx.sandbox.id, epoch, %{transition: "destroying"})
+      refute live.terminated_at
+
+      assert {:ok, terminated} = Lease.cas_update(ctx.sandbox.id, epoch, %{status: "terminated"})
+      assert terminated.terminated_at
+
+      # Stamped once. A second terminal write does not move the billed end.
+      assert {:ok, failed} = Lease.cas_update(ctx.sandbox.id, epoch, %{status: "failed"})
+      assert failed.terminated_at == terminated.terminated_at
+    end
+
+    test "a caller's own terminated_at wins over the stamp", ctx do
+      assert {:ok, epoch} = Lease.claim(ctx.sandbox.id, ctx.node, @ttl_ms)
+      theirs = DateTime.utc_now() |> DateTime.add(-3600, :second) |> DateTime.truncate(:second)
+
+      assert {:ok, terminated} =
+               Lease.cas_update(ctx.sandbox.id, epoch, %{
+                 status: "failed",
+                 terminated_at: theirs
+               })
+
+      assert terminated.terminated_at == theirs
+    end
+
+    test "a superseded epoch is stale even on a retired row", ctx do
+      # Claimed with a clock far enough back that the lease has already
+      # lapsed, so the takeover below needs no sleeping.
+      lapsed = DateTime.add(DateTime.utc_now(), -2 * @ttl_ms, :millisecond)
+      assert {:ok, 1} = Lease.claim(ctx.sandbox.id, ctx.node, @ttl_ms, lapsed)
+      assert {:ok, _} = Lease.cas_update(ctx.sandbox.id, 1, %{status: "terminated"})
+      assert {:ok, 2} = Lease.take_over(ctx.sandbox.id, "fountain@test-b", @ttl_ms)
+
+      # `:stale` beats `:retired`. A caller that no longer holds the machine is
+      # told it lost the lease, not what the row's status happens to be.
+      assert {:error, :stale} = Lease.cas_update(ctx.sandbox.id, 1, %{status: "ready"})
+      assert {:error, :retired} = Lease.cas_update(ctx.sandbox.id, 2, %{status: "ready"})
+    end
+
     test "a caller's own bug is an answer, not a raise", ctx do
       assert {:ok, epoch} = Lease.claim(ctx.sandbox.id, ctx.node, @ttl_ms)
       before = Repo.get!(Sandbox, ctx.sandbox.id)
@@ -189,16 +254,26 @@ defmodule Fountain.Machines.LeaseTest do
       assert {:error, {:invalid, :status}} =
                Lease.cas_update(ctx.sandbox.id, epoch, status: "failed", status: "suspended")
 
+      # A struct is a map, so the spec and `is_map/1` both admit one and
+      # `Enum.reduce_while/3` raises `Protocol.UndefinedError` on it.
+      assert {:error, {:invalid, :attrs}} =
+               Lease.cas_update(ctx.sandbox.id, epoch, %Sandbox{status: "ready"})
+
       # `is_binary/1` admits a string that is not a UUID; the query would raise
-      # `Ecto.Query.CastError` on it.
-      for call <- [
-            fn -> Lease.claim("not-a-uuid", ctx.node, @ttl_ms) end,
-            fn -> Lease.take_over("not-a-uuid", ctx.node, @ttl_ms) end,
-            fn -> Lease.renew("not-a-uuid", 1, @ttl_ms) end,
-            fn -> Lease.release("not-a-uuid", 1) end,
-            fn -> Lease.cas_update("not-a-uuid", 1, %{status: "ready"}) end
+      # `Ecto.Query.CastError` on it. The raw 16-byte form passes
+      # `Ecto.UUID.cast/1` and raises all the same, which is why the guard
+      # checks the length too.
+      {:ok, raw} = Ecto.UUID.dump(Ecto.UUID.generate())
+
+      for id <- ["not-a-uuid", raw],
+          call <- [
+            fn id -> Lease.claim(id, ctx.node, @ttl_ms) end,
+            fn id -> Lease.take_over(id, ctx.node, @ttl_ms) end,
+            fn id -> Lease.renew(id, 1, @ttl_ms) end,
+            fn id -> Lease.release(id, 1) end,
+            fn id -> Lease.cas_update(id, 1, %{status: "ready"}) end
           ] do
-        assert call.() == {:error, {:invalid, :sandbox_id}}
+        assert call.(id) == {:error, {:invalid, :sandbox_id}}
       end
 
       assert Repo.get!(Sandbox, ctx.sandbox.id) == before

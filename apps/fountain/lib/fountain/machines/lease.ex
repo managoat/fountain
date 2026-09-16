@@ -32,14 +32,17 @@ defmodule Fountain.Machines.Lease do
   decision for the process that owns the renew timer (stage 4), not for this
   module, which has no timer of its own.
 
-  Every function here is one short transaction and refuses to run inside an
-  enclosing one (`{:error, :transaction_open}`), the same guard
+  Every function here is one short statement or transaction, and refuses to run
+  inside an enclosing one (`{:error, :transaction_open}`), the same guard
   `Fountain.Conversations.Lifecycle.fence_sandbox_for_teardown/2` and
   `Fountain.Conversations.SandboxIdentity` use. Nesting would join the caller's
   transaction through a savepoint and hold a transaction-scoped advisory lock
   until the outer commit, which is exactly the "short transaction" this module
   promises not to be. Provider I/O happens in the owner, between these calls,
-  never inside one.
+  never inside one. The one exception is `cas_update/3`'s *refusal* path, which
+  runs a second read to tell `:stale` from `:retired`; the write it explains has
+  already failed by then, so the two are not wrapped together and the diagnosis
+  is a fresh look at the row rather than the state the write saw.
 
   Nothing user-facing happens here, so nothing here is audited: a lease is
   control-plane bookkeeping, and the events an operation owes — `sandbox.destroyed`
@@ -179,7 +182,10 @@ defmodule Fountain.Machines.Lease do
   changes nothing and learns so. A lease that was released, or an epoch no
   claim ever handed out, is `:stale` for the same reason: neither is held.
 
-  `attrs` may name only #{inspect(@writable)}, with atom keys, each at most
+  `attrs` is a plain map or a keyword list — **a struct is refused**
+  (`{:error, {:invalid, :attrs}}`) even though it is a map, because nothing an
+  owner writes is built by handing this function a schema. It may name only
+  #{inspect(@writable)}, with atom keys, each at most
   once. `status` must be a member of `Sandbox.statuses/0` and `transition` of
   `Sandbox.transitions/0` (`nil` clears it, which is how a transition
   finalizes); anything else is `{:error, {:invalid, field}}` and the row is
@@ -190,6 +196,17 @@ defmodule Fountain.Machines.Lease do
   refusal `Conversations.update_sandbox/2` gets from
   `prevent_sandbox_revival/1`, reported as `{:error, :retired}` so the owner
   does not mistake it for a takeover.
+
+  **`:stale` beats `:retired`.** A superseded epoch is `:stale` even on a
+  retired row; `:retired` means you *are* the holder and the row is terminal. A
+  caller that no longer owns the machine has no business being told the row's
+  status, and the diagnosis reads through the same held-lease predicate the
+  write did, so it falls to `:stale` before the status is ever consulted.
+
+  A write that moves the status to `terminated` or `failed` stamps
+  `terminated_at` when the row has none, mirroring
+  `Conversations.stamp_terminated_at/1` — see `stamp_terminated_at/2` below for
+  why that matters and where it is deliberately narrower.
 
   Deliberately takes no advisory lock: a single guarded `update_all` is already
   atomic, and the serialization this needs was done when the epoch was taken.
@@ -213,7 +230,13 @@ defmodule Fountain.Machines.Lease do
           # lease heartbeat every few seconds would otherwise make the column
           # mean nothing to anyone reading the table.
           sets = Keyword.put(sets, :updated_at, DateTime.utc_now() |> DateTime.truncate(:second))
-          query = sandbox_id |> held_by(epoch) |> refuse_revival(sets) |> select([s], s)
+
+          query =
+            sandbox_id
+            |> held_by(epoch)
+            |> refuse_revival(sets)
+            |> stamp_terminated_at(sets)
+            |> select([s], s)
 
           case Repo.update_all(query, set: sets) do
             {1, [sandbox]} -> {:ok, sandbox}
@@ -318,6 +341,30 @@ defmodule Fountain.Machines.Lease do
     end
   end
 
+  # Mirrors `Fountain.Conversations.stamp_terminated_at/1`, the second of
+  # `update_sandbox_if/3`'s two guards and the one with a billing consequence:
+  # `Billing.SandboxUsage` reads `terminated_at` as the end of the billed
+  # interval, and of the writers of a terminal status the ones that *fail* a
+  # machine never pass a timestamp — which once left every failed sandbox
+  # reading as still running. `cas_update/3` is another such writer.
+  # `COALESCE` in the database rather than a read here keeps the write one
+  # statement and keeps a caller's own timestamp, so this only fills a gap.
+  #
+  # Narrower than the original on purpose. `stamp_terminated_at/1` works off
+  # `get_field/2`, which falls back to the *stored* status, so it also repairs
+  # a status-free write to an already-terminal row. This fires only on the
+  # transition into a terminal status, which is the case with the hazard; a
+  # write that never names a status leaves the column alone.
+  defp stamp_terminated_at(query, sets) do
+    if Keyword.get(sets, :status) in @terminal_statuses and
+         not Keyword.has_key?(sets, :terminated_at) do
+      now = DateTime.utc_now() |> DateTime.truncate(:second)
+      from(s in query, update: [set: [terminated_at: coalesce(s.terminated_at, ^now)]])
+    else
+      query
+    end
+  end
+
   # Only on the refusal path, so the write itself stays one statement. Without
   # it a revival and a takeover are the same zero rows, and an owner told
   # `:stale` would go looking for a successor that never existed.
@@ -327,6 +374,14 @@ defmodule Fountain.Machines.Lease do
       _ -> :stale
     end
   end
+
+  # A struct is a map, so `is_map/1` and the `@spec` both let one through, and
+  # `Enum.reduce_while/3` then raises `Protocol.UndefinedError` on it. Refused
+  # like every other caller bug rather than raised, and said in the docstring.
+  defp cast_attrs(attrs) when is_struct(attrs), do: {:error, {:invalid, :attrs}}
+
+  defp cast_attrs(attrs) when not is_map(attrs) and not is_list(attrs),
+    do: {:error, {:invalid, :attrs}}
 
   defp cast_attrs(attrs) when attrs == %{} or attrs == [], do: {:error, {:invalid, :attrs}}
 
@@ -378,8 +433,12 @@ defmodule Fountain.Machines.Lease do
         {:error, :transaction_open}
 
       # `is_binary/1` on the public functions admits any string; the `@spec`
-      # says `Ecto.UUID.t()` and the query would raise on anything else.
-      Ecto.UUID.cast(sandbox_id) == :error ->
+      # says `Ecto.UUID.t()` and the query would raise on anything else. The
+      # length test is not redundant: `Ecto.UUID.cast/1` also accepts the raw
+      # 16-byte form, which is not what a `:binary_id` column is queried with
+      # and which reaches Ecto as an `Ecto.Query.CastError` — the one thing
+      # this check exists to prevent.
+      byte_size(sandbox_id) != 36 or Ecto.UUID.cast(sandbox_id) == :error ->
         {:error, {:invalid, :sandbox_id}}
 
       true ->

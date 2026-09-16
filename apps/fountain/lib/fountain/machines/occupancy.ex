@@ -270,6 +270,86 @@ defmodule Fountain.Machines.Occupancy do
   end
 
   @doc """
+  Is any conversation on the machine mid-turn?
+
+  The machine-wide half of `busy_elsewhere?/4`, with no co-tenant and no
+  clock: `Fountain.Machines.Park` asks it under the lease, where the question
+  is not "is somebody else busy" but "is this machine in use at all" — a park
+  refuses while any turn is admitted (ADR 0058, the verbs table).
+  """
+  @spec any_running_turn?(t()) :: boolean()
+  def any_running_turn?(%__MODULE__{running_turns: :unloaded} = occupancy) do
+    raise ArgumentError, unloaded_message(occupancy, "any_running_turn?/1", :running_turns)
+  end
+
+  def any_running_turn?(%__MODULE__{running_turns: running}), do: running != %{}
+
+  @doc """
+  When the machine last saw activity: its own creation and last wake against
+  the newest turn insertion, start and end across every conversation on it.
+
+  The fold the reaper's idle verdict is made on, and the one
+  `Fountain.Machines.Park` re-runs under the lease. It lived in
+  `SandboxReaper.last_activity_at/1` as well until stage 6b, in a second copy
+  that had to agree with this one about which timestamps count; a park that
+  revalidates the reaper's verdict has to ask the *same* question the reaper
+  asked, so there is one fold.
+
+  Bookkeeping is deliberately excluded. `conversations.updated_at` moves on
+  every rehydrator boot, which would make an abandoned machine look freshly
+  active after each deploy.
+
+  Two forms. Given a loaded `t()` it is the field, free. Given a `%Sandbox{}`
+  whose `conversations` are preloaded it is one grouped query over their
+  turns — the reaper's per-row cost, unchanged.
+  """
+  @spec last_activity_at(t() | Sandbox.t()) :: DateTime.t() | nil
+  def last_activity_at(%__MODULE__{last_activity_at: :unloaded} = occupancy) do
+    raise ArgumentError, unloaded_message(occupancy, "last_activity_at/1", :last_activity_at)
+  end
+
+  def last_activity_at(%__MODULE__{last_activity_at: at}), do: at
+
+  def last_activity_at(%Sandbox{conversations: conversations} = sandbox)
+      when is_list(conversations) do
+    last_activity_at(sandbox, conversations |> Enum.map(& &1.id) |> turn_rollup())
+  end
+
+  # How long after a `woken_at` stamp the machine still counts as held, when
+  # no server has appeared in the registry (ADR 0058 stage 6a, #2307
+  # constraint 4).
+  #
+  # `Conversations.register_server/2` commits the marker under the sandbox
+  # advisory lock *before* it asks Horde for anything, and Horde's registry is
+  # an asynchronous CRDT, so between those two moments a reader on another node
+  # sees a machine with nobody on it. Fifteen minutes is far longer than
+  # propagation takes and is also the window a marker whose caller died before
+  # its `start_child` ages out over; `SandboxReaper`'s two liveness passes use
+  # the same number in SQL, and `park_test.exs` pins that the two agree.
+  @woken_grace_minutes 15
+
+  @doc "See `recently_woken?/2`."
+  @spec woken_grace_minutes() :: pos_integer()
+  def woken_grace_minutes, do: @woken_grace_minutes
+
+  @doc """
+  Has somebody started a `ConversationServer` on this machine so recently that
+  the registry cannot be trusted to show it yet?
+
+  The Elixir half of the reaper's `woken_grace/1` condition, for a caller that
+  holds the row rather than a query. `nil` — a machine no wake has marked, and
+  every row whose wake predates stage 6a's migration — is never recently woken.
+  """
+  @spec recently_woken?(Sandbox.t() | map(), DateTime.t()) :: boolean()
+  def recently_woken?(sandbox, now \\ DateTime.utc_now())
+
+  def recently_woken?(%{woken_at: nil}, _now), do: false
+
+  def recently_woken?(%{woken_at: at}, now) do
+    DateTime.compare(at, DateTime.add(now, -@woken_grace_minutes * 60, :second)) == :gt
+  end
+
+  @doc """
   Conversation ids on the machine with a live, registered `ConversationServer`.
 
   What `Lifecycle.live_conversation_ids/1` answers. Read the moduledoc on why

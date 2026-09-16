@@ -1667,22 +1667,15 @@ defmodule Fountain.Conversations.ConversationServer do
 
   # Idle: the machine's verdict, not this conversation's (ADR 0023 step 5).
   defp reclaim_sandbox(state, :idle) do
-    if Lifecycle.busy_elsewhere?(state.sandbox_id, state.conversation_id) do
-      # This conversation is idle; the machine is not. Another conversation
-      # on it is mid-turn or was active more recently than the bound, so the
-      # verdict is the machine's to reach, over all of them (ADR 0023 step 5).
-      # Checked again on the next tick.
-      {:noreply, state}
-    else
-      case Lifecycle.idle_machine_action(state.conversation_id, state.handle) do
-        :park -> park_sandbox(state)
-        :destroy -> destroy_sandbox(state, :idle)
-      end
+    case Lifecycle.idle_machine_action(state.conversation_id, state.sandbox_id, state.handle) do
+      :keep -> {:noreply, state}
+      :park -> park_sandbox(state)
+      :destroy -> destroy_sandbox(state, :idle)
     end
   end
 
-  # Max lifetime: `Lifecycle.max_lifetime_action/2` decides, and has already
-  # made the suspend call by the time it answers `:park`.
+  # Max lifetime: `Lifecycle.max_lifetime_action/2` decides, and since ADR 0058
+  # stage 6b it only decides.
   defp reclaim_sandbox(state, :max_lifetime) do
     case Lifecycle.max_lifetime_action(state.sandbox_id, state.handle) do
       :park -> park_sandbox(state, :max_lifetime)
@@ -1691,7 +1684,10 @@ defmodule Fountain.Conversations.ConversationServer do
   end
 
   # The log line and the connection are the process's; the rest of a park is
-  # `Lifecycle.park/4`.
+  # `Lifecycle.park/4` and, behind it, the machine's owner — which can refuse,
+  # where `main`'s park could not. `Lifecycle.park/4` documents each answer;
+  # the two that degrade to a destroy are the ones ADR 0017 priced, because an
+  # unparked machine keeps billing.
   defp park_sandbox(state, reason \\ :idle) do
     Logger.info(
       "suspending sandbox for conv #{state.conversation_id}: #{reason} " <>
@@ -1700,10 +1696,13 @@ defmodule Fountain.Conversations.ConversationServer do
 
     # A parked sprite never keeps a live adapter (#817).
     state = drop_connection(state, "suspended")
-    Lifecycle.park(state.conversation_id, state.sandbox_id, state.handle, reason)
 
-    # The conversation stays idle and resumable; the sprite stays parked.
-    {:stop, :normal, %{state | handle: nil}}
+    case Lifecycle.park(state.conversation_id, state.sandbox_id, state.handle, reason) do
+      # The conversation stays idle and resumable; the sprite stays parked.
+      :ok -> {:stop, :normal, %{state | handle: nil}}
+      {:error, no} when no in [:suspend_failed, :cannot_park] -> destroy_sandbox(state, reason)
+      {:error, error} -> reclaim_refused(state, error)
+    end
   end
 
   # The same shape for a destroy (`Lifecycle.destroy/4`).

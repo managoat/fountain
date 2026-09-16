@@ -14,7 +14,6 @@ defmodule Fountain.Conversations.LifecycleActionsTest do
   use Mimic
 
   alias Fountain.Conversations
-  alias Fountain.Conversations.ConversationServer
   alias Fountain.Conversations.Lifecycle
   alias Managoat.Sandbox.Handle
 
@@ -116,41 +115,51 @@ defmodule Fountain.Conversations.LifecycleActionsTest do
     end
   end
 
-  describe "suspend/1" do
-    test "no handle is nothing to park" do
-      assert Lifecycle.suspend(nil) == :ok
+  # `Lifecycle.suspend/1` is gone (ADR 0058 stage 6b): the provider call it
+  # wrapped is `Fountain.Machines.Park`'s, made under the machine's lease with
+  # the handle built from the row rather than from the server's state, so its
+  # `nil` clause has no case left to answer. The two things it asserted are
+  # asserted where the call now is — `machines/park_test.exs` ("the provider is
+  # asked to suspend the machine the row names", and the error arm below).
+  describe "idle_machine_action/1" do
+    # These no longer make the provider call. The decision is the provider's
+    # *capability*, which is a pure question; the call, and the degradation
+    # when it fails, are the protocol's. `machines/park_test.exs` pins the
+    # failing call (`{:error, :suspend_failed}`) and
+    # `conversation_server_lifetime_test.exs` pins that the server degrades to
+    # a destroy on it end to end — "a failed suspend call degrades to destroy",
+    # unchanged by this stage.
+    test "parks where the provider can" do
+      reject(&Managoat.Sandbox.suspend/1)
+      assert Lifecycle.idle_machine_action(handle()) == :park
     end
 
-    test "a handle goes to the provider" do
-      expect(Managoat.Sandbox, :suspend, fn %Handle{name: "s"} -> :ok end)
-      assert Lifecycle.suspend(handle()) == :ok
+    test "destroys where the provider cannot park" do
+      stub(Managoat.Sandbox, :supports?, fn :sprites, :suspend -> false end)
+      reject(&Managoat.Sandbox.suspend/1)
+
+      assert Lifecycle.idle_machine_action(handle()) == :destroy
     end
   end
 
-  describe "idle_machine_action/2" do
-    test "parks when the provider can and the call succeeds", ctx do
-      expect(Managoat.Sandbox, :suspend, fn _ -> :ok end)
-      assert Lifecycle.idle_machine_action(ctx.conv.id, handle()) == :park
+  describe "idle_machine_action/3" do
+    test "keeps the machine when a co-tenant is mid-turn", ctx do
+      other =
+        insert_conversation(user_id: ctx.user.id, sandbox_id: ctx.sandbox.id, status: "running")
+
+      insert_turn(other, status: "running", started_at: DateTime.utc_now())
+
+      assert Lifecycle.idle_machine_action(ctx.conv.id, ctx.sandbox.id, handle()) == :keep
     end
 
-    test "destroys where the provider cannot park", ctx do
+    test "parks when this conversation is alone on the machine", ctx do
+      assert Lifecycle.idle_machine_action(ctx.conv.id, ctx.sandbox.id, handle()) == :park
+    end
+
+    test "a machine nobody else holds on a provider that cannot park is destroyed", ctx do
       stub(Managoat.Sandbox, :supports?, fn :sprites, :suspend -> false end)
-      # No suspend call at all: there is nothing to park onto.
-      reject(&Managoat.Sandbox.suspend/1)
 
-      assert Lifecycle.idle_machine_action(ctx.conv.id, handle()) == :destroy
-    end
-
-    test "destroys when the park call fails — an unparked sandbox keeps billing", ctx do
-      expect(Managoat.Sandbox, :suspend, fn _ -> {:error, {:unavailable, :timeout}} end)
-
-      log =
-        ExUnit.CaptureLog.capture_log(fn ->
-          assert Lifecycle.idle_machine_action(ctx.conv.id, handle()) == :destroy
-        end)
-
-      assert log =~ "suspend call failed for conv #{ctx.conv.id}"
-      assert log =~ "an unparked sandbox keeps billing"
+      assert Lifecycle.idle_machine_action(ctx.conv.id, ctx.sandbox.id, handle()) == :destroy
     end
   end
 
@@ -162,14 +171,14 @@ defmodule Fountain.Conversations.LifecycleActionsTest do
 
     test "a home is parked at the ceiling instead (ADR 0023)", ctx do
       {:ok, home} = Conversations.update_sandbox(ctx.sandbox, %{mode: "persistent"})
-      expect(Managoat.Sandbox, :suspend, fn _ -> :ok end)
+      reject(&Managoat.Sandbox.suspend/1)
 
       assert Lifecycle.max_lifetime_action(home.id, handle()) == :park
     end
 
-    test "a home whose park call fails is destroyed as an ephemeral one would be", ctx do
+    test "a home on a provider that cannot park is destroyed as an ephemeral one would be", ctx do
       {:ok, home} = Conversations.update_sandbox(ctx.sandbox, %{mode: "persistent"})
-      expect(Managoat.Sandbox, :suspend, fn _ -> {:error, :nope} end)
+      stub(Managoat.Sandbox, :supports?, fn :sprites, :suspend -> false end)
 
       assert Lifecycle.max_lifetime_action(home.id, handle()) == :destroy
     end
@@ -211,19 +220,23 @@ defmodule Fountain.Conversations.LifecycleActionsTest do
 
     for terminal <- ["terminated", "failed"] do
       @tag park_retirement: true
-      test "retirement to #{terminal} with another validation error during checkpoint does not park the replacement",
+      test "retirement to #{terminal} during the checkpoint does not park the replacement",
            ctx do
+        # The mid-flight retirement race, translated from `claim_sandbox/2` to
+        # the lease (ADR 0058 stage 6b). `main` re-read the row after the
+        # checkpoint and matched on the changeset error the write came back
+        # with; the park now holds an epoch across the checkpoint and the
+        # finalize is a compare-and-set, so a row retired underneath it answers
+        # `:retired` and the park writes nothing at all.
+        #
+        # What must not happen is unchanged and is what this asserts: the
+        # retired machine keeps its terminal status and its `terminated_at`,
+        # the *replacement* machine the conversation has been repointed at is
+        # untouched, and no "suspended" stage reaches the transcript.
         {:ok, home} = Conversations.update_sandbox(ctx.sandbox, %{mode: "persistent"})
         test = self()
 
-        stub(Managoat.Sandbox, :supports?, fn :sprites, :checkpoint -> true end)
-
-        stub(Conversations, :claim_sandbox, fn row, attrs ->
-          attrs =
-            if attrs[:status] == "suspended", do: Map.put(attrs, :mode, "invalid"), else: attrs
-
-          Mimic.call_original(Conversations, :claim_sandbox, [row, attrs])
-        end)
+        stub(Managoat.Sandbox, :supports?, fn :sprites, cap -> cap in [:checkpoint, :suspend] end)
 
         stub(Managoat.Sandbox, :create_checkpoint, fn _handle, _opts ->
           send(test, {:checkpoint_paused, self()})
@@ -234,21 +247,13 @@ defmodule Fountain.Conversations.LifecycleActionsTest do
           spawn(fn ->
             receive do
               :park ->
-                result =
-                  try do
-                    Lifecycle.park(ctx.conv.id, home.id, handle(), :idle)
-                  rescue
-                    error -> {:raised, error}
-                  end
-
-                send(test, {:park_result, result})
+                send(test, {:park_result, Lifecycle.park(ctx.conv.id, home.id, handle(), :idle)})
             end
           end)
 
         on_exit(fn -> if Process.alive?(pid), do: Process.exit(pid, :kill) end)
         Ecto.Adapters.SQL.Sandbox.allow(Repo, self(), pid)
         Mimic.allow(Managoat.Sandbox, self(), pid)
-        Mimic.allow(Conversations, self(), pid)
         send(pid, :park)
         assert_receive {:checkpoint_paused, ^pid}, 5_000
 
@@ -267,16 +272,20 @@ defmodule Fountain.Conversations.LifecycleActionsTest do
       end
     end
 
-    test "unrelated park-write errors still raise", ctx do
-      rejection =
-        {:error,
-         Ecto.Changeset.change(ctx.sandbox) |> Ecto.Changeset.add_error(:status, "other failure")}
+    test "a refused park writes nothing and says so", ctx do
+      # `main` raised a `MatchError` out of `park_row/1` on any write error it
+      # had no clause for, which took the calling server down with it. The
+      # protocol has no changeset and no unexpected write errors: every refusal
+      # is a value, and the server decides what to do with it (it keeps the
+      # machine and asks again on the next tick). The refusal driven here is a
+      # co-tenant mid-turn, which is the one a park meets in production.
+      other =
+        insert_conversation(user_id: ctx.user.id, sandbox_id: ctx.sandbox.id, status: "running")
 
-      stub(Conversations, :claim_sandbox, fn _row, _attrs -> rejection end)
+      insert_turn(other, status: "running", started_at: DateTime.utc_now())
 
-      assert_raise MatchError, fn ->
-        Lifecycle.park(ctx.conv.id, ctx.sandbox.id, handle(), :idle)
-      end
+      assert Lifecycle.park(ctx.conv.id, ctx.sandbox.id, handle(), :idle) ==
+               {:error, :machine_occupied}
 
       assert Repo.reload!(ctx.sandbox).status == "ready"
       assert Repo.reload!(ctx.conv).status == "running"
@@ -342,47 +351,14 @@ defmodule Fountain.Conversations.LifecycleActionsTest do
     end
   end
 
-  describe "stop_cotenants/5" do
-    test "casts :machine_gone to every other live server on the machine", ctx do
-      other =
-        insert_conversation(user_id: ctx.user.id, sandbox_id: ctx.sandbox.id, status: "running")
-
-      test = self()
-
-      # A plain process standing in for the co-tenant's server: `whereis/1`
-      # only asks the registry, and a cast is a message.
-      stand_in =
-        start_supervised!(
-          {Task,
-           fn ->
-             {:ok, _} = Horde.Registry.register(Fountain.ConversationRegistry, other.id, nil)
-
-             receive do
-               msg -> send(test, {:cotenant, msg})
-             end
-           end}
-        )
-
-      # Registration can precede lookup visibility in Horde. Wait for the
-      # lookup that stop_cotenants/5 depends on, with a bounded deadline.
-      assert {:ok, ^stand_in} = ConversationServer.await_registered(other.id, 2_000)
-
-      assert Lifecycle.stop_cotenants(ctx.sandbox.id, ctx.conv.id, "suspended", "idle", "why") ==
-               :ok
-
-      sandbox_id = ctx.sandbox.id
-
-      assert_receive {:cotenant,
-                      {:"$gen_cast", {:machine_gone, ^sandbox_id, "suspended", "idle", "why"}}}
-    end
-
-    test "a co-tenant with no live server is not an error", ctx do
-      insert_conversation(user_id: ctx.user.id, sandbox_id: ctx.sandbox.id, status: "running")
-
-      assert Lifecycle.stop_cotenants(ctx.sandbox.id, ctx.conv.id, "reclaimed", "idle", "why") ==
-               :ok
-    end
-  end
+  # `Lifecycle.stop_cotenants/5` is gone (ADR 0058 stage 6b). The co-tenant
+  # notice is sent from inside the machine operation that earns it — by
+  # `Machines.Destroy` since 5a and by `Machines.Park` now — through
+  # `MachineEvents.tell_cotenants/5`, still the one sender of that cast, and
+  # the wrapper had no callers left. Its two cases are
+  # `machines/park_test.exs`'s "the caller's notice reaches every other live
+  # server on the machine" and "a co-tenant with no live server is not an
+  # error", driven through the park that actually sends them.
 
   describe "reclaim_message/1" do
     test "names the bound that destroyed the sandbox" do

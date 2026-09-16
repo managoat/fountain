@@ -48,15 +48,27 @@ defmodule Fountain.Workers.SandboxReaper do
   at the list.
   """
 
-  use Oban.Worker, queue: :maintenance, max_attempts: 3
+  # `unique:` since ADR 0058 stage 6b, matching `SandboxResetReconciler`'s.
+  # Contention used to be rare here — the sweeps wrote rows nobody else wanted
+  # — and it is ordinary now that every park and every expiry asks the
+  # machine's owner and can be made to wait for a lease. A run that spends its
+  # attempt budget on busy waits can outlast the hour between crons, and two
+  # reapers sweeping the same fleet would spend their whole time queueing
+  # behind each other's leases. At most one incomplete job at a time.
+  use Oban.Worker,
+    queue: :maintenance,
+    max_attempts: 3,
+    unique: [period: :infinity, states: :incomplete]
 
   import Ecto.Query
 
   require Logger
 
   alias Fountain.Conversations
-  alias Fountain.Conversations.{Lifecycle, Sandbox, Termination, Turn}
+  alias Fountain.Conversations.{Lifecycle, Sandbox, Termination}
   alias Fountain.Machines.Lease
+  alias Fountain.Machines.Machine
+  alias Fountain.Machines.Occupancy
   alias Fountain.Repo
 
   # Long enough to clear the slowest legitimate provision: package installs get
@@ -95,6 +107,31 @@ defmodule Fountain.Workers.SandboxReaper do
   # Small on purpose: it is an anti-starvation floor, not a second budget.
   @pass_two_floor 5
 
+  # How many machines one run may *ask an owner about* — parks and expiries
+  # together (ADR 0058 stage 6b; the 5b round-3 note that named this).
+  #
+  # `@destroy_limit` bounds provider destroys and deliberately does not charge
+  # a refusal, because the refusal that matters is decided before any provider
+  # call. That was the right trade while contention was rare, and it leaves the
+  # *attempt* count unbounded: since stage 6b every idle park goes through the
+  # owner too, so a fleet with two hundred contended machines would spend
+  # `Park.busy_wait_ms/0` on each one and turn an hourly sweep into a
+  # seventeen-minute one, holding a `:maintenance` slot for the whole of it.
+  #
+  # A hundred is a sweep that finishes inside eight minutes even if every
+  # single attempt waits out its full five seconds, which is a shape only an
+  # outage produces. Machines over the cap are deferred exactly as a spent
+  # destroy budget defers them: nothing is written, the row is unchanged, and
+  # the next run sees it again.
+  #
+  # Overridable so `sandbox_reaper_park_test.exs` can drive the cap with two
+  # rows instead of a hundred and one. Nothing in `lib/` sets it.
+  @owner_attempt_limit 100
+
+  @doc false
+  def owner_attempt_limit,
+    do: Application.get_env(:fountain, :reaper_owner_attempt_limit, @owner_attempt_limit)
+
   @terminal_statuses ~w(terminated failed)
   @active_statuses ~w(pending starting)
 
@@ -111,7 +148,14 @@ defmodule Fountain.Workers.SandboxReaper do
   # actually bites (#2307 constraint 4). Fifteen minutes is far longer than
   # propagation takes, and it is also the window a marker whose caller died
   # before its `start_child` ages out over.
-  @abandoned_grace_minutes 15
+  # The same fifteen minutes `Fountain.Machines.Occupancy.recently_woken?/2`
+  # applies to the marker in Elixir; `park_test.exs` pins that the two agree,
+  # because a park that refuses on a marker the sweep ignored (or the reverse)
+  # would have the two halves of one rule disagreeing about one row.
+  @abandoned_grace_minutes Occupancy.woken_grace_minutes()
+
+  @doc false
+  def abandoned_grace_minutes, do: @abandoned_grace_minutes
 
   @impl Oban.Worker
   def perform(_job) do
@@ -333,8 +377,8 @@ defmodule Fountain.Workers.SandboxReaper do
         |> Enum.reject(&Lifecycle.any_server_alive?/1)
         |> Enum.map(&{&1, check_bounds(&1, now)})
 
-      {parked, expired, refused, _budget_left} =
-        Enum.reduce(verdicts, {0, 0, 0, @destroy_limit}, &sweep_verdict/2)
+      {parked, expired, refused, _destroys_left, _attempts_left} =
+        Enum.reduce(verdicts, {0, 0, 0, @destroy_limit, owner_attempt_limit()}, &sweep_verdict/2)
 
       {parked, expired, refused}
     end
@@ -359,89 +403,139 @@ defmodule Fountain.Workers.SandboxReaper do
   # so this can undercount by that much; over-counting a handful of calls
   # during an outage is the better error than locking out the pass that cleans
   # up after one.
-  defp sweep_verdict({sandbox, {:expired, :idle}}, {p, e, r, left}) do
+  #
+  # The run's *attempt* budget is spent by every verdict that reaches an owner,
+  # whatever the owner says, because what it bounds is the waiting rather than
+  # the writing. See `@owner_attempt_limit`.
+  defp sweep_verdict({sandbox, {:expired, :idle}}, {p, e, r, left, attempts}) when attempts > 0 do
     case idle_sweep(sandbox, left) do
-      :parked -> {p + 1, e, r, left}
-      :expired -> {p, e + 1, r, left - 1}
-      :refused -> {p, e, r + 1, left}
-      :deferred -> {p, e, r, left}
+      :parked -> {p + 1, e, r, left, attempts - 1}
+      :expired -> {p, e + 1, r, left - 1, attempts - 1}
+      :refused -> {p, e, r + 1, left, attempts - 1}
+      :settled -> {p, e, r, left, attempts - 1}
+      :deferred -> {p, e, r, left, attempts - 1}
     end
   end
 
-  defp sweep_verdict({sandbox, {:expired, :max_lifetime}}, {p, e, r, left}) when left > 0 do
+  defp sweep_verdict({sandbox, {:expired, :max_lifetime}}, {p, e, r, left, attempts})
+       when left > 0 and attempts > 0 do
     case expire(sandbox, :max_lifetime, "past max lifetime") do
-      :expired -> {p, e + 1, r, left - 1}
-      :refused -> {p, e, r + 1, left}
+      :expired -> {p, e + 1, r, left - 1, attempts - 1}
+      :refused -> {p, e, r + 1, left, attempts - 1}
     end
   end
 
-  defp sweep_verdict({sandbox, {:expired, :max_lifetime}}, acc) do
-    defer(sandbox)
+  defp sweep_verdict({sandbox, {:expired, _bound}}, acc) do
+    defer(sandbox, acc)
     acc
   end
 
   defp sweep_verdict({_sandbox, :ok}, acc), do: acc
 
-  # The run has spent its provider-destroy budget. The row keeps its live
-  # status and no fence, so the next run sees it unchanged and expires it
-  # then — which is exactly what `@destroy_limit` is for. Counted as neither
-  # expired nor refused: nothing was attempted and nothing went wrong.
-  defp defer(%Sandbox{} = sandbox) do
+  # The run has spent one of its two budgets. The row keeps its live status and
+  # no fence, so the next run sees it unchanged and deals with it then — which
+  # is exactly what a budget is for. Counted as neither expired nor refused:
+  # nothing was attempted and nothing went wrong.
+  defp defer(%Sandbox{} = sandbox, {_p, _e, _r, left, attempts}) do
+    spent =
+      if attempts > 0,
+        do: "its #{@destroy_limit} provider destroys",
+        else: "its #{owner_attempt_limit()} owner attempts"
+
     Logger.info(
-      "reaper: deferred expiry of sandbox #{sandbox.id} (#{sandbox.machine_name}) — " <>
-        "this run has spent its #{@destroy_limit} provider destroys"
+      "reaper: deferred sandbox #{sandbox.id} (#{sandbox.machine_name}) — " <>
+        "this run has spent #{spent}"
     )
 
+    _ = left
     :deferred
   end
 
   # Same clock as ConversationServer.sandbox_clock_start/1: the max-lifetime
   # ceiling measures a continuous run, restarting on a wake from `suspended`.
+  #
+  # The activity fold is `Occupancy.last_activity_at/1` since ADR 0058 stage
+  # 6b, where it used to be a copy of it here. `Machines.Park` re-runs this
+  # verdict under the machine's lease before it parks anything (#2307
+  # constraint 1), and a recheck that asks a subtly different question from the
+  # one the scan asked would refuse parks the scan was right about. One fold.
   defp check_bounds(sandbox, now) do
-    started_at = sandbox.last_resumed_at || sandbox.inserted_at
-    Lifecycle.check(started_at, last_activity_at(sandbox), false, now)
+    Lifecycle.check(
+      Lifecycle.clock_start(sandbox),
+      Occupancy.last_activity_at(sandbox),
+      false,
+      now
+    )
   end
 
-  # A queued or long-running turn can finish long after insertion. Waking
-  # without a new turn is also activity; bookkeeping updates are not.
-  defp last_activity_at(%Sandbox{} = sandbox) do
-    %{inserted_at: inserted_at, last_resumed_at: resumed_at, conversations: convs} = sandbox
-    conv_ids = Enum.map(convs, & &1.id)
-
-    {inserted, started, ended} =
-      Turn
-      |> where([t], t.conversation_id in ^conv_ids)
-      |> select([t], {max(t.inserted_at), max(t.started_at), max(t.ended_at)})
-      |> Repo.one()
-
-    [inserted_at, resumed_at, inserted, started, ended]
-    |> Enum.reject(&is_nil/1)
-    |> Enum.max(DateTime)
-  end
-
-  # Idle with no server: park where the provider can preserve the disk,
-  # expire where it cannot — the same Lifecycle.idle_action/1 decision the
-  # ConversationServer applies, and the same degradation when the explicit
-  # suspend call fails (an unparked sandbox keeps billing).
+  # Idle with no server: park through the machine's owner (ADR 0058 stage 6b),
+  # which re-reads everything this scan decided on — the status, both fences,
+  # the provider's `:suspend` capability, who is on the machine, and this
+  # verdict — under the machine's lease, then checkpoints, suspends and writes
+  # the row. The sweep no longer suspends anything or writes anything itself;
+  # what is left here is the scan, the budget and the counters.
+  #
+  # The two degradations are unchanged and now come back as answers rather than
+  # being decided here: a provider that cannot park and a suspend call that
+  # failed both expire the machine instead, because an unparked sandbox keeps
+  # billing (decisions/0017).
   defp idle_sweep(sandbox, destroys_left) do
-    provider = Conversations.sandbox_provider_atom(sandbox)
-
-    with :suspend <- Lifecycle.idle_action(provider),
-         :ok <-
-           Managoat.Sandbox.suspend(Managoat.Sandbox.build_handle(provider, sandbox.machine_name)) do
-      park(sandbox)
-      :parked
-    else
-      :destroy ->
-        expire_within(sandbox, destroys_left, "idle on a provider without suspend")
-
-      {:error, reason} ->
-        Logger.warning(
-          "reaper: suspend call failed for #{sandbox.machine_name} (#{inspect(reason)}); " <>
-            "expiring instead"
+    case Machine.park(sandbox.id,
+           actor: "system:sandbox_reaper",
+           reason: :idle,
+           # No `requesting_conversation_id`: the reaper is on nobody's behalf,
+           # so *any* live server on the machine refuses this park — which is
+           # the liveness rule this sweep has always had, now applied under the
+           # lease instead of before it.
+           #
+           # No `notify` either: an abandoned machine's conversations were
+           # never told it had been parked, and a park is reversible — the next
+           # prompt wakes it through the ordinary reattach path.
+           verdict: {:expired, :idle}
+         ) do
+      {:ok, :parked} ->
+        Logger.info(
+          "reaper: parked idle sandbox #{sandbox.id} (#{sandbox.machine_name}) — " <>
+            "ready with no live server past the idle bound"
         )
 
+        :parked
+
+      # The machine ended up parked, just not by this call — another owner got
+      # there first. Counted, because `parked` is a gauge of machines at rest.
+      {:ok, :already_parked} ->
+        :parked
+
+      # An abandoned park cleared off a machine that is still running, or a row
+      # somebody else finished. Nothing was reclaimed and nothing was refused;
+      # the next pass looks again at a row that now says what it means.
+      {:ok, outcome} when outcome in [:recovered, :already_terminal] ->
+        Logger.info(
+          "reaper: idle sandbox #{sandbox.id} (#{sandbox.machine_name}) settled as #{outcome}"
+        )
+
+        :settled
+
+      {:error, :cannot_park} ->
+        expire_within(sandbox, destroys_left, "idle on a provider without suspend")
+
+      {:error, :suspend_failed} ->
         expire_within(sandbox, destroys_left, "idle; suspend call failed")
+
+      # A reset or a teardown landed between this scan's `where` clause and the
+      # lease. Somebody else owns the end of this machine, and
+      # `sweep_fenced_teardowns/0` is already the backstop for a fence whose
+      # owner dies, so this is neither a reclamation nor a failure to report.
+      {:error, :fenced} ->
+        :settled
+
+      {:error, refusal} ->
+        Logger.warning(
+          "reaper: could not park idle sandbox #{sandbox.id} " <>
+            "(#{sandbox.machine_name}): #{inspect(refusal)}"
+        )
+
+        :refused
     end
   end
 
@@ -451,24 +545,13 @@ defmodule Fountain.Workers.SandboxReaper do
   defp expire_within(sandbox, destroys_left, reason) when destroys_left > 0,
     do: expire(sandbox, :idle, reason)
 
-  defp expire_within(sandbox, _spent, _reason), do: defer(sandbox)
-
-  # Reversible bookkeeping — the sandbox stays parked at the provider, and
-  # the next prompt wakes it through the ordinary reattach path.
-  defp park(sandbox) do
-    # A home is checkpointed at its quietest moment, where the provider can
-    # (ADR 0023, #1073); ephemeral sandboxes and failures skip straight on.
-    Fountain.Conversations.HomeCheckpoint.on_park(sandbox)
-    {:ok, _} = Conversations.update_sandbox(sandbox, %{status: "suspended"})
-
+  defp expire_within(sandbox, _spent, _reason) do
     Logger.info(
-      "reaper: parked idle sandbox #{sandbox.id} (#{sandbox.machine_name}) — " <>
-        "ready with no live server past the idle bound"
+      "reaper: deferred expiry of sandbox #{sandbox.id} (#{sandbox.machine_name}) — " <>
+        "this run has spent its #{@destroy_limit} provider destroys"
     )
 
-    record_reap(sandbox, "sandbox.suspended", %{"reason" => "idle with no live server"})
-
-    sandbox
+    :deferred
   end
 
   # A machine past a lifetime bound with nobody holding it. Since ADR 0058

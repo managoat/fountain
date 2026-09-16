@@ -25,12 +25,27 @@ defmodule Fountain.Machines.MachineBoundsTest do
   may hold the machine, not how long a *waiter* waits, and it was once the same
   number as the wait. That conflation is what made a `DELETE` hang for a
   minute.
+
+  ## And the four a park sits between (stage 6b)
+
+      Park.busy_wait_ms  <  Machine.park_timeout_ms  <  Park.lease_ttl_ms
+            5s                      60s                      120s
+
+  A park's ceiling is **not** `conversation_call_timeout_ms`, and that is the
+  one thing about this row worth saying twice: neither caller is a request.
+  The conversation server's park runs inside the server itself, from its own
+  `:lifecycle_check` message, so no client of `call_server/2` is waiting on it;
+  the reaper's runs in an Oban job. What a park does have above it is its own
+  lease, because a caller that outlives the lease it is waiting on would be
+  waiting for work another owner is already entitled to take over — which is
+  the same conflation as the destroy row, one step along.
   """
 
   use ExUnit.Case, async: true
 
   alias Fountain.Machines.Destroy
   alias Fountain.Machines.Machine
+  alias Fountain.Machines.Park
 
   # The ceiling `ConversationServer.call_server/2` reads. Duplicated rather than
   # imported because the point is to pin the relationship to *that* number, and
@@ -64,6 +79,38 @@ defmodule Fountain.Machines.MachineBoundsTest do
            "the waiter's bound must be shorter than the holder's lease"
   end
 
+  test "a park's bounds are ordered, and are not the destroy's" do
+    assert Park.busy_wait_ms() == 5_000
+    assert Machine.park_timeout_ms() == 60_000
+    assert Park.lease_ttl_ms() == 120_000
+
+    assert Park.busy_wait_ms() < Machine.park_timeout_ms(),
+           "a park that waits its own bound would race the owner's call timeout, and a " <>
+             "completed park would be reported to its caller as a failure"
+
+    assert Machine.park_timeout_ms() < Park.lease_ttl_ms(),
+           "a caller that outlives the lease is waiting on work another owner may take over"
+
+    assert Park.busy_wait_ms() == Destroy.busy_wait_ms(),
+           "the two protocols make a caller wait different amounts for the same condition"
+
+    assert Park.lease_ttl_ms() > Destroy.lease_ttl_ms(),
+           "a park holds the machine for a checkpoint and a suspend, which is longer than " <>
+             "a destroy's one round trip; a TTL that expires mid-park invites a takeover " <>
+             "of work that is not abandoned"
+  end
+
+  test "a park's call timeout is deliberately over the ConversationServer client ceiling" do
+    # Not an oversight and not an ordering to fix. `park_sandbox/2` runs inside
+    # the server, reached from its own `:lifecycle_check`, so nothing is
+    # waiting at `conversation_call_timeout_ms` for it to answer — and a park
+    # that had to finish inside 30s would give up on a slow home checkpoint and
+    # destroy the machine instead. A destroy is the one that runs on a request
+    # process, which is why it has the tighter ceiling.
+    assert Machine.park_timeout_ms() > @conversation_call_timeout_ms
+    assert Machine.destroy_timeout_ms() < @conversation_call_timeout_ms
+  end
+
   test "the application default for the conversation call timeout is what this pins against" do
     assert Application.get_env(:fountain, :conversation_call_timeout_ms, 30_000) ==
              @conversation_call_timeout_ms
@@ -86,7 +133,7 @@ defmodule Fountain.Machines.MachineBoundsTest do
          Path.wildcard(Path.join(root, "apps/fountain_*/lib")))
       |> Enum.filter(&File.dir?/1)
       |> Enum.flat_map(&Path.wildcard(Path.join(&1, "**/*.ex")))
-      |> Enum.reject(&String.ends_with?(&1, "machines/destroy.ex"))
+      |> Enum.reject(&String.ends_with?(&1, ["machines/destroy.ex", "machines/park.ex"]))
 
     # Not a bare count: the files that could plausibly override a bound are the
     # three sites that call the protocol, so the scan has to be shown to reach
@@ -98,6 +145,7 @@ defmodule Fountain.Machines.MachineBoundsTest do
           "apps/fountain/lib/fountain/conversations/termination.ex",
           "apps/fountain/lib/fountain/conversations/lifecycle.ex",
           "apps/fountain/lib/fountain/conversations/conversation_server.ex",
+          "apps/fountain/lib/fountain/workers/sandbox_reaper.ex",
           "apps/fountain/lib/fountain/machines/machine.ex"
         ] do
       assert MapSet.member?(relative, site),

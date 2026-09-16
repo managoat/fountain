@@ -139,8 +139,14 @@ expired is an owner that died, not one working, and refusing a reader on it
 withheld a machine for as long as the sweep that gives up on the row takes to
 run. Takeover, below, is what resolves it.) A finalize lost
 after a successful provider call is repaired at takeover, which reads the
-transition and the machine's true state and compensates — a `parking` row
-whose machine is up is either resumed or finalized, never both.
+transition and the machine's true state and compensates — never both. (Stage
+6b built that for `parking` and settled what "compensates" means there: the
+taker finalizes a machine the provider reports suspended, and *clears the
+transition* on one it reports running, leaving the row `ready` for the next
+idle verdict to act on. It never resumes. A resume is compute, and constraint 5
+puts compute behind the account-suspension and credit gates this protocol does
+not consult; and the compare-and-set has already made the superseded owner's
+own call invisible, so there is nothing to undo.)
 `reset_requested_at` and `teardown_requested_at` become
 `transition: destroying` with a reason.
 

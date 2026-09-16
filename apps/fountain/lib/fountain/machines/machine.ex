@@ -8,13 +8,14 @@ defmodule Fountain.Machines.Machine do
   a minute with nothing asked of it, and `ensure_started/1` brings it back:
   there is a process per active machine, not one per row.
 
-  Two verbs so far. `who_is_here/1` returns the `Fountain.Machines.Occupancy`
-  struct and reads nothing else. `destroy/2` runs
-  `Fountain.Machines.Destroy.run/2` — the one destroy protocol, lease and all
-  — and is the only thing here that writes: the row through
+  Three verbs so far. `who_is_here/1` returns the
+  `Fountain.Machines.Occupancy` struct and reads nothing else. `destroy/2` and
+  `park/2` run `Fountain.Machines.Destroy.run/2` and
+  `Fountain.Machines.Park.run/2` — the two protocols, lease and all — and are
+  the only things here that write: the row through
   `Fountain.Machines.Lease`, the provider through `Managoat.Sandbox.destroy/1`
-  and one `sandbox.destroyed` audit event. `park`, `ensure_up`, `attach` and
-  `admit_turn` arrive in stages 6b to 8.
+  and `suspend/1`, and one `sandbox.destroyed` or `sandbox.suspended` audit
+  event. `ensure_up`, `attach` and `admit_turn` arrive in stages 7 and 8.
 
   Beside them is one pure predicate, `busy?/2` (stage 6a): whether an owner
   holds a live lease on a machine, from the row the caller already holds. It is
@@ -23,9 +24,10 @@ defmodule Fountain.Machines.Machine do
 
   ## What the gate chooses
 
-  With `MACHINE_OWNER_ENABLED` on, `destroy/2` is a call into this process, so
-  two destroys of one machine queue behind one another in its mailbox. With it
-  off, `Destroy.run/2` runs inline on the caller. **Same protocol either way**
+  With `MACHINE_OWNER_ENABLED` on, `destroy/2` and `park/2` are calls into this
+  process, so two operations on one machine queue behind one another in its
+  mailbox. With it off, the protocols run inline on the caller. **Same protocol
+  either way**
   — the same fence, the same lease, the same compare-and-set, the same event —
   because the thing that makes a destroy safe against a concurrent destroy is
   the lease on the row, not the mailbox in front of it. The process is an
@@ -67,6 +69,7 @@ defmodule Fountain.Machines.Machine do
   alias Fountain.Machines.Destroy
   alias Fountain.Machines.Lease
   alias Fountain.Machines.Occupancy
+  alias Fountain.Machines.Park
   alias Fountain.Repo
 
   # Long enough that a burst of questions about one machine — a lifecycle
@@ -88,6 +91,21 @@ defmodule Fountain.Machines.Machine do
   # equal to the client's, a caller learns nothing before its own caller has
   # given up. `machine_bounds_test.exs` pins the ordering.
   @destroy_timeout 20_000
+
+  # A park is a longer operation than a destroy and sits under a different
+  # ceiling. Longer, because a home checkpoint is a provider round trip with
+  # `Managoat.Sandbox.Retry`'s backoff behind it and the suspend follows it.
+  # A different ceiling, because neither caller is a request: the conversation
+  # server's park runs inside the server itself, from its own
+  # `:lifecycle_check` message, so `call_server/2`'s 30s — the bound a
+  # *client* of that server waits — is not over it, and the reaper's pass has
+  # no client at all. What this does have to sit between is
+  # `Park.busy_wait_ms/0` below it and `Park.lease_ttl_ms/0` above it:
+  # a caller that gives up before the protocol's own wait would report a
+  # refusal that had not happened yet, and one that outlives the lease would
+  # wait on work another owner is entitled to take over.
+  # `machine_bounds_test.exs` pins the ordering.
+  @park_timeout 60_000
 
   # A start that loses the Horde race registers on another node, and the
   # registry is a CRDT: the winner can be invisible here for a few
@@ -112,6 +130,15 @@ defmodule Fountain.Machines.Machine do
   """
   @spec destroy_timeout_ms() :: pos_integer()
   def destroy_timeout_ms, do: @destroy_timeout
+
+  @doc """
+  How long a caller waits on the owner for a park.
+
+  Public so `machine_bounds_test.exs` can pin it between `Park.busy_wait_ms/0`
+  below it and `Park.lease_ttl_ms/0` above it.
+  """
+  @spec park_timeout_ms() :: pos_integer()
+  def park_timeout_ms, do: @park_timeout
 
   @doc "The cluster-wide name of the owner of `sandbox_id`."
   @spec via(String.t()) :: {:via, module(), {module(), String.t()}}
@@ -273,39 +300,116 @@ defmodule Fountain.Machines.Machine do
         {:error, :provider_transaction_open}
 
       Machines.enabled?() ->
-        sandbox_id |> destroy_in_owner(opts, 1) |> refusal(sandbox_id)
+        sandbox_id |> destroy_in_owner(opts, 1) |> refusal(sandbox_id, :destroy)
 
       true ->
-        sandbox_id |> Destroy.run(opts) |> refusal(sandbox_id)
+        sandbox_id |> Destroy.run(opts) |> refusal(sandbox_id, :destroy)
     end
   end
 
-  # The protocol's answers, in the words the rest of the system uses.
+  @doc """
+  Park the machine behind `sandbox_id`: `Fountain.Machines.Park.run/2`, run
+  inside the owner when `MACHINE_OWNER_ENABLED` is on and inline on the caller
+  when it is off. `opts` are the protocol's, documented there.
+
+  The door for the second verb, on the same terms as `destroy/2` above: the
+  protocol answers precisely and this translates. Three of its words travel,
+  because each one tells its caller to do something different and
+  `:sandbox_unavailable` would tell it to do nothing:
+
+    * `:cannot_park` — this provider has no `:suspend`, so an idle machine on
+      it keeps billing. Both callers destroy instead (ADR 0017's degradation,
+      which used to be decided by `Lifecycle.idle_action/1` at each site and is
+      now decided once, under the lease).
+    * `:suspend_failed` — the provider was asked and would not. Same
+      degradation, same reason: a park call that fails leaves the machine
+      billing.
+    * `:machine_occupied` — somebody is on the machine. Neither caller
+      degrades: a machine in use is not reclaimed at all, which is what
+      `Lifecycle.busy_elsewhere?/2` has always done at the server and what the
+      reaper's liveness scan has always done in the sweep.
+    * `:fenced` — a reset or a teardown has been asked for, so this machine is
+      going away and there is nothing to park. Both callers stop bothering with
+      it rather than retrying: the fence's own owner finishes the job, and
+      `SandboxReaper.sweep_fenced_teardowns/0` is the backstop if it dies.
+
+  Everything else is a refusal to act on right now — contention for the lease,
+  a fence, a verdict gone stale, a database fault — and reads as
+  `:sandbox_unavailable`. `:superseded` is `{:ok, :already_parked}`: another
+  owner holds the machine and is the one that says what happened to it, and
+  from here it is parked or parking.
+  """
+  @spec park(String.t(), keyword()) ::
+          {:ok, Park.outcome()}
+          | {:error,
+             :sandbox_unavailable
+             | :not_found
+             | :provider_transaction_open
+             | :cannot_park
+             | :suspend_failed
+             | :machine_occupied
+             | :fenced}
+  def park(sandbox_id, opts) when is_binary(sandbox_id) and is_list(opts) do
+    cond do
+      # As in `destroy/2`: the protocol's own guard is process-local and cannot
+      # fire in the owner, and an open transaction here would have the owner's
+      # `Lease.claim` block on the advisory lock this caller holds.
+      Repo.in_transaction?() ->
+        {:error, :provider_transaction_open}
+
+      Machines.enabled?() ->
+        sandbox_id |> park_in_owner(opts, 1) |> refusal(sandbox_id, :park)
+
+      true ->
+        sandbox_id |> Park.run(opts) |> refusal(sandbox_id, :park)
+    end
+  end
+
+  # The protocols' answers, in the words the rest of the system uses.
   #
   # `:superseded` is not a failure to report: another owner took the machine
   # over and is the one that says what happened to it. From here the machine is
-  # stopping or stopped, which is `:already_terminal` — the same thing a caller
-  # is told when somebody else got there first, because it is the same event.
+  # stopping or stopped for a destroy, parked or parking for a park — and each
+  # is the same thing a caller is told when somebody else got there first,
+  # because it is the same event.
   #
-  # Everything left is "this machine could not be reached right now", which is
-  # what `:sandbox_unavailable` already means (503, `retry-after: 30`,
-  # retryable in all four SDKs). Contention, a database fault out of `Lease`
-  # and an unreachable owner are all that shape. The precise reason goes to the
-  # log, where an operator can find it; it does not go on the wire.
-  defp refusal({:ok, _outcome} = ok, _sandbox_id), do: ok
+  # Everything not named in the verb's own list is "this machine could not be
+  # reached right now", which is what `:sandbox_unavailable` already means
+  # (503, `retry-after: 30`, retryable in all four SDKs). Contention, a
+  # database fault out of `Lease` and an unreachable owner are all that shape.
+  # The precise reason goes to the log, where an operator can find it; it does
+  # not go on the wire.
+  defp refusal({:ok, _outcome} = ok, _sandbox_id, _verb), do: ok
 
-  defp refusal({:error, :superseded}, sandbox_id) do
-    Logger.info("machine #{sandbox_id}: destroy superseded; another owner finished it")
-    {:ok, :already_terminal}
+  defp refusal({:error, :superseded}, sandbox_id, verb) do
+    Logger.info("machine #{sandbox_id}: #{verb} superseded; another owner finished it")
+    superseded(verb)
   end
 
   # A caller bug, and every sibling verb's word for it.
-  defp refusal({:error, :transaction_open}, _sandbox_id),
+  defp refusal({:error, :transaction_open}, _sandbox_id, _verb),
     do: {:error, :provider_transaction_open}
 
-  # The fence's own refusals, which every caller of this path already handled
-  # before ADR 0058 and which `FallbackController` maps.
+  defp refusal({:error, reason}, sandbox_id, verb) do
+    if reason in travelling(verb) do
+      {:error, reason}
+    else
+      Logger.warning(
+        "machine #{sandbox_id}: #{verb} unavailable (#{inspect(reason)}); " <>
+          "answering :sandbox_unavailable"
+      )
+
+      {:error, :sandbox_unavailable}
+    end
+  end
+
+  defp superseded(:destroy), do: {:ok, :already_terminal}
+  defp superseded(:park), do: {:ok, :already_parked}
+
+  # The words each verb lets through, and nothing else.
   #
+  # For a destroy: the fence's own refusals, which every caller of that path
+  # already handled before ADR 0058 and which `FallbackController` maps.
   # `:provider_unconfirmed` and `:not_fenced` travel too, and only a caller
   # that opted into them can receive one: both answer a question the generic
   # `:sandbox_unavailable` cannot. The reset family asked for its fence to
@@ -315,23 +419,28 @@ defmodule Fountain.Machines.Machine do
   # machine and tell the reconciler its job had failed transiently, when what
   # happened is that the provider never confirmed. They are translated by the
   # reset caller, one function away, and never reach the wire.
-  defp refusal({:error, reason}, _sandbox_id)
-       when reason in [
-              :not_found,
-              :sandbox_unavailable,
-              :provider_transaction_open,
-              :provider_unconfirmed,
-              :not_fenced
-            ],
-       do: {:error, reason}
+  #
+  # For a park: the three that decide what the caller does next. See `park/2`.
+  defp travelling(:destroy) do
+    [
+      :not_found,
+      :sandbox_unavailable,
+      :provider_transaction_open,
+      :provider_unconfirmed,
+      :not_fenced
+    ]
+  end
 
-  defp refusal({:error, reason}, sandbox_id) do
-    Logger.warning(
-      "machine #{sandbox_id}: destroy unavailable (#{inspect(reason)}); " <>
-        "answering :sandbox_unavailable"
-    )
-
-    {:error, :sandbox_unavailable}
+  defp travelling(:park) do
+    [
+      :not_found,
+      :sandbox_unavailable,
+      :provider_transaction_open,
+      :cannot_park,
+      :suspend_failed,
+      :machine_occupied,
+      :fenced
+    ]
   end
 
   # The same gone-owner retry as `ask_owner/2`, and the same reason: the idle
@@ -340,23 +449,32 @@ defmodule Fountain.Machines.Machine do
   # then a refusal. A `:timeout` is not retried — the owner is alive and busy,
   # and asking it twice only doubles the wait.
   defp destroy_in_owner(sandbox_id, opts, retries_left) do
+    in_owner(sandbox_id, {:destroy, opts}, @destroy_timeout, :destroy, retries_left)
+  end
+
+  defp park_in_owner(sandbox_id, opts, retries_left) do
+    in_owner(sandbox_id, {:park, opts}, @park_timeout, :park, retries_left)
+  end
+
+  defp in_owner(sandbox_id, message, timeout, verb, retries_left) do
     case ensure_started(sandbox_id) do
       {:ok, pid} ->
         try do
-          GenServer.call(pid, {:destroy, opts}, @destroy_timeout)
+          GenServer.call(pid, message, timeout)
         catch
           :exit, reason
           when retries_left > 0 and elem(reason, 0) in [:noproc, :normal, :shutdown] ->
-            Logger.debug("machine #{sandbox_id}: owner went away before destroy; retrying")
-            destroy_in_owner(sandbox_id, opts, retries_left - 1)
+            Logger.debug("machine #{sandbox_id}: owner went away before #{verb}; retrying")
+            in_owner(sandbox_id, message, timeout, verb, retries_left - 1)
 
           :exit, reason ->
-            Logger.warning("machine #{sandbox_id}: destroy unreachable (#{inspect(reason)})")
+            Logger.warning("machine #{sandbox_id}: #{verb} unreachable (#{inspect(reason)})")
             {:error, {:machine_unreachable, reason}}
         end
 
       {:error, reason} ->
-        Logger.warning("machine #{sandbox_id}: no owner to destroy through (#{inspect(reason)})")
+        Logger.warning("machine #{sandbox_id}: no owner to #{verb} through (#{inspect(reason)})")
+
         {:error, {:machine_unreachable, reason}}
     end
   end
@@ -428,12 +546,19 @@ defmodule Fountain.Machines.Machine do
     {:reply, Destroy.run(state.sandbox_id, opts), arm_idle(state)}
   end
 
+  # Same shape, same reason. A park occupies the owner for a checkpoint and a
+  # suspend, which is longer than a destroy takes — `@park_timeout` on the
+  # client side is the ceiling on that queue.
+  def handle_call({:park, opts}, _from, state) do
+    {:reply, Park.run(state.sandbox_id, opts), arm_idle(state)}
+  end
+
   @impl true
   def handle_info({:idle, token}, %{idle_token: token} = state) do
-    # Nothing durable to release. A destroy's lease is claimed and released
-    # inside its own `handle_call`, and a GenServer handles one message at a
-    # time, so this message is only ever reached between operations — never
-    # with one in flight. `ensure_started/1` starts a replacement on the next
+    # Nothing durable to release. A destroy's or a park's lease is claimed and
+    # released inside its own `handle_call`, and a GenServer handles one
+    # message at a time, so this message is only ever reached between
+    # operations — never with one in flight. `ensure_started/1` starts a replacement on the next
     # question. The standing lease of stages 6 and 7 changes that, and will
     # have to be given up here.
     {:stop, :normal, state}

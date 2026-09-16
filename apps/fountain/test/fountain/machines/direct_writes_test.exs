@@ -133,8 +133,22 @@ defmodule Fountain.Machines.DirectWritesTest do
   # the three shapes it does see are the three this codebase writes the row
   # with.
   #
-  @row_writes 25
-  @provider_mutations 11
+  # 25 -> 22 and 11 -> 9: stage 6b's park moved three row writes and two
+  # provider calls behind `Fountain.Machines.Park`.
+  #
+  #   gone  `lifecycle.ex`        `park_row/1`'s `claim_sandbox/2` and
+  #                               `Lifecycle.suspend/1`'s `Managoat.Sandbox.suspend/1`
+  #   gone  `sandbox_reaper.ex`   `park/1`'s `update_sandbox/2` and
+  #                               `idle_sweep/2`'s `Managoat.Sandbox.suspend/1`
+  #   gone  `home_checkpoint.ex`  `record/2`'s `update_sandbox/2`, now
+  #                               `Lease.cas_update/3` under the park's own epoch
+  #
+  # `home_checkpoint.ex` keeps its `create_checkpoint/1`: the park protocol
+  # calls `on_park/2`, not the provider, so the checkpoint is still that
+  # module's to take and this ratchet still counts it. It leaves with the
+  # checkpoint itself, whenever that moves.
+  @row_writes 22
+  @provider_mutations 9
 
   @provider_verbs ~w(create_checkpoint create resume suspend destroy)
 

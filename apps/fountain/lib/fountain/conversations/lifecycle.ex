@@ -80,9 +80,7 @@ defmodule Fountain.Conversations.Lifecycle do
 
   alias Fountain.Audit
   alias Fountain.Conversations
-  alias Fountain.Conversations.MachineEvents
   alias Fountain.Conversations.Egress
-  alias Fountain.Conversations.HomeCheckpoint
   alias Fountain.Conversations.{Conversation, Sandbox}
   alias Fountain.Machines.Machine
   alias Fountain.Machines.Occupancy
@@ -327,49 +325,61 @@ defmodule Fountain.Conversations.Lifecycle do
   end
 
   @doc """
-  Explicitly park the sandbox before the row flips: for Sprites this is a
-  no-op (scale-to-zero), for pause/stop providers it is the call that stops
-  the meter. Ordering matters — a row marked suspended with the backend still
-  running would be invisible to every reclaim pass.
-  """
-  @spec suspend(Handle.t() | nil) :: :ok | {:error, term()}
-  def suspend(nil), do: :ok
-  def suspend(handle), do: Managoat.Sandbox.suspend(handle)
-
-  @doc """
-  What the idle bound does to this machine, the suspend call included.
+  What the idle bound does to this machine.
 
   Park where the provider can preserve the disk (the `:suspend` capability —
   implicit scale-to-zero for Sprites, an explicit pause/stop for providers
   that need one), destroy where it cannot. The disk holds the runtime session
   — the agent's memory, which #649 proved cannot be rebuilt on a fresh
   sandbox — so parking is always preferred; but an idle sandbox that cannot
-  park keeps billing, and a park *call* that fails leaves it billing too, so
-  both of those degrade to the destroy arm. `idle_action/1` is the
-  capability half of the decision.
+  park keeps billing, so that degrades to the destroy arm.
+
+  **The suspend call is no longer made here** (ADR 0058 stage 6b). This
+  function once asked the provider to suspend and answered `:destroy` when the
+  call failed, which meant the decision, the provider round trip and the row
+  write happened in three different modules with nothing held across them —
+  #2307. The call now happens inside `Fountain.Machines.Park`, under the
+  machine's lease and after a recheck, and the *same* degradation is reached
+  from the other end: the protocol answers `{:error, :suspend_failed}` and the
+  caller destroys instead. What is left here is the capability half, which is
+  a pure question about the provider and needs no lease to answer — and
+  `Park` asks it again under one anyway, because a pre-lease verdict is stale
+  by construction.
   """
-  @spec idle_machine_action(String.t(), Handle.t() | nil) :: :park | :destroy
-  def idle_machine_action(conversation_id, handle) do
-    with :suspend <- idle_action(provider(handle)),
-         :ok <- suspend(handle) do
-      :park
-    else
-      :destroy ->
-        :destroy
-
-      {:error, reason} ->
-        Logger.warning(
-          "suspend call failed for conv #{conversation_id} " <>
-            "(#{inspect(reason)}); destroying instead — an unparked sandbox keeps billing"
-        )
-
-        :destroy
+  @spec idle_machine_action(Handle.t() | nil) :: :park | :destroy
+  def idle_machine_action(handle) do
+    case idle_action(provider(handle)) do
+      :suspend -> :park
+      :destroy -> :destroy
     end
   end
 
   @doc """
-  What the max-lifetime ceiling does to this machine, the suspend call
-  included.
+  The whole idle verdict for a conversation server: `:keep` the machine,
+  `:park` it, or `:destroy` it.
+
+  `:keep` is `busy_elsewhere?/2` — this conversation is idle and the machine is
+  not, because another conversation on it is mid-turn or was active more
+  recently than the bound. The verdict is the machine's, reached over all of
+  them (ADR 0023 step 5), and the next tick asks again.
+
+  It is decided here rather than in the server for the reason the rest of this
+  module exists (#1376): the server owns its transcript, its adapter and its
+  turn state machine, and the lifecycle policy is not any of those. The owner
+  re-asks the same question under the lease and can still answer
+  `:machine_occupied`; this one keeps the server from dropping its connection
+  to find that out on every tick of a machine somebody else is using.
+  """
+  @spec idle_machine_action(String.t(), String.t() | nil, Handle.t() | nil) ::
+          :keep | :park | :destroy
+  def idle_machine_action(conversation_id, sandbox_id, handle) do
+    if busy_elsewhere?(sandbox_id, conversation_id),
+      do: :keep,
+      else: idle_machine_action(handle)
+  end
+
+  @doc """
+  What the max-lifetime ceiling does to this machine.
 
   Tear down, whatever the provider. This bound exists for the conversation
   that never stops being busy; the conversation stays `idle` and resumable —
@@ -379,55 +389,91 @@ defmodule Fountain.Conversations.Lifecycle do
   agent's memory across every conversation, and destroying it at a busy
   ceiling would defeat the mode (ADR 0023 step 5). The ceiling itself is
   slated to go; until then this is the interim it names. A home on a provider
-  that cannot park, or whose park call fails, is destroyed as an ephemeral one
-  would be — an unparked machine keeps billing.
+  that cannot park is destroyed as an ephemeral one would be — an unparked
+  machine keeps billing — and so is one whose park call fails, which is now
+  the protocol's answer rather than this function's. See
+  `idle_machine_action/1`.
   """
   @spec max_lifetime_action(String.t() | nil, Handle.t() | nil) :: :park | :destroy
   def max_lifetime_action(sandbox_id, handle) do
-    with true <- home?(sandbox_id),
-         :suspend <- idle_action(provider(handle)),
-         :ok <- suspend(handle) do
-      :park
-    else
-      _ -> :destroy
-    end
+    if home?(sandbox_id), do: idle_machine_action(handle), else: :destroy
   end
 
   @doc """
-  Park the machine: the sandbox row to `suspended`, the conversation back to
-  `idle`, the stage event, the telemetry and the co-tenants. The suspend call
-  itself has already been made by whichever action decided on `:park`.
+  Park the machine a conversation server has decided to give up: the machine
+  through its owner, then the conversation back to `idle`, the stage event and
+  the telemetry.
+
+  The server-side wrapper around `Fountain.Machines.Park`, which owns
+  everything that touches the machine — the lease, the recheck under it, the
+  checkpoint, the suspend, the row write, the `sandbox.suspended` event and the
+  notice to the machine's other conversations. What is left here is what is
+  the *conversation's*: its own status, its transcript and the telemetry tag
+  taken off the live handle.
+
+  `nil` for `sandbox_id` is a conversation with no machine to park, and it
+  still finishes: the stage event is what the client is waiting for, and there
+  is nothing for an owner to do. Same as `main`'s `park_row(nil)`.
+
+  The answers:
+
+    * `:ok` — parked, or already parked by somebody else. Either way the
+      machine is at rest and the conversation should say so.
+    * `{:error, :suspend_failed}` / `{:error, :cannot_park}` — the machine
+      cannot be parked. The caller destroys instead: an unparked machine keeps
+      billing (ADR 0017).
+    * `{:error, :machine_occupied}` — somebody else is on the machine. Neither
+      parked nor destroyed; the next tick asks again.
+    * any other `{:error, _}` — a refusal to act on right now. The server logs
+      it and keeps the machine, exactly as a refused destroy already does.
+
+  A terminal row answers `:ok` and writes nothing, and so does a fenced one —
+  which is what `main` did with `park_row/1`'s `:skipped`. A machine somebody
+  else has finished, or is in the middle of finishing, is not this
+  conversation's news to publish.
   """
-  @spec park(String.t(), String.t() | nil, Handle.t() | nil, :idle | :max_lifetime) :: :ok
+  @spec park(String.t(), String.t() | nil, Handle.t() | nil, :idle | :max_lifetime) ::
+          :ok | {:error, term()}
+  def park(conversation_id, nil, handle, reason),
+    do: finish_park(conversation_id, handle, reason)
+
   def park(conversation_id, sandbox_id, handle, reason) do
-    case park_row(sandbox_id) do
-      :ok -> finish_park(conversation_id, sandbox_id, handle, reason)
-      :skipped -> :ok
+    case Machine.park(sandbox_id,
+           actor: "system:conversation_server",
+           reason: reason,
+           # Excluded from the owner's occupancy check, the way
+           # `busy_elsewhere?/2` excludes it here: a server parking the machine
+           # it is bound to is not a reason to call that machine busy.
+           requesting_conversation_id: conversation_id,
+           # The wording is the caller's, and this caller has always had one.
+           notify: {conversation_id, "suspended", to_string(reason), explain(reason, :suspend)}
+         ) do
+      {:ok, outcome} when outcome in [:parked, :already_parked] ->
+        finish_park(conversation_id, handle, reason)
+
+      # Somebody else has stopped this machine, or is about to: a terminal row,
+      # or a reset or teardown fence on a live one. Nothing to park and nothing
+      # to say — `main` reached the same answer through `park_row/1`'s
+      # `:skipped`, and the server stops either way rather than ticking at a
+      # machine somebody else owns the end of.
+      {:ok, :already_terminal} ->
+        :ok
+
+      {:error, :fenced} ->
+        :ok
+
+      # The owner found an abandoned park on a machine that is still running
+      # and cleared it. Nothing was parked, so this is not a park — the next
+      # tick decides again, on a row that now says what it means.
+      {:ok, :recovered} ->
+        {:error, :recovered}
+
+      {:error, _} = error ->
+        error
     end
   end
 
-  defp park_row(nil), do: :ok
-
-  defp park_row(sandbox_id) do
-    # Ownership: as home?/1 above. Recheck after the provider checkpoint:
-    # retirement or a reset fence can win while that call is in flight.
-    sandbox = Conversations._unsafe_get_sandbox!(sandbox_id)
-
-    if sandbox.status in ["terminated", "failed"] or not is_nil(sandbox.reset_requested_at) do
-      :skipped
-    else
-      HomeCheckpoint.on_park(sandbox)
-
-      case Conversations.claim_sandbox(sandbox, %{status: "suspended"}) do
-        {:ok, _} -> :ok
-        :retired -> :skipped
-        {:error, :sandbox_reset_pending} -> :skipped
-        error -> raise MatchError, term: error
-      end
-    end
-  end
-
-  defp finish_park(conversation_id, sandbox_id, handle, reason) do
+  defp finish_park(conversation_id, handle, reason) do
     # The conversation stays idle and resumable; the sprite stays parked.
     conv = Conversations._unsafe_get_conversation!(conversation_id)
     if conv.status == "running", do: Conversations.update_conversation(conv, %{status: "idle"})
@@ -444,13 +490,7 @@ defmodule Fountain.Conversations.Lifecycle do
       provider: provider(handle)
     })
 
-    stop_cotenants(
-      sandbox_id,
-      conversation_id,
-      "suspended",
-      to_string(reason),
-      explain(reason, :suspend)
-    )
+    :ok
   end
 
   @doc """
@@ -572,27 +612,17 @@ defmodule Fountain.Conversations.Lifecycle do
     })
 
     # The co-tenants were told by `Machine.destroy/2`, before this, as part of
-    # the machine operation itself — `stop_cotenants/5` below is still the park
-    # path's, and `MachineEvents.tell_cotenants/5` is still the one sender.
+    # the machine operation itself, and a park's are told by `Machine.park/2`
+    # the same way (ADR 0058 stage 6b). Both go through
+    # `MachineEvents.tell_cotenants/5`, which is still the one sender of that
+    # cast; the wrapper this module used to keep for the park path
+    # (`stop_cotenants/5`) had no callers left and went with it.
     :telemetry.execute([:fountain, :sandbox, :reclaimed], %{count: 1}, %{
       reason: reason,
       provider: provider(handle)
     })
 
     :ok
-  end
-
-  @doc """
-  A park or a destroy is a machine operation: every other conversation on the
-  sandbox loses its handle with it. Tell their servers through
-  `MachineEvents.tell_cotenants/5`, the one sender of that cast.
-  """
-  @spec stop_cotenants(String.t() | nil, String.t(), String.t(), String.t(), String.t()) :: :ok
-  def stop_cotenants(sandbox_id, conversation_id, event, reason, message) do
-    # Ownership: as home?/1 above.
-    sandbox_id
-    |> Conversations._unsafe_list_cotenant_ids(conversation_id)
-    |> MachineEvents.tell_cotenants(sandbox_id, event, reason, message)
   end
 
   # Liveness (#2255 decision 2): "is any server alive on this machine" is one

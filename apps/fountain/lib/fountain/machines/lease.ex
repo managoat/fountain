@@ -48,9 +48,12 @@ defmodule Fountain.Machines.Lease do
   control-plane bookkeeping, and the events an operation owes — `sandbox.destroyed`
   and its siblings — are recorded by the owner's verbs.
 
-  `Fountain.Machines.Destroy` is the only caller of the write half, since stage
-  5a: it claims a lease around one destroy, stamps the transition and finalizes
-  with `cas_update/3`, and releases.
+  The write half has two callers, and they are the two protocols: `Destroy`
+  since stage 5a and `Park` since 6b. Each claims a lease around one operation,
+  stamps the transition, does its provider I/O outside every lock, finalizes
+  with `cas_update/3` and releases. A park additionally writes `provider_meta`
+  mid-transition, through the same primitive and the same epoch — see
+  `@writable`.
 
   The read half has more callers, and `live?/2` is all of them. Until stage 6a
   there were three separate readings of "is an owner working on this machine",
@@ -62,8 +65,9 @@ defmodule Fountain.Machines.Lease do
   `Conversations.retry_pending_sandbox_reset/2` (5c), and — new in 6a — the
   three readers that refuse a wake, an attach or a rehydrate onto a machine
   mid-operation, through `Machines.Machine.busy?/2`. They read the columns;
-  they never write one. `park` and `ensure_up` bring the standing lease and the
-  renew timer in stages 6b and 7.
+  they never write one. `ensure_up` brings the standing lease and the renew
+  timer in stage 7; until it does, every lease here bounds one operation and
+  nothing renews across a provider call.
   """
 
   import Ecto.Query
@@ -84,7 +88,15 @@ defmodule Fountain.Machines.Lease do
   # `lease_*` are absent on purpose — a lease changes hands through the
   # functions below, under the lock, and never as a side effect of a state
   # write.
-  @writable ~w(status transition transition_reason terminated_at last_resumed_at)a
+  #
+  # `provider_meta` joined them in stage 6b. It is not machine *state* the way
+  # the others are, but it is written in the middle of a transition and by the
+  # owner that holds it: `HomeCheckpoint.on_park/2` records the checkpoint it
+  # just took while the row says `parking`, and that write has to be invisible
+  # if the park has been superseded, for the same reason the finalize does —
+  # a checkpoint id belonging to an operation that no longer owns the machine
+  # would be read back by a reset as the state to roll to.
+  @writable ~w(status transition transition_reason terminated_at last_resumed_at provider_meta)a
 
   # Where a sandbox stops. Kept in step with `@billable_terminal` in
   # `Fountain.Conversations`, whose `prevent_sandbox_revival/1` this mirrors.

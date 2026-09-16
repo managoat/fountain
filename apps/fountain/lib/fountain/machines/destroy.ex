@@ -370,19 +370,33 @@ defmodule Fountain.Machines.Destroy do
         {:ok, epoch}
 
       {:error, {:held, holder, until}} ->
-        if System.monotonic_time(:millisecond) + @poll_ms < deadline do
-          Process.sleep(@poll_ms)
-          claim(sandbox_id, ttl_ms, deadline)
-        else
-          Logger.warning(
-            "machine #{sandbox_id}: destroy refused, lease held by #{holder} until #{inspect(until)}"
-          )
+        retry_or_refuse(
+          sandbox_id,
+          ttl_ms,
+          deadline,
+          "lease held by #{holder} until #{inspect(until)}"
+        )
 
-          {:error, :machine_busy}
-        end
+      # The advisory lock behind `Lease.claim/4` is held by somebody else right
+      # now — `Conversations.with_sandbox_lock/2` grew a `lock_timeout` in
+      # stage 6b, and out of `claim/4` that word can mean nothing else. Waited
+      # out exactly like a held lease, because it is the same condition one
+      # step earlier.
+      {:error, :sandbox_unavailable} ->
+        retry_or_refuse(sandbox_id, ttl_ms, deadline, "the sandbox lock is held")
 
       {:error, _} = error ->
         error
+    end
+  end
+
+  defp retry_or_refuse(sandbox_id, ttl_ms, deadline, why) do
+    if System.monotonic_time(:millisecond) + @poll_ms < deadline do
+      Process.sleep(@poll_ms)
+      claim(sandbox_id, ttl_ms, deadline)
+    else
+      Logger.warning("machine #{sandbox_id}: destroy refused, #{why}")
+      {:error, :machine_busy}
     end
   end
 

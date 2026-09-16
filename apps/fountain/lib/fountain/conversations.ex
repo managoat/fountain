@@ -1136,6 +1136,41 @@ defmodule Fountain.Conversations do
     result
   end
 
+  # How long a caller waits for advisory lock 4316 before giving up
+  # (ADR 0058 stage 6b, carried from 6a's locks review §6).
+  #
+  # Every transaction this function opens is short and database-only: the
+  # longest is `Machines.Lease.claim/4`'s indexed `FOR UPDATE` read and one
+  # `update_all`, and `register_server/2`'s marker is the same shape. Nothing
+  # holds this lock across provider I/O — the two protocols take the lock to
+  # *claim*, then do their checkpoint, suspend or destroy outside it — so five
+  # seconds is not a bound anyone should ever reach.
+  #
+  # It is here because stage 6b makes the lock contended for the first time. A
+  # park now takes it on every idle sweep, and a wake takes it through
+  # `register_server/2` before it starts a server; with no timeout, a wake
+  # blocked behind a claim whose transaction had somehow stalled would wait
+  # for as long as that lasted, with nothing to log and nothing to refuse.
+  # `55P03` (`lock_not_available`) reaches `Lease`'s `guarded/2` as
+  # `{:database, :lock_not_available}`, which its two protocols' busy-waits
+  # treat exactly as they treat a held lease; at the other doors it is an
+  # ordinary refusal, which is what those already handle.
+  #
+  # `SET LOCAL`, so it lasts exactly this transaction and no other work on the
+  # pooled connection inherits it. It does not cover the sites that take 4316
+  # with their own `Repo.query!` — the teardown fence, the reset front door,
+  # turn admission — and that is deliberate for now: those hold the lock for
+  # the same kind of short database work, and giving a fence a new way to fail
+  # is a decision for the stage that moves it behind the owner.
+  #
+  # Overridable so `machines/park_test.exs` can drive the timeout against a
+  # genuinely held lock without spending five seconds on it. Nothing in `lib/`
+  # sets it.
+  @sandbox_lock_timeout_ms 5_000
+
+  defp sandbox_lock_timeout_ms,
+    do: Application.get_env(:fountain, :sandbox_lock_timeout_ms, @sandbox_lock_timeout_ms)
+
   # The lock turn admission takes, so a reapply and a turn start cannot
   # interleave on one machine. `nil` is a conversation whose machine has not
   # been minted yet; there is nothing to serialize against.
@@ -1146,6 +1181,8 @@ defmodule Fountain.Conversations do
   def with_sandbox_lock(sandbox_id, fun) do
     Repo.transaction(fn ->
       if sandbox_id do
+        Repo.query!("SET LOCAL lock_timeout = '#{sandbox_lock_timeout_ms()}ms'")
+
         Repo.query!("SELECT pg_advisory_xact_lock($1, $2)", [
           @sandbox_lock_namespace,
           :erlang.phash2(sandbox_id)
@@ -1157,7 +1194,36 @@ defmodule Fountain.Conversations do
         {:error, reason} -> Repo.rollback(reason)
       end
     end)
+  rescue
+    # The timeout above arrives as an exception out of `Repo.query!`, and every
+    # caller here already has a `{:error, reason}` path, so it becomes one
+    # rather than unwinding through a launch or a wake. Ecto has rolled the
+    # transaction back by the time this runs, which releases the advisory lock
+    # with it.
+    #
+    # The word is `:sandbox_unavailable` and not a new one: "this machine
+    # cannot be reached right now" is exactly what it means, it is already 503
+    # with a `Retry-After` and `NotReadyError` in all four SDKs, and stage 6's
+    # decision was to reuse it rather than teach five clients a second word
+    # (#2304, closed unmerged). Out of `Machines.Lease.claim/4` it can mean
+    # nothing else — that function's own refusals are `{:held, _, _}`,
+    # `:not_found` and `:lost` — which is what lets the two protocols' busy
+    # waits treat it as contention and keep waiting.
+    error in Postgrex.Error ->
+      if lock_timeout?(error) do
+        Logger.warning(
+          "sandbox lock #{@sandbox_lock_namespace}/#{inspect(sandbox_id)} was held for more " <>
+            "than the #{sandbox_lock_timeout_ms()}ms lock_timeout; refusing"
+        )
+
+        {:error, :sandbox_unavailable}
+      else
+        reraise(error, __STACKTRACE__)
+      end
   end
+
+  defp lock_timeout?(%Postgrex.Error{postgres: %{code: :lock_not_available}}), do: true
+  defp lock_timeout?(_error), do: false
 
   @doc """
   Start a `ConversationServer` and publish that fact where every node can see

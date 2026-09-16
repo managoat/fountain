@@ -43,7 +43,19 @@ defmodule Fountain.Conversations.ConversationServerSizeTest do
   # stages 6-8 take the server's remaining machine writes out and lower it
   # properly. Nothing is stacked below this PR, so the number is not measured
   # against a moving base.
-  @pin 2220
+  #
+  # 2220 → 2219. ADR 0058 stage 6b moved the idle verdict's
+  # "is the machine busy elsewhere" arm into `Lifecycle.idle_machine_action/3`,
+  # with the rest of the lifecycle policy (#1376), and gave `park_sandbox/2`
+  # the refusals the owner can now answer with. Those two nearly cancel, and
+  # they were always going to: the park's *provider call* was never in this
+  # file to take out, while the handling of a park that is refused is new work
+  # the server has to do. So this is a shrink of one line rather than the ten
+  # the brief hoped for, and saying so is better than moving something out to
+  # make a number. The server's own `update_sandbox` and
+  # `Managoat.Sandbox.destroy` sites are stage 8's, and they are the ones that
+  # lower this properly. The file is 2209 lines on this branch.
+  @pin 2219
 
   @server "apps/fountain/lib/fountain/conversations/conversation_server.ex"
 

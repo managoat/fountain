@@ -1,0 +1,368 @@
+defmodule Fountain.Workers.SandboxReaperParkTest do
+  @moduledoc """
+  The reaper's idle park, against the race it lost on `main` (#2307; ADR 0058
+  stage 6b).
+
+  Lifted from the salvage branch `follow/2255-reaper-liveness-lock`
+  (`sandbox_reaper_lock_order_test.exs`, `sandbox_park_claim_test.exs`) and
+  rewritten onto the lease. What that branch proved with an advisory lock held
+  on a second connection — that a verdict taken before the lock is stale, and
+  that the write must be decided *after* it — is proved here at the seam the
+  lease actually creates: the reaper folds a page of rows, and the park then
+  claims a lease and re-reads everything under it. So the admission is
+  committed from inside `Lease.claim/4`, which is precisely the moment the
+  scan's verdict becomes old news, and no second database connection is
+  needed to place it there.
+
+  The salvage branch's two remaining halves live elsewhere: the wake and
+  attach doors are `machines/mid_operation_readers_test.exs` (stage 6a), and
+  the protocol's own arms are `machines/park_test.exs`.
+
+  ## What is deliberately not here
+
+  "Admission wins" for the **max-lifetime expiry**. That path goes through
+  `Machines.Destroy` with `terminating_conversation_id: nil`, whose fence is
+  unconditional by design (stage 5b: an abandoned machine past its ceiling
+  usually still has conversations bound to it, and a fence that could answer
+  `:sandbox_kept` would bill forever). It therefore has no liveness recheck
+  under its lease, exactly as it had none on `main`. Closing that is stage 8's
+  `attach`/`admit_turn`, when admission itself comes through the owner.
+  """
+
+  use Fountain.DataCase, async: false
+  use Mimic
+
+  import ExUnit.CaptureLog
+
+  alias Fountain.Conversations.Sandbox
+  alias Fountain.Machines.Lease
+  alias Fountain.Machines.Machine
+  alias Fountain.Machines.Occupancy
+  alias Fountain.Workers.SandboxReaper
+  alias Managoat.Sandbox.Handle
+
+  setup :set_mimic_global
+
+  setup do
+    user = insert_verified_user()
+    sandbox = insert_sandbox(user_id: user.id, status: "ready")
+    conv = insert_conversation(user_id: user.id, sandbox: sandbox, status: "idle")
+    insert_turn(conv, %{status: "completed"})
+
+    # Idle by a wide margin, and far enough under the ceiling that the idle
+    # bound is the one that fires.
+    age(sandbox, conv, 60 * 5)
+
+    on_exit(fn -> stop_machine(sandbox.id) end)
+
+    {:ok, user: user, sandbox: sandbox, conv: conv}
+  end
+
+  defp minutes_ago(n),
+    do: DateTime.utc_now() |> DateTime.add(-n * 60, :second) |> DateTime.truncate(:second)
+
+  defp age(sandbox, conv, minutes) do
+    ts = minutes_ago(minutes)
+
+    Repo.update_all(from(s in Sandbox, where: s.id == ^sandbox.id),
+      set: [inserted_at: ts, updated_at: ts]
+    )
+
+    Repo.update_all(
+      from(t in Fountain.Conversations.Turn, where: t.conversation_id == ^conv.id),
+      set: [inserted_at: ts, ended_at: ts]
+    )
+
+    Repo.reload!(sandbox)
+  end
+
+  defp with_bounds(pairs, fun) do
+    previous = Enum.map(pairs, fn {k, _} -> {k, Application.get_env(:fountain, k)} end)
+    Enum.each(pairs, fn {k, v} -> Application.put_env(:fountain, k, v) end)
+
+    try do
+      fun.()
+    after
+      Enum.each(previous, fn {k, v} -> Application.put_env(:fountain, k, v) end)
+    end
+  end
+
+  defp sweep do
+    with_bounds([sandbox_idle_timeout_minutes: 60, sandbox_max_lifetime_hours: 24], fn ->
+      capture_log(fn -> send(self(), {:swept, SandboxReaper.sweep_abandoned_sandboxes()}) end)
+      receive do: ({:swept, result} -> result)
+    end)
+  end
+
+  defp row(ctx), do: Repo.reload!(ctx.sandbox)
+
+  defp suspended_events(ctx),
+    do: Fountain.Audit.list_for_user(ctx.user.id, action_prefix: "sandbox.suspended")
+
+  # Commit `fun` at the instant the park takes its lease: after the sweep has
+  # scanned, folded and decided, and before anything is re-read. That is the
+  # window #2307 constraint 1 is about, and stubbing the claim is the only way
+  # to put a writer in it deterministically.
+  defp admission_at_the_claim(fun) do
+    # `Park` calls `claim/3` and lets the clock default, so this is the arity
+    # to stand in front of; stubbing `claim/4` alone would let every call
+    # through and prove nothing.
+    stub(Lease, :claim, fn sandbox_id, node, ttl ->
+      result = Mimic.call_original(Lease, :claim, [sandbox_id, node, ttl])
+      fun.()
+      result
+    end)
+  end
+
+  defp stop_machine(sandbox_id) do
+    case Machine.whereis(sandbox_id) do
+      nil ->
+        :ok
+
+      pid ->
+        ref = Process.monitor(pid)
+        Horde.DynamicSupervisor.terminate_child(Fountain.MachineSupervisor, pid)
+
+        receive do
+          {:DOWN, ^ref, :process, ^pid, _} -> :ok
+        after
+          2_000 -> Process.demonitor(ref, [:flush])
+        end
+    end
+  end
+
+  describe "the durable park claim" do
+    test "the row carries the intent and a live lease while the provider call is in flight",
+         ctx do
+      test = self()
+
+      expect(Managoat.Sandbox, :suspend, fn %Handle{} ->
+        send(test, {:mid_park, Repo.reload!(ctx.sandbox)})
+        :ok
+      end)
+
+      assert {1, 0, 0} = sweep()
+
+      assert_received {:mid_park, mid}
+      assert mid.transition == "parking"
+      assert mid.status == "ready"
+
+      assert Machine.busy?(mid),
+             "a wake arriving mid-park would not have been refused — which is the whole " <>
+               "of #2307: it would resume the machine this suspend is about to park"
+
+      final = row(ctx)
+      assert final.status == "suspended"
+      assert is_nil(final.transition)
+      assert is_nil(final.lease_node)
+      assert [_one] = suspended_events(ctx)
+    end
+  end
+
+  describe "admission wins the claim" do
+    test "a turn that starts between the scan and the claim is not parked over", ctx do
+      # The #2286 reproduction. The sweep decided this machine was idle; a
+      # prompt landed while it was claiming. `main` suspended the machine
+      # anyway and wrote `suspended` over a row a turn was running on.
+      reject(&Managoat.Sandbox.suspend/1)
+
+      admission_at_the_claim(fn ->
+        insert_turn(ctx.conv, status: "running", started_at: DateTime.utc_now())
+      end)
+
+      assert {0, 0, 1} = sweep()
+      assert row(ctx).status == "ready"
+      assert is_nil(row(ctx).transition)
+      assert suspended_events(ctx) == []
+    end
+
+    test "a wake that marks the row between the scan and the claim is not parked over", ctx do
+      # `Conversations.register_server/2` commits `woken_at` under the sandbox
+      # lock before it asks Horde for anything, so this is what a wake looks
+      # like from the reaper's side before its server is visible anywhere
+      # (#2307 constraint 4).
+      reject(&Managoat.Sandbox.suspend/1)
+
+      admission_at_the_claim(fn ->
+        Repo.update_all(from(s in Sandbox, where: s.id == ^ctx.sandbox.id),
+          set: [woken_at: DateTime.utc_now()]
+        )
+      end)
+
+      assert {0, 0, 1} = sweep()
+      assert row(ctx).status == "ready"
+    end
+
+    test "a wake that restarts the clock between the scan and the claim is not parked over",
+         ctx do
+      # No turn, no server, nothing running: the machine was simply resumed,
+      # which restarts the idle clock (`last_resumed_at`). Only the recheck of
+      # the *verdict* catches this one — the liveness half sees nobody.
+      reject(&Managoat.Sandbox.suspend/1)
+
+      admission_at_the_claim(fn ->
+        Repo.update_all(from(s in Sandbox, where: s.id == ^ctx.sandbox.id),
+          set: [last_resumed_at: DateTime.utc_now() |> DateTime.truncate(:second)]
+        )
+      end)
+
+      assert {0, 0, 1} = sweep()
+      assert row(ctx).status == "ready"
+    end
+
+    test "a refusal does not spend the run's provider-destroy budget", ctx do
+      # Stage 5b's rule, still true with parks in the mix: the budget bounds
+      # calls to the provider, and a refusal makes none.
+      reject(&Managoat.Sandbox.suspend/1)
+
+      admission_at_the_claim(fn ->
+        insert_turn(ctx.conv, status: "running", started_at: DateTime.utc_now())
+      end)
+
+      assert {0, 0, 1} = sweep()
+    end
+  end
+
+  describe "recovery is a serialized takeover" do
+    setup ctx do
+      Repo.update_all(from(s in Sandbox, where: s.id == ^ctx.sandbox.id),
+        set: [
+          lease_epoch: 1,
+          lease_node: "dead-pod@node",
+          lease_until: DateTime.add(DateTime.utc_now(), -60, :second),
+          transition: "parking",
+          transition_reason: "idle"
+        ]
+      )
+
+      :ok
+    end
+
+    test "an abandoned park whose suspend landed is finished on the next pass", ctx do
+      stub(Managoat.Sandbox, :get, fn %Handle{} -> {:ok, %{status: :suspended, raw: %{}}} end)
+      reject(&Managoat.Sandbox.suspend/1)
+
+      assert {1, 0, 0} = sweep()
+
+      final = row(ctx)
+      assert final.status == "suspended"
+      assert is_nil(final.transition)
+      assert [_one] = suspended_events(ctx)
+    end
+
+    test "an abandoned park whose machine is still up is cleared on the next pass", ctx do
+      stub(Managoat.Sandbox, :get, fn %Handle{} -> {:ok, %{status: :running, raw: %{}}} end)
+      reject(&Managoat.Sandbox.suspend/1)
+      reject(&Managoat.Sandbox.resume/1)
+
+      # Neither parked nor reclaimed: the machine is up and the row now says so.
+      assert {0, 0, 0} = sweep()
+
+      final = row(ctx)
+      assert final.status == "ready"
+
+      assert is_nil(final.transition),
+             "a stale parking stamp survived a whole reaper pass, so every wake and " <>
+               "attach onto this machine keeps meeting an owner that is not there"
+
+      assert suspended_events(ctx) == []
+    end
+
+    test "and the pass after that parks it again", ctx do
+      stub(Managoat.Sandbox, :get, fn %Handle{} -> {:ok, %{status: :running, raw: %{}}} end)
+      assert {0, 0, 0} = sweep()
+
+      # The recovery wrote the row, so `updated_at` is fresh and the sweep's
+      # grace window now excludes it — the machine is not abandoned, it was
+      # touched a moment ago. Ageing it is what the next hour does.
+      age(ctx.sandbox, ctx.conv, 60 * 5)
+
+      stub(Managoat.Sandbox, :suspend, fn %Handle{} -> :ok end)
+      assert {1, 0, 0} = sweep()
+      assert row(ctx).status == "suspended"
+    end
+  end
+
+  describe "a park superseded mid-suspend" do
+    test "writes nothing, and the taker decides what happened to the machine", ctx do
+      # The salvage branch compensated here by *resuming* the machine its own
+      # suspend had just parked, because its claim was not a lease and a late
+      # success could still land. The compare-and-set makes that unnecessary:
+      # the superseded park's finalize matches zero rows, so it changed
+      # nothing, and the owner that took the machine over is the one that reads
+      # the machine and writes the answer.
+      expect(Managoat.Sandbox, :suspend, fn %Handle{} ->
+        Repo.update_all(from(s in Sandbox, where: s.id == ^ctx.sandbox.id),
+          set: [lease_until: DateTime.add(DateTime.utc_now(), -1, :second)]
+        )
+
+        {:ok, _taker} = Lease.take_over(ctx.sandbox.id, "taker@node", 60_000)
+        :ok
+      end)
+
+      # Counted as parked, because that is what `:superseded` means at the door
+      # (`Machine.park/2`): another owner holds this machine and it is parked
+      # or parking. `Machine.destroy/2` has answered `:already_terminal` the
+      # same way since stage 5a. What the sweep must not do is report having
+      # done it — and it did not: nothing below was written by this pass.
+      assert {1, 0, 0} = sweep()
+
+      # The taker holds a live lease and a stamped row; every reader refuses it
+      # until the taker finishes or its own lease lapses.
+      mid = row(ctx)
+      assert mid.status == "ready"
+      assert mid.transition == "parking"
+      assert Machine.busy?(mid)
+      assert suspended_events(ctx) == []
+    end
+  end
+
+  describe "the run's bounds" do
+    test "contention cannot stack two reaper jobs", ctx do
+      _ = ctx
+      assert {:ok, job} = Oban.insert(SandboxReaper.new(%{}))
+      assert {:ok, same} = Oban.insert(SandboxReaper.new(%{}))
+
+      assert same.id == job.id,
+             "a second reaper was enqueued; two sweeps of one fleet spend their time " <>
+               "queueing behind each other's leases (ADR 0058 stage 6b)"
+    end
+
+    test "a run stops asking owners once it has spent its attempts", ctx do
+      # The 5b round-3 note, closed. Refusals cost no provider call and so
+      # spend no destroy budget, which leaves the *attempt* count unbounded —
+      # and every contended attempt costs `Park.busy_wait_ms/0`. Driven with a
+      # cap of one and two eligible machines rather than with a hundred and
+      # one rows.
+      second = insert_sandbox(user_id: ctx.user.id, status: "ready")
+      second_conv = insert_conversation(user_id: ctx.user.id, sandbox: second, status: "idle")
+      insert_turn(second_conv, %{status: "completed"})
+      age(second, second_conv, 60 * 5)
+      on_exit(fn -> stop_machine(second.id) end)
+
+      stub(Managoat.Sandbox, :suspend, fn %Handle{} -> :ok end)
+      Application.put_env(:fountain, :reaper_owner_attempt_limit, 1)
+      on_exit(fn -> Application.delete_env(:fountain, :reaper_owner_attempt_limit) end)
+
+      assert {1, 0, 0} = sweep()
+
+      parked = Enum.count([row(ctx), Repo.reload!(second)], &(&1.status == "suspended"))
+
+      assert parked == 1,
+             "both machines were parked, so the cap bounded nothing and a contended fleet " <>
+               "can still hold a maintenance slot for as long as it likes"
+
+      # Deferred, not refused: nothing was written and nothing went wrong, and
+      # the next run picks the other one up.
+      Application.delete_env(:fountain, :reaper_owner_attempt_limit)
+      assert {1, 0, 0} = sweep()
+      assert Enum.all?([row(ctx), Repo.reload!(second)], &(&1.status == "suspended"))
+    end
+  end
+
+  describe "the grace window" do
+    test "the sweep and the protocol read the marker the same way" do
+      assert SandboxReaper.abandoned_grace_minutes() == Occupancy.woken_grace_minutes()
+    end
+  end
+end

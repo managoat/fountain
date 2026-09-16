@@ -4,12 +4,23 @@ defmodule Fountain.Conversations.HomeCheckpoint do
 
   A home's disk is the agent's memory across every conversation on it, so
   the moment it goes quiet is the moment its state is worth keeping. Where
-  the provider advertises `:checkpoint`, both park paths — the
-  `ConversationServer`'s idle and ceiling reclaim, and the reaper's park of a
-  home with no live server — call `on_park/1` before flipping the row to
-  `suspended`. The checkpoint id and time land in `sandboxes.provider_meta`
-  (`checkpoint_id`, `checkpoint_at`) and a `checkpoint` stage is written to
-  every live conversation on the machine, so each transcript shows it.
+  the provider advertises `:checkpoint`, a park calls `on_park/2` before
+  flipping the row to `suspended`. The checkpoint id and time land in
+  `sandboxes.provider_meta` (`checkpoint_id`, `checkpoint_at`) and a
+  `checkpoint` stage is written to every live conversation on the machine, so
+  each transcript shows it.
+
+  **One caller, and it holds the lease.** Until ADR 0058 stage 6b the two park
+  paths each called this for themselves, before their own row write. They now
+  go through `Fountain.Machines.Park`, which claims the machine's lease,
+  stamps `transition: "parking"` and calls this *inside* that transition — so
+  the checkpoint happens while every reader already refuses the machine, and
+  the `provider_meta` write is made with `Fountain.Machines.Lease.cas_update/3`
+  under the park's own epoch rather than with `Conversations.update_sandbox/2`.
+  A park that has been superseded writes no checkpoint id, which is the same
+  compare-and-set rule the finalize follows and for the same reason: a
+  checkpoint recorded by an operation that no longer owns the machine would be
+  read back by a reset as the state to roll to.
 
   What a checkpoint can restore, honestly: on Sprites a checkpoint is scoped
   to the sprite that created it (#654) and the SDK has no "create a sprite
@@ -25,32 +36,38 @@ defmodule Fountain.Conversations.HomeCheckpoint do
 
   alias Fountain.Conversations
   alias Fountain.Conversations.Sandbox
+  alias Fountain.Machines.Lease
   alias Managoat.Sandbox.Retry
 
   require Logger
 
   @doc """
-  Checkpoint `sandbox` if it is a home on a provider that can. Returns the
-  checkpoint id, `:skipped` when there is nothing to do, or the error after
-  it has been recorded.
-  """
-  @spec on_park(Sandbox.t()) :: {:ok, String.t()} | :skipped | {:error, term()}
-  # A machine whose reset is unconfirmed keeps no checkpoint: the disk is meant
-  # to be gone, and `record/2` writes through `update_sandbox/2`, which refuses
-  # a non-retiring write to a fenced row while this clause matches `{:ok, _}`.
-  def on_park(%Sandbox{reset_requested_at: at}) when not is_nil(at), do: :skipped
+  Checkpoint `sandbox` if it is a home on a provider that can, recording the
+  result under `epoch` — the lease the calling park holds.
 
-  def on_park(%Sandbox{mode: "persistent", machine_name: name} = sandbox) when is_binary(name) do
+  Returns the checkpoint id, `:skipped` when there is nothing to do, or the
+  error after it has been recorded.
+  """
+  @spec on_park(Sandbox.t(), Lease.epoch()) :: {:ok, String.t()} | :skipped | {:error, term()}
+  # A machine whose reset is unconfirmed keeps no checkpoint: the disk is meant
+  # to be gone. `Park` refuses a fenced row before it ever gets here, so this
+  # clause is now belt and braces rather than the guard it was — kept because
+  # the rule belongs to the checkpoint as much as to the park, and a second
+  # caller would arrive without it.
+  def on_park(%Sandbox{reset_requested_at: at}, _epoch) when not is_nil(at), do: :skipped
+
+  def on_park(%Sandbox{mode: "persistent", machine_name: name} = sandbox, epoch)
+      when is_binary(name) do
     provider = Conversations.sandbox_provider_atom(sandbox)
 
     if Managoat.Sandbox.supports?(provider, :checkpoint) do
-      create(sandbox, Managoat.Sandbox.build_handle(provider, name))
+      create(sandbox, Managoat.Sandbox.build_handle(provider, name), epoch)
     else
       :skipped
     end
   end
 
-  def on_park(_sandbox), do: :skipped
+  def on_park(_sandbox, _epoch), do: :skipped
 
   @doc "The checkpoint recorded on `sandbox`, as `%{id, at}`, or nil."
   @spec recorded(Sandbox.t()) :: %{id: String.t(), at: String.t()} | nil
@@ -60,7 +77,7 @@ defmodule Fountain.Conversations.HomeCheckpoint do
 
   def recorded(_sandbox), do: nil
 
-  defp create(sandbox, handle) do
+  defp create(sandbox, handle, epoch) do
     comment = "home park #{sandbox.id}"
 
     result =
@@ -78,7 +95,7 @@ defmodule Fountain.Conversations.HomeCheckpoint do
 
     case result do
       {:ok, id} ->
-        record(sandbox, id)
+        record(sandbox, id, epoch)
         {:ok, id}
 
       {:error, reason} ->
@@ -92,16 +109,31 @@ defmodule Fountain.Conversations.HomeCheckpoint do
     end
   end
 
-  defp record(sandbox, id) do
+  # Not matched on with `{:ok, _} =`, unlike the `update_sandbox/2` call it
+  # replaces. A compare-and-set can legitimately write nothing — the park was
+  # superseded, or the row was retired while the provider was taking the
+  # checkpoint — and raising there would unwind out of a park that is otherwise
+  # about to answer for itself properly. The checkpoint exists at the provider
+  # either way; what is lost is the pointer to it, and the log line says so.
+  defp record(sandbox, id, epoch) do
     at = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
 
     meta =
       Map.merge(sandbox.provider_meta || %{}, %{"checkpoint_id" => id, "checkpoint_at" => at})
 
-    {:ok, _} = Conversations.update_sandbox(sandbox, %{provider_meta: meta})
+    case Lease.cas_update(sandbox.id, epoch, provider_meta: meta) do
+      {:ok, _} ->
+        Logger.info("home checkpoint #{id} for sandbox #{sandbox.id} (#{sandbox.machine_name})")
+        publish(sandbox, "done", %{checkpoint_id: id})
 
-    Logger.info("home checkpoint #{id} for sandbox #{sandbox.id} (#{sandbox.machine_name})")
-    publish(sandbox, "done", %{checkpoint_id: id})
+      {:error, reason} ->
+        Logger.warning(
+          "home checkpoint #{id} for sandbox #{sandbox.id} (#{sandbox.machine_name}) " <>
+            "could not be recorded (#{inspect(reason)}); the checkpoint itself was taken"
+        )
+
+        publish(sandbox, "failed", %{checkpoint_id: id, reason: inspect(reason)})
+    end
   end
 
   # One stage per live conversation on the machine: the checkpoint is the

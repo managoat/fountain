@@ -1,0 +1,702 @@
+defmodule Fountain.Machines.Park do
+  @moduledoc """
+  One park protocol for one machine (ADR 0058, stage 6b; closes #2307).
+
+  A park is the only machine operation with a provider round trip *between*
+  the decision and the write, and that is the whole of #2307. Both parks on
+  `main` read the row, asked the provider to suspend, and then wrote
+  `suspended` — `Fountain.Conversations.Lifecycle.park/4` from a conversation
+  server's idle or ceiling tick, `Fountain.Workers.SandboxReaper.idle_sweep/2`
+  from the hourly sweep — and neither held anything across the gap. A wake
+  landing in it resumed a machine that was about to be suspended, or was
+  suspended out from under; #2286 tried to close that with a lock and a
+  durable claim, went five adversarial review rounds, and was withdrawn. This
+  module is the answer the ADR settled on: a lease, an intent on the row, the
+  provider outside every lock, and a compare-and-set finalize.
+
+  `Fountain.Machines.Destroy` is the same shape for the other verb, and where
+  the two agree they agree on purpose — the same lease, the same busy wait,
+  the same `Conversations.sandbox_status_effects/2` door after the finalize,
+  the same "audit after commit, outside every transaction".
+
+  ## The steps
+
+  1. Refuse an enclosing transaction. Provider I/O is never inside a lock or a
+     transaction (ADR 0058; #2309).
+  2. **Claim a lease** (`Fountain.Machines.Lease.claim/4`) for one operation.
+     A lease held by somebody else is waited on, briefly, then refused as
+     `{:error, :machine_busy}`.
+  3. **Revalidate under the lease** (#2307 constraint 1). A verdict taken
+     before the claim is stale by construction, so *every* condition the
+     caller decided on is re-read from the locked row and re-applied here:
+     the status, the two fences, the provider's capability, whether anybody
+     is on the machine, and — for a caller that supplies one — the bound its
+     verdict named. Any of them refuses, and the lease is released.
+  4. **Stamp the intent**: `transition: "parking"` by compare-and-set on the
+     lease epoch, before any provider I/O. `Machines.Machine.busy?/2` already
+     refuses a wake, an attach and the rehydrator on a live lease (stage 6a),
+     so from here until the finalize nothing starts work on this machine; the
+     stamp is what makes an *abandoned* park recognisable to the next owner.
+  5. **Checkpoint**, where the machine is a home on a provider that can
+     (`Fountain.Conversations.HomeCheckpoint.on_park/2`, ADR 0023, #1073).
+     Outside every lock, inside the transition, and best-effort: a failed
+     checkpoint is logged and the park goes ahead, because an unparked machine
+     keeps billing. Its `provider_meta` write goes through `Lease.cas_update/3`
+     under this park's epoch — it is the owner's write, made during the owner's
+     own transition.
+  6. **Suspend at the provider**, outside every transaction and every lock.
+     An error — or a raise, which is the same outcome by 5a's rule — clears the
+     transition, releases the lease and answers `{:error, :suspend_failed}`.
+     Both callers degrade to a destroy on that, which is the rule ADR 0017
+     priced: a park *call* that fails leaves the machine billing, so the cost
+     control wins over the agent's memory.
+  7. **Finalize**: `status: "suspended"` and the transition cleared, by
+     compare-and-set on the same epoch. Zero rows means a newer epoch owns the
+     machine — `{:error, :superseded}`, and the taker is the one allowed to say
+     what happened to it.
+  8. Release the lease. Then the two effects `Conversations.update_sandbox/2`
+     would have run (`sandbox_suspended` usage and the queue poke), one
+     `sandbox.suspended` audit event, and the co-tenant notice the caller
+     supplied.
+  9. `{:ok, :parked}`.
+
+  ## Takeover
+
+  A claim that finds `transition: "parking"` on a live row is looking at a park
+  whose owner died between step 4 and step 7. Unlike a destroy, this one cannot
+  simply be continued: destroying a machine twice is destroying it once, but
+  *suspending* one twice is not safe to assume, and — worse — the previous
+  owner may have suspended it already, in which case a second suspend and a
+  finalize would be right while a resume would be wrong, and nothing on the row
+  says which.
+
+  So the taker asks the machine (`Managoat.Sandbox.get/1`) and compensates from
+  the answer:
+
+    * `:suspended` — the suspend landed and only the finalize was lost. The
+      compensation *is* the finalize: write `suspended`, run the effects, audit.
+      `{:ok, :parked}`.
+    * `:running` — the suspend had not landed (or, on Sprites, never does
+      anything: its suspend is a no-op and the machine scales to zero by
+      itself). Clear the transition, leave the row `ready`, `{:ok, :recovered}`.
+      The next idle verdict parks it again, through this same protocol, from
+      the top.
+    * anything else — `:unknown`, `:not_found`, a provider error, a raise —
+      reads as running. Clearing a transition is always safe: it returns the
+      row to the state every reader already handles, and the machine is
+      re-examined on the next pass. Leaving a stale `parking` past one pass is
+      the thing that is not safe, which is why there is no fourth branch.
+
+  Never both. The taker resumes nothing: a resume is compute, and #2307
+  constraint 5 puts compute behind the account-suspension and credit gates that
+  this module does not consult. The salvage branch's compensating resume
+  (`follow/2255-reaper-liveness-lock`, round 5) existed because the claim there
+  was not a lease and a *successful* suspend could land after the claim was
+  taken over; here the finalize is a compare-and-set on the epoch, so a
+  superseded owner's suspend changes no row at all and the taker's reading of
+  the machine is the only one that writes.
+
+  `SandboxReaper.sweep_abandoned_sandboxes/0` already lists such rows — they
+  are `ready`, past a bound, with no live server — so the reaper's own idle
+  park is the takeover path, and it happens on the first pass that sees the
+  row.
+
+  ## Outcomes
+
+  `{:ok, :parked}` parked the machine. `{:ok, :already_parked}` is a row that
+  was already `suspended` — somebody else's park, or this one superseded after
+  its provider call. `{:ok, :already_terminal}` is a row that had stopped.
+  `{:ok, :recovered}` is the takeover above finding the machine still running:
+  nothing was parked, and nothing is wrong.
+
+  The `{:error, _}` shapes are the *protocol's* vocabulary — `:machine_busy`
+  (the lease), `:machine_occupied` (somebody is on the machine), `:fenced`,
+  `:cannot_park`, `:not_expired`, `:suspend_failed`, `:superseded`, and
+  whatever `Lease` hands back. They are precise on purpose and they are not the
+  vocabulary the rest of the system speaks: `Fountain.Machines.Machine.park/2`
+  is the door and translates them.
+
+  Step 1's transaction guard is process-local, so with the gate on it cannot
+  fire here — the protocol runs in the owner, which is never inside the
+  caller's transaction. `Machine.park/2` checks before it dispatches, for the
+  same reason `destroy/2` does.
+  """
+
+  alias Fountain.Audit
+  alias Fountain.Conversations
+  alias Fountain.Conversations.HomeCheckpoint
+  alias Fountain.Conversations.Lifecycle
+  alias Fountain.Conversations.MachineEvents
+  alias Fountain.Conversations.Sandbox
+  alias Fountain.Machines.Lease
+  alias Fountain.Machines.Occupancy
+  alias Fountain.Repo
+
+  require Logger
+
+  @typedoc """
+  What a park did. `:parked` ran the protocol through (or finished one whose
+  owner died after its suspend); `:already_parked` is a row that was already
+  `suspended`; `:already_terminal` a row that had stopped; `:recovered` an
+  abandoned park cleared off a machine that turned out to be still running.
+  """
+  @type outcome :: :parked | :already_parked | :already_terminal | :recovered
+
+  @typedoc "The bound a caller's verdict named, for the recheck at step 3."
+  @type verdict :: {:expired, :idle | :max_lifetime}
+
+  # How long a holder may hold the machine. Longer than `Destroy`'s minute
+  # because the work is longer: a home checkpoint is a provider round trip with
+  # `Managoat.Sandbox.Retry` backoff behind it, and the suspend follows it. It
+  # has to sit clearly *above* `Machine.park_timeout_ms/0`, the ceiling the
+  # caller gives up at — a lease that expires while its holder is still talking
+  # to the provider invites a takeover of an operation that is not abandoned,
+  # and although the compare-and-set makes that safe, it makes it safe by
+  # throwing the work away. `machine_bounds_test.exs` pins the ordering.
+  @lease_ttl_ms 120_000
+
+  # How long a *waiter* waits for that holder. `Destroy`'s number, and for the
+  # same reason: the TTL bounds the holder, this bounds the caller, and
+  # conflating them is what once made a `DELETE` hang for a minute. A park
+  # that cannot get the lease in five seconds leaves the machine to the next
+  # tick or the next sweep, both of which come round again.
+  @busy_wait_ms 5_000
+
+  # How often the wait re-asks.
+  @poll_ms 250
+
+  @terminal_statuses ~w(terminated failed)
+
+  @doc """
+  Park the machine behind `sandbox_id`.
+
+  Options:
+
+    * `:actor` (required) — the audit actor for `sandbox.suspended`, from
+      ADR 0013's vocabulary. The two callers pass
+      `"system:conversation_server"` and `"system:sandbox_reaper"`.
+    * `:reason` (required, an atom) — `:idle` or `:max_lifetime`, the bound
+      that decided on this park. Becomes `transition_reason` on the row and
+      `"reason"` in the audit metadata.
+    * `:requesting_conversation_id` — the caller's own conversation. Supplying
+      it says "I am a server bound to this machine", and it chooses the
+      occupancy rule at step 3 as well as excluding the caller from it: see
+      `occupancy_and_clock/2`. The reaper omits it, which is what makes *any*
+      live server refuse its park.
+    * `:verdict` — `{:expired, :idle | :max_lifetime}`, the reading the caller
+      acted on, re-applied under the lease at step 3. See `still_expired?/3`
+      for what it does and why only one caller supplies one.
+    * `:notify` — `{conversation_id, event, reason, message}`, the notice to
+      cast to the machine's other conversations once it is parked. The server
+      supplies the "suspended" notice it has always sent; the reaper supplies
+      none, as it never has.
+    * `:request_ip` — attribution, passed to the audit event.
+    * `:lease_ttl_ms` / `:busy_wait_ms` — the two bounds above. Tests shorten
+      them; no call site does.
+  """
+  @spec run(Ecto.UUID.t(), keyword()) :: {:ok, outcome()} | {:error, term()}
+  def run(sandbox_id, opts) when is_binary(sandbox_id) and is_list(opts) do
+    opts = validated(opts)
+
+    if Repo.in_transaction?() do
+      {:error, :transaction_open}
+    else
+      claim_and_park(sandbox_id, opts)
+    end
+  end
+
+  @doc """
+  How long `run/2` waits for a lease somebody else holds before refusing.
+
+  Public so `machine_bounds_test.exs` can pin it against the two bounds it has
+  to sit between, rather than against a number a test passed in itself.
+  """
+  @spec busy_wait_ms() :: pos_integer()
+  def busy_wait_ms, do: @busy_wait_ms
+
+  @doc "How long one park's lease lives. See `busy_wait_ms/0`."
+  @spec lease_ttl_ms() :: pos_integer()
+  def lease_ttl_ms, do: @lease_ttl_ms
+
+  # The two required options, checked before anything is claimed or written,
+  # and raised on rather than answered: both are caller bugs. Same rule, and
+  # the same two words, as `Machines.Destroy.validated/1`.
+  defp validated(opts) do
+    _actor = Keyword.fetch!(opts, :actor)
+
+    case Keyword.fetch!(opts, :reason) do
+      reason when reason in [:idle, :max_lifetime] ->
+        :ok
+
+      other ->
+        raise ArgumentError,
+              "Machines.Park: :reason must be :idle or :max_lifetime, got #{inspect(other)}"
+    end
+
+    case Keyword.get(opts, :verdict) do
+      nil -> :ok
+      {:expired, bound} when bound in [:idle, :max_lifetime] -> :ok
+      other -> raise ArgumentError, "Machines.Park: bad :verdict #{inspect(other)}"
+    end
+
+    opts
+  end
+
+  # ── the lease around one operation ────────────────────────────────────────
+
+  defp claim_and_park(sandbox_id, opts) do
+    ttl_ms = Keyword.get(opts, :lease_ttl_ms, @lease_ttl_ms)
+
+    deadline =
+      System.monotonic_time(:millisecond) + Keyword.get(opts, :busy_wait_ms, @busy_wait_ms)
+
+    case claim(sandbox_id, ttl_ms, deadline) do
+      {:ok, epoch} ->
+        try do
+          under_lease(sandbox_id, epoch, opts)
+        after
+          # `after`, not a plain next statement: a provider adapter that raises
+          # unwinds through here, and a lease left held would keep this machine
+          # unclaimable for its whole TTL — two minutes in which the next wake
+          # of it answers 503. Releasing keeps the epoch, so it is safe on
+          # every path, including one already superseded.
+          _ = Lease.release(sandbox_id, epoch)
+        end
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  # A lease somebody else holds is waited out rather than refused outright: a
+  # reaper pass and a server's idle tick arriving on one machine together is
+  # the ordinary case, and the second one wants the first one's answer.
+  #
+  # `:sandbox_unavailable` is waited out the same way, and that is the point of
+  # it: since stage 6b `Conversations.with_sandbox_lock/2` sets a
+  # `lock_timeout`, so a claim that would once have blocked on advisory lock
+  # 4316 comes back with that word instead. Out of `Lease.claim/4` it can mean
+  # nothing else, and what it means is "somebody is holding the lock right
+  # now" — the condition this loop exists for. Refusing on it would turn a
+  # moment's contention into a failed park.
+  defp claim(sandbox_id, ttl_ms, deadline) do
+    case Lease.claim(sandbox_id, node_name(), ttl_ms) do
+      {:ok, epoch} ->
+        {:ok, epoch}
+
+      {:error, {:held, holder, until}} ->
+        retry_or_refuse(sandbox_id, ttl_ms, deadline, "lease held by #{holder} until #{until}")
+
+      {:error, :sandbox_unavailable} ->
+        retry_or_refuse(sandbox_id, ttl_ms, deadline, "the sandbox lock is held")
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  defp retry_or_refuse(sandbox_id, ttl_ms, deadline, why) do
+    if System.monotonic_time(:millisecond) + @poll_ms < deadline do
+      Process.sleep(@poll_ms)
+      claim(sandbox_id, ttl_ms, deadline)
+    else
+      Logger.warning("machine #{sandbox_id}: park refused, #{why}")
+      {:error, :machine_busy}
+    end
+  end
+
+  defp node_name, do: to_string(node())
+
+  # ── the protocol ──────────────────────────────────────────────────────────
+
+  defp under_lease(sandbox_id, epoch, opts) do
+    case Conversations._unsafe_get_sandbox(sandbox_id) do
+      nil ->
+        {:error, :not_found}
+
+      # A park that finished, or a machine somebody else stopped, still wearing
+      # the stamp. Checked before the takeover clause for the same reason
+      # `Destroy` checks it first: continuing from a settled row would call the
+      # provider again and record a second event for something already done.
+      %Sandbox{transition: "parking", status: status} = settled
+      when status in @terminal_statuses ->
+        clear_transition(settled, epoch)
+        {:ok, :already_terminal}
+
+      %Sandbox{transition: "parking", status: "suspended"} = settled ->
+        clear_transition(settled, epoch)
+        {:ok, :already_parked}
+
+      # Step 4 landed and step 7 did not. This lease is the takeover.
+      %Sandbox{transition: "parking"} = interrupted ->
+        take_over(interrupted, epoch, opts)
+
+      # Somebody else's abandoned operation — a destroy or a reset that died
+      # mid-flight. Its own protocol takes it over (`Destroy`'s continuation
+      # clause, the reset reconciler); a park must not write over the intent,
+      # and the fence that accompanies it would refuse below in any case. Named
+      # here so the refusal says which state it saw.
+      %Sandbox{transition: other} = sandbox when not is_nil(other) ->
+        Logger.info("machine #{sandbox.id}: park refused, another owner left #{other} on the row")
+
+        {:error, :fenced}
+
+      %Sandbox{} = sandbox ->
+        with :ok <- admissible(sandbox, opts) do
+          stamp_then_park(sandbox, epoch, opts)
+        end
+    end
+  end
+
+  # Step 3. Every condition the caller decided on, re-read under the lease, in
+  # the order that makes the answer most useful: what the row *is*, then what
+  # has been asked of it, then what the provider can do, then who is on it,
+  # then the clock.
+  defp admissible(%Sandbox{status: status}, _opts) when status in @terminal_statuses,
+    do: {:ok, :already_terminal}
+
+  defp admissible(%Sandbox{status: "suspended"}, _opts), do: {:ok, :already_parked}
+
+  defp admissible(%Sandbox{} = sandbox, opts) do
+    cond do
+      # Both fences, where `park_row/1` on `main` checked only the reset one.
+      # A machine whose teardown has been requested is on its way out: parking
+      # it would write a live status over a row `sweep_fenced_teardowns/0` is
+      # about to finish, and re-reserve at the provider a machine somebody
+      # asked to be destroyed.
+      not is_nil(sandbox.reset_requested_at) or not is_nil(sandbox.teardown_requested_at) ->
+        {:error, :fenced}
+
+      Lifecycle.idle_action(Conversations.sandbox_provider_atom(sandbox)) == :destroy ->
+        {:error, :cannot_park}
+
+      true ->
+        occupancy_and_clock(sandbox, opts)
+    end
+  end
+
+  # Who is on the machine, and is it still past a bound — the two questions the
+  # caller answered before it claimed, asked again where the answer can be
+  # acted on.
+  #
+  # **Two of them are unconditional.** A turn running anywhere on the machine
+  # means the machine is in use whoever is asking (the ADR's "refused while any
+  # turn is admitted"). A `woken_at` inside its grace window means a wake
+  # committed the durable marker under the sandbox lock and Horde's CRDT has
+  # not published its server yet, so "no live server" is not evidence of
+  # absence (stage 6a, #2307 constraint 4).
+  #
+  # **The third depends on whom the caller speaks for**, and the two policies
+  # here are the two that exist on `main`, kept apart on purpose.
+  #
+  #   * A caller with a `requesting_conversation_id` is a conversation server
+  #     bound to this machine, and its question is ADR 0023 step 5's: is any
+  #     *other* conversation active inside the idle window? A co-tenant whose
+  #     server is live but idle is not activity — that is the whole reason
+  #     `notify` exists, and refusing on it would mean two idle conversations
+  #     on one home could never park it, each vetoing the other, until both
+  #     servers died and the reaper did it. The busiest production machine
+  #     carries 36 (ADR 0023).
+  #   * A caller with none is a sweep, acting on nobody's behalf, and *any*
+  #     live `ConversationServer` refuses it. That is the reaper's rule
+  #     unchanged: its idle pass exists for machines with nothing watching
+  #     them, and a machine with a server has one enforcing its own bounds.
+  #
+  # **The clock is the caller's verdict, re-run.** See `still_expired?/3`.
+  defp occupancy_and_clock(%Sandbox{} = sandbox, opts) do
+    occupancy = Occupancy.load(sandbox)
+
+    cond do
+      Occupancy.any_running_turn?(occupancy) ->
+        {:error, :machine_occupied}
+
+      Occupancy.recently_woken?(sandbox) ->
+        {:error, :machine_occupied}
+
+      held_by_somebody_else?(occupancy, Keyword.get(opts, :requesting_conversation_id)) ->
+        {:error, :machine_occupied}
+
+      still_expired?(sandbox, occupancy, Keyword.get(opts, :verdict)) ->
+        :ok
+
+      true ->
+        {:error, :not_expired}
+    end
+  end
+
+  defp held_by_somebody_else?(%Occupancy{} = occupancy, nil),
+    do: Occupancy.any_live?(occupancy)
+
+  defp held_by_somebody_else?(%Occupancy{} = occupancy, requester),
+    do: Occupancy.busy_elsewhere?(occupancy, requester, Lifecycle.idle_timeout_seconds())
+
+  @doc """
+  Is the machine still past a lifetime bound, given the verdict its caller
+  acted on?
+
+  `nil` — no verdict — is always true, and that is a decision rather than an
+  omission. Of the two callers only one carries a verdict that can go stale:
+  `SandboxReaper` scans a page of `ready` rows, folds each one's activity, and
+  then parks them one at a time, so by the time a park at the end of the list
+  claims its lease its reading is minutes old and a wake may have landed in
+  between. That is #2307 constraint 1 in the shape it was first found in, and
+  the salvage branch's "admission wins the lock" cases are about exactly it.
+
+  A conversation server decides on its own tick and asks in the same breath,
+  and what could invalidate that decision in between — a co-tenant starting a
+  turn, a wake registering a server — is the liveness half above, which it gets
+  unconditionally. Re-deriving its verdict here from the machine-wide fold
+  would also be a different question from the one it asked: its own
+  `last_activity_at` moves on requests that insert no turn row.
+
+  When a verdict *is* supplied, the recheck asks whether the machine is still
+  past **some** bound, not the same one. A reaper that decided `:max_lifetime`
+  on a row now merely idle still parks it — the machine is expired either way,
+  and `transition_reason` records what the caller decided. What it refuses is a
+  machine that is past nothing at all, which is what a wake landing between the
+  scan and the claim leaves behind.
+  """
+  @spec still_expired?(Sandbox.t(), Occupancy.t(), verdict() | nil) :: boolean()
+  def still_expired?(sandbox, occupancy, verdict)
+
+  def still_expired?(_sandbox, _occupancy, nil), do: true
+
+  def still_expired?(%Sandbox{} = sandbox, %Occupancy{} = occupancy, {:expired, _bound}) do
+    last_activity_at = Occupancy.last_activity_at(occupancy) || sandbox.inserted_at
+
+    match?(
+      {:expired, _},
+      Lifecycle.check(Lifecycle.clock_start(sandbox), last_activity_at, false)
+    )
+  end
+
+  defp stamp_then_park(sandbox, epoch, opts) do
+    case Lease.cas_update(sandbox.id, epoch,
+           transition: "parking",
+           transition_reason: to_string(Keyword.fetch!(opts, :reason))
+         ) do
+      {:ok, %Sandbox{} = marked} -> checkpoint_and_suspend(marked, epoch, opts)
+      {:error, :stale} -> {:error, :superseded}
+      {:error, :retired} -> {:ok, :already_terminal}
+      {:error, _} = error -> error
+    end
+  end
+
+  # Steps 5 and 6, both outside every lock and every transaction, with the
+  # intent already on the row.
+  defp checkpoint_and_suspend(%Sandbox{} = sandbox, epoch, opts) do
+    # Best effort and deliberately not matched on: a home that could not be
+    # checkpointed still has to be parked, because an unparked machine keeps
+    # billing (`HomeCheckpoint`'s moduledoc). It reports its own failure to the
+    # transcript and the log.
+    _ = HomeCheckpoint.on_park(sandbox, epoch)
+
+    case suspend_at_provider(sandbox) do
+      :ok ->
+        finalize(sandbox, epoch, opts)
+
+      {:error, reason} ->
+        Logger.warning(
+          "machine #{sandbox.id}: provider suspend failed for #{sandbox.machine_name} " <>
+            "on #{sandbox.provider}: #{inspect(reason)}"
+        )
+
+        # The transition comes off before the answer goes back, so the machine
+        # is left exactly as it was found: `ready`, unfenced, claimable. The
+        # caller degrades to a destroy from here and that destroy takes its own
+        # lease, which this one is about to release.
+        clear_transition(sandbox, epoch)
+        {:error, :suspend_failed}
+    end
+  end
+
+  # There is no "no machine to call" case: `machine_name` is `NOT NULL` and
+  # required by `Sandbox.changeset/2`, so a row that exists names a machine.
+  # `main`'s `Lifecycle.suspend/1` had a `nil` clause because it was handed the
+  # *server's* handle, which a server without one passes as `nil`; the owner
+  # reads the machine off the row and never has that problem.
+  defp suspend_at_provider(%Sandbox{} = sandbox) do
+    Conversations.sandbox_provider_atom(sandbox)
+    |> Managoat.Sandbox.build_handle(sandbox.machine_name)
+    |> Managoat.Sandbox.suspend()
+  rescue
+    # An adapter that raises rather than answering is the same outcome as one
+    # that returns an error — this machine was not parked — so it is treated
+    # the same and logged in full (5a's rule, `Destroy.destroy_at_provider/2`).
+    # The difference from a destroy is what follows: a destroy finalizes anyway
+    # because a fenced row must not be stranded, while a park that did not
+    # happen must not be written down as one.
+    error ->
+      {:error, Exception.format(:error, error, __STACKTRACE__)}
+  end
+
+  defp finalize(%Sandbox{} = sandbox, epoch, opts) do
+    case Lease.cas_update(sandbox.id, epoch,
+           status: "suspended",
+           transition: nil,
+           transition_reason: nil
+         ) do
+      {:ok, %Sandbox{} = parked} ->
+        # The two effects `update_sandbox/2` would have run — the
+        # `sandbox_suspended` usage row a bill is reconciled against, and the
+        # queue poke that turns a freed slot into a drain. After the write
+        # commits, outside every transaction, with the status the row carried
+        # *going into* the finalize (#2309).
+        Conversations.sandbox_status_effects(parked, sandbox.status)
+
+        audit(parked, opts)
+        notify_cotenants(parked, opts)
+        {:ok, :parked}
+
+      {:error, :stale} ->
+        # A newer epoch owns this machine. The suspend above may well have
+        # landed; the taker reads the machine's true state and is the one
+        # allowed to say what happened to it. The caller is told the machine is
+        # parked or parking, which is what `:superseded` means at the door.
+        Logger.warning("machine #{sandbox.id}: park superseded before its finalize")
+        {:error, :superseded}
+
+      {:error, :retired} ->
+        {:ok, :already_terminal}
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  # ── takeover ──────────────────────────────────────────────────────────────
+
+  defp take_over(%Sandbox{} = sandbox, epoch, opts) do
+    Logger.info(
+      "machine #{sandbox.id}: taking over an abandoned park " <>
+        "(#{sandbox.transition_reason || "no reason"}) at epoch #{epoch}"
+    )
+
+    case machine_state(sandbox) do
+      :suspended ->
+        # The suspend landed and the finalize was lost. Finishing it *is* the
+        # compensation. The audit and the effects run here and not in the dead
+        # owner, which is the only place they can run: it is gone.
+        finalize(sandbox, epoch, opts)
+
+      :running ->
+        clear_transition(sandbox, epoch)
+        {:ok, :recovered}
+    end
+  end
+
+  # What the machine says about itself, folded to the only two answers a
+  # takeover can act on.
+  #
+  # `:unknown` and every error — including `:not_found`, which E2B answers for
+  # a machine that is gone — fold to `:running`, because the safe compensation
+  # is the one that writes the least: clearing the transition leaves a `ready`
+  # row, which is the state every reader already handles, and the next pass
+  # looks again. Writing `suspended` on a guess would hide a machine that is
+  # still up and billing behind a status no sweep examines (decisions/0017).
+  #
+  # Sprites is worth naming: its `suspend/1` is a no-op — the sprite scales to
+  # zero by itself — so its `get/1` answers `:running` for a machine a park had
+  # "suspended", and a Sprites takeover therefore always clears. That is right:
+  # on Sprites the park is a row write and nothing at the provider was left
+  # half-done.
+  defp machine_state(%Sandbox{} = sandbox) do
+    handle =
+      Conversations.sandbox_provider_atom(sandbox)
+      |> Managoat.Sandbox.build_handle(sandbox.machine_name)
+
+    case Managoat.Sandbox.get(handle) do
+      {:ok, %{status: :suspended}} ->
+        :suspended
+
+      {:ok, %{status: status}} ->
+        Logger.info("machine #{sandbox.id}: provider reports #{status}; recovering to ready")
+        :running
+
+      {:error, reason} ->
+        Logger.warning(
+          "machine #{sandbox.id}: provider could not say whether #{sandbox.machine_name} " <>
+            "is parked (#{inspect(reason)}); recovering to ready"
+        )
+
+        :running
+    end
+  rescue
+    error ->
+      Logger.warning(
+        "machine #{sandbox.id}: provider raised while probing #{sandbox.machine_name}: " <>
+          Exception.format(:error, error, __STACKTRACE__)
+      )
+
+      :running
+  end
+
+  # Clearing the stamp is what makes the column mean something again: while it
+  # is set on a row nobody is working on, "is this machine mid-park?" cannot be
+  # answered from the row, which is the column's only job. A status-free write
+  # is not a revival, so `Lease.refuse_revival/2` lets it through even on a
+  # terminal row. A refusal here belongs to whoever superseded us and is logged
+  # rather than returned: the caller's answer does not depend on it.
+  defp clear_transition(%Sandbox{} = sandbox, epoch) do
+    case Lease.cas_update(sandbox.id, epoch, transition: nil, transition_reason: nil) do
+      {:ok, _cleared} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning(
+          "machine #{sandbox.id}: could not clear a parking stamp (#{inspect(reason)})"
+        )
+    end
+
+    :ok
+  end
+
+  # ── after the finalize ────────────────────────────────────────────────────
+
+  # One `sandbox.suspended` event for both paths, and that is a change: on
+  # `main` the reaper recorded one (`record_reap/3`) and the conversation
+  # server's park recorded nothing at all, so the same thing happening to the
+  # same machine was in the tenant's trail or not depending on which process
+  # noticed first. It is recorded here, after the finalize commits and outside
+  # every transaction, carrying the actor the caller supplied (ADR 0013).
+  #
+  # A row with no `user_id` records nothing, the #2329 trap: an audit row with
+  # no tenant would say nothing an admin view does not already show. A park is
+  # not a path account deletion takes, so there is no `audit: false` here to go
+  # with `Destroy`'s.
+  defp audit(%Sandbox{user_id: nil}, _opts), do: :ok
+
+  defp audit(%Sandbox{} = sandbox, opts) do
+    Audit.record(%{
+      user_id: sandbox.user_id,
+      action: "sandbox.suspended",
+      resource_type: "sandbox",
+      resource_id: sandbox.id,
+      actor: Lifecycle.teardown_actor(Keyword.fetch!(opts, :actor)),
+      request_ip: Keyword.get(opts, :request_ip),
+      metadata: %{
+        "reason" => to_string(Keyword.fetch!(opts, :reason)),
+        "provider" => sandbox.provider,
+        "sprite_name" => sandbox.machine_name
+      }
+    })
+
+    :ok
+  end
+
+  # The machine is parked, so every other conversation on it has lost its
+  # handle. Only a caller that knows what to say says it — the wording is the
+  # caller's — and the reaper, which has no conversation of its own and never
+  # notified before ADR 0058, still does not.
+  defp notify_cotenants(%Sandbox{} = sandbox, opts) do
+    case Keyword.get(opts, :notify) do
+      nil ->
+        :ok
+
+      {conversation_id, event, reason, message} ->
+        sandbox.id
+        |> Conversations._unsafe_list_cotenant_ids(conversation_id)
+        |> MachineEvents.tell_cotenants(sandbox.id, event, reason, message)
+    end
+  end
+end

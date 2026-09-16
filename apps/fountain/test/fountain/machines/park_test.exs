@@ -1,0 +1,948 @@
+defmodule Fountain.Machines.ParkTest do
+  @moduledoc """
+  The one park protocol (ADR 0058 stage 6b; closes #2307).
+
+  What these pin is the *order* — the lease, the recheck under it, the intent,
+  the checkpoint, the provider, the finalize, the trail — and what each step
+  does when the world moved under it. The two call sites keep their own suites
+  (`lifecycle_actions_test.exs`, `conversation_server_lifetime_test.exs`,
+  `sandbox_reaper_test.exs`, `sandbox_reaper_park_test.exs`); this file is the
+  protocol on its own.
+
+  `async: false`: the gate is application environment, and the gate-on cases
+  run the protocol inside an owner process that needs the shared sandbox
+  connection.
+  """
+
+  use Fountain.DataCase, async: false
+  use Mimic
+
+  import ExUnit.CaptureLog
+
+  alias Fountain.Audit
+  alias Fountain.Conversations
+  alias Fountain.Conversations.ConversationServer
+  alias Fountain.Conversations.Sandbox
+  alias Fountain.Machines.Destroy
+  alias Fountain.Machines.Lease
+  alias Fountain.Machines.Machine
+  alias Fountain.Machines.Occupancy
+  alias Fountain.Machines.Park
+  alias Fountain.Workers.SandboxReaper
+  alias Managoat.Sandbox.Handle
+
+  setup do
+    user = insert_verified_user()
+    agent = insert_agent(user_id: user.id)
+    sandbox = insert_sandbox(user_id: user.id, agent_id: agent.id, status: "ready")
+    conv = insert_conversation(user_id: user.id, agent: agent, sandbox: sandbox, status: "idle")
+
+    on_exit(fn -> stop_machine(sandbox.id) end)
+
+    {:ok, user: user, agent: agent, sandbox: sandbox, conv: conv}
+  end
+
+  defp opts(extra \\ []) do
+    Keyword.merge([actor: "system:sandbox_reaper", reason: :idle], extra)
+  end
+
+  defp row(ctx), do: Repo.reload!(ctx.sandbox)
+
+  defp events(ctx, action), do: Audit.list_for_user(ctx.user.id, action_prefix: action)
+
+  defp usage_events(ctx) do
+    Repo.all(
+      from e in Fountain.Billing.UsageEvent,
+        where: e.resource_id == ^ctx.sandbox.id,
+        select: e.event_type,
+        order_by: e.id
+    )
+  end
+
+  # Released, with the epoch kept: epochs are monotonic and never reused.
+  defp assert_lease_released(sandbox) do
+    assert is_nil(sandbox.lease_node),
+           "the lease was not released; this machine is unclaimable until it expires"
+
+    assert is_nil(sandbox.lease_until)
+  end
+
+  defp stop_machine(sandbox_id) do
+    case Machine.whereis(sandbox_id) do
+      nil ->
+        :ok
+
+      pid ->
+        ref = Process.monitor(pid)
+        Horde.DynamicSupervisor.terminate_child(Fountain.MachineSupervisor, pid)
+
+        receive do
+          {:DOWN, ^ref, :process, ^pid, _} -> :ok
+        after
+          2_000 -> Process.demonitor(ref, [:flush])
+        end
+    end
+  end
+
+  defp with_lock_timeout(ms, fun) do
+    previous = Application.fetch_env(:fountain, :sandbox_lock_timeout_ms)
+    Application.put_env(:fountain, :sandbox_lock_timeout_ms, ms)
+
+    try do
+      fun.()
+    after
+      case previous do
+        {:ok, was} -> Application.put_env(:fountain, :sandbox_lock_timeout_ms, was)
+        :error -> Application.delete_env(:fountain, :sandbox_lock_timeout_ms)
+      end
+    end
+  end
+
+  defp with_gate(value, fun) do
+    previous = Application.fetch_env(:fountain, :machine_owner_enabled)
+    Application.put_env(:fountain, :machine_owner_enabled, value)
+
+    try do
+      fun.()
+    after
+      case previous do
+        {:ok, was} -> Application.put_env(:fountain, :machine_owner_enabled, was)
+        :error -> Application.delete_env(:fountain, :machine_owner_enabled)
+      end
+    end
+  end
+
+  # The row a park leaves when its owner dies between the intent and the
+  # finalize: live, stamped `parking`, lease held by a node that is not coming
+  # back. Forged rather than produced, because producing it means killing a
+  # process mid-provider-call and the thing under test is what the *next* owner
+  # does with what is left.
+  defp abandon_mid_park(ctx, overrides \\ []) do
+    Repo.update_all(
+      from(s in Sandbox, where: s.id == ^ctx.sandbox.id),
+      set:
+        Keyword.merge(
+          [
+            lease_epoch: 1,
+            lease_node: "dead-pod@node",
+            lease_until: DateTime.add(DateTime.utc_now(), -60, :second),
+            transition: "parking",
+            transition_reason: "idle"
+          ],
+          overrides
+        )
+    )
+
+    :ok
+  end
+
+  # A co-tenant that has been quiet longer than the idle bound. A conversation
+  # with no turns is judged by its own `updated_at`, which is *now* for a row a
+  # test just inserted, so without this every co-tenant would read as active
+  # and the cases below would be about the clock rather than about who is
+  # watching the machine.
+  defp quiet_cotenant(ctx) do
+    other = insert_conversation(user_id: ctx.user.id, sandbox_id: ctx.sandbox.id, status: "idle")
+
+    long_ago =
+      DateTime.utc_now() |> DateTime.add(-2 * 60 * 60, :second) |> DateTime.truncate(:second)
+
+    Repo.update_all(
+      from(c in Fountain.Conversations.Conversation, where: c.id == ^other.id),
+      set: [updated_at: long_ago, inserted_at: long_ago]
+    )
+
+    other
+  end
+
+  # A plain process standing in for a co-tenant's server: `whereis/1` only asks
+  # the registry, and a cast is a message. Same shape as `destroy_test.exs`.
+  defp stand_in_server(conversation_id) do
+    test = self()
+
+    pid =
+      start_supervised!(
+        {Task,
+         fn ->
+           {:ok, _} = Horde.Registry.register(Fountain.ConversationRegistry, conversation_id, nil)
+           receive do: (msg -> send(test, {:cotenant, msg}))
+         end},
+        id: {:stand_in, conversation_id}
+      )
+
+    assert {:ok, ^pid} = ConversationServer.await_registered(conversation_id, 2_000)
+    pid
+  end
+
+  describe "the happy path" do
+    test "stamps the intent, checkpoints, suspends, finalizes, audits, in that order", ctx do
+      {:ok, home} = Conversations.update_sandbox(ctx.sandbox, %{mode: "persistent"})
+      test = self()
+      machine_name = home.machine_name
+
+      stub(Managoat.Sandbox, :supports?, fn :sprites, cap -> cap in [:suspend, :checkpoint] end)
+      stub(Managoat.Sandbox, :create_checkpoint, fn _handle, _opts -> {:ok, "v3"} end)
+
+      expect(Managoat.Sandbox, :suspend, fn %Handle{provider: :sprites, name: ^machine_name} ->
+        # Everything before step 6, read from the row the way another node
+        # would read it: no transaction, no lock, no struct we brought.
+        refute Repo.in_transaction?()
+        send(test, {:mid_park, Repo.reload!(home)})
+        :ok
+      end)
+
+      assert {:ok, :parked} =
+               Park.run(home.id, opts(actor: "system:conversation_server", reason: :idle))
+
+      assert_received {:mid_park, mid}
+      assert mid.transition == "parking", "the intent was not on the row before the suspend"
+      assert mid.transition_reason == "idle"
+      assert mid.status == "ready", "the row said suspended before the machine was"
+      assert mid.lease_node == to_string(node())
+      assert mid.lease_epoch == 1
+
+      assert mid.provider_meta["checkpoint_id"] == "v3",
+             "the checkpoint was not taken inside the transition"
+
+      final = row(ctx)
+      assert final.status == "suspended"
+      refute final.terminated_at
+      assert is_nil(final.transition)
+      assert is_nil(final.transition_reason)
+      assert final.lease_epoch == 1
+      assert_lease_released(final)
+
+      assert [suspended] = events(ctx, "sandbox.suspended")
+      assert suspended.actor == "system:conversation_server"
+      assert suspended.resource_type == "sandbox"
+      assert suspended.resource_id == home.id
+
+      assert suspended.metadata == %{
+               "reason" => "idle",
+               "provider" => "sprites",
+               "sprite_name" => machine_name
+             }
+    end
+
+    test "the ceiling's park records the bound it was", ctx do
+      stub(Managoat.Sandbox, :suspend, fn _ -> :ok end)
+
+      assert {:ok, :parked} = Park.run(ctx.sandbox.id, opts(reason: :max_lifetime))
+      assert [event] = events(ctx, "sandbox.suspended")
+      assert event.metadata["reason"] == "max_lifetime"
+      assert event.actor == "system:sandbox_reaper"
+    end
+
+    test "the audit is written after the finalize commits, never before", ctx do
+      test = self()
+      stub(Managoat.Sandbox, :suspend, fn _ -> :ok end)
+
+      stub(Audit, :record, fn attrs ->
+        if attrs[:action] == "sandbox.suspended" do
+          refute Repo.in_transaction?()
+          send(test, {:at_audit, Repo.reload!(ctx.sandbox)})
+        end
+
+        Mimic.call_original(Audit, :record, [attrs])
+      end)
+
+      assert {:ok, :parked} = Park.run(ctx.sandbox.id, opts())
+
+      assert_received {:at_audit, at_audit}
+      assert at_audit.status == "suspended"
+      assert is_nil(at_audit.transition)
+    end
+
+    test "an ephemeral machine is parked without a checkpoint", ctx do
+      stub(Managoat.Sandbox, :supports?, fn :sprites, cap -> cap in [:suspend, :checkpoint] end)
+      stub(Managoat.Sandbox, :suspend, fn _ -> :ok end)
+      reject(&Managoat.Sandbox.create_checkpoint/2)
+
+      assert {:ok, :parked} = Park.run(ctx.sandbox.id, opts())
+      assert row(ctx).provider_meta == %{}
+    end
+
+    test "a checkpoint the provider refuses does not stop the park", ctx do
+      # `HomeCheckpoint`'s own rule, asserted from the protocol's side: an
+      # unparked machine keeps billing, so a home that could not be
+      # checkpointed is parked anyway.
+      {:ok, home} = Conversations.update_sandbox(ctx.sandbox, %{mode: "persistent"})
+      stub(Managoat.Sandbox, :supports?, fn :sprites, cap -> cap in [:suspend, :checkpoint] end)
+      stub(Managoat.Sandbox, :create_checkpoint, fn _h, _o -> {:error, :nope} end)
+      stub(Managoat.Sandbox, :suspend, fn _ -> :ok end)
+
+      capture_log(fn -> assert {:ok, :parked} = Park.run(home.id, opts()) end)
+      assert row(ctx).status == "suspended"
+    end
+  end
+
+  describe "the effects the row write owes" do
+    # `Conversations.update_sandbox/2` runs `record_sandbox_usage/2` and the
+    # queue poke after its own transaction, and both parks went through it on
+    # `main`. The finalize is a guarded `update_all` and runs neither, so the
+    # protocol calls `sandbox_status_effects/2` itself. Losing them is
+    # invisible until a provider bill is reconciled against a usage row that is
+    # not there, or a tenant at their cap waits for the five-minute cron
+    # (`destroy_effects_test.exs` says the same thing for the other verb).
+    setup ctx do
+      {:ok, _request} =
+        Fountain.SandboxQueue.enqueue(%{
+          user_id: ctx.user.id,
+          agent_id: ctx.agent.id,
+          kind: "start",
+          attrs: %{"prompt" => "queued work"}
+        })
+
+      :ok
+    end
+
+    test "a park records the usage row and pokes the queue, once", ctx do
+      stub(Managoat.Sandbox, :suspend, fn _ -> :ok end)
+
+      assert {:ok, :parked} = Park.run(ctx.sandbox.id, opts())
+
+      assert usage_events(ctx) == ["sandbox_suspended"],
+             "no sandbox_suspended usage row — the interval a provider bill is " <>
+               "reconciled against has no end"
+
+      assert all_enqueued(worker: Fountain.Workers.SandboxQueueDrainer) != [],
+             "the sandbox queue was not poked; this tenant's freed slot waits for the cron"
+    end
+
+    test "a machine that was already parked is not counted twice", ctx do
+      {:ok, _} = Conversations.update_sandbox(ctx.sandbox, %{status: "suspended"})
+      before = usage_events(ctx)
+      assert before == ["sandbox_suspended"]
+
+      assert {:ok, :already_parked} = Park.run(ctx.sandbox.id, opts())
+      assert usage_events(ctx) == before
+    end
+
+    test "a park that did not happen records no usage", ctx do
+      expect(Managoat.Sandbox, :suspend, fn _ -> {:error, :nope} end)
+
+      capture_log(fn -> assert {:error, :suspend_failed} = Park.run(ctx.sandbox.id, opts()) end)
+      assert usage_events(ctx) == []
+    end
+  end
+
+  describe "the co-tenant notice" do
+    test "reaches every other live server on the machine when the caller supplies one", ctx do
+      other = quiet_cotenant(ctx)
+      stand_in_server(other.id)
+      stub(Managoat.Sandbox, :suspend, fn _ -> :ok end)
+
+      assert {:ok, :parked} =
+               Park.run(
+                 ctx.sandbox.id,
+                 opts(
+                   requesting_conversation_id: ctx.conv.id,
+                   notify: {ctx.conv.id, "suspended", "idle", "why"}
+                 )
+               )
+
+      sandbox_id = ctx.sandbox.id
+
+      assert_receive {:cotenant,
+                      {:"$gen_cast", {:machine_gone, ^sandbox_id, "suspended", "idle", "why"}}}
+    end
+
+    test "a co-tenant with no live server is not an error", ctx do
+      _other = quiet_cotenant(ctx)
+      stub(Managoat.Sandbox, :suspend, fn _ -> :ok end)
+
+      assert {:ok, :parked} =
+               Park.run(
+                 ctx.sandbox.id,
+                 opts(notify: {ctx.conv.id, "suspended", "idle", "why"})
+               )
+    end
+
+    test "a caller with nothing to say sends nothing", ctx do
+      other = quiet_cotenant(ctx)
+      stand_in_server(other.id)
+      stub(Managoat.Sandbox, :suspend, fn _ -> :ok end)
+
+      assert {:ok, :parked} =
+               Park.run(ctx.sandbox.id, opts(requesting_conversation_id: ctx.conv.id))
+
+      refute_receive {:cotenant, _}, 200
+    end
+  end
+
+  # Each refusal below rejects the provider call as well as asserting the
+  # answer: the point of the recheck is that it happens before any machine is
+  # touched.
+  describe "the recheck under the lease" do
+    test "a machine that is already parked", ctx do
+      reject(&Managoat.Sandbox.suspend/1)
+      {:ok, _} = Conversations.update_sandbox(ctx.sandbox, %{status: "suspended"})
+
+      assert {:ok, :already_parked} = Park.run(ctx.sandbox.id, opts())
+      assert_lease_released(row(ctx))
+    end
+
+    for terminal <- ["terminated", "failed"] do
+      test "a machine that has stopped (#{terminal})", ctx do
+        reject(&Managoat.Sandbox.suspend/1)
+        {:ok, _} = Conversations.update_sandbox(ctx.sandbox, %{status: unquote(terminal)})
+
+        assert {:ok, :already_terminal} = Park.run(ctx.sandbox.id, opts())
+        assert row(ctx).status == unquote(terminal)
+        assert_lease_released(row(ctx))
+      end
+    end
+
+    test "a machine whose reset is unconfirmed", ctx do
+      reject(&Managoat.Sandbox.suspend/1)
+      # `main`'s `park_row/1` checked this one, and it is the reason it did:
+      # the disk is meant to be gone, and parking would re-reserve it.
+      Repo.update_all(from(s in Sandbox, where: s.id == ^ctx.sandbox.id),
+        set: [reset_requested_at: DateTime.utc_now()]
+      )
+
+      assert {:error, :fenced} = Park.run(ctx.sandbox.id, opts())
+      assert row(ctx).status == "ready"
+      assert_lease_released(row(ctx))
+    end
+
+    test "a machine whose teardown has been asked for", ctx do
+      reject(&Managoat.Sandbox.suspend/1)
+      # `main`'s `park_row/1` did **not** check this one, and would have parked
+      # a machine somebody had asked to be destroyed — writing a live status
+      # over a row `sweep_fenced_teardowns/0` is about to finish, and
+      # re-reserving the machine at the provider.
+      Repo.update_all(from(s in Sandbox, where: s.id == ^ctx.sandbox.id),
+        set: [teardown_requested_at: DateTime.utc_now()]
+      )
+
+      assert {:error, :fenced} = Park.run(ctx.sandbox.id, opts())
+      assert row(ctx).status == "ready"
+    end
+
+    test "a provider that cannot park", ctx do
+      reject(&Managoat.Sandbox.suspend/1)
+      stub(Managoat.Sandbox, :supports?, fn :sprites, :suspend -> false end)
+
+      assert {:error, :cannot_park} = Park.run(ctx.sandbox.id, opts())
+      assert row(ctx).status == "ready"
+      assert_lease_released(row(ctx))
+    end
+
+    test "a turn running anywhere on the machine", ctx do
+      reject(&Managoat.Sandbox.suspend/1)
+      insert_turn(ctx.conv, status: "running", started_at: DateTime.utc_now())
+
+      assert {:error, :machine_occupied} = Park.run(ctx.sandbox.id, opts())
+      assert row(ctx).status == "ready"
+      assert_lease_released(row(ctx))
+    end
+
+    test "a turn running on the requester's own conversation still refuses", ctx do
+      # The requester is excluded from the *server* check and not from this
+      # one: a conversation that is mid-turn is using the machine whoever asks.
+      reject(&Managoat.Sandbox.suspend/1)
+      insert_turn(ctx.conv, status: "running", started_at: DateTime.utc_now())
+
+      assert {:error, :machine_occupied} =
+               Park.run(ctx.sandbox.id, opts(requesting_conversation_id: ctx.conv.id))
+    end
+
+    test "a sweep is refused by any live server on the machine", ctx do
+      # The reaper's rule, unchanged: its idle pass exists for machines with
+      # nothing watching them, and a machine with a server has one enforcing
+      # its own bounds.
+      reject(&Managoat.Sandbox.suspend/1)
+      stand_in_server(ctx.conv.id)
+
+      assert {:error, :machine_occupied} = Park.run(ctx.sandbox.id, opts())
+    end
+
+    test "a server's park is not refused by an idle co-tenant's live server", ctx do
+      # ADR 0023 step 5, and the reason `notify` exists. Refusing here would
+      # mean two idle conversations on one home could never park it, each
+      # vetoing the other, until both servers died.
+      other = quiet_cotenant(ctx)
+      stand_in_server(other.id)
+      expect(Managoat.Sandbox, :suspend, fn _ -> :ok end)
+
+      assert {:ok, :parked} =
+               Park.run(ctx.sandbox.id, opts(requesting_conversation_id: ctx.conv.id))
+    end
+
+    test "a server's park is refused by a co-tenant active inside the idle window", ctx do
+      reject(&Managoat.Sandbox.suspend/1)
+      other = quiet_cotenant(ctx)
+      insert_turn(other, status: "completed", ended_at: DateTime.utc_now())
+
+      assert {:error, :machine_occupied} =
+               Park.run(ctx.sandbox.id, opts(requesting_conversation_id: ctx.conv.id))
+    end
+
+    test "the requester's own live server does not refuse its own park", ctx do
+      stand_in_server(ctx.conv.id)
+      expect(Managoat.Sandbox, :suspend, fn _ -> :ok end)
+
+      assert {:ok, :parked} =
+               Park.run(ctx.sandbox.id, opts(requesting_conversation_id: ctx.conv.id))
+    end
+
+    test "a wake that has committed its marker but has not registered yet", ctx do
+      # #2307 constraint 4. Horde's registry is an asynchronous CRDT, so the
+      # server the wake is starting may be invisible from here; `woken_at` is
+      # committed under the sandbox lock before `start_child`, which is what
+      # makes it evidence where the registry is not.
+      Repo.update_all(from(s in Sandbox, where: s.id == ^ctx.sandbox.id),
+        set: [woken_at: DateTime.utc_now()]
+      )
+
+      assert {:error, :machine_occupied} = Park.run(ctx.sandbox.id, opts())
+    end
+
+    test "a marker older than its grace window is not evidence of anybody", ctx do
+      stale = DateTime.add(DateTime.utc_now(), -(Occupancy.woken_grace_minutes() + 1) * 60)
+      Repo.update_all(from(s in Sandbox, where: s.id == ^ctx.sandbox.id), set: [woken_at: stale])
+      expect(Managoat.Sandbox, :suspend, fn _ -> :ok end)
+
+      assert {:ok, :parked} = Park.run(ctx.sandbox.id, opts())
+    end
+
+    test "the reaper's own grace window is the one this applies" do
+      # Two renderings of one rule — this one in Elixir over a row in hand, the
+      # reaper's in SQL over a page of them. A park that refused on a marker
+      # the sweep ignored, or the reverse, would have the two halves
+      # disagreeing about one machine.
+      assert SandboxReaper.abandoned_grace_minutes() == Occupancy.woken_grace_minutes()
+    end
+  end
+
+  describe "the caller's verdict, re-run under the lease" do
+    test "a machine that is no longer past any bound is refused", ctx do
+      # The #2286 reproduction, in the shape stage 6b leaves it: the reaper
+      # scanned a page of rows, and by the time this one's park claimed its
+      # lease a turn had landed on the machine. Nothing is running *now* — the
+      # occupancy check would let this through — and the machine is simply not
+      # idle any more.
+      insert_turn(ctx.conv, status: "completed", ended_at: DateTime.utc_now())
+      reject(&Managoat.Sandbox.suspend/1)
+
+      assert {:error, :not_expired} =
+               Park.run(ctx.sandbox.id, opts(verdict: {:expired, :idle}))
+
+      assert row(ctx).status == "ready"
+      assert_lease_released(row(ctx))
+    end
+
+    test "the same row parks when the caller brings no verdict", ctx do
+      # The conversation server does not supply one: it decides on its own tick
+      # and asks in the same breath, and its `last_activity_at` is its own, not
+      # the machine-wide fold. See `Park.still_expired?/3`.
+      insert_turn(ctx.conv, status: "completed", ended_at: DateTime.utc_now())
+      expect(Managoat.Sandbox, :suspend, fn _ -> :ok end)
+
+      assert {:ok, :parked} = Park.run(ctx.sandbox.id, opts())
+    end
+
+    test "a machine still past its bound parks", ctx do
+      old = DateTime.add(DateTime.utc_now(), -60 * 60 * 24, :second) |> DateTime.truncate(:second)
+
+      Repo.update_all(from(s in Sandbox, where: s.id == ^ctx.sandbox.id),
+        set: [inserted_at: old, updated_at: old]
+      )
+
+      expect(Managoat.Sandbox, :suspend, fn _ -> :ok end)
+
+      assert {:ok, :parked} =
+               Park.run(ctx.sandbox.id, opts(verdict: {:expired, :idle}))
+    end
+
+    test "a verdict that named the other bound is not re-litigated", ctx do
+      # The recheck asks whether the machine is past *some* bound, not the same
+      # one: a reaper that decided `:max_lifetime` on a row now merely idle
+      # still parks it, and `transition_reason` records what it decided.
+      old = DateTime.add(DateTime.utc_now(), -60 * 60 * 24, :second) |> DateTime.truncate(:second)
+
+      Repo.update_all(from(s in Sandbox, where: s.id == ^ctx.sandbox.id),
+        set: [inserted_at: old, updated_at: old]
+      )
+
+      expect(Managoat.Sandbox, :suspend, fn _ -> :ok end)
+
+      assert {:ok, :parked} =
+               Park.run(ctx.sandbox.id, opts(verdict: {:expired, :max_lifetime}))
+    end
+
+    test "a verdict that is not one is a caller bug", ctx do
+      assert_raise ArgumentError, ~r/bad :verdict/, fn ->
+        Park.run(ctx.sandbox.id, opts(verdict: :idle))
+      end
+    end
+  end
+
+  describe "the suspend that does not land" do
+    test "an error clears the intent and leaves the machine exactly as it was", ctx do
+      expect(Managoat.Sandbox, :suspend, fn _ -> {:error, {:unavailable, :timeout}} end)
+
+      log =
+        capture_log(fn ->
+          assert {:error, :suspend_failed} = Park.run(ctx.sandbox.id, opts())
+        end)
+
+      assert log =~ "provider suspend failed"
+
+      final = row(ctx)
+      assert final.status == "ready", "a machine that was not parked was written down as parked"
+      assert is_nil(final.transition), "a stale parking stamp was left on a live row"
+      assert is_nil(final.transition_reason)
+      assert_lease_released(final)
+
+      assert events(ctx, "sandbox.suspended") == [],
+             "a park that did not happen was recorded in the tenant's trail"
+    end
+
+    test "an adapter that raises is the same outcome", ctx do
+      # 5a's rule: an adapter that raises rather than answering did not reach
+      # the machine either way. The difference from a destroy is what follows —
+      # a destroy finalizes anyway so a fenced row is not stranded, a park must
+      # not write down something that did not happen.
+      expect(Managoat.Sandbox, :suspend, fn _ -> raise "sprites client exploded" end)
+
+      log =
+        capture_log(fn ->
+          assert {:error, :suspend_failed} = Park.run(ctx.sandbox.id, opts())
+        end)
+
+      assert log =~ "sprites client exploded"
+
+      final = row(ctx)
+      assert final.status == "ready"
+      assert is_nil(final.transition)
+      assert_lease_released(final)
+    end
+  end
+
+  describe "takeover" do
+    test "a suspend that landed is finished by the next owner", ctx do
+      :ok = abandon_mid_park(ctx)
+      stub(Managoat.Sandbox, :get, fn %Handle{} -> {:ok, %{status: :suspended, raw: %{}}} end)
+      # The compensation is the finalize, not a second suspend.
+      reject(&Managoat.Sandbox.suspend/1)
+
+      assert {:ok, :parked} = Park.run(ctx.sandbox.id, opts())
+
+      final = row(ctx)
+      assert final.status == "suspended"
+      assert is_nil(final.transition)
+      assert final.lease_epoch == 2, "the taker did not take a new epoch"
+      assert_lease_released(final)
+
+      assert [event] = events(ctx, "sandbox.suspended")
+      assert event.actor == "system:sandbox_reaper"
+    end
+
+    test "a machine still running is recovered, not parked", ctx do
+      :ok = abandon_mid_park(ctx)
+      stub(Managoat.Sandbox, :get, fn %Handle{} -> {:ok, %{status: :running, raw: %{}}} end)
+      # Never resume-and-finalize both: nothing is asked of the machine.
+      reject(&Managoat.Sandbox.suspend/1)
+      reject(&Managoat.Sandbox.resume/1)
+
+      assert {:ok, :recovered} = Park.run(ctx.sandbox.id, opts())
+
+      final = row(ctx)
+      assert final.status == "ready", "a machine that is up was written down as parked"
+      assert is_nil(final.transition), "a stale parking stamp survived a whole pass"
+      assert is_nil(final.transition_reason)
+      assert_lease_released(final)
+      assert events(ctx, "sandbox.suspended") == []
+    end
+
+    for {name, answer} <- [
+          {"an unknown state", {:ok, %{status: :unknown, raw: %{}}}},
+          {"a machine the provider does not have", {:error, :not_found}},
+          {"a provider that cannot be reached", {:error, {:unavailable, :timeout}}}
+        ] do
+      test "#{name} reads as running", ctx do
+        :ok = abandon_mid_park(ctx)
+        stub(Managoat.Sandbox, :get, fn %Handle{} -> unquote(Macro.escape(answer)) end)
+        reject(&Managoat.Sandbox.suspend/1)
+
+        capture_log(fn -> assert {:ok, :recovered} = Park.run(ctx.sandbox.id, opts()) end)
+        assert row(ctx).status == "ready"
+        assert is_nil(row(ctx).transition)
+      end
+    end
+
+    test "a provider that raises while being probed reads as running", ctx do
+      :ok = abandon_mid_park(ctx)
+      stub(Managoat.Sandbox, :get, fn %Handle{} -> raise "probe exploded" end)
+
+      assert capture_log(fn -> assert {:ok, :recovered} = Park.run(ctx.sandbox.id, opts()) end) =~
+               "probe exploded"
+
+      assert is_nil(row(ctx).transition)
+    end
+
+    test "a mid-park row that somebody else already finished is not re-parked", ctx do
+      :ok = abandon_mid_park(ctx)
+      {:ok, _} = Conversations.update_sandbox(ctx.sandbox, %{status: "terminated"})
+      reject(&Managoat.Sandbox.get/1)
+      reject(&Managoat.Sandbox.suspend/1)
+
+      assert {:ok, :already_terminal} = Park.run(ctx.sandbox.id, opts())
+      assert row(ctx).status == "terminated"
+
+      assert is_nil(row(ctx).transition),
+             "the stale stamp was left, so the row can no longer answer " <>
+               "'is this machine mid-park?'"
+    end
+
+    test "a mid-park row that reached suspended is not parked twice", ctx do
+      :ok = abandon_mid_park(ctx)
+      {:ok, _} = Conversations.update_sandbox(ctx.sandbox, %{status: "suspended"})
+      reject(&Managoat.Sandbox.get/1)
+      reject(&Managoat.Sandbox.suspend/1)
+
+      assert {:ok, :already_parked} = Park.run(ctx.sandbox.id, opts())
+      assert row(ctx).status == "suspended"
+      assert is_nil(row(ctx).transition)
+      assert events(ctx, "sandbox.suspended") == []
+    end
+
+    test "somebody else's abandoned operation is left to its own protocol", ctx do
+      :ok = abandon_mid_park(ctx, transition: "destroying", transition_reason: "terminated")
+      reject(&Managoat.Sandbox.get/1)
+      reject(&Managoat.Sandbox.suspend/1)
+
+      assert {:error, :fenced} = Park.run(ctx.sandbox.id, opts())
+
+      assert row(ctx).transition == "destroying",
+             "a park cleared a destroy's intent, so its takeover has nothing to read"
+    end
+  end
+
+  describe "contention" do
+    test "a lease somebody else holds is waited out, then refused", ctx do
+      {:ok, _epoch} = Lease.claim(ctx.sandbox.id, "other@node", 60_000)
+      reject(&Managoat.Sandbox.suspend/1)
+
+      started = System.monotonic_time(:millisecond)
+
+      log =
+        capture_log(fn ->
+          assert {:error, :machine_busy} = Park.run(ctx.sandbox.id, opts(busy_wait_ms: 600))
+        end)
+
+      waited = System.monotonic_time(:millisecond) - started
+
+      assert log =~ "park refused"
+      assert waited >= 250, "the wait gave up without waiting at all"
+      assert waited < 5_000, "the wait ran past the bound it was given"
+    end
+
+    test "a park and a destroy of one machine queue behind each other, both orders", ctx do
+      # Whichever holds the lease, the other waits its bound and then refuses;
+      # neither runs while the other is at the provider. The lease is held by a
+      # third party here so the same claim stands in for both orders.
+      {:ok, epoch} = Lease.claim(ctx.sandbox.id, "other@node", 60_000)
+
+      capture_log(fn ->
+        assert {:error, :machine_busy} = Park.run(ctx.sandbox.id, opts(busy_wait_ms: 300))
+
+        assert {:error, :machine_busy} =
+                 Destroy.run(ctx.sandbox.id,
+                   actor: "self",
+                   reason: :terminated,
+                   busy_wait_ms: 300
+                 )
+      end)
+
+      # And with the machine free again, each runs.
+      :ok = Lease.release(ctx.sandbox.id, epoch)
+      stub(Managoat.Sandbox, :suspend, fn _ -> :ok end)
+      assert {:ok, :parked} = Park.run(ctx.sandbox.id, opts())
+    end
+
+    test "a park that loses its lease between the suspend and the finalize is superseded", ctx do
+      test = self()
+
+      expect(Managoat.Sandbox, :suspend, fn _ ->
+        # A takeover lands while this park is at the provider. `take_over/4`
+        # refuses a live lease, so the row is forged to an expired one first —
+        # which is exactly the state a holder that has outlived its TTL is in.
+        Repo.update_all(from(s in Sandbox, where: s.id == ^ctx.sandbox.id),
+          set: [lease_until: DateTime.add(DateTime.utc_now(), -1, :second)]
+        )
+
+        {:ok, _taker} = Lease.take_over(ctx.sandbox.id, "taker@node", 60_000)
+        send(test, :taken_over)
+        :ok
+      end)
+
+      log =
+        capture_log(fn ->
+          assert {:error, :superseded} = Park.run(ctx.sandbox.id, opts())
+        end)
+
+      assert_received :taken_over
+      assert log =~ "superseded before its finalize"
+
+      # The taker owns the row and says what happened to it; this park wrote
+      # nothing, including no audit event for a park it cannot vouch for.
+      assert row(ctx).status == "ready"
+      assert events(ctx, "sandbox.suspended") == []
+    end
+
+    test "two parks of one machine make one provider call", ctx do
+      test = self()
+
+      stub(Managoat.Sandbox, :suspend, fn _ ->
+        send(test, :suspended)
+        Process.sleep(150)
+        :ok
+      end)
+
+      tasks =
+        for _ <- 1..2 do
+          Task.async(fn ->
+            Ecto.Adapters.SQL.Sandbox.allow(Repo, test, self())
+            capture_log(fn -> send(test, {:result, Park.run(ctx.sandbox.id, opts())}) end)
+          end)
+        end
+
+      Enum.each(tasks, &Task.await(&1, 10_000))
+
+      results = for _ <- 1..2, do: receive(do: ({:result, r} -> r))
+      assert Enum.sort(results) == Enum.sort([{:ok, :parked}, {:ok, :already_parked}])
+
+      assert_received :suspended
+      refute_received :suspended, "the machine was suspended twice for one park"
+      assert [_one] = events(ctx, "sandbox.suspended")
+    end
+
+    test "an advisory lock held past its timeout is contention, not a crash", ctx do
+      # 6a's locks review §6, closed here. `with_sandbox_lock/2` sets a
+      # `lock_timeout`, so a claim that would once have blocked for as long as
+      # the holder lasted comes back as a refusal the busy wait already
+      # understands — and not as a `Postgrex.Error` unwinding through a park.
+      #
+      # The holder needs a connection of its own: inside the Ecto sandbox every
+      # process shares one, and a lock cannot block the connection that holds
+      # it. `Postgrex.start_link/1` gives a real one, and the only thing it
+      # does with it is take the lock, so it commits nothing (#2178).
+      {:ok, holder} =
+        Fountain.Repo.config()
+        |> Keyword.drop([
+          :pool,
+          :pool_size,
+          :migration_lock,
+          :telemetry_prefix,
+          :otp_app,
+          :scheme
+        ])
+        |> Postgrex.start_link()
+
+      # Killed rather than stopped: a `DBConnection` whose transaction has just
+      # ended answers a `:normal` stop with a shutdown exit, and the point of
+      # this cleanup is only that the connection does not outlive the test.
+      on_exit(fn -> if Process.alive?(holder), do: Process.exit(holder, :kill) end)
+
+      {:ok, _} =
+        Postgrex.transaction(
+          holder,
+          fn conn ->
+            Postgrex.query!(conn, "SELECT pg_advisory_xact_lock($1, $2)", [
+              4316,
+              :erlang.phash2(ctx.sandbox.id)
+            ])
+
+            with_lock_timeout(200, fn ->
+              reject(&Managoat.Sandbox.suspend/1)
+
+              log =
+                capture_log(fn ->
+                  assert {:error, :machine_busy} =
+                           Park.run(ctx.sandbox.id, opts(busy_wait_ms: 700))
+                end)
+
+              assert log =~ "lock_timeout", "something other than the lock_timeout gave up"
+            end)
+          end,
+          timeout: 30_000
+        )
+
+      # Nothing was written, and the machine is claimable the moment the lock
+      # goes: a refused claim is not a half-done park.
+      assert row(ctx).status == "ready"
+      assert is_nil(row(ctx).transition)
+    end
+  end
+
+  describe "the door" do
+    test "refuses an enclosing transaction", ctx do
+      Repo.transaction(fn ->
+        assert {:error, :transaction_open} = Park.run(ctx.sandbox.id, opts())
+        assert {:error, :provider_transaction_open} = Machine.park(ctx.sandbox.id, opts())
+      end)
+    end
+
+    test "a machine with no row", ctx do
+      _ = ctx
+      assert {:error, :not_found} = Park.run(Ecto.UUID.generate(), opts())
+      assert {:error, :not_found} = Machine.park(Ecto.UUID.generate(), opts())
+    end
+
+    for gate <- [false, true] do
+      test "inline and in-owner park the same way (gate #{gate})", ctx do
+        stub(Managoat.Sandbox, :suspend, fn _ -> :ok end)
+
+        with_gate(unquote(gate), fn ->
+          assert {:ok, :parked} = Machine.park(ctx.sandbox.id, opts())
+        end)
+
+        assert row(ctx).status == "suspended"
+        assert [_one] = events(ctx, "sandbox.suspended")
+      end
+    end
+
+    test "the protocol's words become the system's", ctx do
+      # `:machine_busy` and a database fault are both "come back shortly"; the
+      # three that change what a caller does travel intact.
+      {:ok, _epoch} = Lease.claim(ctx.sandbox.id, "other@node", 60_000)
+
+      capture_log(fn ->
+        assert {:error, :sandbox_unavailable} =
+                 Machine.park(ctx.sandbox.id, opts(busy_wait_ms: 100))
+      end)
+
+      :ok = Lease.release(ctx.sandbox.id, 1)
+      stub(Managoat.Sandbox, :supports?, fn :sprites, :suspend -> false end)
+      assert {:error, :cannot_park} = Machine.park(ctx.sandbox.id, opts())
+    end
+
+    test "a superseded park reads as already parked at the door", ctx do
+      expect(Managoat.Sandbox, :suspend, fn _ ->
+        Repo.update_all(from(s in Sandbox, where: s.id == ^ctx.sandbox.id),
+          set: [lease_until: DateTime.add(DateTime.utc_now(), -1, :second)]
+        )
+
+        {:ok, _taker} = Lease.take_over(ctx.sandbox.id, "taker@node", 60_000)
+        :ok
+      end)
+
+      capture_log(fn ->
+        assert {:ok, :already_parked} = Machine.park(ctx.sandbox.id, opts())
+      end)
+    end
+  end
+
+  describe "caller bugs" do
+    test "a missing actor or a reason that is not a bound raises", ctx do
+      assert_raise KeyError, fn -> Park.run(ctx.sandbox.id, reason: :idle) end
+
+      assert_raise ArgumentError, ~r/:reason must be :idle or :max_lifetime/, fn ->
+        Park.run(ctx.sandbox.id, actor: "self", reason: :terminated)
+      end
+    end
+  end
+end

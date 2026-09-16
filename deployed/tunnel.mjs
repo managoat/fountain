@@ -61,15 +61,32 @@ function startOne({ port, signal, spawnFn = spawn, startupMs = 60000 }) {
       if (error) { child.kill('SIGKILL'); reject(error); } else resolve(new Tunnel(child, url));
     };
     const timer = setTimeout(() => finish(new Error('cloudflared did not publish a tunnel in time')), startupMs);
-    const read = chunk => {
-      const text = String(chunk);
-      const match = text.match(TUNNEL_HOST);
-      if (match && !url) url = match[0];
-      if (REGISTERED.test(text)) registered = true;
-      if (url && registered) finish();
+    // A pipe delivers bytes, not lines: a hostname split after "trycloud", or
+    // a registration line split mid-phrase, is invisible to a per-chunk match
+    // and the tunnel would sit unrecognised until the startup timer rejected
+    // one that had already announced itself. Each stream keeps its own
+    // remainder, bounded so a stream that never emits a newline cannot grow
+    // without limit.
+    const reader = () => {
+      let rest = '';
+      return chunk => {
+        const text = rest + String(chunk);
+        const lines = text.split(/\r?\n/);
+        rest = lines.pop() ?? '';
+        if (rest.length > 64 * 1024) rest = rest.slice(-4096);
+        // The trailing remainder is matched too, since cloudflared's banner
+        // has no newline until the box is closed, but it is never consumed:
+        // an incomplete line stays in `rest` until its newline arrives.
+        for (const line of [...lines, rest]) {
+          const match = line.match(TUNNEL_HOST);
+          if (match && !url) url = match[0];
+          if (REGISTERED.test(line)) registered = true;
+        }
+        if (url && registered) finish();
+      };
     };
-    child.stdout.on('data', read);
-    child.stderr.on('data', read);
+    child.stdout.on('data', reader());
+    child.stderr.on('data', reader());
     child.once('error', () => finish(new Error('cloudflared is not installed or could not start')));
     child.once('exit', code => finish(new Error(`cloudflared exited before publishing a tunnel (code ${code})`)));
     signal?.addEventListener('abort', () => finish(new Error('Interrupted')), { once: true });

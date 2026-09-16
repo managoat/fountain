@@ -115,6 +115,49 @@ test('readiness is asked of public resolvers, not the system one', () => {
   assert.deepEqual(PUBLIC_RESOLVERS, ['1.1.1.1', '8.8.8.8']);
 });
 
+
+// A pipe delivers bytes, not lines. cloudflared's banner and its registration
+// line can arrive split anywhere, and a per-chunk match would leave a tunnel
+// that had already announced itself unrecognised until the startup timer.
+for (const [name, chunks] of [
+  ['a hostname split mid-word', ['INF |  https://split-host-name.trycloud', 'flare.com  |\n', 'INF Registered tunnel connection connIndex=0\n']],
+  ['a registration line split mid-phrase', ['INF |  https://split-host-name.trycloudflare.com  |\nINF Registered tunnel ', 'connection connIndex=0\n']],
+  ['everything in one byte-stream with no trailing newline', ['INF https://split-host-name.trycloudflare.com\nINF Registered tunnel connection']],
+]) {
+  test(`readiness survives ${name}`, async () => {
+    const { spawnFn } = fakeCloudflared(child => { for (const chunk of chunks) child.stderr.emit('data', Buffer.from(chunk)); });
+    const opened = await openTunnels({ port: 4321, spawnFn, ...options });
+    assert.deepEqual(opened.urls, ['https://split-host-name.trycloudflare.com']);
+    await opened.stop();
+  });
+}
+
+test('a stream that never sends a newline cannot grow without bound', async () => {
+  const { spawnFn } = fakeCloudflared(child => {
+    child.stderr.emit('data', 'x'.repeat(200_000));
+    child.stderr.emit('data', 'INF https://late-host.trycloudflare.com\nINF Registered tunnel connection\n');
+  });
+  const opened = await openTunnels({ port: 4321, spawnFn, ...options });
+  assert.deepEqual(opened.urls, ['https://late-host.trycloudflare.com']);
+  await opened.stop();
+});
+
+test('an external receiver URL carrying a credential is refused without echoing it', () => {
+  const secret = 'fake_receiver_password_probe';
+  const env = { FOUNTAIN_RECEIVER_ADMIN_KEY: 'x'.repeat(64), FOUNTAIN_MCP_ADMIN_KEY: 'x'.repeat(64) };
+  const refused = (fn) => assert.throws(fn, error => {
+    assert.ok(!error.message.includes(secret), 'the refusal must not quote the URL back');
+    return /must be (?:an )?HTTPS origin/.test(error.message);
+  });
+  refused(() => externalReceiver('mcp', { receiverUrl: `https://operator:${secret}@receiver.example.com/` }, env));
+  refused(() => externalReceiver('mcp', { receiverUrl: `https://receiver.example.com/?t=${secret}` }, env));
+  refused(() => externalReceiver('mcp', { receiverUrl: `https://receiver.example.com/#${secret}` }, env));
+  refused(() => externalReceiver('secrets', { receiverUrl: `https://a:${secret}@one.example.com/`, blockedUrl: 'https://two.example.com/' }, env));
+  refused(() => externalReceiver('secrets', { receiverUrl: 'https://one.example.com/', blockedUrl: `https://two.example.com/?t=${secret}` }, env));
+  // The same hostname twice would make a leak indistinguishable from a denial.
+  refused(() => externalReceiver('secrets', { receiverUrl: 'https://one.example.com/', blockedUrl: 'https://one.example.com/' }, env));
+});
+
 test('only the outbound profiles need a receiver', () => {
   assert.deepEqual(['probe', 'basic', 'execution', 'streaming', 'canary', 'secrets', 'mcp', 'webhooks', 'schedules']
     .filter(hostsReceiver), ['secrets', 'mcp', 'webhooks']);

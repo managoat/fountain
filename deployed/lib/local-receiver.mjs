@@ -1,4 +1,6 @@
 import { randomBytes } from 'node:crypto';
+import { receiverOrigins } from './receiver.mjs';
+import { controlledOrigin } from './controlled-receiver.mjs';
 import { openTunnels } from '../tunnel.mjs';
 import { createReceiver } from '../receivers/secrets.mjs';
 import { createMcpReceiver } from '../receivers/mcp.mjs';
@@ -42,7 +44,25 @@ export function externalReceiver(profile, { receiverUrl, blockedUrl, bootstrapHo
       : `The ${profile} profile takes one --receiver-url`);
   }
   if (!env[spec.credential]) throw new Error(`Set ${spec.credential} to the hosted receiver's admin credential`);
-  return { settings: spec.settings(origins, { bootstrapHosts }), env: {}, async stop() {} };
+  const settings = spec.settings(origins, { bootstrapHosts });
+  // The profile's own validator, applied here rather than at load: these
+  // settings are written to target.json on the way to the runner, so a URL
+  // carrying a password would be persisted before anything refused it.
+  validateOrigins(profile, settings);
+  return { settings, env: {}, async stop() {} };
+}
+
+// Never quote the input back: a refusal that echoes the URL puts the
+// credential in the terminal, which is the disclosure being prevented.
+function validateOrigins(profile, settings) {
+  try {
+    if (profile === 'secrets') receiverOrigins(settings);
+    else controlledOrigin(settings);
+  } catch {
+    throw new Error(profile === 'secrets'
+      ? 'Receiver URLs must be HTTPS origins on distinct public hostnames, with no credentials, query or fragment'
+      : 'The receiver URL must be an HTTPS origin on a public hostname, with no credentials, query or fragment');
+  }
 }
 
 export async function hostReceiver(profile, { signal, log = () => {}, bootstrapHosts = ['registry.npmjs.org'],
@@ -68,6 +88,7 @@ export async function hostReceiver(profile, { signal, log = () => {}, bootstrapH
     // validators require a path of exactly "/".
     settings: spec.settings(tunnels.urls.map(url => new URL(url).origin + '/'), { bootstrapHosts }),
     env: { [spec.credential]: adminKey, RECEIVER_TLS_AT_INGRESS: 'true' },
+    hosted: true,
     async stop() { await tunnels.stop(); await closeServer(server); },
   };
 }

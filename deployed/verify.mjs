@@ -152,6 +152,14 @@ export function verifyConfig(args, env, receiverSettings) {
   return composeTarget(target, args.profile);
 }
 
+// Cleanup deletes what the manifest records, by id, against the same account.
+// It needs the instance and the credentials, and nothing a profile declares —
+// so the profile that cannot load without a receiver is dropped rather than
+// carried into a replay that would be refused before its first request.
+export function cleanupTarget(config) {
+  return { base_url: config.base_url, credentials: config.credentials, profiles: ['probe'], limits: config.limits };
+}
+
 export function summarize(report, log = console.log) {
   if (!report) { log('  no result.json was written; read the log above'); return; }
   const checks = Array.isArray(report.checks) ? report.checks : [];
@@ -208,15 +216,38 @@ export async function verifyMain(argv, env = process.env) {
   process.on('SIGTERM', cancel);
   let receiver;
   try {
-    receiver = await openReceiver(values, env, controller.signal);
+    try {
+      receiver = await openReceiver(values, env, controller.signal);
+    } catch (error) {
+      // Hosting a receiver is the first abortable phase. Ctrl-C during it is
+      // an operator cancelling, not a setup failure, and the exit code the
+      // command documents must not depend on when the signal arrives.
+      if (controller.signal.aborted) return 130;
+      throw error;
+    }
     const config = verifyConfig(args, env, receiver?.settings);
     if (config.execution) console.log(`  execution  ${config.execution.runtime} / ${config.execution.model} / ${config.execution.sandbox_provider}`);
+    // An ephemeral receiver and its borrowed origins are gone once the run
+    // ends, and the run's target names both. Replaying cleanup through it
+    // would be refused for a missing receiver credential before reaching a
+    // single Fountain call, leaving run-owned fixtures behind. So a target
+    // that needs neither is written alongside it: the manifest, not the
+    // profile, is what drives cleanup.
+    if (receiver?.hosted) {
+      writeFileSync(resolve(out, 'cleanup-target.json'),
+        JSON.stringify(cleanupTarget(verifyConfig(args, env, receiver.settings)), null, 2), { mode: 0o600 });
+    }
     const configPath = resolve(out, 'target.json');
     writeFileSync(configPath, JSON.stringify(config, null, 2), { mode: 0o600 });
     const code = await run({ configPath, out: resolve(out, 'results'), signal: controller.signal,
       env: { ...env, ...receiver?.env } });
-    summarize(readReport(resolve(out, 'results')));
+    const report = readReport(resolve(out, 'results'));
+    summarize(report);
     console.log(`  evidence   ${resolve(out, 'results')}`);
+    if (report?.cleanup?.remaining) {
+      const target = receiver?.hosted ? resolve(out, 'cleanup-target.json') : configPath;
+      console.log(`  replay     node deployed/cleanup-replay.mjs --config ${target} \\\n               --results ${resolve(out, 'results')} --out ${resolve(out, 'cleanup')}`);
+    }
     return code;
   } finally {
     // A borrowed origin outliving its run would leave a public hostname

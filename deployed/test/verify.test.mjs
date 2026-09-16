@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { verifyConfig, summarize, resolveCredentials, targetOrigin, VERIFY_PROFILES, CREDENTIALS } from '../verify.mjs';
+import { verifyConfig, summarize, resolveCredentials, targetOrigin, verifyMain, VERIFY_PROFILES, CREDENTIALS } from '../verify.mjs';
 import { hostsReceiver } from '../lib/local-receiver.mjs';
 import { ciConfig } from '../ci.mjs';
 import { configFrom } from '../lib/runner.mjs';
@@ -194,4 +194,19 @@ test('a run that wrote no report says so instead of claiming a pass', () => {
   const lines = [];
   summarize(undefined, line => lines.push(line));
   assert.match(lines.join('\n'), /no result\.json/);
+});
+
+// Hosting a receiver is the first abortable phase of a run. Ctrl-C during it
+// is an operator cancelling, and the documented exit contract must not depend
+// on whether the signal lands before or after the run starts.
+test('an interrupt while the receiver is coming up exits 130, not 2', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'fountain-verify-interrupt-'));
+  try {
+    const env = { ...keys, FOUNTAIN_RECEIVER_ADMIN_KEY: 'x'.repeat(64), TMPDIR: dir };
+    const started = verifyMain(['https://example.test', '--profile', 'mcp', '--out', join(dir, 'run')], env);
+    // The hosting phase is in flight; interrupt it the way the CLI does.
+    setTimeout(() => process.emit('SIGINT'), 20);
+    const code = await started;
+    assert.equal(code, 130, 'an operator cancellation is not a setup failure');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });

@@ -148,7 +148,7 @@ defmodule Fountain.Conversations.Reattachment do
 
   def fail_transport(state, reason) do
     Logger.error("sprite command error mid-turn: #{inspect(reason)} — failing the turn")
-    state = finish_runner_reconnect(state, "failed")
+    state = state |> finish_runner_reconnect("failed") |> Output.flush_state()
 
     # Stop the failed connection's local peer before committing the turn result.
     # Completion rechecks the actor's binding after this callback can yield.

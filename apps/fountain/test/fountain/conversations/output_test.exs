@@ -35,8 +35,8 @@ defmodule Fountain.Conversations.OutputTest do
   end
 
   describe "the server boundary" do
-    test "from_state/1 and into_state/2 round-trip the two fields" do
-      state = %{output_bytes: 7, output_capped: false, other: 1}
+    test "from_state/1 and into_state/2 round-trip the three fields" do
+      state = %{output_bytes: 7, output_capped: false, output_carry: nil, other: 1}
 
       assert %Output{bytes: 7, capped: false} =
                out = Output.from_state(state)

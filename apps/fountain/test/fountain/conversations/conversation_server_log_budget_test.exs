@@ -48,8 +48,10 @@ defmodule Fountain.Conversations.ConversationServerLogBudgetTest do
     {pid, cmd_ref, _ref} = start_with_turn(conv)
 
     # 3 x 60 bytes against a 100-byte budget: chunk 1 persists, chunk 2
-    # crosses the budget → marker, chunk 3 is silently dropped.
-    chunk = String.duplicate("a", 60)
+    # crosses the budget → marker, chunk 3 is silently dropped. Dots, because
+    # a chunk ending in a registered value's first byte is held back (#2359)
+    # and would no longer arrive as one row.
+    chunk = String.duplicate(".", 60)
     for _ <- 1..3, do: send(pid, {:acp, cmd_ref, {:lines, "stdout", chunk}})
     _ = :sys.get_state(pid)
 

@@ -348,9 +348,10 @@ defmodule Fountain.Conversations.ConversationServer do
       # Durable-output budget bookkeeping (#331). `output_bytes` is loaded
       # lazily from the DB on the first output of this server's lifetime, so
       # the budget is cumulative per conversation across wakes rather than
-      # per BEAM lifetime.
+      # per BEAM lifetime. `output_carry` is what #2359's carry holds back.
       output_bytes: nil,
-      output_capped: false
+      output_capped: false,
+      output_carry: nil
     }
 
     Lifecycle.schedule_check()
@@ -1423,6 +1424,7 @@ defmodule Fountain.Conversations.ConversationServer do
   end
 
   defp handle_execution_info({:exit, %{ref: ref}, code}, %{current_command_ref: ref} = state) do
+    state = Output.flush_state(state)
     turn = state.current_turn
 
     # Finalize stream tracer: close any tool spans still open (abandoned calls).
@@ -1807,7 +1809,7 @@ defmodule Fountain.Conversations.ConversationServer do
     # and whatever background task it was running — alive on the machine.
     if state.current_command, do: Managoat.Sandbox.close_stdin(state.current_command)
     if state.current_command, do: Managoat.Sandbox.stop_command(state.current_command)
-    state = cancel_autonomous_quiet(state)
+    state = state |> cancel_autonomous_quiet() |> Output.flush_state()
 
     turn = TurnMachine.mark_interrupted(TurnMachine.from_state(state))
 
@@ -2001,7 +2003,7 @@ defmodule Fountain.Conversations.ConversationServer do
         do: state,
         else: Pending.resolve_held(state, "turn_ended")
 
-    state = cancel_autonomous_quiet(state)
+    state = state |> cancel_autonomous_quiet() |> Output.flush_state()
 
     turn = TurnMachine.finish(TurnMachine.from_state(state), status, span_attrs, stage_meta)
     state = touch_activity(TurnMachine.into_state(state, turn))

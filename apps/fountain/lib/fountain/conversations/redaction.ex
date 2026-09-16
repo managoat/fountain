@@ -28,6 +28,41 @@ defmodule Fountain.Conversations.Redaction do
   those would turn logs into noise while protecting nothing. Real credentials —
   tokens, keys, connection strings — are comfortably longer. A deliberately
   short password is the case this misses, and is worth knowing about.
+
+  ## Two forms of every value
+
+  `redact/2` matches a value's own bytes, and an `acp` row is not the bytes
+  the agent wrote: it is a `session/update` line the peer encoded as JSON. A
+  value holding a `"`, a `\\` or a control character — a PEM key's newlines,
+  a service-account document's quotes — is stored escaped, and its raw bytes
+  match nothing (#2359). So `put/2` also registers the JSON-escaped form of
+  such a value, and `patterns/1` is both. `lookup/1` stays the values
+  themselves, for callers that match decoded text or raw file bytes.
+
+  ## The boundary guarantee
+
+  A match needs the whole value inside one `data`, and sandbox output arrives
+  in chunks whose boundaries nobody chooses: a model's reply as many
+  `agent_message_chunk` lines, stdout and stderr as whatever bytes the
+  transport delivered. Redacting each row on its own left a value cut by a
+  boundary as two plaintext fragments — in `log_events`, on the live stream,
+  and whole again in `turns.reply_text`, which joins a turn's text (#2359).
+
+  `Fountain.Conversations.RedactionCarry` closes that before rows reach the
+  writer. Output whose end could be the start of a registered value is held
+  back and joined to what follows; nothing else waits. So for every sandbox
+  stream `Output.log/4` writes, a registered value that arrives whole across
+  any number of chunks reaches `log!/1` whole, and is redacted there.
+
+  Some cases fall outside that guarantee:
+
+    * A value the process never finishes is not a value. Its prefix is
+      written as it is when the turn ends.
+    * A server that stops mid-turn loses what it holds. Nothing leaks, and a
+      reattach's replay normally writes those lines again, because they were
+      never persisted and so are not deduplicated.
+    * Output written outside `Output` (provisioning steps) is written whole
+      and needs no carry.
   """
 
   use GenServer
@@ -75,7 +110,7 @@ defmodule Fountain.Conversations.Redaction do
       delete(conversation_id)
     else
       ensure_table()
-      :ets.insert(@table, {conversation_id, redactable})
+      :ets.insert(@table, {conversation_id, redactable, with_escaped(redactable)})
     end
 
     :ok
@@ -118,27 +153,50 @@ defmodule Fountain.Conversations.Redaction do
   is the common case for conversations with no secrets at all.
   """
   def redact(conversation_id, text) when is_binary(conversation_id) and is_binary(text) do
-    case lookup(conversation_id) do
+    case patterns(conversation_id) do
       [] -> text
-      values -> :binary.replace(text, values, @placeholder, [:global])
+      patterns -> :binary.replace(text, patterns, @placeholder, [:global])
     end
   end
 
   def redact(_conversation_id, text), do: text
 
   @doc "Values registered for a conversation. Empty when none or unavailable."
-  def lookup(conversation_id) when is_binary(conversation_id) do
+  def lookup(conversation_id), do: entry(conversation_id, 2)
+
+  @doc """
+  What `redact/2` matches: every value, plus the JSON-escaped form of each
+  value that has one. Longest first. Empty when none or unavailable.
+  """
+  def patterns(conversation_id), do: entry(conversation_id, 3)
+
+  defp entry(conversation_id, position) when is_binary(conversation_id) do
     ensure_table()
 
     case :ets.lookup(@table, conversation_id) do
-      [{^conversation_id, values}] -> values
+      [{^conversation_id, _values, _patterns} = entry] -> elem(entry, position - 1)
       _ -> []
     end
   catch
     :error, :badarg -> []
   end
 
-  def lookup(_), do: []
+  defp entry(_, _), do: []
+
+  # The form a value takes inside a line the ACP peer encoded with Jason. Only
+  # a value that escapes adds one, and a value that is not UTF-8 cannot be in
+  # a JSON string at all.
+  defp with_escaped(values) do
+    escaped =
+      for value <- values,
+          String.valid?(value),
+          json = Jason.encode!(value),
+          escaped = binary_part(json, 1, byte_size(json) - 2),
+          escaped != value,
+          do: escaped
+
+    (values ++ escaped) |> Enum.uniq() |> Enum.sort_by(&byte_size/1, :desc)
+  end
 
   def min_length, do: @min_length
   def placeholder, do: @placeholder
@@ -209,6 +267,9 @@ defmodule Fountain.Conversations.Redaction do
         # current turn above retains the identity needed to find its journal.
         turn_execution: secrets(state.turn_execution),
         runner_replay: replay(state.runner_replay),
+        # Output held back until the value it may begin arrives (#2359): by
+        # construction, the start of a secret.
+        output_carry: secret(state.output_carry),
         tenant_key: secret(state.tenant_key),
         inference_credentials: secrets(state.inference_credentials),
         callback_token: secret(state.callback_token),

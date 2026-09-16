@@ -2702,4 +2702,53 @@ defmodule Fountain.Conversations.ConversationServerACPTest do
       refute inspect(event.metadata) =~ "true"
     end
   end
+
+  describe "a registered value the reply splits across chunks (#2359)" do
+    @split_secret "sk-synthetic-2359-server-a1b2c3d4e5f6"
+
+    setup do
+      user = insert_verified_user()
+      conv = insert_conversation(agent: acp_agent(user), user_id: user.id)
+      {pid, ref} = start_acp_turn(conv)
+      Fountain.Conversations.Redaction.add(conv.id, [{"SYNTHETIC_KEY", @split_secret}])
+      {:ok, conv: conv, pid: pid, ref: ref}
+    end
+
+    defp say(pid, ref, text) do
+      notify(pid, ref, %{
+        "sessionUpdate" => "agent_message_chunk",
+        "content" => %{"type" => "text", "text" => text}
+      })
+    end
+
+    test "never persists a fragment, and reply_text holds the placeholder", %{
+      conv: conv,
+      pid: pid,
+      ref: ref
+    } do
+      prompt_id = drive_to_prompt(pid, ref)
+      {head, tail} = String.split_at(@split_secret, 16)
+
+      say(pid, ref, "the key is " <> head)
+      say(pid, ref, tail <> ", and it ends with " <> String.slice(@split_secret, 0, 6))
+      reply(pid, ref, prompt_id, %{"stopReason" => "end_turn"})
+
+      events = Conversations._unsafe_list_log_events(conv.id)
+      refute Enum.any?(events, &((&1.data || "") =~ head))
+
+      # The last chunk ended in what could have been the value's start. It was
+      # held, and the turn's end wrote it before `reply_text` was derived.
+      assert [turn] = Conversations._unsafe_list_turns(conv.id)
+
+      assert turn.reply_text ==
+               "the key is [REDACTED], and it ends with " <> String.slice(@split_secret, 0, 6)
+
+      assert %{output_carry: nil} = :sys.get_state(pid)
+
+      done =
+        Enum.find(events, &(&1.kind == "stage" and &1.stage == "turn" and &1.state == "done"))
+
+      assert Enum.all?(events, &(&1.kind != "output" or &1.id < done.id))
+    end
+  end
 end

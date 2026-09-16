@@ -329,6 +329,7 @@ defmodule Fountain.Conversations.ConversationServerRedactionTest do
         pending_permission: %{"tool" => @sentinel}
       },
       runner_replay: %{previous_id: 41, buffer: @sentinel},
+      output_carry: %{ctx: %{}, held: %{raw: %{"stdout" => @sentinel}, lines: nil}},
       acp_request_params: {17, %{"toolCall" => %{"rawInput" => %{"token" => @sentinel}}}},
       turn_execution: %TurnExecution{last_error: @sentinel},
       tenant_key: @sentinel,

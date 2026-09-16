@@ -5,9 +5,13 @@ defmodule Fountain.Conversations.Output do
   The durable log budget (#331), its truncation marker, and the stage events
   that mark the same stream live here. `Redaction` is the guard on the
   single writer (`Conversations.log!/1`) and stays where it is; this module
-  decides what is written at all, not what a written row may say.
+  decides what is written at all, and when, not what a written row may say.
+  The when is `RedactionCarry` (#2359): output whose end could be the start of
+  a registered value waits for the chunk that follows it, so the writer sees
+  the value whole. What is held is flushed by `flush/1`, which the server calls
+  before a turn ends.
 
-  `from_state/1` reads the two server fields into an `%Output{}` and
+  `from_state/1` reads the three server fields into an `%Output{}` and
   `into_state/2` writes them back; the server's state does not change shape.
   Every function takes what it reads — the conversation, the turn the output
   belongs to and the owner whose sidebar moves, gathered by `ctx/1` — and
@@ -17,10 +21,12 @@ defmodule Fountain.Conversations.Output do
   require Logger
 
   alias Fountain.Conversations
+  alias Fountain.Conversations.RedactionCarry
 
   @type t :: %__MODULE__{
           bytes: non_neg_integer() | nil,
-          capped: boolean()
+          capped: boolean(),
+          carry: nil | %{ctx: ctx(), held: RedactionCarry.t()}
         }
 
   @type ctx :: %{
@@ -29,7 +35,7 @@ defmodule Fountain.Conversations.Output do
           user_id: String.t() | nil
         }
 
-  defstruct bytes: nil, capped: false
+  defstruct bytes: nil, capped: false, carry: nil
 
   # ── the server boundary ───────────────────────────────────────────────────
 
@@ -38,7 +44,8 @@ defmodule Fountain.Conversations.Output do
   def from_state(state) do
     %__MODULE__{
       bytes: state.output_bytes,
-      capped: state.output_capped
+      capped: state.output_capped,
+      carry: state.output_carry
     }
   end
 
@@ -48,8 +55,20 @@ defmodule Fountain.Conversations.Output do
     %{
       state
       | output_bytes: output.bytes,
-        output_capped: output.capped
+        output_capped: output.capped,
+        output_carry: output.carry
     }
+  end
+
+  @doc """
+  `flush/1` on the server's own fields: what it calls before a turn ends.
+  Nothing held, which is nearly always, leaves the state untouched.
+  """
+  @spec flush_state(map()) :: map()
+  def flush_state(state) do
+    if Map.get(state, :output_carry),
+      do: into_state(state, flush(from_state(state))),
+      else: state
   end
 
   @doc """
@@ -79,15 +98,50 @@ defmodule Fountain.Conversations.Output do
   broadcast-only: consumers key ordering off the DB-assigned event id, and an
   unbounded broadcast stream would still let a hostile sandbox saturate
   PubSub.
+
+  The chunk passes `RedactionCarry` first, so it may be written now, later,
+  or joined to its neighbours. Held output belongs to the turn it arrived in:
+  output for another turn flushes it first.
   """
   @spec log(t(), ctx(), String.t(), binary()) :: t()
+  def log(%__MODULE__{capped: true} = output, _ctx, _stream, _data), do: output
+
   def log(%__MODULE__{} = output, ctx, stream, data) do
+    output =
+      if output.carry && output.carry.ctx.turn_id != ctx.turn_id, do: flush(output), else: output
+
+    held = if output.carry, do: output.carry.held, else: RedactionCarry.new()
+    {rows, held} = RedactionCarry.feed(held, ctx.conversation_id, stream, data)
+    carry = if RedactionCarry.empty?(held), do: nil, else: %{ctx: ctx, held: held}
+
+    Enum.reduce(rows, %{output | carry: carry}, fn {stream, data}, output ->
+      write(output, ctx, stream, data)
+    end)
+  end
+
+  @doc """
+  Write everything `log/4` is holding, under the turn it arrived in. A value
+  that never finished arriving is not a value, so what was held is written as
+  it is.
+  """
+  @spec flush(t()) :: t()
+  def flush(%__MODULE__{carry: nil} = output), do: output
+
+  def flush(%__MODULE__{carry: %{ctx: ctx, held: held}} = output) do
+    held
+    |> RedactionCarry.flush(ctx.conversation_id)
+    |> Enum.reduce(%{output | carry: nil}, fn {stream, data}, output ->
+      write(output, ctx, stream, data)
+    end)
+  end
+
+  defp write(output, ctx, stream, data) do
     output = ensure_bytes(output, ctx.conversation_id)
     budget = byte_budget()
 
     cond do
       output.capped ->
-        output
+        %{output | carry: nil}
 
       budget > 0 and output.bytes + byte_size(data) > budget ->
         Logger.warning(
@@ -100,7 +154,7 @@ defmodule Fountain.Conversations.Output do
         })
 
         persist(ctx, "stderr", cap_marker(budget))
-        %{output | capped: true}
+        %{output | capped: true, carry: nil}
 
       true ->
         persist(ctx, stream, data)

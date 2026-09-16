@@ -16,6 +16,7 @@ defmodule FountainWeb.AdminControllerTest do
   # AdminUserDetailLiveTest's billing section intermittently vanished
   # (#576). Every other module that mutates this env is already async: false.
   use FountainWeb.ConnCase, async: false
+  use Mimic
 
   alias Fountain.Accounts
   alias Fountain.Audit.AdminEvent
@@ -417,6 +418,28 @@ defmodule FountainWeb.AdminControllerTest do
       |> authed_with_key(key)
       |> post("/api/admin/sandboxes/#{Ecto.UUID.generate()}/reap")
       |> json_response(404)
+    end
+
+    test "a reap the machine's owner refuses is a retryable 503", %{conn: conn, key: key} do
+      # ADR 0058 stage 5b made `{:error, :sandbox_unavailable}` reachable here:
+      # the reaper's own expiry of the same row holds its lease across the
+      # provider call, and an operator's reap in that window is refused. The
+      # clause used not to exist, so the action raised — a 500 on an operation
+      # that declares none, which this repo's schema guard rejects on the way
+      # out. Falls through to `FallbackController` now, which is where the
+      # retryable shape already lived.
+      sandbox = insert_sandbox(status: "ready")
+      stub(Fountain.Machines.Destroy, :run, fn _id, _opts -> {:error, :machine_busy} end)
+
+      conn =
+        ExUnit.CaptureLog.with_log(fn ->
+          conn |> authed_with_key(key) |> post("/api/admin/sandboxes/#{sandbox.id}/reap")
+        end)
+        |> elem(0)
+
+      assert json_response(conn, 503) == %{"error" => "sandbox_unavailable"}
+      assert get_resp_header(conn, "retry-after") == ["30"]
+      assert Fountain.Conversations._unsafe_get_sandbox!(sandbox.id).status == "ready"
     end
   end
 end

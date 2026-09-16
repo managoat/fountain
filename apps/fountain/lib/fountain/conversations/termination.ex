@@ -82,7 +82,17 @@ defmodule Fountain.Conversations.Termination do
           end
 
         pid ->
-          call_server(pid, {:terminate_conv, Keyword.take(opts, [:actor, :request_ip])})
+          # `:audit_destroy` travels with the attribution (ADR 0058 stage 5b
+          # review): the server forwards its whole opts list to
+          # `_unsafe_destroy_machine/2`, so this narrowing was the only thing
+          # keeping account deletion's suppression off the live-server path —
+          # a machine whose conversation still had a server left one
+          # `sandbox.destroyed` behind, and the delete then nilified its
+          # `user_id`, which is the orphaned row this module refuses to write.
+          call_server(
+            pid,
+            {:terminate_conv, Keyword.take(opts, [:actor, :request_ip, :audit_destroy])}
+          )
       end
 
     audit_lifecycle(conv_id, "conversation.terminated", result, opts)
@@ -342,6 +352,17 @@ defmodule Fountain.Conversations.Termination do
   # second `sandbox.teardown_requested` and preserving both timestamps — the
   # same shape `ConversationServer.terminate_machine/2` has had since 5a.
   #
+  # The actor is the caller's, the same one the fence above records, so the two
+  # events of one operation name the same person (ADR 0013 §1: a context is
+  # told who its caller is; `destroy_homes_for_agent/2` threads it all the way
+  # down). The first draft recorded `system:home_reset` here, for symmetry with
+  # the conversations this path terminates — but that symmetry is one of
+  # *reason*, and `:destroy_reason :home_destroyed` is the field that carries
+  # it. ADR 0013 §2 keeps the `system:<worker>` vocabulary closed and matched
+  # to the module doing the work, there is no HomeReset module, and everywhere
+  # else in the tree `home_reset` is a reason string. The tell was
+  # `request_ip:` below: a system actor has no browser.
+  #
   # `terminating_conversation_id: nil`: the agent is gone, so its home has
   # nothing left to be a home *for* (ADR 0023 step 5), and the conversations
   # that were on it have just been terminated. Handing the fence one of their
@@ -365,7 +386,7 @@ defmodule Fountain.Conversations.Termination do
   defp retire_home(%Sandbox{} = sandbox, opts) do
     result =
       _unsafe_destroy_machine(sandbox.id,
-        actor: "system:home_reset",
+        actor: Keyword.get(opts, :actor, "self"),
         destroy_reason: :home_destroyed,
         reason: Keyword.get(opts, :reason, "agent_deleted"),
         request_ip: Keyword.get(opts, :request_ip),
@@ -472,6 +493,7 @@ defmodule Fountain.Conversations.Termination do
            actor: reap_actor(opts),
            destroy_reason: :admin_reap,
            reason: "reaped",
+           request_ip: Keyword.get(opts, :request_ip),
            terminating_conversation_id: nil
          ) do
       {:ok, _outcome} -> {:ok, :released}
@@ -533,7 +555,30 @@ defmodule Fountain.Conversations.Termination do
       select: s.id
     )
     |> Fountain.Repo.all()
-    |> Enum.count(fn id -> match?({:ok, _}, reap_sandbox(id)) end)
+    |> Enum.count(&reaped?/1)
+  end
+
+  # A refusal is named here as well as inside `Machine.destroy/2`, and that is
+  # the point: the warning the protocol logs carries the machine id, and what
+  # an operator needs after a suspension that did not take everything down is
+  # the sandbox this tenant still has running. Nothing retries it — this runs
+  # once, from `Accounts.suspend_user/1`, the refused row keeps a live status
+  # with no fence on it (so `sweep_fenced_teardowns/0` cannot see it), and with
+  # the default `SANDBOX_MAX_LIFETIME_HOURS=0` the only pass that will touch it
+  # again *parks* it. So the log line is the whole trail, and it says which row.
+  defp reaped?(sandbox_id) do
+    case reap_sandbox(sandbox_id) do
+      {:ok, _outcome} ->
+        true
+
+      {:error, reason} ->
+        Logger.warning(
+          "suspension: sandbox #{sandbox_id} was not reaped (#{inspect(reason)}); " <>
+            "it is still running and nothing will retry it"
+        )
+
+        false
+    end
   end
 
   @doc """

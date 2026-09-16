@@ -36,6 +36,7 @@ defmodule Fountain.Machines.DestroyForcedTest do
   alias Fountain.Audit
   alias Fountain.Billing.UsageEvent
   alias Fountain.Conversations
+  alias Fountain.Conversations.Lifecycle
   alias Fountain.Conversations.ConversationServer
   alias Fountain.Conversations.Sandbox
   alias Fountain.Conversations.Termination
@@ -202,11 +203,14 @@ defmodule Fountain.Machines.DestroyForcedTest do
       assert destroyed.metadata["sprite_name"] == ctx.home.machine_name
       assert destroyed.metadata["provider"] == ctx.home.provider
 
-      # The cascade's actor, the same one the conversations on the home are
-      # terminated as. The fence keeps the caller's, which is the person who
-      # asked for the agent to go.
-      assert destroyed.actor == "system:home_reset"
+      # One operation, one actor. ADR 0013 §2 keeps `system:<worker>` matched to
+      # the module doing the work and there is no HomeReset module; the cascade
+      # is said by `reason`, which both events carry. The conversations on the
+      # home are still terminated as `system:home_reset` — that is a different
+      # event about a different resource.
+      assert destroyed.actor == "ui"
       assert requested.actor == "ui"
+      assert destroyed.actor == requested.actor
     end
 
     test "the finalize's two effects still run", ctx do
@@ -386,6 +390,23 @@ defmodule Fountain.Machines.DestroyForcedTest do
                )
     end
 
+    test "no sandbox.destroyed survives the delete on the live-server path either", ctx do
+      # The describe's other suppression test runs under `no_servers()`, which
+      # is the path `audit: false` always reached. This is the other one: a
+      # conversation with a live server is terminated through it, the server
+      # destroys the machine, and until this review round the flag was dropped
+      # by `terminate_conversation/2`'s `Keyword.take` before the server saw
+      # it — so exactly one orphaned `sandbox.destroyed` per deleted account
+      # that still had a server, with `user_id` nilified seconds later.
+      {:ok, probe} = GenServer.start_link(OkProbe, %{})
+      stub(ConversationServer, :whereis, fn id -> if id == ctx.conv.id, do: probe, else: nil end)
+      capture_provider()
+
+      capture_log(fn -> assert {:ok, _} = Deletion.delete_user(ctx.user) end)
+
+      assert Repo.all(from e in Audit.Event, where: e.action == "sandbox.destroyed") == []
+    end
+
     test "stopping a principal's compute keeps its rows, so it records the destroy", ctx do
       # The other caller of `destroy_sprites/2` (ADR 0044). Nothing is deleted
       # here, `user_id` survives, and a machine torn down is worth an event —
@@ -466,7 +487,7 @@ defmodule Fountain.Machines.DestroyForcedTest do
     test "the machine dies in the same pass, with the row fenced and live when it does", ctx do
       expect_provider_sees_the_intent(ctx.sandbox)
 
-      sweep(fn -> assert {0, 1} = SandboxReaper.sweep_abandoned_sandboxes() end)
+      sweep(fn -> assert {0, 1, 0} = SandboxReaper.sweep_abandoned_sandboxes() end)
 
       assert_received {:at_provider, name, status, transition, fenced_at}
       assert name == ctx.sandbox.machine_name
@@ -498,7 +519,7 @@ defmodule Fountain.Machines.DestroyForcedTest do
         )
 
       capture_provider()
-      sweep(fn -> assert {0, 1} = SandboxReaper.sweep_abandoned_sandboxes() end)
+      sweep(fn -> assert {0, 1, 0} = SandboxReaper.sweep_abandoned_sandboxes() end)
 
       assert destroyed_names() == [ctx.sandbox.machine_name]
       assert Repo.reload!(ctx.sandbox).status == "terminated"
@@ -514,7 +535,7 @@ defmodule Fountain.Machines.DestroyForcedTest do
       )
 
       capture_provider()
-      sweep(fn -> assert {0, 1} = SandboxReaper.sweep_abandoned_sandboxes() end)
+      sweep(fn -> assert {0, 1, 0} = SandboxReaper.sweep_abandoned_sandboxes() end)
 
       assert destroyed_names() == [ctx.sandbox.machine_name]
       assert Repo.reload!(ctx.sandbox).status == "terminated"
@@ -523,7 +544,7 @@ defmodule Fountain.Machines.DestroyForcedTest do
 
     test "both the reaper's own event and the protocol's are recorded", ctx do
       capture_provider()
-      sweep(fn -> assert {0, 1} = SandboxReaper.sweep_abandoned_sandboxes() end)
+      sweep(fn -> assert {0, 1, 0} = SandboxReaper.sweep_abandoned_sandboxes() end)
 
       assert [expired] = events(ctx.user.id, "sandbox.expired")
       assert expired.actor == "system:sandbox_reaper"
@@ -537,10 +558,76 @@ defmodule Fountain.Machines.DestroyForcedTest do
     test "a provider error still retires the row", ctx do
       expect(Managoat.Sandbox.Sprites, :destroy, fn _ -> {:error, :unavailable} end)
 
-      sweep(fn -> assert {0, 1} = SandboxReaper.sweep_abandoned_sandboxes() end)
+      sweep(fn -> assert {0, 1, 0} = SandboxReaper.sweep_abandoned_sandboxes() end)
 
       assert Repo.reload!(ctx.sandbox).status == "terminated"
       assert [_] = events(ctx.user.id, "sandbox.expired")
+    end
+
+    test "the idle arm on a provider that cannot park expires through the owner too", ctx do
+      # `idle_sweep/1`'s first `expire/3` arm, which had no test before this
+      # round: a provider whose `idle_action/1` is `:destroy` has no park to
+      # offer, so an idle machine is reclaimed rather than suspended.
+      # Past the idle bound but under the ceiling, so the verdict is
+      # `{:expired, :idle}` and reaches `idle_sweep/2` — the describe's own
+      # fixture is 83 days old and goes down the max-lifetime arm.
+      sandbox = age(ctx.sandbox, ctx.conv, 60 * 5)
+      stub(Lifecycle, :idle_action, fn _provider -> :destroy end)
+      capture_provider()
+
+      sweep(fn -> assert {0, 1, 0} = SandboxReaper.sweep_abandoned_sandboxes() end)
+
+      assert destroyed_names() == [sandbox.machine_name]
+      assert Repo.reload!(sandbox).status == "terminated"
+      assert [expired] = events(ctx.user.id, "sandbox.expired")
+      assert expired.metadata["reason"] == "idle on a provider without suspend"
+      assert [destroyed] = events(ctx.user.id, "sandbox.destroyed")
+      assert destroyed.metadata["reason"] == "idle"
+    end
+
+    test "the idle arm whose suspend call fails expires through the owner too", ctx do
+      # The second arm, and the one that matters for load: a provider whose
+      # suspend is down sends every idle row down the destroy path at once,
+      # which is why `@destroy_limit` now covers pass 1 (below).
+      sandbox = age(ctx.sandbox, ctx.conv, 60 * 5)
+      stub(Lifecycle, :idle_action, fn _provider -> :suspend end)
+      stub(Managoat.Sandbox.Sprites, :suspend, fn _handle -> {:error, :unavailable} end)
+      capture_provider()
+
+      sweep(fn -> assert {0, 1, 0} = SandboxReaper.sweep_abandoned_sandboxes() end)
+
+      assert destroyed_names() == [sandbox.machine_name]
+      assert Repo.reload!(sandbox).status == "terminated"
+      assert [expired] = events(ctx.user.id, "sandbox.expired")
+      assert expired.metadata["reason"] == "idle; suspend call failed"
+    end
+
+    test "a run spends at most @destroy_limit provider destroys across both passes", ctx do
+      # Before stage 5b the cap sat on pass 2, which made every provider
+      # destroy the reaper made. Pass 1 now destroys in the call, so an
+      # uncapped sweep would fire one per abandoned row — the burst the
+      # constraint was written against.
+      limit = 25
+
+      extra =
+        for _ <- 1..limit do
+          s = insert_sandbox(user_id: ctx.user.id, status: "ready")
+          c = insert_conversation(user_id: ctx.user.id, sandbox: s, status: "idle")
+          age(s, c, 60 * 24 * 83)
+        end
+
+      capture_provider()
+
+      # 26 rows past the ceiling, 25 destroys, one deferred to the next run and
+      # counted as neither expired nor refused.
+      sweep(fn -> assert {0, ^limit, 0} = SandboxReaper.sweep_abandoned_sandboxes() end)
+
+      assert length(destroyed_names()) == limit
+
+      all = [ctx.sandbox | extra]
+      terminal = Enum.count(all, &(Repo.reload!(&1).status == "terminated"))
+      assert terminal == limit
+      assert Enum.count(all, &(Repo.reload!(&1).status == "ready")) == 1
     end
 
     test "a refused destroy records nothing and does not stop the sweep", ctx do
@@ -551,7 +638,12 @@ defmodule Fountain.Machines.DestroyForcedTest do
       refuse_destroy_of(ctx.sandbox.id)
       capture_provider()
 
-      sweep(fn -> assert {0, 2} = SandboxReaper.sweep_abandoned_sandboxes() end)
+      # One reclaimed and one refused, counted apart. `expired` is graphed on
+      # the finance board as "rows expired by the reaper", so a machine that is
+      # still `ready`, still at the provider and still billing must not be in
+      # it — otherwise an outage that refuses every destroy reports healthy
+      # reclamation while nothing is reclaimed.
+      sweep(fn -> assert {0, 1, 1} = SandboxReaper.sweep_abandoned_sandboxes() end)
 
       assert destroyed_names() == [other.machine_name]
       assert Repo.reload!(other).status == "terminated"

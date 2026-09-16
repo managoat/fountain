@@ -277,7 +277,7 @@ defmodule Fountain.Conversations.SandboxResetTest do
       set: [updated_at: DateTime.add(DateTime.utc_now(), -172_800, :second)]
     )
 
-    assert {0, 0} = Fountain.Workers.SandboxReaper.sweep_abandoned_sandboxes()
+    assert {0, 0, 0} = Fountain.Workers.SandboxReaper.sweep_abandoned_sandboxes()
     assert Fountain.Quotas.active_sandbox_count(ctx.user.id) == 1
     assert Repo.reload!(ctx.home).status == "ready"
     refute Enum.any?(Fountain.Audit.list_for_user(ctx.user.id), &(&1.action == "sandbox.reset"))

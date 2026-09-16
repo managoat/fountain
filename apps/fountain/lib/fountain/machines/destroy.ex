@@ -199,8 +199,16 @@ defmodule Fountain.Machines.Destroy do
       Note this is *not* the `user_id: nil` skip below — at destroy time the
       row still names its tenant, so that clause does not fire.
     * `:notify` — `{conversation_id, event, reason, message}`, the notice to
-      cast to the machine's other conversations once it is gone. Omitted by a
-      caller whose fence already established there are none.
+      cast to the machine's other conversations once it is gone. Omitted by
+      every caller that has nothing to say, and there are two kinds. A caller
+      whose fence ran with a `terminating_conversation_id` has already
+      established there is nobody else on the machine. A **forced** caller has
+      established the opposite — its fence is unconditional precisely because
+      co-tenants may be bound — and still omits it: an agent deletion, an
+      account deletion, an expiry and an admin reap are not reclamations a
+      conversation can be told to expect a new machine after, and none of the
+      four notified before ADR 0058 either. Giving them wording is a decision
+      for whoever needs one, not a default.
     * `:lease_ttl_ms` — how long this operation's lease lives. Defaults to
       #{@lease_ttl_ms}.
     * `:busy_wait_ms` — how long to wait for a lease somebody else holds.

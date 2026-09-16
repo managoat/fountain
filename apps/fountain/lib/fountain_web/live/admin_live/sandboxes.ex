@@ -17,6 +17,8 @@ defmodule FountainWeb.AdminLive.Sandboxes do
 
   use FountainWeb, :live_view
 
+  require Logger
+
   import FountainWeb.AdminLive.Helpers
   import FountainWeb.AdminLive.Shell
 
@@ -58,6 +60,19 @@ defmodule FountainWeb.AdminLive.Sandboxes do
 
       {:error, :not_found} ->
         {:noreply, put_flash(socket, :error, "Sandbox not found")}
+
+      # Since ADR 0058 stage 5b a reap can be refused: the machine's owner is
+      # already destroying it, most often the reaper's own expiry of the same
+      # row. A flash, not a crash — the operator's next click is the whole
+      # remedy, and the row is refreshed so they can see whether the other
+      # teardown finished it in the meantime.
+      {:error, reason} ->
+        Logger.warning("admin reap of sandbox #{id} refused: #{inspect(reason)}")
+
+        {:noreply,
+         socket
+         |> assign_sandboxes()
+         |> put_flash(:error, "Sandbox busy — another teardown is running; try again")}
     end
   end
 

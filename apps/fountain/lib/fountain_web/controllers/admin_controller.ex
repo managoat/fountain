@@ -361,7 +361,9 @@ defmodule FountainWeb.AdminController do
     responses: [
       ok: {"Outcome", "application/json", Schemas.AdminReapResponse},
       forbidden: {"Admin required", "application/json", Schemas.Error},
-      not_found: {"Not found", "application/json", Schemas.Error}
+      not_found: {"Not found", "application/json", Schemas.Error},
+      service_unavailable:
+        {"Another teardown holds this machine; retry", "application/json", Schemas.Error}
     ]
   )
 
@@ -376,8 +378,15 @@ defmodule FountainWeb.AdminController do
       {:ok, outcome} ->
         json(conn, %{data: %{sandbox_id: id, outcome: to_string(outcome)}})
 
-      {:error, :not_found} ->
-        {:error, :not_found}
+      # `:not_found` and, since ADR 0058 stage 5b, `:sandbox_unavailable` —
+      # the machine's owner is busy with another destroy of it, which is
+      # ordinary contention between an operator's reap and the reaper's own
+      # expiry. `FallbackController` renders it as the 503 with `retry-after`
+      # it renders everywhere else, which is why the refusal is passed through
+      # rather than matched: a clause per word here would drift from the
+      # `Machine.destroy/2` spec the next stage widens.
+      {:error, _reason} = error ->
+        error
     end
   end
 

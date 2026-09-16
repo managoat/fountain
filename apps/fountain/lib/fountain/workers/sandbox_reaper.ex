@@ -66,6 +66,18 @@ defmodule Fountain.Workers.SandboxReaper do
 
   # A cap per run, so a large backlog drains over several hours instead of
   # firing hundreds of destroy calls at sprites.dev in one burst.
+  #
+  # It is the budget for the *whole run*, not for pass 2 alone (ADR 0058
+  # stage 5b). It used to be pass 2's, because pass 2 made every provider
+  # destroy the reaper made: pass 1 only wrote rows terminal and left the
+  # machines to be collected. Now an expiry destroys its machine in the call,
+  # so an uncapped pass 1 would fire one destroy per abandoned row and the
+  # constraint written here would be gone — reachable on stock configuration,
+  # because `idle_sweep/1` expires whenever an explicit suspend fails, so a
+  # provider suspend outage would put the entire idle backlog through the
+  # destroy path in one hourly pass. Pass 1 spends from this first and pass 2
+  # gets the remainder; a row that finds it spent is left for the next run,
+  # which is the draining this number is for.
   @destroy_limit 25
 
   @terminal_statuses ~w(terminated failed)
@@ -74,19 +86,22 @@ defmodule Fountain.Workers.SandboxReaper do
   @impl Oban.Worker
   def perform(_job) do
     released = release_stuck_sandboxes()
-    {parked, expired} = sweep_abandoned_sandboxes()
+    {parked, expired, refused} = sweep_abandoned_sandboxes()
     reconciled = sweep_fenced_teardowns()
 
     listings = list_by_provider()
     ok_listings = for {p, {:ok, names}} <- listings, into: %{}, do: {p, names}
-    destroyed = destroy_dead_sprites(ok_listings)
+    # One budget of provider destroys for the whole run, spent by pass 1 first
+    # (ADR 0058 stage 5b). See `@destroy_limit`.
+    destroyed = destroy_dead_sprites(ok_listings, @destroy_limit - expired - refused)
     untracked = report_untracked(ok_listings)
 
     live = ok_listings |> Map.values() |> Enum.map(&MapSet.size/1) |> Enum.sum()
 
     Logger.info(
       "reaper: released=#{released} parked=#{parked} expired=#{expired} " <>
-        "reconciled=#{reconciled} destroyed=#{destroyed} untracked=#{untracked} live=#{live}"
+        "refused=#{refused} reconciled=#{reconciled} destroyed=#{destroyed} " <>
+        "untracked=#{untracked} live=#{live}"
     )
 
     result =
@@ -111,9 +126,24 @@ defmodule Fountain.Workers.SandboxReaper do
     # `reconciled` is its own for the opposite reason — it counts teardowns
     # that died halfway, so a non-zero value is a defect somewhere upstream,
     # not routine reclamation.
+    #
+    # `refused` is its own for both reasons at once (ADR 0058 stage 5b). An
+    # expiry now destroys the machine through its owner and that can be
+    # refused, so `expired` had to stop meaning "rows the sweep decided to
+    # expire" and go back to meaning "machines actually reclaimed" — it is a
+    # finance-board gauge ("rows expired by the reaper"), and counting
+    # still-billing machines in it would report healthy reclamation through an
+    # outage that reclaims nothing. What is left over goes here, where a
+    # non-zero value says the machines are still there.
     :telemetry.execute(
       [:fountain, :reaper, :run],
-      %{released: released, parked: parked, expired: expired, reconciled: reconciled},
+      %{
+        released: released,
+        parked: parked,
+        expired: expired,
+        refused: refused,
+        reconciled: reconciled
+      },
       %{}
     )
 
@@ -215,14 +245,17 @@ defmodule Fountain.Workers.SandboxReaper do
   `conversations.updated_at` on every boot, which would make an abandoned
   conversation look freshly active after each deploy.
 
-  Returns `{parked, expired}`.
+  Returns `{parked, expired, refused}` — machines parked, machines reclaimed,
+  and machines whose destroy the owner refused. The third is separate because
+  `expired` is a finance-board gauge and must keep meaning "reclaimed"; see
+  `perform/1`'s telemetry comment (ADR 0058 stage 5b).
   """
   def sweep_abandoned_sandboxes do
     idle = Lifecycle.idle_timeout_seconds()
     max_lifetime = Lifecycle.max_lifetime_seconds()
 
     if is_nil(idle) and is_nil(max_lifetime) do
-      {0, 0}
+      {0, 0, 0}
     else
       now = DateTime.utc_now()
       grace_cutoff = DateTime.add(now, -@abandoned_grace_minutes * 60, :second)
@@ -238,24 +271,54 @@ defmodule Fountain.Workers.SandboxReaper do
         |> Enum.reject(&Lifecycle.any_server_alive?/1)
         |> Enum.map(&{&1, check_bounds(&1, now)})
 
-      {parked, expired} =
-        Enum.reduce(verdicts, {0, 0}, fn
-          {sandbox, {:expired, :idle}}, {p, e} ->
-            case idle_sweep(sandbox) do
-              :parked -> {p + 1, e}
-              :expired -> {p, e + 1}
-            end
+      {parked, expired, refused, _budget_left} =
+        Enum.reduce(verdicts, {0, 0, 0, @destroy_limit}, &sweep_verdict/2)
 
-          {sandbox, {:expired, :max_lifetime}}, {p, e} ->
-            expire(sandbox, :max_lifetime, "past max lifetime")
-            {p, e + 1}
-
-          {_sandbox, :ok}, acc ->
-            acc
-        end)
-
-      {parked, expired}
+      {parked, expired, refused}
     end
+  end
+
+  # One verdict, against the run's remaining destroy budget.
+  #
+  # `expired` counts machines this sweep actually reclaimed and `refused` the
+  # ones it could not, because since ADR 0058 stage 5b `expire/3` goes through
+  # the machine's owner and the owner can say no. Counting the verdict instead
+  # of the outcome — which is what this did when `expire/2` could not fail —
+  # reports a still-running, still-billing machine as expired.
+  defp sweep_verdict({sandbox, {:expired, :idle}}, {p, e, r, left}) do
+    case idle_sweep(sandbox, left) do
+      :parked -> {p + 1, e, r, left}
+      :expired -> {p, e + 1, r, left - 1}
+      :refused -> {p, e, r + 1, left - 1}
+      :deferred -> {p, e, r, left}
+    end
+  end
+
+  defp sweep_verdict({sandbox, {:expired, :max_lifetime}}, {p, e, r, left}) when left > 0 do
+    case expire(sandbox, :max_lifetime, "past max lifetime") do
+      :expired -> {p, e + 1, r, left - 1}
+      :refused -> {p, e, r + 1, left - 1}
+    end
+  end
+
+  defp sweep_verdict({sandbox, {:expired, :max_lifetime}}, acc) do
+    defer(sandbox)
+    acc
+  end
+
+  defp sweep_verdict({_sandbox, :ok}, acc), do: acc
+
+  # The run has spent its provider-destroy budget. The row keeps its live
+  # status and no fence, so the next run sees it unchanged and expires it
+  # then — which is exactly what `@destroy_limit` is for. Counted as neither
+  # expired nor refused: nothing was attempted and nothing went wrong.
+  defp defer(%Sandbox{} = sandbox) do
+    Logger.info(
+      "reaper: deferred expiry of sandbox #{sandbox.id} (#{sandbox.machine_name}) — " <>
+        "this run has spent its #{@destroy_limit} provider destroys"
+    )
+
+    :deferred
   end
 
   # Same clock as ConversationServer.sandbox_clock_start/1: the max-lifetime
@@ -286,7 +349,7 @@ defmodule Fountain.Workers.SandboxReaper do
   # expire where it cannot — the same Lifecycle.idle_action/1 decision the
   # ConversationServer applies, and the same degradation when the explicit
   # suspend call fails (an unparked sandbox keeps billing).
-  defp idle_sweep(sandbox) do
+  defp idle_sweep(sandbox, destroys_left) do
     provider = Conversations.sandbox_provider_atom(sandbox)
 
     with :suspend <- Lifecycle.idle_action(provider),
@@ -296,8 +359,7 @@ defmodule Fountain.Workers.SandboxReaper do
       :parked
     else
       :destroy ->
-        expire(sandbox, :idle, "idle on a provider without suspend")
-        :expired
+        expire_within(sandbox, destroys_left, "idle on a provider without suspend")
 
       {:error, reason} ->
         Logger.warning(
@@ -305,10 +367,17 @@ defmodule Fountain.Workers.SandboxReaper do
             "expiring instead"
         )
 
-        expire(sandbox, :idle, "idle; suspend call failed")
-        :expired
+        expire_within(sandbox, destroys_left, "idle; suspend call failed")
     end
   end
+
+  # Both of these arms destroy a machine at the provider, so both spend from
+  # the run's budget — the suspend-failure one especially, since a provider
+  # whose suspend is down sends every idle row here at once.
+  defp expire_within(sandbox, destroys_left, reason) when destroys_left > 0,
+    do: expire(sandbox, :idle, reason)
+
+  defp expire_within(sandbox, _spent, _reason), do: defer(sandbox)
 
   # Reversible bookkeeping — the sandbox stays parked at the provider, and
   # the next prompt wakes it through the ordinary reattach path.
@@ -371,17 +440,20 @@ defmodule Fountain.Workers.SandboxReaper do
 
         record_reap(sandbox, "sandbox.expired", %{"reason" => reason})
 
+        # The conversation is deliberately left alone. It stays resumable, and
+        # the next prompt provisions a fresh sandbox (the runtime session on
+        # the destroyed disk is lost — the price of the ceiling, see
+        # decisions/0017).
+        :expired
+
       {:error, refusal} ->
         Logger.warning(
           "reaper: could not expire abandoned sandbox #{sandbox.id} " <>
             "(#{sandbox.machine_name}): #{inspect(refusal)}"
         )
-    end
 
-    # The conversation is deliberately left alone. It stays resumable, and the
-    # next prompt provisions a fresh sandbox (the runtime session on the
-    # destroyed disk is lost — the price of the ceiling, see decisions/0017).
-    sandbox
+        :refused
+    end
   end
 
   # ── pass 1c: teardown fences whose terminal write never landed ────────────
@@ -502,7 +574,9 @@ defmodule Fountain.Workers.SandboxReaper do
 
   # ── pass 2: terminal rows whose sprite is still there ─────────────────────
 
-  defp destroy_dead_sprites(live_by_provider) do
+  defp destroy_dead_sprites(_live_by_provider, budget) when budget <= 0, do: 0
+
+  defp destroy_dead_sprites(live_by_provider, budget) do
     Sandbox
     |> where([s], s.status in ^@terminal_statuses)
     |> select([s], {s.id, s.machine_name, s.provider})
@@ -515,7 +589,7 @@ defmodule Fountain.Workers.SandboxReaper do
         :error -> false
       end
     end)
-    |> Enum.take(@destroy_limit)
+    |> Enum.take(budget)
     |> Enum.count(fn {id, name, provider} -> destroy(id, name, provider_atom(provider)) end)
   end
 

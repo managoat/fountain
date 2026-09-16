@@ -1,9 +1,19 @@
 defmodule FountainWeb.AdminSandboxesLiveTest do
   use FountainWeb.ConnCase, async: true
+  use Mimic
 
   import Phoenix.LiveViewTest
 
   alias Fountain.Accounts
+
+  # Reaping a machine with no live server destroys it at the provider since
+  # ADR 0058 stage 5b, where it used to write the row and leave the sprite for
+  # the reaper. Nothing here is about the provider, so the adapter seam answers
+  # yes — the same stub stage 5a added to nine files for the same reason.
+  setup do
+    stub(Managoat.Sandbox.Sprites, :destroy, fn _handle -> :ok end)
+    :ok
+  end
 
   defp insert_admin(overrides \\ %{}) do
     user = insert_active_user(overrides)
@@ -172,6 +182,38 @@ defmodule FountainWeb.AdminSandboxesLiveTest do
                &(&1.event_type == "admin.sandbox.reaped" and
                    &1.metadata["sandbox_id"] == sandbox.id)
              )
+    end
+
+    test "a refused reap is a flash, not a crash", %{conn: conn} do
+      # Since ADR 0058 stage 5b a reap goes through the machine's owner and can
+      # be refused — most often because the reaper's own expiry of the same row
+      # is holding its lease. Before this clause the LiveView died with a
+      # `CaseClauseError`: no flash, the tab reconnects, the row is still there
+      # and the operator has no idea why.
+      admin = insert_admin()
+      sandbox = insert_sandbox(status: "ready")
+      conn = login_user(conn, admin)
+      {:ok, lv, _html} = live(conn, ~p"/admin/sandboxes")
+
+      stub(Fountain.Machines.Destroy, :run, fn _id, _opts -> {:error, :machine_busy} end)
+
+      html =
+        ExUnit.CaptureLog.capture_log(fn ->
+          send(self(), {:html, reap_click(lv, sandbox)})
+        end)
+
+      assert html =~ "refused"
+      assert_received {:html, rendered}
+      assert rendered =~ "Sandbox busy"
+
+      # Untouched, and still listed, so the next click is the whole remedy.
+      assert Fountain.Conversations._unsafe_get_sandbox!(sandbox.id).status == "ready"
+    end
+
+    defp reap_click(lv, sandbox) do
+      lv
+      |> element("button[phx-value-id='#{sandbox.id}'][phx-click='reap_sandbox']")
+      |> render_click()
     end
   end
 

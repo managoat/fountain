@@ -351,7 +351,20 @@ defmodule FountainWeb.Telemetry do
       sum("fountain.reaper.run.expired",
         event_name: [:fountain, :reaper, :run],
         measurement: :expired,
-        description: "Sandbox rows expired by SandboxReaper runs"
+        description: "Sandboxes reclaimed past a lifetime bound by SandboxReaper runs"
+      ),
+      # The other half of `expired`, and the reason that one still means
+      # "reclaimed" (ADR 0058 stage 5b). An expiry destroys the machine through
+      # its owner now, and the owner can refuse — another teardown of the same
+      # machine is already running, or the database is. Folding those into
+      # `expired` would report healthy reclamation through an outage in which
+      # nothing at all is reclaimed, on a gauge the finance board reads as
+      # "rows expired by the reaper". A non-zero value here means the machines
+      # are still there and still billing.
+      sum("fountain.reaper.run.refused",
+        event_name: [:fountain, :reaper, :run],
+        measurement: :refused,
+        description: "Expiries SandboxReaper runs could not complete; the machines are still up"
       ),
       # Unlike the three above, a non-zero value here is not routine
       # reclamation: it counts teardowns that fenced and then died before

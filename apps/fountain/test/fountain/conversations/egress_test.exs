@@ -13,6 +13,7 @@ defmodule Fountain.Conversations.EgressTest do
   alias Fountain.Broker
   alias Fountain.Conversations
   alias Fountain.Conversations.Egress
+  alias Fountain.Conversations.Redaction
   alias Fountain.SecretBindings.Binding
   alias Managoat.Sandbox.Handle
 
@@ -468,6 +469,122 @@ defmodule Fountain.Conversations.EgressTest do
 
   def forward_ca_metric(_event, measurements, metadata, pid) do
     send(pid, {:ca_metric, measurements, metadata})
+  end
+
+  # A brokered credential never enters the sandbox, so it is registered for
+  # output redaction explicitly — at provisioning by `SpriteEnv.build/4`, and
+  # here, because a running conversation rotates it. An edited vault secret or
+  # a refreshed connection token goes live through this refresh, which neither
+  # rebuilds the env nor runs `SpriteEnv.build/4`. Unregistered, the first
+  # upstream that echoed the new value would put it in `log_events` in
+  # plaintext: the disclosure the provisioning registration exists to close.
+  describe "the refresh before a turn keeps redaction current" do
+    setup %{user: user} do
+      broker_on()
+      {:ok, dek} = Fountain.Crypto.load_tenant_key(user.id)
+      vault = insert_vault(user_id: user.id)
+      put_bound(vault, dek, "original-credential-aaaa")
+      conv = insert_conversation(user_id: user.id)
+      on_exit(fn -> Redaction.delete(conv.id) end)
+
+      bindings = %{
+        "BOUND_TOKEN" => [
+          %Binding{
+            key: "BOUND_TOKEN",
+            host: "api.example.com",
+            auth_type: "bearer",
+            enabled: true
+          }
+        ]
+      }
+
+      state = %{
+        conversation_id: conv.id,
+        user_id: user.id,
+        tenant_key: dek,
+        broker: %{
+          vault: "c-test",
+          token: "av_live",
+          expires_at: DateTime.add(DateTime.utc_now(), 3600)
+        },
+        brokered: %{"BOUND_TOKEN" => "original-credential-aaaa"},
+        tenant_keys: ["BOUND_TOKEN"],
+        connection_keys: [],
+        secret_sources: %{environment_id: nil, vault_id: vault.id},
+        broker_bindings: bindings,
+        inference_credentials: %{},
+        broker_network: :unrestricted,
+        sprite_env: [{"BOUND_TOKEN", "__bound_token__"}]
+      }
+
+      # What provisioning registered.
+      Redaction.add(conv.id, Map.to_list(state.brokered))
+      {:ok, vault: vault, dek: dek, state: state}
+    end
+
+    test "a rotated value is registered before the live rules can inject it",
+         %{vault: vault, dek: dek, state: state} do
+      put_bound(vault, dek, "rotated-credential-bbbb")
+
+      stub(Broker, :refresh, fn _conv, brokered, _bindings, _opts ->
+        assert brokered["BOUND_TOKEN"] == "rotated-credential-bbbb"
+
+        assert "rotated-credential-bbbb" in Redaction.lookup(state.conversation_id),
+               "the broker must not be able to inject a value the registry does not know"
+
+        {:ok, 1}
+      end)
+
+      stub(Broker, :prepare, fn _, _, _, _ -> flunk("a live rewrite needs no new session") end)
+
+      assert {next, false} = Egress.refresh_before_turn(state)
+      assert next.brokered["BOUND_TOKEN"] == "rotated-credential-bbbb"
+      assert_scrubbed(state.conversation_id, next.sprite_env)
+    end
+
+    test "a rotated value is registered before a replacement session can inject it",
+         %{vault: vault, dek: dek, state: state} do
+      put_bound(vault, dek, "rotated-credential-bbbb")
+      # No live session to rewrite, so the refresh falls through to a fresh one.
+      stub(Broker, :refresh, fn _, _, _, _ -> {:ok, 0} end)
+
+      stub(Broker, :prepare, fn _conv, brokered, _bindings, _opts ->
+        assert brokered["BOUND_TOKEN"] == "rotated-credential-bbbb"
+        assert "rotated-credential-bbbb" in Redaction.lookup(state.conversation_id)
+        {:ok, %{vault: "c-test", token: "av_fresh", expires_at: nil}}
+      end)
+
+      assert {next, true} = Egress.refresh_before_turn(state)
+      assert next.broker.token == "av_fresh"
+      assert_scrubbed(state.conversation_id, next.sprite_env)
+    end
+
+    test "an unchanged refresh leaves the registry as it was", %{state: state} do
+      stub(Broker, :refresh, fn _, _, _, _ -> flunk("nothing moved, so nothing to rewrite") end)
+      before = Redaction.lookup(state.conversation_id)
+      assert {_next, false} = Egress.refresh_before_turn(state)
+      assert Redaction.lookup(state.conversation_id) == before
+    end
+  end
+
+  defp put_bound(vault, dek, value) do
+    {:ok, _} =
+      Fountain.Vaults.upsert_secret(vault, %{"key" => "BOUND_TOKEN", "value" => value}, dek)
+  end
+
+  # The new value is scrubbed; the old one still is, because output produced
+  # under it can be on its way to `log_events` after the rotation; and neither
+  # reached the sandbox env, which only ever holds the placeholder.
+  defp assert_scrubbed(conversation_id, sprite_env) do
+    assert Redaction.redact(conversation_id, "echoed rotated-credential-bbbb") ==
+             "echoed [REDACTED]"
+
+    assert Redaction.redact(conversation_id, "late original-credential-aaaa") ==
+             "late [REDACTED]"
+
+    refute Enum.any?(sprite_env, fn {_k, v} ->
+             v in ["rotated-credential-bbbb", "original-credential-aaaa"]
+           end)
   end
 
   describe "release/2" do

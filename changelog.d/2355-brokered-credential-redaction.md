@@ -12,6 +12,13 @@
   sandbox environment, so an echoed credential reads `[REDACTED]` like any
   other secret.
 
+  That holds after a rotation too. Editing a bound vault secret or refreshing
+  a connection token takes effect on a running conversation's next turn, and
+  that refresh now registers the new value before the broker can inject it.
+  A conversation also keeps redacting every credential it has held until it
+  ends, so output produced under the old value is still scrubbed if it
+  arrives after the rotation.
+
   This affects any deployment with brokered egress and at least one secret
   binding, and was found by the deployed-instance suite's `secrets` profile
   running against production (#1614). It is not a cross-tenant disclosure: the

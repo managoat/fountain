@@ -83,6 +83,25 @@ defmodule Fountain.Conversations.Redaction do
 
   def put(_conversation_id, _values), do: :ok
 
+  @doc """
+  Register more values for a conversation without forgetting any.
+
+  `put/2` replaces, which is right for the first registration and wrong for
+  every one after it. A credential rotates mid-conversation — an edited vault
+  secret, a refreshed connection token — while output produced under the old
+  one can still be on its way to `log_events`. So once a value has been a
+  secret in this conversation, it stays redacted until the conversation ends
+  and `delete/1` clears it. Over-redacting a retired credential costs nothing;
+  un-redacting one that is still in flight is the disclosure.
+
+  Reads then writes, which is safe because a conversation's registry is written
+  only from its own server process.
+  """
+  def add(conversation_id, values) when is_binary(conversation_id) and is_list(values),
+    do: put(conversation_id, lookup(conversation_id) ++ values)
+
+  def add(_conversation_id, _values), do: :ok
+
   @doc "Forget a conversation's values. Called when its server stops."
   def delete(conversation_id) when is_binary(conversation_id) do
     ensure_table()

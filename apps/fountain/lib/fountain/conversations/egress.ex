@@ -21,6 +21,7 @@ defmodule Fountain.Conversations.Egress do
 
   alias Fountain.Broker
   alias Fountain.Conversations.Provisioning
+  alias Fountain.Conversations.Redaction
   alias Fountain.Conversations.SpriteEnv
   alias Fountain.Environments
   alias Fountain.Vaults
@@ -393,6 +394,16 @@ defmodule Fountain.Conversations.Egress do
 
   def refresh_before_turn(%{broker: session} = state) do
     {state, changed?} = reread_secrets(state)
+
+    # Before the broker can inject any of it. An edited vault secret or a
+    # rotated connection token becomes live through the rewrite or the fresh
+    # session below, and `SpriteEnv.build/4` — the only other registration —
+    # does not run on this path. Registered without it, the new credential
+    # would be echoed into `log_events` in plaintext by the first upstream
+    # that returns a header. `add/2`, not `put/2`: the old value can still be
+    # in output already on its way.
+    Redaction.add(state.conversation_id, Map.to_list(state.brokered))
+
     rewritten? = changed? and rewrite_rules(state) == :ok
 
     if (changed? and not rewritten?) or Broker.expiring?(session) do

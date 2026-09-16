@@ -81,6 +81,28 @@ defmodule Fountain.Conversations.RedactionTest do
       assert Redaction.redact(b.id, "tenant-a-secret-value") == "tenant-a-secret-value"
     end
 
+    # A credential rotates mid-conversation while output made under the old one
+    # can still be on its way, so later registrations must never forget.
+    test "add/2 registers more values without forgetting any", %{conv: conv} do
+      Redaction.put(conv.id, [{"TOKEN", "the-original-credential"}])
+      Redaction.add(conv.id, [{"TOKEN", "the-rotated-credential"}])
+
+      assert Redaction.redact(conv.id, "new the-rotated-credential old the-original-credential") ==
+               "new [REDACTED] old [REDACTED]"
+    end
+
+    test "add/2 on an unregistered conversation registers, and still skips short values",
+         %{conv: conv} do
+      Redaction.add(conv.id, [{"TOKEN", "a-first-long-credential"}, {"DEBUG", "true"}])
+      assert Redaction.lookup(conv.id) == ["a-first-long-credential"]
+    end
+
+    test "add/2 with nothing redactable leaves an existing registration alone", %{conv: conv} do
+      Redaction.put(conv.id, [{"TOKEN", "keep-this-credential"}])
+      Redaction.add(conv.id, [{"DEBUG", "true"}])
+      assert Redaction.redact(conv.id, "keep-this-credential") == "[REDACTED]"
+    end
+
     test "delete/1 forgets the values", %{conv: conv} do
       Redaction.put(conv.id, [{"K", "forget-me-completely"}])
       Redaction.delete(conv.id)

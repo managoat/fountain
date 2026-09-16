@@ -123,7 +123,9 @@ defmodule Fountain.Conversations.SpriteEnv do
     # redacted from what the agent reads.
     broker_credentials = Keyword.get(opts, :broker_credentials, %{})
 
-    Fountain.Conversations.Redaction.put(
+    # `add/2`: a wake or reattach rebuilds this env, and a value registered
+    # earlier in the conversation can still be in output on its way.
+    Fountain.Conversations.Redaction.add(
       conversation_id,
       sprite_env ++ Enum.map(broker_credentials, fn {k, v} -> {to_string(k), v} end)
     )

@@ -28,11 +28,25 @@ async function rawBody(req) {
   for await (const chunk of req) { bytes += chunk.length; if (bytes > 16384) throw new Error('Body bound'); chunks.push(chunk); }
   return Buffer.concat(chunks);
 }
+// A conversation's labels (#1637): ids and facts a program put there itself,
+// bounded as `Fountain.Conversations.Labels` bounds them. Never content.
+function safeLabels(labels) {
+  if (!labels || typeof labels !== 'object' || Array.isArray(labels)) return false;
+  const entries = Object.entries(labels);
+  return entries.length <= 32 && entries.every(([k, v]) => typeof v === 'string' &&
+    Buffer.byteLength(k) >= 1 && Buffer.byteLength(k) <= 64 && Buffer.byteLength(v) <= 256);
+}
+// The exact key sets are the point, not an inconvenience. Fountain's envelope
+// promises "ids, a stage, a status, a duration, the labels. Nothing else,
+// ever." Accepting any added field would let content arrive unnoticed, so a
+// field the envelope gains is added here deliberately, as `labels` was after
+// #1637, rather than tolerated by default.
 function safePayload(value, spec) {
   if (!value || Object.keys(value).sort().join() !== 'created_at,data,id,type' || !/^\d{1,20}$/.test(value.id) ||
     value.type !== 'conversation.terminate.done' || typeof value.created_at !== 'string' || value.created_at.length > 32 || !Number.isFinite(Date.parse(value.created_at))) return false;
   const d = value.data;
-  return d && Object.keys(d).sort().join() === 'agent_id,conversation_id,duration_ms,parent_conversation_id,stage,state,status,turn_id' &&
+  return d && Object.keys(d).sort().join() === 'agent_id,conversation_id,duration_ms,labels,parent_conversation_id,stage,state,status,turn_id' &&
+    safeLabels(d.labels) &&
     d.conversation_id === spec.conversation_id && d.agent_id === spec.agent_id && d.parent_conversation_id === null && d.turn_id === null &&
     d.stage === 'terminate' && d.state === 'done' && ['pending', 'provisioning', 'idle', 'running', 'terminated', 'failed'].includes(d.status) &&
     (d.duration_ms === null || Number.isSafeInteger(d.duration_ms) && d.duration_ms >= 0);

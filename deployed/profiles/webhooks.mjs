@@ -16,7 +16,10 @@ export function verifyWebhookDeliveries(observations, deliveries, event, convers
     ensure(row.signature_valid && row.payload_valid && row.headers_match && [503, 200].includes(row.status), 'Receiver rejected a signature, payload or delivery header');
     const expected = { id: String(event.id), type: 'conversation.terminate.done', created_at: event.ts, data: {
       conversation_id: conversation.id, agent_id: conversation.agent_id, parent_conversation_id: null,
-      status: row.payload.data.status, stage: event.stage, state: event.state, turn_id: event.turn_id, duration_ms: event.duration_ms } };
+      status: row.payload.data.status, stage: event.stage, state: event.state, turn_id: event.turn_id, duration_ms: event.duration_ms,
+      // The conversation's own labels, as the public API serves them: the
+      // webhook must carry exactly those, since #1637 put them in the envelope.
+      labels: conversation.labels ?? {} } };
     ensure(isDeepStrictEqual(row.payload, expected), 'Signed webhook payload differs from the public conversation event');
     ensure(deliveries.some(d => {
       let body; try { body = JSON.parse(d.response_body); } catch { return false; }
@@ -101,7 +104,18 @@ export async function webhooks(ctx) {
     const cursor = before.body.data[0]?.id ?? 0;
     await client.request('POST', `/api/conversations/${conversation.id}/terminate`, { expected: 204 });
     const observed = await watchUntil(client, conversation.id, phaseSignal(ctx.signal, 30000), e => e.kind === 'stage' && e.stage === 'terminate' && e.state === 'done', { after: cursor });
-    event = observed.events.at(-1).event;
+    const streamed = observed.events.at(-1).event;
+    // Compare the webhook against the durable event, not the stream frame.
+    // The conversation stream leaves `duration_ms` out by contract
+    // (`StreamLogEvent`: sent on `/api/events/stream` only), so a frame read
+    // there has no such field, and a strict comparison saw `undefined` where
+    // the webhook correctly sends `null`. History serves the whole event.
+    const { body: durable } = await client.request('GET',
+      `/api/conversations/${conversation.id}/events?after=${cursor}&limit=100`, { expected: 200 });
+    event = durable.data.find(e => e.id === streamed.id);
+    ensure(event, 'The terminate event was streamed but is absent from durable history');
+    ensure(event.stage === streamed.stage && event.state === streamed.state && event.ts === streamed.ts,
+      'The durable terminate event differs from the streamed one');
     report.webhooks.event = event;
     const turns = await client.request('GET', `/api/conversations/${conversation.id}/turns`, { expected: 200 });
     ensure(turns.body.data.length === 0, 'Webhook profile unexpectedly performed inference');

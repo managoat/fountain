@@ -14,7 +14,7 @@ const secret = () => `whsec_${randomBytes(32).toString('base64url')}`;
 const sign = (body, key, time) => `t=${time},v1=${createHmac('sha256', key).update(`${time}.${body}`).digest('hex')}`;
 function temporary(t) { const dir = mkdtempSync(join(tmpdir(), 'fountain-webhooks-test-')); t.after(() => rmSync(dir, { force: true, recursive: true })); return dir; }
 function payload() { return { id: '123', type: 'conversation.terminate.done', created_at: '2026-09-06T12:00:00.123456Z', data: {
-  conversation_id: randomUUID(), agent_id: randomUUID(), parent_conversation_id: null, status: 'terminated', stage: 'terminate', state: 'done', turn_id: null, duration_ms: null } }; }
+  conversation_id: randomUUID(), agent_id: randomUUID(), parent_conversation_id: null, status: 'terminated', stage: 'terminate', state: 'done', turn_id: null, duration_ms: null, labels: {} } }; }
 async function receiver(t, opts = {}) {
   const adminKey = randomUUID(), key = secret(), id = randomUUID(), event = payload();
   const server = createWebhookReceiver({ adminKey, ...opts });
@@ -96,7 +96,9 @@ test('a delivery verdict rejects manual attempt-counter resets, fabricated recei
   assert.equal(webhookEvidenceSettled(observations.slice(0, 1), deliveries), false);
   assert.equal(webhookEvidenceSettled(observations, deliveries), true);
   for (const mutate of [o => o[1].attempt = 1, o => o[0].signature_valid = false, o => o[1].receipt_id = randomUUID(),
-    o => o[1].payload.created_at = '2026-09-06T12:00:01Z', o => o[1].payload.data.conversation_id = randomUUID()]) {
+    o => o[1].payload.created_at = '2026-09-06T12:00:01Z', o => o[1].payload.data.conversation_id = randomUUID(),
+    // A webhook carrying labels the conversation does not have is drift too.
+    o => o[1].payload.data.labels = { env: 'drifted' }]) {
     const bad = structuredClone(observations); mutate(bad); assert.throws(() => verifyWebhookDeliveries(bad, deliveries, event, conversation));
   }
 });
@@ -151,4 +153,56 @@ test('webhooks are independently selected with zero inference and bounded receiv
     const bad = config(); mutate(bad); writeFileSync(path, JSON.stringify(bad)); assert.throws(() => configFrom(path, env));
   }
   assert.equal(ciConfig({ SUITE_TARGET: 'staging', SUITE_ENABLED: 'true', SUITE_PROFILE: 'webhooks', SUITE_MODE: 'public', SUITE_TARGET_JSON: JSON.stringify(config()) }).execution.max_turns, 0);
+});
+
+// The fixture above once omitted `labels`, matching the receiver rather than
+// the payload Fountain sends, so a receiver that rejected every real delivery
+// still passed. These pin the envelope as `Fountain.Webhooks.payload/3` builds
+// it, and keep the "nothing else, ever" promise enforced.
+test('the receiver accepts the envelope Fountain actually sends, labels included', async t => {
+  const r = await receiver(t);
+  const labelled = structuredClone(r.event);
+  labelled.data.labels = { env: 'prod', 'drift': 'true' };
+  const body = JSON.stringify(labelled);
+  const first = await r.deliver(1, body);
+  assert.equal(first.status, 503, 'a valid envelope reaches the deliberate first failure');
+  const { body: evidence } = await r.request('GET', r.runPath);
+  assert.equal(evidence.observations[0].payload_valid, true);
+  assert.equal(evidence.observations[0].headers_match, true);
+});
+
+test('an envelope field Fountain does not promise is still refused', async t => {
+  const r = await receiver(t);
+  const leaky = structuredClone(r.event);
+  leaky.data.prompt = 'content that must never ride in a webhook';
+  const res = await r.deliver(1, JSON.stringify(leaky));
+  assert.equal(res.status, 422, 'an added field is content arriving unnoticed, not a compatible change');
+});
+
+for (const [name, labels] of [
+  ['an array', ['env']],
+  ['a non-string value', { env: 1 }],
+  ['an empty key', { '': 'x' }],
+  ['a key over 64 bytes', { ['k'.repeat(65)]: 'x' }],
+  ['a value over 256 bytes', { env: 'v'.repeat(257) }],
+  ['more than 32 entries', Object.fromEntries(Array.from({ length: 33 }, (_, i) => [`k${i}`, 'v']))],
+]) {
+  test(`labels as ${name} are refused`, async t => {
+    const r = await receiver(t);
+    const bad = structuredClone(r.event);
+    bad.data.labels = labels;
+    assert.equal((await r.deliver(1, JSON.stringify(bad))).status, 422);
+  });
+}
+
+test('a delivery verdict requires the webhook to carry the conversation\'s own labels', () => {
+  const data = payload(), labels = { env: 'prod', team: 'ops' };
+  data.data.labels = labels;
+  const event = { id: 123, ts: data.created_at, stage: 'terminate', state: 'done', turn_id: null, duration_ms: null };
+  const observations = [503, 200].map((status, i) => ({ receipt_id: randomUUID(), signature_valid: true, payload_valid: true, headers_match: true, payload: data, attempt: i + 1, status }));
+  const deliveries = observations.map(o => ({ id: randomUUID(), event_id: '123', event_type: data.type, attempt: o.attempt, status_code: o.status, response_body: JSON.stringify({ receipt_id: o.receipt_id }) }));
+  const conversation = { id: data.data.conversation_id, agent_id: data.data.agent_id, labels };
+  verifyWebhookDeliveries(observations, deliveries, event, conversation);
+  assert.throws(() => verifyWebhookDeliveries(observations, deliveries, event, { ...conversation, labels: { env: 'prod' } }),
+    /differs from the public conversation event/);
 });

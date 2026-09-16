@@ -342,7 +342,8 @@ defmodule Fountain.Machines.Lease do
   end
 
   # Mirrors `Fountain.Conversations.stamp_terminated_at/1`, the second of
-  # `update_sandbox_if/3`'s two guards and the one with a billing consequence:
+  # `Conversations.update_sandbox/2`'s two guards and the one with a billing
+  # consequence:
   # `Billing.SandboxUsage` reads `terminated_at` as the end of the billed
   # interval, and of the writers of a terminal status the ones that *fail* a
   # machine never pass a timestamp — which once left every failed sandbox

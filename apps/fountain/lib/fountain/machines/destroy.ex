@@ -39,6 +39,16 @@ defmodule Fountain.Machines.Destroy do
      `teardown_requested_at`, so the machine is closed to admission on every
      node whatever the gate says. The gate chooses in-process or inline; it
      does not choose whether the fence is written.
+
+     Skipped, and only skipped, for a caller that already holds a durable
+     fence of its own: `fence: :held_by_caller`, which stage 5c's reset uses.
+     A reset is not a forced teardown — `reset_sandbox/2` wrote
+     `reset_requested_at` in its own advisory-locked transaction and every
+     reader honours it, which is the intent an old replica needs — and
+     stamping `teardown_requested_at` on top would tell
+     `SandboxReaper.sweep_fenced_teardowns/0` to finish a machine whose reset
+     is merely unconfirmed. The option is not a way past fencing: the row is
+     checked for `reset_requested_at` and an unfenced one is refused.
   4. **Stamp the intent**: `transition: "destroying"` by compare-and-set on
      the lease epoch, before any provider I/O. A reader that finds it sees
      what is being done to the machine rather than racing it, and a takeover
@@ -50,6 +60,15 @@ defmodule Fountain.Machines.Destroy do
      still retires the fenced row for reconciliation",
      `termination_actor_fence_test.exs`), and the reaper's untracked-sprite
      report is the backstop for the sprite it leaves behind.
+
+     `on_provider_error: :refuse` inverts that last rule for the one caller
+     whose contract is the opposite. A reset holds its fence — and the
+     tenant's capacity — until the provider *confirms* the machine is gone,
+     because the fence is retryable by design (`SandboxResetReconciler`, the
+     admin retry) and writing the row terminal on an unconfirmed delete would
+     release a quota slot and record `sandbox.reset` for a machine that may
+     still be running and billing. Such a destroy answers
+     `{:error, :provider_unconfirmed}` and writes nothing at all.
   6. **Finalize**: `status: "terminated"` and the transition cleared, again by
      compare-and-set on the epoch. Zero rows means a newer epoch owns the
      machine, which is `{:error, :superseded}` — this destroy changed nothing
@@ -107,7 +126,8 @@ defmodule Fountain.Machines.Destroy do
   three is an outcome a caller can report.
 
   The `{:error, _}` shapes here are the *protocol's* vocabulary —
-  `:machine_busy`, `:superseded`, and whatever the fence or `Lease` hands back,
+  `:machine_busy`, `:superseded`, `:not_fenced`, `:provider_unconfirmed`, and
+  whatever the fence or `Lease` hands back,
   including `Lease`'s `{:database, sqlstate}`. They are precise on purpose and
   they are **not** the vocabulary the rest of the system speaks:
   `Fountain.Machines.Machine.destroy/2` is the door, and it translates them
@@ -184,6 +204,34 @@ defmodule Fountain.Machines.Destroy do
       the fence has no conversation to keep the machine *for*, and a home or a
       shared machine is destroyed rather than kept. The reclaim path leaves it
       out for exactly that reason.
+    * `:fence` — `:teardown` (the default) writes the teardown fence at step
+      3. `:held_by_caller` skips it, for a caller that has already committed a
+      durable fence of its own, and asserts that it really did: a row with no
+      `reset_requested_at` is refused as `{:error, :not_fenced}` rather than
+      destroyed, so the option can never be used to destroy an unfenced
+      machine. Exactly one caller passes it — `Conversations`' reset family,
+      whose `reset_sandbox/2` front door stamps `reset_requested_at` under the
+      per-sandbox advisory lock, refuses a mid-turn or execution-fenced
+      machine, and drops every runtime session on it. Adding
+      `teardown_requested_at` on top would be a different statement about the
+      machine (`SandboxReaper.sweep_fenced_teardowns/0` finishes rows wearing
+      it after 15 minutes), and a reset that is merely unconfirmed is not an
+      abandoned teardown (#2344, stage 5c).
+    * `:provider` — `:destroy` (the default) calls
+      `Managoat.Sandbox.destroy/1` at step 5. `:already_gone` skips the call
+      because the caller has just asked the provider and been told this
+      machine does not exist. The admin reset retry (`reprobe: true`) is the
+      one caller: an operator reconciling a fence probes first, and a machine
+      the provider does not name is retired without a delete against a name
+      that is no longer its own. Everything after step 5 is identical, so this
+      chooses whether the provider is *called*, never whether the row is
+      written.
+    * `:on_provider_error` — `:finalize` (the default) logs a provider error
+      and retires the fenced row anyway, so a machine is never stranded in a
+      live status nobody can find. `:refuse` answers
+      `{:error, :provider_unconfirmed}` and writes nothing, for a caller whose
+      fence is retryable and whose accounting depends on confirmation. See
+      step 5.
     * `:metadata` — extra keys merged into the fence's event, for a caller
       whose own delete is about to nilify `user_id` on the row it names.
     * `:request_ip` — attribution, passed to both events.
@@ -249,10 +297,33 @@ defmodule Fountain.Machines.Destroy do
 
     case Keyword.fetch!(opts, :reason) do
       reason when is_atom(reason) and not is_nil(reason) ->
-        opts
+        :ok
 
       other ->
         raise ArgumentError, "Machines.Destroy: :reason must be an atom, got #{inspect(other)}"
+    end
+
+    Enum.each(
+      [fence: [:teardown, :held_by_caller], provider: [:destroy, :already_gone]],
+      &validated_choice(opts, &1)
+    )
+
+    validated_choice(opts, {:on_provider_error, [:finalize, :refuse]})
+    opts
+  end
+
+  # The three option values that steer the protocol are matched on, not
+  # branched on with a fallback, so a typo would reach the caller as a
+  # `CaseClauseError` from somewhere in the middle of a destroy. Refused here
+  # for the same reason `:reason` is: it is a caller bug, and the call has not
+  # claimed or written anything yet.
+  defp validated_choice(opts, {key, allowed}) do
+    value = Keyword.get(opts, key, hd(allowed))
+
+    unless value in allowed do
+      raise ArgumentError,
+            "Machines.Destroy: #{inspect(key)} must be one of #{inspect(allowed)}, " <>
+              "got #{inspect(value)}"
     end
   end
 
@@ -347,9 +418,41 @@ defmodule Fountain.Machines.Destroy do
         destroy_and_finalize(interrupted, epoch, opts)
 
       %Sandbox{} = sandbox ->
-        fence_then_destroy(sandbox, epoch, opts)
+        case Keyword.get(opts, :fence, :teardown) do
+          :teardown -> fence_then_destroy(sandbox, epoch, opts)
+          :held_by_caller -> caller_fenced_destroy(sandbox, epoch, opts)
+        end
     end
   end
+
+  # `fence: :held_by_caller`. The two things `fence_then_destroy/3` gets from
+  # the fence and this has to get for itself.
+  #
+  # A terminal row is `{:ok, :already_terminal}`, which the fence answers by
+  # returning the row unchanged. Without this clause a reset that lost a race
+  # would write `terminated` over `terminated` — `Lease.cas_update/3` permits
+  # terminal-to-terminal, so it is not refused as a revival — and run the
+  # metering effects a second time.
+  #
+  # An unfenced row is refused. The caller's contract is that it *holds* a
+  # fence, so a row with no `reset_requested_at` means either a caller bug or a
+  # fence that vanished under it, and neither is a reason to destroy a machine
+  # that is still open to admission on every other node.
+  defp caller_fenced_destroy(%Sandbox{status: status} = done, _epoch, opts)
+       when status in @terminal_statuses,
+       do: already_terminal(done, opts)
+
+  defp caller_fenced_destroy(%Sandbox{reset_requested_at: nil} = sandbox, _epoch, _opts) do
+    Logger.warning(
+      "machine #{sandbox.id}: refused a destroy claiming a caller-held fence on a row " <>
+        "that carries none"
+    )
+
+    {:error, :not_fenced}
+  end
+
+  defp caller_fenced_destroy(%Sandbox{} = fenced, epoch, opts),
+    do: stamp_then_destroy(fenced, epoch, opts)
 
   # Answering `:already_terminal` is the outcome; clearing the stamp is the
   # tidying that makes the column mean something again — while it is set on a
@@ -427,8 +530,31 @@ defmodule Fountain.Machines.Destroy do
   end
 
   defp destroy_and_finalize(sandbox, epoch, opts) do
-    destroy_at_provider(sandbox)
+    case destroy_at_provider(sandbox, Keyword.get(opts, :provider, :destroy)) do
+      :ok ->
+        finalize(sandbox, epoch, opts)
 
+      {:error, reason} ->
+        provider_gave_up(sandbox, reason)
+
+        case Keyword.get(opts, :on_provider_error, :finalize) do
+          # Every caller but the reset: the fenced row retires anyway, so the
+          # fleet sees a terminal row rather than a live one nobody can find.
+          :finalize ->
+            finalize(sandbox, epoch, opts)
+
+          # The reset: nothing is written, so the fence, the quota slot and the
+          # `transition` stamp all stay exactly as they were and the retry that
+          # `SandboxResetReconciler` or the admin panel runs picks the machine
+          # up where this left it — through the takeover clause above, which is
+          # what the stamp is for.
+          :refuse ->
+            {:error, :provider_unconfirmed}
+        end
+    end
+  end
+
+  defp finalize(sandbox, epoch, opts) do
     case Lease.cas_update(sandbox.id, epoch,
            status: "terminated",
            transition: nil,
@@ -440,7 +566,8 @@ defmodule Fountain.Machines.Destroy do
         # this tenant's freed slot into a drain. After the write commits and
         # outside every transaction, with the status the row carried *going
         # into* the finalize rather than a fresh reload, which is the same rule
-        # `update_sandbox_if/3` follows with its `FOR UPDATE` read (#2309).
+        # `Conversations.update_sandbox/2` follows with its `FOR UPDATE` read
+        # (#2309).
         Conversations.sandbox_status_effects(terminated, sandbox.status)
 
         # Both after the finalize commits, in this order: the trail is the
@@ -475,10 +602,18 @@ defmodule Fountain.Machines.Destroy do
 
   # ── the provider ──────────────────────────────────────────────────────────
 
+  # The caller has already asked this provider about this machine and been
+  # told it does not exist, so there is nothing to call and a call would be a
+  # delete against a name that is no longer this machine's
+  # (`Conversations.confirm_reset_deletion/2`, the admin reset retry's
+  # `reprobe`). Success, and the finalize runs exactly as it does for a machine
+  # this module deleted itself.
+  defp destroy_at_provider(%Sandbox{}, :already_gone), do: :ok
+
   # There is no "no machine to call" case to handle: `sprite_name` is `NOT
   # NULL` in the database and required by `Sandbox.changeset/2`, so a row that
   # exists names a machine.
-  defp destroy_at_provider(%Sandbox{} = sandbox) do
+  defp destroy_at_provider(%Sandbox{} = sandbox, :destroy) do
     handle =
       Managoat.Sandbox.build_handle(
         Conversations.sandbox_provider_atom(sandbox),
@@ -493,8 +628,8 @@ defmodule Fountain.Machines.Destroy do
       {:error, :not_found} ->
         :ok
 
-      {:error, reason} ->
-        provider_gave_up(sandbox, reason)
+      {:error, _reason} = error ->
+        error
     end
   rescue
     # An adapter that raises rather than answering is the same *outcome* as one
@@ -506,14 +641,18 @@ defmodule Fountain.Machines.Destroy do
     # trail records the destroy, and the reaper's untracked-sprite pass reports
     # the machine. The exception is logged in full so the adapter bug is still
     # visible.
+    #
+    # A caller that asked for `on_provider_error: :refuse` gets the same
+    # treatment from the other end: it did not reach the machine, so it did not
+    # confirm anything, so its fence stays.
     error ->
-      provider_gave_up(sandbox, Exception.format(:error, error, __STACKTRACE__))
+      {:error, Exception.format(:error, error, __STACKTRACE__)}
   end
 
-  # Logged, not returned: the fenced row is retired either way, so the fleet
-  # sees a terminal row rather than a live one nobody can find, and
-  # `Workers.SandboxReaper`'s pass over terminal rows whose sprite is still
-  # there is what eventually collects the machine.
+  # Always logged, whichever way the caller goes on from here: an operator
+  # looking at a machine that outlived its row, or at a reset fence that will
+  # not clear, needs the provider's own words and this is the only place that
+  # has them.
   defp provider_gave_up(%Sandbox{} = sandbox, reason) do
     Logger.warning(
       "machine #{sandbox.id}: provider destroy failed for #{sandbox.machine_name} " <>

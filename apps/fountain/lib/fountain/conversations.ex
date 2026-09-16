@@ -171,13 +171,12 @@ defmodule Fountain.Conversations do
   # `prevent_sandbox_revival/1` does, so it is declared here rather than beside it.
   @billable_terminal ~w(terminated failed)
 
-  def update_sandbox(%Sandbox{} = sandbox, attrs),
-    do: update_sandbox_if(sandbox, attrs, fn _ -> :ok end)
+  def update_sandbox(%Sandbox{} = sandbox, attrs), do: do_update_sandbox(sandbox, attrs)
 
   # The two effects a sandbox status change owes, for a writer that is not
   # `update_sandbox/2`.
   #
-  # `update_sandbox_if/3` runs `record_sandbox_usage/2` and
+  # `update_sandbox/2` runs `record_sandbox_usage/2` and
   # `maybe_poke_sandbox_queue/2` after its own transaction and, deliberately,
   # with the status its `FOR UPDATE` read saw rather than a fresh one (#2309).
   # `Fountain.Machines.Lease.cas_update/3` — the machine owner's write since
@@ -226,7 +225,15 @@ defmodule Fountain.Conversations do
 
   def sandbox_retired?(_), do: false
 
-  defp update_sandbox_if(sandbox, attrs, check) do
+  # Was `update_sandbox_if/3` until ADR 0058 stage 5c. The conditional half —
+  # a caller-supplied predicate over the locked row — existed for one caller,
+  # the reset's finalize, which used it to elect a single winner among
+  # concurrent finalizers (`pending_reset_matches/2`). The machine's lease
+  # elects that winner now, in front of the provider rather than behind it, so
+  # the predicate went with it and every remaining caller passed `fn _ -> :ok
+  # end`. The `FOR UPDATE` read below is *not* what left with it: it is what
+  # `prevent_sandbox_revival/1` and the reset-fence check are decided on.
+  defp do_update_sandbox(sandbox, attrs) do
     # A provider callback may still hold a starting/ready struct after reset,
     # cancellation or the provision watchdog retired the persisted row. Read
     # and validate under the row lock; checking the caller's struct would let
@@ -236,11 +243,6 @@ defmodule Fountain.Conversations do
         current =
           Repo.one(from s in Sandbox, where: s.id == ^sandbox.id, lock: "FOR UPDATE") ||
             Repo.rollback(:not_found)
-
-        case check.(current) do
-          :ok -> :ok
-          {:error, reason} -> Repo.rollback(reason)
-        end
 
         changeset =
           current
@@ -2891,7 +2893,10 @@ defmodule Fountain.Conversations do
   Retry deletion of a pending reset, leaving its fence in place until confirmed.
 
   Re-reads the owned row: missing rows return `:not_found`; an unfenced,
-  ephemeral or already terminal sandbox is skipped. Provider I/O runs outside
+  ephemeral or already terminal sandbox is skipped. A machine whose owner
+  holds a live lease answers `{:error, :sandbox_unavailable}` — another
+  teardown of this machine is running, which is a retryable condition and not
+  an unconfirmed deletion (ADR 0058 stage 5c). Provider I/O runs outside
   transactions, and a confirmed delete uses the normal retirement accounting,
   transcript notifications and audit event. Concurrent finalizers return
   `{:ok, :skipped}` after another caller retires the row; only the winner
@@ -2910,20 +2915,47 @@ defmodule Fountain.Conversations do
 
         %Sandbox{mode: "persistent", status: status, reset_requested_at: at} = current
         when status in ["ready", "suspended"] and not is_nil(at) ->
-          with {:ok, %Sandbox{} = completed} <- finish_sandbox_reset(current, opts) do
-            opts =
-              opts
-              |> Keyword.put_new(:reason, "reset_reconciled")
-              |> Keyword.put_new(:by, "system")
-
-            record_reset_completed(completed, _unsafe_list_holder_ids(current.id), opts)
-          end
+          if machine_lease_live?(current),
+            do: {:error, :sandbox_unavailable},
+            else: do_pending_reset_retry(current, opts)
 
         _ ->
           {:ok, :skipped}
       end
     end
   end
+
+  defp do_pending_reset_retry(current, opts) do
+    with {:ok, %Sandbox{} = completed} <- finish_sandbox_reset(current, opts) do
+      opts =
+        opts
+        |> Keyword.put_new(:reason, "reset_reconciled")
+        |> Keyword.put_new(:by, "system")
+
+      record_reset_completed(completed, _unsafe_list_holder_ids(current.id), opts)
+    end
+  end
+
+  # Whether some owner is working on this machine right now (ADR 0058). A
+  # retry is a *reconciliation* — it exists for a reset whose caller was lost —
+  # so a machine another operation is holding is not its business: the holder
+  # is either finishing this same reset or destroying the machine outright, and
+  # either way one provider call is the right number.
+  #
+  # `Machines.Destroy` would serialize the two anyway (the second claim waits
+  # out the first and then finds the row terminal), so this is not what makes
+  # the retry safe. What it buys is that the retry does not burn its five
+  # second wait, and that a reconciler sweep walking a backlog does not queue
+  # behind every live destroy in it.
+  #
+  # The BEAM clock, the same one `SandboxReaper.sweep_fenced_teardowns/0` uses
+  # for the guard this mirrors. `Lease` writes `lease_until` from the same
+  # clock, so the two agree; the database clock enters with the renew timer in
+  # stage 6.
+  defp machine_lease_live?(%Sandbox{lease_until: nil}), do: false
+
+  defp machine_lease_live?(%Sandbox{lease_until: until}),
+    do: DateTime.compare(until, DateTime.utc_now()) == :gt
 
   defp record_reset_completed(completed, ids, opts) do
     reason = Keyword.get(opts, :reason, "home_reset")
@@ -2997,48 +3029,125 @@ defmodule Fountain.Conversations do
 
   # Only a confirmed destroy releases capacity. Errors or caller loss leave
   # the committed fence intact for a later explicit reconciliation retry.
+  #
+  # Since ADR 0058 stage 5c the provider call and the terminal write are the
+  # machine owner's, through `Termination._unsafe_destroy_machine/2` and the
+  # one destroy protocol (`Fountain.Machines.Destroy`). What that buys the
+  # reset is the lease: an owner claims the machine for the length of the
+  # operation, so a reconciler retry, an admin retry and an original caller
+  # can no longer be inside `Managoat.Sandbox.destroy/1` for one machine at
+  # the same time, and the compare-and-set on the lease epoch elects the
+  # finalizer where `pending_reset_matches/2`'s status-and-timestamp compare
+  # under `update_sandbox/2`'s row lock used to. That predicate was the only
+  # thing `update_sandbox_if/3` existed for, so it left with the reset and the
+  # function is `do_update_sandbox/2` now.
+  #
+  # Three protocol options carry the parts of a reset that are *not* a
+  # teardown, and the whole of this stage is in them:
+  #
+  #   * `fence: :held_by_caller` — `reset_sandbox/2` committed
+  #     `reset_requested_at` in its own advisory-locked transaction and every
+  #     reader honours it, so the machine is already closed. The teardown fence
+  #     would additionally stamp `teardown_requested_at`, which tells
+  #     `SandboxReaper.sweep_fenced_teardowns/0` to finish the row after 15
+  #     minutes — the opposite of a reset, which stays retryable until a
+  #     provider confirms.
+  #   * `on_provider_error: :refuse` — an unconfirmed delete writes nothing, so
+  #     the fence and the tenant's capacity are held exactly as they were.
+  #     `sandbox.reset` is the confirmation event and must not be recorded for
+  #     a machine that may still be running.
+  #   * `provider: :already_gone` — see `confirm_reset_deletion/2`.
+  #
+  # And two it does not use: `audit_destroy: false`, because the reset's own
+  # `sandbox.reset` in `record_reset_completed/3` is the completion event and a
+  # `sandbox.destroyed` beside it would describe the same act twice; and no
+  # `:notify`, because the reset tells its holders something a reclaim does not
+  # — the transcript survives and the next prompt builds a fresh machine — in
+  # its own cast and stage event, also in `record_reset_completed/3`.
   defp finish_sandbox_reset(sandbox, opts \\ []) do
-    handle = Managoat.Sandbox.build_handle(sandbox_provider_atom(sandbox), sandbox.machine_name)
+    case confirm_reset_deletion(sandbox, Keyword.get(opts, :reprobe, false)) do
+      {:ok, provider} -> destroy_reset_machine(sandbox, provider, opts)
+      {:error, _uncertain} -> {:error, :sandbox_reset_pending}
+    end
+  end
 
-    case confirm_reset_deletion(handle, Keyword.get(opts, :reprobe, false)) do
-      :ok ->
-        # The pre-provider read cannot elect the finalizer: another request
-        # may finish while this one waits for the provider. Re-check under
-        # update_sandbox's row lock, preserving its usage and queue accounting.
-        case update_sandbox_if(
-               sandbox,
-               %{status: "terminated"},
-               &pending_reset_matches(&1, sandbox)
-             ) do
-          {:error, :reset_already_completed} -> {:ok, :skipped}
-          result -> result
-        end
+  defp destroy_reset_machine(sandbox, provider, opts) do
+    # ownership: `sandbox` is always a row this module re-read scoped to its own
+    # tenant — `do_reset_sandbox/2`'s `FOR UPDATE` read under the per-sandbox
+    # advisory lock, or `retry_pending_sandbox_reset/2`'s
+    # `Repo.get_by(id:, user_id:)` — and it carries the reset fence that read
+    # established. The protocol re-reads the row under its own lease and
+    # refuses one that is not fenced.
+    result =
+      Termination._unsafe_destroy_machine(sandbox.id,
+        actor: Keyword.get(opts, :actor, "self"),
+        request_ip: Keyword.get(opts, :request_ip),
+        destroy_reason: :reset,
+        fence: :held_by_caller,
+        provider: provider,
+        on_provider_error: :refuse,
+        audit_destroy: false,
+        terminating_conversation_id: nil
+      )
 
-      {:error, _} ->
+    case result do
+      # The protocol answers with an outcome, not a row, and the caller's
+      # `with` and every test of it want the retired row.
+      {:ok, :destroyed} ->
+        {:ok, _unsafe_get_sandbox!(sandbox.id)}
+
+      # `:already_terminal` — somebody else finished this reset while this
+      # caller was at the provider. Today's `{:error, :reset_already_completed}`
+      # from `pending_reset_matches/2` meant exactly this, and answered
+      # `{:ok, :skipped}`, which is what keeps a losing caller from publishing a
+      # second completion. `:kept` is unreachable with no terminating
+      # conversation.
+      {:ok, _outcome} ->
+        {:ok, :skipped}
+
+      # The machine's owner is busy with another teardown of the same machine.
+      # A retryable condition rather than an unconfirmed deletion, and the one
+      # refusal of this path that is not `:sandbox_reset_pending`: the API
+      # renders it 503 with a `retry-after`, where `:sandbox_reset_pending` is
+      # a 409 that says the fence is standing.
+      {:error, :sandbox_unavailable} = busy ->
+        busy
+
+      # `:provider_unconfirmed` is the ordinary one and the word this path has
+      # always answered with. `:not_fenced` (a caller bug) and anything out of
+      # the lease or the database land here too: nothing was written, so the
+      # fence is standing and a retry is the way out, which is what the word
+      # means. The precise reason is in the log, from `Machines.Destroy`.
+      {:error, _reason} ->
         {:error, :sandbox_reset_pending}
     end
   end
 
-  defp confirm_reset_deletion(handle, false), do: Managoat.Sandbox.destroy(handle)
+  # Whether the provider still has this machine, for a caller that asked to
+  # probe before deleting (`reprobe: true`, the admin retry). An operator
+  # reconciling a fence wants to know what is actually there: a definitive
+  # not-found confirms the retirement on its own, and the protocol is told
+  # `provider: :already_gone` so no delete is issued against a name the
+  # provider does not recognise. Anything less than definitive — an error, an
+  # unreachable provider, a provider with no credentials — keeps the fence.
+  #
+  # Without `:reprobe` there is no probe, and there does not need to be: the
+  # protocol's own destroy treats `{:error, :not_found}` as success, so a
+  # machine that is already gone retires on the first call either way.
+  defp confirm_reset_deletion(_sandbox, false), do: {:ok, :destroy}
 
-  defp confirm_reset_deletion(handle, true) do
+  defp confirm_reset_deletion(%Sandbox{} = sandbox, true) do
+    handle = Managoat.Sandbox.build_handle(sandbox_provider_atom(sandbox), sandbox.machine_name)
+
     if Fountain.SandboxProviders.enabled?(handle.provider) do
       case Managoat.Sandbox.get(handle) do
-        {:error, :not_found} -> :ok
-        {:ok, _} -> Managoat.Sandbox.destroy(handle)
+        {:error, :not_found} -> {:ok, :already_gone}
+        {:ok, _} -> {:ok, :destroy}
         error -> error
       end
     else
       {:error, :provider_disabled}
     end
-  end
-
-  defp pending_reset_matches(current, expected) do
-    if current.status in ["ready", "suspended"] and
-         current.reset_requested_at == expected.reset_requested_at and
-         not is_nil(current.reset_requested_at),
-       do: :ok,
-       else: {:error, :reset_already_completed}
   end
 
   # What each transcript on a reset home is told. The tail is the same every

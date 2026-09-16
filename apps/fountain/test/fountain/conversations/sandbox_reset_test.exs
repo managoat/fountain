@@ -4,6 +4,8 @@ defmodule Fountain.Conversations.SandboxResetTest do
   use Fountain.DataCase, async: true
   use Mimic
 
+  import ExUnit.CaptureLog
+
   alias Fountain.Conversations
   alias Fountain.Conversations.ConversationServer
   alias Fountain.Conversations.Termination
@@ -382,9 +384,25 @@ defmodule Fountain.Conversations.SandboxResetTest do
     assert Fountain.Quotas.fleet_count() == 1
   end
 
-  test "a lost reset caller leaves the admission fence in place", ctx do
+  test "an adapter that raises leaves the admission fence in place", ctx do
+    # It used to leave it by *losing the caller*: the exception propagated out
+    # of `reset_sandbox/2` and whatever was above it, and the fence survived
+    # because nothing had written past it. Since ADR 0058 stage 5c the destroy
+    # runs through the machine's owner, which catches a raising adapter and
+    # treats it as the error return it amounts to — this machine was not
+    # reached. For a reset that means the same durable outcome by a route that
+    # no longer takes the caller down with it: an unconfirmed delete, so
+    # nothing written, the fence and the capacity standing, and the refusal
+    # this path has always answered with (#2344).
     expect(Managoat.Sandbox.Sprites, :destroy, fn _ -> raise "caller lost" end)
-    assert_raise RuntimeError, "caller lost", fn -> Conversations.reset_sandbox(ctx.home) end
+
+    assert capture_log(fn ->
+             assert {:error, :sandbox_reset_pending} = Conversations.reset_sandbox(ctx.home)
+           end) =~ "caller lost"
+
+    assert Repo.reload!(ctx.home).status == "ready"
+    assert Repo.reload!(ctx.home).reset_requested_at
+    assert Fountain.Quotas.active_sandbox_count(ctx.user.id) == 1
     assert {:error, :sandbox_reset_pending} = Conversations.reset_sandbox(ctx.home)
 
     assert {:error, :sandbox_unavailable} =

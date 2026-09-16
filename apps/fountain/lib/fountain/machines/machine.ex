@@ -179,7 +179,12 @@ defmodule Fountain.Machines.Machine do
   """
   @spec destroy(String.t(), keyword()) ::
           {:ok, Destroy.outcome()}
-          | {:error, :sandbox_unavailable | :not_found | :provider_transaction_open}
+          | {:error,
+             :sandbox_unavailable
+             | :not_found
+             | :provider_transaction_open
+             | :provider_unconfirmed
+             | :not_fenced}
   def destroy(sandbox_id, opts) when is_binary(sandbox_id) and is_list(opts) do
     cond do
       # Checked here, not only in the protocol. `Destroy.run/2`'s own guard is
@@ -224,8 +229,24 @@ defmodule Fountain.Machines.Machine do
 
   # The fence's own refusals, which every caller of this path already handled
   # before ADR 0058 and which `FallbackController` maps.
+  #
+  # `:provider_unconfirmed` and `:not_fenced` travel too, and only a caller
+  # that opted into them can receive one: both answer a question the generic
+  # `:sandbox_unavailable` cannot. The reset family asked for its fence to
+  # survive an unconfirmed delete and has its own word for that state
+  # (`:sandbox_reset_pending`, 409 at the API, "capacity remains reserved" in
+  # the admin panel); flattening them here would tell an operator to retry a
+  # machine and tell the reconciler its job had failed transiently, when what
+  # happened is that the provider never confirmed. They are translated by the
+  # reset caller, one function away, and never reach the wire.
   defp refusal({:error, reason}, _sandbox_id)
-       when reason in [:not_found, :sandbox_unavailable, :provider_transaction_open],
+       when reason in [
+              :not_found,
+              :sandbox_unavailable,
+              :provider_transaction_open,
+              :provider_unconfirmed,
+              :not_fenced
+            ],
        do: {:error, reason}
 
   defp refusal({:error, reason}, sandbox_id) do

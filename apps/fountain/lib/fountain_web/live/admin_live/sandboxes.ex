@@ -142,6 +142,13 @@ defmodule FountainWeb.AdminLive.Sandboxes do
   defp reset_result({:error, :not_found}),
     do: {:error, "not_found", "Sandbox not found"}
 
+  # Not the same answer as an unconfirmed deletion, and an operator acts on the
+  # difference: another teardown of this machine is running (ADR 0058), so the
+  # fence is being dealt with rather than stuck, and clicking again in a moment
+  # is the right move. Same wording as the reap's refusal above.
+  defp reset_result({:error, :sandbox_unavailable}),
+    do: {:error, "busy", "Sandbox busy — another teardown is running; try again"}
+
   defp reset_result({:error, _}),
     do:
       {:error, "pending",

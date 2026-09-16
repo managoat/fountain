@@ -83,8 +83,22 @@ defmodule Fountain.Machines.DirectWritesTest do
   # reaper's expiry, like the dead-server terminate before it, had no provider
   # call of its own to remove: it left the machine for pass 2, and now destroys
   # it through the owner. Stage 5c takes the reset family.
+  #
+  # 13 -> 11: stage 5c moved the reset family. Both
+  # `Managoat.Sandbox.destroy/1` calls in `Conversations.confirm_reset_deletion/2`
+  # are gone — the probe's and the plain one — and the reset's provider call is
+  # the protocol's now. `Managoat.Sandbox.get/1`, the probe itself, stays and
+  # was never counted: this ratchet counts *mutations*, and asking a provider
+  # what it has is not one.
+  #
+  # `@row_writes` stays at 21 on purpose. The write the reset finalize used to
+  # make went through `update_sandbox_if/3` — a private function this scan does
+  # not count, since it counts `update_sandbox(`, `update_sandbox_row(` and
+  # `claim_sandbox(` — so a real write left `lib/fountain/conversations.ex` for
+  # `Fountain.Machines.Lease.cas_update/3` without the number moving. The pin
+  # is a floor on what the scan can see, not a census of every row write.
   @row_writes 21
-  @provider_mutations 13
+  @provider_mutations 11
 
   @provider_verbs ~w(create_checkpoint create resume suspend destroy)
 

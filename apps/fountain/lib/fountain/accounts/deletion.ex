@@ -291,9 +291,18 @@ defmodule Fountain.Accounts.Deletion do
         # travels through the server, which is the only way to reach a machine
         # whose conversation still has one — the rest are handled by
         # `destroy_sprite/2` below, off the same `:audit`.
+        # `:actor` and `:request_ip` too, since ADR 0058 stage 5c. Without them
+        # the live-server path recorded `self` on both machine events while
+        # `destroy_sprite/2` — the same operation, on the machines whose
+        # conversations happened to have no server — recorded the caller's
+        # `admin:<id>` or `system:principal_sweep`. Which actor a computer's
+        # teardown was attributed to depended on whether a GenServer was up,
+        # which is not a fact about who asked.
         Termination.terminate_conversation(id,
           audit: false,
-          audit_destroy: audit?
+          audit_destroy: audit?,
+          actor: Keyword.get(opts, :actor, "self"),
+          request_ip: Keyword.get(opts, :request_ip)
         )
       catch
         kind, reason ->

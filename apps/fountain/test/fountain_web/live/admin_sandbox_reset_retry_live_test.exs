@@ -143,6 +143,27 @@ defmodule FountainWeb.AdminSandboxResetRetryLiveTest do
     assert_audit(ctx, "pending")
   end
 
+  test "a retry the machine's owner is too busy for is a flash, not a lie", ctx do
+    # ADR 0058 stage 5c. The row's lease is live, so another teardown of this
+    # machine is running and the retry stands off before it probes or deletes.
+    # The operator has to be able to tell that from the other two answers:
+    # "skipped" would say the fence had cleared and "pending" would say the
+    # provider had been asked and had not confirmed. Neither happened.
+    ctx.home
+    |> Ecto.Changeset.change(
+      lease_epoch: 1,
+      lease_node: "another@node",
+      lease_until: DateTime.add(DateTime.utc_now(), 60, :second)
+    )
+    |> Repo.update!()
+
+    reject(Managoat.Sandbox, :get, 1)
+    reject(Managoat.Sandbox, :destroy, 1)
+    assert retry(ctx) =~ "another teardown is running"
+    assert_fenced(ctx)
+    assert_audit(ctx, "busy")
+  end
+
   test "a suspended pending reset can also be recovered", ctx do
     ctx.home |> Ecto.Changeset.change(status: "suspended") |> Repo.update!()
     send(ctx.lv.pid, :refresh)

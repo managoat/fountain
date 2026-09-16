@@ -6,6 +6,17 @@ defmodule Fountain.Workers.SandboxResetReconciler do
   sandbox gets one durable job; Oban backs off failed deletes independently.
   A discarded job becomes eligible on a later sweep, so an extended provider
   outage never makes a fence permanent. Disabled providers wait for credentials.
+
+  The sweep itself is enqueued by the Oban cron entry in `config/config.exs`
+  (`*/5 * * * *`), which is the only thing that runs the bare-args clause; the
+  per-sandbox jobs it inserts are the other clause.
+
+  Since ADR 0058 stage 5c the delete goes through the machine's owner, and both
+  the sweep and the retry skip a machine whose owner holds a live lease. This
+  worker is a reconciler for resets nobody is finishing, and a fenced row is
+  not evidence that nobody is: a *forced* teardown stamps `reset_requested_at`
+  too, so before the lease existed this sweep could reach a machine another
+  destroy was halfway through and call the provider beside it.
   """
   use Oban.Worker,
     queue: :maintenance,
@@ -46,6 +57,20 @@ defmodule Fountain.Workers.SandboxResetReconciler do
           not is_nil(s.reset_requested_at),
       select: s.id
     )
+    # A machine whose owner holds a live lease is not a lost caller; it is a
+    # destroy in flight (ADR 0058 stage 5c), and this sweep exists for the
+    # ones nobody is working on. Mirrors
+    # `SandboxReaper.sweep_fenced_teardowns/0`'s guard and the same guard in
+    # `Conversations.retry_pending_sandbox_reset/2`, which is the door this
+    # worker's per-sandbox job goes through and the one that actually decides.
+    # Here it keeps the job out of the queue in the first place, so a sweep
+    # over a contended fleet does not enqueue work that will only refuse.
+    #
+    # A *forced* teardown also stamps `reset_requested_at` (the teardown fence
+    # reuses the reset fence), so rows this sweep sees include machines being
+    # destroyed outright, not only resets — which is exactly the race this
+    # guard closes.
+    |> where([s], is_nil(s.lease_until) or s.lease_until <= ^DateTime.utc_now())
     |> Repo.all()
     |> Enum.reduce_while(:ok, fn id, :ok ->
       case %{sandbox_id: id} |> new() |> Oban.insert() do

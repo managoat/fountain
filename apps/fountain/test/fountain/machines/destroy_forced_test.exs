@@ -541,17 +541,18 @@ defmodule Fountain.Machines.DestroyForcedTest do
 
       assert [destroyed] = events(ctx.user.id, "sandbox.destroyed")
 
-      # `self`, not `system:principal_sweep`, and that is the pre-existing gap
-      # the round-2 protocol review named rather than anything this stage did:
-      # `do_destroy_sprites/2` has never forwarded `:actor` to
-      # `terminate_conversation/2`, so a machine torn down by a live server is
-      # attributed to nobody in particular whoever asked for it. The
-      # *no-server* path does carry it — the sibling test above asserts
-      # `system:principal_sweep` — which is why this is worth pinning rather
-      # than leaving to be rediscovered. Forwarding it would also move the
-      # deletion path's `sandbox.teardown_requested` from `self` to
-      # `admin:<id>`, so it is a trail change of its own and belongs with 5c.
-      assert destroyed.actor == "self"
+      # The caller's actor, on this path as on the other one (ADR 0058 stage
+      # 5c). Until 5c `do_destroy_sprites/2` forwarded no `:actor` to
+      # `terminate_conversation/2`, so this recorded `self` while the sibling
+      # test above — the same operation on a machine whose conversation had no
+      # live server — recorded `system:principal_sweep`. Which actor a
+      # teardown was attributed to depended on whether a GenServer happened to
+      # be up. Now both say who asked, and the row's
+      # `sandbox.teardown_requested` agrees with its `sandbox.destroyed`.
+      assert destroyed.actor == "system:principal_sweep"
+
+      assert [requested] = events(ctx.user.id, "sandbox.teardown_requested")
+      assert requested.actor == destroyed.actor
 
       assert events(ctx.user.id, "conversation.terminated") == [],
              "closing a principal recorded a per-conversation event; `main` recorded " <>

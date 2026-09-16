@@ -100,6 +100,36 @@ defmodule FountainWeb.SandboxResetControllerTest do
     assert Conversations._unsafe_get_sandbox!(ctx.home.id).status == "ready"
   end
 
+  test "503 when another teardown of the same machine is running", ctx do
+    # ADR 0058 stage 5c: the reset destroys through the machine's owner, which
+    # refuses while somebody else holds the machine's lease. Reachable through
+    # the window between a forced destroy's lease claim and its fence — until
+    # that fence commits, the row still looks resettable to this endpoint, and
+    # the claim is where the two meet. The operation declares
+    # `service_unavailable` for it, so the schema guard and the four SDKs know
+    # the shape.
+    stub(Fountain.Machines.Destroy, :run, fn _id, _opts -> {:error, :machine_busy} end)
+
+    conn =
+      ExUnit.CaptureLog.with_log(fn -> reset(ctx, ctx.home.id) end) |> elem(0)
+
+    assert json_response(conn, 503) == %{"error" => "sandbox_unavailable"}
+    assert get_resp_header(conn, "retry-after") == ["30"]
+
+    # The fence committed before the machine was ever claimed, and a refusal
+    # does not take it back: the machine is closed to admission and
+    # `SandboxResetReconciler` owns it from here. That is the same durable
+    # state an unconfirmed delete leaves, and the reason this is a retryable
+    # refusal rather than a failure.
+    current = Conversations._unsafe_get_sandbox!(ctx.home.id)
+    assert current.status == "ready"
+    assert current.reset_requested_at
+
+    assert Fountain.Audit.list_for_user(ctx.user.id)
+           |> Enum.map(& &1.action)
+           |> Enum.member?("sandbox.reset") == false
+  end
+
   test "the reset is audited as api", ctx do
     assert ctx |> reset(ctx.home.id) |> response(204)
 

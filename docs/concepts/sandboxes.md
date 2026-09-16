@@ -57,7 +57,12 @@ A reset blocks new turns before it calls the provider. It releases capacity
 only after the provider confirms deletion. A timeout or lost request keeps
 the reset fence and quota reservation. Another reset returns
 `409 sandbox_reset_pending`, and so does an attach or a wake. None of them
-send a second delete. Every five minutes, Fountain finds pending resets and
+send a second delete.
+
+One operation at a time acts on a machine. If a different teardown of the same
+machine is already running, the reset returns `503 sandbox_unavailable` with a
+`Retry-After` header. The fence stays in place. Send the request again, or let
+the automatic retry find it. Every five minutes, Fountain finds pending resets and
 queues a separate retry for each machine. Failed deletes retry with backoff;
 a provider without credentials waits until it is enabled again. The fence
 and capacity reservation stay in place until deletion is confirmed. A long

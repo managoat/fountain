@@ -7,8 +7,22 @@ defmodule Fountain.Conversations.SandboxResetConcurrencyTest do
 
   setup :set_mimic_global
 
+  # Two callers, one machine, and only one completion published. That is what
+  # this file has always been for; what changed with ADR 0058 stage 5c is *how*
+  # the second one loses.
+  #
+  # Before the machine had an owner, both callers reached
+  # `Managoat.Sandbox.destroy/1` and were separated afterwards, by
+  # `pending_reset_matches/2` under `update_sandbox_if/3`'s row lock: two
+  # provider deletes of one machine, and whichever committed the terminal write
+  # first was the winner. The lease decides in front of the provider instead,
+  # so the machine is deleted once and the loser never calls at all. These
+  # tests pin that inversion — a provider call the loser does *not* make is the
+  # assertion — and every invariant either side of it: one `sandbox.reset`, one
+  # stage event, one quota slot released, and nothing sent to a holder that
+  # rebound in the meantime.
   for first <- [:original, :retry] do
-    test "#{first} and a competing retry publish only the winning completion" do
+    test "#{first} holds the machine and a competing retry stands off" do
       SQLSandbox.unboxed_run(Repo, fn ->
         user = insert_verified_user()
         home = insert_sandbox(user_id: user.id, mode: "persistent", status: "ready")
@@ -32,7 +46,7 @@ defmodule Fountain.Conversations.SandboxResetConcurrencyTest do
           end
         end)
 
-        original =
+        winner =
           independent(fn ->
             if unquote(first) == :original,
               do: Conversations.reset_sandbox(home),
@@ -40,46 +54,49 @@ defmodule Fountain.Conversations.SandboxResetConcurrencyTest do
           end)
 
         try do
-          assert_receive {:deleting, original_pid, original_backend}, 5_000
-          assert original_pid == original.pid
-          retry = independent(fn -> Conversations.retry_pending_sandbox_reset(home) end)
+          assert_receive {:deleting, winner_pid, _backend}, 5_000
+          assert winner_pid == winner.pid
 
-          try do
-            assert_receive {:deleting, retry_pid, retry_backend}, 5_000
-            assert retry_pid == retry.pid
-            refute original_backend == retry_backend
-            assert Fountain.Quotas.active_sandbox_count(user.id) == 1
-            send(retry.pid, :confirmed)
-            assert {:ok, %{status: "terminated"}} = Task.await(retry, 5_000)
-            assert Fountain.Quotas.active_sandbox_count(user.id) == 0
+          # The lease is live and the winner is inside the provider call. A
+          # retry arriving now is refused as busy — a retryable condition, and
+          # deliberately not `{:ok, :skipped}`, which would tell an operator
+          # the fence had cleared — and makes no provider call of its own.
+          assert {:error, :sandbox_unavailable} =
+                   Conversations.retry_pending_sandbox_reset(home)
 
-            # A holder can now move to a replacement. Register its new server
-            # before the old request returns: the loser must send it nothing.
-            replacement = insert_sandbox(user_id: user.id, status: "ready")
-            {:ok, _} = Conversations.update_conversation(conv, %{sandbox_id: replacement.id})
-            {:ok, _} = Horde.Registry.register(Fountain.ConversationRegistry, conv.id, nil)
-            send(original.pid, :confirmed)
-            assert {:ok, :skipped} = Task.await(original, 5_000)
-            refute_received {:"$gen_cast", _}
+          refute_received {:deleting, _, _}
+          assert Fountain.Quotas.active_sandbox_count(user.id) == 1
+          assert Repo.reload!(home).transition == "destroying"
 
-            assert Repo.aggregate(
-                     from(a in Fountain.Audit.Event,
-                       where: a.resource_id == ^home.id and a.action == "sandbox.reset"
-                     ),
-                     :count
-                   ) == 1
+          send(winner.pid, :confirmed)
+          assert {:ok, %{status: "terminated"}} = Task.await(winner, 5_000)
+          assert Fountain.Quotas.active_sandbox_count(user.id) == 0
 
-            assert [_] =
-                     Enum.filter(
-                       Conversations._unsafe_list_log_events(conv.id),
-                       &(&1.stage == "sandbox")
-                     )
-          after
-            Task.shutdown(retry, :brutal_kill)
-          end
+          # A holder can now move to a replacement. Register its new server
+          # before the loser runs: it must send it nothing.
+          replacement = insert_sandbox(user_id: user.id, status: "ready")
+          {:ok, _} = Conversations.update_conversation(conv, %{sandbox_id: replacement.id})
+          {:ok, _} = Horde.Registry.register(Fountain.ConversationRegistry, conv.id, nil)
+
+          assert {:ok, :skipped} = Conversations.retry_pending_sandbox_reset(home)
+          refute_received {:deleting, _, _}
+          refute_received {:"$gen_cast", _}
+
+          assert Repo.aggregate(
+                   from(a in Fountain.Audit.Event,
+                     where: a.resource_id == ^home.id and a.action == "sandbox.reset"
+                   ),
+                   :count
+                 ) == 1
+
+          assert [_] =
+                   Enum.filter(
+                     Conversations._unsafe_list_log_events(conv.id),
+                     &(&1.stage == "sandbox")
+                   )
         after
           Horde.Registry.unregister(Fountain.ConversationRegistry, conv.id)
-          Task.shutdown(original, :brutal_kill)
+          Task.shutdown(winner, :brutal_kill)
           Repo.delete_all(from c in Conversations.Conversation, where: c.user_id == ^user.id)
           Repo.delete_all(from s in Conversations.Sandbox, where: s.user_id == ^user.id)
           Repo.delete_all(from a in Fountain.Audit.Event, where: a.user_id == ^user.id)

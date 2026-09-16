@@ -220,6 +220,17 @@ defmodule Fountain.Conversations.Termination do
   event has always said, and changing that would rewrite a trail operators
   already read.
 
+  Three options steer the protocol rather than describing the operation, and
+  all three are forwarded untouched because the reset family is a caller of
+  this door too (ADR 0058 stage 5c). `:fence` is `:held_by_caller` for a
+  caller that already holds a durable fence — the reset's `reset_requested_at`
+  — so the teardown fence is not written on top of it; `:provider` is
+  `:already_gone` when the caller has already probed and been told the machine
+  does not exist; `:on_provider_error` is `:refuse` for a caller whose fence
+  must survive an unconfirmed delete. `Fountain.Machines.Destroy` documents
+  what each one costs. Every other caller takes the defaults and behaves
+  exactly as it did in 5a and 5b.
+
   `:audit_destroy` is the machine event's own switch and is spelled apart from
   `:audit` on purpose. `terminate_conversation/2`'s `:audit` means the
   *conversation* event, and it arrives here in the same opts list on the
@@ -237,7 +248,10 @@ defmodule Fountain.Conversations.Termination do
       terminating_conversation_id: Keyword.fetch!(opts, :terminating_conversation_id),
       request_ip: Keyword.get(opts, :request_ip),
       metadata: Keyword.get(opts, :metadata),
-      audit: Keyword.get(opts, :audit_destroy, true)
+      audit: Keyword.get(opts, :audit_destroy, true),
+      fence: Keyword.get(opts, :fence, :teardown),
+      provider: Keyword.get(opts, :provider, :destroy),
+      on_provider_error: Keyword.get(opts, :on_provider_error, :finalize)
     )
   end
 

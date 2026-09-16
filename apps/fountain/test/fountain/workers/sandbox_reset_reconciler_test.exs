@@ -74,7 +74,7 @@ defmodule Fountain.Workers.SandboxResetReconcilerTest do
     assert event.actor == "system:sandbox_reset_reconciler"
   end
 
-  test "worker completion wins over an original reset still awaiting its provider" do
+  test "the sweep leaves a reset whose owner still holds the machine" do
     Mimic.set_mimic_global()
 
     Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
@@ -110,17 +110,44 @@ defmodule Fountain.Workers.SandboxResetReconcilerTest do
 
       try do
         assert_receive :original_deleting, 5_000
+
+        # ADR 0058 stage 5c inverts who wins this race, and the sweep is the
+        # first of the two guards that does it. The original reset holds the
+        # machine's lease across its provider call, so the row is not an
+        # abandoned fence and the sweep does not enqueue a job for it. Before
+        # the lease, this sweep reached a machine another caller was halfway
+        # through deleting and finished the reset from underneath it — which
+        # converged, but by way of a second provider delete and an audit row
+        # naming the reconciler for work the original had done.
         assert :ok = perform_job(SandboxResetReconciler, %{})
-        assert [job] = all_enqueued(worker: SandboxResetReconciler)
-        assert job.args == %{"sandbox_id" => home.id}
-        assert :ok = perform_job(SandboxResetReconciler, job.args)
-        assert Repo.reload!(home).status == "terminated"
+        assert all_enqueued(worker: SandboxResetReconciler) == []
+
+        # The second guard, for a job enqueued before the lease was taken: the
+        # retry refuses rather than calling the provider beside the holder.
+        assert {:error, :sandbox_unavailable} =
+                 perform_job(SandboxResetReconciler, %{sandbox_id: home.id})
+
+        assert Repo.reload!(home).status == "ready"
 
         replacement = insert_sandbox(user_id: user.id, status: "ready")
         {:ok, _} = Conversations.update_conversation(conv, %{sandbox_id: replacement.id})
         {:ok, _} = Horde.Registry.register(Fountain.ConversationRegistry, conv.id, nil)
         send(original.pid, :confirmed)
-        assert {:ok, :skipped} = Task.await(original, 5_000)
+
+        # The original is the winner now, and the one completion published is
+        # its own. The holder rebound while it was at the provider, so the
+        # notice it publishes goes to the conversation's live server — which is
+        # the replacement's — and that is the `{:sandbox_reset, …}` cast the
+        # old assertion refused for the *loser*. The reset happened; this
+        # conversation is on the machine it names, and being told the old one
+        # was reset is exactly the message.
+        assert {:ok, %{status: "terminated"}} = Task.await(original, 5_000)
+        assert_receive {:"$gen_cast", {:sandbox_reset, sandbox_id, _reason, _by, _message}}
+        assert sandbox_id == home.id
+
+        # And once it is over, a late job for the same row deletes nothing and
+        # publishes nothing.
+        assert :ok = perform_job(SandboxResetReconciler, %{sandbox_id: home.id})
         refute_received {:"$gen_cast", _}
 
         assert [event] =
@@ -129,7 +156,7 @@ defmodule Fountain.Workers.SandboxResetReconcilerTest do
                      where: a.resource_id == ^home.id and a.action == "sandbox.reset"
                  )
 
-        assert event.actor == "system:sandbox_reset_reconciler"
+        assert event.actor == "self"
       after
         Horde.Registry.unregister(Fountain.ConversationRegistry, conv.id)
         Task.shutdown(original, :brutal_kill)

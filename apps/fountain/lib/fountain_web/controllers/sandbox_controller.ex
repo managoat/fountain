@@ -76,13 +76,20 @@ defmodule FountainWeb.SandboxController do
         "agent, environment and vault builds a clean machine. The conversations on it are " <>
         "kept, idle; each one's next prompt lands on the fresh home. Only a `persistent` " <>
         "sandbox that is not `terminated` or `failed` resets (`422 sandbox_not_resettable`), " <>
-        "and not while any conversation on it is mid-turn (`409 sandbox_mid_turn`).",
+        "and not while any conversation on it is mid-turn (`409 sandbox_mid_turn`). " <>
+        "A reset the provider does not confirm keeps its fence and the sandbox's " <>
+        "capacity, and answers `409 sandbox_reset_pending`; retrying it is safe.",
     parameters: [id: [in: :path, type: :string, required: true]],
     responses: [
       no_content: "Reset",
       not_found: {"Not found", "application/json", Schemas.Error},
       conflict: {"A conversation on it is mid-turn", "application/json", Schemas.Error},
-      unprocessable_entity: {"Not a live persistent sandbox", "application/json", Schemas.Error}
+      unprocessable_entity: {"Not a live persistent sandbox", "application/json", Schemas.Error},
+      # ADR 0058 stage 5c: the destroy runs through the machine's owner, which
+      # refuses while another teardown of the same machine holds its lease.
+      # Retryable, and `FallbackController` sends a `retry-after` with it.
+      service_unavailable:
+        {"Another teardown of this sandbox is running", "application/json", Schemas.Error}
     ]
   )
 

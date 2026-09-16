@@ -1835,7 +1835,7 @@ export interface paths {
         post?: never;
         /**
          * Reset a sandbox
-         * @description Destroy a persistent sandbox — the agent's home — so the next launch on the same agent, environment and vault builds a clean machine. The conversations on it are kept, idle; each one's next prompt lands on the fresh home. Only a `persistent` sandbox that is not `terminated` or `failed` resets (`422 sandbox_not_resettable`), and not while any conversation on it is mid-turn (`409 sandbox_mid_turn`).
+         * @description Destroy a persistent sandbox — the agent's home — so the next launch on the same agent, environment and vault builds a clean machine. The conversations on it are kept, idle; each one's next prompt lands on the fresh home. Only a `persistent` sandbox that is not `terminated` or `failed` resets (`422 sandbox_not_resettable`), and not while any conversation on it is mid-turn (`409 sandbox_mid_turn`). A reset the provider does not confirm keeps its fence and the sandbox's capacity, and answers `409 sandbox_reset_pending`; retrying it is safe.
          */
         delete: operations["FountainWeb.SandboxController.delete"];
         options?: never;
@@ -13918,6 +13918,15 @@ export interface operations {
             };
             /** @description Too Many Requests */
             429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Another teardown of this sandbox is running */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

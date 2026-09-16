@@ -4766,6 +4766,11 @@
           "application/json": {
             "ref": "Error"
           }
+        },
+        "503": {
+          "application/json": {
+            "ref": "Error"
+          }
         }
       }
     },

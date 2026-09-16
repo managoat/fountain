@@ -50,6 +50,36 @@ defmodule Fountain.Machines.DestroyForcedTest do
     def handle_call(_message, _from, state), do: {:reply, :ok, state}
   end
 
+  # A stand-in for a live `ConversationServer`, for the one thing `OkProbe`
+  # cannot do: actually destroy the machine.
+  #
+  # `handle_call({:terminate_conv, opts}, ...)` is a transcription of
+  # `conversation_server.ex`'s `terminate_machine/2`, reduced to the two lines
+  # this file is about — `terminating_conversation_id: nil`, and the call to
+  # `Termination._unsafe_destroy_machine/2` with the server's whole opts list.
+  # A probe that merely replies `:ok` leaves the row `ready`, so account
+  # deletion's late fence loop tears the machine down through
+  # `destroy_sprite/2` instead, which reads `:audit` directly — and a test
+  # written against that probe passes whether or not the flag ever reaches a
+  # server. One did, for a whole review round.
+  defmodule DestroyingProbe do
+    @moduledoc false
+    use GenServer
+
+    alias Fountain.Conversations.Termination
+
+    def init(state), do: {:ok, state}
+
+    def handle_call({:terminate_conv, opts}, _from, state) do
+      send(state.owner, {:server_opts, opts})
+      opts = Keyword.put(opts, :terminating_conversation_id, nil)
+      _ = Termination._unsafe_destroy_machine(state.sandbox_id, opts)
+      {:reply, :ok, state}
+    end
+
+    def handle_call(_message, _from, state), do: {:reply, :ok, state}
+  end
+
   setup :set_mimic_global
 
   setup do
@@ -392,17 +422,36 @@ defmodule Fountain.Machines.DestroyForcedTest do
 
     test "no sandbox.destroyed survives the delete on the live-server path either", ctx do
       # The describe's other suppression test runs under `no_servers()`, which
-      # is the path `audit: false` always reached. This is the other one: a
-      # conversation with a live server is terminated through it, the server
-      # destroys the machine, and until this review round the flag was dropped
-      # by `terminate_conversation/2`'s `Keyword.take` before the server saw
-      # it — so exactly one orphaned `sandbox.destroyed` per deleted account
-      # that still had a server, with `user_id` nilified seconds later.
-      {:ok, probe} = GenServer.start_link(OkProbe, %{})
+      # is the path `audit: false` always reached. This is the other one, and it
+      # has to be driven through a server that *really destroys*: a machine
+      # whose conversation is live is torn down by its own server, and the
+      # suppression only gets there if `:audit_destroy` is on the opts that
+      # server is handed.
+      #
+      # Two assertions before the one that matters, because the last one alone
+      # is satisfiable by accident. The first is what the server received — the
+      # keyword had to survive `terminate_conversation/2`'s `Keyword.take`. The
+      # second is that the machine really went down this path, so the late
+      # fence loop had nothing left to destroy through `destroy_sprite/2`,
+      # which reads `:audit` and would have suppressed the event anyway.
+      {:ok, probe} =
+        GenServer.start_link(DestroyingProbe, %{owner: self(), sandbox_id: ctx.sandbox.id})
+
       stub(ConversationServer, :whereis, fn id -> if id == ctx.conv.id, do: probe, else: nil end)
       capture_provider()
 
       capture_log(fn -> assert {:ok, _} = Deletion.delete_user(ctx.user) end)
+
+      assert_received {:server_opts, opts}
+
+      assert Keyword.get(opts, :audit_destroy) == false,
+             "the server was handed #{inspect(opts)} — `:audit_destroy` did not survive " <>
+               "`terminate_conversation/2`, so the machine event is recorded and the " <>
+               "delete then orphans it"
+
+      assert destroyed_names() == [ctx.sandbox.machine_name],
+             "the machine was not destroyed by the server, so this test proves nothing " <>
+               "about the live-server path"
 
       assert Repo.all(from e in Audit.Event, where: e.action == "sandbox.destroyed") == []
     end

@@ -78,6 +78,16 @@ defmodule Fountain.Workers.SandboxReaper do
   # destroy path in one hourly pass. Pass 1 spends from this first and pass 2
   # gets the remainder; a row that finds it spent is left for the next run,
   # which is the draining this number is for.
+  #
+  # "The remainder" can be nothing, and that is a real ordering decision rather
+  # than an accident: 30 abandoned rows and 5 terminal rows whose sprites are
+  # still at the provider means 25 destroys in pass 1 and none in pass 2, and
+  # the 5 leaked sprites keep billing invisibly — their rows already read as
+  # finished, so no other pass looks at them. Before ADR 0058 stage 5b the two
+  # populations shared one `Enum.take/2` here; now pass 1 has strict priority.
+  # That is the right way round — a live-status row with no server holds a
+  # quota slot *and* bills, where a terminal row only bills — and the starvation
+  # is bounded by the same backlog that causes it.
   @destroy_limit 25
 
   @terminal_statuses ~w(terminated failed)

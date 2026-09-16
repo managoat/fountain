@@ -260,6 +260,8 @@ defmodule Fountain.Accounts.Deletion do
   end
 
   defp do_destroy_sprites(user_id, opts) do
+    audit? = Keyword.get(opts, :audit, true)
+
     conv_ids =
       Conversations.list_conversations(user_id)
       |> Enum.filter(&(ConversationServer.whereis(&1.id) != nil))
@@ -267,10 +269,25 @@ defmodule Fountain.Accounts.Deletion do
 
     Enum.each(conv_ids, fn id ->
       try do
-        # No per-conversation row: `account.deleted` already says everything
-        # went away, and the user_id these would carry is nilified moments
-        # later anyway — they would be orphans describing a cascade.
-        Termination.terminate_conversation(id, audit: false)
+        # No per-conversation row, and no per-machine one either: `account.deleted`
+        # already says everything went away, and the `user_id` these would carry
+        # is nilified moments later anyway — they would be orphans describing a
+        # cascade.
+        #
+        # Both keys, because they mean different things and this is the one
+        # caller that wants both. `:audit` silences `conversation.terminated`;
+        # `:audit_destroy` travels through the server to
+        # `_unsafe_destroy_machine/2` and silences `sandbox.destroyed`. A
+        # machine whose conversation still has a live server is torn down *by
+        # that server*, so without the second key this path was the one place
+        # account deletion still left an orphaned machine event — one per
+        # deleted account that had a server (ADR 0058 stage 5b, review round 2).
+        # The machines with no live server are handled by `destroy_sprite/2`
+        # below, which reads the same `:audit`.
+        Termination.terminate_conversation(id,
+          audit: audit?,
+          audit_destroy: audit?
+        )
       catch
         kind, reason ->
           Logger.warning("account deletion: terminate #{id} failed: #{inspect({kind, reason})}")

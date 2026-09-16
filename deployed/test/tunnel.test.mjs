@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import { openTunnels, TUNNEL_HOST, FIRST_LOOKUP_HOLD_MS } from '../tunnel.mjs';
+import { openTunnels, TUNNEL_HOST, PUBLIC_RESOLVERS } from '../tunnel.mjs';
 import { externalReceiver, hostsReceiver } from '../lib/local-receiver.mjs';
 
 // A fake cloudflared: emits whatever lines the case wants, and records the
@@ -14,8 +14,9 @@ function fakeCloudflared(script) {
     child.stderr = new EventEmitter();
     child.exitCode = null; child.signalCode = null;
     child.kill = signal => { child.signalCode = signal; queueMicrotask(() => child.emit('exit', 0)); };
+    const index = started.length;
     started.push({ command, args, child });
-    queueMicrotask(() => script(child, started.length - 1));
+    queueMicrotask(() => script(child, index));
     return child;
   };
   return { spawnFn, started };
@@ -26,7 +27,8 @@ const publish = host => child => {
   child.stderr.emit('data', 'INF Registered tunnel connection connIndex=0\n');
 };
 
-const options = { holdMs: 0, intervalMs: 0, probe: async () => ({ status: 200 }) };
+const options = { dnsIntervalMs: 0, intervalMs: 0, resolve4: async () => ['104.16.0.1'],
+  probe: async () => ({ status: 200 }) };
 
 test('the hostname pattern matches what cloudflared prints and nothing wider', () => {
   assert.equal('https://movements-tracy-hartford-rolled.trycloudflare.com'.match(TUNNEL_HOST)[0],
@@ -64,7 +66,8 @@ test('two origins are opened onto the same local receiver port', async () => {
 test('an origin that never answers fails setup and takes its tunnels down', async () => {
   const { spawnFn, started } = fakeCloudflared((child, index) => publish(`origin-${index}`)(child));
   await assert.rejects(
-    openTunnels({ port: 4321, count: 2, spawnFn, holdMs: 0, intervalMs: 0, attempts: 2,
+    openTunnels({ port: 4321, count: 2, spawnFn, dnsIntervalMs: 0, intervalMs: 0, attempts: 2,
+      resolve4: async () => ['104.16.0.1'],
       probe: async () => { const error = new Error('lookup failed'); error.cause = { code: 'ENOTFOUND' }; throw error; } }),
     /never became reachable \(ENOTFOUND\)/);
   assert.equal(started.length, 2);
@@ -87,16 +90,29 @@ test('a missing cloudflared is reported as setup, not as a deployment failure', 
   await assert.rejects(openTunnels({ port: 4321, spawnFn, ...options }), /cloudflared is not installed/);
 });
 
-// Asking before the hostname resolves poisons the resolver's negative cache,
-// so the hold is load-bearing rather than cosmetic. See tunnel.mjs.
-test('no lookup is attempted before the first-lookup hold elapses', async () => {
-  const { spawnFn } = fakeCloudflared(child => publish('held')(child));
-  let probedAt;
-  const started = Date.now();
-  await openTunnels({ port: 4321, spawnFn, holdMs: 60, intervalMs: 0,
-    probe: async () => { probedAt ??= Date.now() - started; return { status: 200 }; } });
-  assert.ok(probedAt >= 55, `probed after ${probedAt}ms, expected to wait for the hold`);
-  assert.ok(FIRST_LOOKUP_HOLD_MS >= 20000, 'the shipped hold must cover a fresh hostname');
+// Asking the system resolver before the record exists poisons its negative
+// cache, so readiness is established against public resolvers first and the
+// origin is not requested until the name demonstrably resolves.
+test('an origin is not requested until its DNS record exists', async () => {
+  const { spawnFn } = fakeCloudflared(child => publish('pending')(child));
+  let resolved = false, probedBeforeRecord = false;
+  await openTunnels({ port: 4321, spawnFn, dnsIntervalMs: 1, intervalMs: 0,
+    resolve4: async () => { if (!resolved) { resolved = true; const e = new Error('nope'); e.code = 'ENOTFOUND'; throw e; } return ['104.16.0.1']; },
+    probe: async () => { if (!resolved) probedBeforeRecord = true; return { status: 200 }; } });
+  assert.equal(probedBeforeRecord, false);
+});
+
+test('a hostname that never gets a record fails setup with that reason', async () => {
+  const { spawnFn, started } = fakeCloudflared(child => publish('absent')(child));
+  await assert.rejects(openTunnels({ port: 4321, spawnFn, dnsMs: 5, dnsIntervalMs: 1,
+    resolve4: async () => { const e = new Error('nope'); e.code = 'ENOTFOUND'; throw e; },
+    probe: async () => { throw new Error('must not be requested'); } }),
+  /never got a DNS record \(ENOTFOUND\)/);
+  assert.equal(started[0].child.signalCode, 'SIGTERM');
+});
+
+test('readiness is asked of public resolvers, not the system one', () => {
+  assert.deepEqual(PUBLIC_RESOLVERS, ['1.1.1.1', '8.8.8.8']);
 });
 
 test('only the outbound profiles need a receiver', () => {

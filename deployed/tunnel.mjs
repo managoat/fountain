@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { Resolver } from 'node:dns/promises';
 
 // The integration profiles assert on what a deployment does *outbound*: a
 // secret delivered into a sandbox, an MCP server called, a webhook posted. A
@@ -14,14 +15,20 @@ import { spawn } from 'node:child_process';
 export const TUNNEL_HOST = /https:\/\/[a-z0-9][a-z0-9-]*\.trycloudflare\.com/;
 const REGISTERED = /Registered tunnel connection/;
 
-// A freshly issued hostname does not resolve for roughly twenty seconds, and
-// asking early is worse than not asking: the first NXDOMAIN is negatively
-// cached, and on macOS repeated lookups keep refreshing that entry rather than
-// expiring it. Measured on 2026-09-16: probing from t=3.7s never recovered
-// within 58s, while holding 25s before the first lookup resolved on the first
-// try, twice. So the hold is not a guess at propagation time — it exists to
-// keep us from poisoning our own resolver.
-export const FIRST_LOOKUP_HOLD_MS = 25000;
+// A freshly issued hostname takes several seconds to resolve, and asking the
+// system resolver early is worse than not asking: the first NXDOMAIN is
+// negatively cached, and on macOS repeated lookups keep refreshing that entry
+// rather than expiring it. Measured on 2026-09-16, polling from t=3.7s never
+// recovered within 58s, while waiting and then asking once resolved
+// immediately.
+//
+// So readiness is established out of band, against public resolvers directly,
+// which does not touch the system resolver's cache. Only once the record
+// demonstrably exists does anything here make a normal request, which is the
+// first time the system resolver sees the name at all. That replaced a blind
+// 25s hold and is both faster and steadier: resolution at ~12s rather than a
+// wait to 29s, with no chance of us poisoning our own lookups.
+export const PUBLIC_RESOLVERS = ['1.1.1.1', '8.8.8.8'];
 
 const sleep = (ms, signal) => new Promise((resolve, reject) => {
   const timer = setTimeout(resolve, ms);
@@ -69,22 +76,53 @@ function startOne({ port, signal, spawnFn = spawn, startupMs = 60000 }) {
   });
 }
 
+function publicResolver() {
+  const resolver = new Resolver();
+  resolver.setServers(PUBLIC_RESOLVERS);
+  return hostname => resolver.resolve4(hostname);
+}
+
 // One origin per hostname, all forwarding to the same local receiver. The
 // secrets profile needs two, and asserts they reach the same instance.
 export async function openTunnels({ port, count = 1, signal, spawnFn, log = () => {},
-  holdMs = FIRST_LOOKUP_HOLD_MS, probe = fetch, attempts = 8, intervalMs = 8000 }) {
-  const tunnels = [];
+  resolve4 = publicResolver(), probe = fetch, dnsMs = 120000, dnsIntervalMs = 2000, attempts = 12, intervalMs = 5000 }) {
+  let tunnels = [];
   try {
-    for (let index = 0; index < count; index++) tunnels.push(await startOne({ port, signal, spawnFn }));
+    // Started together so they age together. Started in turn, the second
+    // hostname is several seconds younger than the first and its edge was
+    // still catching up after the first had been waited for.
+    const started = await Promise.allSettled(Array.from({ length: count }, () => startOne({ port, signal, spawnFn })));
+    tunnels = started.filter(one => one.status === 'fulfilled').map(one => one.value);
+    const failed = started.find(one => one.status === 'rejected');
+    if (failed) throw failed.reason;
     log(`  tunnel     ${tunnels.map(tunnel => tunnel.hostname).join(', ')}`);
-    log(`  waiting    ${holdMs / 1000}s before the first DNS lookup, then probing`);
-    await sleep(holdMs, signal);
-    for (const tunnel of tunnels) await waitForOrigin(tunnel, { signal, probe, attempts, intervalMs });
+    for (const tunnel of tunnels) {
+      await waitForRecord(tunnel, { signal, resolve4, dnsMs, dnsIntervalMs });
+      await waitForOrigin(tunnel, { signal, probe, attempts, intervalMs });
+    }
+    log(`  ready      ${tunnels.length} origin(s) reachable`);
     return { tunnels, urls: tunnels.map(tunnel => tunnel.url), async stop() { for (const tunnel of tunnels) await tunnel.stop(); } };
   } catch (error) {
     for (const tunnel of tunnels) await tunnel.stop();
     throw error;
   }
+}
+
+// Asked of public resolvers directly, so a miss costs nothing: it never
+// reaches the cache that the run's own requests will use.
+async function waitForRecord(tunnel, { signal, resolve4, dnsMs, dnsIntervalMs }) {
+  const deadline = Date.now() + dnsMs;
+  let last = 'no answer';
+  while (Date.now() < deadline) {
+    if (signal?.aborted) throw new Error('Interrupted');
+    try {
+      const addresses = await resolve4(tunnel.hostname);
+      if (addresses?.length) return;
+      last = 'empty answer';
+    } catch (error) { last = error?.code || error?.message || 'lookup failed'; }
+    await sleep(dnsIntervalMs, signal);
+  }
+  throw new Error(`Tunnel ${tunnel.hostname} never got a DNS record (${last})`);
 }
 
 // Any HTTP response proves the origin is routable; the receiver's own identity

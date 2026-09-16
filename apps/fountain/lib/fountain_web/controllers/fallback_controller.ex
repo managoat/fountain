@@ -374,11 +374,18 @@ defmodule FountainWeb.FallbackController do
   #
   # It carried no `message` while there were two, on the grounds that they did
   # not mean the same thing to a caller. The third made that the wrong trade
-  # (round 1, surfaces review): it is the one most callers meet, the CLI prints
-  # `http 503: sandbox_unavailable` with nothing else when the body has no
-  # `message`, and the one sentence below is true of all three. An operation
-  # with something *more* precise to say still renders its own:
-  # `SandboxController.delete/2` does, because there the fence has already
+  # (round 1, surfaces review): it is the one most callers meet, and the CLI
+  # prints `http 503: sandbox_unavailable` with nothing else when the body has
+  # no `message`.
+  #
+  # **The sentence names no cause**, and that is the point rather than
+  # vagueness (round 2, surfaces review). The first draft said Fountain was
+  # "finishing another operation", which is true of the stage 5 and 6a sources
+  # and false of #2049's: there nothing is in flight, the caller's conversation
+  # is simply no longer attached to the machine it named. What all three share
+  # is the outcome — this machine will not take this request now, and later it
+  # may. An operation with something *more* precise to say still renders its
+  # own: `SandboxController.delete/2` does, because there the fence has already
   # committed and "send it again" is the wrong advice.
   def call(conn, {:error, :sandbox_unavailable}) do
     conn
@@ -386,7 +393,7 @@ defmodule FountainWeb.FallbackController do
     |> put_status(:service_unavailable)
     |> json(%{
       error: "sandbox_unavailable",
-      message: "Fountain is finishing another operation on this sandbox; send the request again"
+      message: "this sandbox cannot take that request right now; send it again shortly"
     })
   end
 

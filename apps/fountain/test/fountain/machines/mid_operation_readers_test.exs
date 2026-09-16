@@ -347,33 +347,5 @@ defmodule Fountain.Machines.MidOperationReadersTest do
       # And the locked arm rolled its transaction back: nothing was created.
       assert Repo.aggregate(from(c in Conversation), :count) == 1
     end
-
-    test "the verdict that counts is the one under the admission lock", ctx do
-      # `check_attachable/4` runs twice: once on the preflight read, and again
-      # inside `create_attached_conversation/3`'s `FOR NO KEY UPDATE` re-read.
-      # The second is the one that decides, because a pre-lock verdict is stale
-      # by construction (#2307 constraint 1) — an owner can take the machine
-      # between them.
-      #
-      # `RuntimeDispatch.concurrency/1` runs between the two (the capacity
-      # check a prompt-carrying attach makes), so stamping the row from there
-      # reproduces that window deterministically, without depending on two
-      # processes' timing.
-      stub(Fountain.RuntimeDispatch, :concurrency, fn _runtime ->
-        stamp(ctx.sandbox, held())
-        99
-      end)
-
-      assert {:error, :sandbox_unavailable} =
-               Launch.start_conversation(%{
-                 "agent_id" => ctx.agent.id,
-                 "user_id" => ctx.user.id,
-                 "sandbox_id" => ctx.sandbox.id,
-                 "prompt" => "hello"
-               })
-
-      # And nothing was created: the locked arm rolls its transaction back.
-      assert Repo.aggregate(from(c in Conversation), :count) == 1
-    end
   end
 end

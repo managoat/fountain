@@ -443,8 +443,7 @@ defmodule FountainWeb.AdminControllerTest do
       assert json_response(conn, 503) == %{
                "error" => "sandbox_unavailable",
                "message" =>
-                 "Fountain is finishing another operation on this sandbox; " <>
-                   "send the request again"
+                 "this sandbox cannot take that request right now; send it again shortly"
              }
 
       assert get_resp_header(conn, "retry-after") == ["30"]

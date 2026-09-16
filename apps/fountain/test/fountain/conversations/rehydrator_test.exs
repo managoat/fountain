@@ -164,6 +164,32 @@ defmodule Fountain.Conversations.RehydratorTest do
     assert args[:conversation_id] == conv.id
   end
 
+  test "a lease claimed after the sweep's own check is refused at the door, and says so" do
+    # `check_machine_free/1` reads the row with no lock; the door re-reads it
+    # under the per-sandbox advisory lock and can refuse where our check
+    # passed. That refusal comes back into the `with`'s *body*, which the
+    # `else` below never sees, so before round 2 it left the sweep with no log
+    # line at all (round 1, locks review).
+    #
+    # `RuntimeDispatch.for_agent/1` is the hook: it runs after
+    # `check_machine_free/1` and before `register_server/2`, so a lease claimed
+    # there is exactly a claim landing in that gap.
+    conv = resumable("idle")
+
+    stub(Fountain.RuntimeDispatch, :for_agent, fn c ->
+      Repo.get!(Fountain.Conversations.Sandbox, conv.sandbox_id)
+      |> Ecto.Changeset.change(held())
+      |> Repo.update!()
+
+      Mimic.call_original(Fountain.RuntimeDispatch, :for_agent, [c])
+    end)
+
+    log = ExUnit.CaptureLog.capture_log(fn -> assert sweep() == 0 end)
+
+    assert log =~ "skipping conv #{conv.id} (machine_busy)"
+    refute_received {:worker_start, _}
+  end
+
   test "boot starts a server once the lease has expired" do
     conv = resumable("idle")
 

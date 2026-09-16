@@ -150,18 +150,42 @@ defmodule Fountain.Conversations.Rehydrator do
         {:error, {:already_started, pid}} ->
           {:ok, pid}
 
+        # The door made the same refusal `check_machine_free/1` does, on the
+        # row it re-read under the lock: a lease claimed in the gap between our
+        # check and the registration. The same outcome as our own skip, and it
+        # must say so — this `case` is the `with`'s *body*, so nothing here
+        # reaches the `else` below, and before ADR 0058 stage 6a round 2 this
+        # refusal left the sweep silently (round 1, locks review).
+        {:error, :sandbox_unavailable} ->
+          skipped(conv, {:skip, :machine_busy})
+
         other ->
-          other
+          skipped(conv, other)
       end
     else
-      {:skip, why} ->
-        Logger.warning("rehydrator: skipping conv #{conv.id} (#{why})")
-        :skipped
-
-      {:error, reason} ->
-        Logger.warning("rehydrator: skipping conv #{conv.id}: #{inspect(reason)}")
-        :skipped
+      outcome ->
+        skipped(conv, outcome)
     end
+  end
+
+  # One logging path for every way this sweep declines a conversation, reached
+  # from the `with`'s `else` and from its body alike.
+  defp skipped(conv, {:skip, why}) do
+    Logger.warning("rehydrator: skipping conv #{conv.id} (#{why})")
+    :skipped
+  end
+
+  defp skipped(conv, {:error, reason}) do
+    Logger.warning("rehydrator: skipping conv #{conv.id}: #{inspect(reason)}")
+    :skipped
+  end
+
+  # `start_child` may also answer `:ignore`, which the `with` body used to
+  # return untouched. Logged rather than matched on: a sweep that raises on one
+  # odd row stops starting servers for the whole fleet.
+  defp skipped(conv, other) do
+    Logger.warning("rehydrator: skipping conv #{conv.id}: #{inspect(other)}")
+    :skipped
   end
 
   # A machine whose owner holds a live lease is not a machine to start a server

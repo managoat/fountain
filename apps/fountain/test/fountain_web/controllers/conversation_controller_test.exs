@@ -1181,7 +1181,7 @@ defmodule FountainWeb.ConversationControllerTest do
       assert %{"error" => "sandbox_unavailable", "message" => message} =
                json_response(conn, 503)
 
-      assert message =~ "send the request again"
+      assert message =~ "send it again shortly"
       assert get_resp_header(conn, "retry-after") == ["30"]
     end
 

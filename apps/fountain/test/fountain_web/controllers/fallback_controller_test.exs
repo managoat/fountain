@@ -59,11 +59,11 @@ defmodule FountainWeb.FallbackControllerTest do
 
     # And a sentence, since round 1: the wake and attach doors made this the
     # commonest 503 in the product, and the CLI prints `http 503:
-    # sandbox_unavailable` and nothing else when the body has no `message`.
-    # True of all three sources of the atom, which is why it can live here
-    # rather than at each caller.
+    # sandbox_unavailable` and nothing else when the body has no `message`. It
+    # names no cause, because the three sources do not share one — only the
+    # outcome (round 2).
     assert body["message"] ==
-             "Fountain is finishing another operation on this sandbox; send the request again"
+             "this sandbox cannot take that request right now; send it again shortly"
   end
 
   test "the protocol's own words land on the safety net, which is why they are translated" do

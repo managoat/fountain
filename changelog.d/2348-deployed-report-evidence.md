@@ -9,3 +9,8 @@
   failure counts in `junit.xml` wrong. The report now has registered secrets
   removed from its strings without the key-name guessing, which still applies
   to the responses an instance sends.
+
+- The suite no longer retains a malformed instance's structured
+  `info.version` in its report. That document is fetched without body
+  recording, so the value never crossed a redaction boundary; the report now
+  keeps it only when it is the version scalar it is declared to be (#1612).

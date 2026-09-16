@@ -2,6 +2,8 @@ import { randomUUID, createHash } from 'node:crypto';
 import { probe } from './probe.mjs';
 import { verifyAdvertisement } from '../lib/advertisement.mjs';
 
+export const advertisedVersion = value => (typeof value === 'string' ? value : null);
+
 export async function basic(ctx) {
   const { client, fixtures, config, require: need, check } = ctx;
   const other = config.secondaryKey;
@@ -73,7 +75,11 @@ export async function basic(ctx) {
   ['GET /api/auth/api-keys', 'POST /api/auth/api-keys', 'DELETE /api/auth/api-keys/{id}'].forEach(op => operations.add(op));
   await check('basic/advertised-contract', async () => {
     const { body } = await client.request('GET', '/api/openapi.json', { expected: 200, validate: false, recordBody: false });
-    ctx.report.advertised_schema = { version: body.info?.version ?? null,
+    // The only value of this document that reaches the report. `recordBody`
+    // is false, so the body never passed the redactor's response heuristic,
+    // and a version is a scalar: anything else is a malformed instance
+    // handing us an unregistered value to persist. Project it or drop it.
+    ctx.report.advertised_schema = { version: advertisedVersion(body.info?.version),
       sha256: createHash('sha256').update(JSON.stringify(body)).digest('hex'), operations_checked: [...operations] };
     verifyAdvertisement(body, client.contract.document, [...operations]);
   });

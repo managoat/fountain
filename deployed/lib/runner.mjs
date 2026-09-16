@@ -7,6 +7,7 @@ import { observeDeployment, validateDeployment, verifyStable } from '../adapters
 import { Contract } from './contract.mjs';
 import { Client, Redactor } from './http.mjs';
 import { atomicJson, Fixtures } from './fixtures.mjs';
+import { journalSettled } from './receiver-journal.mjs';
 import { probe } from '../profiles/probe.mjs';
 import { basic } from '../profiles/basic.mjs';
 import { execution } from '../profiles/execution.mjs';
@@ -274,7 +275,12 @@ export async function run({ configPath, out, manifestPath, signal, env = process
     } else {
       report.status = 'running'; report.cleanup_run_id = fixtures.manifest.run_id;
       const webhookPath = resolve(dirname(manifestPath), 'webhook-receiver.json');
-      if (existsSync(webhookPath)) afterCleanup.push({ name: 'webhooks/receiver-cleanup', run: async () => {
+      // A journal that already records its receiver as settled owes nothing,
+      // so it must not demand a configuration the run may no longer have: a
+      // receiver hosted for that run is stopped by the time a replay runs.
+      if (existsSync(webhookPath) && journalSettled(webhookPath, fixtures.manifest.run_id)) {
+        afterCleanup.push({ name: 'webhooks/receiver-cleanup', run: async () => {} });
+      } else if (existsSync(webhookPath)) afterCleanup.push({ name: 'webhooks/receiver-cleanup', run: async () => {
         requireThat(config.webhooks, 'Webhook cleanup requires the original target configuration');
         const receiver = new ControlledReceiverSession({ settings: config.webhooks, adminKey: env[config.webhooks.admin_credential], path: webhookPath,
           runId: fixtures.manifest.run_id, redactor, version: WEBHOOK_VERSION });
@@ -282,7 +288,12 @@ export async function run({ configPath, out, manifestPath, signal, env = process
         await receiver.cleanup(AbortSignal.timeout(config.limits.cleanup_ms));
       } });
       const mcpPath = resolve(dirname(manifestPath), 'mcp-receiver.json');
-      if (existsSync(mcpPath)) afterCleanup.push({ name: 'mcp/receiver-cleanup', run: async () => {
+      // A journal that already records its receiver as settled owes nothing,
+      // so it must not demand a configuration the run may no longer have: a
+      // receiver hosted for that run is stopped by the time a replay runs.
+      if (existsSync(mcpPath) && journalSettled(mcpPath, fixtures.manifest.run_id)) {
+        afterCleanup.push({ name: 'mcp/receiver-cleanup', run: async () => {} });
+      } else if (existsSync(mcpPath)) afterCleanup.push({ name: 'mcp/receiver-cleanup', run: async () => {
         requireThat(config.mcp, 'MCP cleanup requires the original target configuration');
         const receiver = new McpReceiverSession({ settings: config.mcp, adminKey: env[config.mcp.admin_credential], path: mcpPath,
           runId: fixtures.manifest.run_id, redactor });
@@ -290,7 +301,12 @@ export async function run({ configPath, out, manifestPath, signal, env = process
         await receiver.cleanup(AbortSignal.timeout(config.limits.cleanup_ms));
       } });
       const receiverPath = resolve(dirname(manifestPath), 'receiver.json');
-      if (existsSync(receiverPath)) afterCleanup.push({ name: 'secrets/receiver-cleanup', run: async () => {
+      // A journal that already records its receiver as settled owes nothing,
+      // so it must not demand a configuration the run may no longer have: a
+      // receiver hosted for that run is stopped by the time a replay runs.
+      if (existsSync(receiverPath) && journalSettled(receiverPath, fixtures.manifest.run_id)) {
+        afterCleanup.push({ name: 'secrets/receiver-cleanup', run: async () => {} });
+      } else if (existsSync(receiverPath)) afterCleanup.push({ name: 'secrets/receiver-cleanup', run: async () => {
         requireThat(config.secrets, 'Receiver cleanup requires the original secrets target configuration');
         const receiver = new ReceiverSession({ settings: config.secrets, adminKey: env[config.secrets.admin_credential], path: receiverPath,
           runId: fixtures.manifest.run_id, redactor });

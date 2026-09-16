@@ -52,7 +52,7 @@ export class ControlledReceiverSession {
     const existing = JSON.parse(readFileSync(this.path));
     ensure(existing.version === this.version && existing.base_url === this.origin.origin && existing.run_id === this.runId &&
       /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(existing.run_id) &&
-      ['pending', 'created', 'cleaned'].includes(existing.state), 'Receiver cleanup manifest does not match run and target');
+      ['pending', 'created', 'cleaned', 'discarded'].includes(existing.state), 'Receiver cleanup manifest does not match run and target');
     this.manifest = existing;
   }
 }

@@ -8,6 +8,7 @@ import { randomUUID } from 'node:crypto';
 import { run } from './lib/runner.mjs';
 import { composeTarget, PROFILES } from './lib/target.mjs';
 import { externalReceiver, hostReceiver, hostsReceiver } from './lib/local-receiver.mjs';
+import { discardJournal } from './lib/receiver-journal.mjs';
 
 // One command for the operator question "does this deployment work": a URL and
 // a profile, no hand-authored target file. It composes the same run as
@@ -257,6 +258,14 @@ export async function verifyMain(argv, env = process.env, { hostReceiverFn = hos
     // A borrowed origin outliving its run would leave a public hostname
     // pointed at this machine.
     await receiver?.stop();
+    // The receiver's records went with the process. Say so in its journal, or
+    // a replay finds an unsettled one and demands the configuration for an
+    // instance that no longer exists.
+    if (receiver?.hosted && out) {
+      for (const name of ['receiver.json', 'mcp-receiver.json', 'webhook-receiver.json']) {
+        discardJournal(resolve(out, 'results', name), reportRunId(resolve(out, 'results')));
+      }
+    }
     process.off('SIGINT', cancel);
     process.off('SIGTERM', cancel);
   }
@@ -270,6 +279,12 @@ function openReceiver(values, env, signal, hostReceiverFn = hostReceiver) {
   const options = { receiverUrl: values['receiver-url'], blockedUrl: values['blocked-url'] };
   if (options.receiverUrl || options.blockedUrl) return externalReceiver(values.profile, options, env);
   return hostReceiverFn(values.profile, { signal, log: console.log });
+}
+
+// The run id the journals are keyed by; a run that never wrote a report has
+// no journals to settle either.
+function reportRunId(results) {
+  return readReport(results)?.run_id ?? '';
 }
 
 function readReport(results) {

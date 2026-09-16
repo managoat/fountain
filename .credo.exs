@@ -99,6 +99,9 @@
                # system-level sweeps, run with no user in scope
                "lib/fountain/conversations/rehydrator.ex",
                "lib/fountain/workers/",
+               # the machine owner (ADR 0058): ownership is the sandbox row's
+               # lease, established at claim; called only from its own process
+               "lib/fountain/machines/",
                "/test/"
              ]
            ]},

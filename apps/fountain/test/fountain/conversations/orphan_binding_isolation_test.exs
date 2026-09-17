@@ -8,7 +8,8 @@ defmodule Fountain.Conversations.OrphanBindingIsolationTest do
   The actor's binding check and the reassignment that invalidates it serialize.
 
   `ExecutionGuard._unsafe_recover_turn/3` takes `FOR UPDATE` on the parent
-  before it compares `:expected_sandbox_id`, so the comparison and every write
+  before it compares the actor's `:sandbox_id` binding
+  (`Fountain.Machines.Admission.bound?/2`), so the comparison and every write
   that follows it happen under one lock. These two tests run the pair in both
   orders against a real PostgreSQL backend and assert the lock wait is real,
   which a same-connection sandbox test cannot show.

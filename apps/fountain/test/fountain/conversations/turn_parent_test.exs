@@ -306,7 +306,7 @@ defmodule Fountain.Conversations.TurnParentTest do
     {:ok, _} = Conversations.update_conversation(conv, %{sandbox_id: replacement.id})
 
     # No journal row, so `cleanup_binding?/1` has nothing to compare: the
-    # actor's own `:expected_sandbox_id` is the only record of the binding.
+    # actor's own `:sandbox_id` is the only record of the binding.
     assert {:error, :ownership_changed} =
              Conversations._unsafe_orphan_turn(turn, "rebound", sandbox_id: old.id)
 

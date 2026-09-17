@@ -799,6 +799,19 @@ defmodule FountainWeb.ConversationController do
       gone: {"Conversation is terminal", "application/json", Schemas.Error},
       unprocessable_entity: {"Invalid request parameters", "application/json", Schemas.Error},
       service_unavailable: {"Sandbox or fleet unavailable", "application/json", Schemas.Error},
+      # `sandbox_reset_pending`: the conversation's machine is being reset or
+      # torn down, so there is nothing to wake and retrying the prompt will not
+      # help until the machine is gone and a fresh one is provisioned.
+      #
+      # **Declared in ADR 0058 stage 7a, but reachable since long before it.**
+      # `Wake.maybe_reuse_sandbox/1` has refused a reset-fenced machine with
+      # this word for as long as the fence has existed, and this operation
+      # declared no 409 — so the response rendered fine on the wire and the
+      # schema guard (#1427) would have caught it the day anybody wrote a test
+      # that reached it. Nobody had. Stage 7a's `Machines.Resume` gives the same
+      # word a second path here (a fence landing between the reuse check and the
+      # machine's lease), which is what produced that test.
+      conflict: {"Sandbox is being reset", "application/json", Schemas.Error},
       ok: {"Queued", "application/json", Schemas.PromptResponse},
       not_found: {"Not found", "application/json", Schemas.Error},
       bad_request: {"Busy", "application/json", Schemas.Error}

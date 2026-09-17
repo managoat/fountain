@@ -5981,6 +5981,11 @@
             "ref": "NegotiationError"
           }
         },
+        "409": {
+          "application/json": {
+            "ref": "Error"
+          }
+        },
         "410": {
           "application/json": {
             "ref": "Error"

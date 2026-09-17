@@ -891,6 +891,49 @@ defmodule FountainWeb.ConversationControllerTest do
       assert json_response(conn, 200)["status"] == "queued"
     end
 
+    test "a machine whose teardown has been asked for answers 409, not a bare atom", %{
+      conn: conn,
+      user: user,
+      raw_key: raw_key
+    } do
+      # ADR 0058 stage 7a, round 1 of the surfaces review. `Machines.Resume`
+      # refuses a fenced machine with its own word, `:fenced`, and that word has
+      # no meaning outside `Fountain.Machines` — untranslated it reached here
+      # and rendered as `422 {"error": "fenced"}` through the terminal safety
+      # net, with a "fallback: unmapped error atom" warning in the log.
+      # `Machine.ensure_up/2` translates it to the word the front door has
+      # always used for a machine on its way out.
+      #
+      # Only `teardown_requested_at` is stamped, and that isolates the arm under
+      # test rather than describing a row production makes: a teardown writes
+      # *both* fence columns (`Lifecycle.do_fence_sandbox_for_teardown/2`), and
+      # a row carrying `reset_requested_at` is refused one step earlier by
+      # `Wake.maybe_reuse_sandbox/1` — with the same answer, from a different
+      # path. What reaches this one in production is a fence that lands between
+      # that check and the lease, which is a race rather than a row shape.
+      agent = insert_agent(user_id: user.id)
+      sandbox = insert_sandbox(user_id: user.id, agent_id: agent.id, status: "ready")
+
+      conv =
+        insert_conversation(user_id: user.id, agent: agent, sandbox: sandbox, status: "idle")
+
+      sandbox
+      |> Ecto.Changeset.change(teardown_requested_at: DateTime.utc_now())
+      |> Fountain.Repo.update!()
+
+      stub(Managoat.Sandbox.Sprites, :get, fn _handle -> {:ok, %{status: :running, raw: %{}}} end)
+      reject(&Managoat.Sandbox.Sprites.resume/1)
+
+      body =
+        conn
+        |> authed_with_key(raw_key)
+        |> post_json("/api/conversations/#{conv.id}/prompts", %{"prompt" => "hello"})
+        |> json_response(409)
+
+      assert body["error"] == "sandbox_reset_pending"
+      assert body["message"] =~ "Fountain retries automatically"
+    end
+
     test "returns 404 when ConversationServer is not running", %{
       conn: conn,
       user: user,

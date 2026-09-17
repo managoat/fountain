@@ -97,6 +97,7 @@ Mimic.copy(Fountain.Machines.Destroy)
 # `Resume.run/2` one of them.
 Mimic.copy(Fountain.Machines.Machine)
 Mimic.copy(Fountain.Machines.Provision)
+Mimic.copy(Fountain.Machines.Renewal)
 Mimic.copy(Fountain.Machines.Resume)
 
 # ─── The schema guard (#1427) ────────────────────────────────────────────────

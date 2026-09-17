@@ -165,6 +165,14 @@ defmodule Fountain.Machines.MachineBoundsTest do
     # the bracket runs inline on its caller whichever way the gate is set, so
     # there is no `GenServer.call` to put a ceiling on. See
     # `Fountain.Machines.Provision`'s moduledoc.
+    #
+    # `Code.ensure_loaded!/1` first, because `function_exported?/3` answers
+    # `false` for an unloaded module and an `alias` does not load one — so
+    # without it this test passed for the wrong reason, and only happened to be
+    # safe because a *different* file adds `Mimic.copy(Machine)` (round 1,
+    # behaviour review).
+    Code.ensure_loaded!(Machine)
+    assert function_exported?(Machine, :provision, 3), "the scan below proves nothing"
     refute function_exported?(Machine, :provision_timeout_ms, 0)
 
     # And the watchdog's own wait for the lease, which is the one override in
@@ -204,7 +212,12 @@ defmodule Fountain.Machines.MachineBoundsTest do
           # with a live row — the #394 ordering inverted. The number it passes
           # is pinned by name in the test below, so exempting the file costs
           # nothing the scan was buying.
-          "conversations/provision_watchdog.ex"
+          "conversations/provision_watchdog.ex",
+          # And the one site that passes `:deadline_ms`: the provision bracket's
+          # renewal window is `ProvisionWatchdog.deadline_ms/0` rather than
+          # `Renewal`'s ten TTLs, which is behaviour change 8 and is pinned by
+          # `provision_test.exs`'s two deadline cases.
+          "conversations/fresh_provision.ex"
         ])
       )
 
@@ -226,7 +239,11 @@ defmodule Fountain.Machines.MachineBoundsTest do
                "override there would not be seen and this test proves nothing"
     end
 
-    offenders = Enum.filter(files, &(File.read!(&1) =~ ~r/\b(busy_wait_ms|lease_ttl_ms):/))
+    # `deadline_ms` joined the two in stage 7b: a `deadline_ms:` on a destroy, a
+    # park or a resume would silently replace `Renewal`'s ten-TTL hard stop, and
+    # nothing else would notice — which is the failure mode this scan is for.
+    offenders =
+      Enum.filter(files, &(File.read!(&1) =~ ~r/\b(busy_wait_ms|lease_ttl_ms|deadline_ms):/))
 
     assert offenders == [],
            "these pass their own bound, so the defaults above stop being the live " <>

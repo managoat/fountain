@@ -29,8 +29,11 @@ processes behind it — a rolling deploy, a lost node — and only one of them
 builds the machine; the other finds it already being built and stands down.
 A build that stops part-way is torn down and started again rather than
 continued, because the steps it runs cannot be repeated on top of themselves.
-Building has an absolute ceiling of thirty minutes, after which the sandbox is
-recorded as failed and the next prompt starts a fresh one.
+Building has an absolute ceiling: after about half an hour Fountain stops it,
+records the sandbox as failed, and the next prompt starts a fresh one. If
+Fountain cannot write that record — because something else is working on the
+sandbox at that moment — it asks again over the next few minutes and then stops
+the build anyway, leaving the sandbox for the hourly cleanup pass.
 
 ## Two modes
 

@@ -109,15 +109,15 @@ defmodule Fountain.Conversations.Wake do
   # The reuse verdict for a machine no owner is working on. Split out of
   # `maybe_reuse_sandbox/1` when the mid-operation check went in front of it,
   # so there is one place that check cannot be skipped.
+  #
+  # It had a `pending`/`starting` clause until stage 7b, which answered
+  # `{:provisioning, sandbox_id}`. That answer moved *above* the busy check in
+  # `maybe_reuse_sandbox/1` — a provision holds a lease for its whole length now,
+  # and a row being built owes a second caller "wait for the server" rather than
+  # "try again in thirty seconds" — so nothing reached the clause any more.
   defp classify_reusable(%{status: status, machine_name: name} = sandbox, sandbox_id)
        when status in ["ready", "suspended"] and is_binary(name),
        do: probe_reusable_sandbox(sandbox, sandbox_id)
-
-  # A provision is in flight — or was, in a BEAM that is gone. The
-  # caller waits for the registry before deciding which (#800).
-  defp classify_reusable(%{status: status}, sandbox_id)
-       when status in ["pending", "starting"],
-       do: {:provisioning, sandbox_id}
 
   defp classify_reusable(_sandbox, _sandbox_id), do: :create_new
 
@@ -773,12 +773,6 @@ defmodule Fountain.Conversations.Wake do
     end
   end
 
-  # The one caller that cannot carry on without it. A persistent home is retired
-  # *before* its replacement is created, because the partial unique index allows
-  # one live home per identity — so a refused retire is a `create_sandbox/1`
-  # that is certain to fail on the index. Answering `:sandbox_unavailable` here
-  # gives the caller the 503 and the `Retry-After` that describe what actually
-  # happened, rather than a constraint error.
   # Re-read rather than judged from the row `maybe_reuse_sandbox/1` saw: three
   # seconds of `await_registered/2` have passed since, which is long enough for
   # a provision to have finished or for one to have started.
@@ -791,6 +785,12 @@ defmodule Fountain.Conversations.Wake do
     end
   end
 
+  # The one caller that cannot carry on without it. A persistent home is retired
+  # *before* its replacement is created, because the partial unique index allows
+  # one live home per identity — so a refused retire is a `create_sandbox/1`
+  # that is certain to fail on the index. Answering `:sandbox_unavailable` here
+  # gives the caller the 503 and the `Retry-After` that describe what actually
+  # happened, rather than a constraint error.
   defp retire_replaced_home(mode, _sandbox_id) when mode != "persistent", do: :ok
 
   defp retire_replaced_home(_mode, sandbox_id) do

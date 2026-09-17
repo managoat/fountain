@@ -51,7 +51,7 @@ defmodule Fountain.Conversations.WakeCotenantsTest do
       {:ok, spawn(fn -> Process.sleep(:infinity) end)}
     end)
 
-    stub(ConversationServer, :queue_initial_prompt, fn _pid, _prompt -> :ok end)
+    stub(ConversationServer, :queue_initial_prompt, fn _pid, _prompt, _images -> :ok end)
 
     {:ok,
      user: user, agent: agent, old: old, conv: conv, following: following, stranded: stranded}

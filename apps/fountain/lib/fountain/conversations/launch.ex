@@ -695,7 +695,7 @@ defmodule Fountain.Conversations.Launch do
   @doc """
   The Horde child spec for a `ConversationServer`. Built once here because
   the literal was written three times — `start_conversation/2`'s fresh
-  clause above, `Wake.start_conversation_server/4` and the rehydrator's boot
+  clause above, `Wake.start_conversation_server/5` and the rehydrator's boot
   sweep (`Conversations.Rehydrator`) — and the three varied on exactly these
   three keys: `conversation_id`, `sandbox_id` and `runtime_module`. No
   prompt ever belongs here: `Horde.DynamicSupervisor` replays a child's

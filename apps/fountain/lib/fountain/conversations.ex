@@ -1240,7 +1240,7 @@ defmodule Fountain.Conversations do
   it (ADR 0058 stage 6a, #2307 constraint 4).
 
   **The only door onto `Fountain.ConversationSupervisor`.** All three starters
-  — `Launch.start_conversation/2`'s fresh path, `Wake.start_conversation_server/4`
+  — `Launch.start_conversation/2`'s fresh path, `Wake.start_conversation_server/5`
   and `Rehydrator.spawn_server/1` — come through here, and
   `machines/register_server_test.exs` pins that nothing else names the
   supervisor.
@@ -1314,7 +1314,7 @@ defmodule Fountain.Conversations do
   the same thing by it and normalizing it here would break one of them.
   `Rehydrator.spawn_server/1` reads it as success: its sweep started a server
   another node had already started, and the server is running, which is what it
-  asked for. `Wake.start_conversation_server/4` reads it as *losing a race it
+  asked for. `Wake.start_conversation_server/5` reads it as *losing a race it
   has to compensate for*: on the fresh-sandbox path the loser has just created
   a sandbox row of its own, and the winner is serving the conversation on a
   different machine, so the loser retires its row and hands the prompt over

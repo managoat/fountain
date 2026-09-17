@@ -28,7 +28,7 @@ defmodule FountainWeb.SavedAllowanceWakeTest do
       {:ok, owner}
     end)
 
-    stub(ConversationServer, :queue_initial_prompt, fn _, _ ->
+    stub(ConversationServer, :queue_initial_prompt, fn _, _, _ ->
       send(owner, :prompt_queued)
       :ok
     end)

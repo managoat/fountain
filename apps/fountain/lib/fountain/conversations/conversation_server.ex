@@ -105,7 +105,9 @@ defmodule Fountain.Conversations.ConversationServer do
     result =
       case whereis(conv_id) do
         nil ->
-          case Wake.wake_conversation(conv_id, prompt) do
+          # `images` travels the wake road too, or the woken turn opens
+          # without them while this still answers :ok (#2373; see `Wake`).
+          case Wake.wake_conversation(conv_id, prompt, images) do
             {:ok, _conv} -> :ok
             {:error, :gone} -> {:error, :gone}
             {:error, :not_found} -> {:error, :not_running}

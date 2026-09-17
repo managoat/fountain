@@ -161,7 +161,8 @@ defmodule Fountain.ConversationsReadStateTest do
       end)
 
       stub(Fountain.Conversations.ConversationServer, :queue_initial_prompt, fn _conv_id,
-                                                                                _prompt ->
+                                                                                _prompt,
+                                                                                _images ->
         :ok
       end)
 
@@ -201,7 +202,9 @@ defmodule Fountain.ConversationsReadStateTest do
         {:error, {:already_started, self()}}
       end)
 
-      stub(Fountain.Conversations.ConversationServer, :queue_initial_prompt, fn conv_id, prompt ->
+      stub(Fountain.Conversations.ConversationServer, :queue_initial_prompt, fn conv_id,
+                                                                                prompt,
+                                                                                _images ->
         send(test_pid, {:forwarded, conv_id, prompt})
         :ok
       end)

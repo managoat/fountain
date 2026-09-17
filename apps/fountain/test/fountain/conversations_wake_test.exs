@@ -102,7 +102,9 @@ defmodule Fountain.ConversationsWakeTest do
         {:error, {:already_started, winner}}
       end)
 
-      stub(Fountain.Conversations.ConversationServer, :queue_initial_prompt, fn pid, prompt ->
+      stub(Fountain.Conversations.ConversationServer, :queue_initial_prompt, fn pid,
+                                                                                prompt,
+                                                                                _images ->
         send(test_pid, {:queued, pid, prompt})
         :ok
       end)

@@ -61,7 +61,7 @@ defmodule Fountain.Conversations.WakeRaceTest do
         {:ok, spawn(fn -> Process.sleep(:infinity) end)}
       end)
 
-      stub(ConversationServer, :queue_initial_prompt, fn _pid, _prompt -> :ok end)
+      stub(ConversationServer, :queue_initial_prompt, fn _pid, _prompt, _images -> :ok end)
 
       {:ok, _} = Wake.wake_conversation(conv.id, "hello")
 
@@ -79,7 +79,7 @@ defmodule Fountain.Conversations.WakeRaceTest do
         {:error, {:already_started, winner}}
       end)
 
-      stub(ConversationServer, :queue_initial_prompt, fn _pid, _prompt -> :ok end)
+      stub(ConversationServer, :queue_initial_prompt, fn _pid, _prompt, _images -> :ok end)
 
       {:ok, winner: winner}
     end
@@ -112,7 +112,7 @@ defmodule Fountain.Conversations.WakeRaceTest do
     test "the prompt is handed to the winner", %{conv: conv, winner: winner} do
       test_pid = self()
 
-      stub(ConversationServer, :queue_initial_prompt, fn pid, prompt ->
+      stub(ConversationServer, :queue_initial_prompt, fn pid, prompt, _images ->
         send(test_pid, {:queued, pid, prompt})
         :ok
       end)

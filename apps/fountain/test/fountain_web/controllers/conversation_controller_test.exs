@@ -1094,8 +1094,8 @@ defmodule FountainWeb.ConversationControllerTest do
 
       # The wake is what carries the answer to the agent; only that it was
       # asked for matters here.
-      stub(Wake, :wake_conversation, fn id, prompt ->
-        send(self(), {:woken, id, prompt})
+      stub(Wake, :wake_conversation, fn id, prompt, images ->
+        send(self(), {:woken, id, prompt, images})
         {:ok, %{}}
       end)
 
@@ -1107,7 +1107,7 @@ defmodule FountainWeb.ConversationControllerTest do
         |> json_response(200)
 
       assert body == %{"ok" => true}
-      assert_received {:woken, _id, prompt}
+      assert_received {:woken, _id, prompt, []}
       assert %{"fountain/permission_answer" => %{"option_id" => "yes"}} = Jason.decode!(prompt)
     end
 

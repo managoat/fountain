@@ -560,7 +560,7 @@ defmodule Fountain.AuditGuardrailTest do
   # no-server paths, which write the rows for real.
   def do_conv_prompt(user) do
     conv = insert_conversation(user_id: user.id, agent: insert_agent(user_id: user.id))
-    stub(Wake, :wake_conversation, fn _id, _prompt -> {:ok, conv} end)
+    stub(Wake, :wake_conversation, fn _id, _prompt, _images -> {:ok, conv} end)
     :ok = ConversationServer.send_prompt(conv.id, "hello", [], actor: "ui")
   end
 

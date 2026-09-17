@@ -12,7 +12,7 @@ defmodule FountainWeb.SavedAllowanceChannelTest do
     {_key, raw} = insert_api_key(user)
 
     owner = self()
-    stub(ConversationServer, :queue_initial_prompt, fn _, _ -> send(owner, :queued) end)
+    stub(ConversationServer, :queue_initial_prompt, fn _, _, _ -> send(owner, :queued) end)
 
     stub(Horde.DynamicSupervisor, :start_child, fn _, _ ->
       send(owner, :worker_started)

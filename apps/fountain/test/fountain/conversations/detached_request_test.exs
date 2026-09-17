@@ -67,7 +67,7 @@ defmodule Fountain.Conversations.DetachedRequestTest do
       {:ok, spawn(fn -> Process.sleep(:infinity) end)}
     end)
 
-    stub(ConversationServer, :queue_initial_prompt, fn _pid, prompt ->
+    stub(ConversationServer, :queue_initial_prompt, fn _pid, prompt, _images ->
       send(test, {:resume_prompt, prompt})
       :ok
     end)

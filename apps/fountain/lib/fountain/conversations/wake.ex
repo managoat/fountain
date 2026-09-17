@@ -264,11 +264,24 @@ defmodule Fountain.Conversations.Wake do
   # provisioning finishes; if provisioning fails the server stops and the cast
   # dies with it, which is the right outcome — no turn on a failed provision.
   #
-  # The third leaf `wake_conversation_for/3` calls on the reuse path; also
-  # called from `create_fresh_sandbox_and_start/4` below on the fresh-sandbox
+  # The third leaf `wake_conversation_for/4` calls on the reuse path; also
+  # called from `create_fresh_sandbox_and_start/5` below on the fresh-sandbox
   # path. `conv` is the caller's own tenant-scoped row, so the re-fetch below
   # reads under that same ownership.
-  def start_conversation_server(conv, sandbox_id, runtime_module, initial_prompt) do
+  #
+  # `images` travels with the prompt and has no default, because a default is
+  # how they were lost: this and the three other handoff sites below each took
+  # `queue_initial_prompt/2`'s `[]`, so a prompt sent to a conversation with no
+  # live server — parked, or in the gap after a deploy — opened its turn with
+  # the text and none of its images. The request answered
+  # `200 {"status":"queued"}` and `conversation.prompted` recorded the real
+  # `image_count`, so the trail said images were sent and the turn said none
+  # arrived, with nothing reporting the loss (#2373).
+  #
+  # The cast's shape does not change: every release matches
+  # `{:initial_prompt, prompt, images}`, so a server Horde placed on a
+  # previous-release pod mid-rollout takes this exactly as this one does.
+  def start_conversation_server(conv, sandbox_id, runtime_module, initial_prompt, images) do
     # Through the one registration door (ADR 0058 stage 6a): it stamps the
     # sandbox's `woken_at` marker under the per-sandbox lock before Horde is
     # asked for anything, so a reaper on another node sees this wake as a
@@ -282,7 +295,7 @@ defmodule Fountain.Conversations.Wake do
              Launch.child_spec(conv.id, sandbox_id, runtime_module)
            ) do
       if is_binary(initial_prompt) and initial_prompt != "" do
-        ConversationServer.queue_initial_prompt(pid, initial_prompt)
+        ConversationServer.queue_initial_prompt(pid, initial_prompt, images)
       end
 
       # ownership: conv is the caller's own tenant-scoped row (see the
@@ -311,17 +324,20 @@ defmodule Fountain.Conversations.Wake do
   Returns `{:error, :gone}` if the conversation is in a terminal status
   (`terminated`, `failed`) — those don't auto-resume.
   """
-  def wake_conversation(conv_id, initial_prompt \\ nil) do
-    wake_conversation_for(conv_id, initial_prompt, :work)
+  def wake_conversation(conv_id, initial_prompt \\ nil, images \\ []) do
+    wake_conversation_for(conv_id, initial_prompt, :work, images)
   end
 
-  # Not a request-facing entry point. `wake_conversation/2` above is the door
+  # Not a request-facing entry point. `wake_conversation/3` above is the door
   # for a fresh prompt, and `Conversations.wake_for_interrupt/1` (still in
   # `Conversations` until stage 4, #2213) is the door for an interrupt; both
   # establish tenant ownership of `conv_id` before calling here. The
   # `_unsafe_get_conversation` read just below relies on that caller-scoped
   # fetch, not on any check of its own — add no further public entry.
-  def wake_conversation_for(conv_id, initial_prompt, purpose) do
+  #
+  # `images` defaults for the interrupt door, which carries no prompt for them
+  # to belong to; the prompt door always passes what the request decoded.
+  def wake_conversation_for(conv_id, initial_prompt, purpose, images \\ []) do
     # Ownership is established by callers before reaching this internal wake
     # path. The agent fetched below is the conversation's own agent_id,
     # same tenant by construction.
@@ -359,16 +375,22 @@ defmodule Fountain.Conversations.Wake do
                :ok <- Fountain.Billing.check_spend(conv.user_id),
                :ok <- check_saved_inference(conv, agent),
                {:ok, _} <- wake_suspended_sandbox(conv, sandbox_id, observed) do
-            case start_conversation_server(conv, sandbox_id, runtime_module, initial_prompt) do
+            case start_conversation_server(
+                   conv,
+                   sandbox_id,
+                   runtime_module,
+                   initial_prompt,
+                   images
+                 ) do
               {:error, {:already_started, winner_pid}} ->
                 # Lost a concurrent wake of the same conversation to another
                 # caller reusing the same sandbox. Mirrors the handoff in
-                # create_fresh_sandbox_and_start/4 (#330), but reuse provisions
+                # create_fresh_sandbox_and_start/5 (#330), but reuse provisions
                 # no row of its own, so there is nothing here to clean up —
                 # just hand the prompt to the winner, which drops it if a turn
                 # is already running.
                 if is_binary(initial_prompt) and initial_prompt != "" do
-                  ConversationServer.queue_initial_prompt(winner_pid, initial_prompt)
+                  ConversationServer.queue_initial_prompt(winner_pid, initial_prompt, images)
                 end
 
                 # ownership: conv established tenant-scoped above; this
@@ -396,7 +418,7 @@ defmodule Fountain.Conversations.Wake do
               )
 
               if is_binary(initial_prompt) and initial_prompt != "" do
-                ConversationServer.queue_initial_prompt(pid, initial_prompt)
+                ConversationServer.queue_initial_prompt(pid, initial_prompt, images)
               end
 
               # ownership: conv established tenant-scoped above; this
@@ -432,7 +454,13 @@ defmodule Fountain.Conversations.Wake do
                   reconcile_dead_interrupt(conv)
 
                 true ->
-                  create_fresh_sandbox_and_start(conv, agent, runtime_module, initial_prompt)
+                  create_fresh_sandbox_and_start(
+                    conv,
+                    agent,
+                    runtime_module,
+                    initial_prompt,
+                    images
+                  )
               end
           end
 
@@ -450,7 +478,7 @@ defmodule Fountain.Conversations.Wake do
           reconcile_dead_interrupt(conv)
 
         :create_new ->
-          create_fresh_sandbox_and_start(conv, agent, runtime_module, initial_prompt)
+          create_fresh_sandbox_and_start(conv, agent, runtime_module, initial_prompt, images)
 
         {:error, _} = err ->
           err
@@ -500,7 +528,7 @@ defmodule Fountain.Conversations.Wake do
     {:error, :not_running}
   end
 
-  defp create_fresh_sandbox_and_start(conv, agent, runtime_module, initial_prompt) do
+  defp create_fresh_sandbox_and_start(conv, agent, runtime_module, initial_prompt, images) do
     # The sandbox being replaced is excluded: it is retired immediately below,
     # so counting it would block a wake that leaves concurrency unchanged.
     # Waking a dormant conversation provisions a fresh sprite, so it is subject
@@ -587,7 +615,13 @@ defmodule Fountain.Conversations.Wake do
       # before coming here, so the first server — often on another pod, and
       # so invisible to this node's registry for a beat — is found and
       # handed the prompt instead of being raced by a second provision.
-      case start_conversation_server(conv, new_sandbox.id, runtime_module, initial_prompt) do
+      case start_conversation_server(
+             conv,
+             new_sandbox.id,
+             runtime_module,
+             initial_prompt,
+             images
+           ) do
         {:ok, _} ->
           old_sandbox_id = conv.sandbox_id
           _ = mark_old_sandbox_terminated(old_sandbox_id, notices(cotenants))
@@ -620,7 +654,7 @@ defmodule Fountain.Conversations.Wake do
           _ = mark_old_sandbox_terminated(new_sandbox.id)
 
           if is_binary(initial_prompt) and initial_prompt != "" do
-            ConversationServer.queue_initial_prompt(winner_pid, initial_prompt)
+            ConversationServer.queue_initial_prompt(winner_pid, initial_prompt, images)
           end
 
           # ownership: conv established tenant-scoped above; this re-fetch
@@ -669,7 +703,7 @@ defmodule Fountain.Conversations.Wake do
   # no session to resume, #778), and the stage event on each transcript.
   #
   # ownership: old_sandbox_id and conv below come from the waking
-  # conversation's own tenant-scoped row (create_fresh_sandbox_and_start/4
+  # conversation's own tenant-scoped row (create_fresh_sandbox_and_start/5
   # above).
   defp split_cotenants(nil, _conv, _agent), do: %{following: [], stranded: []}
 
@@ -754,7 +788,7 @@ defmodule Fountain.Conversations.Wake do
   end
 
   # ownership: sandbox_id below is the waking conversation's own sandbox_id,
-  # passed down from wake_conversation_for/3 / create_fresh_sandbox_and_start/4
+  # passed down from wake_conversation_for/4 / create_fresh_sandbox_and_start/5
   # above.
   #
   # Through the machine's owner since ADR 0058 stage 7b, with the provider step
@@ -783,7 +817,7 @@ defmodule Fountain.Conversations.Wake do
 
   defp mark_old_sandbox_terminated(sandbox_id, notices) do
     # ownership: `sandbox_id` is the waking conversation's own, passed down from
-    # `wake_conversation_for/3` or `create_fresh_sandbox_and_start/4`, which
+    # `wake_conversation_for/4` or `create_fresh_sandbox_and_start/5`, which
     # established the conversation's tenant before either reached here.
     case Conversations._unsafe_get_sandbox(sandbox_id) do
       nil ->
@@ -831,7 +865,7 @@ defmodule Fountain.Conversations.Wake do
   #
   # It passes no notices: the co-tenants are told by the retirement that
   # follows the new server's start, so that what they are told to follow onto
-  # exists. See `create_fresh_sandbox_and_start/4`.
+  # exists. See `create_fresh_sandbox_and_start/5`.
   defp retire_replaced_home(mode, _sandbox_id) when mode != "persistent", do: :ok
 
   defp retire_replaced_home(_mode, sandbox_id) do

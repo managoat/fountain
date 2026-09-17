@@ -2413,7 +2413,7 @@ defmodule Fountain.Conversations.ConversationServerACPTest do
         {:ok, spawn(fn -> Process.sleep(:infinity) end)}
       end)
 
-      Mimic.stub(ConversationServer, :queue_initial_prompt, fn _pid, prompt ->
+      Mimic.stub(ConversationServer, :queue_initial_prompt, fn _pid, prompt, _images ->
         send(test, {:resume_prompt, prompt})
         :ok
       end)

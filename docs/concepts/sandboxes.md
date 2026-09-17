@@ -76,14 +76,16 @@ machine is already running, the reset returns `503 sandbox_unavailable` with a
 and queued: Fountain completes it, and a repeat of the request answers
 `409 sandbox_reset_pending`.
 
-A prompt that wakes a machine, an attach that opens a conversation on one, and
-a prompt to a conversation whose process is up on one, answer
-`503 sandbox_unavailable` with a `Retry-After` header for the same reason:
-Fountain is in the middle of an operation on that machine. A prompt to a
-conversation whose process is up waits a few seconds for the operation first;
-the other two answer at once. Deleting a
-machine, resetting one and parking an idle one each take the machine for the
-length of one provider round trip. Send the request again. Each SDK reports
+A prompt that wakes a machine, an attach that opens a conversation on one, a
+prompt to a conversation whose process is up on one, and a request to end a
+conversation on one, answer `503 sandbox_unavailable` with a `Retry-After`
+header for the same reason: Fountain is in the middle of an operation on that
+machine. A prompt to a conversation whose process is up, and a request to end
+one, wait a few seconds for the operation first; the other two answer at once.
+Deleting a machine, resetting one and parking an idle one each take the
+machine for the length of one provider round trip. Send the request again.
+When a machine is deleted, every turn still running on it is marked
+interrupted: nothing on that machine can finish it. Each SDK reports
 this as a not-ready error, the launch queue and a team schedule wait and try
 again on their own, and the boot sweep leaves the machine to the operation that
 holds it.

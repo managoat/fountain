@@ -523,12 +523,17 @@ defmodule Fountain.Machines.AdmissionTest do
 
     test "admission first: a sweep waits on the lock, then is refused by the server driving the turn",
          _ctx do
-      # The reaper's order, kept beside the reshaped case (round 2). For a
-      # sweep the *registry* refuses first — `held_by_somebody_else?/2` answers
-      # on any live server before a turn is read — so what this proves is the
-      # lock wait and the refusal, not which arm; the turn arm on its own is
-      # what the test above proves, and `park_test.exs` drives the sweep's
-      # turn arm without the race.
+      # The reaper's order, kept beside the reshaped case (round 2). The
+      # turns are read before any arm — `Occupancy.load/1` reads the rows,
+      # their turns and the registry in one go — and the first arm
+      # `Park.occupancy_and_clock/2` evaluates is `running_turn_veto?/2`, which
+      # for a sweep counts a turn whose conversation has a live server. With
+      # a stand-in server on the turn's conversation that arm refuses on its
+      # own, and `held_by_somebody_else?/2` (any live server) would have as
+      # well; so what this proves is the lock wait and the refusal for the
+      # sweep's shape, not which of the two arms answered. The turn arm on its
+      # own is what the test above proves, and `park_test.exs` drives the
+      # sweep's turn arm without the race.
       Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
         user = insert_verified_user()
         agent = insert_agent(user_id: user.id, runtime: "opencode")

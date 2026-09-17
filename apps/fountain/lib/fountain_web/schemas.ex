@@ -789,7 +789,8 @@ defmodule FountainWeb.Schemas do
               "sandbox_runtime_mismatch if the agent's runtime changed since). The " <>
               "conversation opens idle on that machine; a prompt here wakes it. Several " <>
               "conversations then run on one disk at once, except on opencode and gemini, " <>
-              "where a second turn is refused with 409 sandbox_at_capacity while one runs."
+              "where a second turn of the same runtime is refused with 409 " <>
+              "sandbox_at_capacity while one runs."
         },
         channel_id: %Schema{
           type: :string,

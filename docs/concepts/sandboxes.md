@@ -79,9 +79,9 @@ and queued: Fountain completes it, and a repeat of the request answers
 A prompt that wakes a machine, an attach that opens a conversation on one, and
 a prompt to a conversation whose process is up on one, answer
 `503 sandbox_unavailable` with a `Retry-After` header for the same reason:
-Fountain is in the middle of an operation on that machine. The prompt waits a
-few seconds for the operation first, since the common one is a neighbour's
-wake. Deleting a
+Fountain is in the middle of an operation on that machine. A prompt to a
+conversation whose process is up waits a few seconds for the operation first;
+the other two answer at once. Deleting a
 machine, resetting one and parking an idle one each take the machine for the
 length of one provider round trip. Send the request again. Each SDK reports
 this as a not-ready error, the launch queue and a team schedule wait and try

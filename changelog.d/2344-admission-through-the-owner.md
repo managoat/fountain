@@ -21,10 +21,8 @@
   and that door answered `409` `sandbox_reset_pending` before this change and
   still does.
 
-### Fixed
-
-- Turn capacity on a shared computer is counted per runtime (#2344; groundwork
-  for #1089). Runtimes that take one turn at a time — `opencode`, `gemini` —
+- Turn capacity on a shared computer is now counted per runtime (#2344;
+  groundwork for #1089). Runtimes that take one turn at a time — `opencode`, `gemini` —
   had every running turn on the computer counted against them, whatever
   runtime it ran on. A turn now counts only against conversations on the same
   runtime, and a second `opencode` turn is still refused with `409`

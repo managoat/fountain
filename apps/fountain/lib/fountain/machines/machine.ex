@@ -1400,6 +1400,34 @@ defmodule Fountain.Machines.Machine do
     {:reply, reply, arm_idle(state)}
   end
 
+  # **The rollout clause.** Every verb above answers a message shape this
+  # release knows; a later one will add shapes it does not, and a squash-merged
+  # chain cannot deliver "deploy the receiver first" (ADR 0058's rule 4). An
+  # owner with no clause for the message dies with its whole mailbox — every
+  # other caller queued behind it loses its operation, which is what an old
+  # owner meeting stage 8b's `{:attach, …}`, `{:detach, …}` or
+  # `{:ensure_up, opts, deadline}` does today (round 1, protocol review:
+  # `owner exited: :function_clause`, and `ensure_up` is on every wake). 8a
+  # took the narrow version of this for `admit_turn`'s old shape; this is the
+  # general one, so the next stage's rollout costs the caller a 503 and not the
+  # queue.
+  #
+  # `:sandbox_unavailable` because it is the one transient word every door in
+  # every version translates, and the caller genuinely cannot have this machine
+  # from this owner right now. Logged at `error`: in a test or on one release
+  # this clause is only ever reached by a mistake, and it must be loud.
+  def handle_call(message, _from, state) do
+    Logger.error(
+      "machine #{state.sandbox_id}: no clause for #{inspect(elem_or(message))}; refusing. " <>
+        "A caller on a later release, or a message shape that was never added here."
+    )
+
+    {:reply, {:error, :sandbox_unavailable}, arm_idle(state)}
+  end
+
+  defp elem_or(message) when is_tuple(message) and tuple_size(message) > 0, do: elem(message, 0)
+  defp elem_or(message), do: message
+
   @impl true
   def handle_info({:idle, token}, %{idle_token: token} = state) do
     # Nothing durable to release. A destroy's or a park's lease is claimed and

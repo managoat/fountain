@@ -1211,6 +1211,33 @@ defmodule Fountain.Machines.BindingTest do
     end
   end
 
+  # ── a message shape this release has no clause for ────────────────────────
+
+  describe "an owner asked something it has no clause for" do
+    test "refuses the caller and keeps its mailbox", ctx do
+      # ADR 0058 rule 4, from the other side. An old owner meeting a new
+      # release's message dies with everything queued behind it — which is what
+      # 8b's own three new shapes do to an owner on the previous release, and
+      # why the mixed-version note says so. From here on, the cost of that
+      # rollout is one 503 to one caller.
+      with_gate(true, fn ->
+        {:ok, owner} = Machine.ensure_started(ctx.sandbox.id)
+
+        log =
+          capture_log(fn ->
+            assert {:error, :sandbox_unavailable} =
+                     GenServer.call(owner, {:a_verb_from_a_later_release, [], nil})
+          end)
+
+        assert log =~ "no clause for"
+        assert Process.alive?(owner)
+
+        # And it still answers the verbs it does know.
+        assert %Fountain.Machines.Occupancy{} = GenServer.call(owner, :who_is_here)
+      end)
+    end
+  end
+
   # ── the early takeover of a lease whose node is gone ──────────────────────
 
   describe "a lease held by a node that is not connected" do

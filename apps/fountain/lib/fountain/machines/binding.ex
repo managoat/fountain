@@ -315,8 +315,9 @@ defmodule Fountain.Machines.Binding do
   May a conversation of `agent` with this vault and environment attach to
   `sandbox`?
 
-  The attach door's rule, as `Launch.check_attachable/4` had it: the reset
-  fence first (409, the most specific answer), then the status, then the three
+  The attach door's rule, as `Launch.check_attachable/4` had it: the fence
+  first (409, the most specific answer) — the reset column, and since stage 9a
+  the `destroying` stamp that will outlive it — then the status, then the three
   permanent refusals — identity, identity, runtime — and last the transient
   one, a live lease. That order is the contract (stage 6a round 1): a permanent
   no outranks a temporary one, so an identity-mismatched attach onto a busy
@@ -335,6 +336,17 @@ defmodule Fountain.Machines.Binding do
 
   def attachable(%Sandbox{reset_requested_at: at}, _agent, _vault_id, _env_id, _now)
       when not is_nil(at),
+      do: {:error, :sandbox_reset_pending}
+
+  # The same fence read off the stamp, which is where it lives once stage 9b
+  # drops the column above (ADR 0058 stage 9a). Refused whatever the lease
+  # says, and before the status clause for the reason the reset fence is:
+  # `destroying` on a live row is a machine somebody asked to be destroyed, and
+  # an owner that died mid-destroy did not withdraw the request. A terminal row
+  # never reaches here wearing a stale stamp either — `{:sandbox_not_attachable,
+  # status}` below is the more useful answer and this clause hands it on.
+  def attachable(%Sandbox{transition: "destroying", status: status}, _agent, _v, _e, _now)
+      when status in @attachable_statuses,
       do: {:error, :sandbox_reset_pending}
 
   def attachable(%Sandbox{status: status}, _agent, _vault_id, _env_id, _now)
@@ -495,8 +507,12 @@ defmodule Fountain.Machines.Binding do
   end
 
   # Fenced, and the machine is going. With `destroy: true` this call finishes
-  # it; the fence the protocol repeats writes no second intent and, with no
-  # terminating conversation, does not reopen the decision just made.
+  # it, and the protocol does not fence again: the fence above stamped
+  # `transition: "destroying"` (stage 9a), so `Destroy.run/2` continues from
+  # the stamp. Before 9a it repeated the fence, which wrote no second intent
+  # and — with the `terminating_conversation_id: nil` below — could not reopen
+  # the decision just made either. The `nil` stays for that reason and for the
+  # one `destroy_opts/1` gives.
   defp finish(sandbox_id, opts) do
     if Keyword.get(opts, :destroy, false) do
       case Destroy.run(sandbox_id, destroy_opts(opts)) do

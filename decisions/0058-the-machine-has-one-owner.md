@@ -173,7 +173,19 @@ puts compute behind the account-suspension and credit gates this protocol does
 not consult; and the compare-and-set has already made the superseded owner's
 own call invisible, so there is nothing to undo.)
 `reset_requested_at` and `teardown_requested_at` become
-`transition: destroying` with a reason.
+`transition: destroying` with a reason. (Stage 9a settled what that costs, and
+it is not a rename. Those two columns are **durable intent**: refused whatever
+the lease says, surviving a crashed owner indefinitely. A `transition` stamp is
+**abandonable**: 6a's `register_server/2`, 7a's `Resume.under_lease/3` and 6b's
+park takeover all clear a lease-less one on sight, which is what stops an owner
+that died mid-operation withholding a machine until a sweep gives up on the
+row. So `destroying` is made the one durable transition — never cleared by a
+reader, refused regardless of lease, kept by `Lease.cas_update/4` through any
+write that does not retire the row — and its completion is *driven*:
+`Destroy.run/2` already continues from a `destroying` stamp on claim, and
+`SandboxReaper.sweep_fenced_teardowns/0` became the thing that calls it on a row
+whose lease is dead. Every fence writer stamps it in the same commit as the
+columns, so no row records the intent in a column alone before 9b drops them.)
 
 ### The verbs
 
@@ -228,11 +240,27 @@ the flip, under the migration and changelog rules in CONTRIBUTING.
 
 **Deleted once the gate flips.** The `expected_sandbox_id` plumbing (seven
 sites in four files) and the `:noop` reconciliation debt #2021 describes;
-`reset_requested_at`, `teardown_requested_at`, `SandboxResetReconciler` and
-`SandboxReaper.sweep_fenced_teardowns/0`; four liveness predicates become one;
-the two copies of the admin reap audit become one; the retirement changeset
-match copied four times (#2039); the salvage branch
+`reset_requested_at` and `teardown_requested_at`; four liveness predicates
+become one; the two copies of the admin reap audit become one; the retirement
+changeset match copied four times (#2039); the salvage branch
 `follow/2255-reaper-liveness-lock`.
+
+Two of those are amended by what stage 9a built. `SandboxReaper.sweep_fenced_teardowns/0`
+and `SandboxResetReconciler` are **not** deleted: they are the drivers that
+finish a `destroying` row whose owner died, which is the thing that makes the
+stamp safe to rely on, and deleting either would reopen #2021 item 7. What 9a
+removed from them is the writing — neither writes a terminal status any more;
+both ask the owner. 9b decides only whether the reconciler folds into the reaper.
+
+**The mixed-version window.** During the 9a rollout an old replica still clears
+a lease-less `destroying` stamp (6a/7a code) and still writes an abandoned
+teardown terminal through `update_sandbox/2`. Nothing is lost either way,
+because the two fence columns are still written and still read on every node —
+which is the whole reason 9a writes both and 9b drops the columns a release
+later rather than in the same PR. The one shape that outlives the window is a
+*terminal* row still wearing the stamp, which only an old replica's write now
+produces; `Machines.Destroy`'s `already_terminal` clause clears it and stays for
+as long as such a replica can exist.
 
 **New.** `Fountain.Machines.{Machine, Lease, Policy, Occupancy, Destroy, Park,
 Resume, Renewal, Admission, Binding}` and `Fountain.MachineRegistry`; six columns on `sandboxes` (the five lease and
@@ -302,7 +330,7 @@ stage: `area:sandbox`, `area:conversations`, `lang:elixir`, `P2`.
 | 6 | **Park through the owner; closes #2307.** Cut in two PRs. **6a, the preparation:** a durable wake-registration marker (`sandboxes.woken_at`, written by one `Conversations.register_server/2` door under the sandbox lock before `start_child`, honoured by the reaper's two liveness passes as a grace condition — constraint 4); the readers that refuse a machine whose owner holds a **live lease** — `Wake.maybe_reuse_sandbox/1`, `Launch.check_attachable/4` and the rehydrator's sweep. A stamped `transition` alone does not refuse them: a transition with a dead lease is an abandoned operation, which `sweep_fenced_teardowns/0` already calls abandoned, and refusing on it answered 503 for up to 75 minutes where `main` handed out a fresh machine at once (round 1). And the vocabulary. **6b:** `Machine.park/2` — refused while any turn is admitted; `transition: parking`; checkpoint and suspend outside any transaction; finalize by compare-and-set; `SandboxReaper.idle_sweep/1` and `Lifecycle.park/4` send the request. **The refusal is the existing `sandbox_unavailable`, not a new word** (Jake, 2026-09-16, amending the Decision's "one retryable refusal" above): it already means "this machine cannot be reached right now", it is already 503 with a `Retry-After` and `NotReadyError` in all four SDKs, and the SDK half of a second word was built and closed unmerged as #2304. Constraint 6's list is still the checklist, of the sites this word was missing from: `SandboxQueue.@transient_errors` (and `TeamScheduleRun`'s snooze guard, which now reads it), `Team.Schedules.describe_error/1`; the fallback controller's 503 mapping and docs/sdk.md already carried it, and no SDK changes. The salvage branch's tests come across | behaviour | 6a: the marker is committed before the child and under the lock; every reader refuses a parking or lease-held row and the reset fence still wins; ratchet unchanged. 6b: admission wins the lock and the reaper skips (the #2286 reproduction) per path; a finalize lost after a successful suspend is compensated at takeover, tested; changelog fragment |
 | 7 | **Provision and resume through the owner.** `Machine.ensure_up/1` replaces `Provisioning`'s create and `ProvisionWatchdog`, `Wake`'s suspended resume and the rehydrator's start; two wakes on one machine resume it once. The rehydrator starts conversation servers through the owner so registration has a durable marker (constraint 4). Ephemeral becomes the policy "destroy on last detach" in `Machines.Policy`. Recovery checks the account-suspension and credit gates before resuming compute; an interrupt never provisions (#2262 stands). Cut in two: **7a**, the resume, the renew timer, the database clock, `Machines.Policy` and the owner supervisor's restart budget; **7b**, the provision bracket, `ProvisionWatchdog`, the three failure-arm destroys and the reattach-not-found write. As shipped, 7b also took `Launch.fail_initial_start/2` and `Wake.mark_old_sandbox_terminated/1`, and the **reservation** turned out to need no stamp at all: the row is inserted `pending` inside the quota transaction and `pending` already counts, so the bracket begins after that commit and takes no quota lock | behaviour | full suite, deployed suite, and a production smoke shaped like 0023's gate 7; changelog fragment |
 | 8 | **Binding and admission; the fences come out.** `attach/2`, `detach/1`, `admit_turn/2`, `end_turn/1` with capacity counted per runtime; `retarget/2` for `Reapply`. Under the gate, `expected_sandbox_id` leaves `ExecutionGuard`, `Wake`, `Conversations` and the server; the epoch is the fence. `{:machine_gone, …}` is sent by the owner only. The server's last `update_sandbox` and `Managoat.Sandbox.destroy` sites go — **they went in 7b, not here, and the size pin does not drop in 8b**: making the last-detach decision the owner's costs the server twelve lines (three answers where the fence gave two, and a nil-sandbox clause), so 8b leaves the pin at 8a's 2025 and stage 9 is where it moves, with the fence columns and their writers. Cut in two: **8a** admission (built; the fence stays the binding, see above); **8b** binding, retarget, the owner-only cast, the turns the owner ends, the node-liveness takeover (built). **The ratchet does not read zero after 8b**: seven row writes remain, none a binding write — the row's creation (7b's reservation), the context's own door with the reaper's two passes as its callers, the registration marker, and the two fence columns — each stage 9's or named there | behaviour | ratchet reads zero under the gate (it reads 7 after 8b; the seven are stage 9's) |
-| 9 | **Flip, then delete.** Turn `MACHINE_OWNER_ENABLED` on in the hosted overlay after every replica runs stage 8, and watch the deploy. Then, one release later: delete `SandboxResetReconciler`, `sweep_fenced_teardowns/0`, the old reaper writes, the retirement-match copies and the gate; drop the two fence columns; delete the salvage branch; amend 0023's Outcome ("there is now a per-sandbox owner, `Fountain.Machines.Machine`, per 0058"); close #2021's remaining items as superseded; move this ADR to Accepted with its own Outcome | prod change, two PRs | the deployed suite green on production; the tracker closes |
+| 9 | **Make `destroying` durable, then flip, then delete.** Cut in two. **9a:** `destroying` becomes the one durable transition — every reader refuses it regardless of lease and none clears it, `Lease.cas_update/4` keeps it through any write that does not retire the row, both fence writers stamp it beside the two columns, `Quotas` counts it until the row is terminal, and `SandboxReaper.sweep_fenced_teardowns/0` stops writing the row and becomes the driver that asks the owner to finish it (`SandboxResetReconciler` already did). Safe with the gate off and with a mixed-version fleet, because the columns are still written and still read. **9b:** turn `MACHINE_OWNER_ENABLED` on in the hosted overlay after every replica runs 9a, and watch the deploy. Then, one release later: drop the two fence columns and the readers of them, delete the old reaper writes, the retirement-match copies and the gate; delete the salvage branch; amend 0023's Outcome ("there is now a per-sandbox owner, `Fountain.Machines.Machine`, per 0058"); close #2021's remaining items as superseded; move this ADR to Accepted with its own Outcome | behaviour, then a prod change | 9a: a `destroying` row with a dead lease is refused by every reader, one test per reader, each verified by planting the "abandoned → clear" behaviour back; the driver completes an abandoned destroy end to end; ratchet −1. 9b: the deployed suite green on production; the tracker closes |
 
 Not in this tracker: #1089 (two agents on one machine) and #1910
 (`CODEX_HOME` per conversation). They open up after stage 8 and get their own

@@ -59,6 +59,18 @@ defmodule Fountain.Conversations.Wake do
       when not is_nil(at) and status not in @terminal_statuses ->
         {:error, :sandbox_reset_pending}
 
+      # The same answer from the stamp, which is where the intent lives once
+      # stage 9b drops the column above (ADR 0058 stage 9a). `destroying` is
+      # the one durable transition: it is refused here whatever the lease says,
+      # because an owner that died between its fence and its finalize has not
+      # withdrawn the request — the machine is still on its way out and the
+      # sweep that drives it to terminal is what ends the refusal, not the next
+      # wake. Every other stamp on a lease-less row reads as abandoned three
+      # clauses down, which is the distinction this pair is here to make.
+      %Sandbox{transition: "destroying", status: status}
+      when status not in @terminal_statuses ->
+        {:error, :sandbox_reset_pending}
+
       # An owner holds a live lease on this machine (ADR 0058 stage 6a).
       # Refused *before* the probe, so a machine somebody is destroying — or,
       # from 6b, parking — gets no provider call from this wake, and refused
@@ -66,14 +78,16 @@ defmodule Fountain.Conversations.Wake do
       # with a `Retry-After: 30`, which is honest because the operation is
       # live and one provider round trip from settling.
       #
-      # A stamped `transition` on a lease-less row is *not* refused, and that
-      # is the round-1 correction: such a row is an owner that died
-      # mid-operation, which the reaper's own fenced-teardown sweep calls
-      # abandoned, and refusing it kept a caller from the fresh machine `main`
-      # would have given it for as long as an hour. `Machine.busy?/2` says why.
+      # A stamped `transition` on a lease-less row is *not* refused here, and
+      # that is the round-1 correction: such a row is an owner that died
+      # mid-operation, and refusing it kept a caller from the fresh machine
+      # `main` would have given it for as long as an hour. `Machine.busy?/2`
+      # says why. Since stage 9a that holds for every transition **but
+      # `destroying`**, which the clause above refuses on its own; a destroy
+      # whose owner died is an unfinished destroy, not an abandoned one.
       #
-      # After the reset fence, deliberately. A reset that the owner refused
-      # leaves `transition: "destroying"` on a live row with its lease
+      # After the two fence clauses, deliberately. A reset that the owner
+      # refused leaves `transition: "destroying"` on a live row with its lease
       # released (stage 5c), and `:sandbox_reset_pending` is the precise
       # answer there: the fence is in place, the reconciler will finish it,
       # and a retry of the reset is 409 rather than "try again in 30s".

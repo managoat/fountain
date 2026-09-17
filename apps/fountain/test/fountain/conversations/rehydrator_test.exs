@@ -115,7 +115,7 @@ defmodule Fountain.Conversations.RehydratorTest do
     assert Repo.reload!(conv).status == "idle"
   end
 
-  for transition <- ["parking", "destroying", "resuming"] do
+  for transition <- ["parking", "resuming"] do
     test "boot starts a server on a #{transition} row whose lease died" do
       # Round 1: a stamped transition with no live lease is an owner that died,
       # not one working. Skipping it left the conversation with no server until
@@ -137,31 +137,70 @@ defmodule Fountain.Conversations.RehydratorTest do
     end
   end
 
-  test "boot starts a server on an abandoned destroy, as on main" do
-    # The one door where the round-0 definition was a live regression today
-    # (round 1, behaviour review). `Destroy` fences before it stamps, so a
-    # destroy whose owner died carries `reset_requested_at` *and*
-    # `teardown_requested_at` beside its `destroying` — and `Wake` and the
-    # attach door both answer the fence before they ever ask `busy?`. This
-    # sweep does not: its query selects `ready` rows with no reset filter, so
-    # it reached `busy?` and skipped a row it had always started a server on.
+  test "boot skips an abandoned destroy, where stage 6a started a server on it" do
+    # The one place stage 6a's reasoning genuinely inverts at stage 9a, and it
+    # is worth saying why rather than only changing the number.
+    #
+    # 6a round 1 restored this start because refusing withheld a machine from a
+    # conversation for as long as an hourly sweep took, where `main` had given
+    # it one at once. What `main` gave it was a **fresh** machine, though, not
+    # this one: `Wake.maybe_reuse_sandbox/1` answers 409 on a fenced row, so the
+    # next prompt provisions. Starting a server on the old disk buys the
+    # conversation nothing it will use, and it costs the intent — the door this
+    # sweep goes through, `Conversations.register_server/2`, cleared a
+    # lease-less stamp on its way in, which after stage 9b is the only record
+    # that the machine was asked to go.
+    #
+    # The stamp with no columns is the shape 9b leaves, and it is the one
+    # asserted: refusing on the columns alone would stop refusing the day they
+    # are dropped.
     conv = resumable("idle")
-    now = DateTime.utc_now()
 
     conv.sandbox
     |> Ecto.Changeset.change(
-      reset_requested_at: now,
-      teardown_requested_at: now,
       transition: "destroying",
+      transition_reason: "terminated",
       lease_epoch: 1,
       lease_node: nil,
       lease_until: nil
     )
     |> Repo.update!()
 
-    assert sweep() == 1
-    assert_received {:worker_start, args}
-    assert args[:conversation_id] == conv.id
+    # `reject` on the registration door, because the door refuses this row too
+    # (rule 16's second door) and both refusals log the same word — so without
+    # it this test would pass with `check_machine_free/2` deleted, from the
+    # door's refusal instead of the sweep's own.
+    reject(Fountain.Conversations, :register_server, 2)
+
+    log = ExUnit.CaptureLog.capture_log(fn -> assert sweep() == 0 end)
+    assert log =~ "machine_destroying"
+    refute_received {:worker_start, _}
+
+    kept = Repo.reload!(conv.sandbox)
+    assert kept.transition == "destroying"
+    assert kept.transition_reason == "terminated"
+  end
+
+  test "the registration door refuses the same row, for a caller that got past the check" do
+    # `check_machine_free/2` reads the row with no lock, so the stamp can land
+    # between it and the start. `Conversations.register_server/2` re-reads under
+    # the per-sandbox advisory lock and refuses there too, which is the second
+    # door of the same rule (rule 16) — and the one that would otherwise clear
+    # the stamp.
+    conv = resumable("idle")
+
+    stub(Fountain.RuntimeDispatch, :for_agent, fn arg ->
+      conv.sandbox
+      |> Ecto.Changeset.change(transition: "destroying", transition_reason: "terminated")
+      |> Repo.update!()
+
+      Mimic.call_original(Fountain.RuntimeDispatch, :for_agent, [arg])
+    end)
+
+    log = ExUnit.CaptureLog.capture_log(fn -> assert sweep() == 0 end)
+    assert log =~ "machine_destroying"
+    refute_received {:worker_start, _}
+    assert Repo.reload!(conv.sandbox).transition == "destroying"
   end
 
   test "a lease claimed after the sweep's own check is refused at the door, and says so" do

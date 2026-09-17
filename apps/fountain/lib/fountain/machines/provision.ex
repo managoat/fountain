@@ -508,7 +508,12 @@ defmodule Fountain.Machines.Provision do
 
   defp admissible(%Sandbox{} = sandbox) do
     cond do
-      not is_nil(sandbox.reset_requested_at) or not is_nil(sandbox.teardown_requested_at) ->
+      # The `destroying` stamp counts as a fence since stage 9a, which is what
+      # makes `clear_foreign_stamp/2`'s claim below structural rather than
+      # incidental — and what keeps this refusal once stage 9b drops the two
+      # columns beside it.
+      not is_nil(sandbox.reset_requested_at) or not is_nil(sandbox.teardown_requested_at) or
+          sandbox.transition == "destroying" ->
         {:error, :fenced}
 
       sandbox.status in @provisionable ->
@@ -536,13 +541,26 @@ defmodule Fountain.Machines.Provision do
   # `Lease.claim/4` refuses while the current lease is live, so holding one is
   # proof that no other owner is working here. Cleared and the row judged by its
   # status, which is stage 6a's rule applied on the owner's side, and `Resume`'s
-  # clause verbatim. A `destroying` stamp never reaches here: it always arrives
-  # with a fence, and `admissible/1` has already refused.
+  # clause verbatim.
+  #
+  # **A `destroying` stamp is never cleared here**, and since stage 9a that is a
+  # rule rather than an observation. It used to read "never reaches here: it
+  # always arrives with a fence, and `admissible/1` has already refused" — true
+  # while the fence columns exist and nothing at all once 9b drops them, on a
+  # function whose whole job is to delete a stamp. Both doors into this one now
+  # refuse the stamp themselves (`admissible/1` and `confirm_under_lease/3`),
+  # and the clause below refuses to clear it whichever door a later caller
+  # arrives through, which is what `Lease.cas_update/4` would enforce
+  # underneath in any case.
   #
   # Our *own* verb's stamp is left alone — `stamp/2` is about to write it again,
   # and `interrupted?/1` has already read what it means.
   defp clear_foreign_stamp(%Sandbox{transition: nil} = sandbox, _epoch), do: sandbox
   defp clear_foreign_stamp(%Sandbox{transition: "provisioning"} = sandbox, _epoch), do: sandbox
+
+  defp clear_foreign_stamp(%Sandbox{transition: "destroying", status: status} = sandbox, _epoch)
+       when status not in @terminal_statuses,
+       do: sandbox
 
   defp clear_foreign_stamp(%Sandbox{transition: other} = sandbox, epoch) do
     Logger.info(
@@ -1002,7 +1020,9 @@ defmodule Fountain.Machines.Provision do
 
   defp confirm_under_lease(%Sandbox{} = sandbox, epoch, opts) do
     cond do
-      not is_nil(sandbox.reset_requested_at) or not is_nil(sandbox.teardown_requested_at) ->
+      # `admissible/1`'s fence, in the same three parts and for its reasons.
+      not is_nil(sandbox.reset_requested_at) or not is_nil(sandbox.teardown_requested_at) or
+          sandbox.transition == "destroying" ->
         {:error, :fenced}
 
       sandbox.status not in @confirmable ->

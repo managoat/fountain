@@ -253,7 +253,7 @@ defmodule Fountain.Machines.ResumeTest do
       end
     end
 
-    for transition <- ~w(parking destroying resuming retargeting provisioning) do
+    for transition <- ~w(parking resuming retargeting provisioning) do
       test "an abandoned #{transition} stamp is cleared, not treated as a fence", ctx do
         # Round 1, behaviour review, and it is stage 6a's rule from the owner's
         # side: `Lease.claim/4` refuses while a lease is live, so a stamp seen
@@ -284,13 +284,47 @@ defmodule Fountain.Machines.ResumeTest do
 
     test "a fence column still refuses, stamp or no stamp", ctx do
       # What separates the two: a fence is a durable statement that the machine
-      # is going away, where a stamp is the leftover of an owner that stopped. A
-      # `destroying` stamp always arrives with one, so that shape's answer is
-      # unchanged.
+      # is going away, where a stamp is the leftover of an owner that stopped.
       stamp(ctx, transition: "destroying", teardown_requested_at: DateTime.utc_now())
       reject(&Managoat.Sandbox.resume/1)
 
       quietly(fn -> assert {:error, :fenced} = Resume.run(ctx.sandbox.id, opts()) end)
+    end
+
+    test "a destroying stamp refuses on its own, with no fence column", ctx do
+      # The loop above is four transitions rather than five since ADR 0058
+      # stage 9a, and this is the fifth. `destroying` is durable intent, not an
+      # abandoned operation: somebody asked for this machine to go away, and an
+      # owner dying between the fence and the finalize did not withdraw the
+      # request. So it is refused whatever the lease says — and, unlike the test
+      # above, with no column underneath it, which is the shape stage 9b leaves
+      # behind and the reason the stamp has to carry the refusal by itself.
+      stamp(ctx, transition: "destroying", transition_reason: "terminated")
+      reject(&Managoat.Sandbox.resume/1)
+
+      quietly(fn -> assert {:error, :fenced} = Resume.run(ctx.sandbox.id, opts()) end)
+
+      kept = row(ctx)
+
+      assert kept.transition == "destroying",
+             "the resume cleared an unfinished destroy off the row"
+
+      assert kept.transition_reason == "terminated"
+    end
+
+    test "a ready row wearing a destroying stamp is refused, not reused", ctx do
+      # The other half, and the one that inverts `main`. A `ready` row is the
+      # shape `ensure_up/2` meets on every reuse, so the loop above answers
+      # `:already_up` for the four abandonable stamps. Not this one: the reuse
+      # doors refuse such a row ahead of any resume
+      # (`Wake.maybe_reuse_sandbox/1`, 409), so what a caller gets is a fresh
+      # machine rather than nothing, and reusing the disk here would hand it to
+      # a conversation moments before the driver deletes it.
+      stamp(ctx, status: "ready", transition: "destroying", transition_reason: "terminated")
+      reject(&Managoat.Sandbox.resume/1)
+
+      quietly(fn -> assert {:error, :fenced} = Resume.run(ctx.sandbox.id, opts()) end)
+      assert row(ctx).transition == "destroying"
     end
 
     test "a machine that is not there at all", ctx do

@@ -439,7 +439,9 @@ defmodule Fountain.Workers.SandboxReaperTest do
 
   describe "abandoned teardown fences" do
     # Every row here is fenced through the real `Lifecycle` door, because the
-    # thing under test is precisely what that door leaves behind.
+    # thing under test is precisely what that door leaves behind — and since
+    # ADR 0058 stage 9a that includes the `destroying` stamp it writes beside
+    # the two columns.
     defp fence(sandbox, opts \\ []) do
       {:ok, fenced} =
         Lifecycle.fence_sandbox_for_teardown(sandbox, Keyword.put_new(opts, :reason, "test"))
@@ -452,7 +454,7 @@ defmodule Fountain.Workers.SandboxReaperTest do
 
       Repo.update_all(
         from(s in Sandbox, where: s.id == ^sandbox.id),
-        set: [teardown_requested_at: at]
+        set: [teardown_requested_at: at, updated_at: DateTime.truncate(at, :second)]
       )
 
       Repo.reload(sandbox)
@@ -465,21 +467,135 @@ defmodule Fountain.Workers.SandboxReaperTest do
       {user, fence(sandbox), conv}
     end
 
-    test "a teardown that died before its terminal write is finished, freeing the slot" do
+    test "a teardown that died before its terminal write is driven to completion" do
       # The hole this pass exists for. The fence commits, then the destroy
       # raises or the pod dies, and the row is left `ready` with the fence set:
-      # invisible to both sweeps above (they require is_nil(reset_requested_at),
-      # which the fence always sets), to the dead-sprite pass (it wants a
-      # terminal status) and to the untracked count (the sprite has a row).
-      # Quotas keeps charging for it and nothing else can ever clear it.
+      # invisible to both sweeps above (they require is_nil(reset_requested_at)
+      # and no `destroying` stamp, which the fence sets), to the dead-sprite
+      # pass (it wants a terminal status) and to the untracked count (the sprite
+      # has a row). Quotas keeps charging for it and nothing else can clear it.
+      #
+      # Since stage 9a "finished" means driven through the machine's owner, so
+      # every one of these is asserted: the row is terminal, the sprite is gone
+      # in *this* call rather than on pass 2, the stamp came off because the
+      # finalize carried an epoch, and the trail has both events.
       {user, sandbox, _conv} = fenced_sandbox()
       assert Fountain.Quotas.active_sandbox_count(user.id) == 1
       sandbox = age_fence(sandbox, 60)
+      assert Repo.reload(sandbox).transition == "destroying"
+      live_provider([sandbox.machine_name])
 
-      capture_log(fn -> assert 1 = SandboxReaper.sweep_fenced_teardowns() end)
+      capture_log(fn -> assert {1, 0} = SandboxReaper.sweep_fenced_teardowns() end)
 
-      assert %{status: "terminated", terminated_at: %DateTime{}} = Repo.reload(sandbox)
+      reloaded = Repo.reload(sandbox)
+      assert %{status: "terminated", terminated_at: %DateTime{}} = reloaded
+      assert is_nil(reloaded.transition)
+      assert is_nil(reloaded.transition_reason)
+      assert destroyed_names() == [sandbox.machine_name]
       assert Fountain.Quotas.active_sandbox_count(user.id) == 0
+
+      # The usage row `update_sandbox/2` used to emit, now the protocol's. A
+      # machine whose billed interval never closed is the whole reason
+      # `terminated_at` matters, so the two are asserted together.
+      assert Repo.exists?(
+               from(e in Fountain.Billing.UsageEvent,
+                 where: e.resource_id == ^sandbox.id and e.event_type == "sandbox_terminated"
+               )
+             )
+    end
+
+    test "the destroy is recorded against the reaper, beside the reaper's own reason" do
+      # Two events, as `expire/3` has two. `sandbox.destroyed` is the
+      # protocol's record that the machine went, and it is the one the old
+      # `update_sandbox/2` write never made at all — a machine destroyed by this
+      # pass left no trail of the destroy, only of the reconciliation.
+      {user, sandbox, _conv} = fenced_sandbox()
+      age_fence(sandbox, 60)
+      live_provider([sandbox.machine_name])
+
+      capture_log(fn -> assert {1, 0} = SandboxReaper.sweep_fenced_teardowns() end)
+
+      assert [destroyed] =
+               Fountain.Audit.list_for_user(user.id, action_prefix: "sandbox.destroyed")
+
+      assert destroyed.actor == "system:sandbox_reaper"
+      assert destroyed.resource_id == sandbox.id
+
+      assert [reconciled] =
+               Fountain.Audit.list_for_user(user.id,
+                 action_prefix: "sandbox.teardown_reconciled"
+               )
+
+      assert reconciled.actor == "system:sandbox_reaper"
+      assert reconciled.metadata["previous_status"] == "ready"
+      assert reconciled.metadata["sprite_name"] == sandbox.machine_name
+    end
+
+    test "the reason the fence recorded is the reason the destroy records" do
+      # The driver does not invent a word for a decision it did not make: the
+      # fence stamped `transition_reason`, and that is what reaches the row's
+      # transition and the audit metadata. `:reclaimed` rather than the
+      # default, so a fallback would be visible.
+      {user, sandbox, _conv} = fenced_sandbox()
+
+      Repo.update_all(from(s in Sandbox, where: s.id == ^sandbox.id),
+        set: [transition_reason: "reclaimed"]
+      )
+
+      age_fence(sandbox, 60)
+      live_provider([sandbox.machine_name])
+
+      capture_log(fn -> assert {1, 0} = SandboxReaper.sweep_fenced_teardowns() end)
+
+      assert [destroyed] =
+               Fountain.Audit.list_for_user(user.id, action_prefix: "sandbox.destroyed")
+
+      assert destroyed.metadata["reason"] == "reclaimed"
+    end
+
+    test "a row fenced by a replica that predates the stamp is driven all the same" do
+      # The mixed-version shape, and the reason both halves of the predicate are
+      # read. An old replica writes `teardown_requested_at` and no stamp; this
+      # pass must still find it, and `Machines.Destroy` must still reach the
+      # provider — through its fence rather than through the continuation
+      # clause, since there is nothing on the row to continue from.
+      {_user, sandbox, _conv} = fenced_sandbox()
+
+      Repo.update_all(from(s in Sandbox, where: s.id == ^sandbox.id),
+        set: [transition: nil, transition_reason: nil]
+      )
+
+      sandbox = age_fence(sandbox, 60)
+      live_provider([sandbox.machine_name])
+
+      capture_log(fn -> assert {1, 0} = SandboxReaper.sweep_fenced_teardowns() end)
+
+      assert Repo.reload(sandbox).status == "terminated"
+      assert destroyed_names() == [sandbox.machine_name]
+    end
+
+    test "a row carrying the stamp and no column is driven — the shape stage 9b leaves" do
+      # The other end of the same predicate, and the one that matters after the
+      # flip: stage 9b drops both fence columns, so this is what every
+      # abandoned teardown looks like. Forged here because no writer produces
+      # it yet, which is the point — the pass has to be right about it before
+      # the columns go, not afterwards.
+      {_user, sandbox, _conv} = fenced_sandbox()
+
+      Repo.update_all(from(s in Sandbox, where: s.id == ^sandbox.id),
+        set: [
+          reset_requested_at: nil,
+          teardown_requested_at: nil,
+          updated_at: minutes_ago(60)
+        ]
+      )
+
+      live_provider([sandbox.machine_name])
+
+      capture_log(fn -> assert {1, 0} = SandboxReaper.sweep_fenced_teardowns() end)
+
+      assert Repo.reload(sandbox).status == "terminated"
+      assert destroyed_names() == [sandbox.machine_name]
     end
 
     test "the conversation survives its machine being reclaimed" do
@@ -487,8 +603,9 @@ defmodule Fountain.Workers.SandboxReaperTest do
       # that ran on it. assert_resumable/1 refuses a terminated conversation.
       {_user, sandbox, conv} = fenced_sandbox()
       age_fence(sandbox, 60)
+      live_provider([sandbox.machine_name])
 
-      capture_log(fn -> assert 1 = SandboxReaper.sweep_fenced_teardowns() end)
+      capture_log(fn -> assert {1, 0} = SandboxReaper.sweep_fenced_teardowns() end)
 
       assert Repo.reload(conv).status == "idle"
     end
@@ -499,26 +616,31 @@ defmodule Fountain.Workers.SandboxReaperTest do
       # destroy. Sweeping those would race a caller that is still working.
       {_user, sandbox, _conv} = fenced_sandbox()
       sandbox = age_fence(sandbox, 5)
+      live_provider([sandbox.machine_name])
 
-      assert 0 = SandboxReaper.sweep_fenced_teardowns()
+      assert {0, 0} = SandboxReaper.sweep_fenced_teardowns()
       assert Repo.reload(sandbox).status == "ready"
+      assert destroyed_names() == []
     end
 
     test "a fenced row whose machine owner still holds the lease is left alone" do
       # Since ADR 0058 a destroy in flight looks exactly like an abandoned
       # teardown to everything else here: fenced, live status, no server. The
-      # lease is what tells them apart. Finishing one from underneath its owner
-      # writes the row without the owner's epoch and leaves the `transition`
-      # stamp on — and, worse than the write, reports `reconciled`, which
-      # `perform/1` documents as a defect upstream. A destroy that merely took
-      # longer than the grace window is not a defect.
+      # lease is what tells them apart, and it is read before any owner is
+      # asked — a live holder means this pass would be waiting out
+      # `Destroy.busy_wait_ms/0` for an answer already on the row. Reporting
+      # `reconciled` for it would be worse still: `perform/1` documents that
+      # gauge as a defect upstream, and a destroy that merely took longer than
+      # the grace window is not one.
       {_user, sandbox, _conv} = fenced_sandbox()
       sandbox = age_fence(sandbox, 60)
+      live_provider([sandbox.machine_name])
 
       {:ok, 1} = Fountain.Machines.Lease.claim(sandbox.id, "owner@node", 60_000)
 
-      assert 0 = SandboxReaper.sweep_fenced_teardowns()
+      assert {0, 0} = SandboxReaper.sweep_fenced_teardowns()
       assert Repo.reload(sandbox).status == "ready"
+      assert destroyed_names() == []
     end
 
     test "a fenced row whose owner's lease has expired is swept as before" do
@@ -527,23 +649,51 @@ defmodule Fountain.Workers.SandboxReaperTest do
       # behind, and that row is exactly the abandonment this pass is for.
       {_user, sandbox, _conv} = fenced_sandbox()
       sandbox = age_fence(sandbox, 60)
+      live_provider([sandbox.machine_name])
 
       {:ok, 1} = Fountain.Machines.Lease.claim(sandbox.id, "dead-pod@node", 1)
       Process.sleep(10)
 
-      capture_log(fn -> assert 1 = SandboxReaper.sweep_fenced_teardowns() end)
+      capture_log(fn -> assert {1, 0} = SandboxReaper.sweep_fenced_teardowns() end)
       assert Repo.reload(sandbox).status == "terminated"
     end
 
     test "a fenced row a server still holds is left alone" do
       {_user, sandbox, conv} = fenced_sandbox()
       sandbox = age_fence(sandbox, 60)
+      live_provider([sandbox.machine_name])
 
       stub(Fountain.Conversations.ConversationServer, :whereis, fn id ->
         if id == conv.id, do: self(), else: nil
       end)
 
-      assert 0 = SandboxReaper.sweep_fenced_teardowns()
+      assert {0, 0} = SandboxReaper.sweep_fenced_teardowns()
+      assert Repo.reload(sandbox).status == "ready"
+      assert destroyed_names() == []
+    end
+
+    test "the idle and ceiling sweep leaves a machine that is being destroyed alone" do
+      # Pass 1b's prefilter, in the words that outlive the column beside them
+      # (ADR 0058 stage 9a). Parking or expiring a fenced machine would be this
+      # sweep deciding the end of a machine whose end somebody else already
+      # decided — and the destroy it would write over is the driver's, one pass
+      # down. Stamped with no column, which is what stage 9b leaves.
+      user = insert_verified_user()
+      sandbox = insert_sandbox(user_id: user.id, status: "ready")
+      conv = insert_conversation(user_id: user.id, sandbox: sandbox, status: "idle")
+      age_rows(sandbox, conv, 60 * 24 * 83)
+
+      Repo.update_all(from(s in Sandbox, where: s.id == ^sandbox.id),
+        set: [transition: "destroying", transition_reason: "terminated"]
+      )
+
+      reject(Managoat.Sandbox, :suspend, 1)
+      reject(Managoat.Sandbox, :destroy, 1)
+
+      with_bounds([sandbox_idle_timeout_minutes: 60, sandbox_max_lifetime_hours: 24], fn ->
+        assert {0, 0, 0, 0} = SandboxReaper.sweep_abandoned_sandboxes()
+      end)
+
       assert Repo.reload(sandbox).status == "ready"
     end
 
@@ -560,17 +710,60 @@ defmodule Fountain.Workers.SandboxReaperTest do
         )
         |> Repo.update!()
 
-      assert 0 = SandboxReaper.sweep_fenced_teardowns()
+      live_provider([sandbox.machine_name])
+
+      assert {0, 0} = SandboxReaper.sweep_fenced_teardowns()
       assert Repo.reload(sandbox).status == "ready"
+      assert destroyed_names() == []
+    end
+
+    test "a reset carrying only its stamp is not this pass's business either" do
+      # The same exclusion once stage 9b drops `reset_requested_at`, and the
+      # reason `sweep_fenced_teardowns/0` reads `transition_reason` at all: a
+      # reset stamps `destroying` too, so without the reason this pass would
+      # terminate every home somebody asked to wipe and rebuild.
+      user = insert_verified_user()
+      sandbox = insert_sandbox(user_id: user.id, status: "ready", mode: "persistent")
+
+      Repo.update_all(from(s in Sandbox, where: s.id == ^sandbox.id),
+        set: [
+          transition: "destroying",
+          transition_reason: "reset",
+          updated_at: minutes_ago(60)
+        ]
+      )
+
+      live_provider([sandbox.machine_name])
+
+      assert {0, 0} = SandboxReaper.sweep_fenced_teardowns()
+      assert Repo.reload(sandbox).status == "ready"
+      assert destroyed_names() == []
     end
 
     test "an already terminal row needs no work, however long it has been fenced" do
       {_user, sandbox, _conv} = fenced_sandbox()
       age_fence(sandbox, 60)
       sandbox = sandbox |> Ecto.Changeset.change(status: "terminated") |> Repo.update!()
+      live_provider([sandbox.machine_name])
 
-      assert 0 = SandboxReaper.sweep_fenced_teardowns()
+      assert {0, 0} = SandboxReaper.sweep_fenced_teardowns()
       assert Repo.reload(sandbox).status == "terminated"
+    end
+
+    test "a row somebody else finished under the sweep counts on neither gauge" do
+      # `{:ok, :already_terminal}` from the owner. Nothing was reclaimed by this
+      # pass, so `reconciled` must not move; nothing went wrong, so `refused`
+      # must not either — a defect gauge that counts a machine somebody else
+      # cleaned up reports an outage on a healthy fleet.
+      {_user, sandbox, _conv} = fenced_sandbox()
+      sandbox = age_fence(sandbox, 60)
+      live_provider([sandbox.machine_name])
+
+      stub(Fountain.Conversations.Termination, :_unsafe_destroy_machine, fn _id, _opts ->
+        {:ok, :already_terminal}
+      end)
+
+      capture_log(fn -> assert {0, 0} = SandboxReaper.sweep_fenced_teardowns() end)
     end
 
     test "a suspended row carrying a teardown fence is finished too" do
@@ -579,37 +772,23 @@ defmodule Fountain.Workers.SandboxReaperTest do
       {user, sandbox, _conv} = fenced_sandbox("suspended")
       assert Fountain.Quotas.active_sandbox_count(user.id) == 1
       sandbox = age_fence(sandbox, 60)
+      live_provider([sandbox.machine_name])
 
-      capture_log(fn -> assert 1 = SandboxReaper.sweep_fenced_teardowns() end)
+      capture_log(fn -> assert {1, 0} = SandboxReaper.sweep_fenced_teardowns() end)
 
       assert Repo.reload(sandbox).status == "terminated"
       assert Fountain.Quotas.active_sandbox_count(user.id) == 0
     end
 
-    test "the tenant's own trail says what happened to the machine" do
-      {user, sandbox, _conv} = fenced_sandbox()
-      age_fence(sandbox, 60)
-
-      capture_log(fn -> assert 1 = SandboxReaper.sweep_fenced_teardowns() end)
-
-      assert [event] =
-               Fountain.Audit.list_for_user(user.id,
-                 action_prefix: "sandbox.teardown_reconciled"
-               )
-
-      assert event.actor == "system:sandbox_reaper"
-      assert event.resource_id == sandbox.id
-      assert event.metadata["previous_status"] == "ready"
-      assert event.metadata["sprite_name"] == sandbox.machine_name
-    end
-
-    test "finishing a teardown makes its sprite eligible for destruction the same run" do
-      # The point of the whole pass: the sprite was leaked, so the run that
-      # terminates the row must also be the run that destroys the machine.
+    test "the sprite dies in this pass rather than on pass 2" do
+      # What the driver bought, asserted through the whole worker. The old
+      # write left the sprite for the leaked-sprite pass on the same run, which
+      # worked only because that pass reads a listing taken afterwards. Now the
+      # destroy happens here — so the machine is *not* in the listing pass 2
+      # filters on, and it is destroyed exactly once.
       {_user, sandbox, _conv} = fenced_sandbox()
       age_fence(sandbox, 60)
-      stub_sprites([sandbox.machine_name])
-      capture_destroys()
+      live_provider([sandbox.machine_name])
 
       capture_log(fn -> assert :ok = perform_job(SandboxReaper, %{}) end)
 
@@ -629,8 +808,7 @@ defmodule Fountain.Workers.SandboxReaperTest do
       assert is_nil(orphan.user_id)
 
       other = insert_sandbox(status: "terminated")
-      stub_sprites([orphan.machine_name, other.machine_name])
-      capture_destroys()
+      live_provider([orphan.machine_name, other.machine_name])
 
       capture_log(fn -> assert :ok = perform_job(SandboxReaper, %{}) end)
 
@@ -638,25 +816,175 @@ defmodule Fountain.Workers.SandboxReaperTest do
       assert %{status: "terminated", terminated_at: %DateTime{}} = Repo.reload(orphan)
     end
 
-    test "a row whose terminal write is refused does not stop the rest" do
-      # The refused row stays for the next run or an operator; its neighbour
-      # is still finished, and nothing raises out of the pass.
+    test "a row the owner refuses is counted, logged, and does not stop the rest" do
+      # The refused row stays for the next run or an operator; its neighbour is
+      # still finished, and nothing raises out of the pass. `refused` is the
+      # gauge that says the machine is still there, which is why it moves.
       {_user, refused, _conv} = fenced_sandbox()
       {_user, finished, _conv} = fenced_sandbox()
       refused = age_fence(refused, 60)
       finished = age_fence(finished, 60)
+      live_provider([refused.machine_name, finished.machine_name])
 
-      stub(Fountain.Conversations, :update_sandbox, fn sandbox, attrs ->
-        if sandbox.id == refused.id,
-          do: {:error, :not_found},
-          else: Mimic.call_original(Fountain.Conversations, :update_sandbox, [sandbox, attrs])
+      stub(Fountain.Conversations.Termination, :_unsafe_destroy_machine, fn id, opts ->
+        if id == refused.id,
+          do: {:error, :machine_busy},
+          else:
+            Mimic.call_original(
+              Fountain.Conversations.Termination,
+              :_unsafe_destroy_machine,
+              [id, opts]
+            )
       end)
 
-      log = capture_log(fn -> assert 1 = SandboxReaper.sweep_fenced_teardowns() end)
+      log = capture_log(fn -> assert {1, 1} = SandboxReaper.sweep_fenced_teardowns() end)
 
       assert log =~ "could not finish abandoned teardown of sandbox #{refused.id}"
       assert Repo.reload(refused).status == "ready"
       assert Repo.reload(finished).status == "terminated"
+    end
+
+    test "a refusal spends no provider budget and a destroy spends one" do
+      # `expire/3`'s asymmetry, applied to the pass that gained a provider call
+      # in stage 9a: the budget bounds calls to the provider, and the refusal
+      # that matters — another owner holding the lease — is decided before any
+      # call is made. Charging it would let a run of refusals lock out the pass
+      # that collects machines already known dead.
+      # `refused` is the older fence, so the sweep's oldest-first order reaches
+      # it first and the budget question is asked in the order the test means.
+      {_user, refused, _conv} = fenced_sandbox()
+      {_user, finished, _conv} = fenced_sandbox()
+      age_fence(refused, 90)
+      age_fence(finished, 60)
+      live_provider([refused.machine_name, finished.machine_name])
+
+      stub(Fountain.Conversations.Termination, :_unsafe_destroy_machine, fn id, opts ->
+        if id == refused.id,
+          do: {:error, :machine_busy},
+          else:
+            Mimic.call_original(
+              Fountain.Conversations.Termination,
+              :_unsafe_destroy_machine,
+              [id, opts]
+            )
+      end)
+
+      # A budget of one. The refusal leaves it intact, so the second row is
+      # still driven; had the refusal spent it, the sweep would report {0, 1}.
+      capture_log(fn -> assert {1, 1} = SandboxReaper.sweep_fenced_teardowns(1) end)
+
+      assert Repo.reload(finished).status == "terminated"
+      assert Repo.reload(refused).status == "ready"
+    end
+
+    test "a row past the run's destroy budget is deferred, not refused" do
+      # Nothing was attempted and nothing went wrong, so it goes on neither
+      # gauge — `defer/2`'s reading one pass up. The row keeps its fence and its
+      # stamp, so the next run sees it unchanged.
+      {_user, first, _conv} = fenced_sandbox()
+      {_user, second, _conv} = fenced_sandbox()
+      age_fence(first, 90)
+      age_fence(second, 60)
+      live_provider([first.machine_name, second.machine_name])
+
+      capture_log(fn -> assert {1, 0} = SandboxReaper.sweep_fenced_teardowns(1) end)
+
+      # One destroy, and the younger fence left exactly as it was — fence,
+      # stamp and all — for the next run to see. Neither counter moved for it,
+      # which is what separates a deferral from a refusal.
+      assert destroyed_names() == [first.machine_name]
+      assert Repo.reload(first).status == "terminated"
+
+      deferred = Repo.reload(second)
+      assert deferred.status == "ready"
+      assert deferred.transition == "destroying"
+      assert not is_nil(deferred.teardown_requested_at)
+    end
+
+    test "a driver refusal reaches the run's refused gauge" do
+      # `refused` is one gauge for the two passes that ask an owner for a
+      # machine and are told no, because that is what it measures — machines
+      # still standing that the fleet wanted back. The sweep returning its own
+      # count is not enough: `perform/1` has to fold it in, and the telemetry
+      # is where an operator reads it.
+      {_user, sandbox, _conv} = fenced_sandbox()
+      age_fence(sandbox, 60)
+      live_provider([sandbox.machine_name])
+
+      stub(Fountain.Conversations.Termination, :_unsafe_destroy_machine, fn _id, _opts ->
+        {:error, :machine_busy}
+      end)
+
+      :telemetry.attach(
+        "reaper-refused-#{System.unique_integer([:positive])}",
+        [:fountain, :reaper, :run],
+        fn _event, measurements, _meta, pid -> send(pid, {:reaper_run, measurements}) end,
+        self()
+      )
+
+      capture_log(fn -> assert :ok = perform_job(SandboxReaper, %{}) end)
+
+      assert_received {:reaper_run, measurements}
+      assert measurements.refused == 1
+      assert measurements.reconciled == 0
+    end
+
+    test "one run never makes more provider calls than its budget" do
+      # The driver destroys at the provider now, so its reclamations have to
+      # come out of the same budget pass 2 spends what is left of — otherwise a
+      # run makes the budget's worth of calls twice at a provider that is
+      # already struggling.
+      #
+      # Seven, because `@pass_two_floor` is five: a budget the floor swallows
+      # would let the arithmetic be wrong and the test still pass.
+      {_user, fenced, _conv} = fenced_sandbox()
+      age_fence(fenced, 60)
+      leaked = for _ <- 1..7, do: insert_sandbox(status: "terminated")
+      live_provider([fenced.machine_name | Enum.map(leaked, & &1.machine_name)])
+
+      capture_log(fn ->
+        with_bounds([reaper_destroy_limit: 7], fn ->
+          assert :ok = perform_job(SandboxReaper, %{})
+        end)
+      end)
+
+      # One by the driver and six by pass 2, against a budget of seven — where
+      # charging the driver to nobody would have made it eight.
+      assert length(destroyed_names()) == 7
+      assert Repo.reload(fenced).status == "terminated"
+    end
+
+    test "the expiries above and this pass share one run's destroy budget" do
+      # `perform/1` hands this pass what pass 1b did not spend, because both
+      # destroy at the provider now and the budget is a drain rate for the whole
+      # run. A sweep given the full budget over again would let one run make
+      # twice the calls at a provider that is already struggling.
+      #
+      # Driven through the real pass 1b with the run's budget turned down to
+      # one, the way `owner_attempt_limit/0` is turned down elsewhere here: the
+      # expirable machine spends it, so the fenced row is deferred rather than
+      # driven. With the two budgets separate, it would be terminated.
+      expirable_user = insert_verified_user()
+      expirable = insert_sandbox(user_id: expirable_user.id, status: "ready")
+      expirable_conv = insert_conversation(user_id: expirable_user.id, sandbox: expirable)
+      age_rows(expirable, expirable_conv, 60 * 24 * 83)
+
+      {_user, sandbox, _conv} = fenced_sandbox()
+      age_fence(sandbox, 60)
+      live_provider([expirable.machine_name, sandbox.machine_name])
+
+      bounds = [
+        sandbox_idle_timeout_minutes: 60,
+        sandbox_max_lifetime_hours: 24,
+        reaper_destroy_limit: 1
+      ]
+
+      capture_log(fn ->
+        with_bounds(bounds, fn -> assert :ok = perform_job(SandboxReaper, %{}) end)
+      end)
+
+      assert Repo.reload(expirable).status == "terminated"
+      assert Repo.reload(sandbox).status == "ready"
     end
   end
 

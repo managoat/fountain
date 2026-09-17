@@ -103,6 +103,17 @@ defmodule Fountain.Workers.SandboxReaper do
   # is bounded by the same backlog that causes it.
   @destroy_limit 25
 
+  @doc false
+  # Overridable the same way `owner_attempt_limit/0` is, and for the same
+  # reason: `sandbox_reaper_test.exs` drives the budget with two rows instead of
+  # twenty-six, which is the only way to see one run's budget being *shared*
+  # between the expiries and the teardown driver (ADR 0058 stage 9a). Nothing
+  # in `lib/` sets it.
+  # `|| @destroy_limit` rather than a default argument: the test helper that
+  # sets this restores it by writing `nil` back, which `Application.get_env/3`
+  # hands straight through as a value.
+  def destroy_limit, do: Application.get_env(:fountain, :reaper_destroy_limit) || @destroy_limit
+
   # The trickle `pass_two_budget/1` guarantees pass 2 when pass 1 saturates.
   # Small on purpose: it is an anti-starvation floor, not a second budget.
   @pass_two_floor 5
@@ -135,6 +146,13 @@ defmodule Fountain.Workers.SandboxReaper do
   @terminal_statuses ~w(terminated failed)
   @active_statuses ~w(pending starting)
 
+  # The durable transition of ADR 0058 stage 9a, and the reason a reset fence
+  # stamps with it. Every pass here reads the first; `sweep_fenced_teardowns/0`
+  # is the only one that reads the second, to leave a reset to its own
+  # reconciler.
+  @destroying "destroying"
+  @reset_reason "reset"
+
   # A row whose server died mid-wake looks identical to an abandoned one until
   # the new server registers in Horde — whose registry is an async CRDT, so
   # `Lifecycle.any_server_alive?/1` can briefly miss a live server on another
@@ -160,14 +178,27 @@ defmodule Fountain.Workers.SandboxReaper do
   @impl Oban.Worker
   def perform(_job) do
     released = release_stuck_sandboxes()
-    {parked, expired, refused, skipped} = sweep_abandoned_sandboxes()
-    reconciled = sweep_fenced_teardowns()
+    {parked, expired, sweep_refused, skipped} = sweep_abandoned_sandboxes()
+
+    # Pass 1b spends one provider destroy per machine it expired, so what is
+    # left of the run's budget is what this pass may spend (ADR 0058 stage 9a,
+    # which gave this pass a provider call it did not have). Floored at zero:
+    # `sweep_abandoned_sandboxes/0` cannot return more expiries than the budget
+    # it was given, but a negative budget reaching a `when left > 0` guard would
+    # read as "deferred" rather than as the arithmetic error it is.
+    {reconciled, driver_refused} = sweep_fenced_teardowns(max(0, destroy_limit() - expired))
+
+    # `refused` is one gauge for the two passes that ask an owner for a machine
+    # and are told no. Kept as one because that is what it measures — machines
+    # still standing that the fleet wanted back — and splitting it would leave
+    # the alert that watches it reading half the fleet.
+    refused = sweep_refused + driver_refused
 
     listings = list_by_provider()
     ok_listings = for {p, {:ok, names}} <- listings, into: %{}, do: {p, names}
     # One budget of provider destroys for the whole run, spent by pass 1 first
     # (ADR 0058 stage 5b). See `@destroy_limit` and `pass_two_budget/1`.
-    destroyed = destroy_dead_sprites(ok_listings, pass_two_budget(expired))
+    destroyed = destroy_dead_sprites(ok_listings, pass_two_budget(expired + reconciled))
     untracked = report_untracked(ok_listings)
 
     live = ok_listings |> Map.values() |> Enum.map(&MapSet.size/1) |> Enum.sum()
@@ -199,7 +230,12 @@ defmodule Fountain.Workers.SandboxReaper do
     # folding them into `expired` would silently change what that metric means.
     # `reconciled` is its own for the opposite reason — it counts teardowns
     # that died halfway, so a non-zero value is a defect somewhere upstream,
-    # not routine reclamation.
+    # not routine reclamation. It stayed its own in stage 9a, where the pass
+    # behind it became a driver: the machines it reclaims are real reclamations
+    # now, with a provider call and a `sandbox.destroyed` each, and folding them
+    # into `expired` would have been the cheap move. It says something `expired`
+    # does not — that a fence was abandoned — and `expired`'s own comment below
+    # is why a finance-board gauge must not quietly change population.
     #
     # `skipped` is the one added in stage 6b, and it exists to keep `refused`
     # honest. Since the park revalidates under the machine's lease, the sweep
@@ -218,7 +254,9 @@ defmodule Fountain.Workers.SandboxReaper do
     # finance-board gauge ("rows expired by the reaper"), and counting
     # still-billing machines in it would report healthy reclamation through an
     # outage that reclaims nothing. What is left over goes here, where a
-    # non-zero value says the machines are still there.
+    # non-zero value says the machines are still there — including, since stage
+    # 9a, the abandoned teardowns the driver could not get an owner for, which
+    # are machines still standing for exactly the same reason.
     :telemetry.execute(
       [:fountain, :reaper, :run],
       %{
@@ -249,7 +287,7 @@ defmodule Fountain.Workers.SandboxReaper do
   # the number is a drain rate that keeps a backlog from arriving at the
   # provider all at once, not a hard ceiling, and starving a whole pass
   # indefinitely is the worse failure.
-  defp pass_two_budget(expired), do: max(@pass_two_floor, @destroy_limit - expired)
+  defp pass_two_budget(expired), do: max(@pass_two_floor, destroy_limit() - expired)
 
   # ── pass 1: rows stuck mid-provision ──────────────────────────────────────
 
@@ -261,8 +299,16 @@ defmodule Fountain.Workers.SandboxReaper do
     Sandbox
     |> where(
       [s],
-      s.status in ^@active_statuses and is_nil(s.reset_requested_at) and s.updated_at < ^cutoff
+      s.status in ^@active_statuses and s.updated_at < ^cutoff
     )
+    # Not a machine somebody has asked to be destroyed. `reset_requested_at`
+    # said that until stage 9a and the `destroying` stamp says it afterwards,
+    # and both are read so the predicate survives 9b dropping the column: a
+    # fenced row belongs to `sweep_fenced_teardowns/0`'s driver, which finishes
+    # the destroy the fence asked for, where this pass would write `failed`
+    # over it and leave the stamp and the sprite behind.
+    |> where([s], is_nil(s.reset_requested_at))
+    |> where(^not_destroying())
     # The wake-registration marker, on its own grace (ADR 0058 stage 6a). Not
     # this pass's 60-minute cutoff: the marker answers "did somebody start a
     # server here that the registry has not published yet", and the answer goes
@@ -307,6 +353,14 @@ defmodule Fountain.Workers.SandboxReaper do
           false
       end
     end)
+  end
+
+  # The durable-intent half of "is this machine already spoken for", as a
+  # composable condition, so the two liveness passes ask it in exactly the same
+  # words — the shape stage 6a gave the marker below, for the reason it gave
+  # it: two readings of one rule drift.
+  defp not_destroying do
+    dynamic([s], is_nil(s.transition) or s.transition != ^@destroying)
   end
 
   # The marker half of "is anybody holding this row", as a composable
@@ -398,6 +452,11 @@ defmodule Fountain.Workers.SandboxReaper do
           [s],
           s.status == "ready" and is_nil(s.reset_requested_at) and s.updated_at < ^grace_cutoff
         )
+        # And not a machine on its way out, in the words that outlive the
+        # column beside them (stage 9a). Idle-parking or expiring a fenced
+        # machine would be this sweep deciding the end of a machine whose end
+        # somebody else already decided.
+        |> where(^not_destroying())
         # And the wake-registration marker on the same grace (ADR 0058 stage
         # 6a). This is the pass the registry lag actually bites: a wake that
         # finds a `ready` row and starts a server on it writes no status, so
@@ -432,7 +491,7 @@ defmodule Fountain.Workers.SandboxReaper do
       {parked, expired, refused, skipped, _destroys_left, _attempts_left} =
         Enum.reduce(
           Enum.map(free, &{&1, check_bounds(&1, now)}),
-          {0, 0, 0, length(held), @destroy_limit, owner_attempt_limit()},
+          {0, 0, 0, length(held), destroy_limit(), owner_attempt_limit()},
           &sweep_verdict/2
         )
 
@@ -496,7 +555,7 @@ defmodule Fountain.Workers.SandboxReaper do
   defp defer(%Sandbox{} = sandbox, {_p, _e, _r, _s, _left, attempts}) do
     spent =
       if attempts > 0,
-        do: "its #{@destroy_limit} provider destroys",
+        do: "its #{destroy_limit()} provider destroys",
         else: "its #{owner_attempt_limit()} owner attempts"
 
     Logger.info(
@@ -616,7 +675,7 @@ defmodule Fountain.Workers.SandboxReaper do
   defp expire_within(sandbox, _spent, _reason) do
     Logger.info(
       "reaper: deferred expiry of sandbox #{sandbox.id} (#{sandbox.machine_name}) — " <>
-        "this run has spent its #{@destroy_limit} provider destroys"
+        "this run has spent its #{destroy_limit()} provider destroys"
     )
 
     :deferred
@@ -702,18 +761,49 @@ defmodule Fountain.Workers.SandboxReaper do
   # retry; the teardown fence had no equivalent.
   #
   # Finishing the teardown is the only answer that respects the intent already
-  # recorded and audited: the row goes terminal and pass 2 destroys the sprite
-  # on this same run. This never *starts* a teardown — `teardown_requested_at`
-  # is set by the fence alone, so a row only reaches here because a caller
-  # already decided this machine was to go away.
+  # recorded and audited. This never *starts* a teardown — the fence alone
+  # writes what this pass matches on, so a row only reaches here because a
+  # caller already decided this machine was to go away.
   #
-  # `reset_requested_at` on its own is deliberately not a predicate here: an
-  # ordinary reset means "wipe and rebuild", not "terminate", and
-  # `SandboxResetReconciler` already retries those.
+  # **Since ADR 0058 stage 9a it finishes that teardown through the machine's
+  # owner** rather than writing the row terminal itself. `Machines.Destroy`
+  # already continues from a `destroying` stamp on claim (stage 5a); nothing
+  # called it on an abandoned one, so this pass wrote `terminated` through
+  # `Conversations.update_sandbox/2` and left the sprite for pass 2 — a write
+  # with no epoch, which left the stamp on the row for the *next* owner to read
+  # as its own interrupted work, and no `sandbox.destroyed` event for a machine
+  # that had been destroyed. Now the sweep is the scan, the budget and the
+  # counters, and the destroy is the protocol's: one provider call in this run
+  # instead of on pass 2, one finalize under a lease, the usage row and
+  # `sandbox.destroyed` with this worker as the actor.
+  #
+  # A reset is deliberately not swept. An ordinary reset means "wipe and
+  # rebuild", not "terminate", its fence is retryable by design, and
+  # `SandboxResetReconciler` already retries those. `reset_requested_at` on its
+  # own said that until 9a; `transition_reason` says it afterwards, because the
+  # fence stamps the reason beside the columns and `reset_sandbox/2`'s is
+  # `"reset"`. Both are read here, so the predicate means the same thing before
+  # and after stage 9b drops the columns.
   @fenced_teardown_grace_minutes 15
 
+  # How many machines one *run* of this pass may ask an owner about, whatever
+  # the owner says. `@owner_attempt_limit`'s argument, applied to the pass that
+  # gained a `Machine.destroy` call in stage 9a: a refusal costs
+  # `Destroy.busy_wait_ms/0` and the destroy budget below does not charge one,
+  # so without this a fleet of contended fences would spend an hour of a
+  # `:maintenance` slot refusing.
+  #
+  # Per pass rather than shared with `sweep_abandoned_sandboxes/0`, which is the
+  # one number here that is a judgement rather than an inheritance. The two
+  # passes reach disjoint populations — `ready` rows nobody holds, against
+  # fenced rows of any live status — and a run that saturated its attempts on
+  # the first would otherwise make no progress at all on the second, run after
+  # run, which is the starvation `@pass_two_floor` exists to prevent one pass
+  # down.
+  @owner_attempts_per_sweep 100
+
   @doc """
-  Finishes teardowns that fenced and then died before the terminal write.
+  Drives to completion the teardowns that fenced and then died.
 
   A fenced row with a live status is invisible to every other pass and holds
   its quota slot forever, so this is the only thing that can free it. The grace
@@ -725,9 +815,20 @@ defmodule Fountain.Workers.SandboxReaper do
   owner is working on it, and this pass would be finishing a destroy that has
   not failed. An expired lease, or none, is the abandonment this pass is for.
 
-  Returns the number of rows terminated.
+  Since stage 9a it finishes the teardown by **asking the machine's owner**
+  (`Termination._unsafe_destroy_machine/2`), which claims a lease, continues
+  from the `destroying` stamp the fence wrote, destroys at the provider and
+  finalizes under its epoch. `destroys_left` is what is left of the run's
+  provider budget after the expiries; a destroy spends one and a refusal
+  spends none, which is `expire/3`'s asymmetry and its reason.
+
+  Returns `{reconciled, refused}` — teardowns driven to terminal, and rows an
+  owner would not take. `perform/1` keeps the first as its own gauge, because a
+  non-zero value is a defect upstream, and folds the second into the run's
+  `refused`, which is the gauge for "these machines are still there and
+  something is wrong".
   """
-  def sweep_fenced_teardowns do
+  def sweep_fenced_teardowns(destroys_left \\ destroy_limit()) do
     now = DateTime.utc_now()
     cutoff = DateTime.add(now, -@fenced_teardown_grace_minutes * 60, :second)
 
@@ -737,11 +838,34 @@ defmodule Fountain.Workers.SandboxReaper do
     lease_now = Lease.now()
 
     Sandbox
+    |> where([s], s.status not in ^@terminal_statuses)
+    # The teardown fence, in the column and in the stamp (stage 9a). Either
+    # alone is enough: a row fenced by a replica that predates this code
+    # carries the column and no stamp, and a row fenced after stage 9b carries
+    # the stamp and no column. What the stamp must not drag in is a *reset*,
+    # which stamps `destroying` too and is `SandboxResetReconciler`'s to retry,
+    # so the stamp arm excludes the reset's reason — the same exclusion
+    # `is_nil(reset_requested_at)` made for the two sweeps above, moved onto the
+    # column that survives.
     |> where(
       [s],
-      not is_nil(s.teardown_requested_at) and s.status not in ^@terminal_statuses and
-        s.teardown_requested_at < ^cutoff
+      not is_nil(s.teardown_requested_at) or
+        (s.transition == ^@destroying and
+           (is_nil(s.transition_reason) or s.transition_reason != ^@reset_reason))
     )
+    # The grace window runs from the fence where there is one and from the
+    # row's last write otherwise, which for a stamp-only row is the stamp: a
+    # `cas_update/4` moves `updated_at` with a state change and deliberately
+    # not with a renewal, so this is the instant the intent landed.
+    |> where([s], coalesce(s.teardown_requested_at, s.updated_at) < ^cutoff)
+    # Oldest fence first, and deterministically. A budget makes the *order* of
+    # a sweep part of its behaviour — with more rows than destroys, whichever
+    # rows come last are deferred to the next run — and an unordered scan would
+    # pick a different set each time, so a machine could be skipped run after
+    # run while its neighbours were collected. The oldest fence is the one that
+    # has been billing longest. `id` breaks ties so two fences committed in one
+    # transaction have an order at all.
+    |> order_by([s], asc: coalesce(s.teardown_requested_at, s.updated_at), asc: s.id)
     # A machine whose owner holds a live lease is not an abandoned teardown; it
     # is a destroy in flight (ADR 0058). The grace period alone stopped being
     # enough once the owner started doing the work: a destroy that outlives it
@@ -766,29 +890,120 @@ defmodule Fountain.Workers.SandboxReaper do
     # costs no registry scan — the order the two `where`-then-`reject` steps
     # had before.
     |> Enum.reject(&(Lease.live?(&1, lease_now) or Lifecycle.any_server_alive?(&1)))
-    |> Enum.count(&(finish_teardown(&1) == :ok))
+    |> Enum.reduce({0, 0, destroys_left, @owner_attempts_per_sweep}, &drive_teardown/2)
+    |> then(fn {reconciled, refused, _left, _attempts} -> {reconciled, refused} end)
   end
 
-  # A row this pass cannot retire is logged and skipped rather than matched on.
-  # These rows are already the leftovers of a failure, and a raise here would
-  # stop `perform/1` before the provider listing — one bad row would block
-  # machine cleanup for the whole fleet, every run, for as long as it stayed.
+  # One verdict, against the run's remaining provider budget and this pass's
+  # own attempt budget. Both spent exactly as `sweep_verdict/2` spends them: a
+  # destroy charges the provider budget, every answer charges an attempt, and a
+  # refusal charges no provider call because the refusal that matters —
+  # another owner holding the lease — is decided before any.
+  defp drive_teardown(sandbox, {reconciled, refused, left, attempts})
+       when left > 0 and attempts > 0 do
+    case finish_teardown(sandbox) do
+      :ok -> {reconciled + 1, refused, left - 1, attempts - 1}
+      :refused -> {reconciled, refused + 1, left, attempts - 1}
+      :noop -> {reconciled, refused, left, attempts - 1}
+    end
+  end
+
+  # A budget spent. The row keeps its fence and its stamp, so the next run sees
+  # it unchanged — which is what a budget is for, and why this is counted as
+  # neither: nothing was attempted and nothing went wrong.
+  defp drive_teardown(%Sandbox{} = sandbox, {reconciled, _f, left, _attempts} = acc) do
+    # The number the run actually had, not `@destroy_limit`: `perform/1` hands
+    # this pass what the expiries did not spend, so naming the constant would
+    # print a budget nobody was given.
+    spent =
+      if left > 0,
+        do: "its #{@owner_attempts_per_sweep} owner attempts",
+        else: "its #{reconciled} provider destroys"
+
+    Logger.info(
+      "reaper: deferred the abandoned teardown of sandbox #{sandbox.id} " <>
+        "(#{sandbox.machine_name}) — this run has spent #{spent}"
+    )
+
+    acc
+  end
+
+  # Ask the machine's owner to finish what the fence started (ADR 0058 stage
+  # 9a). `Machines.Destroy` claims a lease, re-reads the row, continues from
+  # the `destroying` stamp, destroys at the provider and finalizes by
+  # compare-and-set — so unlike the `update_sandbox/2` this replaces, the sprite
+  # dies in this call, the write carries an epoch, the stamp comes off, and
+  # `sandbox.destroyed` records who did it.
+  #
+  # `terminating_conversation_id: nil`, for `expire/3`'s reason and more
+  # plainly: an abandoned teardown is a machine somebody already decided was to
+  # go, and a conversation id here would answer `:sandbox_kept` on every row
+  # that still has one bound — which is most of them, and would make this pass
+  # do nothing at all.
+  #
+  # The call has **no deadline**, where 8a's `ensure_up` and 8b's attach and
+  # detach carry one. Those refuse a late run because a late resume leaks
+  # compute and a late attach binds a conversation to a machine nobody is
+  # waiting on. A late destroy is idempotent (stage 5a): the row is terminal
+  # already and it answers `{:ok, :already_terminal}`, or it is not and this is
+  # the work that still needs doing. There is no caller to be late for — this
+  # is a cron sweep, and the next run would do the same thing.
+  #
+  # A refusal is logged and the sweep carries on, and a raise cannot reach
+  # `perform/1` from here: these rows are already the leftovers of a failure,
+  # and one bad row must not block machine cleanup for the whole fleet.
   defp finish_teardown(%Sandbox{} = sandbox) do
-    case Conversations.update_sandbox(sandbox, %{
-           status: "terminated",
-           terminated_at: DateTime.utc_now() |> DateTime.truncate(:second)
-         }) do
-      {:ok, _} ->
+    # ownership: `sandbox` came from this worker's own fleet-wide scan; the
+    # reaper is a system sweep with no tenant of its own (`contributing/server.md`).
+    case Termination._unsafe_destroy_machine(sandbox.id,
+           actor: "system:sandbox_reaper",
+           destroy_reason: destroy_reason(sandbox),
+           reason: "teardown_reconciled",
+           terminating_conversation_id: nil
+         ) do
+      {:ok, :destroyed} ->
         report_finished_teardown(sandbox)
+
+      # Somebody else finished this row between the scan and the claim. Nothing
+      # was reclaimed by this pass and nothing was refused, so it goes on
+      # neither gauge — `idle_sweep/2`'s reading of the same outcome.
+      {:ok, outcome} ->
+        Logger.info(
+          "reaper: abandoned teardown of sandbox #{sandbox.id} " <>
+            "(#{sandbox.machine_name}) settled as #{outcome}"
+        )
+
+        :noop
 
       {:error, reason} ->
         Logger.error(
           "reaper: could not finish abandoned teardown of sandbox #{sandbox.id} " <>
-            "(#{sandbox.machine_name}): #{inspect(reason)}"
+            "(#{sandbox.machine_name}): #{inspect(reason)}; left for the next pass"
         )
 
-        :error
+        :refused
     end
+  end
+
+  # The reason the fence recorded, handed back to the protocol so that the row
+  # it writes and the `sandbox.destroyed` it records say what the caller who
+  # asked for this teardown said — rather than a word this sweep invented for
+  # a decision it did not make.
+  #
+  # `String.to_existing_atom/1` because `:reason` reaches `transition_reason`
+  # and the audit metadata as the caller's own atom, and a reason no code has
+  # ever named is a row written by something that is not this system.
+  # `:teardown` is the fallback for exactly two shapes: a row fenced by a
+  # replica older than stage 9a, which has the column and no stamp, and a
+  # string that is not an atom here. It is also the word
+  # `Lifecycle.fence_sandbox_for_teardown/2` defaults its own event to, so the
+  # two agree.
+  defp destroy_reason(%Sandbox{transition_reason: nil}), do: :teardown
+
+  defp destroy_reason(%Sandbox{transition_reason: reason}) do
+    String.to_existing_atom(reason)
+  rescue
+    ArgumentError -> :teardown
   end
 
   defp report_finished_teardown(sandbox) do
@@ -796,20 +1011,34 @@ defmodule Fountain.Workers.SandboxReaper do
 
     Logger.warning(
       "reaper: finished abandoned teardown of sandbox #{sandbox.id} " <>
-        "(#{sandbox.machine_name}) — fenced at #{sandbox.teardown_requested_at}, " <>
+        "(#{sandbox.machine_name}) — fenced at " <>
+        "#{inspect(sandbox.teardown_requested_at || sandbox.updated_at)}, " <>
         "still #{was} #{@fenced_teardown_grace_minutes}m later"
     )
 
+    # Two events, as `expire/3` has two and for its reason: `sandbox.destroyed`
+    # from the protocol is the record that the machine *was* destroyed, and
+    # this one is the reaper's own record of **why** it was this pass that did
+    # it — a fence whose owner never came back, which is a defect upstream and
+    # the thing an operator reading the trail needs to see.
+    #
     # The conversations are left alone for the same reason `expire/3` leaves
     # them: reclaiming a machine is not deleting the thread that ran on it.
     record_reap(sandbox, "sandbox.teardown_reconciled", %{
       "previous_status" => was,
-      "teardown_requested_at" => DateTime.to_iso8601(sandbox.teardown_requested_at),
+      "teardown_requested_at" => timestamp(sandbox.teardown_requested_at),
+      "transition_reason" => sandbox.transition_reason,
       "grace_minutes" => @fenced_teardown_grace_minutes
     })
 
     :ok
   end
+
+  # `nil` for a row fenced by the stamp alone, which is every row once stage 9b
+  # drops the column. The key stays in the metadata rather than being dropped:
+  # an operator reading two events side by side should see the same shape.
+  defp timestamp(nil), do: nil
+  defp timestamp(%DateTime{} = at), do: DateTime.to_iso8601(at)
 
   # ── pass 2: terminal rows whose sprite is still there ─────────────────────
 

@@ -98,9 +98,12 @@ defmodule Fountain.Conversations.TerminationFallbackTest do
   # under their lease (`destroy_forced_test.exs`); on this path there is no
   # longer a moment between "decided" and "closed" for an attach to land in.
   #
-  # Both fence calls are expected: the detach's, which carries the terminating
-  # conversation and makes the decision, and the destroy's repeat, which does
-  # not. The attach is tried after the first has committed.
+  # One fence call, and it is the detach's: it carries the terminating
+  # conversation and makes the decision. `Machines.Destroy` used to repeat it,
+  # to no effect; since ADR 0058 stage 9a the fence stamps
+  # `transition: "destroying"` and the protocol continues from the stamp, so
+  # the repeat is gone. The attach is tried after the fence has committed,
+  # which is the window this test is about and which the change does not move.
   # Recording rather than asserting in the stub, for the reason the test above
   # gives: this one's raise would land inside the fence's own transaction
   # rather than under the destroy's rescue, but the shape is the trap and the
@@ -108,7 +111,7 @@ defmodule Fountain.Conversations.TerminationFallbackTest do
   test "an attachment that arrives after the detach has decided is refused", ctx do
     test_pid = self()
 
-    expect(Lifecycle, :fence_sandbox_for_teardown, 2, fn sandbox, opts ->
+    expect(Lifecycle, :fence_sandbox_for_teardown, 1, fn sandbox, opts ->
       result = Mimic.call_original(Lifecycle, :fence_sandbox_for_teardown, [sandbox, opts])
 
       if Keyword.has_key?(opts, :terminating_conversation_id) do

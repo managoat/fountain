@@ -47,6 +47,14 @@ defmodule Fountain.Quotas do
   an abandoned operation for the next owner to take over — stage 6a's rule,
   applied here — so the slot comes back when the lease does. The clock is the
   database's (stage 7a), the same one `lease_until` is written from.
+
+  **A machine being destroyed counts until its row is terminal** (stage 9a),
+  and this one takes no lease reading at all. `transition: "destroying"` is
+  durable intent rather than an operation in flight: an owner that died between
+  the fence and the finalize left a machine that is still at the provider and
+  still billing, and the driver that ends it runs on a cron. So the slot is held
+  for as long as the row is, which is what `reset_requested_at` above has always
+  done for the reset — the same statement on the column stage 9b keeps.
   """
 
   import Ecto.Query
@@ -74,8 +82,14 @@ defmodule Fountain.Quotas do
 
     query =
       case Keyword.get(opts, :exclude) do
-        nil -> query
-        excluded -> from s in query, where: s.id != ^excluded or not is_nil(s.reset_requested_at)
+        nil ->
+          query
+
+        excluded ->
+          from s in query,
+            where:
+              s.id != ^excluded or not is_nil(s.reset_requested_at) or
+                s.transition == "destroying"
       end
 
     Repo.one(query) || 0
@@ -155,6 +169,18 @@ defmodule Fountain.Quotas do
   # A reset holds its slot until deletion is confirmed, including a reset
   # requested while parked. Replacement exclusions cannot spend that slot.
   #
+  # The fourth arm is ADR 0058 stage 9a's, and it is the second arm written
+  # again on the column that will outlive it: a `destroying` stamp is the same
+  # durable statement `reset_requested_at` makes, so a machine wearing one goes
+  # on holding its slot until the row is terminal. **No lease condition**, which
+  # is the difference from the `resuming` arm below and the whole of the stage:
+  # a resume whose owner died is an abandoned operation and gives the slot back
+  # when its lease lapses, where a destroy whose owner died is an *unfinished*
+  # one — the machine is still at the provider and still billing, and
+  # `SandboxReaper.sweep_fenced_teardowns/0`'s driver is what ends it. Counting
+  # it as free would let a tenant start a machine against a slot two machines
+  # are using.
+  #
   # The third arm is ADR 0058 stage 7a's resume reservation, and it is the one
   # rendering of `Machines.Lease.live?/2` that had to be written in SQL: this is
   # a `count(*)` under an advisory lock, and pulling every candidate row into
@@ -173,6 +199,7 @@ defmodule Fountain.Quotas do
       where:
         s.status in @active_statuses or
           (not is_nil(s.reset_requested_at) and s.status not in ["terminated", "failed"]) or
+          (s.transition == "destroying" and s.status not in ["terminated", "failed"]) or
           (s.transition == "resuming" and not is_nil(s.lease_node) and
              s.lease_until > fragment("statement_timestamp() AT TIME ZONE 'UTC'"))
   end
@@ -211,7 +238,9 @@ defmodule Fountain.Quotas do
         excluded ->
           Repo.one(
             from(s in active_sandboxes(),
-              where: s.id != ^excluded or not is_nil(s.reset_requested_at),
+              where:
+                s.id != ^excluded or not is_nil(s.reset_requested_at) or
+                  s.transition == "destroying",
               select: count(s.id)
             )
           ) || 0

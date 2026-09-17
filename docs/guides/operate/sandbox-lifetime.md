@@ -87,7 +87,17 @@ it was no longer past a bound, or a reset or teardown had been asked for. That
 is the reaper being told it was out of date, which is normal on a busy fleet
 and is deliberately kept out of `refused`.
 
-A reaper run parks or reclaims at most a fixed number of machines, so a large
+`reconciled` counts the deletions the reaper finished for somebody else. A
+deletion records its intent on the machine first and deletes it second, so a
+Fountain server that dies between the two leaves a machine nobody is deleting
+and nothing else can see. Fifteen minutes later the reaper finishes it: the
+machine is deleted at the provider on that same run and the trail records both
+`sandbox.destroyed` and `sandbox.teardown_reconciled`. So a non-zero value is
+not routine reclamation — it says a deletion was abandoned somewhere upstream,
+and the number is how many.
+
+A reaper run parks or reclaims at most a fixed number of machines, and the
+abandoned deletions it finishes come out of that same number, so a large
 backlog drains over several runs rather than all at once.
 
 ## Related

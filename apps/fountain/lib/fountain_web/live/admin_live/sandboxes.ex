@@ -156,6 +156,19 @@ defmodule FountainWeb.AdminLive.Sandboxes do
       {:error, "pending",
        "Deletion is still unconfirmed; reset fence and capacity remain reserved"}
 
+  # What a stamp with no live lease means, which is not one thing (ADR 0058
+  # stage 9a). `parking`, `resuming` and `provisioning` are operations whose
+  # owner died: abandoned, and the next owner to claim the machine clears them.
+  # `destroying` is durable intent that outlived its owner — the machine is
+  # still on its way out, and `SandboxReaper.sweep_fenced_teardowns/0` finishes
+  # it — so calling it abandoned would tell an operator the opposite of what
+  # the row means, and the opposite of what the Reap button will do.
+  defp lease_less_note(%{transition: "destroying"}, _lease_now), do: " (unfinished)"
+
+  defp lease_less_note(sandbox, lease_now) do
+    if Machine.busy?(sandbox, lease_now), do: "", else: " (abandoned)"
+  end
+
   defp assign_sandboxes(socket) do
     socket
     |> assign(:sandboxes, Conversations._unsafe_list_sandboxes_admin())
@@ -234,7 +247,7 @@ defmodule FountainWeb.AdminLive.Sandboxes do
                     )
                   ]}
                 >
-                  {s.transition}{if not Machine.busy?(s, @lease_now), do: " (abandoned)"}
+                  {s.transition}{lease_less_note(s, @lease_now)}
                 </span>
               </td>
               <td class="px-4 py-2 text-xs text-[var(--color-text-secondary)]">

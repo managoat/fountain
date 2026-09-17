@@ -149,7 +149,7 @@ defmodule Fountain.Machines.AdmissionTest do
       assert {:ok, _turn} = Admission.run(ctx.sandbox.id, attrs(ctx.conv))
     end
 
-    for transition <- ~w(parking resuming destroying provisioning) do
+    for transition <- ~w(parking resuming provisioning) do
       test "an abandoned #{transition} stamp refuses nothing (stage 6a's rule)", ctx do
         abandon(ctx, unquote(transition))
         assert {:ok, _turn} = Admission.run(ctx.sandbox.id, attrs(ctx.conv))
@@ -171,6 +171,21 @@ defmodule Fountain.Machines.AdmissionTest do
 
       assert {:error, :sandbox_unavailable} = Admission.run(ctx.sandbox.id, attrs(ctx.conv))
       assert turns(ctx.conv) == []
+    end
+
+    test "a destroying stamp with a dead lease refuses the turn too", ctx do
+      # The loop above is three transitions rather than four since ADR 0058
+      # stage 9a, and this is the fourth — moved into this describe because it
+      # *is* a fence rather than an abandoned operation. Stamped with no column
+      # underneath it, which is what stage 9b leaves: a turn admitted onto a
+      # machine somebody asked to be destroyed runs on a disk the driver is
+      # about to delete, and `Admission` refusing only the columns would stop
+      # refusing it the day they go.
+      abandon(ctx, "destroying")
+
+      assert {:error, :sandbox_unavailable} = Admission.run(ctx.sandbox.id, attrs(ctx.conv))
+      assert turns(ctx.conv) == []
+      assert Repo.reload!(ctx.conv).status == "idle"
     end
 
     test "a fence is judged before the lease, so it is final rather than waited out", ctx do

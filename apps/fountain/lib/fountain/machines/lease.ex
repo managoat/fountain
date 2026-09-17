@@ -445,6 +445,18 @@ defmodule Fountain.Machines.Lease do
   status, and the diagnosis reads through the same held-lease predicate the
   write did, so it falls to `:stale` before the status is ever consulted.
 
+  **`destroying` survives a write that would clear it** (stage 9a). On a row
+  that is not yet terminal, a write naming `transition` as anything but
+  `"destroying"` leaves the stamp and its reason exactly where they are, and
+  returns the row saying so — the caller's other columns land, the intent does
+  not move. That is what makes `destroying` the one *durable* transition: every
+  other stamp is an abandoned operation a later owner clears, and this one is a
+  request that outlives the owner that was serving it. Three writes pass
+  through: a re-stamp of `destroying` itself, a write that retires the row
+  (which is the destroy finishing), and any write to a row that is *already*
+  terminal, where the stamp is leftovers rather than intent. See
+  `preserve_destroying/2`.
+
   A write that moves the status to `terminated` or `failed` stamps
   `terminated_at` when the row has none, mirroring
   `Conversations.stamp_terminated_at/1` — see `stamp_terminated_at/2` below for
@@ -501,13 +513,14 @@ defmodule Fountain.Machines.Lease do
           # mean nothing to anyone reading the table.
           sets = Keyword.put(sets, :updated_at, DateTime.utc_now() |> DateTime.truncate(:second))
 
-          query =
+          {query, sets} =
             sandbox_id
             |> held_by(epoch)
             |> refuse_revival(sets)
             |> refuse_fenced(Keyword.get(opts, :refuse_fenced, false))
             |> stamp_terminated_at(sets)
             |> select([s], s)
+            |> preserve_destroying(sets)
 
           case Repo.update_all(query, set: sets) do
             {1, [sandbox]} -> {:ok, sandbox}
@@ -701,9 +714,84 @@ defmodule Fountain.Machines.Lease do
     end
   end
 
+  # `destroying` is the one transition a write may not take off a live row
+  # (ADR 0058 stage 9a). Every other stamp is abandonable: a reader that finds
+  # `parking` or `resuming` with no live lease is looking at an owner that
+  # died, and three sites clear it on sight so the machine can be used again.
+  # `destroying` is the opposite statement — somebody asked for this machine to
+  # go away, and an owner dying halfway through does not withdraw the request —
+  # which is what lets stage 9b drop `reset_requested_at` and
+  # `teardown_requested_at` and leave the intent on this column alone.
+  #
+  # Enforced here rather than only at the callers because the write that would
+  # lose it is not a clearing write at all. `Machines.Park`'s finalize writes
+  # `status: "suspended", transition: nil` on a row it stamped `parking`, and a
+  # teardown fence committing *during* the suspend — the fence takes the
+  # advisory lock, the park holds only its lease — lands on that row between the
+  # stamp and the finalize. Under 9a the fence columns catch it; under 9b they
+  # are gone, and nothing but this would. So the park still finalizes (the
+  # machine really is suspended and the row must say so) and the stamp rides
+  # through, for the driver to finish.
+  #
+  # **Three writes deliberately pass.** A write that names `transition:
+  # "destroying"` is a re-stamp, which is how a second destroy records its own
+  # reason. A write that moves the row to a terminal status is the destroy
+  # finishing, and clearing the stamp there is the finalize. And a stamp on a
+  # row that is *already* terminal is not intent but leftovers —
+  # `Destroy.clear_stale_transition/2`'s tidying after
+  # `SandboxReaper.finish_teardown/1` wrote a row terminal without an epoch —
+  # so the guard reads the row's status, not only the write's.
+  #
+  # The columns leave `sets` when it fires, because Ecto raises on a field set
+  # twice; `stamp_terminated_at/2` avoids the same collision by checking the
+  # caller did not name the column at all.
+  @destroying "destroying"
+
+  defp preserve_destroying(query, sets) do
+    if preserving?(sets) do
+      {from(s in query,
+         update: [
+           set: [
+             transition:
+               fragment(
+                 "CASE WHEN ? = ? AND ? NOT IN ('terminated', 'failed') THEN ? ELSE ? END",
+                 s.transition,
+                 ^@destroying,
+                 s.status,
+                 s.transition,
+                 type(^Keyword.get(sets, :transition), :string)
+               ),
+             transition_reason:
+               fragment(
+                 "CASE WHEN ? = ? AND ? NOT IN ('terminated', 'failed') THEN ? ELSE ? END",
+                 s.transition,
+                 ^@destroying,
+                 s.status,
+                 s.transition_reason,
+                 type(^Keyword.get(sets, :transition_reason), :string)
+               )
+           ]
+         ]
+       ), Keyword.drop(sets, [:transition, :transition_reason])}
+    else
+      {query, sets}
+    end
+  end
+
+  # A write is at risk of losing the stamp when it names `transition` as
+  # something other than `destroying` and does not retire the row. A write that
+  # names neither column touches neither, and a write that names only
+  # `transition_reason` cannot orphan a stamp it is not moving.
+  defp preserving?(sets) do
+    Keyword.has_key?(sets, :transition) and
+      Keyword.get(sets, :transition) != @destroying and
+      Keyword.get(sets, :status) not in @terminal_statuses
+  end
+
   # **`refuse_fenced: true`** additionally requires both fence columns to be
-  # null, and it is opt-in for the same reason `nest:` is: everywhere else the
-  # fence is not this write's business.
+  # null **and no `destroying` stamp** (the stamp since stage 9a, so the check
+  # survives the columns), and it is opt-in for the same reason `nest:` is:
+  # everywhere else the fence is not this write's business.
   #
   # `Destroy` writes a terminal status onto a row it has just fenced, and
   # `Park`'s finalize is allowed to land on a fence that arrived mid-operation
@@ -725,7 +813,10 @@ defmodule Fountain.Machines.Lease do
   defp refuse_fenced(query, false), do: query
 
   defp refuse_fenced(query, true) do
-    from s in query, where: is_nil(s.reset_requested_at) and is_nil(s.teardown_requested_at)
+    from s in query,
+      where:
+        is_nil(s.reset_requested_at) and is_nil(s.teardown_requested_at) and
+          (is_nil(s.transition) or s.transition != ^@destroying)
   end
 
   # Only on the refusal path, so the write itself stays one statement. Without
@@ -737,7 +828,7 @@ defmodule Fountain.Machines.Lease do
   defp zero_row_reason(sandbox_id, epoch, opts) do
     case Repo.one(
            from s in held_by(sandbox_id, epoch),
-             select: map(s, [:status, :reset_requested_at, :teardown_requested_at])
+             select: map(s, [:status, :reset_requested_at, :teardown_requested_at, :transition])
          ) do
       nil ->
         :stale
@@ -746,11 +837,18 @@ defmodule Fountain.Machines.Lease do
         :retired
 
       row ->
-        if Keyword.get(opts, :refuse_fenced, false) and
-             (not is_nil(row.reset_requested_at) or not is_nil(row.teardown_requested_at)),
-           do: :fenced,
-           else: :stale
+        if Keyword.get(opts, :refuse_fenced, false) and fenced?(row),
+          do: :fenced,
+          else: :stale
     end
+  end
+
+  # The three things `refuse_fenced/2` requires to be absent, read back in the
+  # same words so the diagnosis and the write cannot disagree about what a
+  # fence is.
+  defp fenced?(row) do
+    not is_nil(row.reset_requested_at) or not is_nil(row.teardown_requested_at) or
+      row.transition == @destroying
   end
 
   # A struct is a map, so `is_map/1` and the `@spec` both let one through, and

@@ -116,9 +116,10 @@ defmodule Fountain.Machines.Resume do
   exactly one thing: the admin table renders it as `resuming (abandoned)`. It
   blocks nothing. `Machines.Destroy` falls straight through a foreign transition
   to its fence, and `Conversations.register_server/2` clears a lease-less stamp
-  on its way past, so the two paths that would otherwise care are already
-  covered. Widening a sweep to `suspended` rows would change what reclamation
-  looks at, which is not this stage's to change.
+  on its way past — every stamp but `destroying`, which stage 9a makes durable
+  and which is not a `resuming` leftover — so the two paths that would otherwise
+  care are already covered. Widening a sweep to `suspended` rows would change
+  what reclamation looks at, which is not this stage's to change.
 
   **One shape of it is worse than cosmetic, and is named here rather than left
   to be found** (7a round 2, carried into 7b). A takeover whose re-admission is
@@ -365,6 +366,26 @@ defmodule Fountain.Machines.Resume do
       %Sandbox{transition: "resuming"} = interrupted ->
         take_over(interrupted, epoch, opts)
 
+      # The one foreign stamp that is not abandoned (ADR 0058 stage 9a).
+      # `destroying` is durable intent: somebody asked for this machine to go
+      # away, and the owner dying between the fence and the finalize did not
+      # withdraw the request. Refused with `:fenced`, the word `admissible/2`
+      # already answers for the columns this stamp replaces, and refused
+      # *before* the clearing clause below so the intent survives to be driven.
+      #
+      # Checked after the terminal-row clauses above by construction: a
+      # `destroying` stamp on a terminal row is the leftovers
+      # `Destroy.clear_stale_transition/2` describes, and `admissible/2`'s own
+      # terminal head answers `{:ok, :already_terminal}` for it.
+      %Sandbox{transition: "destroying", status: status} = fenced
+      when status not in @terminal_statuses ->
+        Logger.info(
+          "machine #{fenced.id}: resume refused, the machine is being destroyed " <>
+            "(#{fenced.transition_reason || "no reason"})"
+        )
+
+        {:error, :fenced}
+
       # Somebody else's stamp — a park, a destroy, a reset — on a machine whose
       # lease this claim has just taken. **That stamp is abandoned by
       # construction**: `Lease.claim/4` refuses while the current lease is live,
@@ -380,12 +401,14 @@ defmodule Fountain.Machines.Resume do
       # prompt until an hourly sweep happened to clear it — the same
       # up-to-75-minute withholding 6a round 1 found and closed.
       #
-      # What still refuses is a **fence column**, and only that: `admissible/2`
-      # reads `reset_requested_at` and `teardown_requested_at`, which are
-      # durable statements that this machine is going away, not leftovers of an
-      # owner that stopped. A `destroying` stamp always arrives with one, so the
-      # answer for that shape is unchanged; what changes is `parking` and
-      # `resuming`, which carry no fence and never meant "refuse me".
+      # What still refuses is a **fence**: `admissible/2` reads
+      # `reset_requested_at` and `teardown_requested_at`, which are durable
+      # statements that this machine is going away, not leftovers of an owner
+      # that stopped. Until stage 9a a `destroying` stamp happened to arrive
+      # with one, and this clause leaned on that coincidence; 9a makes it a rule
+      # by refusing the stamp itself in the clause above, which is what lets 9b
+      # drop the columns. What reaches here is `parking` and `resuming`, which
+      # carry no fence and never meant "refuse me".
       #
       # Clearing another verb's stamp is `Conversations.register_server/2`'s
       # precedent, and it costs the same thing there: `Destroy` loses a
@@ -434,6 +457,12 @@ defmodule Fountain.Machines.Resume do
       # adds is the *teardown* fence, and a fence of either kind that landed
       # between that check and this one. `main` had no recheck at all and woke
       # the machine.
+      # The `destroying` stamp is **not** read here, and that is deliberate
+      # (stage 9a). `under_lease/3` refuses it one step earlier, before this is
+      # reached and before the terminal head above, so a copy of the rule here
+      # would be a guard no test could break — and an unbreakable guard is a
+      # claim nobody is checking. When stage 9b drops the two columns this
+      # clause goes with them, leaving that one door.
       not is_nil(sandbox.reset_requested_at) or not is_nil(sandbox.teardown_requested_at) ->
         {:error, :fenced}
 
@@ -686,8 +715,8 @@ defmodule Fountain.Machines.Resume do
   # off a row whose lease has expired except an owner, so an abandoned resume, a
   # destroy fence and then any later resume would have written `ready` over a
   # machine on its way out. `Conversations.register_server/2` clears a lease-less
-  # stamp on its way past too; the two agree, and this is the half that must hold
-  # even if a reader forgets.
+  # stamp on its way past too, `destroying` excepted (stage 9a); the two agree,
+  # and this is the half that must hold even if a reader forgets.
   defp take_over(%Sandbox{} = sandbox, epoch, opts) do
     Logger.info("machine #{sandbox.id}: taking over an abandoned resume at epoch #{epoch}")
 

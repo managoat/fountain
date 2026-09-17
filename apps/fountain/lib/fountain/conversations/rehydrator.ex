@@ -41,6 +41,11 @@ defmodule Fountain.Conversations.Rehydrator do
   alias Fountain.Machines.Lease
   alias Fountain.Machines.Machine
 
+  # Where a machine stops. A terminal row's `destroying` stamp is leftovers
+  # rather than intent (`Machines.Destroy`'s takeover clause), and a server
+  # started on a retired row discovers that for itself.
+  @terminal_statuses ~w(terminated failed)
+
   def run(opts \\ []) do
     if clustering_enabled?() do
       peers = await_stable_cluster(opts)
@@ -168,6 +173,13 @@ defmodule Fountain.Conversations.Rehydrator do
         {:error, :sandbox_unavailable} ->
           skipped(conv, {:skip, :machine_busy})
 
+        # The door's other refusal, and `check_machine_free/2`'s below: a
+        # machine somebody has asked to be destroyed (ADR 0058 stage 9a). Named
+        # rather than left to the catch-all so the log says which of the two
+        # this was — a busy machine comes back, this one does not.
+        {:error, :sandbox_reset_pending} ->
+          skipped(conv, {:skip, :machine_destroying})
+
         other ->
           skipped(conv, other)
       end
@@ -209,11 +221,31 @@ defmodule Fountain.Conversations.Rehydrator do
   # would leave the conversation with no server until something else gave up on
   # the row (round 1).
   #
+  # **Except `destroying`** (ADR 0058 stage 9a). That stamp is durable intent
+  # rather than an operation in flight, so it is refused whatever the lease
+  # says, and this is the one place stage 6a round 1's reasoning genuinely
+  # inverts: round 1 restored a server to a machine wearing an abandoned
+  # destroy because `main` would have given the conversation a machine at once,
+  # and what `main` gave it was a **fresh** one — `Wake.maybe_reuse_sandbox/1`
+  # 409s this row, so the next prompt builds a new machine and the conversation
+  # is not stranded. Starting a server on the old disk instead buys nothing and
+  # costs the intent, since `Conversations.register_server/2` would clear the
+  # stamp on the way in.
+  #
   # Skipping, not failing: the next boot sweep or the conversation's own next
   # prompt comes back, and by then the operation has finished or its lease has
   # expired. `{:skip, _}` is the sweep's own "not now" shape.
   defp check_machine_free(%{sandbox: %Sandbox{} = sandbox}, lease_now) do
-    if Machine.busy?(sandbox, lease_now), do: {:skip, :machine_busy}, else: :ok
+    cond do
+      sandbox.transition == "destroying" and sandbox.status not in @terminal_statuses ->
+        {:skip, :machine_destroying}
+
+      Machine.busy?(sandbox, lease_now) ->
+        {:skip, :machine_busy}
+
+      true ->
+        :ok
+    end
   end
 
   # `_unsafe_list_resumable_conversations/0` joins the sandbox and preloads it,

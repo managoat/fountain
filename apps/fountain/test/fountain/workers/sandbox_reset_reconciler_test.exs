@@ -173,6 +173,58 @@ defmodule Fountain.Workers.SandboxResetReconcilerTest do
     end)
   end
 
+  describe "the fence it looks for" do
+    # ADR 0058 stage 9a. `reset_sandbox/2` writes `reset_requested_at` and
+    # `transition: "destroying"` in one commit, and stage 9b drops the column,
+    # so both the sweep and the per-sandbox job have to find the row by either.
+    # These rows carry the stamp and no column, which is what 9b leaves and what
+    # nothing produces yet.
+    defp stamp_only_reset(sandbox) do
+      sandbox
+      |> Ecto.Changeset.change(
+        reset_requested_at: nil,
+        transition: "destroying",
+        transition_reason: "reset"
+      )
+      |> Repo.update!()
+    end
+
+    test "the sweep enqueues a reset carrying only its stamp" do
+      sandbox = pending_reset() |> stamp_only_reset()
+
+      assert :ok = perform_job(SandboxResetReconciler, %{})
+
+      assert [job] = all_enqueued(worker: SandboxResetReconciler)
+      assert job.args == %{"sandbox_id" => sandbox.id}
+    end
+
+    test "the per-sandbox job retries a reset carrying only its stamp" do
+      sandbox = pending_reset() |> stamp_only_reset()
+
+      expect(Managoat.Sandbox.Sprites, :destroy, fn h ->
+        assert h.name == sandbox.machine_name
+        :ok
+      end)
+
+      assert :ok = perform_job(SandboxResetReconciler, %{sandbox_id: sandbox.id})
+      assert Repo.reload!(sandbox).status == "terminated"
+    end
+
+    test "a machine nobody has asked to destroy is still left alone" do
+      # The symmetric case, and the one that says the widened predicate did not
+      # become "every persistent machine": an unfenced home matches neither the
+      # column nor the stamp.
+      live = insert_sandbox(mode: "persistent", status: "ready")
+      reject(Managoat.Sandbox.Sprites, :destroy, 1)
+
+      assert :ok = perform_job(SandboxResetReconciler, %{})
+      assert [] = all_enqueued(worker: SandboxResetReconciler)
+
+      assert :ok = perform_job(SandboxResetReconciler, %{sandbox_id: live.id})
+      assert Repo.reload!(live).status == "ready"
+    end
+  end
+
   test "disabled providers wait; stale jobs never delete an unfenced or missing machine" do
     sandbox = pending_reset()
     Application.delete_env(:managoat_sandbox, Managoat.Sandbox.Sprites)

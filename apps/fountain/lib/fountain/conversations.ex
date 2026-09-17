@@ -249,7 +249,13 @@ defmodule Fountain.Conversations do
         # of those callers matches `{:ok, _}`, so refusing them would turn a
         # provider timeout into a MatchError and strand the row with no way to
         # retire it at all.
-        if not is_nil(current.reset_requested_at) and
+        #
+        # Read off the `destroying` stamp as well since stage 9a, so the guard
+        # survives stage 9b dropping the column: the stamp says the same thing
+        # the fence does, and this door's one remaining caller
+        # (`SandboxReaper.release_stuck_sandboxes/0`) writes `failed`, which is
+        # terminal and passes either way.
+        if (not is_nil(current.reset_requested_at) or current.transition == "destroying") and
              Ecto.Changeset.get_field(changeset, :status) not in @billable_terminal,
            do: Repo.rollback(:sandbox_reset_pending)
 
@@ -1275,27 +1281,33 @@ defmodule Fountain.Conversations do
   `Machines.Lease.cas_update/3` either — a starter holds no lease and must not
   appear to.
 
-  **It clears a stale `transition` in the same write** (stage 6b). Reaching
+  **It clears a stale `transition` in the same write** (stage 6b) — every one
+  but `destroying`, which it refuses instead (stage 9a; see the clause). Reaching
   that line means the check above found no live lease, which by 6a's own
-  definition makes any stamp on the row an operation whose owner died — and
-  nothing else was clearing it. `Machine.busy?/2` ignores it deliberately, the
+  definition makes any *abandonable* stamp on the row an operation whose owner
+  died — and nothing else was clearing it. `Machine.busy?/2` ignores it
+  deliberately, the
   wake path reuses the row without touching it, and the reaper's sweeps only
   ever see machines with no server, so a stamp left on a machine that is then
   woken survived for ever. The next owner to claim that machine read the stamp
   as *its own* interrupted operation and picked the work up from the middle, on
   a machine that had since been in use.
 
-  What clearing it costs the two protocols is a shortcut, not correctness, and
-  that is worth being exact about, because this deletes what one of them reads.
-  `Machines.Park`'s takeover revalidates everything under its own lease before
-  it touches the machine, so a cleared stamp sends the next park down the
-  ordinary path — which is where a machine that has been in use since belongs.
-  `Machines.Destroy` continues from a `destroying` stamp to skip its fence and
-  its own stamp; without one it re-enters at the fence, and
-  `Lifecycle.fence_sandbox_for_teardown/2` keeps an existing
-  `teardown_requested_at` rather than writing a second, so the repeat is
-  idempotent — and a row that has already gone terminal answers
-  `{:ok, :already_terminal}`. Neither loses anything it needs.
+  What clearing it costs `Machines.Park` is a shortcut, not correctness: its
+  takeover revalidates everything under its own lease before it touches the
+  machine, so a cleared stamp sends the next park down the ordinary path —
+  which is where a machine that has been in use since belongs.
+
+  `Machines.Destroy` was the other half of that argument until stage 9a, and it
+  was the weaker half: the claim was that a cleared `destroying` stamp costs it
+  only its continuation, because `Lifecycle.fence_sandbox_for_teardown/2` keeps
+  an existing `teardown_requested_at` rather than writing a second, so
+  re-entering at the fence is idempotent. That is true of the *shortcut* and
+  false of the *intent*, and the difference is the whole of stage 9a: once the
+  fence columns go, the stamp is the only record that this machine was asked to
+  be destroyed, and a door that clears it deletes the request. So this door
+  refuses a `destroying` row instead of clearing it, and the stamp is durable
+  everywhere for the same reason.
 
   Safe here because the advisory lock this holds is the one a claim takes: a
   claimant arriving after this takes a new epoch and stamps afresh.
@@ -1368,7 +1380,12 @@ defmodule Fountain.Conversations do
         Repo.one(
           from s in Sandbox,
             where: s.id == ^sandbox_id,
-            select: %{lease_node: s.lease_node, lease_until: s.lease_until},
+            select: %{
+              status: s.status,
+              transition: s.transition,
+              lease_node: s.lease_node,
+              lease_until: s.lease_until
+            },
             lock: "FOR UPDATE"
         )
 
@@ -1378,6 +1395,23 @@ defmodule Fountain.Conversations do
 
         Machine.busy?(current) ->
           {:error, :sandbox_unavailable}
+
+        # The one stamp this door does not clear, and so the one it refuses
+        # (ADR 0058 stage 9a). A `destroying` stamp on a row that has not
+        # retired is an unfinished destroy, not an abandoned operation, and the
+        # write below would take the intent off a machine that is still on its
+        # way out — leaving nothing for `SandboxReaper`'s driver to find and a
+        # `ConversationServer` started on a disk about to be deleted. Refused
+        # with the fence's word rather than the lease's: `:sandbox_unavailable`
+        # promises a machine that settles in thirty seconds, and this one is
+        # going away for good.
+        #
+        # A terminal row is not refused. The stamp there is leftovers, as
+        # `Destroy.clear_stale_transition/2` says, and a server started on a
+        # retired row discovers that for itself — the same reading `{:ok,
+        # :no_row}` above takes of a row that has vanished.
+        current.transition == "destroying" and current.status not in @billable_terminal ->
+          {:error, :sandbox_reset_pending}
 
         true ->
           {count, _} =
@@ -1591,14 +1625,16 @@ defmodule Fountain.Conversations do
   All runtimes take the per-sandbox advisory lock and read the machine's row
   under it, and every verdict about the machine is taken from that read (#2307
   constraint 1): the conversation must still be bound to this nonterminal
-  sandbox; neither fence may be set — a teardown fence refuses here since stage
-  8a, where before only a reset's did, because both are durable statements
-  that the machine is going away and the other protocols refuse on either; and
+  sandbox; neither fence may be set, nor the `destroying` stamp that replaces
+  them in stage 9b — a teardown fence refuses here since stage
+  8a, where before only a reset's did, because all three are durable statements
+  that the machine is going away and the other protocols refuse on any; and
   no owner may hold a **live lease** on it (`Fountain.Machines.Machine.busy?/2`),
   which is `{:error, :machine_busy}` and the one refusal the protocol waits
-  out before it returns it. A lapsed lease, or a stamped transition whose lease
-  has lapsed, refuses nothing: that is an owner that died, and the row is
-  judged by its status (stage 6a's rule).
+  out before it returns it. A lapsed lease, or an abandonable transition whose
+  lease has lapsed, refuses nothing: that is an owner that died, and the row is
+  judged by its status (stage 6a's rule). `destroying` is not abandonable and
+  is the fence above rather than a lease reading (stage 9a).
 
   The conversation row stays locked through the insert: an earlier
   reassignment refuses this sandbox, while a later forced reassignment can
@@ -1702,6 +1738,7 @@ defmodule Fountain.Conversations do
                 status: s.status,
                 reset_requested_at: s.reset_requested_at,
                 teardown_requested_at: s.teardown_requested_at,
+                transition: s.transition,
                 lease_node: s.lease_node,
                 lease_until: s.lease_until,
                 db_now: fragment("statement_timestamp()")
@@ -1807,7 +1844,12 @@ defmodule Fountain.Conversations do
       machine.status in @billable_terminal ->
         {:error, :sandbox_unavailable}
 
-      not is_nil(machine.reset_requested_at) or not is_nil(machine.teardown_requested_at) ->
+      # Both fence columns since stage 8a, and since 9a the `destroying` stamp
+      # that outlives them: all three are the same durable statement that this
+      # machine is going away, and the status clause above has already taken
+      # the terminal rows where the stamp would be leftovers.
+      not is_nil(machine.reset_requested_at) or not is_nil(machine.teardown_requested_at) or
+          machine.transition == "destroying" ->
         {:error, :sandbox_unavailable}
 
       Machine.busy?(machine, machine.db_now) ->
@@ -3206,7 +3248,26 @@ defmodule Fountain.Conversations do
             :ok
         end
 
-        fenced = current |> Ecto.Changeset.change(reset_requested_at: now) |> Repo.update!()
+        # The stamp beside the column, in one statement, for
+        # `Lifecycle.do_fence_sandbox_for_teardown/2`'s reason (ADR 0058 stage
+        # 9a): stage 9b drops `reset_requested_at`, and a fence that lived only
+        # in it would take the reset's intent with it.
+        #
+        # `"reset"` is what tells the reaper's driver to leave this row alone.
+        # A reset is retryable by design — the fence stands until a provider
+        # *confirms* the machine is gone, and `SandboxResetReconciler` is what
+        # retries it — where the driver finishes a teardown after fifteen
+        # minutes. That distinction is `teardown_requested_at`'s today and this
+        # reason's afterwards; `SandboxReaper.sweep_fenced_teardowns/0` reads
+        # both.
+        fenced =
+          current
+          |> Ecto.Changeset.change(
+            reset_requested_at: now,
+            transition: "destroying",
+            transition_reason: "reset"
+          )
+          |> Repo.update!()
 
         ids =
           Repo.all(
@@ -3254,8 +3315,13 @@ defmodule Fountain.Conversations do
         nil ->
           {:error, :not_found}
 
-        %Sandbox{mode: "persistent", status: status, reset_requested_at: at} = current
-        when status in ["ready", "suspended"] and not is_nil(at) ->
+        # The fence, in the column and in the `destroying` stamp that outlives
+        # it (ADR 0058 stage 9a). `reset_sandbox/2` writes both in one commit,
+        # so this matches the same rows before and after stage 9b drops the
+        # column.
+        %Sandbox{mode: "persistent", status: status, reset_requested_at: at, transition: t} =
+            current
+        when status in ["ready", "suspended"] and (not is_nil(at) or t == "destroying") ->
           # Whether some owner is working on this machine right now (ADR 0058).
           # A retry is a *reconciliation* — it exists for a reset whose caller
           # was lost — so a machine another operation is holding is not its

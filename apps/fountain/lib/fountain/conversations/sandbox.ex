@@ -27,6 +27,19 @@ defmodule Fountain.Conversations.Sandbox do
   # outside every transaction, and clears it by compare-and-set on the same
   # lease epoch. A reader that finds one sees what is being done to the
   # machine rather than racing it.
+  #
+  # Four of the five are *abandonable*: a stamp whose lease has expired is an
+  # owner that died, and the next reader clears it so the machine can be used
+  # again (`Conversations.register_server/2`, `Machines.Resume.under_lease/3`,
+  # `Machines.Provision.clear_foreign_stamp/2`).
+  #
+  # `destroying` is the one that is not (stage 9a). It is a request that
+  # somebody made of this machine, and an owner dying halfway through does not
+  # withdraw it, so every reader refuses such a row whatever its lease says,
+  # `Machines.Lease.cas_update/4` keeps the stamp through any write that does
+  # not retire the row, and `SandboxReaper.sweep_fenced_teardowns/0` drives it
+  # to terminal. That is what lets stage 9b drop `reset_requested_at` and
+  # `teardown_requested_at`, whose whole job this column then does.
   @transitions ~w(provisioning resuming parking destroying retargeting)
 
   @type t :: %__MODULE__{}
@@ -67,9 +80,20 @@ defmodule Fountain.Conversations.Sandbox do
     # `lease_epoch` is monotonic and never reused; `lease_node` and
     # `lease_until` say who holds the machine and until when; `transition` and
     # `transition_reason` are the durable intent behind a provider round trip.
-    # Written only by `Fountain.Machines.Lease`, always as a compare-and-set on
-    # the epoch, and deliberately absent from `changeset/2` — an owner's write
-    # is not something a caller's attrs may reach.
+    # The three `lease_*` columns are written only by
+    # `Fountain.Machines.Lease`, and every state write an owner makes is a
+    # compare-and-set on the epoch. All five are deliberately absent from
+    # `changeset/2` — an owner's write is not something a caller's attrs may
+    # reach.
+    #
+    # `transition` has **two writers**, and the second is the point of stage
+    # 9a. A *fence* stamps `destroying` beside the two fence columns, in one
+    # commit, holding no lease — `Lifecycle.do_fence_sandbox_for_teardown/2`
+    # and `Conversations.do_reset_sandbox/2`, through `Ecto.Changeset.change/2`
+    # rather than `changeset/2`. A fence is by definition written by somebody
+    # who does not own the machine; the protocol's own stamp, one step later
+    # and under its epoch, restates it with the destroy's reason. Nothing
+    # writes any other transition from outside `Machines`.
     field :lease_epoch, :integer, default: 0
     field :lease_node, :string
     field :lease_until, :utc_datetime_usec

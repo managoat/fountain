@@ -1,6 +1,8 @@
 defmodule Fountain.QuotasTest do
   use Fountain.DataCase, async: true
 
+  alias Fountain.Conversations.Sandbox
+  alias Fountain.Machines.Lease
   alias Fountain.Quotas
 
   describe "active_sandbox_count/2" do
@@ -305,6 +307,63 @@ defmodule Fountain.QuotasTest do
                Quotas.with_sandbox_reservation(user.id, [exclude: replacing.id], fn ->
                  {:ok, insert_sandbox(user_id: user.id, status: "pending")}
                end)
+    end
+  end
+
+  describe "a machine on its way up (ADR 0058 stage 7a)" do
+    # `active_sandboxes/0` renders `Machines.Lease.live?/2` in SQL — the one
+    # copy of that rule outside the predicate, because this is a `count(*)`
+    # under an advisory lock and folding a predicate over every candidate row
+    # would turn a counter into a scan. `quotas.ex` says this file pins the two
+    # halves against the predicate so the copy cannot drift the way stage 6a's
+    # three copies had; until round 1 of #2368 it said so and did not.
+    setup do
+      user = insert_verified_user()
+      sandbox = insert_sandbox(user_id: user.id, status: "suspended")
+      {:ok, epoch} = Lease.claim(sandbox.id, "fountain@test", 60_000)
+      {:ok, user: user, sandbox: sandbox, epoch: epoch}
+    end
+
+    defp stamp_resuming(ctx),
+      do: Lease.cas_update(ctx.sandbox.id, ctx.epoch, transition: "resuming")
+
+    test "counts while the reservation's lease is live", ctx do
+      assert Quotas.active_sandbox_count(ctx.user.id) == 0
+      {:ok, _} = stamp_resuming(ctx)
+
+      assert Quotas.active_sandbox_count(ctx.user.id) == 1
+      assert Quotas.fleet_count() >= 1
+    end
+
+    test "and stops the moment that lease lapses, exactly as live?/2 decides", ctx do
+      {:ok, _} = stamp_resuming(ctx)
+
+      Repo.update_all(
+        from(s in Sandbox, where: s.id == ^ctx.sandbox.id),
+        set: [lease_until: DateTime.add(DateTime.utc_now(), -1, :second)]
+      )
+
+      # The two answers are asserted against each other, not against a literal:
+      # that is what makes this a pin on the copy rather than a second opinion.
+      refute Lease.live?(Repo.reload!(ctx.sandbox))
+      assert Quotas.active_sandbox_count(ctx.user.id) == 0
+    end
+
+    test "a holder-less deadline is not a lease, here either", ctx do
+      {:ok, _} = stamp_resuming(ctx)
+
+      Repo.update_all(
+        from(s in Sandbox, where: s.id == ^ctx.sandbox.id),
+        set: [lease_node: nil]
+      )
+
+      refute Lease.live?(Repo.reload!(ctx.sandbox))
+      assert Quotas.active_sandbox_count(ctx.user.id) == 0
+    end
+
+    test "a suspended row with no stamp counts for nothing", ctx do
+      refute Quotas.active_sandbox_count(ctx.user.id) == 1
+      assert Quotas.active_sandbox_count(ctx.user.id) == 0
     end
   end
 end

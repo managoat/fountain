@@ -47,6 +47,24 @@ defmodule Fountain.Machines.Lease do
   which is what the sweeps do, rather than by relying on a transaction to hold
   the clock still.
 
+  **And `AT TIME ZONE 'UTC'` on every write and every in-SQL comparison**, which
+  is not decoration (round 1, behaviour review). `lease_until` is
+  `timestamp without time zone`, as every timestamp column in this schema is —
+  Ecto's `:utc_datetime_usec` — while `statement_timestamp()` is a
+  `timestamptz`. Assigning one to the other casts through the **session's**
+  `TimeZone`, so a connection running under, say, `America/New_York` would write
+  a deadline four hours behind the UTC instants Elixir compares it against:
+  every live lease reads dead, `busy?/2` answers false for every operation in
+  flight, and `claim/4` refuses nobody. `statement_timestamp() AT TIME ZONE 'UTC'`
+  is a `timestamp` holding the UTC wall time whatever the session says, which is
+  what the column means everywhere else.
+
+  The column stays `timestamp` rather than becoming `timestamptz`. Making one
+  column of `sandboxes` differ from every other would be its own trap, and a
+  migration in the middle of an open stack is the version collision #2344's
+  stage 3 already had to check for — where the cast is a one-expression fix that
+  a test pins under a hostile `TimeZone`.
+
   The `now` argument each of those functions still takes is the test seam and
   nothing more. `:db` — the default, and what every caller in `lib/` passes by
   omission — means "the database's clock". A `DateTime` means "judge and date
@@ -194,6 +212,29 @@ defmodule Fountain.Machines.Lease do
   def now do
     %Postgrex.Result{rows: [[%DateTime{} = now]]} = Repo.query!("SELECT statement_timestamp()")
     now
+  rescue
+    # Every other entry point here turns a database fault into
+    # `{:error, {:database, sqlstate}}` rather than an exception, and this one
+    # cannot: its callers are predicates — `live?/2`, and through it
+    # `Machine.busy?/2` — and a predicate has nowhere to put an error tuple.
+    # Raising instead would unwind a wake, an attach or a boot sweep out of a
+    # function whose whole job is to answer true or false (round 1, protocol
+    # review).
+    #
+    # So the fallback is the clock this module used until stage 7a. That is not
+    # a silent revert: a caller that cannot reach the database is about to fail
+    # its next query anyway, with a value-shaped error of its own, and in the
+    # meantime the two clocks are within a few milliseconds of each other on any
+    # host that is not already broken. What the database's clock buys is that
+    # *every node agrees*, and one node briefly disagreeing during an outage is
+    # the pre-7a arrangement, which was safe.
+    error in [Postgrex.Error, DBConnection.ConnectionError] ->
+      Logger.warning(
+        "machine lease clock unreachable (#{inspect(sqlstate(error))}); " <>
+          "judging liveness on this node's clock until it comes back"
+      )
+
+      DateTime.utc_now()
   end
 
   # `:db` is the default every caller in `lib/` uses; a `DateTime` is the test
@@ -422,6 +463,10 @@ defmodule Fountain.Machines.Lease do
               epoch: s.lease_epoch,
               lease_node: s.lease_node,
               lease_until: s.lease_until,
+              # Read into Elixir rather than assigned to the column, so this one
+              # stays a `timestamptz`: Postgrex decodes it to a `DateTime` in
+              # UTC, which is what `lease_until` loads as. The `AT TIME ZONE`
+              # cast belongs on the write and on in-SQL comparisons, not here.
               db_now: fragment("statement_timestamp()")
             },
             lock: "FOR UPDATE"
@@ -473,11 +518,17 @@ defmodule Fountain.Machines.Lease do
   # `lease_until` on the database's clock. `integer * interval '1 millisecond'`
   # rather than `make_interval` so the parameter stays an integer the driver
   # sends as one, and rather than a formatted string so no locale or rounding
-  # sits between the TTL and the column.
+  # sits between the TTL and the column. `AT TIME ZONE 'UTC'` because the column
+  # is `timestamp without time zone` and the function is a `timestamptz` — see
+  # the moduledoc for what the session's `TimeZone` does without it.
   defp set_deadline(query, :db, ttl_ms) do
     update(query,
       set: [
-        lease_until: fragment("statement_timestamp() + ? * interval '1 millisecond'", ^ttl_ms)
+        lease_until:
+          fragment(
+            "(statement_timestamp() AT TIME ZONE 'UTC') + ? * interval '1 millisecond'",
+            ^ttl_ms
+          )
       ]
     )
   end

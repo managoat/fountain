@@ -162,15 +162,19 @@ defmodule Fountain.Quotas do
   # halves are the same two `live?/2` decides on — a holder, and a deadline that
   # has not passed — and `quotas_test.exs` pins them against it so the copy
   # cannot drift the way stage 6a's three copies had. `statement_timestamp()`
-  # for the reason `Lease`'s moduledoc gives: `now()` freezes for the whole of
-  # the reservation's transaction, and this count runs inside one.
+  # for the reason `Lease`'s moduledoc gives — `now()` freezes for the whole of
+  # the reservation's transaction, and this count runs inside one — and
+  # `AT TIME ZONE 'UTC'` for the other reason it gives: `lease_until` is
+  # `timestamp without time zone`, so comparing it against a bare `timestamptz`
+  # casts through the session's `TimeZone`, and a machine on its way up would
+  # stop counting on any connection not running in UTC.
   defp active_sandboxes do
     from s in Sandbox,
       where:
         s.status in @active_statuses or
           (not is_nil(s.reset_requested_at) and s.status not in ["terminated", "failed"]) or
           (s.transition == "resuming" and not is_nil(s.lease_node) and
-             s.lease_until > fragment("statement_timestamp()"))
+             s.lease_until > fragment("statement_timestamp() AT TIME ZONE 'UTC'"))
   end
 
   @doc "The reserve, floor, ceiling and fleet ceiling in force."

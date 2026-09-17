@@ -471,6 +471,35 @@ defmodule Fountain.Machines.LeaseTest do
     end
   end
 
+  describe "the one caller that may nest" do
+    test "cas_update/4's nest: option has exactly one call site" do
+      # 5c's precedent for its own opt-outs: an option that relaxes a guard is
+      # only as safe as the list of callers that pass it, and the list is
+      # otherwise nowhere. `Machines.Resume`'s admission is the one, and it is
+      # argued in `cas_update/4`'s docstring.
+      root = Path.expand("../../../../..", __DIR__)
+
+      files =
+        ([Path.join(root, "apps/fountain/lib"), Path.join(root, "ee/lib")] ++
+           Path.wildcard(Path.join(root, "apps/fountain_*/lib")))
+        |> Enum.filter(&File.dir?/1)
+        |> Enum.flat_map(&Path.wildcard(Path.join(&1, "**/*.ex")))
+        |> Enum.reject(&String.ends_with?(&1, "machines/lease.ex"))
+
+      assert length(files) > 100, "the scan is broken; it proves nothing"
+
+      callers =
+        for file <- files,
+            File.read!(file) =~ ~r/nest:\s*true/,
+            do: Path.relative_to(file, root)
+
+      assert callers == ["apps/fountain/lib/fountain/machines/resume.ex"],
+             "`nest: true` lets a caller write the machine's row inside its own transaction, " <>
+               "which every other function here refuses. Adding one is a decision about " <>
+               "transaction boundaries, not a call-site choice: #{inspect(callers)}"
+    end
+  end
+
   describe "the clock" do
     # Every SQL statement the repo runs while `fun` does. The only way to say
     # *who* computed a timestamp, as the first test explains.
@@ -615,6 +644,64 @@ defmodule Fountain.Machines.LeaseTest do
 
       refute Lease.live?(Repo.get!(Sandbox, ctx.sandbox.id))
       assert {:ok, 2} = Lease.take_over(ctx.sandbox.id, "fountain@test-b", @ttl_ms)
+    end
+
+    test "a hostile session TimeZone does not change what a lease means", ctx do
+      # Round 1, behaviour review. `lease_until` is `timestamp without time
+      # zone` and `statement_timestamp()` is a `timestamptz`, so assigning one
+      # to the other casts through the **session's** `TimeZone`. Without
+      # `AT TIME ZONE 'UTC'` a connection running in `America/New_York` writes a
+      # deadline four hours behind the UTC instants Elixir compares it against:
+      # every live lease reads dead, `busy?/2` answers false for every operation
+      # in flight, and `claim/4` refuses nobody.
+      Repo.query!("SET LOCAL TimeZone = 'America/New_York'")
+
+      {:ok, epoch} = Lease.claim(ctx.sandbox.id, ctx.node, 60_000)
+      held = Repo.get!(Sandbox, ctx.sandbox.id)
+
+      assert Lease.live?(held),
+             "a lease claimed a moment ago reads dead under a non-UTC session TimeZone"
+
+      assert {:error, {:held, _, _}} = Lease.claim(ctx.sandbox.id, "somebody@else", 60_000)
+
+      # The renewal writes through the same cast.
+      :ok = Lease.renew(ctx.sandbox.id, epoch, 60_000)
+      assert Lease.live?(Repo.get!(Sandbox, ctx.sandbox.id))
+
+      # And the deadline itself is the UTC one, within the TTL rather than four
+      # hours off it.
+      until = Repo.get!(Sandbox, ctx.sandbox.id).lease_until
+      drift = DateTime.diff(until, Lease.now(), :millisecond) - 60_000
+      assert abs(drift) < 2_000, "the deadline is #{drift}ms from where it should be"
+    end
+
+    test "the quota's own copy of the rule survives the same TimeZone", ctx do
+      # `Quotas.active_sandboxes/0` renders `live?/2` in SQL — the one copy that
+      # had to be — and compares the same two column types, so it takes the same
+      # cast. A machine on its way up that stopped counting on a non-UTC
+      # connection would let a tenant past their cap.
+      # **Ahead of UTC, and the direction is the test.** The two casts fail in
+      # opposite directions and no single zone catches both. On the *write*
+      # (above) a zone behind UTC stamps the deadline too early and the lease
+      # reads dead — `America/New_York`. Here the write is fine and the
+      # comparison is the suspect: a bare `statement_timestamp()` is a
+      # `timestamptz`, so Postgres casts `lease_until` *up* using the session
+      # zone, and only a zone ahead of UTC moves it far enough back to read
+      # expired. A zone behind UTC would make this pass with the cast missing,
+      # which is the shape of a test that proves nothing.
+      Repo.query!("SET LOCAL TimeZone = 'Pacific/Kiritimati'")
+
+      # `suspended`, not this describe's `pending` fixture: `pending` is in
+      # `Quotas.active_statuses/0`, so the first arm of `active_sandboxes/0`
+      # would count the row whatever the third arm decided and the assertion
+      # below would hold with the cast missing.
+      machine = insert_sandbox(user_id: ctx.user.id, status: "suspended")
+      assert Fountain.Quotas.active_sandbox_count(ctx.user.id, exclude: ctx.sandbox.id) == 0
+
+      {:ok, epoch} = Lease.claim(machine.id, ctx.node, 60_000)
+      {:ok, _} = Lease.cas_update(machine.id, epoch, transition: "resuming")
+
+      assert Fountain.Quotas.active_sandbox_count(ctx.user.id, exclude: ctx.sandbox.id) == 1
     end
 
     test "the injected clock is still the seam, and still writes what it is given", ctx do

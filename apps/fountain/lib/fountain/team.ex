@@ -42,6 +42,7 @@ defmodule Fountain.Team do
 
   alias Fountain.{Agents, Audit, Conversations, Repo}
   alias Fountain.Conversations.{Conversation, ConversationServer, Launch, Sandbox, Termination}
+  alias Fountain.Machines.Machine
   alias Fountain.Conversations.Turn
 
   @channel "fountain:team"
@@ -734,7 +735,14 @@ defmodule Fountain.Team do
       title: prev.title
     }
 
-    with {:ok, conv} <- Conversations.create_conversation(attrs) do
+    # Through the machine's owner (ADR 0058 stage 8b): the successor is a new
+    # binding to the same computer, and it gets the attach door's checks —
+    # identity, status, fence, a live lease — which `create_conversation/1`
+    # never made. A teammate whose agent has been deleted cannot be rotated
+    # onto its computer any more (`:not_found`); its next prompt could not
+    # have run without one either.
+    with {:ok, conv, _allowance} <-
+           Machine.attach(prev.sandbox_id, attrs, Keyword.take(opts, [:actor, :request_ip])) do
       Audit.record(%{
         user_id: user_id,
         action: "conversation.created",

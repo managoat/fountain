@@ -349,7 +349,7 @@ defmodule Fountain.Machines.OccupancyTest do
 
       {_, held} =
         count_queries(fn ->
-          Lifecycle._unsafe_sandbox_held_by_other?(ctx.sandbox.id, ctx.a.id)
+          Fountain.Machines.Binding.held_by_other?(ctx.sandbox.id, ctx.a.id)
         end)
 
       {_, cotenants} =

@@ -184,10 +184,12 @@ defmodule Fountain.Conversations.ConversationServerBrokerTest do
           {:ok, session}
         end)
 
-        stub(Conversations, :claim_sandbox, fn row, attrs ->
-          attrs = if attrs[:status] == "ready", do: Map.put(attrs, :mode, "invalid"), else: attrs
-          Mimic.call_original(Conversations, :claim_sandbox, [row, attrs])
-        end)
+        # `Conversations.claim_sandbox/2` was stubbed here to plant a second
+        # validation error on the `ready` claim; the server stopped making that
+        # claim in ADR 0058 stage 7b (the provision bracket writes the row by
+        # compare-and-set), so the stub fired on nothing, and the function is
+        # gone since 8b. What the case still pins is below: the retirement wins
+        # and the replacement is preserved.
 
         stub(Fountain.Conversations.Provisioning, :prepare_runtime_sprite, fn _h,
                                                                               _r,

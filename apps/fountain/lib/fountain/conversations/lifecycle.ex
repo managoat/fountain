@@ -66,12 +66,13 @@ defmodule Fountain.Conversations.Lifecycle do
   ## The teardown fence
 
   This module also owns the forced-teardown admission fence
-  (`fence_sandbox_for_teardown/2`) and the one predicate it decides
-  `:sandbox_kept` by (`_unsafe_sandbox_held_by_other?/2`, ADR 0023) — moved
-  here from `Fountain.Conversations` in #2258. It is a rule about the
-  machine, not a conversation verb, and this module already is one of its
-  callers (`prepare_destroy/2`); `Termination`, `Accounts.Deletion` and the
-  destroy-home path call it, they do not own it.
+  (`fence_sandbox_for_teardown/2`) — moved here from `Fountain.Conversations`
+  in #2258. It is a rule about the machine, not a conversation verb, and this
+  module already is one of its callers (`prepare_destroy/2`); `Termination`,
+  `Accounts.Deletion` and the destroy-home path call it, they do not own it.
+  The predicate it decides `:sandbox_kept` by is the owner's refcount,
+  `Fountain.Machines.Binding.held_by_other?/2` (ADR 0058 stage 8b), and the
+  detach that asks with a terminating conversation is `Machines.Binding.detach/2`.
   """
 
   import Ecto.Query
@@ -82,6 +83,7 @@ defmodule Fountain.Conversations.Lifecycle do
   alias Fountain.Conversations
   alias Fountain.Conversations.Egress
   alias Fountain.Conversations.{Conversation, Sandbox}
+  alias Fountain.Machines.Binding
   alias Fountain.Machines.Machine
   alias Fountain.Machines.Occupancy
   alias Fountain.Machines.Policy
@@ -660,29 +662,9 @@ defmodule Fountain.Conversations.Lifecycle do
 
   # Teardown fence (#2258): the machine-policy rule an admin reap, a
   # forced account deletion, and the destroy-home path all refuse or
-  # commit against, plus the "is anyone else on this machine" predicate
-  # it decides `:sandbox_kept` by (ADR 0023).
-  @doc """
-  Whether a conversation other than `conv_id` still holds `sandbox_id` — one
-  that is not `terminated`/`failed`. A sandbox normally has one conversation;
-  it gets a second when a teammate starts a fresh conversation on the same
-  computer (`Fountain.Conversations.Termination.release_conversation/2`, `Fountain.Team`),
-  and from then on the retired thread's lifecycle must not reach the disk
-  its successor is running on. `_unsafe_`: callers have established
-  ownership of `conv_id` already (a GenServer, or a scoped fetch before it).
-
-  Status only, no clock: `Conversations._unsafe_sandbox_busy_elsewhere?/4` is
-  the same question with the idle window applied, and the two answer
-  differently on purpose. Both read `Fountain.Machines.Occupancy` (ADR 0058
-  stage 4); this one takes `bindings/1`, the constructor that reads the
-  conversation rows and nothing else, because its caller asks inside a
-  transaction under the per-sandbox advisory lock.
-  """
-  def _unsafe_sandbox_held_by_other?(sandbox_id, conv_id)
-      when is_binary(sandbox_id) and is_binary(conv_id) do
-    sandbox_id |> Occupancy.bindings() |> Occupancy.held_by_other?(conv_id)
-  end
-
+  # commit against. The "is anyone else on this machine" predicate it
+  # decides `:sandbox_kept` by is `Fountain.Machines.Binding.held_by_other?/2`
+  # since ADR 0058 stage 8b.
   @doc """
   Commit an admission fence before a caller tears down a sandbox. No provider
   I/O runs here. The caller owns this row and must stop actors and clean up
@@ -697,6 +679,13 @@ defmodule Fountain.Conversations.Lifecycle do
   `:metadata` — extra keys merged into the event, for a caller whose own delete
   is about to nilify `user_id` on both the event and the sandbox it names.
 
+  Two options belong to the detach (ADR 0058 stage 8b,
+  `Fountain.Machines.Binding.detach/2`), which is this fence with a
+  terminating conversation: `refuse_busy: true` refuses `{:error, :machine_busy}`
+  on a row whose owner holds a live lease, judged on the locked read and the
+  database's clock, and `:deadline` refuses `{:error, :detach_expired}` when
+  that clock is past it. Neither is read by the forced callers.
+
   With a terminating_conversation_id, first lock and verify that conversation's
   current attachment and owner. A persistent home or another live conversation
   returns {:error, :sandbox_kept} without a new fence. The sandbox row stays
@@ -706,7 +695,7 @@ defmodule Fountain.Conversations.Lifecycle do
     if Repo.in_transaction?() do
       {:error, :provider_transaction_open}
     else
-      case do_fence_sandbox_for_teardown(sandbox, Keyword.get(opts, :terminating_conversation_id)) do
+      case do_fence_sandbox_for_teardown(sandbox, opts) do
         {:ok, {fenced, true}} ->
           Audit.record(%{
             user_id: fenced.user_id,
@@ -753,7 +742,9 @@ defmodule Fountain.Conversations.Lifecycle do
   def teardown_actor("admin:" <> _), do: "admin"
   def teardown_actor(actor), do: actor
 
-  defp do_fence_sandbox_for_teardown(sandbox, ending_id) do
+  defp do_fence_sandbox_for_teardown(sandbox, opts) do
+    ending_id = Keyword.get(opts, :terminating_conversation_id)
+
     Repo.transaction(fn ->
       Repo.query!("SELECT pg_advisory_xact_lock($1, $2)", [
         @sandbox_lock_namespace,
@@ -767,11 +758,18 @@ defmodule Fountain.Conversations.Lifecycle do
         Repo.one(from s in Sandbox, where: s.id == ^sandbox.id, lock: "FOR UPDATE") ||
           Repo.rollback(:not_found)
 
+      # The detach's two refusals, on the locked row and the database's clock
+      # (stage 8b). Before the policy: a machine an owner is operating on is
+      # not one to decide anything about, and a caller that has left is not
+      # one to decide for.
+      refuse_busy_or_expired(current, opts)
+
       # The last-detach rule, through `Machines.Policy` since stage 7a. The
-      # `held_by_other?` half stays a query made *here*, on this transaction's
-      # own connection: it reads rows this advisory-locked transaction has
-      # written and not yet committed, so it can move behind neither a process
-      # nor a pure function (#2348 review).
+      # `held_by_other?` half — `Fountain.Machines.Binding.held_by_other?/2`
+      # since stage 8b — stays a query made *here*, on this transaction's own
+      # connection: it reads rows this advisory-locked transaction has written
+      # and not yet committed, so it can move behind neither a process nor a
+      # pure function (#2348 review).
       #
       # Passed as a thunk so it keeps `main`'s short-circuit: `or` never ran
       # that query for a `persistent` machine, and handing the answer in as a
@@ -780,7 +778,7 @@ defmodule Fountain.Conversations.Lifecycle do
       if not is_nil(ending_id) and
            Policy.keep_on_last_detach?(
              current.mode,
-             fn -> _unsafe_sandbox_held_by_other?(current.id, ending_id) end
+             fn -> Binding.held_by_other?(current.id, ending_id) end
            ) do
         Repo.rollback(:sandbox_kept)
       end
@@ -808,6 +806,23 @@ defmodule Fountain.Conversations.Lifecycle do
           {current, false}
       end
     end)
+  end
+
+  # One clock read, and only for a caller that asked for either check: the
+  # forced callers pay nothing. `statement_timestamp()` advances between
+  # statements, so this is the instant after the locked read rather than the
+  # transaction's start.
+  defp refuse_busy_or_expired(current, opts) do
+    refuse_busy? = Keyword.get(opts, :refuse_busy, false)
+    deadline = Keyword.get(opts, :deadline)
+
+    if refuse_busy? or not is_nil(deadline) do
+      now = Fountain.Machines.Lease.now()
+      if refuse_busy? and Machine.busy?(current, now), do: Repo.rollback(:machine_busy)
+      if Binding.expired?(deadline, now), do: Repo.rollback(:detach_expired)
+    end
+
+    :ok
   end
 
   defp lock_terminating_conversation(_sandbox, nil), do: :ok

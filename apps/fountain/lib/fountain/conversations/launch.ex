@@ -9,7 +9,7 @@ defmodule Fountain.Conversations.Launch do
   family — the reservation, the admission inference resolve and the one
   Horde `child_spec/3` builder every launch path now shares. Stage 7c moved
   the attach arm in behind it: `attach_conversation/3` and its two checks,
-  `check_attachable/4` and `check_attach_capacity/3`. `Conversations` still
+  `Machines.Binding.attachable/5` and `check_attach_capacity/3`. `Conversations` still
   keeps a delegate for every public name here, so no caller moves.
   """
 
@@ -32,16 +32,9 @@ defmodule Fountain.Conversations.Launch do
 
   alias Fountain.InferenceCredentials
   alias Fountain.InferenceCredentials.Source
+  alias Fountain.Machines.Binding
   alias Fountain.Machines.Machine
   alias Fountain.Repo
-
-  # Advisory-lock namespace for per-sandbox machine operations — must match
-  # `Fountain.Conversations`' own `@sandbox_lock_namespace` (4316); every
-  # module that takes this lock hardcodes the same integer rather than
-  # sharing the attribute, since module attributes do not cross a module
-  # boundary (`conversations/execution_guard.ex`, `conversations/sandbox_identity.ex`
-  # do the same).
-  @sandbox_lock_namespace 4316
 
   @doc """
   Create a new sandbox + conversation pair, start a ConversationServer
@@ -403,10 +396,13 @@ defmodule Fountain.Conversations.Launch do
          %Sandbox{} = sandbox <-
            Conversations.get_sandbox(sandbox_id, user_id) || {:error, :sandbox_not_found},
          :ok <- check_sandbox_api_attach(sandbox, attrs["sandbox_api_access"]),
-         :ok <- check_attachable(sandbox, agent, vault_id, env_id),
+         # A courtesy to the person waiting; the decision is the owner's, under
+         # its lock, inside `Machine.attach/3` (ADR 0058 stage 8b).
+         :ok <- Binding.attachable(sandbox, agent, vault_id, env_id),
          :ok <- check_attach_capacity(sandbox, agent, attrs["prompt"]),
-         {:ok, conv} <-
-           create_attached_conversation(
+         {:ok, conv, _allowance} <-
+           Machine.attach(
+             sandbox.id,
              %{
                sandbox_id: sandbox.id,
                agent_id: agent.id,
@@ -426,8 +422,7 @@ defmodule Fountain.Conversations.Launch do
                permission_policy: perm_policy,
                labels: attrs["labels"] || %{}
              },
-             attrs["execution_limits"],
-             opts
+             Keyword.put(opts, :request, attrs["execution_limits"])
            ) do
       Audit.record(%{
         user_id: user_id,
@@ -458,77 +453,14 @@ defmodule Fountain.Conversations.Launch do
     InferenceBinding.reserve(conv, Source.load(conv.inference_source))
   end
 
-  # Commit policy with the new conversation, before analytics, audit or prompt
-  # delivery. Lock its owners and recheck ceilings after the early preflight.
-  defp create_attached_conversation(attrs, request, opts) do
-    result =
-      Repo.transaction(fn ->
-        :ok = InferenceCredentials.lock_source(attrs.user_id)
-        # Reservation re-reads the parent before the Codex sandbox row. Take
-        # the same machine lock before this path's earlier sandbox row lock.
-        Repo.query!("SELECT pg_advisory_xact_lock($1, $2)", [
-          @sandbox_lock_namespace,
-          :erlang.phash2(attrs.sandbox_id)
-        ])
-
-        # Deliberately unlocked. `users` is the row every credit posting takes
-        # `FOR UPDATE` (`Credits.insert_and_move/3` holds it across a ledger
-        # insert, lot consumption and the balance move), so locking it here
-        # would park admission behind an unrelated billing transaction. This
-        # read is an ownership recheck; the ceiling below is read the same way,
-        # and the insert's foreign keys are what actually enforce integrity.
-        Repo.one(
-          from u in Fountain.Accounts.User,
-            where: u.id == ^attrs.user_id,
-            select: u.id
-        ) || Repo.rollback(:not_found)
-
-        agent =
-          Repo.one(
-            from a in Agents.Agent,
-              where: a.id == ^attrs.agent_id and a.user_id == ^attrs.user_id,
-              lock: "FOR SHARE"
-          ) || Repo.rollback(:not_found)
-
-        case unbind_rotated_channel(attrs, opts) do
-          :ok -> :ok
-          {:error, reason} -> Repo.rollback(reason)
-        end
-
-        sandbox =
-          Repo.one(
-            from s in Sandbox,
-              where: s.id == ^attrs.sandbox_id and s.user_id == ^attrs.user_id,
-              lock: "FOR NO KEY UPDATE"
-          ) || Repo.rollback(:not_found)
-
-        with :ok <- check_attachable(sandbox, agent, attrs.vault_id, attrs.environment_id),
-             {:ok, limits} <- Conversations.resolve_admission_limits(attrs.user_id, request),
-             {:ok, conv} <- Conversations.insert_conversation_row(attrs),
-             :ok <- reserve_inference(conv),
-             {:ok, allowance} <-
-               conv.id |> ExecutionAllowance.new_changeset(limits) |> Repo.insert() do
-          {conv, allowance}
-        else
-          {:error, reason} -> Repo.rollback(reason)
-        end
-      end)
-
-    with {:ok, {conv, allowance}} <- result do
-      Conversations.after_conversation_created(conv)
-      Conversations.record_execution_allowance_created(allowance, conv.user_id, opts)
-      {:ok, conv}
-    end
-  end
-
   defp deliver_attach_prompt(conv, attrs, opts) do
     prompt = attrs["prompt"]
 
     if is_binary(prompt) and prompt != "" do
       case ConversationServer.send_prompt(conv.id, prompt, attrs["images"] || [], opts) do
         :ok ->
-          # ownership: conv is the row create_attached_conversation just
-          # inserted above, in this same attach.
+          # ownership: conv is the row `Machine.attach/3` just inserted
+          # above, in this same attach.
           {:ok, Conversations._unsafe_get_conversation!(conv.id)}
 
         {:error, _} = err ->
@@ -540,8 +472,8 @@ defmodule Fountain.Conversations.Launch do
           err
       end
     else
-      # ownership: conv is the row create_attached_conversation just
-      # inserted above, in this same attach.
+      # ownership: conv is the row `Machine.attach/3` just inserted above,
+      # in this same attach.
       {:ok, Conversations._unsafe_get_conversation!(conv.id)}
     end
   end
@@ -561,63 +493,13 @@ defmodule Fountain.Conversations.Launch do
       else: {:error, :invalid_sandbox_api_access}
   end
 
-  defp check_attachable(%Sandbox{reset_requested_at: at}, _agent, _vault_id, _env_id)
-       when not is_nil(at),
-       do: {:error, :sandbox_reset_pending}
-
-  defp check_attachable(%Sandbox{status: status}, _agent, _vault_id, _env_id)
-       when status not in ["ready", "suspended"],
-       do: {:error, {:sandbox_not_attachable, status}}
-
-  defp check_attachable(%Sandbox{} = sandbox, %Agents.Agent{} = agent, vault_id, env_id) do
-    cond do
-      sandbox.agent_id != agent.id ->
-        {:error, :sandbox_identity_mismatch}
-
-      sandbox.vault_id != vault_id ->
-        {:error, :sandbox_identity_mismatch}
-
-      sandbox.environment_id != (env_id || agent.environment_id) ->
-        {:error, :sandbox_identity_mismatch}
-
-      # The disk was shaped by the runtime that first ran on it; an agent
-      # whose runtime changed since gets a new machine, not this one.
-      _unsafe_sandbox_runtime(sandbox.id) not in [nil, agent.runtime] ->
-        {:error, :sandbox_runtime_mismatch}
-
-      # An owner holds a live lease on this machine (ADR 0058 stage 6a): a
-      # destroy, a reset, or — from 6b — a park, between its intent and its
-      # finalize. An attach would bind a new conversation to a row that is not
-      # the row about to exist.
-      #
-      # **Last, after every permanent refusal**, and that order is the contract
-      # (round 1, locks review). This was the first arm, which made an
-      # identity-mismatched attach onto a busy machine answer a retryable 503
-      # instead of the 422 it answers on `main` — telling a caller to try again
-      # at something that will never work. A permanent no outranks a temporary
-      # one; the only refusal that still precedes it is the reset fence, in the
-      # clause above, which is more specific rather than less permanent (409,
-      # "the reset is queued", not "retry in 30s").
-      #
-      # The status clause above has already taken every non-`ready`/`suspended`
-      # row, so nothing terminal reaches here: a machine that finished is
-      # `{:sandbox_not_attachable, status}`.
-      Machine.busy?(sandbox) ->
-        {:error, :sandbox_unavailable}
-
-      true ->
-        :ok
-    end
-  end
-
   # With a prompt, the attach is a turn start too, so the capacity rule of
   # step 4 applies at the door; without one, the later prompt is gated by
   # `ConversationServer` as any prompt is.
   defp check_attach_capacity(%Sandbox{} = sandbox, %Agents.Agent{runtime: runtime}, prompt)
        when is_binary(prompt) and prompt != "" do
     # ownership: sandbox is the row attach_conversation's scoped get_sandbox
-    # fetched, or create_attached_conversation's own tenant-scoped
-    # FOR NO KEY UPDATE re-read. Counted per runtime, as the locked admission
+    # fetched. Counted per runtime, as the locked admission
     # the first prompt then makes is (ADR 0058 stage 8a): the conversation
     # does not exist yet, so every turn on the machine on this runtime counts.
     if Machine.at_capacity?(sandbox.id, nil, runtime),
@@ -626,17 +508,6 @@ defmodule Fountain.Conversations.Launch do
   end
 
   defp check_attach_capacity(_sandbox, _agent, _prompt), do: :ok
-
-  @doc "The runtime of the newest conversation on `sandbox_id`, or nil when it has none."
-  def _unsafe_sandbox_runtime(sandbox_id) when is_binary(sandbox_id) do
-    Repo.one(
-      from c in Conversation,
-        where: c.sandbox_id == ^sandbox_id,
-        order_by: [desc: c.inserted_at, desc: c.id],
-        limit: 1,
-        select: c.runtime
-    )
-  end
 
   # A start that never started: the row pair is failed together so the status
   # is visible on the conversation page.
@@ -986,9 +857,9 @@ defmodule Fountain.Conversations.Launch do
   # Inside admission's transaction, before the attachment's sandbox row lock.
   # Keep the selected conversation stable while replacing its binding; reject
   # a competing rotation that has already moved it.
-  # Public: `reserve_initial_conversation/4` and `create_attached_conversation/3`
-  # both call it, now that stage 7c of #2175 moved the last outside caller
-  # (`Fountain.Conversations`' attach) in here too.
+  # Public: `reserve_initial_conversation/4` and `Fountain.Machines.Binding.attach/3`
+  # both call it — the attach's transaction moved behind the owner in ADR 0058
+  # stage 8b and calls back here for the rotation.
   def unbind_rotated_channel(attrs, opts) do
     case Keyword.get(opts, :rotate_from) do
       nil ->

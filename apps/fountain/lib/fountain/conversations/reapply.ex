@@ -52,12 +52,13 @@ defmodule Fountain.Conversations.Reapply do
   (`Managoat.Runtimes.Layout`), not per-conversation ones, so rewriting them
   rewrites them for every conversation on that machine. Sharing only happens
   on a persistent home or an explicit `sandbox_id` attach, and
-  `Conversations.Launch.check_attachable/4` already pins every conversation on a
+  `Fountain.Machines.Binding.attachable/5` already pins every conversation on a
   machine to one `(user, agent, environment, vault)`. A conversation that has
   the machine to itself can therefore be reconfigured freely; one that shares
   it may only be reapplied to the selection its cotenants already have, which
-  is what a refresh is. The context applies that rule and reports it as the
-  `:shared_sandbox` blocker below.
+  is what a refresh is. The machine's owner applies that rule where the
+  identity is written (`Machine.retarget/3`, ADR 0058 stage 8b) and reports it
+  as the `:shared_sandbox` blocker below.
   """
 
   import Ecto.Query
@@ -70,10 +71,11 @@ defmodule Fountain.Conversations.Reapply do
     Conversation,
     InferenceBinding,
     InferenceResolution,
-    Lifecycle,
     Sandbox,
     Turn
   }
+
+  alias Fountain.Machines.Machine
 
   alias Fountain.Environments.Environment
   alias Fountain.InferenceCredentials
@@ -212,7 +214,7 @@ defmodule Fountain.Conversations.Reapply do
   @doc """
   Move the machine's binding identity to the selection just committed.
 
-  The identity is what `Conversations.Launch.check_attachable/4` matches a later
+  The identity is what `Fountain.Machines.Binding.attachable/5` matches a later
   attach against, so it has to follow the conversation rather than stay on
   the machine's original three. A persistent home is unique per identity, so
   a move onto one that already exists comes back as a changeset error on
@@ -224,24 +226,39 @@ defmodule Fountain.Conversations.Reapply do
   newly selected skills only become the recorded set once they are actually
   installed. Older disks have no record, so the configuration the conversation
   was launched with stands in.
-  """
-  @spec update_identity(map(), map(), String.t() | nil, String.t() | nil) ::
-          :ok | {:error, Ecto.Changeset.t()}
-  def update_identity(%{sandbox_id: nil}, _agent, _env_id, _vault_id), do: :ok
 
-  def update_identity(conv, agent, env_id, vault_id) do
+  Through the machine's owner (ADR 0058 stage 8b): `Machine.retarget/3` is
+  the one write of the identity, and it is where the co-tenant rule and the
+  build-fingerprint rule are applied under the lock — a machine other
+  conversations share may only be moved to the identity they already declare,
+  and a disk built from other inputs is refused. `expected_fingerprint` is the
+  digest `check/2` already matched the row against; the protocol matches it
+  again where the write happens.
+  """
+  @spec update_identity(map(), map(), String.t() | nil, String.t() | nil, keyword()) ::
+          :ok | {:error, term()}
+  def update_identity(conv, agent, env_id, vault_id, opts \\ [])
+
+  def update_identity(%{sandbox_id: nil}, _agent, _env_id, _vault_id, _opts), do: :ok
+
+  def update_identity(conv, agent, env_id, vault_id, opts) do
     # ownership: conv came from the tenant-scoped API fetch or its own server.
     sandbox = Conversations._unsafe_get_sandbox!(conv.sandbox_id)
     previous = sandbox.applied_skills || previous_skills(conv)
 
-    case Conversations.update_sandbox(sandbox, %{
-           agent_id: agent.id,
-           environment_id: env_id || agent.environment_id,
-           vault_id: vault_id,
-           applied_skills: previous
-         }) do
+    case Machine.retarget(
+           sandbox.id,
+           %{
+             agent_id: agent.id,
+             environment_id: env_id || agent.environment_id,
+             vault_id: vault_id,
+             applied_skills: previous
+           },
+           conversation_id: conv.id,
+           expected_fingerprint: Keyword.get(opts, :expected_fingerprint)
+         ) do
       {:ok, _} -> :ok
-      {:error, changeset} -> {:error, changeset}
+      {:error, _} = error -> error
     end
   end
 
@@ -284,6 +301,8 @@ defmodule Fountain.Conversations.Reapply do
     skills = (agent && agent.skills) || []
     runtime = conv.runtime || (agent && agent.runtime) || "claude"
 
+    # The record goes through the owner (ADR 0058 stage 8b); a skills-only
+    # retarget moves no identity and so meets neither of its refusals.
     with :ok <-
            Fountain.SandboxSkills.reconcile(
              handle,
@@ -291,7 +310,7 @@ defmodule Fountain.Conversations.Reapply do
              skills,
              sandbox.applied_skills || previous_skills(conv)
            ),
-         {:ok, _} <- Conversations.update_sandbox(sandbox, %{applied_skills: skills}) do
+         {:ok, _} <- Machine.retarget(sandbox.id, %{applied_skills: skills}) do
       :ok
     end
   end
@@ -451,7 +470,8 @@ defmodule Fountain.Conversations.Reapply do
            Conversations.resolve_environment_id(environment_selection, conv.user_id, agent),
          {:ok, _permission_policy} <-
            Conversations.resolve_permission_policy(conv.permission_policy, agent),
-         :ok <- assert_applicable_in_place(conv, agent, environment_id, vault_id),
+         {:ok, expected_fingerprint} <-
+           assert_applicable_in_place(conv, agent, environment_id, vault_id),
          {:ok, inference_source} <-
            resolve_reapplied_inference(conv, agent, environment_id, vault_id),
          {:ok, updated} <-
@@ -465,7 +485,10 @@ defmodule Fountain.Conversations.Reapply do
              inference_source: Source.dump(inference_source),
              configuration_revision: conv.configuration_revision + 1
            ),
-         :ok <- update_identity(conv, agent, environment_id, vault_id),
+         :ok <-
+           update_identity(conv, agent, environment_id, vault_id,
+             expected_fingerprint: expected_fingerprint
+           ),
          :ok <- reserve_reapplied_inference(updated, inference_source) do
       {:ok, {conv, updated}}
     end
@@ -526,39 +549,30 @@ defmodule Fountain.Conversations.Reapply do
 
   # Ownership: `conv` reached here from a tenant-scoped fetch, the sandbox is
   # its own, and the environments are looked up scoped to the same owner.
+  # `{:ok, expected_fingerprint}`: the digest the machine has to carry for the
+  # selection to apply in place, handed to `update_identity/5` so the owner's
+  # write matches it again under the lock. The co-tenant rule — skills,
+  # instructions and MCP config live at per-machine paths, so reconfiguring a
+  # shared machine reconfigures it for everyone on it — is the owner's too
+  # since ADR 0058 stage 8b, applied by `Machine.retarget/3` where the write
+  # happens; `explain(:shared_sandbox)` is still the sentence for it.
   defp assert_applicable_in_place(%Conversation{sandbox_id: nil}, _agent, _env_id, _vault_id),
-    do: :ok
+    do: {:ok, nil}
 
-  defp assert_applicable_in_place(%Conversation{} = conv, agent, environment_id, vault_id) do
+  defp assert_applicable_in_place(%Conversation{} = conv, agent, environment_id, _vault_id) do
+    # ownership: `conv` reached here from a tenant-scoped fetch, the sandbox is
+    # its own, and the environments are looked up scoped to the same owner.
     sandbox = Conversations._unsafe_get_sandbox(conv.sandbox_id)
-    target_environment_id = environment_id || agent.environment_id
-    target_identity = {agent.id, target_environment_id, vault_id}
+    target_environment = environment_for(environment_id || agent.environment_id, conv.user_id)
 
-    with :ok <- assert_not_shared(sandbox, conv, target_identity) do
-      check(sandbox,
-        current_runtime: conv.runtime,
-        target_runtime: agent.runtime,
-        target_environment: environment_for(target_environment_id, conv.user_id),
-        built_with: sandbox && environment_for(sandbox.environment_id, conv.user_id)
-      )
-    end
-  end
-
-  # Skills, instructions and MCP config live at per-machine paths, so
-  # reconfiguring a shared machine reconfigures it for its cotenants too.
-  # `Launch.check_attachable/4` pins every conversation on a machine to one identity,
-  # so a selection that still matches theirs is the refresh they would want
-  # anyway. Anything else is refused rather than imposed on them.
-  # Ownership: `conv` is the tenant-scoped row the caller fetched and
-  # `sandbox` is its own machine, read above.
-  defp assert_not_shared(nil, _conv, _target), do: :ok
-
-  defp assert_not_shared(%Sandbox{} = sandbox, conv, target) do
-    if Lifecycle._unsafe_sandbox_held_by_other?(sandbox.id, conv.id) and
-         {sandbox.agent_id, sandbox.environment_id, sandbox.vault_id} != target do
-      {:error, {:rebuild_required, :shared_sandbox}}
-    else
-      :ok
+    with :ok <-
+           check(sandbox,
+             current_runtime: conv.runtime,
+             target_runtime: agent.runtime,
+             target_environment: target_environment,
+             built_with: sandbox && environment_for(sandbox.environment_id, conv.user_id)
+           ) do
+      {:ok, fingerprint(target_environment)}
     end
   end
 

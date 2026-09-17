@@ -45,10 +45,13 @@ defmodule Fountain.Machines.MachineBoundsTest do
 
   alias Fountain.Conversations.ProvisionWatchdog
   alias Fountain.Machines.Admission
+  alias Fountain.Machines.Binding
   alias Fountain.Machines.Destroy
+  alias Fountain.Machines.Lease
   alias Fountain.Machines.Machine
   alias Fountain.Machines.Park
   alias Fountain.Machines.Provision
+  alias Fountain.Machines.Renewal
   alias Fountain.Machines.Resume
 
   # The ceiling `ConversationServer.call_server/2` reads. Duplicated rather than
@@ -214,7 +217,10 @@ defmodule Fountain.Machines.MachineBoundsTest do
   # `admit_timeout_ms` joined in stage 8a round 1: it is the test seam for the
   # owner-side deadline on an admission, and a `lib/` caller passing it would
   # replace `Machine.admit_timeout_ms/0` for that call with nothing noticing.
-  @bound_option ~r/\b(busy_wait_ms|lease_ttl_ms|deadline_ms|admit_timeout_ms):/
+  #
+  # `attach_timeout_ms`, `detach_timeout_ms` and `resume_timeout_ms` joined in
+  # stage 8b, each the test seam for the deadline its owner message carries.
+  @bound_option ~r/\b(busy_wait_ms|lease_ttl_ms|deadline_ms|admit_timeout_ms|attach_timeout_ms|detach_timeout_ms|resume_timeout_ms):/
 
   test "an admission's ladder, and why it has no lease to sit under" do
     # An admission is one transaction that may first wait out a live lease, so
@@ -243,6 +249,51 @@ defmodule Fountain.Machines.MachineBoundsTest do
     Code.ensure_loaded!(Admission)
     assert function_exported?(Admission, :busy_wait_ms, 0), "the refutation below proves nothing"
     refute function_exported?(Admission, :lease_ttl_ms, 0)
+  end
+
+  test "the binding's ladders, and the early takeover's headroom (stage 8b)" do
+    # An attach is one transaction with no wait beneath it — a live lease
+    # refuses it at once, stage 6a's decision for the attach door — so its
+    # one bound is the request behind it, and it takes the destroy's number
+    # under the client's ceiling. A detach waits out a live lease first, for
+    # `Binding.busy_wait_ms/0`, and sits above that wait the way a destroy sits
+    # above its own.
+    assert Machine.attach_timeout_ms() == Machine.destroy_timeout_ms()
+    assert Machine.detach_timeout_ms() == Machine.destroy_timeout_ms()
+    assert Binding.busy_wait_ms() == Destroy.busy_wait_ms()
+
+    assert Binding.busy_wait_ms() < Machine.detach_timeout_ms(),
+           "a caller that gives up before the protocol's own wait would report a refusal " <>
+             "that has not happened yet"
+
+    assert Machine.detach_timeout_ms() - Binding.busy_wait_ms() >= 5_000
+    assert Machine.attach_timeout_ms() < @conversation_call_timeout_ms
+    assert Machine.detach_timeout_ms() < @conversation_call_timeout_ms
+
+    # Neither takes a lease, so neither has a TTL to sit under; a positive
+    # control, for the reason the provision case gives.
+    Code.ensure_loaded!(Binding)
+    assert function_exported?(Binding, :busy_wait_ms, 0), "the refutation below proves nothing"
+    refute function_exported?(Binding, :lease_ttl_ms, 0)
+
+    # The early takeover (`Lease.absent_node_headroom_ms/0`): a holder that is
+    # not a connected node is taken over once its remaining lease is under this.
+    # A live renewer renews every `Renewal.divisor/0`th of its TTL, so its
+    # remaining lease never falls under one renew interval of its own TTL
+    # without two renewals in a row missed. The headroom must therefore sit at
+    # or under one renew interval of the *shortest* TTL any protocol takes, or
+    # a live but momentarily unrenewed holder of that TTL could be evicted.
+    shortest_ttl =
+      Enum.min([
+        Destroy.lease_ttl_ms(),
+        Park.lease_ttl_ms(),
+        Resume.lease_ttl_ms(),
+        Provision.lease_ttl_ms()
+      ])
+
+    assert Lease.absent_node_headroom_ms() == 20_000
+    assert Lease.absent_node_headroom_ms() <= div(shortest_ttl, Renewal.divisor())
+    assert Renewal.divisor() == 3
   end
 
   test "no call site overrides the bounds" do
@@ -282,7 +333,9 @@ defmodule Fountain.Machines.MachineBoundsTest do
           "apps/fountain/lib/fountain/machines/park.ex",
           "apps/fountain/lib/fountain/machines/resume.ex",
           "apps/fountain/lib/fountain/machines/provision.ex",
-          "apps/fountain/lib/fountain/machines/admission.ex"
+          "apps/fountain/lib/fountain/machines/admission.ex",
+          "apps/fountain/lib/fountain/machines/binding.ex",
+          "apps/fountain/lib/fountain/team.ex"
         ] do
       assert MapSet.member?(relative, site),
              "the scan missed #{site} (#{length(files)} files under #{root}), so an " <>

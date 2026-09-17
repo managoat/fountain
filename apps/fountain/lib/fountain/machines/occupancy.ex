@@ -5,7 +5,8 @@ defmodule Fountain.Machines.Occupancy do
 
   Four unrelated predicates used to answer that question, each with its own
   query and its own idea of what counts — `Conversations._unsafe_sandbox_busy_elsewhere?/4`,
-  `Lifecycle._unsafe_sandbox_held_by_other?/2`, `Lifecycle.live_conversation_ids/1`
+  `Lifecycle._unsafe_sandbox_held_by_other?/2` (`Machines.Binding.held_by_other?/2`
+  since stage 8b), `Lifecycle.live_conversation_ids/1`
   and `Lifecycle.any_server_alive?/1`. They all delegate here now. The
   differences between them were deliberate, so this module keeps every one of
   them rather than flattening them into a single boolean; what is shared is
@@ -168,7 +169,7 @@ defmodule Fountain.Machines.Occupancy do
   Whether a conversation other than `conv_id` still holds the machine —
   status only, no clock.
 
-  What `Lifecycle._unsafe_sandbox_held_by_other?/2` answers: a sandbox
+  What `Machines.Binding.held_by_other?/2` answers: a sandbox
   normally has one conversation and gets a second when a teammate starts a
   fresh one on the same computer, and from then on the retired thread's
   lifecycle must not reach the disk its successor is running on.

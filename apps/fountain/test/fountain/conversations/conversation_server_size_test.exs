@@ -73,7 +73,15 @@ defmodule Fountain.Conversations.ConversationServerSizeTest do
   # make a number. The server's own `update_sandbox` and
   # `Managoat.Sandbox.destroy` sites are stage 8's, and they are the ones that
   # lower this properly. The file is 2211 lines on this branch.
-  @pin 2025
+  #
+  # 2025 → 2022. ADR 0058 stage 8b made the last-detach decision the owner's:
+  # `handle_call({:terminate_conv, ..})` asks `Machine.detach/2` once and reads
+  # three answers where it used to ask the fence and read two, and `:release_conv`
+  # goes through the same door. Nothing left this file — the provision and
+  # reattach writes went in 7b — so the shrink is what tightening the pin to
+  # the file allows and no more; the file is 2022 lines on this branch, 2008
+  # after 8a.
+  @pin 2022
 
   @server "apps/fountain/lib/fountain/conversations/conversation_server.ex"
 

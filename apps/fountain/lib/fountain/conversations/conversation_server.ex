@@ -893,11 +893,19 @@ defmodule Fountain.Conversations.ConversationServer do
     end
   end
 
+  # The last-detach decision is the owner's (ADR 0058 stage 8b): kept, or
+  # fenced and this server's to finish once its adapter is closed. A machine
+  # somebody else already finished reads as fenced too, as a terminal row did.
   def handle_call({:terminate_conv, opts}, _from, state) when is_list(opts) do
-    case prepare_termination(state, opts) do
-      {:ok, _sandbox} -> terminate_machine(state, opts)
-      {:error, :sandbox_kept} -> terminate_kept_machine(state)
-      {:error, _} = error -> {:reply, error, state}
+    case detach_machine(state, opts) do
+      {:ok, outcome} when outcome in [:detached, :already_terminal] ->
+        terminate_machine(state, opts)
+
+      {:ok, :kept} ->
+        terminate_kept_machine(state)
+
+      {:error, _} = error ->
+        {:reply, error, state}
     end
   end
 
@@ -912,7 +920,7 @@ defmodule Fountain.Conversations.ConversationServer do
   end
 
   def handle_call(:release_conv, _from, state) do
-    case Termination._unsafe_release_conversation(state.conversation_id) do
+    case Termination._unsafe_release_binding(state.conversation_id, state.sandbox_id, []) do
       :ok ->
         state = drop_connection(state, "released")
         Output.publish_stage(state.conversation_id, "terminate", "done", %{event: "released"})
@@ -1391,9 +1399,14 @@ defmodule Fountain.Conversations.ConversationServer do
     do: Reattachment.fail_transport(Pending.resolve_held(state, "turn_ended"), reason)
 
   # ownership: init/1 established this actor's conversation and sandbox; the
-  # conditional fence rechecks this actor's parent and owner.
-  defp prepare_termination(state, opts),
-    do: Termination._unsafe_fence_machine(state.sandbox_id, state.conversation_id, opts)
+  # detach's fence rechecks this actor's parent and owner under its lock. No
+  # machine is no binding to end, and answers as the fence did: unavailable.
+  defp detach_machine(%{sandbox_id: nil}, _opts), do: {:error, :sandbox_unavailable}
+
+  defp detach_machine(state, opts) do
+    opts = [conversation_id: state.conversation_id] ++ Keyword.take(opts, [:actor, :request_ip])
+    Machine.detach(state.sandbox_id, opts)
+  end
 
   defp terminate_kept_machine(state) do
     # The machine is shared, or it is the agent's home (ADR 0023): end this
@@ -1414,19 +1427,18 @@ defmodule Fountain.Conversations.ConversationServer do
     })
   end
 
-  # The machine goes through its owner (ADR 0058 stage 5): the fence
-  # `prepare_termination/2` committed is repeated there — idempotently, no
-  # second `sandbox.teardown_requested`, both timestamps preserved — and the
-  # provider destroy, the terminal write and the `sandbox.destroyed` event are
-  # the protocol's. `terminating_conversation_id: nil` because the kept-or-
-  # destroy decision was `prepare_termination/2`'s and is not reopened here;
+  # The machine goes through its owner (ADR 0058 stage 5): the fence the
+  # detach committed is repeated there — idempotently, no second
+  # `sandbox.teardown_requested`, both timestamps preserved — and the provider
+  # destroy, the terminal write and the `sandbox.destroyed` event are the
+  # protocol's. `terminating_conversation_id: nil` because the kept-or-destroy
+  # decision was the detach's and is not reopened here;
   # `Termination._unsafe_destroy_machine/2` says why. A refusal is logged, not
   # raised: this conversation ends either way, and `Workers.SandboxReaper`
   # collects a destroy that could not finish.
   #
   # ownership: init/1 established this actor's conversation and sandbox, and
-  # `prepare_termination/2` above has just re-checked the binding under the
-  # per-sandbox lock.
+  # the detach above has just re-checked the binding under the sandbox lock.
   defp terminate_machine(state, opts) do
     state = if state.current_turn, do: interrupt_turn(state), else: state
     state = drop_connection(state, "terminated")

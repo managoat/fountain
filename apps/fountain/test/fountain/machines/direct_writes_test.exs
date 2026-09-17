@@ -235,7 +235,34 @@ defmodule Fountain.Machines.DirectWritesTest do
   # to every prompt that arrived during an upload. They leave together, when
   # checkpointing gets an owner verb. The third is `sandbox_reaper.ex`'s destroy
   # of a terminal row, which no owner claims (stage 5 decision).
-  @row_writes 12
+  #
+  # 12 -> 7: stage 8b moved the binding writes behind `Fountain.Machines.Binding`
+  # and deleted two writers that had no caller.
+  #
+  #   gone  `reapply.ex`             `update_identity/4`'s and `mount_skills/3`'s
+  #                                  `update_sandbox/2`, now `Machine.retarget/3`
+  #   gone  `inference_binding.ex`   `compatible_machine/2`'s `codex_inference_source`
+  #                                  stamp, now `Machine.bind_inference/2`
+  #   gone  `sandbox_identity.ex`    the whole module: `_unsafe_capture/2` and
+  #                                  `_unsafe_bind/2` had no caller in any app
+  #   gone  `conversations.ex`       `claim_sandbox/2`, whose one call to
+  #                                  `update_sandbox/2` counted and whose last
+  #                                  caller left with stage 7b
+  #
+  # **Seven row writes remain and the gate does not read zero**, which the
+  # ADR's stage 8 row promised. None of them is a binding write, and each has
+  # a stage or a reason: `create_sandbox/1`'s insert is the row's creation,
+  # which stage 7b made the reservation a provision bracket begins after;
+  # `do_update_sandbox/2` is the context's own door, with two callers left,
+  # both in `sandbox_reaper.ex` — `release_stuck_sandboxes/0` and
+  # `finish_teardown/1`, the two passes stage 9 turns into owner verbs once
+  # `destroying` is the one durable transition; `register_server/2`'s
+  # `woken_at` marker is written by the registration door under the sandbox
+  # lock, not by an operation, until the rehydrator starts servers through
+  # the owner; and the reset fence (`do_reset_sandbox/2`) and the teardown
+  # fence (`do_fence_sandbox_for_teardown/2`) are the two columns stage 9
+  # deletes with the flag. Stage 9's inventory on #2344 carries all seven.
+  @row_writes 7
   @provider_mutations 3
 
   @provider_verbs ~w(create_checkpoint create resume suspend destroy)
@@ -309,11 +336,10 @@ defmodule Fountain.Machines.DirectWritesTest do
     "apps/fountain/lib/fountain/conversations.ex",
     "apps/fountain/lib/fountain/conversations.ex",
     # `do_fence_sandbox_for_teardown/2` — the teardown fence.
-    "apps/fountain/lib/fountain/conversations/lifecycle.ex",
-    # `bind/2` stamping `provider_instance_id` on first binding.
-    "apps/fountain/lib/fountain/conversations/sandbox_identity.ex",
-    # `compatible_machine/2` stamping `codex_inference_source`.
-    "apps/fountain/lib/fountain/conversations/inference_binding.ex"
+    "apps/fountain/lib/fountain/conversations/lifecycle.ex"
+    # Stage 8b: `sandbox_identity.ex`'s `provider_instance_id` stamp is gone
+    # with the module, and `inference_binding.ex`'s `codex_inference_source`
+    # stamp is `Machines.Binding.bind_inference/2`'s.
   ]
 
   test "the widened scan sees the row writes that are not calls to the context" do
@@ -544,6 +570,55 @@ defmodule Fountain.Machines.DirectWritesTest do
              "\n\nA turn row is admitted and ended through the owner's two doors only " <>
              "(ADR 0058 stage 8a); a bulk write names neither. The one allowed is the " <>
              "detached-permission resolution, which never writes status."
+  end
+
+  # `{:machine_gone, ..}` is sent by the owner only (ADR 0058 stage 8b, the
+  # verb table's last row): `MachineEvents.tell_cotenants/5` is the one
+  # function that casts it, and the only callers of that function outside
+  # `lib/fountain/machines/` are its definer and nobody. `Wake` used to cast it
+  # itself for the co-tenants of a replaced machine; those notices go through
+  # `Machine.destroy/2`'s `:notify` now. The receiver's clause in
+  # `conversation_server.ex` is the one other place the tuple is spelled.
+  @machine_gone_senders [
+    {"tell_cotenants(", ["apps/fountain/lib/fountain/conversations/machine_events.ex"]},
+    {"{:machine_gone,",
+     [
+       "apps/fountain/lib/fountain/conversations/conversation_server.ex",
+       "apps/fountain/lib/fountain/conversations/machine_events.ex"
+     ]}
+  ]
+
+  test "the machine-gone cast is sent from the owner's namespace only" do
+    root = Path.expand("../../../../..", __DIR__)
+    files = source_files(root)
+    relative = MapSet.new(files, &Path.relative_to(&1, root))
+
+    for site <- [
+          "apps/fountain/lib/fountain/conversations/wake.ex",
+          "apps/fountain/lib/fountain/conversations/lifecycle.ex",
+          "apps/fountain/lib/fountain/conversations/termination.ex"
+        ] do
+      assert MapSet.member?(relative, site),
+             "the scan missed #{site} (#{length(files)} files under #{root}); a direct " <>
+               "sender there would not be seen"
+    end
+
+    for {marker, allowed} <- @machine_gone_senders do
+      callers =
+        files
+        |> Enum.filter(fn file ->
+          file |> File.read!() |> strip_docs_and_comments() |> String.contains?(marker)
+        end)
+        |> Enum.map(&Path.relative_to(&1, root))
+        |> Enum.sort()
+
+      assert callers == Enum.sort(allowed),
+             "`#{marker}` appears outside `lib/fountain/machines/` in:\n  " <>
+               Enum.join(callers, "\n  ") <>
+               "\n\nThe owner tells a machine's conversations it is gone, through " <>
+               "`Machine.destroy/2`'s or `Machine.park/2`'s `:notify` (ADR 0058 stage 8b). " <>
+               "A new sender is a decision, not a refactor."
+    end
   end
 
   # The scan's own positive control for the bulk shape, the way the sandboxes

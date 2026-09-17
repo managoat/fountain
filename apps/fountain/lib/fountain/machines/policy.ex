@@ -27,7 +27,7 @@ defmodule Fountain.Machines.Policy do
   ## What deliberately did not move
 
   **The questions, only the answers.** `home?/1`, `busy_elsewhere?/2` and
-  `_unsafe_sandbox_held_by_other?/2` each run a query, and two of them run it
+  `Binding.held_by_other?/2` each run a query, and two of them run it
   inside the teardown fence's own transaction where it must stay on the caller's
   connection (#2348 review). A pure module that took a `Repo` with it would be
   neither pure nor a policy. So the caller answers "is this a home?" and "is

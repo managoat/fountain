@@ -429,7 +429,7 @@ defmodule FountainWeb.TeamControllerTest do
       raw_key: key
     } do
       ada = insert_agent(user_id: user.id, name: "Ada")
-      sandbox = insert_sandbox(user_id: user.id, status: "ready")
+      sandbox = insert_sandbox(user_id: user.id, agent_id: ada.id, status: "ready")
       prev = insert_teammate_conv(user, ada, sandbox: sandbox, title: "Ada (staging)")
 
       body =

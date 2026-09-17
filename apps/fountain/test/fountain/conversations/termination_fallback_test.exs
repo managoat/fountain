@@ -62,23 +62,32 @@ defmodule Fountain.Conversations.TerminationFallbackTest do
     assert [_] = events(ctx, "conversation.terminated")
   end
 
-  # Rewritten at ADR 0058 stage 6a. This used to assert that an attach landing
-  # between the lease claim and the fence *won* — it kept the machine, and the
-  # destroy then found a cotenant and stood down. Stage 6a moves the point at
-  # which a machine stops taking new work from the fence back to the lease
-  # claim, which is where the ADR puts it ("the owner is a lease first"): an
-  # attach that meets a live lease is refused with `:sandbox_unavailable`, 503
-  # and retryable, and the destroy it raced runs to completion.
+  # Rewritten at ADR 0058 stage 6a, and again at 8b. Stage 6a asserted that an
+  # attach landing between the destroy's lease claim and its fence was refused
+  # on the lease (`:sandbox_unavailable`). Stage 8b put the last-detach
+  # decision in front of the destroy: `Machine.detach/2` fences under the
+  # machine's lock first, and only then does `Machine.destroy/2` claim its
+  # lease and repeat the fence. So the point at which this machine stops taking
+  # new work is the detach's commit, and an attach that arrives after it meets
+  # the fence — `:sandbox_reset_pending`, the 409 that says the machine is
+  # going, which is what an attach after `main`'s fence always met. The lease
+  # window 6a closed is still closed for the forced destroys, which fence
+  # under their lease (`destroy_forced_test.exs`); on this path there is no
+  # longer a moment between "decided" and "closed" for an attach to land in.
   #
-  # The window this closes is the one #2307 constraint 2 names. What the caller
-  # loses is a machine it would have saved by a few milliseconds' luck; what it
-  # gets is a retry that lands on a settled machine instead of a binding to one
-  # somebody is halfway through destroying. Stage 8 makes the same refusal
-  # structural, when `attach` itself goes through the owner.
-  test "an attachment that arrives after the lease is claimed is refused", ctx do
-    expect(Lifecycle, :fence_sandbox_for_teardown, fn sandbox, opts ->
-      assert {:error, :sandbox_unavailable} = attach(ctx)
-      Mimic.call_original(Lifecycle, :fence_sandbox_for_teardown, [sandbox, opts])
+  # Both fence calls are expected: the detach's, which carries the terminating
+  # conversation and makes the decision, and the destroy's repeat, which does
+  # not. The attach is tried after the first has committed.
+  test "an attachment that arrives after the detach has decided is refused", ctx do
+    expect(Lifecycle, :fence_sandbox_for_teardown, 2, fn sandbox, opts ->
+      result = Mimic.call_original(Lifecycle, :fence_sandbox_for_teardown, [sandbox, opts])
+
+      if Keyword.has_key?(opts, :terminating_conversation_id) do
+        assert {:ok, _fenced} = result
+        assert {:error, :sandbox_reset_pending} = attach(ctx)
+      end
+
+      result
     end)
 
     expect(Managoat.Sandbox, :destroy, fn _ -> :ok end)

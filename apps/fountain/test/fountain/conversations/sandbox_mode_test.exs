@@ -136,7 +136,7 @@ defmodule Fountain.Conversations.SandboxModeTest do
 
     ephemeral = insert_sandbox(user_id: ctx.user.id, status: "ready", mode: "ephemeral")
     alone = insert_conversation(user_id: ctx.user.id, agent: ctx.agent, sandbox: ephemeral)
-    refute Lifecycle._unsafe_sandbox_held_by_other?(ephemeral.id, alone.id)
+    refute Fountain.Machines.Binding.held_by_other?(ephemeral.id, alone.id)
   end
 
   test "a wake onto a fresh sandbox keeps the home a home", ctx do

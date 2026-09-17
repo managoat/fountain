@@ -822,7 +822,17 @@ defmodule Fountain.TeamTest do
       ada = insert_agent(user_id: user.id, name: "Ada")
       env = insert_env(user_id: user.id)
       vault = insert_vault(user_id: user.id)
-      sandbox = insert_sandbox(user_id: user.id, status: "ready")
+
+      # The identity the machine was built for: the successor attaches through
+      # the owner's door since ADR 0058 stage 8b, and that door matches it.
+      sandbox =
+        insert_sandbox(
+          user_id: user.id,
+          agent_id: ada.id,
+          environment_id: env.id,
+          vault_id: vault.id,
+          status: "ready"
+        )
 
       prev =
         insert_teammate_conv(user, ada,
@@ -871,7 +881,7 @@ defmodule Fountain.TeamTest do
     test "a parked computer is kept too, and stays parked" do
       user = insert_verified_user()
       ada = insert_agent(user_id: user.id)
-      sandbox = insert_sandbox(user_id: user.id, status: "suspended")
+      sandbox = insert_sandbox(user_id: user.id, agent_id: ada.id, status: "suspended")
       insert_teammate_conv(user, ada, sandbox: sandbox, status: "idle")
 
       assert {:ok, fresh} = Team.open_fresh_conversation(user.id, ada.id)
@@ -902,6 +912,46 @@ defmodule Fountain.TeamTest do
 
       actions = user.id |> Audit.list_recent_for_user(20) |> Enum.map(& &1.action)
       refute "team.conversation.rotated" in actions
+    end
+
+    test "the successor goes through the attach door: a fenced or held computer refuses it" do
+      # ADR 0058 stage 8b: `open_on_sandbox/4` used to insert the successor's
+      # row with no look at the machine. Through `Machine.attach/3` it meets
+      # the door's checks — here the reset fence and a live lease — and the
+      # rotation answers with the door's words rather than creating a
+      # conversation on a computer that is going away or mid-operation. The
+      # release lands first either way, as a refused `start_conversation/2` on
+      # the new-computer path leaves it, and nothing is created.
+      user = insert_verified_user()
+
+      refused = fn prepare, expected ->
+        agent = insert_agent(user_id: user.id)
+        sandbox = insert_sandbox(user_id: user.id, agent_id: agent.id, status: "ready")
+        prev = insert_teammate_conv(user, agent, sandbox: sandbox, status: "idle")
+        prepare.(sandbox)
+
+        assert {:error, ^expected} = Team.open_fresh_conversation(user.id, agent.id)
+        assert Repo.reload!(prev).status == "terminated"
+
+        assert [prev.id] ==
+                 user.id |> Team.list_teammate_conversations(agent.id) |> Enum.map(& &1.id)
+      end
+
+      refused.(
+        fn sandbox ->
+          sandbox
+          |> Ecto.Changeset.change(reset_requested_at: DateTime.utc_now())
+          |> Repo.update!()
+        end,
+        :sandbox_reset_pending
+      )
+
+      refused.(
+        fn sandbox ->
+          {:ok, _} = Fountain.Machines.Lease.claim(sandbox.id, "other@node", 60_000)
+        end,
+        :sandbox_unavailable
+      )
     end
 
     test "a computer still starting cannot change hands" do

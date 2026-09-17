@@ -10,8 +10,9 @@ defmodule Fountain.Conversations.InferenceBinding do
   """
   import Ecto.Query
   alias Fountain.{InferenceCredentials, Repo}
-  alias Fountain.Conversations.{Conversation, Sandbox}
+  alias Fountain.Conversations.Conversation
   alias Fountain.InferenceCredentials.Source
+  alias Fountain.Machines.Machine
 
   @configuration_fields ~w(configuration_revision sandbox_id agent_id agent_version_id runtime environment_id vault_id)a
 
@@ -77,45 +78,8 @@ defmodule Fountain.Conversations.InferenceBinding do
       else: {:error, :inference_source_changed}
   end
 
-  defp compatible_machine(%{runtime: runtime}, _) when runtime != "codex", do: :ok
-
-  defp compatible_machine(conv, source) do
-    sandbox =
-      Repo.one(
-        from s in Sandbox,
-          where: s.id == ^conv.sandbox_id and s.user_id == ^conv.user_id,
-          lock: "FOR NO KEY UPDATE"
-      )
-
-    if sandbox do
-      peers =
-        Repo.all(
-          from c in Conversation,
-            where: c.sandbox_id == ^sandbox.id and c.id != ^conv.id and c.runtime == "codex",
-            select: c.inference_source
-        )
-
-      stored = sandbox.codex_inference_source
-
-      fresh? = sandbox.status in ["pending", "starting"]
-
-      if ((is_nil(stored) and fresh?) or compatible?(stored, Source.dump(source))) and
-           Enum.all?(peers, &compatible?(&1, Source.dump(source))) do
-        sandbox
-        |> Ecto.Changeset.change(codex_inference_source: Source.dump(source))
-        |> Repo.update!()
-
-        :ok
-      else
-        {:error, :codex_inference_conflict}
-      end
-    else
-      {:error, :sandbox_not_found}
-    end
-  end
-
-  defp compatible?(nil, _), do: false
-
-  defp compatible?(left, right),
-    do: Map.take(left, ~w(kind identity revision)) == Map.take(right, ~w(kind identity revision))
+  # The machine's Codex auth binding is the owner's to decide and write (ADR
+  # 0058 stage 8b, `Fountain.Machines.Binding.bind_inference/2`); it runs
+  # inside this transaction, under the locks `with_current/2` took.
+  defp compatible_machine(current, source), do: Machine.bind_inference(current, source)
 end

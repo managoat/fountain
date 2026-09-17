@@ -262,7 +262,7 @@ defmodule Fountain.Machines.MachineTest do
         preloaded = Fountain.Repo.preload(ctx.sandbox, :conversations, force: true)
 
         assert Conversations._unsafe_sandbox_busy_elsewhere?(ctx.sandbox.id, ctx.a.id, 3600)
-        assert Lifecycle._unsafe_sandbox_held_by_other?(ctx.sandbox.id, ctx.a.id)
+        assert Fountain.Machines.Binding.held_by_other?(ctx.sandbox.id, ctx.a.id)
         assert Lifecycle.live_conversation_ids(preloaded) == []
         refute Lifecycle.any_server_alive?(preloaded)
         assert Conversations._unsafe_list_cotenant_ids(ctx.sandbox.id, ctx.a.id) == [ctx.b.id]

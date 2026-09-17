@@ -229,7 +229,7 @@ defmodule Fountain.Machines.AdmissionTest do
 
       # One line per refused prompt (round 1): the door's, naming the lease.
       assert log =~ "turn admission unavailable (an owner holds the lease)"
-      assert length(String.split(log, "turn admission")) == 2
+      assert length(Regex.scan(~r/turn admission unavailable/, log)) == 1
     end
 
     test "refuses an enclosing transaction at the door and in the protocol", ctx do
@@ -358,6 +358,62 @@ defmodule Fountain.Machines.AdmissionTest do
       assert [%Turn{status: "running"}] = turns(ctx.conv)
     end
 
+    test "an expired message under a live cotenant lease is refused from one clock read", ctx do
+      # Why the owner-side pre-check is not redundant with the write's (round
+      # 2, behaviour review): the write's deadline check sits after the
+      # machine's own verdicts, so an expired message that finds a cotenant's
+      # lease live would answer `:machine_busy` and poll the locked insert for
+      # the whole `busy_wait_ms` on a caller that left. The pre-check refuses
+      # it before any lock is asked for. Driven by handing the owner the
+      # message itself, with a deadline already past, under a live lease.
+      test = self()
+      {:ok, _epoch} = Lease.claim(ctx.sandbox.id, "other@node", 60_000)
+      handler = {__MODULE__, make_ref()}
+
+      :telemetry.attach(handler, [:fountain, :repo, :query], &__MODULE__.report_lock/4, test)
+
+      try do
+        with_gate(true, fn ->
+          {:ok, owner} = Machine.ensure_started(ctx.sandbox.id)
+          past = DateTime.add(Lease.now(), -1, :second)
+          started = System.monotonic_time(:millisecond)
+
+          quietly(fn ->
+            assert {:error, :admission_expired} =
+                     GenServer.call(owner, {:admit_turn, attrs(ctx.conv), [], past})
+          end)
+
+          assert System.monotonic_time(:millisecond) - started < 250,
+                 "the expired message polled the locked insert instead of refusing at once"
+        end)
+      after
+        :telemetry.detach(handler)
+      end
+
+      refute_received :sandbox_lock_taken, "the owner reached for 4316 for a caller that had left"
+      assert turns(ctx.conv) == []
+    end
+
+    test "a message from a caller on the previous release is refused, not crashed on", ctx do
+      # The other direction of the mixed-version note (round 2, surfaces
+      # review): a caller on the round-1 head sends the three-tuple, with no
+      # deadline. An owner without a clause for it would crash, and a
+      # cotenant's park queued behind it would go with it. It is refused in the
+      # one word every version of the door translates.
+      with_gate(true, fn ->
+        {:ok, owner} = Machine.ensure_started(ctx.sandbox.id)
+
+        quietly(fn ->
+          assert {:error, :machine_busy} =
+                   GenServer.call(owner, {:admit_turn, attrs(ctx.conv), []})
+        end)
+
+        assert Machine.whereis(ctx.sandbox.id) == owner
+      end)
+
+      assert turns(ctx.conv) == []
+    end
+
     test "an owner that cannot run the admission refuses rather than admitting inline", ctx do
       # The mixed-version shape: with the gate on, a `{:admit_turn, ..}` call
       # reaching an owner process that cannot serve it — a replica on the
@@ -454,6 +510,77 @@ defmodule Fountain.Machines.AdmissionTest do
             Task.await(park)
             assert Repo.reload!(sandbox).status == "ready"
             assert is_nil(Repo.reload!(sandbox).lease_node)
+          after
+            Task.shutdown(park, :brutal_kill)
+          end
+        after
+          Task.shutdown(admission, :brutal_kill)
+          :telemetry.detach(handler)
+          discard(user, [sandbox])
+        end
+      end)
+    end
+
+    test "admission first: a sweep waits on the lock, then is refused by the server driving the turn",
+         _ctx do
+      # The reaper's order, kept beside the reshaped case (round 2). For a
+      # sweep the *registry* refuses first — `held_by_somebody_else?/2` answers
+      # on any live server before a turn is read — so what this proves is the
+      # lock wait and the refusal, not which arm; the turn arm on its own is
+      # what the test above proves, and `park_test.exs` drives the sweep's
+      # turn arm without the race.
+      Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
+        user = insert_verified_user()
+        agent = insert_agent(user_id: user.id, runtime: "opencode")
+        sandbox = insert_sandbox(user_id: user.id, agent_id: agent.id, status: "ready")
+
+        conv =
+          insert_conversation(user_id: user.id, agent: agent, sandbox: sandbox, status: "idle")
+
+        stand_in_server(conv.id)
+        owner = self()
+        handler = {__MODULE__, make_ref()}
+
+        :telemetry.attach(
+          handler,
+          [:fountain, :repo, :query],
+          &__MODULE__.pause_admission/4,
+          owner
+        )
+
+        admission =
+          independent(fn ->
+            Process.put(:pause_admission_test, true)
+            Admission.run(sandbox.id, attrs(conv))
+          end)
+
+        try do
+          assert_receive :turn_inserted, 5_000
+
+          park =
+            independent(fn ->
+              reject(&Managoat.Sandbox.suspend/1)
+
+              capture_log(fn ->
+                send(
+                  owner,
+                  {:park, Park.run(sandbox.id, actor: "system:sandbox_reaper", reason: :idle)}
+                )
+              end)
+            end)
+
+          try do
+            park_pid = park.pid
+            assert_receive {:backend, ^park_pid, park_backend}, 5_000
+            await_blocked(park_backend, System.monotonic_time(:millisecond) + 5_000)
+            assert Task.yield(park, 0) == nil
+
+            send(admission.pid, :commit)
+            assert {:ok, %Turn{status: "running"}} = Task.await(admission)
+
+            assert_receive {:park, {:error, :machine_occupied}}, 5_000
+            Task.await(park)
+            assert Repo.reload!(sandbox).status == "ready"
           after
             Task.shutdown(park, :brutal_kill)
           end
@@ -615,6 +742,41 @@ defmodule Fountain.Machines.AdmissionTest do
       after
         10_000 -> raise "admission release timed out"
       end
+    end
+  end
+
+  def report_lock(_event, _measurements, %{query: query}, test) do
+    if String.contains?(query, "pg_advisory_xact_lock($1, $2)"),
+      do: send(test, :sandbox_lock_taken)
+  end
+
+  # A plain process standing in for a conversation's server: `whereis/1` only
+  # asks the registry. Same shape as `park_test.exs`.
+  defp stand_in_server(conversation_id) do
+    test = self()
+
+    pid =
+      start_supervised!(
+        {Task,
+         fn ->
+           {:ok, _} = Horde.Registry.register(Fountain.ConversationRegistry, conversation_id, nil)
+           receive do: (msg -> send(test, {:cotenant, msg}))
+         end},
+        id: {:stand_in, conversation_id}
+      )
+
+    wait_until(fn ->
+      Fountain.Conversations.ConversationServer.whereis(conversation_id) == pid
+    end)
+
+    pid
+  end
+
+  defp wait_until(fun, tries \\ 200) do
+    cond do
+      fun.() -> :ok
+      tries == 0 -> flunk("condition never held")
+      true -> Process.sleep(10) && wait_until(fun, tries - 1)
     end
   end
 

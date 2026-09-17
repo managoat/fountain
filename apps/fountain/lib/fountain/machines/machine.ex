@@ -195,14 +195,19 @@ defmodule Fountain.Machines.Machine do
   # **It bounds the caller's wait, not the queue** — and for this verb that
   # difference is a write (round 1, protocol and behaviour reviews). A
   # `GenServer.call` that times out leaves its message in the mailbox, and the
-  # owner runs it when it gets there. For a destroy, a park or a resume a late
-  # run is idempotent; for an admission it is a turn row the prompt was told
-  # does not exist — a `running` turn on a machine that has since been parked,
-  # which nothing ends. So the message carries the caller's deadline on the
-  # database clock (the owner may be on another node, so no node's monotonic
-  # clock will do) and the owner refuses an admission whose caller can no
-  # longer be waiting: once before it runs the protocol, and once more inside
-  # the locked insert against the same clock it judges the lease by.
+  # owner runs it when it gets there. For a destroy or a park a late run is
+  # idempotent; for a resume it is a machine brought up for nobody (see the
+  # `:ensure_up` clause); for an admission it is a turn row the prompt was
+  # told does not exist — a `running` turn on a machine that has since been
+  # parked, which nothing ends. So the message carries the caller's deadline
+  # on the database clock (the owner may be on another node, so no node's
+  # monotonic clock will do) and the owner refuses an admission whose deadline
+  # has passed: once before it runs the protocol, and once more inside the
+  # locked insert, against the clock it read the machine's row with. What
+  # that bounds is the row *read*: a commit can still land one transaction
+  # tail after the deadline (no lock wait sits in that tail; milliseconds in
+  # practice). Closing the tail would mean the caller's `:timeout` arm going
+  # back for a turn with its own `attrs`, not another clock read.
   @admit_timeout 20_000
 
   # A start that loses the Horde race registers on another node, and the
@@ -1052,6 +1057,17 @@ defmodule Fountain.Machines.Machine do
   # milliseconds apart, and queueing the second behind the first is what makes
   # it find a machine that is already up instead of waiting out a lease to be
   # told so (ADR 0023 step 4).
+  #
+  # `@resume_timeout` bounds the caller's wait, not this queue, and a late
+  # resume is **not** idempotent the way a late destroy or park is (round 2,
+  # protocol review, driven): the caller was told `sandbox_unavailable` and
+  # moved on, the queued resume then runs at the provider, and the machine
+  # comes up `ready` for nobody — billed until `Machines.Policy`'s idle
+  # verdict parks it again at the idle bound, with the clock restarted from
+  # the late `last_resumed_at`. The next wake finds it up. Collected, not
+  # leaked for good; but a cost, and named here rather than lent the
+  # destroy's word. A deadline on this message is stage 8b's call, beside the
+  # binding verbs that create state the same way.
   def handle_call({:ensure_up, opts}, _from, state) do
     {:reply, Resume.run(state.sandbox_id, opts), arm_idle(state)}
   end
@@ -1062,15 +1078,40 @@ defmodule Fountain.Machines.Machine do
   # wait out `Admission.busy_wait_ms/0` against the lease and be told
   # `sandbox_unavailable`.
   #
-  # **The timeout bounds the caller's wait, not this queue**, and unlike the
-  # three verbs above a late admission is not idempotent: it is a turn row
+  # **The timeout bounds the caller's wait, not this queue**, and unlike a
+  # destroy or a park a late admission is not idempotent: it is a turn row
   # for a prompt that was already told 503 (round 1). So the message carries
   # the caller's deadline on the database clock, and an admission that reaches
   # the front of the mailbox after it is refused without running — here, from
   # one read of the clock, and again inside the locked insert, which judges
   # the same deadline against the `statement_timestamp()` it read the
-  # machine's row with. The second check is the guarantee; this one saves the
-  # transaction.
+  # machine's row with.
+  #
+  # What the two checks bound, exactly (round 2, protocol review, driven): the
+  # write's check refuses a *row read* past the deadline, and the commit can
+  # still land up to one transaction tail after it — the parent check, the
+  # allowance, the count, the insert and the parent update, with no lock wait
+  # among them; milliseconds in practice. That tail is the price of the check
+  # and the insert being two statements. This pre-check is not the smaller
+  # half: the write's check sits after the machine's own verdicts, so an
+  # expired message that finds a cotenant's lease live would answer
+  # `:machine_busy` and poll the locked insert for the whole
+  # `Admission.busy_wait_ms/0` on a caller that left; this one refuses it from
+  # one clock read, and `admission_test.exs` pins that difference.
+  #
+  # The three-tuple below is the message a caller on the round-1 head sends —
+  # no deadline, because it had none. An owner that crashed on it would cost a
+  # cotenant's queued park (the mixed-version note in the PR); refusing is the
+  # safe side, in the one word every version of the door translates.
+  def handle_call({:admit_turn, _attrs, _opts}, _from, state) do
+    Logger.warning(
+      "machine #{state.sandbox_id}: an admission arrived without a deadline (a caller on " <>
+        "the previous release); refusing without running it"
+    )
+
+    {:reply, {:error, :machine_busy}, arm_idle(state)}
+  end
+
   def handle_call({:admit_turn, attrs, opts, %DateTime{} = deadline}, _from, state) do
     reply =
       if DateTime.compare(Lease.now(), deadline) == :gt do

@@ -1591,7 +1591,9 @@ defmodule Fountain.Conversations do
   path: read against the `statement_timestamp()` this transaction takes the
   machine's row with, a deadline already passed is `{:error, :admission_expired}`
   and no turn is written — a prompt that was told 503 must not gain a turn
-  after the fact (round 1 of stage 8a).
+  after the fact (round 1 of stage 8a). What is bounded is the row read; the
+  commit may land one transaction tail after the deadline, and that tail has
+  no lock wait in it.
 
   `revision` is the conversation's `configuration_revision` as the caller
   understands it, or nil for a caller with none; a mismatch answers

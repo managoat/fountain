@@ -239,8 +239,8 @@ defmodule Fountain.Machines.Admission do
       is no longer waiting for the answer. Set by `Machine.admit_turn/3` on
       the in-owner path only; the locked insert refuses the turn
       (`{:error, :admission_expired}`) when the clock it read the machine's row
-      with is past it, so an admission that reached the owner late writes
-      nothing.
+      with is past it. The bound is the row read: a commit can land one
+      transaction tail after the deadline, milliseconds with no lock wait.
   """
   @spec run(Ecto.UUID.t(), map(), keyword()) :: {:ok, Turn.t()} | {:error, term()}
   def run(sandbox_id, attrs, opts \\ [])

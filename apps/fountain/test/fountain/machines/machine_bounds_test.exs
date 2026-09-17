@@ -210,7 +210,11 @@ defmodule Fountain.Machines.MachineBoundsTest do
   # `deadline_ms` joined the two in stage 7b: a `deadline_ms:` on a destroy, a
   # park or a resume would silently replace `Renewal`'s ten-TTL hard stop, and
   # nothing else would notice — which is the failure mode this scan is for.
-  @bound_option ~r/\b(busy_wait_ms|lease_ttl_ms|deadline_ms):/
+  #
+  # `admit_timeout_ms` joined in stage 8a round 1: it is the test seam for the
+  # owner-side deadline on an admission, and a `lib/` caller passing it would
+  # replace `Machine.admit_timeout_ms/0` for that call with nothing noticing.
+  @bound_option ~r/\b(busy_wait_ms|lease_ttl_ms|deadline_ms|admit_timeout_ms):/
 
   test "an admission's ladder, and why it has no lease to sit under" do
     # An admission is one transaction that may first wait out a live lease, so

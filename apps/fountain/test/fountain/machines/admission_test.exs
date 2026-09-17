@@ -99,40 +99,6 @@ defmodule Fountain.Machines.AdmissionTest do
     end
   end
 
-  # A plain process standing in for a conversation's server: `whereis/1` only
-  # asks the registry. Same shape as `park_test.exs`. A park counts a running
-  # turn as occupancy only when something is driving it, so the race below
-  # needs one.
-  defp stand_in_server(conversation_id) do
-    test = self()
-
-    pid =
-      start_supervised!(
-        {Task,
-         fn ->
-           {:ok, _} = Horde.Registry.register(Fountain.ConversationRegistry, conversation_id, nil)
-           receive do: (msg -> send(test, {:cotenant, msg}))
-         end},
-        id: {:stand_in, conversation_id}
-      )
-
-    # The registry is a CRDT; the registration is visible only after it has
-    # propagated to this node's view of it.
-    wait_until(fn ->
-      Fountain.Conversations.ConversationServer.whereis(conversation_id) == pid
-    end)
-
-    pid
-  end
-
-  defp wait_until(fun, tries \\ 200) do
-    cond do
-      fun.() -> :ok
-      tries == 0 -> flunk("condition never held")
-      true -> Process.sleep(10) && wait_until(fun, tries - 1)
-    end
-  end
-
   # ── what the lock decides ─────────────────────────────────────────────────
 
   describe "a live lease" do
@@ -140,14 +106,12 @@ defmodule Fountain.Machines.AdmissionTest do
       {:ok, _epoch} = Lease.claim(ctx.sandbox.id, "other@node", 60_000)
       started = System.monotonic_time(:millisecond)
 
-      log =
-        quietly(fn ->
-          assert {:error, :machine_busy} =
-                   Admission.run(ctx.sandbox.id, attrs(ctx.conv), busy_wait_ms: 600)
-        end)
+      quietly(fn ->
+        assert {:error, :machine_busy} =
+                 Admission.run(ctx.sandbox.id, attrs(ctx.conv), busy_wait_ms: 600)
+      end)
 
       waited = System.monotonic_time(:millisecond) - started
-      assert log =~ "admission refused"
       assert waited >= 250, "the wait gave up without waiting at all"
       assert waited < 5_000, "the wait ran past the bound it was given"
       assert turns(ctx.conv) == []
@@ -254,13 +218,18 @@ defmodule Fountain.Machines.AdmissionTest do
   # ── the door ──────────────────────────────────────────────────────────────
 
   describe "Machine.admit_turn/3" do
-    test "translates a live lease into the word the system has", ctx do
+    test "translates a live lease into the word the system has, and logs it once", ctx do
       {:ok, _epoch} = Lease.claim(ctx.sandbox.id, "other@node", 60_000)
 
-      quietly(fn ->
-        assert {:error, :sandbox_unavailable} =
-                 Machine.admit_turn(ctx.sandbox.id, attrs(ctx.conv), busy_wait_ms: 100)
-      end)
+      log =
+        quietly(fn ->
+          assert {:error, :sandbox_unavailable} =
+                   Machine.admit_turn(ctx.sandbox.id, attrs(ctx.conv), busy_wait_ms: 100)
+        end)
+
+      # One line per refused prompt (round 1): the door's, naming the lease.
+      assert log =~ "turn admission unavailable (an owner holds the lease)"
+      assert length(String.split(log, "turn admission")) == 2
     end
 
     test "refuses an enclosing transaction at the door and in the protocol", ctx do
@@ -297,6 +266,98 @@ defmodule Fountain.Machines.AdmissionTest do
       end)
     end
 
+    test "an admission whose caller has given up is refused, not run late (gate on)", ctx do
+      # Round 1's blocker, both reviews: a park holding the owner past the
+      # caller's timeout. The caller is answered 503; the queued message then
+      # reaches the front of the mailbox after the park, and without a
+      # deadline the owner admitted a turn nobody was waiting for onto the
+      # machine the park had just suspended. With one, the owner reads the
+      # deadline and writes nothing.
+      test = self()
+
+      stub(Managoat.Sandbox, :suspend, fn _ ->
+        send(test, :suspending)
+        Process.sleep(700)
+        :ok
+      end)
+
+      with_gate(true, fn ->
+        {:ok, owner} = Machine.ensure_started(ctx.sandbox.id)
+        Mimic.allow(Managoat.Sandbox, self(), owner)
+        sandbox_id = ctx.sandbox.id
+
+        park =
+          Task.async(fn ->
+            capture_log(fn ->
+              send(
+                test,
+                {:park, Machine.park(sandbox_id, actor: "system:sandbox_reaper", reason: :idle)}
+              )
+            end)
+          end)
+
+        # The park is at the provider, holding the owner.
+        assert_receive :suspending, 2_000
+
+        quietly(fn ->
+          assert {:error, :sandbox_unavailable} =
+                   Machine.admit_turn(ctx.sandbox.id, attrs(ctx.conv), admit_timeout_ms: 200)
+        end)
+
+        assert_receive {:park, {:ok, :parked}}, 5_000
+        Task.await(park)
+        # The queued admission has now been handled too: the owner answers
+        # the next question only after it.
+        assert %Fountain.Machines.Occupancy{} = Machine.who_is_here(ctx.sandbox.id)
+      end)
+
+      assert turns(ctx.conv) == [], "the owner admitted a turn its caller had been told 503 about"
+      assert Repo.reload!(ctx.conv).status == "idle"
+      assert Repo.reload!(ctx.sandbox).status == "suspended"
+    end
+
+    test "and a caller still waiting when the park finishes is admitted (the positive control)",
+         ctx do
+      # The same shape with a deadline the park finishes inside: the queued
+      # admission runs. It lands on a `suspended` machine, which is admissible
+      # here as on `main` — the caller's wake is what resumes it (see the
+      # moduledoc); what this pins is that the deadline, and nothing else, is
+      # what refused the case above.
+      test = self()
+
+      stub(Managoat.Sandbox, :suspend, fn _ ->
+        send(test, :suspending)
+        Process.sleep(300)
+        :ok
+      end)
+
+      with_gate(true, fn ->
+        {:ok, owner} = Machine.ensure_started(ctx.sandbox.id)
+        Mimic.allow(Managoat.Sandbox, self(), owner)
+        sandbox_id = ctx.sandbox.id
+
+        park =
+          Task.async(fn ->
+            capture_log(fn ->
+              send(
+                test,
+                {:park, Machine.park(sandbox_id, actor: "system:sandbox_reaper", reason: :idle)}
+              )
+            end)
+          end)
+
+        assert_receive :suspending, 2_000
+
+        assert {:ok, %Turn{status: "running"}} =
+                 Machine.admit_turn(ctx.sandbox.id, attrs(ctx.conv), admit_timeout_ms: 5_000)
+
+        assert_receive {:park, {:ok, :parked}}, 5_000
+        Task.await(park)
+      end)
+
+      assert [%Turn{status: "running"}] = turns(ctx.conv)
+    end
+
     test "an owner that cannot run the admission refuses rather than admitting inline", ctx do
       # The mixed-version shape: with the gate on, a `{:admit_turn, ..}` call
       # reaching an owner process that cannot serve it — a replica on the
@@ -323,86 +384,137 @@ defmodule Fountain.Machines.AdmissionTest do
   # ── the race (#2286) ──────────────────────────────────────────────────────
 
   describe "an admission and a park of one machine, on real connections" do
-    # Both orders, and the park from both of its callers: the reaper's sweep
-    # (no requester) and a co-tenant server's idle tick (a requester that is
-    # not the admitted conversation). The admission holds the per-sandbox
-    # advisory lock for the length of its transaction; `Lease.claim/4` takes the
-    # same lock, so whichever arrives second waits on PostgreSQL and then reads
-    # what the first committed.
-    for requester <- [:sweep, :cotenant_server] do
-      @tag requester: requester
-      test "admission first: the park waits on the lock, then refuses (#{requester})", ctx do
-        Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
-          user = insert_verified_user()
-          agent = insert_agent(user_id: user.id, runtime: "opencode")
-          sandbox = insert_sandbox(user_id: user.id, agent_id: agent.id, status: "ready")
+    # Both orders. The admission holds the per-sandbox advisory lock for the
+    # length of its transaction; `Lease.claim/4` takes the same lock, so
+    # whichever arrives second waits on PostgreSQL and then reads what the
+    # first committed.
+    #
+    # The park's requester is **the admitted turn's own conversation**, with
+    # no server registered for it (round 1, surfaces review). `Park` has two
+    # ways to answer `:machine_occupied` before it ever looks at a turn — a
+    # live server on the machine refuses a sweep, and a co-tenant active
+    # inside the idle window refuses a server's park — and the first draft's
+    # stand-in server made one of those fire, so the assertion could not tell
+    # "the park read the committed turn" from "the park saw a live server".
+    # With the requester being the turn's conversation and nobody registered,
+    # `held_by_somebody_else?/2` has nothing to refuse on and the only arm
+    # left is the requester's own running turn, read from the row under the
+    # lease, after the lock. Planting that arm off fails this test; the first
+    # draft stayed green.
+    test "admission first: the park waits on the lock, then refuses on the turn it reads", _ctx do
+      Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
+        user = insert_verified_user()
+        agent = insert_agent(user_id: user.id, runtime: "opencode")
+        sandbox = insert_sandbox(user_id: user.id, agent_id: agent.id, status: "ready")
 
-          conv =
-            insert_conversation(user_id: user.id, agent: agent, sandbox: sandbox, status: "idle")
+        conv =
+          insert_conversation(user_id: user.id, agent: agent, sandbox: sandbox, status: "idle")
 
-          cotenant =
-            insert_conversation(user_id: user.id, agent: agent, sandbox: sandbox, status: "idle")
+        assert Fountain.Conversations.ConversationServer.whereis(conv.id) == nil
+        owner = self()
+        handler = {__MODULE__, make_ref()}
 
-          stand_in_server(conv.id)
-          owner = self()
-          handler = {__MODULE__, make_ref()}
+        :telemetry.attach(
+          handler,
+          [:fountain, :repo, :query],
+          &__MODULE__.pause_admission/4,
+          owner
+        )
 
-          :telemetry.attach(
-            handler,
-            [:fountain, :repo, :query],
-            &__MODULE__.pause_admission/4,
-            owner
-          )
+        park_opts = [actor: "self", reason: :idle, requesting_conversation_id: conv.id]
 
-          park_opts =
-            case ctx.requester do
-              :sweep ->
-                [actor: "system:sandbox_reaper", reason: :idle]
+        admission =
+          independent(fn ->
+            Process.put(:pause_admission_test, true)
+            Admission.run(sandbox.id, attrs(conv))
+          end)
 
-              :cotenant_server ->
-                [actor: "self", reason: :idle, requesting_conversation_id: cotenant.id]
-            end
+        try do
+          assert_receive :turn_inserted, 5_000
 
-          admission =
+          park =
             independent(fn ->
-              Process.put(:pause_admission_test, true)
-              Admission.run(sandbox.id, attrs(conv))
+              reject(&Managoat.Sandbox.suspend/1)
+              capture_log(fn -> send(owner, {:park, Park.run(sandbox.id, park_opts)}) end)
             end)
 
           try do
-            assert_receive :turn_inserted, 5_000
+            park_pid = park.pid
+            assert_receive {:backend, ^park_pid, park_backend}, 5_000
+            # The park's claim is waiting on the admission's advisory lock.
+            await_blocked(park_backend, System.monotonic_time(:millisecond) + 5_000)
+            assert Task.yield(park, 0) == nil
 
-            park =
-              independent(fn ->
-                reject(&Managoat.Sandbox.suspend/1)
-                capture_log(fn -> send(owner, {:park, Park.run(sandbox.id, park_opts)}) end)
-              end)
+            send(admission.pid, :commit)
+            assert {:ok, %Turn{status: "running"}} = Task.await(admission)
 
-            try do
-              park_pid = park.pid
-              assert_receive {:backend, ^park_pid, park_backend}, 5_000
-              # The park's claim is waiting on the admission's advisory lock.
-              await_blocked(park_backend, System.monotonic_time(:millisecond) + 5_000)
-              assert Task.yield(park, 0) == nil
-
-              send(admission.pid, :commit)
-              assert {:ok, %Turn{status: "running"}} = Task.await(admission)
-
-              # The park now reads the committed turn, with a server driving it.
-              assert_receive {:park, {:error, :machine_occupied}}, 5_000
-              Task.await(park)
-              assert Repo.reload!(sandbox).status == "ready"
-              assert is_nil(Repo.reload!(sandbox).lease_node)
-            after
-              Task.shutdown(park, :brutal_kill)
-            end
+            # The park now reads the committed turn — its requester's own — and
+            # nothing else on this machine could have refused it.
+            assert_receive {:park, {:error, :machine_occupied}}, 5_000
+            Task.await(park)
+            assert Repo.reload!(sandbox).status == "ready"
+            assert is_nil(Repo.reload!(sandbox).lease_node)
           after
-            Task.shutdown(admission, :brutal_kill)
-            :telemetry.detach(handler)
-            discard(user, [sandbox])
+            Task.shutdown(park, :brutal_kill)
           end
-        end)
-      end
+        after
+          Task.shutdown(admission, :brutal_kill)
+          :telemetry.detach(handler)
+          discard(user, [sandbox])
+        end
+      end)
+    end
+
+    test "at the insert the backend holds 4316 and nothing in 4315", _ctx do
+      # The lock-order scan is lexical and one function deep, and
+      # `Admission.admit/5` is exactly a function that calls the 4316 holder,
+      # so a 4315 taken *around* the call passes it (round 1, protocol
+      # review). This pins the property where it happens, with `pg_locks`, the
+      # way `resume_test.exs` pins its half.
+      Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
+        user = insert_verified_user()
+        agent = insert_agent(user_id: user.id, runtime: "opencode")
+        sandbox = insert_sandbox(user_id: user.id, agent_id: agent.id, status: "ready")
+
+        conv =
+          insert_conversation(user_id: user.id, agent: agent, sandbox: sandbox, status: "idle")
+
+        owner = self()
+        handler = {__MODULE__, make_ref()}
+
+        :telemetry.attach(
+          handler,
+          [:fountain, :repo, :query],
+          &__MODULE__.pause_admission/4,
+          owner
+        )
+
+        admission =
+          independent(fn ->
+            Process.put(:pause_admission_test, true)
+            Admission.run(sandbox.id, attrs(conv))
+          end)
+
+        try do
+          admission_pid = admission.pid
+          assert_receive {:backend, ^admission_pid, backend}, 5_000
+          assert_receive :turn_inserted, 5_000
+
+          assert advisory_locks_held(backend, 4316) == 1,
+                 "the turn was inserted without the per-sandbox advisory lock"
+
+          assert advisory_locks_held(backend, 4315) == 0,
+                 "the admission reached for the quota lock under the machine lock (#2309)"
+
+          send(admission.pid, :commit)
+          assert {:ok, %Turn{}} = Task.await(admission)
+          assert advisory_locks_held(backend, 4316) == 0
+        after
+          Task.shutdown(admission, :brutal_kill)
+          :telemetry.detach(handler)
+          discard(user, [sandbox])
+        end
+      end)
     end
 
     test "park first: the admission waits on the lease, then refuses", ctx do
@@ -530,6 +642,18 @@ defmodule Fountain.Machines.AdmissionTest do
     end
   end
 
+  # How many advisory locks in `namespace` that backend is holding or waiting
+  # for; Postgres stores a two-int advisory key as `classid`/`objid`.
+  defp advisory_locks_held(backend, namespace) do
+    %{rows: [[count]]} =
+      Repo.query!(
+        "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND pid = $1 AND classid = $2",
+        [backend, namespace]
+      )
+
+    count
+  end
+
   # `unboxed_run` commits, so the rows a race case makes are removed by hand,
   # audit and usage included.
   defp discard(user, sandboxes) do
@@ -601,6 +725,11 @@ defmodule Fountain.Machines.AdmissionTest do
       assert {:error, :ownership_changed} =
                Machine.end_turn(ctx.turn, {:orphan, "unbound_actor"}, sandbox_id: nil)
 
+      # And on the completion side, the same expectation of "no sandbox"
+      # against a bound conversation is `:noop` in both spellings.
+      assert :noop = Machine.end_turn(ctx.turn, {:finish, "completed", []}, sandbox_id: nil)
+      assert :noop = Machine.end_turn(ctx.turn, :mark_interrupted, sandbox_id: nil)
+
       assert Repo.reload!(ctx.turn).status == "running"
 
       assert {:ok, %Turn{status: "interrupted"}, _conv} =
@@ -631,11 +760,15 @@ defmodule Fountain.Machines.AdmissionTest do
     # another machine. Whoever later tightens the fence to the epoch — which
     # waits on the owner ending the turns it operates over, stage 8b — has to
     # break one of these by name rather than re-derive the argument.
+    #
+    # The turn is admitted through the door, not inserted by the factory
+    # (round 1, behaviour review): a per-turn stamp written *at admission* is
+    # the other shape a tightened fence could take, and a factory row would
+    # never carry it, so the third test could not have caught that plant.
 
     setup ctx do
-      conv = ctx.conv |> Ecto.Changeset.change(status: "running") |> Repo.update!()
-      turn = insert_turn(conv, %{status: "running", prompt: "go", started_at: DateTime.utc_now()})
-      %{conv: conv, turn: turn}
+      assert {:ok, turn} = Machine.admit_turn(ctx.sandbox.id, attrs(ctx.conv))
+      %{conv: Repo.reload!(ctx.conv), turn: turn}
     end
 
     test "a cotenant's operation moves the machine's epoch under a running turn; the turn still ends",

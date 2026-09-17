@@ -457,12 +457,29 @@ defmodule Fountain.Machines.DirectWritesTest do
   # doors onto them (ADR 0058), and this is the pin that keeps it so — the
   # turn-row half of what `@row_writes` pins for the sandbox row. By file, like
   # the opt-out pin above, so a new caller has to come here and say why.
+  #
+  # `end_running_turn(` is the public writer behind both `_unsafe_complete_turn/4`
+  # and `_unsafe_interrupt_turn/2`, and it has two definer-side callers (round
+  # 1, surfaces review — a plant of it in `turn_machine.ex` passed the first
+  # draft of this pin).
   @turn_writes [
     {"_unsafe_create_turn_on_sandbox(", ["apps/fountain/lib/fountain/conversations.ex"]},
     {"_unsafe_complete_turn(", ["apps/fountain/lib/fountain/conversations.ex"]},
     {"_unsafe_orphan_turn(", ["apps/fountain/lib/fountain/conversations.ex"]},
-    {"_unsafe_interrupt_turn(", ["apps/fountain/lib/fountain/conversations/interruption.ex"]}
+    {"_unsafe_interrupt_turn(", ["apps/fountain/lib/fountain/conversations/interruption.ex"]},
+    {"end_running_turn(",
+     [
+       "apps/fountain/lib/fountain/conversations.ex",
+       "apps/fountain/lib/fountain/conversations/interruption.ex"
+     ]}
   ]
+
+  # And the shape that names no function at all: a `Repo.update_all` whose
+  # source is the `turns` table (round 1, behaviour review — planted in
+  # `wake.ex`, it passed the by-name pin). The same window and the same source
+  # test `@row_writes` applies to `sandboxes`, over `Turn`, `Conversations.Turn`
+  # or the bare table name. None exists today, and the pin asserts that.
+  @turn_source ~r/\bfrom\s*\(?\s*\w+\s+in\s+(?:(?:[A-Za-z_]\w*\.)*Turn\b|"turns")/
 
   test "the context's turn writes are called from the owner's namespace only" do
     root = Path.expand("../../../../..", __DIR__)
@@ -501,6 +518,53 @@ defmodule Fountain.Machines.DirectWritesTest do
                "`Fountain.Machines.Machine.admit_turn/3` or `end_turn/3` (ADR 0058 stage 8a). " <>
                "A new direct caller is a decision, not a refactor."
     end
+
+    bulk =
+      for file <- files,
+          count = count_turn_update_all(strip_docs_and_comments(File.read!(file))),
+          _ <- 1..count//1,
+          do: Path.relative_to(file, root)
+
+    assert bulk == [],
+           "`Repo.update_all` on the turns table is written in:\n  " <>
+             Enum.join(bulk, "\n  ") <>
+             "\n\nA turn row is admitted and ended through the owner's two doors only " <>
+             "(ADR 0058 stage 8a); a bulk write names neither."
+  end
+
+  # The scan's own positive control for the bulk shape, the way the sandboxes
+  # `update_all` has one above.
+  test "an update_all on the turns table is seen, and a join to it is not" do
+    sourced = """
+    Repo.update_all(
+      from(t in Turn, where: t.id == ^turn_id),
+      set: [status: "completed"]
+    )
+    """
+
+    joined = """
+    Repo.update_all(
+      from(c in Conversation, join: t in Turn, on: t.conversation_id == c.id),
+      set: [status: "idle"]
+    )
+    """
+
+    assert count_turn_update_all(sourced) == 1
+    assert count_turn_update_all(joined) == 0
+  end
+
+  defp count_turn_update_all(content) do
+    lines = String.split(content, "\n")
+
+    lines
+    |> Enum.with_index()
+    |> Enum.filter(fn {line, _index} -> Regex.match?(@sandbox_update_all, line) end)
+    |> Enum.count(fn {_line, index} ->
+      lines
+      |> Enum.slice(max(index - @source_window, 0), 2 * @source_window + 1)
+      |> Enum.join("\n")
+      |> then(&Regex.match?(@turn_source, &1))
+    end)
   end
 
   defp source_files(root) do

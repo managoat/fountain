@@ -49,6 +49,15 @@
   was at fault and not to retry. Scheduled runs report it, and two other
   transient refusals, in words rather than as an error code.
 
+- A prompt to a computer that an interrupted operation left a marker on is no
+  longer refused (#2344). Fountain records what it is doing to a computer on the
+  computer's own record, and a process that stops part-way — a deploy, a lost
+  node — leaves that marker behind. A prompt arriving afterwards used to answer
+  `503` until an hourly pass cleared it, up to an hour later. The next thing to
+  take the computer now clears the marker itself, and a computer that is simply
+  running is handed over as it always was. A computer somebody has asked to
+  reset or delete is still refused, which is what that request means.
+
 - An operation that takes longer than a minute no longer loses the computer it
   is working on (#2344, ADR 0058). Fountain holds a computer for the length of
   one operation, and that hold used to be measured from when the operation
@@ -57,8 +66,17 @@
   while it was still running and be taken over by the next cleanup pass. The
   hold is now extended while the work continues.
 
+- An operation whose process is killed outright no longer keeps the computer
+  (#2344). Fountain extends its hold on a computer while it works, and a process
+  stopped without warning — a rolling deploy, a background job killed at its
+  time limit — used to leave that extension running with nothing behind it, on a
+  computer nothing could then take. The hold now ends when the work does, and in
+  any case after ten times its normal length.
+
 - How long Fountain is holding a computer for is now measured on the database's
   clock rather than on each server's own (#2344). Nothing about a single-server
   install changes; on a cluster, one server's clock running fast or slow can no
   longer make it disagree with the others about whether an operation is still
-  running.
+  running. The reading is also no longer affected by the time zone a database
+  connection happens to be configured with, which could make every live
+  operation look finished.

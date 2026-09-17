@@ -1231,6 +1231,13 @@ defmodule Fountain.Machines.BindingTest do
                       {:"$gen_cast",
                        {:machine_gone, ^sandbox_id, "reset", "sprite_gone", "stays"}}},
                      2_000
+
+      # Once each. The stand-in forwards every message, so a second notice
+      # would be here to find — which is the half of this that the duplicate
+      # found in round 1 needed and the one-message receiver could not give.
+      # `wake_cotenants_test.exs` drives the same count through a real wake;
+      # this one drives it through `Destroy.run/2`'s `:notify` directly.
+      refute_receive {:cotenant, _, {:"$gen_cast", {:machine_gone, _, _, _, _}}}, 500
     end
   end
 

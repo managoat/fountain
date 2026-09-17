@@ -70,6 +70,12 @@ the reset fence and quota reservation. Another reset returns
 `409 sandbox_reset_pending`, and so does an attach or a wake. None of them
 send a second delete.
 
+`409 sandbox_reset_pending` is not only about resets. A machine is fenced the
+same way when the last conversation on it ends and it is being torn down, so
+an attach that arrives after that point answers the same code, and the message
+says the computer is being torn down or reset. The answer is the same in both
+cases: the machine is going away, and a new one is what the request needs.
+
 One operation at a time acts on a machine. If a different teardown of the same
 machine is already running, the reset returns `503 sandbox_unavailable` with a
 `Retry-After` header. The fence is already in place, so the reset is accepted

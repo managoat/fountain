@@ -77,10 +77,14 @@ defmodule Fountain.ChatGPTAccountsTest do
     owner = insert_verified_user()
     grant = owned_row(owner, %{access_token_ciphertext: Crypto.encrypt_platform("platform")})
 
+    # Async tests can log platform warnings during this capture; check only this owner's lines.
     tenant_log =
       capture_log(fn ->
         assert {:error, :undecryptable} = Cipher.decrypt_token(grant, :access_token)
       end)
+      |> String.split("\n")
+      |> Enum.filter(&String.contains?(&1, owner.id))
+      |> Enum.join("\n")
 
     assert tenant_log =~ "does not decrypt under the tenant key"
     assert tenant_log =~ owner.id

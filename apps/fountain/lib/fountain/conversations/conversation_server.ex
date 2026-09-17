@@ -13,20 +13,13 @@ defmodule Fountain.Conversations.ConversationServer do
   require Logger
   require OpenTelemetry.Tracer
 
-  alias Fountain.{
-    Agents,
-    Conversations,
-    Environments,
-    Vaults
-  }
+  alias Fountain.{Agents, Conversations, Environments, Vaults}
 
-  alias Fountain.Conversations.{BoundedTurn, CallbackKey, Connection}
-  alias Fountain.Conversations.{Conversation, DetachedRequest, Egress, FreshProvision}
-  alias Fountain.Conversations.{Interruption, Lifecycle, MachineEvents, McpServers, Output}
-  alias Fountain.Conversations.{Pending, PromptDelivery, Provisioning, ProvisionWatchdog}
-  alias Fountain.Conversations.{Reattachment, Redaction, SpriteEnv, Termination, TurnLaunch}
-  alias Fountain.Conversations.TurnMachine
-  alias Fountain.Conversations.Wake
+  alias Fountain.Conversations.{BoundedTurn, CallbackKey, Connection, Conversation}
+  alias Fountain.Conversations.{DetachedRequest, Egress, FreshProvision, Interruption}
+  alias Fountain.Conversations.{Lifecycle, MachineEvents, McpServers, Output, Pending}
+  alias Fountain.Conversations.{PromptDelivery, Provisioning, ProvisionWatchdog, Reattachment}
+  alias Fountain.Conversations.{Redaction, SpriteEnv, Termination, TurnLaunch, TurnMachine, Wake}
   alias Fountain.Machines.Machine
 
   # ── public api ────────────────────────────────────────────────────────────

@@ -36,10 +36,40 @@ defmodule Fountain.Conversations.ProvisionWatchdog do
   while the row still said pending — and the restart re-provisioned a second
   billable sprite, then kept streaming into it while this stale struct's late
   "failed" write made the row lie about it. With the terminal status committed
-  first, a restarted server stops at `Provision.admissible/1`. The ordering is
-  now a *condition* rather than a sequence: a refused retire means the row is
-  not terminal, so nothing is killed and the next pass — the reaper's
-  `release_stuck_sandboxes/0` — is what collects it.
+  first, a restarted server stops at `Provision.admissible/1`.
+
+  ## A refused retire, and why it is bounded (round 1)
+
+  The ordering above turns #394 into a *condition*: a retire the owner refuses
+  means the row is not terminal, so killing would be the old bug. The first
+  draft stopped there — do nothing, and leave the row to
+  `SandboxReaper.release_stuck_sandboxes/0`.
+
+  **That pass cannot collect this row**, and both reviewers proved it. It ends
+  in `Enum.reject(&Lifecycle.any_server_alive?/1)` (`sandbox_reaper.ex`), and
+  the whole reason this watchdog exists is a server wedged alive inside
+  `handle_continue(:provision)` — which the refusal arm then deliberately keeps
+  alive. So "leave it for the reaper" named a backstop excluded by the very
+  condition this module creates: row `starting`, an active-status quota slot
+  held, the conversation `pending`, until the next deploy. That is verbatim the
+  failure #329 exists to prevent, and it is not reachable on `main`, which
+  killed unconditionally at thirty minutes.
+
+  So a refusal is **retried**, at `retire_retry_ms/0`, up to
+  `max_retire_attempts/0` times in all — and then the ceiling falls back to
+  `main`'s: the server is stopped even though the row is live. The three
+  reachable refusals are a lock held for the whole wait, a database fault, and
+  `{:ok, :claimed_elsewhere}` — a genuine takeover, where the row is somebody
+  else's and the only thing left to collect is this orphan server. Retrying
+  clears the first two. For the third, and for a fault that does not clear,
+  stopping the server is what makes `release_stuck_sandboxes/0` able to see the
+  row at all, and it is done through the supervisor (`kill/1`), which *removes*
+  the child rather than letting Horde restart it — so the #394 restart does not
+  happen even though the row is not terminal.
+
+  The bound is therefore: the retire is attempted for about
+  `max_retire_attempts/0 × retire_retry_ms/0` past the ceiling — five minutes on
+  the defaults — and after that a wedged server does not outlive it.
   """
 
   require Logger
@@ -64,6 +94,14 @@ defmodule Fountain.Conversations.ProvisionWatchdog do
   # and the margin covers a renewal that landed a moment before the stop. See
   # the moduledoc for what would happen without it.
   @lapse_grace_ms Provision.lease_ttl_ms() + 30_000
+
+  # How long a refused retire waits before asking again, and how many times it
+  # asks. A minute is long enough that a lock or a database fault has a real
+  # chance to clear between attempts and short enough that five of them is five
+  # minutes rather than an hour — so a wedged server outlives the ceiling by
+  # minutes, not until the next deploy. Overridable, and only tests do.
+  @retire_retry_ms 60_000
+  @max_retire_attempts 5
 
   # How long the retire waits for a lease that should already be gone. Longer
   # than the protocol's own five seconds on purpose: this caller is not a
@@ -112,6 +150,23 @@ defmodule Fountain.Conversations.ProvisionWatchdog do
   def retire_wait_ms, do: @retire_wait_ms
 
   @doc """
+  How long a refused retire waits before asking again.
+
+  Overridable with `config :fountain, :provision_retire_retry_ms`;
+  `conversation_server_provision_deadline_test.exs` sets it to zero so it can
+  drive the re-arm without waiting minutes. Nothing in `lib/` or `config/` sets
+  it.
+  """
+  @spec retire_retry_ms() :: non_neg_integer()
+  def retire_retry_ms do
+    Application.get_env(:fountain, :provision_retire_retry_ms, @retire_retry_ms)
+  end
+
+  @doc "How many times a refused retire is asked again before the server is stopped anyway."
+  @spec max_retire_attempts() :: pos_integer()
+  def max_retire_attempts, do: @max_retire_attempts
+
+  @doc """
   Start the watchdog for the calling server. Returns the watchdog's pid.
   """
   @spec start(String.t(), String.t() | nil) :: pid()
@@ -123,21 +178,46 @@ defmodule Fountain.Conversations.ProvisionWatchdog do
       ref = Process.monitor(server)
       timer = Process.send_after(self(), :provision_deadline, fires_in_ms)
 
-      receive do
-        {:DOWN, ^ref, :process, ^server, _reason} ->
-          Process.cancel_timer(timer)
-
-        :provision_deadline ->
-          Process.cancel_timer(timer)
-          expire(conv_id, sandbox_id, server, fires_in_ms)
-      end
+      await(%{
+        conv_id: conv_id,
+        sandbox_id: sandbox_id,
+        server: server,
+        monitor: ref,
+        timer: timer,
+        fires_in_ms: fires_in_ms,
+        attempt: 1
+      })
     end)
+  end
+
+  # The watchdog's whole life: wait for the deadline or for the server to stop
+  # first, and — since the retire can be refused — be prepared to come back.
+  defp await(%{monitor: ref, server: server, timer: timer} = state) do
+    receive do
+      {:DOWN, ^ref, :process, ^server, _reason} ->
+        Process.cancel_timer(timer)
+
+      :provision_deadline ->
+        Process.cancel_timer(timer)
+
+        case expire(state) do
+          :done ->
+            :ok
+
+          :retry ->
+            await(%{
+              state
+              | timer: Process.send_after(self(), :provision_deadline, retire_retry_ms()),
+                attempt: state.attempt + 1
+            })
+        end
+    end
   end
 
   # ownership: the two ids are the ones the ConversationServer was started
   # with, and it established ownership of both at init. The watchdog reads and
   # writes no row it was not handed.
-  defp expire(conv_id, sandbox_id, server, fires_in_ms) do
+  defp expire(%{conv_id: conv_id, sandbox_id: sandbox_id} = state) do
     retired =
       Machine.fail_provision(sandbox_id,
         actor: "system:provision_watchdog",
@@ -149,7 +229,7 @@ defmodule Fountain.Conversations.ProvisionWatchdog do
     case retired do
       {:ok, :failed} ->
         Logger.error(
-          "conv #{conv_id}: provisioning exceeded #{fires_in_ms}ms; " <>
+          "conv #{conv_id}: provisioning exceeded #{state.fires_in_ms}ms; " <>
             "failed the sandbox and killing the stuck server"
         )
 
@@ -159,28 +239,58 @@ defmodule Fountain.Conversations.ProvisionWatchdog do
           reason: "provision deadline exceeded"
         })
 
-        kill(server)
+        kill(state.server)
 
         :telemetry.execute([:fountain, :provision, :deadline_exceeded], %{count: 1}, %{
           conversation_id: conv_id
         })
 
-      # The row had already settled — the provision finished, or somebody else
-      # retired it — and there is nothing here to bound. The monitor above
-      # covers the ordinary case; this is the race where the two cross.
-      {:ok, settled} when settled in [:already_terminal, :not_provisioning] ->
-        :ok
+        :done
 
-      # The row is *not* terminal, so killing the server would be the #394
-      # ordering inverted: a restart would find a live row and build a second
-      # machine. Left for `SandboxReaper.release_stuck_sandboxes/0`, which
-      # collects a row this old with no server alive.
+      # The row had already settled — the provision finished, or somebody else
+      # retired it — and there is nothing here to bound. The monitor in
+      # `await/1` covers the ordinary case; this is the race where the two
+      # cross.
+      {:ok, settled} when settled in [:already_terminal, :not_provisioning] ->
+        :done
+
+      # The row is *not* terminal, so killing now would be the #394 ordering
+      # inverted. Ask again shortly: a lock held for the whole wait and a
+      # database fault both clear on their own, and a takeover settles the row
+      # under somebody else.
+      other when state.attempt < @max_retire_attempts ->
+        Logger.warning(
+          "conv #{conv_id}: provisioning exceeded #{state.fires_in_ms}ms and the machine could " <>
+            "not be retired (#{inspect(other)}); attempt #{state.attempt} of " <>
+            "#{@max_retire_attempts}, asking again in #{retire_retry_ms()}ms"
+        )
+
+        :retry
+
+      # Out of attempts. `main`'s ceiling, restored: the server is stopped
+      # although the row is live, because a wedged server is the one thing that
+      # keeps `SandboxReaper.release_stuck_sandboxes/0` from ever seeing this
+      # row (it rejects rows whose server is alive). The stop goes through the
+      # supervisor, which removes the child — so nothing restarts onto the live
+      # row, which is what #394 was actually about.
       other ->
         Logger.error(
-          "conv #{conv_id}: provisioning exceeded #{fires_in_ms}ms and the machine could not " <>
-            "be retired (#{inspect(other)}); leaving the server alive rather than restarting " <>
-            "it onto a live row"
+          "conv #{conv_id}: provisioning exceeded #{state.fires_in_ms}ms and the machine could " <>
+            "not be retired after #{@max_retire_attempts} attempts (#{inspect(other)}); " <>
+            "stopping the server anyway so the reaper can collect the row"
         )
+
+        Output.publish_stage(conv_id, "provision", "failed", %{
+          reason: "provision deadline exceeded; the machine could not be retired"
+        })
+
+        kill(state.server)
+
+        :telemetry.execute([:fountain, :provision, :deadline_exceeded], %{count: 1}, %{
+          conversation_id: conv_id
+        })
+
+        :done
     end
   end
 

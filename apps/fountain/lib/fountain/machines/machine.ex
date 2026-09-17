@@ -586,7 +586,11 @@ defmodule Fountain.Machines.Machine do
 
   **The watchdog's caller should read the answer rather than assume it** (#394):
   the row has to be terminal before a stuck server is killed, and a refusal here
-  means it is not.
+  means it is not. A refusal is not a place to stop, either —
+  `Conversations.ProvisionWatchdog` retries it and then falls back to stopping
+  the server anyway, because the pass that would otherwise collect the row
+  (`SandboxReaper.release_stuck_sandboxes/0`) skips rows whose server is alive,
+  which is every row this refusal can be about.
   """
   @spec fail_provision(String.t(), keyword()) ::
           {:ok, :failed | :already_terminal | :not_provisioning | :claimed_elsewhere}

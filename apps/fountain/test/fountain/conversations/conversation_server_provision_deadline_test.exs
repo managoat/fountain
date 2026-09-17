@@ -61,11 +61,18 @@ defmodule Fountain.Conversations.ConversationServerProvisionDeadlineTest do
   # `ProvisionWatchdog.retire_wait_ms/0` covers it either way; expiring the
   # lease is what keeps these tests to seconds rather than minutes.
   defp expire_watchdog(server) do
-    assert_receive {:watchdog_started, ^server, watchdog}, 5_000
-    lapse_lease()
+    watchdog = arm_watchdog(server)
     ref = Process.monitor(watchdog)
     send(watchdog, :provision_deadline)
     assert_receive {:DOWN, ^ref, :process, ^watchdog, :normal}, 10_000
+  end
+
+  # The same, for a watchdog that is *not* expected to exit — a refused retire
+  # re-arms and comes back (round 1), so the caller drives the attempts itself.
+  defp arm_watchdog(server) do
+    assert_receive {:watchdog_started, ^server, watchdog}, 5_000
+    lapse_lease()
+    watchdog
   end
 
   # Past, for every machine in this test's tenant — the suite runs one
@@ -212,13 +219,34 @@ defmodule Fountain.Conversations.ConversationServerProvisionDeadlineTest do
     refute_received :sprite_created
   end
 
-  test "a machine it cannot retire is not killed either (#394)" do
+  test "a machine it cannot retire is retried, and only then is the server stopped" do
     # The #394 ordering as a *condition* rather than a sequence (ADR 0058 stage
-    # 7b). The rows go terminal before the kill so that a Horde restart stops at
-    # the terminal-status guard — which means a retire the owner refuses must
-    # stop the watchdog too, or the kill would restart a server onto a live row
-    # and build a second billable machine. Left for
-    # `SandboxReaper.release_stuck_sandboxes/0` instead.
+    # 7b): the rows go terminal before the kill so a restart stops at the
+    # terminal-status guard, which means a retire the owner refuses must not be
+    # followed by a kill.
+    #
+    # **What that cannot be is "do nothing, for ever"** (round 1, protocol and
+    # surfaces reviews, both probed). The first draft left the row to
+    # `SandboxReaper.release_stuck_sandboxes/0`, which rejects rows whose server
+    # is alive — and the refusal arm is the one that deliberately keeps it
+    # alive. So the row sat `starting`, holding a quota slot, until the next
+    # deploy: exactly what #329 exists to prevent, and unreachable on `main`.
+    #
+    # So the refusal is retried, and after `max_retire_attempts/0` the ceiling
+    # falls back to `main`'s — the server is stopped although the row is live,
+    # through the supervisor, which removes the child rather than restarting it.
+    for key <- [:provision_retire_retry_ms] do
+      previous = Application.fetch_env(:fountain, key)
+      Application.put_env(:fountain, key, 0)
+
+      on_exit(fn ->
+        case previous do
+          {:ok, value} -> Application.put_env(:fountain, key, value)
+          :error -> Application.delete_env(:fountain, key)
+        end
+      end)
+    end
+
     stub_happy_sprite()
     stall_provision()
 
@@ -226,20 +254,91 @@ defmodule Fountain.Conversations.ConversationServerProvisionDeadlineTest do
     agent = insert_agent(user_id: user.id, runtime: "gemini")
     conv = insert_conversation(user_id: user.id, agent_id: agent.id)
 
+    test_pid = self()
+
     Mimic.stub(Fountain.Machines.Machine, :fail_provision, fn _id, _opts ->
+      send(test_pid, :retire_refused)
       {:error, :sandbox_unavailable}
     end)
 
     pid = start_provision_server(conv)
     ref = Process.monitor(pid)
     assert_receive {:provision_stalled, ^pid}, 5_000
-    expire_watchdog(pid)
 
-    refute_receive {:DOWN, ^ref, :process, ^pid, _}, 500
-    assert Process.alive?(pid)
+    watchdog = arm_watchdog(pid)
+    watchdog_ref = Process.monitor(watchdog)
+    send(watchdog, :provision_deadline)
+
+    # Every attempt asks, and the server survives all but the last.
+    for _ <- 1..ProvisionWatchdog.max_retire_attempts() do
+      assert_receive :retire_refused, 5_000
+    end
+
+    # …and then the fallback: the server is stopped so the reaper can see the
+    # row at all, and the watchdog is done.
+    assert_receive {:DOWN, ^watchdog_ref, :process, ^watchdog, :normal}, 10_000
+    assert_receive {:DOWN, ^ref, :process, ^pid, _}, 5_000
+
+    # The row is untouched by the watchdog — that is the half of #394 that does
+    # not change — and now has no live server, which is what
+    # `release_stuck_sandboxes/0` needs.
     assert Conversations._unsafe_get_sandbox!(conv.sandbox_id).status in ["pending", "starting"]
+    refute_received :retire_refused
+  end
 
-    Process.exit(pid, :kill)
+  test "a retire that succeeds on a later attempt kills the server and never retries again" do
+    # The ordinary refusal — a lock held for the whole wait, a database fault —
+    # clears, and the retry is what makes the ceiling land instead of the
+    # fallback. Pinned separately because the fallback above would pass with the
+    # retry doing nothing at all.
+    for key <- [:provision_retire_retry_ms] do
+      previous = Application.fetch_env(:fountain, key)
+      Application.put_env(:fountain, key, 0)
+
+      on_exit(fn ->
+        case previous do
+          {:ok, value} -> Application.put_env(:fountain, key, value)
+          :error -> Application.delete_env(:fountain, key)
+        end
+      end)
+    end
+
+    stub_happy_sprite()
+    stall_provision()
+
+    user = insert_verified_user()
+    agent = insert_agent(user_id: user.id, runtime: "gemini")
+    conv = insert_conversation(user_id: user.id, agent_id: agent.id)
+
+    test_pid = self()
+    attempts = :counters.new(1, [])
+
+    Mimic.stub(Fountain.Machines.Machine, :fail_provision, fn id, opts ->
+      :counters.add(attempts, 1, 1)
+      send(test_pid, {:retire, :counters.get(attempts, 1)})
+
+      if :counters.get(attempts, 1) == 1,
+        do: {:error, :sandbox_unavailable},
+        else: Mimic.call_original(Fountain.Machines.Machine, :fail_provision, [id, opts])
+    end)
+
+    pid = start_provision_server(conv)
+    ref = Process.monitor(pid)
+    assert_receive {:provision_stalled, ^pid}, 5_000
+
+    watchdog = arm_watchdog(pid)
+    watchdog_ref = Process.monitor(watchdog)
+    send(watchdog, :provision_deadline)
+
+    assert_receive {:retire, 1}, 5_000
+    assert_receive {:retire, 2}, 5_000
+    assert_receive {:DOWN, ^watchdog_ref, :process, ^watchdog, :normal}, 10_000
+    assert_receive {:DOWN, ^ref, :process, ^pid, :killed}, 5_000
+
+    # The second attempt landed, so this is the ordinary ceiling: rows terminal.
+    assert Conversations._unsafe_get_sandbox!(conv.sandbox_id).status == "failed"
+    assert Conversations._unsafe_get_conversation!(conv.id).status == "failed"
+    refute_received {:retire, 3}
   end
 
   test "a provision that completes in time is left alone" do

@@ -7,6 +7,18 @@ defmodule Fountain.Machines.BindingTest do
   `async: false`: the gate is application environment, the gate-on cases run
   the protocol inside an owner process that needs the shared sandbox
   connection, and the race cases use `unboxed_run`.
+
+  **What `reject(&Managoat.Sandbox.destroy/1)` is worth here, and what it is
+  not** (round 1). `Destroy.destroy_at_provider/2` rescues a raising adapter
+  and finalizes the row, and Mimic's `UnexpectedCallError` is a raise — so a
+  provider call this file rejects is swallowed into a logged failure rather
+  than failing the test. Every `reject` below is therefore belt to an
+  assertion's braces: the outcome (`{:ok, :kept}`) or the row (`status ==
+  "ready"`) is what actually catches a provider call that should not have
+  happened. Where "no round trip" is the whole claim, the pin is a stub that
+  reports and a `refute_received`, not a `reject`. Same shape inside a `stub`:
+  an assertion that fails there surfaces as the protocol's own error tuple, so
+  the outer assertion is the one doing the work.
   """
 
   use Fountain.DataCase, async: false
@@ -1011,7 +1023,16 @@ defmodule Fountain.Machines.BindingTest do
       # Counterexample 3's real path: a wake builds a fresh machine and
       # retires the old row through the owner with `provider: :already_gone`.
       replacement = insert_sandbox(user_id: ctx.user.id, agent_id: ctx.agent.id, status: "ready")
-      reject(&Managoat.Sandbox.destroy/1)
+
+      # `provider: :already_gone` must cost no provider round trip, and that is
+      # the whole claim here — so it is pinned by a stub that reports rather
+      # than by `reject/1`, which this protocol rescues (see the moduledoc).
+      test_pid = self()
+
+      stub(Managoat.Sandbox, :destroy, fn _handle ->
+        send(test_pid, :destroyed_at_provider)
+        :ok
+      end)
 
       quietly(fn ->
         assert {:ok, :destroyed} =
@@ -1023,6 +1044,8 @@ defmodule Fountain.Machines.BindingTest do
                    provider: :already_gone
                  )
       end)
+
+      refute_received :destroyed_at_provider
 
       assert Repo.reload!(ctx.turn).status == "interrupted"
       {:ok, _} = Conversations.update_conversation(ctx.conv, %{sandbox_id: replacement.id})

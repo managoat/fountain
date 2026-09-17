@@ -203,7 +203,9 @@ defmodule Fountain.Conversations.TerminationActorFenceTest do
 
   test "a conversation rebound after the fence still destroys the machine it left", ctx do
     # The `terminating_conversation_id: nil` deviation, guarded where the code
-    # is. `prepare_termination/2` fences and decides kept-vs-destroy; the
+    # is. The detach (`Machine.detach/2` since ADR 0058 stage 8b, the
+    # server's `prepare_termination/2` before it) fences and decides
+    # kept-vs-destroy; the
     # adapter then closes, and a rebind can land in between. Handing the
     # protocol's fence the conversation id a second time would make that second
     # decision `:sandbox_kept` — the conversation is no longer on this machine,

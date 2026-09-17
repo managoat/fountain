@@ -182,7 +182,7 @@ own call invisible, so there is nothing to undo.)
 | `park(reason)` | `SandboxReaper.idle_sweep/2`, `Lifecycle.park/4`, `HomeCheckpoint` | refused while a turn is admitted that this park is not itself cutting; the checkpoint happens inside the transition |
 | `destroy(reason, actor)` | terminate, reset, agent delete, admin reap, account deletion, `Lifecycle.destroy/4` | one door; one `sandbox.destroyed` audit event carrying the actor (0013) |
 | `retarget(triple)` | `Reapply`'s row write | refused with cotenants or a changed `build_fingerprint`, as 0023's 2026-09-11 amendment says. Stage 8b built it as `Binding.retarget/3`, inline and inside the reapply's own transaction, which already holds the machine's lock; `Reapply.mount_skills/3`'s skills record goes through the same verb |
-| `machine_gone` (inbound) | the `{:machine_gone, …}` cast senders | the owner tells every bound conversation once; `MachineEvents` becomes its outbound. Stage 8b: `Wake`'s two direct sends for a replaced machine's co-tenants are the destroy's `:notify` now, and a lexical pin keeps `MachineEvents.tell_cotenants/5` callable from `lib/fountain/machines/` only. The owner also **ends the turns it operates over**: a destroy ends every running turn bound to the machine at its finalize, a ceiling park ends the requester's own turn, and a park over a turn nothing is driving leaves it — stage 6b's rule, a turn parked on a person's permission is theirs to answer |
+| `machine_gone` (inbound) | the `{:machine_gone, …}` cast senders | the owner tells every bound conversation once; `MachineEvents` becomes its outbound. Stage 8b: `Wake`'s two direct sends for a replaced machine's co-tenants are the destroy's `:notify` now, and a lexical pin keeps `MachineEvents.tell_cotenants/5` callable from `lib/fountain/machines/` only. The owner also **ends the turns it operates over**: a destroy ends every running turn bound to the machine at its finalize, a ceiling park ends the requester's own turn *strictly before* it stamps `parking` — its own write, committed first, not the stamp's transaction — so no reader ever meets a `running` turn on a `parking` row, and a park over a turn nothing is driving leaves it — stage 6b's rule, a turn parked on a person's permission is theirs to answer |
 
 ### What the conversation server keeps
 
@@ -232,7 +232,7 @@ match copied four times (#2039); the salvage branch
 `follow/2255-reaper-liveness-lock`.
 
 **New.** `Fountain.Machines.{Machine, Lease, Policy, Occupancy, Destroy, Park,
-Resume, Renewal}` and `Fountain.MachineRegistry`; six columns on `sandboxes` (the five lease and
+Resume, Renewal, Admission, Binding}` and `Fountain.MachineRegistry`; six columns on `sandboxes` (the five lease and
 transition columns, and `woken_at`, the wake-registration marker stage 6a
 added for constraint 4); the existing `sandbox_unavailable` carried into every
 transient-error vocabulary that was missing it, rather than a new refusal word

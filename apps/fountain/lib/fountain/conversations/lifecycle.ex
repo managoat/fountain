@@ -97,8 +97,9 @@ defmodule Fountain.Conversations.Lifecycle do
   # `Fountain.Conversations`' own `@sandbox_lock_namespace` (4316); every
   # module that takes this lock hardcodes the same integer rather than
   # sharing the attribute, since module attributes do not cross a module
-  # boundary (`conversations/launch.ex`, `conversations/execution_guard.ex`,
-  # `conversations/sandbox_identity.ex` do the same).
+  # boundary (`conversations/launch.ex`, `conversations/execution_guard.ex`
+  # and `machines/binding.ex` do the same; `conversations/sandbox_identity.ex`
+  # did until ADR 0058 stage 8b deleted it).
   @sandbox_lock_namespace 4316
 
   # Sandbox statuses a fence never reopens — must match

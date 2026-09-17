@@ -166,6 +166,19 @@ defmodule Fountain.Machines.Binding do
   # `Destroy`'s number, for `Destroy`'s reason: the caller is a request (a
   # `DELETE` on the dead-server path, a `ConversationServer`'s `handle_call` on
   # the live one) and a wait that outlives it answers nobody.
+  #
+  # **With the gate on, this wait is the owner's mailbox**, not just the
+  # caller's: the detach runs inside `Machine`'s `handle_call`, so everything
+  # queued behind it waits too. Against a real operation that is the point —
+  # the queue is how two callers on one machine are serialized — but against a
+  # lease a crashed operation on *this* node left behind, it is five seconds
+  # of the owner spent on a lease nobody will release, and the early door
+  # (`Lease.absent_node_headroom_ms/0`) cannot help, because it only judges a
+  # holder whose node is gone and this node is here (round 1, protocol review:
+  # `waited ms: 4809`). Bounded, rare, and the same shape as 8a's "one queued
+  # cotenant park lost per owner crash"; the standing fix is the renew timer
+  # ending with its operation, which is stage 7a's and already in place for
+  # every operation that exits cleanly.
   @busy_wait_ms 5_000
 
   # How often the wait re-asks. Each ask is the whole fence transaction.
@@ -626,6 +639,21 @@ defmodule Fountain.Machines.Binding do
   transaction — this is the one protocol entry point that *requires* an
   enclosing transaction rather than refusing one, because the row it binds is
   locked there.
+
+  **What the guard actually checks is weaker than that sentence**, and it is
+  worth saying so (round 1, protocol review). `Repo.in_transaction?/0` sees a
+  transaction, not *which* transaction: a plain `Repo.transaction/1` holding
+  neither the user's source lock nor the sandbox's 4316 passes it and runs. The
+  guard is not what makes two concurrent binds correct — the `FOR NO KEY
+  UPDATE` this function takes on the machine's own row is, and it is taken
+  here rather than assumed. What `with_current/2` adds on top is the ordering
+  with turn admission, reapply and teardown, which all take 4316 first.
+
+  Asserting 4316 itself would mean reading `pg_locks` for this backend on every
+  Codex bind, which is a round trip on the admission path to catch a caller
+  that does not exist: `InferenceBinding` is this function's only caller, and
+  `machines/lock_order_test.exs` is what keeps a second one honest. So: a
+  convention the code can only half see, said out loud rather than enforced.
   """
   @spec bind_inference(Conversation.t(), Source.t()) ::
           :ok | {:error, :codex_inference_conflict | :sandbox_not_found | :transaction_required}

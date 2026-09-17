@@ -9,11 +9,11 @@ defmodule Fountain.Machines.MidOperationReadersTest do
   from the destroy protocol, and any live lease) stop being invisible to a wake
   or an attach.
 
-  Three doors, one answer. `Wake.maybe_reuse_sandbox/1`,
-  `Launch.check_attachable/4` (through the attach door, both of whose call
-  sites share the function) and `Rehydrator`'s boot sweep each turn
-  `Machine.busy?/2` into `:sandbox_unavailable` — the word the system already
-  has, 503 with a `Retry-After`.
+  Three doors, one answer. `Wake.maybe_reuse_sandbox/1`, the attach door
+  (`Binding.attachable/5` since stage 8b, `Launch.check_attachable/4` when this
+  file was written) and `Rehydrator`'s boot sweep each turn `Machine.busy?/2`
+  into `:sandbox_unavailable` — the word the system already has, 503 with a
+  `Retry-After`.
 
   **A live lease is the whole of the question** (round 1). A stamped
   `transition` whose lease has expired is an owner that *died* mid-operation,
@@ -380,9 +380,9 @@ defmodule Fountain.Machines.MidOperationReadersTest do
       # green.
       #
       # No prompt here, so `Wake` is never reached, and the hook is
-      # `InferenceCredentials.lock_source/1`, which `create_attached_conversation/3`
-      # calls as the first statement inside its transaction — after the
-      # preflight `check_attachable/4` has already passed and before the
+      # `InferenceCredentials.lock_source/1`, which `Binding.attach/3` calls as
+      # the first statement inside its transaction — after the pre-lock
+      # courtesy `Binding.attachable/5` has already passed and before the
       # `FOR NO KEY UPDATE` re-read. Only the locked check can produce this
       # answer.
       test_pid = self()

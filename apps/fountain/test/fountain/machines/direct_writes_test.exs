@@ -76,9 +76,10 @@ defmodule Fountain.Machines.DirectWritesTest do
     `Launch.fail_initial_start/2` at one rather than two — it writes a
     conversation and a sandbox in the same locked body, through
     `Conversation.changeset(` and `Sandbox.changeset(` — and the bare
-    `Ecto.Changeset.change(` clause is what sees the three writes that build
-    no schema changeset at all: the teardown fence, the reset front door and
-    `SandboxIdentity`. Scoping to the body rather than to a window of lines
+    `Ecto.Changeset.change(` clause is what sees the writes that build no schema
+    changeset at all: the teardown fence and the reset front door (stage 8b
+    took the third, `SandboxIdentity`, out of the tree with the module).
+    Scoping to the body rather than to a window of lines
     is what makes that safe: `Conversations.do_update_sandbox/2` puts fifteen
     lines of guards between its changeset and its `Repo.update/1`.
   - The row-write match is word-bounded so `reclaim_sandbox(` (a local,
@@ -149,8 +150,10 @@ defmodule Fountain.Machines.DirectWritesTest do
   # the missing four are not obscure: the teardown fence
   # (`Lifecycle.do_fence_sandbox_for_teardown/2`), the reset fence
   # (`Conversations.do_reset_sandbox/2`), `SandboxIdentity.bind/2`'s
-  # `provider_instance_id` and `InferenceBinding.compatible_machine/2`'s
-  # `codex_inference_source` all build their changeset with
+  # `provider_instance_id` (the module is gone as of stage 8b — it had no
+  # caller in any app) and `InferenceBinding.compatible_machine/2`'s
+  # `codex_inference_source` (through `Binding.bind_inference/2` since 8b) all
+  # built their changeset with
   # `Ecto.Changeset.change/2` and never name the schema at the write. Three of
   # the four are columns ADR 0058 stage 9 deletes outright; the point of a
   # ratchet is that it knows they are there in the meantime.
@@ -253,10 +256,11 @@ defmodule Fountain.Machines.DirectWritesTest do
   # ADR's stage 8 row promised. None of them is a binding write, and each has
   # a stage or a reason: `create_sandbox/1`'s insert is the row's creation,
   # which stage 7b made the reservation a provision bracket begins after;
-  # `do_update_sandbox/2` is the context's own door, with two callers left,
-  # both in `sandbox_reaper.ex` — `release_stuck_sandboxes/0` and
-  # `finish_teardown/1`, the two passes stage 9 turns into owner verbs once
-  # `destroying` is the one durable transition; `register_server/2`'s
+  # `do_update_sandbox/2` counts twice — its own `Repo.update/1`, and the
+  # door itself, whose two callers are both in `sandbox_reaper.ex`
+  # (`release_stuck_sandboxes/0` and `finish_teardown/1`, the two passes stage
+  # 9 turns into owner verbs once `destroying` is the one durable
+  # transition); `register_server/2`'s
   # `woken_at` marker is written by the registration door under the sandbox
   # lock, not by an operation, until the rehydrator starts servers through
   # the owner; and the reset fence (`do_reset_sandbox/2`) and the teardown

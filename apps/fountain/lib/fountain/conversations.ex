@@ -903,8 +903,9 @@ defmodule Fountain.Conversations do
   # *not* inside `insert_conversation_row/1`: a caller in a transaction must
   # fire it after that transaction commits, so a rolled-back write reports no
   # request. Every door that inserts a conversation calls it exactly once —
-  # `create_conversation/1`, `create_attached_conversation/3`,
-  # `reserve_initial_conversation/3` — and
+  # `create_conversation/1`, `Fountain.Machines.Binding.attach/3` (the attach
+  # door since ADR 0058 stage 8b, `Launch.create_attached_conversation/3`
+  # before it), `reserve_initial_conversation/3` — and
   # `conversation_creation_seam_test.exs` drives each of them and fails if one
   # stops firing.
   # A door for `Fountain.Conversations.Launch` (#2217); not part of the

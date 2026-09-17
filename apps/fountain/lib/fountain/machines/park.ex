@@ -554,10 +554,26 @@ defmodule Fountain.Machines.Park do
   end
 
   defp stamp_then_park(sandbox, epoch, opts) do
-    # The turn this park cuts is ended **before** the stamp, so there is no
-    # window in which a `running` turn sits on a `parking` row — the reading a
-    # recovering actor or a cotenant's admission would otherwise take (stage
-    # 8b, the lead's condition on the cut). See `end_cut_turn/2`.
+    # The turn this park cuts is ended **before** the stamp, in its own
+    # committed write and not the stamp's transaction, so there is no window in
+    # which a `running` turn sits on a `parking` row — the reading a recovering
+    # actor or a cotenant's admission would otherwise take (stage 8b, the
+    # lead's condition on the cut). See `end_cut_turn/2`.
+    #
+    # The price of that order, and why it is still the right one (round 1,
+    # surfaces review): a `parking` stamp that is then refused — `:stale`
+    # against a newer epoch, `:retired` against a terminal row — has already
+    # written the turn `interrupted` with the reason `machine_parked`, for a
+    # park that did not happen. The alternative is a window where the turn is
+    # `running` on a row that says `parking`, and that window is read by two
+    # things that then do the wrong work: a cotenant's admission counts the
+    # turn against capacity on a machine going to sleep, and a recovering actor
+    # takes it for a turn it should finish. A wrong word on a turn the ceiling
+    # was cutting anyway is the cheaper error, and only the ceiling reaches
+    # here — the server has already dropped its adapter by then, so the turn was
+    # over either way. Between the two committed writes a second connection sees
+    # an interrupted turn on an unstamped row under a live lease, which is a
+    # state nothing refuses.
     end_cut_turn(sandbox, opts)
 
     case Lease.cas_update(sandbox.id, epoch,

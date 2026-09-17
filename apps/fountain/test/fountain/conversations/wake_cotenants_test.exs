@@ -125,4 +125,39 @@ defmodule Fountain.Conversations.WakeCotenantsTest do
     assert Conversations._unsafe_get_conversation!(ctx.stranded.id).sandbox_id == old_id
     assert Repo.reload!(ctx.old).status == "terminated"
   end
+
+  test "a persistent home's replacement tells each co-tenant once, after it is up", ctx do
+    # A persistent home is retired twice on this path: once before the
+    # replacement is provisioned, because the partial unique index allows one
+    # live home per identity, and once after the new server starts. Round 1
+    # found the notices on both — every co-tenant told twice, the first time
+    # while there was no machine to follow onto. Only the second retire tells
+    # them.
+    ctx.old |> Ecto.Changeset.change(mode: "persistent") |> Repo.update!()
+
+    stand_in_server(ctx.following.id)
+    stand_in_server(ctx.stranded.id)
+
+    {:ok, _} = Wake.wake_conversation(ctx.conv.id, "hello")
+
+    old_id = ctx.old.id
+    following_id = ctx.following.id
+    stranded_id = ctx.stranded.id
+
+    assert_receive {:cotenant, ^following_id,
+                    {:"$gen_cast", {:machine_gone, ^old_id, "replaced", "sprite_gone", _}}},
+                   2_000
+
+    assert_receive {:cotenant, ^stranded_id,
+                    {:"$gen_cast", {:machine_gone, ^old_id, "reset", "sprite_gone", _}}},
+                   2_000
+
+    refute_receive {:cotenant, _, {:"$gen_cast", {:machine_gone, _, _, _, _}}}, 500
+
+    # The notice named a replacement that exists: the follower is on it.
+    new_id = Conversations._unsafe_get_conversation!(ctx.conv.id).sandbox_id
+    refute new_id == old_id
+    assert Conversations._unsafe_get_conversation!(ctx.following.id).sandbox_id == new_id
+    assert Repo.reload!(ctx.old).status == "terminated"
+  end
 end

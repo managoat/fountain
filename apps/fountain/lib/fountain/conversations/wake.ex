@@ -519,12 +519,27 @@ defmodule Fountain.Conversations.Wake do
     mode = (old && old.mode) || "ephemeral"
 
     # Who else was on the disk that is gone, and what each is told (ADR 0023
-    # gate 5), decided here so the notice goes out with the retirement of the
-    # old row — the owner's destroy is the one sender of `{:machine_gone, ..}`
-    # since ADR 0058 stage 8b — whichever of the two orders below retires it.
+    # gate 5), decided here because the split is read off the old row, which
+    # the home retire below may terminate before the replacement exists. The
+    # notices themselves go out later, with the retirement that follows the new
+    # server's start — the owner's destroy is the one sender of
+    # `{:machine_gone, ..}` since ADR 0058 stage 8b, and it is asked once.
+    #
+    # **Once, and after the replacement is up.** A persistent home is retired
+    # twice on this path: here, before provisioning, because the partial unique
+    # index allows one live home per identity, and again below once the new
+    # server is running. Handing the notices to both told every co-tenant
+    # twice (round 1, surfaces review: `following got 2 cast(s)`), and the
+    # first of the two went out while there was no machine to follow onto — a
+    # co-tenant prompted in that window would take the wake path against a
+    # terminated row and build a machine of its own, which is the fan-out this
+    # split exists to prevent. `main` told them after the new machine was up;
+    # so does this. The second retire reaches them through the owner's
+    # `:already_terminal` arm, which is the same arm a reset home's co-tenants
+    # have always come through.
     cotenants = split_cotenants(conv.sandbox_id, conv, agent)
 
-    with :ok <- retire_replaced_home(mode, conv.sandbox_id, notices(cotenants)),
+    with :ok <- retire_replaced_home(mode, conv.sandbox_id),
          :ok <- Fountain.Accounts.check_not_suspended(conv.user_id),
          :ok <- Fountain.Billing.check_spend(conv.user_id),
          :ok <- check_saved_inference(conv, agent),
@@ -756,9 +771,12 @@ defmodule Fountain.Conversations.Wake do
   # that it can be *refused*, which is why `retire_replaced_home/2` answers
   # rather than being discarded — see its one checked caller.
   # `notices` is what the machine's owner tells the co-tenants as it retires
-  # the row (ADR 0058 stage 8b); the two cleanup calls that retire a row this
-  # wake created and never built anything on have nobody to tell and pass
-  # none.
+  # the row (ADR 0058 stage 8b), and exactly one of this module's four calls
+  # carries any: the retirement of the old row that follows the replacement's
+  # start. The two cleanup calls retire a row this wake created and never built
+  # anything on, and have nobody to tell; the persistent home's early retire
+  # has somebody to tell but nothing yet to tell them to follow onto, so it
+  # leaves the telling to the later call.
   defp mark_old_sandbox_terminated(sandbox_id, notices \\ [])
 
   defp mark_old_sandbox_terminated(nil, _notices), do: :ok
@@ -810,10 +828,14 @@ defmodule Fountain.Conversations.Wake do
   # that is certain to fail on the index. Answering `:sandbox_unavailable` here
   # gives the caller the 503 and the `Retry-After` that describe what actually
   # happened, rather than a constraint error.
-  defp retire_replaced_home(mode, _sandbox_id, _notices) when mode != "persistent", do: :ok
+  #
+  # It passes no notices: the co-tenants are told by the retirement that
+  # follows the new server's start, so that what they are told to follow onto
+  # exists. See `create_fresh_sandbox_and_start/4`.
+  defp retire_replaced_home(mode, _sandbox_id) when mode != "persistent", do: :ok
 
-  defp retire_replaced_home(_mode, sandbox_id, notices) do
-    case mark_old_sandbox_terminated(sandbox_id, notices) do
+  defp retire_replaced_home(_mode, sandbox_id) do
+    case mark_old_sandbox_terminated(sandbox_id) do
       {:error, _reason} -> {:error, :sandbox_unavailable}
       _settled -> :ok
     end

@@ -135,6 +135,49 @@ private func json(_ value: JSONValue) -> Data { try! JSONEncoder().encode(value)
     #expect(router.promptBody == ["prompt": "next", "images": images])
   }
 
+  // #1406: a caller names its submission and reads the name back off the turn,
+  // instead of guessing which turn is its own from turn order. On a channel
+  // resume the request that opens the turn is the second one, so a create
+  // field that belongs with the prompt is dropped unless the resume branch
+  // repeats it, and nothing else would notice.
+  @Test(arguments: [false, true])
+  func resumedPromptCarriesClientRequestID(legacy: Bool) async throws {
+    let router = ChannelRunRouter(resumed: true)
+    MockURLProtocol.handler = router.handle
+    let fountain = try Fountain(
+      apiKey: "secret", baseURL: "https://api.example.test", session: mockSession())
+    let run =
+      legacy
+      ? fountain.run(
+        "next", agent: "11111111-1111-1111-1111-111111111111",
+        clientRequestID: "salon-execution-44", channelID: "chat", timeout: 1, collectEvents: true)
+      : try fountain.runRequest(
+        [
+          "agent_id": "a1", "prompt": "next", "channel_id": "chat",
+          "client_request_id": "salon-execution-44",
+        ], timeout: 1, collectEvents: true)
+    _ = try await run.value()
+    #expect(router.createBody?["client_request_id"] == "salon-execution-44")
+    #expect(router.promptCount == 1)
+    #expect(router.promptBody == ["prompt": "next", "client_request_id": "salon-execution-44"])
+  }
+
+  // A caller that names nothing must put no key on the wire: an explicit null
+  // would be a different request from the one every older caller sends.
+  @Test
+  func aResumeWithoutAClientRequestIDSendsNoKey() async throws {
+    let router = ChannelRunRouter(resumed: true)
+    MockURLProtocol.handler = router.handle
+    let fountain = try Fountain(
+      apiKey: "secret", baseURL: "https://api.example.test", session: mockSession())
+    _ = try await fountain.run(
+      "next", agent: "11111111-1111-1111-1111-111111111111", channelID: "chat", timeout: 1,
+      collectEvents: true
+    ).value()
+    #expect(router.createBody?["client_request_id"] == nil)
+    #expect(router.promptBody == ["prompt": "next"])
+  }
+
   @Test(arguments: [false, true])
   func runRequestSurfacesResumedPromptRejection(legacy: Bool) async throws {
     let router = ChannelRunRouter(resumed: true, rejectPrompt: true)
@@ -321,6 +364,16 @@ private func json(_ value: JSONValue) -> Data { try! JSONEncoder().encode(value)
     try await Task.sleep(nanoseconds: 10_000_000)
     _ = try await conversation.send("second").value()
     #expect(router.runCursors == [5, 10])
+  }
+
+  @Test func conversationSendCarriesClientRequestID() async throws {
+    let router = ChannelRunRouter(resumed: true)
+    MockURLProtocol.handler = router.handle
+    let fountain = try Fountain(
+      apiKey: "secret", baseURL: "https://api.example.test", session: mockSession())
+    _ = try await fountain.resume("c1")
+      .send("next", clientRequestID: "salon-execution-43", timeout: 1).value()
+    #expect(router.promptBody == ["prompt": "next", "client_request_id": "salon-execution-43"])
   }
 
   @Test func successfulEmptySSEConnectionsResetRetryBudget() async throws {
@@ -723,10 +776,28 @@ private final class ChannelRunRouter: @unchecked Sendable {
   private var capturedCursor = false
   private(set) var promptCount = 0
   private(set) var promptBody: JSONObject?
+  private(set) var createBody: JSONObject?
 
   init(resumed: Bool, rejectPrompt: Bool = false) {
     self.resumed = resumed
     self.rejectPrompt = rejectPrompt
+  }
+
+  /// URLSession hands a body back as a stream once it is big enough, so both
+  /// shapes have to be read.
+  static func body(of request: URLRequest) -> Data {
+    var data = request.httpBody ?? Data()
+    if let stream = request.httpBodyStream {
+      stream.open()
+      defer { stream.close() }
+      var buffer = [UInt8](repeating: 0, count: 1024)
+      while stream.hasBytesAvailable {
+        let count = stream.read(&buffer, maxLength: buffer.count)
+        if count <= 0 { break }
+        data.append(contentsOf: buffer.prefix(count))
+      }
+    }
+    return data
   }
 
   func handle(_ request: URLRequest, _ instance: MockURLProtocol) {
@@ -734,6 +805,7 @@ private final class ChannelRunRouter: @unchecked Sendable {
     defer { lock.unlock() }
     switch (request.httpMethod, request.url?.path) {
     case ("POST", "/api/conversations"):
+      createBody = try? JSONDecoder().decode(JSONObject.self, from: Self.body(of: request))
       instance.respond(
         status: resumed ? 200 : 201,
         data: json(
@@ -747,18 +819,7 @@ private final class ChannelRunRouter: @unchecked Sendable {
     case ("POST", "/api/conversations/c1/prompts"):
       #expect(capturedHistory && capturedCursor)
       promptCount += 1
-      var data = request.httpBody ?? Data()
-      if let stream = request.httpBodyStream {
-        stream.open()
-        defer { stream.close() }
-        var buffer = [UInt8](repeating: 0, count: 1024)
-        while stream.hasBytesAvailable {
-          let count = stream.read(&buffer, maxLength: buffer.count)
-          if count <= 0 { break }
-          data.append(contentsOf: buffer.prefix(count))
-        }
-      }
-      promptBody = try? JSONDecoder().decode(JSONObject.self, from: data)
+      promptBody = try? JSONDecoder().decode(JSONObject.self, from: Self.body(of: request))
       if rejectPrompt {
         instance.respond(status: 400, data: json(["error": "conversation_busy"] as JSONValue))
       } else {

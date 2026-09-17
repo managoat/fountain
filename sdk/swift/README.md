@@ -73,14 +73,38 @@ only string entries; setting it replaces the complete policy.
 
 With a channel ID, both `runRequest` methods follow turn 1 when the server
 creates a conversation, including fresh launches. When the server resumes an
-existing conversation, they submit the prompt and images once, then follow the
-next turn. A rejected follow-up surfaces the API error.
+existing conversation, they submit the prompt, its images and its
+`client_request_id` once, then follow the next turn. A rejected follow-up
+surfaces the API error.
 
 Both run paths reject a missing/blank prompt and `queue: true` before HTTP.
 Use the generic request API for queued creation; its 202 response is a job.
 `FountainKit.conversations.create` also rejects queued creation because it returns
 a conversation. Existing `run` convenience calls continue to resolve/build their
 usual requests.
+
+### Name your submission
+
+`POST .../prompts` answers before the turn exists, so no response can give you
+a turn id. Name the submission instead: the value reaches the turn the prompt
+opens and that turn's `started` stage event, so you read back which turn was
+yours instead of counting turns.
+
+```swift
+// Fountain
+let run = fountain.run(
+  "Run the approved plan.", agent: "reposage", clientRequestID: "plan-7-step-3")
+let next = fountain.resume(id).send(
+  "And the next step.", clientRequestID: "plan-7-step-4")
+
+// FountainKit
+try await client.conversations.prompt(
+  id, "And the next step.", clientRequestID: "plan-7-step-4")
+```
+
+It is a correlation, not an idempotency key: the same value sent twice opens
+two turns. A channel resume sends it again on the prompts route, because that
+second request is the one that opens the turn.
 
 The conversation request, Conversation, Turn, images, usage and permission
 request models are generated from `sdk/contract/contract.json`. Regenerate with

@@ -576,3 +576,72 @@ describe("runRequest", () => {
     assert.equal(fake.requests.length, 0);
   });
 });
+
+// #1406: a caller names its submission and reads the name back off the turn,
+// instead of guessing which turn is its own from turn order. The value has to
+// reach the request that actually *opens* the turn — which on a channel resume
+// is the second request, not the create.
+describe("client_request_id", () => {
+  const scriptEveryTurn = () => {
+    fake.onTurn = (conversation, turnNumber) => {
+      fake.scriptTurn(conversation.id, { turnNumber, turnId: `t${turnNumber}`, text: ["ok"] });
+    };
+  };
+
+  test("run sends it on create", async () => {
+    scriptEveryTurn();
+    await client().run("go", { agent: "reposage", clientRequestId: "salon-execution-42" });
+    const create = fake.requests.find((r) => r.path === "/api/conversations");
+    assert.equal((create?.body as Record<string, unknown>).client_request_id, "salon-execution-42");
+  });
+
+  test("send sends it on the prompt", async () => {
+    scriptEveryTurn();
+    const first = client().run("go", { agent: "reposage" });
+    const id = await first.conversationId;
+    await first;
+
+    await client().resume(id).send("again", { clientRequestId: "salon-execution-43" });
+    const prompts = fake.requests.filter((r) => r.path.endsWith("/prompts"));
+    assert.equal(prompts.length, 1);
+    assert.deepEqual(prompts[0]?.body, { prompt: "again", client_request_id: "salon-execution-43" });
+  });
+
+  // The resume branch re-sends the prompt on the prompts route from a fixed
+  // list of keys. A create field that belongs with the prompt is dropped there
+  // unless it is in that list, and nothing else would notice.
+  test("a channel resume carries it to the prompt that opens the turn", async () => {
+    scriptEveryTurn();
+    const first = client().run("first", { agent: "reposage", channelId: "chan-1" });
+    await first;
+    fake.requests.length = 0;
+
+    await client().run("second", {
+      agent: "reposage",
+      channelId: "chan-1",
+      clientRequestId: "salon-execution-44",
+    });
+
+    const create = fake.requests.find((r) => r.path === "/api/conversations");
+    assert.equal((create?.body as Record<string, unknown>).client_request_id, "salon-execution-44");
+    const prompt = fake.requests.find((r) => r.path.endsWith("/prompts"));
+    assert.ok(prompt, "a resume submits the prompt on the prompts route");
+    assert.deepEqual(prompt?.body, { prompt: "second", client_request_id: "salon-execution-44" });
+  });
+
+  test("a caller that names nothing sends no key at all", async () => {
+    scriptEveryTurn();
+    const first = client().run("first", { agent: "reposage", channelId: "chan-2" });
+    await first;
+    fake.requests.length = 0;
+
+    await client().run("second", { agent: "reposage", channelId: "chan-2" });
+    for (const request of fake.requests) {
+      if (request.method !== "POST" || request.body == null) continue;
+      assert.ok(
+        !("client_request_id" in (request.body as Record<string, unknown>)),
+        `${request.path} sent a client_request_id nobody asked for`,
+      );
+    }
+  });
+});

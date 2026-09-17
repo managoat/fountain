@@ -43,6 +43,13 @@ export interface RunConfig extends RunOptions {
   /** Images to attach to the first prompt, as the API's `ImageInput` shape. */
   images?: unknown[];
   /**
+   * Your own name for this submission, carried to the turn the prompt opens
+   * and onto that turn's `started` event (#1406). Read it back on the turn to
+   * find which turn was yours, instead of guessing from turn order. Not an
+   * idempotency key: sending the same value twice opens two turns.
+   */
+  clientRequestId?: string;
+  /**
    * Bind the conversation to an external channel. A second run with the same
    * channel, agent and vault continues that conversation instead of opening a
    * new one — how a chat harness keeps one thread on one sandbox.
@@ -143,6 +150,7 @@ export class Fountain {
           if (environmentId) body.environment_id = environmentId;
           if (config.title) body.title = config.title;
           if (config.images?.length) body.images = config.images;
+          if (config.clientRequestId) body.client_request_id = config.clientRequestId;
           if (config.channelId) body.channel_id = config.channelId;
           if (config.fresh) body.fresh = true;
           if (config.spriteName) body.sprite_name = config.spriteName;
@@ -184,8 +192,13 @@ export class Fountain {
       const hasPrompt = typeof body.prompt === "string" && body.prompt.length > 0;
       const after = hasPrompt ? await this.resume(conversation.id).cursor() : 0;
       const turnNumber = await this.nextTurnNumber(conversation.id);
+      // Every create field that belongs *with* the prompt has to be repeated
+      // here: this second request is the one that actually opens the turn.
       const promptBody: Record<string, unknown> = { prompt: body.prompt };
       if (body.images !== undefined) promptBody.images = body.images;
+      if (body.client_request_id !== undefined) {
+        promptBody.client_request_id = body.client_request_id;
+      }
       if (hasPrompt) {
         await this.api.request("POST", `/api/conversations/${conversation.id}/prompts`, {
           body: promptBody,

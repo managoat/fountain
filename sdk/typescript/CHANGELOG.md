@@ -11,6 +11,12 @@ server releases.
 
 ---
 
+## [6.1.0] - 2026-09-17
+
+### Added
+
+- `client_request_id` on every prompt the client sends, so a caller names its submission and reads that name back off the turn it opened instead of inferring the turn from turn order (#1406). `RunConfig.clientRequestId` on `run`, `SendOptions.clientRequestId` on `resume(id).send`, and the `client_request_id` key on a `runRequest` body. A channel resume repeats the value on the prompts route, which is the request that actually opens the turn. It is a correlation, not an idempotency key: the same value sent twice opens two turns.
+
 ## [6.0.0] - 2026-09-15
 
 ### Removed

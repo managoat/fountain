@@ -159,6 +159,76 @@ import Testing
     #expect(transport.requests[5].value(forHTTPHeaderField: "Last-Event-ID") == "4")
   }
 
+  // #1406: a caller names its submission and reads the name back off the turn,
+  // instead of guessing which turn is its own from turn order. On a channel
+  // resume the request that opens the turn is the second one, so a typed field
+  // on `ConversationCreateRequest` is dropped unless the resume branch repeats
+  // it, and nothing else would notice.
+  @Test(arguments: [false, true])
+  func resumedPromptCarriesClientRequestID(legacy: Bool) async throws {
+    let transport = FakeTransport([
+      .init(
+        json: #"{"data":{"id":"c1","status":"idle","runtime":"claude"},"meta":{"resumed":true}}"#),
+      .init(json: ""),
+      .init(json: #"{"data":[]}"#),
+      .init(status: 400, json: #"{"error":"conversation_busy"}"#),
+    ])
+    let request = ConversationCreateRequest(
+      agentID: "a1", prompt: "next", channelID: "chat",
+      clientRequestID: "salon-execution-44")
+    let client = FountainClient.fake(transport)
+    // The prompt is refused, which is the shortest way to the one request
+    // this test is about without scripting a whole second turn.
+    _ =
+      try? await
+      (legacy
+      ? client.run(
+        "next", agent: "a1", clientRequestID: "salon-execution-44", channelID: "chat", timeout: 1)
+      : client.runRequest(request, timeout: 1))
+
+    let create = try JSONDecoder().decode(
+      JSONValue.self, from: #require(transport.requests.first?.httpBody))
+    #expect(create["client_request_id"] == .string("salon-execution-44"))
+
+    let prompt = try #require(transport.requests.last)
+    #expect(prompt.url?.path == "/api/conversations/c1/prompts")
+    let body = try JSONDecoder().decode(JSONValue.self, from: #require(prompt.httpBody))
+    #expect(
+      body
+        == .object([
+          "prompt": .string("next"),
+          "client_request_id": .string("salon-execution-44"),
+        ]))
+  }
+
+  // A caller that names nothing must put no key on the wire: an explicit null
+  // would be a different request from the one every older caller sends.
+  @Test
+  func promptWithoutAClientRequestIDSendsNoKey() async throws {
+    let transport = FakeTransport([.init(json: #"{"status":"queued"}"#)])
+    let client = FountainClient.fake(transport)
+    try await client.conversations.prompt("c1", "next")
+    let body = try JSONDecoder().decode(
+      JSONValue.self, from: #require(transport.lastRequest?.httpBody))
+    #expect(body == .object(["prompt": .string("next")]))
+  }
+
+  @Test
+  func conversationsPromptCarriesClientRequestID() async throws {
+    let transport = FakeTransport([.init(json: #"{"status":"queued"}"#)])
+    let client = FountainClient.fake(transport)
+    try await client.conversations.prompt(
+      "c1", "next", clientRequestID: "salon-execution-43")
+    let body = try JSONDecoder().decode(
+      JSONValue.self, from: #require(transport.lastRequest?.httpBody))
+    #expect(
+      body
+        == .object([
+          "prompt": .string("next"),
+          "client_request_id": .string("salon-execution-43"),
+        ]))
+  }
+
   @Test(arguments: [false, true])
   func runRequestSurfacesResumedPromptRejection(legacy: Bool) async throws {
     let transport = FakeTransport([

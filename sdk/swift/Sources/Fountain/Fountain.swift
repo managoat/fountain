@@ -55,6 +55,7 @@ public final class Fountain: @unchecked Sendable {
     environment: String? = nil,
     title: String? = nil,
     images: [JSONObject]? = nil,
+    clientRequestID: String? = nil,
     channelID: String? = nil,
     fresh: Bool = false,
     spriteName: String? = nil,
@@ -83,6 +84,7 @@ public final class Fountain: @unchecked Sendable {
         if let environmentID { body["environment_id"] = .string(environmentID) }
         if let title { body["title"] = .string(title) }
         if let images, !images.isEmpty { body["images"] = .array(images.map(JSONValue.object)) }
+        if let clientRequestID { body["client_request_id"] = .string(clientRequestID) }
         if let channelID { body["channel_id"] = .string(channelID) }
         if fresh { body["fresh"] = .bool(true) }
         if let spriteName { body["sprite_name"] = .string(spriteName) }
@@ -127,8 +129,13 @@ public final class Fountain: @unchecked Sendable {
       let turns = try await api.list("/api/conversations/\(id)/turns")
       let turnNumber = (turns.compactMap { $0["turn_number"]?.intValue }.max() ?? 0) + 1
       if let prompt {
+        // Every create field that belongs *with* the prompt is repeated here:
+        // this second request is the one that opens the turn.
         var body: JSONObject = ["prompt": .string(prompt)]
         if let images = request["images"] { body["images"] = images }
+        if let clientRequestID = request["client_request_id"] {
+          body["client_request_id"] = clientRequestID
+        }
         _ = try await api.request("POST", "/api/conversations/\(id)/prompts", body: .object(body))
       }
       return (conversation, turnNumber, after)

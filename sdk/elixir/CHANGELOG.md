@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.6.0] - 2026-09-17
+
+### Added
+
+- `client_request_id` on every prompt the client sends, so a caller names its submission and reads that name back off the turn it opened instead of inferring the turn from turn order (#1406). `:client_request_id` on `Fountain.run/3` and on `Fountain.Conversation.send/3`, and the `client_request_id` key on a `Fountain.run_request/3` request. A channel resume repeats the value on the prompts route, which is the request that actually opens the turn. It is a correlation, not an idempotency key: the same value sent twice opens two turns.
+
 ## [0.5.1] - 2026-09-15
 
 ### Fixed

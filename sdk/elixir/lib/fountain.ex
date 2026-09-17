@@ -91,6 +91,7 @@ defmodule Fountain do
           |> optional("environment_id", environment_id)
           |> optional("title", opts[:title])
           |> optional("images", nonempty(opts[:images]))
+          |> optional("client_request_id", opts[:client_request_id])
           |> optional("channel_id", opts[:channel_id])
           |> optional("fresh", if(opts[:fresh], do: true))
           |> optional("sprite_name", opts[:sprite_name])
@@ -172,8 +173,10 @@ defmodule Fountain do
       turn_number = next_turn_number(client.api, conversation["id"])
 
       if has_prompt do
+        # Every create field that belongs *with* the prompt is repeated here:
+        # this second request is the one that opens the turn.
         HTTP.request!(client.api, "POST", "/api/conversations/#{conversation["id"]}/prompts",
-          body: Map.take(request, ["prompt", "images"])
+          body: Map.take(request, ["prompt", "images", "client_request_id"])
         )
       end
 

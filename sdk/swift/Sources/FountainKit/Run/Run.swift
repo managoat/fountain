@@ -315,6 +315,7 @@ extension FountainClient {
     environment: String? = nil,
     title: String? = nil,
     images: [ImageInput]? = nil,
+    clientRequestID: String? = nil,
     permissionPolicy: [String: String]? = nil,
     sandboxMode: SandboxMode? = nil,
     sandboxID: String? = nil,
@@ -334,7 +335,8 @@ extension FountainClient {
         sandboxMode: sandboxMode,
         sandboxID: sandboxID,
         channelID: channelID,
-        fresh: fresh
+        fresh: fresh,
+        clientRequestID: clientRequestID
       ), timeout: timeout)
   }
 
@@ -361,9 +363,12 @@ extension FountainClient {
     let opened = try await conversations.create(request)
     if opened.resumed, let prompt = request.prompt, !prompt.isEmpty {
       // Channel resume does not submit the launch prompt. The follow-up path
-      // captures the cursor and next turn before sending the prompt once.
+      // captures the cursor and next turn before sending the prompt once, and
+      // repeats every create field that belongs *with* the prompt: this second
+      // request is the one that opens the turn.
       return try await conversations.run(
-        opened.conversation.id, prompt: prompt, images: request.images, timeout: timeout)
+        opened.conversation.id, prompt: prompt, images: request.images,
+        clientRequestID: request.clientRequestID, timeout: timeout)
     }
     let turnNumber = opened.resumed ? try await nextTurnNumber(opened.conversation.id) : 1
     return Run(
@@ -386,11 +391,12 @@ extension ConversationsResource {
     _ id: String,
     prompt: String,
     images: [ImageInput]? = nil,
+    clientRequestID: String? = nil,
     timeout: TimeInterval? = nil
   ) async throws -> Run {
     let after = await cursor(id)
     let turnNumber = (try await turns(id).map(\.turnNumber).max() ?? 0) + 1
-    try await self.prompt(id, prompt, images: images)
+    try await self.prompt(id, prompt, images: images, clientRequestID: clientRequestID)
     let conversation = try await get(id)
     return Run(
       client: client,

@@ -159,7 +159,8 @@ defmodule Fountain.RunTest do
           agent: "11111111-1111-1111-1111-111111111111",
           channel_id: request["channel_id"],
           fresh: request["fresh"],
-          images: request["images"]
+          images: request["images"],
+          client_request_id: request["client_request_id"]
         ]
     )
   end
@@ -279,6 +280,130 @@ defmodule Fountain.RunTest do
       assert Jason.decode!(body) == %{"prompt" => "next", "images" => images}
       refute_receive {:channel_request, %{path: "/api/conversations/c1/prompts"}}
     end
+  end
+
+  # #1406: a caller names its submission and reads the name back off the turn,
+  # instead of guessing which turn is its own from turn order. The resume
+  # branch re-sends the prompt from a fixed list of keys, so a create field
+  # that belongs with the prompt is dropped there unless it is in that list.
+  for entry <- [:run_request, :run] do
+    @entry entry
+    test "#{entry} carries client_request_id to the prompt that opens the turn on a resume" do
+      parent = self()
+      {:ok, submitted} = Agent.start_link(fn -> false end)
+
+      server =
+        Fountain.TestServer.start(fn request ->
+          send(parent, {:channel_request, request})
+
+          case {request.method, request.path} do
+            {"POST", "/api/conversations"} ->
+              json(200, %{
+                "data" => %{"id" => "c1", "status" => "ready"},
+                "meta" => %{"resumed" => true}
+              })
+
+            {"GET", "/api/conversations/c1/turns"} ->
+              json(200, %{"data" => [%{"turn_number" => 1, "status" => "completed"}]})
+
+            {"POST", "/api/conversations/c1/prompts"} ->
+              Agent.update(submitted, fn _ -> true end)
+              json(200, %{"status" => "queued"})
+
+            {"GET", "/api/conversations/c1/stream"} ->
+              events = if Agent.get(submitted, & &1), do: run_events(2, 4), else: run_events()
+              {200, [{"content-type", "text/event-stream"}], events}
+
+            {"GET", "/api/conversations/c1"} ->
+              json(200, %{"data" => %{"id" => "c1", "status" => "ready"}})
+          end
+        end)
+
+      on_exit(fn -> Fountain.TestServer.stop(server) end)
+      client = Fountain.new(api_key: "key", base_url: server.url)
+
+      run =
+        launch_channel(
+          client,
+          @entry,
+          %{
+            "agent_id" => "agent-1",
+            "prompt" => "next",
+            "channel_id" => "raw",
+            "client_request_id" => "salon-execution-44"
+          },
+          timeout: 1_000,
+          collect_events: true
+        )
+
+      assert {:ok, _result} = Run.await(run)
+
+      assert_receive {:channel_request,
+                      %{method: "POST", path: "/api/conversations", body: create}}
+
+      assert Jason.decode!(create)["client_request_id"] == "salon-execution-44"
+
+      assert_receive {:channel_request,
+                      %{method: "POST", path: "/api/conversations/c1/prompts", body: body}}
+
+      assert Jason.decode!(body) == %{
+               "prompt" => "next",
+               "client_request_id" => "salon-execution-44"
+             }
+    end
+  end
+
+  test "Conversation.send carries client_request_id, and omits the key without one" do
+    parent = self()
+
+    server =
+      Fountain.TestServer.start(fn request ->
+        send(parent, {:send_request, request})
+
+        case {request.method, request.path} do
+          {"GET", "/api/conversations/c1/turns"} ->
+            json(200, %{"data" => [%{"turn_number" => 1, "status" => "completed"}]})
+
+          {"POST", "/api/conversations/c1/prompts"} ->
+            json(200, %{"status" => "queued"})
+
+          {"GET", "/api/conversations/c1/stream"} ->
+            {200, [{"content-type", "text/event-stream"}], run_events(2, 4)}
+
+          {"GET", "/api/conversations/c1"} ->
+            json(200, %{"data" => %{"id" => "c1", "status" => "ready"}})
+        end
+      end)
+
+    on_exit(fn -> Fountain.TestServer.stop(server) end)
+    client = Fountain.new(api_key: "key", base_url: server.url)
+
+    run =
+      Fountain.resume(client, "c1")
+      |> Fountain.Conversation.send("again",
+        client_request_id: "salon-execution-43",
+        timeout: 1_000
+      )
+
+    assert {:ok, _} = Run.await(run)
+
+    assert_receive {:send_request,
+                    %{method: "POST", path: "/api/conversations/c1/prompts", body: body}}
+
+    assert Jason.decode!(body) == %{
+             "prompt" => "again",
+             "client_request_id" => "salon-execution-43"
+           }
+
+    plain =
+      Fountain.resume(client, "c1") |> Fountain.Conversation.send("again", timeout: 1_000)
+
+    assert {:ok, _} = Run.await(plain)
+
+    assert_receive {:send_request,
+                    %{method: "POST", path: "/api/conversations/c1/prompts", body: plain_body}}
+
+    assert Jason.decode!(plain_body) == %{"prompt" => "again"}
   end
 
   test "run_request rejects ambiguous keys and unsupported lifecycles before HTTP" do

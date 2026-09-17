@@ -43,6 +43,7 @@ class Fountain:
         environment: Optional[str] = None,
         title: Optional[str] = None,
         images: Optional[List[Dict[str, Any]]] = None,
+        client_request_id: Optional[str] = None,
         channel_id: Optional[str] = None,
         fresh: bool = False,
         sprite_name: Optional[str] = None,
@@ -65,6 +66,7 @@ class Fountain:
                 "environment_id": environment_id,
                 "title": title,
                 "images": images or None,
+                "client_request_id": client_request_id,
                 "channel_id": channel_id,
                 "fresh": True if fresh else None,
                 "sprite_name": sprite_name,
@@ -113,7 +115,13 @@ class Fountain:
             has_prompt = isinstance(body.get("prompt"), str) and bool(body["prompt"])
             after = self.resume(conversation_id).cursor() if has_prompt else 0
             turn_number = self._next_turn_number(conversation_id)
-            prompt_body = {key: body[key] for key in ("prompt", "images") if key in body}
+            # Every create field that belongs *with* the prompt has to be
+            # repeated here: this second request is what opens the turn.
+            prompt_body = {
+                key: body[key]
+                for key in ("prompt", "images", "client_request_id")
+                if key in body
+            }
             if has_prompt:
                 self.api.request(
                     "POST", "/api/conversations/%s/prompts" % conversation_id,

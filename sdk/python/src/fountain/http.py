@@ -10,7 +10,7 @@ from urllib.request import Request, urlopen
 from .config import ResolvedConfig
 from .errors import AuthError, ConnectionError, error_for_status
 
-USER_AGENT = "fountain-sdk-python/0.5.1"
+USER_AGENT = "fountain-sdk-python/0.6.0"
 
 
 class Response(Protocol):

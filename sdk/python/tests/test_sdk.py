@@ -453,6 +453,57 @@ class ClientTests(unittest.TestCase):
                 history = next(r for r in fake.state.requests if r[1].endswith("/turns"))
                 self.assertLess(fake.state.requests.index(history), fake.state.requests.index(prompts[0]))
 
+    # #1406: a caller names its submission and reads the name back off the
+    # turn, instead of guessing which turn is its own from turn order. The
+    # value has to reach the request that actually *opens* the turn — which on
+    # a channel resume is the second request, not the create.
+    def test_client_request_id_reaches_create_and_the_follow_up_prompt(self):
+        with FakeFountain() as fake:
+            fake.state.script_turn()
+            client = Fountain(base_url=fake.base_url, api_key="fk_test")
+            client.run("go", agent=AGENT_ID, client_request_id="salon-execution-42").result()
+            create = next(
+                r for r in fake.state.requests if r[:2] == ("POST", "/api/conversations")
+            )
+            self.assertEqual(create[3]["client_request_id"], "salon-execution-42")
+
+            client.resume("c-1").send("again", client_request_id="salon-execution-43").result()
+            prompts = [r for r in fake.state.requests if r[1].endswith("/prompts")]
+            self.assertEqual(len(prompts), 1)
+            self.assertEqual(
+                prompts[0][3], {"prompt": "again", "client_request_id": "salon-execution-43"}
+            )
+
+    # The resume branch re-sends the prompt from a fixed list of keys. A create
+    # field that belongs with the prompt is dropped there unless it is in that
+    # list, and nothing else would notice.
+    def test_client_request_id_survives_a_channel_resume(self):
+        for entry in ("run_request", "run"):
+            with self.subTest(entry=entry), FakeFountain() as fake:
+                fake.state.resume_channel = True
+                fake.state.script_turn()
+                client = Fountain(base_url=fake.base_url, api_key="fk_test")
+                self.launch_channel(client, entry, {
+                    "agent_id": AGENT_ID, "prompt": "next", "channel_id": "raw",
+                    "client_request_id": "salon-execution-44",
+                }, timeout=1, collect_events=True).result()
+                prompts = [r for r in fake.state.requests if r[1].endswith("/prompts")]
+                self.assertEqual(len(prompts), 1)
+                self.assertEqual(prompts[0][3], {
+                    "prompt": "next", "client_request_id": "salon-execution-44",
+                })
+
+    def test_a_caller_that_names_nothing_sends_no_client_request_id(self):
+        with FakeFountain() as fake:
+            fake.state.resume_channel = True
+            fake.state.script_turn()
+            client = Fountain(base_url=fake.base_url, api_key="fk_test")
+            client.run("next", agent=AGENT_ID, channel_id="raw", timeout=1).result()
+            for request in fake.state.requests:
+                if request[0] != "POST" or not isinstance(request[3], dict):
+                    continue
+                self.assertNotIn("client_request_id", request[3], request[1])
+
     def test_run_sends_explicit_sandbox_api_access_and_omits_the_default(self):
         for access in (None, "none", "owner"):
             with self.subTest(access=access), FakeFountain() as fake:

@@ -481,4 +481,26 @@ before HTTP). Use `client.api.request` for promptless or queued creation.
 
 With `channel_id`, `runRequest` follows turn 1 when the server creates a
 conversation, including fresh launches. When the server resumes a channel,
-it submits the prompt and images to that conversation and follows the next turn.
+it submits the prompt, its images and its `client_request_id` to that
+conversation and follows the next turn.
+
+### Name your submission
+
+`POST .../prompts` answers before the turn exists, so no response can give you
+a turn id. Name the submission instead: the value reaches the turn the prompt
+opens and that turn's `started` stage event, so you read back which turn was
+yours instead of counting turns.
+
+```ts
+await fountain.run("Run the approved plan.", {
+  agent: "reposage",
+  clientRequestId: "plan-7-step-3",
+});
+await fountain.resume(id).send("And the next step.", {
+  clientRequestId: "plan-7-step-4",
+});
+```
+
+It is a correlation, not an idempotency key: the same value sent twice opens
+two turns. A channel resume sends it again on the prompts route, because that
+second request is the one that opens the turn.

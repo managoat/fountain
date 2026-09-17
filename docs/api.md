@@ -442,6 +442,14 @@ A turn that Fountain opened by itself has the `autonomous` origin and a null
 `client_request_id`. A webhook delivery carries `turn_id` and does not carry
 this value. Read the turn to get it.
 
+Each SDK sends the value for you. The TypeScript, Python, Elixir and Swift
+clients take it on a run and on a follow-up prompt:
+`run(prompt, { clientRequestId })` and `send(prompt, { clientRequestId })` in
+TypeScript, `client_request_id=` in Python and Elixir, `clientRequestID:` in
+Swift. A client that resumes a conversation with `channel_id` sends the value
+again on the prompts route, because that request opens the turn. A client that
+gets no value sends no field.
+
 ### Wait for capacity
 
 A start can reach the tenant sandbox cap or the fleet ceiling. Fountain then

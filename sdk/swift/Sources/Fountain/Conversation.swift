@@ -26,15 +26,24 @@ public final class Conversation: @unchecked Sendable {
     try await http.list("/api/conversations/\(id)/turns")
   }
 
+  /// Send the next turn.
+  ///
+  /// `clientRequestID` is the caller's own name for this submission. It is
+  /// carried to the turn the prompt opens and onto that turn's `started`
+  /// event (#1406), so a caller reads back which turn was its own instead of
+  /// guessing from turn order. It is not an idempotency key: the same value
+  /// sent twice opens two turns.
   public func send(
     _ prompt: String,
     images: [JSONObject]? = nil,
+    clientRequestID: String? = nil,
     timeout: TimeInterval? = nil,
     collectEvents: Bool = false
   ) -> Run {
     let body: JSONObject = {
       var value: JSONObject = ["prompt": .string(prompt)]
       if let images, !images.isEmpty { value["images"] = .array(images.map(JSONValue.object)) }
+      if let clientRequestID { value["client_request_id"] = .string(clientRequestID) }
       return value
     }()
     let run = Run(

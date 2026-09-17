@@ -21,9 +21,20 @@ defmodule Fountain.Conversation do
   def status(value), do: with({:ok, record} <- get(value), do: {:ok, record["status"]})
   def turns(value), do: HTTP.list(value.http, "/api/conversations/#{value.id}/turns")
 
-  @doc "Sends a follow-up prompt. Cursor and turn number are captured before POST."
+  @doc """
+  Sends a follow-up prompt. Cursor and turn number are captured before POST.
+
+  `:client_request_id` is the caller's own name for this submission. It is
+  carried to the turn the prompt opens and onto that turn's `started` event
+  (#1406), so the caller reads back which turn was its own rather than
+  guessing from turn order. It is not an idempotency key: the same value sent
+  twice opens two turns.
+  """
   def send(value, prompt, opts \\ []) do
-    body = %{"prompt" => prompt} |> optional("images", opts[:images])
+    body =
+      %{"prompt" => prompt}
+      |> optional("images", opts[:images])
+      |> optional("client_request_id", opts[:client_request_id])
 
     run =
       Run.new(

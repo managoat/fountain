@@ -59,14 +59,30 @@ public struct ConversationsResource: Sendable {
   /// Queue a follow-up turn. The 200 is not the answer — the words arrive
   /// on the stream. Throws `.conversationBusy` mid-turn; queue and retry
   /// on turn end.
-  public func prompt(_ id: String, _ prompt: String, images: [ImageInput]? = nil) async throws {
+  ///
+  /// `clientRequestID` is the caller's own name for this submission. It is
+  /// carried to the turn the prompt opens and onto that turn's `started`
+  /// event (#1406), so the caller reads back which turn was its own instead
+  /// of guessing from turn order. It is not an idempotency key: the same
+  /// value sent twice opens two turns.
+  public func prompt(
+    _ id: String, _ prompt: String, images: [ImageInput]? = nil,
+    clientRequestID: String? = nil
+  ) async throws {
     struct Body: Encodable {
       var prompt: String
       var images: [ImageInput]?
+      var clientRequestID: String?
+
+      enum CodingKeys: String, CodingKey {
+        case prompt
+        case images
+        case clientRequestID = "client_request_id"
+      }
     }
     try await client.send(
       .post, "/api/conversations/\(id)/prompts",
-      body: Body(prompt: prompt, images: images)
+      body: Body(prompt: prompt, images: images, clientRequestID: clientRequestID)
     )
   }
 

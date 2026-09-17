@@ -274,6 +274,32 @@ defmodule Fountain.Machines.BindingTest do
       assert Repo.reload!(ctx.sandbox).status == "suspended"
     end
 
+    test "the write-side deadline refuses on its own, against the clock the row was read with",
+         ctx do
+      # The inner half of rule 17, reached without the owner's pre-check —
+      # `Binding.attach/3` is the protocol, `Machine.attach/3` is the door that
+      # checks first. Round 1 found this half with zero coverage: planting
+      # `expired?/2` to answer false left 2158 tests green, while the two
+      # "whose caller has given up" tests above exercise only the owner's
+      # check. 8a's `:admission_expired` has had its own case since it was
+      # written; this is the pair.
+      past = DateTime.add(DateTime.utc_now(), -5, :second)
+
+      assert {:error, :attach_expired} =
+               Binding.attach(ctx.sandbox.id, attach_attrs(ctx), deadline: past)
+
+      assert length(conversations(ctx)) == 1, "an expired attach wrote a conversation row"
+
+      # The positive control, and the reason the check is inside the
+      # transaction: the same call with a deadline it is inside lands.
+      future = DateTime.add(DateTime.utc_now(), 60, :second)
+
+      assert {:ok, %Conversation{}, _allowance} =
+               Binding.attach(ctx.sandbox.id, attach_attrs(ctx), deadline: future)
+
+      assert length(conversations(ctx)) == 2
+    end
+
     test "and a caller still waiting when the park finishes is attached (the positive control)",
          ctx do
       test = self()
@@ -407,6 +433,29 @@ defmodule Fountain.Machines.BindingTest do
       assert waited < 5_000
       refute Repo.reload!(ctx.sandbox).reset_requested_at
       assert Repo.reload!(ctx.conv).status == "idle"
+    end
+
+    test "the fence's own deadline refuses on its own, and writes no fence", ctx do
+      # The detach's half of the pair above, reached through the protocol so
+      # the owner's pre-check is not in the way. `refuse_busy_or_expired/2`
+      # reads one clock after the locked row and rolls the fence back.
+      past = DateTime.add(DateTime.utc_now(), -5, :second)
+
+      assert {:error, :detach_expired} =
+               Binding.detach(ctx.sandbox.id, conversation_id: ctx.conv.id, deadline: past)
+
+      fenced = Repo.reload!(ctx.sandbox)
+      refute fenced.teardown_requested_at, "an expired detach fenced the machine"
+      refute fenced.reset_requested_at
+      assert fenced.status == "ready"
+
+      # The positive control: the same detach inside its deadline decides.
+      future = DateTime.add(DateTime.utc_now(), 60, :second)
+
+      assert {:ok, :detached} =
+               Binding.detach(ctx.sandbox.id, conversation_id: ctx.conv.id, deadline: future)
+
+      assert Repo.reload!(ctx.sandbox).teardown_requested_at
     end
 
     test "a detach whose caller has given up is refused, not run late (gate on)", ctx do

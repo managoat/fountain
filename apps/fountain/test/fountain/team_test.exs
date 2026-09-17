@@ -892,7 +892,7 @@ defmodule Fountain.TeamTest do
     test "releases through the server when one is running; a running turn refuses" do
       user = insert_verified_user()
       ada = insert_agent(user_id: user.id)
-      sandbox = insert_sandbox(user_id: user.id, status: "ready")
+      sandbox = insert_sandbox(user_id: user.id, agent_id: ada.id, status: "ready")
       prev = insert_teammate_conv(user, ada, sandbox: sandbox, status: "running")
       test_pid = self()
 
@@ -919,9 +919,14 @@ defmodule Fountain.TeamTest do
       # row with no look at the machine. Through `Machine.attach/3` it meets
       # the door's checks — here the reset fence and a live lease — and the
       # rotation answers with the door's words rather than creating a
-      # conversation on a computer that is going away or mid-operation. The
-      # release lands first either way, as a refused `start_conversation/2` on
-      # the new-computer path leaves it, and nothing is created.
+      # conversation on a computer that is going away or mid-operation.
+      #
+      # **The previous conversation survives the refusal** (round 1): the door
+      # is asked before the release, so a rotation the computer refuses costs
+      # the teammate nothing, and the retry below still finds a live
+      # conversation to rotate — which is what keeps the disk. Released first,
+      # the retry saw no live conversation, took the new-computer path and
+      # abandoned the files the route promises to keep.
       user = insert_verified_user()
 
       refused = fn prepare, expected ->
@@ -931,10 +936,16 @@ defmodule Fountain.TeamTest do
         prepare.(sandbox)
 
         assert {:error, ^expected} = Team.open_fresh_conversation(user.id, agent.id)
-        assert Repo.reload!(prev).status == "terminated"
+        assert Repo.reload!(prev).status == "idle"
 
         assert [prev.id] ==
                  user.id |> Team.list_teammate_conversations(agent.id) |> Enum.map(& &1.id)
+
+        # Not stranded: the teammate still has the live conversation it had.
+        assert %{conversation: %{id: current_id}} = Team.get_teammate(user.id, agent.id)
+        assert current_id == prev.id
+
+        {agent, sandbox, prev}
       end
 
       refused.(
@@ -946,12 +957,42 @@ defmodule Fountain.TeamTest do
         :sandbox_reset_pending
       )
 
+      # The permanent one, and the one `Machine.retarget/3` can produce on a
+      # lone teammate's home: the computer's identity moves and the agent no
+      # longer matches it. `main` rotated onto it with no check at all, and
+      # with the release landing first the refusal left the teammate with no
+      # live conversation on a machine that was still `ready` (round 1,
+      # behaviour review).
       refused.(
         fn sandbox ->
-          {:ok, _} = Fountain.Machines.Lease.claim(sandbox.id, "other@node", 60_000)
+          elsewhere = insert_agent(user_id: user.id)
+          sandbox |> Ecto.Changeset.change(agent_id: elsewhere.id) |> Repo.update!()
         end,
-        :sandbox_unavailable
+        :sandbox_identity_mismatch
       )
+
+      {agent, sandbox, prev} =
+        refused.(
+          fn sandbox ->
+            {:ok, _} = Fountain.Machines.Lease.claim(sandbox.id, "other@node", 60_000)
+          end,
+          :sandbox_unavailable
+        )
+
+      # The retry the 503's `Retry-After` asks for, once the operation that
+      # held the computer has finished: the same computer, as the route says.
+      :ok = Fountain.Machines.Lease.release(sandbox.id, Repo.reload!(sandbox).lease_epoch)
+
+      assert {:ok, fresh} = Team.open_fresh_conversation(user.id, agent.id)
+      assert fresh.sandbox_id == sandbox.id
+      assert Repo.reload!(prev).status == "terminated"
+
+      rotated =
+        user.id
+        |> Audit.list_recent_for_user(20)
+        |> Enum.filter(&(&1.action == "team.conversation.rotated"))
+
+      assert [%{metadata: %{"computer_kept" => true}}] = rotated
     end
 
     test "a computer still starting cannot change hands" do

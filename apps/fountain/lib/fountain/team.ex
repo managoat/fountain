@@ -42,6 +42,7 @@ defmodule Fountain.Team do
 
   alias Fountain.{Agents, Audit, Conversations, Repo}
   alias Fountain.Conversations.{Conversation, ConversationServer, Launch, Sandbox, Termination}
+  alias Fountain.Machines.Binding
   alias Fountain.Machines.Machine
   alias Fountain.Conversations.Turn
 
@@ -680,19 +681,36 @@ defmodule Fountain.Team do
   defp rotate(user_id, agent_id, %Conversation{} = prev, opts) do
     keep? = live?(prev) and reusable_sandbox?(prev.sandbox)
 
-    # Release the live one first (a running turn refuses here, before anything
-    # is created); a conversation already past resuming has nothing to release.
+    # **The computer's door is asked before the live conversation is
+    # released** (round 1, surfaces review). The release is the irreversible
+    # step of a rotation: with it committed `live?(prev)` is false, so `keep?`
+    # is false on the retry and the next call provisions a *new* computer,
+    # abandoning the disk this route's own description promises to keep ("same
+    # computer, new session"). Before stage 8b nothing on this path could
+    # refuse, so the order never mattered; `Machine.attach/3` can refuse — a
+    # reset fence, a mid-operation lease, an identity the computer no longer
+    # matches — and a client that did what the 503 told it to would have lost
+    # its files.
+    #
+    # The verdict is a courtesy read on the row `get_teammate/2` preloaded,
+    # exactly as `Launch.attach_conversation/3` takes one; the decision is
+    # still the one `Machine.attach/3` makes under the machine's lock. The
+    # window rule 16 asks about is the refusal that arrives *after* the
+    # release commits — a lease claimed in between — and it is the one the
+    # residual in the PR body names: the teammate is left with no live
+    # conversation, its computer keeps its binding-less row, and the next
+    # rotation builds a new one while `Machines.Policy`'s idle verdict parks
+    # or reclaims the old.
+    #
+    # Release second (a running turn refuses there, before anything is
+    # created); a conversation already past resuming has nothing to release.
     # `audit: false`: the rotation below is what the user asked for.
-    release =
-      if live?(prev),
-        do: Termination.release_conversation(prev.id, audit: false),
-        else: :ok
-
     result =
-      case release do
-        :ok when keep? -> open_on_sandbox(user_id, agent_id, prev, opts)
-        :ok -> open_on_new_sandbox(user_id, agent_id, prev, opts)
-        {:error, _} = err -> err
+      with :ok <- door_open?(user_id, agent_id, prev, keep?),
+           :ok <- release_previous(prev) do
+        if keep?,
+          do: open_on_sandbox(user_id, agent_id, prev, opts),
+          else: open_on_new_sandbox(user_id, agent_id, prev, opts)
       end
 
     with {:ok, conv} <- result do
@@ -709,6 +727,27 @@ defmodule Fountain.Team do
 
   defp reusable_sandbox?(%{status: s}) when s in ["ready", "suspended"], do: true
   defp reusable_sandbox?(_sandbox), do: false
+
+  # The attach door's verdict, taken before the release. Only the keep path has
+  # a door to ask: a rotation onto a new computer provisions its own, and
+  # `Launch.start_conversation/2` makes every check there itself.
+  #
+  # Ownership: `agent_id`/`user_id` are the caller's, and `prev` (with its
+  # preloaded sandbox) came from the tenant-scoped `get_teammate/2`.
+  defp door_open?(_user_id, _agent_id, _prev, false), do: :ok
+
+  defp door_open?(user_id, agent_id, %Conversation{} = prev, true) do
+    case Agents.get_agent(agent_id, user_id) do
+      nil -> {:error, :not_found}
+      agent -> Binding.attachable(prev.sandbox, agent, prev.vault_id, prev.environment_id)
+    end
+  end
+
+  defp release_previous(%Conversation{} = prev) do
+    if live?(prev),
+      do: Termination.release_conversation(prev.id, audit: false),
+      else: :ok
+  end
 
   # The same sandbox, a new conversation row: `idle` with no server, which is
   # exactly what a parked teammate looks like — `ConversationServer.send_prompt/4`

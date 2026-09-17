@@ -8,15 +8,19 @@ defmodule Fountain.Machines.Machine do
   a minute with nothing asked of it, and `ensure_started/1` brings it back:
   there is a process per active machine, not one per row.
 
-  Four verbs so far. `who_is_here/1` returns the
+  Seven verbs so far. `who_is_here/1` returns the
   `Fountain.Machines.Occupancy` struct and reads nothing else. `destroy/2`,
   `park/2` and `ensure_up/2` run `Fountain.Machines.Destroy.run/2`,
-  `Fountain.Machines.Park.run/2` and `Fountain.Machines.Resume.run/2` — the
-  three protocols, lease and all — and are the only things here that write: the
-  row through `Fountain.Machines.Lease`, the provider through
-  `Managoat.Sandbox.destroy/1`, `suspend/1` and `resume/1`, and one
-  `sandbox.destroyed`, `sandbox.suspended` or `sandbox.resumed` audit event.
-  `provision`, `attach` and `admit_turn` arrive in stages 7b and 8.
+  `Fountain.Machines.Park.run/2` and `Fountain.Machines.Resume.run/2` — three of
+  the four protocols, lease and all. `provision/3`, `confirm_up/2` and
+  `fail_provision/2` are the fourth, `Fountain.Machines.Provision`, which builds
+  a machine, confirms one a server is reattaching to, and retires one whose
+  provisioning is not going to happen. Between them they are everything here
+  that writes: the row through `Fountain.Machines.Lease`, the provider through
+  `Managoat.Sandbox.create/2`, `destroy/1`, `suspend/1` and `resume/1`, and one
+  `sandbox.destroyed`, `sandbox.suspended`, `sandbox.resumed`,
+  `sandbox.provisioned` or `sandbox.provision_failed` audit event. `attach` and
+  `admit_turn` arrive in stage 8.
 
   Beside them is one predicate, `busy?/2` (stage 6a): whether an owner holds a
   live lease on a machine, from the row the caller already holds. It is the
@@ -28,16 +32,28 @@ defmodule Fountain.Machines.Machine do
 
   ## What the gate chooses
 
-  With `MACHINE_OWNER_ENABLED` on, `destroy/2` and `park/2` are calls into this
-  process, so two operations on one machine queue behind one another in its
-  mailbox. With it off, the protocols run inline on the caller. **Same protocol
-  either way**
+  With `MACHINE_OWNER_ENABLED` on, `destroy/2`, `park/2` and `ensure_up/2` are
+  calls into this process, so two operations on one machine queue behind one
+  another in its mailbox. With it off, the protocols run inline on the caller.
+  **Same protocol either way**
   — the same fence, the same lease, the same compare-and-set, the same event —
   because the thing that makes a destroy safe against a concurrent destroy is
   the lease on the row, not the mailbox in front of it. The process is an
   optimization of the contention, not the correctness. That is also why there
   is no second, older destroy path left behind the gate: there is one, and the
   flag picks where it runs.
+
+  **The provision verbs are the exception, and they say so.** `provision/3`,
+  `confirm_up/2` and `fail_provision/2` run inline on their caller whichever way
+  the gate is set. The first is why: its callback is the
+  `ConversationServer`'s own pipeline, which builds that server's state and runs
+  for minutes, and running it inside this process would both move the pipeline
+  out of the server (ADR 0037, #1369) and occupy the owner past every timeout in
+  this tree. The other two follow it so that one verb family has one answer.
+  `Fountain.Machines.Provision`'s moduledoc argues it in full; what makes it
+  sound is the paragraph above — the lease is the correctness, the mailbox is
+  the optimization — and the contention a provision has is a duplicate server,
+  which the lease refuses in one round trip.
 
   Asking through a process for an answer available from a pure function looks
   like ceremony, and it is the point: `who_is_here/1` is the door every writer
@@ -74,6 +90,7 @@ defmodule Fountain.Machines.Machine do
   alias Fountain.Machines.Lease
   alias Fountain.Machines.Occupancy
   alias Fountain.Machines.Park
+  alias Fountain.Machines.Provision
   alias Fountain.Machines.Resume
   alias Fountain.Repo
 
@@ -494,6 +511,127 @@ defmodule Fountain.Machines.Machine do
         sandbox_id |> Resume.run(opts) |> refusal(sandbox_id, :ensure_up)
     end
   end
+
+  @doc """
+  Build the machine behind `sandbox_id`, running `fun` as the pipeline:
+  `Fountain.Machines.Provision.run/3`, inline on the caller whichever way the
+  gate is set (see the moduledoc). `opts` are the protocol's, documented there.
+
+  The door for the fourth protocol, and the one whose caller is not a request
+  but a `ConversationServer` deciding whether it has a machine to work on. So
+  the translation is narrower than `ensure_up/2`'s: almost every word travels,
+  because each tells the server something different to do, and the two that do
+  not are the two that mean *somebody else has this row*:
+
+    * `:machine_busy` and `:superseded` become `{:ok, :claimed_elsewhere}`.
+      Another server holds the machine — a Horde duplicate, or a successor that
+      took over an abandoned attempt — and the honest instruction to this one is
+      to stop without touching anything. It is the same answer `main` reached by
+      a different route: `claim_sandbox/2` answered `:retired` and the server
+      stopped `:normal`.
+    * `:fenced` becomes `:sandbox_reset_pending`, the word the server's own
+      arms already match on and the one `update_sandbox/2` rolled back with when
+      a reset fence landed mid-provision.
+
+  Everything else — `:configuration_changed`, the pipeline's own reason, a
+  `{:database, sqlstate}` — reaches the caller as itself, because the server
+  decides on it: whether to fail the conversation, and what to publish on the
+  `provision` stage.
+  """
+  @spec provision(String.t(), Provision.pipeline(), keyword()) ::
+          {:ok, :provisioned, term()}
+          | {:ok, :already_terminal | :claimed_elsewhere}
+          | {:ok, :already_terminal | :claimed_elsewhere, term()}
+          | {:error, term()}
+          | {:error, term(), term()}
+  def provision(sandbox_id, fun, opts)
+      when is_binary(sandbox_id) and is_function(fun, 2) and is_list(opts) do
+    if Repo.in_transaction?() do
+      {:error, :provider_transaction_open}
+    else
+      sandbox_id |> Provision.run(fun, opts) |> provision_refusal(sandbox_id)
+    end
+  end
+
+  @doc """
+  Confirm the machine behind `sandbox_id` is still this server's to attach to:
+  `Fountain.Machines.Provision.confirm_up/2`. Inline, as `provision/3`.
+
+  The reattach arm's half of the same door. `{:ok, :confirmed}` is a live row
+  this server may attach to; `{:ok, :already_terminal}` and
+  `{:error, :sandbox_reset_pending}` are the two ways retirement won while the
+  provider was answering, which are exactly the two answers `main`'s
+  `claim_sandbox/2` gave here. `{:ok, :claimed_elsewhere}` is the duplicate
+  server again.
+  """
+  @spec confirm_up(String.t(), keyword()) ::
+          {:ok, :confirmed | :already_terminal | :claimed_elsewhere} | {:error, term()}
+  def confirm_up(sandbox_id, opts \\ []) when is_binary(sandbox_id) and is_list(opts) do
+    if Repo.in_transaction?() do
+      {:error, :provider_transaction_open}
+    else
+      sandbox_id |> Provision.confirm_up(opts) |> provision_refusal(sandbox_id)
+    end
+  end
+
+  @doc """
+  Retire the machine behind `sandbox_id`, whose provisioning is not going to
+  happen: `Fountain.Machines.Provision.fail/2`. Inline, as `provision/3`.
+
+  For the callers that have to fail a row they never brought under a lease — the
+  server's two pre-flight failures, a start that would not start, and the
+  provisioning watchdog at its deadline. `{:ok, :not_provisioning}` and
+  `{:ok, :already_terminal}` both mean there was nothing to retire, which is not
+  an error at any of them.
+
+  **The watchdog's caller should read the answer rather than assume it** (#394):
+  the row has to be terminal before a stuck server is killed, and a refusal here
+  means it is not.
+  """
+  @spec fail_provision(String.t(), keyword()) ::
+          {:ok, :failed | :already_terminal | :not_provisioning | :claimed_elsewhere}
+          | {:error, term()}
+  def fail_provision(sandbox_id, opts) when is_binary(sandbox_id) and is_list(opts) do
+    if Repo.in_transaction?() do
+      {:error, :provider_transaction_open}
+    else
+      sandbox_id |> Provision.fail(opts) |> provision_refusal(sandbox_id)
+    end
+  end
+
+  # The provision family's translation. Narrower than `refusal/3` because its
+  # caller is a server rather than a request, and the reason usually decides
+  # what that server does next. See `provision/3`.
+  defp provision_refusal({:ok, _outcome} = ok, _sandbox_id), do: ok
+  defp provision_refusal({:ok, _outcome, _result} = ok, _sandbox_id), do: ok
+
+  defp provision_refusal({:error, reason}, sandbox_id)
+       when reason in [:machine_busy, :superseded] do
+    Logger.info(
+      "machine #{sandbox_id}: provisioning is another owner's (#{inspect(reason)}); standing down"
+    )
+
+    {:ok, :claimed_elsewhere}
+  end
+
+  # The result travels with it: the pipeline reached a state its caller has to
+  # unwind — a broker session, a rotated callback key — whether or not the row
+  # ended up being this attempt's to write.
+  defp provision_refusal({:error, reason, result}, sandbox_id)
+       when reason in [:machine_busy, :superseded] do
+    {:ok, outcome} = provision_refusal({:error, reason}, sandbox_id)
+    {:ok, outcome, result}
+  end
+
+  defp provision_refusal({:error, :fenced}, _sandbox_id), do: {:error, :sandbox_reset_pending}
+
+  defp provision_refusal({:error, :fenced, result}, _sandbox_id),
+    do: {:error, :sandbox_reset_pending, result}
+
+  defp provision_refusal({:error, :transaction_open}, _sandbox_id),
+    do: {:error, :provider_transaction_open}
+
+  defp provision_refusal(other, _sandbox_id), do: other
 
   # The protocols' answers, in the words the rest of the system uses.
   #

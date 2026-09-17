@@ -1418,15 +1418,37 @@ defmodule Fountain.Machines.Machine do
   # this clause is only ever reached by a mistake, and it must be loud.
   def handle_call(message, _from, state) do
     Logger.error(
-      "machine #{state.sandbox_id}: no clause for #{inspect(elem_or(message))}; refusing. " <>
+      "machine #{state.sandbox_id}: no handle_call clause for #{shape(message)}; refusing. " <>
         "A caller on a later release, or a message shape that was never added here."
     )
 
     {:reply, {:error, :sandbox_unavailable}, arm_idle(state)}
   end
 
-  defp elem_or(message) when is_tuple(message) and tuple_size(message) > 0, do: elem(message, 0)
-  defp elem_or(message), do: message
+  @impl true
+  # The same hole on the cast side, and it does not need a later release to
+  # open: with no `handle_cast/2` at all, `GenServer`'s generated one stops the
+  # process with `{:bad_cast, message}`, which costs the mailbox exactly as a
+  # missing call clause does. Nothing casts to an owner today — `machine_gone`
+  # is a cast, but it goes to the *conversation servers*, never here — so this
+  # clause is the whole cast surface, and a cast that arrives is by definition
+  # a shape this release does not know. There is nobody to answer, so the
+  # refusal is simply not dying.
+  def handle_cast(message, state) do
+    Logger.error(
+      "machine #{state.sandbox_id}: no handle_cast clause for #{shape(message)}; ignoring. " <>
+        "A caller on a later release, or a message shape that was never added here."
+    )
+
+    {:noreply, arm_idle(state)}
+  end
+
+  # The tag and the arity, never the payload: an `{:attach, attrs, ..}` carries
+  # a conversation's attributes, and a log line is not a place to put them.
+  defp shape(message) when is_tuple(message) and tuple_size(message) > 0,
+    do: "#{inspect(elem(message, 0))}/#{tuple_size(message)}"
+
+  defp shape(message), do: inspect(message)
 
   @impl true
   def handle_info({:idle, token}, %{idle_token: token} = state) do
@@ -1443,6 +1465,20 @@ defmodule Fountain.Machines.Machine do
   # in the mailbox when it was already sent, so the token, not the cancel, is
   # what decides.
   def handle_info({:idle, _stale}, state), do: {:noreply, state}
+
+  # And the info side, where the shapes are not a protocol at all: a late reply
+  # to a call that already timed out, a `:DOWN`, an `:EXIT`. Defining
+  # `handle_info/2` at all replaces the logged-and-ignored default `use
+  # GenServer` would have given this module, so before this clause any one of
+  # those raised a `FunctionClauseError` and took the machine's owner down
+  # mid-operation. Warning rather than error, because unlike a call or a cast
+  # these are ordinary runtime noise; `arm_idle/1` is deliberately not called,
+  # since a stray message is not this machine being used.
+  def handle_info(message, state) do
+    Logger.warning("machine #{state.sandbox_id}: unexpected message #{shape(message)}; ignoring")
+
+    {:noreply, state}
+  end
 
   defp arm_idle(state) do
     token = make_ref()

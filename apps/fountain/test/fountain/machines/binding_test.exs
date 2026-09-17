@@ -1237,23 +1237,57 @@ defmodule Fountain.Machines.BindingTest do
   # ── a message shape this release has no clause for ────────────────────────
 
   describe "an owner asked something it has no clause for" do
-    test "refuses the caller and keeps its mailbox", ctx do
+    test "refuses the caller and keeps its mailbox, on all three callbacks", ctx do
       # ADR 0058 rule 4, from the other side. An old owner meeting a new
       # release's message dies with everything queued behind it — which is what
       # 8b's own three new shapes do to an owner on the previous release, and
       # why the mixed-version note says so. From here on, the cost of that
       # rollout is one 503 to one caller.
+      #
+      # All three callbacks, because all three had the hole: a missing call
+      # clause raises, a missing cast clause is `{:bad_cast, ..}` from
+      # `GenServer`'s generated one, and defining any `handle_info/2` replaces
+      # the default that would have logged and ignored — so a stray `:DOWN` or
+      # a late reply took the owner down too.
       with_gate(true, fn ->
         {:ok, owner} = Machine.ensure_started(ctx.sandbox.id)
+        sandbox_id = ctx.sandbox.id
 
-        log =
+        call_log =
           capture_log(fn ->
             assert {:error, :sandbox_unavailable} =
                      GenServer.call(owner, {:a_verb_from_a_later_release, [], nil})
           end)
 
-        assert log =~ "no clause for"
+        # The log has to name what arrived and on which machine, or this
+        # clause is silence with a return value (the lead's condition).
+        assert call_log =~ "no handle_call clause for :a_verb_from_a_later_release/3"
+        assert call_log =~ sandbox_id
         assert Process.alive?(owner)
+
+        cast_log =
+          capture_log(fn ->
+            GenServer.cast(owner, {:a_cast_from_a_later_release, nil})
+            # The cast is asynchronous; this call is the barrier.
+            assert %Fountain.Machines.Occupancy{} = GenServer.call(owner, :who_is_here)
+          end)
+
+        assert cast_log =~ "no handle_cast clause for :a_cast_from_a_later_release/2"
+        assert cast_log =~ sandbox_id
+        assert Process.alive?(owner)
+
+        info_log =
+          capture_log(fn ->
+            send(owner, {:DOWN, make_ref(), :process, self(), :normal})
+            assert %Fountain.Machines.Occupancy{} = GenServer.call(owner, :who_is_here)
+          end)
+
+        assert info_log =~ "unexpected message :DOWN/5"
+        assert info_log =~ sandbox_id
+        assert Process.alive?(owner)
+
+        # The payload never reaches the log: a shape is a tag and an arity.
+        refute call_log =~ "a_verb_from_a_later_release, [], nil"
 
         # And it still answers the verbs it does know.
         assert %Fountain.Machines.Occupancy{} = GenServer.call(owner, :who_is_here)

@@ -24,6 +24,14 @@ That is deliberate. A sandbox you could create on its own would be a resource
 you could leak. The machine that nobody remembered to stop is what makes agent
 infrastructure expensive.
 
+One conversation builds one sandbox. A conversation can end up with two
+processes behind it — a rolling deploy, a lost node — and only one of them
+builds the machine; the other finds it already being built and stands down.
+A build that stops part-way is torn down and started again rather than
+continued, because the steps it runs cannot be repeated on top of themselves.
+Building has an absolute ceiling of thirty minutes, after which the sandbox is
+recorded as failed and the next prompt starts a fresh one.
+
 ## Two modes
 
 An agent chooses a default, and a launch can name the other.

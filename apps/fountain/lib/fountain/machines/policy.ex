@@ -135,13 +135,27 @@ defmodule Fountain.Machines.Policy do
   transaction's uncommitted rows, so it cannot move behind a process or a pure
   function (#2348 review).
 
+  **It may be given as a zero-arity function, and the fence gives it as one**
+  (round 1, behaviour review). `or` short-circuits, so `main` never ran the
+  "is anybody else here" query for a `persistent` machine — it had already
+  decided. Passing the answer as a value made that query unconditional: a
+  locked read of every conversation on the machine, inside the fence's own
+  transaction, on the one path where the result could not change the outcome.
+  A thunk restores the short-circuit exactly, and the boolean arity stays for
+  callers that have the answer in hand.
+
   This answers only the *forced* case — a conversation ending and asking whether
   its machine should go with it. A machine nobody is on and nobody is ending is
   reclaimed by the bounds above instead.
   """
-  @spec keep_on_last_detach?(String.t() | nil, boolean()) :: boolean()
-  def keep_on_last_detach?(mode, held_by_other?) when is_boolean(held_by_other?),
-    do: mode == "persistent" or held_by_other?
+  @spec keep_on_last_detach?(String.t() | nil, boolean() | (-> boolean())) :: boolean()
+  def keep_on_last_detach?("persistent", _held_by_other?), do: true
+
+  def keep_on_last_detach?(_mode, held_by_other?) when is_function(held_by_other?, 0),
+    do: held_by_other?.()
+
+  def keep_on_last_detach?(_mode, held_by_other?) when is_boolean(held_by_other?),
+    do: held_by_other?
 
   @doc """
   Is this machine a persistent home?

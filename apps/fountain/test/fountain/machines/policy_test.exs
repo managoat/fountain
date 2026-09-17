@@ -200,10 +200,17 @@ defmodule Fountain.Machines.PolicyTest do
 
       assert length(files) > 100, "the scan is broken; it proves nothing"
 
-      # Guard the guard: the rule exists, spelled this way, in the one file that
-      # is allowed to spell it. A regex that matched nothing would pass forever.
-      policy = File.read!(Path.join(root, "apps/fountain/lib/fountain/machines/policy.ex"))
-      assert policy =~ @last_detach_rule
+      # Guard the guard, against a sample rather than against `policy.ex`: this
+      # module spells the rule as a function head now (`keep_on_last_detach?(
+      # "persistent", _)`), so pointing the regex at it would couple the check to
+      # how `Policy` happens to be written rather than to what a *copy* would
+      # look like. What a copy looks like is `main`'s line, which is this:
+      assert ~s|if mode == "persistent" or held_by_other?(id, ending) do| =~ @last_detach_rule,
+             "the pattern no longer matches the shape it was written to find"
+
+      refute ~s|where: s.mode == "persistent" and s.status not in ["terminated"]| =~
+               @last_detach_rule,
+             "the pattern matches an identity-index query, which is a different question"
 
       offenders =
         for file <- files,

@@ -18,10 +18,13 @@ defmodule Fountain.Machines.Machine do
   `sandbox.destroyed`, `sandbox.suspended` or `sandbox.resumed` audit event.
   `provision`, `attach` and `admit_turn` arrive in stages 7b and 8.
 
-  Beside them is one pure predicate, `busy?/2` (stage 6a): whether an owner
-  holds a live lease on a machine, from the row the caller already holds. It is
-  the question every reader that was about to start work on a machine now asks
-  first, and the answer it turns into is `:sandbox_unavailable`.
+  Beside them is one predicate, `busy?/2` (stage 6a): whether an owner holds a
+  live lease on a machine, from the row the caller already holds. It is the
+  question every reader that was about to start work on a machine now asks
+  first, and the answer it turns into is `:sandbox_unavailable`. It stopped
+  being *pure* in stage 7a, when the clock it judges against became the
+  database's: left to default it costs one `select statement_timestamp()`, and a
+  caller with a page of rows passes `Fountain.Machines.Lease.now/0` in once.
 
   ## What the gate chooses
 

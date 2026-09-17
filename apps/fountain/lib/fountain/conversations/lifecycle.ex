@@ -772,10 +772,15 @@ defmodule Fountain.Conversations.Lifecycle do
       # own connection: it reads rows this advisory-locked transaction has
       # written and not yet committed, so it can move behind neither a process
       # nor a pure function (#2348 review).
+      #
+      # Passed as a thunk so it keeps `main`'s short-circuit: `or` never ran
+      # that query for a `persistent` machine, and handing the answer in as a
+      # value made a locked read of every conversation on the machine
+      # unconditional on the one path where it cannot change the outcome.
       if not is_nil(ending_id) and
            Policy.keep_on_last_detach?(
              current.mode,
-             _unsafe_sandbox_held_by_other?(current.id, ending_id)
+             fn -> _unsafe_sandbox_held_by_other?(current.id, ending_id) end
            ) do
         Repo.rollback(:sandbox_kept)
       end

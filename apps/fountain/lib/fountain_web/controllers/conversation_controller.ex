@@ -822,19 +822,23 @@ defmodule FountainWeb.ConversationController do
     user = conn.assigns.current_user
 
     with {:ok, images} <- decode_images(params["images"]) do
-      do_prompt(conn, id, prompt, user, images)
+      do_prompt(conn, id, prompt, user, images, params["client_request_id"])
     end
   end
 
-  defp do_prompt(conn, id, prompt, user, images) do
+  defp do_prompt(conn, id, prompt, user, images, client_request_id) do
     case Conversations.get_conversation(id, user.id) do
       nil ->
         {:error, :not_found}
 
       _ ->
-        case ConversationServer.send_prompt(id, prompt, images, Audited.attribution(conn)) do
+        # The id rides in the opts to the turn the prompt opens (#1406),
+        # whichever road delivers it; see `Conversations.PromptDelivery`.
+        opts = Audited.attribution(conn, client_request_id: client_request_id)
+
+        case ConversationServer.send_prompt(id, prompt, images, opts) do
           :ok ->
-            json(conn, %{status: "queued"})
+            json(conn, %{status: "queued", client_request_id: client_request_id})
 
           {:error, :not_running} ->
             {:error, :not_found}

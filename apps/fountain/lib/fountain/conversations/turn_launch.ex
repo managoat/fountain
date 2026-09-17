@@ -54,11 +54,16 @@ defmodule Fountain.Conversations.TurnLaunch do
 
     {cmd, args, cwd} = TurnMachine.command(conv, agent, state.handle)
 
-    Output.publish_stage(state.conversation_id, "turn", "started", %{
-      turn_id: turn.id,
-      turn_number: turn_number,
-      mode: Atom.to_string(mode)
-    })
+    Output.publish_stage(
+      state.conversation_id,
+      "turn",
+      "started",
+      Conversations.Turn.correlate(turn, %{
+        turn_id: turn.id,
+        turn_number: turn_number,
+        mode: Atom.to_string(mode)
+      })
+    )
 
     # Open an OTel span for the turn. We can't use Telemetry.span here
     # because the turn finishes asynchronously (in the :exit handler);

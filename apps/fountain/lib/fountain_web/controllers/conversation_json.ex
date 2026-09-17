@@ -207,6 +207,8 @@ defmodule FountainWeb.ConversationJSON do
       turn_number: t.turn_number,
       prompt: t.prompt,
       status: t.status,
+      # The caller's name for the prompt that opened the turn (#1406), or nil.
+      client_request_id: t.client_request_id,
       # `user` or `autonomous` (#817); rows from before the column read as user.
       origin: t.origin || "user",
       # The turn ended with a permission request still open (#1635). The

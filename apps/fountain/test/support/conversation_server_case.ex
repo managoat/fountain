@@ -166,11 +166,25 @@ defmodule Fountain.ConversationServerCase do
         :ok
 
       prompt ->
-        Fountain.Conversations.ConversationServer.queue_initial_prompt(
-          pid,
-          prompt,
-          Keyword.get(opts, :images, [])
-        )
+        # `:prompt_opts` is what travels with the prompt to its turn (#1406).
+        # Without it this stays the three-argument call, which is the arity
+        # the suites that stub `queue_initial_prompt` stub.
+        case Keyword.get(opts, :prompt_opts, []) do
+          [] ->
+            Fountain.Conversations.ConversationServer.queue_initial_prompt(
+              pid,
+              prompt,
+              Keyword.get(opts, :images, [])
+            )
+
+          prompt_opts ->
+            Fountain.Conversations.ConversationServer.queue_initial_prompt(
+              pid,
+              prompt,
+              Keyword.get(opts, :images, []),
+              prompt_opts
+            )
+        end
     end
 
     # handle_continue(:provision) runs before any call is answered, so a

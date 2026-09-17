@@ -927,6 +927,27 @@ defmodule FountainWeb.Schemas do
     })
   end
 
+  defmodule ClientRequestId do
+    @moduledoc false
+    # One definition for the request side (#1406), so the prompts route and
+    # any later door that takes a prompt declare the same bound.
+
+    def request do
+      %Schema{
+        type: :string,
+        minLength: 1,
+        maxLength: Fountain.Conversations.Turn.client_request_id_max(),
+        description:
+          "Your own name for this prompt. Fountain stores it on the turn the prompt " <>
+            "opens and sends it on that turn's `started` stage event, beside the " <>
+            "`turn_id`, so a client can bind its work item to the exact turn without " <>
+            "inferring it from turn order. It is a correlation and not an idempotency " <>
+            "key: a second prompt with the same value opens a second turn that carries " <>
+            "it too. Make it unique within the conversation."
+      }
+    end
+  end
+
   defmodule PromptRequest do
     @moduledoc false
     require OpenApiSpex
@@ -941,7 +962,8 @@ defmodule FountainWeb.Schemas do
           items: ImageInput,
           description: "Optional images to attach to this prompt.",
           nullable: true
-        }
+        },
+        client_request_id: ClientRequestId.request()
       },
       required: [:prompt]
     })
@@ -954,7 +976,19 @@ defmodule FountainWeb.Schemas do
     OpenApiSpex.schema(%{
       title: "PromptResponse",
       type: :object,
-      properties: %{status: %Schema{type: :string, example: "queued"}},
+      properties: %{
+        status: %Schema{type: :string, example: "queued"},
+        client_request_id: %Schema{
+          type: :string,
+          nullable: true,
+          description:
+            "The `client_request_id` the request carried, or null when it carried none. " <>
+              "The response cannot name the turn: a conversation that has to be woken is " <>
+              "answered before its turn exists. Find the turn by this value instead."
+        }
+      },
+      # `client_request_id` is always rendered and deliberately not required: a
+      # client generated from this document also reads servers from before it.
       required: [:status]
     })
   end
@@ -1009,6 +1043,13 @@ defmodule FountainWeb.Schemas do
         },
         # No `default:` here on purpose: one would make the generated TS
         # field non-optional (see sdk/typescript notes).
+        client_request_id: %Schema{
+          type: :string,
+          nullable: true,
+          description:
+            "The `client_request_id` of the prompt that opened this turn (#1406), or " <>
+              "null: the caller sent none, or the turn is `autonomous`. Not unique."
+        },
         origin: %Schema{
           type: :string,
           enum: ~w(user autonomous),

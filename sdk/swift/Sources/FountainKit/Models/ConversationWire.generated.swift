@@ -72,6 +72,7 @@ public struct Conversation: Sendable, Decodable, Hashable, Identifiable {
 }
 
 public struct Turn: Sendable, Decodable, Hashable, Identifiable {
+  public var clientRequestID: String?
   public var endedAt: Date?
   public var exitCode: Int?
   public var id: String
@@ -88,6 +89,7 @@ public struct Turn: Sendable, Decodable, Hashable, Identifiable {
   public var waiting: Bool?
 
   enum CodingKeys: String, CodingKey {
+    case clientRequestID = "client_request_id"
     case endedAt = "ended_at"
     case exitCode = "exit_code"
     case id = "id"

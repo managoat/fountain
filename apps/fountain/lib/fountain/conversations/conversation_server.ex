@@ -23,7 +23,7 @@ defmodule Fountain.Conversations.ConversationServer do
   alias Fountain.Conversations.{BoundedTurn, CallbackKey, Connection}
   alias Fountain.Conversations.{Conversation, DetachedRequest, Egress, FreshProvision}
   alias Fountain.Conversations.{Interruption, Lifecycle, MachineEvents, McpServers, Output}
-  alias Fountain.Conversations.{Pending, Provisioning, ProvisionWatchdog}
+  alias Fountain.Conversations.{Pending, PromptDelivery, Provisioning, ProvisionWatchdog}
   alias Fountain.Conversations.{Reattachment, Redaction, SpriteEnv, Termination, TurnLaunch}
   alias Fountain.Conversations.TurnMachine
   alias Fountain.Conversations.Wake
@@ -106,8 +106,9 @@ defmodule Fountain.Conversations.ConversationServer do
       case whereis(conv_id) do
         nil ->
           # `images` travels the wake road too, or the woken turn opens
-          # without them while this still answers :ok (#2373; see `Wake`).
-          case Wake.wake_conversation(conv_id, prompt, images) do
+          # without them while this still answers :ok (#2373; see `Wake`). The
+          # correlation rides with the prompt, in the shape `Wake` takes.
+          case Wake.wake_conversation(conv_id, PromptDelivery.for_wake(prompt, opts), images) do
             {:ok, _conv} -> :ok
             {:error, :gone} -> {:error, :gone}
             {:error, :not_found} -> {:error, :not_running}
@@ -115,7 +116,7 @@ defmodule Fountain.Conversations.ConversationServer do
           end
 
         pid ->
-          call_server(pid, {:send_prompt, prompt, images})
+          call_server(pid, PromptDelivery.call(prompt, images, opts))
       end
 
     # Size and image count, never the text. A prompt is the tenant's content —
@@ -170,8 +171,8 @@ defmodule Fountain.Conversations.ConversationServer do
   A cast rather than a call: it queues behind `handle_continue(:provision)`,
   which can take minutes, and no caller is waiting on the turn to finish.
   """
-  def queue_initial_prompt(pid, prompt, images \\ []) when is_pid(pid) do
-    GenServer.cast(pid, {:initial_prompt, prompt, images})
+  def queue_initial_prompt(pid, prompt, images \\ [], opts \\ []) when is_pid(pid) do
+    GenServer.cast(pid, PromptDelivery.cast(prompt, images, opts))
   end
 
   @doc """
@@ -365,9 +366,9 @@ defmodule Fountain.Conversations.ConversationServer do
   @impl true
   # A prompt that lost the race to a reapply: rebuild from the row it has not
   # read, then deliver the prompt against it.
-  def handle_continue({:reapply_prompt, prompt, images}, state) do
+  def handle_continue({:reapply_prompt, prompt, images, meta}, state) do
     case handle_continue(:provision, state) do
-      {:noreply, fresh} -> handle_cast({:initial_prompt, prompt, images}, fresh)
+      {:noreply, fresh} -> handle_cast({:initial_prompt, prompt, images, meta}, fresh)
       stopped -> stopped
     end
   end
@@ -843,7 +844,10 @@ defmodule Fountain.Conversations.ConversationServer do
   end
 
   @impl true
-  def handle_call({:send_prompt, prompt, images}, _from, state) do
+  def handle_call({:send_prompt, prompt, images}, from, state),
+    do: handle_call({:send_prompt, prompt, images, []}, from, state)
+
+  def handle_call({:send_prompt, prompt, images, meta}, _from, state) do
     if Connection.user_turn_running?(state.current_turn) do
       {:reply, {:error, :busy}, state}
     else
@@ -860,7 +864,7 @@ defmodule Fountain.Conversations.ConversationServer do
         # A bounded turn can be refused by admission under its row locks
         # (ADR 0046), and a caller that asked for a turn has to hear that.
         # Every other outcome keeps the cast shape `kick_turn/4` answers in.
-        case kick_turn(state, prompt, agent, images) do
+        case kick_turn(state, prompt, agent, images, meta) do
           {:error, reason, next} -> {:reply, {:error, reason}, next}
           cast_shape -> replying_ok(cast_shape)
         end
@@ -971,7 +975,10 @@ defmodule Fountain.Conversations.ConversationServer do
   # already running — the cast is queued behind provisioning, so that should not
   # happen, and re-running is the failure this whole mechanism exists to avoid.
   @impl true
-  def handle_cast({:initial_prompt, prompt, images}, state) do
+  def handle_cast({:initial_prompt, prompt, images}, state),
+    do: handle_cast({:initial_prompt, prompt, images, []}, state)
+
+  def handle_cast({:initial_prompt, prompt, images, meta}, state) do
     if Connection.user_turn_running?(state.current_turn) do
       Logger.warning(
         "conv #{state.conversation_id}: initial prompt arrived while a turn was running; dropping it"
@@ -989,7 +996,7 @@ defmodule Fountain.Conversations.ConversationServer do
 
         # Admission can refuse under its row locks after these preflights pass.
         # Unlike the `else` below, the connection is already dropped by here.
-        case kick_turn(state, prompt, agent, images) do
+        case kick_turn(state, prompt, agent, images, meta) do
           {:error, reason, next} -> {:noreply, log_initial_refusal(next, reason)}
           cast_shape -> cast_shape
         end
@@ -1650,7 +1657,7 @@ defmodule Fountain.Conversations.ConversationServer do
   # a continuation: a reapply committed while this server held an older
   # revision, so the turn is not opened, the connection is dropped and the
   # server rebuilds from the row before delivering the prompt (#1565).
-  defp kick_turn(state, prompt, agent, images) do
+  defp kick_turn(state, prompt, agent, images, meta) do
     # A new turn has not been restarted (#1667), whatever the last one did.
     state = touch_activity(%{state | turn_session_retry: nil})
 
@@ -1660,7 +1667,8 @@ defmodule Fountain.Conversations.ConversationServer do
            prompt,
            agent,
            state.configuration_revision,
-           state.inference_source
+           state.inference_source,
+           meta
          ) do
       {:ok, conv, turn} ->
         {:noreply, run_turn(state, conv, turn, prompt, agent, images)}
@@ -1670,7 +1678,7 @@ defmodule Fountain.Conversations.ConversationServer do
 
       :configuration_changed ->
         state = drop_connection(state, "configuration_reapplied")
-        {:noreply, %{state | handle: nil}, {:continue, {:reapply_prompt, prompt, images}}}
+        {:noreply, %{state | handle: nil}, {:continue, {:reapply_prompt, prompt, images, meta}}}
 
       # Three-element, so a refusal is distinguishable from the other
       # outcomes that also keep the connection-dropping state. `send_prompt`

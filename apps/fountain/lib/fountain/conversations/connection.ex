@@ -122,12 +122,17 @@ defmodule Fountain.Conversations.Connection do
         # Announce only an accepted reuse. On refusal the fresh launch owns
         # this same row's start (#1924). The actor processes queued peer
         # output after this call returns, so the start still precedes it.
-        Output.publish_stage(conversation_id, "turn", "started", %{
-          turn_id: turn.id,
-          turn_number: turn.turn_number,
-          mode: "continue",
-          connection: "reused"
-        })
+        Output.publish_stage(
+          conversation_id,
+          "turn",
+          "started",
+          Conversations.Turn.correlate(turn, %{
+            turn_id: turn.id,
+            turn_number: turn.turn_number,
+            mode: "continue",
+            connection: "reused"
+          })
+        )
 
         OpenTelemetry.Tracer.set_current_span(previous_span)
         {:ok, turn_span, Managoat.ACP.Tracer.new(turn_span, prefix: "fountain"), started_mono}

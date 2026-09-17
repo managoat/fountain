@@ -33,6 +33,7 @@ defmodule Fountain.Conversations.Wake do
     Conversation,
     ConversationServer,
     Launch,
+    PromptDelivery,
     Reattachment,
     Sandbox,
     Termination
@@ -294,9 +295,7 @@ defmodule Fountain.Conversations.Wake do
              sandbox_id,
              Launch.child_spec(conv.id, sandbox_id, runtime_module)
            ) do
-      if is_binary(initial_prompt) and initial_prompt != "" do
-        ConversationServer.queue_initial_prompt(pid, initial_prompt, images)
-      end
+      PromptDelivery.hand_over(pid, initial_prompt, images)
 
       # ownership: conv is the caller's own tenant-scoped row (see the
       # function doc above); this re-fetch reads under that same ownership.
@@ -389,9 +388,7 @@ defmodule Fountain.Conversations.Wake do
                 # no row of its own, so there is nothing here to clean up —
                 # just hand the prompt to the winner, which drops it if a turn
                 # is already running.
-                if is_binary(initial_prompt) and initial_prompt != "" do
-                  ConversationServer.queue_initial_prompt(winner_pid, initial_prompt, images)
-                end
+                PromptDelivery.hand_over(winner_pid, initial_prompt, images)
 
                 # ownership: conv established tenant-scoped above; this
                 # re-fetch reads under that same ownership.
@@ -417,9 +414,7 @@ defmodule Fountain.Conversations.Wake do
                   "appeared during the registry settle window; handing off the prompt"
               )
 
-              if is_binary(initial_prompt) and initial_prompt != "" do
-                ConversationServer.queue_initial_prompt(pid, initial_prompt, images)
-              end
+              PromptDelivery.hand_over(pid, initial_prompt, images)
 
               # ownership: conv established tenant-scoped above; this
               # re-fetch reads under that same ownership.
@@ -653,9 +648,7 @@ defmodule Fountain.Conversations.Wake do
           # winner's sandbox the row should name.
           _ = mark_old_sandbox_terminated(new_sandbox.id)
 
-          if is_binary(initial_prompt) and initial_prompt != "" do
-            ConversationServer.queue_initial_prompt(winner_pid, initial_prompt, images)
-          end
+          PromptDelivery.hand_over(winner_pid, initial_prompt, images)
 
           # ownership: conv established tenant-scoped above; this re-fetch
           # reads under that same ownership.

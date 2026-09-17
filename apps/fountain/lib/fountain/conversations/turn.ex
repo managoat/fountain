@@ -14,6 +14,9 @@ defmodule Fountain.Conversations.Turn do
   # for a background cycle that ran after the prompt was answered (#817) —
   # the prompt column then carries a marker, not a person's words.
   @origins ~w(user autonomous)
+  # The API schema declares the same bound, so a request is refused at the
+  # door (422) and this is the backstop for a caller that is not the API.
+  @client_request_id_max 200
 
   schema "turns" do
     field :turn_number, :integer
@@ -68,6 +71,11 @@ defmodule Fountain.Conversations.Turn do
     # turns that predate the column (see `Fountain.Release.backfill_turn_replies/0`).
     field :reply_text, :string
     field :origin, :string, default: "user"
+    # The caller's name for the prompt that opened this turn (#1406), so a
+    # client can bind its own work item to the turn without inferring it from
+    # turn order. nil when the caller sent none, and on every autonomous turn.
+    # A correlation, not an idempotency key: it is not unique.
+    field :client_request_id, :string
     belongs_to :conversation, Conversation
     has_many :images, TurnImage, preload_order: [asc: :position]
     timestamps(type: :utc_datetime, updated_at: false)
@@ -75,6 +83,19 @@ defmodule Fountain.Conversations.Turn do
 
   def statuses, do: @statuses
   def origins, do: @origins
+  def client_request_id_max, do: @client_request_id_max
+
+  @doc """
+  Put the caller's `client_request_id` (#1406) on a `turn` / `started` stage
+  event, beside its `turn_id`. That event is where a client following the
+  stream binds one to the other. A turn whose caller sent none leaves the
+  event in the shape it always had.
+  """
+  @spec correlate(t(), map()) :: map()
+  def correlate(%__MODULE__{client_request_id: id}, meta) when is_binary(id),
+    do: Map.put(meta, :client_request_id, id)
+
+  def correlate(%__MODULE__{}, meta), do: meta
 
   # The two keys the turn-start inference stamp writes (#1685). Both are also
   # written by `TurnMachine.with_inference/2` at the end of a turn that
@@ -128,11 +149,13 @@ defmodule Fountain.Conversations.Turn do
       :model_selection,
       :reply_text,
       :origin,
+      :client_request_id,
       :conversation_id
     ])
     |> validate_required([:turn_number, :prompt, :status, :conversation_id])
     |> validate_inclusion(:status, @statuses)
     |> validate_inclusion(:origin, @origins)
+    |> validate_length(:client_request_id, min: 1, max: @client_request_id_max)
     |> unique_constraint([:conversation_id, :turn_number])
   end
 end

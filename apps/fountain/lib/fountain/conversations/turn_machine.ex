@@ -1140,7 +1140,8 @@ defmodule Fountain.Conversations.TurnMachine do
           String.t(),
           map() | nil,
           integer() | nil,
-          Source.t() | nil | :unspecified
+          Source.t() | nil | :unspecified,
+          keyword()
         ) ::
           {:ok, Conversation.t(), Conversations.Turn.t()}
           | :at_capacity
@@ -1153,13 +1154,14 @@ defmodule Fountain.Conversations.TurnMachine do
         prompt,
         agent \\ nil,
         revision \\ nil,
-        source \\ :unspecified
+        source \\ :unspecified,
+        opts \\ []
       ) do
     conv = Conversations._unsafe_get_conversation!(conversation_id)
 
     with :ok <- matching_model(source, agent, conv.runtime) do
       if runnable?(conv, agent),
-        do: open_turn(conv, sandbox_id, prompt, revision, source),
+        do: open_turn(conv, sandbox_id, prompt, revision, source, opts),
         else: refuse_no_command(conv)
     end
   end
@@ -1193,7 +1195,7 @@ defmodule Fountain.Conversations.TurnMachine do
     :no_command
   end
 
-  defp open_turn(conv, sandbox_id, prompt, revision, source) do
+  defp open_turn(conv, sandbox_id, prompt, revision, source, opts) do
     conversation_id = conv.id
     turn_number = Conversations._unsafe_next_turn_number(conversation_id)
 
@@ -1209,6 +1211,13 @@ defmodule Fountain.Conversations.TurnMachine do
       if source == :unspecified,
         do: attrs,
         else: Map.put(attrs, :inference_source, Source.dump(source))
+
+    # The caller's name for this prompt (#1406), stored on the row it opens.
+    attrs =
+      case opts[:client_request_id] do
+        id when is_binary(id) -> Map.put(attrs, :client_request_id, id)
+        _ -> attrs
+      end
 
     # The owner admits the turn (ADR 0058 stage 8a): under the machine's lock
     # it re-reads the row, refuses a live lease or a fence, and counts capacity

@@ -250,6 +250,47 @@ defmodule Fountain.Conversations.RedactionCarryTest do
     assert RedactionCarry.empty?(carry)
   end
 
+  test "a count that ends inside a codepoint: acp drops the rest of it, stdout does not", %{
+    conv_id: conv_id
+  } do
+    # A value that overlaps itself, one byte short: the fail-safe keeps only a
+    # count of `size - 1` bytes. An `acp` text is re-encoded as JSON, so what
+    # is left of it must start on a codepoint; a raw stream is bytes.
+    size = RedactionCarry.max_hold() + 2
+    Redaction.put(conv_id, [{"RUN", String.duplicate("a", size)}])
+    head = String.duplicate("a", size - 1)
+
+    for char <- ["é", "€", "😀"], lead <- 0..3 do
+      text =
+        String.duplicate("x", lead) <>
+          String.duplicate(char, div(size, byte_size(char)) + 1) <> " end"
+
+      # Every codepoint the count reaches into is dropped whole.
+      {_at, expected} =
+        text
+        |> String.codepoints()
+        |> Enum.reduce({0, ""}, fn codepoint, {at, kept} ->
+          {at + byte_size(codepoint), if(at >= size - 1, do: kept <> codepoint, else: kept)}
+        end)
+
+      {rows, carry} = RedactionCarry.feed(RedactionCarry.new(), conv_id, "acp", line(head))
+      assert [{"acp", replaced}] = rows
+      assert Jason.decode!(replaced) == Jason.decode!(line(Redaction.placeholder()))
+
+      {rows, carry} = RedactionCarry.feed(carry, conv_id, "acp", line(text))
+      assert RedactionCarry.empty?(carry)
+      assert [{"acp", data}] = rows
+      assert String.valid?(data)
+      assert Jason.decode!(data) == Jason.decode!(line(expected))
+
+      {rows, carry} = RedactionCarry.feed(RedactionCarry.new(), conv_id, "stdout", head)
+      assert rows == [{"stdout", Redaction.placeholder()}]
+      {rows, carry} = RedactionCarry.feed(carry, conv_id, "stdout", text)
+      assert RedactionCarry.empty?(carry)
+      assert rows == [{"stdout", binary_part(text, size - 1, byte_size(text) - size + 1)}]
+    end
+  end
+
   test "hold_from/2 holds only a tail that begins a value" do
     patterns = ["abcdefgh"]
     assert RedactionCarry.hold_from(patterns, "xyz") == 3

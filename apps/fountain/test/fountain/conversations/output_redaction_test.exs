@@ -323,6 +323,60 @@ defmodule Fountain.Conversations.OutputRedactionTest do
     end
   end
 
+  describe "multibyte text after the fail-safe drops by count" do
+    # The fourth review's finding: the count is in bytes, and an `acp` chunk's
+    # text is re-encoded as JSON. A count that ran out inside a codepoint left
+    # a lone continuation byte, and `Jason.encode!` raised out of `log/4`.
+    test "a count that ends inside a codepoint drops the rest of it", %{ctx: ctx} do
+      size = RedactionCarry.max_hold() + 2
+      Redaction.put(ctx.conversation_id, [{"RUN", String.duplicate("a", size)}])
+
+      # One byte short of a value that overlaps itself: no pairs, a count of
+      # `size - 1`, which is odd, so it ends on the second byte of an `é`.
+      %Output{bytes: 0}
+      |> feed(ctx, "acp", [
+        chunk(String.duplicate("a", size - 1)),
+        chunk(String.duplicate("é", div(size, 2)) <> " visible"),
+        chunk(" and after")
+      ])
+      |> Output.flush()
+
+      assert_valid_lines(ctx.conversation_id)
+      assert stored_text(ctx.conversation_id) == Redaction.placeholder() <> " visible and after"
+    end
+
+    test "a registry change mid-value does the same", %{ctx: ctx} do
+      long = "LONG-" <> Enum.map_join(1..3_000, &Integer.to_string/1)
+      Redaction.put(ctx.conversation_id, [{"CERT", long}])
+      cut = RedactionCarry.max_hold() + 100
+      output = Output.log(%Output{bytes: 0}, ctx, "acp", chunk(binary_part(long, 0, cut)))
+
+      # A rotation re-sorts the registry, so the rest is dropped by count
+      # (`byte_size(long) - cut`). The padding puts that count's end on the
+      # second byte of an `é`.
+      Redaction.add(ctx.conversation_id, [
+        {"ROTATED", String.duplicate("z", byte_size(long) + 10)}
+      ])
+
+      count = byte_size(long) - cut
+      pad = String.duplicate("x", rem(count + 1, 2))
+
+      output
+      |> feed(ctx, "acp", [
+        chunk(pad <> String.duplicate("é", count) <> " visible"),
+        chunk(" and after")
+      ])
+      |> Output.flush()
+
+      assert_valid_lines(ctx.conversation_id)
+      text = stored_text(ctx.conversation_id)
+      refute text =~ "LONG-"
+      refute text =~ "2999"
+      assert String.starts_with?(text, Redaction.placeholder() <> "é")
+      assert String.ends_with?(text, "é visible and after")
+    end
+  end
+
   describe "chunks that cannot be a value's start" do
     test "are persisted at once and verbatim, so replay dedup still matches", %{ctx: ctx} do
       lines = [chunk("nothing "), chunk("to hide "), chunk("here.")]
@@ -394,6 +448,13 @@ defmodule Fountain.Conversations.OutputRedactionTest do
       |> Output.flush()
 
       assert stored_text(ctx.conversation_id) == Redaction.placeholder()
+    end
+  end
+
+  defp assert_valid_lines(conv_id) do
+    for row <- rows(conv_id) do
+      assert String.valid?(row.data)
+      assert {:ok, _line} = Jason.decode(row.data)
     end
   end
 

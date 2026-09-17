@@ -8,14 +8,15 @@ defmodule Fountain.Machines.Machine do
   a minute with nothing asked of it, and `ensure_started/1` brings it back:
   there is a process per active machine, not one per row.
 
-  Three verbs so far. `who_is_here/1` returns the
-  `Fountain.Machines.Occupancy` struct and reads nothing else. `destroy/2` and
-  `park/2` run `Fountain.Machines.Destroy.run/2` and
-  `Fountain.Machines.Park.run/2` — the two protocols, lease and all — and are
-  the only things here that write: the row through
-  `Fountain.Machines.Lease`, the provider through `Managoat.Sandbox.destroy/1`
-  and `suspend/1`, and one `sandbox.destroyed` or `sandbox.suspended` audit
-  event. `ensure_up`, `attach` and `admit_turn` arrive in stages 7 and 8.
+  Four verbs so far. `who_is_here/1` returns the
+  `Fountain.Machines.Occupancy` struct and reads nothing else. `destroy/2`,
+  `park/2` and `ensure_up/2` run `Fountain.Machines.Destroy.run/2`,
+  `Fountain.Machines.Park.run/2` and `Fountain.Machines.Resume.run/2` — the
+  three protocols, lease and all — and are the only things here that write: the
+  row through `Fountain.Machines.Lease`, the provider through
+  `Managoat.Sandbox.destroy/1`, `suspend/1` and `resume/1`, and one
+  `sandbox.destroyed`, `sandbox.suspended` or `sandbox.resumed` audit event.
+  `provision`, `attach` and `admit_turn` arrive in stages 7b and 8.
 
   Beside them is one pure predicate, `busy?/2` (stage 6a): whether an owner
   holds a live lease on a machine, from the row the caller already holds. It is
@@ -70,6 +71,7 @@ defmodule Fountain.Machines.Machine do
   alias Fountain.Machines.Lease
   alias Fountain.Machines.Occupancy
   alias Fountain.Machines.Park
+  alias Fountain.Machines.Resume
   alias Fountain.Repo
 
   # Long enough that a burst of questions about one machine — a lifecycle
@@ -117,6 +119,26 @@ defmodule Fountain.Machines.Machine do
   # `machine_bounds_test.exs` pins the ordering.
   @park_timeout 60_000
 
+  # A resume is one provider round trip, like a destroy, so it takes the
+  # destroy's ceiling and for the same reasons: clearly above
+  # `Resume.busy_wait_ms/0` (5s), so a caller never reports a refusal the
+  # protocol has not reached yet, and clearly below `Resume.lease_ttl_ms/0`
+  # (60s), so it never waits on work another owner is entitled to take over.
+  #
+  # Unlike a park, this caller **is** a request: a prompt that wakes a parked
+  # conversation runs on the request process, so the number is also what a
+  # person waits before the page says something. A resume slower than this is
+  # not abandoned — `Machines.Renewal` keeps its lease alive and the owner
+  # finishes it — so the caller is told `sandbox_unavailable` with a
+  # `Retry-After`, and the retry finds the machine up. Holding an HTTP request
+  # open for a Daytona machine coming back from archived storage is the
+  # alternative, and it is worse.
+  #
+  # With the gate off there is no ceiling at all, because there is no call: the
+  # protocol runs inline on the caller and returns when it returns.
+  # `machine_bounds_test.exs` pins the ordering.
+  @resume_timeout 20_000
+
   # A start that loses the Horde race registers on another node, and the
   # registry is a CRDT: the winner can be invisible here for a few
   # milliseconds. Same shape and the same reason as
@@ -149,6 +171,15 @@ defmodule Fountain.Machines.Machine do
   """
   @spec park_timeout_ms() :: pos_integer()
   def park_timeout_ms, do: @park_timeout
+
+  @doc """
+  How long a caller waits on the owner for a resume.
+
+  Public so `machine_bounds_test.exs` can pin it between `Resume.busy_wait_ms/0`
+  below it and `Resume.lease_ttl_ms/0` above it.
+  """
+  @spec resume_timeout_ms() :: pos_integer()
+  def resume_timeout_ms, do: @resume_timeout
 
   @doc "The cluster-wide name of the owner of `sandbox_id`."
   @spec via(String.t()) :: {:via, module(), {module(), String.t()}}
@@ -238,8 +269,15 @@ defmodule Fountain.Machines.Machine do
   a dead owner is resolved by the park protocol's own takeover, from the owner's
   side, which is where an abandoned operation belongs.
 
-  Takes a `Sandbox` the caller has already read, so the check costs no query,
-  and the clock, so a sweep can judge a page of rows against one instant.
+  Takes a `Sandbox` the caller has already read, so the row costs no query, and
+  the clock, so a sweep can judge a page of rows against one instant.
+
+  **The clock is the database's** (stage 7a), because that is what
+  `lease_until` is now written from. Left to default, this fetches it — one
+  `select statement_timestamp()` beside the row read the caller has already
+  done. A caller with more than one row to judge fetches it once with
+  `Fountain.Machines.Lease.now/0` and passes it, which is what the two reaper
+  sweeps, the reset reconciler and the admin table do.
 
   **Two things it deliberately does not do.**
 
@@ -254,8 +292,8 @@ defmodule Fountain.Machines.Machine do
   machine is gone — which is a fresh machine, not a retry. Every caller here
   checks the terminal statuses before it asks.
   """
-  @spec busy?(Sandbox.t() | map(), DateTime.t()) :: boolean()
-  def busy?(sandbox, now \\ DateTime.utc_now()), do: Lease.live?(sandbox, now)
+  @spec busy?(Sandbox.t() | map(), DateTime.t() | :db) :: boolean()
+  def busy?(sandbox, now \\ :db), do: Lease.live?(sandbox, now)
 
   @doc """
   Destroy the machine behind `sandbox_id`: `Fountain.Machines.Destroy.run/2`,
@@ -381,6 +419,70 @@ defmodule Fountain.Machines.Machine do
     end
   end
 
+  @doc """
+  Bring the machine behind `sandbox_id` up: `Fountain.Machines.Resume.run/2`,
+  run inside the owner when `MACHINE_OWNER_ENABLED` is on and inline on the
+  caller when it is off. `opts` are the protocol's, documented there.
+
+  The door for the third verb, on the same terms as `destroy/2` and `park/2`:
+  the protocol answers precisely and this translates. **This one lets the most
+  words through**, and each is a different thing for the waking caller to do:
+
+    * `:fenced` — a reset or a teardown has been asked for, so there is nothing
+      to wake. The wake answers `:sandbox_reset_pending`, which is what `main`
+      answers for the fence it did check, and it is 409 rather than a retry.
+    * `:provisioning` — the machine is still being built. `main`'s word,
+      unchanged, and the caller waits for the registry rather than the machine
+      (#800).
+    * `:sandbox_resume_failed` — the provider was asked and would not. `main`'s
+      word, and the protocol's `:resume_failed` is translated to it here so the
+      surfaces that already know it do not have to learn a second.
+    * the admission's own refusals — `{:sandbox_quota_exceeded, _}`,
+      `:fleet_full`, `:insufficient_credits` — which are the tenant's cap, the
+      fleet ceiling and the credit gate, exactly as
+      `Quotas.with_sandbox_reservation/3` has always answered them on this path.
+      They are 429, 503 and 402, and flattening any of them to
+      `:sandbox_unavailable` would tell somebody out of credit to retry.
+
+  Everything else is a refusal to act on right now — contention for the lease, a
+  database fault, an unreachable owner — and reads as `:sandbox_unavailable`.
+  `:superseded` is `{:ok, :already_up}`: another owner holds the machine and is
+  the one that says what happened to it, and from here it is up or coming up.
+
+  **A resume is not attempted at all on a machine that does not need one.** A
+  `ready` row is `{:ok, :already_up}` and a terminal one `{:ok, :already_terminal}`,
+  both without a provider call, so a caller may ask unconditionally — which is
+  what makes this `ensure_up` rather than `resume`.
+  """
+  @spec ensure_up(String.t(), keyword()) ::
+          {:ok, Resume.outcome()}
+          | {:error,
+             :sandbox_unavailable
+             | :not_found
+             | :provider_transaction_open
+             | :fenced
+             | :provisioning
+             | :sandbox_resume_failed
+             | :fleet_full
+             | :insufficient_credits
+             | {:sandbox_quota_exceeded, map()}}
+  def ensure_up(sandbox_id, opts) when is_binary(sandbox_id) and is_list(opts) do
+    cond do
+      # As in `destroy/2` and `park/2`: the protocol's own guard is
+      # process-local and cannot fire in the owner, and an open transaction here
+      # would have the owner's `Lease.claim` block on the advisory lock this
+      # caller holds while the caller blocks in `GenServer.call`.
+      Repo.in_transaction?() ->
+        {:error, :provider_transaction_open}
+
+      Machines.enabled?() ->
+        sandbox_id |> resume_in_owner(opts, 1) |> refusal(sandbox_id, :ensure_up)
+
+      true ->
+        sandbox_id |> Resume.run(opts) |> refusal(sandbox_id, :ensure_up)
+    end
+  end
+
   # The protocols' answers, in the words the rest of the system uses.
   #
   # `:superseded` is not a failure to report: another owner took the machine
@@ -406,8 +508,15 @@ defmodule Fountain.Machines.Machine do
   defp refusal({:error, :transaction_open}, _sandbox_id, _verb),
     do: {:error, :provider_transaction_open}
 
+  # `main`'s word at every surface a wake reaches, and the one translation this
+  # module does that is not a flattening: the protocol says `:resume_failed`, to
+  # sit beside `Park`'s `:suspend_failed`, and the rest of Fountain has said
+  # `:sandbox_resume_failed` since #799.
+  defp refusal({:error, :resume_failed}, _sandbox_id, :ensure_up),
+    do: {:error, :sandbox_resume_failed}
+
   defp refusal({:error, reason}, sandbox_id, verb) do
-    if reason in travelling(verb) do
+    if travels?(verb, reason) do
       {:error, reason}
     else
       Logger.warning(
@@ -421,6 +530,14 @@ defmodule Fountain.Machines.Machine do
 
   defp superseded(:destroy), do: {:ok, :already_terminal}
   defp superseded(:park), do: {:ok, :already_parked}
+  defp superseded(:ensure_up), do: {:ok, :already_up}
+
+  # `travelling/1` is a list of atoms, and one refusal that has to travel is not
+  # one: `{:sandbox_quota_exceeded, %{count: n, limit: n}}` carries the numbers
+  # the 429 body and the schedule's error string are both built from, so it
+  # cannot be flattened to an atom on the way out.
+  defp travels?(:ensure_up, {:sandbox_quota_exceeded, _}), do: true
+  defp travels?(verb, reason), do: reason in travelling(verb)
 
   # The words each verb lets through, and nothing else.
   #
@@ -444,6 +561,21 @@ defmodule Fountain.Machines.Machine do
       :provider_transaction_open,
       :provider_unconfirmed,
       :not_fenced
+    ]
+  end
+
+  # For `ensure_up`: the fence, the two states there is nothing to resume from,
+  # the provider's refusal, and the admission's three. See `ensure_up/2`.
+  defp travelling(:ensure_up) do
+    [
+      :not_found,
+      :sandbox_unavailable,
+      :provider_transaction_open,
+      :fenced,
+      :provisioning,
+      :sandbox_resume_failed,
+      :fleet_full,
+      :insufficient_credits
     ]
   end
 
@@ -471,6 +603,10 @@ defmodule Fountain.Machines.Machine do
 
   defp park_in_owner(sandbox_id, opts, retries_left) do
     in_owner(sandbox_id, {:park, opts}, @park_timeout, :park, retries_left)
+  end
+
+  defp resume_in_owner(sandbox_id, opts, retries_left) do
+    in_owner(sandbox_id, {:ensure_up, opts}, @resume_timeout, :ensure_up, retries_left)
   end
 
   defp in_owner(sandbox_id, message, timeout, verb, retries_left) do
@@ -568,6 +704,15 @@ defmodule Fountain.Machines.Machine do
   # client side is the ceiling on that queue.
   def handle_call({:park, opts}, _from, state) do
     {:reply, Park.run(state.sandbox_id, opts), arm_idle(state)}
+  end
+
+  # Same shape, same reason, and here the serialization is the *feature* rather
+  # than an optimization of it: two prompts waking one parked home arrive
+  # milliseconds apart, and queueing the second behind the first is what makes
+  # it find a machine that is already up instead of waiting out a lease to be
+  # told so (ADR 0023 step 4).
+  def handle_call({:ensure_up, opts}, _from, state) do
+    {:reply, Resume.run(state.sandbox_id, opts), arm_idle(state)}
   end
 
   @impl true

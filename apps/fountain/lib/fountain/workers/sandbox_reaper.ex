@@ -373,6 +373,14 @@ defmodule Fountain.Workers.SandboxReaper do
       now = DateTime.utc_now()
       grace_cutoff = DateTime.add(now, -@abandoned_grace_minutes * 60, :second)
 
+      # The lease clock is the database's since stage 7a — `lease_until` is
+      # written from that clock in SQL, so judging it against this node's
+      # `DateTime.utc_now()` compared two clocks. Fetched once for the page, so
+      # every row gets one verdict; `now` above goes on judging the grace
+      # windows against the same wall clock the columns they read (`updated_at`,
+      # `woken_at`) are written from.
+      lease_now = Lease.now()
+
       candidates =
         Sandbox
         |> where(
@@ -401,7 +409,7 @@ defmodule Fountain.Workers.SandboxReaper do
       # deliberately left the machine alone", and this is exactly that one step
       # earlier; a machine that appears in no counter at all is one an operator
       # reading the summary cannot account for.
-      {held, free} = Enum.split_with(candidates, &Lease.live?(&1, now))
+      {held, free} = Enum.split_with(candidates, &Lease.live?(&1, lease_now))
 
       Enum.each(held, fn sandbox ->
         Logger.info(
@@ -712,6 +720,11 @@ defmodule Fountain.Workers.SandboxReaper do
     now = DateTime.utc_now()
     cutoff = DateTime.add(now, -@fenced_teardown_grace_minutes * 60, :second)
 
+    # The lease clock is the database's since stage 7a; the fence's own grace
+    # window is judged against the wall clock `teardown_requested_at` was
+    # written from. One fetch for the whole sweep, so a page is one verdict.
+    lease_now = Lease.now()
+
     Sandbox
     |> where(
       [s],
@@ -741,7 +754,7 @@ defmodule Fountain.Workers.SandboxReaper do
     # One pass, and `or` short-circuits, so a row a lease is holding still
     # costs no registry scan — the order the two `where`-then-`reject` steps
     # had before.
-    |> Enum.reject(&(Lease.live?(&1, now) or Lifecycle.any_server_alive?(&1)))
+    |> Enum.reject(&(Lease.live?(&1, lease_now) or Lifecycle.any_server_alive?(&1)))
     |> Enum.count(&(finish_teardown(&1) == :ok))
   end
 

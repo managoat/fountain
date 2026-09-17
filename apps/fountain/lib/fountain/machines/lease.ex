@@ -24,16 +24,39 @@ defmodule Fountain.Machines.Lease do
   `FOR UPDATE`, and still refuses while `lease_until` is in the future. A lease
   is surrendered early only by `release/2`, and even that keeps the epoch.
 
-  The clock is the claiming node's, not the database's: `lease_until` is
-  written from one BEAM node's `DateTime.utc_now()` and compared against
-  another's. Skew is not a correctness hole — early takeover is what the
-  compare-and-set already makes safe, and late takeover only delays recovery —
-  but it is N clocks rather than one. Moving to `fragment("now()")` is a
-  decision for the process that owns the renew timer (stage 7), not for this
-  module, which has no timer of its own.
+  **The clock is the database's** (stage 7a). It used to be the claiming
+  node's: `lease_until` was written from one BEAM node's `DateTime.utc_now()`
+  and compared against another's, which is N clocks rather than one. Skew was
+  never a correctness hole — an early takeover is what the compare-and-set
+  already makes safe, and a late one only delays recovery — but a renew timer
+  makes the question sharper, because a holder that renews on a fast clock and
+  a reaper that judges on a slow one disagree about a *live* operation rather
+  than an abandoned one. So `claim/4`, `take_over/4` and `renew/4` now compute
+  `lease_until` in SQL, and every liveness read compares against the same
+  database's clock. There is one clock, and no node's drift can shorten or
+  lengthen a lease anybody else can see.
+
+  **`statement_timestamp()`, not `now()`**, and the difference matters. Postgres'
+  `now()` is `transaction_timestamp()`: it is frozen for the whole of an
+  enclosing transaction, so a claim and a takeover made inside one would be
+  dated from the same instant however far apart they ran, and a lease could
+  never expire while its reader sat in a transaction that started before it was
+  written. `statement_timestamp()` advances between statements and is stable
+  within one, which is exactly a lease's unit of time. A caller that wants one
+  instant for a page of rows gets it by fetching `now/0` once and passing it,
+  which is what the sweeps do, rather than by relying on a transaction to hold
+  the clock still.
+
+  The `now` argument each of those functions still takes is the test seam and
+  nothing more. `:db` — the default, and what every caller in `lib/` passes by
+  omission — means "the database's clock". A `DateTime` means "judge and date
+  from this instant instead", which is how a test reaches an expired lease
+  without sleeping for a minute. Production never passes one.
 
   Every function here is one short statement or transaction, and refuses to run
-  inside an enclosing one (`{:error, :transaction_open}`), the same guard
+  inside an enclosing one (`{:error, :transaction_open}`) unless the caller says
+  the nesting is deliberate — one caller does, and `cas_update/4`'s `nest:`
+  option is where that is argued. The guard is the same one
   `Fountain.Conversations.Lifecycle.fence_sandbox_for_teardown/2` and
   `Fountain.Conversations.SandboxIdentity` use. Nesting would join the caller's
   transaction through a savepoint and hold a transaction-scoped advisory lock
@@ -65,9 +88,14 @@ defmodule Fountain.Machines.Lease do
   `Conversations.retry_pending_sandbox_reset/2` (5c), and — new in 6a — the
   three readers that refuse a wake, an attach or a rehydrate onto a machine
   mid-operation, through `Machines.Machine.busy?/2`. They read the columns;
-  they never write one. `ensure_up` brings the standing lease and the renew
-  timer in stage 7; until it does, every lease here bounds one operation and
-  nothing renews across a provider call.
+  they never write one.
+
+  Stage 7a added the third write caller, `Resume`, and gave all three a renew
+  timer: `Machines.Renewal` calls `renew/4` from a process of its own while the
+  provider call runs, so a lease bounds an operation that is *making progress*
+  rather than one that started less than a TTL ago. The lease is still
+  per-operation — an idle machine holds none, which is what keeps stage 6a's
+  "busy means a live lease" true.
   """
 
   import Ecto.Query
@@ -120,20 +148,27 @@ defmodule Fountain.Machines.Lease do
   is held by nothing. `held_by/2` makes that state unreachable; this makes it
   unreadable as "held" even so.
 
-  **The clock is the caller's `now`, a BEAM node's.** That is the clock
-  `claim/4` writes `lease_until` with, so comparing against another node's is
-  the skew this module's moduledoc already accounts for: early is safe because
-  of the compare-and-set, late only delays recovery. Passing `now` in rather
-  than taking it here is what lets a sweep judge every row in one pass against
-  one instant. Moving the whole module to `fragment("now()")` belongs with the
-  renew timer (stage 7), not here.
+  **The clock is the database's** (stage 7a), and `:db` — the default — fetches
+  it. `lease_until` is written from that clock in SQL, so judging it
+  against a BEAM node's `DateTime.utc_now()` compared two clocks; there is one
+  now. The fetch is one trivial round trip, and a caller that is about to read
+  or has just read the row pays it on the same connection.
+
+  A sweep judging a page of rows passes `now/0` once rather than letting each
+  row fetch its own, which is both cheaper and the thing that makes a page one
+  verdict. A caller already inside a transaction gets that for free: `now()` is
+  `transaction_timestamp()`, so the row it read `FOR UPDATE` and the instant it
+  judges against come from the same moment.
+
+  A `DateTime` may be passed instead, and only tests do: see the moduledoc's
+  note on the seam.
   """
-  @spec live?(Sandbox.t() | map(), DateTime.t()) :: boolean()
-  def live?(sandbox, now \\ DateTime.utc_now())
+  @spec live?(Sandbox.t() | map(), DateTime.t() | :db) :: boolean()
+  def live?(sandbox, now \\ :db)
 
   def live?(%{lease_node: node, lease_until: until}, now)
       when is_binary(node) and not is_nil(until),
-      do: DateTime.compare(until, now) == :gt
+      do: DateTime.compare(until, at(now)) == :gt
 
   # Both keys, always, and a `FunctionClauseError` for a map carrying neither
   # (round 1, locks review). The first draft matched `%{lease_node: nil}` and
@@ -146,6 +181,28 @@ defmodule Fountain.Machines.Lease do
   def live?(%{lease_node: _, lease_until: _}, _now), do: false
 
   @doc """
+  The database's clock, for a caller that judges more than one row against it.
+
+  One `select now()`. A sweep fetches it once and hands it to `live?/2` for
+  every row in the page; `Machine.busy?/2` lets it default and pays for the one
+  row it is asking about.
+
+  `statement_timestamp()` rather than `now()`, so it advances inside an
+  enclosing transaction — see the moduledoc.
+  """
+  @spec now() :: DateTime.t()
+  def now do
+    %Postgrex.Result{rows: [[%DateTime{} = now]]} = Repo.query!("SELECT statement_timestamp()")
+    now
+  end
+
+  # `:db` is the default every caller in `lib/` uses; a `DateTime` is the test
+  # seam. Nothing else is accepted, so a caller that passes `nil` by accident
+  # gets a `FunctionClauseError` here rather than a lease that never expires.
+  defp at(:db), do: now()
+  defp at(%DateTime{} = now), do: now
+
+  @doc """
   Take the lease on `sandbox_id` for `node`, for `ttl_ms` from `now`.
 
   Serializes on the per-sandbox advisory lock, re-reads the row `FOR UPDATE`,
@@ -155,12 +212,18 @@ defmodule Fountain.Machines.Lease do
 
   On success the epoch advances by exactly one and is returned. The holder
   quotes it on every subsequent write.
+
+  Expiry is decided, and the new `lease_until` written, on the database's clock
+  (`:db`, the default) in the same short transaction — so the instant the old
+  lease is judged against and the instant the new one is dated from are the
+  same one, and no BEAM node's drift reaches the column. A `DateTime` is the
+  test seam.
   """
-  @spec claim(Ecto.UUID.t(), String.t(), pos_integer(), DateTime.t()) ::
+  @spec claim(Ecto.UUID.t(), String.t(), pos_integer(), DateTime.t() | :db) ::
           {:ok, epoch()}
           | {:error,
              :not_found | :lost | :transaction_open | {:invalid, :sandbox_id} | held() | term()}
-  def claim(sandbox_id, node, ttl_ms, now \\ DateTime.utc_now())
+  def claim(sandbox_id, node, ttl_ms, now \\ :db)
       when is_binary(sandbox_id) and is_binary(node) and is_integer(ttl_ms) and ttl_ms > 0 do
     guarded(sandbox_id, fn -> do_claim(:claim, sandbox_id, node, ttl_ms, now) end)
   end
@@ -175,11 +238,11 @@ defmodule Fountain.Machines.Lease do
   old holder's in-flight writes then fail their compare-and-set. A TTL that has
   not run out is not a hand-over, and this function will not make one.
   """
-  @spec take_over(Ecto.UUID.t(), String.t(), pos_integer(), DateTime.t()) ::
+  @spec take_over(Ecto.UUID.t(), String.t(), pos_integer(), DateTime.t() | :db) ::
           {:ok, epoch()}
           | {:error,
              :not_found | :lost | :transaction_open | {:invalid, :sandbox_id} | held() | term()}
-  def take_over(sandbox_id, node, ttl_ms, now \\ DateTime.utc_now())
+  def take_over(sandbox_id, node, ttl_ms, now \\ :db)
       when is_binary(sandbox_id) and is_binary(node) and is_integer(ttl_ms) and ttl_ms > 0 do
     guarded(sandbox_id, fn -> do_claim(:take_over, sandbox_id, node, ttl_ms, now) end)
   end
@@ -196,16 +259,20 @@ defmodule Fountain.Machines.Lease do
 
   It does **not** extend a lease into existence. A row nobody has claimed has
   `lease_node` and `lease_until` nil at epoch 0, and stays that way.
+
+  The new deadline is `statement_timestamp() + ttl` on the database's clock,
+  like a claim's.
+  `Fountain.Machines.Renewal` is the caller: it runs this on a timer, from a
+  process of its own, while a protocol's provider call is in flight, and treats
+  `{:error, :lost}` as the takeover it is.
   """
-  @spec renew(Ecto.UUID.t(), epoch(), pos_integer(), DateTime.t()) ::
+  @spec renew(Ecto.UUID.t(), epoch(), pos_integer(), DateTime.t() | :db) ::
           :ok | {:error, :lost | :transaction_open | {:invalid, :sandbox_id} | term()}
-  def renew(sandbox_id, epoch, ttl_ms, now \\ DateTime.utc_now())
+  def renew(sandbox_id, epoch, ttl_ms, now \\ :db)
       when is_binary(sandbox_id) and is_integer(epoch) and is_integer(ttl_ms) and ttl_ms > 0 do
     guarded(sandbox_id, fn ->
       if taken_epoch?(epoch) do
-        until = DateTime.add(now, ttl_ms, :millisecond)
-
-        case Repo.update_all(held_by(sandbox_id, epoch), set: [lease_until: until]) do
+        case sandbox_id |> held_by(epoch) |> set_deadline(now, ttl_ms) |> Repo.update_all([]) do
           {1, _} -> :ok
           {0, _} -> {:error, :lost}
         end
@@ -280,6 +347,28 @@ defmodule Fountain.Machines.Lease do
   Deliberately takes no advisory lock: a single guarded `update_all` is already
   atomic, and the serialization this needs was done when the epoch was taken.
 
+  **`nest: true` permits an enclosing transaction**, which every other function
+  here refuses, and there is one caller: `Machines.Resume`'s admission, which
+  runs this inside `Quotas.with_sandbox_reservation/3`'s transaction so that the
+  `resuming` stamp and the quota count that authorised it commit together. The
+  moduledoc's reason for the guard does not reach this function — it is about
+  holding `pg_advisory_xact_lock(4316, …)` until an outer commit, and this takes
+  no advisory lock — and the *other* thing nesting does, joining the caller's
+  transaction so a rollback undoes the write, is exactly what a reservation
+  wants: a refused quota must leave no stamp behind. It is opt-in rather than
+  the default because everywhere else an enclosing transaction is the mistake
+  the guard exists to catch, and the option makes a reviewer look at the one
+  place it is not.
+
+  Two consequences a caller passing it owns. The diagnosis of a zero-row write
+  runs a second read *inside* that transaction, so it sees the transaction's own
+  uncommitted rows — which is right here, since the only writer of this row in
+  this transaction is this call. And an error out of the nested `Repo.update_all`
+  aborts the enclosing transaction, so the caller must treat any `{:error, _}`
+  from here as fatal to the whole reservation rather than something to continue
+  from; `Resume` does, by returning it and letting `with_sandbox_reservation/3`
+  roll back.
+
   It does not consult `lease_until`, and that is the contract, not an
   omission: an expired lease nobody has taken over is still held by its owner,
   and that owner finishing the work it started is what should happen. What the
@@ -288,11 +377,12 @@ defmodule Fountain.Machines.Lease do
   call. Nothing here refuses a write for a lapsed clock alone — `renew/4` does
   not either — so a holder that wants to stop early keeps that deadline itself.
   """
-  @spec cas_update(Ecto.UUID.t(), epoch(), map() | keyword()) ::
+  @spec cas_update(Ecto.UUID.t(), epoch(), map() | keyword(), keyword()) ::
           {:ok, Sandbox.t()}
           | {:error, :stale | :retired | :transaction_open | {:invalid, atom()} | term()}
-  def cas_update(sandbox_id, epoch, attrs) when is_binary(sandbox_id) and is_integer(epoch) do
-    guarded(sandbox_id, fn ->
+  def cas_update(sandbox_id, epoch, attrs, opts \\ [])
+      when is_binary(sandbox_id) and is_integer(epoch) and is_list(opts) do
+    guarded(sandbox_id, Keyword.get(opts, :nest, false), fn ->
       if taken_epoch?(epoch) do
         with {:ok, sets} <- cast_attrs(attrs) do
           # `updated_at` moves with a state change but not with a renewal: a
@@ -320,6 +410,10 @@ defmodule Fountain.Machines.Lease do
 
   defp do_claim(kind, sandbox_id, node, ttl_ms, now) do
     Conversations.with_sandbox_lock(sandbox_id, fn ->
+      # The clock rides along with the locked read rather than being fetched
+      # separately — one round trip instead of two, and the instant the old
+      # lease is judged against is read in the same breath as the row. With an
+      # injected clock the seam wins and the column is unused.
       current =
         Repo.one(
           from s in Sandbox,
@@ -327,7 +421,8 @@ defmodule Fountain.Machines.Lease do
             select: %{
               epoch: s.lease_epoch,
               lease_node: s.lease_node,
-              lease_until: s.lease_until
+              lease_until: s.lease_until,
+              db_now: fragment("statement_timestamp()")
             },
             lock: "FOR UPDATE"
         )
@@ -336,12 +431,15 @@ defmodule Fountain.Machines.Lease do
         is_nil(current) ->
           {:error, :not_found}
 
-        live?(current, now) ->
+        # Through `live?/2`, deliberately: a claimant and a reader deciding
+        # "is this machine held" by two different renderings of one rule is
+        # what stage 6a removed, and inlining the comparison here would put it
+        # back.
+        live?(current, judged_at(now, current)) ->
           {:error, {:held, current.lease_node, current.lease_until}}
 
         true ->
           epoch = current.epoch + 1
-          until = DateTime.add(now, ttl_ms, :millisecond)
 
           # The one place a bare `(id, lease_epoch)` predicate is right: the
           # row is unheld by definition — that is what is being claimed — and
@@ -350,12 +448,12 @@ defmodule Fountain.Machines.Lease do
           # Guarded on the epoch the locked read saw all the same, because
           # answering `:lost` beats a `MatchError` unwinding out of the
           # transaction (#2329).
-          case Repo.update_all(
-                 from(s in Sandbox,
-                   where: s.id == ^sandbox_id and s.lease_epoch == ^current.epoch
-                 ),
-                 set: [lease_epoch: epoch, lease_node: node, lease_until: until]
-               ) do
+          claimed =
+            from(s in Sandbox, where: s.id == ^sandbox_id and s.lease_epoch == ^current.epoch)
+            |> update(set: [lease_epoch: ^epoch, lease_node: ^node])
+            |> set_deadline(now, ttl_ms)
+
+          case Repo.update_all(claimed, []) do
             {1, _} ->
               log_claim(kind, sandbox_id, node, epoch, current)
               {:ok, epoch}
@@ -366,6 +464,26 @@ defmodule Fountain.Machines.Lease do
       end
     end)
   end
+
+  # The clock a claim judges the standing lease against: the one the database
+  # handed back with the locked row, or the one a test injected.
+  defp judged_at(:db, %{db_now: db_now}), do: db_now
+  defp judged_at(%DateTime{} = now, _current), do: now
+
+  # `lease_until` on the database's clock. `integer * interval '1 millisecond'`
+  # rather than `make_interval` so the parameter stays an integer the driver
+  # sends as one, and rather than a formatted string so no locale or rounding
+  # sits between the TTL and the column.
+  defp set_deadline(query, :db, ttl_ms) do
+    update(query,
+      set: [
+        lease_until: fragment("statement_timestamp() + ? * interval '1 millisecond'", ^ttl_ms)
+      ]
+    )
+  end
+
+  defp set_deadline(query, %DateTime{} = now, ttl_ms),
+    do: update(query, set: [lease_until: ^DateTime.add(now, ttl_ms, :millisecond)])
 
   defp log_claim(:take_over, sandbox_id, node, epoch, %{lease_node: previous}) do
     Logger.info(
@@ -492,9 +610,11 @@ defmodule Fountain.Machines.Lease do
   # nothing else: a malformed `attrs` or a `sandbox_id` that is not a UUID
   # would reach Ecto as `Ecto.QueryError` or `Ecto.Query.CastError`, and those
   # are caller bugs, refused up front instead of dressed up as database faults.
-  defp guarded(sandbox_id, fun) do
+  defp guarded(sandbox_id, fun), do: guarded(sandbox_id, false, fun)
+
+  defp guarded(sandbox_id, nest?, fun) do
     cond do
-      Repo.in_transaction?() ->
+      not nest? and Repo.in_transaction?() ->
         {:error, :transaction_open}
 
       # `is_binary/1` on the public functions admits any string; the `@spec`

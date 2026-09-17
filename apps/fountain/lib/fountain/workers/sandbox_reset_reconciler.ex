@@ -66,7 +66,10 @@ defmodule Fountain.Workers.SandboxResetReconciler do
   end
 
   def perform(%Oban.Job{args: %{}}) do
-    now = DateTime.utc_now()
+    # The lease clock is the database's since ADR 0058 stage 7a (`lease_until`
+    # is written from that clock in SQL), and it is fetched once so the whole
+    # page is judged against one instant.
+    now = Lease.now()
 
     from(s in Sandbox,
       where:

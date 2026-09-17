@@ -25,6 +25,7 @@ defmodule FountainWeb.AdminLive.Sandboxes do
   alias Fountain.{Accounts, Billing, Conversations}
   alias Fountain.Billing.SandboxUsage
   alias Fountain.Conversations.Termination
+  alias Fountain.Machines.Lease
   alias Fountain.Machines.Machine
 
   @impl true
@@ -159,6 +160,12 @@ defmodule FountainWeb.AdminLive.Sandboxes do
     socket
     |> assign(:sandboxes, Conversations._unsafe_list_sandboxes_admin())
     |> assign(:provider_spend, Billing.provider_spend())
+    # One clock for the whole table (ADR 0058 stage 7a): `Machine.busy?/2`
+    # judges against the database's `now()`, and letting each of two calls per
+    # row fetch its own would be two queries a row on a page that refreshes
+    # every ten seconds. Judging every row against one instant is also the
+    # honest reading — the table is one snapshot.
+    |> assign(:lease_now, Lease.now())
   end
 
   @impl true
@@ -219,13 +226,13 @@ defmodule FountainWeb.AdminLive.Sandboxes do
                   title={"#{s.transition}#{if s.transition_reason, do: " (#{s.transition_reason})"}"}
                   class={[
                     "ml-1 inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium border",
-                    if(Machine.busy?(s),
+                    if(Machine.busy?(s, @lease_now),
                       do: "border-amber-200 bg-amber-50 text-amber-700",
                       else: "border-zinc-200 bg-zinc-50 text-zinc-500"
                     )
                   ]}
                 >
-                  {s.transition}{if not Machine.busy?(s), do: " (abandoned)"}
+                  {s.transition}{if not Machine.busy?(s, @lease_now), do: " (abandoned)"}
                 </span>
               </td>
               <td class="px-4 py-2 text-xs text-zinc-500">

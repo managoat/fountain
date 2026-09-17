@@ -377,6 +377,56 @@ defmodule Fountain.Conversations.OutputRedactionTest do
     end
   end
 
+  describe "multibyte raw output after the fail-safe drops by count" do
+    # The fifth review's finding: `log_events.data` is PostgreSQL text. A count
+    # that ran out inside a codepoint of `stdout` or `stderr` left a lone
+    # continuation byte in front of valid output, and the insert raised.
+    for stream <- ["stdout", "stderr"] do
+      test "a count that ends inside a codepoint of #{stream} drops the rest of it", %{ctx: ctx} do
+        stream = unquote(stream)
+        size = RedactionCarry.max_hold() + 2
+        Redaction.put(ctx.conversation_id, [{"RUN", String.duplicate("a", size)}])
+
+        %Output{bytes: 0}
+        |> feed(ctx, stream, [
+          String.duplicate("a", size - 1),
+          String.duplicate("é", div(size, 2)) <> " visible",
+          " and after"
+        ])
+        |> Output.flush()
+
+        assert_valid_rows(ctx.conversation_id)
+
+        assert stored_bytes(ctx.conversation_id, stream) ==
+                 Redaction.placeholder() <> " visible and after"
+      end
+
+      test "a registry change mid-value on #{stream} does the same", %{ctx: ctx} do
+        stream = unquote(stream)
+        long = "LONG-" <> Enum.map_join(1..3_000, &Integer.to_string/1)
+        Redaction.put(ctx.conversation_id, [{"CERT", long}])
+        cut = RedactionCarry.max_hold() + 100
+        output = Output.log(%Output{bytes: 0}, ctx, stream, binary_part(long, 0, cut))
+
+        rotated = String.duplicate("z", byte_size(long) + 10)
+        Redaction.add(ctx.conversation_id, [{"ROTATED", rotated}])
+        count = byte_size(long) - cut
+        pad = String.duplicate("x", rem(count + 1, 2))
+
+        output
+        |> feed(ctx, stream, [pad <> String.duplicate("é", count) <> " visible", " and after"])
+        |> Output.flush()
+
+        assert_valid_rows(ctx.conversation_id)
+        bytes = stored_bytes(ctx.conversation_id, stream)
+        refute bytes =~ "LONG-"
+        refute bytes =~ "2999"
+        assert String.starts_with?(bytes, Redaction.placeholder() <> "é")
+        assert String.ends_with?(bytes, "é visible and after")
+      end
+    end
+  end
+
   describe "chunks that cannot be a value's start" do
     test "are persisted at once and verbatim, so replay dedup still matches", %{ctx: ctx} do
       lines = [chunk("nothing "), chunk("to hide "), chunk("here.")]
@@ -456,6 +506,10 @@ defmodule Fountain.Conversations.OutputRedactionTest do
       assert String.valid?(row.data)
       assert {:ok, _line} = Jason.decode(row.data)
     end
+  end
+
+  defp assert_valid_rows(conv_id) do
+    for row <- rows(conv_id), do: assert(String.valid?(row.data))
   end
 
   defp binaries(term) when is_binary(term), do: [term]

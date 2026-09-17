@@ -90,12 +90,11 @@ defmodule Fountain.Conversations.RedactionCarry do
   chunks that follow is dropped. When there are too many such places (a value
   that overlaps itself, like a run of one byte, has one per byte) or the
   registry changes before the value finishes, it stops tracking them and drops
-  as many bytes as the longest continuation could still need. On `acp` that
-  count can run out inside a codepoint, and the text is written as JSON, so the
-  rest of the codepoint is dropped with it; `stdout` and `stderr` are bytes and
-  are cut where the count ends. The trade-off is over-redaction: if the tail
-  was not in fact a secret's start, some text is shown as the placeholder, or
-  dropped.
+  as many bytes as the longest continuation could still need. That count can
+  run out inside a codepoint, and every row is written as text (JSON on `acp`,
+  a PostgreSQL `text` column on all of them), so the rest of the codepoint is
+  dropped with it. The trade-off is over-redaction: if the tail was not in
+  fact a secret's start, some text is shown as the placeholder, or dropped.
 
   Everything here is pure. `Output` owns the state and decides when to flush.
   """
@@ -112,8 +111,7 @@ defmodule Fountain.Conversations.RedactionCarry do
           held: nil | {binary(), binary()},
           tail: binary(),
           consuming: nil | consuming(),
-          session: nil | binary(),
-          text?: boolean()
+          session: nil | binary()
         }
   @typedoc """
   The fail-safe's continuations: `{index, offset}` pairs into the value list
@@ -175,14 +173,14 @@ defmodule Fountain.Conversations.RedactionCarry do
 
     case text_chunk(line) do
       {kind, map, text} ->
-        channel = Map.get(carry.text, kind, idle(true))
+        channel = Map.get(carry.text, kind, idle())
 
         if values == [] and idle?(channel) do
           {[{"acp", line}], carry}
         else
           {emits, channel} = advance(channel, values, text, line)
           rows = Enum.map(emits, &{"acp", render(&1, map, text, line)})
-          channel = if idle?(channel), do: idle(true), else: %{channel | session: session(map)}
+          channel = if idle?(channel), do: idle(), else: %{channel | session: session(map)}
           {rows, %{carry | text: Map.put(carry.text, kind, channel)}}
         end
 
@@ -265,9 +263,7 @@ defmodule Fountain.Conversations.RedactionCarry do
 
   # ── one channel ───────────────────────────────────────────────────────────
 
-  # `text?` marks an `acp` text channel, whose output is written as JSON.
-  defp idle(text? \\ false),
-    do: %{held: nil, tail: "", consuming: nil, session: nil, text?: text?}
+  defp idle, do: %{held: nil, tail: "", consuming: nil, session: nil}
 
   defp idle?(%{held: nil, tail: "", consuming: nil}), do: true
   defp idle?(_channel), do: false
@@ -313,8 +309,8 @@ defmodule Fountain.Conversations.RedactionCarry do
   # Write as far as the cut, keep the rest. Over the cap, the tail is replaced
   # rather than kept (see "What is retained, and the fail-safe").
   defp tail_step(channel, patterns, data) do
-    {data, consuming} = consume(channel.consuming, patterns, data)
-    data = if channel.text?, do: to_codepoint(data), else: data
+    {rest, consuming} = consume(channel.consuming, patterns, data)
+    data = if byte_size(rest) < byte_size(data), do: to_codepoint(rest), else: data
     text = channel.tail <> data
     cut = hold_from(patterns, text)
     tail = binary_part(text, cut, byte_size(text) - cut)
@@ -390,12 +386,15 @@ defmodule Fountain.Conversations.RedactionCarry do
     {rest, if(left == 0, do: nil, else: %{fingerprint: 0, pairs: nil, skip: left})}
   end
 
-  # The count is in bytes, so it can run out inside a codepoint of an `acp`
-  # text, and what is left would not encode as JSON. The rest of that codepoint
-  # (at most three continuation bytes) is dropped as well. Each chunk's text is
-  # whole UTF-8, so this never reaches into the next chunk. A value matched
-  # through pairs ends where the value does, which in valid text is already a
-  # codepoint's end.
+  # The count is in bytes, so it can run out inside a codepoint, and what is
+  # left would not be text: `Jason.encode!` raises on it for `acp`, and the
+  # insert into `log_events.data` does for `stdout` and `stderr`. The rest of
+  # that codepoint (at most three continuation bytes) is dropped as well. This
+  # runs only on a chunk `consume/3` cut. A raw chunk the transport cut inside
+  # a codepoint is not the carry's doing, and is left as it arrived. A chunk
+  # that is whole UTF-8 cannot end inside a codepoint, so nothing reaches into
+  # the next chunk. A value matched through pairs ends where the value does,
+  # which in valid text is already a codepoint's end.
   defp to_codepoint(<<2::2, _::6, rest::binary>>), do: to_codepoint(rest)
   defp to_codepoint(data), do: data
 

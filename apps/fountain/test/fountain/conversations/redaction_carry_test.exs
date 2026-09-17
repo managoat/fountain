@@ -250,12 +250,12 @@ defmodule Fountain.Conversations.RedactionCarryTest do
     assert RedactionCarry.empty?(carry)
   end
 
-  test "a count that ends inside a codepoint: acp drops the rest of it, stdout does not", %{
+  test "a count that ends inside a codepoint drops the rest of it, on acp and on stdout", %{
     conv_id: conv_id
   } do
     # A value that overlaps itself, one byte short: the fail-safe keeps only a
-    # count of `size - 1` bytes. An `acp` text is re-encoded as JSON, so what
-    # is left of it must start on a codepoint; a raw stream is bytes.
+    # count of `size - 1` bytes. An `acp` text is re-encoded as JSON and a raw
+    # row is stored as text, so what is left must start on a codepoint.
     size = RedactionCarry.max_hold() + 2
     Redaction.put(conv_id, [{"RUN", String.duplicate("a", size)}])
     head = String.duplicate("a", size - 1)
@@ -287,8 +287,25 @@ defmodule Fountain.Conversations.RedactionCarryTest do
       assert rows == [{"stdout", Redaction.placeholder()}]
       {rows, carry} = RedactionCarry.feed(carry, conv_id, "stdout", text)
       assert RedactionCarry.empty?(carry)
-      assert rows == [{"stdout", binary_part(text, size - 1, byte_size(text) - size + 1)}]
+      assert rows == [{"stdout", expected}]
     end
+  end
+
+  test "a raw chunk the fail-safe did not cut is written as it arrived", %{conv_id: conv_id} do
+    # The transport cuts raw streams anywhere, so a chunk can start inside a
+    # codepoint. Only a cut the carry made is moved to a codepoint's end.
+    long = "LONG-" <> Enum.map_join(1..3_000, &Integer.to_string/1)
+    Redaction.put(conv_id, [{"CERT", long}])
+    cut = RedactionCarry.max_hold() + 100
+
+    {_rows, carry} =
+      RedactionCarry.feed(RedactionCarry.new(), conv_id, "stdout", binary_part(long, 0, cut))
+
+    refute RedactionCarry.empty?(carry)
+    split = <<0xA9>> <> " au lait\n"
+    {rows, carry} = RedactionCarry.feed(carry, conv_id, "stdout", split)
+    assert rows == [{"stdout", split}]
+    assert RedactionCarry.empty?(carry)
   end
 
   test "hold_from/2 holds only a tail that begins a value" do

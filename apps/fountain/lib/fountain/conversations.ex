@@ -1205,14 +1205,18 @@ defmodule Fountain.Conversations do
     # caller here already has a `{:error, reason}` path, so it becomes one
     # rather than unwinding through a launch or a wake.
     #
-    # What has been rolled back by the time this runs is *this* transaction,
-    # and the advisory lock is released with it. Two callers nest inside
-    # another transaction — `Reapply.reapply_conversation/3` and
+    # For a caller that was not already in a transaction, this one has been
+    # rolled back by the time the rescue runs and the advisory lock went with
+    # it. Two callers *are* — `Reapply.reapply_conversation/3` and
     # `Launch.resume_channel/4`, both inside
-    # `InferenceCredentials.with_source_lock/2` — and there this is a
-    # savepoint rollback: the enclosing transaction survives, sees
-    # `{:error, :sandbox_unavailable}` and decides for itself, which is what
-    # its own `{:error, _}` path is for.
+    # `InferenceCredentials.with_source_lock/2` — and there the enclosing
+    # transaction is aborted by the failed statement: Ecto opens no savepoint
+    # for a nested `Repo.transaction`, so there is nothing to roll back to and
+    # any further query on that connection would fail too. The refusal this
+    # returns is therefore one those two may carry *outward* and never act on
+    # and continue from — and neither does: both hand it to their own
+    # `{:error, _}` path and unwind. Worth saying, because the word looks
+    # recoverable and inside those two the transaction around it is not.
     #
     # The word is `:sandbox_unavailable` and not a new one: "this machine
     # cannot be reached right now" is exactly what it means, it is already 503
@@ -1289,13 +1293,23 @@ defmodule Fountain.Conversations do
   wake path reuses the row without touching it, and the reaper's sweeps only
   ever see machines with no server, so a stamp left on a machine that is then
   woken survived for ever. The next owner to claim that machine read the stamp
-  as *its own* interrupted operation and picked the work up from the middle
-  (`Machines.Park`'s takeover, `Machines.Destroy`'s continuation) on a machine
-  that had since been in use. Both protocols revalidate under their lease, so
-  neither depends on this; clearing it here is what stops the row lying in the
-  meantime, and it is safe because the advisory lock this holds is the one a
-  claim takes — a claimant arriving after it takes a new epoch and stamps
-  afresh.
+  as *its own* interrupted operation and picked the work up from the middle, on
+  a machine that had since been in use.
+
+  What clearing it costs the two protocols is a shortcut, not correctness, and
+  that is worth being exact about, because this deletes what one of them reads.
+  `Machines.Park`'s takeover revalidates everything under its own lease before
+  it touches the machine, so a cleared stamp sends the next park down the
+  ordinary path — which is where a machine that has been in use since belongs.
+  `Machines.Destroy` continues from a `destroying` stamp to skip its fence and
+  its own stamp; without one it re-enters at the fence, and
+  `Lifecycle.fence_sandbox_for_teardown/2` keeps an existing
+  `teardown_requested_at` rather than writing a second, so the repeat is
+  idempotent — and a row that has already gone terminal answers
+  `{:ok, :already_terminal}`. Neither loses anything it needs.
+
+  Safe here because the advisory lock this holds is the one a claim takes: a
+  claimant arriving after this takes a new epoch and stamps afresh.
 
   **Refuses an enclosing transaction**, the same guard `Machines.Destroy.run/2`
   carries and for the same reason (#2307 constraint 3): `with_sandbox_lock/2`

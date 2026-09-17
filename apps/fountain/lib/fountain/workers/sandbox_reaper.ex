@@ -373,7 +373,7 @@ defmodule Fountain.Workers.SandboxReaper do
       now = DateTime.utc_now()
       grace_cutoff = DateTime.add(now, -@abandoned_grace_minutes * 60, :second)
 
-      verdicts =
+      candidates =
         Sandbox
         |> where(
           [s],
@@ -387,20 +387,33 @@ defmodule Fountain.Workers.SandboxReaper do
         |> where([s], ^woken_grace(now))
         |> Repo.all()
         |> Repo.preload(:conversations)
-        # A machine whose owner holds a live lease is mid-operation, and asking
-        # it would mean waiting out `Park.busy_wait_ms/0` — five seconds — for
-        # an answer already on the row. `sweep_fenced_teardowns/0` has read the
-        # lease this way since 5a; since 6b, when a park takes one on every
-        # sweep, this pass had to as well or a busy fleet would spend most of
-        # its run asleep. It is not a correctness check — the claim is, and it
-        # re-reads everything — it is the cost of asking.
-        |> Enum.reject(&(Lease.live?(&1, now) or Lifecycle.any_server_alive?(&1)))
-        |> Enum.map(&{&1, check_bounds(&1, now)})
+        |> Enum.reject(&Lifecycle.any_server_alive?/1)
+
+      # A machine whose owner holds a live lease is mid-operation, and asking
+      # it would mean waiting out `Park.busy_wait_ms/0` — five seconds — for an
+      # answer already on the row. `sweep_fenced_teardowns/0` has read the
+      # lease this way since 5a; since 6b, when a park takes one on every
+      # sweep, this pass had to as well, or a busy fleet would spend most of
+      # its run asleep. It is not a correctness check — the claim is, and it
+      # re-reads everything — it is the cost of asking.
+      #
+      # Counted rather than dropped. `skipped` means "decided to act, then
+      # deliberately left the machine alone", and this is exactly that one step
+      # earlier; a machine that appears in no counter at all is one an operator
+      # reading the summary cannot account for.
+      {held, free} = Enum.split_with(candidates, &Lease.live?(&1, now))
+
+      Enum.each(held, fn sandbox ->
+        Logger.info(
+          "reaper: left sandbox #{sandbox.id} (#{sandbox.machine_name}) to its owner, " <>
+            "which holds the lease until #{inspect(sandbox.lease_until)}"
+        )
+      end)
 
       {parked, expired, refused, skipped, _destroys_left, _attempts_left} =
         Enum.reduce(
-          verdicts,
-          {0, 0, 0, 0, @destroy_limit, owner_attempt_limit()},
+          Enum.map(free, &{&1, check_bounds(&1, now)}),
+          {0, 0, 0, length(held), @destroy_limit, owner_attempt_limit()},
           &sweep_verdict/2
         )
 

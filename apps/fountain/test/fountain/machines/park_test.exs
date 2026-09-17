@@ -84,6 +84,19 @@ defmodule Fountain.Machines.ParkTest do
     end
   end
 
+  # The idle window off, so a case about the running-turn rule is not answered
+  # by `busy_elsewhere?/4` before it gets there.
+  defp without_idle_bound(fun) do
+    previous = Application.get_env(:fountain, :sandbox_idle_timeout_minutes)
+    Application.put_env(:fountain, :sandbox_idle_timeout_minutes, 0)
+
+    try do
+      fun.()
+    after
+      Application.put_env(:fountain, :sandbox_idle_timeout_minutes, previous)
+    end
+  end
+
   defp with_lock_timeout(ms, fun) do
     previous = Application.fetch_env(:fountain, :sandbox_lock_timeout_ms)
     Application.put_env(:fountain, :sandbox_lock_timeout_ms, ms)
@@ -543,26 +556,38 @@ defmodule Fountain.Machines.ParkTest do
     test "a co-tenant's running turn refuses a max-lifetime park all the same", ctx do
       # One conversation's clock reaching a ceiling is not a reason to cut
       # somebody else's work on the same machine.
+      #
+      # The idle bound is turned off so this isolates the rule it names. With
+      # it on, `held_by_somebody_else?/2` answers first — a co-tenant mid-turn
+      # is inside any idle window — and the test would pass with the
+      # running-turn veto deleted.
       reject(&Managoat.Sandbox.suspend/1)
       other = quiet_cotenant(ctx)
       stand_in_server(other.id)
       insert_turn(other, status: "running", started_at: DateTime.utc_now())
 
-      assert {:error, :machine_occupied} =
-               Park.run(
-                 ctx.sandbox.id,
-                 opts(reason: :max_lifetime, requesting_conversation_id: ctx.conv.id)
-               )
+      without_idle_bound(fn ->
+        assert {:error, :machine_occupied} =
+                 Park.run(
+                   ctx.sandbox.id,
+                   opts(reason: :max_lifetime, requesting_conversation_id: ctx.conv.id)
+                 )
+      end)
     end
 
-    test "a sweep's park is refused by a running turn whatever the bound", ctx do
-      # The exception is the *requester's* turn, and a sweep has no
-      # conversation to be the requester.
+    test "a sweep is refused by the server before its turn is ever counted", ctx do
+      # Named for what it pins rather than for what it looks like. A turn only
+      # counts as occupancy when something is driving it, and for a sweep
+      # "something is driving it" means a live server — which `any_live?`
+      # has already refused on. So the requester exception cannot reach a
+      # sweep, and neither can the turn check: the liveness rule subsumes it.
       reject(&Managoat.Sandbox.suspend/1)
       stand_in_server(ctx.conv.id)
       insert_turn(ctx.conv, status: "running", started_at: DateTime.utc_now())
 
-      assert {:error, :machine_occupied} = Park.run(ctx.sandbox.id, opts(reason: :max_lifetime))
+      without_idle_bound(fn ->
+        assert {:error, :machine_occupied} = Park.run(ctx.sandbox.id, opts(reason: :max_lifetime))
+      end)
     end
 
     test "a sweep is refused by any live server on the machine", ctx do

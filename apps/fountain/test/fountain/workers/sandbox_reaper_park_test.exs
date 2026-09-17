@@ -195,18 +195,12 @@ defmodule Fountain.Workers.SandboxReaperParkTest do
       age(second, second_conv, 60 * 5)
       on_exit(fn -> stop_machine(second.id) end)
 
-      refused = ctx.sandbox.id
       stub(Managoat.Sandbox, :suspend, fn %Handle{} -> :ok end)
 
-      admission_at_the_claim(fn ->
-        # Only the first machine gets an admission under it.
-        if Repo.reload!(ctx.sandbox).status == "ready" and
-             Repo.all(
-               from t in Fountain.Conversations.Turn,
-                 where: t.conversation_id == ^ctx.conv.id and t.status == "running"
-             ) == [] do
-          insert_turn(ctx.conv, status: "running", started_at: DateTime.utc_now())
-        end
+      # Only this machine gets an admission under its claim; the other is left
+      # to park, which is the half that says the refusal cost it nothing.
+      admission_at_the_claim_of(ctx.sandbox.id, fn ->
+        insert_turn(ctx.conv, status: "running", started_at: DateTime.utc_now())
       end)
 
       assert {parked, 0, 0, 1} = sweep()
@@ -353,6 +347,24 @@ defmodule Fountain.Workers.SandboxReaperParkTest do
       assert same.id == job.id,
              "a second reaper was enqueued; two sweeps of one fleet spend their time " <>
                "queueing behind each other's leases (ADR 0058 stage 6b)"
+    end
+
+    test "a machine its owner is already holding is left alone, and counted", ctx do
+      # The pre-filter. Asking would mean waiting out the busy wait for an
+      # answer the row already gives, and a machine that lands in no counter at
+      # all is one an operator reading the hourly summary cannot account for.
+      Repo.update_all(from(s in Sandbox, where: s.id == ^ctx.sandbox.id),
+        set: [
+          lease_epoch: 1,
+          lease_node: "somebody@node",
+          lease_until: DateTime.add(DateTime.utc_now(), 60, :second)
+        ]
+      )
+
+      reject(&Managoat.Sandbox.suspend/1)
+
+      assert {0, 0, 0, 1} = sweep()
+      assert row(ctx).status == "ready"
     end
 
     test "a job orphaned in `executing` would otherwise stop reclamation for good", ctx do

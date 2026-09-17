@@ -41,10 +41,13 @@ config :fountain, Oban,
     # case rather than a rare one.
     #
     # Rescued after 30 minutes, checked every minute: comfortably longer than
-    # any run should take (`@owner_attempt_limit` bounds the reaper at about
-    # eight minutes even when every attempt waits out its lease), and far
-    # shorter than the hour between crons, so a rescue never overlaps the run
-    # it is standing in for.
+    # any run should take, and far shorter than the hour between crons, so a
+    # rescue never overlaps the run it is standing in for. Thirty rather than
+    # ten because `SandboxReaper`'s `@owner_attempt_limit` bounds its *owner
+    # attempts* at about eight minutes and nothing else — a run also lists
+    # every provider's sandboxes and spends its destroy budget on them, and a
+    # slow provider is exactly the condition under which a long run and a
+    # rescue would otherwise meet.
     {Oban.Plugins.Lifeline, rescue_after: :timer.minutes(30), interval: :timer.minutes(1)},
     {Oban.Plugins.Cron,
      crontab: [

@@ -470,6 +470,17 @@ defmodule Fountain.Machines.Park do
   # turn check at all and its reaper reclaimed that machine; a stage that says
   # it does not change reclamation must not strand it.
   #
+  # That closes the strand for the **reaper**, which is where it was stranded:
+  # a machine with no live server anywhere is parked whatever its leftover turn
+  # rows say. It does not close it for a *server* whose own turn is parked on a
+  # permission nobody answers — that server never asks for an idle park at all,
+  # because `Lifecycle.check/4` suppresses the idle verdict while
+  # `current_turn` is set. That is `main`'s behaviour unchanged, and it means
+  # such a machine is reclaimed by the ceiling and by nothing else, so
+  # `SANDBOX_MAX_LIFETIME_HOURS` — off by default — is its only backstop. The
+  # real answer is a deadline on an unanswered permission, which is neither
+  # this stage's nor this module's.
+  #
   # The requester is the exception to the exception: it *is* the thing driving
   # its own turn, so its own counts whether or not the registry agrees (and in
   # a test there is no registered server at all).

@@ -270,40 +270,13 @@ defmodule Fountain.Machines.Occupancy do
   end
 
   @doc """
-  Is any conversation on the machine mid-turn?
-
-  The machine-wide half of `busy_elsewhere?/4`, with no co-tenant and no
-  clock: `Fountain.Machines.Park` asks it under the lease, where the question
-  is not "is somebody else busy" but "is this machine in use at all" — a park
-  refuses while any turn is admitted (ADR 0058, the verbs table).
-
-  `except: conversation_id` leaves one conversation's own turn out of the
-  answer. Exactly one caller needs that and the reason is narrow: a
-  max-lifetime park is *cutting* the requester's turn, which is what the
-  ceiling is for. See `Fountain.Machines.Park`'s `running_turn_veto?/2`.
-  """
-  @spec any_running_turn?(t(), keyword()) :: boolean()
-  def any_running_turn?(occupancy, opts \\ [])
-
-  def any_running_turn?(%__MODULE__{running_turns: :unloaded} = occupancy, _opts) do
-    raise ArgumentError, unloaded_message(occupancy, "any_running_turn?/2", :running_turns)
-  end
-
-  def any_running_turn?(%__MODULE__{} = occupancy, opts) do
-    except = Keyword.get(opts, :except)
-
-    occupancy
-    |> running_turn_ids()
-    |> Enum.any?(&(&1 != except))
-  end
-
-  @doc """
   The conversations on the machine that are mid-turn.
 
-  `any_running_turn?/2` is this with the counting done; a caller that has to
-  decide *whose* turn it is — `Fountain.Machines.Park`, which treats the
-  requester's own turn differently at the ceiling and ignores one nothing is
-  driving — reads the ids.
+  Ids rather than a count, because the only caller has to decide *whose* turn
+  it is: `Fountain.Machines.Park` treats the requester's own turn differently
+  at the ceiling, and ignores one whose conversation has no live server. A
+  plain `any_running_turn?` predicate lived here for one round of review and
+  went when the veto stopped being a yes-or-no question.
   """
   @spec running_turn_ids(t()) :: [String.t()]
   def running_turn_ids(%__MODULE__{running_turns: :unloaded} = occupancy) do

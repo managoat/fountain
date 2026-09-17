@@ -402,9 +402,13 @@ defmodule Fountain.Machines.Lease do
   atomic, and the serialization this needs was done when the epoch was taken.
 
   **`nest: true` permits an enclosing transaction**, which every other function
-  here refuses, and there is one caller: `Machines.Resume`'s admission, which
-  runs this inside `Quotas.with_sandbox_reservation/3`'s transaction so that the
-  `resuming` stamp and the quota count that authorised it commit together. The
+  here refuses, and there are two callers. `Machines.Resume`'s admission runs
+  this inside `Quotas.with_sandbox_reservation/3`'s transaction so that the
+  `resuming` stamp and the quota count that authorised it commit together.
+  `Machines.Provision.fail/2` runs it beside its caller's own write, so that
+  `Launch.fail_initial_start/2` fails a conversation and its machine in one
+  commit or neither — which `main` did under the per-sandbox advisory lock, and
+  which the machine's row leaving that lock's reach would otherwise have cost. The
   moduledoc's reason for the guard does not reach this function — it is about
   holding `pg_advisory_xact_lock(4316, …)` until an outer commit, and this takes
   no advisory lock — and the *other* thing nesting does, joining the caller's
@@ -627,6 +631,14 @@ defmodule Fountain.Machines.Lease do
   # write is terminal — and it was the only thing refusing it, so a bracket that
   # wrote `ready` through `cas_update/4` without this would have handed a
   # conversation a machine the reset reconciler was about to delete.
+  #
+  # **Both fence columns, where `update_sandbox/2` read only the reset one**
+  # (round 1, behaviour review). That is wider than the thing it replaces, and
+  # deliberately: a `ready` finalize landing on a *teardown*-fenced row hands a
+  # conversation a machine somebody has asked to be destroyed, which
+  # `SandboxReaper.sweep_fenced_teardowns/0` then finishes underneath it.
+  # `Provision.admissible/1` refuses on either fence for the same reason, so the
+  # two ends of the bracket agree about what a fence means.
   defp refuse_fenced(query, false), do: query
 
   defp refuse_fenced(query, true) do

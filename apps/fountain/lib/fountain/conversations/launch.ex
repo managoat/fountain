@@ -674,30 +674,27 @@ defmodule Fountain.Conversations.Launch do
     end
   end
 
-  # ownership: conv/sandbox are the pair `fail_initial_start/2` was called for;
-  # `machine` is the row the protocol read under the lease it holds, and the
-  # parent below is re-read `FOR UPDATE` in this transaction. Match turn
-  # admission's parent-then-sandbox order: the machine is already this caller's
-  # by lease, so the only lock taken here is the conversation's row.
+  # Runs inside the protocol's own transaction, so this opens none of its own:
+  # a `Repo.transaction` here would be a savepoint that buys nothing, and the
+  # rollback that matters is the outer one.
+  #
+  # Match turn admission's parent-then-sandbox order: the machine is already
+  # this caller's by lease, so the only lock taken here is the conversation's
+  # row.
   defp fail_pending_binding(%Sandbox{} = machine, conv, sandbox) do
-    {:ok, result} =
-      Repo.transaction(fn ->
-        parent = Repo.one(from c in Conversation, where: c.id == ^conv.id, lock: "FOR UPDATE")
+    parent = Repo.one(from c in Conversation, where: c.id == ^conv.id, lock: "FOR UPDATE")
 
-        # ownership: conv/sandbox are the pair `fail_initial_start/2` was called
-        # for, both created by this launch; `machine` is the row the protocol
-        # read under the lease it holds, and `parent` is re-read `FOR UPDATE`
-        # just above. The turn count below is scoped to that same machine.
-        if pending_initial_binding?(parent, machine, conv, sandbox) and
-             Conversations._unsafe_running_turns_elsewhere(sandbox.id, nil) == 0 do
-          parent |> Conversation.changeset(%{status: "failed"}) |> Repo.update!()
-          :ok
-        else
-          :stale
-        end
-      end)
-
-    result
+    # ownership: conv/sandbox are the pair `fail_initial_start/2` was called
+    # for, both created by this launch; `machine` is the row the protocol read
+    # under the lease it holds, and `parent` is re-read `FOR UPDATE` just above.
+    # The turn count below is scoped to that same machine.
+    if pending_initial_binding?(parent, machine, conv, sandbox) and
+         Conversations._unsafe_running_turns_elsewhere(sandbox.id, nil) == 0 do
+      parent |> Conversation.changeset(%{status: "failed"}) |> Repo.update!()
+      :ok
+    else
+      :stale
+    end
   end
 
   defp pending_initial_binding?(%Conversation{} = parent, %Sandbox{} = machine, conv, sandbox) do

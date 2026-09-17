@@ -33,6 +33,29 @@ defmodule Fountain.Conversations.InitialStartFailureTest do
     assert sandbox.terminated_at
   end
 
+  test "a machine that cannot be failed leaves the conversation alone too", ctx do
+    # **The two rows are one commit** (ADR 0058 stage 7b round 1, surfaces
+    # review). `main` held them in one transaction under the per-sandbox
+    # advisory lock; the machine's row is its owner's now, so the lock is gone,
+    # and the transaction is what replaces it —
+    # `Machine.fail_provision/2`'s `:before_write` hook runs inside the
+    # compare-and-set's own transaction.
+    #
+    # Without that, a refused row write leaves a `failed` conversation pointing
+    # at a `pending` machine: a reserved quota slot with no server, which
+    # nothing but the reaper's hourly pass collects. That is the shape this
+    # function exists to avoid leaving.
+    expect(Fountain.Machines.Lease, :cas_update, fn _id, _epoch, _attrs, _opts ->
+      {:error, {:database, :some_sqlstate}}
+    end)
+
+    expect(Horde.DynamicSupervisor, :start_child, fn _, _ -> {:error, :max_children} end)
+    assert {:ok, conv} = start(ctx)
+
+    assert conv.status == "pending", "the conversation was failed without its machine"
+    assert Repo.get!(Sandbox, conv.sandbox_id).status == "pending"
+  end
+
   test "a delayed start error preserves a replacement binding and both machines", ctx do
     test = self()
 

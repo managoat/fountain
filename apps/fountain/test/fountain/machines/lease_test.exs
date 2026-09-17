@@ -471,12 +471,24 @@ defmodule Fountain.Machines.LeaseTest do
     end
   end
 
-  describe "the one caller that may nest" do
-    test "cas_update/4's nest: option has exactly one call site" do
+  describe "the callers that may nest" do
+    test "cas_update/4's nest: option has exactly the call sites it is argued for" do
       # 5c's precedent for its own opt-outs: an option that relaxes a guard is
       # only as safe as the list of callers that pass it, and the list is
-      # otherwise nowhere. `Machines.Resume`'s admission is the one, and it is
-      # argued in `cas_update/4`'s docstring.
+      # otherwise nowhere. Each one is argued in `cas_update/4`'s docstring.
+      #
+      #   `Machines.Resume`      the admission (7a): the `resuming` stamp and the
+      #                          quota count that authorised it commit together,
+      #                          so a refused quota leaves no stamp.
+      #   `Machines.Provision`   `fail/2`'s `:before_write` (7b): the hook writes
+      #                          the *conversation* and the compare-and-set writes
+      #                          the machine, and `Launch.fail_initial_start/2`
+      #                          needs both or neither — `main` held them in one
+      #                          transaction under the sandbox lock.
+      #
+      # Neither takes an advisory lock, which is what makes nesting them safe;
+      # the moduledoc's reason for the guard is about holding
+      # `pg_advisory_xact_lock(4316, …)` open until an outer commit.
       root = Path.expand("../../../../..", __DIR__)
 
       files =
@@ -493,7 +505,10 @@ defmodule Fountain.Machines.LeaseTest do
             File.read!(file) =~ ~r/nest:\s*true/,
             do: Path.relative_to(file, root)
 
-      assert callers == ["apps/fountain/lib/fountain/machines/resume.ex"],
+      assert callers == [
+               "apps/fountain/lib/fountain/machines/provision.ex",
+               "apps/fountain/lib/fountain/machines/resume.ex"
+             ],
              "`nest: true` lets a caller write the machine's row inside its own transaction, " <>
                "which every other function here refuses. Adding one is a decision about " <>
                "transaction boundaries, not a call-site choice: #{inspect(callers)}"

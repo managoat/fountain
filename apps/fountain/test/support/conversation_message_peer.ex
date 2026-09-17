@@ -54,6 +54,10 @@ defmodule Fountain.Test.ConversationMessagePeer do
       %Fountain.Conversations.Sandbox{id: id, status: "ready"}
     end)
 
+    # `put` is last-write-wins, so this records WHAT reached the fence and not
+    # HOW MANY times: a duplicate fence call is invisible here, and the
+    # assertions on this term are about the arguments only (round 1, behaviour
+    # review). Counting belongs in a test with a draining receiver.
     Mimic.stub(Lifecycle, :fence_sandbox_for_teardown, fn sandbox, opts ->
       :persistent_term.put({__MODULE__, :fence}, {sandbox.id, opts})
       {:error, :sandbox_unavailable}

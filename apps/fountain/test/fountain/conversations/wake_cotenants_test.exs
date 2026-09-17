@@ -65,13 +65,26 @@ defmodule Fountain.Conversations.WakeCotenantsTest do
         {Task,
          fn ->
            {:ok, _} = Horde.Registry.register(Fountain.ConversationRegistry, conversation_id, nil)
-           receive do: (msg -> send(test, {:cotenant, conversation_id, msg}))
+           forward_forever(test, conversation_id)
          end},
         id: {:stand_in, conversation_id}
       )
 
     wait_until(fn -> ConversationServer.whereis(conversation_id) == pid end)
     pid
+  end
+
+  # Forwards **every** message, not the first. A stand-in that takes one and
+  # exits cannot see a second notice, and round 1 found one: a persistent
+  # home's replacement told each co-tenant twice and both pins were blind to
+  # it. A real `ConversationServer` stops on the first cast, so the count is
+  # only ever visible from here.
+  defp forward_forever(test, conversation_id) do
+    receive do
+      msg ->
+        send(test, {:cotenant, conversation_id, msg})
+        forward_forever(test, conversation_id)
+    end
   end
 
   defp wait_until(fun, deadline \\ System.monotonic_time(:millisecond) + 5_000) do
@@ -99,6 +112,10 @@ defmodule Fountain.Conversations.WakeCotenantsTest do
     assert_receive {:cotenant, ^stranded_id,
                     {:"$gen_cast", {:machine_gone, ^old_id, "reset", "sprite_gone", _}}},
                    2_000
+
+    # Once each. The stand-ins keep receiving, so a second notice would be
+    # here to find (round 1, surfaces review).
+    refute_receive {:cotenant, _, {:"$gen_cast", {:machine_gone, _, _, _, _}}}, 500
 
     # And the conversations' side, which stays in `Wake`: the follower is
     # rebound, the stranded one keeps naming the retired row.

@@ -145,6 +145,7 @@ defmodule Fountain.Machines.Destroy do
   alias Fountain.Conversations.MachineEvents
   alias Fountain.Conversations.Sandbox
   alias Fountain.Machines.Lease
+  alias Fountain.Machines.Renewal
   alias Fountain.Repo
 
   require Logger
@@ -547,7 +548,28 @@ defmodule Fountain.Machines.Destroy do
   end
 
   defp destroy_and_finalize(sandbox, epoch, opts) do
-    case destroy_at_provider(sandbox, Keyword.get(opts, :provider, :destroy)) do
+    ttl_ms = Keyword.get(opts, :lease_ttl_ms, @lease_ttl_ms)
+
+    # The lease is renewed underneath the provider call (stage 7a). A destroy
+    # is one round trip and rarely outlives a minute, but `Managoat.Sandbox`
+    # retries transient provider errors with backoff behind it, and a lease
+    # that lapses mid-call invites a takeover of an operation that is not
+    # abandoned. `{:error, :superseded}` here is a renewal that found the
+    # machine in somebody else's hands: the finalize is skipped, which is what
+    # the compare-and-set would have done one round trip later anyway.
+    case Renewal.around(sandbox.id, epoch, ttl_ms, fn ->
+           destroy_at_provider(sandbox, Keyword.get(opts, :provider, :destroy))
+         end) do
+      {:error, :superseded} = superseded ->
+        superseded
+
+      {:ok, provider_result} ->
+        after_provider(sandbox, epoch, opts, provider_result)
+    end
+  end
+
+  defp after_provider(sandbox, epoch, opts, provider_result) do
+    case provider_result do
       :ok ->
         finalize(sandbox, epoch, opts)
 

@@ -101,21 +101,28 @@ defmodule Fountain.Machines.Park do
   park is the takeover path, and it happens on the first pass that sees the
   row.
 
-  ## What a lease that expires mid-park still leaves (stage 7)
+  ## The lease across the provider calls (stage 7a)
 
-  Nothing renews this lease across the provider call — the renew timer arrives
-  with the standing lease in stage 7 — so a park slower than `lease_ttl_ms/0`
-  outlives its own lease and its finalize answers `:superseded`. The
-  compare-and-set makes that *safe*: no row is written twice. It does not make
-  it *complete*. The machine may genuinely be suspended while the row still
-  says `ready`, with no `sandbox_suspended` usage row and no audit event, until
-  some later owner takes the row over — and a wake may get there first, because
-  `Wake.probe_sandbox/4` reuses a machine on any `{:ok, _info}` from the
-  provider without reading its status, which on E2B and Daytona means reusing a
-  machine that is actually stopped. Both halves are `main`'s behaviour, neither
-  is made worse here, and both close with the renew timer and with `ensure_up`
-  reading the probe's status rather than its shape. Named here so stage 7 does
-  not have to rediscover them.
+  `Fountain.Machines.Renewal` renews this lease at a third of its TTL while the
+  checkpoint and the suspend run, so the lease bounds an operation that is
+  making progress rather than one that started less than two minutes ago. Until
+  7a nothing did, and the 6b review named what that left: a park slower than
+  `lease_ttl_ms/0` outlived its own lease, a reaper took the row over and
+  cleared the transition while the suspend was still in flight, and the machine
+  ended up genuinely suspended behind a row that said `ready`, with no
+  `sandbox_suspended` usage row and no audit event, until some later pass
+  noticed. The compare-and-set always made that *safe*; it did not make it
+  *complete*.
+
+  A renewal that answers `{:error, :lost}` is a takeover that has already
+  happened, and the park stops there rather than calling the provider again or
+  finalizing: `{:error, :superseded}`, the same word the finalize's own
+  compare-and-set would have produced a round trip later.
+
+  The other half of that review note — `Wake.probe_sandbox/4` reusing a machine
+  on any `{:ok, _info}` without reading its status, which on E2B and Daytona
+  means reusing one that is actually stopped — closed in 7a as well:
+  `Fountain.Machines.Resume` reads the status and brings such a machine up.
 
   ## Outcomes
 
@@ -146,6 +153,7 @@ defmodule Fountain.Machines.Park do
   alias Fountain.Conversations.Sandbox
   alias Fountain.Machines.Lease
   alias Fountain.Machines.Occupancy
+  alias Fountain.Machines.Renewal
   alias Fountain.Repo
 
   require Logger
@@ -577,19 +585,44 @@ defmodule Fountain.Machines.Park do
   # ever has both a real suspend and checkpoints makes this a decision worth
   # re-opening; it is not one today.
   defp checkpoint_and_suspend(%Sandbox{} = sandbox, epoch, opts) do
-    # Best effort, and best effort means *rescued*: a home that could not be
-    # checkpointed still has to be parked, because an unparked machine keeps
-    # billing (`HomeCheckpoint`'s moduledoc). Returning an error was already
-    # handled by not matching on it; raising was not, and
-    # `Managoat.Sandbox.Retry.with_backoff/2` re-raises once its attempts are
-    # spent. An exception here unwound the whole park — leaving the row `ready`
-    # with a `parking` stamp and a released lease, crashing the conversation
-    # server that had already dropped its adapter, and, with the gate off,
-    # taking `SandboxReaper.perform/1` down mid-sweep with every machine after
-    # this one unreaped.
-    _ = checkpoint(sandbox, epoch)
+    ttl_ms = Keyword.get(opts, :lease_ttl_ms, @lease_ttl_ms)
 
-    case suspend_at_provider(sandbox) do
+    # Both provider calls run under a renewed lease (stage 7a), and this is the
+    # protocol the renew timer was written for: the 6b review found that a
+    # checkpoint with `Managoat.Sandbox.Retry`'s backoff behind it, followed by
+    # a suspend, can outlive even this module's two-minute TTL — and a lapsed
+    # lease let a reaper take the row over and clear the transition while the
+    # suspend was still in flight, leaving a genuinely suspended machine behind
+    # a row that said `ready`, with no usage row and no audit event.
+    #
+    # The checkpoint is inside the renewal because it is inside the transition:
+    # its own `provider_meta` write goes through this park's epoch, so a lease
+    # lost during it is a lease lost for the write that follows.
+    #
+    # `{:error, :superseded}` is a renewal that found another owner holding the
+    # machine. Nothing is written and nothing is cleared — the taker owns the
+    # stamp now, and `take_over/3` is what reads the machine and decides.
+    case Renewal.around(sandbox.id, epoch, ttl_ms, fn ->
+           # Best effort, and best effort means *rescued*: a home that could not
+           # be checkpointed still has to be parked, because an unparked machine
+           # keeps billing (`HomeCheckpoint`'s moduledoc). Returning an error
+           # was already handled by not matching on it; raising was not, and
+           # `Managoat.Sandbox.Retry.with_backoff/2` re-raises once its attempts
+           # are spent. An exception here unwound the whole park — leaving the
+           # row `ready` with a `parking` stamp and a released lease, crashing
+           # the conversation server that had already dropped its adapter, and,
+           # with the gate off, taking `SandboxReaper.perform/1` down mid-sweep
+           # with every machine after this one unreaped.
+           _ = checkpoint(sandbox, epoch)
+           suspend_at_provider(sandbox)
+         end) do
+      {:error, :superseded} = superseded -> superseded
+      {:ok, provider_result} -> after_suspend(sandbox, epoch, opts, provider_result)
+    end
+  end
+
+  defp after_suspend(%Sandbox{} = sandbox, epoch, opts, provider_result) do
+    case provider_result do
       :ok ->
         finalize(sandbox, epoch, opts)
 

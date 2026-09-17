@@ -32,8 +32,8 @@ continued, because the steps it runs cannot be repeated on top of themselves.
 Building has an absolute ceiling: after about half an hour Fountain stops it,
 records the sandbox as failed, and the next prompt starts a fresh one. If
 Fountain cannot write that record — because something else is working on the
-sandbox at that moment — it asks again over the next few minutes and then stops
-the build anyway, leaving the sandbox for the hourly cleanup pass.
+sandbox at that moment — it asks again for up to a quarter of an hour and then
+stops the build anyway, leaving the sandbox for the hourly cleanup pass.
 
 ## Two modes
 

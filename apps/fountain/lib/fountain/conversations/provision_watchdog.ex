@@ -67,14 +67,16 @@ defmodule Fountain.Conversations.ProvisionWatchdog do
   the child rather than letting Horde restart it — so the #394 restart does not
   happen even though the row is not terminal.
 
-  The bound is therefore `max_retire_attempts/0 × (retire_wait_ms/0 +
-  retire_retry_ms/0)` past the ceiling — **about sixteen and a half minutes** on
-  the defaults, not the five an earlier draft of this paragraph claimed (round 2,
-  surfaces review). Both terms count: `attempt < max_retire_attempts/0` gives
-  four waits of `retire_retry_ms/0` between five attempts, and each attempt also
-  spends up to `retire_wait_ms/0` busy-waiting for the lease before it refuses —
-  which the refusal that matters, a genuine takeover, burns in full. Still
-  finite, and still the difference between minutes and the next deploy.
+  The bound is therefore `max_retire_attempts/0 × retire_wait_ms/0 +
+  (max_retire_attempts/0 - 1) × retire_retry_ms/0` past the ceiling — **about
+  sixteen and a half minutes** on the defaults, where an earlier draft said five
+  (round 2) and then wrote an expression for seventeen and a half (round 3).
+  Both terms count and neither is a whole multiple: `attempt <
+  max_retire_attempts/0` gives four waits of `retire_retry_ms/0` *between* five
+  attempts, and each of the five also spends up to `retire_wait_ms/0`
+  busy-waiting for the lease before it refuses — which the refusal that matters,
+  a genuine takeover, burns in full. Still finite, and still the difference
+  between minutes and the next deploy.
   """
 
   require Logger
@@ -296,6 +298,17 @@ defmodule Fountain.Conversations.ProvisionWatchdog do
       #
       # The distinction is exactly the one `Machine.fail_provision/2` already
       # draws, which is why it is available here for free.
+      #
+      # **`provision/failed` goes with the row write, not beside it** (round 3,
+      # surfaces review). The first draft decided about the conversation and
+      # then published unconditionally, which left the `:claimed_elsewhere` arm
+      # announcing a terminal outcome on the very conversation it had just
+      # decided to keep alive — and `provision`/`failed` *is* terminal to a
+      # client: `cli/internal/acp/prompt.go` ends the turn with "the sandbox
+      # never started" on it. So a CLI or an editor streaming that conversation
+      # aborted the prompt while the successor's machine was coming up. Every
+      # other stand-down in this tree announces nothing, `FreshProvision`'s
+      # included; this one does now too.
       other ->
         Logger.error(
           "conv #{conv_id}: provisioning exceeded #{state.fires_in_ms}ms and the machine could " <>
@@ -309,11 +322,11 @@ defmodule Fountain.Conversations.ProvisionWatchdog do
           )
         else
           fail_conversation(conv_id)
-        end
 
-        Output.publish_stage(conv_id, "provision", "failed", %{
-          reason: "provision deadline exceeded; the machine could not be retired"
-        })
+          Output.publish_stage(conv_id, "provision", "failed", %{
+            reason: "provision deadline exceeded; the machine could not be retired"
+          })
+        end
 
         kill(state.server)
 

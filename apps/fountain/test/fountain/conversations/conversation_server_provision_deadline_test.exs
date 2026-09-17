@@ -75,6 +75,13 @@ defmodule Fountain.Conversations.ConversationServerProvisionDeadlineTest do
     watchdog
   end
 
+  defp provision_stages(conv_id) do
+    conv_id
+    |> Conversations._unsafe_list_log_events()
+    |> Enum.filter(&(&1.kind == "stage" and &1.stage == "provision"))
+    |> Enum.map(& &1.state)
+  end
+
   # Past, for every machine in this test's tenant — the suite runs one
   # conversation at a time and the renewer's next tick is a third of a minute
   # away, so this stands for as long as the watchdog needs.
@@ -291,6 +298,12 @@ defmodule Fountain.Conversations.ConversationServerProvisionDeadlineTest do
     # Leaving it would strand a `pending` conversation with no server and
     # nothing that resolves it (round 2, protocol review).
     assert Conversations._unsafe_get_conversation!(conv.id).status == "failed"
+
+    # …and the client is told, because on this arm the conversation really is
+    # over. `provision`/`failed` is terminal to a streaming client
+    # (`cli/internal/acp/prompt.go` ends the turn on it), so it belongs with the
+    # row write and nowhere else — see the sibling test.
+    assert "failed" in provision_stages(conv.id)
   end
 
   test "a machine another owner holds leaves that owner's conversation alone" do
@@ -343,6 +356,16 @@ defmodule Fountain.Conversations.ConversationServerProvisionDeadlineTest do
     # The orphan server is stopped either way — it is the thing keeping the
     # reaper from the row — but the conversation is the successor's.
     assert Conversations._unsafe_get_conversation!(conv.id).status != "failed"
+
+    # **And nothing is announced on it** (round 3, surfaces review). The first
+    # draft decided about the row and then published `provision/failed`
+    # unconditionally, which is terminal to a streaming client: a CLI or an
+    # editor watching this conversation aborted the prompt with "the sandbox
+    # never started" while the successor's machine was coming up. Keeping the
+    # conversation alive and telling its client it died is worse than either on
+    # its own.
+    refute "failed" in provision_stages(conv.id),
+           "the loser announced a terminal provision on the successor's conversation"
   end
 
   test "a retire that succeeds on a later attempt kills the server and never retries again" do

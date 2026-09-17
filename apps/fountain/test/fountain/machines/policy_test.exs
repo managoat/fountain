@@ -222,7 +222,6 @@ defmodule Fountain.Machines.PolicyTest do
   defp strip_comments(source) do
     source
     |> String.split("\n")
-    |> Enum.map(fn line -> if String.match?(line, ~r/^\s*#/), do: "", else: line end)
-    |> Enum.join("\n")
+    |> Enum.map_join("\n", fn line -> if String.match?(line, ~r/^\s*#/), do: "", else: line end)
   end
 end

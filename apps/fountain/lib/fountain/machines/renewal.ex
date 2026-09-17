@@ -165,22 +165,24 @@ defmodule Fountain.Machines.Renewal do
   # One loop, carrying the verdict so far. A lost lease stops the renewals and
   # keeps the process alive to answer: the caller is still inside its provider
   # call and has nowhere to receive an unsolicited message.
+  # `verdict` is always `:held` on the way in — a `:lost` renewal leaves for
+  # `await_stop/1` and never comes back here — and it is carried rather than
+  # assumed so the one place that answers `stop/1` reads the same field whichever
+  # loop it is in.
   defp loop(sandbox_id, epoch, ttl_ms, interval, verdict) do
     receive do
       {:stop, from, ref} ->
         send(from, {:renewal, ref, verdict})
     after
       interval ->
-        case renew(sandbox_id, epoch, ttl_ms, verdict) do
+        case renew(sandbox_id, epoch, ttl_ms) do
           :held -> loop(sandbox_id, epoch, ttl_ms, interval, :held)
           :lost -> await_stop(:lost)
         end
     end
   end
 
-  defp renew(_sandbox_id, _epoch, _ttl_ms, :lost), do: :lost
-
-  defp renew(sandbox_id, epoch, ttl_ms, :held) do
+  defp renew(sandbox_id, epoch, ttl_ms) do
     case Lease.renew(sandbox_id, epoch, ttl_ms) do
       :ok ->
         :held

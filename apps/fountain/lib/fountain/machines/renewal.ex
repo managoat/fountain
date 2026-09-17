@@ -97,7 +97,8 @@ defmodule Fountain.Machines.Renewal do
   was taken. The true bound now: any attempt that returns inside its own slot
   costs the cadence nothing, and only a single attempt overrunning its slot by
   more than the headroom (30 s at TTL 60) pushes the next renewal past the
-  line. A dead holder falls past it, and the takeover saves the rest
+  line — and that figure is measured to the next attempt *starting*, so the
+  true margin is tighter by whatever that attempt itself then costs. A dead holder falls past it, and the takeover saves the rest
   of its TTL.
 
   ## What a lost lease means, and what a dead renewer does not

@@ -111,8 +111,13 @@ defmodule Fountain.Machines.RenewalTest do
 
       Mimic.stub(Lease, :renew, fn sandbox_id, epoch, ttl_ms ->
         send(test_pid, {:attempt_started, System.monotonic_time(:millisecond)})
-        # The first attempt stalls and fails, the way a query cancelled by a
-        # statement timeout does; the rest are ordinary.
+
+        # **Every** attempt stalls 120 ms here and none of them fails — an
+        # earlier version of this comment said the first stalls and fails and
+        # the rest are ordinary, which is not what the stub does (round 4).
+        # It pins the same thing either way: a slow success and a slow failure
+        # take the same branch of `loop/1`, and what the fix changes is when
+        # the next attempt is scheduled, not which arm scheduled it.
         receive do
         after
           120 -> :ok
@@ -120,29 +125,42 @@ defmodule Fountain.Machines.RenewalTest do
 
         # `call_original`, not `Lease.renew/3` — a stub calling the function it
         # stubs re-enters itself.
-        Mimic.call_original(Lease, :renew, [sandbox_id, epoch, ttl_ms])
+        result = Mimic.call_original(Lease, :renew, [sandbox_id, epoch, ttl_ms])
+        send(test_pid, {:attempt_finished, System.monotonic_time(:millisecond)})
+        result
       end)
 
       renewer = Renewal.start(ctx.sandbox.id, ctx.epoch, 600)
       Mimic.allow(Lease, self(), renewer)
 
-      assert_receive {:attempt_started, first}, 2_000
-      assert_receive {:attempt_started, second}, 2_000
+      assert_receive {:attempt_started, first_start}, 2_000
+      assert_receive {:attempt_finished, first_finish}, 2_000
+      assert_receive {:attempt_started, second_start}, 2_000
 
       :held = Renewal.stop(renewer)
 
-      gap = second - first
+      # The renewer did not fire early. Both starts come off the same ladder,
+      # so the jitter here is symmetric; the minimum protocol measured across
+      # 57 runs, loaded and not, was 198.
+      assert second_start - first_start >= 150,
+             "the renewer fired early: #{second_start - first_start}ms"
 
-      # Due-at arithmetic: the second attempt is due one interval after the
-      # first was, whatever the first cost. Scheduling from the return gave
-      # 200 + 120 = 320 and this assertion is what fails on it. The upper bound
-      # is one interval plus the stall's own overhang, which is what a
-      # scheduler cannot give back.
-      assert gap >= 150, "the renewer fired early: #{gap}ms"
+      # **The wait that follows the attempt, not the gap between starts**
+      # (round 4). The gap is `max(interval, attempt duration)`, so once the
+      # attempt runs past 200 ms the gap is measuring the attempt and nothing
+      # else — under load it reached 267 against a 300 bar while the reverted
+      # code failed in the 323–324 band, two bands moving together. What the
+      # fix actually changes is the *wait*: the stall eats its own slack, so
+      # the renewer waits what is left of the slot and no more. Measured 77–78
+      # ms unloaded and 0–65 under load with this code, against a
+      # load-invariant 201–203 when scheduling from the return — the separation
+      # is 135 ms rather than 33, and load moves it the safe way.
+      wait = second_start - first_finish
 
-      assert gap < 300,
-             "the stalled attempt's own duration came out of the interval: #{gap}ms " <>
-               "(scheduling from the return would give about 320)"
+      assert wait < 150,
+             "the stalled attempt's own duration came out of the interval: the renewer " <>
+               "waited #{wait}ms after it returned (scheduling from the return waits a " <>
+               "whole interval, about 200)"
     end
   end
 

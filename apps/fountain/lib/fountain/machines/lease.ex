@@ -45,8 +45,9 @@ defmodule Fountain.Machines.Lease do
   12 s stall at TTL 60, well inside `DBConnection`'s ordinary timeout, left 8 s
   and the holder was taken while alive and still reporting `:held`. What is left
   is the honest residue — a *single* attempt overrunning its slot by more than
-  this headroom, which is 30 s at TTL 60 — and two missed renewals in a row have
-  expired the lease anyway. Below the line it is a node that died with the
+  this headroom, which is 30 s at TTL 60, measured to the next attempt
+  *starting*, so the true margin is tighter by what that attempt then costs —
+  and two missed renewals in a row have expired the lease anyway. Below the line it is a node that died with the
   lease, and every other owner was waiting out the rest of its TTL for
   nothing. A node name on its own decides nothing (#2307 constraint 4): a
   partitioned holder that is alive is still renewing, and its lease stays above

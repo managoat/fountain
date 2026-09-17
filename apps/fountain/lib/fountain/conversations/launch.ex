@@ -638,50 +638,62 @@ defmodule Fountain.Conversations.Launch do
     )
   end
 
-  # Tenant row waits happen here, before the fleet lock, and the reservation
-  # runs inside them. `with_sandbox_reservation/3` holds
-  # `pg_advisory_xact_lock(@fleet_lock_key)` — one lock shared by every tenant —
-  # so anything that can wait on another transaction must be settled before it
-  # is taken, or one account stalls provisioning for all of them.
+  # A start that never started: the row pair is failed together so the status
+  # is visible on the conversation page.
   #
-  # A delayed start error owns only its original, still-pending binding.
-  # Match turn admission's machine -> parent -> sandbox lock order. Status
-  # changes commit together; metering follows commit and provider I/O is absent.
+  # The machine's half goes through its owner (ADR 0058 stage 7b) and the
+  # conversation's stays here, which splits a transaction `main` held across
+  # both. The order is the machine first, deliberately. A failure between the
+  # two leaves a `pending` conversation pointing at a `failed` machine, which
+  # the next prompt resolves on its own — `Wake.wake_conversation/2` reads a
+  # terminal row as `:create_new` — where the other order leaves a `pending`
+  # machine holding a quota slot with no server, which nothing but the reaper's
+  # hourly pass collects.
+  #
+  # The machine's half goes through its owner (ADR 0058 stage 7b); the
+  # conversation's is `:before_write`, run under the lease the protocol holds
+  # and before it writes the row. So the *order* is `main`'s — conversation,
+  # then machine, then the usage effect that observes both — without the
+  # transaction that used to hold them together, which the machine's row can no
+  # longer be part of. The binding check that used to be made under the advisory
+  # lock is made there too: a delayed start error owns only its original,
+  # still-pending binding, and a machine somebody has since started using is not
+  # this error's to fail.
   defp fail_initial_start(conv, sandbox) do
+    retired =
+      Machine.fail_provision(sandbox.id,
+        actor: "system:launch",
+        reason: :server_start_failed,
+        conversation_id: conv.id,
+        before_write: &fail_pending_binding(&1, conv, sandbox)
+      )
+
+    case retired do
+      {:ok, :failed} -> :failed
+      _ -> :stale
+    end
+  end
+
+  # ownership: conv/sandbox are the pair `fail_initial_start/2` was called for;
+  # `machine` is the row the protocol read under the lease it holds, and the
+  # parent below is re-read `FOR UPDATE` in this transaction. Match turn
+  # admission's parent-then-sandbox order: the machine is already this caller's
+  # by lease, so the only lock taken here is the conversation's row.
+  defp fail_pending_binding(%Sandbox{} = machine, conv, sandbox) do
     {:ok, result} =
       Repo.transaction(fn ->
-        Repo.query!("SELECT pg_advisory_xact_lock($1, $2)", [
-          @sandbox_lock_namespace,
-          :erlang.phash2(sandbox.id)
-        ])
-
         parent = Repo.one(from c in Conversation, where: c.id == ^conv.id, lock: "FOR UPDATE")
-        machine = Repo.one(from s in Sandbox, where: s.id == ^sandbox.id, lock: "FOR UPDATE")
 
-        # ownership: sandbox/conv are the pair fail_initial_start was called
-        # for; machine above re-reads sandbox.id FOR UPDATE in this same
-        # transaction.
         if pending_initial_binding?(parent, machine, conv, sandbox) and
              Conversations._unsafe_running_turns_elsewhere(sandbox.id, nil) == 0 do
           parent |> Conversation.changeset(%{status: "failed"}) |> Repo.update!()
-
-          machine
-          |> Sandbox.changeset(%{status: "failed"})
-          |> Conversations.stamp_terminated_at()
-          |> Repo.update!()
+          :ok
         else
           :stale
         end
       end)
 
-    case result do
-      %Sandbox{} = failed ->
-        Conversations.record_sandbox_usage("pending", failed)
-        :failed
-
-      :stale ->
-        :stale
-    end
+    result
   end
 
   defp pending_initial_binding?(%Conversation{} = parent, %Sandbox{} = machine, conv, sandbox) do

@@ -35,7 +35,8 @@ defmodule Fountain.Conversations.Wake do
     Launch,
     MachineEvents,
     Reattachment,
-    Sandbox
+    Sandbox,
+    Termination
   }
 
   alias Fountain.Machines.Machine
@@ -83,6 +84,18 @@ defmodule Fountain.Conversations.Wake do
       # writes `terminated` and releases the lease as two statements, so a
       # terminal row with a live lease is a real momentary state and it means
       # the machine is gone — which is `:create_new` below, not a retry.
+      # A provision in flight, **before** the mid-operation check and not
+      # refused by it (ADR 0058 stage 7b). A `pending` or `starting` row now
+      # carries a live lease for the length of the provision — that is what the
+      # bracket is — and refusing it here would answer 503 to the ordinary
+      # `session/new` followed by a prompt 30ms later, which is the exact shape
+      # #800 closed by waiting for the registry instead. The answer a machine
+      # being *built* owes a second caller is "wait for the server", not "try
+      # again in thirty seconds"; the answer a machine being destroyed or
+      # parked owes one is the other way round, and those rows are below.
+      %Sandbox{status: status} when status in ["pending", "starting"] ->
+        {:provisioning, sandbox_id}
+
       %Sandbox{status: status} = sandbox when status not in @terminal_statuses ->
         if Machine.busy?(sandbox),
           do: {:error, :sandbox_unavailable},
@@ -397,10 +410,30 @@ defmodule Fountain.Conversations.Wake do
               # for here any more than it does on a flat :create_new
               # (immediately below) — same no-provision rule, same reconcile
               # helper, same fence.
-              if purpose == :interrupt do
-                reconcile_dead_interrupt(conv)
-              else
-                create_fresh_sandbox_and_start(conv, agent, runtime_module, initial_prompt)
+              #
+              # **Unless an owner is holding the machine right now** (ADR 0058
+              # stage 7b). This is the one place the registry's silence used to
+              # be taken as proof of absence, and since a provision holds a
+              # lease for its whole length there is now a durable answer to ask
+              # instead: a live lease means a server *is* building this machine,
+              # wherever the CRDT has got to, and replacing it would create a
+              # second billable machine over a live one. 6a's rule, at the point
+              # that decides rather than at the door — the door still waits for
+              # the registry, which is what #800 fixed.
+              cond do
+                provisioning_owner_live?(sandbox_id) ->
+                  Logger.info(
+                    "conv #{conv.id}: sandbox #{sandbox_id} is being provisioned by an owner " <>
+                      "the registry has not published; refusing rather than replacing it"
+                  )
+
+                  {:error, :sandbox_unavailable}
+
+                purpose == :interrupt ->
+                  reconcile_dead_interrupt(conv)
+
+                true ->
+                  create_fresh_sandbox_and_start(conv, agent, runtime_module, initial_prompt)
               end
           end
 
@@ -487,9 +520,9 @@ defmodule Fountain.Conversations.Wake do
     # sandbox_id.
     old = if conv.sandbox_id, do: Conversations._unsafe_get_sandbox(conv.sandbox_id)
     mode = (old && old.mode) || "ephemeral"
-    if mode == "persistent", do: _ = mark_old_sandbox_terminated(conv.sandbox_id)
 
-    with :ok <- Fountain.Accounts.check_not_suspended(conv.user_id),
+    with :ok <- retire_replaced_home(mode, conv.sandbox_id),
+         :ok <- Fountain.Accounts.check_not_suspended(conv.user_id),
          :ok <- Fountain.Billing.check_spend(conv.user_id),
          :ok <- check_saved_inference(conv, agent),
          # A fresh sandbox is a fresh placement decision — re-resolve from
@@ -701,6 +734,20 @@ defmodule Fountain.Conversations.Wake do
   # ownership: sandbox_id below is the waking conversation's own sandbox_id,
   # passed down from wake_conversation_for/3 / create_fresh_sandbox_and_start/4
   # above.
+  #
+  # Through the machine's owner since ADR 0058 stage 7b, with the provider step
+  # skipped. Every caller here has already established that there is no machine
+  # to destroy: the replaced row's disk is the one `probe_sandbox/4` was just
+  # told is gone, and the two cleanup calls name a row this wake created and
+  # never built anything on. `provider: :already_gone` says exactly that, so
+  # this costs no provider round trip — and going through the door is what buys
+  # the rest of it: the retire is serialized against whatever else holds the
+  # machine, and it records the `sandbox.destroyed` every other retirement in
+  # this tree has recorded since stage 5.
+  #
+  # The row ends `terminated` as it always did. The behaviour that is new is
+  # that it can be *refused*, which is why `retire_replaced_machine/1` answers
+  # rather than being discarded — see its one checked caller.
   defp mark_old_sandbox_terminated(nil), do: :ok
 
   defp mark_old_sandbox_terminated(sandbox_id) do
@@ -711,11 +758,39 @@ defmodule Fountain.Conversations.Wake do
       sb when sb.status in ["terminated", "failed"] ->
         :ok
 
-      sb ->
-        Conversations.update_sandbox(sb, %{
-          status: "terminated",
-          terminated_at: DateTime.utc_now() |> DateTime.truncate(:second)
-        })
+      _sb ->
+        Termination._unsafe_destroy_machine(sandbox_id,
+          actor: "system:wake",
+          destroy_reason: :replaced,
+          reason: "sandbox_replaced",
+          terminating_conversation_id: nil,
+          provider: :already_gone
+        )
+    end
+  end
+
+  # The one caller that cannot carry on without it. A persistent home is retired
+  # *before* its replacement is created, because the partial unique index allows
+  # one live home per identity — so a refused retire is a `create_sandbox/1`
+  # that is certain to fail on the index. Answering `:sandbox_unavailable` here
+  # gives the caller the 503 and the `Retry-After` that describe what actually
+  # happened, rather than a constraint error.
+  # Re-read rather than judged from the row `maybe_reuse_sandbox/1` saw: three
+  # seconds of `await_registered/2` have passed since, which is long enough for
+  # a provision to have finished or for one to have started.
+  defp provisioning_owner_live?(sandbox_id) do
+    case Conversations._unsafe_get_sandbox(sandbox_id) do
+      nil -> false
+      sandbox -> Machine.busy?(sandbox)
+    end
+  end
+
+  defp retire_replaced_home(mode, _sandbox_id) when mode != "persistent", do: :ok
+
+  defp retire_replaced_home(_mode, sandbox_id) do
+    case mark_old_sandbox_terminated(sandbox_id) do
+      {:error, _reason} -> {:error, :sandbox_unavailable}
+      _settled -> :ok
     end
   end
 end

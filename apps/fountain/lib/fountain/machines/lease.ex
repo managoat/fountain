@@ -23,15 +23,24 @@ defmodule Fountain.Machines.Lease do
   serializes on the sandbox lock, still re-reads the row `FOR UPDATE`, and
   still refuses while `lease_until` is in the future — unless the holder's
   `lease_node` is not a connected node **and** the lease has run down below
-  `absent_node_headroom_ms/0`, one renew interval of the shortest TTL. A live
-  holder renews every third of its TTL (`Machines.Renewal`), so its remaining
-  lease never falls under two thirds of the TTL with a missed renewal or one
-  third with two; a holder that is not connected and has let it fall further is
-  a node that died with the lease, and every other owner was waiting out the
-  rest of its TTL for nothing. A node name on its own decides nothing (#2307
-  constraint 4): a partitioned holder that is alive is still renewing, and its
-  lease stays above the line. A lease is surrendered early only by `release/2`,
-  and even that keeps the epoch.
+  `absent_node_headroom_ms/0`, *half* a renew interval of the shortest TTL.
+
+  Half, and not a whole one, because of where a live renewer actually sits. It
+  renews every third of its TTL (`Machines.Renewal`), so it stands at two
+  thirds of the TTL with every renewal made, at **one third — one whole renew
+  interval — with a single renewal missed**, and at nothing with two missed in
+  a row. One renew interval is therefore a line a live, renewing holder
+  *touches*, not one it stays above: with the headroom set there, one slow
+  renewal plus a few milliseconds of latency evicted a holder that was alive,
+  renewing and mid-operation, forty seconds before its lease was due (round 1,
+  protocol review, driven with a real renewer and one faulted renewal). At half
+  an interval a holder may miss one renewal outright and be up to ten seconds
+  late with the next and keep its machine. Below that it is a node that died
+  with the lease, and every other owner was waiting out the rest of its TTL for
+  nothing. A node name on its own decides nothing (#2307 constraint 4): a
+  partitioned holder that is alive is still renewing, and its lease stays above
+  the line. A lease is surrendered early only by `release/2`, and even that
+  keeps the epoch.
 
   **The clock is the database's** (stage 7a). It used to be the claiming
   node's: `lease_until` was written from one BEAM node's `DateTime.utc_now()`
@@ -140,12 +149,15 @@ defmodule Fountain.Machines.Lease do
   @type held :: {:held, String.t(), DateTime.t()}
 
   # How far a lease may have run down before a holder that is not a connected
-  # node is taken over early. One renew interval of the shortest TTL the
-  # protocols use (60s / `Renewal.divisor/0`): a live renewer of that TTL sits
-  # at two thirds or more with a renewal missed and a third with two, and a
-  # holder of a longer TTL sits higher still. `machine_bounds_test.exs` pins it
-  # against every protocol's TTL.
-  @absent_node_headroom_ms 20_000
+  # node is taken over early. **Half** a renew interval of the shortest TTL the
+  # protocols use (60s / `Renewal.divisor/0` / 2): a live renewer of that TTL
+  # sits at one whole interval with a single renewal missed, so a headroom of
+  # one interval carries no margin at all and takes the machine off a holder
+  # whose next renewal is milliseconds late (round 1). Half of it tolerates one
+  # missed renewal plus ten seconds of latency, and still gives back the other
+  # fifty seconds of a dead node's TTL. A holder of a longer TTL sits higher
+  # still. `machine_bounds_test.exs` pins it against every protocol's TTL.
+  @absent_node_headroom_ms 10_000
 
   # The only columns a machine's owner may write through `cas_update/3`.
   # `lease_*` are absent on purpose — a lease changes hands through the

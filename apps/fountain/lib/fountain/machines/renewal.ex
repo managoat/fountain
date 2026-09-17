@@ -81,10 +81,14 @@ defmodule Fountain.Machines.Renewal do
   still renewing. What stage 8b added, in `Lease.claim/4`, is the rule that
   reads the *renewals* rather than the name: a holder that is not connected
   **and** has let its lease run down past the point any live renewer would
-  have extended it — under `Lease.absent_node_headroom_ms/0`, which is one
+  have extended it — under `Lease.absent_node_headroom_ms/0`, which is *half* a
   renew interval of the shortest TTL — is taken over before `lease_until`. A
-  partitioned holder that is alive keeps renewing and is never that far down;
-  a dead one is, and the takeover saves the rest of its TTL.
+  partitioned holder that is alive keeps renewing: a single missed renewal
+  still leaves it a whole interval, twice the headroom, and two missed in a row
+  leave it nothing anybody has to take early. Half an interval is the margin
+  the round-1 review's arithmetic asked for; a whole one was a line a live
+  renewer touches. A dead holder falls past it, and the takeover saves the rest
+  of its TTL.
 
   ## What a lost lease means, and what a dead renewer does not
 
@@ -115,6 +119,12 @@ defmodule Fountain.Machines.Renewal do
   # GC pause — before the lease anybody else can see has expired. A half would
   # tolerate none, and a tenth would spend ten writes a minute on a machine
   # doing one provider call.
+  #
+  # A holder whose node has left the cluster is judged earlier than expiry, and
+  # that budget is smaller: `Lease.absent_node_headroom_ms/0` is half an
+  # interval, so such a holder may miss one renewal and be half an interval late
+  # with the next before it is taken over. Two missed in a row is past it either
+  # way.
   @renew_divisor 3
 
   @doc "The fraction of a TTL between renewals. See `Lease.absent_node_headroom_ms/0`."

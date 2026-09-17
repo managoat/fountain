@@ -23,6 +23,7 @@ defmodule Fountain.Machines.BindingTest do
   alias Fountain.Machines.Lease
   alias Fountain.Machines.Machine
   alias Fountain.Machines.Park
+  alias Fountain.Machines.Renewal
 
   setup do
     user = insert_verified_user()
@@ -1164,11 +1165,11 @@ defmodule Fountain.Machines.BindingTest do
   # ── the early takeover of a lease whose node is gone ──────────────────────
 
   describe "a lease held by a node that is not connected" do
-    test "is taken once it has run down past a renew interval, with a log line", ctx do
+    test "is taken once it has run down past the headroom, with a log line", ctx do
       stamp(ctx,
         lease_epoch: 4,
         lease_node: "dead-pod@nowhere",
-        lease_until: DateTime.add(DateTime.utc_now(), 10, :second)
+        lease_until: DateTime.add(DateTime.utc_now(), 5, :second)
       )
 
       log =
@@ -1181,21 +1182,31 @@ defmodule Fountain.Machines.BindingTest do
     end
 
     test "is held while it is still being renewed — a partitioned node that is alive", ctx do
-      stamp(ctx,
-        lease_epoch: 4,
-        lease_node: "partitioned-pod@elsewhere",
-        lease_until: DateTime.add(DateTime.utc_now(), 50, :second)
-      )
+      # Driven at the line, not near it (round 1). A live renewer of the
+      # shortest TTL stands at one whole renew interval when a single renewal
+      # has been missed, which is where the round-1 probe's holder was when the
+      # old headroom took its machine 40 s early; the 50 s plant this test used
+      # to carry never came within 30 s of the rule it was pinning.
+      renew_interval = div(Destroy.lease_ttl_ms(), Renewal.divisor())
 
-      assert {:error, {:held, "partitioned-pod@elsewhere", _}} =
-               Lease.claim(ctx.sandbox.id, "reaper@node", 60_000)
+      for remaining_ms <- [50_000, renew_interval, Lease.absent_node_headroom_ms() + 1_000] do
+        stamp(ctx,
+          lease_epoch: 4,
+          lease_node: "partitioned-pod@elsewhere",
+          lease_until: DateTime.add(DateTime.utc_now(), remaining_ms, :millisecond)
+        )
+
+        assert {:error, {:held, "partitioned-pod@elsewhere", _}} =
+                 Lease.claim(ctx.sandbox.id, "reaper@node", 60_000),
+               "a holder with #{remaining_ms} ms of lease left was taken over early"
+      end
     end
 
     test "this node's own lease is never taken early", ctx do
       stamp(ctx,
         lease_epoch: 4,
         lease_node: to_string(node()),
-        lease_until: DateTime.add(DateTime.utc_now(), 10, :second)
+        lease_until: DateTime.add(DateTime.utc_now(), 5, :second)
       )
 
       holder = to_string(node())
@@ -1208,7 +1219,7 @@ defmodule Fountain.Machines.BindingTest do
       stamp(ctx,
         lease_epoch: 4,
         lease_node: "dead-pod@nowhere",
-        lease_until: DateTime.add(DateTime.utc_now(), 10, :second),
+        lease_until: DateTime.add(DateTime.utc_now(), 5, :second),
         transition: "destroying",
         status: "terminated"
       )

@@ -138,9 +138,14 @@ compare-and-set. This is #2307 constraints 1–3 implemented once, in one
 module, instead of per writer. (Stage 8b added one early door to expiry, and
 it is not the name-based rule constraint 4 forbids: a holder whose
 `lease_node` is not a connected node **and** whose lease has run down under
-one renew interval of the shortest TTL — further than any live renewer lets
-it fall — is taken over before `lease_until`. A partitioned holder that is
-alive is still renewing, and its lease never gets that low.)
+*half* a renew interval of the shortest TTL is taken over before
+`lease_until`. Half, because a live renewer stands at one whole renew interval
+when a single renewal has been missed — a headroom of one interval is a line it
+touches, and round 1 drove exactly that, evicting an alive, renewing,
+partitioned holder forty seconds early after one slow renewal. At half an
+interval a partitioned holder that is alive may miss a renewal outright and be
+half an interval late with the next and keep its machine; two missed in a row
+is past the lease anyway.)
 
 ### In-flight states are durable states, not locks
 

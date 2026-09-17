@@ -278,11 +278,13 @@ defmodule Fountain.Machines.MachineBoundsTest do
 
     # The early takeover (`Lease.absent_node_headroom_ms/0`): a holder that is
     # not a connected node is taken over once its remaining lease is under this.
-    # A live renewer renews every `Renewal.divisor/0`th of its TTL, so its
-    # remaining lease never falls under one renew interval of its own TTL
-    # without two renewals in a row missed. The headroom must therefore sit at
-    # or under one renew interval of the *shortest* TTL any protocol takes, or
-    # a live but momentarily unrenewed holder of that TTL could be evicted.
+    # A live renewer renews every `Renewal.divisor/0`th of its TTL, so a single
+    # missed renewal leaves it sitting at exactly one renew interval — a line it
+    # touches, not one it stays above. The headroom must therefore sit
+    # **strictly under** one renew interval of the *shortest* TTL any protocol
+    # takes, with margin for the renewer's own latency, or one slow renewal
+    # evicts a live holder (round 1, protocol review). Half an interval is the
+    # margin chosen: one whole missed renewal plus half an interval of lateness.
     shortest_ttl =
       Enum.min([
         Destroy.lease_ttl_ms(),
@@ -291,8 +293,11 @@ defmodule Fountain.Machines.MachineBoundsTest do
         Provision.lease_ttl_ms()
       ])
 
-    assert Lease.absent_node_headroom_ms() == 20_000
-    assert Lease.absent_node_headroom_ms() <= div(shortest_ttl, Renewal.divisor())
+    renew_interval = div(shortest_ttl, Renewal.divisor())
+
+    assert Lease.absent_node_headroom_ms() == 10_000
+    assert Lease.absent_node_headroom_ms() < renew_interval
+    assert Lease.absent_node_headroom_ms() <= div(renew_interval, 2)
     assert Renewal.divisor() == 3
   end
 

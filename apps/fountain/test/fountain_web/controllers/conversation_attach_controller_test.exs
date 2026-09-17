@@ -65,6 +65,33 @@ defmodule FountainWeb.ConversationAttachControllerTest do
     assert opts[:actor]
   end
 
+  # This door hands the whole merged `params` map to the launch, and the
+  # request schema validates the body alone: an id that only ever appeared in
+  # the query string was never checked against the bound this field declares.
+  # The prompts route reads the body for the same reason (#1406).
+  test "an id supplied only in the query string is not read (#1406)", ctx do
+    test = self()
+
+    stub(Fountain.Conversations.ConversationServer, :send_prompt, fn _id, "hello", _, opts ->
+      send(test, {:prompt_opts, opts})
+      :ok
+    end)
+
+    # An id that looks perfectly ordinary, so nothing downstream would drop it
+    # on its own: if the door read the query string, this would reach the turn.
+    ctx.conn
+    |> authed_with_key(ctx.raw_key)
+    |> post_json("/api/conversations?client_request_id=from-the-query", %{
+      "agent_id" => ctx.agent.id,
+      "sandbox_id" => ctx.sandbox.id,
+      "prompt" => "hello"
+    })
+    |> json_response(201)
+
+    assert_received {:prompt_opts, opts}
+    assert is_nil(opts[:client_request_id])
+  end
+
   test "with a prompt, the first turn goes through the wake path", ctx do
     # A `ready` machine with no server: the prompt probes it and starts a
     # server, exactly as prompting a parked conversation does.

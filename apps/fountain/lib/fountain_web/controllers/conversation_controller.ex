@@ -535,6 +535,10 @@ defmodule FountainWeb.ConversationController do
       |> Map.put("source", source)
       |> Map.put("parent_conversation_id", parent_id)
       |> Map.put("user_id", user.id)
+      # From the body the cast approved, never from the query string, which
+      # this door's `params` also carries and the request schema never sees.
+      # The prompts route reads it the same way; see `client_request_id/1`.
+      |> Map.put("client_request_id", client_request_id(conn))
 
     # `SandboxKey.opts/1` rides along because a `channel_id` resume lands on an
     # *existing* conversation and merges this request's labels into it (#1637);

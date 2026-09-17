@@ -751,6 +751,9 @@ defmodule Fountain.Conversations.Wake do
   defp mark_old_sandbox_terminated(nil), do: :ok
 
   defp mark_old_sandbox_terminated(sandbox_id) do
+    # ownership: `sandbox_id` is the waking conversation's own, passed down from
+    # `wake_conversation_for/3` or `create_fresh_sandbox_and_start/4`, which
+    # established the conversation's tenant before either reached here.
     case Conversations._unsafe_get_sandbox(sandbox_id) do
       nil ->
         :ok
@@ -758,6 +761,7 @@ defmodule Fountain.Conversations.Wake do
       sb when sb.status in ["terminated", "failed"] ->
         :ok
 
+      # ownership: as the read above — this is the row it just returned.
       _sb ->
         Termination._unsafe_destroy_machine(sandbox_id,
           actor: "system:wake",
@@ -779,6 +783,8 @@ defmodule Fountain.Conversations.Wake do
   # seconds of `await_registered/2` have passed since, which is long enough for
   # a provision to have finished or for one to have started.
   defp provisioning_owner_live?(sandbox_id) do
+    # ownership: `sandbox_id` came from `maybe_reuse_sandbox/1`, which read it
+    # off the conversation `wake_conversation_for/3` established the tenant of.
     case Conversations._unsafe_get_sandbox(sandbox_id) do
       nil -> false
       sandbox -> Machine.busy?(sandbox)

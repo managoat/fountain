@@ -684,6 +684,10 @@ defmodule Fountain.Conversations.Launch do
       Repo.transaction(fn ->
         parent = Repo.one(from c in Conversation, where: c.id == ^conv.id, lock: "FOR UPDATE")
 
+        # ownership: conv/sandbox are the pair `fail_initial_start/2` was called
+        # for, both created by this launch; `machine` is the row the protocol
+        # read under the lease it holds, and `parent` is re-read `FOR UPDATE`
+        # just above. The turn count below is scoped to that same machine.
         if pending_initial_binding?(parent, machine, conv, sandbox) and
              Conversations._unsafe_running_turns_elsewhere(sandbox.id, nil) == 0 do
           parent |> Conversation.changeset(%{status: "failed"}) |> Repo.update!()

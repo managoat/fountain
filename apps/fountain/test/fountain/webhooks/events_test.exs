@@ -22,6 +22,11 @@ defmodule Fountain.Webhooks.EventsTest do
   @sources [
     "lib/fountain/conversations.ex",
     "lib/fountain/conversations/conversation_server.ex",
+    # The fresh arm of `handle_continue(:provision)` moved out of the server in
+    # ADR 0058 stage 7b, and `provision/started` and `provision/done` went with
+    # it. Nothing about the events changed; the file they are published from
+    # did, and this list is by file.
+    "lib/fountain/conversations/fresh_provision.ex",
     "lib/fountain/conversations/reapply.ex",
     "lib/fountain/conversations/checkpoints.ex",
     "lib/fountain/conversations/reattachment.ex",

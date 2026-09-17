@@ -185,6 +185,9 @@ defmodule Fountain.Conversations.ProvisionWatchdog do
   end
 
   defp fail_conversation(conv_id) do
+    # ownership: `conv_id` is the one the `ConversationServer` this watchdog
+    # belongs to was started with, and that server established its tenant at
+    # `init/1`. The watchdog reads no row it was not handed.
     case Conversations._unsafe_get_conversation(conv_id) do
       %Conversation{status: status} = conv when status not in ["terminated", "failed"] ->
         Conversations.update_conversation(conv, %{status: "failed"})

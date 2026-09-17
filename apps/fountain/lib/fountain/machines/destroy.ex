@@ -144,6 +144,7 @@ defmodule Fountain.Machines.Destroy do
   alias Fountain.Conversations.Lifecycle
   alias Fountain.Conversations.MachineEvents
   alias Fountain.Conversations.Sandbox
+  alias Fountain.Machines.Admission
   alias Fountain.Machines.Lease
   alias Fountain.Machines.Renewal
   alias Fountain.Repo
@@ -248,7 +249,13 @@ defmodule Fountain.Machines.Destroy do
       Note this is *not* the `user_id: nil` skip below — at destroy time the
       row still names its tenant, so that clause does not fire.
     * `:notify` — `{conversation_id, event, reason, message}`, the notice to
-      cast to the machine's other conversations once it is gone. Omitted by
+      cast to the machine's other conversations once it is gone; or, since
+      stage 8b, a list of `{conversation_ids, event, reason, message}` for a
+      caller that has already decided who is told what — `Wake` replacing a
+      machine tells the co-tenants that follow onto the replacement one thing
+      and the ones that stay behind another. Either way the cast is sent from
+      here, `MachineEvents.tell_cotenants/5`'s one caller outside
+      `Machines.Park`, which is what "sent by the owner only" means. Omitted by
       every caller that has nothing to say, and there are two kinds. A caller
       whose fence ran with a `terminating_conversation_id` has already
       established there is nobody else on the machine. A **forced** caller has
@@ -611,6 +618,16 @@ defmodule Fountain.Machines.Destroy do
         # (#2309).
         Conversations.sandbox_status_effects(terminated, sandbox.status)
 
+        # The machine is gone, so no turn admitted on it can continue: the
+        # owner ends them (stage 8b), under the lease it still holds and after
+        # the finalize has committed, so a recovering actor's later write —
+        # the reattaching server's give-up, a successor on a replacement
+        # machine — finds each turn already terminal. Every running turn
+        # bound to the machine, whoever is driving it: a forced destroy has
+        # already stopped or terminated the servers, and a conversation-side
+        # one has interrupted its own turn before reaching here.
+        end_turns(terminated, opts)
+
         # Both after the finalize commits, in this order: the trail is the
         # durable record and must not depend on a cast reaching anybody.
         audit(terminated, opts)
@@ -636,9 +653,19 @@ defmodule Fountain.Machines.Destroy do
   # to run, and so does the co-tenant notice: `main`'s `do_destroy/4` called
   # `stop_cotenants/5` unconditionally, and a co-tenant server still holding a
   # handle to a machine that is already gone is exactly what it exists to stop.
+  # The turns too (stage 8b), and for the same reason: a machine
+  # `SandboxReaper.finish_teardown/1` wrote terminal has had no owner end its
+  # turns, and ending one twice is a `:noop`.
   defp already_terminal(%Sandbox{} = sandbox, opts) do
+    end_turns(sandbox, opts)
     notify_cotenants(sandbox, opts)
     {:ok, :already_terminal}
+  end
+
+  defp end_turns(%Sandbox{} = sandbox, opts) do
+    Admission.end_turns_on(sandbox.id, "machine_destroyed",
+      actor: Lifecycle.teardown_actor(Keyword.fetch!(opts, :actor))
+    )
   end
 
   # ── the provider ──────────────────────────────────────────────────────────
@@ -773,6 +800,11 @@ defmodule Fountain.Machines.Destroy do
         sandbox.id
         |> Conversations._unsafe_list_cotenant_ids(conversation_id)
         |> MachineEvents.tell_cotenants(sandbox.id, event, reason, message)
+
+      notices when is_list(notices) ->
+        Enum.each(notices, fn {ids, event, reason, message} when is_list(ids) ->
+          MachineEvents.tell_cotenants(ids, sandbox.id, event, reason, message)
+        end)
     end
   end
 end

@@ -181,10 +181,15 @@ defmodule Fountain.Machines.Admission do
        it.
 
   What makes the epoch usable as a fence is the owner ending the turns it
-  parks, destroys or resumes over — so that a stale actor's write always finds
-  a turn already ended — and that is the `machine_gone` owner-only work stage
-  8b carries. Until then the binding is the fence and this module is where it
-  is defined.
+  operates over — so that a stale actor's write always finds a turn already
+  ended — and stage 8b built that half as `end_turns_on/3`: a destroy ends
+  every running turn bound to the machine at its finalize (the machine is
+  gone, and no turn on it can continue), and a ceiling park ends the one turn
+  it cuts, the requester's own. A park over a turn nothing is driving still
+  leaves it alone, by stage 6b's rule — a turn parked on a person's permission
+  whose server has died is theirs to answer — so the reattaching server's
+  give-up on counterexample 2 is still a write that lands, and the binding is
+  still the fence. `bound?/2` compares exactly what it did.
 
   ## Vocabulary
 
@@ -198,9 +203,13 @@ defmodule Fountain.Machines.Admission do
   door translates.
   """
 
+  import Ecto.Query
+
   alias Fountain.Conversations
   alias Fountain.Conversations.{Conversation, Interruption, Turn}
   alias Fountain.Repo
+
+  require Logger
 
   # How long a *waiter* waits for a live lease on the machine to clear before
   # the admission is refused. `Destroy`'s, `Park`'s and `Resume`'s number, and
@@ -343,6 +352,68 @@ defmodule Fountain.Machines.Admission do
 
   def end_turn(%Turn{} = turn, {:orphan, why}, opts) when is_binary(why) and is_list(opts) do
     Conversations._unsafe_orphan_turn(turn, why, opts)
+  end
+
+  @doc """
+  End the running turns on the machine behind `sandbox_id`, on the owner's
+  behalf (ADR 0058 stage 8b): the recovery of each, through `end_turn/3` with
+  the machine as the binding, so a bound conversation's turn is closed and a
+  rebound one's is left to its new machine.
+
+  `why` is the reason the turn's stage event and audit row carry
+  (`"machine_destroyed"`, `"machine_parked"`). Options: `:only` narrows the
+  ending to one conversation's turn — the ceiling park's requester — and
+  `:actor` is the operation's, for the `conversation.turn.orphaned` event.
+
+  Best effort per turn and deliberately so: this runs after a finalize has
+  committed, and a turn that could not be ended — already ended by its actor,
+  rebound, a raise out of the journal — is logged and the next one tried. It
+  never unwinds the operation that called it.
+  """
+  @spec end_turns_on(Ecto.UUID.t(), String.t(), keyword()) :: :ok
+  def end_turns_on(sandbox_id, why, opts \\ [])
+      when is_binary(sandbox_id) and is_binary(why) and is_list(opts) do
+    query =
+      from t in Turn,
+        join: c in Conversation,
+        on: c.id == t.conversation_id,
+        where: c.sandbox_id == ^sandbox_id and t.status == "running",
+        select: t
+
+    query =
+      case Keyword.get(opts, :only) do
+        nil -> query
+        conv_id -> where(query, [t, c], c.id == ^conv_id)
+      end
+
+    end_opts =
+      [sandbox_id: sandbox_id]
+      |> Keyword.merge(Keyword.take(opts, [:actor]))
+
+    query
+    |> Repo.all()
+    |> Enum.each(fn turn ->
+      try do
+        case end_turn(turn, {:orphan, why}, end_opts) do
+          {:ok, _turn, _conv} ->
+            Logger.info("machine #{sandbox_id}: ended turn #{turn.id} (#{why})")
+
+          other ->
+            Logger.info(
+              "machine #{sandbox_id}: turn #{turn.id} was not this owner's to end " <>
+                "(#{inspect(other)})"
+            )
+        end
+      rescue
+        error ->
+          Logger.warning(
+            "machine #{sandbox_id}: ending turn #{turn.id} raised: " <>
+              Exception.format(:error, error, __STACKTRACE__)
+          )
+      end
+    end)
+
+    :ok
   end
 
   @doc """

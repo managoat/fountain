@@ -151,6 +151,7 @@ defmodule Fountain.Machines.Park do
   alias Fountain.Conversations.Lifecycle
   alias Fountain.Conversations.MachineEvents
   alias Fountain.Conversations.Sandbox
+  alias Fountain.Machines.Admission
   alias Fountain.Machines.Lease
   alias Fountain.Machines.Occupancy
   alias Fountain.Machines.Renewal
@@ -691,6 +692,7 @@ defmodule Fountain.Machines.Park do
         # *going into* the finalize (#2309).
         Conversations.sandbox_status_effects(parked, sandbox.status)
 
+        end_cut_turn(parked, opts)
         audit(parked, opts)
         notify_cotenants(parked, opts)
         {:ok, :parked}
@@ -838,6 +840,26 @@ defmodule Fountain.Machines.Park do
   end
 
   # ── after the finalize ────────────────────────────────────────────────────
+
+  # The one turn a park operates over is the requester's own at the ceiling —
+  # `running_turn_veto?/2`'s exception, the turn the park is cutting — and the
+  # owner ends it (stage 8b) rather than leaving it to the server's own
+  # `terminate/2`, so the recovery that server makes on its way out finds the
+  # turn already terminal. Every other running turn refused the park, or is a
+  # turn nothing is driving that stage 6b deliberately leaves standing: a turn
+  # parked on a person's permission whose server has died is still theirs to
+  # answer, and a park is not the machine going away.
+  defp end_cut_turn(%Sandbox{} = sandbox, opts) do
+    with :max_lifetime <- Keyword.fetch!(opts, :reason),
+         requester when is_binary(requester) <- Keyword.get(opts, :requesting_conversation_id) do
+      Admission.end_turns_on(sandbox.id, "machine_parked",
+        only: requester,
+        actor: Lifecycle.teardown_actor(Keyword.fetch!(opts, :actor))
+      )
+    else
+      _ -> :ok
+    end
+  end
 
   # One `sandbox.suspended` event for both paths, and that is a change: on
   # `main` the reaper recorded one (`record_reap/3`) and the conversation

@@ -1583,8 +1583,15 @@ defmodule Fountain.Conversations do
   capacity is used up by another conversation's running turn on that runtime.
 
   **The owner's write** (ADR 0058 stage 8a). `Fountain.Machines.Admission` is
-  the only caller, and `admission_test.exs` pins that lexically; everything
+  the only caller, and `direct_writes_test.exs` pins that lexically; everything
   that used to call this directly goes through `Fountain.Machines.Machine.admit_turn/3`.
+
+  `opts[:deadline]`, a `DateTime` on the database clock, is the caller's own
+  bound on waiting for this answer, set by the owner door on the in-owner
+  path: read against the `statement_timestamp()` this transaction takes the
+  machine's row with, a deadline already passed is `{:error, :admission_expired}`
+  and no turn is written — a prompt that was told 503 must not gain a turn
+  after the fact (round 1 of stage 8a).
 
   `revision` is the conversation's `configuration_revision` as the caller
   understands it, or nil for a caller with none; a mismatch answers
@@ -1616,9 +1623,10 @@ defmodule Fountain.Conversations do
   supported yet, so any nonempty allowance refuses the turn. Refusal writes no
   turn. Usage is recorded after the transaction commits, never inside it.
   """
-  def _unsafe_create_turn_on_sandbox(attrs, sandbox_id, revision \\ nil)
-      when is_binary(sandbox_id) do
+  def _unsafe_create_turn_on_sandbox(attrs, sandbox_id, revision \\ nil, opts \\ [])
+      when is_binary(sandbox_id) and is_list(opts) do
     conv_id = Map.fetch!(attrs, :conversation_id)
+    deadline = Keyword.get(opts, :deadline)
 
     result =
       Repo.transaction(fn ->
@@ -1714,6 +1722,12 @@ defmodule Fountain.Conversations do
           :ok -> :ok
           {:error, reason} -> Repo.rollback(reason)
         end
+
+        # The caller's deadline, judged on the same clock the row was read
+        # with. After the machine's own verdicts so a refusal names the machine
+        # first; before the write so an expired caller gains nothing.
+        if deadline && DateTime.compare(machine.db_now, deadline) == :gt,
+          do: Repo.rollback(:admission_expired)
 
         # A terminated or failed parent takes no more turns. `attached?` above
         # checks the machine; this checks the conversation, which a retired
@@ -2298,7 +2312,8 @@ defmodule Fountain.Conversations do
   This function is unscoped because it is called by a conversation's own
   server and by the system reaper, both through
   `Fountain.Machines.Machine.end_turn/3` (ADR 0058 stage 8a), which is the
-  only caller `admission_test.exs` allows. Callers may supply audit attribution.
+  only caller `direct_writes_test.exs` allows. Callers may supply audit
+  attribution.
 
   An actor recovering its own turn passes `:sandbox_id`, its binding; the
   locked parent having been rebound to another sandbox answers

@@ -191,6 +191,18 @@ defmodule Fountain.Machines.Machine do
   # other side. There is no lease TTL to sit under, because an admission takes
   # no lease (see `Fountain.Machines.Admission`). `machine_bounds_test.exs`
   # pins the ordering.
+  #
+  # **It bounds the caller's wait, not the queue** — and for this verb that
+  # difference is a write (round 1, protocol and behaviour reviews). A
+  # `GenServer.call` that times out leaves its message in the mailbox, and the
+  # owner runs it when it gets there. For a destroy, a park or a resume a late
+  # run is idempotent; for an admission it is a turn row the prompt was told
+  # does not exist — a `running` turn on a machine that has since been parked,
+  # which nothing ends. So the message carries the caller's deadline on the
+  # database clock (the owner may be on another node, so no node's monotonic
+  # clock will do) and the owner refuses an admission whose caller can no
+  # longer be waiting: once before it runs the protocol, and once more inside
+  # the locked insert against the same clock it judges the lease by.
   @admit_timeout 20_000
 
   # A start that loses the Horde race registers on another node, and the
@@ -682,7 +694,10 @@ defmodule Fountain.Machines.Machine do
         {:error, :provider_transaction_open}
 
       Machines.enabled?() ->
-        sandbox_id |> admit_in_owner(attrs, opts, 1) |> admission_refusal(sandbox_id)
+        # `:admit_timeout_ms` is a test seam for the deadline below; no call
+        # site in `lib/` passes it (`machine_bounds_test.exs` scans for it).
+        timeout = Keyword.get(opts, :admit_timeout_ms, @admit_timeout)
+        sandbox_id |> admit_in_owner(attrs, opts, timeout, 1) |> admission_refusal(sandbox_id)
 
       true ->
         sandbox_id |> Admission.run(attrs, opts) |> admission_refusal(sandbox_id)
@@ -735,6 +750,12 @@ defmodule Fountain.Machines.Machine do
 
     {:error, :sandbox_unavailable}
   end
+
+  # The owner found the caller's deadline passed before it could run the
+  # admission. The caller was already answered `:sandbox_unavailable` by the
+  # timeout; this answer reaches nobody, and is the same word for the log.
+  defp admission_refusal({:error, :admission_expired}, _sandbox_id),
+    do: {:error, :sandbox_unavailable}
 
   defp admission_refusal({:error, :transaction_open}, _sandbox_id),
     do: {:error, :provider_transaction_open}
@@ -909,8 +930,20 @@ defmodule Fountain.Machines.Machine do
     in_owner(sandbox_id, {:ensure_up, opts}, @resume_timeout, :ensure_up, retries_left)
   end
 
-  defp admit_in_owner(sandbox_id, attrs, opts, retries_left) do
-    in_owner(sandbox_id, {:admit_turn, attrs, opts}, @admit_timeout, :admit_turn, retries_left)
+  # The deadline is dated on the database's clock, `timeout` from now: the one
+  # clock every node shares (stage 7a's reason for the lease), and the one the
+  # locked insert reads in the same statement as the machine's row. One trivial
+  # query per prompt with the gate on; none with it off.
+  defp admit_in_owner(sandbox_id, attrs, opts, timeout, retries_left) do
+    deadline = DateTime.add(Lease.now(), timeout, :millisecond)
+
+    in_owner(
+      sandbox_id,
+      {:admit_turn, attrs, opts, deadline},
+      timeout,
+      :admit_turn,
+      retries_left
+    )
   end
 
   defp in_owner(sandbox_id, message, timeout, verb, retries_left) do
@@ -998,14 +1031,18 @@ defmodule Fountain.Machines.Machine do
   # destroys of one machine correct, and running them one at a time here is
   # what keeps the second one from waiting out the first one's lease to find
   # out. It runs in the owner rather than in a task so the mailbox is the
-  # queue; `@destroy_timeout` on the client side is the ceiling on that queue.
+  # queue; `@destroy_timeout` on the client side is the ceiling on the
+  # caller's *wait* for it — a message whose caller has given up still runs
+  # when the owner reaches it, and for this verb that late run is idempotent
+  # (a destroy of a destroyed machine is `{:ok, :already_terminal}` to nobody).
   def handle_call({:destroy, opts}, _from, state) do
     {:reply, Destroy.run(state.sandbox_id, opts), arm_idle(state)}
   end
 
   # Same shape, same reason. A park occupies the owner for a checkpoint and a
   # suspend, which is longer than a destroy takes — `@park_timeout` on the
-  # client side is the ceiling on that queue.
+  # client side is the ceiling on the caller's wait, and a late park is a park
+  # of a machine the recheck under the lease still has to find idle.
   def handle_call({:park, opts}, _from, state) do
     {:reply, Park.run(state.sandbox_id, opts), arm_idle(state)}
   end
@@ -1023,10 +1060,31 @@ defmodule Fountain.Machines.Machine do
   # resume: a prompt that arrives while this machine is being resumed for a
   # cotenant waits in the mailbox and then finds it up, where inline it would
   # wait out `Admission.busy_wait_ms/0` against the lease and be told
-  # `sandbox_unavailable`. `@admit_timeout` on the client side is the ceiling
-  # on that queue.
-  def handle_call({:admit_turn, attrs, opts}, _from, state) do
-    {:reply, Admission.run(state.sandbox_id, attrs, opts), arm_idle(state)}
+  # `sandbox_unavailable`.
+  #
+  # **The timeout bounds the caller's wait, not this queue**, and unlike the
+  # three verbs above a late admission is not idempotent: it is a turn row
+  # for a prompt that was already told 503 (round 1). So the message carries
+  # the caller's deadline on the database clock, and an admission that reaches
+  # the front of the mailbox after it is refused without running — here, from
+  # one read of the clock, and again inside the locked insert, which judges
+  # the same deadline against the `statement_timestamp()` it read the
+  # machine's row with. The second check is the guarantee; this one saves the
+  # transaction.
+  def handle_call({:admit_turn, attrs, opts, %DateTime{} = deadline}, _from, state) do
+    reply =
+      if DateTime.compare(Lease.now(), deadline) == :gt do
+        Logger.warning(
+          "machine #{state.sandbox_id}: an admission reached the owner after its caller's " <>
+            "deadline; refusing without running it"
+        )
+
+        {:error, :admission_expired}
+      else
+        Admission.run(state.sandbox_id, attrs, Keyword.put(opts, :deadline, deadline))
+      end
+
+    {:reply, reply, arm_idle(state)}
   end
 
   @impl true

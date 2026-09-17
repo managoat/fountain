@@ -7,9 +7,10 @@ defmodule Fountain.Machines.Admission do
   `end_turn` to the owner as the replacement for the locked turn insert, the
   capacity check, and the "is anyone mid-turn" question every reclaim asks.
   This module is that protocol. `Fountain.Machines.Machine.admit_turn/3` and
-  `Fountain.Machines.Machine.end_turn/3` are its doors, and — as a lexical pin
-  in `admission_test.exs` asserts — nothing outside `lib/fountain/machines/`
-  calls the context's turn-admitting or turn-ending writes any more.
+  `Fountain.Machines.Machine.end_turn/3` are its doors, and — as the lexical pin
+  in `direct_writes_test.exs` asserts, beside the row-write ratchet it is the
+  turn-row half of — nothing outside `lib/fountain/machines/` calls the
+  context's turn-admitting or turn-ending writes any more.
 
   ## Admission
 
@@ -33,7 +34,14 @@ defmodule Fountain.Machines.Admission do
       it. The protocol waits `busy_wait_ms/0` for a live lease to clear before
       it refuses, polling the write, because the common holder is a cotenant's
       resume that finishes in a second or two and the second prompt wants the
-      machine it is bringing up, not a 503.
+      machine it is bringing up, not a 503. The holder can also be a *park*
+      that finishes inside the wait, and then the turn is admitted onto a
+      `suspended` machine: a `suspended` row with no lease is admissible here
+      exactly as it was on `main`, and it is the caller's wake — which runs
+      before every prompt and resumes a parked machine through `ensure_up/2`
+      — that is expected to bring it back, not this write. Refusing on status
+      here would refuse the reattach path's own first turn; left as `main`
+      had it, and named rather than hidden.
     * **Either fence refuses the turn.** `main` refused a reset fence; a
       teardown fence let the turn through, and the machine was destroyed
       underneath it by whatever finished the fence. Both are durable statements
@@ -149,6 +157,13 @@ defmodule Fountain.Machines.Admission do
   authority: the conversation's *current binding* decides who may end its
   turns, whichever machine a given turn was admitted on.
 
+  (For a *bounded* turn a per-turn machine record already exists and already
+  refuses: `ExecutionGuard.cleanup_binding?/1` compares the journal's recorded
+  sandbox to the parent's current binding, so counterexample 3's successor
+  write is refused today for a turn with a `TurnExecution` row. Execution
+  limits ship inert, so every production turn takes the no-journal path — the
+  rule below is about that path, and the journal's is not hypothetical.)
+
   The machine's lease epoch cannot stand in for it, on three reachable paths:
 
     1. On a shared home a cotenant's resume or park moves the epoch while this
@@ -187,8 +202,6 @@ defmodule Fountain.Machines.Admission do
   alias Fountain.Conversations.{Conversation, Interruption, Turn}
   alias Fountain.Repo
 
-  require Logger
-
   # How long a *waiter* waits for a live lease on the machine to clear before
   # the admission is refused. `Destroy`'s, `Park`'s and `Resume`'s number, and
   # here it is measured against the same thing: a person behind a prompt. The
@@ -222,6 +235,12 @@ defmodule Fountain.Machines.Admission do
       read it, or nil for a caller with none; a mismatch is
       `{:error, :configuration_changed}` (#1565).
     * `:busy_wait_ms` — the bound above. Tests shorten it; no call site does.
+    * `:deadline` — a `DateTime` on the database clock after which the caller
+      is no longer waiting for the answer. Set by `Machine.admit_turn/3` on
+      the in-owner path only; the locked insert refuses the turn
+      (`{:error, :admission_expired}`) when the clock it read the machine's row
+      with is past it, so an admission that reached the owner late writes
+      nothing.
   """
   @spec run(Ecto.UUID.t(), map(), keyword()) :: {:ok, Turn.t()} | {:error, term()}
   def run(sandbox_id, attrs, opts \\ [])
@@ -229,28 +248,26 @@ defmodule Fountain.Machines.Admission do
     if Repo.in_transaction?() do
       {:error, :transaction_open}
     else
-      deadline =
+      wait_until =
         System.monotonic_time(:millisecond) + Keyword.get(opts, :busy_wait_ms, @busy_wait_ms)
 
-      admit(sandbox_id, attrs, Keyword.get(opts, :revision), deadline)
+      write_opts = Keyword.take(opts, [:deadline])
+      admit(sandbox_id, attrs, Keyword.get(opts, :revision), write_opts, wait_until)
     end
   end
 
   # The write, and the one refusal that is waited out rather than returned. A
   # live lease is an operation in flight, and the lease's own bound is what
   # says how long that can be; the wait here is the caller's, not the holder's
-  # (`machine_bounds_test.exs`). Every other refusal is final for this prompt.
-  defp admit(sandbox_id, attrs, revision, deadline) do
-    case Conversations._unsafe_create_turn_on_sandbox(attrs, sandbox_id, revision) do
+  # (`machine_bounds_test.exs`). Every other refusal is final for this prompt,
+  # and the door logs the one that is returned — not here as well.
+  defp admit(sandbox_id, attrs, revision, write_opts, wait_until) do
+    case Conversations._unsafe_create_turn_on_sandbox(attrs, sandbox_id, revision, write_opts) do
       {:error, :machine_busy} ->
-        if System.monotonic_time(:millisecond) + @poll_ms < deadline do
+        if System.monotonic_time(:millisecond) + @poll_ms < wait_until do
           Process.sleep(@poll_ms)
-          admit(sandbox_id, attrs, revision, deadline)
+          admit(sandbox_id, attrs, revision, write_opts, wait_until)
         else
-          Logger.warning(
-            "machine #{sandbox_id}: turn admission refused, an owner holds the lease"
-          )
-
           {:error, :machine_busy}
         end
 

@@ -225,7 +225,8 @@ defmodule Fountain.Machines.ProvisionTest do
 
       expect(Conversations, :sandbox_status_effects, fn written, previous ->
         assert written.status == "ready"
-        assert previous == "pending"
+        # The row the `starting` write returned, not the one `stamp/2` did.
+        assert previous == "starting"
         refute Repo.in_transaction?()
         :ok
       end)
@@ -279,8 +280,11 @@ defmodule Fountain.Machines.ProvisionTest do
       assert failed.transition == nil
       assert_lease_released(failed)
 
+      # The caller's own reason, not a generic word for "refused" — this is the
+      # column an operator reads when #935's pairing check says no.
+      assert failed.transition_reason == "no_network_policy"
       assert [event] = events(ctx, "sandbox.provision_failed")
-      assert event.metadata["reason"] == "provision_refused"
+      assert event.metadata["reason"] == "no_network_policy"
     end
   end
 
@@ -472,6 +476,111 @@ defmodule Fountain.Machines.ProvisionTest do
     end
   end
 
+  # ── the window between the create and `starting` ───────────────────────────
+
+  describe "the row that was settled between the create and the status" do
+    test "a retirement destroys the machine and writes nothing", ctx do
+      # A window `main` did not have: it wrote `starting` *before* the create.
+      # The first draft answered `:create_failed` for every refusal of the
+      # post-create write, which dropped the handle on the floor and then wrote
+      # `failed` over the terminal row — `Lease.refuse_revival/2` permits
+      # terminal-to-terminal, so the write landed and a spurious
+      # `sandbox.provision_failed` went with it (round 1, protocol review).
+      test = self()
+      built = handle(ctx)
+
+      expect(Managoat.Sandbox, :create, fn :sprites, _name ->
+        stamp(ctx, status: "terminated", terminated_at: DateTime.utc_now())
+        {:ok, built}
+      end)
+
+      expect(Managoat.Sandbox, :destroy, fn ^built ->
+        send(test, :destroyed)
+        :ok
+      end)
+
+      assert {:ok, :already_terminal} =
+               answer(fn ->
+                 Provision.run(
+                   ctx.sandbox.id,
+                   fn _h, _e -> flunk("the pipeline ran on a machine the row had lost") end,
+                   opts()
+                 )
+               end)
+
+      assert_received :destroyed
+
+      # Another actor's write, untouched — status, reason and trail.
+      settled = row(ctx)
+      assert settled.status == "terminated"
+      assert settled.transition_reason == nil
+      assert events(ctx, "sandbox.provision_failed") == []
+    end
+
+    test "a takeover leaves the machine alone, because its name is the row's", ctx do
+      # The other half of the same window, and the opposite answer: the taker is
+      # building under this row's name, so a destroy here would take theirs.
+      test = self()
+      built = handle(ctx)
+
+      expect(Managoat.Sandbox, :create, fn :sprites, _name ->
+        stamp(ctx, lease_epoch: 99, lease_node: "taker@node")
+        {:ok, built}
+      end)
+
+      stub(Managoat.Sandbox, :destroy, fn _handle ->
+        send(test, :destroyed)
+        :ok
+      end)
+
+      assert {:error, :superseded} =
+               answer(fn ->
+                 Provision.run(
+                   ctx.sandbox.id,
+                   fn _h, _e -> flunk("the pipeline ran on a machine the row had lost") end,
+                   opts()
+                 )
+               end)
+
+      refute_received :destroyed
+      assert row(ctx).status == "pending"
+      assert events(ctx, "sandbox.provision_failed") == []
+    end
+
+    test "a database fault leaves the machine for the next attempt to discard", ctx do
+      # The lease is still this attempt's and the stamp is still on a live row,
+      # so `interrupted?/1` reads it next time. Destroying here would be right
+      # too, but the row cannot say the machine exists, and a destroy that also
+      # failed would leave nothing to find it by.
+      test = self()
+      built = handle(ctx)
+      stub(Managoat.Sandbox, :create, fn :sprites, _name -> {:ok, built} end)
+
+      stub(Managoat.Sandbox, :destroy, fn _handle ->
+        send(test, :destroyed)
+        :ok
+      end)
+
+      expect(Lease, :cas_update, 2, fn id, epoch, attrs, lopts ->
+        if attrs[:status] == "starting" do
+          {:error, {:database, :some_sqlstate}}
+        else
+          Mimic.call_original(Lease, :cas_update, [id, epoch, attrs, lopts])
+        end
+      end)
+
+      assert {:error, {:database, :some_sqlstate}} =
+               answer(fn ->
+                 Provision.run(ctx.sandbox.id, fn _h, _e -> flunk("unreachable") end, opts())
+               end)
+
+      refute_received :destroyed
+      current = row(ctx)
+      assert current.status == "pending"
+      assert current.transition == "provisioning", "the stamp the next attempt reads is gone"
+    end
+  end
+
   # ── the three failure arms ─────────────────────────────────────────────────
 
   describe "the pipeline that failed" do
@@ -502,6 +611,32 @@ defmodule Fountain.Machines.ProvisionTest do
 
       assert [event] = events(ctx, "sandbox.provision_failed")
       assert event.metadata["reason"] == "apt_failed"
+    end
+
+    test "the usage row says the machine existed, because it did", ctx do
+      # `status_before_failure` is `main`'s distinction between a machine that
+      # died before it existed and one that died after (`conversations.ex`
+      # wrote the field for exactly that), and reading it off the row `stamp/2`
+      # returned — which is still `pending`, because the stamp writes only
+      # `transition` — made every failed provision look like the first (round 1,
+      # behaviour review).
+      built = stub_create(ctx)
+      stub(Managoat.Sandbox, :destroy, fn ^built -> :ok end)
+
+      answer(fn ->
+        Provision.run(ctx.sandbox.id, fn _h, _e -> {:error, :apt_failed, nil} end, opts())
+      end)
+
+      assert [failure] =
+               Repo.all(
+                 from e in Fountain.Billing.UsageEvent,
+                   where:
+                     e.resource_id == ^ctx.sandbox.id and
+                       e.event_type == "sandbox_provision_failed",
+                   select: e.metadata
+               )
+
+      assert failure["status_before_failure"] == "starting"
     end
 
     test "a tuple reason reaches the column and the trail without raising", ctx do
@@ -693,6 +828,29 @@ defmodule Fountain.Machines.ProvisionTest do
       # finish or to fail.
       assert row(ctx).status == "starting"
       assert events(ctx, "sandbox.provisioned") == []
+    end
+
+    test "a supersession the renewer finds carries the pipeline's result out", ctx do
+      # The renewer's verdict is collected *after* `fun` returns, so this is the
+      # one supersession that happens to an attempt which did the whole job —
+      # and the first draft of `Renewal.around/5` threw its result away (round
+      # 1, behaviour review). At the call site that result is a broker session
+      # and a rotated callback key; without it both were left live.
+      stub_create(ctx)
+
+      pipeline = fn _handle, _epoch ->
+        # Somebody takes the machine over while the pipeline runs. Releasing the
+        # lease is what `Lease.renew/4` answers `:lost` to, and it is the shape
+        # a takeover leaves behind.
+        :ok = Lease.release(ctx.sandbox.id, Repo.reload!(ctx.sandbox).lease_epoch)
+        Process.sleep(200)
+        {:ok, :what_the_pipeline_reached}
+      end
+
+      assert {:error, :superseded, :what_the_pipeline_reached} =
+               answer(fn ->
+                 Provision.run(ctx.sandbox.id, pipeline, opts(lease_ttl_ms: 150))
+               end)
     end
 
     test "a pipeline inside its deadline keeps the machine, however slow it is", ctx do
@@ -958,8 +1116,6 @@ defmodule Fountain.Machines.ProvisionTest do
       assert pid == self(), "the pipeline was moved out of its caller"
     end
   end
-
-  # ── across connections ─────────────────────────────────────────────────────
 
   # ── across connections ─────────────────────────────────────────────────────
   #

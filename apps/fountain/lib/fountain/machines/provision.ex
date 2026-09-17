@@ -145,6 +145,17 @@ defmodule Fountain.Machines.Provision do
   checkpointing gets an owner verb of its own, alongside
   `HomeCheckpoint.create/3`, which stage 6b left exactly where this leaves it.
 
+  **A superseded loser's *writes* stop; its pipeline does not** (round 1,
+  protocol review). `Renewal` collects its verdict only after `fun` returns, so
+  between a takeover and that return the loser goes on writing files into a
+  machine carrying the row's name — which the taker has by then destroyed and
+  created again. There is no leak: one name, one machine, and the taker's
+  `interrupted?/1` tore the old one down. There is a window in which two
+  pipelines write to one name, and it opens at `:deadline_ms` rather than never.
+  The `{:error, :superseded, _}` arm leaves the *machine* alone for the taker;
+  it does not, and cannot, settle what the loser is still doing to it. Closing
+  that means a cancellation token through every provider call.
+
   ## Outcomes
 
   `{:ok, :provisioned, result}` built the machine; `result` is whatever the
@@ -220,7 +231,7 @@ defmodule Fountain.Machines.Provision do
   # between the wake's own resume and this server starting. See `confirm/3`.
   @confirmable ~w(ready suspended)
 
-  # The two answers from a pipeline that mean **another actor already owns this
+  # The three answers from a pipeline that mean **another actor already owns this
   # row**, where the machine this attempt built is its own to destroy and the row
   # is not its to write.
   #
@@ -228,8 +239,14 @@ defmodule Fountain.Machines.Provision do
   # the provider was working: the successor must wake the committed selection,
   # and a `failed` row would be this attempt failing somebody else's machine.
   # `:sandbox_reset_pending` is a reset fence landing in the same window, whose
-  # own owner finishes the row. `main` destroyed the handle and wrote nothing on
-  # both, and so does this.
+  # own owner finishes the row. `:retired` is the same shape reached through
+  # `Conversations.claim_sandbox/2`, which a pipeline step may still return.
+  # `main` destroyed the handle and wrote nothing on all three, and so does this.
+  #
+  # `FreshProvision.@foreign_provision_owner` keeps two of them, deliberately:
+  # it decides what the *conversation* owes, and `:retired` never reaches it —
+  # the protocol answers `{:ok, :already_terminal}` for a retired row before the
+  # caller is asked.
   @foreign_owner [:configuration_changed, :sandbox_reset_pending, :retired]
 
   @doc """
@@ -580,12 +597,18 @@ defmodule Fountain.Machines.Provision do
   # announced itself. Nothing was created, so there is nothing to destroy — the
   # row is failed and the reason travels, which is what a caller that publishes
   # its own stage events needs.
+  #
+  # The reason goes on the row as well as to the caller (round 1, protocol and
+  # behaviour reviews). The first draft wrote `:provision_refused`, which threw
+  # away the only thing an operator reading `transition_reason` wants — #935's
+  # refusal is `{:network_policy, :unsupported_backend}`, and `reason_text/1`
+  # has handled tuples since change 9.
   defp refuse_before_create(%Sandbox{} = sandbox, epoch, reason, opts) do
     Logger.error(
       "machine #{sandbox.id}: provision refused before the machine: #{inspect(reason)}"
     )
 
-    _ = write_failed(sandbox, epoch, :provision_refused, opts)
+    _ = write_failed(sandbox, epoch, reason, sandbox.status, opts)
     {:error, reason}
   end
 
@@ -608,16 +631,23 @@ defmodule Fountain.Machines.Provision do
       )
 
     case outcome do
-      {:ok, {:built, handle, result}} ->
-        finalize(sandbox, epoch, handle, result, opts)
+      {:ok, %{step: :built} = attempt} ->
+        finalize(sandbox, epoch, attempt, opts)
 
-      {:ok, {:pipeline_failed, handle, reason, result}} ->
-        fail_pipeline(sandbox, epoch, handle, reason, result, opts)
+      {:ok, %{step: :pipeline_failed} = attempt} ->
+        fail_pipeline(sandbox, epoch, attempt, opts)
 
-      {:ok, {:create_failed, reason}} ->
+      # No machine was created, so there is nothing to destroy and the row is
+      # this attempt's to fail.
+      {:ok, %{step: :create_failed, reason: reason}} ->
         Logger.error("machine #{sandbox.id}: provision could not start: #{inspect(reason)}")
-        _ = write_failed(sandbox, epoch, :create_failed, opts)
+        _ = write_failed(sandbox, epoch, :create_failed, sandbox.status, opts)
         {:error, reason}
+
+      # A machine exists and the row would not take `starting` — see
+      # `orphaned/4` for why that is three different situations.
+      {:ok, %{step: :orphaned} = attempt} ->
+        orphaned(sandbox, epoch, attempt)
 
       # The lease was taken over while the machine was being built. **Nothing is
       # written and nothing is destroyed**, and the second half is the one worth
@@ -625,15 +655,77 @@ defmodule Fountain.Machines.Provision do
       # this one is building under the same name: a destroy here would tear down
       # *their* machine, not this attempt's. What cleans this up is the next
       # attempt's `interrupted?/1`, which is exactly the case it exists for.
-      {:error, :superseded} ->
+      #
+      # **What is not settled by it is the loser's own pipeline** (round 1,
+      # protocol review). Nothing interrupts `fun` — `Renewal` collects its
+      # verdict only after `fun` returns — so between the takeover and that
+      # return, the loser goes on writing files into a machine that carries the
+      # row's name, which the taker has by then destroyed and created again.
+      # There is no leak: one name, one machine, and the taker's
+      # `interrupted?/1` tore the old one down. What there is, is a window in
+      # which two pipelines write to one name, and it opens at `:deadline_ms`
+      # rather than never. Stopping it means a cancellation token through every
+      # provider call, which is a bigger change than this stage.
+      {:error, :superseded, attempt} ->
         Logger.warning(
           "machine #{sandbox.id}: the provision at epoch #{epoch} was superseded while the " <>
             "machine was being built; leaving it for the owner that took over"
         )
 
-        {:error, :superseded}
+        {:error, :superseded, pipeline_result(attempt)}
     end
   end
+
+  # The machine exists and the row refused `starting`. Three situations, and
+  # `main` had none of them because it wrote `starting` *before* the create
+  # (round 1, protocol review — the first draft answered `:create_failed` for
+  # all three, which dropped the handle on the floor and wrote `failed` over
+  # another actor's terminal row, because `Lease.refuse_revival/2` permits
+  # terminal-to-terminal).
+  #
+  # The split is `finalize/5`'s, for `finalize/5`'s reasons.
+  defp orphaned(%Sandbox{} = sandbox, _epoch, %{handle: handle, reason: :retired}) do
+    # Retired while the machine was being created, and **this attempt is still
+    # the holder** — so the machine is its own, nobody else will come for it,
+    # and the row is not its to write. Exactly `finalize/5`'s `:retired` arm,
+    # one compare-and-set earlier.
+    Logger.info(
+      "machine #{sandbox.id}: the row was retired between the create and the status; " <>
+        "destroying the machine and leaving the row to its owner"
+    )
+
+    destroy_attempt(sandbox, handle, :retired)
+    {:ok, :already_terminal}
+  end
+
+  defp orphaned(%Sandbox{} = sandbox, epoch, %{reason: :stale}) do
+    # Superseded. The taker is building under this row's name, so a destroy
+    # here would take theirs.
+    Logger.warning(
+      "machine #{sandbox.id}: the provision at epoch #{epoch} was superseded between " <>
+        "the create and the status; leaving the machine to the owner that took over"
+    )
+
+    {:error, :superseded}
+  end
+
+  defp orphaned(%Sandbox{} = sandbox, _epoch, %{reason: reason}) do
+    # A database fault. The lease is still this attempt's and the stamp is still
+    # on a live row, so the machine is left where it is: the next attempt's
+    # `interrupted?/1` reads that stamp and discards it. The caller retires the
+    # row through `fail_provision/2`, which claims a lease of its own.
+    Logger.error(
+      "machine #{sandbox.id}: the machine was created but the row would not say so " <>
+        "(#{inspect(reason)}); leaving it for the next attempt to discard"
+    )
+
+    {:error, reason}
+  end
+
+  # The caller's own result, wherever an attempt carries one. A create that
+  # never ran carries none.
+  defp pipeline_result(%{result: result}), do: result
+  defp pipeline_result(_attempt), do: nil
 
   defp create_and_run(%Sandbox{} = sandbox, epoch, interrupted?, fun) do
     provider = Conversations.sandbox_provider_atom(sandbox)
@@ -645,23 +737,33 @@ defmodule Fountain.Machines.Provision do
         # reader — and the next attempt — can tell a row that has a machine from
         # one that has only been asked for.
         case Lease.cas_update(sandbox.id, epoch, [status: "starting"], []) do
-          {:ok, _starting} ->
+          # The row that write returned, carried all the way to the finalize
+          # (round 1, behaviour review). `status_before_failure` on a
+          # `sandbox_provision_failed` usage row is `main`'s distinction between
+          # a machine that died before it existed and one that died after — and
+          # reading it off the *stamped* row, which `stamp/2` left at `pending`,
+          # made every failed provision look like the first.
+          {:ok, %Sandbox{} = started} ->
             case fun.(handle, epoch) do
-              {:ok, result} -> {:built, handle, result}
-              {:error, reason, result} -> {:pipeline_failed, handle, reason, result}
+              {:ok, result} ->
+                %{step: :built, handle: handle, started: started, result: result}
+
+              {:error, reason, result} ->
+                %{
+                  step: :pipeline_failed,
+                  handle: handle,
+                  started: started,
+                  reason: reason,
+                  result: result
+                }
             end
 
-          # Superseded or retired between the create and the status. The
-          # renewal's own verdict decides what happens next; answering
-          # `:create_failed` here would write `failed` over a row this attempt
-          # no longer owns, so the machine is left for the next
-          # `interrupted?/1` and the reason travels as itself.
           {:error, reason} ->
-            {:create_failed, reason}
+            %{step: :orphaned, handle: handle, reason: reason}
         end
 
       {:error, reason} ->
-        {:create_failed, reason}
+        %{step: :create_failed, reason: reason}
     end
   end
 
@@ -720,7 +822,7 @@ defmodule Fountain.Machines.Provision do
   # `ready`, the build record and the intent cleared, in one compare-and-set —
   # `main`'s `claim_sandbox(sandbox, %{status: "ready", build_fingerprint: …,
   # applied_skills: …})`, with the epoch in front of it.
-  defp finalize(%Sandbox{} = sandbox, epoch, handle, result, opts) do
+  defp finalize(%Sandbox{} = sandbox, epoch, %{handle: handle, result: result} = attempt, opts) do
     attrs =
       opts
       |> Keyword.get(:ready_attrs, [])
@@ -733,7 +835,7 @@ defmodule Fountain.Machines.Provision do
         # fires on `starting -> ready` today, and both are called anyway,
         # because the door stays one decision in one place rather than a list
         # of transitions each writer has to keep in step.
-        Conversations.sandbox_status_effects(ready, sandbox.status)
+        Conversations.sandbox_status_effects(ready, status_before(attempt))
         audit(ready, "sandbox.provisioned", %{}, opts)
         {:ok, :provisioned, result}
 
@@ -780,17 +882,30 @@ defmodule Fountain.Machines.Provision do
   #
   # **Anything else**: the machine is destroyed and the row is failed, which is
   # `main`'s third arm and the ordinary case — a step of the pipeline said no.
-  defp fail_pipeline(%Sandbox{} = sandbox, epoch, handle, reason, result, opts) do
+  defp fail_pipeline(%Sandbox{} = sandbox, epoch, attempt, opts) do
+    %{handle: handle, reason: reason, result: result} = attempt
     destroy_attempt(sandbox, handle, reason)
 
     if reason in @foreign_owner do
       {:error, reason, result}
     else
       Logger.error("machine #{sandbox.id}: provision step failed: #{inspect(reason)}")
-      _ = write_failed(sandbox, epoch, reason, opts)
+      _ = write_failed(sandbox, epoch, reason, status_before(attempt), opts)
       {:error, reason, result}
     end
   end
+
+  # The status the row really held before this write, for the two effects that
+  # read it — `record_sandbox_usage/2`'s `status_before_failure`, and the queue
+  # poke's "did this leave a cap-counting status".
+  #
+  # It is the row the `starting` compare-and-set returned, not the one `stamp/2`
+  # did (round 1, behaviour review). `stamp/2` writes only `transition`, so the
+  # row it hands back still says `pending`, and every failed provision that got
+  # as far as a machine was recording `status_before_failure: "pending"` — the
+  # one distinction `conversations.ex` wrote that field for, inverted. `main`
+  # read the status `FOR UPDATE` at write time and saw `"starting"`.
+  defp status_before(%{started: %Sandbox{status: status}}), do: status
 
   # This attempt's machine, built under this epoch. Best effort and never fatal:
   # `main` discarded the result at all three sites, and a provider that will not
@@ -808,12 +923,12 @@ defmodule Fountain.Machines.Provision do
       :ok
   end
 
-  defp write_failed(%Sandbox{} = sandbox, epoch, reason, opts) do
-    attrs = [status: "failed", transition: nil, transition_reason: reason_text(reason)]
+  defp write_failed(%Sandbox{} = sandbox, epoch, reason, status_before, opts) do
+    attrs = failed_attrs(reason)
 
     case Lease.cas_update(sandbox.id, epoch, attrs, []) do
       {:ok, %Sandbox{} = failed} ->
-        Conversations.sandbox_status_effects(failed, sandbox.status)
+        Conversations.sandbox_status_effects(failed, status_before)
         audit(failed, "sandbox.provision_failed", %{"reason" => reason_text(reason)}, opts)
         {:ok, :failed}
 
@@ -828,6 +943,9 @@ defmodule Fountain.Machines.Provision do
         {:error, refusal}
     end
   end
+
+  defp failed_attrs(reason),
+    do: [status: "failed", transition: nil, transition_reason: reason_text(reason)]
 
   # A pipeline's reason is whatever the step that refused said, and the steps
   # here answer tuples as readily as atoms — `{:broker, :session, :timeout}`,
@@ -903,12 +1021,66 @@ defmodule Fountain.Machines.Provision do
        do: {:ok, :already_terminal}
 
   defp fail_under_lease(%Sandbox{} = sandbox, epoch, opts) do
-    before_write = Keyword.get(opts, :before_write, fn _sandbox -> :ok end)
+    if sandbox.status in @provisionable do
+      retire(sandbox, epoch, Keyword.get(opts, :before_write), opts)
+    else
+      {:ok, :not_provisioning}
+    end
+  end
 
-    cond do
-      sandbox.status not in @provisionable -> {:ok, :not_provisioning}
-      before_write.(sandbox) != :ok -> {:ok, :not_provisioning}
-      true -> write_failed(sandbox, epoch, Keyword.fetch!(opts, :reason), opts)
+  defp retire(%Sandbox{} = sandbox, epoch, nil, opts),
+    do: write_failed(sandbox, epoch, Keyword.fetch!(opts, :reason), sandbox.status, opts)
+
+  # **`:before_write` and the row's write are one transaction** (round 1,
+  # surfaces review). The first draft ran the hook, committed it, and then wrote
+  # the row — two commits with a window between them, where `main` held both in
+  # one. The window is narrow and it is not harmless: `Launch.fail_initial_start/2`
+  # is the hook's only caller, it fails the *conversation* there, and a crash
+  # after that commit left a `failed` conversation pointing at a `pending`
+  # machine — a reserved quota slot with no server, which nothing but the
+  # reaper's hourly pass collects.
+  #
+  # `Lease.cas_update/4`'s `nest: true` is what makes this possible, and it is
+  # the second caller to use it (`Resume`'s admission is the first). The
+  # compare-and-set takes no advisory lock, so nesting it holds none open; what
+  # nesting buys is exactly what it buys there — a write that a rollback undoes.
+  #
+  # The two effects and the audit event stay *outside*: they are
+  # `update_sandbox/2`'s post-commit half and must not run against a write that
+  # may still roll back.
+  defp retire(%Sandbox{} = sandbox, epoch, before_write, opts) do
+    reason = Keyword.fetch!(opts, :reason)
+
+    outcome =
+      Repo.transaction(fn ->
+        with :ok <- before_write.(sandbox),
+             {:ok, %Sandbox{} = failed} <-
+               Lease.cas_update(sandbox.id, epoch, failed_attrs(reason), nest: true) do
+          failed
+        else
+          # A hook that stood the retire down. Rolled back rather than returned,
+          # so anything it wrote before deciding goes with it.
+          :stale -> Repo.rollback(:stale)
+          {:error, refusal} -> Repo.rollback({:refused, refusal})
+          other -> Repo.rollback({:refused, other})
+        end
+      end)
+
+    case outcome do
+      {:ok, %Sandbox{} = failed} ->
+        Conversations.sandbox_status_effects(failed, sandbox.status)
+        audit(failed, "sandbox.provision_failed", %{"reason" => reason_text(reason)}, opts)
+        {:ok, :failed}
+
+      {:error, :stale} ->
+        {:ok, :not_provisioning}
+
+      {:error, {:refused, refusal}} ->
+        Logger.info(
+          "machine #{sandbox.id}: could not record the failed provision (#{inspect(refusal)})"
+        )
+
+        {:error, refusal}
     end
   end
 

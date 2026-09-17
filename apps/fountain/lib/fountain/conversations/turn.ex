@@ -149,13 +149,23 @@ defmodule Fountain.Conversations.Turn do
       :model_selection,
       :reply_text,
       :origin,
-      :client_request_id,
       :conversation_id
     ])
+    |> cast_client_request_id(attrs)
     |> validate_required([:turn_number, :prompt, :status, :conversation_id])
     |> validate_inclusion(:status, @statuses)
     |> validate_inclusion(:origin, @origins)
     |> validate_length(:client_request_id, min: 1, max: @client_request_id_max)
     |> unique_constraint([:conversation_id, :turn_number])
   end
+
+  # The caller's id is an opaque label, so it is stored as it was sent. Ecto
+  # trims a string before it decides the value is empty, which turns an id of
+  # spaces into `nil`: the response would echo the id the caller sent while the
+  # turn carried none, and the started event would omit the field the caller is
+  # waiting for. Casting it untrimmed leaves only a literal "" reading as "the
+  # caller sent none", which is what the API (minLength 1) and
+  # `PromptDelivery.travelling/1` already refuse to carry.
+  defp cast_client_request_id(changeset, attrs),
+    do: cast(changeset, attrs, [:client_request_id], trim_values: fn _type, value -> value end)
 end

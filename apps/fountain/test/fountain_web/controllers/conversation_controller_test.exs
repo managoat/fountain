@@ -990,6 +990,41 @@ defmodule FountainWeb.ConversationControllerTest do
       end
     end
 
+    # The door takes these, so the response echoes them and the turn has to
+    # carry the same bytes back (`PromptCorrelationTest`). An id of spaces is
+    # one character to every length check here and an empty string to Ecto's
+    # default casting, which is where it used to disappear.
+    test "an id the door accepts travels as it was sent, spaces and all", %{
+      conn: conn,
+      user: user,
+      raw_key: raw_key
+    } do
+      conv = insert_conversation(user_id: user.id)
+      test = self()
+
+      stub(ConversationServer, :send_prompt, fn _id, _prompt, _images, opts ->
+        send(test, {:prompt_opts, opts})
+        :ok
+      end)
+
+      combining = String.duplicate("e\u0301", Fountain.Conversations.Turn.client_request_id_max())
+
+      for id <- [" ", "\t\n", combining] do
+        body =
+          build_conn()
+          |> authed_with_key(raw_key)
+          |> post_json("/api/conversations/#{conv.id}/prompts", %{
+            "prompt" => "hello",
+            "client_request_id" => id
+          })
+          |> json_response(200)
+
+        assert body == %{"status" => "queued", "client_request_id" => id}
+        assert_received {:prompt_opts, opts}
+        assert opts[:client_request_id] == id
+      end
+    end
+
     test "a machine whose teardown has been asked for answers 409, not a bare atom", %{
       conn: conn,
       user: user,

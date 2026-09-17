@@ -291,4 +291,51 @@ defmodule Fountain.Conversations.PromptCorrelationTest do
 
     assert %{client_request_id: [_]} = errors_on(changeset)
   end
+
+  # Two ids the API accepts, and the round trip the caller is promised for
+  # them: the response echoes the id, so the turn and its started event have to
+  # carry that same id or the caller cannot find its work.
+  describe "an id the API accepts survives the round trip" do
+    # Ecto trims a string before it decides the value is empty, so an id of
+    # spaces used to reach the turn as `nil` while the response echoed it.
+    test "an id of spaces is stored as it was sent", %{conv: conv} do
+      {_pid, _ref, _prompt_id} = start_with_turn(conv, prompt_opts: [client_request_id: " "])
+
+      assert [turn] = Conversations._unsafe_list_turns(conv.id)
+      assert turn.client_request_id == " "
+      assert [%{"client_request_id" => " "}] = started_events(conv.id)
+    end
+
+    # The bound is 200 graphemes at the door, in `PromptDelivery.travelling/1`
+    # and in the changeset. A grapheme is several PostgreSQL characters here:
+    # this id is 200 of them and 400 of those, which `varchar(255)` refused
+    # from inside turn admission, after the caller had been told `queued`.
+    test "an id of 200 combining graphemes fits the column", %{conv: conv} do
+      id = String.duplicate("e\u0301", Conversations.Turn.client_request_id_max())
+      assert String.length(id) == Conversations.Turn.client_request_id_max()
+      assert byte_size(id) > 255
+
+      {_pid, _ref, _prompt_id} = start_with_turn(conv, prompt_opts: [client_request_id: id])
+
+      assert [turn] = Conversations._unsafe_list_turns(conv.id)
+      assert turn.client_request_id == id
+      assert [%{"client_request_id" => ^id}] = started_events(conv.id)
+    end
+
+    # The one string that still reads as "the caller sent none", so that a
+    # caller which is not the API cannot fail turn admission with it.
+    test "an empty id is none, and opens the turn without one" do
+      changeset =
+        Conversations.Turn.changeset(%Conversations.Turn{}, %{
+          conversation_id: Ecto.UUID.generate(),
+          turn_number: 1,
+          prompt: "hi",
+          status: "running",
+          client_request_id: ""
+        })
+
+      assert changeset.valid?
+      assert is_nil(Ecto.Changeset.get_field(changeset, :client_request_id))
+    end
+  end
 end

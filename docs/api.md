@@ -406,8 +406,13 @@ An accepted prompt does not always open a turn. Fountain can refuse it after
 the response: the machine is at capacity, a limit on the conversation stops
 it, or another prompt opened the turn first. The stream reports some of these
 refusals and not others. So do not wait without a limit for a `started` event
-that carries your value. Set a time limit. Then read the turns. If no turn
-carries your value, the prompt did not run, and you can send it again.
+that carries your value. Set a time limit. Then read the turns.
+
+A turn that carries your value shows that the prompt ran. No turn with your
+value shows nothing. The prompt can still be waiting for the machine that must
+start first, and the rollout below can open its turn without the value. In that
+outcome you do not know whether the prompt ran. If you send it again, the work
+can run two times.
 
 A deployment that updates to the release with this field runs two releases
 for some minutes. In that time, Fountain can deliver a prompt without its

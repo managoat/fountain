@@ -17,8 +17,16 @@ defmodule Fountain.Repo.Migrations.AddClientRequestIdToTurns do
     # No index, and not unique. Nothing looks a turn up by this value: it is
     # read as a column of turns already selected by conversation. It is a
     # correlation, not an idempotency key, so two turns may carry the same one.
+    #
+    # `:text`, not `:string`. The bound the API, `PromptDelivery.travelling/1`
+    # and `Turn.changeset/2` enforce is 200 graphemes; `varchar(255)` bounds
+    # PostgreSQL characters, and a grapheme can be several of them. 200
+    # graphemes of "e" plus a combining acute is 400 characters: accepted at
+    # every layer above, and refused by the column. That refusal arrives at an
+    # insert nothing rescues, which ends the conversation server after its
+    # caller was already told `queued`.
     alter table(:turns) do
-      add :client_request_id, :string
+      add :client_request_id, :text
     end
   end
 

@@ -1256,6 +1256,11 @@ defmodule Fountain.Machines.BindingTest do
       # `GenServer`'s generated one, and defining any `handle_info/2` replaces
       # the default that would have logged and ignored — so a stray `:DOWN` or
       # a late reply took the owner down too.
+      # A payload that would be unmistakable in a log line if the redaction
+      # leaked: empty values prove nothing (round 3, behaviour review drove the
+      # refutation with a string of its own for the same reason).
+      secret = "sk-live-do-not-log-me-9f3c"
+
       with_gate(true, fn ->
         {:ok, owner} = Machine.ensure_started(ctx.sandbox.id)
         sandbox_id = ctx.sandbox.id
@@ -1263,25 +1268,27 @@ defmodule Fountain.Machines.BindingTest do
         call_log =
           capture_log(fn ->
             assert {:error, :sandbox_unavailable} =
-                     GenServer.call(owner, {:a_verb_from_a_later_release, [], nil})
+                     GenServer.call(owner, {:a_verb_from_a_later_release, %{token: secret}, nil})
           end)
 
         # The log has to name what arrived and on which machine, or this
-        # clause is silence with a return value (the lead's condition).
+        # clause is silence with a return value (the lead's condition). The
+        # call returning at all is the proof the owner survived, so there is no
+        # `Process.alive?` here; the barrier calls below are the same proof for
+        # the two asynchronous cases.
         assert call_log =~ "no handle_call clause for :a_verb_from_a_later_release/3"
         assert call_log =~ sandbox_id
-        assert Process.alive?(owner)
 
         cast_log =
           capture_log(fn ->
-            GenServer.cast(owner, {:a_cast_from_a_later_release, nil})
-            # The cast is asynchronous; this call is the barrier.
+            GenServer.cast(owner, {:a_cast_from_a_later_release, %{token: secret}})
+            # The cast is asynchronous; this call is the barrier that forces
+            # the owner to have handled it.
             assert %Fountain.Machines.Occupancy{} = GenServer.call(owner, :who_is_here)
           end)
 
         assert cast_log =~ "no handle_cast clause for :a_cast_from_a_later_release/2"
         assert cast_log =~ sandbox_id
-        assert Process.alive?(owner)
 
         info_log =
           capture_log(fn ->
@@ -1291,10 +1298,23 @@ defmodule Fountain.Machines.BindingTest do
 
         assert info_log =~ "unexpected message :DOWN/5"
         assert info_log =~ sandbox_id
-        assert Process.alive?(owner)
 
-        # The payload never reaches the log: a shape is a tag and an arity.
-        refute call_log =~ "a_verb_from_a_later_release, [], nil"
+        # **And a message that is not a tuple**, which is where the redaction
+        # claim used to be false: the fallback inspected the whole term, so a
+        # map or a binary went into the log entire. The type, and nothing else.
+        map_log =
+          capture_log(fn ->
+            send(owner, %{token: secret})
+            assert %Fountain.Machines.Occupancy{} = GenServer.call(owner, :who_is_here)
+          end)
+
+        assert map_log =~ "unexpected message a map"
+
+        # The payload never reaches the log, whatever its shape: a tuple is a
+        # tag and an arity, anything else is a type.
+        for log <- [call_log, cast_log, info_log, map_log] do
+          refute log =~ secret
+        end
 
         # And it still answers the verbs it does know.
         assert %Fountain.Machines.Occupancy{} = GenServer.call(owner, :who_is_here)

@@ -933,22 +933,21 @@ defmodule Fountain.TeamTest do
         agent = insert_agent(user_id: user.id)
         sandbox = insert_sandbox(user_id: user.id, agent_id: agent.id, status: "ready")
         prev = insert_teammate_conv(user, agent, sandbox: sandbox, status: "idle")
-        prev_id = prev.id
         prepare.(sandbox)
 
         assert {:error, ^expected} = Team.open_fresh_conversation(user.id, agent.id)
+
+        # The teammate keeps the conversation it had: this is what carries the
+        # ordering fix, and it is the first thing to fail if the release goes
+        # back in front of the door.
         assert Repo.reload!(prev).status == "idle"
 
+        # And no successor row was created despite the refusal — not a second
+        # statement about the release, which is what it looks like, but the
+        # only thing in this test that would see an attach that wrote its
+        # conversation and then rolled back its decision (round 3).
         assert [prev.id] ==
                  user.id |> Team.list_teammate_conversations(agent.id) |> Enum.map(& &1.id)
-
-        # Not stranded. `status == "idle"` above is the assertion carrying
-        # this — `get_teammate/2` answers with the newest conversation whether
-        # or not it is live, so it would find `prev` either way and cannot tell
-        # a kept teammate from a retired one (round 3). What it does add is
-        # that the roster has not moved on to some other conversation, so it
-        # stays, demoted to that.
-        assert %{conversation: %{id: ^prev_id}} = Team.get_teammate(user.id, agent.id)
 
         {agent, sandbox, prev}
       end

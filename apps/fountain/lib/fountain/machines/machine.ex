@@ -1427,28 +1427,58 @@ defmodule Fountain.Machines.Machine do
 
   @impl true
   # The same hole on the cast side, and it does not need a later release to
-  # open: with no `handle_cast/2` at all, `GenServer`'s generated one stops the
-  # process with `{:bad_cast, message}`, which costs the mailbox exactly as a
-  # missing call clause does. Nothing casts to an owner today — `machine_gone`
-  # is a cast, but it goes to the *conversation servers*, never here — so this
-  # clause is the whole cast surface, and a cast that arrives is by definition
-  # a shape this release does not know. There is nobody to answer, so the
-  # refusal is simply not dying.
+  # open: with no `handle_cast/2` at all, `GenServer`'s generated one raises a
+  # `RuntimeError` ("attempted to cast .. but no handle_cast/2 clause was
+  # provided", driven — not the `{:bad_cast, ..}` an earlier version of this
+  # comment claimed), which costs the mailbox exactly as a missing call clause
+  # does. Nothing casts to an owner today — `machine_gone` is a cast, but it
+  # goes to the *conversation servers*, never here — so this clause is the
+  # whole cast surface, and a cast that arrives is by definition a shape this
+  # release does not know. There is nobody to answer, so the refusal is simply
+  # not dying.
+  #
+  # No `arm_idle/1`, for the reason the info clause gives and against the same
+  # rule: **a call re-arms because a caller is waiting and will likely ask
+  # again, and every other `handle_call` in this module re-arms; a message with
+  # nobody waiting does not, because nothing was done.** Re-arming here would
+  # keep an idle machine's owner alive on a message it refused, which is the
+  # thing the info clause is careful not to do (round 3, behaviour review).
   def handle_cast(message, state) do
     Logger.error(
       "machine #{state.sandbox_id}: no handle_cast clause for #{shape(message)}; ignoring. " <>
         "A caller on a later release, or a message shape that was never added here."
     )
 
-    {:noreply, arm_idle(state)}
+    {:noreply, state}
   end
 
   # The tag and the arity, never the payload: an `{:attach, attrs, ..}` carries
   # a conversation's attributes, and a log line is not a place to put them.
+  #
+  # That claim used to hold for tuples only — the fallback inspected the whole
+  # term, so a map or a binary was logged in full and the sentence above was
+  # false for exactly the messages most likely to carry something (round 3,
+  # protocol review). A bare atom is a shape in itself and carries nothing;
+  # everything else is logged as its type and never its contents.
   defp shape(message) when is_tuple(message) and tuple_size(message) > 0,
     do: "#{inspect(elem(message, 0))}/#{tuple_size(message)}"
 
-  defp shape(message), do: inspect(message)
+  defp shape(message) when is_atom(message), do: inspect(message)
+
+  defp shape(message), do: "a #{type_name(message)}"
+
+  defp type_name(message) when is_binary(message), do: "binary"
+  defp type_name(message) when is_bitstring(message), do: "bitstring"
+  defp type_name(message) when is_map(message), do: "map"
+  defp type_name(message) when is_list(message), do: "list"
+  defp type_name(message) when is_tuple(message), do: "tuple"
+  defp type_name(message) when is_integer(message), do: "integer"
+  defp type_name(message) when is_float(message), do: "float"
+  defp type_name(message) when is_pid(message), do: "pid"
+  defp type_name(message) when is_port(message), do: "port"
+  defp type_name(message) when is_reference(message), do: "reference"
+  defp type_name(message) when is_function(message), do: "function"
+  defp type_name(_message), do: "term"
 
   @impl true
   def handle_info({:idle, token}, %{idle_token: token} = state) do
@@ -1466,14 +1496,35 @@ defmodule Fountain.Machines.Machine do
   # what decides.
   def handle_info({:idle, _stale}, state), do: {:noreply, state}
 
-  # And the info side, where the shapes are not a protocol at all: a late reply
-  # to a call that already timed out, a `:DOWN`, an `:EXIT`. Defining
+  # And the info side, where the shapes are not a protocol at all. Defining
   # `handle_info/2` at all replaces the logged-and-ignored default `use
-  # GenServer` would have given this module, so before this clause any one of
-  # those raised a `FunctionClauseError` and took the machine's owner down
-  # mid-operation. Warning rather than error, because unlike a call or a cast
-  # these are ordinary runtime noise; `arm_idle/1` is deliberately not called,
-  # since a stray message is not this machine being used.
+  # GenServer` would have given this module, so before this clause anything
+  # unmatched raised a `FunctionClauseError` and took the machine's owner down
+  # mid-operation.
+  #
+  # **The shape that actually arrives is `Machines.Renewal`'s abandoned
+  # verdict**, and anyone editing that module should know it lands here.
+  # `Renewal.stop/1`'s `@stop_timeout_ms` branch demonitors the renewer, kills
+  # it and returns while a `{:renewal, ref, verdict}` may already be in flight
+  # into *this* mailbox — and `around/5` runs inside `handle_call` for park,
+  # resume and destroy, so that message reaches an owner mid-operation. Round 2
+  # drove it: `function_clause`, the owner dead, the caller queued behind it
+  # answered `:noproc`.
+  #
+  # The obvious candidates do not reach it, and saying so is the point (round 3,
+  # protocol review, driven on OTP 28): a late reply to a call that timed out is
+  # dropped, because the call's alias is deactivated at the timeout; the only
+  # monitor this process holds is `Renewal.stop/1`'s and both of its exits are
+  # flushed; and the owner does not trap exits, so a real link exit kills it
+  # rather than arriving as a message. Only a hand-sent `:EXIT` or `:DOWN`
+  # tuple gets here.
+  #
+  # Warning rather than error, because unlike a call or a cast these are
+  # ordinary runtime noise; `arm_idle/1` is deliberately not called, since a
+  # stray message is not this machine being used. Driven both ways: a stray
+  # neither extends nor shortens the owner's life, and it cannot stop one
+  # underneath a live operation, because a GenServer handles one message at a
+  # time and the operation's own re-arm makes the fired idle stale.
   def handle_info(message, state) do
     Logger.warning("machine #{state.sandbox_id}: unexpected message #{shape(message)}; ignoring")
 

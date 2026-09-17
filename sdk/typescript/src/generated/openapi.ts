@@ -11373,6 +11373,15 @@ export interface operations {
                     "application/json": components["schemas"]["NegotiationError"];
                 };
             };
+            /** @description Sandbox is being reset */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
             /** @description Conversation is terminal */
             410: {
                 headers: {

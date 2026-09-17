@@ -182,6 +182,35 @@ defmodule Fountain.Machines.MachineBoundsTest do
     assert ProvisionWatchdog.lapse_grace_ms() > Provision.lease_ttl_ms()
   end
 
+  # The two bound-shaped calls `lib/` makes on purpose, each spelled exactly as
+  # the file makes it. The scan below removes these strings from every file's
+  # content before it looks, so a file is never exempt — only the one call is.
+  #
+  # Stage 7b exempted `provision_watchdog.ex` and `fresh_provision.ex` wholesale
+  # and pinned each with a "passes a named accessor" assertion beside it. The 7b
+  # protocol review ran the shape that replaces both: a literal
+  # `lease_ttl_ms: 1_000` planted next to the `deadline_ms:` call passed the
+  # exempted file and fails this one. Stripping the call rather than the file
+  # also makes the containment pin redundant: an entry here that no file makes
+  # any more strips nothing, and the day that call becomes a literal the scan
+  # names it.
+  @known_good_bound_calls [
+    # `ProvisionWatchdog` waits longer than five seconds for a lease it has
+    # already waited half an hour for; giving up early would leave a stuck
+    # server alive with a live row, the #394 ordering inverted. Pinned by value
+    # in "a provision's ladder" above.
+    "busy_wait_ms: @retire_wait_ms",
+    # The provision bracket's renewal window is `ProvisionWatchdog.deadline_ms/0`
+    # rather than `Renewal`'s ten TTLs (stage 7b, behaviour change 8).
+    "deadline_ms: ProvisionWatchdog.deadline_ms()"
+  ]
+
+  # A bound passed as an option, in any of the three spellings a protocol takes.
+  # `deadline_ms` joined the two in stage 7b: a `deadline_ms:` on a destroy, a
+  # park or a resume would silently replace `Renewal`'s ten-TTL hard stop, and
+  # nothing else would notice — which is the failure mode this scan is for.
+  @bound_option ~r/\b(busy_wait_ms|lease_ttl_ms|deadline_ms):/
+
   test "no call site overrides the bounds" do
     # The defaults only mean something if nothing in `lib/` passes its own. A
     # test may (and `destroy_test.exs` does) — that is the mechanism check.
@@ -190,7 +219,7 @@ defmodule Fountain.Machines.MachineBoundsTest do
     # `direct_writes_test.exs` makes from this directory. The first draft
     # climbed four, landed on `apps/`, found neither candidate directory, and
     # scanned nothing at all — a test that passed because it looked at zero
-    # files. Hence the count assertion below: an empty scan is the failure
+    # files. Hence the reach assertion below: an empty scan is the failure
     # mode this check has, so it has to be the loud one.
     root = Path.expand("../../../../..", __DIR__)
 
@@ -199,70 +228,66 @@ defmodule Fountain.Machines.MachineBoundsTest do
          Path.wildcard(Path.join(root, "apps/fountain_*/lib")))
       |> Enum.filter(&File.dir?/1)
       |> Enum.flat_map(&Path.wildcard(Path.join(&1, "**/*.ex")))
-      |> Enum.reject(
-        &String.ends_with?(&1, [
-          "machines/destroy.ex",
-          "machines/park.ex",
-          "machines/resume.ex",
-          "machines/provision.ex",
-          # The one caller in `lib/` that overrides a bound on purpose, and it
-          # is exempted rather than allowed to hide: `ProvisionWatchdog` waits
-          # longer than five seconds for a lease it has already waited half an
-          # hour for, because giving up early would leave a stuck server alive
-          # with a live row — the #394 ordering inverted. Both the value and
-          # the fact that it passes it *by name* are pinned below, so exempting
-          # the file costs nothing the scan was buying.
-          "conversations/provision_watchdog.ex",
-          # And the one site that passes `:deadline_ms`: the provision bracket's
-          # renewal window is `ProvisionWatchdog.deadline_ms/0` rather than
-          # `Renewal`'s ten TTLs, which is behaviour change 8.
-          "conversations/fresh_provision.ex"
-        ])
-      )
-
-    # **Each exempted file is exempt because it passes a named accessor rather
-    # than a literal** — which is what keeps the numbers above the live ones,
-    # and which an earlier draft asserted in prose and nowhere else (round 2,
-    # surfaces review). A literal there would be a second copy of a bound with
-    # nothing watching it, which is this test's whole failure mode.
-    for {file, call} <- [
-          {"apps/fountain/lib/fountain/conversations/provision_watchdog.ex",
-           "busy_wait_ms: @retire_wait_ms"},
-          {"apps/fountain/lib/fountain/conversations/fresh_provision.ex",
-           "deadline_ms: ProvisionWatchdog.deadline_ms()"}
-        ] do
-      assert File.read!(Path.join(root, file)) =~ call,
-             "#{file} is exempt from the scan below because it passes `#{call}`. It does not " <>
-               "any more, so either it hard-codes a bound now — which the exemption was never " <>
-               "for — or the call moved and this pin has to move with it."
-    end
 
     # Not a bare count: the files that could plausibly override a bound are the
-    # three sites that call the protocol, so the scan has to be shown to reach
-    # *them*. A count alone drifts; this fails the day one of them moves, which
-    # is the day to check the scan still covers its new home.
+    # sites that call a protocol, so the scan has to be shown to reach *them* —
+    # and, since stage 8a, the protocol modules themselves, which used to be
+    # excluded and now are not. A count alone drifts; this fails the day one of
+    # them moves, which is the day to check the scan still covers its new home.
     relative = MapSet.new(files, &Path.relative_to(&1, root))
 
     for site <- [
           "apps/fountain/lib/fountain/conversations/termination.ex",
           "apps/fountain/lib/fountain/conversations/lifecycle.ex",
           "apps/fountain/lib/fountain/conversations/conversation_server.ex",
+          "apps/fountain/lib/fountain/conversations/provision_watchdog.ex",
+          "apps/fountain/lib/fountain/conversations/fresh_provision.ex",
           "apps/fountain/lib/fountain/workers/sandbox_reaper.ex",
-          "apps/fountain/lib/fountain/machines/machine.ex"
+          "apps/fountain/lib/fountain/machines/machine.ex",
+          "apps/fountain/lib/fountain/machines/destroy.ex",
+          "apps/fountain/lib/fountain/machines/park.ex",
+          "apps/fountain/lib/fountain/machines/resume.ex",
+          "apps/fountain/lib/fountain/machines/provision.ex"
         ] do
       assert MapSet.member?(relative, site),
              "the scan missed #{site} (#{length(files)} files under #{root}), so an " <>
                "override there would not be seen and this test proves nothing"
     end
 
-    # `deadline_ms` joined the two in stage 7b: a `deadline_ms:` on a destroy, a
-    # park or a resume would silently replace `Renewal`'s ten-TTL hard stop, and
-    # nothing else would notice — which is the failure mode this scan is for.
     offenders =
-      Enum.filter(files, &(File.read!(&1) =~ ~r/\b(busy_wait_ms|lease_ttl_ms|deadline_ms):/))
+      Enum.filter(files, fn file ->
+        file |> File.read!() |> strip_known_good_calls() |> String.match?(@bound_option)
+      end)
 
     assert offenders == [],
            "these pass their own bound, so the defaults above stop being the live " <>
              "numbers: #{inspect(Enum.map(offenders, &Path.relative_to(&1, root)))}"
+  end
+
+  # The scan's own positive control: the strip has to remove the two calls it
+  # names and nothing else, or a broken strip would either hide a literal or
+  # flag the two known-good files for ever.
+  test "the strip removes exactly the two known-good calls" do
+    planted = """
+    Renewal.around(id, epoch, ttl, fun,
+      deadline_ms: ProvisionWatchdog.deadline_ms()
+    )
+    Machine.fail_provision(id, busy_wait_ms: @retire_wait_ms, actor: "x")
+    """
+
+    refute planted |> strip_known_good_calls() |> String.match?(@bound_option)
+
+    # The shape the 7b review planted: a literal beside the named call, in a
+    # file the old scan exempted.
+    assert (planted <> "    lease_ttl_ms: 1_000\n")
+           |> strip_known_good_calls()
+           |> String.match?(@bound_option)
+
+    # And a literal in the position the named call occupies.
+    assert "deadline_ms: 1_800_000" |> strip_known_good_calls() |> String.match?(@bound_option)
+  end
+
+  defp strip_known_good_calls(content) do
+    Enum.reduce(@known_good_bound_calls, content, &String.replace(&2, &1, ""))
   end
 end

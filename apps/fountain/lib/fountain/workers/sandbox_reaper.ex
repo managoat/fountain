@@ -274,28 +274,39 @@ defmodule Fountain.Workers.SandboxReaper do
     |> Repo.all()
     |> Repo.preload(:conversations)
     |> Enum.reject(&Lifecycle.any_server_alive?/1)
-    |> Enum.map(fn sandbox ->
+    |> Enum.count(fn sandbox ->
       was = sandbox.status
 
-      {:ok, _} =
-        Conversations.update_sandbox(sandbox, %{
-          status: "failed",
-          terminated_at: DateTime.utc_now() |> DateTime.truncate(:second)
-        })
+      # Not matched with `{:ok, _} =`: a sweep over failure leftovers that
+      # crashes on one refused row stops the pass for every row after it
+      # (#2329, the rule ADR 0058 records). A row the write refuses — retired
+      # under it, fenced since the scan — is logged and left for the next pass.
+      case Conversations.update_sandbox(sandbox, %{
+             status: "failed",
+             terminated_at: DateTime.utc_now() |> DateTime.truncate(:second)
+           }) do
+        {:ok, _} ->
+          Logger.info(
+            "reaper: released stuck sandbox #{sandbox.id} (#{sandbox.machine_name}) " <>
+              "after #{@stuck_after_minutes}m in #{sandbox.status}"
+          )
 
-      Logger.info(
-        "reaper: released stuck sandbox #{sandbox.id} (#{sandbox.machine_name}) " <>
-          "after #{@stuck_after_minutes}m in #{sandbox.status}"
-      )
+          record_reap(sandbox, "sandbox.released_stuck", %{
+            "previous_status" => was,
+            "stuck_after_minutes" => @stuck_after_minutes
+          })
 
-      record_reap(sandbox, "sandbox.released_stuck", %{
-        "previous_status" => was,
-        "stuck_after_minutes" => @stuck_after_minutes
-      })
+          true
 
-      sandbox
+        {:error, reason} ->
+          Logger.warning(
+            "reaper: could not release stuck sandbox #{sandbox.id} " <>
+              "(#{sandbox.machine_name}): #{inspect(reason)}; left for the next pass"
+          )
+
+          false
+      end
     end)
-    |> length()
   end
 
   # The marker half of "is anybody holding this row", as a composable

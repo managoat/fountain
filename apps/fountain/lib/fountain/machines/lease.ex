@@ -89,8 +89,8 @@ defmodule Fountain.Machines.Lease do
   control-plane bookkeeping, and the events an operation owes — `sandbox.destroyed`
   and its siblings — are recorded by the owner's verbs.
 
-  The write half has two callers, and they are the two protocols: `Destroy`
-  since stage 5a and `Park` since 6b. Each claims a lease around one operation,
+  The write half has four callers, and they are the four protocols: `Destroy`
+  since stage 5a, `Park` since 6b, `Resume` since 7a and `Provision` since 7b. Each claims a lease around one operation,
   stamps the transition, does its provider I/O outside every lock, finalizes
   with `cas_update/3` and releases. A park additionally writes `provider_meta`
   mid-transition, through the same primitive and the same epoch — see
@@ -142,7 +142,17 @@ defmodule Fountain.Machines.Lease do
   # if the park has been superseded, for the same reason the finalize does —
   # a checkpoint id belonging to an operation that no longer owns the machine
   # would be read back by a reset as the state to roll to.
-  @writable ~w(status transition transition_reason terminated_at last_resumed_at provider_meta)a
+  #
+  # `build_fingerprint` and `applied_skills` joined them in stage 7b, for the
+  # same reason and at the other end of the same argument. They are the record
+  # of *what the disk was built from* — the environment digest a later reapply
+  # compares against, and the skills the machine has mounted — and the provision
+  # writes them in the one statement that makes the machine `ready`. A superseded
+  # provision must not leave them behind: a fingerprint describing a build
+  # another owner threw away is exactly the reading
+  # `Reapply.needs_rebuild?/2` would trust and be wrong about.
+  @writable ~w(status transition transition_reason terminated_at last_resumed_at provider_meta
+               build_fingerprint applied_skills)a
 
   # Where a sandbox stops. Kept in step with `@billable_terminal` in
   # `Fountain.Conversations`, whose `prevent_sandbox_revival/1` this mirrors.
@@ -201,12 +211,15 @@ defmodule Fountain.Machines.Lease do
   @doc """
   The database's clock, for a caller that judges more than one row against it.
 
-  One `select now()`. A sweep fetches it once and hands it to `live?/2` for
-  every row in the page; `Machine.busy?/2` lets it default and pays for the one
-  row it is asking about.
+  One `select statement_timestamp()`. A sweep fetches it once and hands it to
+  `live?/2` for every row in the page; `Machine.busy?/2` lets it default and
+  pays for the one row it is asking about.
 
-  `statement_timestamp()` rather than `now()`, so it advances inside an
-  enclosing transaction — see the moduledoc.
+  `statement_timestamp()` rather than `now()` — and the docstring said `now()`
+  until stage 7b, describing the one thing this function is careful not to do:
+  `now()` is `transaction_timestamp()` and freezes for a whole transaction, so a
+  lease could never expire while its reader sat in one that started before it
+  was written. See the moduledoc.
   """
   @spec now() :: DateTime.t()
   def now do
@@ -420,7 +433,8 @@ defmodule Fountain.Machines.Lease do
   """
   @spec cas_update(Ecto.UUID.t(), epoch(), map() | keyword(), keyword()) ::
           {:ok, Sandbox.t()}
-          | {:error, :stale | :retired | :transaction_open | {:invalid, atom()} | term()}
+          | {:error,
+             :stale | :retired | :fenced | :transaction_open | {:invalid, atom()} | term()}
   def cas_update(sandbox_id, epoch, attrs, opts \\ [])
       when is_binary(sandbox_id) and is_integer(epoch) and is_list(opts) do
     guarded(sandbox_id, Keyword.get(opts, :nest, false), fn ->
@@ -435,12 +449,13 @@ defmodule Fountain.Machines.Lease do
             sandbox_id
             |> held_by(epoch)
             |> refuse_revival(sets)
+            |> refuse_fenced(Keyword.get(opts, :refuse_fenced, false))
             |> stamp_terminated_at(sets)
             |> select([s], s)
 
           case Repo.update_all(query, set: sets) do
             {1, [sandbox]} -> {:ok, sandbox}
-            {0, _} -> {:error, zero_row_reason(sandbox_id, epoch)}
+            {0, _} -> {:error, zero_row_reason(sandbox_id, epoch, opts)}
           end
         end
       else
@@ -599,13 +614,47 @@ defmodule Fountain.Machines.Lease do
     end
   end
 
+  # **`refuse_fenced: true`** additionally requires both fence columns to be
+  # null, and it is opt-in for the same reason `nest:` is: everywhere else the
+  # fence is not this write's business.
+  #
+  # `Destroy` writes a terminal status onto a row it has just fenced, and
+  # `Park`'s finalize is allowed to land on a fence that arrived mid-operation
+  # (stage 6b decided that). What cannot be allowed is the third case, and it
+  # arrived with stage 7b: a *provision* finishing onto a row somebody asked to
+  # be reset while the machine was being built. `Conversations.update_sandbox/2`
+  # refuses exactly that — it rolls back with `:sandbox_reset_pending` unless the
+  # write is terminal — and it was the only thing refusing it, so a bracket that
+  # wrote `ready` through `cas_update/4` without this would have handed a
+  # conversation a machine the reset reconciler was about to delete.
+  defp refuse_fenced(query, false), do: query
+
+  defp refuse_fenced(query, true) do
+    from s in query, where: is_nil(s.reset_requested_at) and is_nil(s.teardown_requested_at)
+  end
+
   # Only on the refusal path, so the write itself stays one statement. Without
   # it a revival and a takeover are the same zero rows, and an owner told
   # `:stale` would go looking for a successor that never existed.
-  defp zero_row_reason(sandbox_id, epoch) do
-    case Repo.one(from s in held_by(sandbox_id, epoch), select: s.status) do
-      status when status in @terminal_statuses -> :retired
-      _ -> :stale
+  #
+  # The order is the order the write applies them, so the reason names the
+  # first thing that refused: not the holder, then retired, then fenced.
+  defp zero_row_reason(sandbox_id, epoch, opts) do
+    case Repo.one(
+           from s in held_by(sandbox_id, epoch),
+             select: map(s, [:status, :reset_requested_at, :teardown_requested_at])
+         ) do
+      nil ->
+        :stale
+
+      %{status: status} when status in @terminal_statuses ->
+        :retired
+
+      row ->
+        if Keyword.get(opts, :refuse_fenced, false) and
+             (not is_nil(row.reset_requested_at) or not is_nil(row.teardown_requested_at)),
+           do: :fenced,
+           else: :stale
     end
   end
 

@@ -120,6 +120,10 @@ defmodule Fountain.AuditGuardrailTest do
     # machine's owner records it, so every door onto a destroy — terminate, a
     # reclaim, and the forced teardowns of stage 5b — is covered by one entry.
     {"machine destroy", &__MODULE__.do_machine_destroy/1, "sandbox.destroyed"},
+    # The third completed-operation event, one per owner verb (ADR 0058 stage
+    # 7a). `main` recorded nothing at all when a parked machine came back, so a
+    # tenant's trail showed the suspend and not the wake.
+    {"machine resume", &__MODULE__.do_machine_resume/1, "sandbox.resumed"},
     # Two of stage 5b's forced-teardown doors, named separately from the entry
     # above. That one drives `Machine.destroy/2` itself and would stay green if
     # a site stopped going through it; these drive the sites.
@@ -647,6 +651,12 @@ defmodule Fountain.AuditGuardrailTest do
   def do_machine_destroy(user) do
     sandbox = insert_sandbox(user_id: user.id, status: "ready")
     {:ok, :destroyed} = Machine.destroy(sandbox.id, actor: "api", reason: :terminated)
+  end
+
+  def do_machine_resume(user) do
+    sandbox = insert_sandbox(user_id: user.id, status: "suspended")
+    Mimic.stub(Managoat.Sandbox.Sprites, :resume, fn handle -> {:ok, handle} end)
+    {:ok, :resumed} = Machine.ensure_up(sandbox.id, actor: "system:wake")
   end
 
   def do_machine_reap(user) do

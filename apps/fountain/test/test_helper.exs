@@ -91,6 +91,11 @@ Mimic.copy(Fountain.Machines.Lease)
 # The protocol behind `Machine.destroy/2`, copied so the door's translation of
 # its refusals into the system's vocabulary can be driven one shape at a time.
 Mimic.copy(Fountain.Machines.Destroy)
+# The same, for the third protocol (stage 7a): `Machine.ensure_up/2` lets more
+# words through than either sibling — the fence, `:provisioning`, the provider's
+# refusal and the admission's three — and each arm is driven by handing
+# `Resume.run/2` one of them.
+Mimic.copy(Fountain.Machines.Resume)
 
 # ─── The schema guard (#1427) ────────────────────────────────────────────────
 #

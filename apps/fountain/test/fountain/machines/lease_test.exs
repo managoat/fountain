@@ -431,6 +431,206 @@ defmodule Fountain.Machines.LeaseTest do
 
       assert Repo.get!(Sandbox, ctx.sandbox.id).lease_epoch == 0
     end
+
+    test "an enclosing transaction is permitted where a caller opts in", ctx do
+      # The one exception, and it has one caller: `Machines.Resume`'s admission
+      # runs this inside `Quotas.with_sandbox_reservation/3`'s transaction so the
+      # `resuming` stamp and the quota count that authorised it commit together.
+      # `cas_update/4` takes no advisory lock, so the moduledoc's reason for the
+      # guard does not reach it; what nesting *does* do — a rollback undoing the
+      # write — is what a reservation wants.
+      {:ok, epoch} = Lease.claim(ctx.sandbox.id, ctx.node, @ttl_ms)
+
+      assert {:ok, :rolled_back} =
+               Repo.transaction(fn ->
+                 assert {:ok, %Sandbox{transition: "resuming"}} =
+                          Lease.cas_update(ctx.sandbox.id, epoch, [transition: "resuming"],
+                            nest: true
+                          )
+
+                 :rolled_back
+               end)
+
+      # Committed, because the transaction above committed. The refusal half is
+      # in `resume_test.exs`, where a quota that says no rolls the stamp back
+      # with it.
+      assert Repo.get!(Sandbox, ctx.sandbox.id).transition == "resuming"
+    end
+
+    test "opting in does not extend to the functions that take the lock", ctx do
+      # `nest:` is `cas_update/4`'s alone. `claim/4` and its siblings hold
+      # `pg_advisory_xact_lock(4316, …)`, and nesting one would hold that lock
+      # until the *outer* commit — the thing the guard exists for.
+      assert {:ok, :unchanged} =
+               Repo.transaction(fn ->
+                 assert {:error, :transaction_open} =
+                          Lease.claim(ctx.sandbox.id, ctx.node, @ttl_ms)
+
+                 :unchanged
+               end)
+    end
+  end
+
+  describe "the clock" do
+    # Every SQL statement the repo runs while `fun` does. The only way to say
+    # *who* computed a timestamp, as the first test explains.
+    defp capture_queries(fun) do
+      owner = self()
+      handler = {__MODULE__, make_ref()}
+
+      :telemetry.attach(
+        handler,
+        [:fountain, :repo, :query],
+        fn _event, _measure, %{query: query}, _config -> send(owner, {:query, query}) end,
+        nil
+      )
+
+      try do
+        fun.()
+      after
+        :telemetry.detach(handler)
+      end
+
+      collect_queries([])
+    end
+
+    defp collect_queries(acc) do
+      receive do
+        {:query, query} -> collect_queries([query | acc])
+      after
+        0 -> Enum.reverse(acc)
+      end
+    end
+
+    setup do
+      user = insert_verified_user()
+      sandbox = insert_sandbox(user_id: user.id, status: "pending")
+      {:ok, user: user, sandbox: sandbox, node: "fountain@test-a"}
+    end
+
+    test "a claim dates the lease from the database, not from this node", ctx do
+      # The whole of stage 7a's clock change, and it has to be pinned on the
+      # *statement* rather than on the value: a test host has one clock, so a
+      # deadline written from `DateTime.utc_now()` and one written from
+      # `statement_timestamp()` agree to the millisecond and no assertion on the
+      # column could tell them apart. What can be told apart is who computed it,
+      # which is what the SQL says.
+      queries =
+        capture_queries(fn -> {:ok, _} = Lease.claim(ctx.sandbox.id, ctx.node, @ttl_ms) end)
+
+      write = Enum.find(queries, &(&1 =~ ~r/UPDATE "sandboxes".*lease_until/s))
+      assert write, "no update of `lease_until` was issued at all:\n#{Enum.join(queries, "\n")}"
+
+      assert write =~ "statement_timestamp()",
+             "the deadline was computed on this node and sent as a parameter, which is the " <>
+               "N-clocks arrangement stage 7a replaced:\n#{write}"
+
+      # And it lands where the database says it should.
+      until = Repo.get!(Sandbox, ctx.sandbox.id).lease_until
+      drift = DateTime.diff(until, Lease.now(), :millisecond) - @ttl_ms
+      assert abs(drift) < 2_000
+    end
+
+    test "a renewal is computed by the database too", ctx do
+      {:ok, epoch} = Lease.claim(ctx.sandbox.id, ctx.node, @ttl_ms)
+      queries = capture_queries(fn -> :ok = Lease.renew(ctx.sandbox.id, epoch, @ttl_ms) end)
+
+      write = Enum.find(queries, &(&1 =~ ~r/UPDATE "sandboxes".*lease_until/s))
+      assert write
+      assert write =~ "statement_timestamp()"
+    end
+
+    test "liveness is judged against the database's clock", ctx do
+      # `live?/2`'s default, and with it every reader that lets it default:
+      # `Machine.busy?/2`, and through that the wake, the attach and the
+      # rehydrator. Same reason as the claim above — a value cannot tell the two
+      # clocks apart on one host, so the assertion is that a query happened at
+      # all.
+      {:ok, _epoch} = Lease.claim(ctx.sandbox.id, ctx.node, @ttl_ms)
+      held = Repo.get!(Sandbox, ctx.sandbox.id)
+
+      queries = capture_queries(fn -> assert Lease.live?(held) end)
+
+      assert Enum.any?(queries, &(&1 =~ "statement_timestamp()")),
+             "live?/2 judged a database-written deadline against this node's clock"
+
+      # …and an injected clock still costs nothing, which is what lets a sweep
+      # judge a page of rows against one instant.
+      assert capture_queries(fn -> assert Lease.live?(held, Lease.now()) end)
+             |> Enum.reject(&(&1 =~ "statement_timestamp()")) == []
+    end
+
+    test "a BEAM clock skewed by minutes does not change liveness", ctx do
+      # The failure this closes: a node whose clock runs fast reads every lease
+      # as expired and takes live operations over; one running slow leaves dead
+      # ones held. Both were possible while `live?/2` compared a
+      # database-written column against `DateTime.utc_now()`.
+      {:ok, _epoch} = Lease.claim(ctx.sandbox.id, ctx.node, 60_000)
+      held = Repo.get!(Sandbox, ctx.sandbox.id)
+
+      assert Lease.live?(held), "a lease claimed a moment ago is not live"
+
+      # There is no way to skew the BEAM clock inside a test, so this asserts
+      # the property that makes skew irrelevant: the default clock is the
+      # database's, and a *deliberately* skewed one only applies where a caller
+      # passes it. Ten minutes fast reads the lease as expired; the default
+      # still reads it as live, from the same row, in the same breath.
+      fast = DateTime.add(DateTime.utc_now(), 600, :second)
+      refute Lease.live?(held, fast)
+      assert Lease.live?(held), "the injected clock leaked into the default"
+    end
+
+    test "a renewal moves the deadline on the database's clock too", ctx do
+      {:ok, epoch} = Lease.claim(ctx.sandbox.id, ctx.node, 1_000)
+      first = Repo.get!(Sandbox, ctx.sandbox.id).lease_until
+
+      :ok = Lease.renew(ctx.sandbox.id, epoch, 60_000)
+      second = Repo.get!(Sandbox, ctx.sandbox.id).lease_until
+
+      assert DateTime.compare(second, first) == :gt
+      drift = DateTime.diff(second, Lease.now(), :millisecond) - 60_000
+      assert abs(drift) < 2_000
+    end
+
+    test "now/0 advances inside a transaction", ctx do
+      # `statement_timestamp()` rather than `now()`, and this is why: `now()` is
+      # `transaction_timestamp()` and would be frozen for the whole of an
+      # enclosing transaction, so a lease written inside one could never expire
+      # to a reader inside the same one — which under the test SQL sandbox, where
+      # every test *is* one transaction, means never at all.
+      _ = ctx
+      first = Lease.now()
+      Process.sleep(10)
+      second = Lease.now()
+
+      assert DateTime.compare(second, first) == :gt,
+             "the database clock is frozen; a lease can never expire to a reader here"
+    end
+
+    test "a lease whose TTL has run out is claimable, without an injected clock", ctx do
+      # End to end on the real clock: claim for a few milliseconds, wait, claim
+      # again. Nothing passes a `now`, so this is exactly what a reaper does.
+      {:ok, 1} = Lease.claim(ctx.sandbox.id, ctx.node, 20)
+      Process.sleep(60)
+
+      refute Lease.live?(Repo.get!(Sandbox, ctx.sandbox.id))
+      assert {:ok, 2} = Lease.take_over(ctx.sandbox.id, "fountain@test-b", @ttl_ms)
+    end
+
+    test "the injected clock is still the seam, and still writes what it is given", ctx do
+      # Kept so a test that needs to reach an expired lease without sleeping
+      # still can — and so the seam's semantics are pinned rather than assumed:
+      # an injected `now` dates the deadline as well as judging the old one.
+      lapsed = DateTime.add(DateTime.utc_now(), -2 * @ttl_ms, :millisecond)
+      {:ok, 1} = Lease.claim(ctx.sandbox.id, ctx.node, @ttl_ms, lapsed)
+
+      until = Repo.get!(Sandbox, ctx.sandbox.id).lease_until
+      assert DateTime.compare(until, DateTime.utc_now()) == :lt
+
+      # And the database's clock, which nothing skewed, reads it as expired.
+      refute Lease.live?(Repo.get!(Sandbox, ctx.sandbox.id))
+      assert {:ok, 2} = Lease.claim(ctx.sandbox.id, "fountain@test-b", @ttl_ms)
+    end
   end
 
   describe "across connections" do

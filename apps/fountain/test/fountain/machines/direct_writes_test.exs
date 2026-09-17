@@ -169,8 +169,26 @@ defmodule Fountain.Machines.DirectWritesTest do
   # calls `on_park/2`, not the provider, so the checkpoint is still that
   # module's to take and this ratchet still counts it. It leaves with the
   # checkpoint itself, whenever that moves.
-  @row_writes 26
-  @provider_mutations 9
+  #
+  # 26 -> 25 and 9 -> 8: stage 7a's resume moved one row write and one provider
+  # call behind `Fountain.Machines.Resume`.
+  #
+  #   gone  `wake.ex`   `resume_and_wake/1`'s `update_sandbox/2` and its
+  #                     `Managoat.Sandbox.resume/1` — the whole function, with
+  #                     `wake_suspended_sandbox/2`'s quota-reservation wrapper
+  #                     around it
+  #
+  # One, not two, and the difference is worth naming so the next stage does not
+  # budget against a number that was never there. `wake.ex` keeps
+  # `mark_old_sandbox_terminated/1`'s `update_sandbox/2`, which retires the row
+  # a *replacement* machine supersedes: a destroy-shaped terminal write the
+  # stage 6 decisions list for stage 7 alongside `conversation_server.ex`'s
+  # reattach-not-found arm, and both belong to 7b's provision bracket rather
+  # than to the resume. The nine calls left in `conversation_server.ex` and the
+  # five in `provisioning.ex`/`provision_watchdog.ex` are that same bracket and
+  # stage 8's binding work.
+  @row_writes 25
+  @provider_mutations 8
 
   @provider_verbs ~w(create_checkpoint create resume suspend destroy)
 

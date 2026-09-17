@@ -145,6 +145,85 @@ defmodule Fountain.ConversationsWakeTest do
       assert %DateTime{} = reloaded.last_resumed_at
     end
 
+    test "waking a suspended sandbox records sandbox.resumed" do
+      # New in ADR 0058 stage 7a. `main` recorded nothing when a parked machine
+      # came back, so a tenant's trail showed the suspend and not the wake.
+      user = insert_verified_user()
+      agent = insert_agent(user_id: user.id)
+      sandbox = insert_sandbox(user_id: user.id, machine_name: "test-sprite-audited")
+      {:ok, sandbox} = Conversations.update_sandbox(sandbox, %{status: "suspended"})
+      conv = insert_conversation(user_id: user.id, agent: agent, sandbox: sandbox, status: "idle")
+
+      stub(Managoat.Sandbox.Sprites, :get, fn _handle ->
+        {:ok, %{status: :suspended, raw: %{}}}
+      end)
+
+      stub(Managoat.Sandbox.Sprites, :resume, fn handle -> {:ok, handle} end)
+
+      stub(Horde.DynamicSupervisor, :start_child, fn _supervisor, _child_spec ->
+        {:ok, spawn(fn -> :ok end)}
+      end)
+
+      assert {:ok, _woken} = Wake.wake_conversation(conv.id)
+
+      assert [event] = Fountain.Audit.list_for_user(user.id, action_prefix: "sandbox.resumed")
+      assert event.actor == "system:wake"
+      assert event.resource_id == sandbox.id
+      assert event.metadata["conversation_id"] == conv.id
+    end
+
+    test "a ready row whose machine the provider says is parked is woken, not just reused" do
+      # The 6b review's other half (ADR 0058 stage 7a). A park whose finalize
+      # was lost leaves a `ready` row over a machine E2B calls `paused` and
+      # Daytona calls `stopped`; `main` reused it on any `{:ok, _info}` and
+      # handed the conversation a handle to a machine that was not running.
+      user = insert_verified_user()
+      agent = insert_agent(user_id: user.id)
+
+      sandbox =
+        insert_sandbox(user_id: user.id, status: "ready", machine_name: "test-sprite-stopped")
+
+      conv = insert_conversation(user_id: user.id, agent: agent, sandbox: sandbox, status: "idle")
+
+      stub(Managoat.Sandbox.Sprites, :get, fn _handle ->
+        {:ok, %{status: :suspended, raw: %{}}}
+      end)
+
+      test = self()
+
+      stub(Managoat.Sandbox.Sprites, :resume, fn handle ->
+        send(test, :resumed)
+        {:ok, handle}
+      end)
+
+      stub(Horde.DynamicSupervisor, :start_child, fn _supervisor, _child_spec ->
+        {:ok, spawn(fn -> :ok end)}
+      end)
+
+      assert {:ok, woken} = Wake.wake_conversation(conv.id)
+      assert woken.sandbox_id == sandbox.id
+      assert_receive :resumed
+    end
+
+    test "a ready row the provider says is running is reused without a resume" do
+      user = insert_verified_user()
+      agent = insert_agent(user_id: user.id)
+
+      sandbox =
+        insert_sandbox(user_id: user.id, status: "ready", machine_name: "test-sprite-running")
+
+      conv = insert_conversation(user_id: user.id, agent: agent, sandbox: sandbox, status: "idle")
+
+      stub(Managoat.Sandbox.Sprites, :get, fn _handle -> {:ok, %{status: :running, raw: %{}}} end)
+      reject(&Managoat.Sandbox.Sprites.resume/1)
+
+      stub(Horde.DynamicSupervisor, :start_child, fn _supervisor, _child_spec ->
+        {:ok, spawn(fn -> :ok end)}
+      end)
+
+      assert {:ok, _woken} = Wake.wake_conversation(conv.id)
+    end
+
     test "waking a suspended sandbox re-runs the quota gate" do
       # A parked sprite is free; waking it is compute again. A user at their
       # cap must be refused, exactly as if they were starting a conversation.

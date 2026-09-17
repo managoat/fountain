@@ -132,10 +132,41 @@ defmodule Fountain.Conversations.Wake do
   end
 
   # A leaf of probe_reusable_sandbox/2.
+  #
+  # **The probe reports what the machine says about itself, not only that it
+  # answered** (ADR 0058 stage 7a). Until 7a any `{:ok, _info}` was a reuse,
+  # whatever `info.status` said, and the 6b review named what that cost: a park
+  # whose finalize was lost leaves a row saying `ready` over a machine the
+  # provider has genuinely stopped, and on E2B (`paused`) and Daytona
+  # (`stopped`/`archived`) the wake then handed a conversation a handle to a
+  # machine that was not running. The third element of the verdict is
+  # `Managoat.Sandbox`'s own three-value fold — `:running | :suspended |
+  # :unknown` — and `Machines.Resume` is what acts on it.
+  #
+  # Per adapter, so nobody has to go and find out:
+  #
+  #   * **E2B** and **Daytona** report it faithfully. E2B's lookup asks for
+  #     `running,paused` explicitly and folds `paused` to `:suspended`; Daytona
+  #     folds six parked states including `archived` the same way. These are the
+  #     two the gap was real on.
+  #   * The **self-hosted runner** reports it faithfully too, from the suspend
+  #     marker its daemon writes (process backend) or the VM's own control
+  #     socket (Firecracker).
+  #   * **Sprites** cannot, and does not need to. Its `suspend/1` is a
+  #     documented no-op — the sprite scales to zero on the platform's schedule —
+  #     so `get/1` reports that schedule rather than anything Fountain did, and
+  #     its `resume/1` is a probe: a sprite reported `stopped` here is resumed by
+  #     the next exec whatever this says. The residual on Sprites is therefore
+  #     not a missed wake but a `sandbox.resumed` event and a
+  #     `last_resumed_at` stamp on a machine that had scaled to zero by itself,
+  #     which is a fair description of what happened.
+  #   * `:unknown` — a body without a status this adapter recognises — is
+  #     treated as running, i.e. as `main` treated every answer. Resuming on a
+  #     guess is the write that claims more, and this is the guess.
   def probe_sandbox(provider, name, status, sandbox_id) do
     case Managoat.Sandbox.get(Managoat.Sandbox.build_handle(provider, name)) do
-      {:ok, _info} ->
-        {:reuse, sandbox_id}
+      {:ok, info} ->
+        {:reuse, sandbox_id, Map.get(info, :status, :unknown)}
 
       {:error, :not_found} ->
         :create_new
@@ -165,66 +196,45 @@ defmodule Fountain.Conversations.Wake do
     end
   end
 
-  # Waking a suspended sandbox turns a parked sprite back into compute, so it
-  # re-runs the quota gate — under the same advisory lock as creation, with the
-  # row re-read inside. Two concurrent wakes both probe `suspended`; the loser
-  # re-reads the winner's `ready` flip and must not double-stamp the clock.
-  # `exclude: sandbox_id` makes the check identical for both ("does the user
-  # have capacity besides this sandbox"), so the loser is never spuriously
-  # refused at the cap for a wake that added no concurrency.
-  #
-  # The second leaf `wake_conversation_for/3` calls, once ownership is
-  # established there; `sandbox_id` is the conversation's own row.
-  def wake_suspended_sandbox(user_id, sandbox_id) do
-    case Conversations._unsafe_get_sandbox(sandbox_id) do
-      %Sandbox{status: "suspended"} ->
-        Fountain.Quotas.with_sandbox_reservation(user_id, [exclude: sandbox_id], fn ->
-          case Conversations._unsafe_get_sandbox(sandbox_id) do
-            %Sandbox{status: "suspended"} = sandbox ->
-              resume_and_wake(sandbox)
+  @doc """
+  Make sure the conversation's machine is up, through its owner (ADR 0058
+  stage 7a).
 
-            sandbox ->
-              {:ok, sandbox}
-          end
-        end)
+  One call to `Fountain.Machines.Machine.ensure_up/2`, which does everything
+  this function used to do itself and one thing it could not. What it used to
+  do: re-read the row, ask the provider to resume a `suspended` one, write
+  `ready` and stamp `last_resumed_at`, and re-run the quota gate — because a
+  parked sprite is not compute (ADR 0017) and waking one is. What it could not:
+  make two prompts arriving on one parked home resume it **once**. Both read
+  `suspended`, both called the provider, both wrote `ready`; the only thing
+  between them was the per-*user* advisory lock the quota reservation happens to
+  hold, which serialized two wakes of two different machines that had no need to
+  be serialized and ran a provider round trip inside a database transaction
+  doing it.
 
-      sandbox ->
-        {:ok, sandbox}
-    end
-  end
+  The owner's lease is per machine, so the second wake waits for the first and
+  then finds the machine already up; and the quota checks now commit before the
+  provider is called rather than around it. `Fountain.Machines.Resume` is where
+  that ordering is argued.
 
-  # Resume BEFORE the row flips: if the provider's wake call fails, the row
-  # stays `suspended` and the wake fails retryably — the parked disk is the
-  # agent's memory, and a row marked ready over a still-parked backend would
-  # strand it. For Sprites resume is a probe (waking is a side effect of the
-  # next exec); for pause/stop providers it is the call that restarts the
-  # sandbox.
-  #
-  # Runs under `wake_suspended_sandbox/2`'s reservation lock (see the
-  # lock-order note there); a leaf of it, not called directly by the wake
-  # door.
-  def resume_and_wake(sandbox) do
-    handle =
-      Managoat.Sandbox.build_handle(
-        Conversations.sandbox_provider_atom(sandbox),
-        sandbox.machine_name
-      )
+  Asked unconditionally, on every reuse: `ensure_up/2` answers
+  `{:ok, :already_up}` for a `ready` row without calling anybody, which is what
+  the status check here used to buy and what makes the name honest.
 
-    case Managoat.Sandbox.resume(handle) do
-      {:ok, _handle} ->
-        Conversations.update_sandbox(sandbox, %{
-          status: "ready",
-          last_resumed_at: DateTime.utc_now() |> DateTime.truncate(:second)
-        })
-
-      {:error, reason} ->
-        Logger.warning(
-          "resume failed for suspended sandbox #{sandbox.id} (#{inspect(reason)}); " <>
-            "leaving it parked"
-        )
-
-        {:error, :sandbox_resume_failed}
-    end
+  The second leaf `wake_conversation_for/3` calls, once ownership is
+  established there; `conv` is the caller's own tenant-scoped row and
+  `sandbox_id` is that conversation's own machine.
+  """
+  def wake_suspended_sandbox(%Conversation{} = conv, sandbox_id, observed \\ :unknown)
+      when is_binary(sandbox_id) do
+    Machine.ensure_up(sandbox_id,
+      # ADR 0013: the work is done by this module on an unattended path — the
+      # prompt that triggered it is the conversation's, not an operator's, and
+      # the conversation is recorded in the event's metadata instead.
+      actor: "system:wake",
+      requesting_conversation_id: conv.id,
+      observed: observed
+    )
   end
 
   # The child spec deliberately carries no prompt.
@@ -320,18 +330,23 @@ defmodule Fountain.Conversations.Wake do
            (conv.agent_id && Agents._unsafe_get_agent(conv.agent_id)) || {:error, :no_agent},
          {:ok, runtime_module} <- Fountain.RuntimeDispatch.for_agent(conv) do
       case maybe_reuse_sandbox(conv) do
-        {:reuse, sandbox_id} ->
+        {:reuse, sandbox_id, observed} ->
           # Reuse provisions nothing, so the fresh-path gates below never ran
           # here — a canceled or suspended user could restart a server against
           # a live sprite and keep prompting (#313). Same checks. Reusing a
-          # `ready` sandbox adds no concurrency, so no quota; waking a
-          # `suspended` one re-adds compute, so wake_suspended_sandbox re-runs
-          # the quota gate. The per-turn gate in ConversationServer is the
-          # backstop; this one makes the refusal synchronous at the API door.
+          # `ready` machine adds no concurrency, so no quota; bringing a parked
+          # one back re-adds compute, so `wake_suspended_sandbox/3` runs the
+          # quota gate inside the owner's admission. The per-turn gate in
+          # ConversationServer is the backstop; this one makes the refusal
+          # synchronous at the API door.
+          #
+          # `observed` is what the probe just heard from the provider, carried
+          # in so the owner can wake a machine the row calls `ready` and the
+          # provider calls stopped — see `probe_sandbox/4`.
           with :ok <- Fountain.Accounts.check_not_suspended(conv.user_id),
                :ok <- Fountain.Billing.check_spend(conv.user_id),
                :ok <- check_saved_inference(conv, agent),
-               {:ok, _} <- wake_suspended_sandbox(conv.user_id, sandbox_id) do
+               {:ok, _} <- wake_suspended_sandbox(conv, sandbox_id, observed) do
             case start_conversation_server(conv, sandbox_id, runtime_module, initial_prompt) do
               {:error, {:already_started, winner_pid}} ->
                 # Lost a concurrent wake of the same conversation to another

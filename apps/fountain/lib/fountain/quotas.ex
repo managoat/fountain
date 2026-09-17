@@ -29,8 +29,24 @@ defmodule Fountain.Quotas do
   ~nothing (decisions/0017) — which means this set is narrower than the admin
   sandbox view's "anything non-terminal": the admin table will list a suspended
   sandbox that the per-user counter ignores. Waking one re-runs the quota gate
-  (`Conversations.Wake.wake_suspended_sandbox/2`). Unconfirmed resets also count,
+  (`Fountain.Machines.Resume`). Unconfirmed resets also count,
   even on parked machines, and cannot use the replacement exclusion.
+
+  **A machine being woken counts from the moment it is admitted** (ADR 0058
+  stage 7a): a row stamped `transition: "resuming"` under a *live* lease is
+  compute that has been paid for and is on its way up, and it counts even while
+  its status still says `suspended`. That stamp is written inside
+  `with_sandbox_reservation/3`'s own transaction, which is what makes the
+  reservation a reservation rather than a read — without it, two wakes of two
+  parked machines would each pass a check the other was invisible to and both
+  come up past a cap with room for one.
+
+  The live-lease half is what keeps it honest in the other direction. A resume
+  whose owner died leaves the stamp behind, and counting *that* would hold a
+  tenant's slot until some later sweep cleared it. A lease that has expired is
+  an abandoned operation for the next owner to take over — stage 6a's rule,
+  applied here — so the slot comes back when the lease does. The clock is the
+  database's (stage 7a), the same one `lease_until` is written from.
   """
 
   import Ecto.Query
@@ -138,11 +154,23 @@ defmodule Fountain.Quotas do
 
   # A reset holds its slot until deletion is confirmed, including a reset
   # requested while parked. Replacement exclusions cannot spend that slot.
+  #
+  # The third arm is ADR 0058 stage 7a's resume reservation, and it is the one
+  # rendering of `Machines.Lease.live?/2` that had to be written in SQL: this is
+  # a `count(*)` under an advisory lock, and pulling every candidate row into
+  # Elixir to fold a predicate over it would turn a counter into a scan. The two
+  # halves are the same two `live?/2` decides on — a holder, and a deadline that
+  # has not passed — and `quotas_test.exs` pins them against it so the copy
+  # cannot drift the way stage 6a's three copies had. `statement_timestamp()`
+  # for the reason `Lease`'s moduledoc gives: `now()` freezes for the whole of
+  # the reservation's transaction, and this count runs inside one.
   defp active_sandboxes do
     from s in Sandbox,
       where:
         s.status in @active_statuses or
-          (not is_nil(s.reset_requested_at) and s.status not in ["terminated", "failed"])
+          (not is_nil(s.reset_requested_at) and s.status not in ["terminated", "failed"]) or
+          (s.transition == "resuming" and not is_nil(s.lease_node) and
+             s.lease_until > fragment("statement_timestamp()"))
   end
 
   @doc "The reserve, floor, ceiling and fleet ceiling in force."

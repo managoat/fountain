@@ -110,7 +110,7 @@ defmodule Fountain.Machines.MidOperationReadersTest do
   describe "Wake.maybe_reuse_sandbox/1" do
     test "a clean ready row probes and is reused", ctx do
       expect(Managoat.Sandbox, :get, fn _ -> {:ok, %{}} end)
-      assert {:reuse, _} = Wake.maybe_reuse_sandbox(conv_with_sandbox(ctx))
+      assert {:reuse, _, _} = Wake.maybe_reuse_sandbox(conv_with_sandbox(ctx))
     end
 
     test "a parking row under a live lease is refused before the provider is asked", ctx do
@@ -126,7 +126,7 @@ defmodule Fountain.Machines.MidOperationReadersTest do
       expect(Managoat.Sandbox, :get, fn _ -> {:ok, %{}} end)
       stamp(ctx.sandbox, transition: "parking", lease_epoch: 1, lease_node: nil, lease_until: nil)
 
-      assert {:reuse, _} = Wake.maybe_reuse_sandbox(conv_with_sandbox(ctx))
+      assert {:reuse, _, _} = Wake.maybe_reuse_sandbox(conv_with_sandbox(ctx))
     end
 
     test "an abandoned destroy answers its fence here, on this tree and on main", ctx do
@@ -168,7 +168,7 @@ defmodule Fountain.Machines.MidOperationReadersTest do
         lease_until: nil
       )
 
-      assert {:reuse, _} = Wake.maybe_reuse_sandbox(conv_with_sandbox(ctx))
+      assert {:reuse, _, _} = Wake.maybe_reuse_sandbox(conv_with_sandbox(ctx))
     end
 
     test "a live lease is refused before the provider is asked", ctx do
@@ -182,7 +182,7 @@ defmodule Fountain.Machines.MidOperationReadersTest do
       expect(Managoat.Sandbox, :get, fn _ -> {:ok, %{}} end)
       stamp(ctx.sandbox, held(-1_000))
 
-      assert {:reuse, _} = Wake.maybe_reuse_sandbox(conv_with_sandbox(ctx))
+      assert {:reuse, _, _} = Wake.maybe_reuse_sandbox(conv_with_sandbox(ctx))
     end
 
     test "a suspended row under a live lease is refused too", ctx do

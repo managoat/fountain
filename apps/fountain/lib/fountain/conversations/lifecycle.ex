@@ -84,6 +84,7 @@ defmodule Fountain.Conversations.Lifecycle do
   alias Fountain.Conversations.{Conversation, Sandbox}
   alias Fountain.Machines.Machine
   alias Fountain.Machines.Occupancy
+  alias Fountain.Machines.Policy
   alias Fountain.Repo
   alias Managoat.Sandbox.Handle
 
@@ -222,14 +223,13 @@ defmodule Fountain.Conversations.Lifecycle do
   such a backend keeps billing, so the cost control wins over the agent's
   memory, exactly as the max-lifetime ceiling already prices it.
 
-  This is the single place the degradation decision lives; the
-  ConversationServer's idle reclaim and the reaper's park both consult it —
-  the same change-both-together discipline as the clock in `check/4`.
+  The decision itself moved to `Fountain.Machines.Policy.idle_action/1` in ADR
+  0058 stage 7a, with the rest of what the two modes mean; this is the name the
+  ConversationServer's idle reclaim, the reaper's park and `Machines.Park`'s
+  recheck under the lease have always called it by, and it still is.
   """
   @spec idle_action(atom()) :: :suspend | :destroy
-  def idle_action(provider) when is_atom(provider) do
-    if Managoat.Sandbox.supports?(provider, :suspend), do: :suspend, else: :destroy
-  end
+  defdelegate idle_action(provider), to: Fountain.Machines.Policy
 
   @doc """
   The idle copy, by what actually happened. Same honesty rule as the two
@@ -302,8 +302,10 @@ defmodule Fountain.Conversations.Lifecycle do
   @spec home?(String.t() | nil) :: boolean()
   def home?(sandbox_id) when is_binary(sandbox_id) do
     # Ownership: the caller is the server for a conversation on this sandbox,
-    # established at its init/1.
-    match?(%{mode: "persistent"}, Conversations._unsafe_get_sandbox(sandbox_id))
+    # established at its init/1. The query is here; the rule it feeds is
+    # `Machines.Policy.home?/1` (stage 7a), which the fence and the ceiling
+    # both read through.
+    Policy.home?(Conversations._unsafe_get_sandbox(sandbox_id))
   end
 
   def home?(_sandbox_id), do: false
@@ -347,12 +349,10 @@ defmodule Fountain.Conversations.Lifecycle do
   by construction.
   """
   @spec idle_machine_action(Handle.t() | nil) :: :park | :destroy
-  def idle_machine_action(handle) do
-    case idle_action(provider(handle)) do
-      :suspend -> :park
-      :destroy -> :destroy
-    end
-  end
+  # `home?: false` and it does not matter which: the idle bound parks a home and
+  # an ephemeral machine alike, because the disk is the agent's memory whatever
+  # the mode (#649). `Policy.reclaim_action/3`'s table says so in one place.
+  def idle_machine_action(handle), do: Policy.reclaim_action(:idle, provider(handle), false)
 
   @doc """
   The whole idle verdict for a conversation server: `:keep` the machine,
@@ -395,9 +395,8 @@ defmodule Fountain.Conversations.Lifecycle do
   `idle_machine_action/1`.
   """
   @spec max_lifetime_action(String.t() | nil, Handle.t() | nil) :: :park | :destroy
-  def max_lifetime_action(sandbox_id, handle) do
-    if home?(sandbox_id), do: idle_machine_action(handle), else: :destroy
-  end
+  def max_lifetime_action(sandbox_id, handle),
+    do: Policy.reclaim_action(:max_lifetime, provider(handle), home?(sandbox_id))
 
   @doc """
   Park the machine a conversation server has decided to give up: the machine
@@ -768,8 +767,16 @@ defmodule Fountain.Conversations.Lifecycle do
         Repo.one(from s in Sandbox, where: s.id == ^sandbox.id, lock: "FOR UPDATE") ||
           Repo.rollback(:not_found)
 
+      # The last-detach rule, through `Machines.Policy` since stage 7a. The
+      # `held_by_other?` half stays a query made *here*, on this transaction's
+      # own connection: it reads rows this advisory-locked transaction has
+      # written and not yet committed, so it can move behind neither a process
+      # nor a pure function (#2348 review).
       if not is_nil(ending_id) and
-           (current.mode == "persistent" or _unsafe_sandbox_held_by_other?(current.id, ending_id)) do
+           Policy.keep_on_last_detach?(
+             current.mode,
+             _unsafe_sandbox_held_by_other?(current.id, ending_id)
+           ) do
         Repo.rollback(:sandbox_kept)
       end
 

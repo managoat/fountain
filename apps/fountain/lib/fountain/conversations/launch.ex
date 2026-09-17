@@ -289,8 +289,11 @@ defmodule Fountain.Conversations.Launch do
   # The launch's sandbox mode: the agent's default unless the launch names
   # one (ADR 0023). Not an allowlisted override like `environment_id` — the
   # mode is not a security boundary; the tenant scope on the sandbox is.
-  defp resolve_sandbox_mode(mode, %Agents.Agent{sandbox_mode: default}) when mode in [nil, ""],
-    do: {:ok, default || "ephemeral"}
+  # The default is `Machines.Policy.default_mode/1` since ADR 0058 stage 7a —
+  # what the two modes mean is gathered there. What stays here is the
+  # *validation*: a mode a caller named has to be one this system has.
+  defp resolve_sandbox_mode(mode, %Agents.Agent{} = agent) when mode in [nil, ""],
+    do: {:ok, Fountain.Machines.Policy.default_mode(agent)}
 
   defp resolve_sandbox_mode(mode, _agent) when is_binary(mode) do
     if mode in Sandbox.modes(), do: {:ok, mode}, else: {:error, :invalid_sandbox_mode}

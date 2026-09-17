@@ -70,10 +70,14 @@ defmodule Fountain.Machines.Resume do
      `{:error, :resume_failed}`, leaving the row `suspended`: the parked disk
      is the agent's memory, and a row marked `ready` over a still-parked
      machine would strand it. That is `main`'s rule, kept.
-  6. **Finalize** `status: "ready"`, `last_resumed_at: now`, transition cleared,
-     by compare-and-set on the same epoch.
+  6. **Finalize** `status: "ready"`, transition cleared, by compare-and-set on
+     the same epoch — and `last_resumed_at` **only where the row was
+     `suspended`**. See `finalize/3`: restamping it restarts the max-lifetime
+     ceiling's clock, and a machine the provider stopped under a `ready` row is
+     not one Fountain parked.
   7. Release. Then the effects `Conversations.update_sandbox/2` would have run —
-     one `sandbox_resumed` usage row — and one `sandbox.resumed` audit event.
+     one `sandbox_resumed` usage row — and, on the same condition, one
+     `sandbox.resumed` audit event.
   8. `{:ok, :resumed}`.
 
   ## Takeover
@@ -99,6 +103,19 @@ defmodule Fountain.Machines.Resume do
   constraint 5 puts compute behind the account-suspension and credit gates. The
   taker holds no admission of its own, so it may finish an operation that was
   admitted and it may not start one that was not.
+
+  **This takeover is the only thing that clears a stale `resuming` stamp**, and
+  the residual is worth naming rather than leaving to be found. A stamp whose
+  lease has expired is invisible to everything else: `Machine.busy?/2` ignores it
+  by 6a's design, `Quotas.active_sandboxes/0` stops counting it the moment the
+  lease lapses, and neither reaper sweep looks at `suspended` rows at all — they
+  scan `ready`. So a machine nobody ever wakes again keeps the stamp, which costs
+  exactly one thing: the admin table renders it as `resuming (abandoned)`. It
+  blocks nothing. `Machines.Destroy` falls straight through a foreign transition
+  to its fence, and `Conversations.register_server/2` clears a lease-less stamp
+  on its way past, so the two paths that would otherwise care are already
+  covered. Widening a sweep to `suspended` rows would change what reclamation
+  looks at, which is not this stage's to change.
 
   ## Outcomes
 
@@ -480,26 +497,52 @@ defmodule Fountain.Machines.Resume do
       {:error, Exception.format(:error, error, __STACKTRACE__)}
   end
 
+  # **Whether this counts as a wake is decided by the row, not by the provider**
+  # (round 1, surfaces review), and it is the one place the two paths into here
+  # part company.
+  #
+  # A row that was `suspended` is a machine Fountain parked and has now brought
+  # back: it gets `last_resumed_at`, the `sandbox_resumed` usage row and the
+  # `sandbox.resumed` event, all three.
+  #
+  # A row that was already `ready` is the `observed: :suspended` path — the
+  # provider says the machine is not running and Fountain never parked it — and
+  # it gets **none of them**. The reason is `Lifecycle.clock_start/1`:
+  # `last_resumed_at || inserted_at` is what the max-lifetime ceiling measures a
+  # continuous run from, so restamping here would restart that clock on a
+  # machine nobody parked. On Sprites, the instance default, that is not an edge
+  # case but the *ordinary* reading — its `suspend/1` is a no-op and its `get/1`
+  # reports the platform's own scale-to-zero schedule, so every sprite that has
+  # scaled to zero by itself comes through here — and a ten-hour ceiling would
+  # have been pushed ten hours out by a probe. `docs/guides/operate/sandbox-lifetime.md`
+  # promises the opposite in as many words.
+  #
+  # Nothing to audit there either: no state changed, and a `sandbox.resumed` in
+  # a tenant's trail for a machine that was never suspended describes something
+  # that did not happen. The `ready → ready` write still goes through
+  # `sandbox_status_effects/2`, which records nothing on that transition by
+  # construction — the door stays one decision in one place rather than two.
   defp finalize(%Sandbox{} = sandbox, epoch, opts) do
-    now = DateTime.utc_now() |> DateTime.truncate(:second)
-
-    case Lease.cas_update(sandbox.id, epoch,
-           status: "ready",
-           last_resumed_at: now,
-           transition: nil,
-           transition_reason: nil
-         ) do
+    case Lease.cas_update(sandbox.id, epoch, finalize_attrs(sandbox)) do
       {:ok, %Sandbox{} = up} ->
         # The effect `update_sandbox/2` would have run: the `sandbox_resumed`
         # usage row that gives the parked interval an end, so the duration
         # roll-up subtracts parked time instead of billing it (#665). The queue
         # poke in the same door is a no-op on this transition by construction —
         # it fires when a machine *leaves* a cap-counting status, and a resume
-        # enters one — and `sandbox_status_effects/2` is still the door, so that
-        # stays one decision in one place rather than two.
+        # enters one.
         Conversations.sandbox_status_effects(up, sandbox.status)
 
-        audit(up, opts)
+        if woken?(sandbox) do
+          audit(up, opts)
+        else
+          Logger.info(
+            "machine #{sandbox.id}: #{sandbox.machine_name} was restarted at the provider on a " <>
+              "row that already said ready; not stamping last_resumed_at and not recording a " <>
+              "wake"
+          )
+        end
+
         {:ok, :resumed}
 
       {:error, :stale} ->
@@ -511,6 +554,21 @@ defmodule Fountain.Machines.Resume do
 
       {:error, _} = error ->
         error
+    end
+  end
+
+  # A resume of a machine Fountain itself parked, as opposed to one the provider
+  # had stopped under a row that still said `ready`. See `finalize/3`.
+  defp woken?(%Sandbox{status: "suspended"}), do: true
+  defp woken?(%Sandbox{}), do: false
+
+  defp finalize_attrs(%Sandbox{} = sandbox) do
+    base = [status: "ready", transition: nil, transition_reason: nil]
+
+    if woken?(sandbox) do
+      Keyword.put(base, :last_resumed_at, DateTime.utc_now() |> DateTime.truncate(:second))
+    else
+      base
     end
   end
 

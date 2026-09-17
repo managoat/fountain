@@ -33,8 +33,12 @@ starts with no memory of the earlier turns. Expect a user to state their
 context again after one. Fountain parks a persistent home instead, and the
 home keeps its disk.
 
-A wake restarts the max-lifetime clock, and only a wake does: a deploy that
-reattaches a `ready` sandbox leaves the clock where it is.
+Waking a *suspended* sandbox restarts the max-lifetime clock, and only that
+does. A deploy that reattaches a `ready` sandbox leaves the clock where it is,
+and so does Fountain restarting a `ready` sandbox its provider had stopped —
+which on Sprites is every sprite that has scaled to zero on its own schedule.
+The ceiling measures one continuous run, and a run Fountain never interrupted
+keeps its start.
 
 Fountain never ages a suspended sandbox out. Its sprite stays at the provider
 until you terminate the conversation, or until somebody deletes the account.

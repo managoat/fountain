@@ -38,6 +38,7 @@ defmodule Fountain.Conversations.Rehydrator do
 
   alias Fountain.{Agents, Conversations}
   alias Fountain.Conversations.{Launch, Sandbox}
+  alias Fountain.Machines.Lease
   alias Fountain.Machines.Machine
 
   def run(opts \\ []) do
@@ -117,9 +118,17 @@ defmodule Fountain.Conversations.Rehydrator do
       convs = Conversations._unsafe_list_resumable_conversations()
       Logger.info("rehydrator: scanning #{length(convs)} resumable conversation(s)")
 
+      # One clock for the whole sweep (ADR 0058 stage 7a). `Machine.busy?/2`
+      # judges against the database's, and letting it default would fetch one
+      # per row on a boot sweep that reads every resumable conversation in the
+      # deployment. Judging a page against one instant is also the honest
+      # reading, and it is what the two reaper sweeps and the reset reconciler
+      # do.
+      lease_now = Lease.now()
+
       started =
         Enum.reduce(convs, 0, fn conv, count ->
-          case spawn_server(conv) do
+          case spawn_server(conv, lease_now) do
             {:ok, _pid} -> count + 1
             _ -> count
           end
@@ -130,10 +139,10 @@ defmodule Fountain.Conversations.Rehydrator do
     end)
   end
 
-  defp spawn_server(conv) do
+  defp spawn_server(conv, lease_now) do
     # Ownership: internal boot sweep; each conversation supplies its own agent_id.
     with :ok <- Conversations._unsafe_check_saved_execution_allowance(conv.id),
-         :ok <- check_machine_free(conv),
+         :ok <- check_machine_free(conv, lease_now),
          %Agents.Agent{} = _agent <-
            (conv.agent_id && Agents._unsafe_get_agent(conv.agent_id)) || {:skip, :no_agent},
          {:ok, runtime_module} <- Fountain.RuntimeDispatch.for_agent(conv) do
@@ -203,12 +212,12 @@ defmodule Fountain.Conversations.Rehydrator do
   # Skipping, not failing: the next boot sweep or the conversation's own next
   # prompt comes back, and by then the operation has finished or its lease has
   # expired. `{:skip, _}` is the sweep's own "not now" shape.
-  defp check_machine_free(%{sandbox: %Sandbox{} = sandbox}) do
-    if Machine.busy?(sandbox), do: {:skip, :machine_busy}, else: :ok
+  defp check_machine_free(%{sandbox: %Sandbox{} = sandbox}, lease_now) do
+    if Machine.busy?(sandbox, lease_now), do: {:skip, :machine_busy}, else: :ok
   end
 
   # `_unsafe_list_resumable_conversations/0` joins the sandbox and preloads it,
   # so the clause above is the one that runs. A conversation without one has no
   # machine to be busy.
-  defp check_machine_free(_conv), do: :ok
+  defp check_machine_free(_conv, _lease_now), do: :ok
 end

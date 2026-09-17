@@ -29,7 +29,19 @@
   asked the provider whether the computer still existed and reused it on any
   answer at all; on providers that really stop a computer when it is parked —
   E2B and Daytona — a parking that had been interrupted left the computer
-  stopped and the record saying it was running.
+  stopped and the record saying it was running. Starting a computer this way is
+  not counted as waking a parked one: it does not restart the maximum-lifetime
+  clock and it does not appear in the activity trail, because Fountain never
+  parked it.
+
+- A prompt to a conversation whose computer is being reset or deleted now
+  answers `409 sandbox_reset_pending` from every path that can meet the fence
+  (#2344). One of those paths — a reset or deletion asked for in the moment
+  between Fountain checking and taking the computer — used to answer `422` with
+  a bare `fenced`, which told a client the request itself was malformed. The
+  answer is the same one this route has given for a reset-fenced computer all
+  along; `POST /api/conversations/{id}/prompts` now documents it, which it
+  never did.
 
 - A wake the provider refuses now answers `503` with a `Retry-After` header
   instead of `422` (#2344). Nothing was written and the disk is untouched, so it

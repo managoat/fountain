@@ -265,31 +265,41 @@ defmodule Fountain.Conversations.PromptCorrelationTest do
     test "send_prompt hands the wake the id with the text", %{conv: conv} do
       test = self()
 
-      stub(Wake, :wake_conversation, fn id, prompt ->
-        send(test, {:woke, id, prompt})
+      # Arity three since #2373: the images travel this road beside the prompt.
+      stub(Wake, :wake_conversation, fn id, prompt, images ->
+        send(test, {:woke, id, prompt, images})
         {:ok, conv}
       end)
 
-      assert :ok = ConversationServer.send_prompt(conv.id, "hi", [], client_request_id: "a")
-      assert_received {:woke, id, {"hi", [client_request_id: "a"]}}
+      images = [%{data: "iVBOR", media_type: "image/png"}]
+
+      assert :ok =
+               ConversationServer.send_prompt(conv.id, "hi", images, client_request_id: "a")
+
+      assert_received {:woke, id, {"hi", [client_request_id: "a"]}, ^images}
       assert id == conv.id
 
       # Nothing to carry: the bare text, which is what Wake always took.
       assert :ok = ConversationServer.send_prompt(conv.id, "hi", [], actor: "api")
-      assert_received {:woke, _, "hi"}
+      assert_received {:woke, _, "hi", []}
     end
 
     test "the wake hands its prompt to whichever server owns the conversation" do
-      assert :ok = PromptDelivery.hand_over(self(), {"hi", [client_request_id: "a"]})
-      assert_received {:"$gen_cast", {:initial_prompt, "hi", [], [client_request_id: "a"]}}
+      # The images travel this road too (#2373), whether or not a correlation
+      # travels with them.
+      images = [%{data: "iVBOR", media_type: "image/png"}]
 
-      assert :ok = PromptDelivery.hand_over(self(), "hi")
-      assert_received {:"$gen_cast", {:initial_prompt, "hi", []}}
+      assert :ok = PromptDelivery.hand_over(self(), {"hi", [client_request_id: "a"]}, images)
+
+      assert_received {:"$gen_cast", {:initial_prompt, "hi", ^images, [client_request_id: "a"]}}
+
+      assert :ok = PromptDelivery.hand_over(self(), "hi", images)
+      assert_received {:"$gen_cast", {:initial_prompt, "hi", ^images}}
 
       # A wake for an interrupt carries no prompt, and an empty one is none.
-      assert :ok = PromptDelivery.hand_over(self(), nil)
-      assert :ok = PromptDelivery.hand_over(self(), "")
-      assert :ok = PromptDelivery.hand_over(self(), {"", [client_request_id: "a"]})
+      assert :ok = PromptDelivery.hand_over(self(), nil, [])
+      assert :ok = PromptDelivery.hand_over(self(), "", [])
+      assert :ok = PromptDelivery.hand_over(self(), {"", [client_request_id: "a"]}, images)
       refute_received {:"$gen_cast", _}
     end
   end

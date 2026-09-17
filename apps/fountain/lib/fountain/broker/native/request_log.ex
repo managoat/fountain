@@ -158,11 +158,46 @@ defmodule Fountain.Broker.Native.RequestLog do
     end
   end
 
+  # Defining the clauses above removed the `handle_cast/2` that `use GenServer`
+  # supplies, which stops the process with `{:bad_cast, message}`; without this
+  # one an unknown cast raises instead. Either way the buffer goes with it, and
+  # a lost buffer is a gap in the egress log for every tenant proxying through
+  # this node — so neither is the right answer for a message this writer was
+  # never going to store (#2380).
+  def handle_cast(message, state) do
+    Logger.warning("broker request log: no handle_cast clause for #{shape(message)}; ignoring")
+
+    {:noreply, state}
+  end
+
   @impl GenServer
   def handle_call(:flush, _from, state), do: {:reply, :ok, write(state)}
 
   @impl GenServer
   def handle_info(:flush, state), do: {:noreply, write(state)}
+
+  # Same hole on the info side, reached by more: this process is cast to from
+  # the proxy's connection processes, so a monitor it never asked for or an
+  # `:EXIT` from a linked process arrives here. The buffered rows are worth
+  # more than the crash.
+  #
+  # The armed timer is deliberately left alone. A stray message is not a flush
+  # and not a record, so there is nothing new to flush and nothing to arm.
+  def handle_info(message, state) do
+    Logger.warning("broker request log: unexpected message #{shape(message)}; ignoring")
+
+    {:noreply, state}
+  end
+
+  # The tag and the arity, never the payload. A `{:record, row}` that got here
+  # holds a host and a path, and this module's whole point is that the log is
+  # redacted — a fallback that inspected the term would be the one place a raw
+  # one reached the node's logs.
+  defp shape(message) when is_tuple(message) and tuple_size(message) > 0,
+    do: "#{inspect(elem(message, 0))}/#{tuple_size(message)}"
+
+  defp shape(message) when is_atom(message), do: inspect(message)
+  defp shape(_message), do: "an unrecognized term"
 
   @impl GenServer
   def terminate(_reason, state) do

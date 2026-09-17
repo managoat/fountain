@@ -101,6 +101,26 @@ defmodule Fountain.Analytics.Sink do
     {:noreply, state |> trim_if_full() |> flush_if_full()}
   end
 
+  # Defining the clause above removed the `handle_cast/2` that `use GenServer`
+  # supplies, which stops the process with `{:bad_cast, message}`; without this
+  # one an unknown cast raises instead. Both take the queue with them, and a
+  # sink that dies drops every event buffered on this node — analytics is
+  # exactly the subsystem that should never cost anything else (#2380).
+  #
+  # The tag and the arity, never the payload: an `{:enqueue, payload}` that
+  # reached here carries a captured event's properties.
+  def handle_cast(message, state) do
+    Logger.warning("analytics: no handle_cast clause for #{shape(message)}; ignoring")
+
+    {:noreply, state}
+  end
+
+  defp shape(message) when is_tuple(message) and tuple_size(message) > 0,
+    do: "#{inspect(elem(message, 0))}/#{tuple_size(message)}"
+
+  defp shape(message) when is_atom(message), do: inspect(message)
+  defp shape(_message), do: "an unrecognized term"
+
   @impl true
   def handle_call(:flush, _from, state) do
     # Synchronous by request: drain everything queued, in batches, with no

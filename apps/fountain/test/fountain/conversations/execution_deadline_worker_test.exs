@@ -2,6 +2,8 @@ defmodule Fountain.Conversations.ExecutionDeadlineWorkerTest do
   use Fountain.DataCase, async: false
   use Mimic
 
+  import ExUnit.CaptureLog
+
   setup :set_mimic_global
 
   alias Fountain.Conversations.{ExecutionDeadlineWorker, ExecutionGuard, Turn, TurnExecution}
@@ -49,6 +51,49 @@ defmodule Fountain.Conversations.ExecutionDeadlineWorkerTest do
         Process.sleep(20)
         await_state(id, state, attempts - 1)
     end
+  end
+
+  test "a stray message neither stops the worker nor loses its in-flight jobs", c do
+    owner = self()
+    fixture = execution(c.user, true)
+
+    pid =
+      worker(:stray, fn attempt ->
+        send(owner, {:termination_started, attempt.id, self()})
+        receive do: (:release -> :ok)
+      end)
+
+    assert_receive {:termination_started, _id, task}, 5_000
+
+    # Three shapes the worker's own clauses do not match and that reach a
+    # supervised singleton for free: an exit from a linked process, a `:DOWN`
+    # that is not a process down, and a telemetry-style broadcast (#2380).
+    # Before the catch-all any one of them raised `FunctionClauseError`, and
+    # the crash took the in-flight `jobs` map with it: `terminate/2` gives each
+    # task one second and then brutal-kills it, so the termination below is
+    # lost mid-flight and its `submitted` row waits out the recovery window
+    # before anything is allowed to touch it again.
+    log =
+      capture_log(fn ->
+        send(pid, {:EXIT, self(), :normal})
+        send(pid, {:DOWN, make_ref(), :port, self(), :normal})
+        send(pid, [:fountain, :broadcast])
+        # A system message, answered by the GenServer loop itself, to wait out
+        # the three above: a GenServer handles one message at a time and this
+        # one was sent last.
+        assert :sys.get_state(pid).jobs != %{}
+      end)
+
+    assert log =~ "unexpected message :EXIT/3"
+    assert log =~ "unexpected message :DOWN/5"
+    assert log =~ "unexpected message an unrecognized term"
+    refute log =~ inspect(self())
+
+    assert Process.alive?(pid)
+    assert Process.alive?(task)
+
+    send(task, :release)
+    await_state(fixture.row.id, "stopped")
   end
 
   test "expiry progresses while every termination slot is blocked", c do

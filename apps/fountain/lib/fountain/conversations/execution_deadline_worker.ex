@@ -25,6 +25,8 @@ defmodule Fountain.Conversations.ExecutionDeadlineWorker do
   """
   use GenServer
 
+  require Logger
+
   alias Fountain.Conversations.ExecutionGuard
 
   @pool_size 8
@@ -128,6 +130,30 @@ defmodule Fountain.Conversations.ExecutionDeadlineWorker do
     # a remote result from a local exit or grant another provider write here.
     {:noreply, %{state | jobs: Map.delete(state.jobs, ref)}}
   end
+
+  # Defining the clauses above removed the `handle_info/2` that `use GenServer`
+  # supplies, so without this one an `:EXIT` from a linked process, a `:DOWN`
+  # that is not a process down, or any telemetry or PubSub message would raise
+  # and take the worker with it (#2380). That costs the in-flight `jobs` map —
+  # recovery covers the durable side, the tasks themselves do not survive — and
+  # a share of the application supervisor's restart budget, for a message the
+  # worker was never going to act on. So log the shape and carry on.
+  #
+  # The tick is deliberately not re-armed here: it is armed once in `init/1`
+  # and re-armed by the `:tick` clause, and a stray message is not a tick.
+  def handle_info(message, state) do
+    Logger.warning("execution deadline worker: unexpected message #{shape(message)}; ignoring")
+
+    {:noreply, state}
+  end
+
+  # The tag and the arity, never the payload: an unexpected `{ref, result}`
+  # here carries a scan's rows, and a log line is not a place to put them.
+  defp shape(message) when is_tuple(message) and tuple_size(message) > 0,
+    do: "#{inspect(elem(message, 0))}/#{tuple_size(message)}"
+
+  defp shape(message) when is_atom(message), do: inspect(message)
+  defp shape(_message), do: "an unrecognized term"
 
   @impl true
   def terminate(_reason, state) do

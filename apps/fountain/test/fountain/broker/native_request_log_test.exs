@@ -174,6 +174,51 @@ defmodule Fountain.Broker.Native.RequestLogTest do
     end
   end
 
+  describe "messages the writer does not match" do
+    test "a stray info message neither stops it nor loses the buffer", ctx do
+      assert :ok = RequestLog.record(row(ctx.conv, ctx.user), ctx.log)
+
+      log =
+        capture_log(fn ->
+          # A monitor this process never asked for, and an exit from a linked
+          # one. Before the catch-all either raised `FunctionClauseError` and
+          # took the buffered rows with it — a gap in the egress log of every
+          # tenant proxying through the node (#2380).
+          send(ctx.log, {:DOWN, make_ref(), :process, self(), :normal})
+          send(ctx.log, {:EXIT, self(), :normal})
+          assert :ok = RequestLog.flush(ctx.log)
+        end)
+
+      assert log =~ "unexpected message :DOWN/5"
+      assert log =~ "unexpected message :EXIT/3"
+
+      assert Process.alive?(ctx.log)
+      assert {:ok, %{events: [_one]}} = RequestLog.page(ctx.conv.id)
+    end
+
+    test "an unknown cast neither stops it nor loses the buffer", ctx do
+      assert :ok = RequestLog.record(row(ctx.conv, ctx.user), ctx.log)
+
+      log =
+        capture_log(fn ->
+          # The shape a caller on a later release would send. `use GenServer`
+          # would have stopped the process with `{:bad_cast, …}`; the clauses
+          # above removed that, so it raised instead. Both lose the buffer.
+          GenServer.cast(ctx.log, {:record_batch, [row(ctx.conv, ctx.user)]})
+          assert :ok = RequestLog.flush(ctx.log)
+        end)
+
+      assert log =~ "no handle_cast clause for :record_batch/2"
+      # The shape, never the payload: this module redacts paths on the way in,
+      # and a fallback that inspected the term would be the one place a raw one
+      # reached the node's logs.
+      refute log =~ "api.github.com"
+
+      assert Process.alive?(ctx.log)
+      assert {:ok, %{events: [_one]}} = RequestLog.page(ctx.conv.id)
+    end
+  end
+
   test "deleting the conversation takes its rows with it", ctx do
     RequestLog.record(row(ctx.conv, ctx.user), ctx.log)
     RequestLog.flush(ctx.log)

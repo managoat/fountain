@@ -9,6 +9,8 @@ defmodule Fountain.Analytics.SinkTest do
 
   use ExUnit.Case, async: false
 
+  import ExUnit.CaptureLog
+
   alias Fountain.Analytics.Sink
 
   setup :set_req_test_to_shared
@@ -78,6 +80,33 @@ defmodule Fountain.Analytics.SinkTest do
     test "flushing an empty sink sends nothing" do
       Sink.flush()
       refute_receive {:posthog, _}, 50
+    end
+  end
+
+  describe "casts the sink does not match" do
+    test "an unknown cast neither stops it nor loses the queue" do
+      pid = Process.whereis(Sink)
+      Sink.enqueue(payload(1))
+
+      log =
+        capture_log(fn ->
+          # The shape a caller on a later release would send. `use GenServer`
+          # stops the process with `{:bad_cast, …}`; defining the `:enqueue`
+          # clause removed that, so before the catch-all this raised and took
+          # the queued events with it (#2380).
+          GenServer.cast(Sink, {:enqueue_batch, [payload(2)]})
+          Sink.flush()
+        end)
+
+      assert log =~ "no handle_cast clause for :enqueue_batch/2"
+      # The shape, never the payload: an enqueued event carries its
+      # properties and its distinct_id.
+      refute log =~ "agent.created"
+      refute log =~ "distinct_id"
+
+      assert Process.alive?(pid)
+      assert Process.whereis(Sink) == pid
+      assert_receive {:posthog, %{"batch" => [%{"distinct_id" => "u1"}]}}
     end
   end
 

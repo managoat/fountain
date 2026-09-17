@@ -8,18 +8,27 @@
   (a terminate). Now a terminate waits up to five seconds for the operation to
   finish — up to twenty with `MACHINE_OWNER_ENABLED` set, where both queue
   behind it — and, if it has not, answers the ordinary `503` with a
-  `Retry-After` (`sandbox_unavailable`) rather than writing anything; an attach
-  still answers that at once without the setting and queues with it. An attach
-  or a terminate the owner reaches only after its caller has given up is
-  refused rather than run for nobody, and so is a wake.
+  `Retry-After` (`sandbox_unavailable`) and leaves the computer alone; an attach
+  still answers that at once without the setting and queues with it. Where no
+  server was left driving the conversation, the conversation itself is already
+  closed by the time the computer refuses, and sending the request again — what
+  the `Retry-After` asks for — finishes the computer and records the
+  termination. An attach or a terminate the owner reaches only after its caller
+  has given up is refused rather than run for nobody, and so is a wake.
 
 - Opening a fresh conversation for a teammate on the computer it already has
   now goes through the same door as attaching by `sandbox_id` (#2344): the
   computer must still be the one built for that agent, environment and vault,
   must not be reset, deleted or mid-operation, and the new conversation gets
-  an execution allowance like every other. A teammate whose agent has been
-  deleted can no longer be given a fresh conversation on its computer
-  (`404 not_found`); its next prompt could not have run without one either.
+  an execution allowance like every other. The computer is asked *before* the
+  current conversation is retired, so a computer that refuses costs the
+  teammate nothing — the request answers `409` while the computer is being
+  reset or deleted, `503` while an operation holds it, and the teammate keeps
+  the conversation it had, so the same request can simply be sent again. An
+  agent whose environment, vault or runtime has changed since its computer was
+  built is now refused (`422`) rather than given a new session on a disk built
+  for something else; that teammate needs a conversation of its own rather than
+  a fresh one on the same computer.
 
 - When a computer is deleted, every turn still running on it is now marked
   interrupted by the deletion itself (#2344), on every conversation bound to

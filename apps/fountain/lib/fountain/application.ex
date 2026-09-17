@@ -120,19 +120,36 @@ defmodule Fountain.Application do
         #
         # One `Fountain.Machines.Machine` per *active* machine, registered
         # under the sandbox id and idle-stopping when nothing has asked it
-        # anything. **As of stage 4 nothing asks**: every caller reads
-        # `Machines.Occupancy` directly, so this pair is up and childless on
-        # every node, whatever `MACHINE_OWNER_ENABLED` says. Stage 5 gives it
-        # its first caller. Started unconditionally even so: an empty registry
-        # and an empty dynamic supervisor cost nothing, and supervision that
-        # appears and disappears with a runtime flag is its own failure mode.
+        # anything. Started unconditionally, whatever `MACHINE_OWNER_ENABLED`
+        # says: an empty registry and an empty dynamic supervisor cost nothing,
+        # and supervision that appears and disappears with a runtime flag is
+        # its own failure mode.
         {Horde.Registry, [name: Fountain.MachineRegistry, keys: :unique, members: :auto]},
         {Horde.DynamicSupervisor,
          [
            name: Fountain.MachineSupervisor,
            strategy: :one_for_one,
            distribution_strategy: Horde.UniformDistribution,
-           members: :auto
+           members: :auto,
+           # Sized in stage 7a, for the reason the pair below was sized
+           # (#2348's review said to do it "when the owner starts doing
+           # work", and with `destroy`, `park` and `ensure_up` behind it the
+           # owner now does). Horde's default is `Supervisor`'s — 3 restarts in
+           # 5s — and that budget is SHARED by every machine owner on the node:
+           # one machine whose owner crashes deterministically exhausts it in
+           # under a second, and exceeding it terminates this supervisor and
+           # with it every other machine's owner here. With the gate on that is
+           # every destroy, park and resume on the node failing at once, which
+           # is the opposite of what a per-machine owner is for.
+           #
+           # 100/10s for the same shape of burst: a provider outage failing
+           # many operations at the same moment must not read as a loop, while
+           # a genuine loop still stops. The protocols themselves rescue their
+           # adapters and answer rather than raising, so a crash here is a
+           # defect rather than a provider having a bad day — which is why the
+           # budget can be generous without hiding anything.
+           max_restarts: 100,
+           max_seconds: 10
          ]},
         {Horde.Registry, [name: Fountain.ConversationRegistry, keys: :unique, members: :auto]},
         {Horde.DynamicSupervisor,

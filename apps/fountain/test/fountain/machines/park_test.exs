@@ -155,6 +155,23 @@ defmodule Fountain.Machines.ParkTest do
     other
   end
 
+  # What "somebody is using this machine" looks like on the row, one shape per
+  # arm of the recheck. Inside the test body rather than in the comprehension
+  # that names them: these call the helpers below, which do not exist yet when
+  # the module body is evaluated.
+  defp use_the_machine(ctx, :driven_turn) do
+    stand_in_server(ctx.conv.id)
+    insert_turn(ctx.conv, status: "running", started_at: DateTime.utc_now())
+  end
+
+  defp use_the_machine(ctx, :woken), do: stamp(ctx, woken_at: DateTime.utc_now())
+  defp use_the_machine(ctx, :teardown), do: stamp(ctx, teardown_requested_at: DateTime.utc_now())
+  defp use_the_machine(ctx, :reset), do: stamp(ctx, reset_requested_at: DateTime.utc_now())
+
+  defp stamp(ctx, sets) do
+    Repo.update_all(from(s in Sandbox, where: s.id == ^ctx.sandbox.id), set: sets)
+  end
+
   # A plain process standing in for a co-tenant's server: `whereis/1` only asks
   # the registry, and a cast is a message. Same shape as `destroy_test.exs`.
   defp stand_in_server(conversation_id) do
@@ -326,6 +343,41 @@ defmodule Fountain.Machines.ParkTest do
     end
   end
 
+  describe "a checkpoint that blows up" do
+    test "is best effort in the sense that matters: the park goes on", ctx do
+      # B2, from the protocol review. `Retry.with_backoff/2` re-raises once its
+      # attempts are spent, and an exception here unwound the whole park: the
+      # row kept its `parking` stamp with the lease released, the conversation
+      # server crashed after dropping its adapter, and with the gate off the
+      # reaper's whole sweep died with it.
+      {:ok, home} = Conversations.update_sandbox(ctx.sandbox, %{mode: "persistent"})
+      stub(Managoat.Sandbox, :supports?, fn :sprites, cap -> cap in [:suspend, :checkpoint] end)
+      stub(Managoat.Sandbox, :create_checkpoint, fn _h, _o -> raise "sprites client exploded" end)
+      expect(Managoat.Sandbox, :suspend, fn _ -> :ok end)
+
+      log = capture_log(fn -> assert {:ok, :parked} = Park.run(home.id, opts()) end)
+      assert log =~ "sprites client exploded"
+
+      final = row(ctx)
+      assert final.status == "suspended"
+      assert is_nil(final.transition)
+      assert_lease_released(final)
+      refute final.provider_meta["checkpoint_id"]
+    end
+
+    test "and a sweep carries on to the machines behind it", ctx do
+      # The blast radius the rescue actually closes, with the gate off: an
+      # exception out of one park took `SandboxReaper.perform/1` with it.
+      {:ok, _home} = Conversations.update_sandbox(ctx.sandbox, %{mode: "persistent"})
+      stub(Managoat.Sandbox, :supports?, fn :sprites, cap -> cap in [:suspend, :checkpoint] end)
+      stub(Managoat.Sandbox, :create_checkpoint, fn _h, _o -> raise "boom" end)
+      stub(Managoat.Sandbox, :suspend, fn _ -> :ok end)
+
+      capture_log(fn -> assert {:ok, :parked} = Park.run(ctx.sandbox.id, opts()) end)
+      assert row(ctx).status == "suspended"
+    end
+  end
+
   describe "the co-tenant notice" do
     test "reaches every other live server on the machine when the caller supplies one", ctx do
       other = quiet_cotenant(ctx)
@@ -429,8 +481,9 @@ defmodule Fountain.Machines.ParkTest do
       assert_lease_released(row(ctx))
     end
 
-    test "a turn running anywhere on the machine", ctx do
+    test "a turn running anywhere on the machine, with a server driving it", ctx do
       reject(&Managoat.Sandbox.suspend/1)
+      stand_in_server(ctx.conv.id)
       insert_turn(ctx.conv, status: "running", started_at: DateTime.utc_now())
 
       assert {:error, :machine_occupied} = Park.run(ctx.sandbox.id, opts())
@@ -438,14 +491,78 @@ defmodule Fountain.Machines.ParkTest do
       assert_lease_released(row(ctx))
     end
 
-    test "a turn running on the requester's own conversation still refuses", ctx do
-      # The requester is excluded from the *server* check and not from this
-      # one: a conversation that is mid-turn is using the machine whoever asks.
+    test "a running turn nothing is driving is not occupancy", ctx do
+      # The regression this rule exists for. A turn parked on a human's
+      # permission decision whose server then died stays `running` for ever —
+      # `AutonomousTurnReaper` skips those by design, because a person may
+      # still answer — so counting it refused the park for ever and the machine
+      # went on billing with nothing able to reclaim it. `main` had no turn
+      # check and its reaper parked this machine.
+      insert_turn(ctx.conv,
+        status: "running",
+        started_at: DateTime.utc_now(),
+        pending_permission: %{"id" => "perm-1"}
+      )
+
+      assert ConversationServer.whereis(ctx.conv.id) == nil
+      expect(Managoat.Sandbox, :suspend, fn _ -> :ok end)
+
+      assert {:ok, :parked} = Park.run(ctx.sandbox.id, opts())
+      assert row(ctx).status == "suspended"
+    end
+
+    test "a turn running on the requester's own conversation refuses an idle park", ctx do
+      # The idle verdict's premise is that nothing is running, so a turn found
+      # here — the requester's included — means the verdict was wrong.
       reject(&Managoat.Sandbox.suspend/1)
       insert_turn(ctx.conv, status: "running", started_at: DateTime.utc_now())
 
       assert {:error, :machine_occupied} =
                Park.run(ctx.sandbox.id, opts(requesting_conversation_id: ctx.conv.id))
+    end
+
+    test "and does not refuse a max-lifetime one: that turn is what the ceiling cuts", ctx do
+      # `Lifecycle.check/4` lets `{:expired, :max_lifetime}` through with
+      # `busy?` true on purpose, so a server reaching the protocol with its own
+      # turn in flight is the normal way the ceiling fires. Treating it as a
+      # veto made the ceiling unable to park a home at all — the server had
+      # already dropped its adapter, so the turn it left `running` had nothing
+      # to end it, and the machine went on billing.
+      insert_turn(ctx.conv, status: "running", started_at: DateTime.utc_now())
+      expect(Managoat.Sandbox, :suspend, fn _ -> :ok end)
+
+      assert {:ok, :parked} =
+               Park.run(
+                 ctx.sandbox.id,
+                 opts(reason: :max_lifetime, requesting_conversation_id: ctx.conv.id)
+               )
+
+      assert row(ctx).status == "suspended"
+    end
+
+    test "a co-tenant's running turn refuses a max-lifetime park all the same", ctx do
+      # One conversation's clock reaching a ceiling is not a reason to cut
+      # somebody else's work on the same machine.
+      reject(&Managoat.Sandbox.suspend/1)
+      other = quiet_cotenant(ctx)
+      stand_in_server(other.id)
+      insert_turn(other, status: "running", started_at: DateTime.utc_now())
+
+      assert {:error, :machine_occupied} =
+               Park.run(
+                 ctx.sandbox.id,
+                 opts(reason: :max_lifetime, requesting_conversation_id: ctx.conv.id)
+               )
+    end
+
+    test "a sweep's park is refused by a running turn whatever the bound", ctx do
+      # The exception is the *requester's* turn, and a sweep has no
+      # conversation to be the requester.
+      reject(&Managoat.Sandbox.suspend/1)
+      stand_in_server(ctx.conv.id)
+      insert_turn(ctx.conv, status: "running", started_at: DateTime.utc_now())
+
+      assert {:error, :machine_occupied} = Park.run(ctx.sandbox.id, opts(reason: :max_lifetime))
     end
 
     test "a sweep is refused by any live server on the machine", ctx do
@@ -707,6 +824,58 @@ defmodule Fountain.Machines.ParkTest do
       assert row(ctx).status == "suspended"
       assert is_nil(row(ctx).transition)
       assert events(ctx, "sandbox.suspended") == []
+    end
+
+    # B1, from the protocol review. Nothing clears a `parking` stamp off a
+    # lease-less row except an owner, so an abandoned park can sit on a machine
+    # that is then woken and used. A takeover that revalidated nothing would
+    # write `suspended` over it and answer `{:ok, :parked}` where the ordinary
+    # path answers a refusal.
+    for {label, shape, refusal} <- [
+          {"a turn somebody is driving", :driven_turn, :machine_occupied},
+          {"a wake that has just marked the row", :woken, :machine_occupied},
+          {"a teardown somebody has asked for", :teardown, :fenced},
+          {"a reset that is unconfirmed", :reset, :fenced}
+        ] do
+      test "a takeover refuses #{label}, and clears the stamp", ctx do
+        :ok = abandon_mid_park(ctx)
+        use_the_machine(ctx, unquote(shape))
+
+        # Neither asked nor acted on: the machine is not this park's to finish.
+        reject(&Managoat.Sandbox.get/1)
+        reject(&Managoat.Sandbox.suspend/1)
+
+        assert {:error, unquote(refusal)} = Park.run(ctx.sandbox.id, opts())
+
+        final = row(ctx)
+        assert final.status == "ready", "a machine in use was written down as parked"
+
+        assert is_nil(final.transition),
+               "the stamp was left, so the next owner reads the same lie"
+
+        assert is_nil(final.transition_reason)
+        assert events(ctx, "sandbox.suspended") == []
+      end
+    end
+
+    test "a takeover refuses a provider that can no longer park, and clears the stamp", ctx do
+      :ok = abandon_mid_park(ctx)
+      stub(Managoat.Sandbox, :supports?, fn :sprites, :suspend -> false end)
+      reject(&Managoat.Sandbox.get/1)
+
+      assert {:error, :cannot_park} = Park.run(ctx.sandbox.id, opts())
+      assert is_nil(row(ctx).transition)
+    end
+
+    test "a takeover still compensates a machine the provider reports suspended", ctx do
+      # The revalidation is a gate on the compensation, not a replacement for
+      # it: an abandoned park on a machine nobody has touched still finishes.
+      :ok = abandon_mid_park(ctx)
+      stub(Managoat.Sandbox, :get, fn %Handle{} -> {:ok, %{status: :suspended, raw: %{}}} end)
+
+      assert {:ok, :parked} = Park.run(ctx.sandbox.id, opts())
+      assert row(ctx).status == "suspended"
+      assert [_one] = events(ctx, "sandbox.suspended")
     end
 
     test "somebody else's abandoned operation is left to its own protocol", ctx do

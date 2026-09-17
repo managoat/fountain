@@ -1151,13 +1151,19 @@ defmodule Fountain.Conversations do
   # `register_server/2` before it starts a server; with no timeout, a wake
   # blocked behind a claim whose transaction had somehow stalled would wait
   # for as long as that lasted, with nothing to log and nothing to refuse.
-  # `55P03` (`lock_not_available`) reaches `Lease`'s `guarded/2` as
-  # `{:database, :lock_not_available}`, which its two protocols' busy-waits
-  # treat exactly as they treat a held lease; at the other doors it is an
-  # ordinary refusal, which is what those already handle.
+  #
+  # `55P03` (`lock_not_available`) is raised out of `Repo.query!` below and
+  # caught by this function's own `rescue`, which answers
+  # `{:error, :sandbox_unavailable}`. It does **not** travel as
+  # `Lease.guarded/2`'s `{:database, _}` shape: `guarded/2` wraps the call to
+  # this function, and this function no longer lets the exception out.
   #
   # `SET LOCAL`, so it lasts exactly this transaction and no other work on the
-  # pooled connection inherits it. It does not cover the sites that take 4316
+  # pooled connection inherits it — and it applies to **every** lock this
+  # transaction takes, not only the advisory one: the `FOR UPDATE` reads its
+  # callers make are under it too. That is the intent rather than a side
+  # effect; a row lock held for five seconds by something else is the same
+  # problem from the other end. It does not cover the sites that take 4316
   # with their own `Repo.query!` — the teardown fence, the reset front door,
   # turn admission — and that is deliberate for now: those hold the lock for
   # the same kind of short database work, and giving a fence a new way to fail
@@ -1197,9 +1203,16 @@ defmodule Fountain.Conversations do
   rescue
     # The timeout above arrives as an exception out of `Repo.query!`, and every
     # caller here already has a `{:error, reason}` path, so it becomes one
-    # rather than unwinding through a launch or a wake. Ecto has rolled the
-    # transaction back by the time this runs, which releases the advisory lock
-    # with it.
+    # rather than unwinding through a launch or a wake.
+    #
+    # What has been rolled back by the time this runs is *this* transaction,
+    # and the advisory lock is released with it. Two callers nest inside
+    # another transaction — `Reapply.reapply_conversation/3` and
+    # `Launch.resume_channel/4`, both inside
+    # `InferenceCredentials.with_source_lock/2` — and there this is a
+    # savepoint rollback: the enclosing transaction survives, sees
+    # `{:error, :sandbox_unavailable}` and decides for itself, which is what
+    # its own `{:error, _}` path is for.
     #
     # The word is `:sandbox_unavailable` and not a new one: "this machine
     # cannot be reached right now" is exactly what it means, it is already 503
@@ -1211,9 +1224,13 @@ defmodule Fountain.Conversations do
     # waits treat it as contention and keep waiting.
     error in Postgrex.Error ->
       if lock_timeout?(error) do
+        # Deliberately not "advisory lock 4316 was held": the timeout covers
+        # every lock this transaction waits on, so a `FOR UPDATE` row lock held
+        # by somebody else lands here too, and naming the wrong one sends an
+        # operator looking in the wrong place.
         Logger.warning(
-          "sandbox lock #{@sandbox_lock_namespace}/#{inspect(sandbox_id)} was held for more " <>
-            "than the #{sandbox_lock_timeout_ms()}ms lock_timeout; refusing"
+          "a lock on sandbox #{inspect(sandbox_id)} was not available within the " <>
+            "#{sandbox_lock_timeout_ms()}ms lock_timeout; refusing"
         )
 
         {:error, :sandbox_unavailable}
@@ -1264,6 +1281,21 @@ defmodule Fountain.Conversations do
   metering or queue poke, and it is not routed through
   `Machines.Lease.cas_update/3` either — a starter holds no lease and must not
   appear to.
+
+  **It clears a stale `transition` in the same write** (stage 6b). Reaching
+  that line means the check above found no live lease, which by 6a's own
+  definition makes any stamp on the row an operation whose owner died — and
+  nothing else was clearing it. `Machine.busy?/2` ignores it deliberately, the
+  wake path reuses the row without touching it, and the reaper's sweeps only
+  ever see machines with no server, so a stamp left on a machine that is then
+  woken survived for ever. The next owner to claim that machine read the stamp
+  as *its own* interrupted operation and picked the work up from the middle
+  (`Machines.Park`'s takeover, `Machines.Destroy`'s continuation) on a machine
+  that had since been in use. Both protocols revalidate under their lease, so
+  neither depends on this; clearing it here is what stops the row lying in the
+  meantime, and it is safe because the advisory lock this holds is the one a
+  claim takes — a claimant arriving after it takes a new epoch and stamps
+  afresh.
 
   **Refuses an enclosing transaction**, the same guard `Machines.Destroy.run/2`
   carries and for the same reason (#2307 constraint 3): `with_sandbox_lock/2`
@@ -1348,7 +1380,7 @@ defmodule Fountain.Conversations do
           {count, _} =
             Repo.update_all(
               from(s in Sandbox, where: s.id == ^sandbox_id),
-              set: [woken_at: DateTime.utc_now()]
+              set: [woken_at: DateTime.utc_now(), transition: nil, transition_reason: nil]
             )
 
           {:ok, count}

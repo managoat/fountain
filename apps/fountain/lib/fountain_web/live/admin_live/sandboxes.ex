@@ -25,6 +25,7 @@ defmodule FountainWeb.AdminLive.Sandboxes do
   alias Fountain.{Accounts, Billing, Conversations}
   alias Fountain.Billing.SandboxUsage
   alias Fountain.Conversations.Termination
+  alias Fountain.Machines.Machine
 
   @impl true
   def mount(_params, _session, socket) do
@@ -208,6 +209,23 @@ defmodule FountainWeb.AdminLive.Sandboxes do
                   sandbox_status_color(s.status)
                 ]}>
                   {s.status}
+                </span>
+                <%!-- What the machine's owner is doing to it right now (ADR 0058).
+                      Without this the page says `ready` for a machine being parked
+                      or destroyed, which is the reading an operator makes a decision
+                      on — and the reason that decision's Reap button answers 503. --%>
+                <span
+                  :if={s.transition}
+                  title={"#{s.transition}#{if s.transition_reason, do: " (#{s.transition_reason})"}"}
+                  class={[
+                    "ml-1 inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium border",
+                    if(Machine.busy?(s),
+                      do: "border-amber-200 bg-amber-50 text-amber-700",
+                      else: "border-zinc-200 bg-zinc-50 text-zinc-500"
+                    )
+                  ]}
+                >
+                  {s.transition}{if not Machine.busy?(s), do: " (abandoned)"}
                 </span>
               </td>
               <td class="px-4 py-2 text-xs text-zinc-500">

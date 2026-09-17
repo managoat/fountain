@@ -157,7 +157,7 @@ own call invisible, so there is nothing to undo.)
 | `attach(conv, agent_layer)` / `detach(conv)` | the attach door, release, `_unsafe_sandbox_held_by_other?/2` | a refcount; the last detach applies the mode's policy |
 | `admit_turn(conv, runtime)` / `end_turn(conv)` | the locked turn insert, `_unsafe_sandbox_busy_elsewhere?/4`, the capacity check | capacity per `Runtimes.ACP.concurrency/1`, counted per runtime (#1089 blocker 4) |
 | `ensure_up()` | `Provisioning` create and its watchdog, `Wake`'s suspended resume, the rehydrator's start | two prompts waking one machine resume it once; the second waits (0023 step 4) |
-| `park(reason)` | `SandboxReaper.park/1`, `Lifecycle.park/4`, `HomeCheckpoint` | refused while any turn is admitted; the checkpoint happens inside the transition |
+| `park(reason)` | `SandboxReaper.idle_sweep/2`, `Lifecycle.park/4`, `HomeCheckpoint` | refused while a turn is admitted that this park is not itself cutting; the checkpoint happens inside the transition |
 | `destroy(reason, actor)` | terminate, reset, agent delete, admin reap, account deletion, `Lifecycle.destroy/4` | one door; one `sandbox.destroyed` audit event carrying the actor (0013) |
 | `retarget(triple)` | `Reapply`'s row write | refused with cotenants or a changed `build_fingerprint`, as 0023's 2026-09-11 amendment says |
 | `machine_gone` (inbound) | the `{:machine_gone, …}` cast senders | the owner tells every bound conversation once; `MachineEvents` becomes its outbound |

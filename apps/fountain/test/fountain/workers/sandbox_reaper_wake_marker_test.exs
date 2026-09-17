@@ -111,7 +111,7 @@ defmodule Fountain.Workers.SandboxReaperWakeMarkerTest do
       expect(Managoat.Sandbox, :destroy, fn _ -> :ok end)
 
       with_bounds(fn ->
-        assert {0, 1, 0} = SandboxReaper.sweep_abandoned_sandboxes()
+        assert {0, 1, 0, _} = SandboxReaper.sweep_abandoned_sandboxes()
       end)
 
       assert Repo.reload!(ctx.sandbox).status == "terminated"
@@ -123,7 +123,7 @@ defmodule Fountain.Workers.SandboxReaperWakeMarkerTest do
       mark_woken(ctx.sandbox, DateTime.utc_now())
 
       with_bounds(fn ->
-        assert {0, 0, 0} = SandboxReaper.sweep_abandoned_sandboxes()
+        assert {0, 0, 0, _} = SandboxReaper.sweep_abandoned_sandboxes()
       end)
 
       assert Repo.reload!(ctx.sandbox).status == "ready"
@@ -138,7 +138,7 @@ defmodule Fountain.Workers.SandboxReaperWakeMarkerTest do
       )
 
       with_bounds(fn ->
-        assert {0, 1, 0} = SandboxReaper.sweep_abandoned_sandboxes()
+        assert {0, 1, 0, _} = SandboxReaper.sweep_abandoned_sandboxes()
       end)
 
       assert Repo.reload!(ctx.sandbox).status == "terminated"

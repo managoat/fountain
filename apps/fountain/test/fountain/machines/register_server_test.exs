@@ -535,4 +535,59 @@ defmodule Fountain.Machines.RegisterServerTest do
       await_blocked(backend, deadline)
     end
   end
+
+  describe "a stale operation stamp" do
+    test "is cleared on the way past when no owner holds the machine", ctx do
+      # ADR 0058 stage 6b, from the protocol review. Nothing else clears a
+      # `transition` off a row whose lease has expired: `Machine.busy?/2`
+      # ignores it by 6a's design, and the reaper's sweeps only ever look at
+      # machines with no server. So an abandoned park on a machine that is then
+      # woken kept its stamp for ever, and the next owner to claim that machine
+      # read it as its own interrupted operation.
+      Repo.update_all(from(s in Sandbox, where: s.id == ^ctx.sandbox.id),
+        set: [
+          lease_epoch: 1,
+          lease_node: "dead-pod@node",
+          lease_until: DateTime.add(DateTime.utc_now(), -60, :second),
+          transition: "parking",
+          transition_reason: "idle"
+        ]
+      )
+
+      assert {:ok, pid} =
+               Conversations.register_server(
+                 ctx.sandbox.id,
+                 probe_spec(sandbox_id: ctx.sandbox.id)
+               )
+
+      on_exit(fn -> stop(pid) end)
+
+      row = Repo.reload!(ctx.sandbox)
+      assert is_nil(row.transition), "the stamp outlived the operation that wrote it"
+      assert is_nil(row.transition_reason)
+      assert row.woken_at
+    end
+
+    test "is left alone while an owner still holds the lease", ctx do
+      # The other half: a live lease is an operation in flight, and this door
+      # refuses rather than tidying up after it.
+      Repo.update_all(from(s in Sandbox, where: s.id == ^ctx.sandbox.id),
+        set: [
+          lease_epoch: 1,
+          lease_node: "live@node",
+          lease_until: DateTime.add(DateTime.utc_now(), 60, :second),
+          transition: "parking",
+          transition_reason: "idle"
+        ]
+      )
+
+      assert {:error, :sandbox_unavailable} =
+               Conversations.register_server(
+                 ctx.sandbox.id,
+                 probe_spec(sandbox_id: ctx.sandbox.id)
+               )
+
+      assert Repo.reload!(ctx.sandbox).transition == "parking"
+    end
+  end
 end

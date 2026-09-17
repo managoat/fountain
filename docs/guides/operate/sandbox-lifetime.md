@@ -60,7 +60,7 @@ The reaper logs one summary line for each run, each hour at :07.
 
 ```bash
 kubectl logs -n fountain -l app=fountain --since=2h | grep 'reaper:'
-# reaper: released=0 parked=1 expired=0 refused=0 reconciled=0 destroyed=2 untracked=102 live=114
+# reaper: released=0 parked=1 expired=0 refused=0 skipped=0 reconciled=0 destroyed=2 untracked=102 live=114
 ```
 
 `parked` counts the idle sandboxes the reaper suspended. The reaper can undo
@@ -71,6 +71,12 @@ could not, because something else was acting on the machine or somebody had
 started using it again in the meantime. A non-zero value is not a fault on its
 own — the next run looks again — but a value that stays high run after run
 means machines are not being reclaimed, and those machines are still billing.
+
+`skipped` counts the sandboxes the reaper decided to act on and then left
+alone, because by the time it took the machine somebody was using it again, or
+it was no longer past a bound, or a reset or teardown had been asked for. That
+is the reaper being told it was out of date, which is normal on a busy fleet
+and is deliberately kept out of `refused`.
 
 A reaper run parks or reclaims at most a fixed number of machines, so a large
 backlog drains over several runs rather than all at once.

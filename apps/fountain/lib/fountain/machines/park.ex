@@ -101,6 +101,22 @@ defmodule Fountain.Machines.Park do
   park is the takeover path, and it happens on the first pass that sees the
   row.
 
+  ## What a lease that expires mid-park still leaves (stage 7)
+
+  Nothing renews this lease across the provider call — the renew timer arrives
+  with the standing lease in stage 7 — so a park slower than `lease_ttl_ms/0`
+  outlives its own lease and its finalize answers `:superseded`. The
+  compare-and-set makes that *safe*: no row is written twice. It does not make
+  it *complete*. The machine may genuinely be suspended while the row still
+  says `ready`, with no `sandbox_suspended` usage row and no audit event, until
+  some later owner takes the row over — and a wake may get there first, because
+  `Wake.probe_sandbox/4` reuses a machine on any `{:ok, _info}` from the
+  provider without reading its status, which on E2B and Daytona means reusing a
+  machine that is actually stopped. Both halves are `main`'s behaviour, neither
+  is made worse here, and both close with the renew timer and with `ensure_up`
+  reading the probe's status rather than its shape. Named here so stage 7 does
+  not have to rediscover them.
+
   ## Outcomes
 
   `{:ok, :parked}` parked the machine. `{:ok, :already_parked}` is a row that
@@ -379,12 +395,11 @@ defmodule Fountain.Machines.Park do
   # caller answered before it claimed, asked again where the answer can be
   # acted on.
   #
-  # **Two of them are unconditional.** A turn running anywhere on the machine
-  # means the machine is in use whoever is asking (the ADR's "refused while any
-  # turn is admitted"). A `woken_at` inside its grace window means a wake
+  # **The `woken_at` grace is unconditional**: a wake
   # committed the durable marker under the sandbox lock and Horde's CRDT has
   # not published its server yet, so "no live server" is not evidence of
-  # absence (stage 6a, #2307 constraint 4).
+  # absence (stage 6a, #2307 constraint 4). The running-turn check is nearly
+  # so — `running_turn_veto?/2` has the one exception and why.
   #
   # **The third depends on whom the caller speaks for**, and the two policies
   # here are the two that exist on `main`, kept apart on purpose.
@@ -407,7 +422,7 @@ defmodule Fountain.Machines.Park do
     occupancy = Occupancy.load(sandbox)
 
     cond do
-      Occupancy.any_running_turn?(occupancy) ->
+      running_turn_veto?(occupancy, opts) ->
         {:error, :machine_occupied}
 
       Occupancy.recently_woken?(sandbox) ->
@@ -422,6 +437,54 @@ defmodule Fountain.Machines.Park do
       true ->
         {:error, :not_expired}
     end
+  end
+
+  # A turn running on the machine, and whose turn counts.
+  #
+  # For every caller but one, any turn anywhere: the idle bound's whole premise
+  # is that nothing is running, so a turn found here means the verdict was
+  # wrong, and the reaper's sweep is for machines nobody is using at all.
+  #
+  # **The max-lifetime ceiling is the exception, and it is the case the ceiling
+  # exists for.** `Lifecycle.check/4` lets `{:expired, :max_lifetime}` through
+  # with `busy?` true on purpose — the absolute bound is there for the
+  # conversation that never stops being busy — so a server reaching this with
+  # its own turn in flight is the normal way the ceiling fires, not a race. Its
+  # own turn is what the park is cutting (`Lifecycle.explain(:max_lifetime,
+  # :suspend)` says so to the user: "a turn in flight was cut"), and treating
+  # it as a veto made the ceiling unable to park a home at all: the server had
+  # already dropped its adapter by then, so the turn it left `running` had
+  # nothing to end it, the server stayed up, and the machine went on billing
+  # while the ceiling re-fired every minute. `main` parked, stopped the server,
+  # and let `terminate/2` orphan the turn — which is what this restores.
+  #
+  # Another conversation's running turn still refuses. This conversation's
+  # clock reaching a ceiling is not a reason to cut somebody else's work on the
+  # same machine, and `main` never had to decide that because it did not ask.
+  # **And a turn nothing is driving is not occupancy.** A `running` turn row
+  # whose conversation has no live `ConversationServer` is a leftover, and one
+  # shape of it never goes away on its own: a turn parked on a human's
+  # permission decision, whose server then died. `AutonomousTurnReaper` skips
+  # those by design — a person may still answer — so the row stays `running`
+  # for ever, and counting it refused the park for ever with it. `main` had no
+  # turn check at all and its reaper reclaimed that machine; a stage that says
+  # it does not change reclamation must not strand it.
+  #
+  # The requester is the exception to the exception: it *is* the thing driving
+  # its own turn, so its own counts whether or not the registry agrees (and in
+  # a test there is no registered server at all).
+  defp running_turn_veto?(%Occupancy{} = occupancy, opts) do
+    requester = Keyword.get(opts, :requesting_conversation_id)
+    ceiling? = Keyword.fetch!(opts, :reason) == :max_lifetime
+    live = MapSet.new(Occupancy.live_ids(occupancy))
+
+    occupancy
+    |> Occupancy.running_turn_ids()
+    |> Enum.any?(fn conv_id ->
+      if conv_id == requester,
+        do: not ceiling?,
+        else: MapSet.member?(live, conv_id)
+    end)
   end
 
   defp held_by_somebody_else?(%Occupancy{} = occupancy, nil),
@@ -484,12 +547,36 @@ defmodule Fountain.Machines.Park do
 
   # Steps 5 and 6, both outside every lock and every transaction, with the
   # intent already on the row.
+  #
+  # **Checkpoint first, then suspend — `main` did it the other way round**, and
+  # the flip is worth stating because nothing here makes it visible. `main`
+  # called `Managoat.Sandbox.suspend/1` from `Lifecycle.idle_machine_action/2`
+  # (and the reaper's `idle_sweep/2`) on the way to *deciding* to park, and
+  # only then reached `HomeCheckpoint.on_park/1`. Today that ordering is
+  # unobservable at every provider: `:checkpoint` is advertised by Sprites
+  # alone, and Sprites' `suspend/1` is a no-op — the sprite scales to zero by
+  # itself — so on `main` the checkpoint was *also* taken of a running machine.
+  #
+  # The one real difference is on the failure path, and it is this order's
+  # cost: a suspend that fails after a checkpoint has been taken spends a
+  # checkpoint on a machine that stays up, where `main` would have taken none.
+  # That buys the thing ADR 0058 asked for — the checkpoint happens inside the
+  # transition, under the lease, where no wake can land between it and the row
+  # write — and the ADR's stage 6 row lists them in this order. A provider that
+  # ever has both a real suspend and checkpoints makes this a decision worth
+  # re-opening; it is not one today.
   defp checkpoint_and_suspend(%Sandbox{} = sandbox, epoch, opts) do
-    # Best effort and deliberately not matched on: a home that could not be
+    # Best effort, and best effort means *rescued*: a home that could not be
     # checkpointed still has to be parked, because an unparked machine keeps
-    # billing (`HomeCheckpoint`'s moduledoc). It reports its own failure to the
-    # transcript and the log.
-    _ = HomeCheckpoint.on_park(sandbox, epoch)
+    # billing (`HomeCheckpoint`'s moduledoc). Returning an error was already
+    # handled by not matching on it; raising was not, and
+    # `Managoat.Sandbox.Retry.with_backoff/2` re-raises once its attempts are
+    # spent. An exception here unwound the whole park — leaving the row `ready`
+    # with a `parking` stamp and a released lease, crashing the conversation
+    # server that had already dropped its adapter, and, with the gate off,
+    # taking `SandboxReaper.perform/1` down mid-sweep with every machine after
+    # this one unreaped.
+    _ = checkpoint(sandbox, epoch)
 
     case suspend_at_provider(sandbox) do
       :ok ->
@@ -508,6 +595,18 @@ defmodule Fountain.Machines.Park do
         clear_transition(sandbox, epoch)
         {:error, :suspend_failed}
     end
+  end
+
+  defp checkpoint(%Sandbox{} = sandbox, epoch) do
+    HomeCheckpoint.on_park(sandbox, epoch)
+  rescue
+    error ->
+      Logger.warning(
+        "machine #{sandbox.id}: home checkpoint raised for #{sandbox.machine_name}, " <>
+          "parking without one: " <> Exception.format(:error, error, __STACKTRACE__)
+      )
+
+      {:error, :checkpoint_raised}
   end
 
   # There is no "no machine to call" case: `machine_name` is `NOT NULL` and
@@ -566,12 +665,48 @@ defmodule Fountain.Machines.Park do
 
   # ── takeover ──────────────────────────────────────────────────────────────
 
+  # A takeover is a park, so it revalidates like one.
+  #
+  # The first draft went from the provider probe straight to the finalize,
+  # which made the takeover the one path into `suspended` that checked
+  # nothing — no fence, no running turn, no `woken_at`, no capability. That is
+  # not a narrow window, because **nothing clears a `parking` stamp off a row
+  # whose lease has expired except an owner**: `Machine.busy?/2` ignores it by
+  # 6a's design, and a wake that reuses such a row leaves it exactly where it
+  # is. So an abandoned park, a wake, a fresh turn and then any later park
+  # would have written `suspended` over a machine in use — the ordinary path's
+  # `:machine_occupied`, turned into `{:ok, :parked}` by the takeover clause.
+  # A teardown fence landing on a stamped row was overwritten the same way.
+  #
+  # Since stage 6b `Conversations.register_server/2` also clears a lease-less
+  # stamp on its way past, so the reader half of that story is closed too; the
+  # two agree, and this is the half that must hold even if a reader forgets.
   defp take_over(%Sandbox{} = sandbox, epoch, opts) do
     Logger.info(
       "machine #{sandbox.id}: taking over an abandoned park " <>
         "(#{sandbox.transition_reason || "no reason"}) at epoch #{epoch}"
     )
 
+    case admissible(sandbox, opts) do
+      :ok ->
+        compensate(sandbox, epoch, opts)
+
+      # Not this park's machine any more. Clear the intent its owner left —
+      # otherwise the row goes on lying about what is happening to it, and the
+      # next owner inherits the same question — and refuse exactly as the
+      # ordinary path would have.
+      refusal ->
+        Logger.info(
+          "machine #{sandbox.id}: abandoned park is no longer admissible " <>
+            "(#{inspect(refusal)}); clearing the stamp"
+        )
+
+        clear_transition(sandbox, epoch)
+        refusal
+    end
+  end
+
+  defp compensate(%Sandbox{} = sandbox, epoch, opts) do
     case machine_state(sandbox) do
       :suspended ->
         # The suspend landed and the finalize was lost. Finishing it *is* the
@@ -596,10 +731,13 @@ defmodule Fountain.Machines.Park do
   # still up and billing behind a status no sweep examines (decisions/0017).
   #
   # Sprites is worth naming: its `suspend/1` is a no-op — the sprite scales to
-  # zero by itself — so its `get/1` answers `:running` for a machine a park had
-  # "suspended", and a Sprites takeover therefore always clears. That is right:
-  # on Sprites the park is a row write and nothing at the provider was left
-  # half-done.
+  # zero on its own schedule — so its `get/1` answers `:running` for a machine
+  # a park had just "suspended", and such a takeover clears rather than
+  # finalizes. Not *always*: the same sprite reports `stopped` once it has
+  # actually scaled to zero, which `normalize_status/1` folds to `:suspended`
+  # and this finalizes. Both answers are right for Sprites, because there the
+  # park is a row write and nothing at the provider was left half-done either
+  # way.
   defp machine_state(%Sandbox{} = sandbox) do
     handle =
       Conversations.sandbox_provider_atom(sandbox)

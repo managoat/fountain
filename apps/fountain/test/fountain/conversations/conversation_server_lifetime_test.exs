@@ -11,6 +11,8 @@ defmodule Fountain.Conversations.ConversationServerLifetimeTest do
 
   use Fountain.ConversationServerCase
 
+  import Fountain.ConversationServerCase.ACP
+
   alias Fountain.Conversations.Lifecycle
 
   defp with_bounds(pairs, fun) do
@@ -33,10 +35,10 @@ defmodule Fountain.Conversations.ConversationServerLifetimeTest do
     stub_happy_sprite()
   end
 
-  defp aged_conversation(minutes) do
+  defp aged_conversation(minutes, sandbox_attrs \\ [], agent_attrs \\ []) do
     user = insert_verified_user()
-    agent = insert_agent(user_id: user.id)
-    sandbox = insert_sandbox(user_id: user.id, status: "ready")
+    agent = insert_agent([user_id: user.id] ++ agent_attrs)
+    sandbox = insert_sandbox([user_id: user.id, status: "ready"] ++ sandbox_attrs)
 
     ts = DateTime.utc_now() |> DateTime.add(-minutes * 60, :second) |> DateTime.truncate(:second)
 
@@ -296,6 +298,118 @@ defmodule Fountain.Conversations.ConversationServerLifetimeTest do
         send(pid, :lifecycle_check)
         assert_stopped(ref)
       end)
+    end
+
+    test "a home at the ceiling is parked even with this server's own turn in flight" do
+      # The case the ceiling exists for, and the one it is hardest to reach:
+      # `Lifecycle.check/4`'s `busy?` suppresses the *idle* verdict only, so
+      # `{:expired, :max_lifetime}` fires while this server is mid-prompt.
+      # A home parks rather than being destroyed (ADR 0023 step 5), and the
+      # turn in flight is cut — `explain(:max_lifetime, :suspend)` says so in
+      # as many words.
+      #
+      # ADR 0058 stage 6b put a running-turn check under the machine's lease,
+      # and the first draft of it was machine-wide: this park refused itself,
+      # the server stayed alive with its connection already dropped, its turn
+      # stayed `running` with no adapter left to end it, and the ceiling
+      # re-fired every minute against a machine that went on billing.
+      {conv, sandbox} = aged_conversation(60 * 48, [mode: "persistent"], runtime: "claude")
+      # Order matters: `stub_happy_sprite/0` stubs `spawn/4` permissively, so
+      # the ACP transport has to be wired after it or the handshake never
+      # reaches this process.
+      stub_reattach()
+      ref = stub_acp_transport()
+      reject(&Managoat.Sandbox.Sprites.destroy/1)
+
+      with_bounds([sandbox_idle_timeout_minutes: 0, sandbox_max_lifetime_hours: 24], fn ->
+        {pid, mon, :alive} = start_server(conv, initial_prompt: "first")
+        _prompt_id = drive_to_prompt(pid, ref)
+
+        assert [%{status: "running"}] = Fountain.Conversations._unsafe_list_turns(conv.id)
+
+        send(pid, :lifecycle_check)
+        assert :normal = assert_stopped(mon)
+      end)
+
+      assert Fountain.Repo.reload(sandbox).status == "suspended",
+             "the ceiling could not park the machine, so it goes on billing with " <>
+               "nothing left to stop it"
+
+      assert [%{status: "interrupted", orphaned_at: at}] =
+               Fountain.Conversations._unsafe_list_turns(conv.id)
+
+      assert at, "the cut turn was left running with no adapter and no server to end it"
+      assert Fountain.Repo.reload(conv).status == "idle"
+    end
+
+    test "a co-tenant's running turn still stops the ceiling from parking the machine" do
+      # The other half of the same rule: this server's *own* turn is what the
+      # ceiling is cutting, and somebody else's is not. A machine another
+      # conversation is working on is left alone and asked again next tick.
+      {conv, sandbox} = aged_conversation(60 * 48, mode: "persistent")
+      stub_reattach()
+      reject(&Managoat.Sandbox.Sprites.destroy/1)
+      reject(&Managoat.Sandbox.Sprites.suspend/1)
+
+      other =
+        insert_conversation(user_id: conv.user_id, sandbox_id: sandbox.id, status: "running")
+
+      insert_turn(other, status: "running", started_at: DateTime.utc_now())
+
+      # And a server driving it. Since stage 6b a `running` turn row whose
+      # conversation has no live server is a leftover rather than occupancy —
+      # the permission-parked turn nothing ever clears — so without this the
+      # machine would (rightly) park and this test would be about the wrong
+      # rule.
+      start_supervised!(
+        {Task,
+         fn ->
+           {:ok, _} = Horde.Registry.register(Fountain.ConversationRegistry, other.id, nil)
+           receive do: (:never -> :ok)
+         end},
+        id: {:cotenant, other.id}
+      )
+
+      assert {:ok, _} = Conversations.ConversationServer.await_registered(other.id, 2_000)
+
+      with_bounds([sandbox_idle_timeout_minutes: 0, sandbox_max_lifetime_hours: 24], fn ->
+        {pid, _mon, :alive} = start_server(conv)
+
+        send(pid, :lifecycle_check)
+        assert is_map(:sys.get_state(pid)), "the server gave up on a machine still in use"
+        GenServer.stop(pid)
+      end)
+
+      assert Fountain.Repo.reload(sandbox).status == "ready"
+    end
+
+    for {label, answer} <- [
+          {"a machine it cannot reach right now", {:error, :sandbox_unavailable}},
+          {"an abandoned park it recovered instead", {:error, :recovered}}
+        ] do
+      test "the server keeps the machine when the park answers with #{label}" do
+        # `reclaim_refused/2`'s other two inputs. A park that was refused for a
+        # reason the server cannot act on leaves the machine exactly as it was
+        # and asks again on the next tick — the same thing a refused destroy
+        # has always done. What must not happen is the server stopping, which
+        # would leave a live machine with nothing watching it until the hourly
+        # sweep. Driven at `park_sandbox/2`'s own seam: `Machines.Park` decides
+        # these words and `park_test.exs` pins that it does.
+        {conv, sandbox} = aged_conversation(60 * 48, mode: "persistent")
+        stub_reattach()
+        reject(&Managoat.Sandbox.Sprites.destroy/1)
+        stub(Lifecycle, :park, fn _conv_id, _sandbox_id, _handle, _reason -> unquote(answer) end)
+
+        with_bounds([sandbox_idle_timeout_minutes: 0, sandbox_max_lifetime_hours: 24], fn ->
+          {pid, _mon, :alive} = start_server(conv)
+
+          send(pid, :lifecycle_check)
+          assert is_map(:sys.get_state(pid)), "the server gave up on a machine it still holds"
+          GenServer.stop(pid)
+        end)
+
+        assert Fountain.Repo.reload(sandbox).status == "ready"
+      end
     end
 
     test "a wake from suspended restarts the ceiling clock" do

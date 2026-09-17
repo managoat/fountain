@@ -54,7 +54,7 @@ defmodule Fountain.Conversations.ConversationServerSizeTest do
   # the brief hoped for, and saying so is better than moving something out to
   # make a number. The server's own `update_sandbox` and
   # `Managoat.Sandbox.destroy` sites are stage 8's, and they are the ones that
-  # lower this properly. The file is 2209 lines on this branch.
+  # lower this properly. The file is 2211 lines on this branch.
   @pin 2219
 
   @server "apps/fountain/lib/fountain/conversations/conversation_server.ex"

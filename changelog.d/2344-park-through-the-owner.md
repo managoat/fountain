@@ -28,6 +28,19 @@
   completed; if it is still running, the interrupted park is cleared and the
   computer goes on as it was until it next falls idle. It is never both.
 
+- The admin computers page now says when Fountain is in the middle of an
+  operation on a computer, and whether anyone is still running it (#2344). A
+  computer being parked or deleted read as `ready` there, which is the reading
+  an operator decides on — and the reason the Reap button beside it answers
+  that the computer is unavailable.
+
+- The cleanup pass's hourly summary gains a `skipped` count beside `refused`
+  (#2344). A computer it decided to reclaim and then left alone — because
+  somebody had started using it again in the meantime, or it was no longer
+  idle — is not a computer it failed to reclaim, and counting the two together
+  made an ordinary busy fleet look like an outage. `refused` keeps meaning
+  "these are still there and something is wrong".
+
 ### Fixed
 
 - Fountain's cleanup pass can no longer park a computer that a prompt has just

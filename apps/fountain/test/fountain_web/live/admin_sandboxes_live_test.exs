@@ -15,6 +15,15 @@ defmodule FountainWeb.AdminSandboxesLiveTest do
     :ok
   end
 
+  defp stamp(sandbox, sets) do
+    import Ecto.Query
+
+    Fountain.Repo.update_all(
+      from(s in Fountain.Conversations.Sandbox, where: s.id == ^sandbox.id),
+      set: sets
+    )
+  end
+
   defp insert_admin(overrides \\ %{}) do
     user = insert_active_user(overrides)
     {:ok, admin} = Accounts.update_user_role(user, "admin")
@@ -279,6 +288,37 @@ defmodule FountainWeb.AdminSandboxesLiveTest do
       {:ok, _lv, html} = live(conn, ~p"/admin/sandboxes")
 
       assert html =~ "No sandbox time this month."
+    end
+  end
+
+  describe "a machine mid-operation" do
+    test "says what its owner is doing to it, and whether anyone still is", %{conn: conn} do
+      # From the surfaces review: the page said `ready` for a machine being
+      # parked or destroyed, which is the reading an operator decides on — and
+      # the reason the Reap button next to it answers 503.
+      admin = insert_admin()
+      user = insert_verified_user()
+      sandbox = insert_sandbox(user_id: user.id, status: "ready")
+
+      stamp(sandbox,
+        lease_epoch: 1,
+        lease_node: "live@node",
+        lease_until: DateTime.add(DateTime.utc_now(), 60, :second),
+        transition: "parking",
+        transition_reason: "idle"
+      )
+
+      {:ok, _live, html} = conn |> login_user(admin) |> live(~p"/admin/sandboxes")
+
+      assert html =~ "parking"
+      refute html =~ "abandoned"
+
+      # And the other reading: a stamp with no live lease is an operation whose
+      # owner died, which is a different thing for an operator to see.
+      stamp(sandbox, lease_until: DateTime.add(DateTime.utc_now(), -60, :second))
+
+      {:ok, _live, html} = conn |> login_user(admin) |> live(~p"/admin/sandboxes")
+      assert html =~ "abandoned"
     end
   end
 end

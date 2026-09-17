@@ -92,6 +92,16 @@ defmodule Fountain.Machines.Machine do
   # given up. `machine_bounds_test.exs` pins the ordering.
   @destroy_timeout 20_000
 
+  # One consequence worth stating, because it is asymmetric and a caller feels
+  # it: a destroy waits `Destroy.busy_wait_ms/0` — five seconds — for a lease
+  # that a *park* may hold for up to `Park.lease_ttl_ms/0`. So a `DELETE
+  # /api/sandboxes/:id` that lands on a machine mid-park answers 503
+  # `sandbox_unavailable` rather than queueing behind it, and the caller tries
+  # again. That is the trade `machine_bounds_test.exs` spells out — the wait
+  # bounds the *caller*, who is a person, and a park that outlives it is not a
+  # reason to hold a web request open. The reset front door says as much in its
+  # own 503 message.
+  #
   # A park is a longer operation than a destroy and sits under a different
   # ceiling. Longer, because a home checkpoint is a provider round trip with
   # `Managoat.Sandbox.Retry`'s backoff behind it and the suspend follows it.
@@ -332,6 +342,11 @@ defmodule Fountain.Machines.Machine do
       going away and there is nothing to park. Both callers stop bothering with
       it rather than retrying: the fence's own owner finishes the job, and
       `SandboxReaper.sweep_fenced_teardowns/0` is the backstop if it dies.
+    * `:not_expired` — the verdict the caller brought has gone stale and the
+      machine is no longer past a bound. Only a caller that supplies a
+      `:verdict` can receive it, and the one that does counts it apart from a
+      refusal: a sweep that was wrong and was told so is constraint 1 working,
+      not a machine it failed to reclaim.
 
   Everything else is a refusal to act on right now — contention for the lease,
   a fence, a verdict gone stale, a database fault — and reads as
@@ -348,7 +363,8 @@ defmodule Fountain.Machines.Machine do
              | :cannot_park
              | :suspend_failed
              | :machine_occupied
-             | :fenced}
+             | :fenced
+             | :not_expired}
   def park(sandbox_id, opts) when is_binary(sandbox_id) and is_list(opts) do
     cond do
       # As in `destroy/2`: the protocol's own guard is process-local and cannot
@@ -439,7 +455,8 @@ defmodule Fountain.Machines.Machine do
       :cannot_park,
       :suspend_failed,
       :machine_occupied,
-      :fenced
+      :fenced,
+      :not_expired
     ]
   end
 

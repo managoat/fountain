@@ -119,8 +119,10 @@ defmodule Fountain.Conversations.LifecycleActionsTest do
   # wrapped is `Fountain.Machines.Park`'s, made under the machine's lease with
   # the handle built from the row rather than from the server's state, so its
   # `nil` clause has no case left to answer. The two things it asserted are
-  # asserted where the call now is — `machines/park_test.exs` ("the provider is
-  # asked to suspend the machine the row names", and the error arm below).
+  # asserted where the call now is — `machines/park_test.exs`'s
+  # "stamps the intent, checkpoints, suspends, finalizes, audits, in that
+  # order", which pins the handle the provider is given, and its
+  # "the suspend that does not land" cases.
   describe "idle_machine_action/1" do
     # These no longer make the provider call. The decision is the provider's
     # *capability*, which is a pure question; the call, and the degradation
@@ -356,9 +358,9 @@ defmodule Fountain.Conversations.LifecycleActionsTest do
   # `Machines.Destroy` since 5a and by `Machines.Park` now — through
   # `MachineEvents.tell_cotenants/5`, still the one sender of that cast, and
   # the wrapper had no callers left. Its two cases are
-  # `machines/park_test.exs`'s "the caller's notice reaches every other live
-  # server on the machine" and "a co-tenant with no live server is not an
-  # error", driven through the park that actually sends them.
+  # `machines/park_test.exs`'s "reaches every other live server on the machine
+  # when the caller supplies one" and "a co-tenant with no live server is not
+  # an error", driven through the park that actually sends them.
 
   describe "reclaim_message/1" do
     test "names the bound that destroyed the sandbox" do

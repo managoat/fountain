@@ -160,7 +160,7 @@ defmodule Fountain.Workers.SandboxReaper do
   @impl Oban.Worker
   def perform(_job) do
     released = release_stuck_sandboxes()
-    {parked, expired, refused} = sweep_abandoned_sandboxes()
+    {parked, expired, refused, skipped} = sweep_abandoned_sandboxes()
     reconciled = sweep_fenced_teardowns()
 
     listings = list_by_provider()
@@ -174,8 +174,8 @@ defmodule Fountain.Workers.SandboxReaper do
 
     Logger.info(
       "reaper: released=#{released} parked=#{parked} expired=#{expired} " <>
-        "refused=#{refused} reconciled=#{reconciled} destroyed=#{destroyed} " <>
-        "untracked=#{untracked} live=#{live}"
+        "refused=#{refused} skipped=#{skipped} reconciled=#{reconciled} " <>
+        "destroyed=#{destroyed} untracked=#{untracked} live=#{live}"
     )
 
     result =
@@ -201,6 +201,16 @@ defmodule Fountain.Workers.SandboxReaper do
     # that died halfway, so a non-zero value is a defect somewhere upstream,
     # not routine reclamation.
     #
+    # `skipped` is the one added in stage 6b, and it exists to keep `refused`
+    # honest. Since the park revalidates under the machine's lease, the sweep
+    # now has a whole class of outcomes that are constraint 1 *working*: a
+    # machine somebody started using between the scan and the claim, one that
+    # is no longer past a bound, one being reset or torn down, one whose
+    # abandoned park was cleared. None of those is a machine the reaper failed
+    # to reclaim, and counting them in `refused` — a gauge whose whole job is
+    # to say "these machines are still there and something is wrong" — would
+    # make an ordinary busy fleet look like an outage.
+    #
     # `refused` is its own for both reasons at once (ADR 0058 stage 5b). An
     # expiry now destroys the machine through its owner and that can be
     # refused, so `expired` had to stop meaning "rows the sweep decided to
@@ -216,6 +226,7 @@ defmodule Fountain.Workers.SandboxReaper do
         parked: parked,
         expired: expired,
         refused: refused,
+        skipped: skipped,
         reconciled: reconciled
       },
       %{}
@@ -345,17 +356,19 @@ defmodule Fountain.Workers.SandboxReaper do
   `conversations.updated_at` on every boot, which would make an abandoned
   conversation look freshly active after each deploy.
 
-  Returns `{parked, expired, refused}` — machines parked, machines reclaimed,
-  and machines whose destroy the owner refused. The third is separate because
-  `expired` is a finance-board gauge and must keep meaning "reclaimed"; see
-  `perform/1`'s telemetry comment (ADR 0058 stage 5b).
+  Returns `{parked, expired, refused, skipped}` — machines parked, machines
+  reclaimed, machines the owner could not reach, and machines it deliberately
+  left alone. The third is separate because `expired` is a finance-board gauge
+  and must keep meaning "reclaimed"; the fourth because the third is a defect
+  gauge and must keep meaning "still there, and wrong". See `perform/1`'s
+  telemetry comment (ADR 0058 stages 5b and 6b).
   """
   def sweep_abandoned_sandboxes do
     idle = Lifecycle.idle_timeout_seconds()
     max_lifetime = Lifecycle.max_lifetime_seconds()
 
     if is_nil(idle) and is_nil(max_lifetime) do
-      {0, 0, 0}
+      {0, 0, 0, 0}
     else
       now = DateTime.utc_now()
       grace_cutoff = DateTime.add(now, -@abandoned_grace_minutes * 60, :second)
@@ -374,13 +387,24 @@ defmodule Fountain.Workers.SandboxReaper do
         |> where([s], ^woken_grace(now))
         |> Repo.all()
         |> Repo.preload(:conversations)
-        |> Enum.reject(&Lifecycle.any_server_alive?/1)
+        # A machine whose owner holds a live lease is mid-operation, and asking
+        # it would mean waiting out `Park.busy_wait_ms/0` — five seconds — for
+        # an answer already on the row. `sweep_fenced_teardowns/0` has read the
+        # lease this way since 5a; since 6b, when a park takes one on every
+        # sweep, this pass had to as well or a busy fleet would spend most of
+        # its run asleep. It is not a correctness check — the claim is, and it
+        # re-reads everything — it is the cost of asking.
+        |> Enum.reject(&(Lease.live?(&1, now) or Lifecycle.any_server_alive?(&1)))
         |> Enum.map(&{&1, check_bounds(&1, now)})
 
-      {parked, expired, refused, _destroys_left, _attempts_left} =
-        Enum.reduce(verdicts, {0, 0, 0, @destroy_limit, owner_attempt_limit()}, &sweep_verdict/2)
+      {parked, expired, refused, skipped, _destroys_left, _attempts_left} =
+        Enum.reduce(
+          verdicts,
+          {0, 0, 0, 0, @destroy_limit, owner_attempt_limit()},
+          &sweep_verdict/2
+        )
 
-      {parked, expired, refused}
+      {parked, expired, refused, skipped}
     end
   end
 
@@ -407,21 +431,22 @@ defmodule Fountain.Workers.SandboxReaper do
   # The run's *attempt* budget is spent by every verdict that reaches an owner,
   # whatever the owner says, because what it bounds is the waiting rather than
   # the writing. See `@owner_attempt_limit`.
-  defp sweep_verdict({sandbox, {:expired, :idle}}, {p, e, r, left, attempts}) when attempts > 0 do
+  defp sweep_verdict({sandbox, {:expired, :idle}}, {p, e, r, s, left, attempts})
+       when attempts > 0 do
     case idle_sweep(sandbox, left) do
-      :parked -> {p + 1, e, r, left, attempts - 1}
-      :expired -> {p, e + 1, r, left - 1, attempts - 1}
-      :refused -> {p, e, r + 1, left, attempts - 1}
-      :settled -> {p, e, r, left, attempts - 1}
-      :deferred -> {p, e, r, left, attempts - 1}
+      :parked -> {p + 1, e, r, s, left, attempts - 1}
+      :expired -> {p, e + 1, r, s, left - 1, attempts - 1}
+      :refused -> {p, e, r + 1, s, left, attempts - 1}
+      :skipped -> {p, e, r, s + 1, left, attempts - 1}
+      :deferred -> {p, e, r, s, left, attempts - 1}
     end
   end
 
-  defp sweep_verdict({sandbox, {:expired, :max_lifetime}}, {p, e, r, left, attempts})
+  defp sweep_verdict({sandbox, {:expired, :max_lifetime}}, {p, e, r, s, left, attempts})
        when left > 0 and attempts > 0 do
     case expire(sandbox, :max_lifetime, "past max lifetime") do
-      :expired -> {p, e + 1, r, left - 1, attempts - 1}
-      :refused -> {p, e, r + 1, left, attempts - 1}
+      :expired -> {p, e + 1, r, s, left - 1, attempts - 1}
+      :refused -> {p, e, r + 1, s, left, attempts - 1}
     end
   end
 
@@ -436,7 +461,7 @@ defmodule Fountain.Workers.SandboxReaper do
   # no fence, so the next run sees it unchanged and deals with it then — which
   # is exactly what a budget is for. Counted as neither expired nor refused:
   # nothing was attempted and nothing went wrong.
-  defp defer(%Sandbox{} = sandbox, {_p, _e, _r, left, attempts}) do
+  defp defer(%Sandbox{} = sandbox, {_p, _e, _r, _s, _left, attempts}) do
     spent =
       if attempts > 0,
         do: "its #{@destroy_limit} provider destroys",
@@ -447,7 +472,6 @@ defmodule Fountain.Workers.SandboxReaper do
         "this run has spent #{spent}"
     )
 
-    _ = left
     :deferred
   end
 
@@ -514,7 +538,7 @@ defmodule Fountain.Workers.SandboxReaper do
           "reaper: idle sandbox #{sandbox.id} (#{sandbox.machine_name}) settled as #{outcome}"
         )
 
-        :settled
+        :skipped
 
       {:error, :cannot_park} ->
         expire_within(sandbox, destroys_left, "idle on a provider without suspend")
@@ -527,7 +551,19 @@ defmodule Fountain.Workers.SandboxReaper do
       # `sweep_fenced_teardowns/0` is already the backstop for a fence whose
       # owner dies, so this is neither a reclamation nor a failure to report.
       {:error, :fenced} ->
-        :settled
+        :skipped
+
+      # Constraint 1 doing its job: somebody started using this machine, or it
+      # is no longer past a bound, between this sweep's scan and the claim. The
+      # sweep was wrong and the owner said so — that is not a machine it failed
+      # to reclaim, so it does not go on the defect gauge.
+      {:error, refusal} when refusal in [:machine_occupied, :not_expired] ->
+        Logger.info(
+          "reaper: left idle sandbox #{sandbox.id} (#{sandbox.machine_name}) alone: " <>
+            "#{refusal}"
+        )
+
+        :skipped
 
       {:error, refusal} ->
         Logger.warning(

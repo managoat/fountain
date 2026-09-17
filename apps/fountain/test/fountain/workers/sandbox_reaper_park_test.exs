@@ -104,12 +104,18 @@ defmodule Fountain.Workers.SandboxReaperParkTest do
   # window #2307 constraint 1 is about, and stubbing the claim is the only way
   # to put a writer in it deterministically.
   defp admission_at_the_claim(fun) do
+    admission_at_the_claim_of(nil, fun)
+  end
+
+  # The same, for one machine only: a sweep over several claims each in turn,
+  # and a test about the budget needs to know which one it interfered with.
+  defp admission_at_the_claim_of(target, fun) do
     # `Park` calls `claim/3` and lets the clock default, so this is the arity
     # to stand in front of; stubbing `claim/4` alone would let every call
     # through and prove nothing.
     stub(Lease, :claim, fn sandbox_id, node, ttl ->
       result = Mimic.call_original(Lease, :claim, [sandbox_id, node, ttl])
-      fun.()
+      if is_nil(target) or target == sandbox_id, do: fun.()
       result
     end)
   end
@@ -141,7 +147,7 @@ defmodule Fountain.Workers.SandboxReaperParkTest do
         :ok
       end)
 
-      assert {1, 0, 0} = sweep()
+      assert {1, 0, 0, _} = sweep()
 
       assert_received {:mid_park, mid}
       assert mid.transition == "parking"
@@ -170,10 +176,43 @@ defmodule Fountain.Workers.SandboxReaperParkTest do
         insert_turn(ctx.conv, status: "running", started_at: DateTime.utc_now())
       end)
 
-      assert {0, 0, 1} = sweep()
+      # `skipped`, not `refused`: the sweep was wrong and the owner said so,
+      # which is constraint 1 working rather than a machine left behind.
+      assert {0, 0, 0, 1} = sweep()
       assert row(ctx).status == "ready"
       assert is_nil(row(ctx).transition)
       assert suspended_events(ctx) == []
+    end
+
+    test "a refused park leaves the run's provider-destroy budget alone", ctx do
+      # Stage 5b's rule, still true with parks in the mix: the budget bounds
+      # calls to the *provider*, and a refusal makes none — so a machine
+      # refused here must not cost the machine behind it its reclamation.
+      # Driven with two: the first park is refused, the second still runs.
+      second = insert_sandbox(user_id: ctx.user.id, status: "ready")
+      second_conv = insert_conversation(user_id: ctx.user.id, sandbox: second, status: "idle")
+      insert_turn(second_conv, %{status: "completed"})
+      age(second, second_conv, 60 * 5)
+      on_exit(fn -> stop_machine(second.id) end)
+
+      refused = ctx.sandbox.id
+      stub(Managoat.Sandbox, :suspend, fn %Handle{} -> :ok end)
+
+      admission_at_the_claim(fn ->
+        # Only the first machine gets an admission under it.
+        if Repo.reload!(ctx.sandbox).status == "ready" and
+             Repo.all(
+               from t in Fountain.Conversations.Turn,
+                 where: t.conversation_id == ^ctx.conv.id and t.status == "running"
+             ) == [] do
+          insert_turn(ctx.conv, status: "running", started_at: DateTime.utc_now())
+        end
+      end)
+
+      assert {parked, 0, 0, 1} = sweep()
+      assert parked == 1, "the refused machine took the other one's turn with it"
+      assert row(ctx).status == "ready"
+      assert Repo.reload!(second).status == "suspended"
     end
 
     test "a wake that marks the row between the scan and the claim is not parked over", ctx do
@@ -189,7 +228,7 @@ defmodule Fountain.Workers.SandboxReaperParkTest do
         )
       end)
 
-      assert {0, 0, 1} = sweep()
+      assert {0, 0, 0, 1} = sweep()
       assert row(ctx).status == "ready"
     end
 
@@ -206,20 +245,8 @@ defmodule Fountain.Workers.SandboxReaperParkTest do
         )
       end)
 
-      assert {0, 0, 1} = sweep()
+      assert {0, 0, 0, 1} = sweep()
       assert row(ctx).status == "ready"
-    end
-
-    test "a refusal does not spend the run's provider-destroy budget", ctx do
-      # Stage 5b's rule, still true with parks in the mix: the budget bounds
-      # calls to the provider, and a refusal makes none.
-      reject(&Managoat.Sandbox.suspend/1)
-
-      admission_at_the_claim(fn ->
-        insert_turn(ctx.conv, status: "running", started_at: DateTime.utc_now())
-      end)
-
-      assert {0, 0, 1} = sweep()
     end
   end
 
@@ -242,7 +269,7 @@ defmodule Fountain.Workers.SandboxReaperParkTest do
       stub(Managoat.Sandbox, :get, fn %Handle{} -> {:ok, %{status: :suspended, raw: %{}}} end)
       reject(&Managoat.Sandbox.suspend/1)
 
-      assert {1, 0, 0} = sweep()
+      assert {1, 0, 0, _} = sweep()
 
       final = row(ctx)
       assert final.status == "suspended"
@@ -256,7 +283,7 @@ defmodule Fountain.Workers.SandboxReaperParkTest do
       reject(&Managoat.Sandbox.resume/1)
 
       # Neither parked nor reclaimed: the machine is up and the row now says so.
-      assert {0, 0, 0} = sweep()
+      assert {0, 0, 0, _} = sweep()
 
       final = row(ctx)
       assert final.status == "ready"
@@ -270,7 +297,7 @@ defmodule Fountain.Workers.SandboxReaperParkTest do
 
     test "and the pass after that parks it again", ctx do
       stub(Managoat.Sandbox, :get, fn %Handle{} -> {:ok, %{status: :running, raw: %{}}} end)
-      assert {0, 0, 0} = sweep()
+      assert {0, 0, 0, _} = sweep()
 
       # The recovery wrote the row, so `updated_at` is fresh and the sweep's
       # grace window now excludes it — the machine is not abandoned, it was
@@ -278,7 +305,7 @@ defmodule Fountain.Workers.SandboxReaperParkTest do
       age(ctx.sandbox, ctx.conv, 60 * 5)
 
       stub(Managoat.Sandbox, :suspend, fn %Handle{} -> :ok end)
-      assert {1, 0, 0} = sweep()
+      assert {1, 0, 0, _} = sweep()
       assert row(ctx).status == "suspended"
     end
   end
@@ -305,7 +332,7 @@ defmodule Fountain.Workers.SandboxReaperParkTest do
       # or parking. `Machine.destroy/2` has answered `:already_terminal` the
       # same way since stage 5a. What the sweep must not do is report having
       # done it — and it did not: nothing below was written by this pass.
-      assert {1, 0, 0} = sweep()
+      assert {1, 0, 0, _} = sweep()
 
       # The taker holds a live lease and a stamped row; every reader refuses it
       # until the taker finishes or its own lease lapses.
@@ -328,6 +355,46 @@ defmodule Fountain.Workers.SandboxReaperParkTest do
                "queueing behind each other's leases (ADR 0058 stage 6b)"
     end
 
+    test "a job orphaned in `executing` would otherwise stop reclamation for good", ctx do
+      # The hazard `unique:` creates, from the surfaces review. Oban's shutdown
+      # grace is 15 seconds and a contended run is budgeted at minutes, so a
+      # pod that loses a rolling deploy mid-sweep is the ordinary case — and a
+      # unique worker's corpse is not one lost run, it is every future one:
+      # each cron insert matches the `executing` row and is deduplicated
+      # against it.
+      _ = ctx
+      assert {:ok, job} = Oban.insert(SandboxReaper.new(%{}))
+
+      {1, _} =
+        Repo.update_all(
+          from(j in Oban.Job, where: j.id == ^job.id),
+          set: [state: "executing", attempted_at: DateTime.add(DateTime.utc_now(), -2, :hour)]
+        )
+
+      assert {:ok, deduped} = Oban.insert(SandboxReaper.new(%{}))
+
+      assert deduped.id == job.id and deduped.conflict?,
+             "the corpse did not deduplicate the next run, so this test is not about " <>
+               "the hazard it claims to be about"
+
+      # What answers it. The plugin is Oban's and is not executed here —
+      # `testing: :manual` strips the supervision tree that would run it — so
+      # what this pins is that it is configured, that Oban accepts the options
+      # given, and that the two numbers are the right way round: a rescue must
+      # be slower than the slowest legitimate run and faster than the gap
+      # between crons, or it either kills a live sweep or never arrives.
+      plugins = Application.fetch_env!(:fountain, Oban)[:plugins]
+
+      assert {Oban.Plugins.Lifeline, lifeline} =
+               Enum.find(plugins, &match?({Oban.Plugins.Lifeline, _}, &1)),
+             "no Lifeline plugin: an orphaned `executing` reaper is permanent " <>
+               "(ADR 0058 stage 6b)"
+
+      assert :ok = Oban.Plugins.Lifeline.validate(lifeline)
+      assert lifeline[:rescue_after] > :timer.minutes(8), "a live sweep would be rescued"
+      assert lifeline[:rescue_after] < :timer.hours(1), "the next cron would find the corpse"
+    end
+
     test "a run stops asking owners once it has spent its attempts", ctx do
       # The 5b round-3 note, closed. Refusals cost no provider call and so
       # spend no destroy budget, which leaves the *attempt* count unbounded —
@@ -344,7 +411,7 @@ defmodule Fountain.Workers.SandboxReaperParkTest do
       Application.put_env(:fountain, :reaper_owner_attempt_limit, 1)
       on_exit(fn -> Application.delete_env(:fountain, :reaper_owner_attempt_limit) end)
 
-      assert {1, 0, 0} = sweep()
+      assert {1, 0, 0, _} = sweep()
 
       parked = Enum.count([row(ctx), Repo.reload!(second)], &(&1.status == "suspended"))
 
@@ -355,7 +422,7 @@ defmodule Fountain.Workers.SandboxReaperParkTest do
       # Deferred, not refused: nothing was written and nothing went wrong, and
       # the next run picks the other one up.
       Application.delete_env(:fountain, :reaper_owner_attempt_limit)
-      assert {1, 0, 0} = sweep()
+      assert {1, 0, 0, _} = sweep()
       assert Enum.all?([row(ctx), Repo.reload!(second)], &(&1.status == "suspended"))
     end
   end

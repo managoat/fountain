@@ -180,7 +180,7 @@ defmodule Fountain.Workers.SandboxReaperTest do
       sandbox = age_rows(sandbox, conv, 60 * 24 * 83)
 
       with_bounds([sandbox_idle_timeout_minutes: 60, sandbox_max_lifetime_hours: 24], fn ->
-        capture_log(fn -> assert {0, 1, 0} = SandboxReaper.sweep_abandoned_sandboxes() end)
+        capture_log(fn -> assert {0, 1, 0, _} = SandboxReaper.sweep_abandoned_sandboxes() end)
       end)
 
       assert Repo.reload(sandbox).status == "terminated"
@@ -205,7 +205,7 @@ defmodule Fountain.Workers.SandboxReaperTest do
       capture_destroys()
 
       with_bounds([sandbox_idle_timeout_minutes: 60, sandbox_max_lifetime_hours: 24], fn ->
-        capture_log(fn -> assert {1, 0, 0} = SandboxReaper.sweep_abandoned_sandboxes() end)
+        capture_log(fn -> assert {1, 0, 0, _} = SandboxReaper.sweep_abandoned_sandboxes() end)
       end)
 
       reloaded = Repo.reload(sandbox)
@@ -229,7 +229,7 @@ defmodule Fountain.Workers.SandboxReaperTest do
       stub(Managoat.Sandbox, :create_checkpoint, fn _handle, _opts -> {:ok, "v2"} end)
 
       with_bounds([sandbox_idle_timeout_minutes: 60, sandbox_max_lifetime_hours: 24], fn ->
-        capture_log(fn -> assert {1, 0, 0} = SandboxReaper.sweep_abandoned_sandboxes() end)
+        capture_log(fn -> assert {1, 0, 0, _} = SandboxReaper.sweep_abandoned_sandboxes() end)
       end)
 
       reloaded = Repo.reload(sandbox)
@@ -250,7 +250,7 @@ defmodule Fountain.Workers.SandboxReaperTest do
       reject(&Managoat.Sandbox.create_checkpoint/2)
 
       with_bounds([sandbox_idle_timeout_minutes: 60, sandbox_max_lifetime_hours: 24], fn ->
-        capture_log(fn -> assert {1, 0, 0} = SandboxReaper.sweep_abandoned_sandboxes() end)
+        capture_log(fn -> assert {1, 0, 0, _} = SandboxReaper.sweep_abandoned_sandboxes() end)
       end)
 
       assert Repo.reload(sandbox).status == "suspended"
@@ -297,7 +297,7 @@ defmodule Fountain.Workers.SandboxReaperTest do
       )
 
       with_bounds([sandbox_idle_timeout_minutes: 60, sandbox_max_lifetime_hours: 24], fn ->
-        assert {0, 0, 0} = SandboxReaper.sweep_abandoned_sandboxes()
+        assert {0, 0, 0, _} = SandboxReaper.sweep_abandoned_sandboxes()
       end)
 
       assert Repo.reload(sandbox).status == "ready"
@@ -313,7 +313,7 @@ defmodule Fountain.Workers.SandboxReaperTest do
         turn |> change([{unquote(field), minutes_ago(20)}]) |> Repo.update!()
 
         with_bounds([sandbox_idle_timeout_minutes: 60, sandbox_max_lifetime_hours: 24], fn ->
-          assert {0, 0, 0} = SandboxReaper.sweep_abandoned_sandboxes()
+          assert {0, 0, 0, _} = SandboxReaper.sweep_abandoned_sandboxes()
         end)
 
         assert Repo.reload(sandbox).status == "ready"
@@ -329,7 +329,7 @@ defmodule Fountain.Workers.SandboxReaperTest do
       sandbox = age_sandbox(sandbox, 20)
 
       with_bounds([sandbox_idle_timeout_minutes: 60, sandbox_max_lifetime_hours: 24], fn ->
-        assert {0, 0, 0} = SandboxReaper.sweep_abandoned_sandboxes()
+        assert {0, 0, 0, _} = SandboxReaper.sweep_abandoned_sandboxes()
       end)
 
       assert Repo.reload(sandbox).status == "ready"
@@ -342,7 +342,7 @@ defmodule Fountain.Workers.SandboxReaperTest do
       insert_turn(conv, %{status: "completed"})
 
       with_bounds([sandbox_idle_timeout_minutes: 60, sandbox_max_lifetime_hours: 24], fn ->
-        assert {0, 0, 0} = SandboxReaper.sweep_abandoned_sandboxes()
+        assert {0, 0, 0, _} = SandboxReaper.sweep_abandoned_sandboxes()
       end)
 
       assert Repo.reload(sandbox).status == "ready"
@@ -359,7 +359,7 @@ defmodule Fountain.Workers.SandboxReaperTest do
       end)
 
       with_bounds([sandbox_idle_timeout_minutes: 60, sandbox_max_lifetime_hours: 24], fn ->
-        assert {0, 0, 0} = SandboxReaper.sweep_abandoned_sandboxes()
+        assert {0, 0, 0, _} = SandboxReaper.sweep_abandoned_sandboxes()
       end)
 
       assert Repo.reload(sandbox).status == "ready"
@@ -372,7 +372,7 @@ defmodule Fountain.Workers.SandboxReaperTest do
       age_rows(sandbox, conv, 60 * 24 * 83)
 
       with_bounds([sandbox_idle_timeout_minutes: 0, sandbox_max_lifetime_hours: 0], fn ->
-        assert {0, 0, 0} = SandboxReaper.sweep_abandoned_sandboxes()
+        assert {0, 0, 0, _} = SandboxReaper.sweep_abandoned_sandboxes()
       end)
 
       assert Repo.reload(sandbox).status == "ready"
@@ -388,7 +388,7 @@ defmodule Fountain.Workers.SandboxReaperTest do
       sandbox = age_rows(sandbox, conv, 60 * 5)
 
       with_bounds([sandbox_idle_timeout_minutes: 60, sandbox_max_lifetime_hours: 24], fn ->
-        capture_log(fn -> assert {1, 0, 0} = SandboxReaper.sweep_abandoned_sandboxes() end)
+        capture_log(fn -> assert {1, 0, 0, _} = SandboxReaper.sweep_abandoned_sandboxes() end)
       end)
 
       assert Repo.reload(sandbox).status == "suspended"

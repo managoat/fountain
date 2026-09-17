@@ -177,18 +177,27 @@ defmodule Fountain.Conversations.FreshProvision do
         # queue_initial_prompt/3.
         {:noreply, TurnMachine.forget_runtime_session(provisioned, conv)}
 
-      # Retirement won, or another server holds this machine, **before** the
-      # pipeline ran. Leave the winner and any replacement conversation alone,
-      # and announce nothing; nothing was prepared, so there is nothing to
-      # release.
+      # Retirement won, or another server holds this machine, and this attempt
+      # never got as far as preparing anything — the protocol says so by
+      # answering without a result. Leave the winner and any replacement
+      # conversation alone, and announce nothing.
+      #
+      # **Which outcomes reach here is the protocol's statement, not a guess**
+      # (round 1, behaviour review). The first draft read this arm as "before
+      # the pipeline ran" and the sibling below as "after", and one outcome
+      # broke that reading: a supersession the *renewer* detected returned a
+      # bare two-tuple although `fun` had run to completion, so the broker
+      # session and the callback key the pipeline had just minted were left
+      # live. `Renewal.around/5` carries its result now, so the shape of the
+      # answer and the existence of a state to unwind are the same fact.
       {:ok, settled} when settled in [:already_terminal, :claimed_elsewhere] ->
         {:stop, :normal, state}
 
-      # The same two, reached *after* the pipeline built the machine — the row
-      # was retired, or the lease taken over, while the provider was working.
-      # The machine is the protocol's to destroy and has been; what is left for
-      # this server is the session and the key its pipeline minted, which belong
-      # to the attempt rather than to the machine.
+      # The same two, carrying what the pipeline reached — the row was retired,
+      # or the lease taken over, while the provider was working. The machine is
+      # the protocol's to destroy and has been; what is left for this server is
+      # the session and the key its pipeline minted, which belong to the attempt
+      # rather than to the machine.
       {:ok, settled, %{state: reached}} when settled in [:already_terminal, :claimed_elsewhere] ->
         Egress.release_prepared({:ok, reached})
         {:stop, :normal, reached}

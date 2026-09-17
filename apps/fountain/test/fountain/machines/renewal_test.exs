@@ -83,7 +83,7 @@ defmodule Fountain.Machines.RenewalTest do
   describe "a lease that was taken over" do
     test "stops the operation at :superseded rather than at the finalize", ctx do
       assert capture_log(fn ->
-               assert {:error, :superseded} =
+               assert {:error, :superseded, :finished_anyway} =
                         Renewal.around(ctx.sandbox.id, ctx.epoch, 200, fn ->
                           # Somebody takes the machine over while the provider
                           # call is in flight: the release is what `Lease.renew/4`
@@ -96,11 +96,20 @@ defmodule Fountain.Machines.RenewalTest do
              end) =~ "taken over while the provider call was in flight"
     end
 
-    test "discards the provider's answer, so no finalize is built on it", ctx do
-      # `{:error, :superseded}` carries no result at all — deliberately. The
-      # protocols pattern-match on it before they look at what the provider
-      # said, so there is no way to finalize from a call this owner no longer
-      # owns.
+    test "hands the result back, because the caller may still have to unwind it", ctx do
+      # **Changed in stage 7b** (round 1, behaviour review). This used to assert
+      # that `{:error, :superseded}` carried no result at all, on the grounds
+      # that a protocol must have no way to finalize from a call it no longer
+      # owns. The first half of that is still true and is pinned where it
+      # belongs — `Destroy`, `Park` and `Resume` each drop the result at their
+      # own call site, and their suites pin their answers — but the second half
+      # did not follow from it.
+      #
+      # `fun` has already returned by the time the verdict is collected, so a
+      # superseded operation is one that *did the work*. `Machines.Provision`'s
+      # callback mints a broker session and rotates a conversation's callback
+      # key inside it; throwing the result away left both live on exactly the
+      # contention path the lease exists for.
       result =
         capture_log(fn ->
           send(
@@ -114,8 +123,8 @@ defmodule Fountain.Machines.RenewalTest do
           )
         end)
 
-      assert result =~ "discarding the result"
-      assert_received {:answer, {:error, :superseded}}
+      assert result =~ "the row is another owner's from here"
+      assert_received {:answer, {:error, :superseded, {:ok, :the_machine_is_gone}}}
     end
   end
 
@@ -280,7 +289,7 @@ defmodule Fountain.Machines.RenewalTest do
       held_until = deadline(ctx)
 
       capture_log(fn ->
-        assert {:error, :superseded} =
+        assert {:error, :superseded, :done} =
                  Renewal.around(ctx.sandbox.id, ctx.epoch, 100, fn ->
                    Process.sleep(250)
                    :done

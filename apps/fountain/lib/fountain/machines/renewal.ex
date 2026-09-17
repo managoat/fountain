@@ -132,9 +132,17 @@ defmodule Fountain.Machines.Renewal do
   Run `fun` with the lease on `sandbox_id` at `epoch` renewed underneath it.
 
   Answers `{:ok, result}` when the lease was still held throughout, and
-  `{:error, :superseded}` when a renewal found it was not — in which case
-  `fun`'s result is discarded, because it belongs to an operation another owner
-  has taken over.
+  `{:error, :superseded, result}` when a renewal found it was not.
+
+  **The result travels on both arms** (stage 7b round 1, behaviour review), and
+  the second one is why. `fun` has already run to completion by the time the
+  verdict is collected — `stop/1` is called after it returns — so a superseded
+  operation is one that *did the work* and may no longer record it. What it
+  reached is still the caller's to unwind: `Machines.Provision`'s callback mints
+  a broker session and rotates a conversation's callback key inside `fun`, and
+  the first draft of this function dropped both on the floor, leaving a live
+  credential on exactly the contention path this module exists for. The row is
+  another owner's; the caller's own resources are not.
 
   `fun` is run in the calling process, not the renewer: it is the provider call
   the protocol is here to make, and moving it would move the protocol.
@@ -144,7 +152,7 @@ defmodule Fountain.Machines.Renewal do
   why a provision passes its own.
   """
   @spec around(Ecto.UUID.t(), Lease.epoch(), pos_integer(), (-> result), keyword()) ::
-          {:ok, result} | {:error, :superseded}
+          {:ok, result} | {:error, :superseded, result}
         when result: term()
   def around(sandbox_id, epoch, ttl_ms, fun, opts \\ [])
       when is_binary(sandbox_id) and is_integer(epoch) and is_integer(ttl_ms) and ttl_ms > 0 and
@@ -170,10 +178,10 @@ defmodule Fountain.Machines.Renewal do
           :lost ->
             Logger.warning(
               "machine #{sandbox_id}: the lease at epoch #{epoch} was taken over while the " <>
-                "provider call was in flight; discarding the result"
+                "provider call was in flight; the row is another owner's from here"
             )
 
-            {:error, :superseded}
+            {:error, :superseded, result}
         end
     end
   end

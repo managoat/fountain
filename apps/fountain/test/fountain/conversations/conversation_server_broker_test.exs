@@ -8,6 +8,7 @@ defmodule Fountain.Conversations.ConversationServerBrokerTest do
 
   alias Fountain.Environments
   alias Fountain.Machines.Lease
+  alias Fountain.Machines.Renewal
   alias Fountain.Vaults
 
   @dek <<0::256>>
@@ -701,6 +702,55 @@ defmodule Fountain.Conversations.ConversationServerBrokerTest do
         assert Fountain.Repo.get(Fountain.Accounts.ApiKey, callback_id).revoked_at
         refute Enum.any?(stage_events(conv.id, "provision"), &(&1.state in ["done", "failed"]))
       end
+    end
+
+    test "a supersession the renewer finds still releases the session it minted", %{
+      user: user,
+      agent: agent
+    } do
+      # The one supersession that reaches this server *after* its pipeline has
+      # run: `Renewal` collects the renewer's verdict once `fun` has returned,
+      # so the broker session and the rotated callback key exist by then and are
+      # this attempt's to unwind (round 1, behaviour review). The first draft
+      # matched it on the arm that says "nothing was prepared" and left both
+      # live.
+      #
+      # Driven by delivering the renewer's verdict rather than by waiting for
+      # one: `Renewal.around/5` runs the real pipeline and the conversion below
+      # turns its success into the `:lost` answer a takeover produces, which is
+      # the same value the renewer returns and needs no lease timing.
+      conv = insert_conversation(user_id: user.id, agent: agent)
+      stub_happy_sprite()
+      test = self()
+      stub(Fountain.Broker, :preflight, fn -> :ok end)
+      stub(Fountain.Broker, :ca_pem, fn -> {:ok, "PEM"} end)
+
+      stub(Fountain.Broker, :prepare, fn id, secrets, bindings, opts ->
+        {:ok, session} = Fountain.Broker.Native.prepare(id, secrets, bindings, opts)
+        send(test, {:minted, session.token})
+        {:ok, session}
+      end)
+
+      stub(Renewal, :around, fn id, epoch, ttl, fun, opts ->
+        case Mimic.call_original(Renewal, :around, [id, epoch, ttl, fun, opts]) do
+          {:ok, outcome} -> {:error, :superseded, outcome}
+          other -> other
+        end
+      end)
+
+      {_pid, ref, :stopped} = start_server(conv)
+      assert :normal = assert_stopped(ref)
+
+      assert_receive {:minted, token}
+      assert :error = Fountain.Broker.Native.Sessions.lookup(token)
+
+      # And the key the pipeline rotated, not the one the server started with.
+      callback_id = Fountain.Repo.reload!(conv).callback_api_key_id
+      assert is_binary(callback_id)
+      assert Fountain.Repo.get(Fountain.Accounts.ApiKey, callback_id).revoked_at
+
+      # The row is the taker's: this attempt wrote nothing.
+      assert Conversations._unsafe_get_sandbox!(conv.sandbox_id).status == "starting"
     end
 
     test "an unrelated ready-write error still fails provisioning", %{user: user, agent: agent} do

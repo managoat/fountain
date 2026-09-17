@@ -616,7 +616,11 @@ defmodule Fountain.Machines.Park do
            _ = checkpoint(sandbox, epoch)
            suspend_at_provider(sandbox)
          end) do
-      {:error, :superseded} = superseded -> superseded
+      # The provider's answer is discarded on this arm and that is right here:
+      # what a superseded park reached is a suspend another owner now owns the
+      # row for, and this module holds nothing else. `Machines.Provision`'s
+      # callback does, which is why `Renewal.around/5` hands it back.
+      {:error, :superseded, _provider_result} -> {:error, :superseded}
       {:ok, provider_result} -> after_suspend(sandbox, epoch, opts, provider_result)
     end
   end

@@ -560,8 +560,10 @@ defmodule Fountain.Machines.Destroy do
     case Renewal.around(sandbox.id, epoch, ttl_ms, fn ->
            destroy_at_provider(sandbox, Keyword.get(opts, :provider, :destroy))
          end) do
-      {:error, :superseded} = superseded ->
-        superseded
+      # As in `Machines.Park`: nothing this module reached outlives the row it
+      # has lost, so the provider's answer is dropped here.
+      {:error, :superseded, _provider_result} ->
+        {:error, :superseded}
 
       {:ok, provider_result} ->
         after_provider(sandbox, epoch, opts, provider_result)

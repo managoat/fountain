@@ -461,10 +461,10 @@ defmodule Fountain.Machines.Resume do
       sandbox.status == "ready" ->
         {:ok, :already_up}
 
-      # A provision in flight. `main`'s wake never reaches a resume on one of
-      # these — `classify_reusable/2` answers `{:provisioning, id}` and the
-      # caller waits for the registry (#800) — and the word is kept so a caller
-      # that does reach it here behaves the same way.
+      # A provision in flight. The wake never reaches a resume on one of these —
+      # `Wake.maybe_reuse_sandbox/1` answers `{:provisioning, id}` and the caller
+      # waits for the registry (#800) — and the word is kept so a caller that
+      # does reach it here behaves the same way.
       sandbox.status in @provisioning_statuses ->
         {:error, :provisioning}
 
@@ -559,8 +559,12 @@ defmodule Fountain.Machines.Resume do
     ttl_ms = Keyword.get(opts, :lease_ttl_ms, @lease_ttl_ms)
 
     case Renewal.around(sandbox.id, epoch, ttl_ms, fn -> resume_at_provider(sandbox) end) do
-      {:error, :superseded} = superseded ->
-        superseded
+      # As in `Machines.Park` and `Machines.Destroy`: the provider's answer
+      # belongs to a row this owner has lost, and this module holds nothing else
+      # that needs unwinding. `Machines.Provision` does, which is why
+      # `Renewal.around/5` carries the result out at all.
+      {:error, :superseded, _provider_result} ->
+        {:error, :superseded}
 
       {:ok, :ok} ->
         finalize(sandbox, epoch, opts)

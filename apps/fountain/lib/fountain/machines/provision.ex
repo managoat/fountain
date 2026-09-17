@@ -199,6 +199,15 @@ defmodule Fountain.Machines.Provision do
   `{:error, reason, result}` is a pipeline that failed and has cleaned up after
   itself; `result` is returned to the caller beside the reason, because the
   caller's own teardown needs the state its pipeline had reached.
+
+  **`result` is never `nil`.** `Fountain.Machines.Renewal.around/5`'s contract
+  is "three elements means the pipeline ran and there is a result", and
+  `Fountain.Conversations.FreshProvision` reads the three-element shapes this
+  produces as "there is a `%{state: _}` to unwind" — the two readings coincide
+  only because no pipeline answers `{:ok, nil}`. A pipeline that did would
+  reach `FreshProvision` with no clause, and the rescued `CaseClauseError`
+  would be reported as the provision having raised (stage 7b review, carried
+  into 8a).
   """
   @type pipeline ::
           (Managoat.Sandbox.Handle.t(), Lease.epoch() ->

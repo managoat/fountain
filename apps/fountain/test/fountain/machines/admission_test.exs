@@ -597,20 +597,6 @@ defmodule Fountain.Machines.AdmissionTest do
       assert Repo.reload!(ctx.conv).status == "running"
     end
 
-    test "the successor on the replacement ends the predecessor's turn", ctx do
-      # Why the fence is the conversation's binding and not the turn's: the
-      # turn was admitted on the old machine, and the server on the new one is
-      # the one that has to close it.
-      {:ok, _} = Conversations.update_conversation(ctx.conv, %{sandbox_id: ctx.replacement.id})
-
-      assert {:ok, %Turn{status: "interrupted"}, _conv} =
-               Machine.end_turn(ctx.turn, {:orphan, "attach_failed"},
-                 sandbox_id: ctx.replacement.id
-               )
-
-      assert Repo.reload!(ctx.conv).status == "idle"
-    end
-
     test "a recovery on nobody's behalf omits the binding; an explicit nil is one", ctx do
       assert {:error, :ownership_changed} =
                Machine.end_turn(ctx.turn, {:orphan, "unbound_actor"}, sandbox_id: nil)
@@ -637,71 +623,77 @@ defmodule Fountain.Machines.AdmissionTest do
     end
   end
 
-  # ── the only door ─────────────────────────────────────────────────────────
+  # ── why the fence is the binding, not the machine's epoch ─────────────────
 
-  # The context's turn-admitting and turn-ending writes, and the files allowed
-  # to call each: its own definition site and `lib/fountain/machines/`. Same
-  # convention as `direct_writes_test.exs`'s opt-out pin — by file, so a new
-  # caller has to come here and say why.
-  @turn_writes [
-    {"_unsafe_create_turn_on_sandbox(", ["apps/fountain/lib/fountain/conversations.ex"]},
-    {"_unsafe_complete_turn(", ["apps/fountain/lib/fountain/conversations.ex"]},
-    {"_unsafe_orphan_turn(", ["apps/fountain/lib/fountain/conversations.ex"]},
-    {"_unsafe_interrupt_turn(", ["apps/fountain/lib/fountain/conversations/interruption.ex"]}
-  ]
+  describe "the fence is the conversation's binding (ADR 0058 stage 8a)" do
+    # Three writes that must land, each on a path where the machine's lease
+    # epoch has moved out from under the turn or the turn was admitted on
+    # another machine. Whoever later tightens the fence to the epoch — which
+    # waits on the owner ending the turns it operates over, stage 8b — has to
+    # break one of these by name rather than re-derive the argument.
 
-  @doc_block ~r/@(?:module)?doc\s+"""[\s\S]*?"""/
-
-  test "the context's turn writes are called from the owner's namespace only" do
-    root = Path.expand("../../../../..", __DIR__)
-
-    files =
-      ([Path.join(root, "apps/fountain/lib"), Path.join(root, "ee/lib")] ++
-         Path.wildcard(Path.join(root, "apps/fountain_*/lib")))
-      |> Enum.filter(&File.dir?/1)
-      |> Enum.flat_map(&Path.wildcard(Path.join(&1, "**/*.ex")))
-
-    relative = MapSet.new(files, &Path.relative_to(&1, root))
-
-    for site <- [
-          "apps/fountain/lib/fountain/conversations/turn_machine.ex",
-          "apps/fountain/lib/fountain/conversations/connection.ex",
-          "apps/fountain/lib/fountain/conversations/reattachment.ex",
-          "apps/fountain/lib/fountain/conversations/wake.ex",
-          "apps/fountain/lib/fountain/workers/autonomous_turn_reaper.ex",
-          "apps/fountain/lib/fountain/machines/admission.ex"
-        ] do
-      assert MapSet.member?(relative, site),
-             "the scan missed #{site} (#{length(files)} files under #{root}), so a direct " <>
-               "call there would not be seen and this test proves nothing"
+    setup ctx do
+      conv = ctx.conv |> Ecto.Changeset.change(status: "running") |> Repo.update!()
+      turn = insert_turn(conv, %{status: "running", prompt: "go", started_at: DateTime.utc_now()})
+      %{conv: conv, turn: turn}
     end
 
-    for {write, definers} <- @turn_writes do
-      callers =
-        files
-        |> Enum.filter(fn file ->
-          content = file |> File.read!() |> strip_docs_and_comments()
-          String.contains?(content, write)
-        end)
-        |> Enum.map(&Path.relative_to(&1, root))
-        |> Enum.reject(&String.starts_with?(&1, "apps/fountain/lib/fountain/machines/"))
-        |> Enum.sort()
+    test "a cotenant's operation moves the machine's epoch under a running turn; the turn still ends",
+         ctx do
+      # A cotenant's resume, park or destroy claims and releases the lease,
+      # which is what moves the epoch. Done directly: the epoch moving is the
+      # whole of what those operations do to this write's view of the machine.
+      epoch_before = Repo.reload!(ctx.sandbox).lease_epoch
+      {:ok, epoch} = Lease.claim(ctx.sandbox.id, "cotenant@node", 60_000)
+      :ok = Lease.release(ctx.sandbox.id, epoch)
+      assert Repo.reload!(ctx.sandbox).lease_epoch > epoch_before
 
-      assert callers == Enum.sort(definers),
-             "`#{write}` is called outside `lib/fountain/machines/` by:\n  " <>
-               Enum.join(callers, "\n  ") <>
-               "\n\nEvery turn admission and every turn ending goes through " <>
-               "`Fountain.Machines.Machine.admit_turn/3` or `end_turn/3` (ADR 0058 stage 8a). " <>
-               "A new direct caller is a decision, not a refactor."
+      assert {:ok, %Turn{status: "completed"}} =
+               Machine.end_turn(ctx.turn, {:finish, "completed", []}, sandbox_id: ctx.sandbox.id)
+
+      assert Repo.reload!(ctx.conv).status == "idle"
     end
-  end
 
-  defp strip_docs_and_comments(content) do
-    content
-    |> then(&Regex.replace(@doc_block, &1, ""))
-    |> String.split("\n")
-    |> Enum.map_join("\n", fn line ->
-      if String.trim_leading(line) |> String.starts_with?("#"), do: "", else: line
-    end)
+    test "a park over a turn nothing is driving moves the epoch; the reattaching server still orphans it",
+         ctx do
+      # Stage 6b's rule: a running turn with no live server is not occupancy,
+      # so the reaper parks the machine. The server that later comes back and
+      # cannot attach to the turn's session is the write that has to land.
+      assert Fountain.Conversations.ConversationServer.whereis(ctx.conv.id) == nil
+      stub(Managoat.Sandbox, :suspend, fn _ -> :ok end)
+      epoch_before = Repo.reload!(ctx.sandbox).lease_epoch
+
+      quietly(fn ->
+        assert {:ok, :parked} =
+                 Park.run(ctx.sandbox.id, actor: "system:sandbox_reaper", reason: :idle)
+      end)
+
+      assert Repo.reload!(ctx.sandbox).status == "suspended"
+      assert Repo.reload!(ctx.sandbox).lease_epoch > epoch_before
+
+      assert {:ok, %Turn{status: "interrupted", orphaned_at: %DateTime{}}, _conv} =
+               Machine.end_turn(ctx.turn, {:orphan, "attach_failed"}, sandbox_id: ctx.sandbox.id)
+
+      assert Repo.reload!(ctx.conv).status == "idle"
+    end
+
+    test "the successor on the replacement machine ends the predecessor's turn", ctx do
+      # The turn was admitted on the old machine; a wake built a fresh one and
+      # the server on it is the one that has to close the turn — and
+      # `AutonomousTurnReaper` never would, because a server is registered.
+      replacement = insert_sandbox(user_id: ctx.user.id, status: "ready")
+      {:ok, _} = Conversations.update_conversation(ctx.conv, %{sandbox_id: replacement.id})
+
+      assert {:ok, %Turn{status: "interrupted"}, _conv} =
+               Machine.end_turn(ctx.turn, {:orphan, "attach_failed"}, sandbox_id: replacement.id)
+
+      assert Repo.reload!(ctx.conv).status == "idle"
+
+      # And the actor on the old machine, for the same turn, writes nothing.
+      second = insert_turn(ctx.conv, %{status: "running", prompt: "go", started_at: DateTime.utc_now()})
+
+      assert {:error, :ownership_changed} =
+               Machine.end_turn(second, {:orphan, "attach_failed"}, sandbox_id: ctx.sandbox.id)
+    end
   end
 end

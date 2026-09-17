@@ -451,6 +451,58 @@ defmodule Fountain.Machines.DirectWritesTest do
              "A new caller is a decision, not a refactor: add it here with the reason."
   end
 
+  # The context's turn-admitting and turn-ending writes, and the files allowed
+  # to call each: its own definition site and `lib/fountain/machines/`. Stage 8a
+  # made `Fountain.Machines.Machine.admit_turn/3` and `end_turn/3` the only two
+  # doors onto them (ADR 0058), and this is the pin that keeps it so — the
+  # turn-row half of what `@row_writes` pins for the sandbox row. By file, like
+  # the opt-out pin above, so a new caller has to come here and say why.
+  @turn_writes [
+    {"_unsafe_create_turn_on_sandbox(", ["apps/fountain/lib/fountain/conversations.ex"]},
+    {"_unsafe_complete_turn(", ["apps/fountain/lib/fountain/conversations.ex"]},
+    {"_unsafe_orphan_turn(", ["apps/fountain/lib/fountain/conversations.ex"]},
+    {"_unsafe_interrupt_turn(", ["apps/fountain/lib/fountain/conversations/interruption.ex"]}
+  ]
+
+  test "the context's turn writes are called from the owner's namespace only" do
+    root = Path.expand("../../../../..", __DIR__)
+
+    # `source_files/1` excludes `lib/fountain/machines/`, which is exactly the
+    # set of files that may not call these; the definers are checked by name.
+    files = source_files(root)
+    relative = MapSet.new(files, &Path.relative_to(&1, root))
+
+    for site <- [
+          "apps/fountain/lib/fountain/conversations/turn_machine.ex",
+          "apps/fountain/lib/fountain/conversations/connection.ex",
+          "apps/fountain/lib/fountain/conversations/reattachment.ex",
+          "apps/fountain/lib/fountain/conversations/wake.ex",
+          "apps/fountain/lib/fountain/conversations/conversation_server.ex",
+          "apps/fountain/lib/fountain/workers/autonomous_turn_reaper.ex"
+        ] do
+      assert MapSet.member?(relative, site),
+             "the scan missed #{site} (#{length(files)} files under #{root}), so a direct " <>
+               "call there would not be seen and this test proves nothing"
+    end
+
+    for {write, definers} <- @turn_writes do
+      callers =
+        files
+        |> Enum.filter(fn file ->
+          file |> File.read!() |> strip_docs_and_comments() |> String.contains?(write)
+        end)
+        |> Enum.map(&Path.relative_to(&1, root))
+        |> Enum.sort()
+
+      assert callers == Enum.sort(definers),
+             "`#{write}` is called outside `lib/fountain/machines/` by:\n  " <>
+               Enum.join(callers, "\n  ") <>
+               "\n\nEvery turn admission and every turn ending goes through " <>
+               "`Fountain.Machines.Machine.admit_turn/3` or `end_turn/3` (ADR 0058 stage 8a). " <>
+               "A new direct caller is a decision, not a refactor."
+    end
+  end
+
   defp source_files(root) do
     top_level =
       ["apps/fountain/lib", "ee/lib"]

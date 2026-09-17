@@ -71,6 +71,21 @@ defmodule Fountain.Machines.Admission do
   gate off it runs inline, and the live-lease refusal is what stands in for the
   queue. Same protocol either way; the gate picks where it runs.
 
+  ### The two refusals are each other's symmetric case
+
+  A live lease refuses an admission here; an admitted turn refuses a park in
+  `Fountain.Machines.Park` (stage 6b, `:machine_occupied`). They are one rule
+  read from its two ends, and both are needed because each covers the order the
+  other cannot. A park that has claimed its lease and then reads the turns sees
+  every turn admitted before its claim, because the admission held 4316 until
+  its commit and the claim waited on it — so the park refuses on a turn that is
+  already there. An admission that arrives *after* the claim sees the lease the
+  claim wrote, under the same lock — so it refuses on an operation that has
+  already started. Neither side decides on a reading taken before it held the
+  lock (#2307 constraint 1), and `admission_test.exs` drives both orders on real
+  connections with `pg_blocking_pids`: the #2286 race, which needed exactly this
+  pair and had only half of it.
+
   ## `end_turn`
 
   Every turn-ending write an actor makes comes through `end_turn/3`: the
@@ -97,6 +112,25 @@ defmodule Fountain.Machines.Admission do
   turn `running` with nothing left to end it. `Provision` set the precedent —
   "the lease is the correctness, the mailbox is the optimisation" — and here
   there is no lease to be the correctness of, only a fence.
+
+  **And it takes no sandbox advisory lock either.** The two pull against each
+  other — a write that must not queue behind a cotenant's park cannot wait on
+  the lock that park's claim took — so it is worth saying what the locks the
+  writes *do* take protect, and why 4316 adds nothing. `_unsafe_end_actor_turn/5`
+  and `_unsafe_recover_turn/3` lock the parent `FOR UPDATE`, then the journal,
+  then the turn, and every decision they make — the binding, the terminal
+  status, `latest_turn?/2`, the journal's own arbitration — is read under those
+  locks; a reassignment, a termination or a successor's admission landing at the
+  same moment waits on the parent row and then sees, or is seen. What 4316
+  would add is serialisation against the *machine's* operations, and a turn
+  ending needs none: the dangerous direction for a park is a turn that
+  **starts** after its occupancy read, which admission holds the lock for; a
+  turn that **ends** after that read only makes the park's refusal more
+  conservative than it had to be, and the next tick asks again. A turn ending
+  under a destroy or a resume is the same — the row it writes is not the one
+  those operations write. When the owner ends turns itself (stage 8b), that
+  write will run under the owner's lease because the owner already holds it,
+  not because this one needed it.
 
   ## The fence, and why the epoch is not it yet
 

@@ -20,14 +20,24 @@ routes. The Gmail MCP endpoint, which the Google extension serves, answers
 `403` only on a deployment without the egress broker. A connection that
 exists keeps its tools when the flag goes off.
 
-Only the routes that **create** something are refused. Listing, revoking and
-deleting stay open, because an account whose flag goes off keeps every
-credential already brokered into its sandboxes and has to be able to take one
-away. So an account that never had the feature reads an empty list from
-`GET /api/connections` and `GET /api/secret-bindings` rather than a `404`,
-while `POST` to either answers `404 brokerage_not_enabled`. An empty list is
-therefore not by itself proof that the feature is on. Ask
-[`GET /api/auth/me`](../api.md), whose `connections_enabled` says so directly.
+What the flag refuses is **adding or repointing** a way to reach a credential.
+Reading and removing stay open, because an account whose flag goes off keeps
+every credential already brokered into its sandboxes and has to be able to
+take one away.
+
+| Gated when the flag is off | Open either way |
+|---|---|
+| `POST /api/connection-providers`, `PATCH` on one, and its `discover` — `404 connections_not_enabled` | `GET` and `DELETE` on connections, providers and bindings |
+| `POST /api/secret-bindings`, and a `PATCH` that retargets one or sets `enabled: true` — `404 brokerage_not_enabled` | A `PATCH` that only sets `enabled: false`, which takes a credential off a host |
+
+A connection itself is never created through the API at all: signing in to a
+provider needs a browser, so it is the `/connections/:provider/start` flow, and
+`GET /api/connections/providers` says where to send the owner.
+
+So an account that never had the feature reads an empty list rather than a
+closed door, and an empty list is not by itself proof that the feature is on.
+Ask [`GET /api/auth/me`](../api.md), whose `connections_enabled` says so
+directly.
 
 ## Brokered credentials are on for every account
 

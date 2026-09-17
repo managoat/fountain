@@ -135,7 +135,7 @@ defmodule Fountain.FeatureFlags do
   def cached_flags(distinct_id) when is_binary(distinct_id) do
     remote =
       case cached(distinct_id) do
-        {:ok, flags, _at} -> flags
+        {:ok, {flags, _complete?}, _at} -> flags
         :miss -> %{}
       end
 
@@ -158,37 +158,42 @@ defmodule Fountain.FeatureFlags do
 
       true ->
         {source, flags} = answered_flags(distinct_id)
-        if source == :answered, do: warn_undefined(flag, flags)
+        if source == :complete, do: warn_undefined(flag, flags)
         Map.get(flags, flag, false) == true
     end
   end
 
-  # A flag PostHog has never heard of is **absent** from its answer; a flag it
-  # has and says no to comes back present and `false`. Rule 4 fails closed on
-  # both, so the two look identical at the call site — but for a flag in
-  # `@on_without_posthog` the first one is a mistake in the analytics project
-  # rather than a rollout decision, and it switches off a feature this code
-  # treats as built, for every account, with nothing logged anywhere. That is
-  # how Connections sat dark on production from the day the flag shipped until
-  # someone ran the deployed suite against it (#2347).
+  # A flag PostHog is evaluating comes back in the answer either way: matched
+  # is `enabled: true`, and no matching release condition is `enabled: false`
+  # with `reason: no_condition_match`. A flag it is **not** evaluating is
+  # absent from the map entirely. Rule 4 fails closed on both, so a call site
+  # cannot tell them apart — and for a flag in `@on_without_posthog` the
+  # second one turns off a feature this code treats as built, and used to do
+  # it with nothing logged anywhere. That is how Connections sat dark on
+  # production from the day the flag shipped until someone ran the deployed
+  # suite against it (#2347).
   #
-  # The same silence covers a flag that exists with `evaluation_runtime` set
-  # to `server`: this call carries the project token, which PostHog reads as a
-  # client-side evaluation, so a server-only flag never appears in the answer
-  # and is indistinguishable from one that was never created.
+  # Say what was observed, not why. Absence has several causes and they are
+  # indistinguishable from here: no flag has the key; a flag has it and is
+  # switched off in PostHog, which drops it from evaluation rather than
+  # answering `false` (checked against our own project, 2026-09-17); or its
+  # evaluation runtime excludes this call, which is how a `server` flag went
+  # missing for a day in August. Naming one of them would send whoever reads
+  # the log to the wrong screen two times in three.
   #
-  # Only a real answer can say a key is missing. An unreachable PostHog with
-  # nothing cached yields an empty map, which is not evidence of anything —
-  # `answered_flags/1` has already logged the outage, and calls this with
-  # `:unanswered`, which does not reach here.
+  # `FEATURE_FLAGS_ON` is deliberately not offered as the repair. It is
+  # deployment-wide, so on a deployment that enrolls accounts one at a time it
+  # would turn the feature on for all of them — and this warning only fires
+  # where a PostHog is configured to be asked in the first place.
   defp warn_undefined(flag, flags) do
     if Map.has_key?(@on_without_posthog, flag) and not Map.has_key?(flags, flag) do
       warn_once(
         {:undefined, flag},
-        ~s(feature flags: #{flag} gates a built feature, but PostHog's answer does not ) <>
-          ~s(mention it, so it reads off for every account. Either no flag has that key ) <>
-          ~s(in the project, or its evaluation_runtime is "server" rather than "all". ) <>
-          ~s(Create it, widen it, or set FEATURE_FLAGS_ON=#{flag}.)
+        ~s(feature flags: #{flag} gates a built feature, and PostHog's answer does not ) <>
+          ~s(include it, so Fountain reads it off. A flag being evaluated is in the ) <>
+          ~s(answer even when it says no, so this one is not being evaluated: either ) <>
+          ~s(no flag has that key, or a flag has it and is switched off, or its ) <>
+          ~s(evaluation runtime excludes this call. Check the flag in PostHog.)
       )
     end
 
@@ -211,25 +216,36 @@ defmodule Fountain.FeatureFlags do
 
   @doc "Every flag PostHog reports on for the user, `%{key => boolean}`."
   def flags_for(distinct_id) when is_binary(distinct_id) do
-    {_answered, flags} = answered_flags(distinct_id)
+    {_source, flags} = answered_flags(distinct_id)
     flags
   end
 
-  # The flags, and whether they are PostHog's own answer. A cached answer is
-  # still an answer, stale or not — it came from a response PostHog sent about
-  # this person. Only a failed lookup with nothing cached is `:unanswered`.
+  # The flags, and what standing the answer has. Only `:complete` — a current
+  # answer PostHog said it evaluated in full — supports reasoning about what
+  # the map does **not** contain:
+  #
+  #   * `:complete`  fetched now, or cached inside `@fresh_ms`, and whole.
+  #   * `:partial`   PostHog answered but said so itself: it hit errors while
+  #                  computing (`errorsWhileComputingFlags`) or the project is
+  #                  over its flag quota, which returns an empty map. Flags
+  #                  can be missing for reasons that are not configuration.
+  #   * `:stale`     an answer from before an outage, served because it beats
+  #                  flipping every flag off. It describes the project as it
+  #                  was, so it cannot establish what is true now.
+  #   * `:unavailable` the lookup failed with nothing cached. Not evidence of
+  #                  anything; `stale_note/1` has already logged it.
   defp answered_flags(distinct_id) do
     now = System.monotonic_time(:millisecond)
 
     case cached(distinct_id) do
-      {:ok, flags, at} when now - at < @fresh_ms ->
-        {:answered, flags}
+      {:ok, {flags, complete?}, at} when now - at < @fresh_ms ->
+        {standing(complete?), flags}
 
       cached ->
         case fetch(distinct_id) do
-          {:ok, flags} ->
-            put(distinct_id, flags, now)
-            {:answered, flags}
+          {:ok, flags, complete?} ->
+            put(distinct_id, {flags, complete?}, now)
+            {standing(complete?), flags}
 
           {:error, reason} ->
             Logger.warning(
@@ -238,12 +254,15 @@ defmodule Fountain.FeatureFlags do
             )
 
             case cached do
-              {:ok, flags, _at} -> {:answered, flags}
-              :miss -> {:unanswered, %{}}
+              {:ok, {flags, _complete?}, _at} -> {:stale, flags}
+              :miss -> {:unavailable, %{}}
             end
         end
     end
   end
+
+  defp standing(true), do: :complete
+  defp standing(false), do: :partial
 
   defp stale_note({:ok, _, _}), do: "using the last answer"
   defp stale_note(:miss), do: "no cached answer, every flag reads off"
@@ -278,12 +297,28 @@ defmodule Fountain.FeatureFlags do
       )
 
     case Req.post(req, url: "/flags/?v=2", json: %{api_key: api_key(), distinct_id: distinct_id}) do
-      {:ok, %Req.Response{status: 200, body: body}} when is_map(body) -> {:ok, parse(body)}
-      {:ok, %Req.Response{status: status}} -> {:error, {:status, status}}
-      {:error, reason} -> {:error, reason}
+      {:ok, %Req.Response{status: 200, body: body}} when is_map(body) ->
+        {:ok, parse(body), complete?(body)}
+
+      {:ok, %Req.Response{status: status}} ->
+        {:error, {:status, status}}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   rescue
     e -> {:error, e}
+  end
+
+  # A 200 does not mean PostHog evaluated everything. It reports its own
+  # trouble in the body: `errorsWhileComputingFlags` when some flags could not
+  # be computed, and `quotaLimited` naming the products cut off, which answers
+  # an empty map for flags. Either way flags can be missing for a reason that
+  # has nothing to do with how they are configured, so an answer that says so
+  # is never used to conclude one is undefined.
+  defp complete?(body) do
+    Map.get(body, "errorsWhileComputingFlags") != true and
+      Map.get(body, "quotaLimited") in [nil, []]
   end
 
   # `/flags?v=2` answers `{"flags": {key: {"enabled": bool, ...}}}`; the

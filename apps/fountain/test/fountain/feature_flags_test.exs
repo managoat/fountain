@@ -48,6 +48,23 @@ defmodule Fountain.FeatureFlagsTest do
     end)
   end
 
+  # A 200 that PostHog itself marks as incomplete: it hit errors computing the
+  # flags, or the project is over its feature-flag quota (an empty map).
+  defp stub_partial(flags) do
+    Req.Test.stub(FeatureFlags, fn conn ->
+      Req.Test.json(conn, %{
+        "flags" => Map.new(flags, fn {k, v} -> {k, %{"enabled" => v}} end),
+        "errorsWhileComputingFlags" => true
+      })
+    end)
+  end
+
+  defp stub_quota_limited do
+    Req.Test.stub(FeatureFlags, fn conn ->
+      Req.Test.json(conn, %{"flags" => %{}, "quotaLimited" => ["feature_flags"]})
+    end)
+  end
+
   defp stub_down do
     Req.Test.stub(FeatureFlags, fn conn -> Req.Test.transport_error(conn, :econnrefused) end)
   end
@@ -192,9 +209,11 @@ defmodule Fountain.FeatureFlagsTest do
   end
 
   # A flag in `@on_without_posthog` gates a feature that is built. PostHog
-  # omitting it from an answer is a mistake in the project — not a decision to
-  # turn the feature off — and before #2347 nothing said so.
-  describe "a built feature's flag that PostHog never mentions" do
+  # omitting it from an answer switches that feature off everywhere, and
+  # before #2347 nothing said so. The other half of the job is not crying
+  # wolf: an answer PostHog never gave, or gave but did not finish, says
+  # nothing about how a flag is configured.
+  describe "a built feature's flag that PostHog does not evaluate" do
     setup do
       posthog_on()
       :ok
@@ -206,18 +225,34 @@ defmodule Fountain.FeatureFlagsTest do
       log = capture_log(fn -> refute FeatureFlags.enabled?(:connections, @user_id) end)
 
       assert log =~ "connections"
-      assert log =~ "does not mention it"
-      assert log =~ "FEATURE_FLAGS_ON=connections"
+      assert log =~ "not being evaluated"
+    end
+
+    # Absence has three causes that are indistinguishable from here, so the
+    # log names all of them and diagnoses none. `FEATURE_FLAGS_ON` is not a
+    # repair to offer: it is deployment-wide, and this only fires where a
+    # PostHog is configured.
+    test "describes the absence without picking a cause" do
+      stub_flags(%{"something_else" => true})
+
+      log = capture_log(fn -> refute FeatureFlags.enabled?(:connections, @user_id) end)
+
+      assert log =~ "no flag has that key"
+      assert log =~ "switched off"
+      assert log =~ "evaluation runtime"
+      refute log =~ "FEATURE_FLAGS_ON"
     end
 
     # The whole point: "off because we asked and were told no" is a decision,
-    # and saying nothing is what a decision deserves.
+    # and a decision deserves silence. A flag PostHog evaluates is in the
+    # answer even when no release condition matches, which is every account
+    # outside a per-account rollout.
     test "an answer of off is silent" do
       stub_flags(%{"connections" => false})
 
       log = capture_log(fn -> refute FeatureFlags.enabled?(:connections, @user_id) end)
 
-      refute log =~ "does not mention it"
+      refute log =~ "not being evaluated"
     end
 
     test "an answer of on is silent" do
@@ -225,7 +260,7 @@ defmodule Fountain.FeatureFlagsTest do
 
       log = capture_log(fn -> assert FeatureFlags.enabled?(:connections, @user_id) end)
 
-      refute log =~ "does not mention it"
+      refute log =~ "not being evaluated"
     end
 
     # Only the flags over built features. An unfinished one is *expected* to
@@ -235,24 +270,24 @@ defmodule Fountain.FeatureFlagsTest do
 
       log = capture_log(fn -> refute FeatureFlags.enabled?(@flag, @user_id) end)
 
-      refute log =~ "does not mention it"
+      refute log =~ "not being evaluated"
     end
 
     test "says it once per cache window, not once per read" do
       stub_flags(%{"something_else" => true})
 
       log = capture_log(fn -> refute FeatureFlags.enabled?(:connections, @user_id) end)
-      assert log =~ "does not mention it"
+      assert log =~ "not being evaluated"
 
       # Expire the person's cached answer so the next read is a fresh call and
       # reaches the check again. The warning is still inside its own window.
       age_cache(@user_id)
 
       log = capture_log(fn -> refute FeatureFlags.enabled?(:connections, @user_id) end)
-      refute log =~ "does not mention it"
+      refute log =~ "not being evaluated"
     end
 
-    # An unreachable PostHog is not evidence that a flag is undefined, and
+    # An unreachable PostHog is not evidence that a flag is unconfigured, and
     # saying so would point at the wrong thing during an outage.
     test "an outage with nothing cached is not reported as a missing flag" do
       stub_down()
@@ -260,24 +295,60 @@ defmodule Fountain.FeatureFlagsTest do
       log = capture_log(fn -> refute FeatureFlags.enabled?(:connections, @user_id) end)
 
       assert log =~ "lookup failed"
-      refute log =~ "does not mention it"
+      refute log =~ "not being evaluated"
     end
 
-    # A stale answer is still an answer PostHog gave about this person, so a
-    # key absent from it is absent on purpose.
-    test "a stale cached answer still reports a flag missing from it" do
+    # A stale answer describes the project as it was before the outage. It is
+    # the right thing to evaluate against — better than flipping every flag
+    # off — but it cannot establish that a flag is unconfigured now.
+    test "a stale answer kept through an outage is not diagnosed" do
       stub_flags(%{"something_else" => true})
       capture_log(fn -> refute FeatureFlags.enabled?(:connections, @user_id) end)
 
-      # Past the warning's own window as well as the cache's, with PostHog
-      # down so the stale answer is what gets read.
+      # Past the cache window and past the warning's own, so only the standing
+      # of the answer can keep this quiet.
       age_cache(@user_id)
       age_warning(:connections)
       stub_down()
 
       log = capture_log(fn -> refute FeatureFlags.enabled?(:connections, @user_id) end)
 
-      assert log =~ "does not mention it"
+      assert log =~ "lookup failed"
+      refute log =~ "not being evaluated"
+    end
+
+    # A 200 is not proof of a complete evaluation. PostHog says so in the body
+    # and a flag can be missing from it for reasons that are not configuration.
+    test "an answer PostHog marks as incomplete is not diagnosed" do
+      stub_partial(%{"something_else" => true})
+
+      log = capture_log(fn -> refute FeatureFlags.enabled?(:connections, @user_id) end)
+
+      refute log =~ "not being evaluated"
+    end
+
+    test "a quota-limited empty answer is not diagnosed" do
+      stub_quota_limited()
+
+      log = capture_log(fn -> refute FeatureFlags.enabled?(:connections, @user_id) end)
+
+      refute log =~ "not being evaluated"
+    end
+
+    # Incompleteness has to survive the cache, or the same answer diagnoses
+    # nothing on the read that fetched it and diagnoses a missing flag on
+    # every read for the minute after.
+    test "a cached incomplete answer stays undiagnosed inside the cache window" do
+      stub_partial(%{"something_else" => true})
+      capture_log(fn -> refute FeatureFlags.enabled?(:connections, @user_id) end)
+
+      # Same cached answer, read again, with any rate limit out of the way.
+      age_warning(:connections)
+      Req.Test.stub(FeatureFlags, fn _conn -> flunk("must not call PostHog") end)
+
+      log = capture_log(fn -> refute FeatureFlags.enabled?(:connections, @user_id) end)
+
+      refute log =~ "not being evaluated"
     end
   end
 

@@ -2,6 +2,7 @@ defmodule Fountain.SandboxQueueDrainTest do
   use Fountain.DataCase, async: true
   use Mimic
 
+  alias Fountain.Conversations.ConversationServer
   alias Fountain.SandboxQueue
   alias Fountain.SandboxQueue.Request
 
@@ -85,6 +86,9 @@ defmodule Fountain.SandboxQueueDrainTest do
       agent = insert_agent(user_id: user.id)
       request = enqueue!(user, agent)
       inert_start_child()
+      reject(&ConversationServer.send_prompt/4)
+
+      expect(ConversationServer, :queue_initial_prompt, fn _pid, "hi", [] -> :ok end)
 
       assert %{started: 1, failed: 0, expired: 0} = SandboxQueue.drain(user.id)
 
@@ -286,6 +290,107 @@ defmodule Fountain.SandboxQueueDrainTest do
     end
   end
 
+  describe "a queued start that resumes a bound channel" do
+    test "a busy conversation waits for another pass without blocking later work" do
+      user = insert_active_user()
+      agent = insert_agent(user_id: user.id)
+      {key, _} = insert_sprite_api_key(user)
+
+      request =
+        enqueue!(user, agent, %{
+          sandbox_key_id: key.id,
+          attrs: %{
+            "channel_id" => "waiting-channel",
+            "prompt" => "waiting task",
+            "client_request_id" => "waiting-task-1"
+          }
+        })
+
+      conv =
+        insert_conversation(
+          user_id: user.id,
+          agent_id: agent.id,
+          channel_id: "waiting-channel",
+          callback_api_key_id: key.id
+        )
+
+      later = enqueue!(user, insert_agent(user_id: user.id))
+      inert_start_child()
+
+      expect(ConversationServer, :send_prompt, fn id, "waiting task", [], opts ->
+        assert id == conv.id
+        assert opts[:actor] == "system:sandbox_queue"
+        assert opts[:sandbox_key_id] == key.id
+        assert opts[:client_request_id] == "waiting-task-1"
+        {:error, :busy}
+      end)
+
+      assert %{started: 1, failed: 0, expired: 0} = SandboxQueue.drain(user.id)
+      assert Repo.get!(Request, later.id).status == "started"
+      waiting = Repo.get!(Request, request.id)
+      assert waiting.status == "queued"
+      assert waiting.attrs == request.attrs
+      assert waiting.conversation_id == nil
+      assert waiting.error == nil
+
+      expect(ConversationServer, :send_prompt, fn id, "waiting task", [], opts ->
+        assert id == conv.id
+        assert opts[:client_request_id] == "waiting-task-1"
+        :ok
+      end)
+
+      assert %{started: 1, failed: 0, expired: 0} = SandboxQueue.drain(user.id)
+      finished = Repo.get!(Request, request.id)
+      assert finished.status == "started"
+      assert finished.conversation_id == conv.id
+      assert finished.attrs == %{}
+      assert %{started: 0, failed: 0, expired: 0} = SandboxQueue.drain(user.id)
+    end
+
+    test "a terminal delivery refusal fails the request instead of reporting started" do
+      user = insert_active_user()
+      agent = insert_agent(user_id: user.id)
+
+      request =
+        enqueue!(user, agent, %{
+          attrs: %{"channel_id" => "waiting-channel", "prompt" => "waiting task"}
+        })
+
+      conv =
+        insert_conversation(user_id: user.id, agent_id: agent.id, channel_id: "waiting-channel")
+
+      expect(ConversationServer, :send_prompt, fn id, "waiting task", [], opts ->
+        assert id == conv.id
+        refute Keyword.has_key?(opts, :client_request_id)
+        {:error, :gone}
+      end)
+
+      assert %{started: 0, failed: 1, expired: 0} = SandboxQueue.drain(user.id)
+
+      assert %{status: "failed", error: "gone", conversation_id: nil, attrs: %{}} =
+               Repo.get!(Request, request.id)
+
+      assert "sandbox_request.failed" in queue_actions(user)
+      refute "sandbox_request.started" in queue_actions(user)
+    end
+
+    test "an empty prompt only resumes the conversation" do
+      user = insert_active_user()
+      agent = insert_agent(user_id: user.id)
+
+      request =
+        enqueue!(user, agent, %{attrs: %{"channel_id" => "waiting-channel", "prompt" => ""}})
+
+      conv =
+        insert_conversation(user_id: user.id, agent_id: agent.id, channel_id: "waiting-channel")
+
+      reject(&ConversationServer.send_prompt/4)
+
+      assert %{started: 1, failed: 0, expired: 0} = SandboxQueue.drain(user.id)
+      assert Repo.get!(Request, request.id).conversation_id == conv.id
+    end
+  end
+
   describe "what the door passed survives the replay" do
     test "keeps the provenance the API inferred instead of defaulting to api" do
       user = insert_active_user()
@@ -342,6 +447,7 @@ defmodule Fountain.SandboxQueueDrainTest do
       user = insert_active_user()
       agent = insert_agent(user_id: user.id)
       inert_start_child()
+      reject(&ConversationServer.send_prompt/4)
 
       {their_key, _} = insert_sprite_api_key(user)
 

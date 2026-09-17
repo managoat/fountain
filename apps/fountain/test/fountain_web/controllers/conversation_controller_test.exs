@@ -621,6 +621,65 @@ defmodule FountainWeb.ConversationControllerTest do
       assert request.attrs["client_request_id"] == "plan-7-step-1"
     end
 
+    test "a queued channel start delivers its prompt when another request binds the channel (#2378)",
+         %{conn: conn, user: user, raw_key: raw_key} do
+      agent = insert_agent(user_id: user.id)
+
+      [occupied | _] =
+        for _ <- 1..Fountain.Quotas.sandbox_limit(user.id),
+            do: insert_sandbox(user_id: user.id, status: "ready")
+
+      queued =
+        conn
+        |> authed_with_key(raw_key)
+        |> post_json("/api/conversations", %{
+          "agent_id" => agent.id,
+          "channel_id" => "queued-channel",
+          "prompt" => "run the waiting task",
+          "client_request_id" => "waiting-task-1",
+          "queue" => true
+        })
+        |> json_response(202)
+
+      request_id = queued["data"]["id"]
+
+      occupied
+      |> Ecto.Changeset.change(status: "destroyed")
+      |> Fountain.Repo.update!()
+
+      stub(Horde.DynamicSupervisor, :start_child, fn _supervisor, _spec ->
+        {:ok, spawn(fn -> :ok end)}
+      end)
+
+      bound =
+        conn
+        |> authed_with_key(raw_key)
+        |> post_json("/api/conversations", %{
+          "agent_id" => agent.id,
+          "channel_id" => "queued-channel"
+        })
+        |> json_response(201)
+
+      conversation_id = bound["data"]["id"]
+
+      expect(ConversationServer, :send_prompt, fn id, prompt, images, opts ->
+        assert id == conversation_id
+        assert prompt == "run the waiting task"
+        assert images == []
+        assert opts[:client_request_id] == "waiting-task-1"
+        assert opts[:actor] == "system:sandbox_queue"
+        assert Fountain.SandboxQueue.get_request(request_id, user.id).status == "starting"
+        :ok
+      end)
+
+      assert %{started: 1, failed: 0, expired: 0} = Fountain.SandboxQueue.drain(user.id)
+
+      assert %{status: "started", conversation_id: ^conversation_id, attrs: %{}} =
+               Fountain.SandboxQueue.get_request(request_id, user.id)
+
+      assert %{started: 0, failed: 0, expired: 0} = Fountain.SandboxQueue.drain(user.id)
+    end
+
     test "the queued attrs carry only launch keys, never whatever else was sent", %{
       conn: conn,
       user: user,

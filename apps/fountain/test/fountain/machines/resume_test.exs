@@ -276,8 +276,8 @@ defmodule Fountain.Machines.ResumeTest do
     # leaves a `ready` row over a machine E2B calls `paused` and Daytona calls
     # `stopped`. `main` reused it and handed the conversation a handle to a
     # machine that was not running.
-    test "is resumed when the caller's probe saw it suspended", ctx do
-      {:ok, _} = Conversations.update_sandbox(ctx.sandbox, %{status: "ready"})
+    test "is restarted at the provider when the caller's probe saw it suspended", ctx do
+      stamp(ctx, status: "ready")
       expect(Managoat.Sandbox, :resume, fn handle -> {:ok, handle} end)
 
       quietly(fn ->
@@ -285,11 +285,57 @@ defmodule Fountain.Machines.ResumeTest do
       end)
 
       assert row(ctx).status == "ready"
+    end
+
+    test "does not restamp last_resumed_at, so the ceiling's clock does not move", ctx do
+      # Round 1, surfaces review, and the reason the two paths part company at
+      # the finalize. `Lifecycle.clock_start/1` is `last_resumed_at ||
+      # inserted_at`, so restamping here restarts the max-lifetime ceiling on a
+      # machine Fountain never parked. On Sprites — the instance default — that
+      # is the *ordinary* reading rather than an edge case: its `suspend/1` is a
+      # no-op and its `get/1` reports the platform's own scale-to-zero schedule,
+      # so every sprite that has scaled to zero by itself arrives here. A
+      # ten-hour ceiling would have been pushed ten hours out by a probe.
+      stamp(ctx, status: "ready", last_resumed_at: nil)
+      stub(Managoat.Sandbox, :resume, fn handle -> {:ok, handle} end)
+
+      quietly(fn ->
+        assert {:ok, :resumed} = Resume.run(ctx.sandbox.id, opts(observed: :suspended))
+      end)
+
+      assert is_nil(row(ctx).last_resumed_at),
+             "the max-lifetime clock was restarted on a machine that was never parked"
+    end
+
+    test "records no sandbox.resumed, because nothing was woken", ctx do
+      # A wake in a tenant's trail for a machine that was never suspended
+      # describes something that did not happen.
+      stamp(ctx, status: "ready")
+      stub(Managoat.Sandbox, :resume, fn handle -> {:ok, handle} end)
+
+      quietly(fn ->
+        assert {:ok, :resumed} = Resume.run(ctx.sandbox.id, opts(observed: :suspended))
+      end)
+
+      assert events(ctx, "sandbox.resumed") == []
+    end
+
+    test "a machine that really was parked gets all three", ctx do
+      # The other shape, asserted beside it so the two cannot drift: a row that
+      # was `suspended` is a machine Fountain parked, and it gets the stamp, the
+      # usage row and the event.
+      stamp(ctx, last_resumed_at: nil)
+      stub(Managoat.Sandbox, :resume, fn handle -> {:ok, handle} end)
+
+      assert {:ok, :resumed} = Resume.run(ctx.sandbox.id, opts(observed: :suspended))
+
+      assert %DateTime{} = row(ctx).last_resumed_at
+      assert usage_events(ctx) == ["sandbox_resumed"]
       assert [_one] = events(ctx, "sandbox.resumed")
     end
 
     test "writes no usage row, because the row's status did not move", ctx do
-      {:ok, _} = Conversations.update_sandbox(ctx.sandbox, %{status: "ready"})
+      stamp(ctx, status: "ready")
       stub(Managoat.Sandbox, :resume, fn handle -> {:ok, handle} end)
 
       before = usage_events(ctx)
@@ -764,7 +810,6 @@ defmodule Fountain.Machines.ResumeTest do
 
     test "the words a waking caller has to act on travel unchanged", ctx do
       travelling = [
-        :fenced,
         :provisioning,
         :fleet_full,
         :insufficient_credits,
@@ -775,6 +820,26 @@ defmodule Fountain.Machines.ResumeTest do
         expect(Fountain.Machines.Resume, :run, fn _id, _opts -> {:error, reason} end)
         assert {:error, ^reason} = Machine.ensure_up(ctx.sandbox.id, opts())
       end
+    end
+
+    test "the protocol's :fenced becomes the system's word, not a bare atom on the wire", ctx do
+      # Round 1, surfaces review. `:fenced` is a protocol word with no meaning
+      # outside `Fountain.Machines`, and a wake's caller is a prompt — so
+      # letting it travel rendered `422 {"error": "fenced"}` through
+      # `FallbackController`'s terminal safety net, and put `:fenced` verbatim
+      # in a schedule's `last_error`. `Park`'s may travel because both of its
+      # callers handle it themselves and neither puts it on the wire.
+      expect(Fountain.Machines.Resume, :run, fn _id, _opts -> {:error, :fenced} end)
+      assert {:error, :sandbox_reset_pending} = Machine.ensure_up(ctx.sandbox.id, opts())
+    end
+
+    test "a fenced machine answers the fence's word end to end", ctx do
+      # Through the real protocol rather than a stubbed one, so the translation
+      # and the recheck that produces it are pinned together.
+      stamp(ctx, teardown_requested_at: DateTime.utc_now())
+      reject(&Managoat.Sandbox.resume/1)
+
+      assert {:error, :sandbox_reset_pending} = Machine.ensure_up(ctx.sandbox.id, opts())
     end
   end
 

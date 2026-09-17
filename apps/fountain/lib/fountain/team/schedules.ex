@@ -453,6 +453,15 @@ defmodule Fountain.Team.Schedules do
   def describe_error(:sandbox_resume_failed),
     do: "teammate's computer would not wake up"
 
+  # A reset or a teardown has been asked for, so the computer is going away and
+  # there is nothing to wake. It reached this vocabulary in stage 7a, when the
+  # owner's wake started answering it (round 1, surfaces review); the front door
+  # has answered it since long before, but no schedule run had ever met one.
+  # Not "busy" and not a retry: the fence's own owner finishes the job, and a
+  # run against a computer being deleted has nowhere to go.
+  def describe_error(:sandbox_reset_pending),
+    do: "teammate's computer is being reset"
+
   def describe_error({:sandbox_quota_exceeded, %{count: c, limit: l}}),
     do: "sandbox quota: #{c}/#{l}"
 

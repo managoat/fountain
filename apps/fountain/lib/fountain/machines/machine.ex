@@ -428,9 +428,18 @@ defmodule Fountain.Machines.Machine do
   the protocol answers precisely and this translates. **This one lets the most
   words through**, and each is a different thing for the waking caller to do:
 
-    * `:fenced` — a reset or a teardown has been asked for, so there is nothing
-      to wake. The wake answers `:sandbox_reset_pending`, which is what `main`
-      answers for the fence it did check, and it is 409 rather than a retry.
+    * `:sandbox_reset_pending` — a reset or a teardown has been asked for, so
+      there is nothing to wake. **Translated here**, from the protocol's
+      `:fenced`, and it is the one refusal of the three verbs that had to be:
+      `Park`'s `:fenced` is read by a conversation server and a sweep, which
+      handle it and never put it on the wire, while this one travels all the way
+      out of a prompt. Unmapped it rendered as `422 {"error": "fenced"}` through
+      `FallbackController`'s terminal safety net, and a schedule's `last_error`
+      read `:fenced` verbatim (round 1, surfaces review). `:sandbox_reset_pending`
+      is what `main` answers for the fence it did check — 409, "Fountain
+      completes it, and sending it again answers sandbox_reset_pending" — and it
+      is right for both fences, because a teardown escalation writes
+      `reset_requested_at` too (stage 5c).
     * `:provisioning` — the machine is still being built. `main`'s word,
       unchanged, and the caller waits for the registry rather than the machine
       (#800).
@@ -460,7 +469,7 @@ defmodule Fountain.Machines.Machine do
              :sandbox_unavailable
              | :not_found
              | :provider_transaction_open
-             | :fenced
+             | :sandbox_reset_pending
              | :provisioning
              | :sandbox_resume_failed
              | :fleet_full
@@ -508,12 +517,20 @@ defmodule Fountain.Machines.Machine do
   defp refusal({:error, :transaction_open}, _sandbox_id, _verb),
     do: {:error, :provider_transaction_open}
 
-  # `main`'s word at every surface a wake reaches, and the one translation this
-  # module does that is not a flattening: the protocol says `:resume_failed`, to
-  # sit beside `Park`'s `:suspend_failed`, and the rest of Fountain has said
-  # `:sandbox_resume_failed` since #799.
+  # `main`'s word at every surface a wake reaches, and the two translations this
+  # module does that are not flattenings.
+  #
+  # The protocol says `:resume_failed`, to sit beside `Park`'s `:suspend_failed`,
+  # and the rest of Fountain has said `:sandbox_resume_failed` since #799.
   defp refusal({:error, :resume_failed}, _sandbox_id, :ensure_up),
     do: {:error, :sandbox_resume_failed}
+
+  # And `:fenced`, which is a *protocol* word with no meaning outside this
+  # namespace. `Park`'s may travel because both its callers handle it themselves;
+  # a wake's caller is a prompt, and the answer goes on the wire. See
+  # `ensure_up/2`.
+  defp refusal({:error, :fenced}, _sandbox_id, :ensure_up),
+    do: {:error, :sandbox_reset_pending}
 
   defp refusal({:error, reason}, sandbox_id, verb) do
     if travels?(verb, reason) do
@@ -571,7 +588,7 @@ defmodule Fountain.Machines.Machine do
       :not_found,
       :sandbox_unavailable,
       :provider_transaction_open,
-      :fenced,
+      :sandbox_reset_pending,
       :provisioning,
       :sandbox_resume_failed,
       :fleet_full,

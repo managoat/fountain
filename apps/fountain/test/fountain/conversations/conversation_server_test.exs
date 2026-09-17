@@ -785,8 +785,15 @@ defmodule Fountain.Conversations.ConversationServerTest do
       {_pid, ref, _} = start_server(conv)
       assert :normal = assert_stopped(ref)
 
+      # `terminated`, where `main` wrote `failed` (ADR 0058 stage 7b). The row is
+      # retired through the machine's owner now, with the provider step skipped
+      # because this server has just been told the machine does not exist — and
+      # a destroy writes `terminated`. Both are terminal, both stop counting
+      # against the quota and both read as "gone" to every caller;
+      # what the change buys is that the retirement is the same operation, with
+      # the same `sandbox.destroyed` event, as every other way a machine ends.
       reloaded = Conversations._unsafe_get_sandbox!(sandbox.id)
-      assert reloaded.status == "failed"
+      assert reloaded.status == "terminated"
       refute is_nil(reloaded.terminated_at)
       # The conversation itself is not failed — the user can still prompt it.
       assert Conversations._unsafe_get_conversation!(conv.id).status == "idle"

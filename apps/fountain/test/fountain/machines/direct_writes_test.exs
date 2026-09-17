@@ -187,8 +187,56 @@ defmodule Fountain.Machines.DirectWritesTest do
   # than to the resume. The nine calls left in `conversation_server.ex` and the
   # five in `provisioning.ex`/`provision_watchdog.ex` are that same bracket and
   # stage 8's binding work.
-  @row_writes 25
-  @provider_mutations 8
+  # 25 -> 12 and 8 -> 3: stage 7b bracketed the provision. This is the largest
+  # single drop the ratchet will see, because it is the family the tracker has
+  # been carrying forward since 5a — `conversation_server.ex`'s nine row writes
+  # and three provider destroys, the two writes in `provisioning.ex` and
+  # `provision_watchdog.ex`, `wake.ex`'s last one and `launch.ex`'s.
+  #
+  #   gone  `conversation_server.ex`  all nine. Five are the fresh provision's
+  #                                   (the `starting` claim, the `ready` claim
+  #                                   and three failure writes), which are the
+  #                                   bracket's `Lease.cas_update/3` calls now;
+  #                                   two are the pre-flight failures, through
+  #                                   `Machine.fail_provision/2`; two are
+  #                                   reattach's, through `Machine.confirm_up/2`
+  #                                   and `Machine.ensure_up/2` for the `ready`
+  #                                   and `suspended` rows, and
+  #                                   `Termination._unsafe_destroy_machine/2`
+  #                                   for the not-found one. And all three
+  #                                   `Managoat.Sandbox.destroy/1` calls, which
+  #                                   are the protocol's failure arms.
+  #   gone  `provisioning.ex`         `record_sandbox_url/3`'s write, now a
+  #                                   compare-and-set on the provision's epoch;
+  #                                   and two provider calls with their
+  #                                   functions — `create_sandbox_handle/2` and
+  #                                   `discard_interrupted_attempt/3` moved into
+  #                                   `Machines.Provision` whole, because
+  #                                   creating a machine and tearing down a
+  #                                   remnant are the owner's work rather than
+  #                                   steps inside a sandbox.
+  #   gone  `provision_watchdog.ex`   its terminal write, through
+  #                                   `Machine.fail_provision/2`.
+  #   gone  `wake.ex`                 `mark_old_sandbox_terminated/1`, through
+  #                                   `Termination._unsafe_destroy_machine/2`
+  #                                   with `provider: :already_gone`.
+  #   gone  `launch.ex`               `fail_initial_start/2`'s locked failure
+  #                                   write, the same way. The conversation half
+  #                                   of that transaction stays, attributed to
+  #                                   `Conversation.changeset(` as it always was.
+  #
+  # **Three provider mutations remain and none of them is a stage 8 item**, so
+  # the next stage should not budget against them. Two are checkpoints —
+  # `provisioning.ex`'s environment warm-start snapshot and
+  # `home_checkpoint.ex`'s, which stage 6b left exactly where 7b leaves it. Both
+  # are `Managoat.Sandbox.create_checkpoint/2` on a machine, so the ratchet is
+  # right to count them; both are best-effort and one of them is deliberately
+  # asynchronous, so holding the machine's lease across either would answer 503
+  # to every prompt that arrived during an upload. They leave together, when
+  # checkpointing gets an owner verb. The third is `sandbox_reaper.ex`'s destroy
+  # of a terminal row, which no owner claims (stage 5 decision).
+  @row_writes 12
+  @provider_mutations 3
 
   @provider_verbs ~w(create_checkpoint create resume suspend destroy)
 
@@ -262,10 +310,6 @@ defmodule Fountain.Machines.DirectWritesTest do
     "apps/fountain/lib/fountain/conversations.ex",
     # `do_fence_sandbox_for_teardown/2` — the teardown fence.
     "apps/fountain/lib/fountain/conversations/lifecycle.ex",
-    # `fail_initial_start/2`'s locked failure write — one, not two: the
-    # conversation it fails in the same body goes through
-    # `Conversation.changeset(` and is attributed away.
-    "apps/fountain/lib/fountain/conversations/launch.ex",
     # `bind/2` stamping `provider_instance_id` on first binding.
     "apps/fountain/lib/fountain/conversations/sandbox_identity.ex",
     # `compatible_machine/2` stamping `codex_inference_source`.
@@ -350,6 +394,25 @@ defmodule Fountain.Machines.DirectWritesTest do
   @reset_option_files ["apps/fountain/lib/fountain/conversations.ex"]
   @forwarding_files ["apps/fountain/lib/fountain/conversations/termination.ex"]
 
+  # Stage 7b added two callers of `provider: :already_gone`, and each is the
+  # option meaning exactly what it says rather than a rule being turned off.
+  #
+  #   `conversation_server.ex`  reattach was told `not_found` by the provider a
+  #                             few lines earlier; the machine really is gone,
+  #                             and a delete against a name that is no longer
+  #                             its own is what the option exists to skip.
+  #   `wake.ex`                 the replaced machine's disk is the one
+  #                             `probe_sandbox/4` was just told is gone, and the
+  #                             two cleanup calls name a row this wake created
+  #                             and never built anything on.
+  #
+  # Neither touches `:held_by_caller` or `on_provider_error`, which are the two
+  # that really do relax the protocol and still have one caller each.
+  @already_gone_files [
+    "apps/fountain/lib/fountain/conversations/conversation_server.ex",
+    "apps/fountain/lib/fountain/conversations/wake.ex"
+  ]
+
   # The literal option values, plus the key that only these callers use. Not
   # `provider:` on its own — `provider: "sprites"` is everywhere — and not
   # `fence:` on its own, for the same reason.
@@ -364,7 +427,7 @@ defmodule Fountain.Machines.DirectWritesTest do
     # failure mode `machine_bounds_test.exs` was written with in round 2 of 5a.
     relative = MapSet.new(files, &Path.relative_to(&1, root))
 
-    for expected <- @reset_option_files ++ @forwarding_files do
+    for expected <- @reset_option_files ++ @forwarding_files ++ @already_gone_files do
       assert expected in relative,
              "the scan missed #{expected} (#{MapSet.size(relative)} files seen); it cannot " <>
                "pin who passes the protocol's opt-outs if it does not read them"
@@ -379,7 +442,7 @@ defmodule Fountain.Machines.DirectWritesTest do
       |> Enum.map(&Path.relative_to(&1, root))
       |> Enum.sort()
 
-    assert named == Enum.sort(@reset_option_files ++ @forwarding_files),
+    assert named == Enum.sort(@reset_option_files ++ @forwarding_files ++ @already_gone_files),
            "the destroy protocol's opt-outs (#{Enum.join(@reset_option_markers, ", ")}) are " <>
              "named outside `lib/fountain/machines/` by:\n  " <>
              Enum.join(named, "\n  ") <>

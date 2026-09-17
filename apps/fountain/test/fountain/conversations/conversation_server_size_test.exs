@@ -44,6 +44,24 @@ defmodule Fountain.Conversations.ConversationServerSizeTest do
   # properly. Nothing is stacked below this PR, so the number is not measured
   # against a moving base.
   #
+  # 2219 → 2025. ADR 0058 stage 7b took the fresh-provision arm out whole
+  # (`Fountain.Conversations.FreshProvision`), which is the shrink stages 5 and
+  # 6 kept promising and could not deliver: each of those moved a provider call
+  # the server did not make, or added handling for a refusal it had never had to
+  # answer, and the two nearly cancelled. This one is different because the
+  # thing that moved is a *family* — the bracket's arms are
+  # `Fountain.Machines.Provision`'s now, and what is left of the arm is the
+  # pipeline, which is a module of its own under `Fountain.Conversations.*`,
+  # exactly the shape #1369 asks for.
+  #
+  # `reattach/6` stays in the server on purpose. It works on a machine that
+  # already exists, so it has no bracket around it, and what it does with the
+  # state it builds — reattaching a running turn, finishing a runner reconnect —
+  # is the server's own business rather than a pipeline.
+  #
+  # The file is 2005 lines on this branch, so this is that plus twenty. Nothing is
+  # stacked below this PR, so the number is not measured against a moving base.
+  #
   # 2220 → 2219. ADR 0058 stage 6b moved the idle verdict's
   # "is the machine busy elsewhere" arm into `Lifecycle.idle_machine_action/3`,
   # with the rest of the lifecycle policy (#1376), and gave `park_sandbox/2`
@@ -55,7 +73,7 @@ defmodule Fountain.Conversations.ConversationServerSizeTest do
   # make a number. The server's own `update_sandbox` and
   # `Managoat.Sandbox.destroy` sites are stage 8's, and they are the ones that
   # lower this properly. The file is 2211 lines on this branch.
-  @pin 2219
+  @pin 2025
 
   @server "apps/fountain/lib/fountain/conversations/conversation_server.ex"
 

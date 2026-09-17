@@ -50,23 +50,50 @@ defmodule Fountain.Conversations.ConversationServerProvisionDeadlineTest do
     })
   end
 
+  # The watchdog fires **after** the provision's lease has lapsed, and that is
+  # the contract rather than an artefact of the test (ADR 0058 stage 7b): its
+  # timer is `deadline_ms/0` plus a grace long enough for the renewals to have
+  # stopped and the last one to have run out. Driving the timer by hand skips
+  # the wall-clock wait, so the lease has to be expired by hand too, or this
+  # would be testing the one situation the grace exists to prevent — a watchdog
+  # arriving while an owner legitimately holds the machine.
+  #
+  # `ProvisionWatchdog.retire_wait_ms/0` covers it either way; expiring the
+  # lease is what keeps these tests to seconds rather than minutes.
   defp expire_watchdog(server) do
     assert_receive {:watchdog_started, ^server, watchdog}, 5_000
+    lapse_lease()
     ref = Process.monitor(watchdog)
     send(watchdog, :provision_deadline)
-    assert_receive {:DOWN, ^ref, :process, ^watchdog, :normal}, 5_000
+    assert_receive {:DOWN, ^ref, :process, ^watchdog, :normal}, 10_000
+  end
+
+  # Past, for every machine in this test's tenant — the suite runs one
+  # conversation at a time and the renewer's next tick is a third of a minute
+  # away, so this stands for as long as the watchdog needs.
+  defp lapse_lease do
+    Fountain.Repo.update_all(Fountain.Conversations.Sandbox,
+      set: [lease_until: DateTime.add(DateTime.utc_now(), -60, :second)]
+    )
   end
 
   test "the configured timer expires a pending provision" do
-    previous = Application.fetch_env(:fountain, :provision_deadline_ms)
-    Application.put_env(:fountain, :provision_deadline_ms, 0)
+    # Both knobs, because the watchdog's timer is the provision's deadline plus
+    # the grace that lets the machine's lease lapse (ADR 0058 stage 7b). Zero
+    # for both is what makes this the one test that watches the real timer
+    # instead of delivering its message by hand — and the row it fires on has
+    # no owner and no lease, so there is nothing for the grace to wait out.
+    for key <- [:provision_deadline_ms, :provision_lapse_grace_ms] do
+      previous = Application.fetch_env(:fountain, key)
+      Application.put_env(:fountain, key, 0)
 
-    on_exit(fn ->
-      case previous do
-        {:ok, value} -> Application.put_env(:fountain, :provision_deadline_ms, value)
-        :error -> Application.delete_env(:fountain, :provision_deadline_ms)
-      end
-    end)
+      on_exit(fn ->
+        case previous do
+          {:ok, value} -> Application.put_env(:fountain, key, value)
+          :error -> Application.delete_env(:fountain, key)
+        end
+      end)
+    end
 
     user = insert_verified_user()
     conv = insert_conversation(user_id: user.id)

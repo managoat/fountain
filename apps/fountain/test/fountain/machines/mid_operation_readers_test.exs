@@ -226,13 +226,39 @@ defmodule Fountain.Machines.MidOperationReadersTest do
       assert {:error, :sandbox_unavailable} = Wake.maybe_reuse_sandbox(conv_with_sandbox(ctx))
     end
 
-    test "a provisioning row under a live lease is refused rather than waited for", ctx do
-      # `{:provisioning, id}` sends the caller to `await_registered/2` and then
-      # to a fresh machine. A row an owner is holding is not that: it has a
-      # writer, and the wake should come back.
+    test "a provisioning row under a live lease still waits for the registry", ctx do
+      # **Reversed in stage 7b, deliberately.** 6a pinned this as
+      # `:sandbox_unavailable`, reasoning that a row an owner is holding has a
+      # writer and the wake should come back. Nothing claimed a lease on a
+      # `pending` row when that was written; the provision bracket does, for
+      # its whole length, so the rule 6a stated for an *abandoned* operation
+      # would have applied to every ordinary one — and `session/new` followed
+      # by a prompt 30ms later is exactly that shape. Refusing it answers 503 to
+      # the case #800 exists to serve, for minutes.
+      #
+      # So the door waits for the registry, as on `main`, and 6a's rule moved
+      # to the decision it was really about: `wake_conversation_for/3`'s
+      # `:timeout` arm asks whether an owner holds the machine before it
+      # replaces one, which is the test below.
       stamp(ctx.sandbox, Keyword.merge(held(), status: "pending", transition: "provisioning"))
 
-      assert {:error, :sandbox_unavailable} = Wake.maybe_reuse_sandbox(conv_with_sandbox(ctx))
+      assert {:provisioning, _} = Wake.maybe_reuse_sandbox(conv_with_sandbox(ctx))
+    end
+
+    test "a live lease refuses the replacement the registry's silence would make", ctx do
+      # The other half. `await_registered/2` gives up after its settle window
+      # and `main` then built a fresh machine; with a live lease on the row
+      # that would be a second billable machine over one a server is still
+      # building, wherever Horde's CRDT has got to.
+      stamp(ctx.sandbox, Keyword.merge(held(), status: "pending", transition: "provisioning"))
+
+      conv = conv_with_sandbox(ctx)
+
+      assert {:error, :sandbox_unavailable} =
+               capture_answer(fn -> Wake.wake_conversation(conv.id, "hello") end)
+
+      assert Repo.reload!(ctx.sandbox).status == "pending",
+             "the machine being provisioned was replaced anyway"
     end
 
     test "a provisioning row whose lease died still waits for the registry, as on main", ctx do

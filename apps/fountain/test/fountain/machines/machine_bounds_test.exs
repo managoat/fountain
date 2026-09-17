@@ -43,9 +43,11 @@ defmodule Fountain.Machines.MachineBoundsTest do
 
   use ExUnit.Case, async: true
 
+  alias Fountain.Conversations.ProvisionWatchdog
   alias Fountain.Machines.Destroy
   alias Fountain.Machines.Machine
   alias Fountain.Machines.Park
+  alias Fountain.Machines.Provision
   alias Fountain.Machines.Resume
 
   # The ceiling `ConversationServer.call_server/2` reads. Duplicated rather than
@@ -150,6 +152,28 @@ defmodule Fountain.Machines.MachineBoundsTest do
              @conversation_call_timeout_ms
   end
 
+  test "a provision's ladder, and why its lease is not what bounds it" do
+    # A provision has the same two bounds as the other three and reads them
+    # differently, because it is the one operation here that legitimately runs
+    # for minutes. The lease TTL bounds a provision that has *stopped*, not one
+    # that is slow: `Machines.Renewal` extends it for as long as the work is
+    # making progress, up to `ProvisionWatchdog.deadline_ms/0`.
+    assert Provision.busy_wait_ms() == Destroy.busy_wait_ms()
+    assert Provision.lease_ttl_ms() == Destroy.lease_ttl_ms()
+
+    # There is no `Machine.provision_timeout_ms/0` and there is not meant to be:
+    # the bracket runs inline on its caller whichever way the gate is set, so
+    # there is no `GenServer.call` to put a ceiling on. See
+    # `Fountain.Machines.Provision`'s moduledoc.
+    refute function_exported?(Machine, :provision_timeout_ms, 0)
+
+    # And the watchdog's own wait for the lease, which is the one override in
+    # `lib/`. It has to be clear of the TTL, or it would arrive while the lease
+    # it is waiting for could still legitimately be held.
+    assert ProvisionWatchdog.retire_wait_ms() > Provision.lease_ttl_ms()
+    assert ProvisionWatchdog.lapse_grace_ms() > Provision.lease_ttl_ms()
+  end
+
   test "no call site overrides the bounds" do
     # The defaults only mean something if nothing in `lib/` passes its own. A
     # test may (and `destroy_test.exs` does) — that is the mechanism check.
@@ -171,7 +195,16 @@ defmodule Fountain.Machines.MachineBoundsTest do
         &String.ends_with?(&1, [
           "machines/destroy.ex",
           "machines/park.ex",
-          "machines/resume.ex"
+          "machines/resume.ex",
+          "machines/provision.ex",
+          # The one caller in `lib/` that overrides a bound on purpose, and it
+          # is exempted rather than allowed to hide: `ProvisionWatchdog` waits
+          # longer than five seconds for a lease it has already waited half an
+          # hour for, because giving up early would leave a stuck server alive
+          # with a live row — the #394 ordering inverted. The number it passes
+          # is pinned by name in the test below, so exempting the file costs
+          # nothing the scan was buying.
+          "conversations/provision_watchdog.ex"
         ])
       )
 

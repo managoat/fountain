@@ -1,11 +1,13 @@
 defmodule Fountain.Conversations.ProvisioningStepsTest do
   @moduledoc """
-  The steps that moved out of `ConversationServer` in #1372: creating the
-  sandbox, recording its URL, the user's setup script and the runtime's
-  files. Driven with the `Managoat.Sandbox` facade stubbed, no server.
+  The steps that moved out of `ConversationServer` in #1372: recording the
+  machine's URL, the user's setup script and the runtime's files. Driven with
+  the `Managoat.Sandbox` facade stubbed, no server.
   """
   use Fountain.DataCase, async: true
   use Mimic
+
+  import ExUnit.CaptureLog
 
   alias Fountain.Conversations
   alias Fountain.Conversations.Provisioning
@@ -21,6 +23,12 @@ defmodule Fountain.Conversations.ProvisioningStepsTest do
 
   defp handle(name \\ "s"), do: %Handle{provider: :sprites, name: name}
 
+  # The lease a provision would be holding while its pipeline runs.
+  defp claim(sandbox) do
+    {:ok, epoch} = Fountain.Machines.Lease.claim(sandbox.id, "test@node", 60_000)
+    epoch
+  end
+
   # The stage events of one stage as `{state, meta}` pairs, in order.
   defp stages(conv_id, stage) do
     Fountain.Repo.all(
@@ -32,26 +40,18 @@ defmodule Fountain.Conversations.ProvisioningStepsTest do
     |> Enum.map(&{&1.state, Jason.decode!(&1.data)})
   end
 
-  describe "create_sandbox_handle/2" do
-    test "creates the sandbox under the row's sprite name" do
-      sandbox = insert_sandbox()
-      expected = %Handle{provider: :sprites, name: sandbox.machine_name}
+  # `create_sandbox_handle/2` left this module in ADR 0058 stage 7b, with the
+  # discard of an interrupted attempt beside it: both are mutations of a machine
+  # rather than steps inside one, and they are `Fountain.Machines.Provision`'s
+  # now. `machines/provision_test.exs` covers them where they live.
 
-      stub(Managoat.Sandbox, :create, fn :sprites, name ->
-        assert name == sandbox.machine_name
-        {:ok, expected}
-      end)
-
-      assert {:ok, ^expected} = Provisioning.create_sandbox_handle(:sprites, sandbox)
-    end
-  end
-
-  describe "record_sandbox_url/2" do
+  describe "record_sandbox_url/3" do
     test "stores the URL on the row and returns it" do
       sandbox = insert_sandbox()
+      epoch = claim(sandbox)
       stub(Managoat.Sandbox, :public_url, fn _handle -> {:ok, "https://s.example"} end)
 
-      assert Provisioning.record_sandbox_url(sandbox, handle()) == "https://s.example"
+      assert Provisioning.record_sandbox_url(sandbox, handle(), epoch) == "https://s.example"
 
       assert Conversations._unsafe_get_sandbox(sandbox.id).provider_meta["public_url"] ==
                "https://s.example"
@@ -59,14 +59,32 @@ defmodule Fountain.Conversations.ProvisioningStepsTest do
 
     test "is nil, and touches nothing, when the provider has no URL or fails or raises" do
       sandbox = insert_sandbox()
+      epoch = claim(sandbox)
 
       for reply <- [{:error, :unsupported}, {:error, :timeout}] do
         stub(Managoat.Sandbox, :public_url, fn _handle -> reply end)
-        assert Provisioning.record_sandbox_url(sandbox, handle()) == nil
+        assert Provisioning.record_sandbox_url(sandbox, handle(), epoch) == nil
       end
 
       stub(Managoat.Sandbox, :public_url, fn _handle -> raise "provider surprise" end)
-      assert Provisioning.record_sandbox_url(sandbox, handle()) == nil
+      assert Provisioning.record_sandbox_url(sandbox, handle(), epoch) == nil
+
+      refute Conversations._unsafe_get_sandbox(sandbox.id).provider_meta["public_url"]
+    end
+
+    # The write is a compare-and-set on the provision's lease (stage 7b), so an
+    # attempt that has lost the machine records nothing — the URL would name a
+    # host it created and then destroyed, on a row another owner is building.
+    test "records nothing for an attempt that no longer holds the machine" do
+      sandbox = insert_sandbox()
+      epoch = claim(sandbox)
+      superseded = epoch + 7
+      stub(Managoat.Sandbox, :public_url, fn _handle -> {:ok, "https://s.example"} end)
+
+      assert capture_log(fn ->
+               assert Provisioning.record_sandbox_url(sandbox, handle(), superseded) ==
+                        "https://s.example"
+             end) =~ "not recording the machine URL"
 
       refute Conversations._unsafe_get_sandbox(sandbox.id).provider_meta["public_url"]
     end

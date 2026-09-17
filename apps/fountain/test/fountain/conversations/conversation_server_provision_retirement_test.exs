@@ -1,6 +1,8 @@
 defmodule Fountain.Conversations.ConversationServerProvisionRetirementTest do
   use Fountain.ConversationServerCase
 
+  alias Fountain.Machines.Lease
+
   for terminal <- ["terminated", "failed", "reset_pending"] do
     test "retirement to #{terminal} with another validation error before starting does not provision or fail the replacement" do
       stub_happy_sprite()
@@ -10,14 +12,24 @@ defmodule Fountain.Conversations.ConversationServerProvisionRetirementTest do
       sandbox = Conversations._unsafe_get_sandbox!(conv.sandbox_id)
       test = self()
 
-      stub(Conversations, :claim_sandbox, fn row, attrs ->
-        if attrs[:status] == "starting" do
-          send(test, {:starting_paused, self()})
-          receive do: (:resume_starting -> :ok)
-        end
-
-        attrs = if attrs[:status] == "starting", do: Map.put(attrs, :mode, "invalid"), else: attrs
-        Mimic.call_original(Conversations, :claim_sandbox, [row, attrs])
+      # The pause moved with the write (ADR 0058 stage 7b). `main` held the
+      # server inside `claim_sandbox(… status: "starting")`, which is the write
+      # the provision bracket replaced; the equivalent moment is the one before
+      # the owner takes the machine, so the retirement lands between this
+      # server reading its rows and the protocol revalidating them under its
+      # lease. What is pinned is unchanged: the retirement wins, nothing is
+      # provisioned, the replacement is untouched and the server exits
+      # `:normal`.
+      #
+      # `main` also injected a second, unrelated validation error here, to show
+      # that the retirement refusal outranked it. There is no changeset on this
+      # path any more — `Lease.cas_update/3` writes named columns — so the
+      # invalid attr has nothing to be injected into and the half of the test it
+      # served is gone with the mechanism it tested.
+      stub(Lease, :claim, fn id, node, ttl_ms ->
+        send(test, {:starting_paused, self()})
+        receive do: (:resume_starting -> :ok)
+        Mimic.call_original(Lease, :claim, [id, node, ttl_ms])
       end)
 
       reject(Managoat.Sandbox.Sprites, :create, 2)

@@ -7,6 +7,7 @@ defmodule Fountain.Conversations.ConversationServerBrokerTest do
   use Fountain.ConversationServerCase
 
   alias Fountain.Environments
+  alias Fountain.Machines.Lease
   alias Fountain.Vaults
 
   @dek <<0::256>>
@@ -276,18 +277,27 @@ defmodule Fountain.Conversations.ConversationServerBrokerTest do
       end
     end
 
-    test "an unrelated ready-write rejection is not treated as retirement", %{
+    test "an unrelated ready-write failure is not treated as retirement", %{
       conv: conv,
       sandbox: sandbox
     } do
-      rejection =
-        {:error,
-         Ecto.Changeset.change(sandbox) |> Ecto.Changeset.add_error(:status, "other failure")}
-
-      stub(Conversations, :claim_sandbox, fn _row, _attrs -> rejection end)
+      # The write is `Machine.confirm_up/2`'s compare-and-set since ADR 0058
+      # stage 7b. What is pinned is unchanged and is the point of the test: a
+      # write that failed for a reason that is *not* retirement leaves the row
+      # and the conversation alone and publishes no `reattach/done`.
+      #
+      # One behaviour change, and it is deliberate. `main` reached this through
+      # a `raise MatchError` — its `claim_sandbox/2` case had no clause for an
+      # arbitrary error — so the server died abnormally and Horde restarted it
+      # into the same failure. The owner answers instead, and the server stops
+      # `:normal` after releasing what it prepared. Nothing about the rows
+      # changes; a crash loop does not start.
+      stub(Lease, :cas_update, fn _id, _epoch, _attrs, _opts ->
+        {:error, {:database, :some_sqlstate}}
+      end)
 
       {_pid, ref, :stopped} = start_server(conv)
-      assert {%MatchError{term: ^rejection}, _stack} = assert_stopped(ref)
+      assert :normal = assert_stopped(ref)
       assert Fountain.Repo.reload!(sandbox).status == "ready"
       assert Fountain.Repo.reload!(conv).status == "idle"
       refute Enum.any?(stage_events(conv.id, "reattach"), &(&1.state == "done"))
@@ -610,16 +620,15 @@ defmodule Fountain.Conversations.ConversationServerBrokerTest do
           {:ok, session}
         end)
 
-        stub(Conversations, :claim_sandbox, fn row, attrs ->
-          attrs =
-            if attrs[:status] == "ready" do
-              send(test, :ready_claimed)
-              Map.put(attrs, :mode, "invalid")
-            else
-              attrs
-            end
-
-          Mimic.call_original(Conversations, :claim_sandbox, [row, attrs])
+        # The `ready` write is the provision bracket's compare-and-set since ADR
+        # 0058 stage 7b, not `claim_sandbox/2`, so the observation moved with
+        # it. The injected `mode: "invalid"` went with the changeset it was
+        # injected into: `Lease.cas_update/4` writes named columns, and the
+        # retirement this pins is refused by the row's own state rather than by
+        # a validation racing it.
+        stub(Lease, :cas_update, fn id, epoch, attrs, opts ->
+          if attrs[:status] == "ready", do: send(test, :ready_claimed)
+          Mimic.call_original(Lease, :cas_update, [id, epoch, attrs, opts])
         end)
 
         # Pause after inference reservation so the final ready write, rather
@@ -701,13 +710,15 @@ defmodule Fountain.Conversations.ConversationServerBrokerTest do
       stub(Fountain.Broker, :ca_pem, fn -> {:ok, "PEM"} end)
       stub(Fountain.Broker, :prepare, fn _c, _b, _bindings, _opts -> {:ok, @session} end)
 
-      stub(Conversations, :claim_sandbox, fn sandbox, attrs ->
+      # As above: the `ready` write is the bracket's compare-and-set now. A
+      # failure that is neither a takeover nor a retirement still fails the
+      # provision — the machine is torn down, both rows go `failed` and the
+      # stage says so.
+      stub(Lease, :cas_update, fn id, epoch, attrs, opts ->
         if attrs[:status] == "ready" do
-          {:error,
-           Ecto.Changeset.change(sandbox)
-           |> Ecto.Changeset.add_error(:build_fingerprint, "invalid")}
+          {:error, {:database, :some_sqlstate}}
         else
-          Mimic.call_original(Conversations, :claim_sandbox, [sandbox, attrs])
+          Mimic.call_original(Lease, :cas_update, [id, epoch, attrs, opts])
         end
       end)
 

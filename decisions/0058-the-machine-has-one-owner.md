@@ -143,9 +143,12 @@ it is not the name-based rule constraint 4 forbids: a holder whose
 when a single renewal has been missed — a headroom of one interval is a line it
 touches, and round 1 drove exactly that, evicting an alive, renewing,
 partitioned holder forty seconds early after one slow renewal. At half an
-interval a partitioned holder that is alive may miss a renewal outright and be
-half an interval late with the next and keep its machine; two missed in a row
-is past the lease anyway.)
+interval a partitioned holder that is alive may miss a renewal outright and keep
+its machine; two missed in a row is past the lease anyway. Stage 8b round 3
+added the other half of that property: the renewer schedules each attempt from
+the slot it was due in rather than from the last attempt's return, so a failing
+renewal's own duration no longer comes out of the headroom — without it a 12 s
+database stall at TTL 60 took the machine off a live holder.)
 
 ### In-flight states are durable states, not locks
 

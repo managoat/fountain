@@ -284,7 +284,13 @@ defmodule Fountain.Machines.MachineBoundsTest do
     # **strictly under** one renew interval of the *shortest* TTL any protocol
     # takes, with margin for the renewer's own latency, or one slow renewal
     # evicts a live holder (round 1, protocol review). Half an interval is the
-    # margin chosen: one whole missed renewal plus half an interval of lateness.
+    # margin chosen: one whole missed renewal, outright.
+    #
+    # That margin only buys what it claims because `Renewal` schedules each
+    # attempt from the slot it was due in rather than from the last one's
+    # return (round 3); otherwise a failing attempt's own duration came out of
+    # this headroom too, and a 12 s stall at TTL 60 was enough. The cadence is
+    # `renewal_test.exs`'s to drive; what is pinned here is the number.
     shortest_ttl =
       Enum.min([
         Destroy.lease_ttl_ms(),

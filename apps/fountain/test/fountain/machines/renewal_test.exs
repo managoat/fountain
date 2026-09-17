@@ -86,6 +86,66 @@ defmodule Fountain.Machines.RenewalTest do
     end
   end
 
+  describe "a renewal attempt that stalls" do
+    test "does not push the next attempt late, so a single miss still leaves a whole interval",
+         ctx do
+      # Round 3's blocker, at the same ratio. The reviewer drove it at the real
+      # numbers: TTL 60 s, interval 20 s, a 12 s database stall — inside
+      # `DBConnection`'s ordinary 15 s timeout, so a stall and not an exotic
+      # fault. Waiting a whole interval from each attempt's *return* put the
+      # second attempt 32 s after the first began rather than 20 s — 52 s into
+      # a 60 s lease, 8 s remaining, where `Lease.absent_node_headroom_ms/0`
+      # takes at 10 s. An alive, renewing holder taken over, which is round 1's
+      # blocker again. Driven at the real numbers after the fix: the second
+      # attempt starts at 40 s, the claim from another node is refused, and the
+      # holder's verdict is `:held`.
+      #
+      # Here the same ratio runs in milliseconds — TTL 600, interval 200, a
+      # stall of 120, which sits between half an interval and a whole one, as
+      # 12 s does between 10 s and 20 s. The absolute numbers cannot be the
+      # real ones in a suite that has to finish, and the headroom is a constant
+      # rather than a fraction, so this drives the cadence and
+      # `binding_test.exs` drives the takeover line. The cadence is the half
+      # that was broken.
+      test_pid = self()
+
+      Mimic.stub(Lease, :renew, fn sandbox_id, epoch, ttl_ms ->
+        send(test_pid, {:attempt_started, System.monotonic_time(:millisecond)})
+        # The first attempt stalls and fails, the way a query cancelled by a
+        # statement timeout does; the rest are ordinary.
+        receive do
+        after
+          120 -> :ok
+        end
+
+        # `call_original`, not `Lease.renew/3` — a stub calling the function it
+        # stubs re-enters itself.
+        Mimic.call_original(Lease, :renew, [sandbox_id, epoch, ttl_ms])
+      end)
+
+      renewer = Renewal.start(ctx.sandbox.id, ctx.epoch, 600)
+      Mimic.allow(Lease, self(), renewer)
+
+      assert_receive {:attempt_started, first}, 2_000
+      assert_receive {:attempt_started, second}, 2_000
+
+      :held = Renewal.stop(renewer)
+
+      gap = second - first
+
+      # Due-at arithmetic: the second attempt is due one interval after the
+      # first was, whatever the first cost. Scheduling from the return gave
+      # 200 + 120 = 320 and this assertion is what fails on it. The upper bound
+      # is one interval plus the stall's own overhang, which is what a
+      # scheduler cannot give back.
+      assert gap >= 150, "the renewer fired early: #{gap}ms"
+
+      assert gap < 300,
+             "the stalled attempt's own duration came out of the interval: #{gap}ms " <>
+               "(scheduling from the return would give about 320)"
+    end
+  end
+
   describe "a lease that was taken over" do
     test "stops the operation at :superseded rather than at the finalize", ctx do
       assert capture_log(fn ->

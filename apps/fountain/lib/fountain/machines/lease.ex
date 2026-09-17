@@ -34,9 +34,20 @@ defmodule Fountain.Machines.Lease do
   renewal plus a few milliseconds of latency evicted a holder that was alive,
   renewing and mid-operation, forty seconds before its lease was due (round 1,
   protocol review, driven with a real renewer and one faulted renewal). At half
-  an interval a holder may miss one renewal outright and be up to ten seconds
-  late with the next and keep its machine. Below that it is a node that died
-  with the lease, and every other owner was waiting out the rest of its TTL for
+  an interval a holder may miss one renewal outright and keep its machine.
+
+  **The bound that makes that true is the renewer's, not this constant's**
+  (round 3). `Machines.Renewal` schedules each attempt from the slot it was due
+  in rather than from the moment the last one returned, so an attempt that
+  fails — however slowly, as long as it returns inside its own slot — costs the
+  cadence nothing, and a single miss still leaves one whole interval. Before
+  that, a failing attempt's own duration came out of this headroom as well: a
+  12 s stall at TTL 60, well inside `DBConnection`'s ordinary timeout, left 8 s
+  and the holder was taken while alive and still reporting `:held`. What is left
+  is the honest residue — a *single* attempt overrunning its slot by more than
+  this headroom, which is 30 s at TTL 60 — and two missed renewals in a row have
+  expired the lease anyway. Below the line it is a node that died with the
+  lease, and every other owner was waiting out the rest of its TTL for
   nothing. A node name on its own decides nothing (#2307 constraint 4): a
   partitioned holder that is alive is still renewing, and its lease stays above
   the line. A lease is surrendered early only by `release/2`, and even that
@@ -154,8 +165,11 @@ defmodule Fountain.Machines.Lease do
   # sits at one whole interval with a single renewal missed, so a headroom of
   # one interval carries no margin at all and takes the machine off a holder
   # whose next renewal is milliseconds late (round 1). Half of it tolerates one
-  # missed renewal plus ten seconds of latency, and still gives back the other
-  # fifty seconds of a dead node's TTL. A holder of a longer TTL sits higher
+  # missed renewal outright — and, since round 3 made `Renewal` schedule from
+  # the slot rather than from the last return, a failing attempt of any length
+  # that still returns inside its own slot — while giving back the other fifty
+  # seconds of a dead node's TTL. The residue is a single attempt overrunning
+  # its slot by more than this much. A holder of a longer TTL sits higher
   # still. `machine_bounds_test.exs` pins it against every protocol's TTL.
   @absent_node_headroom_ms 10_000
 

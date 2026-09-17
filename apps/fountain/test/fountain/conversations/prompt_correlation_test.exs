@@ -59,7 +59,8 @@ defmodule Fountain.Conversations.PromptCorrelationTest do
       {pid, ref, prompt_id} = start_with_turn(conv)
       reply(pid, ref, prompt_id, %{"stopReason" => "end_turn"})
 
-      assert :ok = GenServer.call(pid, PromptDelivery.call("second", [], client_request_id: "b"))
+      assert :ok =
+               GenServer.call(pid, PromptDelivery.call(pid, "second", [], client_request_id: "b"))
 
       assert [first, second] = Conversations._unsafe_list_turns(conv.id)
       assert is_nil(first.client_request_id)
@@ -70,7 +71,9 @@ defmodule Fountain.Conversations.PromptCorrelationTest do
     test "the started event binds the id to the turn id", %{conv: conv} do
       {pid, ref, prompt_id} = start_with_turn(conv)
       reply(pid, ref, prompt_id, %{"stopReason" => "end_turn"})
-      assert :ok = GenServer.call(pid, PromptDelivery.call("second", [], client_request_id: "b"))
+
+      assert :ok =
+               GenServer.call(pid, PromptDelivery.call(pid, "second", [], client_request_id: "b"))
 
       # The second turn reuses the connection, and a reused connection says
       # `started` once the peer has taken the prompt.
@@ -92,17 +95,19 @@ defmodule Fountain.Conversations.PromptCorrelationTest do
       {pid, _ref, _prompt_id} = start_with_turn(conv)
 
       assert {:error, :busy} =
-               GenServer.call(pid, PromptDelivery.call("second", [], client_request_id: "b"))
+               GenServer.call(pid, PromptDelivery.call(pid, "second", [], client_request_id: "b"))
 
       assert [only] = Conversations._unsafe_list_turns(conv.id)
       assert is_nil(only.client_request_id)
     end
 
-    # The issue's case: two clients submit around the same turn boundary. With
-    # one active turn per conversation exactly one is accepted, and sequence
-    # inference cannot tell a client which. The id can: the turn carries the
-    # accepted caller's, and the refused caller's is on nothing.
-    test "two clients at the turn boundary: the turn names the one that was accepted",
+    # The issue's case on a live server: two clients submit at the same moment.
+    # This is not a race the test has to win. The server's mailbox puts the two
+    # calls in some order and the first opens the turn, so the second is always
+    # `:busy`; which client is first is the part nobody controls, and sequence
+    # inference cannot tell a client which it was. The id can: the turn carries
+    # the accepted caller's, and the refused caller's is on nothing.
+    test "two clients at once: the turn names the one the server took first",
          %{conv: conv} do
       {pid, ref, prompt_id} = start_with_turn(conv)
       reply(pid, ref, prompt_id, %{"stopReason" => "end_turn"})
@@ -112,7 +117,10 @@ defmodule Fountain.Conversations.PromptCorrelationTest do
         |> Enum.map(fn id ->
           Task.async(fn ->
             {id,
-             GenServer.call(pid, PromptDelivery.call("from #{id}", [], client_request_id: id))}
+             GenServer.call(
+               pid,
+               PromptDelivery.call(pid, "from #{id}", [], client_request_id: id)
+             )}
           end)
         end)
         |> Task.await_many()
@@ -131,12 +139,53 @@ defmodule Fountain.Conversations.PromptCorrelationTest do
     end
 
     test "a prompt with nothing to carry is the message every release understands" do
-      assert {:send_prompt, "hi", []} = PromptDelivery.call("hi", [], actor: "api")
-      assert {:send_prompt, "hi", []} = PromptDelivery.call("hi", [], client_request_id: nil)
-      assert {:initial_prompt, "hi", []} = PromptDelivery.cast("hi", [], [])
+      me = self()
+      assert {:send_prompt, "hi", []} = PromptDelivery.call(me, "hi", [], actor: "api")
+      assert {:send_prompt, "hi", []} = PromptDelivery.call(me, "hi", [], client_request_id: nil)
+      assert {:initial_prompt, "hi", []} = PromptDelivery.cast(me, "hi", [], [])
 
       assert {:send_prompt, "hi", [], [client_request_id: "a"]} =
-               PromptDelivery.call("hi", [], actor: "api", client_request_id: "a")
+               PromptDelivery.call(me, "hi", [], actor: "api", client_request_id: "a")
+    end
+
+    # Horde can place the server on a pod of the previous release, whose
+    # catch-all clauses answer a four-element call `:unknown_call` and drop a
+    # four-element cast. The prompt has to run there, so the id stays behind.
+    test "a server on a node that predates the field gets the prompt without the id" do
+      me = self()
+      predates = fn _node -> false end
+      carrying = [client_request_id: "a"]
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          assert {:send_prompt, "the secret plan", []} =
+                   PromptDelivery.call(me, "the secret plan", [], carrying, predates)
+
+          assert {:initial_prompt, "the secret plan", []} =
+                   PromptDelivery.cast(me, "the secret plan", [], carrying, predates)
+        end)
+
+      assert log =~ "predates client_request_id"
+      # The prompt is the tenant's content (#545): the warning names the node.
+      refute log =~ "the secret plan"
+
+      # This node has the module, and a node that cannot be asked reads as no.
+      assert PromptDelivery.understands?(node())
+      refute PromptDelivery.understands?(:"nobody@nowhere.invalid")
+    end
+
+    # The API refuses these with 422. A caller that is not the API must not be
+    # able to fail turn admission, and so drop a live connection, over a label.
+    test "an id the turn would refuse does not travel" do
+      too_long = String.duplicate("x", Conversations.Turn.client_request_id_max() + 1)
+
+      for bad <- ["", too_long, 42, nil] do
+        assert PromptDelivery.travelling(client_request_id: bad) == []
+        assert PromptDelivery.for_wake("hi", client_request_id: bad) == "hi"
+      end
+
+      longest = String.duplicate("x", Conversations.Turn.client_request_id_max())
+      assert PromptDelivery.travelling(client_request_id: longest) == [client_request_id: longest]
     end
   end
 
@@ -148,6 +197,24 @@ defmodule Fountain.Conversations.PromptCorrelationTest do
       assert turn.client_request_id == "a"
       assert [%{"client_request_id" => "a", "turn_id" => turn_id}] = started_events(conv.id)
       assert turn_id == turn.id
+    end
+
+    # The same two clients, on a conversation that had to be woken. Both were
+    # answered `queued` before a turn existed, and both prompts arrive as casts.
+    # The second finds a user turn running and is dropped with nobody told, so
+    # the id is the only way either client learns whose prompt ran.
+    test "two prompts cast at a waking server: one turn, carrying the first one's id",
+         %{conv: conv} do
+      {pid, _ref, _prompt_id} = start_with_turn(conv, prompt_opts: [client_request_id: "a"])
+
+      ExUnit.CaptureLog.capture_log(fn ->
+        ConversationServer.queue_initial_prompt(pid, "second", [], client_request_id: "b")
+        settle(pid)
+      end)
+
+      assert [turn] = Conversations._unsafe_list_turns(conv.id)
+      assert turn.client_request_id == "a"
+      assert [%{"client_request_id" => "a"}] = started_events(conv.id)
     end
 
     test "send_prompt hands the wake the id with the text", %{conv: conv} do
@@ -200,7 +267,10 @@ defmodule Fountain.Conversations.PromptCorrelationTest do
     assert {:ok, updated} = Reapply.reapply_conversation(conv, %{})
 
     assert :ok =
-             GenServer.call(pid, PromptDelivery.call("after reapply", [], client_request_id: "r"))
+             GenServer.call(
+               pid,
+               PromptDelivery.call(pid, "after reapply", [], client_request_id: "r")
+             )
 
     assert :sys.get_state(pid).configuration_revision == updated.configuration_revision
     assert [turn] = Conversations._unsafe_list_turns(conv.id)

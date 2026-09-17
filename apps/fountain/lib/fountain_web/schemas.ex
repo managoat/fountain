@@ -935,6 +935,10 @@ defmodule FountainWeb.Schemas do
     def request do
       %Schema{
         type: :string,
+        # Null is "none", as it is for `images` beside it: a client that
+        # serialises an unset optional as null must not get a 422 for a
+        # field it did not use.
+        nullable: true,
         minLength: 1,
         maxLength: Fountain.Conversations.Turn.client_request_id_max(),
         description:

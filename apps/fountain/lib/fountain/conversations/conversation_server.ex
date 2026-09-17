@@ -116,7 +116,7 @@ defmodule Fountain.Conversations.ConversationServer do
           end
 
         pid ->
-          call_server(pid, PromptDelivery.call(prompt, images, opts))
+          call_server(pid, PromptDelivery.call(pid, prompt, images, opts))
       end
 
     # Size and image count, never the text. A prompt is the tenant's content —
@@ -172,7 +172,7 @@ defmodule Fountain.Conversations.ConversationServer do
   which can take minutes, and no caller is waiting on the turn to finish.
   """
   def queue_initial_prompt(pid, prompt, images \\ [], opts \\ []) when is_pid(pid) do
-    GenServer.cast(pid, PromptDelivery.cast(prompt, images, opts))
+    GenServer.cast(pid, PromptDelivery.cast(pid, prompt, images, opts))
   end
 
   @doc """

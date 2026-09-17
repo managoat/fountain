@@ -4192,7 +4192,7 @@ export interface components {
         /** PromptRequest */
         PromptRequest: {
             /** @description Your own name for this prompt. Fountain stores it on the turn the prompt opens and sends it on that turn's `started` stage event, beside the `turn_id`, so a client can bind its work item to the exact turn without inferring it from turn order. It is a correlation and not an idempotency key: a second prompt with the same value opens a second turn that carries it too. Make it unique within the conversation. */
-            client_request_id?: string;
+            client_request_id?: string | null;
             /** @description Optional images to attach to this prompt. */
             images?: components["schemas"]["ImageInput"][] | null;
             prompt: string;

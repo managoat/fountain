@@ -11258,6 +11258,7 @@
     "PromptRequest": {
       "properties": {
         "client_request_id": {
+          "nullable": true,
           "required": false,
           "type": "string"
         },

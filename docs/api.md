@@ -390,9 +390,11 @@ Read that event to bind your work item to the turn. Every later event of the
 turn carries the same `turn_id`.
 
 Two clients can send a prompt at the same moment. A conversation runs one turn
-at a time, so Fountain accepts one prompt and answers `conversation_busy` to
-the other. The turn carries the value of the client that Fountain accepted.
-Turn order cannot tell you that.
+at a time, so one prompt opens the turn. The turn carries the value of that
+client. Turn order cannot tell you that. When the conversation has a machine
+that is awake, Fountain answers `conversation_busy` to the other client. When
+the conversation must wake first, Fountain answers `queued` to the two clients.
+It then drops the prompt that arrives second, and the stream does not say so.
 
 The value is a string of 1 to 200 characters. Make it unique in the
 conversation. Fountain does not check that. **It is not an idempotency key.**
@@ -400,8 +402,16 @@ A second prompt with the same value opens a second turn, and the two turns
 carry the same value. Do not send a prompt again only because a response was
 lost. Read the turns first.
 
-An accepted prompt does not always open a turn. A machine at capacity refuses
-it after the response, and the stream says so. Then no turn carries your value.
+An accepted prompt does not always open a turn. Fountain can refuse it after
+the response: the machine is at capacity, a limit on the conversation stops
+it, or another prompt opened the turn first. The stream reports some of these
+refusals and not others. So do not wait without a limit for a `started` event
+that carries your value. Set a time limit. Then read the turns. If no turn
+carries your value, the prompt did not run, and you can send it again.
+
+A deployment that updates to the release with this field runs two releases
+for some minutes. In that time, Fountain can deliver a prompt without its
+value. The turn then has a null `client_request_id`.
 
 A turn that Fountain opened by itself has the `autonomous` origin and a null
 `client_request_id`. A webhook delivery carries `turn_id` and does not carry

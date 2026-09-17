@@ -9,45 +9,106 @@ defmodule Fountain.Conversations.PromptDelivery do
   `client_request_id` has to arrive at `TurnMachine.open/7` down both, and this
   module is the one place that says how.
 
-  **The message only changes shape when there is something to carry.** A
-  deploy runs two releases side by side, and a server on the previous one
-  matches `{:send_prompt, prompt, images}` and `{:initial_prompt, prompt,
-  images}` exactly: a fourth element there is an `:unknown_call`, or for the
-  cast a prompt dropped with nobody told. So a prompt with nothing travelling
-  is sent in the shape every release understands, and only a caller that
-  supplied a `client_request_id` can meet the older server during a rollout.
-  On the call that caller gets an error it can retry. On the cast it can lose
-  the prompt, in one case: its wake lost the race for the conversation to a
-  server the previous release started, and handed the prompt to that winner.
-  The window is the rollout that ships this, and it closes with it.
+  ## A deploy runs two releases side by side
+
+  Horde places a conversation's server on any node of the cluster
+  (`Horde.UniformDistribution`), so during a rollout the server a prompt is
+  sent to can be on a pod of the previous release, whoever started it. That
+  server matches `{:send_prompt, prompt, images}` and `{:initial_prompt,
+  prompt, images}` exactly. A fourth element falls to its catch-all clauses:
+  the call is answered `:unknown_call`, the cast is dropped with nobody told,
+  and both log the message, which means the prompt's text.
+
+  So the message only changes shape when there is something to carry **and the
+  node that will receive it has this module**. `understands?/1` asks the
+  receiving node. When it does not, the prompt goes in the shape every release
+  matches and the correlation is left behind, with a warning that names the
+  node and never the prompt: a turn without its label is a smaller loss than a
+  prompt that never ran. The window is a rollout across the release that
+  introduced this module, and it closes with it.
+
+  The machine owner has the same window when `MACHINE_OWNER_ENABLED` is on: an
+  owner on the previous release inserts the turn from a changeset that does not
+  cast `client_request_id`, so that turn opens without it.
   """
+
+  require Logger
+
+  alias Fountain.Conversations.{ConversationServer, Turn}
 
   @carried [:client_request_id]
 
   @type travelling :: keyword()
   @type wake_prompt :: nil | String.t() | {String.t(), travelling()}
 
-  @doc "The part of a door's `opts` that goes with the prompt to its turn."
+  @doc """
+  The part of a door's `opts` that goes with the prompt to its turn.
+
+  An id the turn's changeset would refuse is dropped here, because the API has
+  already refused it (422) and this is the backstop for a caller that is not
+  the API. Reaching the insert instead would make turn admission fail, and a
+  live server answers a failed admission by dropping its connection: a healthy
+  agent session torn down over a label.
+  """
   @spec travelling(keyword()) :: travelling()
   def travelling(opts) when is_list(opts) do
-    for {key, value} <- opts, key in @carried, is_binary(value), do: {key, value}
+    for {key, value} <- opts, key in @carried, carriable?(value), do: {key, value}
   end
 
-  @doc "The call a live server takes a prompt in."
-  @spec call(String.t(), list(), keyword()) :: tuple()
-  def call(prompt, images, opts) do
-    case travelling(opts) do
+  defp carriable?(value) when is_binary(value),
+    do: String.length(value) in 1..Turn.client_request_id_max()
+
+  defp carriable?(_value), do: false
+
+  @doc """
+  Whether the server on `node` matches the four-element messages. It does when
+  that node's release has this module, which shipped in the same commit as the
+  clauses that match them. Any failure to find out reads as no.
+  """
+  @spec understands?(node()) :: boolean()
+  def understands?(node) when node == node(), do: true
+
+  def understands?(node) do
+    :erpc.call(node, Code, :ensure_loaded?, [__MODULE__], 2_000) == true
+  catch
+    _kind, _reason -> false
+  end
+
+  @doc "The call the live server `pid` takes a prompt in."
+  @spec call(pid(), String.t(), list(), keyword(), (node() -> boolean())) :: tuple()
+  def call(pid, prompt, images, opts, understands? \\ &understands?/1) do
+    case deliverable(pid, opts, understands?) do
       [] -> {:send_prompt, prompt, images}
       meta -> {:send_prompt, prompt, images, meta}
     end
   end
 
-  @doc "The cast that delivers a prompt to a server once it has provisioned."
-  @spec cast(String.t(), list(), keyword()) :: tuple()
-  def cast(prompt, images, opts) do
-    case travelling(opts) do
+  @doc "The cast that delivers a prompt to the server `pid` once it has provisioned."
+  @spec cast(pid(), String.t(), list(), keyword(), (node() -> boolean())) :: tuple()
+  def cast(pid, prompt, images, opts, understands? \\ &understands?/1) do
+    case deliverable(pid, opts, understands?) do
       [] -> {:initial_prompt, prompt, images}
       meta -> {:initial_prompt, prompt, images, meta}
+    end
+  end
+
+  defp deliverable(pid, opts, understands?) do
+    meta = travelling(opts)
+
+    cond do
+      meta == [] ->
+        []
+
+      understands?.(node(pid)) ->
+        meta
+
+      true ->
+        Logger.warning(
+          "prompt for a server on #{node(pid)}, which predates client_request_id (#1406): " <>
+            "delivering the prompt without it"
+        )
+
+        []
     end
   end
 
@@ -75,11 +136,11 @@ defmodule Fountain.Conversations.PromptDelivery do
   """
   @spec hand_over(pid(), wake_prompt(), list()) :: :ok
   def hand_over(pid, {prompt, meta}, images) when is_binary(prompt) and prompt != "" do
-    Fountain.Conversations.ConversationServer.queue_initial_prompt(pid, prompt, images, meta)
+    ConversationServer.queue_initial_prompt(pid, prompt, images, meta)
   end
 
   def hand_over(pid, prompt, images) when is_binary(prompt) and prompt != "" do
-    Fountain.Conversations.ConversationServer.queue_initial_prompt(pid, prompt, images)
+    ConversationServer.queue_initial_prompt(pid, prompt, images)
   end
 
   def hand_over(_pid, _nothing, _images), do: :ok

@@ -58,6 +58,12 @@ defmodule Fountain.Conversations.PromptReplayTest do
       :ok
     end)
 
+    # Only a prompt with something travelling with it takes this arity (#1406).
+    stub(Conversations.ConversationServer, :queue_initial_prompt, fn id, prompt, _images, meta ->
+      send(test, {:queued_prompt_with, id, prompt, meta})
+      :ok
+    end)
+
     {:ok, conv: conv, agent: agent, user: user}
   end
 
@@ -90,6 +96,23 @@ defmodule Fountain.Conversations.PromptReplayTest do
       assert_received {:started_pid, started_pid}
       assert_received {:queued_prompt, target, "run the migration", _}
       assert target == started_pid
+    end
+
+    # Through the real `Wake`, not its handoff helper alone: a handoff site
+    # written the old way (`if is_binary(initial_prompt)`) would drop every
+    # prompt that carries an id, text and all, and nothing else would go red.
+    test "a prompt that carries an id is delivered with it, and neither is in the spec (#1406)",
+         %{conv: conv} do
+      {:ok, _} = Wake.wake_conversation(conv.id, {"run the migration", [client_request_id: "a"]})
+
+      assert_received {:started_pid, started_pid}
+      assert_received {:queued_prompt_with, target, "run the migration", [client_request_id: "a"]}
+      assert target == started_pid
+      refute_received {:queued_prompt, _, _, _}
+
+      spec = inspect(spec_args(), limit: :infinity)
+      refute spec =~ "run the migration"
+      refute spec =~ "client_request_id"
     end
 
     test "waking without a prompt queues nothing", %{conv: conv} do

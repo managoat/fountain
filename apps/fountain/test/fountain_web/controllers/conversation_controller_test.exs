@@ -956,6 +956,18 @@ defmodule FountainWeb.ConversationControllerTest do
         |> json_response(200)
 
       assert body == %{"status" => "queued", "client_request_id" => nil}
+
+      # An explicit null is the same as leaving it out, as it is for `images`.
+      body =
+        build_conn()
+        |> authed_with_key(raw_key)
+        |> post_json("/api/conversations/#{conv.id}/prompts", %{
+          "prompt" => "hello",
+          "client_request_id" => nil
+        })
+        |> json_response(200)
+
+      assert body == %{"status" => "queued", "client_request_id" => nil}
     end
 
     test "an empty or oversized client_request_id is refused before the prompt is sent", %{

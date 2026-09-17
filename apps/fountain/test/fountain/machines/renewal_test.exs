@@ -170,6 +170,64 @@ defmodule Fountain.Machines.RenewalTest do
     end
   end
 
+  describe "an operating process that dies without telling anybody" do
+    # Round 1, protocol review, and it is why the monitor exists.
+    # `around/4`'s `try/catch` covers a raise, a throw and a trappable exit; it
+    # covers nothing that kills the caller outright — Horde redistributing an
+    # owner that does not trap exits, an Oban job killed at its timeout, a
+    # `:kill`. Before the monitor, the renewer went on renewing a lease for work
+    # nobody was doing, and nothing could ever take that machine: `Lease` cannot
+    # evict a live holder and no sweep looks at a lease that keeps moving.
+    test "the renewer stops, and the lease lapses on its own TTL", ctx do
+      test = self()
+
+      caller =
+        spawn(fn ->
+          renewer = Renewal.start(ctx.sandbox.id, ctx.epoch, 150)
+          send(test, {:renewing, renewer})
+          Process.sleep(:infinity)
+        end)
+
+      assert_receive {:renewing, renewer}, 2_000
+      ref = Process.monitor(renewer)
+
+      # Renewing, and demonstrably so: the deadline has moved past the claim's.
+      Process.sleep(250)
+      assert Lease.live?(Repo.reload!(ctx.sandbox))
+
+      Process.exit(caller, :kill)
+
+      assert_receive {:DOWN, ^ref, :process, ^renewer, _},
+                     2_000,
+                     "the renewer outlived the process it was renewing for"
+
+      # And within one TTL of the last renewal the machine is claimable again,
+      # which is the state it would have been in had the renewer never existed.
+      Process.sleep(200)
+      refute Lease.live?(Repo.reload!(ctx.sandbox))
+      assert {:ok, _epoch} = Lease.claim(ctx.sandbox.id, "next@node", 60_000)
+    end
+  end
+
+  describe "an operating process that is alive and stuck" do
+    test "renewals stop at the total deadline rather than holding the machine for ever", ctx do
+      # The monitor covers a caller that dies. This covers one that is alive and
+      # wedged — a provider call with no timeout of its own — where renewing
+      # forever holds the machine just as hard. Ten TTLs; at 20 ms that is
+      # 200 ms, and the lease is claimable one TTL after the last renewal.
+      renewer = Renewal.start(ctx.sandbox.id, ctx.epoch, 20)
+
+      Process.sleep(400)
+
+      refute Lease.live?(Repo.reload!(ctx.sandbox)),
+             "the renewer is still holding the machine past its total deadline"
+
+      # It is still there to answer, because the caller may still ask.
+      assert Process.alive?(renewer)
+      assert :held = Renewal.stop(renewer)
+    end
+  end
+
   describe "the renewer is not the operating process's problem" do
     test "it is unlinked, so a renewal that blows up does not take the caller down", ctx do
       # A link here would let a database fault kill a `ConversationServer`, an

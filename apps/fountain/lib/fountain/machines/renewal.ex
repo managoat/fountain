@@ -37,6 +37,40 @@ defmodule Fountain.Machines.Renewal do
   connection ownership as its parent — which is what a test's SQL sandbox needs
   and what production ignores.
 
+  ## Two ways it stops that are not `stop/1`
+
+  Unlinked and silent is right, and on its own it was a leak (round 1, protocol
+  review). `around/4`'s `try/catch` covers a raise, a throw and a trappable exit,
+  and covers **nothing** that kills the operating process outright: Horde
+  redistributing an owner that does not trap exits, an Oban job killed at its
+  timeout, a `Process.exit(pid, :kill)`. The renewer would then go on renewing a
+  lease for work nobody was doing — and a lease nobody can evict, because
+  `Lease` has no way to take a *live* one and no sweep looks at a machine whose
+  lease keeps moving. One killed process made a machine permanently unclaimable.
+
+  So there are two more exits, and neither depends on anybody remembering to
+  call `stop/1`:
+
+    * **It monitors its caller** and gives up on `:DOWN`. That is the ordinary
+      close: the lease then lapses on its own TTL and the next claimant takes it
+      over, which is the state the machine would have been in had the renewer
+      never existed.
+    * **A hard total deadline** of ten times the TTL, after
+      which it stops renewing whatever else is true. The monitor covers a caller
+      that dies; this covers a caller that is *alive* and stuck — wedged in a
+      provider call with no timeout of its own — where renewing forever would
+      hold the machine just as hard. An operation that has not finished in ten
+      TTLs is not one to keep a machine for.
+
+  **Not taken here: evicting a lease whose `lease_node` is not a connected
+  node.** It is tempting and it is the same mistake #2307 constraint 4 names. A
+  node name is not evidence of liveness — a pod can restart under the same name,
+  `Node.list/0` is per-node and asynchronously converged, and a partitioned node
+  is still running its own operations. The two exits above close the case that
+  motivated the suggestion without deciding liveness from a name; if a
+  node-aware rule is ever wanted it belongs with stage 8's admission, where
+  membership is already being reasoned about.
+
   ## What a lost lease means, and what a dead renewer does not
 
   `Lease.renew/4` answers `{:error, :lost}` for exactly one reason: this caller
@@ -72,6 +106,12 @@ defmodule Fountain.Machines.Renewal do
   # process that is either idle or inside one short `update_all`, so this is a
   # ceiling on a pathology, not a bound anybody reaches.
   @stop_timeout_ms 5_000
+
+  # The hard stop, as a multiple of the TTL. Ten of them is far beyond any
+  # provider call this protocol makes — a Daytona machine coming back from
+  # archived storage is the slowest, and it is minutes rather than ten minutes —
+  # and far short of "for ever", which is what it replaces.
+  @max_lifetime_multiple 10
 
   @typedoc "Whether the lease was still this owner's when the work finished."
   @type verdict :: :held | :lost
@@ -132,10 +172,24 @@ defmodule Fountain.Machines.Renewal do
   def start(sandbox_id, epoch, ttl_ms) do
     callers = [self() | Process.get(:"$callers", [])]
     interval = max(div(ttl_ms, @renew_divisor), 1)
+    caller = self()
 
     spawn(fn ->
       Process.put(:"$callers", callers)
-      loop(sandbox_id, epoch, ttl_ms, interval, :held)
+
+      state = %{
+        sandbox_id: sandbox_id,
+        epoch: epoch,
+        ttl_ms: ttl_ms,
+        interval: interval,
+        # Monitored from inside the renewer rather than passed in: the
+        # monitor has to belong to the process that acts on it.
+        caller: Process.monitor(caller),
+        deadline: System.monotonic_time(:millisecond) + ttl_ms * @max_lifetime_multiple,
+        verdict: :held
+      }
+
+      loop(state)
     end)
   end
 
@@ -165,19 +219,40 @@ defmodule Fountain.Machines.Renewal do
   # One loop, carrying the verdict so far. A lost lease stops the renewals and
   # keeps the process alive to answer: the caller is still inside its provider
   # call and has nowhere to receive an unsolicited message.
-  # `verdict` is always `:held` on the way in — a `:lost` renewal leaves for
-  # `await_stop/1` and never comes back here — and it is carried rather than
-  # assumed so the one place that answers `stop/1` reads the same field whichever
-  # loop it is in.
-  defp loop(sandbox_id, epoch, ttl_ms, interval, verdict) do
+  # `state.verdict` is always `:held` here — a `:lost` renewal leaves for
+  # `await_stop/1` and never comes back — and it is carried rather than assumed
+  # so the one place that answers `stop/1` reads the same field whichever loop
+  # it is in.
+  defp loop(%{caller: caller_ref} = state) do
     receive do
       {:stop, from, ref} ->
-        send(from, {:renewal, ref, verdict})
+        send(from, {:renewal, ref, state.verdict})
+
+      # The caller is gone and nobody will ever call `stop/1`. Exiting here is
+      # what lets the lease lapse on its own TTL, which is the state the machine
+      # would have been in had this process never existed.
+      {:DOWN, ^caller_ref, :process, _pid, reason} ->
+        Logger.warning(
+          "machine #{state.sandbox_id}: the operation holding the lease at epoch " <>
+            "#{state.epoch} died (#{inspect(reason)}); stopping renewals so the lease expires"
+        )
     after
-      interval ->
-        case renew(sandbox_id, epoch, ttl_ms) do
-          :held -> loop(sandbox_id, epoch, ttl_ms, interval, :held)
-          :lost -> await_stop(:lost)
+      state.interval ->
+        cond do
+          System.monotonic_time(:millisecond) >= state.deadline ->
+            Logger.warning(
+              "machine #{state.sandbox_id}: the operation holding the lease at epoch " <>
+                "#{state.epoch} has run for #{@max_lifetime_multiple} lease lifetimes; " <>
+                "stopping renewals so the lease expires"
+            )
+
+            await_stop(:held)
+
+          renew(state.sandbox_id, state.epoch, state.ttl_ms) == :lost ->
+            await_stop(:lost)
+
+          true ->
+            loop(state)
         end
     end
   end
@@ -204,9 +279,13 @@ defmodule Fountain.Machines.Renewal do
     end
   end
 
+  # Still answering, no longer renewing. The caller may still be inside its
+  # provider call, and it has nowhere to receive an unsolicited message — so the
+  # verdict waits here until it asks. A `:DOWN` means it never will.
   defp await_stop(verdict) do
     receive do
       {:stop, from, ref} -> send(from, {:renewal, ref, verdict})
+      {:DOWN, _ref, :process, _pid, _reason} -> :ok
     end
   end
 end

@@ -554,6 +554,12 @@ defmodule Fountain.Machines.Park do
   end
 
   defp stamp_then_park(sandbox, epoch, opts) do
+    # The turn this park cuts is ended **before** the stamp, so there is no
+    # window in which a `running` turn sits on a `parking` row — the reading a
+    # recovering actor or a cotenant's admission would otherwise take (stage
+    # 8b, the lead's condition on the cut). See `end_cut_turn/2`.
+    end_cut_turn(sandbox, opts)
+
     case Lease.cas_update(sandbox.id, epoch,
            transition: "parking",
            transition_reason: to_string(Keyword.fetch!(opts, :reason))
@@ -692,7 +698,6 @@ defmodule Fountain.Machines.Park do
         # *going into* the finalize (#2309).
         Conversations.sandbox_status_effects(parked, sandbox.status)
 
-        end_cut_turn(parked, opts)
         audit(parked, opts)
         notify_cotenants(parked, opts)
         {:ok, :parked}
@@ -839,8 +844,6 @@ defmodule Fountain.Machines.Park do
     :ok
   end
 
-  # ── after the finalize ────────────────────────────────────────────────────
-
   # The one turn a park operates over is the requester's own at the ceiling —
   # `running_turn_veto?/2`'s exception, the turn the park is cutting — and the
   # owner ends it (stage 8b) rather than leaving it to the server's own
@@ -849,6 +852,18 @@ defmodule Fountain.Machines.Park do
   # turn nothing is driving that stage 6b deliberately leaves standing: a turn
   # parked on a person's permission whose server has died is still theirs to
   # answer, and a park is not the machine going away.
+  #
+  # Strictly before the `parking` stamp, under the lease, and not after the
+  # finalize: from the stamp on, a reader that finds this turn `running` on a
+  # `parking` row would be reading a state that never has to exist. The cost
+  # is a turn ended for a park the stamp then refuses (`:stale`, `:retired`),
+  # and it is no cost: the server that asked has already dropped its adapter
+  # at the ceiling, so the turn could not have continued either way.
+  #
+  # The second door (rule 16) is the server ending the same turn itself, in
+  # either order: `end_turn/3` on a turn already terminal is `:noop` and
+  # records nothing, whichever side got there first. `binding_test.exs` drives
+  # both orders.
   defp end_cut_turn(%Sandbox{} = sandbox, opts) do
     with :max_lifetime <- Keyword.fetch!(opts, :reason),
          requester when is_binary(requester) <- Keyword.get(opts, :requesting_conversation_id) do

@@ -678,6 +678,14 @@ defmodule Fountain.Machines.BindingTest do
     end
   end
 
+  # The turn's status as the `parking` stamp's own statement completes — read
+  # on the same connection, right behind it.
+  def report_stamp(_event, _measurements, %{query: query, params: params}, {test, turn_id}) do
+    if String.contains?(query, "UPDATE \"sandboxes\"") and "parking" in params do
+      send(test, {:stamped, Repo.get!(Turn, turn_id).status})
+    end
+  end
+
   # Pauses the paused process right after it takes the machine's advisory
   # lock, so the other side can be shown waiting on it.
   def pause_after_lock(_event, _measurements, %{query: query}, owner) do
@@ -960,23 +968,99 @@ defmodule Fountain.Machines.BindingTest do
                Machine.end_turn(ctx.turn, {:orphan, "attach_failed"}, sandbox_id: replacement.id)
     end
 
-    test "a ceiling park ends the requester's own turn; an idle park refuses on it", ctx do
-      stub(Managoat.Sandbox, :suspend, fn _ -> :ok end)
+    test "a ceiling park ends the requester's own turn before the stamp; an idle park refuses on it",
+         ctx do
       # Alone on the machine: a co-tenant active inside the idle window is a
       # different veto (`busy_elsewhere?`), and not the one under test.
       Repo.delete_all(from t in Turn, where: t.conversation_id == ^ctx.cotenant.id)
       Repo.delete!(ctx.cotenant)
       opts = [actor: "system:conversation_server", requesting_conversation_id: ctx.conv.id]
+      turn_id = ctx.turn.id
 
-      quietly(fn ->
-        assert {:error, :machine_occupied} = Park.run(ctx.sandbox.id, [reason: :idle] ++ opts)
-        assert {:ok, :parked} = Park.run(ctx.sandbox.id, [reason: :max_lifetime] ++ opts)
+      # The instant the `parking` stamp lands, the turn is already terminal:
+      # no reader ever sees `running` on a `parking` row. Observed on the
+      # stamp's own statement — a plant that cuts the turn right *after* the
+      # stamp still has it ended by the time the provider is asked, which is
+      # why the suspend stub below is not enough on its own.
+      stub(Managoat.Sandbox, :suspend, fn _ ->
+        assert Repo.reload!(ctx.sandbox).transition == "parking"
+        assert Repo.get!(Turn, turn_id).status == "interrupted"
+        :ok
       end)
+
+      test = self()
+      handler = {__MODULE__, make_ref()}
+
+      :telemetry.attach(
+        handler,
+        [:fountain, :repo, :query],
+        &__MODULE__.report_stamp/4,
+        {test, turn_id}
+      )
+
+      try do
+        quietly(fn ->
+          assert {:error, :machine_occupied} = Park.run(ctx.sandbox.id, [reason: :idle] ++ opts)
+          assert Repo.reload!(ctx.turn).status == "running"
+          assert {:ok, :parked} = Park.run(ctx.sandbox.id, [reason: :max_lifetime] ++ opts)
+        end)
+      after
+        :telemetry.detach(handler)
+      end
+
+      assert_received {:stamped, "interrupted"}
 
       assert %Turn{status: "interrupted", orphaned_at: %DateTime{}} = Repo.reload!(ctx.turn)
       assert Repo.reload!(ctx.conv).status == "idle"
-
       assert [_] = stage_reasons("reattach", "interrupted", "machine_parked")
+    end
+
+    test "the server ending the same turn is a :noop in either order, with one event", ctx do
+      stub(Managoat.Sandbox, :suspend, fn _ -> :ok end)
+      Repo.delete_all(from t in Turn, where: t.conversation_id == ^ctx.cotenant.id)
+      Repo.delete!(ctx.cotenant)
+      opts = [actor: "system:conversation_server", requesting_conversation_id: ctx.conv.id]
+
+      orphaned = fn ->
+        Audit.list_for_user(ctx.user.id, action_prefix: "conversation.turn.orphaned")
+      end
+
+      # Owner first: the park ended it; the server's own ending on its way out
+      # writes nothing and records nothing.
+      quietly(fn ->
+        assert {:ok, :parked} = Park.run(ctx.sandbox.id, [reason: :max_lifetime] ++ opts)
+      end)
+
+      assert [_] = orphaned.()
+
+      assert :noop = Machine.end_turn(ctx.turn, :mark_interrupted, sandbox_id: ctx.sandbox.id)
+
+      assert :noop =
+               Machine.end_turn(ctx.turn, {:orphan, "server_terminated_normally"},
+                 sandbox_id: ctx.sandbox.id
+               )
+
+      assert [_] = orphaned.()
+      assert Repo.reload!(ctx.turn).status == "interrupted"
+
+      # Server first: the turn is already terminal when the park cuts, and the
+      # park's ending is not this owner's — nothing written, nothing recorded.
+      stamp(ctx, status: "ready")
+      {:ok, _} = Conversations.update_conversation(Repo.reload!(ctx.conv), %{status: "running"})
+
+      second =
+        insert_turn(ctx.conv, %{status: "running", prompt: "go", started_at: DateTime.utc_now()})
+
+      assert {:ok, %Turn{status: "interrupted"}} =
+               Machine.end_turn(second, :mark_interrupted, sandbox_id: ctx.sandbox.id)
+
+      quietly(fn ->
+        assert {:ok, :parked} = Park.run(ctx.sandbox.id, [reason: :max_lifetime] ++ opts)
+      end)
+
+      assert Repo.reload!(second).status == "interrupted"
+      assert is_nil(Repo.reload!(second).orphaned_at)
+      assert [_] = orphaned.()
     end
 
     test "a park over a turn nothing is driving leaves it standing (stage 6b's rule)", ctx do

@@ -672,9 +672,31 @@ defmodule Fountain.Machines.Provision do
             "machine was being built; leaving it for the owner that took over"
         )
 
-        {:error, :superseded, pipeline_result(attempt)}
+        superseded(attempt)
     end
   end
+
+  # **The shape of the answer is the existence of a state to unwind**, and this
+  # is what makes that true rather than nearly true (round 2, behaviour review).
+  #
+  # Two of `create_and_run/4`'s four steps never reach the caller's pipeline —
+  # `:create_failed` and `:orphaned` — so they carry no `:result`, and the first
+  # draft of this handed `nil` out as one. `Machine.provision/3` then answered
+  # `{:ok, :claimed_elsewhere, nil}`, which `FreshProvision` has no clause for:
+  # the `CaseClauseError` was rescued as a provision that *raised*, and the loser
+  # published `provision/failed` and marked the conversation `failed` while the
+  # winner was still building its machine — the one thing the stand-down arm
+  # exists to prevent.
+  #
+  # Reachable, and not by coincidence: `:orphaned` means the `starting`
+  # compare-and-set was refused, and the commonest reason for that is a takeover
+  # — which is the same event that makes the renewer say `:lost`.
+  #
+  # So a supersession with nothing to unwind keeps the two-tuple it had before
+  # the result travelled at all, and a caller reads "three elements" as "there is
+  # something here of yours".
+  defp superseded(%{result: result}), do: {:error, :superseded, result}
+  defp superseded(_attempt), do: {:error, :superseded}
 
   # The machine exists and the row refused `starting`. Three situations, and
   # `main` had none of them because it wrote `starting` *before* the create
@@ -710,22 +732,25 @@ defmodule Fountain.Machines.Provision do
   end
 
   defp orphaned(%Sandbox{} = sandbox, _epoch, %{reason: reason}) do
-    # A database fault. The lease is still this attempt's and the stamp is still
-    # on a live row, so the machine is left where it is: the next attempt's
-    # `interrupted?/1` reads that stamp and discards it. The caller retires the
-    # row through `fail_provision/2`, which claims a lease of its own.
+    # A database fault: the row cannot be told that a machine exists. The lease
+    # is still this attempt's, so the machine is its own — but it is left where
+    # it is, because the row that would name it is exactly the thing that will
+    # not take a write.
+    #
+    # **Collected by `SandboxReaper.destroy_dead_sprites/2`**, not by the next
+    # attempt's `interrupted?/1` (round 2, behaviour review — the first draft
+    # named the wrong one). There is no next attempt: the caller answers this by
+    # retiring the row through `fail_provision/2`, and `failed_attrs/1` clears
+    # the stamp `interrupted?/1` would have read. What is left is a terminal row
+    # whose machine is still up at the provider, which is the pass that sweeps
+    # for exactly that.
     Logger.error(
       "machine #{sandbox.id}: the machine was created but the row would not say so " <>
-        "(#{inspect(reason)}); leaving it for the next attempt to discard"
+        "(#{inspect(reason)}); leaving it for the reaper's untracked sweep"
     )
 
     {:error, reason}
   end
-
-  # The caller's own result, wherever an attempt carries one. A create that
-  # never ran carries none.
-  defp pipeline_result(%{result: result}), do: result
-  defp pipeline_result(_attempt), do: nil
 
   defp create_and_run(%Sandbox{} = sandbox, epoch, interrupted?, fun) do
     provider = Conversations.sandbox_provider_atom(sandbox)

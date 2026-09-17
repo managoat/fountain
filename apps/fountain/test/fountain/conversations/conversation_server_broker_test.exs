@@ -753,6 +753,55 @@ defmodule Fountain.Conversations.ConversationServerBrokerTest do
       assert Conversations._unsafe_get_sandbox!(conv.sandbox_id).status == "starting"
     end
 
+    test "a supersession with nothing to unwind stands the server down quietly", %{
+      user: user,
+      agent: agent
+    } do
+      # The end-to-end half of round 2's blocker. The two `create_and_run/4`
+      # steps that never reach the pipeline carry no result, so a supersession
+      # during one of them has nothing for this server to unwind — and the first
+      # draft handed it `nil` as though it did. `FreshProvision` has no clause
+      # for that, the `CaseClauseError` was rescued as a provision that *raised*,
+      # and the loser published `provision/failed` and marked the conversation
+      # `failed` **while the winner was building its machine**.
+      #
+      # Driven through the real `FreshProvision`, with two halves forged and the
+      # rest real: the `starting` write is refused as `:stale`, which is what
+      # makes the step `:orphaned`; and the renewer's verdict is delivered
+      # rather than waited for, because at the default TTL its first tick is
+      # twenty seconds away. Everything between them is the production path.
+      conv = insert_conversation(user_id: user.id, agent: agent)
+      stub_happy_sprite()
+      stub(Fountain.Broker, :preflight, fn -> :ok end)
+      stub(Fountain.Broker, :ca_pem, fn -> {:ok, "PEM"} end)
+
+      stub(Lease, :cas_update, fn id, epoch, attrs, opts ->
+        if attrs[:status] == "starting" do
+          {:error, :stale}
+        else
+          Mimic.call_original(Lease, :cas_update, [id, epoch, attrs, opts])
+        end
+      end)
+
+      stub(Renewal, :around, fn id, epoch, ttl, fun, opts ->
+        case Mimic.call_original(Renewal, :around, [id, epoch, ttl, fun, opts]) do
+          {:ok, outcome} -> {:error, :superseded, outcome}
+          other -> other
+        end
+      end)
+
+      {_pid, ref, :stopped} = start_server(conv)
+      assert :normal = assert_stopped(ref)
+
+      # Stood down: the winner's conversation is untouched and nothing was
+      # announced against it.
+      assert Fountain.Repo.reload!(conv).status == "pending"
+      refute Enum.any?(stage_events(conv.id, "provision"), &(&1.state == "failed"))
+
+      # And the row is the taker's — this attempt wrote nothing at all.
+      assert Conversations._unsafe_get_sandbox!(conv.sandbox_id).status == "pending"
+    end
+
     test "an unrelated ready-write error still fails provisioning", %{user: user, agent: agent} do
       conv = insert_conversation(user_id: user.id, agent: agent)
       stub_happy_sprite()

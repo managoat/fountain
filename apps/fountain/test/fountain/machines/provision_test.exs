@@ -853,6 +853,38 @@ defmodule Fountain.Machines.ProvisionTest do
                end)
     end
 
+    test "a supersession with nothing to unwind keeps the two-tuple", ctx do
+      # The other half of the arm above, and the one that is *correlated* rather
+      # than hypothetical (round 2, behaviour review): `:orphaned` means the
+      # `starting` compare-and-set was refused, and the commonest reason for
+      # that is a takeover — which is the same event that makes the renewer say
+      # `:lost`. So a supersession reaches this having never run the pipeline.
+      #
+      # It must answer two elements, not three-with-`nil`. `Machine.provision/3`
+      # maps a three-tuple to `{:ok, :claimed_elsewhere, result}`, and
+      # `FreshProvision` reads the third element as "there is state of yours to
+      # release" — a `nil` there matched no clause at all, and the rescue then
+      # failed a conversation whose machine the winner was still building.
+      built = handle(ctx)
+
+      expect(Managoat.Sandbox, :create, fn :sprites, _name ->
+        # Taken over mid-create: the `starting` write below is refused as
+        # `:stale`, and the renewer notices the same takeover.
+        stamp(ctx, lease_epoch: 99, lease_node: "taker@node")
+        Process.sleep(200)
+        {:ok, built}
+      end)
+
+      assert {:error, :superseded} =
+               answer(fn ->
+                 Provision.run(
+                   ctx.sandbox.id,
+                   fn _h, _e -> flunk("the pipeline ran on a machine the row had lost") end,
+                   opts(lease_ttl_ms: 150)
+                 )
+               end)
+    end
+
     test "a pipeline inside its deadline keeps the machine, however slow it is", ctx do
       stub_create(ctx)
       test = self()

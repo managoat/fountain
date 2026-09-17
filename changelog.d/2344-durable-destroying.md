@@ -23,4 +23,14 @@
   `sandbox.teardown_reconciled` that says the pass had to finish it, and the
   usage record closes at the moment the computer really stopped. A computer the
   pass cannot reach is counted in the run's `refused` total and left for the
-  next run, and one run never makes more provider calls than its budget allows.
+  next run.
+
+- A computer whose deletion was abandoned is no longer left behind indefinitely
+  on a busy instance (#2344). The hourly reaper spends one allowance of
+  provider deletions per run, and ordinary expiries could consume all of it
+  before the abandoned deletions were reached — so on an instance with a
+  standing backlog of expiring computers, an abandoned deletion of an
+  *ephemeral* computer had no route to completion at all: it kept billing, kept
+  holding a slot against your concurrent computer limit, and answered `409` to
+  every prompt. A small part of each run's allowance is now reserved for
+  finishing them, so a backlog delays that work rather than preventing it.

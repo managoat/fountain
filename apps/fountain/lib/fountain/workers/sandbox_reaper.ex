@@ -118,6 +118,68 @@ defmodule Fountain.Workers.SandboxReaper do
   # Small on purpose: it is an anti-starvation floor, not a second budget.
   @pass_two_floor 5
 
+  # The same trickle for pass 1c's driver, and it is the more important of the
+  # two (ADR 0058 stage 9a, found by review). Until 9a that pass made no
+  # provider call at all — it wrote the row terminal and left the sprite for
+  # pass 2 — so it could not be starved of a budget it did not spend, and
+  # giving it one without a floor was a regression against what it replaced.
+  #
+  # What starvation costs here is worse than for pass 2, which is why the floor
+  # is not optional. An abandoned teardown on an **ephemeral** machine has this
+  # pass and nothing else: `release_stuck_sandboxes/0` and
+  # `sweep_abandoned_sandboxes/0` both exclude a fenced row by construction,
+  # `SandboxResetReconciler` only looks at `persistent` homes, and pass 2 wants
+  # a terminal row. So a run that hands this pass zero leaves that machine
+  # billing, holding its tenant's quota slot, and answering
+  # `sandbox_reset_pending` to every prompt — for ever, not until the backlog
+  # clears. And the backlog that causes it is ordinary: `expired` can spend the
+  # whole allowance on any fleet with a standing expiry backlog.
+  #
+  # **Which machines this floor is the only thing standing under.** This pass
+  # is the superset — it takes a fenced row at any non-terminal status, in
+  # either mode — and `SandboxResetReconciler` covers part of that set a second
+  # time, on a five-minute cron, enqueueing one job per fenced row with **no
+  # budget of its own**, so the starvation cannot reach what it sees. Its
+  # predicate is `mode == "persistent" and status in ["ready", "suspended"]`.
+  # Subtract the one from the other and the population left is:
+  #
+  #   * **every `ephemeral` machine**, at any status; and
+  #   * a `persistent` home still `pending` or `starting`.
+  #
+  # For those there is no second pass, no cron and no operator surface, so a
+  # run that hands this one zero is not a delay — it is the permanent leak
+  # above. The complement is covered only while the reconciler keeps reaching
+  # it, which makes this floor's correctness rest on **two** properties of that
+  # worker, both of which it is easy to take away by accident:
+  #
+  #   1. it matches a *forced* teardown and not only a reset — the narrowing
+  #      that looks like a tidy-up and reopens this hole for persistent homes.
+  #      `SandboxResetReconciler.fenced?/1` carries the other half of this note
+  #      and a test that fails on exactly that narrowing;
+  #   2. it stays unbudgeted. Giving it a per-run cap would make it the
+  #      starvable pass instead, with the same consequence one mode over.
+  #
+  # A reset-shaped row is excluded from this pass (`@reset_reason`) and is safe
+  # to exclude for the same arithmetic: `reset_sandbox/2` refuses an
+  # `ephemeral` machine and refuses any status but `ready`/`suspended`, so
+  # every row it fences is one the reconciler reaches by construction.
+  #
+  # Not fixed by running this pass *first*. That would guarantee it a budget by
+  # taking the expiries' priority away, and an expiry is a machine past its
+  # ceiling that is billing right now — `@destroy_limit` explains why pass 1
+  # has priority, and this floor is the same answer `@pass_two_floor` already
+  # gives one pass down rather than a re-ordering.
+  #
+  # Nor by `sweep_fenced_teardowns/0`'s oldest-fence-first order, which is a
+  # different failure (which rows a *budgeted* pass picks) and cannot help a
+  # pass whose budget is zero.
+  @driver_floor 5
+
+  @doc false
+  # Overridable with `destroy_limit/0`, and read by the test that pins what the
+  # floor costs, so the number cannot drift away from the sentence above.
+  def driver_floor, do: Application.get_env(:fountain, :reaper_driver_floor) || @driver_floor
+
   # How many machines one run may *ask an owner about* — parks and expiries
   # together (ADR 0058 stage 6b; the 5b round-3 note that named this).
   #
@@ -182,11 +244,11 @@ defmodule Fountain.Workers.SandboxReaper do
 
     # Pass 1b spends one provider destroy per machine it expired, so what is
     # left of the run's budget is what this pass may spend (ADR 0058 stage 9a,
-    # which gave this pass a provider call it did not have). Floored at zero:
-    # `sweep_abandoned_sandboxes/0` cannot return more expiries than the budget
-    # it was given, but a negative budget reaching a `when left > 0` guard would
-    # read as "deferred" rather than as the arithmetic error it is.
-    {reconciled, driver_refused} = sweep_fenced_teardowns(max(0, destroy_limit() - expired))
+    # which gave this pass a provider call it did not have) — **with a floor
+    # under it**, for the reason `@driver_floor` gives at length: the rows this
+    # pass collects have no other recovery path, so leaving it nothing is not a
+    # delay but a permanent leak.
+    {reconciled, driver_refused} = sweep_fenced_teardowns(driver_budget(expired))
 
     # `refused` is one gauge for the two passes that ask an owner for a machine
     # and are told no. Kept as one because that is what it measures — machines
@@ -282,12 +344,17 @@ defmodule Fountain.Workers.SandboxReaper do
   # machines would bill until the backlog cleared. The floor keeps that pass
   # making progress at a trickle whatever pass 1 is doing.
   #
-  # It means a saturated run makes at most `@destroy_limit + @pass_two_floor`
-  # provider calls rather than `@destroy_limit`. That is the intended reading:
-  # the number is a drain rate that keeps a backlog from arriving at the
-  # provider all at once, not a hard ceiling, and starving a whole pass
-  # indefinitely is the worse failure.
-  defp pass_two_budget(expired), do: max(@pass_two_floor, destroy_limit() - expired)
+  # It means a saturated run makes at most
+  # `@destroy_limit + @driver_floor + @pass_two_floor` provider calls rather
+  # than `@destroy_limit` — 35 rather than 25 since stage 9a added the second
+  # floor. That is the intended reading: the number is a drain rate that keeps
+  # a backlog from arriving at the provider all at once, not a hard ceiling,
+  # and starving a whole pass indefinitely is the worse failure.
+  defp pass_two_budget(spent), do: max(@pass_two_floor, destroy_limit() - spent)
+
+  # What is left of the run's budget for pass 1c's driver, with its own floor
+  # under it. `pass_two_budget/1`'s shape, for `@driver_floor`'s reasons.
+  defp driver_budget(expired), do: max(driver_floor(), destroy_limit() - expired)
 
   # ── pass 1: rows stuck mid-provision ──────────────────────────────────────
 

@@ -954,16 +954,108 @@ defmodule Fountain.Workers.SandboxReaperTest do
       assert Repo.reload(fenced).status == "terminated"
     end
 
+    test "an ephemeral fence is not starved by a replenished expiry backlog" do
+      # The reproduction three of four adversarial reviews found independently.
+      #
+      # An abandoned teardown on an **ephemeral** machine has exactly one
+      # recovery path — this driver. `release_stuck_sandboxes/0` and
+      # `sweep_abandoned_sandboxes/0` both exclude it because of its fence,
+      # `SandboxResetReconciler` only looks at persistent homes, and pass 2
+      # wants a terminal row. So a run that hands the driver zero budget is not
+      # a delay, it is the machine billing and holding a quota slot for ever,
+      # with every prompt to it answering `sandbox_reset_pending`.
+      #
+      # `expired` could consume the whole allowance before the driver was
+      # reached, and an expiry backlog that replenishes between runs is the
+      # ordinary shape of a busy fleet, not an outage. Driven here with a
+      # budget of one and a fresh expirable machine per run, which is the same
+      # arithmetic as twenty-six rows and finishes in a second.
+      {_user, fenced, _conv} = fenced_sandbox()
+      age_fence(fenced, 60)
+
+      bounds = [
+        sandbox_idle_timeout_minutes: 60,
+        sandbox_max_lifetime_hours: 24,
+        reaper_destroy_limit: 1
+      ]
+
+      expirables =
+        for _ <- 1..3 do
+          user = insert_verified_user()
+          machine = insert_sandbox(user_id: user.id, status: "ready")
+          conv = insert_conversation(user_id: user.id, sandbox: machine)
+          age_rows(machine, conv, 60 * 24 * 83)
+          machine
+        end
+
+      live_provider([fenced.machine_name | Enum.map(expirables, & &1.machine_name)])
+
+      # Three runs, each with an expiry waiting that spends the whole nominal
+      # budget. The fence completes on the first, from the floor.
+      capture_log(fn ->
+        with_bounds(bounds, fn -> assert :ok = perform_job(SandboxReaper, %{}) end)
+      end)
+
+      assert Repo.reload(fenced).status == "terminated",
+             "the driver was starved by an expiry that spent the run's allowance"
+
+      for _ <- 1..2 do
+        capture_log(fn ->
+          with_bounds(bounds, fn -> assert :ok = perform_job(SandboxReaper, %{}) end)
+        end)
+      end
+
+      # And the backlog still drains: every expirable machine went too, one per
+      # run, so the floor bought the driver progress without taking the
+      # expiries' priority away.
+      assert Enum.all?(expirables, &(Repo.reload(&1).status == "terminated"))
+    end
+
+    test "the floor is a trickle, not a second budget" do
+      # What the floor costs, stated as a number so it cannot drift: a run
+      # whose expiries spend the whole allowance may still make
+      # `@driver_floor` destroys here, and no more. Six fences, a budget of
+      # one spent by an expiry, so the arithmetic is visible.
+      fences =
+        for _ <- 1..6 do
+          {_user, fenced, _conv} = fenced_sandbox()
+          age_fence(fenced, 60)
+          fenced
+        end
+
+      user = insert_verified_user()
+      expirable = insert_sandbox(user_id: user.id, status: "ready")
+      conv = insert_conversation(user_id: user.id, sandbox: expirable)
+      age_rows(expirable, conv, 60 * 24 * 83)
+
+      live_provider([expirable.machine_name | Enum.map(fences, & &1.machine_name)])
+
+      bounds = [
+        sandbox_idle_timeout_minutes: 60,
+        sandbox_max_lifetime_hours: 24,
+        reaper_destroy_limit: 1
+      ]
+
+      capture_log(fn ->
+        with_bounds(bounds, fn -> assert :ok = perform_job(SandboxReaper, %{}) end)
+      end)
+
+      terminated = Enum.count(fences, &(Repo.reload(&1).status == "terminated"))
+      assert terminated == SandboxReaper.driver_floor()
+    end
+
     test "the expiries above and this pass share one run's destroy budget" do
       # `perform/1` hands this pass what pass 1b did not spend, because both
       # destroy at the provider now and the budget is a drain rate for the whole
-      # run. A sweep given the full budget over again would let one run make
+      # run. A pass given the full budget over again would let one run make
       # twice the calls at a provider that is already struggling.
       #
-      # Driven through the real pass 1b with the run's budget turned down to
-      # one, the way `owner_attempt_limit/0` is turned down elsewhere here: the
-      # expirable machine spends it, so the fenced row is deferred rather than
-      # driven. With the two budgets separate, it would be terminated.
+      # **The floor is turned off here on purpose**, to isolate the subtraction
+      # from the thing that stops it reaching zero. With `@driver_floor` in
+      # force this arithmetic is invisible below six machines, and what the
+      # floor itself does is pinned by the two tests above — which is the right
+      # split: this one says the passes share, those say the sharing can never
+      # starve the one with no other recovery path.
       expirable_user = insert_verified_user()
       expirable = insert_sandbox(user_id: expirable_user.id, status: "ready")
       expirable_conv = insert_conversation(user_id: expirable_user.id, sandbox: expirable)
@@ -976,7 +1068,8 @@ defmodule Fountain.Workers.SandboxReaperTest do
       bounds = [
         sandbox_idle_timeout_minutes: 60,
         sandbox_max_lifetime_hours: 24,
-        reaper_destroy_limit: 1
+        reaper_destroy_limit: 1,
+        reaper_driver_floor: 0
       ]
 
       capture_log(fn ->

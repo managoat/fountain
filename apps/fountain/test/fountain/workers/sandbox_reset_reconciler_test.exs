@@ -210,6 +210,67 @@ defmodule Fountain.Workers.SandboxResetReconcilerTest do
       assert Repo.reload!(sandbox).status == "terminated"
     end
 
+    test "a persistent home whose forced teardown was abandoned is reconciled too" do
+      # Rule 16, and the other half of `SandboxReaper`'s `@driver_floor`.
+      #
+      # That floor exists because an abandoned teardown on an **ephemeral**
+      # machine has the reaper's driver and nothing else. A *persistent* home
+      # is not starved the same way only because this worker also reaches it,
+      # every five minutes, with no budget of its own — so narrowing this
+      # predicate to resets would hand persistent homes exactly the hole the
+      # floor closes for ephemeral ones, and it would do it silently.
+      #
+      # The module has said "a forced teardown matches too, exactly as it
+      # always has" since stage 5c and nothing checked it. Fenced through the
+      # real door, so the row carries what a forced teardown really leaves:
+      # both columns and a stamp whose reason is not `"reset"`.
+      home = insert_sandbox(mode: "persistent", status: "ready")
+
+      {:ok, fenced} =
+        Fountain.Conversations.Lifecycle.fence_sandbox_for_teardown(home,
+          actor: "admin",
+          reason: "reaped"
+        )
+
+      assert fenced.transition_reason == "reaped"
+
+      assert :ok = perform_job(SandboxResetReconciler, %{})
+      assert [job] = all_enqueued(worker: SandboxResetReconciler)
+      assert job.args == %{"sandbox_id" => home.id}
+
+      expect(Managoat.Sandbox.Sprites, :destroy, fn h ->
+        assert h.name == home.machine_name
+        :ok
+      end)
+
+      assert :ok = perform_job(SandboxResetReconciler, %{sandbox_id: home.id})
+      assert Repo.reload!(home).status == "terminated"
+    end
+
+    test "one sweep enqueues every fenced home, however many there are" do
+      # The second property `SandboxReaper.@driver_floor` is sized against, and
+      # the one a reader would assume rather than check. That floor leaves
+      # persistent `ready`/`suspended` homes out of its reckoning because this
+      # sweep reaches them every five minutes with **no cap on how many rows it
+      # enqueues**. Giving this sweep a per-run limit — the obvious thing to
+      # reach for if it ever looked expensive — would make it starvable in
+      # exactly the way the reaper's driver was, one mode over, and the floor
+      # would not be sized to carry the difference.
+      #
+      # Three, because a cap someone adds will not be zero: one row cannot tell
+      # an unbounded sweep from `Enum.take(1)`.
+      homes = for _ <- 1..3, do: pending_reset()
+
+      assert :ok = perform_job(SandboxResetReconciler, %{})
+
+      enqueued =
+        all_enqueued(worker: SandboxResetReconciler)
+        |> Enum.map(& &1.args["sandbox_id"])
+        |> Enum.sort()
+
+      assert enqueued == homes |> Enum.map(& &1.id) |> Enum.sort()
+    end
+
     test "a machine nobody has asked to destroy is still left alone" do
       # The symmetric case, and the one that says the widened predicate did not
       # become "every persistent machine": an unfenced home matches neither the

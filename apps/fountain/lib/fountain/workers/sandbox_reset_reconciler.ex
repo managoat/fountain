@@ -92,9 +92,24 @@ defmodule Fountain.Workers.SandboxResetReconciler do
   # `destroying` with the destroy's reason. That is deliberate and unchanged:
   # this worker and `SandboxReaper.sweep_fenced_teardowns/0` both reach such a
   # row, `Machines.Destroy` serializes them on the machine's lease, and the
-  # loser finds the row terminal. What this must not do is *narrow* to resets
-  # only, which would leave a forced teardown whose caller died waiting the
-  # reaper's hour instead of five minutes.
+  # loser finds the row terminal.
+  #
+  # **Do not narrow this to resets, and do not give this worker a budget.**
+  # Both look like tidy-ups and both reopen a leak somewhere else, because
+  # `SandboxReaper.@driver_floor` is sized against what this worker covers.
+  # That floor reserves part of the reaper's per-run destroy allowance for
+  # abandoned teardowns, and it is sized for the population the reaper alone
+  # reaches — every `ephemeral` machine, and a `persistent` home still
+  # `pending` or `starting`. A persistent home that is `ready` or `suspended`
+  # is left out of that reckoning **because this worker reaches it**, every
+  # five minutes, with no cap on how many rows one sweep may enqueue.
+  #
+  # So narrowing the predicate to resets would leave a forced teardown whose
+  # caller died waiting the reaper's hour instead of five minutes — and, on a
+  # fleet whose expiry backlog is spending the reaper's allowance, waiting for
+  # ever behind a floor that was never sized to carry it. Capping the sweep
+  # would do the same by the other route. `sandbox_reset_reconciler_test.exs`
+  # fails on the narrowing; the sizing argument lives beside `@driver_floor`.
   defp fenced?(%Sandbox{reset_requested_at: at, transition: transition}) do
     not is_nil(at) or transition == "destroying"
   end

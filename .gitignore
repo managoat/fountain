@@ -34,6 +34,17 @@ erl_crash.dump
 # Local Git worktrees.
 /.worktrees/
 
+# Per-session scratch: briefs, probes and throwaway test files that agents and
+# people leave at the root. Not a directory pattern, for the same reason as
+# `/deps` above — a `work/` rule matches a directory only, and the symlink was
+# the way one of these reached main before (#2035).
+/work
+
+# npm state for `scripts/destink`, whose tool is not on main. Installing it
+# leaves 5 MB of packages in an otherwise untracked directory, one `git add -A`
+# away from the history.
+/scripts/destink/node_modules
+
 # ExUnit's `@tag :tmp_dir` writes under the app that runs the test, not the
 # umbrella root, and the behavioural CA install test uses one.
 apps/*/tmp/

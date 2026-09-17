@@ -33,6 +33,9 @@ starts with no memory of the earlier turns. Expect a user to state their
 context again after one. Fountain parks a persistent home instead, and the
 home keeps its disk.
 
+A wake restarts the max-lifetime clock, and only a wake does: a deploy that
+reattaches a `ready` sandbox leaves the clock where it is.
+
 Fountain never ages a suspended sandbox out. Its sprite stays at the provider
 until you terminate the conversation, or until somebody deletes the account.
 A user can also reset a persistent sandbox with `DELETE /api/sandboxes/:id`,

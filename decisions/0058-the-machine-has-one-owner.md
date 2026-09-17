@@ -109,7 +109,12 @@ requests and never touch the row or the provider. The two sandbox modes become
 one lifecycle policy on the machine: `ephemeral` is a machine that destroys
 itself on its last detach, `persistent` one that parks. The `sandboxes` table
 and the `sandbox_mode` attribute keep their names and their API; the module
-namespace is new.
+namespace is new. (Stage 7a gathered that policy — the provider capability,
+park vs destroy at each bound, the keep rule on the last detach, and the default
+mode — into `Fountain.Machines.Policy`, as a move with no behaviour change. What
+the policy *decides* now lives in one place; the queries that ask it the
+questions stayed where they are, because two of them run inside the teardown
+fence's own transaction.)
 
 ### The owner is a lease first and a process second
 
@@ -117,7 +122,14 @@ A process alone can have two instances across a rolling deploy (#2307
 constraint 4, reproduced on #2286). The source of truth is therefore a lease
 on the row — `lease_epoch` (a monotonic integer), `lease_node`, `lease_until`
 — claimed in one short transaction under the existing per-sandbox advisory
-lock and renewed by the process on a timer. Every state write the owner makes
+lock and renewed by the process on a timer. (Stage 7a built the timer, as
+`Fountain.Machines.Renewal`, and settled the clock it runs on: `lease_until` is
+written and judged by the database's `statement_timestamp()`, so a cluster has
+one clock rather than one per node. The lease is still *per operation* — an idle
+machine holds none, which is what keeps stage 6a's "busy means a live lease"
+true — and what the timer changes is that it bounds an operation that is making
+progress rather than one that started less than a TTL ago.) Every state write
+the owner makes
 is a compare-and-set on `(id, lease_epoch)`. A write from a superseded epoch
 affects zero rows, and the process that made it stops. Takeover after a crash
 or a partition is: the lease has expired, a new claimant takes a new epoch
@@ -156,7 +168,7 @@ own call invisible, so there is nothing to undo.)
 |---|---|---|
 | `attach(conv, agent_layer)` / `detach(conv)` | the attach door, release, `_unsafe_sandbox_held_by_other?/2` | a refcount; the last detach applies the mode's policy |
 | `admit_turn(conv, runtime)` / `end_turn(conv)` | the locked turn insert, `_unsafe_sandbox_busy_elsewhere?/4`, the capacity check | capacity per `Runtimes.ACP.concurrency/1`, counted per runtime (#1089 blocker 4) |
-| `ensure_up()` | `Provisioning` create and its watchdog, `Wake`'s suspended resume, the rehydrator's start | two prompts waking one machine resume it once; the second waits (0023 step 4) |
+| `ensure_up()` | `Provisioning` create and its watchdog, `Wake`'s suspended resume, the rehydrator's start | two prompts waking one machine resume it once; the second waits (0023 step 4). Stage 7a built the resume half, as `Fountain.Machines.Resume`, with the quota gate settled *before* the provider call rather than around it; the provision half is 7b |
 | `park(reason)` | `SandboxReaper.idle_sweep/2`, `Lifecycle.park/4`, `HomeCheckpoint` | refused while a turn is admitted that this park is not itself cutting; the checkpoint happens inside the transition |
 | `destroy(reason, actor)` | terminate, reset, agent delete, admin reap, account deletion, `Lifecycle.destroy/4` | one door; one `sandbox.destroyed` audit event carrying the actor (0013) |
 | `retarget(triple)` | `Reapply`'s row write | refused with cotenants or a changed `build_fingerprint`, as 0023's 2026-09-11 amendment says |
@@ -196,8 +208,8 @@ the two copies of the admin reap audit become one; the retirement changeset
 match copied four times (#2039); the salvage branch
 `follow/2255-reaper-liveness-lock`.
 
-**New.** `Fountain.Machines.{Machine, Lease, Policy}` and
-`Fountain.MachineRegistry`; six columns on `sandboxes` (the five lease and
+**New.** `Fountain.Machines.{Machine, Lease, Policy, Occupancy, Destroy, Park,
+Resume, Renewal}` and `Fountain.MachineRegistry`; six columns on `sandboxes` (the five lease and
 transition columns, and `woken_at`, the wake-registration marker stage 6a
 added for constraint 4); the existing `sandbox_unavailable` carried into every
 transient-error vocabulary that was missing it, rather than a new refusal word
@@ -262,7 +274,7 @@ stage: `area:sandbox`, `area:conversations`, `lang:elixir`, `P2`.
 | 4 | **The process, read-only.** `Fountain.Machines.Machine` GenServer, `Fountain.MachineRegistry`, `ensure_started/1`, `whereis/1`, idle-stop. One verb, `who_is_here/1`: bound conversations, admitted turns, last activity, from the rows. The four predicates delegate to it (#2255 decision 1). No writes. Behind the gate | new module | ratchet unchanged; no changelog fragment |
 | 5 | **Destroy through the owner.** `Machine.destroy/2`: `transition: destroying` → provider destroy → compare-and-set finalize → `sandbox.destroyed` audit with the actor. Retarget `Termination.retire_terminated_sandbox/2`, the destroy-home family, `Termination.reap_sandbox/1` (the admin reap), `Accounts.Deletion.destroy_sprites/2`, `Lifecycle.destroy/4`. Under the gate the teardown fence is the transition. #2255 tranche 2 lands here as behaviour under an owner rather than as a move | behaviour | account deletion nilifies `user_id`, so the owner destroys an ownerless row (the #2329 trap); deletion's teardown stays non-fatal (0009); full suite and the deployed suite; changelog fragment; ratchet −9 |
 | 6 | **Park through the owner; closes #2307.** Cut in two PRs. **6a, the preparation:** a durable wake-registration marker (`sandboxes.woken_at`, written by one `Conversations.register_server/2` door under the sandbox lock before `start_child`, honoured by the reaper's two liveness passes as a grace condition — constraint 4); the readers that refuse a machine whose owner holds a **live lease** — `Wake.maybe_reuse_sandbox/1`, `Launch.check_attachable/4` and the rehydrator's sweep. A stamped `transition` alone does not refuse them: a transition with a dead lease is an abandoned operation, which `sweep_fenced_teardowns/0` already calls abandoned, and refusing on it answered 503 for up to 75 minutes where `main` handed out a fresh machine at once (round 1). And the vocabulary. **6b:** `Machine.park/2` — refused while any turn is admitted; `transition: parking`; checkpoint and suspend outside any transaction; finalize by compare-and-set; `SandboxReaper.idle_sweep/1` and `Lifecycle.park/4` send the request. **The refusal is the existing `sandbox_unavailable`, not a new word** (Jake, 2026-09-16, amending the Decision's "one retryable refusal" above): it already means "this machine cannot be reached right now", it is already 503 with a `Retry-After` and `NotReadyError` in all four SDKs, and the SDK half of a second word was built and closed unmerged as #2304. Constraint 6's list is still the checklist, of the sites this word was missing from: `SandboxQueue.@transient_errors` (and `TeamScheduleRun`'s snooze guard, which now reads it), `Team.Schedules.describe_error/1`; the fallback controller's 503 mapping and docs/sdk.md already carried it, and no SDK changes. The salvage branch's tests come across | behaviour | 6a: the marker is committed before the child and under the lock; every reader refuses a parking or lease-held row and the reset fence still wins; ratchet unchanged. 6b: admission wins the lock and the reaper skips (the #2286 reproduction) per path; a finalize lost after a successful suspend is compensated at takeover, tested; changelog fragment |
-| 7 | **Provision and resume through the owner.** `Machine.ensure_up/1` replaces `Provisioning`'s create and `ProvisionWatchdog`, `Wake`'s suspended resume and the rehydrator's start; two wakes on one machine resume it once. The rehydrator starts conversation servers through the owner so registration has a durable marker (constraint 4). Ephemeral becomes the policy "destroy on last detach" in `Machines.Policy`. Recovery checks the account-suspension and credit gates before resuming compute; an interrupt never provisions (#2262 stands) | behaviour | full suite, deployed suite, and a production smoke shaped like 0023's gate 7; changelog fragment |
+| 7 | **Provision and resume through the owner.** `Machine.ensure_up/1` replaces `Provisioning`'s create and `ProvisionWatchdog`, `Wake`'s suspended resume and the rehydrator's start; two wakes on one machine resume it once. The rehydrator starts conversation servers through the owner so registration has a durable marker (constraint 4). Ephemeral becomes the policy "destroy on last detach" in `Machines.Policy`. Recovery checks the account-suspension and credit gates before resuming compute; an interrupt never provisions (#2262 stands). Cut in two: **7a**, the resume, the renew timer, the database clock, `Machines.Policy` and the owner supervisor's restart budget; **7b**, the provision bracket, `ProvisionWatchdog`, the three failure-arm destroys and the reattach-not-found write | behaviour | full suite, deployed suite, and a production smoke shaped like 0023's gate 7; changelog fragment |
 | 8 | **Binding and admission; the fences come out.** `attach/2`, `detach/1`, `admit_turn/2`, `end_turn/1` with capacity counted per runtime; `retarget/2` for `Reapply`. Under the gate, `expected_sandbox_id` leaves `ExecutionGuard`, `Wake`, `Conversations` and the server; the epoch is the fence. `{:machine_gone, …}` is sent by the owner only. The server's last `update_sandbox` and `Managoat.Sandbox.destroy` sites go and the size pin drops with them | behaviour | ratchet reads zero under the gate |
 | 9 | **Flip, then delete.** Turn `MACHINE_OWNER_ENABLED` on in the hosted overlay after every replica runs stage 8, and watch the deploy. Then, one release later: delete `SandboxResetReconciler`, `sweep_fenced_teardowns/0`, the old reaper writes, the retirement-match copies and the gate; drop the two fence columns; delete the salvage branch; amend 0023's Outcome ("there is now a per-sandbox owner, `Fountain.Machines.Machine`, per 0058"); close #2021's remaining items as superseded; move this ADR to Accepted with its own Outcome | prod change, two PRs | the deployed suite green on production; the tracker closes |
 

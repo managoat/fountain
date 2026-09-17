@@ -128,6 +128,19 @@ on their own next prompt, and that prompt lands on the machine that is
 already awake. The idle clock counts the activity of every conversation on
 the machine, so one active conversation keeps the machine up for all of them.
 
+**Two prompts that arrive together wake the machine once.** The second waits
+for the first, and then finds a machine that is already running. If the first
+takes long enough that the second gives up waiting, the second is answered
+`503 sandbox_unavailable` with a `Retry-After`, and the retry lands on the
+running machine. Waking a machine is compute again, so it passes the same
+account limits as starting one: the balance, the account's concurrent-machine
+cap and the deployment's fleet ceiling. A machine being woken counts against
+those from the moment Fountain allows the wake, not from the moment the
+provider answers.
+
+A wake the provider refuses answers `503 sandbox_resume_failed`, and the
+machine stays parked with its disk exactly as it was. Retrying is safe.
+
 ## One seam, four backends
 
 Each backend plugs into the same seam, `Managoat.Sandbox`. The contract is

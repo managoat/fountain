@@ -392,7 +392,7 @@ try {
 | Class | Code / status | Retryable |
 |---|---|---|
 | `ConversationBusyError` | `conversation_busy` (400) | Yes. The turn in flight must finish. |
-| `NotReadyError` | `provisioning`, `sprite_probe_failed`, `fleet_full`, `sandbox_unavailable` (503) | Yes. It carries the server's `Retry-After`. |
+| `NotReadyError` | `provisioning`, `fleet_full`, `sandbox_unavailable` (503) | Yes. It carries the server's `Retry-After`. |
 | `QuotaExceededError` | `sandbox_quota_exceeded` (429) | Yes. Terminate a conversation first. |
 | `InsufficientCreditsError` | `insufficient_credits` (402) | No. It carries `upgradeUrl`. |
 | `ValidationError` | 422 | No. Read `fieldErrors`. |
@@ -401,6 +401,15 @@ try {
 
 Each one carries `status`, `code`, `body`, `retryAfter` and a `retryable`
 flag. So a generic retry wrapper needs no table of its own.
+
+Fountain sends four more codes that mean the same thing and are not yet mapped
+to `NotReadyError` in any client: `sandbox_probe_failed` (Fountain could not
+reach the sandbox provider), `sandbox_resume_failed` (the provider would not
+wake a parked machine), `runner_offline` (a self-hosted runner is not
+connected) and `platform_inference_unavailable` (Fountain's shared model access
+is at its daily ceiling). All four are 503 with a `Retry-After`, so
+**retry on the status or on `retryAfter`, not on the class**, and a wrapper
+that does will handle them today and keep handling them when they are mapped.
 
 ## In a browser
 

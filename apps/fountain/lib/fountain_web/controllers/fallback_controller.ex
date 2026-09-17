@@ -671,6 +671,25 @@ defmodule FountainWeb.FallbackController do
     })
   end
 
+  # The provider was asked to bring a parked machine back and would not
+  # (ADR 0058 stage 7a; the word is #799's). Same shape as the probe failure
+  # and for the same reason: nothing was written, the row is still `suspended`
+  # and the disk — the agent's memory — is intact, so the caller should retry.
+  #
+  # Until 7a this atom had no clause here at all and fell to the terminal
+  # safety net's 422, which told every SDK that a transient provider refusal
+  # was the caller's fault and not worth retrying. It is a 503 with a
+  # `Retry-After`, which is `NotReadyError` in all four SDKs.
+  def call(conn, {:error, :sandbox_resume_failed}) do
+    conn
+    |> put_resp_header("retry-after", "10")
+    |> put_status(:service_unavailable)
+    |> json(%{
+      error: "sandbox_resume_failed",
+      message: "the sandbox provider would not wake the conversation's machine; retry shortly"
+    })
+  end
+
   # A runner-backed sandbox whose machine is not connected (#834). Same
   # shape as the probe failure — nothing was changed, retry — but named, so
   # a client can say "the machine is off" and the retry hint is honest: it

@@ -429,6 +429,30 @@ defmodule Fountain.Team.Schedules do
   def describe_error(:runner_offline), do: "teammate's machine is offline"
   def describe_error(:sprite_probe_failed), do: "could not reach the sandbox provider"
 
+  # The three this vocabulary was missing, found by the ADR 0058 stage 7
+  # inventory. Each one reached a schedule's `last_error` as `inspect/1`'s
+  # output — `:platform_inference_unavailable`, with the colon — which is a
+  # module name in a column a person reads.
+  #
+  # `:platform_inference_unavailable` is the daily ceiling on the keys Fountain
+  # supplies (`PLATFORM_INFERENCE_DAILY_CENTS`): it is not the tenant's fault
+  # and it clears at midnight UTC, so the sentence says so rather than
+  # suggesting anything to do about it.
+  def describe_error(:platform_inference_unavailable),
+    do: "Fountain's shared model access is at its daily limit"
+
+  # A machine parked on a provider whose credentials have gone. The wake
+  # deliberately refuses rather than retiring the row (the parked disk is the
+  # agent's memory), so the answer is about the provider, not the teammate.
+  def describe_error({:sandbox_provider_disabled, provider}),
+    do: "the #{provider} sandbox provider is not configured"
+
+  # ADR 0058 stage 7a: the provider was asked to bring a parked machine back and
+  # would not. The disk is intact and the row is still parked, so this is worth
+  # retrying — which is what the 503 at the API says too.
+  def describe_error(:sandbox_resume_failed),
+    do: "teammate's computer would not wake up"
+
   def describe_error({:sandbox_quota_exceeded, %{count: c, limit: l}}),
     do: "sandbox quota: #{c}/#{l}"
 

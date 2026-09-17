@@ -28,7 +28,7 @@ defmodule Fountain.Machines.RenewalTest do
   setup do
     user = insert_verified_user()
     sandbox = insert_sandbox(user_id: user.id, status: "ready")
-    {:ok, epoch} = Lease.claim(sandbox.id, "fountain@test", 300)
+    {:ok, epoch} = Lease.claim(sandbox.id, to_string(node()), 300)
 
     {:ok, user: user, sandbox: sandbox, epoch: epoch}
   end
@@ -73,7 +73,13 @@ defmodule Fountain.Machines.RenewalTest do
       # claimable: this is the window the 6b review found open.
       Process.sleep(450)
 
-      assert {:error, {:held, "fountain@test", _}} =
+      # The holder is this node: a 300ms lease renewed by a process on it. A
+      # holder that is *not* a connected node and has run this far down would
+      # be taken over early since stage 8b (`Lease.absent_node_headroom_ms/0`),
+      # which is the rule `binding_test.exs` pins; this is the live holder.
+      holder = to_string(node())
+
+      assert {:error, {:held, ^holder, _}} =
                Lease.claim(ctx.sandbox.id, "reaper@node", 60_000)
 
       assert {:ok, :done} = Task.await(task, 5_000)

@@ -74,15 +74,17 @@ defmodule Fountain.Machines.Renewal do
       exactly the deadline it is already bounded by. A deadline is still a
       deadline: what changes is whose it is.
 
-  **Not taken here: evicting a lease whose `lease_node` is not a connected
-  node.** It is tempting and it is the same mistake #2307 constraint 4 names. A
-  node name is not evidence of liveness — a pod can restart under the same name,
-  `Node.list/0` is per-node and asynchronously converged, and a partitioned node
-  is still running its own operations. The two exits above close the case that
-  motivated the suggestion without deciding liveness from a name; if a
-  node-aware rule is ever wanted it belongs with stage 8b's binding work, where
-  membership is already being reasoned about; stage 8a's admission took no lease
-  and decided nothing from a node name.
+  **A lease whose `lease_node` is not a connected node is not evicted on the
+  name alone.** That would be the mistake #2307 constraint 4 names: a pod can
+  restart under the same name, `Node.list/0` is per-node and asynchronously
+  converged, and a partitioned node is still running its own operations — and
+  still renewing. What stage 8b added, in `Lease.claim/4`, is the rule that
+  reads the *renewals* rather than the name: a holder that is not connected
+  **and** has let its lease run down past the point any live renewer would
+  have extended it — under `Lease.absent_node_headroom_ms/0`, which is one
+  renew interval of the shortest TTL — is taken over before `lease_until`. A
+  partitioned holder that is alive keeps renewing and is never that far down;
+  a dead one is, and the takeover saves the rest of its TTL.
 
   ## What a lost lease means, and what a dead renewer does not
 
@@ -114,6 +116,10 @@ defmodule Fountain.Machines.Renewal do
   # tolerate none, and a tenth would spend ten writes a minute on a machine
   # doing one provider call.
   @renew_divisor 3
+
+  @doc "The fraction of a TTL between renewals. See `Lease.absent_node_headroom_ms/0`."
+  @spec divisor() :: pos_integer()
+  def divisor, do: @renew_divisor
 
   # How long `stop/1` waits for the renewer's answer. It is a `receive` in a
   # process that is either idle or inside one short `update_all`, so this is a

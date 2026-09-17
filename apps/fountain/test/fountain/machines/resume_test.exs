@@ -253,21 +253,97 @@ defmodule Fountain.Machines.ResumeTest do
       end
     end
 
-    test "another owner's transition is refused rather than written over", ctx do
-      stamp(ctx, transition: "parking", transition_reason: "idle")
+    for transition <- ~w(parking destroying resuming retargeting provisioning) do
+      test "an abandoned #{transition} stamp is cleared, not treated as a fence", ctx do
+        # Round 1, behaviour review, and it is stage 6a's rule from the owner's
+        # side: `Lease.claim/4` refuses while a lease is live, so a stamp seen
+        # under our own lease belongs to an owner that died. Refusing on it
+        # answered 503 to every prompt until an hourly sweep cleared the row —
+        # the same withholding 6a round 1 found on the reader's side.
+        stamp(ctx, transition: unquote(transition), transition_reason: "whatever")
+        stub(Managoat.Sandbox, :resume, fn handle -> {:ok, handle} end)
+        stub(Managoat.Sandbox, :get, fn _handle -> {:ok, %{status: :suspended, raw: %{}}} end)
+
+        quietly(fn -> assert {:ok, _outcome} = Resume.run(ctx.sandbox.id, opts()) end)
+
+        assert is_nil(row(ctx).transition),
+               "the stamp outlived the owner that left it and the owner that saw it"
+      end
+
+      test "a ready row wearing an abandoned #{transition} stamp answers as main does", ctx do
+        # `main`'s answer for a `ready` row is "reuse it", and `ensure_up/2` is
+        # asked on every reuse — so this one has to be `:already_up` rather than
+        # a refusal.
+        stamp(ctx, status: "ready", transition: unquote(transition), transition_reason: "x")
+        reject(&Managoat.Sandbox.resume/1)
+
+        quietly(fn -> assert {:ok, :already_up} = Resume.run(ctx.sandbox.id, opts()) end)
+        assert is_nil(row(ctx).transition)
+      end
+    end
+
+    test "a fence column still refuses, stamp or no stamp", ctx do
+      # What separates the two: a fence is a durable statement that the machine
+      # is going away, where a stamp is the leftover of an owner that stopped. A
+      # `destroying` stamp always arrives with one, so that shape's answer is
+      # unchanged.
+      stamp(ctx, transition: "destroying", teardown_requested_at: DateTime.utc_now())
       reject(&Managoat.Sandbox.resume/1)
 
-      quietly(fn ->
-        assert {:error, :fenced} = Resume.run(ctx.sandbox.id, opts())
-      end)
-
-      # The park's stamp survives: its own protocol is what takes it over.
-      assert row(ctx).transition == "parking"
+      quietly(fn -> assert {:error, :fenced} = Resume.run(ctx.sandbox.id, opts()) end)
     end
 
     test "a machine that is not there at all", ctx do
       _ = ctx
       assert {:error, :not_found} = Resume.run(Ecto.UUID.generate(), opts())
+    end
+  end
+
+  describe "the machine that is already up" do
+    test "is answered from one read, with no lease and no write", ctx do
+      # Round 1, behaviour review. `ensure_up/2` is asked on every reuse, and a
+      # prompt to a running machine is the common case — the first draft claimed
+      # and released a lease for it, so `lease_epoch` climbed by two per prompt
+      # and two prompts colliding in the five-second wait produced a 503 where
+      # `main` wrote nothing at all.
+      stamp(ctx, status: "ready")
+      before = row(ctx)
+      reject(&Managoat.Sandbox.resume/1)
+
+      assert {:ok, :already_up} = Resume.run(ctx.sandbox.id, opts())
+      assert {:ok, :already_up} = Resume.run(ctx.sandbox.id, opts())
+
+      after_ = row(ctx)
+      assert after_.lease_epoch == before.lease_epoch, "it took a lease it did not need"
+      assert after_.updated_at == before.updated_at, "it wrote the row"
+      assert_lease_released(after_)
+    end
+
+    test "but a machine the caller's probe says is stopped still takes the slow path", ctx do
+      stamp(ctx, status: "ready")
+      expect(Managoat.Sandbox, :resume, fn handle -> {:ok, handle} end)
+
+      quietly(fn ->
+        assert {:ok, :resumed} = Resume.run(ctx.sandbox.id, opts(observed: :suspended))
+      end)
+    end
+
+    for {label, sets} <- [
+          {"a fence", [reset_requested_at: ~U[2026-01-01 00:00:00Z]]},
+          {"a teardown fence", [teardown_requested_at: ~U[2026-01-01 00:00:00Z]]},
+          {"an abandoned stamp", [transition: "parking"]},
+          {"a lease holder", [lease_epoch: 1, lease_node: "somebody@else"]}
+        ] do
+      test "and #{label} on the row sends it down the slow path", ctx do
+        stamp(ctx, [status: "ready"] ++ unquote(Macro.escape(sets)))
+        stub(Managoat.Sandbox, :resume, fn handle -> {:ok, handle} end)
+
+        before = row(ctx)
+        quietly(fn -> Resume.run(ctx.sandbox.id, opts(busy_wait_ms: 300)) end)
+
+        assert row(ctx).lease_epoch > before.lease_epoch or row(ctx) != before,
+               "the fast path answered for a row that needed the recheck"
+      end
     end
   end
 
@@ -623,20 +699,43 @@ defmodule Fountain.Machines.ResumeTest do
       end
     end
 
-    test "a takeover costs no second admission", ctx do
-      # The dead owner paid when it stamped, and the slot has been held by the
-      # stamp ever since — so finishing its work must not be refused at a cap
-      # the machine itself is filling.
-      abandon_mid_resume(ctx, lease_until: DateTime.add(DateTime.utc_now(), 60, :second))
+    test "a takeover re-runs the admission before it finalizes", ctx do
+      # Round 1, behaviour review. The first draft finalized straight from the
+      # `:running` branch, reasoning that the dead owner had paid for the slot
+      # when it stamped. It had; the slot did not survive it —
+      # `Quotas.active_sandboxes/0` counts a `resuming` row only while its lease
+      # is live, which is what stops an abandoned resume holding capacity for
+      # ever, so by the time a takeover is *possible* the reservation is already
+      # gone and somebody else may hold the slot.
+      abandon_mid_resume(ctx)
       fill_the_cap(ctx, 1)
 
-      # Take the live lease over by waiting it out, the only way there is.
-      stamp(ctx, lease_until: DateTime.add(DateTime.utc_now(), -1, :second))
+      expect(Managoat.Sandbox, :get, fn _handle -> {:ok, %{status: :running, raw: %{}}} end)
+      reject(&Managoat.Sandbox.resume/1)
+
+      quietly(fn ->
+        assert {:error, {:sandbox_quota_exceeded, %{count: 1, limit: 1}}} =
+                 Resume.run(ctx.sandbox.id, opts())
+      end)
+
+      still = row(ctx)
+      assert still.status == "suspended", "it finalized past the cap"
+      assert is_nil(still.transition)
+      assert events(ctx, "sandbox.resumed") == []
+    end
+
+    test "a takeover with room finalizes, and the row is excluded from its own count", ctx do
+      # The other side of the same check: re-running the admission costs nothing
+      # when there is capacity, because the machine being taken over is left out
+      # of the count exactly as on the ordinary path.
+      abandon_mid_resume(ctx)
+      {:ok, _} = Fountain.Accounts.update_sandbox_limit(ctx.user, 1)
 
       expect(Managoat.Sandbox, :get, fn _handle -> {:ok, %{status: :running, raw: %{}}} end)
 
       quietly(fn -> assert {:ok, :resumed} = Resume.run(ctx.sandbox.id, opts()) end)
       assert row(ctx).status == "ready"
+      assert [_one] = events(ctx, "sandbox.resumed")
     end
   end
 

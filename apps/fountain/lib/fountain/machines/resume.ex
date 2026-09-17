@@ -57,6 +57,9 @@ defmodule Fountain.Machines.Resume do
 
   ## The steps
 
+  0. **Answer a machine that is already up from one read**, without a lease. A
+     prompt to a running machine is the common case and needs nothing done to
+     it; see `up_already?/2` for the five conditions that fall through instead.
   1. Refuse an enclosing transaction (#2309).
   2. **Claim a lease** for one operation. Held by somebody else: waited on
      briefly, then `{:error, :machine_busy}`. This is what makes two wakes of one
@@ -199,10 +202,52 @@ defmodule Fountain.Machines.Resume do
   def run(sandbox_id, opts) when is_binary(sandbox_id) and is_list(opts) do
     _actor = Keyword.fetch!(opts, :actor)
 
-    if Repo.in_transaction?() do
-      {:error, :transaction_open}
-    else
-      claim_and_resume(sandbox_id, opts)
+    cond do
+      Repo.in_transaction?() -> {:error, :transaction_open}
+      up_already?(sandbox_id, opts) -> {:ok, :already_up}
+      true -> claim_and_resume(sandbox_id, opts)
+    end
+  end
+
+  # **The machine is already up and nobody is doing anything to it**: answer from
+  # one read, and take no lease (round 1, behaviour review).
+  #
+  # `ensure_up/2` is asked on every reuse, and the overwhelmingly common case is
+  # a prompt to a conversation whose machine is running. The first draft claimed
+  # and released a lease for that — an advisory lock and two row writes per
+  # prompt, where `main` wrote nothing, with `lease_epoch` climbing by two per
+  # prompt and a new 503 whenever two prompts to one machine collided in the
+  # five-second wait. None of it bought anything: the answer was
+  # `{:ok, :already_up}` either way.
+  #
+  # Deliberately narrow, because a fast path that answers for a row that needed
+  # work is a machine nobody starts. Everything below falls through to the full
+  # protocol, lease and all:
+  #
+  #   * anything but `ready` — `suspended` is the resume this exists for, and
+  #     terminal and provisioning rows have answers of their own;
+  #   * either fence set, which is `:fenced` and has to be said;
+  #   * any `transition` stamp, which is a row with an abandoned operation on it
+  #     to clear;
+  #   * any holder on the lease, live or lapsed. Testing `lease_node` rather than
+  #     `Lease.live?/2` is deliberate: it needs no clock, so this stays one
+  #     query, and it is *stricter* — a machine whose lease has merely expired
+  #     takes the slow path and gets the recheck it deserves.
+  #   * a caller whose own probe says the provider has stopped this machine,
+  #     which is the one shape where a `ready` row does need the provider.
+  defp up_already?(sandbox_id, opts) do
+    case Conversations._unsafe_get_sandbox(sandbox_id) do
+      %Sandbox{
+        status: "ready",
+        reset_requested_at: nil,
+        teardown_requested_at: nil,
+        transition: nil,
+        lease_node: nil
+      } ->
+        Keyword.get(opts, :observed) != :suspended
+
+      _ ->
+        false
     end
   end
 
@@ -305,22 +350,50 @@ defmodule Fountain.Machines.Resume do
       %Sandbox{transition: "resuming"} = interrupted ->
         take_over(interrupted, epoch, opts)
 
-      # Somebody else's abandoned operation — a park, a destroy, a reset. Its
-      # own protocol takes it over; a resume must not write over the intent, and
-      # for a destroy or a reset the fence that accompanies it refuses below in
-      # any case. Named here so the refusal says which state it saw.
+      # Somebody else's stamp — a park, a destroy, a reset — on a machine whose
+      # lease this claim has just taken. **That stamp is abandoned by
+      # construction**: `Lease.claim/4` refuses while the current lease is live,
+      # so holding one is proof that no other owner is working here. Clearing it
+      # and judging the row by its status is stage 6a's rule — "busy means a
+      # live lease", and a transition with a dead lease is an owner that died,
+      # not one working — applied on the owner's side of the same seam
+      # `Wake.maybe_reuse_sandbox/1` reads on the reader's.
+      #
+      # The first draft refused instead (round 1, behaviour review), and that
+      # was 6a's decision inverted: `ensure_up/2` is asked on *every* reuse, so
+      # a `ready` row wearing a lease-less `parking` stamp answered 503 to every
+      # prompt until an hourly sweep happened to clear it — the same
+      # up-to-75-minute withholding 6a round 1 found and closed.
+      #
+      # What still refuses is a **fence column**, and only that: `admissible/2`
+      # reads `reset_requested_at` and `teardown_requested_at`, which are
+      # durable statements that this machine is going away, not leftovers of an
+      # owner that stopped. A `destroying` stamp always arrives with one, so the
+      # answer for that shape is unchanged; what changes is `parking` and
+      # `resuming`, which carry no fence and never meant "refuse me".
+      #
+      # Clearing another verb's stamp is `Conversations.register_server/2`'s
+      # precedent, and it costs the same thing there: `Destroy` loses a
+      # shortcut — it re-enters at its fence, which is idempotent — and `Park`
+      # loses nothing, because its takeover revalidates from the top anyway.
       %Sandbox{transition: other} = sandbox when not is_nil(other) ->
         Logger.info(
-          "machine #{sandbox.id}: resume refused, another owner left #{other} on the row"
+          "machine #{sandbox.id}: clearing an abandoned #{other} stamp left by an owner " <>
+            "whose lease had expired"
         )
 
-        {:error, :fenced}
+        clear_transition(sandbox, epoch)
+        admit_or_refuse(%{sandbox | transition: nil, transition_reason: nil}, epoch, opts)
 
       %Sandbox{} = sandbox ->
-        case admissible(sandbox, opts) do
-          :ok -> admit_then_resume(sandbox, epoch, opts)
-          refusal -> refusal
-        end
+        admit_or_refuse(sandbox, epoch, opts)
+    end
+  end
+
+  defp admit_or_refuse(%Sandbox{} = sandbox, epoch, opts) do
+    case admissible(sandbox, opts) do
+      :ok -> admit_then_resume(sandbox, epoch, opts)
+      refusal -> refusal
     end
   end
 
@@ -403,37 +476,39 @@ defmodule Fountain.Machines.Resume do
   # path today — deletion destroys, it does not wake — and it answers rather than
   # raising because a protocol that crashes on an ownerless row is how #2329
   # stopped machine cleanup fleet-wide.
-  defp admit_then_resume(%Sandbox{user_id: nil} = sandbox, epoch, opts) do
-    case stamp(sandbox, epoch) do
-      {:ok, marked} -> resume_and_finalize(marked, epoch, opts)
-      {:error, :retired} -> {:ok, :already_terminal}
-      refusal -> refusal
-    end
-  end
-
   defp admit_then_resume(%Sandbox{} = sandbox, epoch, opts) do
-    admission =
-      Quotas.with_sandbox_reservation(sandbox.user_id, [exclude: sandbox.id], fn ->
-        stamp(sandbox, epoch)
-      end)
-
-    case admission do
-      {:ok, %Sandbox{} = marked} ->
-        resume_and_finalize(marked, epoch, opts)
-
-      # The row went terminal between the recheck and the stamp. Not a refusal
-      # to report: the machine is gone, which is what the caller is told.
-      {:error, :retired} ->
-        {:ok, :already_terminal}
-
-      # The tenant's cap, the fleet ceiling, the credit gate, or a
-      # compare-and-set that found this lease superseded. Every one of them
-      # rolled the transaction back, so no stamp was written and the row is
-      # exactly as it was found.
-      {:error, reason} ->
-        {:error, reason}
+    case admit(sandbox, epoch) do
+      {:ok, %Sandbox{} = marked} -> resume_and_finalize(marked, epoch, opts)
+      settled -> settled
     end
   end
+
+  # The admission on its own, so the takeover can run it too — see
+  # `compensate/3`. `{:ok, marked}` is the row wearing the reservation.
+  #
+  # A row with no `user_id` is account deletion's nilified machine (#2329):
+  # there is no tenant to check against and no cap it could exceed, so the
+  # reservation is skipped and the stamp is written on its own. Nothing reaches
+  # this on that path today — deletion destroys, it does not wake — and it
+  # answers rather than raising because a protocol that crashes on an ownerless
+  # row is how #2329 stopped machine cleanup fleet-wide.
+  defp admit(%Sandbox{user_id: nil} = sandbox, epoch), do: settle_admission(stamp(sandbox, epoch))
+
+  defp admit(%Sandbox{} = sandbox, epoch) do
+    Quotas.with_sandbox_reservation(sandbox.user_id, [exclude: sandbox.id], fn ->
+      stamp(sandbox, epoch)
+    end)
+    |> settle_admission()
+  end
+
+  # The row went terminal between the recheck and the stamp: not a refusal to
+  # report, the machine is gone. Everything else — the tenant's cap, the fleet
+  # ceiling, the credit gate, a compare-and-set that found this lease
+  # superseded — rolled its transaction back, so no stamp was written and the
+  # row is exactly as it was found.
+  defp settle_admission({:ok, %Sandbox{} = marked}), do: {:ok, marked}
+  defp settle_admission({:error, :retired}), do: {:ok, :already_terminal}
+  defp settle_admission({:error, _reason} = refusal), do: refusal
 
   # The reservation itself. Inside `with_sandbox_reservation/3`'s transaction on
   # purpose: the stamp is what makes this machine count against the cap the
@@ -444,9 +519,22 @@ defmodule Fountain.Machines.Resume do
   # transaction is deliberate rather than the mistake its guard usually catches.
   defp stamp(%Sandbox{} = sandbox, epoch) do
     case Lease.cas_update(sandbox.id, epoch, [transition: "resuming"], nest: true) do
-      {:ok, %Sandbox{} = marked} -> {:ok, marked}
-      {:error, :stale} -> {:error, :superseded}
-      {:error, _} = error -> error
+      {:ok, %Sandbox{} = marked} ->
+        {:ok, marked}
+
+      # **`:machine_busy`, not `:superseded`** (round 1, protocol review). The
+      # two words look interchangeable and are not: `:superseded` becomes
+      # `{:ok, :already_up}` at the door, which is a fair prediction *after* the
+      # provider call — another owner holds the machine and will finalize the
+      # resume that already landed — and a lie here. Nothing has been resumed
+      # yet, the row still says `suspended`, and telling a prompt the machine is
+      # up sends it on to a server it cannot reach. `:machine_busy` is the
+      # honest answer and reads as `:sandbox_unavailable` with a `Retry-After`.
+      {:error, :stale} ->
+        {:error, :machine_busy}
+
+      {:error, _} = error ->
+        error
     end
   end
 
@@ -605,12 +693,44 @@ defmodule Fountain.Machines.Resume do
   defp compensate(%Sandbox{} = sandbox, epoch, opts) do
     case machine_state(sandbox) do
       :running ->
-        # The resume landed and the finalize was lost. Finishing it *is* the
-        # compensation, and it costs no admission: the dead owner reserved this
-        # machine's slot when it stamped, and the slot has been held by the
-        # stamp ever since. The audit and the effects run here because the only
-        # other place they could run is gone.
-        finalize(sandbox, epoch, opts)
+        # The resume landed and the finalize was lost. Finishing it is the
+        # compensation — **after re-running the admission** (round 1, behaviour
+        # review).
+        #
+        # The first draft finalized straight from here, reasoning that the dead
+        # owner had paid for the slot when it stamped. It had; the slot did not
+        # survive it. `Quotas.active_sandboxes/0` counts a `resuming` row only
+        # while its lease is *live*, which is what keeps an abandoned resume
+        # from holding a tenant's capacity for ever — so by the time a takeover
+        # is possible at all, that reservation has already been released and
+        # another machine may have taken the slot. Finalizing without asking
+        # again put the tenant over the cap.
+        #
+        # Asking again costs nothing when there is room (the row is excluded
+        # from its own count, as on the ordinary path) and refuses honestly when
+        # there is not.
+        case admit(sandbox, epoch) do
+          {:ok, %Sandbox{} = readmitted} ->
+            finalize(readmitted, epoch, opts)
+
+          {:ok, :already_terminal} ->
+            {:ok, :already_terminal}
+
+          # No slot for it. The machine is running at the provider and the row
+          # says `suspended`, which is the same divergence a failed resume
+          # leaves and is resolved the same way: the next wake re-admits and
+          # resumes, and `resume/1` on a machine that is already running is a
+          # no-op at every adapter. Writing `ready` without a slot is the one
+          # thing that is not available here.
+          {:error, reason} ->
+            Logger.warning(
+              "machine #{sandbox.id}: took over a resume that had landed, but the tenant " <>
+                "has no capacity for it now (#{inspect(reason)}); leaving the row parked"
+            )
+
+            clear_transition(sandbox, epoch)
+            {:error, reason}
+        end
 
       :suspended ->
         clear_transition(sandbox, epoch)

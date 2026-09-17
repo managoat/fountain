@@ -32,6 +32,8 @@ defmodule Fountain.Machines.MidOperationReadersTest do
   use Fountain.DataCase, async: true
   use Mimic
 
+  import ExUnit.CaptureLog
+
   alias Fountain.Conversations.{Conversation, Launch, Sandbox, Wake}
   alias Fountain.Machines.Machine
 
@@ -66,6 +68,15 @@ defmodule Fountain.Machines.MidOperationReadersTest do
       lease_node: "fountain@other",
       lease_until: DateTime.add(DateTime.utc_now(), ttl_ms, :millisecond)
     ]
+  end
+
+  # The owner logs an info line when it clears an abandoned stamp; the suite runs
+  # at `:warning`, so this is only about not leaking output.
+  defp capture_answer(fun) do
+    answer = :erlang.make_ref()
+    Process.put(answer, nil)
+    capture_log(fn -> Process.put(answer, fun.()) end)
+    Process.get(answer)
   end
 
   defp conv_with_sandbox(ctx), do: Repo.reload!(ctx.conv) |> Repo.preload(:sandbox)
@@ -169,6 +180,29 @@ defmodule Fountain.Machines.MidOperationReadersTest do
       )
 
       assert {:reuse, _, _} = Wake.maybe_reuse_sandbox(conv_with_sandbox(ctx))
+    end
+
+    test "and the wake that follows that reuse is not refused either", ctx do
+      # **The reader is only half the seam** (round 1 of #2368, behaviour
+      # review). Stage 7a put `Machines.Resume` behind every reuse, and its
+      # first draft read a lease-less stamp as a fence — so the reader above
+      # handed the machine over and the owner refused it one call later, which
+      # is 6a's decision undone one layer down. The two have to agree, so both
+      # are asserted here rather than only the one this file was written for.
+      stamp(ctx.sandbox,
+        transition: "parking",
+        lease_epoch: 1,
+        lease_node: nil,
+        lease_until: nil
+      )
+
+      assert {:ok, :already_up} =
+               capture_answer(fn ->
+                 Machine.ensure_up(ctx.sandbox.id, actor: "system:wake")
+               end)
+
+      assert is_nil(Repo.reload!(ctx.sandbox).transition),
+             "the owner left the abandoned stamp on the row it just handed out"
     end
 
     test "a live lease is refused before the provider is asked", ctx do

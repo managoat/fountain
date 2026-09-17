@@ -133,4 +133,31 @@ defmodule Fountain.Conversations.ConversationServerLogBudgetTest do
     refute Enum.any?(output_events(conv.id), &(&1.data =~ "durable log budget"))
     GenServer.stop(pid)
   end
+
+  test "invalid raw stdout and stderr do not crash the server or fail its turn" do
+    conv = setup_conv()
+    {pid, cmd_ref, _ref} = start_with_turn(conv)
+    Fountain.Conversations.Redaction.delete(conv.id)
+
+    # Raw stdout is retained as diagnostics once there is no ACP peer.
+    :sys.replace_state(pid, &%{&1 | acp_peer: nil})
+    turn_id = :sys.get_state(pid).current_turn.id
+
+    send(pid, {:stdout, %{ref: cmd_ref}, "caf" <> <<0xC3>>})
+    send(pid, {:stderr, %{ref: cmd_ref}, <<0xFF, 0>> <> " diagnostic\n"})
+    send(pid, {:stdout, %{ref: cmd_ref}, <<0xA9>> <> " au lait\n"})
+    state = :sys.get_state(pid)
+
+    assert Process.alive?(pid)
+    assert state.current_turn.id == turn_id
+    assert state.current_turn.status == "running"
+
+    assert Enum.map(output_events(conv.id), &{&1.stream, &1.data}) == [
+             {"stdout", "caf?"},
+             {"stderr", "?? diagnostic\n"},
+             {"stdout", "? au lait\n"}
+           ]
+
+    GenServer.stop(pid)
+  end
 end

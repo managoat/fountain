@@ -2584,7 +2584,7 @@ defmodule Fountain.Conversations do
     # so a path that forgets to scrub writes plaintext credentials to a table
     # that outlives the conversation. Doing it at the single writer means a new
     # log path is covered whether or not its author knew to.
-    attrs = redact_attrs(attrs)
+    attrs = attrs |> redact_attrs() |> sanitize_raw_output()
 
     # The writer is main's ordered insert (#1706), not a bare `Repo.insert!`:
     # a bounded turn's output still has to take the account's SSE cursor lock,
@@ -2640,6 +2640,19 @@ defmodule Fountain.Conversations do
   end
 
   defp redact_attrs(attrs), do: attrs
+
+  defp sanitize_raw_output(%{kind: "output", stream: stream, data: data} = attrs)
+       when stream in ["stdout", "stderr"] and is_binary(data) do
+    # Transport chunks can split UTF-8 or contain arbitrary bytes (#2372).
+    # PostgreSQL text also rejects NUL. Replace after redaction so registered
+    # binary values still match, and use one-byte replacements so sanitizing
+    # cannot expand the data beyond Output's byte budget. This is per row:
+    # a codepoint split across rows is replaced on each side of the boundary.
+    data = data |> String.replace_invalid("?") |> String.replace(<<0>>, "?")
+    %{attrs | data: data}
+  end
+
+  defp sanitize_raw_output(attrs), do: attrs
 
   @doc """
   Record a stage transition: persist the log event, broadcast it to the

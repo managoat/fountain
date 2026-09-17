@@ -192,6 +192,10 @@ defmodule Fountain.Conversations.Output do
   @doc """
   Write one chunk to the transcript and broadcast it, with no budget
   arithmetic: what `log/4` does once it has decided the chunk is affordable.
+
+  The writer replaces invalid UTF-8 and NUL in raw stdout/stderr with `?`
+  after redaction (#2372). A codepoint split across rows is replaced in each
+  row; this path does not reassemble transport bytes.
   """
   @spec persist(ctx(), String.t(), binary()) :: :ok
   def persist(ctx, stream, data) do

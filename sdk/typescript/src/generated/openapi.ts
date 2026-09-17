@@ -2147,7 +2147,7 @@ export interface paths {
         put?: never;
         /**
          * Open a fresh conversation on the teammate's computer
-         * @description Retires the teammate's current conversation — it stays in its history, past resuming — and opens a new one on the **same sandbox**: the next message starts a fresh runtime session on the same disk, files and installed tools intact. Nothing is provisioned and nothing is interrupted: 400 `conversation_busy` while a turn is running (interrupt first), 503 `provisioning` while the computer is still starting. When the computer is gone (sandbox terminated or failed, or the conversation already past resuming) a new sandbox is provisioned instead, as `POST /api/team` does. 201 with the teammate and its new conversation; the stream sends `team`. Audited as `team.conversation.rotated`.
+         * @description Retires the teammate's current conversation — it stays in its history, past resuming — and opens a new one on the **same sandbox**: the next message starts a fresh runtime session on the same disk, files and installed tools intact. Nothing is provisioned and nothing is interrupted: 400 `conversation_busy` while a turn is running (interrupt first), 503 `provisioning` while the computer is still starting. The computer's own door is asked before the current conversation is retired, so a refusal costs the teammate nothing and the same call can be repeated: 409 `sandbox_reset_pending` while the computer is being reset or deleted, 503 `sandbox_unavailable` while an operation holds it (retry after `Retry-After`), 422 `sandbox_identity_mismatch` or `sandbox_runtime_mismatch` when the agent's environment, vault or runtime no longer matches the computer it was built for — start a new conversation instead. When the computer is gone (sandbox terminated or failed, or the conversation already past resuming) a new sandbox is provisioned instead, as `POST /api/team` does. 201 with the teammate and its new conversation; the stream sends `team`. Audited as `team.conversation.rotated`.
          */
         post: operations["FountainWeb.TeamController.fresh_conversation"];
         delete?: never;
@@ -15594,6 +15594,24 @@ export interface operations {
                     "application/json": components["schemas"]["NegotiationError"];
                 };
             };
+            /** @description The computer is being reset or deleted */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The computer no longer matches the agent */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
             /** @description Too Many Requests */
             429: {
                 headers: {
@@ -15603,7 +15621,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description The computer is still starting */
+            /** @description The computer is still starting, or an operation holds it */
             503: {
                 headers: {
                     [name: string]: unknown;

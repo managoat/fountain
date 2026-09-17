@@ -471,7 +471,7 @@ defmodule FountainWeb.TeamControllerTest do
     test "400 conversation_busy while a turn runs; 503 while the computer starts; 404 off the team",
          %{conn: conn, user: user, raw_key: key} do
       ada = insert_agent(user_id: user.id, name: "Ada")
-      sandbox = insert_sandbox(user_id: user.id, status: "ready")
+      sandbox = insert_sandbox(user_id: user.id, agent_id: ada.id, status: "ready")
       insert_teammate_conv(user, ada, sandbox: sandbox, status: "running")
       stub(Termination, :release_conversation, fn _id, _opts -> {:error, :busy} end)
 
@@ -497,6 +497,56 @@ defmodule FountainWeb.TeamControllerTest do
              |> authed_with_key(key)
              |> post("/api/team/#{loner.id}/conversations")
              |> json_response(404)
+    end
+
+    test "409 while the computer is being reset, 503 while an operation holds it, 422 when it no longer matches",
+         %{conn: conn, user: user, raw_key: key} do
+      # Driven through the controller on purpose (round 1): the rotation goes
+      # through the attach door since ADR 0058 stage 8b, so this route renders
+      # the door's refusals, and the repo's schema guard only sees a code that
+      # something actually renders. Below the controller these three were
+      # already covered; the operation's declaration was not.
+      rotate = fn agent ->
+        conn |> authed_with_key(key) |> post("/api/team/#{agent.id}/conversations")
+      end
+
+      fenced_agent = insert_agent(user_id: user.id, name: "Fenced")
+
+      fenced = insert_sandbox(user_id: user.id, agent_id: fenced_agent.id, status: "ready")
+      fenced_prev = insert_teammate_conv(user, fenced_agent, sandbox: fenced, status: "idle")
+
+      fenced
+      |> Ecto.Changeset.change(reset_requested_at: DateTime.utc_now())
+      |> Repo.update!()
+
+      assert %{"error" => "sandbox_reset_pending"} =
+               fenced_agent |> rotate.() |> json_response(409)
+
+      held_agent = insert_agent(user_id: user.id, name: "Held")
+      held = insert_sandbox(user_id: user.id, agent_id: held_agent.id, status: "ready")
+      held_prev = insert_teammate_conv(user, held_agent, sandbox: held, status: "idle")
+      {:ok, _epoch} = Fountain.Machines.Lease.claim(held.id, "other@node", 60_000)
+
+      held_conn = rotate.(held_agent)
+      assert %{"error" => "sandbox_unavailable"} = json_response(held_conn, 503)
+      assert get_resp_header(held_conn, "retry-after") != []
+
+      moved_agent = insert_agent(user_id: user.id, name: "Moved")
+      moved = insert_sandbox(user_id: user.id, agent_id: moved_agent.id, status: "ready")
+      moved_prev = insert_teammate_conv(user, moved_agent, sandbox: moved, status: "idle")
+
+      moved
+      |> Ecto.Changeset.change(environment_id: insert_env(user_id: user.id).id)
+      |> Repo.update!()
+
+      assert %{"error" => "sandbox_identity_mismatch"} =
+               moved_agent |> rotate.() |> json_response(422)
+
+      # None of the three cost the teammate its conversation: the door is asked
+      # before the release, so every one of these is repeatable.
+      for prev <- [fenced_prev, held_prev, moved_prev] do
+        assert Repo.reload!(prev).status == "idle"
+      end
     end
   end
 

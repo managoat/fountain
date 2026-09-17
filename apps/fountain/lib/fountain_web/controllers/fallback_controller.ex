@@ -505,14 +505,22 @@ defmodule FountainWeb.FallbackController do
     })
   end
 
+  # The word is `sandbox_reset_pending` for history, but the state it names is
+  # either fence on the row — a reset the provider has not confirmed, or a
+  # teardown. Since ADR 0058 stage 8b the second is what most callers meet:
+  # the point at which a machine stops taking attaches is the last detach's
+  # commit, so every attach after a conversation is terminated arrives here.
+  # The message therefore says "torn down or reset" rather than promising the
+  # caller a reset that is not happening (round 1, surfaces review).
   def call(conn, {:error, :sandbox_reset_pending}) do
     conn
     |> put_status(:conflict)
     |> json(%{
       error: "sandbox_reset_pending",
       message:
-        "reset is pending provider confirmation; Fountain retries automatically, or an " <>
-          "administrator can retry from the admin sandbox list"
+        "this computer is being torn down or reset and the provider has not confirmed it " <>
+          "yet; Fountain retries automatically, or an administrator can retry from the " <>
+          "admin sandbox list"
     })
   end
 

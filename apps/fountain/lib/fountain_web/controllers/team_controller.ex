@@ -163,7 +163,14 @@ defmodule FountainWeb.TeamController do
         "a fresh runtime session on the same disk, files and installed tools intact. " <>
         "Nothing is provisioned and nothing is interrupted: 400 `conversation_busy` " <>
         "while a turn is running (interrupt first), 503 `provisioning` while the " <>
-        "computer is still starting. When the computer is gone (sandbox terminated or " <>
+        "computer is still starting. The computer's own door is asked before the " <>
+        "current conversation is retired, so a refusal costs the teammate nothing and " <>
+        "the same call can be repeated: 409 `sandbox_reset_pending` while the computer " <>
+        "is being reset or deleted, 503 `sandbox_unavailable` while an operation holds " <>
+        "it (retry after `Retry-After`), 422 `sandbox_identity_mismatch` or " <>
+        "`sandbox_runtime_mismatch` when the agent's environment, vault or runtime no " <>
+        "longer matches the computer it was built for — start a new conversation " <>
+        "instead. When the computer is gone (sandbox terminated or " <>
         "failed, or the conversation already past resuming) a new sandbox is " <>
         "provisioned instead, as `POST /api/team` does. 201 with the teammate and its " <>
         "new conversation; the stream sends `team`. Audited as `team.conversation.rotated`.",
@@ -172,7 +179,12 @@ defmodule FountainWeb.TeamController do
       created: {"Teammate", "application/json", Schemas.TeammateResponse},
       not_found: {"Not on the team", "application/json", Schemas.Error},
       bad_request: {"A turn is still running", "application/json", Schemas.Error},
-      service_unavailable: {"The computer is still starting", "application/json", Schemas.Error}
+      conflict: {"The computer is being reset or deleted", "application/json", Schemas.Error},
+      unprocessable_entity:
+        {"The computer no longer matches the agent", "application/json", Schemas.Error},
+      service_unavailable:
+        {"The computer is still starting, or an operation holds it", "application/json",
+         Schemas.Error}
     ]
   )
 

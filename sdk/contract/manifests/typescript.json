@@ -98,7 +98,7 @@
     },
     "ConversationCreateRequest": {
       "required": ["agent_id"],
-      "optional": ["channel_id", "environment_id", "fresh", "images", "permission_policy", "prompt", "sandbox_id", "sandbox_mode", "sprite_name", "title", "vault_id"]
+      "optional": ["channel_id", "client_request_id", "environment_id", "fresh", "images", "permission_policy", "prompt", "sandbox_id", "sandbox_mode", "sprite_name", "title", "vault_id"]
     },
     "ConversationListResponse": { "required": ["data"] },
     "ConversationResponse": { "required": ["data"] },
@@ -113,7 +113,7 @@
       "fields": ["blocks", "data", "stage", "state", "stream", "turn_id"]
     },
     "LogEventListResponse": { "required": ["data", "meta"] },
-    "PromptRequest": { "required": ["prompt"], "optional": ["images"] },
+    "PromptRequest": { "required": ["prompt"], "optional": ["client_request_id", "images"] },
     "Repository": {},
     "Runner": {},
     "SandboxChange": {},

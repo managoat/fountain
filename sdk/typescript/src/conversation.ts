@@ -83,7 +83,11 @@ export class Conversation {
   send(prompt: string, options: SendOptions = {}): Run {
     const body: Record<string, unknown> = { prompt };
     if (options.images?.length) body.images = options.images;
-    if (options.clientRequestId) body.client_request_id = options.clientRequestId;
+    // Presence, not truthiness: an explicitly empty id is a 422 the caller has
+    // to see, not a prompt that quietly runs uncorrelated.
+    if (options.clientRequestId !== undefined) {
+      body.client_request_id = options.clientRequestId;
+    }
 
     const run = new Run(
       this.http,

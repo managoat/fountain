@@ -53,7 +53,9 @@ class Conversation:
         body: Dict[str, Any] = {"prompt": prompt}
         if images:
             body["images"] = images
-        if client_request_id:
+        # Presence, not truthiness: an explicitly empty id is a 422 the caller
+        # has to see, not a prompt that quietly runs uncorrelated.
+        if client_request_id is not None:
             body["client_request_id"] = client_request_id
 
         def plan() -> Any:

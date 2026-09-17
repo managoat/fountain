@@ -493,6 +493,24 @@ class ClientTests(unittest.TestCase):
                     "prompt": "next", "client_request_id": "salon-execution-44",
                 })
 
+    # The server's bound is 1 to 200 characters, so "" is a 422 it raises before
+    # anything launches or is sent. Dropping it here would run the work with no
+    # correlation at all and tell the caller nothing.
+    def test_an_explicitly_empty_client_request_id_reaches_the_wire(self):
+        with FakeFountain() as fake:
+            fake.state.script_turn()
+            client = Fountain(base_url=fake.base_url, api_key="fk_test")
+            client.run("go", agent=AGENT_ID, client_request_id="").result()
+            create = next(
+                r for r in fake.state.requests if r[:2] == ("POST", "/api/conversations")
+            )
+            self.assertEqual(create[3]["client_request_id"], "")
+
+            client.resume("c-1").send("again", client_request_id="").result()
+            prompts = [r for r in fake.state.requests if r[1].endswith("/prompts")]
+            self.assertEqual(len(prompts), 1)
+            self.assertEqual(prompts[0][3], {"prompt": "again", "client_request_id": ""})
+
     def test_a_caller_that_names_nothing_sends_no_client_request_id(self):
         with FakeFountain() as fake:
             fake.state.resume_channel = True

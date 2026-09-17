@@ -150,7 +150,11 @@ export class Fountain {
           if (environmentId) body.environment_id = environmentId;
           if (config.title) body.title = config.title;
           if (config.images?.length) body.images = config.images;
-          if (config.clientRequestId) body.client_request_id = config.clientRequestId;
+          // Presence, not truthiness: an explicitly empty id is a 422 the caller
+          // has to see, not a prompt that quietly runs uncorrelated.
+          if (config.clientRequestId !== undefined) {
+            body.client_request_id = config.clientRequestId;
+          }
           if (config.channelId) body.channel_id = config.channelId;
           if (config.fresh) body.fresh = true;
           if (config.spriteName) body.sprite_name = config.spriteName;

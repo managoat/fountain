@@ -629,6 +629,41 @@ describe("client_request_id", () => {
     assert.deepEqual(prompt?.body, { prompt: "second", client_request_id: "salon-execution-44" });
   });
 
+  // The server's bound is 1 to 200 characters, so "" is a 422 it raises before
+  // anything launches or is sent. Dropping it here would run the work with no
+  // correlation at all and tell the caller nothing — the opposite of the point.
+  // A UUID agent skips resolution, so the create is the first request and
+  // `failNextWith` lands on it.
+  test("an explicitly empty id goes to the wire, so the server can refuse it", async () => {
+    fake.failNextWith = { status: 422, body: { error: "unprocessable_entity" } };
+    await assert.rejects(
+      async () =>
+        await client().run("go", {
+          agent: "11111111-1111-1111-1111-111111111111",
+          clientRequestId: "",
+        }),
+      (error: unknown) => error instanceof publicSDK.FountainError && error.status === 422,
+    );
+    assert.equal(fake.requests.length, 1);
+    assert.deepEqual(fake.requests[0]?.body, {
+      agent_id: "11111111-1111-1111-1111-111111111111",
+      prompt: "go",
+      client_request_id: "",
+    });
+  });
+
+  test("an explicitly empty id on send goes to the wire too", async () => {
+    scriptEveryTurn();
+    const first = client().run("go", { agent: "reposage" });
+    const id = await first.conversationId;
+    await first;
+    fake.requests.length = 0;
+
+    await client().resume(id).send("again", { clientRequestId: "" });
+    const prompt = fake.requests.find((r) => r.path.endsWith("/prompts"));
+    assert.deepEqual(prompt?.body, { prompt: "again", client_request_id: "" });
+  });
+
   test("a caller that names nothing sends no key at all", async () => {
     scriptEveryTurn();
     const first = client().run("first", { agent: "reposage", channelId: "chan-2" });

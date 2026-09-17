@@ -86,7 +86,7 @@
     "ConnectionProviderListResponse": { "fields": ["data"] },
     "Conversation": { "required": ["id"], "fields": ["status"] },
     "ConversationCreateRequest": {
-      "optional": ["channel_id", "environment_id", "fresh", "images", "prompt", "sandbox_api_access", "sandbox_id", "sandbox_mode", "sprite_name", "title", "vault_id"]
+      "optional": ["channel_id", "client_request_id", "environment_id", "fresh", "images", "prompt", "sandbox_api_access", "sandbox_id", "sandbox_mode", "sprite_name", "title", "vault_id"]
     },
     "ConversationListResponse": { "fields": ["data"] },
     "ConversationResponse": { "fields": ["data"] },
@@ -99,7 +99,7 @@
       "fields": ["blocks", "data", "id", "kind", "stage", "state", "stream", "turn_id"]
     },
     "LogEventListResponse": { "fields": ["data", "meta"] },
-    "PromptRequest": { "optional": ["images"] },
+    "PromptRequest": { "optional": ["client_request_id", "images"] },
     "SandboxListResponse": { "fields": ["data"] },
     "SandboxResponse": { "fields": ["data"] },
     "SearchResponse": { "fields": ["data"] },

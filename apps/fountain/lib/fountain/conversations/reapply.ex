@@ -29,7 +29,7 @@ defmodule Fountain.Conversations.Reapply do
   so installing a different one later fails in a way that reads as a protocol
   bug. `git clone` refuses a checkout that already exists, and a setup script
   that starts services fails on its second run, which is the same reason
-  `Provisioning.discard_interrupted_attempt/3` exists.
+  `Fountain.Machines.Provision`'s discard of an interrupted attempt exists.
 
   The network policy is the cautious one. `Egress.apply_policy/4` runs once,
   at provision, and nothing has ever re-run it against a live machine. Rather

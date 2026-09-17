@@ -20,13 +20,14 @@ defmodule Fountain.Conversations.ConversationServer do
     Vaults
   }
 
-  alias Fountain.Conversations.{BoundedTurn, CallbackKey, Checkpoints, Connection}
-  alias Fountain.Conversations.{Conversation, DetachedRequest, Egress}
+  alias Fountain.Conversations.{BoundedTurn, CallbackKey, Connection}
+  alias Fountain.Conversations.{Conversation, DetachedRequest, Egress, FreshProvision}
   alias Fountain.Conversations.{Interruption, Lifecycle, MachineEvents, McpServers, Output}
-  alias Fountain.Conversations.{Pending, Provisioning, ProvisionWatchdog, Reapply}
+  alias Fountain.Conversations.{Pending, Provisioning, ProvisionWatchdog}
   alias Fountain.Conversations.{Reattachment, Redaction, SpriteEnv, Termination, TurnLaunch}
   alias Fountain.Conversations.TurnMachine
   alias Fountain.Conversations.Wake
+  alias Fountain.Machines.Machine
 
   # ── public api ────────────────────────────────────────────────────────────
 
@@ -500,13 +501,26 @@ defmodule Fountain.Conversations.ConversationServer do
           reason: "tenant_credential_load_failed: #{inspect(reason)}"
         })
 
-        if sandbox.status in ["pending", "starting"] do
-          {:ok, _} = Conversations.update_sandbox(sandbox, %{status: "failed"})
-        end
-
+        # Through the owner (ADR 0058 stage 7b), which re-reads the status this
+        # used to test itself: `fail_provision/2` answers `:not_provisioning`
+        # for a row that is no longer pending or starting.
+        fail_machine(sandbox.id, :tenant_credential_load_failed, conv.id)
         Conversations.update_conversation(conv, %{status: "failed"})
         {:stop, :normal, state}
     end
+  end
+
+  # The two pre-flight failures: a row that never reached the provision bracket
+  # and has to be retired anyway. Best effort — the conversation is failed
+  # either way, and a machine the owner would not let this server retire is one
+  # another owner is already settling.
+  @doc false
+  def fail_machine(sandbox_id, reason, conv_id) do
+    Machine.fail_provision(sandbox_id,
+      actor: "system:conversation_server",
+      reason: reason,
+      conversation_id: conv_id
+    )
   end
 
   defp dispatch_provision(state, conv, sandbox, agent, env, _vault, secrets) do
@@ -526,7 +540,7 @@ defmodule Fountain.Conversations.ConversationServer do
             reattach(state, conv, sandbox, agent, env, secrets)
 
           s when s in ["pending", "starting"] ->
-            fresh_provision(state, conv, sandbox, agent, env, secrets)
+            FreshProvision.run(state, conv, sandbox, agent, env, secrets)
 
           terminal when terminal in ["terminated", "failed"] ->
             Logger.warning(
@@ -536,273 +550,16 @@ defmodule Fountain.Conversations.ConversationServer do
             {:stop, :normal, state}
 
           _ ->
-            fresh_provision(state, conv, sandbox, agent, env, secrets)
+            FreshProvision.run(state, conv, sandbox, agent, env, secrets)
         end
 
       {:error, {:missing_vars, names}} ->
         reason = "missing env/vault keys referenced in mcp_servers: #{Enum.join(names, ", ")}"
         Logger.error("provision failed for conv #{conv.id}: #{reason}")
         Output.publish_stage(state.conversation_id, "provision", "failed", %{reason: reason})
-        {:ok, _} = Conversations.update_sandbox(sandbox, %{status: "failed"})
+        fail_machine(sandbox.id, :missing_mcp_vars, conv.id)
         Conversations.update_conversation(conv, %{status: "failed"})
         {:stop, :normal, state}
-    end
-  end
-
-  defp fresh_provision(state, conv, sandbox, agent, env, secrets) do
-    Fountain.Telemetry.span(
-      [:fresh_provision],
-      %{conv_id: state.conversation_id, sandbox_id: sandbox.id, env_id: env && env.id},
-      fn -> {do_fresh_provision(state, conv, sandbox, agent, env, secrets), %{}} end
-    )
-  end
-
-  defp do_fresh_provision(state, conv, sandbox, agent, env, secrets) do
-    try do
-      case Conversations.claim_sandbox(sandbox, %{status: "starting"}) do
-        {:ok, _} ->
-          do_fresh_provision_inner(state, conv, sandbox, agent, env, secrets)
-
-        result when result in [:retired, {:error, :sandbox_reset_pending}] ->
-          # No resources were created yet. Leave the winning retirement and
-          # any replacement conversation alone, without announcing a start.
-          {:stop, :normal, state}
-
-        error ->
-          raise MatchError, term: error
-      end
-    rescue
-      exception ->
-        stack = __STACKTRACE__
-        msg = Exception.format(:error, exception, stack)
-        Logger.error("provision raised an unhandled exception:\n#{msg}")
-
-        Output.publish_stage(state.conversation_id, "provision", "failed", %{
-          reason: Exception.message(exception),
-          stack: Exception.format_stacktrace(stack) |> String.slice(0, 2000)
-        })
-
-        {:ok, _} = Conversations.update_sandbox(sandbox, %{status: "failed"})
-        Conversations.update_conversation(conv, %{status: "failed"})
-        {:stop, :normal, state}
-    end
-  end
-
-  defp do_fresh_provision_inner(state, conv, sandbox, agent, env, secrets) do
-    # Finding the original snapshot already `starting` means an earlier
-    # attempt was interrupted mid-provision — a
-    # deploy or a Horde rebalance killed the server while it was blocked in
-    # this function. The sprite it was building is most likely still there.
-    interrupted? = sandbox.status == "starting"
-
-    Output.publish_stage(
-      state.conversation_id,
-      "provision",
-      "started",
-      if(interrupted?,
-        do: %{retry: "an earlier attempt was interrupted; rebuilding the sandbox"},
-        else: %{}
-      )
-    )
-
-    # A `limited` environment on a backend with no `:network_policy` capability
-    # can only fail. It failed closed before, but several steps in, after a
-    # sandbox had been created and torn down, and wearing the shape of a
-    # transport error. Refuse the pairing here, by name, before anything is
-    # provisioned (#935).
-    provider = Fountain.Conversations.sandbox_provider_atom(sandbox)
-
-    handle_result =
-      with :ok <-
-             Fountain.Conversations.Provisioning.check_network_policy_support(
-               provider,
-               env,
-               state.conversation_id
-             ),
-           :ok <-
-             Fountain.Conversations.Provisioning.check_broker_support(
-               Egress.brokered?(),
-               provider,
-               env,
-               state.conversation_id
-             ),
-           :ok <- Provisioning.discard_interrupted_attempt(provider, sandbox, interrupted?) do
-        Provisioning.create_sandbox_handle(provider, sandbox)
-      end
-
-    case handle_result do
-      {:ok, handle} ->
-        skills = (agent && agent.skills) || []
-        # conv.runtime is validated-required and outlives the agent; the agent
-        # fallback covers rows predating it. The mount logs what it skipped.
-        runtime = conv.runtime || (agent && agent.runtime) || "claude"
-        Fountain.SandboxSkills.mount(handle, runtime, skills)
-
-        {state, conv} = rotate_callback_api_key(state, conv)
-
-        # Looked up once, here, because it is stable for the sandbox's life and
-        # the agent needs it in its environment before the first turn runs.
-        sandbox_url = Provisioning.record_sandbox_url(sandbox, handle)
-
-        # The broker session is minted before the env is built, because the
-        # env carries it; the CA is installed before anything dials out,
-        # because nothing dials out without it (ADR 0019 gate 1a).
-        # Keep the result outside `with`: its else cannot see the minted state.
-        prepared = Egress.prepare_state(state)
-
-        with {:ok, state} <- prepared,
-             sprite_env = build_sprite_env(state, agent, env, secrets, sandbox_url),
-             # A real step, not best effort: an agent whose MCP servers could
-             # not be written would otherwise run without them and report
-             # `provision/done`. The runtimes retry the write themselves.
-             :ok <-
-               Provisioning.write_runtime_config(
-                 handle,
-                 state.runtime_module,
-                 Egress.with_connection_servers(
-                   agent,
-                   state.user_id,
-                   state.conversation_id,
-                   state.callback_token
-                 )
-               ),
-             _ = Provisioning.write_instructions(handle, runtime, agent),
-             # The file is the machine's; the conversation's identity travels as
-             # process env on every spawn (`Fountain.Conversations.Identity`).
-             :ok <-
-               Fountain.Conversations.Provisioning.write_env_file(
-                 handle,
-                 Fountain.Conversations.Identity.disk_env(sprite_env)
-               ),
-             :ok <- Egress.install_ca(state.broker, handle, state.conversation_id),
-             :ok <-
-               run_provisioning_pipeline(
-                 handle,
-                 env,
-                 sprite_env,
-                 secrets,
-                 state.conversation_id,
-                 Egress.brokered?()
-               ),
-             :ok <- Fountain.Conversations.InferenceBinding.reserve(conv, state.inference_source),
-             :ok <-
-               Provisioning.prepare_runtime_sprite(
-                 handle,
-                 runtime,
-                 state.runtime_module,
-                 agent,
-                 sprite_env
-               ),
-             # Record what the disk was built from only if this attempt still
-             # owns a live row. Retirement can win while provider I/O runs.
-             {:ok, _} <-
-               Conversations.claim_sandbox(sandbox, %{
-                 status: "ready",
-                 build_fingerprint: Reapply.fingerprint(env),
-                 applied_skills: skills
-               }) do
-          Output.publish_stage(state.conversation_id, "provision", "done")
-
-          # Best-effort: snapshot the fully-provisioned state so subsequent
-          # conversations on this env can warm-start from it. Async so it
-          # doesn't block the user's first turn.
-          Checkpoints.maybe_create_async(handle, env)
-
-          state = TurnMachine.forget_runtime_session(state, conv)
-
-          # Dated from the sandbox row, not from now, so the absolute lifetime
-          # ceiling survives a restart and a reattach rather than resetting.
-          new_state = %{
-            state
-            | handle: handle,
-              sprite_env: sprite_env,
-              sandbox_started_at: Lifecycle.clock_start(sandbox)
-          }
-
-          # Any prompt this conversation was started for arrives as a cast,
-          # already queued behind this handle_continue. See
-          # queue_initial_prompt/3.
-          {:noreply, new_state}
-        else
-          {:error, :configuration_changed} ->
-            # This fresh attempt owns its handle, not a reassigned machine or
-            # the newer conversation state. Retire only its own resources.
-            _ = Managoat.Sandbox.destroy(handle)
-            Egress.release_prepared(prepared)
-            {:ok, prepared_state} = prepared
-            {:stop, :normal, prepared_state}
-
-          result when result in [:retired, {:error, :sandbox_reset_pending}] ->
-            # This handle and token belong to this attempt. Do not fail the
-            # conversation or release every session: a replacement may own it.
-            _ = Managoat.Sandbox.destroy(handle)
-            Egress.release_prepared(prepared)
-            {:ok, prepared_state} = prepared
-            {:stop, :normal, prepared_state}
-
-          {:error, reason} ->
-            Logger.error("provision step failed: #{inspect(reason)}")
-            _ = Managoat.Sandbox.destroy(handle)
-            Egress.release_prepared(prepared)
-            {:ok, _} = Conversations.update_sandbox(sandbox, %{status: "failed"})
-
-            Output.publish_stage(state.conversation_id, "provision", "failed", %{
-              reason: inspect(reason)
-            })
-
-            Conversations.update_conversation(conv, %{status: "failed"})
-            {:stop, :normal, state}
-        end
-
-      {:error, reason} ->
-        Logger.error("provision could not start: #{inspect(reason)}")
-        {:ok, _} = Conversations.update_sandbox(sandbox, %{status: "failed"})
-
-        Output.publish_stage(state.conversation_id, "provision", "failed", %{
-          reason: inspect(reason)
-        })
-
-        Conversations.update_conversation(conv, %{status: "failed"})
-        {:stop, :normal, state}
-    end
-  end
-
-  # Try a checkpoint restore first if the env has one. If restore succeeds,
-  # skip the slow steps (packages + clone + setup_script) — they all wrote to
-  # the disk the checkpoint captured, so restoring it restores their effect.
-  # If restore fails, clear the checkpoint id and fall through to the full
-  # pipeline.
-  #
-  # The network policy is **not** one of those steps and is applied on both
-  # arms (#989). It is configuration on the sandbox, not a file: a warm start
-  # creates a fresh sandbox and pours a disk image into it, and that sandbox
-  # carries no policy. Skipping it turned a `limited` environment into an
-  # unrestricted one, silently, and reported `provision/done`. It costs one
-  # fast API call, so the warm start pays nothing for it.
-  defp run_provisioning_pipeline(handle, env, sprite_env, secrets, conv_id, brokered?) do
-    case Checkpoints.attempt_warm_start(handle, env, conv_id) do
-      :warm_started ->
-        Egress.apply_policy(handle, env, conv_id, brokered?)
-
-      :cold ->
-        with :ok <-
-               Fountain.Conversations.Provisioning.install_packages(
-                 handle,
-                 env,
-                 sprite_env,
-                 conv_id
-               ),
-             :ok <- Egress.apply_policy(handle, env, conv_id, brokered?),
-             :ok <-
-               Fountain.Conversations.Provisioning.clone_repositories(
-                 handle,
-                 env,
-                 secrets,
-                 sprite_env,
-                 conv_id
-               ) do
-          Provisioning.run_setup_script(handle, env, sprite_env, conv_id)
-        end
     end
   end
 
@@ -888,18 +645,10 @@ defmodule Fountain.Conversations.ConversationServer do
 
       with :ok <- Reattachment.prepare_source(handle, state, conv, agent, sprite_env) do
         # Validate even a cached ready row: retirement may have won while the
-        # provider was waking. Only a suspended wake resets the lifetime clock.
-        attrs =
-          if sandbox.status == "suspended" do
-            %{
-              status: "ready",
-              last_resumed_at: DateTime.utc_now() |> DateTime.truncate(:second)
-            }
-          else
-            %{status: "ready"}
-          end
-
-        case Conversations.claim_sandbox(sandbox, attrs) do
+        # provider was waking. Through the machine's owner since ADR 0058 stage
+        # 7b, and split in two, because the two rows meant different things all
+        # along and only one of them was a wake. See `take_machine/2`.
+        case take_machine(sandbox, conv) do
           {:ok, sandbox} ->
             new_state = %{
               state
@@ -918,14 +667,11 @@ defmodule Fountain.Conversations.ConversationServer do
 
             {:noreply, new_state}
 
-          result when result in [:retired, {:error, :sandbox_reset_pending}] ->
+          {:error, _reason} ->
             # Wake owns this connection's credentials, not the existing disk or
             # another connection's session. Never destroy the machine here.
             Egress.release_prepared({:ok, state})
             {:stop, :normal, state}
-
-          error ->
-            raise MatchError, term: error
         end
       else
         {:error, reason} ->
@@ -942,7 +688,7 @@ defmodule Fountain.Conversations.ConversationServer do
         # justifies retiring the row: the disk no longer exists, so the next
         # prompt must provision fresh.
         Logger.warning(
-          "reattach failed for sprite #{sandbox.machine_name}: not found — marking sandbox failed"
+          "reattach failed for sprite #{sandbox.machine_name}: not found — retiring the machine"
         )
 
         Output.publish_stage(state.conversation_id, "reattach", "failed", %{
@@ -951,11 +697,19 @@ defmodule Fountain.Conversations.ConversationServer do
           node: to_string(node())
         })
 
-        {:ok, _} =
-          Conversations.update_sandbox(sandbox, %{
-            status: "failed",
-            terminated_at: DateTime.utc_now() |> DateTime.truncate(:second)
-          })
+        # A destroy, through the owner (ADR 0058 stage 7b), with the provider
+        # step skipped: this server has just asked and been told the machine
+        # does not exist, which is exactly what `provider: :already_gone` is
+        # for. `terminating_conversation_id: nil` keeps it forced — a home
+        # whose disk is gone is not a machine to keep for the conversation
+        # standing in front of it.
+        Termination._unsafe_destroy_machine(sandbox.id,
+          actor: "system:conversation_server",
+          destroy_reason: :provider_gone,
+          reason: "reattach_not_found",
+          terminating_conversation_id: nil,
+          provider: :already_gone
+        )
 
         # Don't mark the conversation failed — the user can still send a
         # prompt and auto-wake will spin a fresh sandbox.
@@ -1000,12 +754,51 @@ defmodule Fountain.Conversations.ConversationServer do
     end
   end
 
+  # The reattach arm's row write, through the machine's owner (ADR 0058 stage
+  # 7b). `main` wrote both of these with one `claim_sandbox/2` and told them
+  # apart by an `attrs` map, which hid that they are two different operations:
+  #
+  #   * a **`ready`** row is a machine this server is taking possession of and
+  #     nothing more. `confirm_up/2` asserts under the machine's own lease that
+  #     retirement did not win while the provider was answering, and writes the
+  #     status back over itself so `updated_at` moves — which is what
+  #     `SandboxReaper.release_stuck_sandboxes/0` reads as a sign of life.
+  #   * a **`suspended`** row is a machine the reaper parked between the wake's
+  #     own resume and this server starting, whose disk the probe above has just
+  #     said is running. The row comes back to `ready` with `last_resumed_at`
+  #     and its usage row exactly as `main` wrote them, and — new — with the
+  #     `sandbox.resumed` event every other way of bringing a machine back has
+  #     recorded since stage 7a. No provider call and no admission; `confirm_up/2`
+  #     argues both.
+  #
+  # The reload is what this returns rather than anything the door hands back:
+  # `Lifecycle.clock_start/1` reads `last_resumed_at`, which the door may have
+  # just written.
+  defp take_machine(sandbox, conv) do
+    sandbox.id
+    |> Machine.confirm_up(actor: "system:reattach", conversation_id: conv.id)
+    |> settle_take(sandbox)
+  end
+
+  # Only `:confirmed` means this server may attach. `:already_terminal` is
+  # retirement having won while the provider was answering and
+  # `:claimed_elsewhere` another server holding the machine; neither is a machine
+  # to reattach to, and both are this caller's cue to release its credentials and
+  # stop — which is what `main`'s `:retired` and `{:error, :sandbox_reset_pending}`
+  # arms did.
+  defp settle_take({:ok, :confirmed}, sandbox),
+    do: {:ok, Conversations._unsafe_get_sandbox!(sandbox.id)}
+
+  defp settle_take({:ok, outcome}, _sandbox), do: {:error, outcome}
+  defp settle_take({:error, _reason} = error, _sandbox), do: error
+
   # ── sprite environment and egress (ADR 0019 gate 1a) ──────────────────────
 
   # The server's half of `SpriteEnv.build/4`: unpack what the state holds and
   # hand it over. The name stays because the tests and the comments that say
   # "build_sprite_env registers the secrets" still mean this call.
-  defp build_sprite_env(state, agent, env, secrets, sandbox_url \\ nil) do
+  @doc false
+  def build_sprite_env(state, agent, env, secrets, sandbox_url \\ nil) do
     SpriteEnv.build(agent, env, secrets,
       runtime_module: state.runtime_module,
       env_credentials: state.env_credentials,
@@ -1772,7 +1565,8 @@ defmodule Fountain.Conversations.ConversationServer do
   # Rotate the sandbox's callback key (`CallbackKey.rotate/2`) and hold the
   # result: the plaintext and the row id on success. On failure only the
   # token is cleared; `callback_api_key_id` is left as it was.
-  defp rotate_callback_api_key(state, %Conversation{} = conv) do
+  @doc false
+  def rotate_callback_api_key(state, %Conversation{} = conv) do
     case CallbackKey.rotate(conv, state.callback_api_key_id) do
       {:ok, raw, key_id, conv} ->
         {%{state | callback_token: raw, callback_api_key_id: key_id}, conv}

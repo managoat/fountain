@@ -18,13 +18,19 @@ defmodule Fountain.Conversations.Provisioning do
   environments with bare config (just a name) provision instantly.
 
   Since #1372 the steps the server used to carry itself live here too, in
-  the section at the end: creating the sandbox (`create_sandbox_handle/2`),
-  recording its URL on the row (`record_sandbox_url/2`), step 5
-  (`run_setup_script/4`), step 6 (`write_runtime_config/3`), the agent's
-  instructions file (`write_instructions/3`) and the runtime's own
-  preparation once the pipeline is done (`prepare_runtime_sprite/5`, which
-  installs the ACP adapter first). The environment they are handed is
-  `Fountain.Conversations.SpriteEnv`'s.
+  the section at the end: recording the machine's URL on the row
+  (`record_sandbox_url/3`), step 5 (`run_setup_script/4`), step 6
+  (`write_runtime_config/3`), the agent's instructions file
+  (`write_instructions/3`) and the runtime's own preparation once the pipeline
+  is done (`prepare_runtime_sprite/5`, which installs the ACP adapter first).
+  The environment they are handed is `Fountain.Conversations.SpriteEnv`'s.
+
+  Two of those steps left again in ADR 0058 stage 7b, and they are the two that
+  were not steps *inside* a sandbox at all: creating the machine, and tearing
+  down the remnant of an interrupted attempt before creating it again. Both are
+  mutations of the machine itself, which is the owner's, and they are now
+  `Fountain.Machines.Provision`'s — where they sit between the lease that makes
+  them safe and the compare-and-set that records them.
 
   Everything here talks to the sandbox through `Managoat.Sandbox`; nothing
   provider-shaped (rule structs, checkpoint streams) appears at this level.
@@ -767,21 +773,39 @@ defmodule Fountain.Conversations.Provisioning do
   # needs before its first turn. Same bodies, now beside the pipeline they
   # are steps of.
 
-  def create_sandbox_handle(provider, sandbox) do
-    Managoat.Sandbox.Retry.with_backoff(
-      fn -> Managoat.Sandbox.create(provider, sandbox.machine_name) end,
-      label: "sprite create #{sandbox.machine_name}"
-    )
-  end
-
   # Best-effort, and deliberately not fatal: a sandbox with no reportable URL
   # is still a working sandbox. Stored on the row so the API and the UI can
   # show it without a provider round trip.
-  def record_sandbox_url(sandbox, handle) do
+  #
+  # Written under the provision's own lease epoch since ADR 0058 stage 7b, by
+  # compare-and-set, like every other write a machine's owner makes mid-
+  # operation (`HomeCheckpoint.on_park/2` is the sibling). Two things change
+  # with it. A superseded attempt's URL is no longer written over the machine
+  # another owner is building — the row's `provider_meta` would otherwise name
+  # a host this attempt created and then destroyed. And a reset fence landing
+  # in this window is no longer a `MatchError`: `update_sandbox/2` rolled back
+  # with `:sandbox_reset_pending` here and the `{:ok, _} =` above it raised,
+  # which the server's outer rescue turned into a failed conversation. The URL
+  # is a convenience; a refusal to record it is logged and the provision
+  # carries on to the finalize, which is where a fence is answered properly.
+  def record_sandbox_url(sandbox, handle, epoch) do
     case Managoat.Sandbox.public_url(handle) do
       {:ok, url} ->
         meta = Map.put(sandbox.provider_meta || %{}, "public_url", url)
-        {:ok, _} = Conversations.update_sandbox(sandbox, %{provider_meta: meta})
+
+        case Fountain.Machines.Lease.cas_update(sandbox.id, epoch, provider_meta: meta) do
+          {:ok, _} ->
+            :ok
+
+          {:error, reason} ->
+            # `warning`, not `info`: this attempt has lost the machine, which
+            # means its pipeline is about to discover the same thing at its
+            # finalize. Worth a line an operator sees.
+            Logger.warning(
+              "sandbox #{sandbox.id}: not recording the machine URL (#{inspect(reason)})"
+            )
+        end
+
         url
 
       {:error, :unsupported} ->
@@ -898,40 +922,6 @@ defmodule Fountain.Conversations.Provisioning do
       Fountain.RuntimeDispatch.install(handle, runtime, sprite_env)
     else
       :ok
-    end
-  end
-
-  # The row's provider decides where the sandbox is created; adopt-on-
-  # already-exists is the adapter's job.
-  # A sandbox left behind by an interrupted attempt cannot be finished in
-  # place: `Sandbox.create` adopts an existing sprite by name, so a restarted
-  # server would re-run every step on a half-built machine — and the steps
-  # are not idempotent (`git clone` refuses a checkout that already exists,
-  # a setup script that starts services fails on the second start). Seen
-  # live when a deploy landed during an environment's `setup` stage: the
-  # restart re-provisioned onto the same sprite and died in `clone`. Tear the
-  # remnant down first; a sprite that is already gone is not an error.
-  def discard_interrupted_attempt(_provider, _sandbox, false), do: :ok
-
-  def discard_interrupted_attempt(provider, sandbox, true) do
-    Logger.warning(
-      "sandbox #{sandbox.id}: sprite #{sandbox.machine_name} was left mid-provision by an " <>
-        "interrupted attempt; destroying it before provisioning again"
-    )
-
-    handle = Managoat.Sandbox.build_handle(provider, sandbox.machine_name)
-
-    case Managoat.Sandbox.destroy(handle) do
-      :ok ->
-        :ok
-
-      {:error, reason} ->
-        Logger.info(
-          "sandbox #{sandbox.id}: discarding sprite #{sandbox.machine_name} returned " <>
-            "#{inspect(reason)}; provisioning anyway"
-        )
-
-        :ok
     end
   end
 

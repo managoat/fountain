@@ -690,7 +690,8 @@ defmodule Fountain.Machines.AdmissionTest do
       assert Repo.reload!(ctx.conv).status == "idle"
 
       # And the actor on the old machine, for the same turn, writes nothing.
-      second = insert_turn(ctx.conv, %{status: "running", prompt: "go", started_at: DateTime.utc_now()})
+      second =
+        insert_turn(ctx.conv, %{status: "running", prompt: "go", started_at: DateTime.utc_now()})
 
       assert {:error, :ownership_changed} =
                Machine.end_turn(second, {:orphan, "attach_failed"}, sandbox_id: ctx.sandbox.id)

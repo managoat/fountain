@@ -11,7 +11,7 @@ defmodule Fountain.Conversations.PromptCorrelationTest do
   import Fountain.ConversationServerCase.ACP
 
   alias Fountain.Environments
-  alias Fountain.Conversations.{ConversationServer, PromptDelivery, Reapply, Wake}
+  alias Fountain.Conversations.{ConversationServer, PromptDelivery, Reapply, Redaction, Wake}
 
   setup do
     stub(Managoat.Sandbox.Sprites, :destroy, fn _handle -> :ok end)
@@ -89,6 +89,48 @@ defmodule Fountain.Conversations.PromptCorrelationTest do
       refute Map.has_key?(plain, "client_request_id")
       assert correlated["client_request_id"] == "b"
       assert correlated["turn_id"] == second.id
+    end
+
+    # `log!/1` redacts every event's data against the conversation's registered
+    # environment values, and an id is part of that data. An ordinary plain
+    # value — `NODE_ENV=production` — is over the length floor, so the id
+    # `production-build-7` reaches its event as `[REDACTED]-build-7`, which is
+    # also a legal id another client can send. The event cannot tell them
+    # apart. The turn can: it is written by the changeset, not by `log!/1`.
+    test "the event's copy of an id can be redacted; the turn's is literal", %{conv: conv} do
+      Redaction.put(conv.id, [{"NODE_ENV", "production"}])
+      on_exit(fn -> Redaction.delete(conv.id) end)
+
+      collides = "[REDACTED]-build-7"
+
+      {pid, ref, prompt_id} =
+        start_with_turn(conv, prompt_opts: [client_request_id: "production-build-7"])
+
+      reply(pid, ref, prompt_id, %{"stopReason" => "end_turn"})
+
+      assert :ok =
+               GenServer.call(
+                 pid,
+                 PromptDelivery.call(pid, "second", [], client_request_id: collides)
+               )
+
+      %{"method" => "session/set_model", "id" => set_id} = next_write()
+      reply(pid, ref, set_id, %{})
+      assert %{"method" => "session/prompt"} = next_write()
+      settle(pid)
+
+      # Two different clients, one string: binding on the event alone picks
+      # the wrong turn, and no timeout protects against a match that arrives.
+      assert [first_event, second_event] = started_events(conv.id)
+      assert first_event["client_request_id"] == collides
+      assert second_event["client_request_id"] == collides
+
+      # The turns are what the two clients sent, and they differ.
+      assert [first, second] = Conversations._unsafe_list_turns(conv.id)
+      assert first.client_request_id == "production-build-7"
+      assert second.client_request_id == collides
+      assert first_event["turn_id"] == first.id
+      assert second_event["turn_id"] == second.id
     end
 
     test "a refused prompt leaves its id on nothing", %{conv: conv} do

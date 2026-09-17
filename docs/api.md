@@ -385,9 +385,18 @@ prompt instead.
 
 The response repeats the value. Fountain stores it on the turn that the prompt
 opens, and `GET /api/conversations/{id}/turns` shows it as `client_request_id`.
-The `turn` stage event with the `started` state carries it next to `turn_id`.
-Read that event to bind your work item to the turn. Every later event of the
-turn carries the same `turn_id`.
+The turn holds the value you sent, character for character. It is the record.
+
+The `turn` stage event with the `started` state carries the value next to
+`turn_id`. Use that event to find a candidate turn quickly. Then read the turn
+and compare its `client_request_id` with the value you sent. Bind your work
+item only after that comparison.
+
+Do not bind on the event alone. Fountain removes the sandbox environment values
+from the data of every event. So an event shows `[REDACTED]` in the place of a
+value that your ID contains, and a different client can send that same text as
+its own ID. The two events are then equal and the two turns are not. Every
+later event of the turn carries the same `turn_id`.
 
 Two clients can send a prompt at the same moment. A conversation runs one turn
 at a time, so one prompt opens the turn. The turn carries the value of that

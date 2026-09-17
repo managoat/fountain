@@ -106,8 +106,12 @@ defmodule Fountain.Conversations.Turn do
 
   @doc """
   Put the caller's `client_request_id` (#1406) on a `turn` / `started` stage
-  event, beside its `turn_id`. That event is where a client following the
-  stream binds one to the other. A turn whose caller sent none leaves the
+  event, beside its `turn_id`. That event is how a client following the stream
+  finds a candidate turn. It is not the record: `log!/1` redacts every event's
+  data, so an id holding a registered environment value reaches its event with
+  `[REDACTED]` in that place — a string another client may legally have sent as
+  its own id. The row is what the caller sent, and the manual tells a client to
+  confirm a candidate against it. A turn whose caller sent none leaves the
   event in the shape it always had.
   """
   @spec correlate(t(), map()) :: map()

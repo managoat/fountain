@@ -396,8 +396,11 @@ that is awake, Fountain answers `conversation_busy` to the other client. When
 the conversation must wake first, Fountain answers `queued` to the two clients.
 It then drops the prompt that arrives second, and the stream does not say so.
 
-The value is a string of 1 to 200 characters. Make it unique in the
-conversation. Fountain does not check that. **It is not an idempotency key.**
+The value is a string of 1 to 200 characters. It cannot contain a null
+character; Fountain answers `422` for one that does. Send it in the request
+body: Fountain does not read this field from the query string. Make the value
+unique in the conversation. Fountain does not check that. **It is not an
+idempotency key.**
 A second prompt with the same value opens a second turn, and the two turns
 carry the same value. Do not send a prompt again only because a response was
 lost. Read the turns first.

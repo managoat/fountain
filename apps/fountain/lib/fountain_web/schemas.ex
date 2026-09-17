@@ -941,6 +941,14 @@ defmodule FountainWeb.Schemas do
         nullable: true,
         minLength: 1,
         maxLength: Fountain.Conversations.Turn.client_request_id_max(),
+        # PostgreSQL cannot hold U+0000 in a text column: the insert raises
+        # 22021, and nothing on the way to the turn rescues it. An otherwise
+        # ordinary prompt would end its conversation server over the label it
+        # carried, on a wake after the caller was already told `queued`. Every
+        # other character is the caller's business, so this refuses exactly
+        # one. `Turn.changeset/2` and `PromptDelivery.travelling/1` hold the
+        # same line for a caller that is not this door.
+        pattern: Fountain.Conversations.Turn.client_request_id_pattern(),
         description:
           "Your own name for this prompt. Fountain stores it on the turn the prompt " <>
             "opens and sends it on that turn's `started` stage event, beside the " <>

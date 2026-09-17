@@ -990,6 +990,61 @@ defmodule FountainWeb.ConversationControllerTest do
       end
     end
 
+    # PostgreSQL cannot hold U+0000 in a text column: the insert raises 22021
+    # from a place nothing rescues, so an ordinary prompt would end its
+    # conversation server over the label it carried — and on a wake, after the
+    # caller had already been told `queued`. The prompt is fine; the id is not.
+    test "a NUL in the id is refused before the prompt is sent", %{
+      conn: conn,
+      user: user,
+      raw_key: raw_key
+    } do
+      conv = insert_conversation(user_id: user.id)
+      reject(&ConversationServer.send_prompt/4)
+
+      conn
+      |> authed_with_key(raw_key)
+      |> post_json("/api/conversations/#{conv.id}/prompts", %{
+        "prompt" => "hello",
+        "client_request_id" => "plan-7" <> <<0>> <> "step-3"
+      })
+      |> json_response(422)
+    end
+
+    # `replace_params: false` leaves path, query and body merged in `params`,
+    # and the schema validates only the body. A query-only value was therefore
+    # never checked: it was echoed to the caller and then dropped by
+    # `PromptDelivery.travelling/1`, naming a correlation no turn could carry.
+    test "an id supplied only in the query string is not read", %{
+      conn: conn,
+      user: user,
+      raw_key: raw_key
+    } do
+      conv = insert_conversation(user_id: user.id)
+      test = self()
+
+      stub(ConversationServer, :send_prompt, fn _id, _prompt, _images, opts ->
+        send(test, {:prompt_opts, opts})
+        :ok
+      end)
+
+      too_long = String.duplicate("x", Fountain.Conversations.Turn.client_request_id_max() + 1)
+
+      # The second is the array form, which used to render a list where
+      # `PromptResponse` declares a nullable string.
+      for query <- ["client_request_id=#{too_long}", "client_request_id[]=x"] do
+        body =
+          build_conn()
+          |> authed_with_key(raw_key)
+          |> post_json("/api/conversations/#{conv.id}/prompts?#{query}", %{"prompt" => "hello"})
+          |> json_response(200)
+
+        assert body == %{"status" => "queued", "client_request_id" => nil}
+        assert_received {:prompt_opts, opts}
+        assert is_nil(opts[:client_request_id])
+      end
+    end
+
     # The door takes these, so the response echoes them and the turn has to
     # carry the same bytes back (`PromptCorrelationTest`). An id of spaces is
     # one character to every length check here and an empty string to Ecto's

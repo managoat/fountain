@@ -178,8 +178,11 @@ defmodule Fountain.Conversations.PromptCorrelationTest do
     # able to fail turn admission, and so drop a live connection, over a label.
     test "an id the turn would refuse does not travel" do
       too_long = String.duplicate("x", Conversations.Turn.client_request_id_max() + 1)
+      # PostgreSQL raises 22021 on this one from inside the insert, rather than
+      # refusing the changeset, so it must not get as far as turn admission.
+      with_nul = "plan-7" <> <<0>> <> "step-3"
 
-      for bad <- ["", too_long, 42, nil] do
+      for bad <- ["", too_long, 42, nil, with_nul] do
         assert PromptDelivery.travelling(client_request_id: bad) == []
         assert PromptDelivery.for_wake("hi", client_request_id: bad) == "hi"
       end
@@ -320,6 +323,38 @@ defmodule Fountain.Conversations.PromptCorrelationTest do
       assert [turn] = Conversations._unsafe_list_turns(conv.id)
       assert turn.client_request_id == id
       assert [%{"client_request_id" => ^id}] = started_events(conv.id)
+    end
+
+    # The one character no id may carry. PostgreSQL rejects U+0000 in a text
+    # column with 22021, raised from inside an insert nothing rescues, so the
+    # row has to refuse it as an ordinary validation error instead.
+    test "an id carrying NUL is a changeset error, not a raise" do
+      changeset =
+        Conversations.Turn.changeset(%Conversations.Turn{}, %{
+          conversation_id: Ecto.UUID.generate(),
+          turn_number: 1,
+          prompt: "hello",
+          status: "running",
+          client_request_id: "plan-7" <> <<0>> <> "step-3"
+        })
+
+      assert %{client_request_id: [_]} = errors_on(changeset)
+    end
+
+    # The door refuses the same id with 422, and it does it with a pattern
+    # rather than this function. Two statements of one rule, pinned together.
+    test "the door's pattern and the row agree about NUL" do
+      pattern = Regex.compile!(Conversations.Turn.client_request_id_pattern())
+
+      for id <- ["plan-7", " ", "\t\n", String.duplicate("é", 200)] do
+        assert Regex.match?(pattern, id)
+        refute Conversations.Turn.has_nul?(id)
+      end
+
+      for id <- [<<0>>, "a" <> <<0>>, <<0>> <> "a", "a" <> <<0>> <> "\n"] do
+        refute Regex.match?(pattern, id)
+        assert Conversations.Turn.has_nul?(id)
+      end
     end
 
     # The one string that still reads as "the caller sent none", so that a

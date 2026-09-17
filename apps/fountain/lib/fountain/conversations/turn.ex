@@ -17,6 +17,14 @@ defmodule Fountain.Conversations.Turn do
   # The API schema declares the same bound, so a request is refused at the
   # door (422) and this is the backstop for a caller that is not the API.
   @client_request_id_max 200
+  # The one character the id may not contain. PostgreSQL rejects U+0000 in a
+  # text column with 22021, from inside an insert nothing rescues: an ordinary
+  # prompt would end its conversation server over its label. The API schema
+  # declares this pattern (`Schemas.ClientRequestId`), which makes it a 422 at
+  # the door; `has_nul?/1` below is the same rule for a caller that is not the
+  # API, and "the door's pattern and the row agree about NUL"
+  # (`PromptCorrelationTest`) pins the two statements together.
+  @client_request_id_pattern ~S(^[^\x00]*$)
 
   schema "turns" do
     field :turn_number, :integer
@@ -84,6 +92,17 @@ defmodule Fountain.Conversations.Turn do
   def statuses, do: @statuses
   def origins, do: @origins
   def client_request_id_max, do: @client_request_id_max
+  def client_request_id_pattern, do: @client_request_id_pattern
+
+  @doc """
+  Whether this id carries the one character a turn cannot store (#1406).
+
+  The door refuses it with 422. `PromptDelivery.travelling/1` asks this before
+  it changes a prompt's message shape, and `changeset/2` asks it again, so an
+  id that would raise 22021 at the insert never reaches turn admission.
+  """
+  @spec has_nul?(String.t()) :: boolean()
+  def has_nul?(value) when is_binary(value), do: String.contains?(value, <<0>>)
 
   @doc """
   Put the caller's `client_request_id` (#1406) on a `turn` / `started` stage
@@ -156,7 +175,12 @@ defmodule Fountain.Conversations.Turn do
     |> validate_inclusion(:status, @statuses)
     |> validate_inclusion(:origin, @origins)
     |> validate_length(:client_request_id, min: 1, max: @client_request_id_max)
+    |> validate_change(:client_request_id, &refuse_nul/2)
     |> unique_constraint([:conversation_id, :turn_number])
+  end
+
+  defp refuse_nul(:client_request_id, value) do
+    if has_nul?(value), do: [client_request_id: "cannot contain a null character"], else: []
   end
 
   # The caller's id is an opaque label, so it is stored as it was sent. Ecto

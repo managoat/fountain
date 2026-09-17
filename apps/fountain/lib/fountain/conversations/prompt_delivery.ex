@@ -48,7 +48,9 @@ defmodule Fountain.Conversations.PromptDelivery do
   already refused it (422) and this is the backstop for a caller that is not
   the API. Reaching the insert instead would make turn admission fail, and a
   live server answers a failed admission by dropping its connection: a healthy
-  agent session torn down over a label.
+  agent session torn down over a label. An id carrying U+0000 is worse than a
+  refused changeset — PostgreSQL raises 22021 from inside the insert — and it
+  is dropped here for the same reason.
   """
   @spec travelling(keyword()) :: travelling()
   def travelling(opts) when is_list(opts) do
@@ -56,7 +58,7 @@ defmodule Fountain.Conversations.PromptDelivery do
   end
 
   defp carriable?(value) when is_binary(value),
-    do: String.length(value) in 1..Turn.client_request_id_max()
+    do: String.length(value) in 1..Turn.client_request_id_max() and not Turn.has_nul?(value)
 
   defp carriable?(_value), do: false
 

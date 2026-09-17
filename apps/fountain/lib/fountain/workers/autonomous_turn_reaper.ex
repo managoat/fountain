@@ -21,8 +21,8 @@ defmodule Fountain.Workers.AutonomousTurnReaper do
 
   require Logger
 
-  alias Fountain.Conversations
   alias Fountain.Conversations.{ConversationServer, LogEvent, Turn}
+  alias Fountain.Machines.Machine
   alias Fountain.Repo
 
   @stuck_after_minutes 30
@@ -66,7 +66,10 @@ defmodule Fountain.Workers.AutonomousTurnReaper do
     if ConversationServer.whereis(turn.conversation_id) do
       false
     else
-      case Conversations._unsafe_orphan_turn(turn, "stuck_running_no_server",
+      # Through the owner's door (ADR 0058 stage 8a), with no `:sandbox_id`:
+      # the reaper recovers on nobody's behalf, so there is no binding to fence
+      # on, and the write is the same one it has always made.
+      case Machine.end_turn(turn, {:orphan, "stuck_running_no_server"},
              actor: "system:autonomous_turn_reaper"
            ) do
         {:ok, _, _} ->

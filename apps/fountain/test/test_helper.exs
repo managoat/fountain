@@ -96,6 +96,9 @@ Mimic.copy(Fountain.Machines.Destroy)
 # refusal and the admission's three — and each arm is driven by handing
 # `Resume.run/2` one of them.
 Mimic.copy(Fountain.Machines.Machine)
+# The fifth protocol (stage 8a): `admission_test.exs` raises inside the owner
+# to drive the door's answer for an owner that cannot serve the call.
+Mimic.copy(Fountain.Machines.Admission)
 Mimic.copy(Fountain.Machines.Provision)
 Mimic.copy(Fountain.Machines.Renewal)
 Mimic.copy(Fountain.Machines.Resume)

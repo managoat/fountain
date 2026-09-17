@@ -615,12 +615,12 @@ defmodule Fountain.Conversations.Launch do
   # `ConversationServer` as any prompt is.
   defp check_attach_capacity(%Sandbox{} = sandbox, %Agents.Agent{runtime: runtime}, prompt)
        when is_binary(prompt) and prompt != "" do
-    capacity = Fountain.RuntimeDispatch.concurrency(runtime)
-
     # ownership: sandbox is the row attach_conversation's scoped get_sandbox
     # fetched, or create_attached_conversation's own tenant-scoped
-    # FOR NO KEY UPDATE re-read.
-    if Conversations._unsafe_sandbox_at_capacity?(sandbox.id, nil, capacity),
+    # FOR NO KEY UPDATE re-read. Counted per runtime, as the locked admission
+    # the first prompt then makes is (ADR 0058 stage 8a): the conversation
+    # does not exist yet, so every turn on the machine on this runtime counts.
+    if Machine.at_capacity?(sandbox.id, nil, runtime),
       do: {:error, :sandbox_at_capacity},
       else: :ok
   end

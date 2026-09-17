@@ -33,7 +33,7 @@ defmodule Fountain.Conversations.OrphanBindingIsolationTest do
 
         orphan = fn ->
           # Internal actor reconciliation; the fixture belongs to this test's tenant.
-          Conversations._unsafe_orphan_turn(turn, "binding_race", expected_sandbox_id: old.id)
+          Conversations._unsafe_orphan_turn(turn, "binding_race", sandbox_id: old.id)
         end
 
         reassign = fn ->

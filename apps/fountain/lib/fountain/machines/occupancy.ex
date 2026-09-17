@@ -453,8 +453,10 @@ defmodule Fountain.Machines.Occupancy do
 
   # Keyed by conversation rather than by turn: the turn machine admits one turn
   # at a time per conversation, so "which conversations are mid-turn, and on
-  # what runtime" is the shape capacity is counted in (ADR 0058, per-runtime
-  # capacity arrives with `admit_turn/2` in stage 8).
+  # what runtime" is the shape capacity is counted in — per runtime, since
+  # `Machines.Admission` (ADR 0058 stage 8a); the locked count it makes is
+  # `Conversations._unsafe_running_turns_elsewhere/3`, and this is the same
+  # reading for a caller holding the whole struct.
   defp running_turns(rows, turns) do
     for {id, _status, runtime, _updated_at} <- rows,
         Map.get(turns, id, %{running?: false}).running?,

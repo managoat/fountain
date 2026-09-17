@@ -27,6 +27,7 @@ defmodule Fountain.Conversations.Connection do
 
   alias Fountain.Conversations
   alias Fountain.Conversations.{Output, Provisioning, TurnMachine}
+  alias Fountain.Machines.Machine
 
   @type t :: %__MODULE__{
           peer: pid() | nil,
@@ -324,7 +325,6 @@ defmodule Fountain.Conversations.Connection do
     # adopt configuration committed before its peer has been refreshed.
     conv = Conversations._unsafe_get_conversation!(conversation_id)
     turn_number = Conversations._unsafe_next_turn_number(conversation_id)
-    capacity = Fountain.RuntimeDispatch.concurrency(conv.runtime)
 
     attrs = %{
       conversation_id: conv.id,
@@ -336,13 +336,9 @@ defmodule Fountain.Conversations.Connection do
       started_at: now()
     }
 
-    with {:ok, turn} <-
-           Conversations._unsafe_create_turn_on_sandbox(
-             attrs,
-             sandbox_id,
-             capacity,
-             revision
-           ) do
+    # Through the owner (ADR 0058 stage 8a), so a background cycle is admitted
+    # under the same lock, lease refusal and per-runtime count as a prompt.
+    with {:ok, turn} <- Machine.admit_turn(sandbox_id, attrs, revision: revision) do
       turn_span =
         TurnMachine.open_span(user_id, conv, turn, :autonomous, TurnMachine.agent_for(conv))
 

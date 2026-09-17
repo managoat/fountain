@@ -89,7 +89,7 @@ defmodule Fountain.Conversations.ReleaseFenceTest do
     }
 
     assert {:error, :not_running} =
-             Conversations._unsafe_create_turn_on_sandbox(attrs, c.sandbox.id, :unbounded)
+             Conversations._unsafe_create_turn_on_sandbox(attrs, c.sandbox.id)
   end
 
   test "an unrelated co-tenant may keep working when this idle conversation releases", c do

@@ -5,13 +5,13 @@ defmodule Fountain.Conversations.ResetAdmissionOrderTest do
   alias Ecto.Adapters.SQL.Sandbox
   alias Fountain.Conversations
 
-  for first <- [:reset, :admission], capacity <- [1, :unbounded] do
-    test "#{first} wins against #{inspect(capacity)} admission on independent connections" do
-      assert_order(unquote(first), unquote(capacity))
+  for first <- [:reset, :admission] do
+    test "#{first} wins against admission on independent connections" do
+      assert_order(unquote(first))
     end
   end
 
-  defp assert_order(first, capacity) do
+  defp assert_order(first) do
     Sandbox.unboxed_run(Repo, fn ->
       user = insert_verified_user()
       agent = insert_agent(user_id: user.id)
@@ -42,8 +42,7 @@ defmodule Fountain.Conversations.ResetAdmissionOrderTest do
               status: "running",
               prompt: "race"
             },
-            home.id,
-            capacity
+            home.id
           )
       end
 

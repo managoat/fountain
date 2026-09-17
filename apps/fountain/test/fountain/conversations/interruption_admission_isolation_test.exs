@@ -4,9 +4,9 @@ defmodule Fountain.Conversations.InterruptionAdmissionIsolationTest do
   alias Fountain.Conversations
   alias Fountain.Conversations.Interruption
 
-  for capacity <- [1, :unbounded], ending <- [:interrupt, :machine_gone] do
-    @tag capacity: capacity, ending: ending
-    test "a newer #{inspect(capacity)} turn keeps the conversation running after #{ending}",
+  for ending <- [:interrupt, :machine_gone] do
+    @tag ending: ending
+    test "a newer turn keeps the conversation running after #{ending}",
          ctx do
       Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
         user = insert_verified_user()
@@ -30,8 +30,7 @@ defmodule Fountain.Conversations.InterruptionAdmissionIsolationTest do
             # Ownership: exercise real admission for this actor's fixture.
             Conversations._unsafe_create_turn_on_sandbox(
               %{conversation_id: conv.id, turn_number: 2, status: "running", prompt: "next"},
-              sandbox.id,
-              ctx.capacity
+              sandbox.id
             )
           end)
 

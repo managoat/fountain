@@ -308,7 +308,7 @@ defmodule Fountain.Conversations.TurnParentTest do
     # No journal row, so `cleanup_binding?/1` has nothing to compare: the
     # actor's own `:expected_sandbox_id` is the only record of the binding.
     assert {:error, :ownership_changed} =
-             Conversations._unsafe_orphan_turn(turn, "rebound", expected_sandbox_id: old.id)
+             Conversations._unsafe_orphan_turn(turn, "rebound", sandbox_id: old.id)
 
     assert Repo.get!(Turn, turn.id).status == "running"
     assert Repo.get!(Conversation, conv.id).status == "running"
@@ -322,7 +322,7 @@ defmodule Fountain.Conversations.TurnParentTest do
 
     # An explicit nil is an expectation of "no sandbox", not an absent one.
     assert {:error, :ownership_changed} =
-             Conversations._unsafe_orphan_turn(turn, "unbound_actor", expected_sandbox_id: nil)
+             Conversations._unsafe_orphan_turn(turn, "unbound_actor", sandbox_id: nil)
 
     assert Repo.get!(Turn, turn.id).status == "running"
 
@@ -354,7 +354,7 @@ defmodule Fountain.Conversations.TurnParentTest do
     }
 
     assert {:ok, _} =
-             Conversations._unsafe_create_turn_on_sandbox(attrs, c.sandbox.id, :unbounded)
+             Conversations._unsafe_create_turn_on_sandbox(attrs, c.sandbox.id)
 
     assert Repo.get!(Conversation, c.conv.id).status == "running"
   end
@@ -365,7 +365,7 @@ defmodule Fountain.Conversations.TurnParentTest do
     attrs = %{conversation_id: c.conv.id, turn_number: 2, status: "running"}
 
     assert {:error, %Ecto.Changeset{}} =
-             Conversations._unsafe_create_turn_on_sandbox(attrs, c.sandbox.id, :unbounded)
+             Conversations._unsafe_create_turn_on_sandbox(attrs, c.sandbox.id)
 
     assert Repo.get!(Conversation, c.conv.id).status == "idle"
   end
@@ -381,7 +381,7 @@ defmodule Fountain.Conversations.TurnParentTest do
       # sandbox-bound admission like any other (#1749), so one refusal covers
       # the user prompt and the background follow-up.
       assert {:error, :not_running} =
-               Conversations._unsafe_create_turn_on_sandbox(attrs, c.sandbox.id, :unbounded)
+               Conversations._unsafe_create_turn_on_sandbox(attrs, c.sandbox.id)
 
       assert {:error, :not_running} =
                Fountain.Conversations.Connection.open_autonomous_turn(

@@ -5,6 +5,7 @@ defmodule Fountain.Conversations.SharedSandboxTest do
   use Fountain.DataCase, async: true
 
   alias Fountain.Conversations
+  alias Fountain.Machines.Machine
   alias Fountain.Repo
 
   setup do
@@ -45,63 +46,57 @@ defmodule Fountain.Conversations.SharedSandboxTest do
     end
   end
 
+  # A third conversation on the same machine, on a runtime with no bound. The
+  # per-runtime count (ADR 0058 stage 8a) is what keeps it and the two opencode
+  # conversations from consuming each other's slots.
+  defp claude_cotenant(%{user: user, sandbox: sandbox}) do
+    agent = insert_agent(user_id: user.id, runtime: "claude")
+    insert_conversation(user_id: user.id, agent: agent, sandbox: sandbox, status: "idle")
+  end
+
+  defp attrs(conv) do
+    %{
+      conversation_id: conv.id,
+      turn_number: 1,
+      prompt: "hi",
+      status: "running",
+      started_at: now()
+    }
+  end
+
   describe "_unsafe_create_turn_on_sandbox/3" do
+    # The owner's write, driven directly here: `Machine.admit_turn/3` is the door
+    # and `admission_test.exs` pins that it is the only caller in `lib/`. The
+    # bound is the conversation's runtime, read under the lock — there is no
+    # capacity argument since stage 8a.
     test "refuses at capacity and writes nothing", %{a: a, b: b, sandbox: sandbox} do
       running_turn(b)
 
-      attrs = %{
-        conversation_id: a.id,
-        turn_number: 1,
-        prompt: "hi",
-        status: "running",
-        started_at: now()
-      }
-
       assert {:error, :sandbox_at_capacity} =
-               Conversations._unsafe_create_turn_on_sandbox(attrs, sandbox.id, 1)
+               Conversations._unsafe_create_turn_on_sandbox(attrs(a), sandbox.id)
 
       assert Conversations._unsafe_list_turns(a.id) == []
     end
 
-    for capacity <- [1, :unbounded], status <- ["terminated", "failed"] do
-      test "#{inspect(capacity)} admission refuses a persisted #{status} sandbox", ctx do
+    for status <- ["terminated", "failed"] do
+      test "admission refuses a persisted #{status} sandbox", ctx do
         ctx.sandbox |> Ecto.Changeset.change(status: unquote(status)) |> Repo.update!()
 
         assert {:error, :sandbox_unavailable} =
-                 Conversations._unsafe_create_turn_on_sandbox(
-                   %{
-                     conversation_id: ctx.a.id,
-                     turn_number: 1,
-                     status: "running",
-                     prompt: "late"
-                   },
-                   ctx.sandbox.id,
-                   unquote(capacity)
-                 )
+                 Conversations._unsafe_create_turn_on_sandbox(attrs(ctx.a), ctx.sandbox.id)
 
         assert Conversations._unsafe_list_turns(ctx.a.id) == []
       end
     end
 
-    for capacity <- [1, :unbounded] do
-      test "#{inspect(capacity)} admission refuses the previous sandbox after a move", ctx do
-        fresh = insert_sandbox(user_id: ctx.user.id, status: "ready")
-        ctx.a |> Ecto.Changeset.change(sandbox_id: fresh.id) |> Repo.update!()
+    test "admission refuses the previous sandbox after a move", ctx do
+      fresh = insert_sandbox(user_id: ctx.user.id, status: "ready")
+      ctx.a |> Ecto.Changeset.change(sandbox_id: fresh.id) |> Repo.update!()
 
-        assert {:error, :sandbox_unavailable} =
-                 Conversations._unsafe_create_turn_on_sandbox(
-                   %{
-                     conversation_id: ctx.a.id,
-                     turn_number: 1,
-                     status: "running",
-                     prompt: "late"
-                   },
-                   ctx.sandbox.id,
-                   unquote(capacity)
-                 )
+      assert {:error, :sandbox_unavailable} =
+               Conversations._unsafe_create_turn_on_sandbox(attrs(ctx.a), ctx.sandbox.id)
 
-        assert Conversations._unsafe_list_turns(ctx.a.id) == []
-      end
+      assert Conversations._unsafe_list_turns(ctx.a.id) == []
     end
 
     test "autonomous admission honors the runtime capacity too", ctx do
@@ -121,39 +116,80 @@ defmodule Fountain.Conversations.SharedSandboxTest do
     end
 
     test "inserts below capacity", %{a: a, sandbox: sandbox} do
-      attrs = %{
-        conversation_id: a.id,
-        turn_number: 1,
-        prompt: "hi",
-        status: "running",
-        started_at: now()
-      }
-
-      assert {:ok, turn} = Conversations._unsafe_create_turn_on_sandbox(attrs, sandbox.id, 1)
+      assert {:ok, turn} = Conversations._unsafe_create_turn_on_sandbox(attrs(a), sandbox.id)
       assert turn.status == "running"
     end
 
-    test "an unbounded runtime never refuses", %{a: a, b: b, sandbox: sandbox} do
-      running_turn(b)
-
-      attrs = %{
-        conversation_id: a.id,
-        turn_number: 1,
-        prompt: "hi",
-        status: "running",
-        started_at: now()
-      }
+    test "an unbounded runtime never refuses", ctx do
+      # Two claude conversations mid-turn on the machine, and a third admitted:
+      # claude has no bound, so nothing on the machine counts against it.
+      running_turn(claude_cotenant(ctx))
+      running_turn(claude_cotenant(ctx))
 
       assert {:ok, _} =
-               Conversations._unsafe_create_turn_on_sandbox(attrs, sandbox.id, :unbounded)
+               Conversations._unsafe_create_turn_on_sandbox(
+                 attrs(claude_cotenant(ctx)),
+                 ctx.sandbox.id
+               )
     end
   end
 
-  describe "_unsafe_sandbox_at_capacity?/3" do
-    test "is never at capacity for :unbounded", %{a: a, b: b, sandbox: sandbox} do
-      running_turn(b)
-      refute Conversations._unsafe_sandbox_at_capacity?(sandbox.id, a.id, :unbounded)
-      assert Conversations._unsafe_sandbox_at_capacity?(sandbox.id, a.id, 1)
+  describe "capacity is counted per runtime (ADR 0058 stage 8a, #1089 blocker 4)" do
+    # On `main` every running turn on the machine counted against the asker's
+    # bound whatever runtime it ran on, so a claude turn consumed the one
+    # opencode slot on a shared home. Both directions are pinned, and the
+    # same-runtime refusal beside them so the fix cannot be "count nothing".
+    test "a claude turn does not consume the opencode slot", ctx do
+      running_turn(claude_cotenant(ctx))
+
+      assert {:ok, _} = Conversations._unsafe_create_turn_on_sandbox(attrs(ctx.a), ctx.sandbox.id)
+    end
+
+    test "an opencode turn does not refuse a claude turn", ctx do
+      running_turn(ctx.b)
+
+      assert {:ok, _} =
+               Conversations._unsafe_create_turn_on_sandbox(
+                 attrs(claude_cotenant(ctx)),
+                 ctx.sandbox.id
+               )
+    end
+
+    test "an opencode turn still refuses the other opencode conversation", ctx do
+      running_turn(claude_cotenant(ctx))
+      running_turn(ctx.b)
+
+      assert {:error, :sandbox_at_capacity} =
+               Conversations._unsafe_create_turn_on_sandbox(attrs(ctx.a), ctx.sandbox.id)
+    end
+
+    test "the unlocked read asks the same question", ctx do
+      claude = claude_cotenant(ctx)
+      running_turn(claude)
+
+      refute Machine.at_capacity?(ctx.sandbox.id, ctx.a.id, "opencode")
+      refute Machine.at_capacity?(ctx.sandbox.id, nil, "claude")
+
+      running_turn(ctx.b)
+      assert Machine.at_capacity?(ctx.sandbox.id, ctx.a.id, "opencode")
+      assert Machine.at_capacity?(ctx.sandbox.id, nil, "opencode")
+      refute Machine.at_capacity?(ctx.sandbox.id, ctx.b.id, "opencode")
+      refute Machine.at_capacity?(ctx.sandbox.id, claude.id, "claude")
+    end
+
+    test "the count itself takes the runtime", ctx do
+      running_turn(claude_cotenant(ctx))
+      running_turn(ctx.b)
+
+      assert Conversations._unsafe_running_turns_elsewhere(ctx.sandbox.id, ctx.a.id) == 2
+
+      assert Conversations._unsafe_running_turns_elsewhere(ctx.sandbox.id, ctx.a.id, "opencode") ==
+               1
+
+      assert Conversations._unsafe_running_turns_elsewhere(ctx.sandbox.id, ctx.a.id, "claude") ==
+               1
+
+      assert Conversations._unsafe_running_turns_elsewhere(ctx.sandbox.id, nil, "gemini") == 0
     end
   end
 

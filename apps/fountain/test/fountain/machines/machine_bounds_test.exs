@@ -44,6 +44,7 @@ defmodule Fountain.Machines.MachineBoundsTest do
   use ExUnit.Case, async: true
 
   alias Fountain.Conversations.ProvisionWatchdog
+  alias Fountain.Machines.Admission
   alias Fountain.Machines.Destroy
   alias Fountain.Machines.Machine
   alias Fountain.Machines.Park
@@ -211,6 +212,35 @@ defmodule Fountain.Machines.MachineBoundsTest do
   # nothing else would notice — which is the failure mode this scan is for.
   @bound_option ~r/\b(busy_wait_ms|lease_ttl_ms|deadline_ms):/
 
+  test "an admission's ladder, and why it has no lease to sit under" do
+    # An admission is one transaction that may first wait out a live lease, so
+    # it has a waiter's bound and a call timeout, and they take the destroy's
+    # numbers for the destroy's reasons: the caller is a request (the prompt's
+    # `handle_call`), so the ceiling sits under the client's.
+    assert Admission.busy_wait_ms() == Destroy.busy_wait_ms()
+    assert Machine.admit_timeout_ms() == Machine.destroy_timeout_ms()
+
+    assert Admission.busy_wait_ms() < Machine.admit_timeout_ms(),
+           "a caller that gives up before the protocol's own wait would report a refusal " <>
+             "that has not happened yet"
+
+    assert Machine.admit_timeout_ms() < @conversation_call_timeout_ms,
+           "a ConversationServer's client gives up at #{@conversation_call_timeout_ms}ms; an " <>
+             "admission must answer before that"
+
+    assert Machine.admit_timeout_ms() - Admission.busy_wait_ms() >= 5_000
+    assert @conversation_call_timeout_ms - Machine.admit_timeout_ms() >= 5_000
+
+    # And there is no third rung: an admission takes no lease, so it has no TTL
+    # for the timeout to sit under and there is not meant to be one. See
+    # `Fountain.Machines.Admission`'s moduledoc for why. `Code.ensure_loaded!/1`
+    # first, and a positive control, for the reason the provision case above
+    # gives.
+    Code.ensure_loaded!(Admission)
+    assert function_exported?(Admission, :busy_wait_ms, 0), "the refutation below proves nothing"
+    refute function_exported?(Admission, :lease_ttl_ms, 0)
+  end
+
   test "no call site overrides the bounds" do
     # The defaults only mean something if nothing in `lib/` passes its own. A
     # test may (and `destroy_test.exs` does) — that is the mechanism check.
@@ -247,7 +277,8 @@ defmodule Fountain.Machines.MachineBoundsTest do
           "apps/fountain/lib/fountain/machines/destroy.ex",
           "apps/fountain/lib/fountain/machines/park.ex",
           "apps/fountain/lib/fountain/machines/resume.ex",
-          "apps/fountain/lib/fountain/machines/provision.ex"
+          "apps/fountain/lib/fountain/machines/provision.ex",
+          "apps/fountain/lib/fountain/machines/admission.ex"
         ] do
       assert MapSet.member?(relative, site),
              "the scan missed #{site} (#{length(files)} files under #{root}), so an " <>

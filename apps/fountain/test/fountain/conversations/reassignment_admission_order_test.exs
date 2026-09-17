@@ -5,15 +5,13 @@ defmodule Fountain.Conversations.ReassignmentAdmissionOrderTest do
   alias Ecto.Adapters.SQL.Sandbox
   alias Fountain.Conversations
 
-  for first <- [:reassignment, :admission],
-      capacity <- [1, :unbounded],
-      writer <- [:context, :bulk] do
-    test "#{first} wins #{writer} reassignment with #{inspect(capacity)} capacity" do
-      assert_order(unquote(first), unquote(capacity), unquote(writer))
+  for first <- [:reassignment, :admission], writer <- [:context, :bulk] do
+    test "#{first} wins #{writer} reassignment" do
+      assert_order(unquote(first), unquote(writer))
     end
   end
 
-  defp assert_order(first, capacity, writer) do
+  defp assert_order(first, writer) do
     Sandbox.unboxed_run(Repo, fn ->
       user = insert_verified_user()
       agent = insert_agent(user_id: user.id)
@@ -65,8 +63,7 @@ defmodule Fountain.Conversations.ReassignmentAdmissionOrderTest do
               status: "running",
               prompt: "race"
             },
-            home.id,
-            capacity
+            home.id
           )
       end
 
@@ -180,7 +177,7 @@ defmodule Fountain.Conversations.ReassignmentAdmissionOrderTest do
     target? =
       case role do
         :reassignment -> query =~ ~s(UPDATE "conversations")
-        :admission -> query =~ ~s(INNER JOIN "sandboxes")
+        :admission -> query =~ ~s(FROM "sandboxes") and query =~ "FOR SHARE"
       end
 
     if self() == worker and target? do

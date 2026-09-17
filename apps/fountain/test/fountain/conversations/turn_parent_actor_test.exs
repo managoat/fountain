@@ -44,10 +44,11 @@ defmodule Fountain.Conversations.TurnParentActorTest do
     test = self()
 
     # The barrier sits on the terminal writer the completion path actually
-    # uses. `finish/4` routes its write through `_unsafe_complete_turn/3`
-    # (#1999), so stubbing `_unsafe_update_turn/2` here would hold nothing
-    # open and the race this test asserts on would never be arranged.
-    stub(Conversations, :_unsafe_complete_turn, fn row, sandbox_id, status ->
+    # uses. `finish/4` routes its write through `Machine.end_turn/3` and so
+    # `_unsafe_complete_turn/4` (#1999, ADR 0058 stage 8a), so stubbing
+    # `_unsafe_update_turn/2` here would hold nothing open and the race this
+    # test asserts on would never be arranged.
+    stub(Conversations, :_unsafe_complete_turn, fn row, sandbox_id, status, opts ->
       if self() == pid and row.id == turn.id do
         send(test, :after_dispatch_before_write)
 
@@ -58,7 +59,7 @@ defmodule Fountain.Conversations.TurnParentActorTest do
         end
       end
 
-      Mimic.call_original(Conversations, :_unsafe_complete_turn, [row, sandbox_id, status])
+      Mimic.call_original(Conversations, :_unsafe_complete_turn, [row, sandbox_id, status, opts])
     end)
 
     send(pid, {:acp, ref, {:done, "end_turn", nil}})

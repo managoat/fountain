@@ -8,19 +8,24 @@ defmodule Fountain.Machines.Machine do
   a minute with nothing asked of it, and `ensure_started/1` brings it back:
   there is a process per active machine, not one per row.
 
-  Seven verbs so far. `who_is_here/1` returns the
+  Ten verbs so far. `who_is_here/1` returns the
   `Fountain.Machines.Occupancy` struct and reads nothing else. `destroy/2`,
   `park/2` and `ensure_up/2` run `Fountain.Machines.Destroy.run/2`,
   `Fountain.Machines.Park.run/2` and `Fountain.Machines.Resume.run/2` — three of
-  the four protocols, lease and all. `provision/3`, `confirm_up/2` and
+  the five protocols, lease and all. `provision/3`, `confirm_up/2` and
   `fail_provision/2` are the fourth, `Fountain.Machines.Provision`, which builds
   a machine, confirms one a server is reattaching to, and retires one whose
-  provisioning is not going to happen. Between them they are everything here
-  that writes: the row through `Fountain.Machines.Lease`, the provider through
-  `Managoat.Sandbox.create/2`, `destroy/1`, `suspend/1` and `resume/1`, and one
+  provisioning is not going to happen. `admit_turn/3`, `end_turn/3` and the
+  predicate `at_capacity?/3` are the fifth, `Fountain.Machines.Admission`
+  (stage 8a): the locked turn insert with the live-lease refusal and the
+  per-runtime capacity count decided under its lock, and the one door every
+  turn-ending write an actor makes comes through. Between them they are
+  everything here that writes: the row through `Fountain.Machines.Lease`, the
+  provider through `Managoat.Sandbox.create/2`, `destroy/1`, `suspend/1` and
+  `resume/1`, the turn rows through the context's locked writers, and one
   `sandbox.destroyed`, `sandbox.suspended`, `sandbox.resumed`,
-  `sandbox.provisioned` or `sandbox.provision_failed` audit event. `attach` and
-  `admit_turn` arrive in stage 8.
+  `sandbox.provisioned` or `sandbox.provision_failed` audit event. `attach`,
+  `detach` and `retarget` arrive in stage 8b.
 
   Beside them is one predicate, `busy?/2` (stage 6a): whether an owner holds a
   live lease on a machine, from the row the caller already holds. It is the
@@ -32,9 +37,10 @@ defmodule Fountain.Machines.Machine do
 
   ## What the gate chooses
 
-  With `MACHINE_OWNER_ENABLED` on, `destroy/2`, `park/2` and `ensure_up/2` are
-  calls into this process, so two operations on one machine queue behind one
-  another in its mailbox. With it off, the protocols run inline on the caller.
+  With `MACHINE_OWNER_ENABLED` on, `destroy/2`, `park/2`, `ensure_up/2` and
+  `admit_turn/3` are calls into this process, so two operations on one machine
+  queue behind one another in its mailbox. With it off, the protocols run
+  inline on the caller.
   **Same protocol either way**
   — the same fence, the same lease, the same compare-and-set, the same event —
   because the thing that makes a destroy safe against a concurrent destroy is
@@ -55,6 +61,16 @@ defmodule Fountain.Machines.Machine do
   the optimization — and the contention a provision has is a duplicate server,
   which the lease refuses in one round trip.
 
+  **`end_turn/3` is the other exception** (stage 8a), and for the opposite
+  reason: it is not a machine operation at all. It ends a turn — a write to the
+  conversation's rows under their own locks, with no provider call and no
+  machine state changed — and the owner's view of admitted turns is those rows,
+  read under its lease when a park or a destroy needs them. Queueing a turn's
+  end behind a cotenant's minute-long park would hold a server's `terminate/2`
+  or adapter-exit path in a `GenServer.call`, and a timeout there leaves the
+  turn `running` with nothing left to end it. `Fountain.Machines.Admission`'s
+  moduledoc argues it; the fence it applies is the same either way.
+
   Asking through a process for an answer available from a pure function looks
   like ceremony, and it is the point: `who_is_here/1` is the door every writer
   comes through once the writes move here, so the callers moved first, while
@@ -67,11 +83,15 @@ defmodule Fountain.Machines.Machine do
   A GenServer is serial, so a destroy occupies this process for as long as it
   takes, and a `who_is_here/1` that arrives meanwhile waits behind it. Past
   `@call_timeout` that read gives up, logs, and reads `Occupancy` directly —
-  correct today, because the verb is read-only and a slightly late reading of
-  who is on a machine harms nobody. It stops being correct at stage 8, when
-  `attach`, `detach` and `admit_turn` come through this same door and the
-  answer is what a durable decision is made on: a writer that walks past the
-  owner is two owners again. The fallback has to go before those land.
+  correct, because the verb is read-only and a slightly late reading of who is
+  on a machine harms nobody. Stage 4 wrote here that the fallback would have to
+  go before `admit_turn` landed, on the reasoning that a writer deciding on the
+  struct would be two owners again. Stage 8a's admission does not decide on the
+  struct: it re-reads the machine's row and counts the running turns **under
+  the advisory lock, inside its own transaction**, and with the gate on it
+  refuses rather than falls back when the owner cannot be reached, exactly as
+  `destroy/2` does. So the fallback stays where it is, for the one verb that
+  only looks; stage 8b's `attach` and `detach` are held to the same rule.
   """
 
   # `:transient` — an idle-stop exits `:normal` and Horde leaves it stopped,
@@ -85,7 +105,9 @@ defmodule Fountain.Machines.Machine do
   require Logger
 
   alias Fountain.Conversations.Sandbox
+  alias Fountain.Conversations.Turn
   alias Fountain.Machines
+  alias Fountain.Machines.Admission
   alias Fountain.Machines.Destroy
   alias Fountain.Machines.Lease
   alias Fountain.Machines.Occupancy
@@ -159,6 +181,18 @@ defmodule Fountain.Machines.Machine do
   # `machine_bounds_test.exs` pins the ordering.
   @resume_timeout 20_000
 
+  # An admission is one transaction that may first wait out a live lease —
+  # `Admission.busy_wait_ms/0`, five seconds — so it takes the destroy's
+  # ceiling for the destroy's reasons: clearly above the protocol's own wait,
+  # so a caller never reports a refusal the protocol has not reached, and
+  # clearly below `conversation_call_timeout_ms` (30s), because this caller
+  # **is** a request: `TurnMachine.open/6` runs inside the server's
+  # `handle_call` for the prompt, and the person who sent it is waiting on the
+  # other side. There is no lease TTL to sit under, because an admission takes
+  # no lease (see `Fountain.Machines.Admission`). `machine_bounds_test.exs`
+  # pins the ordering.
+  @admit_timeout 20_000
+
   # A start that loses the Horde race registers on another node, and the
   # registry is a CRDT: the winner can be invisible here for a few
   # milliseconds. Same shape and the same reason as
@@ -200,6 +234,15 @@ defmodule Fountain.Machines.Machine do
   """
   @spec resume_timeout_ms() :: pos_integer()
   def resume_timeout_ms, do: @resume_timeout
+
+  @doc """
+  How long a caller waits on the owner for a turn admission.
+
+  Public so `machine_bounds_test.exs` can pin it between
+  `Admission.busy_wait_ms/0` below it and `conversation_call_timeout_ms` above.
+  """
+  @spec admit_timeout_ms() :: pos_integer()
+  def admit_timeout_ms, do: @admit_timeout
 
   @doc "The cluster-wide name of the owner of `sandbox_id`."
   @spec via(String.t()) :: {:via, module(), {module(), String.t()}}
@@ -603,6 +646,101 @@ defmodule Fountain.Machines.Machine do
     end
   end
 
+  @doc """
+  Admit a turn on the machine behind `sandbox_id`:
+  `Fountain.Machines.Admission.run/3`, run inside the owner when
+  `MACHINE_OWNER_ENABLED` is on and inline on the caller when it is off.
+  `attrs` is the turn row; `opts` are the protocol's, documented there.
+
+  The door for the fifth protocol, and the one whose vocabulary is almost
+  entirely the caller's already. The locked insert answers in the words
+  `TurnMachine.open_turn/5` and `Connection.open_autonomous_turn/5` have
+  matched on since long before ADR 0058 — `:sandbox_at_capacity`,
+  `:configuration_changed`, `:execution_fenced`, `:not_running`,
+  `:sandbox_unavailable`, the saved-allowance and inference-source refusals,
+  a changeset — and every one of them travels as itself, because each tells the
+  server something different to publish. Two words are the protocol's and are
+  translated here: `:machine_busy` (a live lease on the machine, already waited
+  out for `Admission.busy_wait_ms/0`) and an unreachable owner both become
+  `:sandbox_unavailable`, the 503 with a `Retry-After` that means "come back
+  shortly" everywhere else in this module.
+
+  Like `destroy/2` and unlike `who_is_here/1`, there is no falling back to an
+  inline run when the owner cannot be reached: this verb writes, and a write
+  refused a place to run says so.
+  """
+  @spec admit_turn(String.t(), map(), keyword()) ::
+          {:ok, Turn.t()} | {:error, :sandbox_unavailable | :provider_transaction_open | term()}
+  def admit_turn(sandbox_id, attrs, opts \\ [])
+      when is_binary(sandbox_id) and is_map(attrs) and is_list(opts) do
+    cond do
+      # As in `destroy/2`: the protocol's own guard is process-local and cannot
+      # fire in the owner, and an open transaction here would have the owner's
+      # locked insert block on the advisory lock this caller holds while the
+      # caller blocks in `GenServer.call`.
+      Repo.in_transaction?() ->
+        {:error, :provider_transaction_open}
+
+      Machines.enabled?() ->
+        sandbox_id |> admit_in_owner(attrs, opts, 1) |> admission_refusal(sandbox_id)
+
+      true ->
+        sandbox_id |> Admission.run(attrs, opts) |> admission_refusal(sandbox_id)
+    end
+  end
+
+  @doc """
+  End a turn: `Fountain.Machines.Admission.end_turn/3`, inline whichever way
+  the gate is set (see the moduledoc). `ending` and `opts` are the protocol's,
+  documented there; the answer is the write's own, untranslated, because none
+  of its words reaches the wire — each caller logs or publishes on it itself.
+  """
+  @spec end_turn(Turn.t(), Admission.ending(), keyword()) ::
+          {:ok, Turn.t()} | {:ok, Turn.t(), term()} | :noop | {:error, term()}
+  def end_turn(%Turn{} = turn, ending, opts) when is_list(opts) do
+    Admission.end_turn(turn, ending, opts)
+  end
+
+  @doc """
+  Whether the machine behind `sandbox_id` is at its capacity for `runtime`,
+  counting the running turns of conversations other than `conv_id` on that
+  runtime: `Fountain.Machines.Admission.at_capacity?/3`.
+
+  A read, so it is not gated — the same rule as `busy?/2`. The two doors that
+  ask want a refusal to render before anything is written; the locked check
+  inside `admit_turn/3` is the one that decides.
+  """
+  @spec at_capacity?(String.t(), String.t() | nil, String.t()) :: boolean()
+  def at_capacity?(sandbox_id, conv_id, runtime),
+    do: Admission.at_capacity?(sandbox_id, conv_id, runtime)
+
+  # The admission's translation. The write's vocabulary is the caller's, so
+  # almost everything travels; see `admit_turn/3`.
+  defp admission_refusal({:ok, _turn} = ok, _sandbox_id), do: ok
+
+  defp admission_refusal({:error, :machine_busy}, sandbox_id) do
+    Logger.warning(
+      "machine #{sandbox_id}: turn admission unavailable (an owner holds the lease); " <>
+        "answering :sandbox_unavailable"
+    )
+
+    {:error, :sandbox_unavailable}
+  end
+
+  defp admission_refusal({:error, {:machine_unreachable, reason}}, sandbox_id) do
+    Logger.warning(
+      "machine #{sandbox_id}: turn admission unavailable (#{inspect(reason)}); " <>
+        "answering :sandbox_unavailable"
+    )
+
+    {:error, :sandbox_unavailable}
+  end
+
+  defp admission_refusal({:error, :transaction_open}, _sandbox_id),
+    do: {:error, :provider_transaction_open}
+
+  defp admission_refusal(other, _sandbox_id), do: other
+
   # The provision family's translation. Narrower than `refusal/3` because its
   # caller is a server rather than a request, and the reason usually decides
   # what that server does next. See `provision/3`.
@@ -771,6 +909,10 @@ defmodule Fountain.Machines.Machine do
     in_owner(sandbox_id, {:ensure_up, opts}, @resume_timeout, :ensure_up, retries_left)
   end
 
+  defp admit_in_owner(sandbox_id, attrs, opts, retries_left) do
+    in_owner(sandbox_id, {:admit_turn, attrs, opts}, @admit_timeout, :admit_turn, retries_left)
+  end
+
   defp in_owner(sandbox_id, message, timeout, verb, retries_left) do
     case ensure_started(sandbox_id) do
       {:ok, pid} ->
@@ -875,6 +1017,16 @@ defmodule Fountain.Machines.Machine do
   # told so (ADR 0023 step 4).
   def handle_call({:ensure_up, opts}, _from, state) do
     {:reply, Resume.run(state.sandbox_id, opts), arm_idle(state)}
+  end
+
+  # Same shape again, and the serialization is the feature here as it is for a
+  # resume: a prompt that arrives while this machine is being resumed for a
+  # cotenant waits in the mailbox and then finds it up, where inline it would
+  # wait out `Admission.busy_wait_ms/0` against the lease and be told
+  # `sandbox_unavailable`. `@admit_timeout` on the client side is the ceiling
+  # on that queue.
+  def handle_call({:admit_turn, attrs, opts}, _from, state) do
+    {:reply, Admission.run(state.sandbox_id, attrs, opts), arm_idle(state)}
   end
 
   @impl true

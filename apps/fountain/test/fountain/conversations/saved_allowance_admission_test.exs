@@ -8,34 +8,35 @@ defmodule Fountain.Conversations.SavedAllowanceAdmissionTest do
     %{conversation: insert_conversation(status: "idle")}
   end
 
-  for capacity <- [1, :unbounded] do
-    test "#{inspect(capacity)} admission refuses every saved control", %{conversation: conv} do
-      for {field, value} <- [
-            wall_time_seconds: 30,
-            max_model_turns: 2,
-            max_estimated_cost_usd: 0.5
-          ] do
-        allowance =
-          conv.id |> ExecutionAllowance.new_changeset(%{field => value}) |> Repo.insert!()
+  # One test, not one per capacity: since ADR 0058 stage 8a the bound is the
+  # conversation's runtime, read by the owner under the lock, so a caller has no
+  # capacity to pass and the fence is checked before any count is made.
+  test "admission refuses every saved control", %{conversation: conv} do
+    for {field, value} <- [
+          wall_time_seconds: 30,
+          max_model_turns: 2,
+          max_estimated_cost_usd: 0.5
+        ] do
+      allowance =
+        conv.id |> ExecutionAllowance.new_changeset(%{field => value}) |> Repo.insert!()
 
-        assert {:error, {:execution_limits_unsupported, [key]}} =
-                 admit(conv, unquote(capacity))
+      assert {:error, {:execution_limits_unsupported, [key]}} =
+               admit(conv)
 
-        assert key == Atom.to_string(field)
-        assert Conversations._unsafe_list_turns(conv.id) == []
-        assert Repo.reload!(allowance) == allowance
-        Repo.delete!(allowance)
-      end
+      assert key == Atom.to_string(field)
+      assert Conversations._unsafe_list_turns(conv.id) == []
+      assert Repo.reload!(allowance) == allowance
+      Repo.delete!(allowance)
     end
+  end
 
-    test "#{inspect(capacity)} admission accepts absent and empty allowances", %{
-      conversation: conv
-    } do
-      assert {:ok, first} = admit(conv, unquote(capacity))
-      Repo.delete!(first)
-      conv.id |> ExecutionAllowance.new_changeset(%{}) |> Repo.insert!()
-      assert {:ok, _} = admit(conv, unquote(capacity))
-    end
+  test "admission accepts absent and empty allowances", %{
+    conversation: conv
+  } do
+    assert {:ok, first} = admit(conv)
+    Repo.delete!(first)
+    conv.id |> ExecutionAllowance.new_changeset(%{}) |> Repo.insert!()
+    assert {:ok, _} = admit(conv)
   end
 
   test "both user and autonomous turn openers propagate the refusal", %{conversation: conv} do
@@ -65,7 +66,7 @@ defmodule Fountain.Conversations.SavedAllowanceAdmissionTest do
 
     for limits <- [%{"max_model_turns" => 0}, %{"unknown" => 10}] do
       allowance |> Ecto.Changeset.change(limits: limits) |> Repo.update!()
-      assert {:error, {:execution_limits_invalid, _}} = admit(conv, :unbounded)
+      assert {:error, {:execution_limits_invalid, _}} = admit(conv)
       assert Conversations._unsafe_list_turns(conv.id) == []
     end
 
@@ -77,7 +78,7 @@ defmodule Fountain.Conversations.SavedAllowanceAdmissionTest do
       ]
     )
 
-    assert {:error, {:execution_limits_invalid, "object_required"}} = admit(conv, :unbounded)
+    assert {:error, {:execution_limits_invalid, "object_required"}} = admit(conv)
   end
 
   test "a different tenant's allowance neither blocks nor authorizes this conversation", %{
@@ -85,20 +86,19 @@ defmodule Fountain.Conversations.SavedAllowanceAdmissionTest do
   } do
     other = insert_conversation()
     other.id |> ExecutionAllowance.new_changeset(%{max_model_turns: 2}) |> Repo.insert!()
-    assert {:ok, _} = admit(conv, :unbounded)
+    assert {:ok, _} = admit(conv)
 
     assert {:error, :sandbox_unavailable} =
              Conversations._unsafe_create_turn_on_sandbox(
                attrs(other),
-               conv.sandbox_id,
-               :unbounded
+               conv.sandbox_id
              )
 
     assert Conversations._unsafe_list_turns(other.id) == []
   end
 
-  defp admit(conv, capacity),
-    do: Conversations._unsafe_create_turn_on_sandbox(attrs(conv), conv.sandbox_id, capacity)
+  defp admit(conv),
+    do: Conversations._unsafe_create_turn_on_sandbox(attrs(conv), conv.sandbox_id)
 
   defp attrs(conv),
     do: %{conversation_id: conv.id, turn_number: 1, prompt: "probe", status: "running"}
@@ -152,8 +152,7 @@ defmodule Fountain.Conversations.SavedAllowanceAdmissionRaceTest do
     admit = fn ->
       Conversations._unsafe_create_turn_on_sandbox(
         %{conversation_id: conv.id, turn_number: 1, prompt: "probe", status: "running"},
-        conv.sandbox_id,
-        :unbounded
+        conv.sandbox_id
       )
     end
 

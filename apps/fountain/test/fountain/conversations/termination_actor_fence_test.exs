@@ -30,33 +30,34 @@ defmodule Fountain.Conversations.TerminationActorFenceTest do
     %{user: user, agent: agent, sandbox: sandbox, conv: conv, handle: handle, state: state}
   end
 
-  for capacity <- [1, :unbounded] do
-    test "termination fences #{inspect(capacity)} admission before adapter/provider work",
-         ctx do
-      expect(Managoat.Sandbox, :close_stdin, fn :adapter ->
-        refute Repo.in_transaction?()
-        assert Repo.reload!(ctx.sandbox).reset_requested_at
-        :ok
-      end)
+  # One test, not one per capacity: since ADR 0058 stage 8a the bound is the
+  # conversation's runtime, read by the owner under the lock, so a caller has no
+  # capacity to pass and the fence is checked before any count is made.
+  test "termination fences admission before adapter/provider work",
+       ctx do
+    expect(Managoat.Sandbox, :close_stdin, fn :adapter ->
+      refute Repo.in_transaction?()
+      assert Repo.reload!(ctx.sandbox).reset_requested_at
+      :ok
+    end)
 
-      expect(Managoat.Sandbox, :destroy, fn handle ->
-        assert handle == ctx.handle
-        refute Repo.in_transaction?()
-        assert Repo.reload!(ctx.sandbox).reset_requested_at
-        assert Fountain.Quotas.active_sandbox_count(ctx.user.id) == 1
-        assert {:error, :sandbox_unavailable} = admit(ctx, unquote(capacity))
-        :ok
-      end)
+    expect(Managoat.Sandbox, :destroy, fn handle ->
+      assert handle == ctx.handle
+      refute Repo.in_transaction?()
+      assert Repo.reload!(ctx.sandbox).reset_requested_at
+      assert Fountain.Quotas.active_sandbox_count(ctx.user.id) == 1
+      assert {:error, :sandbox_unavailable} = admit(ctx)
+      :ok
+    end)
 
-      assert {:stop, :normal, :ok, stopped} = terminate(ctx, {:terminate_conv, []})
-      assert stopped.current_command == nil
-      assert Repo.reload!(ctx.conv).status == "terminated"
-      assert Repo.reload!(ctx.sandbox).status == "terminated"
-      assert Fountain.Quotas.active_sandbox_count(ctx.user.id) == 0
-      assert [event] = events(ctx)
-      assert event.actor == "self"
-      assert event.metadata["reason"] == "conversation_terminated"
-    end
+    assert {:stop, :normal, :ok, stopped} = terminate(ctx, {:terminate_conv, []})
+    assert stopped.current_command == nil
+    assert Repo.reload!(ctx.conv).status == "terminated"
+    assert Repo.reload!(ctx.sandbox).status == "terminated"
+    assert Fountain.Quotas.active_sandbox_count(ctx.user.id) == 0
+    assert [event] = events(ctx)
+    assert event.actor == "self"
+    assert event.metadata["reason"] == "conversation_terminated"
   end
 
   test "the obsolete atom cannot terminate a conversation", ctx do
@@ -258,11 +259,10 @@ defmodule Fountain.Conversations.TerminationActorFenceTest do
   defp events(ctx),
     do: Audit.list_for_user(ctx.user.id, action_prefix: "sandbox.teardown_requested")
 
-  defp admit(ctx, capacity) do
+  defp admit(ctx) do
     Conversations._unsafe_create_turn_on_sandbox(
       %{conversation_id: ctx.conv.id, turn_number: 1, status: "running", prompt: "late"},
-      ctx.sandbox.id,
-      capacity
+      ctx.sandbox.id
     )
   end
 end

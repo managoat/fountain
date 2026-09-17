@@ -436,20 +436,17 @@ defmodule Fountain.Conversations.ConversationReapplyTest do
     test "a stale server cannot open a turn after a reapply", ctx do
       assert {:ok, updated} = Reapply.reapply_conversation(ctx.conv, %{})
 
-      for capacity <- [:unbounded, 1] do
-        assert {:error, :configuration_changed} =
-                 Conversations._unsafe_create_turn_on_sandbox(
-                   %{
-                     conversation_id: ctx.conv.id,
-                     turn_number: 1,
-                     prompt: "hello",
-                     status: "running"
-                   },
-                   ctx.sandbox.id,
-                   capacity,
-                   ctx.conv.configuration_revision
-                 )
-      end
+      assert {:error, :configuration_changed} =
+               Conversations._unsafe_create_turn_on_sandbox(
+                 %{
+                   conversation_id: ctx.conv.id,
+                   turn_number: 1,
+                   prompt: "hello",
+                   status: "running"
+                 },
+                 ctx.sandbox.id,
+                 ctx.conv.configuration_revision
+               )
 
       assert Conversations._unsafe_list_turns(ctx.conv.id) == []
 
@@ -478,8 +475,7 @@ defmodule Fountain.Conversations.ConversationReapplyTest do
                    prompt: "hello",
                    status: "running"
                  },
-                 ctx.sandbox.id,
-                 :unbounded
+                 ctx.sandbox.id
                )
     end
   end

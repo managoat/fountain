@@ -480,12 +480,12 @@ defmodule Fountain.Conversations.Wake do
   # conversation to a replacement sandbox and admit a successor turn while
   # that probe is still in flight, so `find_running_turn/1` — reading with no
   # lock of its own — can hand back the successor's turn instead of the dead
-  # incarnation's. `expected_sandbox_id: conv.sandbox_id` fences the write to
-  # the sandbox this wake actually probed: `_unsafe_orphan_turn/3` re-locks
-  # the parent and rejects a changed binding as `{:error, :ownership_changed}`,
-  # writing nothing. Either way this answers :not_running — the interrupt was
-  # for the dead incarnation, and a successor found live is somebody else's
-  # turn to finish, not this wake's to touch.
+  # incarnation's. `sandbox_id: conv.sandbox_id` fences the write to the
+  # sandbox this wake actually probed: the owner's door (`Machine.end_turn/3`,
+  # ADR 0058 stage 8a) re-locks the parent and rejects a changed binding as
+  # `{:error, :ownership_changed}`, writing nothing. Either way this answers
+  # :not_running — the interrupt was for the dead incarnation, and a successor
+  # found live is somebody else's turn to finish, not this wake's to touch.
   #
   # ownership: conv is the caller's own tenant-scoped row, established by
   # wake_conversation_for/3 above.
@@ -495,9 +495,7 @@ defmodule Fountain.Conversations.Wake do
         :ok
 
       turn ->
-        Conversations._unsafe_orphan_turn(turn, "interrupt_dead_sandbox",
-          expected_sandbox_id: conv.sandbox_id
-        )
+        Machine.end_turn(turn, {:orphan, "interrupt_dead_sandbox"}, sandbox_id: conv.sandbox_id)
     end
 
     {:error, :not_running}

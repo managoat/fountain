@@ -5,13 +5,13 @@ defmodule Fountain.Conversations.RetirementAdmissionOrderTest do
   alias Ecto.Adapters.SQL.Sandbox
   alias Fountain.Conversations
 
-  for first <- [:retirement, :admission], capacity <- [1, :unbounded] do
-    test "#{first} wins the retirement race with #{inspect(capacity)} capacity" do
-      assert_order(unquote(first), unquote(capacity))
+  for first <- [:retirement, :admission] do
+    test "#{first} wins the retirement race" do
+      assert_order(unquote(first))
     end
   end
 
-  defp assert_order(first, capacity) do
+  defp assert_order(first) do
     Sandbox.unboxed_run(Repo, fn ->
       user = insert_verified_user()
       agent = insert_agent(user_id: user.id)
@@ -42,8 +42,7 @@ defmodule Fountain.Conversations.RetirementAdmissionOrderTest do
               status: "running",
               prompt: "race"
             },
-            home.id,
-            capacity
+            home.id
           )
       end
 
@@ -150,7 +149,7 @@ defmodule Fountain.Conversations.RetirementAdmissionOrderTest do
     target? =
       case role do
         :retirement -> query =~ ~s(FROM "sandboxes") and query =~ "FOR UPDATE"
-        :admission -> query =~ ~s(INNER JOIN "sandboxes")
+        :admission -> query =~ ~s(FROM "sandboxes") and query =~ "FOR SHARE"
       end
 
     if self() == worker and target? do

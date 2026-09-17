@@ -5,6 +5,7 @@ defmodule Fountain.Conversations.Reattachment do
 
   alias Fountain.Conversations
   alias Fountain.Conversations.{Connection, Output, Pending, Provisioning, TurnMachine}
+  alias Fountain.Machines.Machine
 
   @doc false
   def prepare_source(handle, state, conv, agent, sprite_env) do
@@ -342,9 +343,10 @@ defmodule Fountain.Conversations.Reattachment do
   # `interrupted` and the conversation to `idle` — the exact loss #1767 exists
   # to close, in the function that is also the backstop for it.
   #
-  # `expected_sandbox_id: state.sandbox_id` is the actor's own binding, set
-  # once from init args and never reassigned. `_unsafe_orphan_turn/3` re-locks
-  # the parent and compares under that lock, so a rebind answers
+  # `sandbox_id: state.sandbox_id` is the actor's own binding, set once from
+  # init args and never reassigned. The owner's door (`Machine.end_turn/3`, ADR
+  # 0058 stage 8a) re-locks the parent and compares under that lock
+  # (`Machines.Admission.bound?/2`), so a rebind answers
   # `{:error, :ownership_changed}` and writes nothing. The stale actor then
   # carries on with `current_turn: nil`, which is correct: a turn it no longer
   # owns is not its to finish.
@@ -353,9 +355,7 @@ defmodule Fountain.Conversations.Reattachment do
   # this: it fires only when `ConversationServer.whereis/1` is nil, so there is
   # no actor whose binding it could compare against (#2021 item 1).
   defp mark_orphan(state, running_turn, why) do
-    case Conversations._unsafe_orphan_turn(running_turn, why,
-           expected_sandbox_id: state.sandbox_id
-         ) do
+    case Machine.end_turn(running_turn, {:orphan, why}, sandbox_id: state.sandbox_id) do
       {:error, :ownership_changed} ->
         Logger.warning(
           "reattach: not orphaning turn #{running_turn.id} (#{why}) — conversation " <>

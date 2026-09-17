@@ -1228,8 +1228,11 @@ defmodule Fountain.Conversations.ConversationServer do
 
     status = if(code == 0, do: "completed", else: "failed")
 
-    # Ownership: this actor supplies the sandbox binding captured at startup.
-    case Conversations._unsafe_complete_turn(turn, state.sandbox_id, status, exit_code: code) do
+    # Ownership: this actor supplies the sandbox binding captured at startup,
+    # through the owner's door (`Machines.Admission`, ADR 0058 stage 8a).
+    case Machine.end_turn(turn, {:finish, status, [exit_code: code]},
+           sandbox_id: state.sandbox_id
+         ) do
       {:ok, ended} ->
         Output.publish_stage(state.conversation_id, "turn", "done", %{
           turn_id: ended.id,
@@ -1540,7 +1543,7 @@ defmodule Fountain.Conversations.ConversationServer do
     # Last and best-effort, so it cannot skip the revocation above.
     _ =
       TurnMachine.orphan_on_normal_stop(reason, state.current_turn, state.conversation_id,
-        expected_sandbox_id: state.sandbox_id
+        sandbox_id: state.sandbox_id
       )
 
     :ok

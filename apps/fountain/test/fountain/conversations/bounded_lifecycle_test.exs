@@ -46,7 +46,7 @@ defmodule Fountain.Conversations.BoundedLifecycleTest do
     }
 
   defp admit(c) do
-    {:ok, turn} = Conversations._unsafe_create_turn_on_sandbox(attrs(c), c.sandbox.id, :unbounded)
+    {:ok, turn} = Conversations._unsafe_create_turn_on_sandbox(attrs(c), c.sandbox.id)
     {turn, ExecutionGuard._unsafe_for_turn(turn.id)}
   end
 
@@ -60,8 +60,7 @@ defmodule Fountain.Conversations.BoundedLifecycleTest do
     assert {:error, :execution_fenced} =
              Conversations._unsafe_create_turn_on_sandbox(
                %{attrs(c) | turn_number: 2},
-               c.sandbox.id,
-               :unbounded
+               c.sandbox.id
              )
 
     assert Repo.aggregate(Turn, :count) == 1
@@ -71,7 +70,7 @@ defmodule Fountain.Conversations.BoundedLifecycleTest do
     stub(ExecutionLimits, :enforced_controls, fn _ -> [] end)
 
     assert {:error, {:execution_limits_unsupported, _}} =
-             Conversations._unsafe_create_turn_on_sandbox(attrs(c), c.sandbox.id, :unbounded)
+             Conversations._unsafe_create_turn_on_sandbox(attrs(c), c.sandbox.id)
 
     assert Repo.aggregate(Turn, :count) == 0
     assert Repo.aggregate(TurnExecution, :count) == 0
@@ -86,7 +85,7 @@ defmodule Fountain.Conversations.BoundedLifecycleTest do
     # reached at all. Registration on top of that check is the point — it is
     # not a replacement for it.
     assert {:error, :sandbox_unavailable} =
-             Conversations._unsafe_create_turn_on_sandbox(attrs(c), c.sandbox.id, :unbounded)
+             Conversations._unsafe_create_turn_on_sandbox(attrs(c), c.sandbox.id)
 
     assert Repo.aggregate(Turn, :count) == 0
     assert Repo.aggregate(TurnExecution, :count) == 0
@@ -96,7 +95,7 @@ defmodule Fountain.Conversations.BoundedLifecycleTest do
     save_allowance(c.conv.id, %{"max_model_turns" => 2})
 
     assert {:error, {:execution_limits_invalid, "wall_time_seconds_required"}} =
-             Conversations._unsafe_create_turn_on_sandbox(attrs(c), c.sandbox.id, :unbounded)
+             Conversations._unsafe_create_turn_on_sandbox(attrs(c), c.sandbox.id)
 
     assert Repo.aggregate(Turn, :count) == 0
   end
@@ -378,7 +377,7 @@ defmodule Fountain.Conversations.BoundedLifecycleTest do
     c.sandbox |> Ecto.Changeset.change(provider: "runner") |> Repo.update!()
 
     assert {:error, :provider_not_supported} =
-             Conversations._unsafe_create_turn_on_sandbox(attrs(c), c.sandbox.id, :unbounded)
+             Conversations._unsafe_create_turn_on_sandbox(attrs(c), c.sandbox.id)
 
     assert Repo.aggregate(Turn, :count) == 0
   end

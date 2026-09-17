@@ -42,40 +42,41 @@ defmodule Fountain.Conversations.LifecycleFenceTest do
     %{user: user, sandbox: sandbox, conv: conv, handle: handle, state: state}
   end
 
-  for capacity <- [1, :unbounded] do
-    test "reclaim fences #{inspect(capacity)} admission before provider destruction", ctx do
-      expect(Managoat.Sandbox, :destroy, fn handle ->
-        assert handle == ctx.handle
-        refute Repo.in_transaction?()
-        assert Repo.reload!(ctx.sandbox).reset_requested_at
-        assert Repo.reload!(ctx.sandbox).status == "ready"
-        assert Fountain.Quotas.active_sandbox_count(ctx.user.id) == 1
-        assert {:error, :sandbox_unavailable} = admit(ctx, unquote(capacity))
-        :ok
-      end)
+  # One test, not one per capacity: since ADR 0058 stage 8a the bound is the
+  # conversation's runtime, read by the owner under the lock, so a caller has no
+  # capacity to pass and the fence is checked before any count is made.
+  test "reclaim fences admission before provider destruction", ctx do
+    expect(Managoat.Sandbox, :destroy, fn handle ->
+      assert handle == ctx.handle
+      refute Repo.in_transaction?()
+      assert Repo.reload!(ctx.sandbox).reset_requested_at
+      assert Repo.reload!(ctx.sandbox).status == "ready"
+      assert Fountain.Quotas.active_sandbox_count(ctx.user.id) == 1
+      assert {:error, :sandbox_unavailable} = admit(ctx)
+      :ok
+    end)
 
-      assert :ok = Lifecycle.destroy(ctx.conv.id, ctx.sandbox.id, ctx.handle, :idle)
-      assert Repo.reload!(ctx.sandbox).status == "terminated"
-      assert Fountain.Quotas.active_sandbox_count(ctx.user.id) == 0
+    assert :ok = Lifecycle.destroy(ctx.conv.id, ctx.sandbox.id, ctx.handle, :idle)
+    assert Repo.reload!(ctx.sandbox).status == "terminated"
+    assert Fountain.Quotas.active_sandbox_count(ctx.user.id) == 0
 
-      assert Repo.aggregate(
-               from(t in Conversations.Turn, where: t.conversation_id == ^ctx.conv.id),
-               :count
-             ) == 0
+    assert Repo.aggregate(
+             from(t in Conversations.Turn, where: t.conversation_id == ^ctx.conv.id),
+             :count
+           ) == 0
 
-      assert [event] =
-               Audit.list_for_user(ctx.user.id, action_prefix: "sandbox.teardown_requested")
+    assert [event] =
+             Audit.list_for_user(ctx.user.id, action_prefix: "sandbox.teardown_requested")
 
-      assert event.actor == "system:conversation_server"
-      assert event.metadata["reason"] == "idle"
-    end
+    assert event.actor == "system:conversation_server"
+    assert event.metadata["reason"] == "idle"
   end
 
   test "the server fences before closing its adapter and records one request", ctx do
     expect(Managoat.Sandbox, :close_stdin, fn :adapter ->
       refute Repo.in_transaction?()
       assert Repo.reload!(ctx.sandbox).reset_requested_at
-      assert {:error, :sandbox_unavailable} = admit(ctx, :unbounded)
+      assert {:error, :sandbox_unavailable} = admit(ctx)
       :ok
     end)
 
@@ -157,11 +158,10 @@ defmodule Fountain.Conversations.LifecycleFenceTest do
            )
   end
 
-  defp admit(ctx, capacity) do
+  defp admit(ctx) do
     Conversations._unsafe_create_turn_on_sandbox(
       %{conversation_id: ctx.conv.id, turn_number: 1, status: "running", prompt: "late"},
-      ctx.sandbox.id,
-      capacity
+      ctx.sandbox.id
     )
   end
 end

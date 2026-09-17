@@ -20,6 +20,7 @@ defmodule Fountain.Conversations.ExecutionGuard do
   alias Fountain.{Audit, Repo}
   alias Fountain.Conversations.{Conversation, ExecutionLimits, Sandbox, Turn, TurnExecution}
   alias Fountain.Conversations.{DeadlineEvents, LogEvent}
+  alias Fountain.Machines.Admission
 
   @fenced ~w(awaiting_identity ready submitted uncertain)
   @terminal_turns ~w(completed failed interrupted)
@@ -360,7 +361,8 @@ defmodule Fountain.Conversations.ExecutionGuard do
   def _unsafe_end_actor_turn(%Turn{} = observed, sandbox_id, status, attrs, writer) do
     transaction(fn ->
       with %Conversation{} = conv <- lock_parent(observed.conversation_id),
-           true <- conv.sandbox_id == sandbox_id and conv.status not in ["terminated", "failed"],
+           true <-
+             Admission.bound?(conv, sandbox_id) and conv.status not in ["terminated", "failed"],
            execution = lock_execution_by_turn(observed.id),
            %Turn{} = turn <- lock_turn(observed.id),
            true <- turn.conversation_id == conv.id,
@@ -458,7 +460,7 @@ defmodule Fountain.Conversations.ExecutionGuard do
   @doc """
   Retire an orphan's execution before recovery writes, in parent/journal/turn lock order.
 
-  `:expected_sandbox_id` is the recovering actor's own binding. `cleanup_binding?/1`
+  `:sandbox_id` is the recovering actor's own binding. `cleanup_binding?/1`
   already refuses a bounded turn whose journal names a sandbox the parent no
   longer points at, but an unbounded turn has no journal row and nothing else
   records which machine was driving it. An actor that supplies the option and
@@ -466,7 +468,9 @@ defmodule Fountain.Conversations.ExecutionGuard do
   before `retire_orphan/2`, so a stale actor writes neither the turn nor the
   journal. Supplying `nil` is an expectation of "no sandbox", not an absent one;
   omitting the key entirely is what the system reaper does, because it is
-  recovering on nobody's behalf.
+  recovering on nobody's behalf. The comparison itself is
+  `Fountain.Machines.Admission.bound?/2`, the one definition of the fence
+  (ADR 0058 stage 8a).
   """
   def _unsafe_recover_turn(%Turn{} = observed, writer, opts \\ []) do
     transaction(fn ->
@@ -1083,10 +1087,12 @@ defmodule Fountain.Conversations.ExecutionGuard do
   #
   # An explicit `nil` is an expectation of "no sandbox" and fences; only an
   # absent key means the caller is recovering on nobody's behalf, which is why
-  # this is `Keyword.fetch/2` and not `Keyword.get/2`.
+  # this is `Keyword.fetch/2` and not `Keyword.get/2`. The comparison is the
+  # owner's (`Admission.bound?/2`), the same one `_unsafe_end_actor_turn/5`
+  # makes, so the two ending paths cannot drift apart about what "bound" means.
   defp rebound?(opts, conv) do
-    case Keyword.fetch(opts, :expected_sandbox_id) do
-      {:ok, expected} -> expected != conv.sandbox_id
+    case Keyword.fetch(opts, :sandbox_id) do
+      {:ok, actor_sandbox_id} -> not Admission.bound?(conv, actor_sandbox_id)
       :error -> false
     end
   end

@@ -18,26 +18,27 @@ defmodule Fountain.Accounts.DeletionFenceTest do
     %{user: user, sandbox: sandbox, conv: conv}
   end
 
-  for capacity <- [1, :unbounded] do
-    test "account deletion fences #{inspect(capacity)} admission before provider deletion", ctx do
-      expect(Managoat.Sandbox.Sprites, :destroy, fn _ ->
-        refute Repo.in_transaction?()
-        assert Repo.reload!(ctx.sandbox).reset_requested_at
-        assert Fountain.Quotas.active_sandbox_count(ctx.user.id) == 1
-        assert {:error, :sandbox_unavailable} = admit(ctx, unquote(capacity))
-        assert [event] = events(ctx.user.id)
-        assert event.actor == "ui"
-        assert event.request_ip == "192.0.2.1"
-        assert event.metadata["reason"] == "account_deleted"
-        :ok
-      end)
+  # One test, not one per capacity: since ADR 0058 stage 8a the bound is the
+  # conversation's runtime, read by the owner under the lock, so a caller has no
+  # capacity to pass and the fence is checked before any count is made.
+  test "account deletion fences admission before provider deletion", ctx do
+    expect(Managoat.Sandbox.Sprites, :destroy, fn _ ->
+      refute Repo.in_transaction?()
+      assert Repo.reload!(ctx.sandbox).reset_requested_at
+      assert Fountain.Quotas.active_sandbox_count(ctx.user.id) == 1
+      assert {:error, :sandbox_unavailable} = admit(ctx)
+      assert [event] = events(ctx.user.id)
+      assert event.actor == "ui"
+      assert event.request_ip == "192.0.2.1"
+      assert event.metadata["reason"] == "account_deleted"
+      :ok
+    end)
 
-      assert {:ok, %{sprites_destroyed: 1}} =
-               Deletion.delete_user(ctx.user, actor: "ui", request_ip: "192.0.2.1")
+    assert {:ok, %{sprites_destroyed: 1}} =
+             Deletion.delete_user(ctx.user, actor: "ui", request_ip: "192.0.2.1")
 
-      refute Repo.get(User, ctx.user.id)
-      assert Repo.reload!(ctx.sandbox).status == "terminated"
-    end
+    refute Repo.get(User, ctx.user.id)
+    assert Repo.reload!(ctx.sandbox).status == "terminated"
   end
 
   test "all known machines are fenced before the first actor is stopped", ctx do
@@ -260,11 +261,10 @@ defmodule Fountain.Accounts.DeletionFenceTest do
     assert event.actor == "admin"
   end
 
-  defp admit(ctx, capacity) do
+  defp admit(ctx) do
     Conversations._unsafe_create_turn_on_sandbox(
       %{conversation_id: ctx.conv.id, turn_number: 1, status: "running", prompt: "late"},
-      ctx.sandbox.id,
-      capacity
+      ctx.sandbox.id
     )
   end
 

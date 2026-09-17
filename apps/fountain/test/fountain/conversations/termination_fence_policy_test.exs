@@ -59,8 +59,7 @@ defmodule Fountain.Conversations.TerminationFencePolicyTest do
     assert {:error, :sandbox_unavailable} =
              Conversations._unsafe_create_turn_on_sandbox(
                %{conversation_id: ctx.conv.id, turn_number: 1, status: "running", prompt: "late"},
-               ctx.sandbox.id,
-               :unbounded
+               ctx.sandbox.id
              )
   end
 

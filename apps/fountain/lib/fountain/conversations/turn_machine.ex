@@ -52,6 +52,7 @@ defmodule Fountain.Conversations.TurnMachine do
   alias Fountain.{Agents, Conversations}
   alias Fountain.Conversations.{Conversation, Interruption, Labels}
   alias Fountain.InferenceCredentials.Source
+  alias Fountain.Machines.Machine
   alias Fountain.PermissionPolicy
 
   @typedoc "What the peer reports about a turn, with the command ref already matched."
@@ -663,8 +664,9 @@ defmodule Fountain.Conversations.TurnMachine do
     # Before the turn span ends: totals land on it, abandoned tool spans close.
     finalize_tracer(turn.tracer)
 
-    # Ownership: the server supplies its binding, and the context locks and rechecks it.
-    case Conversations._unsafe_complete_turn(turn.row, turn.sandbox_id, status) do
+    # Ownership: the server supplies its binding, and the context locks and
+    # rechecks it under the parent lock (`Machines.Admission.bound?/2`).
+    case Machine.end_turn(turn.row, {:finish, status, []}, sandbox_id: turn.sandbox_id) do
       {:ok, row} ->
         stage_meta = Map.merge(stage_meta, %{turn_id: row.id, turn_number: row.turn_number})
 
@@ -738,7 +740,7 @@ defmodule Fountain.Conversations.TurnMachine do
   def mark_interrupted(%__MODULE__{} = turn) do
     # Ownership: the actor's binding is checked with the parent and turn locked.
     applied? =
-      case Interruption._unsafe_interrupt_turn(turn.row, turn.sandbox_id) do
+      case Machine.end_turn(turn.row, :mark_interrupted, sandbox_id: turn.sandbox_id) do
         {:ok, _} ->
           publish_stage(turn.conversation_id, "turn", "interrupted", %{
             turn_id: turn.row.id,
@@ -1086,14 +1088,13 @@ defmodule Fountain.Conversations.TurnMachine do
   defp validate_inference(_, _), do: :ok
 
   # Whether this machine can take a turn from this conversation right now. An
-  # unlocked read — the locked check is inside the turn insert
-  # (`_unsafe_create_turn_on_sandbox/3`); this one exists so the API door gets
-  # a refusal to render rather than an `:ok` followed by a refused stage.
+  # unlocked read — the locked check is inside the owner's admission
+  # (`Machines.Admission`); this one exists so the API door gets a refusal to
+  # render rather than an `:ok` followed by a refused stage. Counted per
+  # runtime, as the locked check is (ADR 0058 stage 8a).
   @spec capacity_gate(String.t(), Conversation.t()) :: :ok | {:error, :sandbox_at_capacity}
   def capacity_gate(sandbox_id, conv) do
-    capacity = Fountain.RuntimeDispatch.concurrency(conv.runtime)
-
-    if Conversations._unsafe_sandbox_at_capacity?(sandbox_id, conv.id, capacity),
+    if Machine.at_capacity?(sandbox_id, conv.id, conv.runtime),
       do: {:error, :sandbox_at_capacity},
       else: :ok
   end
@@ -1189,9 +1190,10 @@ defmodule Fountain.Conversations.TurnMachine do
         do: attrs,
         else: Map.put(attrs, :inference_source, Source.dump(source))
 
-    capacity = Fountain.RuntimeDispatch.concurrency(conv.runtime)
-
-    case Conversations._unsafe_create_turn_on_sandbox(attrs, sandbox_id, capacity, revision) do
+    # The owner admits the turn (ADR 0058 stage 8a): under the machine's lock
+    # it re-reads the row, refuses a live lease or a fence, and counts capacity
+    # for this conversation's runtime against that runtime's turns alone.
+    case Machine.admit_turn(sandbox_id, attrs, revision: revision) do
       {:ok, turn} ->
         {:ok, conv, turn}
 
@@ -1377,7 +1379,7 @@ defmodule Fountain.Conversations.TurnMachine do
   @spec fail_before_start(Conversations.Turn.t(), String.t(), String.t() | nil, String.t()) :: :ok
   def fail_before_start(turn, conversation_id, sandbox_id, detail) do
     # The server owns this turn and supplies its captured sandbox binding.
-    case Conversations._unsafe_complete_turn(turn, sandbox_id, "failed", exit_code: nil) do
+    case Machine.end_turn(turn, {:finish, "failed", [exit_code: nil]}, sandbox_id: sandbox_id) do
       {:ok, _} ->
         publish_stage(conversation_id, "turn", "failed", %{
           turn_id: turn.id,
@@ -1613,15 +1615,16 @@ defmodule Fountain.Conversations.TurnMachine do
   `terminate/2`, and a raise here must not take the rest of that callback
   with it.
 
-  The stopping server is an actor, so it passes the sandbox it was bound to:
-  a parent rebound underneath it belongs to a successor and this recovery
-  writes nothing. `opts` is required rather than defaulted, because a caller
-  that forgets it silently recovers a turn it no longer owns.
+  The stopping server is an actor, so it passes the sandbox it was bound to
+  as `opts[:sandbox_id]`: a parent rebound underneath it belongs to a
+  successor and this recovery writes nothing. `opts` is required rather than
+  defaulted, because a caller that forgets it silently recovers a turn it no
+  longer owns.
   """
   @spec orphan_on_normal_stop(term(), Conversations.Turn.t() | nil, String.t() | nil, keyword()) ::
           :ok
   def orphan_on_normal_stop(:normal, turn, conversation_id, opts) when not is_nil(turn) do
-    _ = Conversations._unsafe_orphan_turn(turn, "server_terminated_normally", opts)
+    _ = Machine.end_turn(turn, {:orphan, "server_terminated_normally"}, opts)
     :ok
   rescue
     error ->

@@ -1580,27 +1580,44 @@ defmodule Fountain.Conversations do
 
   @doc """
   Create a turn on a sandbox that may be shared, refusing when the runtime's
-  capacity is used up by another conversation's running turn.
+  capacity is used up by another conversation's running turn on that runtime.
+
+  **The owner's write** (ADR 0058 stage 8a). `Fountain.Machines.Admission` is
+  the only caller, and `admission_test.exs` pins that lexically; everything
+  that used to call this directly goes through `Fountain.Machines.Machine.admit_turn/3`.
 
   `revision` is the conversation's `configuration_revision` as the caller
   understands it, or nil for a caller with none; a mismatch answers
   `{:error, :configuration_changed}` (#1565).
 
-  `capacity` is `Managoat.Runtimes.ACP.concurrency/1`. All runtimes take the
-  per-sandbox advisory lock and verify that the conversation still belongs
-  to this nonterminal sandbox. The conversation row stays locked through the
-  insert: an earlier reassignment refuses this sandbox, while a later forced
-  reassignment can move a conversation whose turn was already admitted. This
-  ordering does not make arbitrary reassignment writers check for running turns.
-  An integer capacity also limits concurrent turns; `:unbounded` skips only that
-  capacity check. Saved execution allowances
-  are checked under row locks; no runtime control is supported yet, so any
-  nonempty allowance refuses the turn. Refusal writes no turn.
-  Usage is recorded after the transaction commits, never inside it.
+  All runtimes take the per-sandbox advisory lock and read the machine's row
+  under it, and every verdict about the machine is taken from that read (#2307
+  constraint 1): the conversation must still be bound to this nonterminal
+  sandbox; neither fence may be set — a teardown fence refuses here since stage
+  8a, where before only a reset's did, because both are durable statements
+  that the machine is going away and the other protocols refuse on either; and
+  no owner may hold a **live lease** on it (`Fountain.Machines.Machine.busy?/2`),
+  which is `{:error, :machine_busy}` and the one refusal the protocol waits
+  out before it returns it. A lapsed lease, or a stamped transition whose lease
+  has lapsed, refuses nothing: that is an owner that died, and the row is
+  judged by its status (stage 6a's rule).
+
+  The conversation row stays locked through the insert: an earlier
+  reassignment refuses this sandbox, while a later forced reassignment can
+  move a conversation whose turn was already admitted. This ordering does not
+  make arbitrary reassignment writers check for running turns.
+
+  Capacity is `Fountain.RuntimeDispatch.concurrency/1` of the conversation's
+  runtime **as read under the lock**, not a number the caller brought, and it
+  is counted against the running turns of the other conversations **on that
+  runtime** — a `claude` turn does not consume the one `opencode` slot on a
+  shared home (#1089 blocker 4). `:unbounded` skips only that check. Saved
+  execution allowances are checked under row locks; no runtime control is
+  supported yet, so any nonempty allowance refuses the turn. Refusal writes no
+  turn. Usage is recorded after the transaction commits, never inside it.
   """
-  def _unsafe_create_turn_on_sandbox(attrs, sandbox_id, capacity, revision \\ nil)
-      when is_binary(sandbox_id) and
-             (capacity == :unbounded or (is_integer(capacity) and capacity > 0)) do
+  def _unsafe_create_turn_on_sandbox(attrs, sandbox_id, revision \\ nil)
+      when is_binary(sandbox_id) do
     conv_id = Map.fetch!(attrs, :conversation_id)
 
     result =
@@ -1626,6 +1643,8 @@ defmodule Fountain.Conversations do
               select: %{
                 id: c.id,
                 user_id: c.user_id,
+                sandbox_id: c.sandbox_id,
+                runtime: c.runtime,
                 configuration_revision: c.configuration_revision,
                 inference_source: c.inference_source
               },
@@ -1668,21 +1687,33 @@ defmodule Fountain.Conversations do
           Repo.rollback(:configuration_changed)
         end
 
-        # Row-only retirement writers do not take the admission advisory
-        # lock. Hold their row through insertion too: a committed retirement
-        # refuses admission, while a later forced retirement follows the turn.
-        attached? =
-          Repo.exists?(
-            from c in Conversation,
-              join: s in Sandbox,
-              on: s.id == c.sandbox_id,
-              where:
-                c.id == ^conv_id and s.id == ^sandbox_id and c.user_id == s.user_id and
-                  s.status not in ["terminated", "failed"] and is_nil(s.reset_requested_at),
+        # The machine, read under the lock. Row-only retirement writers do not
+        # take the admission advisory lock, so its row is held `FOR SHARE`
+        # through the insert too: a committed retirement refuses admission,
+        # while a later forced retirement follows the turn. The clock rides
+        # along with the read, as `Lease.claim/4`'s does, so the lease is
+        # judged at the same instant the row was seen.
+        machine =
+          Repo.one(
+            from s in Sandbox,
+              where: s.id == ^sandbox_id,
+              select: %{
+                id: s.id,
+                user_id: s.user_id,
+                status: s.status,
+                reset_requested_at: s.reset_requested_at,
+                teardown_requested_at: s.teardown_requested_at,
+                lease_node: s.lease_node,
+                lease_until: s.lease_until,
+                db_now: fragment("statement_timestamp()")
+              },
               lock: "FOR SHARE"
           )
 
-        unless attached?, do: Repo.rollback(:sandbox_unavailable)
+        case admissible_machine(machine, conv, sandbox_id) do
+          :ok -> :ok
+          {:error, reason} -> Repo.rollback(reason)
+        end
 
         # A terminated or failed parent takes no more turns. `attached?` above
         # checks the machine; this checks the conversation, which a retired
@@ -1698,8 +1729,12 @@ defmodule Fountain.Conversations do
           {:error, reason} -> Repo.rollback(reason)
         end
 
+        # The bound is the runtime's, read from the row this transaction locked,
+        # and the count is over that runtime's turns alone.
+        capacity = Fountain.RuntimeDispatch.concurrency(conv.runtime)
+
         if capacity != :unbounded and
-             _unsafe_running_turns_elsewhere(sandbox_id, conv_id) >= capacity do
+             _unsafe_running_turns_elsewhere(sandbox_id, conv_id, conv.runtime) >= capacity do
           Repo.rollback(:sandbox_at_capacity)
         else
           # An earlier bounded execution that is still unresolved fences this
@@ -1746,6 +1781,36 @@ defmodule Fountain.Conversations do
       end)
 
     record_started_turn(result)
+  end
+
+  # The machine's side of admission, from the row read under the lock. In the
+  # order that makes the answer most useful: is the conversation still bound
+  # to this machine at all, is the machine still here, has anyone asked for it
+  # to go, is anyone operating on it right now.
+  #
+  # `:sandbox_unavailable` for the first three is `main`'s word at this site.
+  # The lease is the new refusal and gets the protocol's word so that
+  # `Fountain.Machines.Admission` can wait it out — the others are final for
+  # this prompt, a live lease is not.
+  defp admissible_machine(nil, _conv, _sandbox_id), do: {:error, :sandbox_unavailable}
+
+  defp admissible_machine(machine, conv, sandbox_id) do
+    cond do
+      conv.sandbox_id != sandbox_id or machine.user_id != conv.user_id ->
+        {:error, :sandbox_unavailable}
+
+      machine.status in @billable_terminal ->
+        {:error, :sandbox_unavailable}
+
+      not is_nil(machine.reset_requested_at) or not is_nil(machine.teardown_requested_at) ->
+        {:error, :sandbox_unavailable}
+
+      Machine.busy?(machine, machine.db_now) ->
+        {:error, :machine_busy}
+
+      true ->
+        :ok
+    end
   end
 
   defp record_started_turn({:ok, turn}) do
@@ -1904,41 +1969,32 @@ defmodule Fountain.Conversations do
 
   @doc """
   How many turns are running right now on `sandbox_id` for conversations
-  other than `conv_id`. `_unsafe_`: the caller owns `conv_id`.
-  """
-  def _unsafe_running_turns_elsewhere(sandbox_id, conv_id)
-      when is_binary(sandbox_id) and is_binary(conv_id) do
-    Repo.one(
-      from t in Turn,
-        join: c in Conversation,
-        on: c.id == t.conversation_id,
-        where: c.sandbox_id == ^sandbox_id and c.id != ^conv_id and t.status == "running",
-        select: count(t.id)
-    )
-  end
+  other than `conv_id` — every conversation on the machine when `conv_id` is
+  nil — and, given a `runtime`, for conversations on that runtime alone.
+  `_unsafe_`: the caller owns `conv_id`.
 
-  # No conversation to exclude: every running turn on the machine counts.
-  def _unsafe_running_turns_elsewhere(sandbox_id, nil) when is_binary(sandbox_id) do
-    Repo.one(
+  The three-argument form is the capacity count (ADR 0058 stage 8a):
+  `Fountain.RuntimeDispatch.concurrency/1` is a bound per runtime, so it is
+  measured against that runtime's turns. The two-argument form is the older
+  question — is *anything* mid-turn on this machine — which the reset front
+  door, the identity retirement and a failed launch's binding check still ask.
+  """
+  def _unsafe_running_turns_elsewhere(sandbox_id, conv_id, runtime \\ :any)
+
+  def _unsafe_running_turns_elsewhere(sandbox_id, conv_id, runtime)
+      when is_binary(sandbox_id) and (is_binary(conv_id) or is_nil(conv_id)) and
+             (is_binary(runtime) or runtime == :any) do
+    query =
       from t in Turn,
         join: c in Conversation,
         on: c.id == t.conversation_id,
         where: c.sandbox_id == ^sandbox_id and t.status == "running",
         select: count(t.id)
-    )
-  end
 
-  @doc """
-  Whether `sandbox_id` cannot take another turn from `conv_id` because other
-  conversations already fill its runtime's capacity. Always false for
-  `:unbounded`. An unlocked read for the API door; the locked check is
-  `_unsafe_create_turn_on_sandbox/3`.
-  """
-  def _unsafe_sandbox_at_capacity?(_sandbox_id, _conv_id, :unbounded), do: false
+    query = if is_nil(conv_id), do: query, else: where(query, [t, c], c.id != ^conv_id)
+    query = if runtime == :any, do: query, else: where(query, [t, c], c.runtime == ^runtime)
 
-  def _unsafe_sandbox_at_capacity?(sandbox_id, conv_id, capacity)
-      when is_integer(capacity) and (is_binary(conv_id) or is_nil(conv_id)) do
-    _unsafe_running_turns_elsewhere(sandbox_id, conv_id) >= capacity
+    Repo.one(query)
   end
 
   @doc """
@@ -2240,16 +2296,19 @@ defmodule Fountain.Conversations do
   usage attribution.
 
   This function is unscoped because it is called by a conversation's own
-  server and by the system reaper. Callers may supply audit attribution.
+  server and by the system reaper, both through
+  `Fountain.Machines.Machine.end_turn/3` (ADR 0058 stage 8a), which is the
+  only caller `admission_test.exs` allows. Callers may supply audit attribution.
 
-  An actor recovering its own turn passes `:expected_sandbox_id`; the locked
-  parent having been rebound to another sandbox answers
-  `{:error, :ownership_changed}` and writes nothing. The reaper omits the key,
-  because it recovers on nobody's behalf.
+  An actor recovering its own turn passes `:sandbox_id`, its binding; the
+  locked parent having been rebound to another sandbox answers
+  `{:error, :ownership_changed}` and writes nothing
+  (`Fountain.Machines.Admission.bound?/2`). The reaper omits the key, because
+  it recovers on nobody's behalf.
   """
   def _unsafe_orphan_turn(%Turn{} = turn, why, opts \\ []) do
     # ownership: this is the existing actor's turn or a system recovery candidate.
-    recover_opts = Keyword.take(opts, [:expected_sandbox_id])
+    recover_opts = Keyword.take(opts, [:sandbox_id])
 
     result =
       ExecutionGuard._unsafe_recover_turn(

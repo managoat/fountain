@@ -237,31 +237,31 @@ defmodule Fountain.Conversations.SandboxResetTest do
              Conversations.reset_sandbox(gone)
   end
 
-  for capacity <- [1, :unbounded] do
-    test "reset fences #{inspect(capacity)} admission before calling the provider", ctx do
-      expect(Managoat.Sandbox.Sprites, :destroy, fn _ ->
-        refute Repo.in_transaction?()
-        assert Fountain.Quotas.active_sandbox_count(ctx.user.id) == 1
+  # One test, not one per capacity: since ADR 0058 stage 8a the bound is the
+  # conversation's runtime, read by the owner under the lock, so a caller has no
+  # capacity to pass and the fence is checked before any count is made.
+  test "reset fences admission before calling the provider", ctx do
+    expect(Managoat.Sandbox.Sprites, :destroy, fn _ ->
+      refute Repo.in_transaction?()
+      assert Fountain.Quotas.active_sandbox_count(ctx.user.id) == 1
 
-        assert {:error, :sandbox_unavailable} =
-                 Conversations._unsafe_create_turn_on_sandbox(
-                   %{
-                     conversation_id: ctx.a.id,
-                     turn_number: 1,
-                     status: "running",
-                     prompt: "late"
-                   },
-                   ctx.home.id,
-                   unquote(capacity)
-                 )
+      assert {:error, :sandbox_unavailable} =
+               Conversations._unsafe_create_turn_on_sandbox(
+                 %{
+                   conversation_id: ctx.a.id,
+                   turn_number: 1,
+                   status: "running",
+                   prompt: "late"
+                 },
+                 ctx.home.id
+               )
 
-        assert {:error, :sandbox_reset_pending} = Conversations.reset_sandbox(ctx.home)
-        :ok
-      end)
+      assert {:error, :sandbox_reset_pending} = Conversations.reset_sandbox(ctx.home)
+      :ok
+    end)
 
-      assert {:ok, %{status: "terminated"}} = Conversations.reset_sandbox(ctx.home)
-      assert Fountain.Quotas.active_sandbox_count(ctx.user.id) == 0
-    end
+    assert {:ok, %{status: "terminated"}} = Conversations.reset_sandbox(ctx.home)
+    assert Fountain.Quotas.active_sandbox_count(ctx.user.id) == 0
   end
 
   test "an uncertain destroy retains capacity and cannot be retried or swept", ctx do

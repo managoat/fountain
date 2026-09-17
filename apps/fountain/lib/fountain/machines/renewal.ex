@@ -80,8 +80,9 @@ defmodule Fountain.Machines.Renewal do
   `Node.list/0` is per-node and asynchronously converged, and a partitioned node
   is still running its own operations. The two exits above close the case that
   motivated the suggestion without deciding liveness from a name; if a
-  node-aware rule is ever wanted it belongs with stage 8's admission, where
-  membership is already being reasoned about.
+  node-aware rule is ever wanted it belongs with stage 8b's binding work, where
+  membership is already being reasoned about; stage 8a's admission took no lease
+  and decided nothing from a node name.
 
   ## What a lost lease means, and what a dead renewer does not
 

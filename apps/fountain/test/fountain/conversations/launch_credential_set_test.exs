@@ -393,7 +393,7 @@ defmodule Fountain.Conversations.LaunchCredentialSetTest do
       }
 
       assert {:ok, turn} =
-               Conversations._unsafe_create_turn_on_sandbox(turn_attrs, sandbox.id, :unbounded)
+               Conversations._unsafe_create_turn_on_sandbox(turn_attrs, sandbox.id)
 
       assert turn.inference_source == conv.inference_source
       refute inspect(turn.inference_source) =~ "sk-default"
@@ -403,8 +403,7 @@ defmodule Fountain.Conversations.LaunchCredentialSetTest do
       assert {:error, :inference_source_changed} =
                Conversations._unsafe_create_turn_on_sandbox(
                  %{turn_attrs | turn_number: 2},
-                 sandbox.id,
-                 :unbounded
+                 sandbox.id
                )
 
       assert Repo.aggregate(
@@ -431,7 +430,7 @@ defmodule Fountain.Conversations.LaunchCredentialSetTest do
       }
 
       assert {:error, :inference_source_changed} =
-               Conversations._unsafe_create_turn_on_sandbox(attrs, sandbox.id, :unbounded)
+               Conversations._unsafe_create_turn_on_sandbox(attrs, sandbox.id)
 
       assert Repo.aggregate(
                from(t in Fountain.Conversations.Turn, where: t.conversation_id == ^conv.id),

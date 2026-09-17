@@ -212,6 +212,36 @@ defmodule Fountain.Conversations.ConversationServerProvisionDeadlineTest do
     refute_received :sprite_created
   end
 
+  test "a machine it cannot retire is not killed either (#394)" do
+    # The #394 ordering as a *condition* rather than a sequence (ADR 0058 stage
+    # 7b). The rows go terminal before the kill so that a Horde restart stops at
+    # the terminal-status guard — which means a retire the owner refuses must
+    # stop the watchdog too, or the kill would restart a server onto a live row
+    # and build a second billable machine. Left for
+    # `SandboxReaper.release_stuck_sandboxes/0` instead.
+    stub_happy_sprite()
+    stall_provision()
+
+    user = insert_verified_user()
+    agent = insert_agent(user_id: user.id, runtime: "gemini")
+    conv = insert_conversation(user_id: user.id, agent_id: agent.id)
+
+    Mimic.stub(Fountain.Machines.Machine, :fail_provision, fn _id, _opts ->
+      {:error, :sandbox_unavailable}
+    end)
+
+    pid = start_provision_server(conv)
+    ref = Process.monitor(pid)
+    assert_receive {:provision_stalled, ^pid}, 5_000
+    expire_watchdog(pid)
+
+    refute_receive {:DOWN, ^ref, :process, ^pid, _}, 500
+    assert Process.alive?(pid)
+    assert Conversations._unsafe_get_sandbox!(conv.sandbox_id).status in ["pending", "starting"]
+
+    Process.exit(pid, :kill)
+  end
+
   test "a provision that completes in time is left alone" do
     stub_happy_sprite()
     user = insert_verified_user()

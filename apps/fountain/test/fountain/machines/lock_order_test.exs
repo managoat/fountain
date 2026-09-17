@@ -25,6 +25,15 @@ defmodule Fountain.Machines.LockOrderTest do
   `resume_test.exs` proves that across real connections with `pg_blocking_pids`.
   What this file proves is the *rule*, for every site rather than that one.
 
+  **What this scan can and cannot see** (7a round 2, carried into 7b). It is
+  lexical and one function deep: it chunks every `lib/` file into function
+  bodies and fails a body that names both namespaces. An offence split across
+  two functions — one that takes 4316 calling one that takes 4315 — passes it,
+  and so does either lock taken through a helper the regexes do not name. It is
+  a floor on the shapes this codebase actually writes, not a proof. The
+  properties themselves are proved where they happen, with `pg_locks` and
+  `pg_blocking_pids`, in `resume_test.exs` and `provision_test.exs`.
+
   `async: false` for the suite's convention around the machines directory; the
   scan itself reads the tree and touches no database.
   """

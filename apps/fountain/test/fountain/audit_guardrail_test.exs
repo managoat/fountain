@@ -124,6 +124,12 @@ defmodule Fountain.AuditGuardrailTest do
     # 7a). `main` recorded nothing at all when a parked machine came back, so a
     # tenant's trail showed the suspend and not the wake.
     {"machine resume", &__MODULE__.do_machine_resume/1, "sandbox.resumed"},
+    # The fourth and fifth, from the provision bracket (ADR 0058 stage 7b).
+    # `main` recorded neither: a tenant's trail began at the first turn, and a
+    # machine that never came up left no trace at all.
+    {"machine provision", &__MODULE__.do_machine_provision/1, "sandbox.provisioned"},
+    {"machine provision failure", &__MODULE__.do_machine_provision_failed/1,
+     "sandbox.provision_failed"},
     # Two of stage 5b's forced-teardown doors, named separately from the entry
     # above. That one drives `Machine.destroy/2` itself and would stay green if
     # a site stopped going through it; these drive the sites.
@@ -657,6 +663,27 @@ defmodule Fountain.AuditGuardrailTest do
     sandbox = insert_sandbox(user_id: user.id, status: "suspended")
     Mimic.stub(Managoat.Sandbox.Sprites, :resume, fn handle -> {:ok, handle} end)
     {:ok, :resumed} = Machine.ensure_up(sandbox.id, actor: "system:wake")
+  end
+
+  def do_machine_provision(user) do
+    sandbox = insert_sandbox(user_id: user.id, status: "pending")
+    handle = Managoat.Sandbox.Sprites.build_handle(sandbox.machine_name)
+    Mimic.stub(Managoat.Sandbox.Sprites, :create, fn _name, _opts -> {:ok, handle} end)
+
+    {:ok, :provisioned, :built} =
+      Machine.provision(sandbox.id, fn _handle, _epoch -> {:ok, :built} end,
+        actor: "system:conversation_server"
+      )
+  end
+
+  def do_machine_provision_failed(user) do
+    sandbox = insert_sandbox(user_id: user.id, status: "pending")
+
+    {:ok, :failed} =
+      Machine.fail_provision(sandbox.id,
+        actor: "system:conversation_server",
+        reason: :server_start_failed
+      )
   end
 
   def do_machine_reap(user) do

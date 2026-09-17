@@ -95,6 +95,8 @@ Mimic.copy(Fountain.Machines.Destroy)
 # words through than either sibling — the fence, `:provisioning`, the provider's
 # refusal and the admission's three — and each arm is driven by handing
 # `Resume.run/2` one of them.
+Mimic.copy(Fountain.Machines.Machine)
+Mimic.copy(Fountain.Machines.Provision)
 Mimic.copy(Fountain.Machines.Resume)
 
 # ─── The schema guard (#1427) ────────────────────────────────────────────────

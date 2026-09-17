@@ -53,6 +53,14 @@ defmodule Fountain.FeatureFlags do
   # for a deployment with no `POSTHOG_PROJECT_API_KEY`, and is answered by
   # PostHog like any other wherever one is configured. `FEATURE_FLAGS_ON`
   # still wins over both, and so does a PostHog answer of "off".
+  #
+  # "Shipped" here means the feature is built and supported, not that every
+  # account has it. Membership says nothing about the rollout wherever a
+  # PostHog **is** configured: on the hosted platform `connections` is an
+  # Alpha enrolled per account (`docs/reference/feature-status.md`), and the
+  # flag's release conditions there are the only thing that decides who. What
+  # membership does buy is `warn_undefined/2` below — because a key this list
+  # names and the project has never heard of is a mistake, not a decision.
   @on_without_posthog Map.new([:connections], &{Map.fetch!(@flags, &1), true})
 
   @doc "The PostHog key for a known flag atom."
@@ -90,7 +98,7 @@ defmodule Fountain.FeatureFlags do
     now = System.monotonic_time(:millisecond)
     key = {:called, distinct_id, flag}
 
-    if stale_called?(key, now) do
+    if stale?(key, now) do
       ensure_table()
       :ets.insert(@table, {key, answer, now})
 
@@ -103,11 +111,13 @@ defmodule Fountain.FeatureFlags do
     :ok
   end
 
-  defp stale_called?(key, now) do
+  # Shared by the `$feature_flag_called` capture and by `warn_once/2`: has it
+  # been `@fresh_ms` since this key was last written to the table?
+  defp stale?(key, now) do
     ensure_table()
 
     case :ets.lookup(@table, key) do
-      [{^key, _answer, at}] -> now - at >= @fresh_ms
+      [{^key, _value, at}] -> now - at >= @fresh_ms
       [] -> true
     end
   end
@@ -140,25 +150,86 @@ defmodule Fountain.FeatureFlags do
 
   defp remote_enabled?(flag, distinct_id) do
     cond do
-      not configured?() -> Map.get(@on_without_posthog, flag, false)
-      is_nil(distinct_id) -> false
-      true -> Map.get(flags_for(distinct_id), flag, false) == true
+      not configured?() ->
+        Map.get(@on_without_posthog, flag, false)
+
+      is_nil(distinct_id) ->
+        false
+
+      true ->
+        {source, flags} = answered_flags(distinct_id)
+        if source == :answered, do: warn_undefined(flag, flags)
+        Map.get(flags, flag, false) == true
     end
+  end
+
+  # A flag PostHog has never heard of is **absent** from its answer; a flag it
+  # has and says no to comes back present and `false`. Rule 4 fails closed on
+  # both, so the two look identical at the call site — but for a flag in
+  # `@on_without_posthog` the first one is a mistake in the analytics project
+  # rather than a rollout decision, and it switches off a feature this code
+  # treats as built, for every account, with nothing logged anywhere. That is
+  # how Connections sat dark on production from the day the flag shipped until
+  # someone ran the deployed suite against it (#2347).
+  #
+  # The same silence covers a flag that exists with `evaluation_runtime` set
+  # to `server`: this call carries the project token, which PostHog reads as a
+  # client-side evaluation, so a server-only flag never appears in the answer
+  # and is indistinguishable from one that was never created.
+  #
+  # Only a real answer can say a key is missing. An unreachable PostHog with
+  # nothing cached yields an empty map, which is not evidence of anything —
+  # `answered_flags/1` has already logged the outage, and calls this with
+  # `:unanswered`, which does not reach here.
+  defp warn_undefined(flag, flags) do
+    if Map.has_key?(@on_without_posthog, flag) and not Map.has_key?(flags, flag) do
+      warn_once(
+        {:undefined, flag},
+        ~s(feature flags: #{flag} gates a built feature, but PostHog's answer does not ) <>
+          ~s(mention it, so it reads off for every account. Either no flag has that key ) <>
+          ~s(in the project, or its evaluation_runtime is "server" rather than "all". ) <>
+          ~s(Create it, widen it, or set FEATURE_FLAGS_ON=#{flag}.)
+      )
+    end
+
+    :ok
+  end
+
+  # Rate-limited like `$feature_flag_called`, and for the same reason: a flag
+  # read on every request must not become a log line on every request.
+  defp warn_once(key, message) do
+    now = System.monotonic_time(:millisecond)
+
+    if stale?(key, now) do
+      ensure_table()
+      :ets.insert(@table, {key, :logged, now})
+      Logger.error(message)
+    end
+
+    :ok
   end
 
   @doc "Every flag PostHog reports on for the user, `%{key => boolean}`."
   def flags_for(distinct_id) when is_binary(distinct_id) do
+    {_answered, flags} = answered_flags(distinct_id)
+    flags
+  end
+
+  # The flags, and whether they are PostHog's own answer. A cached answer is
+  # still an answer, stale or not — it came from a response PostHog sent about
+  # this person. Only a failed lookup with nothing cached is `:unanswered`.
+  defp answered_flags(distinct_id) do
     now = System.monotonic_time(:millisecond)
 
     case cached(distinct_id) do
       {:ok, flags, at} when now - at < @fresh_ms ->
-        flags
+        {:answered, flags}
 
       cached ->
         case fetch(distinct_id) do
           {:ok, flags} ->
             put(distinct_id, flags, now)
-            flags
+            {:answered, flags}
 
           {:error, reason} ->
             Logger.warning(
@@ -167,8 +238,8 @@ defmodule Fountain.FeatureFlags do
             )
 
             case cached do
-              {:ok, flags, _at} -> flags
-              :miss -> %{}
+              {:ok, flags, _at} -> {:answered, flags}
+              :miss -> {:unanswered, %{}}
             end
         end
     end

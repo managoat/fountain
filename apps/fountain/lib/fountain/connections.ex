@@ -84,7 +84,11 @@ defmodule Fountain.Connections do
   (#1693).
 
   A tenant with no rows gets an empty list rather than a 404, which is the
-  price of never having to ask "do they still hold one?" before answering.
+  price of never having to ask "do they still hold one?" before answering. It
+  does mean an account that was never enrolled reads the open door and the
+  empty list as the same thing, so a client that wants to know whether it may
+  create one asks `/api/auth/me` for `connections_enabled` — which is
+  `enabled_for?/1` — rather than inferring it from a list (#2347).
 
   It took a `user_id` while brokerage was a per-tenant ratchet (ADR 0019 §9).
   The ratchet retired, the broker is the deployment's, and an argument the

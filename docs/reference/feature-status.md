@@ -20,6 +20,15 @@ routes. The Gmail MCP endpoint, which the Google extension serves, answers
 `403` only on a deployment without the egress broker. A connection that
 exists keeps its tools when the flag goes off.
 
+Only the routes that **create** something are refused. Listing, revoking and
+deleting stay open, because an account whose flag goes off keeps every
+credential already brokered into its sandboxes and has to be able to take one
+away. So an account that never had the feature reads an empty list from
+`GET /api/connections` and `GET /api/secret-bindings` rather than a `404`,
+while `POST` to either answers `404 brokerage_not_enabled`. An empty list is
+therefore not by itself proof that the feature is on. Ask
+[`GET /api/auth/me`](../api.md), whose `connections_enabled` says so directly.
+
 ## Brokered credentials are on for every account
 
 [Brokered credentials](../concepts/secrets.md#bindings-when-the-broker-is-on)

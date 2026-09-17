@@ -2,6 +2,8 @@ defmodule Fountain.FeatureFlagsTest do
   # Mutates global app env (the PostHog key, the overrides), so not async.
   use ExUnit.Case, async: false
 
+  import ExUnit.CaptureLog
+
   alias Fountain.FeatureFlags
 
   @user_id "11111111-1111-1111-1111-111111111111"
@@ -189,6 +191,96 @@ defmodule Fountain.FeatureFlagsTest do
     end
   end
 
+  # A flag in `@on_without_posthog` gates a feature that is built. PostHog
+  # omitting it from an answer is a mistake in the project — not a decision to
+  # turn the feature off — and before #2347 nothing said so.
+  describe "a built feature's flag that PostHog never mentions" do
+    setup do
+      posthog_on()
+      :ok
+    end
+
+    test "logs an error naming the flag, and still reads off" do
+      stub_flags(%{"something_else" => true})
+
+      log = capture_log(fn -> refute FeatureFlags.enabled?(:connections, @user_id) end)
+
+      assert log =~ "connections"
+      assert log =~ "does not mention it"
+      assert log =~ "FEATURE_FLAGS_ON=connections"
+    end
+
+    # The whole point: "off because we asked and were told no" is a decision,
+    # and saying nothing is what a decision deserves.
+    test "an answer of off is silent" do
+      stub_flags(%{"connections" => false})
+
+      log = capture_log(fn -> refute FeatureFlags.enabled?(:connections, @user_id) end)
+
+      refute log =~ "does not mention it"
+    end
+
+    test "an answer of on is silent" do
+      stub_flags(%{"connections" => true})
+
+      log = capture_log(fn -> assert FeatureFlags.enabled?(:connections, @user_id) end)
+
+      refute log =~ "does not mention it"
+    end
+
+    # Only the flags over built features. An unfinished one is *expected* to
+    # be missing until its rollout starts.
+    test "a flag over an unfinished feature says nothing when it is missing" do
+      stub_flags(%{"something_else" => true})
+
+      log = capture_log(fn -> refute FeatureFlags.enabled?(@flag, @user_id) end)
+
+      refute log =~ "does not mention it"
+    end
+
+    test "says it once per cache window, not once per read" do
+      stub_flags(%{"something_else" => true})
+
+      log = capture_log(fn -> refute FeatureFlags.enabled?(:connections, @user_id) end)
+      assert log =~ "does not mention it"
+
+      # Expire the person's cached answer so the next read is a fresh call and
+      # reaches the check again. The warning is still inside its own window.
+      age_cache(@user_id)
+
+      log = capture_log(fn -> refute FeatureFlags.enabled?(:connections, @user_id) end)
+      refute log =~ "does not mention it"
+    end
+
+    # An unreachable PostHog is not evidence that a flag is undefined, and
+    # saying so would point at the wrong thing during an outage.
+    test "an outage with nothing cached is not reported as a missing flag" do
+      stub_down()
+
+      log = capture_log(fn -> refute FeatureFlags.enabled?(:connections, @user_id) end)
+
+      assert log =~ "lookup failed"
+      refute log =~ "does not mention it"
+    end
+
+    # A stale answer is still an answer PostHog gave about this person, so a
+    # key absent from it is absent on purpose.
+    test "a stale cached answer still reports a flag missing from it" do
+      stub_flags(%{"something_else" => true})
+      capture_log(fn -> refute FeatureFlags.enabled?(:connections, @user_id) end)
+
+      # Past the warning's own window as well as the cache's, with PostHog
+      # down so the stale answer is what gets read.
+      age_cache(@user_id)
+      age_warning(:connections)
+      stub_down()
+
+      log = capture_log(fn -> refute FeatureFlags.enabled?(:connections, @user_id) end)
+
+      assert log =~ "does not mention it"
+    end
+  end
+
   describe "what analytics is told" do
     setup do
       stub_flags(%{@flag => true})
@@ -243,6 +335,17 @@ defmodule Fountain.FeatureFlagsTest do
 
       assert FeatureFlags.cached_flags(@user_id) == %{@flag => true}
     end
+  end
+
+  # Push the "we already said this" marker into the past so the next missing
+  # flag warns again.
+  defp age_warning(flag) do
+    key = {:undefined, FeatureFlags.key!(flag)}
+
+    :ets.insert(
+      FeatureFlags.table(),
+      {key, :logged, System.monotonic_time(:millisecond) - 600_000}
+    )
   end
 
   # Push the cached entry's timestamp into the past so the next read refetches.

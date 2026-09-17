@@ -167,7 +167,7 @@ own call invisible, so there is nothing to undo.)
 | Machine verb | Replaces today | The owner's rule |
 |---|---|---|
 | `attach(conv, agent_layer)` / `detach(conv)` | the attach door, release, `_unsafe_sandbox_held_by_other?/2` | a refcount; the last detach applies the mode's policy |
-| `admit_turn(conv, runtime)` / `end_turn(conv)` | the locked turn insert, `_unsafe_sandbox_busy_elsewhere?/4`, the capacity check | capacity per `Runtimes.ACP.concurrency/1`, counted per runtime (#1089 blocker 4) |
+| `admit_turn(conv, runtime)` / `end_turn(conv)` | the locked turn insert, `_unsafe_sandbox_busy_elsewhere?/4`, the capacity check | capacity per `Runtimes.ACP.concurrency/1`, counted per runtime (#1089 blocker 4). Stage 8a built both as `Fountain.Machines.Admission`: the insert refuses a live lease and either fence under its lock and counts per runtime; `end_turn` is the door for every turn-ending write an actor makes and runs inline whichever way the gate is set, because it mutates no machine. `_unsafe_sandbox_busy_elsewhere?/4` was never an admission check — it is the idle verdict's reading, and it stays where stage 4 put it, in `Occupancy` |
 | `ensure_up()` | `Provisioning` create and its watchdog, `Wake`'s suspended resume, the rehydrator's start | two prompts waking one machine resume it once; the second waits (0023 step 4). Stage 7a built the resume half, as `Fountain.Machines.Resume`, with the quota gate settled *before* the provider call rather than around it. Stage 7b built the provision half as `Fountain.Machines.Provision`, and as a **bracket** rather than a move: the owner takes the lease, stamps the intent, creates the machine and writes the outcome, while the conversation server's pipeline runs in the middle as a callback. `Machine.provision/3` therefore runs inline on its caller whichever way the gate is set — the callback is that server's own state-building work (0037, #1369) and it runs for minutes |
 | `park(reason)` | `SandboxReaper.idle_sweep/2`, `Lifecycle.park/4`, `HomeCheckpoint` | refused while a turn is admitted that this park is not itself cutting; the checkpoint happens inside the transition |
 | `destroy(reason, actor)` | terminate, reset, agent delete, admin reap, account deletion, `Lifecycle.destroy/4` | one door; one `sandbox.destroyed` audit event carrying the actor (0013) |
@@ -181,6 +181,16 @@ Its adapter, transcript, callback key, turn state machine and the handle
 the server rebuilds it). It asks the owner for a turn slot and is told when
 the machine is gone. It never reads or writes `sandboxes`. `state.sandbox_id`
 stays immutable; the binding fence it powers today is replaced by the epoch.
+(Stage 8a moved every turn-ending write behind `Machine.end_turn/3` and found
+that the epoch cannot fence them yet: on a shared home a cotenant's resume or
+park moves the machine's epoch while this conversation's turn is legitimately
+running, a park that proceeds over a turn whose server is dead moves it too,
+and the recovery of that turn is exactly the write that then has to succeed.
+The fence stays the conversation's *current binding*, defined once in
+`Fountain.Machines.Admission.bound?/2`, until the owner ends the turns it
+parks, destroys or resumes over — stage 8b's `machine_gone` work — after which
+a stale actor's write always finds a turn already ended and the epoch can
+stand.)
 
 ### The reaper schedules; it does not write
 

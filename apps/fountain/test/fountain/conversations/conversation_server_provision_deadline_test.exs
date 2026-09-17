@@ -284,6 +284,65 @@ defmodule Fountain.Conversations.ConversationServerProvisionDeadlineTest do
     # `release_stuck_sandboxes/0` needs.
     assert Conversations._unsafe_get_sandbox!(conv.sandbox_id).status in ["pending", "starting"]
     refute_received :retire_refused
+
+    # And the conversation **is** failed on this arm: `{:error, _}` means this
+    # owner could not reach the row at all, so nobody else is finishing this
+    # conversation and `release_stuck_sandboxes/0` fails the sandbox row only.
+    # Leaving it would strand a `pending` conversation with no server and
+    # nothing that resolves it (round 2, protocol review).
+    assert Conversations._unsafe_get_conversation!(conv.id).status == "failed"
+  end
+
+  test "a machine another owner holds leaves that owner's conversation alone" do
+    # The other half of the same arm, and the reason it is not unconditional.
+    # `{:ok, :claimed_elsewhere}` means a successor holds the machine and is
+    # very likely building *this* conversation's — failing it would mark a live
+    # conversation dead while its machine comes up, which is the one thing every
+    # stand-down arm in this stage exists to prevent.
+    for key <- [:provision_retire_retry_ms] do
+      previous = Application.fetch_env(:fountain, key)
+      Application.put_env(:fountain, key, 0)
+
+      on_exit(fn ->
+        case previous do
+          {:ok, value} -> Application.put_env(:fountain, key, value)
+          :error -> Application.delete_env(:fountain, key)
+        end
+      end)
+    end
+
+    stub_happy_sprite()
+    stall_provision()
+
+    user = insert_verified_user()
+    agent = insert_agent(user_id: user.id, runtime: "gemini")
+    conv = insert_conversation(user_id: user.id, agent_id: agent.id)
+
+    test_pid = self()
+
+    Mimic.stub(Fountain.Machines.Machine, :fail_provision, fn _id, _opts ->
+      send(test_pid, :retire_refused)
+      {:ok, :claimed_elsewhere}
+    end)
+
+    pid = start_provision_server(conv)
+    ref = Process.monitor(pid)
+    assert_receive {:provision_stalled, ^pid}, 5_000
+
+    watchdog = arm_watchdog(pid)
+    watchdog_ref = Process.monitor(watchdog)
+    send(watchdog, :provision_deadline)
+
+    for _ <- 1..ProvisionWatchdog.max_retire_attempts() do
+      assert_receive :retire_refused, 5_000
+    end
+
+    assert_receive {:DOWN, ^watchdog_ref, :process, ^watchdog, :normal}, 10_000
+    assert_receive {:DOWN, ^ref, :process, ^pid, _}, 5_000
+
+    # The orphan server is stopped either way — it is the thing keeping the
+    # reaper from the row — but the conversation is the successor's.
+    assert Conversations._unsafe_get_conversation!(conv.id).status != "failed"
   end
 
   test "a retire that succeeds on a later attempt kills the server and never retries again" do

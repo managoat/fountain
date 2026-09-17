@@ -67,9 +67,14 @@ defmodule Fountain.Conversations.ProvisionWatchdog do
   the child rather than letting Horde restart it — so the #394 restart does not
   happen even though the row is not terminal.
 
-  The bound is therefore: the retire is attempted for about
-  `max_retire_attempts/0 × retire_retry_ms/0` past the ceiling — five minutes on
-  the defaults — and after that a wedged server does not outlive it.
+  The bound is therefore `max_retire_attempts/0 × (retire_wait_ms/0 +
+  retire_retry_ms/0)` past the ceiling — **about sixteen and a half minutes** on
+  the defaults, not the five an earlier draft of this paragraph claimed (round 2,
+  surfaces review). Both terms count: `attempt < max_retire_attempts/0` gives
+  four waits of `retire_retry_ms/0` between five attempts, and each attempt also
+  spends up to `retire_wait_ms/0` busy-waiting for the lease before it refuses —
+  which the refusal that matters, a genuine takeover, burns in full. Still
+  finite, and still the difference between minutes and the next deploy.
   """
 
   require Logger
@@ -273,12 +278,38 @@ defmodule Fountain.Conversations.ProvisionWatchdog do
       # row (it rejects rows whose server is alive). The stop goes through the
       # supervisor, which removes the child — so nothing restarts onto the live
       # row, which is what #394 was actually about.
+      #
+      # **Whether the conversation is failed with it depends on who holds the
+      # row** (round 2, protocol review), and the two cases really are
+      # different:
+      #
+      #   * `{:ok, :claimed_elsewhere}` — another owner has the machine and is
+      #     very likely building *this* conversation's. Failing it would mark a
+      #     live conversation dead while its machine comes up, which is the one
+      #     thing the stand-down arms exist to prevent. Left alone.
+      #   * `{:error, _}` — this owner could not reach the row at all: a lock
+      #     held for every wait, or a database fault. Nobody else is finishing
+      #     this conversation, and `release_stuck_sandboxes/0` fails the
+      #     *sandbox* row only, so leaving it would strand a `pending`
+      #     conversation with no server and nothing that resolves it. Failed,
+      #     as `main` did unconditionally.
+      #
+      # The distinction is exactly the one `Machine.fail_provision/2` already
+      # draws, which is why it is available here for free.
       other ->
         Logger.error(
           "conv #{conv_id}: provisioning exceeded #{state.fires_in_ms}ms and the machine could " <>
             "not be retired after #{@max_retire_attempts} attempts (#{inspect(other)}); " <>
             "stopping the server anyway so the reaper can collect the row"
         )
+
+        if held_by_another_owner?(other) do
+          Logger.info(
+            "conv #{conv_id}: leaving the conversation alone; another owner holds its machine"
+          )
+        else
+          fail_conversation(conv_id)
+        end
 
         Output.publish_stage(conv_id, "provision", "failed", %{
           reason: "provision deadline exceeded; the machine could not be retired"
@@ -293,6 +324,11 @@ defmodule Fountain.Conversations.ProvisionWatchdog do
         :done
     end
   end
+
+  # `Machine.fail_provision/2` answers `{:ok, :claimed_elsewhere}` when the
+  # machine is somebody else's and `{:error, _}` when it could not be reached.
+  defp held_by_another_owner?({:ok, :claimed_elsewhere}), do: true
+  defp held_by_another_owner?(_other), do: false
 
   defp fail_conversation(conv_id) do
     # ownership: `conv_id` is the one the `ConversationServer` this watchdog

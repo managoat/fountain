@@ -746,7 +746,7 @@ defmodule Fountain.Conversations.Wake do
   # this tree has recorded since stage 5.
   #
   # The row ends `terminated` as it always did. The behaviour that is new is
-  # that it can be *refused*, which is why `retire_replaced_machine/1` answers
+  # that it can be *refused*, which is why `retire_replaced_home/2` answers
   # rather than being discarded — see its one checked caller.
   defp mark_old_sandbox_terminated(nil), do: :ok
 

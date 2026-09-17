@@ -209,17 +209,33 @@ defmodule Fountain.Machines.MachineBoundsTest do
           # is exempted rather than allowed to hide: `ProvisionWatchdog` waits
           # longer than five seconds for a lease it has already waited half an
           # hour for, because giving up early would leave a stuck server alive
-          # with a live row — the #394 ordering inverted. The number it passes
-          # is pinned by name in the test below, so exempting the file costs
-          # nothing the scan was buying.
+          # with a live row — the #394 ordering inverted. Both the value and
+          # the fact that it passes it *by name* are pinned below, so exempting
+          # the file costs nothing the scan was buying.
           "conversations/provision_watchdog.ex",
           # And the one site that passes `:deadline_ms`: the provision bracket's
           # renewal window is `ProvisionWatchdog.deadline_ms/0` rather than
-          # `Renewal`'s ten TTLs, which is behaviour change 8 and is pinned by
-          # `provision_test.exs`'s two deadline cases.
+          # `Renewal`'s ten TTLs, which is behaviour change 8.
           "conversations/fresh_provision.ex"
         ])
       )
+
+    # **Each exempted file is exempt because it passes a named accessor rather
+    # than a literal** — which is what keeps the numbers above the live ones,
+    # and which an earlier draft asserted in prose and nowhere else (round 2,
+    # surfaces review). A literal there would be a second copy of a bound with
+    # nothing watching it, which is this test's whole failure mode.
+    for {file, call} <- [
+          {"apps/fountain/lib/fountain/conversations/provision_watchdog.ex",
+           "busy_wait_ms: @retire_wait_ms"},
+          {"apps/fountain/lib/fountain/conversations/fresh_provision.ex",
+           "deadline_ms: ProvisionWatchdog.deadline_ms()"}
+        ] do
+      assert File.read!(Path.join(root, file)) =~ call,
+             "#{file} is exempt from the scan below because it passes `#{call}`. It does not " <>
+               "any more, so either it hard-codes a bound now — which the exemption was never " <>
+               "for — or the call moved and this pin has to move with it."
+    end
 
     # Not a bare count: the files that could plausibly override a bound are the
     # three sites that call the protocol, so the scan has to be shown to reach

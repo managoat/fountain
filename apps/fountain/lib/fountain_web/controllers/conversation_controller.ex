@@ -562,7 +562,8 @@ defmodule FountainWeb.ConversationController do
     end
   end
 
-  # Exactly the launch keys `Conversations.start_conversation/2` reads, minus
+  # Exactly the launch keys `Conversations.start_conversation/2` reads
+  # (`client_request_id` among them: it waits with the prompt it names), minus
   # the ones this path sets itself (`user_id`, `agent_id`, `source`) and the
   # two it refuses to queue. An allow list rather than a drop list:
   # `ConversationCreateRequest` does not set `additionalProperties: false`, so
@@ -571,7 +572,7 @@ defmodule FountainWeb.ConversationController do
   @queued_attr_keys ~w(prompt title vault_id environment_id inference_credential_id
                        permission_policy sandbox_mode sandbox_api_access sprite_name
                        channel_id fresh parent_conversation_id labels
-                       execution_limits)
+                       execution_limits client_request_id)
 
   # Queueing is opt-in (ADR 0042 decision 2). A caller that did not ask keeps
   # the immediate 429 or 503 its client already handles.

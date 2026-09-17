@@ -9964,6 +9964,11 @@
           "required": false,
           "type": "string"
         },
+        "client_request_id": {
+          "nullable": true,
+          "required": false,
+          "type": "string"
+        },
         "environment_id": {
           "format": "uuid",
           "nullable": true,

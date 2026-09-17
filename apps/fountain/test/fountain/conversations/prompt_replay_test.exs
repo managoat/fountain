@@ -145,6 +145,30 @@ defmodule Fountain.Conversations.PromptReplayTest do
 
       refute Keyword.has_key?(args, :initial_prompt)
       assert_received {:queued_prompt, _id, "kick things off", _}
+      refute_received {:queued_prompt_with, _, _, _}
+    end
+
+    test "sends the request's client_request_id with the prompt, not in the spec (#1406)", %{
+      user: user,
+      agent: agent
+    } do
+      {:ok, _conv} =
+        Launch.start_conversation(%{
+          "agent_id" => agent.id,
+          "user_id" => user.id,
+          "prompt" => "kick things off",
+          "client_request_id" => "plan-7-step-1"
+        })
+
+      # A correlation in the stored spec would be replayed on every deploy,
+      # exactly as the prompt was. `inspect` rather than the top-level values:
+      # a nested `{prompt, opts}` or an `opts:` keyword would hide from those.
+      args = spec_args()
+      refute Keyword.has_key?(args, :initial_prompt)
+      refute inspect(args, limit: :infinity) =~ "plan-7-step-1"
+
+      assert_received {:queued_prompt_with, _id, "kick things off",
+                       [client_request_id: "plan-7-step-1"]}
     end
   end
 end

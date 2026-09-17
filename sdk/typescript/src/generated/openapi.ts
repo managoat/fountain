@@ -3557,6 +3557,8 @@ export interface components {
             agent_id: string;
             /** @description Opaque key for the external channel this conversation is bound to (for example a Buzz channel id). When set, the latest live conversation for the same agent, vault and channel is resumed (200) instead of a new one being opened (201). */
             channel_id?: string | null;
+            /** @description Your own name for the first prompt. Ignored when the request carries no `prompt`, and when `channel_id` resumes a conversation: a resume does not deliver the prompt, so send the value with it on the prompts route. Fountain stores it on the turn the prompt opens and sends it on that turn's `started` stage event, beside the `turn_id`, so a client can bind its work item to the exact turn without inferring it from turn order. It is a correlation and not an idempotency key: a second prompt with the same value opens a second turn that carries it too. Make it unique within the conversation. */
+            client_request_id?: string | null;
             /**
              * Format: uuid
              * @description Optional environment to provision from instead of the agent's own; the conversation stays pinned to it across wakes. Must be owned by the caller (404 otherwise) and satisfy the agent's allowed_environment_ids when that allowlist is set (422 environment_not_allowed). Part of the channel_id resume key.

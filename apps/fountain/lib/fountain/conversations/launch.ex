@@ -27,6 +27,7 @@ defmodule Fountain.Conversations.Launch do
     ConversationServer,
     ExecutionAllowance,
     InferenceBinding,
+    PromptDelivery,
     Sandbox
   }
 
@@ -44,6 +45,8 @@ defmodule Fountain.Conversations.Launch do
   ## Required attrs
     - `agent_id`              — agent to run
     - `prompt`                — optional first prompt (sends turn 1 immediately)
+    - `client_request_id`     — optional; the caller's name for that prompt, carried to the
+                                turn it opens (#1406). Ignored without a `prompt`
     - `sprite_name`           — optional suffix for the sandbox name, which is always
                                 "fountain-<short-user-id>-<suffix>"; defaults to a random
                                 suffix. Refused with `sandbox_api_access: "none"`, and on
@@ -183,10 +186,11 @@ defmodule Fountain.Conversations.Launch do
       case start_result do
         {:ok, pid} ->
           if is_binary(attrs["prompt"]) and attrs["prompt"] != "" do
-            ConversationServer.queue_initial_prompt(
+            PromptDelivery.queue(
               pid,
               attrs["prompt"],
-              attrs["images"] || []
+              attrs["images"] || [],
+              PromptDelivery.from_request(attrs)
             )
           end
 
@@ -457,6 +461,10 @@ defmodule Fountain.Conversations.Launch do
     prompt = attrs["prompt"]
 
     if is_binary(prompt) and prompt != "" do
+      # The request's `client_request_id` (#1406) joins the attribution the
+      # prompt already travels with.
+      opts = PromptDelivery.from_request(attrs) ++ opts
+
       case ConversationServer.send_prompt(conv.id, prompt, attrs["images"] || [], opts) do
         :ok ->
           # ownership: conv is the row `Machine.attach/3` just inserted

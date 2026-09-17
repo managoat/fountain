@@ -414,6 +414,14 @@ A second prompt with the same value opens a second turn, and the two turns
 carry the same value. Do not send a prompt again only because a response was
 lost. Read the turns first.
 
+`POST /api/conversations` takes the same field for its first prompt. The value
+goes to turn 1 of a new conversation, and to the first turn of a conversation
+that you attach to a sandbox with `sandbox_id`. A start that waits in the queue
+keeps the value until it starts. Fountain ignores the value when the request
+has no `prompt`. Fountain also ignores it when `channel_id` resumes a
+conversation, because a resume does not deliver the prompt. Send the prompt to
+the resumed conversation on the prompts route, with the value.
+
 An accepted prompt does not always open a turn. Fountain can refuse it after
 the response: the machine is at capacity, a limit on the conversation stops
 it, or another prompt opened the turn first. The stream reports some of these

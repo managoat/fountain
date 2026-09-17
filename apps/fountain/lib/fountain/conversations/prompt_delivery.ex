@@ -76,6 +76,27 @@ defmodule Fountain.Conversations.PromptDelivery do
     _kind, _reason -> false
   end
 
+  @doc """
+  What a launch request asks to travel with its first prompt. `attrs` is the
+  string-keyed map `Launch` takes, from the API or replayed from the queue.
+  """
+  @spec from_request(map()) :: travelling()
+  def from_request(attrs) when is_map(attrs) do
+    travelling(client_request_id: attrs["client_request_id"])
+  end
+
+  @doc """
+  Queue a launch's first prompt on the server just started for it. With
+  nothing travelling this is the three-argument `queue_initial_prompt`, the
+  call it has always been.
+  """
+  @spec queue(pid(), String.t(), list(), travelling()) :: :ok
+  def queue(pid, prompt, images, []),
+    do: ConversationServer.queue_initial_prompt(pid, prompt, images)
+
+  def queue(pid, prompt, images, meta),
+    do: ConversationServer.queue_initial_prompt(pid, prompt, images, meta)
+
   @doc "The call the live server `pid` takes a prompt in."
   @spec call(pid(), String.t(), list(), keyword(), (node() -> boolean())) :: tuple()
   def call(pid, prompt, images, opts, understands? \\ &understands?/1) do

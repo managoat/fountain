@@ -114,6 +114,11 @@ public struct ConversationCreateRequest: Sendable, Encodable {
     get { _channelID.value }
     set { _channelID = newValue.map(ConversationInputField.value) ?? .omitted }
   }
+  private var _clientRequestID: ConversationInputField<String> = .omitted
+  public var clientRequestID: String? {
+    get { _clientRequestID.value }
+    set { _clientRequestID = newValue.map(ConversationInputField.value) ?? .omitted }
+  }
   private var _environmentID: ConversationInputField<String> = .omitted
   public var environmentID: String? {
     get { _environmentID.value }
@@ -205,6 +210,7 @@ public struct ConversationCreateRequest: Sendable, Encodable {
     sandboxID: String? = nil,
     channelID: String? = nil,
     fresh: Bool? = nil,
+    clientRequestID: String? = nil,
     inferenceCredentialID: String? = nil,
     labels: [String: String]? = nil,
     queue: Bool? = nil
@@ -222,6 +228,7 @@ public struct ConversationCreateRequest: Sendable, Encodable {
     self.sandboxID = sandboxID
     self.channelID = channelID
     self.fresh = fresh
+    self.clientRequestID = clientRequestID
     self.inferenceCredentialID = inferenceCredentialID
     self.labels = labels
     self.queue = queue
@@ -230,6 +237,7 @@ public struct ConversationCreateRequest: Sendable, Encodable {
   enum CodingKeys: String, CodingKey {
     case agentID = "agent_id"
     case channelID = "channel_id"
+    case clientRequestID = "client_request_id"
     case environmentID = "environment_id"
     case fresh = "fresh"
     case images = "images"
@@ -249,6 +257,7 @@ public struct ConversationCreateRequest: Sendable, Encodable {
   /// Fields for which the API accepts an explicit JSON null.
   public enum NullableField: Sendable {
     case channelID
+    case clientRequestID
     case environmentID
     case fresh
     case images
@@ -266,6 +275,7 @@ public struct ConversationCreateRequest: Sendable, Encodable {
   public mutating func setNull(_ field: NullableField) {
     switch field {
     case .channelID: _channelID = .null
+    case .clientRequestID: _clientRequestID = .null
     case .environmentID: _environmentID = .null
     case .fresh: _fresh = .null
     case .images: _images = .null
@@ -284,6 +294,7 @@ public struct ConversationCreateRequest: Sendable, Encodable {
     var container = encoder.container(keyedBy: CodingKeys.self)
     try container.encode(agentID, forKey: .agentID)
     try _channelID.encode(into: &container, forKey: .channelID)
+    try _clientRequestID.encode(into: &container, forKey: .clientRequestID)
     try _environmentID.encode(into: &container, forKey: .environmentID)
     try _fresh.encode(into: &container, forKey: .fresh)
     try _images.encode(into: &container, forKey: .images)

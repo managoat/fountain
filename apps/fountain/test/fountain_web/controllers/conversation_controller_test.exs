@@ -603,6 +603,7 @@ defmodule FountainWeb.ConversationControllerTest do
         |> post_json("/api/conversations", %{
           "agent_id" => agent.id,
           "prompt" => "later is fine",
+          "client_request_id" => "plan-7-step-1",
           "queue" => true
         })
 
@@ -615,6 +616,9 @@ defmodule FountainWeb.ConversationControllerTest do
       assert [request] = Fountain.SandboxQueue.list_queued(user.id)
       assert request.id == body["id"]
       assert request.attrs["prompt"] == "later is fine"
+      # The drainer replays these through `Launch`, so the correlation has to
+      # wait in the queue with the prompt it names (#1406).
+      assert request.attrs["client_request_id"] == "plan-7-step-1"
     end
 
     test "the queued attrs carry only launch keys, never whatever else was sent", %{
@@ -821,6 +825,24 @@ defmodule FountainWeb.ConversationControllerTest do
   end
 
   describe "POST /api/conversations" do
+    test "an empty or oversized client_request_id is refused before anything launches (#1406)",
+         %{conn: conn, user: user, raw_key: raw_key} do
+      agent = insert_agent(user_id: user.id)
+      reject(&Fountain.Conversations.Launch.start_or_resume_conversation/2)
+      too_long = String.duplicate("x", Fountain.Conversations.Turn.client_request_id_max() + 1)
+
+      for bad <- ["", too_long, 42] do
+        conn
+        |> authed_with_key(raw_key)
+        |> post_json("/api/conversations", %{
+          "agent_id" => agent.id,
+          "prompt" => "hello",
+          "client_request_id" => bad
+        })
+        |> json_response(422)
+      end
+    end
+
     test "returns 402 when the balance is gone", %{
       conn: conn,
       user: user,

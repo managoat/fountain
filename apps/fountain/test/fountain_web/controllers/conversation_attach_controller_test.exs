@@ -43,6 +43,28 @@ defmodule FountainWeb.ConversationAttachControllerTest do
     assert Repo.get!(ExecutionAllowance, data["id"]).limits == %{}
   end
 
+  test "with a prompt, the request's client_request_id goes with it (#1406)", ctx do
+    test = self()
+
+    stub(Fountain.Conversations.ConversationServer, :send_prompt, fn _id, "hello", _, opts ->
+      send(test, {:prompt_opts, opts})
+      :ok
+    end)
+
+    ctx
+    |> create(%{
+      "sandbox_id" => ctx.sandbox.id,
+      "prompt" => "hello",
+      "client_request_id" => "plan-7-step-1"
+    })
+    |> json_response(201)
+
+    assert_received {:prompt_opts, opts}
+    assert opts[:client_request_id] == "plan-7-step-1"
+    # Beside the attribution, not instead of it.
+    assert opts[:actor]
+  end
+
   test "with a prompt, the first turn goes through the wake path", ctx do
     # A `ready` machine with no server: the prompt probes it and starts a
     # server, exactly as prompting a parked conversation does.

@@ -662,6 +662,42 @@ defmodule FountainWeb.Schemas do
     })
   end
 
+  defmodule ClientRequestId do
+    @moduledoc false
+    # One definition for the request side (#1406), so every door that takes a
+    # prompt declares the same bound and says the same thing about it.
+
+    @shared "Fountain stores it on the turn the prompt opens and sends it on that turn's " <>
+              "`started` stage event, beside the `turn_id`, so a client can bind its work " <>
+              "item to the exact turn without inferring it from turn order. Use the event " <>
+              "to find a candidate turn and the turn itself to confirm it: the event's " <>
+              "copy has been through event redaction, and the turn's is what you sent. " <>
+              "It is a correlation and not an idempotency key: a second prompt with the " <>
+              "same value opens a second turn that carries it too. Make it unique within " <>
+              "the conversation."
+
+    def request(lead \\ "Your own name for this prompt. ") do
+      %Schema{
+        type: :string,
+        # Null is "none", as it is for `images` beside it: a client that
+        # serialises an unset optional as null must not get a 422 for a
+        # field it did not use.
+        nullable: true,
+        minLength: 1,
+        maxLength: Fountain.Conversations.Turn.client_request_id_max(),
+        # PostgreSQL cannot hold U+0000 in a text column: the insert raises
+        # 22021, and nothing on the way to the turn rescues it. An otherwise
+        # ordinary prompt would end its conversation server over the label it
+        # carried, on a wake after the caller was already told `queued`. Every
+        # other character is the caller's business, so this refuses exactly
+        # one. `Turn.changeset/2` and `PromptDelivery.travelling/1` hold the
+        # same line for a caller that is not a door.
+        pattern: Fountain.Conversations.Turn.client_request_id_pattern(),
+        description: lead <> @shared
+      }
+    end
+  end
+
   defmodule ConversationCreateRequest do
     @moduledoc false
     require OpenApiSpex
@@ -732,6 +768,12 @@ defmodule FountainWeb.Schemas do
               "prompt that is present must carry words: blank and whitespace-only text is " <>
               "refused with 422 invalid_prompt, before the launch reserves a sandbox."
         },
+        client_request_id:
+          ClientRequestId.request(
+            "Your own name for the first prompt. Ignored when the request carries no " <>
+              "`prompt`, and when `channel_id` resumes a conversation: a resume does not " <>
+              "deliver the prompt, so send the value with it on the prompts route. "
+          ),
         title: %Schema{
           type: :string,
           nullable: true,
@@ -925,41 +967,6 @@ defmodule FountainWeb.Schemas do
         }
       }
     })
-  end
-
-  defmodule ClientRequestId do
-    @moduledoc false
-    # One definition for the request side (#1406), so the prompts route and
-    # any later door that takes a prompt declare the same bound.
-
-    def request do
-      %Schema{
-        type: :string,
-        # Null is "none", as it is for `images` beside it: a client that
-        # serialises an unset optional as null must not get a 422 for a
-        # field it did not use.
-        nullable: true,
-        minLength: 1,
-        maxLength: Fountain.Conversations.Turn.client_request_id_max(),
-        # PostgreSQL cannot hold U+0000 in a text column: the insert raises
-        # 22021, and nothing on the way to the turn rescues it. An otherwise
-        # ordinary prompt would end its conversation server over the label it
-        # carried, on a wake after the caller was already told `queued`. Every
-        # other character is the caller's business, so this refuses exactly
-        # one. `Turn.changeset/2` and `PromptDelivery.travelling/1` hold the
-        # same line for a caller that is not this door.
-        pattern: Fountain.Conversations.Turn.client_request_id_pattern(),
-        description:
-          "Your own name for this prompt. Fountain stores it on the turn the prompt " <>
-            "opens and sends it on that turn's `started` stage event, beside the " <>
-            "`turn_id`, so a client can bind its work item to the exact turn without " <>
-            "inferring it from turn order. Use the event to find a candidate turn and " <>
-            "the turn itself to confirm it: the event's copy has been through event " <>
-            "redaction, and the turn's is what you sent. It is a correlation and not " <>
-            "an idempotency key: a second prompt with the same value opens a second " <>
-            "turn that carries it too. Make it unique within the conversation."
-      }
-    end
   end
 
   defmodule PromptRequest do

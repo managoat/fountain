@@ -141,10 +141,12 @@ Shipped as seven gates, one PR each, in dependency order:
   `ConversationServer` keeps its own adapter, key and transcript exactly as
   step 4 says; only the coordinator is a lock plus a query rather than a
   registered process. Revisit if the handle and sprite env ever need to
-  move into one owner. **Revisited 2026-09-16:**
-  [0058](0058-the-machine-has-one-owner.md) proposes that owner, a
-  per-sandbox process backed by a durable lease, and names the fences built
-  in its absence as what it replaces.
+  move into one owner. **Revisited 2026-09-16, built by 2026-09-18:** there
+  is now a per-sandbox owner, `Fountain.Machines.Machine`, per
+  [0058](0058-the-machine-has-one-owner.md). It is a process backed by a
+  durable lease on the row, and it serializes provision, resume, park and
+  destroy as step 4 asked. The advisory lock, the refcount query and the idle
+  clock described above are what it replaced; its Outcome records how.
 - At capacity a turn is refused (`sandbox_at_capacity`); the `queued` stage
   of the original step 4 was dropped with the lease and is not built.
 - Checkpointing (Consequences, "becomes meaningful"): a home is

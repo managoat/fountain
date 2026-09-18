@@ -25,6 +25,14 @@ concurrent-sandbox cap (0026) bounds how many machines a tenant can keep up.
 An operator who wants the backstop sets the variable, and then the text below
 applies as written (ephemeral: destroy; persistent home: park, per 0023).
 
+**Amended by [0058](0058-the-machine-has-one-owner.md) (2026-09-17):** the
+idle and ceiling decision is `Fountain.Machines.Policy`'s, since stage 7a. Park
+or destroy at each bound, and the capability check behind it, are decided there
+once. The machine's owner applies them under its lease (`Machines.Park`), for
+both the conversation server's own timer and the reaper's sweep. The policy
+below is unchanged; it has one home instead of two callers that decided it
+separately.
+
 ## Context
 
 Since #233, both lifetime bounds destroyed the sprite: the ConversationServer

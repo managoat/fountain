@@ -91,9 +91,10 @@ defmodule Fountain.Conversations.Sandbox do
     # `transition` has **two writers**, and the second is the point of stage
     # 9a. A *fence* stamps `destroying`, holding no lease —
     # `Lifecycle.do_fence_sandbox_for_teardown/2` and
-    # `Conversations.do_reset_sandbox/2`, through `Machines.Destroy.stamp_intent!/2`
-    # rather than `changeset/2`. (Until stage 9b the fence wrote two columns
-    # beside the stamp, in the same commit; 9b-ii dropped them.) A fence is by definition written by somebody
+    # `Conversations.do_reset_sandbox/2`, through
+    # `Machines.Destroy.stamp_intent!/2` rather than `changeset/2`. (Until
+    # stage 9b the fence wrote two columns beside the stamp, in the same
+    # commit; 9b-ii dropped them.) A fence is by definition written by somebody
     # who does not own the machine; the protocol's own stamp, one step later
     # and under its epoch, restates it with the destroy's reason. Nothing
     # writes any other transition from outside `Machines`.

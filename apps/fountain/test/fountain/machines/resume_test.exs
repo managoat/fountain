@@ -273,9 +273,8 @@ defmodule Fountain.Machines.ResumeTest do
       # stage 9a, and this is the fifth. `destroying` is durable intent, not an
       # abandoned operation: somebody asked for this machine to go away, and an
       # owner dying between the fence and the finalize did not withdraw the
-      # request. So it is refused whatever the lease says — and, unlike the test
-      # above, with no column underneath it, which is the shape stage 9b leaves
-      # behind and the reason the stamp has to carry the refusal by itself.
+      # request. So it is refused whatever the lease says, and by the stamp
+      # alone: stage 9b-ii dropped the fence columns that once sat beside it.
       stamp(ctx, transition: "destroying", transition_reason: "terminated")
       reject(&Managoat.Sandbox.resume/1)
 

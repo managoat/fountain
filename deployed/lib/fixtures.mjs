@@ -165,7 +165,7 @@ export class Fixtures {
         validateRecoveryEvidence({ ...this.manifest, ...this.manifest.recovery,
           resources: this.manifest.resources.map(r => r.kind === 'conversation'
             ? { ...r, vault_id: r.vault_id ?? null, sandbox_id: r.sandbox_id ?? null } : r) }, this.client.baseUrl);
-        await verifyRecoveryDependencies(this.client, this.manifest.resources, this.manifest.run_id, signal);
+        await verifyRecoveryDependencies(this.client, this.manifest.resources, this.manifest.run_id, signal, this.manifest.recovery);
       } catch (error) { return [{ kind: 'recovery', error: error.message }]; }
     }
     const failures = await cleanupSchedule(this, signal);

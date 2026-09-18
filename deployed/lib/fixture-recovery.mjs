@@ -22,11 +22,30 @@ export async function recoveryIdentity(client, ownerId) {
 
 async function list(client, path, signal) {
   const { body } = await client.request('GET', path, { expected: 200, recordBody: false, signal });
+  return inventoryRows(body);
+}
+
+function inventoryRows(body) {
   need(Array.isArray(body?.data) && body.data.length <= 1000 && body.data.every(row => uuid(row.id)), 'Invalid or oversized recovery inventory');
   // These public collections are unpaged. A future paged response needs an
   // explicit implementation, never an optimistic first-page cleanup verdict.
   need(!body.next && !body.next_cursor && !body.has_more && !body.meta?.next && !body.meta?.has_more, 'Paginated recovery inventory is unsupported');
   return body.data;
+}
+
+async function verifyBuzzDependencies(client, resources, recovery, signal) {
+  const { status, body } = await client.request('GET', '/api/buzz/agents', { expected: [200, 404], recordBody: false, signal });
+  if (status === 404) {
+    // The dispatcher gives the same 404 for absent and disabled extensions.
+    // Disabled routes do not prove their stored FK references disappeared.
+    need(body?.error === 'Not found' && body.reason === 'not_found' && note(recovery.buzz_absence_evidence),
+      'Buzz inventory unavailable; record operator-verified absence of stored Buzz dependencies or escalate');
+    return;
+  }
+  for (const row of inventoryRows(body)) {
+    need(uuid(row.agent_id) && uuid(row.vault_id) && (row.environment_id === null || uuid(row.environment_id)), 'Invalid Buzz identity dependency evidence');
+    need(!related(row, resources), 'Unrecorded Buzz identity depends on recovery fixtures; retain parents and escalate');
+  }
 }
 
 export async function inventoryFixtures(client, { ownerId, runId }) {
@@ -47,7 +66,7 @@ export async function inventoryFixtures(client, { ownerId, runId }) {
   }
   resources.sort((a, b) => Number(a.name.split('-').at(-1)) - Number(b.name.split('-').at(-1)));
   return { version: 1, base_url: client.baseUrl, owner_id: ownerId, run_id: runId,
-    profiles: [], ownership_evidence: '', writers_stopped: '', intent_inventory: '', resources };
+    profiles: [], ownership_evidence: '', writers_stopped: '', intent_inventory: '', buzz_absence_evidence: '', resources };
 }
 
 export function validateRecoveryEvidence(evidence, baseUrl) {
@@ -56,6 +75,9 @@ export function validateRecoveryEvidence(evidence, baseUrl) {
     evidence.profiles.every(p => ['basic', 'execution', 'streaming', 'deterministic'].includes(p)),
   'Journal reconstruction supports basic, execution, streaming and deterministic only; escalate other profiles');
   for (const field of ['ownership_evidence', 'writers_stopped', 'intent_inventory']) need(note(evidence[field]), `Record ${field} before reconstructing cleanup`);
+  if (evidence.buzz_absence_evidence !== undefined && evidence.buzz_absence_evidence !== '') {
+    need(note(evidence.buzz_absence_evidence), 'Invalid Buzz absence evidence');
+  }
   need(Array.isArray(evidence.resources) && evidence.resources.length > 0 && evidence.resources.length <= 100, 'Recovery requires one to one hundred exact create intents');
   const names = new Set(), ids = new Set(), slots = new Set();
   for (const r of evidence.resources) {
@@ -73,13 +95,13 @@ export function validateRecoveryEvidence(evidence, baseUrl) {
 
 // Fail before producing an executable manifest if the proposed parents also
 // own unrecorded work. This is intentionally a refusal, not an orphan sweeper.
-export async function verifyRecoveryDependencies(client, resources, runId, signal) {
+export async function verifyRecoveryDependencies(client, resources, runId, signal, recovery = {}) {
   for (const [kind, path] of Object.entries(kinds)) {
     const rows = await list(client, path, signal);
     for (const row of rows) {
-      if (kind === 'agent' && related(row, resources)) need(resources.some(r => r.kind === 'agent' && r.id === row.id), 'Unrecorded agent depends on recovery fixtures');
       const record = resources.find(r => r.kind === kind && (r.id === row.id || r.name === marker(kind, row)));
       if (!record) {
+        need(kind !== 'agent' || !related(row, resources), 'Unrecorded agent depends on recovery fixtures');
         need(!exactName(kind, marker(kind, row), runId), 'Unrecorded run fixture; complete the intent inventory before cleanup');
         continue;
       }
@@ -89,6 +111,7 @@ export async function verifyRecoveryDependencies(client, resources, runId, signa
       record.id = row.id; record.state = 'created';
     }
   }
+  await verifyBuzzDependencies(client, resources, recovery, signal);
   const ids = new Set(resources.map(r => r.id).filter(Boolean));
   const conversations = await list(client, '/api/conversations', signal);
   for (const row of conversations) {
@@ -157,9 +180,9 @@ export async function reconstructFixtures(client, evidence, manifestPath) {
       need(resources.some(parent => parent.kind === kind && parent.id === r[`${kind}_id`]), 'Conversation parent is missing from the exact intent inventory');
     }
   }
-  await verifyRecoveryDependencies(client, resources, evidence.run_id);
+  await verifyRecoveryDependencies(client, resources, evidence.run_id, undefined, evidence);
   const manifest = { version: 1, base_url: client.baseUrl, owner_id: evidence.owner_id, run_id: evidence.run_id, resources,
-    recovery: { version: 1, ...Object.fromEntries(['profiles', 'ownership_evidence', 'writers_stopped', 'intent_inventory'].map(k => [k, evidence[k]])) } };
+    recovery: { version: 1, ...Object.fromEntries(['profiles', 'ownership_evidence', 'writers_stopped', 'intent_inventory', 'buzz_absence_evidence'].map(k => [k, evidence[k]])) } };
   atomicJson(manifestPath, manifest);
   // Use the cleanup reader as the final check, including its parent rules.
   Fixtures.load(manifestPath, client, evidence.owner_id);

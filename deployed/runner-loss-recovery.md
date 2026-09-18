@@ -80,6 +80,16 @@ Review `/tmp/recovery-inventory/evidence.json` and fill:
   exact missing names from request logs or the profile's known execution
   point even when no resource is currently visible. Omit `id` when unknown;
   never invent one or copy it from an unrelated resource.
+- `buzz_absence_evidence`: leave empty when `GET /api/buzz/agents` returns
+  its identity inventory. If the extension route returns the host's 404,
+  record the deployment operator's evidence that no stored Buzz identities
+  reference the recovery fixtures. A fresh core-only database that never had
+  Buzz storage is one such case. The same 404 also covers a disabled extension;
+  disabling or removing its code does not remove stored foreign-key references.
+  Deployment/database history or a scoped operator inspection must establish
+  absence; the HTTP response alone cannot. Without that evidence, escalate.
+  The note cannot bypass an available inventory, authentication failures,
+  malformed replies, or server errors.
 
 For each conversation, retain explicit `agent_id`, `environment_id`,
 `vault_id` (UUID or `null`), `sandbox_id` (UUID or `null`), and `sandbox_mode`.
@@ -97,6 +107,11 @@ create with no ID and no visible exact match remains pending on every cleanup
 attempt; retry after server settlement. If it never committed, an operator
 must investigate the request outcome rather than marking it cleaned from
 absence alone.
+
+A pending agent that later appears with its exact recorded name and source
+references is reconciled before the dependency check. Replay then deletes that
+agent before its environment; changed IDs/names, duplicate matches and a
+reappearing cleaned fixture still refuse the pass.
 
 Reconstruct only after that review:
 
@@ -130,7 +145,11 @@ inventory before mutation. Unrecorded agents referencing a fixture through
 their environment/vault allowlists, and child conversations linked through
 `parent_conversation_id` even when using different resources, block the whole
 pass. So do other foreign conversations, sandbox co-tenants, unrecorded
-sandboxes, changed parent names and agent schedules. Refusal retains parents
+sandboxes, changed parent names and agent schedules. The public Buzz identity
+inventory is also checked on reconstruction and every replay: any identity
+referencing a recovered agent, environment or vault refuses cleanup, even with
+no conversation or sandbox. Buzz identities are not adopted or deleted by
+this tool. Refusal retains parents
 as evidence. Cleanup then terminates recorded
 conversations, verifies their sandbox is terminal (and resets only an exactly
 owned persistent home), deletes conversations, and finally deletes parents.

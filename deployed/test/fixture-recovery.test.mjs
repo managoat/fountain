@@ -16,11 +16,13 @@ async function world(t) {
   const rows = Object.fromEntries(Object.keys(collections).map(kind => [kind, []]));
   const mutations = [], requests = [];
   let schedules = [];
+  let buzzReply = { status: 200, body: { data: [] } };
   const server = createServer(async (req, res) => {
     requests.push(`${req.method} ${req.url}`);
     const url = new URL(req.url, 'http://localhost');
     const send = (code, body) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(body === undefined ? undefined : JSON.stringify(body)); };
     if (req.headers.authorization !== 'Bearer dedicated-test') return send(401, { error: 'unauthorized' });
+    if (req.url === '/api/buzz/agents') return send(buzzReply.status, buzzReply.body);
     if (req.url === '/api/auth/me') return send(200, { id: ownerId, email_verified: true });
     if (req.url.match(/^\/api\/team\/.+\/schedules$/)) return send(200, { data: schedules });
     const kind = Object.keys(collections).find(k => url.pathname === collections[k] || url.pathname.startsWith(collections[k] + '/'));
@@ -74,6 +76,7 @@ async function world(t) {
   const manifestPath = join(dir, 'cleanup.json');
   return { dir, ownerId, runId, client, evidence, rows, mutations, requests, add, conversation, manifestPath,
     schedule: value => { schedules = value; },
+    buzz: (body, status = 200) => { buzzReply = { body, status }; },
     reconstruct: () => reconstructFixtures(client, evidence, manifestPath),
     load: () => Fixtures.load(manifestPath, client, ownerId) };
 }
@@ -276,3 +279,117 @@ test('allowlists on an exactly recorded agent permit cleanup of its recorded sou
   assert.equal(w.rows.agent.length, 0);
   assert.equal(w.rows.environment.length + w.rows.vault.length, 0);
 });
+
+test('a recorded pending agent is reconciled before dependent refusal and replay remains idempotent', async t => {
+  const w = await world(t);
+  const environment = w.add('environment');
+  const agent = w.add('agent', { environment_id: environment.id, allowed_environment_ids: [environment.id] });
+  const late = w.rows.agent.pop(); delete agent.id;
+  const reconstructed = await w.reconstruct();
+  assert.equal(reconstructed.resources[1].state, 'pending');
+  assert.equal(reconstructed.resources[1].id, undefined);
+  w.rows.agent.push(late);
+  assert.deepEqual(await w.load().cleanup(AbortSignal.timeout(5000)), []);
+  assert.deepEqual(w.mutations, [`DELETE /api/agents/${late.id}`, `DELETE /api/environments/${environment.id}`]);
+  assert.equal(w.load().remainingCount(), 0);
+  assert.deepEqual(await w.load().cleanup(AbortSignal.timeout(5000)), []);
+  assert.equal(w.mutations.length, 2, 'repeat pass does not mutate');
+});
+
+for (const scenario of ['duplicate-name', 'changed-id', 'changed-name', 'cleaned']) {
+  test(`late dependent-agent reconciliation still refuses ${scenario} before mutation`, async t => {
+    const w = await world(t);
+    const environment = w.add('environment');
+    const agent = w.add('agent', { environment_id: environment.id });
+    if (scenario === 'duplicate-name') {
+      const late = w.rows.agent.pop(); delete agent.id;
+      await w.reconstruct();
+      w.rows.agent.push(late, { ...late, id: randomUUID() });
+    } else {
+      await w.reconstruct();
+      if (scenario === 'changed-id') w.rows.agent[0].id = randomUUID();
+      if (scenario === 'changed-name') w.rows.agent[0].name = 'different-owner-marker';
+      if (scenario === 'cleaned') {
+        const f = w.load(); f.manifest.resources[1].state = 'cleaned'; f.save();
+      }
+    }
+    const failures = await w.load().cleanup(AbortSignal.timeout(5000));
+    assert.match(failures[0]?.error, /ownership changed|cleaned fixture/);
+    assert.deepEqual(w.mutations, []);
+    assert.equal(w.rows.environment[0].id, environment.id);
+  });
+}
+
+for (const kind of ['agent', 'environment', 'vault']) {
+  for (const phase of ['reconstruction', 'replay']) {
+    test(`refuses a Buzz identity's ${kind} dependency during ${phase} without a conversation`, async t => {
+      const w = await world(t); const source = w.add(kind);
+      w.evidence.buzz_absence_evidence = 'Earlier operator verification found no stored Buzz dependencies; current inventory must still be checked.';
+      if (phase === 'replay') await w.reconstruct();
+      w.buzz({ data: [{ id: randomUUID(), agent_id: randomUUID(), environment_id: null, vault_id: randomUUID(), [`${kind}_id`]: source.id }] });
+      if (phase === 'reconstruction') {
+        await assert.rejects(w.reconstruct(), /Buzz identity/);
+        assert.equal(existsSync(w.manifestPath), false);
+      } else {
+        const failures = await w.load().cleanup(AbortSignal.timeout(5000));
+        assert.match(failures[0]?.error, /Buzz identity/);
+        assert.equal(w.load().remainingCount(), 1);
+      }
+      assert.deepEqual(w.mutations, [], 'no deletion may cascade or clear the identity reference');
+      assert.equal(w.rows[kind][0].id, source.id);
+    });
+  }
+}
+
+test('an unrelated Buzz identity permits ordinary fixture cleanup', async t => {
+  const w = await world(t); w.conversation();
+  w.buzz({ data: [{ id: randomUUID(), agent_id: randomUUID(), environment_id: randomUUID(), vault_id: randomUUID() }] });
+  await w.reconstruct();
+  assert.deepEqual(await w.load().cleanup(AbortSignal.timeout(5000)), []);
+  assert.equal(w.load().remainingCount(), 0);
+  assert.equal(w.requests.filter(r => r === 'GET /api/buzz/agents').length, 2);
+});
+
+for (const phase of ['reconstruction', 'replay']) {
+  test(`unavailable Buzz inventory requires operator absence evidence during ${phase}`, async t => {
+    const w = await world(t); w.add('environment');
+    if (phase === 'replay') await w.reconstruct();
+    w.buzz({ error: 'Not found', reason: 'not_found' }, 404);
+    if (phase === 'reconstruction') await assert.rejects(w.reconstruct(), /Buzz.*unavailable/);
+    else {
+      const failures = await w.load().cleanup(AbortSignal.timeout(5000));
+      assert.match(failures[0]?.error, /Buzz.*unavailable/);
+      assert.equal(w.load().remainingCount(), 1);
+    }
+    assert.deepEqual(w.mutations, []);
+  });
+}
+
+test('verified core-only absence evidence survives reconstruction and repeat replay', async t => {
+  const w = await world(t); w.add('environment');
+  w.buzz({ error: 'Not found', reason: 'not_found' }, 404);
+  w.evidence.buzz_absence_evidence = 'Operator checked deployment/database history: this core-only instance has never had Buzz identity storage.';
+  await w.reconstruct();
+  assert.equal(w.load().manifest.recovery.buzz_absence_evidence, w.evidence.buzz_absence_evidence);
+  assert.deepEqual(await w.load().cleanup(AbortSignal.timeout(5000)), []);
+  assert.deepEqual(await w.load().cleanup(AbortSignal.timeout(5000)), []);
+  assert.equal(w.mutations.length, 1);
+});
+
+for (const response of [
+  { status: 403, body: { error: 'forbidden' } },
+  { status: 503, body: { error: 'unavailable' } },
+  { status: 404, body: { error: 'proxy route missing' } },
+  { status: 200, body: {} },
+  { status: 200, body: { data: [{ id: randomUUID() }] } },
+  { status: 200, body: { data: [], has_more: true } },
+]) {
+  test(`Buzz inventory errors fail closed (${response.status} ${JSON.stringify(response.body)})`, async t => {
+    const w = await world(t); w.add('environment');
+    w.evidence.buzz_absence_evidence = 'Operator checked this core-only instance never had Buzz identity storage.';
+    w.buzz(response.body, response.status);
+    await assert.rejects(w.reconstruct());
+    assert.deepEqual(w.mutations, []);
+    assert.equal(existsSync(w.manifestPath), false);
+  });
+}

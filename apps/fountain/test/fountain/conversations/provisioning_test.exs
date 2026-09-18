@@ -252,7 +252,7 @@ defmodule Fountain.Conversations.ProvisioningTest do
                  "|| true; }; } && " <>
                  "printf '%s\\n' 'Defaults env_keep += \"HTTPS_PROXY HTTP_PROXY https_proxy http_proxy " <>
                  "NO_PROXY NODE_EXTRA_CA_CERTS SSL_CERT_FILE REQUESTS_CA_BUNDLE CARGO_HTTP_CAINFO " <>
-                 "UV_NATIVE_TLS\"' > '/tmp/fountain-broker-proxy.sudoers' && " <>
+                 "GIT_SSL_CAINFO UV_NATIVE_TLS\"' > '/tmp/fountain-broker-proxy.sudoers' && " <>
                  "sudo visudo -cf '/tmp/fountain-broker-proxy.sudoers' && " <>
                  "sudo install -m 440 '/tmp/fountain-broker-proxy.sudoers' '/etc/sudoers.d/fountain-broker-proxy' && " <>
                  "git config --global http.proxyAuthMethod basic ) 9>'/tmp/fountain-broker-ca.lock'"
@@ -549,6 +549,220 @@ defmodule Fountain.Conversations.ProvisioningTest do
 
       assert [event] = stage_events(conv.id, "broker")
       assert %{"reason" => "ca_install_exit", "exit_code" => 1} = Jason.decode!(event.data)
+    end
+  end
+
+  describe "install_broker_ca/2 on a self-hosted runner" do
+    # A runner's sandbox is a directory on the tenant's machine, run as the
+    # tenant: no sudo, no update-ca-certificates, and a trust store that is
+    # not Fountain's. The first brokered launch on one failed at the sudo.
+    defp runner_handle, do: %Managoat.Sandbox.Handle{provider: :runner, name: "runner-test"}
+
+    test "keeps the CA and its bundle in the sandbox, without sudo" do
+      conv = insert_conversation()
+      test = self()
+
+      stub(Fountain.Broker, :ca_pem, fn -> {:ok, "PEM"} end)
+
+      stub(Managoat.Sandbox, :write_file, fn _h, path, data, opts ->
+        send(test, {:wrote, path, data, opts})
+        :ok
+      end)
+
+      stub(Managoat.Sandbox, :exec, fn _h, cmd, args, _opts ->
+        send(test, {:exec, cmd, args})
+        {:ok, "", 0}
+      end)
+
+      assert :ok = Provisioning.install_broker_ca(runner_handle(), conv.id)
+
+      assert_received {:wrote, staging, "PEM", [mode: 0o644]}
+      assert String.starts_with?(staging, "/home/sprite/.fountain/broker/ca.crt.")
+
+      assert_received {:exec, "bash", ["-c", script]}
+      refute script =~ "sudo"
+      refute script =~ "update-ca-certificates"
+      assert script =~ "mv -f '#{staging}' '/home/sprite/.fountain/broker/ca.crt'"
+      assert script =~ "git config --global http.proxyAuthMethod basic"
+    end
+
+    @tag :tmp_dir
+    test "builds a bundle of the machine roots plus the broker CA", %{tmp_dir: tmp_dir} do
+      conv = insert_conversation()
+      test = self()
+      home = Path.join(tmp_dir, "sandbox")
+
+      stub(Fountain.Broker, :ca_pem, fn -> {:ok, "BROKER-CA\n"} end)
+
+      # The runner's own mapping (`mapPath`/`mapArg` in cli/internal/runner):
+      # /home/sprite is the sandbox directory, in paths and in arguments.
+      stub(Managoat.Sandbox, :write_file, fn _h, path, data, _opts ->
+        target = String.replace(path, "/home/sprite", home)
+        File.mkdir_p!(Path.dirname(target))
+        File.write!(target, data)
+        send(test, {:staged, target})
+        :ok
+      end)
+
+      stub(Managoat.Sandbox, :exec, fn _h, "bash", ["-c", script], _opts ->
+        script = String.replace(script, "/home/sprite", home)
+
+        {out, code} =
+          System.cmd("bash", ["-c", script], env: [{"HOME", home}], stderr_to_stdout: true)
+
+        {:ok, out, code}
+      end)
+
+      assert :ok = Provisioning.install_broker_ca(runner_handle(), conv.id)
+
+      ca = Path.join(home, ".fountain/broker/ca.crt")
+      bundle = File.read!(Path.join(home, ".fountain/broker/ca-bundle.crt"))
+
+      assert File.read!(ca) == "BROKER-CA\n"
+      assert String.ends_with?(bundle, "BROKER-CA\n")
+
+      assert byte_size(bundle) > byte_size("BROKER-CA\n"),
+             "the bundle must keep the machine's roots"
+
+      assert_received {:staged, staging}
+      refute File.exists?(staging)
+    end
+
+    test "names the sandbox's real paths in the env, which a runner does not map" do
+      stub(Managoat.Sandbox, :get, fn _h ->
+        {:ok, %{status: :running, raw: %{"path" => "/Users/t/sandboxes/x"}}}
+      end)
+
+      assert {:ok, files} = Provisioning.broker_ca_files(runner_handle())
+      env = Map.new(Fountain.Broker.ca_env(files))
+
+      assert env["NODE_EXTRA_CA_CERTS"] == "/Users/t/sandboxes/x/.fountain/broker/ca.crt"
+      assert env["SSL_CERT_FILE"] == "/Users/t/sandboxes/x/.fountain/broker/ca-bundle.crt"
+      assert env["GIT_SSL_CAINFO"] == env["SSL_CERT_FILE"]
+      assert env["REQUESTS_CA_BUNDLE"] == env["SSL_CERT_FILE"]
+
+      # Everywhere else the OS trust store is unchanged.
+      assert Provisioning.broker_ca_files(sandbox_handle()) ==
+               {:ok, Fountain.Broker.system_ca_files()}
+    end
+
+    test "a lookup that drops once is retried rather than answered with /home/sprite" do
+      calls = :counters.new(1, [])
+
+      stub(Managoat.Sandbox, :get, fn _h ->
+        :counters.add(calls, 1, 1)
+
+        if :counters.get(calls, 1) == 1,
+          do: {:error, {:unavailable, :runner_disconnected}},
+          else: {:ok, %{status: :running, raw: %{"path" => "/Users/t/sandboxes/x"}}}
+      end)
+
+      assert {:ok, %{bundle: "/Users/t/sandboxes/x/.fountain/broker/ca-bundle.crt"}} =
+               Provisioning.broker_ca_files(runner_handle())
+    end
+
+    test "a lookup that keeps failing fails the launch instead of naming an unmapped path" do
+      stub(Managoat.Sandbox, :get, fn _h -> {:error, {:unavailable, :runner_disconnected}} end)
+
+      assert {:error, {:unavailable, :runner_disconnected}} =
+               Provisioning.broker_ca_files(runner_handle())
+    end
+
+    test "an unbrokered conversation never asks the runner" do
+      stub(Managoat.Sandbox, :get, fn _h -> flunk("looked up a sandbox it has no use for") end)
+      assert {:ok, _} = Fountain.Conversations.Egress.ca_files(nil, runner_handle())
+    end
+
+    @tag :tmp_dir
+    @tag skip:
+           unless(System.find_executable("git") && System.find_executable("openssl"),
+             do: "needs git and openssl"
+           )
+    test "git trusts the broker CA through the env alone", %{tmp_dir: tmp_dir} do
+      # The OS trust store is not touched on a runner, so git has only the
+      # env to go on, and git reads none of the other CA variables: Apple's
+      # git ignores SSL_CERT_FILE. A local HTTPS server with a certificate a
+      # temporary CA signed stands in for the broker. openssl makes the pair,
+      # because GnuTLS, which Ubuntu's git uses, is stricter about a
+      # certificate's extensions than the tools that would otherwise do.
+      openssl = fn args ->
+        {_, 0} = System.cmd("openssl", args, cd: tmp_dir, stderr_to_stdout: true)
+      end
+
+      openssl.(
+        ~w(req -x509 -newkey rsa:2048 -nodes -keyout ca.key -out ca.crt -days 2 -subj /CN=fountain-test-ca) ++
+          ~w(-addext basicConstraints=critical,CA:TRUE -addext keyUsage=critical,keyCertSign,cRLSign)
+      )
+
+      openssl.(~w(req -newkey rsa:2048 -nodes -keyout leaf.key -out leaf.csr -subj /CN=localhost))
+
+      File.write!(
+        Path.join(tmp_dir, "leaf.ext"),
+        "subjectAltName=DNS:localhost\nextendedKeyUsage=serverAuth\nbasicConstraints=CA:FALSE\n"
+      )
+
+      openssl.(
+        ~w(x509 -req -in leaf.csr -CA ca.crt -CAkey ca.key -CAcreateserial -out leaf.crt -days 2) ++
+          ~w(-extfile leaf.ext)
+      )
+
+      {:ok, listen} =
+        :ssl.listen(0,
+          certfile: to_charlist(Path.join(tmp_dir, "leaf.crt")),
+          keyfile: to_charlist(Path.join(tmp_dir, "leaf.key")),
+          active: false,
+          reuseaddr: true
+        )
+
+      {:ok, {_, port}} = :ssl.sockname(listen)
+
+      serve = fn serve ->
+        with {:ok, socket} <- :ssl.transport_accept(listen),
+             {:ok, socket} <- :ssl.handshake(socket, 5_000) do
+          _ = :ssl.recv(socket, 0, 5_000)
+
+          :ssl.send(
+            socket,
+            "HTTP/1.1 404 Not Found\r\ncontent-length: 0\r\nconnection: close\r\n\r\n"
+          )
+
+          :ssl.close(socket)
+        end
+
+        serve.(serve)
+      end
+
+      server_pid = spawn(fn -> serve.(serve) end)
+      on_exit(fn -> Process.exit(server_pid, :kill) end)
+
+      roots =
+        Enum.find(
+          ~w(/etc/ssl/certs/ca-certificates.crt /etc/pki/tls/certs/ca-bundle.crt /etc/ssl/cert.pem),
+          &File.regular?/1
+        )
+
+      bundle = Path.join(tmp_dir, "ca-bundle.crt")
+      File.write!(bundle, File.read!(roots) <> File.read!(Path.join(tmp_dir, "ca.crt")))
+      files = %{ca: Path.join(tmp_dir, "ca.crt"), bundle: bundle}
+
+      git = fn env ->
+        System.cmd("git", ["ls-remote", "https://localhost:#{port}/r.git"],
+          env:
+            [{"HOME", tmp_dir}, {"GIT_TERMINAL_PROMPT", "0"}, {"GIT_CONFIG_NOSYSTEM", "1"}] ++
+              env,
+          stderr_to_stdout: true
+        )
+      end
+
+      # Control: the same bundle, without the variable git reads.
+      without = Enum.reject(Fountain.Broker.ca_env(files), &(elem(&1, 0) == "GIT_SSL_CAINFO"))
+      {out, _} = git.(without)
+      assert out =~ ~r/certificate/i
+
+      # The TLS handshake succeeds; what fails is the fake repository.
+      {out, _} = git.(Fountain.Broker.ca_env(files))
+      refute out =~ ~r/certificate/i
+      assert out =~ ~r/not found|not valid|404/i
     end
   end
 

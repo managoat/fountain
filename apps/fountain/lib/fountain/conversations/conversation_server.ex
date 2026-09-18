@@ -601,6 +601,7 @@ defmodule Fountain.Conversations.ConversationServer do
              label: "sprite lookup on wake"
            ),
          {:ok, state} <- Egress.prepare_state(state),
+         {:ok, ca_files} <- Egress.ca_files(state.broker, handle),
          :ok <- Egress.reattach_policy(handle, env, state.conversation_id) do
       Output.publish_stage(state.conversation_id, "reattach", "started", %{
         sprite_name: sandbox.machine_name,
@@ -608,7 +609,7 @@ defmodule Fountain.Conversations.ConversationServer do
       })
 
       {state, _conv} = rotate_callback_api_key(state, conv)
-      sprite_env = build_sprite_env(state, agent, env, secrets)
+      sprite_env = build_sprite_env(state, agent, env, secrets, nil, ca_files)
 
       # The callback token just rotated. The connection entries in the file
       # carry a broker placeholder rather than it since #2152 (an
@@ -794,7 +795,7 @@ defmodule Fountain.Conversations.ConversationServer do
   # hand it over. The name stays because the tests and the comments that say
   # "build_sprite_env registers the secrets" still mean this call.
   @doc false
-  def build_sprite_env(state, agent, env, secrets, sandbox_url \\ nil) do
+  def build_sprite_env(state, agent, env, secrets, sandbox_url \\ nil, ca_files \\ nil) do
     SpriteEnv.build(agent, env, secrets,
       runtime_module: state.runtime_module,
       env_credentials: state.env_credentials,
@@ -802,7 +803,7 @@ defmodule Fountain.Conversations.ConversationServer do
       conversation_id: state.conversation_id,
       sandbox_id: state.sandbox_id,
       sandbox_url: sandbox_url,
-      brokered: Egress.sandbox_env(state.broker),
+      brokered: Egress.sandbox_env(state.broker, ca_files || Fountain.Broker.system_ca_files()),
       broker_credentials: state.brokered
     )
   end

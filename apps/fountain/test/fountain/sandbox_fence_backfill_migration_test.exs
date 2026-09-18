@@ -99,6 +99,70 @@ defmodule Fountain.SandboxFenceBackfillMigrationTest do
     end
   end
 
+  describe "a reset on a machine used since the request" do
+    test "is left live and logged, whatever it would have been labelled" do
+      user = insert_verified_user()
+
+      # v0.20.0 could not see the fence, and the user went back to work.
+      used = v019_row(user, "ready", "persistent", reset: 30)
+      turn_at(used, 10)
+
+      # The only turn is older than the request: v0.19.0 work, reset as asked.
+      before = v019_row(user, "suspended", "persistent", reset: 30)
+      turn_at(before, 60)
+
+      # Bound since the request, but nothing has run on it.
+      bound = v019_row(user, "ready", "persistent", reset: 30)
+      insert_conversation(user_id: user.id, sandbox: Repo.get!(Sandbox, bound), status: "idle")
+
+      # A reset the odd-shape branch would destroy as a teardown. For a machine
+      # used since, a destroy is worse than a wipe, so it is skipped too.
+      odd = v019_row(user, "starting", "persistent", reset: 30)
+      turn_at(odd, 10)
+
+      # A teardown is finished however recently the machine was used.
+      teardown = v019_row(user, "ready", "ephemeral", reset: 30, teardown: 30)
+      turn_at(teardown, 10)
+
+      log = run_migration(:up)
+
+      assert transition(used) == {nil, nil}
+      assert transition(odd) == {nil, nil}
+      assert transition(before) == {"destroying", "reset"}
+      assert transition(bound) == {"destroying", "reset"}
+      assert transition(teardown) == {"destroying", "teardown"}
+
+      assert log =~ "left sandbox #{used}"
+      assert log =~ "left sandbox #{odd}"
+      refute log =~ "left sandbox #{before}"
+      refute log =~ "left sandbox #{bound}"
+      refute log =~ "left sandbox #{teardown}"
+      assert log =~ "stamped 3 sandbox(es)"
+    end
+
+    test "keeps its running turn through the teardown run" do
+      # The review's reproduction: without the skip, this machine was
+      # destroyed and the turn interrupted.
+      with_sprites_credentials(fn ->
+        user = insert_verified_user()
+        home = v019_row(user, "ready", "persistent", reset: 60)
+        running = turn_at(home, 5, status: "running")
+        destroys = capture_destroys()
+
+        run_migration(:up)
+
+        capture_log(fn ->
+          assert :ok = perform_job(SandboxReaper, %{"pass" => "teardowns"})
+        end)
+
+        assert %Sandbox{status: "ready", transition: nil} = Repo.get!(Sandbox, home)
+        assert Repo.reload(running).status == "running"
+        assert destroys.() == []
+        assert [] = audits(user, "sandbox.reset", home)
+      end)
+    end
+  end
+
   describe "the teardown run over the backfilled rows" do
     test "retries the reset at once and finishes the teardown past its grace" do
       with_sprites_credentials(fn ->
@@ -185,6 +249,25 @@ defmodule Fountain.SandboxFenceBackfillMigrationTest do
     )
 
     sandbox.id
+  end
+
+  # A turn on a conversation bound to the sandbox, inserted `minutes` ago.
+  # `turns.inserted_at` is stored to the second, like the real column.
+  defp turn_at(sandbox_id, minutes, attrs \\ []) do
+    sandbox = Repo.get!(Sandbox, sandbox_id)
+    conv = insert_conversation(user_id: sandbox.user_id, sandbox: sandbox, status: "idle")
+    turn = insert_turn(conv, Map.new(attrs))
+
+    Repo.query!(
+      """
+      UPDATE turns
+         SET inserted_at = date_trunc('second', timezone('UTC', now()) - make_interval(mins => $2::int))
+       WHERE id = $1
+      """,
+      [dump(turn.id), minutes]
+    )
+
+    turn
   end
 
   defp set_raw(id, assignments) do

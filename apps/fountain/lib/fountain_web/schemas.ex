@@ -759,7 +759,10 @@ defmodule FountainWeb.Schemas do
               "Merged with the agent's own policy, taking the stricter of the two. It may " <>
               "only narrow: a policy that would loosen any tool is refused with 422 " <>
               "permission_policy_widens rather than silently clamped, and one the runtime " <>
-              "never consults is refused with 422 permission_policy_unenforceable."
+              "never consults is refused with 422 permission_policy_unenforceable. " <>
+              "If a queued request with a prompt and a nonempty policy resumes an existing " <>
+              "channel, it fails with permission_policy_requires_fresh_conversation before " <>
+              "sending the prompt. Set fresh: true to create a conversation for that policy."
         },
         prompt: %Schema{
           type: :string,

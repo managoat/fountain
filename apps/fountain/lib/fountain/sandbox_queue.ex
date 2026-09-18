@@ -424,6 +424,19 @@ defmodule Fountain.SandboxQueue do
     end
   end
 
+  # A launch policy belongs to the conversation created for it. Prompt
+  # delivery has no per-turn override, and checking a resumed row's current
+  # policy would not bind the later turn's policy. Refuse any nonempty launch
+  # override before sending; fresh replay goes through normal launch admission.
+  defp deliver_resumed_prompt(
+         _conversation,
+         :resumed,
+         %{"prompt" => prompt, "permission_policy" => policy},
+         _opts
+       )
+       when is_binary(prompt) and prompt != "" and policy not in [nil, %{}],
+       do: {:error, :permission_policy_requires_fresh_conversation}
+
   # A live client sends its prompt separately after a channel resume. A queue
   # replay has no client, so it must deliver before reporting started. Let
   # definite refusals reach the drain's retry/terminal handling. A timeout or

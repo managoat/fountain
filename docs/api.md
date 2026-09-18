@@ -457,6 +457,16 @@ a conversation when capacity is free.
 unknown outcome. `DELETE /api/sandbox-queue/{id}` cancels a
 request that still has the `queued` status.
 
+If a queued request carries a prompt and a nonempty `permission_policy`, it
+cannot automatically send that prompt to an existing channel conversation.
+It ends with `status: "failed"` and
+`error: "permission_policy_requires_fresh_conversation"`, without sending the
+prompt or changing that conversation's policy. This applies even if its saved
+policy currently matches: prompt delivery does not accept a per-turn override.
+Set `fresh: true` when queueing restricted work to create a conversation that
+stores and enforces the requested policy. An omitted, null, or empty policy
+does not block queued channel delivery.
+
 A queued channel resume waits for a later pass if the conversation is busy or
 the provider cannot be reached to wake it. If a prompt call times out or loses
 its connection to the conversation's node, the prompt may have run or may still

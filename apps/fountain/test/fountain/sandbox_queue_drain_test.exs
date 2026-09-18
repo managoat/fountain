@@ -291,6 +291,96 @@ defmodule Fountain.SandboxQueueDrainTest do
   end
 
   describe "a queued start that resumes a bound channel" do
+    for policy <- [%{"Bash" => "auto_deny"}, %{"ask_timeout" => 1}] do
+      @policy policy
+      test "a queued #{inspect(policy)} restriction requires a fresh conversation" do
+        user = insert_active_user()
+        agent = insert_agent(user_id: user.id, permission_policy: %{"default" => "auto_allow"})
+
+        request =
+          enqueue!(user, agent, %{
+            attrs: %{
+              "channel_id" => "restricted-channel",
+              "prompt" => "restricted task",
+              "permission_policy" => @policy
+            }
+          })
+
+        conv =
+          insert_conversation(user_id: user.id, agent: agent, channel_id: "restricted-channel")
+
+        reject(&ConversationServer.send_prompt/4)
+
+        assert %{started: 0, failed: 1, expired: 0} = SandboxQueue.drain(user.id)
+
+        assert %{status: "failed", error: "permission_policy_requires_fresh_conversation"} =
+                 Repo.get!(Request, request.id)
+
+        assert Repo.reload!(conv).permission_policy == conv.permission_policy
+      end
+    end
+
+    for policy <- [nil, %{}] do
+      @policy policy
+      test "an empty queued policy #{inspect(policy)} permits resumed delivery" do
+        user = insert_active_user()
+        agent = insert_agent(user_id: user.id)
+
+        request =
+          enqueue!(user, agent, %{
+            attrs: %{
+              "channel_id" => "unrestricted-channel",
+              "prompt" => "waiting task",
+              "permission_policy" => @policy
+            }
+          })
+
+        conv =
+          insert_conversation(user_id: user.id, agent: agent, channel_id: "unrestricted-channel")
+
+        expect(ConversationServer, :send_prompt, fn id, "waiting task", [], _opts ->
+          assert id == conv.id
+          :ok
+        end)
+
+        assert %{started: 1, failed: 0, expired: 0} = SandboxQueue.drain(user.id)
+        assert Repo.get!(Request, request.id).conversation_id == conv.id
+      end
+    end
+
+    test "fresh replay preserves the queued restriction and delivers once" do
+      user = insert_active_user()
+      agent = insert_agent(user_id: user.id, permission_policy: %{"default" => "auto_allow"})
+      policy = %{"default" => "auto_deny", "ask_timeout" => 1}
+
+      request =
+        enqueue!(user, agent, %{
+          attrs: %{
+            "channel_id" => "restricted-channel",
+            "prompt" => "restricted task",
+            "permission_policy" => policy,
+            "fresh" => true
+          }
+        })
+
+      previous =
+        insert_conversation(user_id: user.id, agent: agent, channel_id: "restricted-channel")
+
+      inert_start_child()
+      reject(&ConversationServer.send_prompt/4)
+      expect(ConversationServer, :queue_initial_prompt, fn _pid, "restricted task", [] -> :ok end)
+
+      assert %{started: 1, failed: 0, expired: 0} = SandboxQueue.drain(user.id)
+      finished = Repo.get!(Request, request.id)
+      assert finished.conversation_id != previous.id
+      conv = Fountain.Conversations.get_conversation(finished.conversation_id, user.id)
+      assert conv.permission_policy == policy
+      effective = Fountain.Conversations.TurnMachine.effective_permission_policy(conv, agent)
+      assert Managoat.ACP.Permissions.verdict_for(effective, "Bash") == "auto_deny"
+      assert Fountain.Conversations.TurnMachine.effective_ask_timeout_seconds(conv, agent) == 1
+      assert Repo.reload!(previous).permission_policy == previous.permission_policy
+    end
+
     for failure <- [:sprite_probe_failed, :sandbox_resume_failed] do
       @failure failure
       test "#{failure} preserves the prompt until the provider recovers" do
@@ -448,7 +538,13 @@ defmodule Fountain.SandboxQueueDrainTest do
       agent = insert_agent(user_id: user.id)
 
       request =
-        enqueue!(user, agent, %{attrs: %{"channel_id" => "waiting-channel", "prompt" => ""}})
+        enqueue!(user, agent, %{
+          attrs: %{
+            "channel_id" => "waiting-channel",
+            "prompt" => "",
+            "permission_policy" => %{"default" => "auto_deny"}
+          }
+        })
 
       conv =
         insert_conversation(user_id: user.id, agent_id: agent.id, channel_id: "waiting-channel")

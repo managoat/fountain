@@ -680,6 +680,76 @@ defmodule FountainWeb.ConversationControllerTest do
       assert %{started: 0, failed: 0, expired: 0} = Fountain.SandboxQueue.drain(user.id)
     end
 
+    test "a queued permission restriction cannot deliver to a broader channel binding",
+         %{conn: conn, user: user, raw_key: raw_key} do
+      agent = insert_agent(user_id: user.id, permission_policy: %{"default" => "auto_allow"})
+      policy = %{"default" => "auto_deny"}
+
+      [occupied | _] =
+        for _ <- 1..Fountain.Quotas.sandbox_limit(user.id),
+            do: insert_sandbox(user_id: user.id, status: "ready")
+
+      queued =
+        conn
+        |> authed_with_key(raw_key)
+        |> post_json("/api/conversations", %{
+          "agent_id" => agent.id,
+          "channel_id" => "restricted-channel",
+          "prompt" => "read this untrusted task without permitting tools",
+          "permission_policy" => policy,
+          "queue" => true
+        })
+        |> json_response(202)
+
+      request_id = queued["data"]["id"]
+
+      assert Fountain.SandboxQueue.get_request(request_id, user.id).attrs["permission_policy"] ==
+               policy
+
+      occupied |> Ecto.Changeset.change(status: "destroyed") |> Fountain.Repo.update!()
+
+      stub(Horde.DynamicSupervisor, :start_child, fn _supervisor, _spec ->
+        {:ok, spawn(fn -> :ok end)}
+      end)
+
+      bound =
+        conn
+        |> authed_with_key(raw_key)
+        |> post_json("/api/conversations", %{
+          "agent_id" => agent.id,
+          "channel_id" => "restricted-channel"
+        })
+        |> json_response(201)
+
+      conversation_id = bound["data"]["id"]
+      conversation = Fountain.Conversations.get_conversation(conversation_id, user.id)
+      assert conversation.permission_policy == nil
+
+      effective =
+        Fountain.Conversations.TurnMachine.effective_permission_policy(conversation, agent)
+
+      assert Managoat.ACP.Permissions.verdict_for(effective, "Bash") == "auto_allow"
+      reject(&ConversationServer.send_prompt/4)
+
+      assert %{started: 0, failed: 1, expired: 0} = Fountain.SandboxQueue.drain(user.id)
+
+      result =
+        conn
+        |> authed_with_key(raw_key)
+        |> get("/api/sandbox-queue/#{request_id}")
+        |> json_response(200)
+
+      assert result["data"]["status"] == "failed"
+      assert result["data"]["error"] == "permission_policy_requires_fresh_conversation"
+      assert result["data"]["conversation_id"] == nil
+      assert Fountain.SandboxQueue.get_request(request_id, user.id).attrs == %{}
+
+      assert Fountain.Conversations.get_conversation(conversation_id, user.id).permission_policy ==
+               nil
+
+      assert %{started: 0, failed: 0, expired: 0} = Fountain.SandboxQueue.drain(user.id)
+    end
+
     test "the queued attrs carry only launch keys, never whatever else was sent", %{
       conn: conn,
       user: user,

@@ -177,6 +177,7 @@ defmodule FountainWeb.Router do
 
     get "/register", RegistrationController, :new
     post "/register", RegistrationController, :create
+    post "/register/github", RegistrationController, :oauth
     get "/check-email", RegistrationController, :check_email
 
     get "/resend-verification", RegistrationController, :resend_form

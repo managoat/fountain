@@ -127,6 +127,7 @@ config :fountain,
   credits_enabled: true,
   registration_enabled: true,
   registration_allowed_email_domains: [],
+  registration_access_code: nil,
   # Whether the marketing site (managoat/site) fronts this deployment, so the
   # public chrome links its pages. False everywhere but the hosted deployment,
   # which opts in with MARKETING_SITE (runtime.exs); config/test.exs pins it
@@ -227,6 +228,11 @@ config :logger, :default_formatter,
   metadata: [:request_id, :remote_ip, :api_key]
 
 config :phoenix, :json_library, Jason
+
+# Request parameters Phoenix redacts from its debug `Parameters:` log line.
+# Phoenix's own default is the first two; setting the key replaces it, so they
+# stay. A key matches if it contains one of these, at any depth.
+config :phoenix, :filter_parameters, ["password", "token", "access_code"]
 
 # Swoosh mailer
 config :fountain, Fountain.Mailer, adapter: Swoosh.Adapters.Local

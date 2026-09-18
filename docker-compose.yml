@@ -142,6 +142,8 @@ services:
       # Open by default so the first account can be created. Close it once
       # yours exists.
       REGISTRATION_ENABLED: ${REGISTRATION_ENABLED:-true}
+      # A shared code every signup must give. Empty leaves signup open.
+      REGISTRATION_ACCESS_CODE: ${REGISTRATION_ACCESS_CODE:-}
 
       # Legal identity for /terms and /privacy (#517). Empty means unset:
       # the pages are hidden rather than rendering someone else's terms.

@@ -11337,6 +11337,10 @@
     },
     "RegisterRequest": {
       "properties": {
+        "access_code": {
+          "required": false,
+          "type": "string"
+        },
         "email": {
           "format": "email",
           "required": true,

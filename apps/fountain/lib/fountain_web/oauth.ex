@@ -28,4 +28,26 @@ defmodule FountainWeb.OAuth do
       _ -> false
     end
   end
+
+  @doc """
+  The origin of GitHub's authorize page (`https://github.com` unless the
+  strategy's `authorize_url` is overridden), or `nil` when it has none.
+  """
+  @spec github_authorize_origin() :: String.t() | nil
+  def github_authorize_origin do
+    url =
+      Application.get_env(:ueberauth, Ueberauth.Strategy.Github.OAuth, [])[:authorize_url] ||
+        "https://github.com/login/oauth/authorize"
+
+    case URI.parse(url) do
+      %URI{scheme: scheme, host: host, port: port}
+      when scheme in ["http", "https"] and is_binary(host) ->
+        if port == URI.default_port(scheme),
+          do: "#{scheme}://#{host}",
+          else: "#{scheme}://#{host}:#{port}"
+
+      _ ->
+        nil
+    end
+  end
 end

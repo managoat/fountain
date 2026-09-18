@@ -1892,7 +1892,7 @@ export interface paths {
         };
         /**
          * List a directory on a sandbox
-         * @description The entries of one directory, directories first then by name. Without `path`, the agent's working directory. Only a `ready` sandbox answers (`409 sandbox_not_ready`): a parked one is not woken for a read. Full scope.
+         * @description The entries of one directory, directories first then by name. Without `path`, the agent's working directory. Only a `ready` sandbox answers (`409 sandbox_not_ready`): a parked one is not woken for a read. A sandbox being parked or destroyed is `503 sandbox_unavailable`; retry after the `Retry-After`. Full scope.
          */
         get: operations["FountainWeb.SandboxFilesController.index"];
         put?: never;
@@ -14052,7 +14052,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description Sandbox provider unreachable */
+            /** @description Sandbox provider unreachable, or the sandbox is being parked or destroyed (`sandbox_unavailable`, with `Retry-After`) */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -14151,7 +14151,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description Sandbox provider unreachable */
+            /** @description Sandbox provider unreachable, or the sandbox is being parked or destroyed (`sandbox_unavailable`, with `Retry-After`) */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -14248,7 +14248,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description Sandbox provider unreachable */
+            /** @description Sandbox provider unreachable, or the sandbox is being parked or destroyed (`sandbox_unavailable`, with `Retry-After`) */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -14347,7 +14347,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description Sandbox provider unreachable */
+            /** @description Sandbox provider unreachable, or the sandbox is being parked or destroyed (`sandbox_unavailable`, with `Retry-After`) */
             503: {
                 headers: {
                     [name: string]: unknown;

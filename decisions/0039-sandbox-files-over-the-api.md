@@ -17,7 +17,9 @@ verified: { by: claude-opus/5, at: 2026-09-04T12:00:00-04:00 }
 `FountainWeb.SandboxFilesController`, the three routes, the SDK's
 `sandboxFiles` / `sandboxFile` / `sandboxDiff` (1.15.0). A fourth route,
 `git status`, was added on 2026-09-04 under decision 2's own procedure — see
-the amendment at the end. Nothing described here is unbuilt.
+the amendment at the end. A second amendment (2026-09-18) records how a read
+is admitted against a park or a destroy of the same machine (#2394). Nothing
+described here is unbuilt.
 
 ## Context
 
@@ -231,3 +233,31 @@ adapter change: the script reuses `path_not_found`, `not_a_directory` and
 `not_a_repository`, and runs through `Managoat.Sandbox.exec/4` like the other
 three. The endpoint declares its own 403 rather than take a line in the
 schema guard's allowlist, which is a ratchet for the debt #1432 already owes.
+
+## Amendment (2026-09-18): a read is admitted against the machine's owner
+
+Decision 6 said a read never wakes a parked sandbox, and it checked that on
+the row the controller had fetched. That check was not atomic with the exec:
+a park or a destroy committing between the two was not seen, so a read could
+run against a machine being suspended or deleted (#1715). #2394 closes the
+part of that gap that Fountain controls. The decision itself is unchanged.
+
+- **Admission.** `Fountain.Machines.Reads` re-reads the row under the
+  per-sandbox advisory lock that a lease claim takes (ADR 0058). A row that
+  is not `ready` is still `409 sandbox_not_ready`. A row that carries a
+  transition stamp or a live lease is now `503 sandbox_unavailable`, with a
+  `Retry-After`. The response was already declared on all four routes, for an
+  unreachable provider.
+- **Exclusion.** An admitted read writes a `sandbox_reads` row with a
+  40-second window. A park or a destroy that claimed the machine after it
+  waits for the read before its provider call. No read is admitted while the
+  operation's lease is live, so the wait is bounded by one window. A client
+  that polls cannot keep a machine awake.
+- **The window is enforced locally.** The exec runs in a task that is killed
+  at a cutoff five seconds before the window ends, whether or not its caller
+  is still alive, because the adapter's `:timeout` bounds only output
+  collection.
+
+What this does not promise: whether a provider that suspends a machine by
+itself wakes it for an exec. That question stays with #2395, under #1715,
+and decision 6 is not restated here on the strength of this change.

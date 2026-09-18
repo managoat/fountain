@@ -45,15 +45,18 @@ defmodule FountainWeb.SandboxFilesController do
   ]
 
   @not_ready {"Sandbox is not ready", "application/json", Schemas.Error}
-  @unreachable {"Sandbox provider unreachable", "application/json", Schemas.Error}
+  @unreachable {"Sandbox provider unreachable, or the sandbox is being parked or destroyed " <>
+                  "(`sandbox_unavailable`, with `Retry-After`)", "application/json",
+                Schemas.Error}
 
   operation(:index,
     summary: "List a directory on a sandbox",
     description:
       "The entries of one directory, directories first then by name. Without `path`, " <>
         "the agent's working directory. Only a `ready` sandbox answers " <>
-        "(`409 sandbox_not_ready`): a parked one is not woken for a read. " <>
-        "Full scope.",
+        "(`409 sandbox_not_ready`): a parked one is not woken for a read. A sandbox " <>
+        "being parked or destroyed is `503 sandbox_unavailable`; retry after the " <>
+        "`Retry-After`. Full scope.",
     parameters: [sandbox_id: [in: :path, type: :string, required: true], path: @path_param],
     responses: [
       ok: {"Directory listing", "application/json", Schemas.SandboxListingResponse},

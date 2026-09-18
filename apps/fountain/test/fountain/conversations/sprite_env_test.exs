@@ -1,6 +1,7 @@
 defmodule Fountain.Conversations.SpriteEnvTest do
   use Fountain.DataCase, async: true
 
+  alias Fountain.Broker
   alias Fountain.Conversations.Redaction
   alias Fountain.Conversations.RedactionCarry
   alias Fountain.Conversations.SpriteEnv
@@ -307,6 +308,83 @@ defmodule Fountain.Conversations.SpriteEnvTest do
                RedactionCarry.feed(RedactionCarry.new(), conv_id, "stdout", "here it comes: S")
 
       assert RedactionCarry.flush(carry, conv_id) == [{"stdout", "here it comes: S"}]
+    end
+
+    # Through `Broker.split/2` itself, not a hand-written placeholder: a
+    # brokered key reaches `build/4` as `__github_token__`, which is generated
+    # from the key and is no secret. Registering it held back every chunk of
+    # output ending in `_` and printed the agent's own placeholder — the one
+    # string it is meant to use — as `[REDACTED]` (#2366).
+    test "a brokered secret registers the credential, and not the placeholder standing in for it" do
+      conv_id = Ecto.UUID.generate()
+      on_exit(fn -> Redaction.delete(conv_id) end)
+
+      # `GITHUB_TOKEN` is a catalog key, so it brokers with no binding.
+      {sandbox_secrets, brokered} = Broker.split(%{"GITHUB_TOKEN" => "ghp_the_real_credential"})
+      placeholder = Broker.placeholder("GITHUB_TOKEN")
+      assert sandbox_secrets == %{"GITHUB_TOKEN" => placeholder}
+
+      sprite_env =
+        SpriteEnv.build(nil, nil, sandbox_secrets,
+          runtime_module: SilentRuntime,
+          env_credentials: %{},
+          callback_token: nil,
+          conversation_id: conv_id,
+          sandbox_id: nil,
+          broker_credentials: brokered
+        )
+
+      assert {"GITHUB_TOKEN", placeholder} in sprite_env
+      registered = Redaction.lookup(conv_id)
+      assert "ghp_the_real_credential" in registered
+      refute placeholder in registered
+
+      # The agent may print the placeholder; it is what it was given to use.
+      assert Redaction.redact(conv_id, "GITHUB_TOKEN=#{placeholder}") ==
+               "GITHUB_TOKEN=#{placeholder}"
+
+      assert Redaction.redact(conv_id, "upstream echoed ghp_the_real_credential") ==
+               "upstream echoed [REDACTED]"
+
+      # And a chunk ending where the placeholder begins is not held back.
+      assert {[{"stdout", "ordinary_code_"}], carry} =
+               RedactionCarry.feed(RedactionCarry.new(), conv_id, "stdout", "ordinary_code_")
+
+      assert RedactionCarry.empty?(carry)
+    end
+
+    # The same through `Broker.split_inference/2`, which places the credential
+    # the runtime exports. `CODEX_CHATGPT_ACCESS_TOKEN` has no vendor prefix,
+    # so its placeholder begins with `_` too.
+    test "a brokered inference credential registers the grant, and not its placeholder" do
+      conv_id = Ecto.UUID.generate()
+      on_exit(fn -> Redaction.delete(conv_id) end)
+
+      {env_credentials, brokered, _implicit} =
+        Broker.split_inference(%{codex_chatgpt_access_token: "eyJ_the_real_chatgpt_grant"})
+
+      placeholder = Broker.placeholder(Fountain.Conversations.CodexChatGPT.env_key())
+      assert env_credentials == %{codex_chatgpt_access_token: placeholder}
+
+      sprite_env =
+        SpriteEnv.build(nil, nil, %{},
+          runtime_module: Managoat.Runtimes.Codex,
+          env_credentials: env_credentials,
+          callback_token: nil,
+          conversation_id: conv_id,
+          sandbox_id: nil,
+          broker_credentials: brokered
+        )
+
+      assert {Fountain.Conversations.CodexChatGPT.env_key(), placeholder} in sprite_env
+      registered = Redaction.lookup(conv_id)
+      assert "eyJ_the_real_chatgpt_grant" in registered
+      refute placeholder in registered
+
+      assert {[{"stdout", "ordinary_code_"}], carry} =
+               RedactionCarry.feed(RedactionCarry.new(), conv_id, "stdout", "ordinary_code_")
+
+      assert RedactionCarry.empty?(carry)
     end
 
     test "a run with no broker registers exactly what it did before" do

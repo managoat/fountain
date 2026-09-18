@@ -234,6 +234,23 @@ defmodule Fountain.Broker do
     Map.get(@inference_prefix, key, "") <> "__" <> String.downcase(key) <> "__"
   end
 
+  @doc """
+  True when `value` is what the sandbox holds for `key` in place of a secret.
+
+  The sandbox's copy of a brokered key is `placeholder/1`, which is generated
+  from the key and is not a secret: the value it stands for never entered the
+  sandbox, and the broker puts it back on the way out. So a placeholder is
+  left out of the redaction registry, where it would hold back every chunk of
+  output ending in `_` and print the agent's own `__github_token__` back as
+  `[REDACTED]` (#2366). Keyed rather than pattern-matched, so a tenant secret
+  that happens to look like one is still a secret.
+  """
+  @spec placeholder?(String.t(), term()) :: boolean()
+  def placeholder?(key, value) when is_binary(key) and is_binary(value),
+    do: value == placeholder(key)
+
+  def placeholder?(_key, _value), do: false
+
   # Inference credentials (gate 3): the env var each runtime reads, the host
   # it talks to, and the prefix its vendor's tokens carry. Substitution
   # rewrites the placeholder wherever it appears in a header value or in the

@@ -16,7 +16,7 @@ defmodule Fountain.Conversations.SpriteEnv do
   `Fountain.Conversations.Provisioning`'s.
   """
 
-  alias Fountain.{Crypto, Environments, InferenceCredentials, Vaults}
+  alias Fountain.{Broker, Crypto, Environments, InferenceCredentials, Vaults}
   alias Fountain.Conversations.{CallbackKey, InferenceResolution}
   alias Fountain.Environments.Environment
   alias Fountain.Vaults.Vault
@@ -151,9 +151,9 @@ defmodule Fountain.Conversations.SpriteEnv do
   # credential, and not when the value came from Fountain's own identifiers
   # and configuration (`FOUNTAIN_CONVERSATION_ID`, `FOUNTAIN_SANDBOX_ID`,
   # `SANDBOX_URL`, `FOUNTAIN_BASE_URL`, the trace context, the git author, the
-  # CA paths, a runtime's `HOME`). Add a piece to `build/4` that carries a
-  # credential, and add it here too; the `SpriteEnvTest` coverage over this
-  # function is where that is checked.
+  # CA paths, a runtime's `HOME`) or from the broker's placeholder rule. Add a
+  # piece to `build/4` that carries a credential, and add it here too; the
+  # `SpriteEnvTest` coverage over this function is where that is checked.
   #
   # The tenant's plain `env_vars` stay registered. They are config by
   # intention, but nothing stops someone from pasting a token into one, and
@@ -163,14 +163,20 @@ defmodule Fountain.Conversations.SpriteEnv do
   defp secret_values(sprite_env, secrets, plain, proxy, broker_credentials, opts) do
     credentials = exported_credentials(sprite_env, Keyword.fetch!(opts, :env_credentials))
 
+    # A brokered key's value here is the placeholder `Broker.split/2` left in
+    # its place, and the credential it stands for arrives in
+    # `broker_credentials` below. The placeholder is generated from the key
+    # and is not a secret (`Broker.placeholder?/2`).
+    tenant_secrets = for {key, value} <- secrets, not Broker.placeholder?(key, value), do: value
+
     # The proxy variables carry the broker session token inside a URL. The
     # token is the secret; the URL around it is public, and registering it
     # whole would hold back every chunk of output that ends in `h`.
-    proxy_token = Fountain.Broker.proxy_secrets(proxy)
+    proxy_token = Broker.proxy_secrets(proxy)
 
     credentials ++
       [Keyword.fetch!(opts, :callback_token)] ++
-      Map.values(secrets) ++
+      tenant_secrets ++
       Enum.map(plain, fn {_k, v} -> to_string(v) end) ++
       Map.values(broker_credentials) ++
       proxy_token
@@ -187,13 +193,23 @@ defmodule Fountain.Conversations.SpriteEnv do
   `ConversationServer` registers through here too, for the API key it injects
   when a provider refuses a subscription.
 
+  A brokered credential is exported as `Broker.placeholder/1` and is not one
+  of these either: `split_inference/2` put the value itself in the brokered
+  map, which `build/4` registers, and the sandbox holds a string generated
+  from the key.
+
   Every credential reaches a sprite through this list. One that ever reaches
   it another way — as a brokered value does, which `build/4` registers
   explicitly — has to be registered where that happens.
   """
   @spec exported_credentials([{String.t(), String.t()}], map()) :: [String.t()]
   def exported_credentials(sprite_env, env_credentials) do
-    exported = MapSet.new(sprite_env, fn {_k, v} -> v end)
+    exported =
+      for {key, value} <- sprite_env,
+          is_binary(value),
+          not Broker.placeholder?(key, value),
+          into: MapSet.new(),
+          do: value
 
     env_credentials |> Map.values() |> Enum.filter(&MapSet.member?(exported, &1))
   end

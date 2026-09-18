@@ -1,16 +1,19 @@
 package runner
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -329,13 +332,7 @@ func (p *Process) Exec(req Request) (map[string]any, func(), error) {
 		defer cancel()
 	}
 	cmd := p.command(ctx, dir, req)
-	var out []byte
-	var runErr error
-	if req.StderrToStdout {
-		out, runErr = cmd.CombinedOutput()
-	} else {
-		out, runErr = cmd.Output()
-	}
+	out, runErr := execProcessOutput(cmd, req.StderrToStdout)
 	code := 0
 	if runErr != nil {
 		var exitErr *exec.ExitError
@@ -345,6 +342,9 @@ func (p *Process) Exec(req Request) (map[string]any, func(), error) {
 			if code < 0 {
 				code = 137 // killed (timeout)
 			}
+		case errors.Is(runErr, exec.ErrWaitDelay):
+			code = 124
+			out = append(out, []byte("\nfountain runner: command output did not close\n")...)
 		case errors.Is(ctx.Err(), context.DeadlineExceeded):
 			code = 124
 			out = append(out, []byte("\nfountain runner: command timed out\n")...)
@@ -359,6 +359,104 @@ func (p *Process) Exec(req Request) (map[string]any, func(), error) {
 		"output": base64.StdEncoding.EncodeToString(out),
 		"code":   code,
 	}, nil, nil
+}
+
+// execOutputDrainTimeout bounds collection after the command exits. A process
+// that leaves the command's group can otherwise hold its output pipe forever.
+const execOutputDrainTimeout = 250 * time.Millisecond
+
+// execProcessOutput owns the one-shot command's process group and output pipe.
+// Cancellation kills the group, including ordinary children; parent exit also
+// kills remaining group members before returning. Use Spawn for long-lived work.
+//
+// Process groups are not a security boundary: children can leave them using
+// setsid/setpgid, and SIGKILL does not provide durable proof of quiescence after
+// daemon loss. This is not the complete file-read/lifecycle exclusion protocol.
+func execProcessOutput(cmd *exec.Cmd, stderrToStdout bool) ([]byte, error) {
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		return nil, err
+	}
+	defer reader.Close()
+	cmd.Stdout = writer
+	if stderrToStdout {
+		cmd.Stderr = writer
+	}
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	group := execProcessGroup{kill: func() error {
+		err := killExecGroup(cmd.Process.Pid)
+		if errors.Is(err, syscall.ESRCH) {
+			return os.ErrProcessDone
+		}
+		return err
+	}}
+	cmd.Cancel = group.cancel
+	if err := cmd.Start(); err != nil {
+		_ = writer.Close()
+		return nil, err
+	}
+	// Only child processes keep the write end. Use our own reader so Wait
+	// observes the parent exiting without waiting for descendants' output.
+	_ = writer.Close()
+	var output bytes.Buffer
+	drained := make(chan error, 1)
+	go func() {
+		_, err := io.Copy(&output, reader)
+		drained <- err
+	}()
+	// Keep the leader unreaped while signaling its group: its PID reserves
+	// the PGID against reuse. Disable every later cancellation callback
+	// under the same lock as final cleanup, before Wait releases that PID.
+	waitErr := waitForExecExit(cmd.Process.Pid)
+	killErr := group.finish(!errors.Is(waitErr, syscall.ECHILD))
+	runErr := errors.Join(cmd.Wait(), waitErr)
+	if killErr != nil && !errors.Is(killErr, os.ErrProcessDone) {
+		runErr = errors.Join(runErr, fmt.Errorf("stop command process group: %w", killErr))
+	}
+	timer := time.NewTimer(execOutputDrainTimeout)
+	defer timer.Stop()
+	select {
+	case drainErr := <-drained:
+		if drainErr != nil {
+			runErr = errors.Join(runErr, drainErr)
+		}
+	case <-timer.C:
+		// Closing our descriptor interrupts io.Copy even if an escaped child
+		// still holds the write end. Join before reading its buffer.
+		_ = reader.Close()
+		<-drained
+		runErr = errors.Join(runErr, exec.ErrWaitDelay)
+	}
+	return output.Bytes(), runErr
+}
+
+// execProcessGroup serializes all group signals with the transition to reaping.
+// Only finish may permit cmd.Wait; after it returns, even a delayed os/exec
+// context watcher can no longer signal the raw numeric process group.
+type execProcessGroup struct {
+	mu     sync.Mutex
+	closed bool
+	kill   func() error
+}
+
+func (g *execProcessGroup) cancel() error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.closed {
+		return os.ErrProcessDone
+	}
+	return g.kill()
+}
+
+func (g *execProcessGroup) finish(stillChild bool) error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.closed = true
+	if !stillChild {
+		// ECHILD means ownership was lost. Never signal an unowned PID.
+		return nil
+	}
+	return g.kill()
 }
 
 // ── sessions ─────────────────────────────────────────────────────────────────

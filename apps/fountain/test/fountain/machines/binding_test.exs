@@ -1525,9 +1525,11 @@ defmodule Fountain.Machines.BindingTest do
       [refused, released] = stuck
       refused_id = refused.id
 
-      stub(Conversations, :update_sandbox, fn
-        %Sandbox{id: ^refused_id}, _attrs -> {:error, :boom}
-        sandbox, attrs -> sandbox |> Sandbox.changeset(attrs) |> Repo.update()
+      # Refused at the owner's door since stage 9b, which is the write this
+      # pass makes now.
+      stub(Machine, :fail_provision, fn
+        ^refused_id, _opts -> {:error, :boom}
+        id, opts -> Mimic.call_original(Machine, :fail_provision, [id, opts])
       end)
 
       log =

@@ -312,7 +312,12 @@ defmodule Fountain.Machines.DirectWritesTest do
   # teardown fence's last-detach rule reads rows that transaction has not yet
   # committed), so this is the owner's module and not its process — and the
   # scan counts the one and exempts the other, which is what it is for.
-  @row_writes 4
+  #
+  # 4 -> 3: `SandboxReaper.release_stuck_sandboxes/0` asks the owner
+  # (`Machine.fail_provision/2`, whose population — `pending` and `starting` — is
+  # exactly that pass's) instead of writing `failed` through
+  # `Conversations.update_sandbox/2`. That was the door's last caller in `lib/`.
+  @row_writes 3
   @provider_mutations 3
 
   @provider_verbs ~w(create_checkpoint create resume suspend destroy)

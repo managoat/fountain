@@ -323,39 +323,60 @@ defmodule Fountain.Workers.SandboxReaper do
     |> Repo.all()
     |> Repo.preload(:conversations)
     |> Enum.reject(&Lifecycle.any_server_alive?/1)
-    |> Enum.count(fn sandbox ->
-      was = sandbox.status
+    |> Enum.count(&release_stuck/1)
+  end
 
-      # Not matched with `{:ok, _} =`: a sweep over failure leftovers that
-      # crashes on one refused row stops the pass for every row after it
-      # (#2329, the rule ADR 0058 records). A row the write refuses — retired
-      # under it, fenced since the scan — is logged and left for the next pass.
-      case Conversations.update_sandbox(sandbox, %{
-             status: "failed",
-             terminated_at: DateTime.utc_now() |> DateTime.truncate(:second)
-           }) do
-        {:ok, _} ->
-          Logger.info(
-            "reaper: released stuck sandbox #{sandbox.id} (#{sandbox.machine_name}) " <>
-              "after #{@stuck_after_minutes}m in #{sandbox.status}"
-          )
+  # Through the owner since ADR 0058 stage 9b: `Machine.fail_provision/2`, the
+  # verb for a machine whose provisioning is not going to happen, whose
+  # population (`pending`, `starting`) is exactly this pass's. It claims the
+  # machine's lease — a provision still at work, renewing its lease past this
+  # pass's cutoff, answers `{:ok, :claimed_elsewhere}` and is left alone, which
+  # the bare write this replaced could not tell — revalidates the status under
+  # it, writes `failed` by compare-and-set (`terminated_at` with it) and
+  # records `sandbox.provision_failed` with this worker as the actor. The
+  # reaper's own `sandbox.released_stuck` stays beside it, as `expire/3`'s
+  # reason stays beside `sandbox.destroyed`: the protocol's event says the
+  # machine failed, this one says why it was the reaper that said so.
+  #
+  # Not matched with `{:ok, _} =`: a sweep over failure leftovers that crashes
+  # on one refused row stops the pass for every row after it (#2329, the rule
+  # ADR 0058 records). Anything but `:failed` is logged and left for the next
+  # pass — settled by somebody else, held by an owner, or refused.
+  defp release_stuck(%Sandbox{} = sandbox) do
+    was = sandbox.status
 
-          record_reap(sandbox, "sandbox.released_stuck", %{
-            "previous_status" => was,
-            "stuck_after_minutes" => @stuck_after_minutes
-          })
+    # ownership: `sandbox` came from this worker's own fleet-wide scan; the
+    # reaper is a system sweep with no tenant of its own (`contributing/server.md`).
+    case Machine.fail_provision(sandbox.id, actor: "system:sandbox_reaper", reason: :stuck) do
+      {:ok, :failed} ->
+        Logger.info(
+          "reaper: released stuck sandbox #{sandbox.id} (#{sandbox.machine_name}) " <>
+            "after #{@stuck_after_minutes}m in #{was}"
+        )
 
-          true
+        record_reap(sandbox, "sandbox.released_stuck", %{
+          "previous_status" => was,
+          "stuck_after_minutes" => @stuck_after_minutes
+        })
 
-        {:error, reason} ->
-          Logger.warning(
-            "reaper: could not release stuck sandbox #{sandbox.id} " <>
-              "(#{sandbox.machine_name}): #{inspect(reason)}; left for the next pass"
-          )
+        true
 
-          false
-      end
-    end)
+      {:ok, outcome} ->
+        Logger.info(
+          "reaper: stuck sandbox #{sandbox.id} (#{sandbox.machine_name}) settled as " <>
+            "#{outcome}; nothing to release"
+        )
+
+        false
+
+      {:error, reason} ->
+        Logger.warning(
+          "reaper: could not release stuck sandbox #{sandbox.id} " <>
+            "(#{sandbox.machine_name}): #{inspect(reason)}; left for the next pass"
+        )
+
+        false
+    end
   end
 
   # The durable-intent half of "is this machine already spoken for", as a

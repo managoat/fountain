@@ -10,6 +10,38 @@ Use [CLAUDE.md](CLAUDE.md) for the repo map and core rules. For a change:
 Server implementation details are in [Server conventions](contributing/server.md).
 Read the API, migration and library sections below when the change touches them.
 
+## Ideas and accepted work
+
+**A discussion records something we might pursue. An issue records a next action
+we have accepted.** Start unaccepted feature ideas and deferred product directions
+in [Discussions](https://github.com/managoat/fountain/discussions):
+
+- **Ideas** is for problems, opportunities, and exploratory directions.
+- **Proposals** is for a concrete approach awaiting a decision, including a
+  designed feature we have chosen to defer.
+
+Record the problem, supporting evidence, current decision, and what would make
+us reconsider it. A proposal also records the approach, alternatives, and the
+smallest useful next step. A discussion is not a delivery commitment.
+
+Issues hold accepted fixes, scoped changes, bounded investigations and decisions,
+and delivery work blocked by a named dependency. Keep reporting bugs as issues;
+triage establishes their scope and disposition. An accepted issue needs a concrete
+deliverable, completion criteria, and known dependencies. A date or assignee is
+not required for accepted backlog work. Use the
+[Fountain roadmap](https://github.com/orgs/managoat/projects/1) to sequence it.
+
+When a maintainer accepts a next step from a discussion, create an issue for that
+step and link the two records in both directions. Record architectural outcomes
+in `decisions/` using the existing ADR process. Keep the discussion's broader
+possibilities separate from the issue's accepted scope.
+
+When moving an existing idea out of Issues, use GitHub's **Convert to discussion**
+action to preserve its history. Read the latest decisions first: a parked label
+or an exploratory title alone does not establish that work is unaccepted. If an
+issue mixes an idea with a concrete bug or approved task, preserve that action
+in its own linked issue before converting the broader record.
+
 ## Licensing of contributions
 
 Fountain is not licensed as a single unit. **The license that applies to your

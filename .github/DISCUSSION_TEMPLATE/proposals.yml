@@ -1,0 +1,43 @@
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use Proposals for a concrete approach awaiting acceptance or deliberately
+        deferred. Once a maintainer accepts a next action, create a linked issue
+        with a deliverable and completion criteria. Architectural outcomes still
+        belong in decisions/ as ADRs.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem and evidence
+      description: Who needs this, what fails today, and what evidence supports pursuing it?
+    validations:
+      required: true
+  - type: textarea
+    id: approach
+    attributes:
+      label: Proposed approach and alternatives
+      description: Describe the approach, tradeoffs, dependencies, and alternatives, including leaving things as they are.
+    validations:
+      required: true
+  - type: textarea
+    id: decision
+    attributes:
+      label: Current decision
+      description: State what is awaiting acceptance or why it was deferred. Link the latest maintainer decision when one exists.
+    validations:
+      required: true
+  - type: textarea
+    id: revisit
+    attributes:
+      label: Revisit trigger
+      description: What evidence, event, or dependency would cause us to reconsider this? Say if that is unknown.
+    validations:
+      required: true
+  - type: textarea
+    id: next-step
+    attributes:
+      label: Smallest next action if accepted
+      description: Suggest a bounded deliverable and how completion would be recognized. It may be an investigation or decision rather than implementation.
+    validations:
+      required: true

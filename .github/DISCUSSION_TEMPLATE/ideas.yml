@@ -1,0 +1,35 @@
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use Ideas for something we might pursue. A discussion is not a delivery
+        commitment. Report bugs as issues; use Proposals for a concrete approach
+        awaiting a decision.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or opportunity
+      description: Who encounters this, and what are they trying to accomplish?
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: Link examples, user requests, observations, or related research. State what is still an assumption.
+    validations:
+      required: true
+  - type: textarea
+    id: decision
+    attributes:
+      label: Current decision
+      description: Is this exploratory or explicitly deferred? Link any existing decision; a new idea starts unaccepted.
+    validations:
+      required: true
+  - type: textarea
+    id: revisit
+    attributes:
+      label: Revisit trigger
+      description: What evidence, demand, cost threshold, or dependency would make this worth reconsidering? Say if that is unknown.
+    validations:
+      required: true

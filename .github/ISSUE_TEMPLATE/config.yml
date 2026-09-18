@@ -1,3 +1,6 @@
-# One template, and blank issues stay on: everything that is not a flake is
-# still filed by writing it out.
+# Keep blank issues available for bugs and accepted work without a dedicated form.
 blank_issues_enabled: true
+contact_links:
+  - name: Ideas and proposals
+    url: https://github.com/managoat/fountain/discussions
+    about: Share ideas and deferred directions here; issues track bugs and accepted next actions.

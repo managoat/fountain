@@ -1,0 +1,79 @@
+{
+  "started_at": "2026-09-18T01:49:47.175Z",
+  "finished_at": "2026-09-18T01:50:15.575Z",
+  "suite_base": "1103fe84d3ebf2c8a0ee30a20083088a3d9472e7",
+  "deployment_revision": {
+    "verified": false,
+    "reason": "Public API; no deployment digest adapter"
+  },
+  "inference_attempts": 0,
+  "identity_record": "Exact target, account, run and resource identities retained by the operator; omitted from this published summary.",
+  "dedicated_account_verified": true,
+  "sandbox_count": 1,
+  "cases": [
+    {
+      "mode": "surviving",
+      "started_at": "2026-09-18T01:49:47.197Z",
+      "finished_at": "2026-09-18T01:49:48.533Z",
+      "runner_exit": {
+        "status": null,
+        "signal": "SIGKILL"
+      },
+      "pass_1": {
+        "status": "passed",
+        "cleanup": {
+          "failures": [],
+          "remaining": 0
+        }
+      },
+      "pass_2": {
+        "status": "passed",
+        "cleanup": {
+          "failures": [],
+          "remaining": 0
+        }
+      },
+      "fixture_counts": {
+        "environment": 1
+      }
+    },
+    {
+      "mode": "lost",
+      "started_at": "2026-09-18T01:49:48.533Z",
+      "finished_at": "2026-09-18T01:50:15.574Z",
+      "runner_exit": {
+        "status": null,
+        "signal": "SIGKILL"
+      },
+      "pass_1": {
+        "status": "passed",
+        "cleanup": {
+          "failures": [],
+          "remaining": 0
+        }
+      },
+      "pass_2": {
+        "status": "passed",
+        "cleanup": {
+          "failures": [],
+          "remaining": 0
+        }
+      },
+      "original_evidence_exists": false,
+      "uploaded_artifact": false,
+      "fixture_counts": {
+        "environment": 1,
+        "agent": 1,
+        "conversation": 1
+      },
+      "sandbox_before": {
+        "status": "ready",
+        "mode": "ephemeral"
+      },
+      "sandbox_after": {
+        "http_status": 200,
+        "status": "terminated"
+      }
+    }
+  ]
+}

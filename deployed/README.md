@@ -343,7 +343,31 @@ without this flag rejects missing or empty results.
 [GitHub cancellation](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-cancellation)
 can terminate the job before these final steps finish. A hard job timeout or
 runner loss can prevent upload and replay. This step cannot recover journals
-lost with the runner.
+lost with the runner. Use the [runner-loss recovery procedure](runner-loss-recovery.md)
+from a separate machine/process: replay copied evidence when available, or
+reconstruct a bounded, reviewed cleanup manifest with `recover-fixtures.mjs`
+when both the original journal and uploaded artifact are gone. The procedure
+covers exact ownership, interrupted creates, repeated recovery, supported
+profiles, escalation, and the recorded deployed exercise.
+
+For missing evidence, start with read-only discovery on the recovery machine:
+
+```bash
+node deployed/recover-fixtures.mjs inventory --base-url https://fountain.example.com \
+  --owner-id "$SUITE_ACCOUNT_ID" --run-id "$SUITE_RUN_ID" --out /tmp/recovery-inventory
+node deployed/recover-fixtures.mjs reconstruct --base-url https://fountain.example.com \
+  --evidence /tmp/recovery-inventory/evidence.json --out /tmp/recovery-reconstructed
+```
+
+Between those commands, corroborate exact ownership, stop writers and fill the
+candidate's evidence notes with every submitted create intent. Use the dedicated
+`FOUNTAIN_SUITE_KEY` or the exact origin's suite keychain entry. Reconstruction
+supports basic/execution/streaming/deterministic fixtures, at most 100 intents,
+and makes no mutations; unsupported profiles or ambiguous ownership require
+operator escalation. Replay its reviewed `cleanup.json` with the ordinary
+cleanup command above and its generated `cleanup-target.json`, then repeat.
+The [deployed exercise](evidence/1697-runner-loss-2026-09-17.md) recovered a
+lost journal and create response with zero remaining fixtures and zero inference.
 
 Use the same target and account. Cleanup has its own deadline, tolerates
 already deleted resources, and runs in reverse creation order. A lost create

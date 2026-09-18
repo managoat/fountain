@@ -1226,12 +1226,8 @@ defmodule Fountain.Conversations.ConversationServer do
   end
 
   # A native crash before any output relaunches once (#2402, `TurnLaunch.relaunch_crashed/3`).
-  defp handle_execution_info({:exit, %{ref: ref}, code}, %{current_command_ref: ref} = state) do
-    case TurnLaunch.relaunch_crashed(Output.flush_state(state), code, &fail_turn_before_start/3) do
-      {:relaunched, state} -> {:noreply, state}
-      {:finish, state} -> finish_exited_turn(state, code)
-    end
-  end
+  defp handle_execution_info({:exit, %{ref: ref}, code}, %{current_command_ref: ref} = state),
+    do: TurnLaunch.relaunch_crashed(Output.flush_state(state), code, &finish_exited_turn/2)
 
   # An error naming the CURRENT command is terminal for the turn (#413):
   # The adapter sends it when the transport to the sandbox drops mid-run,

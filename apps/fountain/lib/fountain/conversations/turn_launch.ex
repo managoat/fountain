@@ -207,11 +207,13 @@ defmodule Fountain.Conversations.TurnLaunch do
 
   A bounded turn's command belongs to its execution journal and deadline, and
   is not relaunched here. Neither is a turn whose conversation has moved to
-  another sandbox since this actor launched it: the plan write carries the
-  actor's binding and refuses.
+  another sandbox since this actor launched it, including while its peer was
+  stopping: the plan write carries the actor's binding and refuses.
 
-  Returns `{:relaunched, state}`, or `{:finish, state}` for the caller to end
-  the turn with the exit code.
+  `finish` is the server's exit path, `(state, code) -> {:noreply, state}`.
+  Every exit goes through here; the ones that do not qualify, and any retry
+  that is refused or cannot start, end through `finish` exactly as an exit
+  always did.
   """
   def relaunch_crashed(
         %{
@@ -220,21 +222,25 @@ defmodule Fountain.Conversations.TurnLaunch do
           turn_metrics: %{first_output?: false, launch: %{relaunched?: false} = launch}
         } = state,
         code,
-        fail_before_start
+        finish
       )
       when is_map_key(@native_crashes, code) do
+    # Stop the dead command's peer before the fence, as the exit path does:
+    # the stop waits, and a check made before it would be stale after it.
+    Connection.stop_peer(Connection.from_state(state))
+    state = %{state | acp_peer: nil, acp_peer_mon: nil}
     {mode, id} = launch.plan
 
-    # Fence first, before this actor touches the peer, the transcript or the
-    # machine. An unbounded turn has no journal naming its sandbox, so the
-    # plan write carrying this actor's binding is the only check that Wake
-    # has not moved the conversation to a replacement meanwhile. On any
-    # refusal the exit ends the turn as it always did, through
-    # `Machine.end_turn/3`, which applies the same binding.
+    # An unbounded turn has no journal naming its sandbox, so the plan write
+    # carrying this actor's binding is the only check that Wake has not moved
+    # the conversation to a replacement. Nothing is announced or spawned
+    # before it passes. On any refusal the exit ends the turn as it always
+    # did: `finish` is the server's exit path, whose `Machine.end_turn/3`
+    # applies the same binding.
     case TurnMachine.session_plan(turn, mode, id, state.sandbox_id) do
       {:ok, plan} ->
         spec = %{Map.delete(launch, :plan) | relaunched?: true}
-        relaunch(state, turn, spec, plan, Map.fetch!(@native_crashes, code), fail_before_start)
+        relaunch(state, turn, spec, plan, code, finish)
 
       {:error, reason} ->
         Logger.info(
@@ -242,19 +248,19 @@ defmodule Fountain.Conversations.TurnLaunch do
             "not relaunched (#{inspect(reason)})"
         )
 
-        {:finish, state}
+        finish.(state, code)
     end
   end
 
-  def relaunch_crashed(state, _code, _fail_before_start), do: {:finish, state}
+  def relaunch_crashed(state, code, finish), do: finish.(state, code)
 
-  defp relaunch(state, turn, spec, plan, signal, fail_before_start) do
+  defp relaunch(state, turn, spec, plan, code, finish) do
+    signal = Map.fetch!(@native_crashes, code)
+
     Logger.warning(
       "conv #{state.conversation_id}: adapter died on #{signal} before any output; " <>
         "launching it once more (#2402)"
     )
-
-    Connection.stop_peer(Connection.from_state(state))
 
     Output.publish_stage(state.conversation_id, "session", "done", %{
       event: "restarted",
@@ -268,29 +274,21 @@ defmodule Fountain.Conversations.TurnLaunch do
 
     TurnMachine.stamp_span(state.current_turn_span, %{"acp.adapter_relaunched" => signal})
 
-    state = %{
+    # A relaunch that cannot start ends the turn as the crash would have:
+    # through the exit path, with the crash's code, the first launch's
+    # measurements and its completion metric. The turn already ran, so the
+    # never-started path's silence would drop it from the failure rate.
+    cannot_start = fn state, _turn, reason ->
+      Logger.warning(
+        "conv #{state.conversation_id}: adapter relaunch did not start: #{inspect(reason)}"
+      )
+
+      {:noreply, state} = finish.(state, code)
       state
-      | current_command: nil,
-        current_command_ref: nil,
-        acp_peer: nil,
-        acp_peer_mon: nil
-    }
+    end
 
-    state = launch(state, turn, spec, fail_before_start, plan)
-
-    # A relaunch that did not start ended the turn on its own failure path,
-    # which leaves the first launch's measurements behind.
-    if state.current_command_ref,
-      do: {:relaunched, state},
-      else:
-        {:relaunched,
-         %{
-           state
-           | current_turn: nil,
-             current_turn_span: nil,
-             turn_metrics: nil,
-             stream_tracer: nil
-         }}
+    state = %{state | current_command: nil, current_command_ref: nil}
+    {:noreply, launch(state, turn, spec, cannot_start, plan)}
   end
 
   # The SDK's own view of the allowance, from the frozen journal copy rather

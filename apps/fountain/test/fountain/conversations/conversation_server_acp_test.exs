@@ -1222,11 +1222,24 @@ defmodule Fountain.Conversations.ConversationServerACPTest do
       assert is_nil(:sys.get_state(pid).current_turn)
     end
 
-    test "a relaunch that cannot start fails the turn and clears it", %{
+    test "a relaunch that cannot start ends the turn as the crash would have", %{
       conv: conv,
       pid: pid,
       first: first
     } do
+      owner = self()
+      handler = {__MODULE__, make_ref()}
+
+      :telemetry.attach(
+        handler,
+        [:fountain, :turn, :completed],
+        fn _event, measurements, meta, _ ->
+          if meta.conv_id == conv.id, do: send(owner, {:completed, meta.status, measurements})
+        end,
+        nil
+      )
+
+      on_exit(fn -> :telemetry.detach(handler) end)
       %{"method" => "initialize"} = next_write()
 
       Mimic.stub(Managoat.Sandbox.Sprites, :spawn, fn _h, _cmd, _args, _opts ->
@@ -1235,8 +1248,13 @@ defmodule Fountain.Conversations.ConversationServerACPTest do
 
       crash(pid, first, 139)
 
-      assert [%{status: "failed"}] = Conversations._unsafe_list_turns(conv.id)
-      assert turn_stage_states(conv.id) == ["started", "failed"]
+      # The turn ran, so it counts: one failed completion, as for any exit.
+      assert_receive {:completed, "failed", %{duration_ms: duration}}, 1_000
+      assert is_integer(duration)
+      refute_receive {:completed, _, _}, 100
+
+      assert [%{status: "failed", exit_code: 139}] = Conversations._unsafe_list_turns(conv.id)
+      assert turn_stage_states(conv.id) == ["started", "done"]
       state = :sys.get_state(pid)
       assert is_nil(state.current_turn)
       assert is_nil(state.current_command_ref)

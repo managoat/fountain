@@ -3,11 +3,11 @@ defmodule Fountain.Machines.MachineTest do
   The owner process and its two doors (ADR 0058 stages 4 and 5).
 
   The destroy protocol itself is `destroy_test.exs`; what is pinned here is
-  the door — which side of the gate the work runs on, and what a caller is
-  told when the owner cannot be reached at all.
+  the door — that the work runs in the owner, and what a caller is told when
+  the owner cannot be reached at all.
 
-  `async: false`: the gate is application environment, and the process reads
-  the repo from outside the test process, which needs the shared sandbox.
+  `async: false`: several cases count the owner supervisor's children, which
+  are shared by every test that starts an owner.
   """
 
   use Fountain.DataCase, async: false
@@ -15,7 +15,6 @@ defmodule Fountain.Machines.MachineTest do
 
   alias Fountain.Conversations
   alias Fountain.Conversations.Lifecycle
-  alias Fountain.Machines
   alias Fountain.Machines.Machine
   alias Fountain.Machines.Occupancy
 
@@ -53,12 +52,9 @@ defmodule Fountain.Machines.MachineTest do
   end
 
   describe "busy?/2" do
-    test "the gate does not decide whether a machine is mid-operation", ctx do
-      # ADR 0058 stage 6a. `Destroy.run/2` takes a lease with
-      # `MACHINE_OWNER_ENABLED` off, inline on its caller, so a held row exists
-      # either way and the readers that refuse it must not consult the gate. The rest of `busy?/2` is pinned in
-      # `mid_operation_readers_test.exs`, which is async and so may not write
-      # this key.
+    test "a live lease is a machine mid-operation", ctx do
+      # ADR 0058 stage 6a. The rest of `busy?/2` is pinned in
+      # `mid_operation_readers_test.exs`.
       parking =
         ctx.sandbox
         |> Ecto.Changeset.change(
@@ -69,28 +65,17 @@ defmodule Fountain.Machines.MachineTest do
         )
         |> Repo.update!()
 
-      for value <- [true, false] do
-        with_gate(value, fn -> assert Machine.busy?(parking) end)
-      end
+      assert Machine.busy?(parking)
     end
   end
 
-  defp registry_entries do
-    Horde.Registry.select(Fountain.MachineRegistry, [{{:"$1", :"$2", :_}, [], [{{:"$1", :"$2"}}]}])
-  end
-
-  defp with_gate(value, fun) do
-    previous = Application.fetch_env(:fountain, :machine_owner_enabled)
-    Application.put_env(:fountain, :machine_owner_enabled, value)
-
-    try do
-      fun.()
-    after
-      case previous do
-        {:ok, was} -> Application.put_env(:fountain, :machine_owner_enabled, was)
-        :error -> Application.delete_env(:fountain, :machine_owner_enabled)
-      end
-    end
+  # The owners registered for one machine. Scoped to the test's own row: every
+  # verb runs in an owner since stage 9b, so the async suites running beside
+  # this one leave owners of their own machines behind for a minute each.
+  defp owners_of(sandbox_id) do
+    Horde.Registry.select(Fountain.MachineRegistry, [
+      {{:"$1", :"$2", :_}, [{:==, :"$1", sandbox_id}], [:"$2"]}
+    ])
   end
 
   describe "ensure_started/2 and whereis/1" do
@@ -127,7 +112,7 @@ defmodule Fountain.Machines.MachineTest do
       pids = results |> Enum.map(fn {:ok, pid} -> pid end) |> Enum.uniq()
 
       assert length(pids) == 1, "#{length(pids)} owners for one machine: #{inspect(pids)}"
-      assert Horde.DynamicSupervisor.count_children(Fountain.MachineSupervisor).active == 1
+      assert owners_of(ctx.sandbox.id) == pids
     end
 
     test "the losing branch returns the winner rather than an error", ctx do
@@ -161,57 +146,39 @@ defmodule Fountain.Machines.MachineTest do
         started_at: DateTime.utc_now() |> DateTime.truncate(:second)
       })
 
-      with_gate(true, fn ->
-        occupancy = Machine.who_is_here(ctx.sandbox.id)
+      occupancy = Machine.who_is_here(ctx.sandbox.id)
 
-        assert %Occupancy{} = occupancy
-        assert Enum.sort(occupancy.bound) == Enum.sort([ctx.a.id, ctx.b.id])
-        assert occupancy.running_turns == %{ctx.b.id => "opencode"}
-        assert occupancy.live == []
-        assert occupancy.last_activity_at
+      assert %Occupancy{} = occupancy
+      assert Enum.sort(occupancy.bound) == Enum.sort([ctx.a.id, ctx.b.id])
+      assert occupancy.running_turns == %{ctx.b.id => "opencode"}
+      assert occupancy.live == []
+      assert occupancy.last_activity_at
 
-        direct = Occupancy.load(ctx.sandbox.id)
-        assert occupancy.bound |> Enum.sort() == direct.bound |> Enum.sort()
-        assert occupancy.running_turns == direct.running_turns
-        assert occupancy.activity == direct.activity
-      end)
+      direct = Occupancy.load(ctx.sandbox.id)
+      assert occupancy.bound |> Enum.sort() == direct.bound |> Enum.sort()
+      assert occupancy.running_turns == direct.running_turns
+      assert occupancy.activity == direct.activity
     end
 
-    test "with the gate on it is served by the owner", ctx do
-      with_gate(true, fn ->
-        assert Machine.whereis(ctx.sandbox.id) == nil
-        assert %Occupancy{} = Machine.who_is_here(ctx.sandbox.id)
-        assert is_pid(Machine.whereis(ctx.sandbox.id))
-      end)
-    end
-
-    test "with the gate off it starts no process at all", ctx do
-      with_gate(false, fn ->
-        assert %Occupancy{} = occupancy = Machine.who_is_here(ctx.sandbox.id)
-        assert Enum.sort(occupancy.bound) == Enum.sort([ctx.a.id, ctx.b.id])
-        assert Machine.whereis(ctx.sandbox.id) == nil
-      end)
-    end
-
-    test "the gate defaults to off", _ctx do
-      refute Machines.enabled?()
+    test "it is served by the owner", ctx do
+      assert Machine.whereis(ctx.sandbox.id) == nil
+      assert %Occupancy{} = Machine.who_is_here(ctx.sandbox.id)
+      assert is_pid(Machine.whereis(ctx.sandbox.id))
     end
 
     test "an idle-stopped owner is simply replaced on the next question", ctx do
-      with_gate(true, fn ->
-        {:ok, pid} = Machine.ensure_started(ctx.sandbox.id, idle_ms: 40)
-        ref = Process.monitor(pid)
-        assert_receive {:DOWN, ^ref, :process, ^pid, :normal}, 2_000
+      {:ok, pid} = Machine.ensure_started(ctx.sandbox.id, idle_ms: 40)
+      ref = Process.monitor(pid)
+      assert_receive {:DOWN, ^ref, :process, ^pid, :normal}, 2_000
 
-        # The stale pid, called directly, is what the race below hands
-        # `who_is_here/1`. Here the registry has already dropped it, so the
-        # lookup misses and a fresh owner starts — no exit to survive.
-        assert catch_exit(GenServer.call(pid, :who_is_here, 1_000))
+      # The stale pid, called directly, is what the race below hands
+      # `who_is_here/1`. Here the registry has already dropped it, so the
+      # lookup misses and a fresh owner starts — no exit to survive.
+      assert catch_exit(GenServer.call(pid, :who_is_here, 1_000))
 
-        assert %Occupancy{} = occupancy = Machine.who_is_here(ctx.sandbox.id)
-        assert Enum.sort(occupancy.bound) == Enum.sort([ctx.a.id, ctx.b.id])
-        refute Machine.whereis(ctx.sandbox.id) == pid
-      end)
+      assert %Occupancy{} = occupancy = Machine.who_is_here(ctx.sandbox.id)
+      assert Enum.sort(occupancy.bound) == Enum.sort([ctx.a.id, ctx.b.id])
+      refute Machine.whereis(ctx.sandbox.id) == pid
     end
 
     test "an owner that dies between the lookup and the call is retried, not raised", ctx do
@@ -221,57 +188,55 @@ defmodule Fountain.Machines.MachineTest do
       # its caller down with it.
       #
       # Driven deterministically by making the first registry lookup in THIS
-      # process return a pid that is already dead. Mimic stubs are per-process,
-      # so the Horde supervisor's own internals are untouched and the retry
-      # starts a genuine owner.
+      # process return a pid that is already dead. The Horde supervisor's own
+      # internals are untouched and the retry starts a genuine owner.
       dead = spawn(fn -> :ok end)
       ref = Process.monitor(dead)
       assert_receive {:DOWN, ^ref, :process, ^dead, _}, 1_000
 
       {:ok, lookups} = Agent.start_link(fn -> 0 end)
 
-      stub(Horde.Registry, :lookup, fn Fountain.MachineRegistry, _key ->
-        case Agent.get_and_update(lookups, &{&1, &1 + 1}) do
-          0 -> [{dead, nil}]
-          _ -> []
-        end
+      # Only the machine registry. The owner this test starts finds its stubs
+      # through `$callers`, so its own `Occupancy` lookups in the conversation
+      # registry would land here too.
+      stub(Horde.Registry, :lookup, fn
+        Fountain.MachineRegistry, _key ->
+          case Agent.get_and_update(lookups, &{&1, &1 + 1}) do
+            0 -> [{dead, nil}]
+            _ -> []
+          end
+
+        registry, key ->
+          Mimic.call_original(Horde.Registry, :lookup, [registry, key])
       end)
 
-      with_gate(true, fn ->
-        assert %Occupancy{} = occupancy = Machine.who_is_here(ctx.sandbox.id)
-        assert Enum.sort(occupancy.bound) == Enum.sort([ctx.a.id, ctx.b.id])
-      end)
+      assert %Occupancy{} = occupancy = Machine.who_is_here(ctx.sandbox.id)
+      assert Enum.sort(occupancy.bound) == Enum.sort([ctx.a.id, ctx.b.id])
 
       # The discriminator between retrying and giving up: the answer is a
       # struct either way, but only the retry starts a real owner. Without it
       # this test would pass against a bare `Occupancy.load/1` fallback.
-      assert Horde.DynamicSupervisor.count_children(Fountain.MachineSupervisor).active == 1
+      assert [_one] = owners_of(ctx.sandbox.id)
     end
 
-    test "with the gate on, no predicate starts an owner", ctx do
+    test "no predicate starts an owner", ctx do
       # A read never needs the process. `Machine.destroy/2` is the one verb
       # that does (stage 5), and the predicates below are not it:
       # `held_by_other?/2` in particular runs inside the teardown fence's own
       # advisory-locked transaction and reads that transaction's uncommitted
       # rows, so it must stay on the caller's connection and never go behind a
       # GenServer call (#2348 review).
-      with_gate(true, fn ->
-        assert Machines.enabled?()
-        assert registry_entries() == []
+      assert owners_of(ctx.sandbox.id) == []
 
-        preloaded = Fountain.Repo.preload(ctx.sandbox, :conversations, force: true)
+      preloaded = Fountain.Repo.preload(ctx.sandbox, :conversations, force: true)
 
-        assert Conversations._unsafe_sandbox_busy_elsewhere?(ctx.sandbox.id, ctx.a.id, 3600)
-        assert Fountain.Machines.Binding.held_by_other?(ctx.sandbox.id, ctx.a.id)
-        assert Lifecycle.live_conversation_ids(preloaded) == []
-        refute Lifecycle.any_server_alive?(preloaded)
-        assert Conversations._unsafe_list_cotenant_ids(ctx.sandbox.id, ctx.a.id) == [ctx.b.id]
+      assert Conversations._unsafe_sandbox_busy_elsewhere?(ctx.sandbox.id, ctx.a.id, 3600)
+      assert Fountain.Machines.Binding.held_by_other?(ctx.sandbox.id, ctx.a.id)
+      assert Lifecycle.live_conversation_ids(preloaded) == []
+      refute Lifecycle.any_server_alive?(preloaded)
+      assert Conversations._unsafe_list_cotenant_ids(ctx.sandbox.id, ctx.a.id) == [ctx.b.id]
 
-        assert registry_entries() == [], "an owner was started: #{inspect(registry_entries())}"
-
-        assert Horde.DynamicSupervisor.count_children(Fountain.MachineSupervisor).active == 0,
-               "MachineSupervisor has children"
-      end)
+      assert owners_of(ctx.sandbox.id) == [], "an owner was started"
     end
   end
 
@@ -283,38 +248,21 @@ defmodule Fountain.Machines.MachineTest do
       :ok
     end
 
-    test "with the gate off it runs inline and starts nothing", ctx do
-      with_gate(false, fn ->
-        assert {:ok, :destroyed} =
-                 Machine.destroy(ctx.sandbox.id,
-                   actor: "api",
-                   reason: :terminated,
-                   terminating_conversation_id: ctx.a.id
-                 )
+    test "it runs in the owner, which survives to answer again", ctx do
+      {:ok, owner} = Machine.ensure_started(ctx.sandbox.id)
+      Mimic.allow(Managoat.Sandbox, self(), owner)
 
-        assert registry_entries() == [], "the gate was off and an owner started"
-      end)
+      assert {:ok, :destroyed} =
+               Machine.destroy(ctx.sandbox.id,
+                 actor: "api",
+                 reason: :terminated,
+                 terminating_conversation_id: ctx.a.id
+               )
 
-      assert Fountain.Repo.reload!(ctx.sandbox).status == "terminated"
-    end
-
-    test "with the gate on it runs in the owner, which survives to answer again", ctx do
-      with_gate(true, fn ->
-        {:ok, owner} = Machine.ensure_started(ctx.sandbox.id)
-        Mimic.allow(Managoat.Sandbox, self(), owner)
-
-        assert {:ok, :destroyed} =
-                 Machine.destroy(ctx.sandbox.id,
-                   actor: "api",
-                   reason: :terminated,
-                   terminating_conversation_id: ctx.a.id
-                 )
-
-        # The idle window is re-armed by the call rather than left to fire
-        # mid-destroy, so the owner is still there for the next verb.
-        assert Machine.whereis(ctx.sandbox.id) == owner
-        assert %Occupancy{} = Machine.who_is_here(ctx.sandbox.id)
-      end)
+      # The idle window is re-armed by the call rather than left to fire
+      # mid-destroy, so the owner is still there for the next verb.
+      assert Machine.whereis(ctx.sandbox.id) == owner
+      assert %Occupancy{} = Machine.who_is_here(ctx.sandbox.id)
 
       assert Fountain.Repo.reload!(ctx.sandbox).status == "terminated"
     end
@@ -333,19 +281,17 @@ defmodule Fountain.Machines.MachineTest do
       stub(Horde.Registry, :lookup, fn Fountain.MachineRegistry, _key -> [] end)
       reject(Managoat.Sandbox, :destroy, 1)
 
-      with_gate(true, fn ->
-        log =
-          ExUnit.CaptureLog.capture_log(fn ->
-            assert {:error, :sandbox_unavailable} =
-                     Machine.destroy(ctx.sandbox.id, actor: "api", reason: :terminated)
-          end)
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          assert {:error, :sandbox_unavailable} =
+                   Machine.destroy(ctx.sandbox.id, actor: "api", reason: :terminated)
+        end)
 
-        assert log =~ "machine_unreachable"
-        assert log =~ "no_capacity"
-      end)
+      assert log =~ "machine_unreachable"
+      assert log =~ "no_capacity"
 
       assert Fountain.Repo.reload!(ctx.sandbox).status == "ready"
-      refute Fountain.Repo.reload!(ctx.sandbox).teardown_requested_at
+      refute Fountain.Repo.reload!(ctx.sandbox).transition
     end
   end
 

@@ -75,7 +75,7 @@ defmodule Fountain.SandboxQueueDrainTest do
   # about; the runtime behind them is not. Stubbing the supervisor keeps the
   # replay a database fact rather than a provisioning race.
   defp inert_start_child do
-    stub(Horde.DynamicSupervisor, :start_child, fn _supervisor, _spec ->
+    stub_server_start(fn _supervisor, _spec ->
       {:ok, spawn(fn -> Process.sleep(:infinity) end)}
     end)
   end
@@ -435,7 +435,7 @@ defmodule Fountain.SandboxQueueDrainTest do
         stub(Managoat.Sandbox.Sprites, :get, fn _ -> {:ok, %{status: :running}} end)
         stub(Managoat.Sandbox, :resume, fn handle -> {:ok, handle} end)
         server = start_supervised!({Task, fn -> Process.sleep(:infinity) end})
-        stub(Horde.DynamicSupervisor, :start_child, fn _, _ -> {:ok, server} end)
+        stub_server_start(fn _, _ -> {:ok, server} end)
 
         assert %{started: 1, failed: 0, expired: 0} = SandboxQueue.drain(user.id)
 

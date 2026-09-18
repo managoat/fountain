@@ -257,12 +257,13 @@ defmodule Fountain.Conversations.LifecycleActionsTest do
         Ecto.Adapters.SQL.Sandbox.allow(Repo, self(), pid)
         Mimic.allow(Managoat.Sandbox, self(), pid)
         send(pid, :park)
-        assert_receive {:checkpoint_paused, ^pid}, 5_000
+        # The park runs in the machine's owner, so that is where it pauses.
+        assert_receive {:checkpoint_paused, parking}, 5_000
 
         {:ok, retired} = Conversations.update_sandbox(home, %{status: unquote(terminal)})
         replacement = insert_sandbox(user_id: ctx.user.id, status: "ready")
         {:ok, _} = Conversations.update_conversation(ctx.conv, %{sandbox_id: replacement.id})
-        send(pid, :resume_checkpoint)
+        send(parking, :resume_checkpoint)
 
         assert_receive {:park_result, :ok}, 5_000
         assert Repo.reload!(home).status == unquote(terminal)

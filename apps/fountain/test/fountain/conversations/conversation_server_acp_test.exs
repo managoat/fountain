@@ -2409,7 +2409,7 @@ defmodule Fountain.Conversations.ConversationServerACPTest do
       # No server, so the answer takes the wake path.
       test = self()
 
-      Mimic.stub(Horde.DynamicSupervisor, :start_child, fn _sup, _spec ->
+      stub_server_start(fn _sup, _spec ->
         {:ok, spawn(fn -> Process.sleep(:infinity) end)}
       end)
 

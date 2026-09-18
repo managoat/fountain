@@ -39,23 +39,21 @@ defmodule Fountain.Machines.Machine do
   database's: left to default it costs one `select statement_timestamp()`, and a
   caller with a page of rows passes `Fountain.Machines.Lease.now/0` in once.
 
-  ## What the gate chooses
+  ## Which verbs run here
 
-  With `MACHINE_OWNER_ENABLED` on, `destroy/2`, `park/2`, `ensure_up/2`,
-  `admit_turn/3`, `attach/3` and `detach/2` are calls into this process, so two
-  operations on one machine queue behind one another in its mailbox. With it
-  off, the protocols run inline on the caller.
-  **Same protocol either way**
-  — the same fence, the same lease, the same compare-and-set, the same event —
-  because the thing that makes a destroy safe against a concurrent destroy is
-  the lease on the row, not the mailbox in front of it. The process is an
-  optimization of the contention, not the correctness. That is also why there
-  is no second, older destroy path left behind the gate: there is one, and the
-  flag picks where it runs.
+  `destroy/2`, `park/2`, `ensure_up/2`, `admit_turn/3`, `attach/3` and
+  `detach/2` are calls into this process, so two operations on one machine
+  queue behind one another in its mailbox. The thing that makes a destroy safe
+  against a concurrent destroy is still the lease on the row, not the mailbox
+  in front of it: two owners can exist for a moment across a rolling deploy,
+  and the lease is what makes the second one's write invisible. The process is
+  an optimization of the contention, not the correctness. Until stage 9b a
+  runtime flag, `MACHINE_OWNER_ENABLED`, could run the same protocols inline
+  on the caller instead; stage 9b deleted it.
 
   **The provision verbs are the exception, and they say so.** `provision/3`,
-  `confirm_up/2` and `fail_provision/2` run inline on their caller whichever way
-  the gate is set. The first is why: its callback is the
+  `confirm_up/2` and `fail_provision/2` run inline on their caller. The first
+  is why: its callback is the
   `ConversationServer`'s own pipeline, which builds that server's state and runs
   for minutes, and running it inside this process would both move the pipeline
   out of the server (ADR 0037, #1369) and occupy the owner past every timeout in
@@ -85,10 +83,8 @@ defmodule Fountain.Machines.Machine do
 
   Asking through a process for an answer available from a pure function looks
   like ceremony, and it is the point: `who_is_here/1` is the door every writer
-  comes through once the writes move here, so the callers moved first, while
-  moving them still changed nothing. With the gate off, `who_is_here/1` reads
-  `Occupancy` directly and starts nothing at all, so the gate governs whether
-  the process exists, never what the answer is.
+  comes through, so the answer and the writes that follow it share one
+  process.
 
   ## The read that walks past a busy owner
 
@@ -100,8 +96,8 @@ defmodule Fountain.Machines.Machine do
   go before `admit_turn` landed, on the reasoning that a writer deciding on the
   struct would be two owners again. Stage 8a's admission does not decide on the
   struct: it re-reads the machine's row and counts the running turns **under
-  the advisory lock, inside its own transaction**, and with the gate on it
-  refuses rather than falls back when the owner cannot be reached, exactly as
+  the advisory lock, inside its own transaction**, and it refuses rather than
+  falls back when the owner cannot be reached, exactly as
   `destroy/2` does. So the fallback stays where it is, for the one verb that
   only looks; stage 8b's `attach/3` and `detach/2` are held to the same rule
   as `admit_turn/3` — they decide under the lock, and refuse rather than fall
@@ -136,7 +132,6 @@ defmodule Fountain.Machines.Machine do
   alias Fountain.Conversations.Conversation
   alias Fountain.Conversations.Sandbox
   alias Fountain.Conversations.Turn
-  alias Fountain.Machines
   alias Fountain.Machines.Admission
   alias Fountain.Machines.Binding
   alias Fountain.Machines.Destroy
@@ -206,9 +201,6 @@ defmodule Fountain.Machines.Machine do
   # `Retry-After`, and the retry finds the machine up. Holding an HTTP request
   # open for a Daytona machine coming back from archived storage is the
   # alternative, and it is worse.
-  #
-  # With the gate off there is no ceiling at all, because there is no call: the
-  # protocol runs inline on the caller and returns when it returns.
   # `machine_bounds_test.exs` pins the ordering.
   @resume_timeout 20_000
 
@@ -369,15 +361,14 @@ defmodule Fountain.Machines.Machine do
   Who is on `sandbox_id`: bound conversations, whose servers are live, which
   are mid-turn and on what runtime, and when the machine last saw activity.
 
-  Always an `Occupancy` struct. With the gate on it is served by the owner, so
-  the answer and the writes that follow it will share one process; with the
-  gate off, and if the owner cannot be started, it is read directly. That
-  fallback is deliberate: this verb is read-only, so a machine with no process
+  Always an `Occupancy` struct. It is served by the owner, so the answer and
+  the writes that follow it share one process; if the owner cannot be started
+  or reached, it is read directly. That fallback is deliberate: this verb is read-only, so a machine with no process
   is not a reason to fail a caller that only wanted to look.
   """
   @spec who_is_here(String.t()) :: Occupancy.t()
   def who_is_here(sandbox_id) when is_binary(sandbox_id) do
-    if Machines.enabled?(), do: ask_owner(sandbox_id, 1), else: Occupancy.load(sandbox_id)
+    ask_owner(sandbox_id, 1)
   end
 
   @doc """
@@ -428,14 +419,7 @@ defmodule Fountain.Machines.Machine do
   `Fountain.Machines.Lease.now/0` and passes it, which is what the two reaper
   sweeps, the reset reconciler and the admin table do.
 
-  **Two things it deliberately does not do.**
-
-  It is not gated on `MACHINE_OWNER_ENABLED`. The gate chooses where a verb
-  runs, never whether the protocol applies: `Destroy.run/2` takes a lease with
-  the gate off, inline on its caller, so with the gate off these rows exist and
-  must be refused just the same.
-
-  It says nothing about a terminal row, and callers must decide that first. A
+  **One thing it deliberately does not do.** It says nothing about a terminal row, and callers must decide that first. A
   finalize writes `terminated` and releases the lease as two statements, so
   `terminated` with a live lease is a real, momentary state, and it means the
   machine is gone — which is a fresh machine, not a retry. Every caller here
@@ -446,8 +430,7 @@ defmodule Fountain.Machines.Machine do
 
   @doc """
   Destroy the machine behind `sandbox_id`: `Fountain.Machines.Destroy.run/2`,
-  run inside the owner when `MACHINE_OWNER_ENABLED` is on and inline on the
-  caller when it is off. `opts` are the protocol's, documented there.
+  run inside the owner. `opts` are the protocol's, documented there.
 
   **This is the door, so this is where the protocol's vocabulary becomes the
   system's.** `Destroy` answers precisely — `:machine_busy`, `:superseded`,
@@ -488,26 +471,22 @@ defmodule Fountain.Machines.Machine do
   def destroy(sandbox_id, opts) when is_binary(sandbox_id) and is_list(opts) do
     cond do
       # Checked here, not only in the protocol. `Destroy.run/2`'s own guard is
-      # process-local, so with the gate on it runs in the owner — which is
-      # never inside this caller's transaction — and cannot fire. Worse than
+      # process-local, and it runs in the owner — which is never inside this
+      # caller's transaction — so it cannot fire. Worse than
       # useless there: the owner's `Lease.claim` would block on the
       # per-sandbox advisory lock this open transaction holds, while the
       # caller blocks in `GenServer.call` until `@destroy_timeout`.
       Repo.in_transaction?() ->
         {:error, :provider_transaction_open}
 
-      Machines.enabled?() ->
-        sandbox_id |> destroy_in_owner(opts, 1) |> refusal(sandbox_id, :destroy)
-
       true ->
-        sandbox_id |> Destroy.run(opts) |> refusal(sandbox_id, :destroy)
+        sandbox_id |> destroy_in_owner(opts, 1) |> refusal(sandbox_id, :destroy)
     end
   end
 
   @doc """
   Park the machine behind `sandbox_id`: `Fountain.Machines.Park.run/2`, run
-  inside the owner when `MACHINE_OWNER_ENABLED` is on and inline on the caller
-  when it is off. `opts` are the protocol's, documented there.
+  inside the owner. `opts` are the protocol's, documented there.
 
   The door for the second verb, on the same terms as `destroy/2` above: the
   protocol answers precisely and this translates. Three of its words travel,
@@ -560,18 +539,14 @@ defmodule Fountain.Machines.Machine do
       Repo.in_transaction?() ->
         {:error, :provider_transaction_open}
 
-      Machines.enabled?() ->
-        sandbox_id |> park_in_owner(opts, 1) |> refusal(sandbox_id, :park)
-
       true ->
-        sandbox_id |> Park.run(opts) |> refusal(sandbox_id, :park)
+        sandbox_id |> park_in_owner(opts, 1) |> refusal(sandbox_id, :park)
     end
   end
 
   @doc """
   Bring the machine behind `sandbox_id` up: `Fountain.Machines.Resume.run/2`,
-  run inside the owner when `MACHINE_OWNER_ENABLED` is on and inline on the
-  caller when it is off. `opts` are the protocol's, documented there.
+  run inside the owner. `opts` are the protocol's, documented there.
 
   The door for the third verb, on the same terms as `destroy/2` and `park/2`:
   the protocol answers precisely and this translates. **This one lets the most
@@ -633,18 +608,15 @@ defmodule Fountain.Machines.Machine do
       Repo.in_transaction?() ->
         {:error, :provider_transaction_open}
 
-      Machines.enabled?() ->
-        sandbox_id |> resume_in_owner(opts, 1) |> refusal(sandbox_id, :ensure_up)
-
       true ->
-        sandbox_id |> Resume.run(opts) |> refusal(sandbox_id, :ensure_up)
+        sandbox_id |> resume_in_owner(opts, 1) |> refusal(sandbox_id, :ensure_up)
     end
   end
 
   @doc """
   Build the machine behind `sandbox_id`, running `fun` as the pipeline:
-  `Fountain.Machines.Provision.run/3`, inline on the caller whichever way the
-  gate is set (see the moduledoc). `opts` are the protocol's, documented there.
+  `Fountain.Machines.Provision.run/3`, inline on the caller (see the
+  moduledoc). `opts` are the protocol's, documented there.
 
   The door for the fourth protocol, and the one whose caller is not a request
   but a `ConversationServer` deciding whether it has a machine to work on. So
@@ -734,9 +706,7 @@ defmodule Fountain.Machines.Machine do
 
   @doc """
   Admit a turn on the machine behind `sandbox_id`:
-  `Fountain.Machines.Admission.run/3`, run inside the owner when
-  `MACHINE_OWNER_ENABLED` is on and inline on the caller when it is off.
-  `attrs` is the turn row; `opts` are the protocol's, documented there.
+  `Fountain.Machines.Admission.run/3`, run inside the owner. `attrs` is the turn row; `opts` are the protocol's, documented there.
 
   The door for the fifth protocol, and the one whose vocabulary is almost
   entirely the caller's already. The locked insert answers in the words
@@ -767,20 +737,17 @@ defmodule Fountain.Machines.Machine do
       Repo.in_transaction?() ->
         {:error, :provider_transaction_open}
 
-      Machines.enabled?() ->
+      true ->
         # `:admit_timeout_ms` is a test seam for the deadline below; no call
         # site in `lib/` passes it (`machine_bounds_test.exs` scans for it).
         timeout = Keyword.get(opts, :admit_timeout_ms, @admit_timeout)
         sandbox_id |> admit_in_owner(attrs, opts, timeout, 1) |> admission_refusal(sandbox_id)
-
-      true ->
-        sandbox_id |> Admission.run(attrs, opts) |> admission_refusal(sandbox_id)
     end
   end
 
   @doc """
-  End a turn: `Fountain.Machines.Admission.end_turn/3`, inline whichever way
-  the gate is set (see the moduledoc). `ending` and `opts` are the protocol's,
+  End a turn: `Fountain.Machines.Admission.end_turn/3`, inline on the caller
+  (see the moduledoc). `ending` and `opts` are the protocol's,
   documented there; the answer is the write's own, untranslated, because none
   of its words reaches the wire — each caller logs or publishes on it itself.
   """
@@ -795,7 +762,7 @@ defmodule Fountain.Machines.Machine do
   counting the running turns of conversations other than `conv_id` on that
   runtime: `Fountain.Machines.Admission.at_capacity?/3`.
 
-  A read, so it is not gated — the same rule as `busy?/2`. The two doors that
+  A read, so it runs on the caller — the same rule as `busy?/2`. The two doors that
   ask want a refusal to render before anything is written; the locked check
   inside `admit_turn/3` is the one that decides.
   """
@@ -805,9 +772,7 @@ defmodule Fountain.Machines.Machine do
 
   @doc """
   Bind a new conversation to the machine behind `sandbox_id`:
-  `Fountain.Machines.Binding.attach/3`, run inside the owner when
-  `MACHINE_OWNER_ENABLED` is on and inline on the caller when it is off.
-  `attrs` is the conversation row; `opts` are the protocol's, documented there.
+  `Fountain.Machines.Binding.attach/3`, run inside the owner. `attrs` is the conversation row; `opts` are the protocol's, documented there.
 
   The door for the sixth protocol, and the one whose vocabulary is entirely
   the attach door's already: every refusal `Launch.attach_conversation/3`
@@ -834,24 +799,19 @@ defmodule Fountain.Machines.Machine do
       Repo.in_transaction?() ->
         {:error, :provider_transaction_open}
 
-      Machines.enabled?() ->
+      true ->
         # `:attach_timeout_ms` is a test seam for the deadline; no call site in
         # `lib/` passes it (`machine_bounds_test.exs` scans for it).
         timeout = Keyword.get(opts, :attach_timeout_ms, @attach_timeout)
         sandbox_id |> attach_in_owner(attrs, opts, timeout, 1) |> binding_refusal(sandbox_id)
-
-      true ->
-        sandbox_id |> Binding.attach(attrs, opts) |> binding_refusal(sandbox_id)
     end
   end
 
   @doc """
   End a conversation's binding to the machine behind `sandbox_id`:
   `Fountain.Machines.Binding.detach/2`. With `policy: :mode` — the default —
-  it is the last-detach decision, run inside the owner when
-  `MACHINE_OWNER_ENABLED` is on and inline when it is off; with
-  `policy: :keep` it is a release and runs inline whichever way the gate is
-  set (see the moduledoc). `opts` are the protocol's, documented there.
+  it is the last-detach decision, run inside the owner; with `policy: :keep`
+  it is a release and runs inline on the caller (see the moduledoc). `opts` are the protocol's, documented there.
 
   The answers travel: `{:ok, :kept}`, `{:ok, :detached}`, `{:ok, :destroyed}`,
   `{:ok, :already_terminal}` and `{:ok, :released}` each tell the caller
@@ -872,19 +832,16 @@ defmodule Fountain.Machines.Machine do
       Keyword.get(opts, :policy, :mode) == :keep ->
         sandbox_id |> Binding.detach(opts) |> binding_refusal(sandbox_id)
 
-      Machines.enabled?() ->
+      true ->
         timeout = Keyword.get(opts, :detach_timeout_ms, @detach_timeout)
         sandbox_id |> detach_in_owner(opts, timeout, 1) |> binding_refusal(sandbox_id)
-
-      true ->
-        sandbox_id |> Binding.detach(opts) |> binding_refusal(sandbox_id)
     end
   end
 
   @doc """
   Move the machine's binding identity or its skills record:
-  `Fountain.Machines.Binding.retarget/3`, inline whichever way the gate is set
-  (see the moduledoc). The answers are the reapply's own words, untranslated.
+  `Fountain.Machines.Binding.retarget/3`, inline on the caller (see the
+  moduledoc). The answers are the reapply's own words, untranslated.
   """
   @spec retarget(String.t(), map(), keyword()) :: {:ok, Sandbox.t()} | {:error, term()}
   def retarget(sandbox_id, attrs, opts \\ [])
@@ -1155,7 +1112,7 @@ defmodule Fountain.Machines.Machine do
   # The deadline is dated on the database's clock, `timeout` from now: the one
   # clock every node shares (stage 7a's reason for the lease), and the one the
   # locked insert reads in the same statement as the machine's row. One trivial
-  # query per prompt with the gate on; none with it off.
+  # query per prompt.
   defp admit_in_owner(sandbox_id, attrs, opts, timeout, retries_left) do
     deadline = DateTime.add(Lease.now(), timeout, :millisecond)
 
@@ -1244,8 +1201,37 @@ defmodule Fountain.Machines.Machine do
     {:ok, arm_idle(state)}
   end
 
+  # Every call is served on behalf of the process that made it, and runs as
+  # if that process had run it: the verb reads and writes through the caller's
+  # `$callers` chain, which is the chain `Task` and `Machines.Renewal` hand the
+  # processes they start. Nothing in this module reads it. What does is
+  # callers-aware tooling — an Ecto SQL sandbox connection, a Mimic stub — which
+  # is how a test's connection and stubs reach the owner. Per call, not per
+  # start, because one owner serves many callers: a chain recorded at start
+  # would run a later caller's work on the first caller's connection.
+  #
+  # Until stage 9b `MACHINE_OWNER_ENABLED` ran every verb inline on its caller
+  # in the test suite, so no test needed this. A caller on another node has no
+  # chain this node can read, and nothing on another node needs one.
   @impl true
-  def handle_call(:who_is_here, _from, state) do
+  def handle_call(message, {caller, _tag} = from, state) do
+    adopt_callers(caller)
+    serve(message, from, state)
+  end
+
+  defp adopt_callers(caller) when node(caller) == node() do
+    chain =
+      case Process.info(caller, {:dictionary, :"$callers"}) do
+        {{:dictionary, :"$callers"}, callers} when is_list(callers) -> callers
+        _ -> []
+      end
+
+    Process.put(:"$callers", [caller | chain])
+  end
+
+  defp adopt_callers(_caller), do: Process.delete(:"$callers")
+
+  defp serve(:who_is_here, _from, state) do
     {:reply, Occupancy.load(state.sandbox_id), arm_idle(state)}
   end
 
@@ -1257,7 +1243,7 @@ defmodule Fountain.Machines.Machine do
   # caller's *wait* for it — a message whose caller has given up still runs
   # when the owner reaches it, and for this verb that late run is idempotent
   # (a destroy of a destroyed machine is `{:ok, :already_terminal}` to nobody).
-  def handle_call({:destroy, opts}, _from, state) do
+  defp serve({:destroy, opts}, _from, state) do
     {:reply, Destroy.run(state.sandbox_id, opts), arm_idle(state)}
   end
 
@@ -1265,7 +1251,7 @@ defmodule Fountain.Machines.Machine do
   # suspend, which is longer than a destroy takes — `@park_timeout` on the
   # client side is the ceiling on the caller's wait, and a late park is a park
   # of a machine the recheck under the lease still has to find idle.
-  def handle_call({:park, opts}, _from, state) do
+  defp serve({:park, opts}, _from, state) do
     {:reply, Park.run(state.sandbox_id, opts), arm_idle(state)}
   end
 
@@ -1287,11 +1273,11 @@ defmodule Fountain.Machines.Machine do
   # deadline, because it had none — and it runs as it always did; the
   # three-tuple (stage 8b) is refused past its deadline. `:resume_expired`
   # reads as `:sandbox_unavailable` at the door, to nobody.
-  def handle_call({:ensure_up, opts}, _from, state) do
+  defp serve({:ensure_up, opts}, _from, state) do
     {:reply, Resume.run(state.sandbox_id, opts), arm_idle(state)}
   end
 
-  def handle_call({:ensure_up, opts, %DateTime{} = deadline}, _from, state) do
+  defp serve({:ensure_up, opts, %DateTime{} = deadline}, _from, state) do
     reply =
       if DateTime.compare(Lease.now(), deadline) == :gt do
         Logger.warning(
@@ -1338,7 +1324,7 @@ defmodule Fountain.Machines.Machine do
   # no deadline, because it had none. An owner that crashed on it would cost a
   # cotenant's queued park (the mixed-version note in the PR); refusing is the
   # safe side, in the one word every version of the door translates.
-  def handle_call({:admit_turn, _attrs, _opts}, _from, state) do
+  defp serve({:admit_turn, _attrs, _opts}, _from, state) do
     Logger.warning(
       "machine #{state.sandbox_id}: an admission arrived without a deadline (a caller on " <>
         "the previous release); refusing without running it"
@@ -1347,7 +1333,7 @@ defmodule Fountain.Machines.Machine do
     {:reply, {:error, :machine_busy}, arm_idle(state)}
   end
 
-  def handle_call({:admit_turn, attrs, opts, %DateTime{} = deadline}, _from, state) do
+  defp serve({:admit_turn, attrs, opts, %DateTime{} = deadline}, _from, state) do
     reply =
       if DateTime.compare(Lease.now(), deadline) == :gt do
         Logger.warning(
@@ -1368,7 +1354,7 @@ defmodule Fountain.Machines.Machine do
   # fence, and either done late is done for a caller that was told 503. The
   # pre-check refuses from one clock read; the protocol refuses again against
   # the `statement_timestamp()` it read the machine's row with.
-  def handle_call({:attach, attrs, opts, %DateTime{} = deadline}, _from, state) do
+  defp serve({:attach, attrs, opts, %DateTime{} = deadline}, _from, state) do
     reply =
       if DateTime.compare(Lease.now(), deadline) == :gt do
         Logger.warning(
@@ -1384,7 +1370,7 @@ defmodule Fountain.Machines.Machine do
     {:reply, reply, arm_idle(state)}
   end
 
-  def handle_call({:detach, opts, %DateTime{} = deadline}, _from, state) do
+  defp serve({:detach, opts, %DateTime{} = deadline}, _from, state) do
     reply =
       if DateTime.compare(Lease.now(), deadline) == :gt do
         Logger.warning(
@@ -1416,7 +1402,7 @@ defmodule Fountain.Machines.Machine do
   # every version translates, and the caller genuinely cannot have this machine
   # from this owner right now. Logged at `error`: in a test or on one release
   # this clause is only ever reached by a mistake, and it must be loud.
-  def handle_call(message, _from, state) do
+  defp serve(message, _from, state) do
     Logger.error(
       "machine #{state.sandbox_id}: no handle_call clause for #{shape(message)}; refusing. " <>
         "A caller on a later release, or a message shape that was never added here."

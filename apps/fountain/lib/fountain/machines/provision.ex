@@ -114,10 +114,9 @@ defmodule Fountain.Machines.Provision do
   ## What is deliberately *not* here
 
   **No hop through the owner process.** `Machine.destroy/2`, `park/2` and
-  `ensure_up/2` run inside `Fountain.Machines.Machine` when
-  `MACHINE_OWNER_ENABLED` is on, so two operations on one machine queue in one
-  mailbox. `Machine.provision/3` runs inline on its caller whichever way the gate
-  is set, and says so. Three reasons, in order of how much they matter:
+  `ensure_up/2` run inside `Fountain.Machines.Machine`, so two operations on one
+  machine queue in one mailbox. `Machine.provision/3` runs inline on its
+  caller, and says so. Three reasons, in order of how much they matter:
 
     * the callback **is** the caller's pipeline. It builds and returns the
       `ConversationServer`'s own state, spawns its adapter and closes over its

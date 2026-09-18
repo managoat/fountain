@@ -113,20 +113,6 @@ defmodule Fountain.Machines.BindingTest do
     end
   end
 
-  defp with_gate(value, fun) do
-    previous = Application.fetch_env(:fountain, :machine_owner_enabled)
-    Application.put_env(:fountain, :machine_owner_enabled, value)
-
-    try do
-      fun.()
-    after
-      case previous do
-        {:ok, was} -> Application.put_env(:fountain, :machine_owner_enabled, was)
-        :error -> Application.delete_env(:fountain, :machine_owner_enabled)
-      end
-    end
-  end
-
   # A plain process standing in for a conversation's server: `whereis/1` only
   # asks the registry, and the cast the owner sends lands in this mailbox.
   defp stand_in_server(conversation_id) do
@@ -173,19 +159,14 @@ defmodule Fountain.Machines.BindingTest do
   # ── attach ────────────────────────────────────────────────────────────────
 
   describe "attach" do
-    for gate <- [false, true] do
-      test "binds a conversation to the machine, with its allowance (gate #{gate})", ctx do
-        with_gate(unquote(gate), fn ->
-          assert {:ok, %Conversation{} = attached, allowance} =
-                   Machine.attach(ctx.sandbox.id, attach_attrs(ctx), actor: "api")
+    test "binds a conversation to the machine, with its allowance, in the owner", ctx do
+      assert {:ok, %Conversation{} = attached, allowance} =
+               Machine.attach(ctx.sandbox.id, attach_attrs(ctx), actor: "api")
 
-          assert attached.sandbox_id == ctx.sandbox.id
-          assert allowance.conversation_id == attached.id
-          assert Machine.whereis(ctx.sandbox.id) != nil == unquote(gate)
-        end)
-
-        assert length(conversations(ctx)) == 2
-      end
+      assert attached.sandbox_id == ctx.sandbox.id
+      assert allowance.conversation_id == attached.id
+      assert Machine.whereis(ctx.sandbox.id) != nil
+      assert length(conversations(ctx)) == 2
     end
 
     test "the machine's rule is decided under the lock: fence, status, identity, runtime, lease",
@@ -255,32 +236,30 @@ defmodule Fountain.Machines.BindingTest do
         :ok
       end)
 
-      with_gate(true, fn ->
-        {:ok, owner} = Machine.ensure_started(ctx.sandbox.id)
-        Mimic.allow(Managoat.Sandbox, self(), owner)
-        sandbox_id = ctx.sandbox.id
+      {:ok, owner} = Machine.ensure_started(ctx.sandbox.id)
+      Mimic.allow(Managoat.Sandbox, self(), owner)
+      sandbox_id = ctx.sandbox.id
 
-        park =
-          Task.async(fn ->
-            capture_log(fn ->
-              send(
-                test,
-                {:park, Machine.park(sandbox_id, actor: "system:sandbox_reaper", reason: :idle)}
-              )
-            end)
+      park =
+        Task.async(fn ->
+          capture_log(fn ->
+            send(
+              test,
+              {:park, Machine.park(sandbox_id, actor: "system:sandbox_reaper", reason: :idle)}
+            )
           end)
-
-        assert_receive :suspending, 2_000
-
-        quietly(fn ->
-          assert {:error, :sandbox_unavailable} =
-                   Machine.attach(ctx.sandbox.id, attach_attrs(ctx), attach_timeout_ms: 200)
         end)
 
-        assert_receive {:park, {:ok, :parked}}, 5_000
-        Task.await(park)
-        assert %Fountain.Machines.Occupancy{} = Machine.who_is_here(ctx.sandbox.id)
+      assert_receive :suspending, 2_000
+
+      quietly(fn ->
+        assert {:error, :sandbox_unavailable} =
+                 Machine.attach(ctx.sandbox.id, attach_attrs(ctx), attach_timeout_ms: 200)
       end)
+
+      assert_receive {:park, {:ok, :parked}}, 5_000
+      Task.await(park)
+      assert %Fountain.Machines.Occupancy{} = Machine.who_is_here(ctx.sandbox.id)
 
       assert length(conversations(ctx)) == 1, "the owner attached a conversation nobody asked for"
       assert Repo.reload!(ctx.sandbox).status == "suspended"
@@ -322,43 +301,39 @@ defmodule Fountain.Machines.BindingTest do
         :ok
       end)
 
-      with_gate(true, fn ->
-        {:ok, owner} = Machine.ensure_started(ctx.sandbox.id)
-        Mimic.allow(Managoat.Sandbox, self(), owner)
-        sandbox_id = ctx.sandbox.id
+      {:ok, owner} = Machine.ensure_started(ctx.sandbox.id)
+      Mimic.allow(Managoat.Sandbox, self(), owner)
+      sandbox_id = ctx.sandbox.id
 
-        park =
-          Task.async(fn ->
-            capture_log(fn ->
-              send(
-                test,
-                {:park, Machine.park(sandbox_id, actor: "system:sandbox_reaper", reason: :idle)}
-              )
-            end)
+      park =
+        Task.async(fn ->
+          capture_log(fn ->
+            send(
+              test,
+              {:park, Machine.park(sandbox_id, actor: "system:sandbox_reaper", reason: :idle)}
+            )
           end)
+        end)
 
-        assert_receive :suspending, 2_000
+      assert_receive :suspending, 2_000
 
-        # Onto the parked machine: `suspended` is attachable, as it always was.
-        assert {:ok, %Conversation{}, _allowance} =
-                 Machine.attach(ctx.sandbox.id, attach_attrs(ctx), attach_timeout_ms: 5_000)
+      # Onto the parked machine: `suspended` is attachable, as it always was.
+      assert {:ok, %Conversation{}, _allowance} =
+               Machine.attach(ctx.sandbox.id, attach_attrs(ctx), attach_timeout_ms: 5_000)
 
-        assert_receive {:park, {:ok, :parked}}, 5_000
-        Task.await(park)
-      end)
+      assert_receive {:park, {:ok, :parked}}, 5_000
+      Task.await(park)
 
       assert length(conversations(ctx)) == 2
     end
 
     test "an owner that cannot run the attach refuses rather than attaching inline", ctx do
-      with_gate(true, fn ->
-        {:ok, owner} = Machine.ensure_started(ctx.sandbox.id)
-        Mimic.allow(Binding, self(), owner)
-        stub(Binding, :attach, fn _id, _attrs, _opts -> raise "no clause for {:attach, ..}" end)
+      {:ok, owner} = Machine.ensure_started(ctx.sandbox.id)
+      Mimic.allow(Binding, self(), owner)
+      stub(Binding, :attach, fn _id, _attrs, _opts -> raise "no clause for {:attach, ..}" end)
 
-        quietly(fn ->
-          assert {:error, :sandbox_unavailable} = attach(ctx)
-        end)
+      quietly(fn ->
+        assert {:error, :sandbox_unavailable} = attach(ctx)
       end)
 
       assert length(conversations(ctx)) == 1
@@ -514,32 +489,30 @@ defmodule Fountain.Machines.BindingTest do
 
       reject(&Managoat.Sandbox.destroy/1)
 
-      with_gate(true, fn ->
-        {:ok, owner} = Machine.ensure_started(ctx.sandbox.id)
-        Mimic.allow(Managoat.Sandbox, self(), owner)
-        sandbox_id = ctx.sandbox.id
+      {:ok, owner} = Machine.ensure_started(ctx.sandbox.id)
+      Mimic.allow(Managoat.Sandbox, self(), owner)
+      sandbox_id = ctx.sandbox.id
 
-        park =
-          Task.async(fn ->
-            capture_log(fn ->
-              send(
-                test,
-                {:park, Machine.park(sandbox_id, actor: "system:sandbox_reaper", reason: :idle)}
-              )
-            end)
+      park =
+        Task.async(fn ->
+          capture_log(fn ->
+            send(
+              test,
+              {:park, Machine.park(sandbox_id, actor: "system:sandbox_reaper", reason: :idle)}
+            )
           end)
-
-        assert_receive :suspending, 2_000
-
-        quietly(fn ->
-          assert {:error, :sandbox_unavailable} =
-                   Machine.detach(ctx.sandbox.id, detach_opts(ctx, detach_timeout_ms: 200))
         end)
 
-        assert_receive {:park, {:ok, :parked}}, 5_000
-        Task.await(park)
-        assert %Fountain.Machines.Occupancy{} = Machine.who_is_here(ctx.sandbox.id)
+      assert_receive :suspending, 2_000
+
+      quietly(fn ->
+        assert {:error, :sandbox_unavailable} =
+                 Machine.detach(ctx.sandbox.id, detach_opts(ctx, detach_timeout_ms: 200))
       end)
+
+      assert_receive {:park, {:ok, :parked}}, 5_000
+      Task.await(park)
+      assert %Fountain.Machines.Occupancy{} = Machine.who_is_here(ctx.sandbox.id)
 
       refute Repo.reload!(ctx.sandbox).reset_requested_at, "the owner fenced a machine for nobody"
       assert Repo.reload!(ctx.sandbox).status == "suspended"
@@ -548,12 +521,10 @@ defmodule Fountain.Machines.BindingTest do
     test "a release keeps the machine and runs inline whichever way the gate is set", ctx do
       reject(&Managoat.Sandbox.destroy/1)
 
-      with_gate(true, fn ->
-        assert {:ok, :released} =
-                 Machine.detach(ctx.sandbox.id, conversation_id: ctx.conv.id, policy: :keep)
+      assert {:ok, :released} =
+               Machine.detach(ctx.sandbox.id, conversation_id: ctx.conv.id, policy: :keep)
 
-        assert Machine.whereis(ctx.sandbox.id) == nil, "a release started an owner"
-      end)
+      assert Machine.whereis(ctx.sandbox.id) == nil, "a release started an owner"
 
       assert Repo.reload!(ctx.conv).status == "terminated"
       assert Repo.reload!(ctx.sandbox).status == "ready"
@@ -1292,64 +1263,62 @@ defmodule Fountain.Machines.BindingTest do
       # refutation with a string of its own for the same reason).
       secret = "sk-live-do-not-log-me-9f3c"
 
-      with_gate(true, fn ->
-        {:ok, owner} = Machine.ensure_started(ctx.sandbox.id)
-        sandbox_id = ctx.sandbox.id
+      {:ok, owner} = Machine.ensure_started(ctx.sandbox.id)
+      sandbox_id = ctx.sandbox.id
 
-        call_log =
-          capture_log(fn ->
-            assert {:error, :sandbox_unavailable} =
-                     GenServer.call(owner, {:a_verb_from_a_later_release, %{token: secret}, nil})
-          end)
+      call_log =
+        capture_log(fn ->
+          assert {:error, :sandbox_unavailable} =
+                   GenServer.call(owner, {:a_verb_from_a_later_release, %{token: secret}, nil})
+        end)
 
-        # The log has to name what arrived and on which machine, or this
-        # clause is silence with a return value (the lead's condition). The
-        # call returning at all is the proof the owner survived, so there is no
-        # `Process.alive?` here; the barrier calls below are the same proof for
-        # the two asynchronous cases.
-        assert call_log =~ "no handle_call clause for :a_verb_from_a_later_release/3"
-        assert call_log =~ sandbox_id
+      # The log has to name what arrived and on which machine, or this
+      # clause is silence with a return value (the lead's condition). The
+      # call returning at all is the proof the owner survived, so there is no
+      # `Process.alive?` here; the barrier calls below are the same proof for
+      # the two asynchronous cases.
+      assert call_log =~ "no handle_call clause for :a_verb_from_a_later_release/3"
+      assert call_log =~ sandbox_id
 
-        cast_log =
-          capture_log(fn ->
-            GenServer.cast(owner, {:a_cast_from_a_later_release, %{token: secret}})
-            # The cast is asynchronous; this call is the barrier that forces
-            # the owner to have handled it.
-            assert %Fountain.Machines.Occupancy{} = GenServer.call(owner, :who_is_here)
-          end)
+      cast_log =
+        capture_log(fn ->
+          GenServer.cast(owner, {:a_cast_from_a_later_release, %{token: secret}})
+          # The cast is asynchronous; this call is the barrier that forces
+          # the owner to have handled it.
+          assert %Fountain.Machines.Occupancy{} = GenServer.call(owner, :who_is_here)
+        end)
 
-        assert cast_log =~ "no handle_cast clause for :a_cast_from_a_later_release/2"
-        assert cast_log =~ sandbox_id
+      assert cast_log =~ "no handle_cast clause for :a_cast_from_a_later_release/2"
+      assert cast_log =~ sandbox_id
 
-        info_log =
-          capture_log(fn ->
-            send(owner, {:DOWN, make_ref(), :process, self(), :normal})
-            assert %Fountain.Machines.Occupancy{} = GenServer.call(owner, :who_is_here)
-          end)
+      info_log =
+        capture_log(fn ->
+          send(owner, {:DOWN, make_ref(), :process, self(), :normal})
+          assert %Fountain.Machines.Occupancy{} = GenServer.call(owner, :who_is_here)
+        end)
 
-        assert info_log =~ "unexpected message :DOWN/5"
-        assert info_log =~ sandbox_id
+      assert info_log =~ "unexpected message :DOWN/5"
+      assert info_log =~ sandbox_id
 
-        # **And a message that is not a tuple**, which is where the redaction
-        # claim used to be false: the fallback inspected the whole term, so a
-        # map or a binary went into the log entire. The type, and nothing else.
-        map_log =
-          capture_log(fn ->
-            send(owner, %{token: secret})
-            assert %Fountain.Machines.Occupancy{} = GenServer.call(owner, :who_is_here)
-          end)
+      # **And a message that is not a tuple**, which is where the redaction
+      # claim used to be false: the fallback inspected the whole term, so a
+      # map or a binary went into the log entire. The type, and nothing else.
+      map_log =
+        capture_log(fn ->
+          send(owner, %{token: secret})
+          assert %Fountain.Machines.Occupancy{} = GenServer.call(owner, :who_is_here)
+        end)
 
-        assert map_log =~ "unexpected message a map"
+      assert map_log =~ "unexpected message a map"
 
-        # The payload never reaches the log, whatever its shape: a tuple is a
-        # tag and an arity, anything else is a type.
-        for log <- [call_log, cast_log, info_log, map_log] do
-          refute log =~ secret
-        end
+      # The payload never reaches the log, whatever its shape: a tuple is a
+      # tag and an arity, anything else is a type.
+      for log <- [call_log, cast_log, info_log, map_log] do
+        refute log =~ secret
+      end
 
-        # And it still answers the verbs it does know.
-        assert %Fountain.Machines.Occupancy{} = GenServer.call(owner, :who_is_here)
-      end)
+      # And it still answers the verbs it does know.
+      assert %Fountain.Machines.Occupancy{} = GenServer.call(owner, :who_is_here)
     end
   end
 
@@ -1449,32 +1418,30 @@ defmodule Fountain.Machines.BindingTest do
         {:ok, handle}
       end)
 
-      with_gate(true, fn ->
-        {:ok, owner} = Machine.ensure_started(ctx.sandbox.id)
-        Mimic.allow(Managoat.Sandbox, self(), owner)
-        sandbox_id = ctx.sandbox.id
+      {:ok, owner} = Machine.ensure_started(ctx.sandbox.id)
+      Mimic.allow(Managoat.Sandbox, self(), owner)
+      sandbox_id = ctx.sandbox.id
 
-        park =
-          Task.async(fn ->
-            capture_log(fn ->
-              send(
-                test,
-                {:park, Machine.park(sandbox_id, actor: "system:sandbox_reaper", reason: :idle)}
-              )
-            end)
+      park =
+        Task.async(fn ->
+          capture_log(fn ->
+            send(
+              test,
+              {:park, Machine.park(sandbox_id, actor: "system:sandbox_reaper", reason: :idle)}
+            )
           end)
-
-        assert_receive :suspending, 2_000
-
-        quietly(fn ->
-          assert {:error, :sandbox_unavailable} =
-                   Machine.ensure_up(ctx.sandbox.id, actor: "system:wake", resume_timeout_ms: 200)
         end)
 
-        assert_receive {:park, {:ok, :parked}}, 5_000
-        Task.await(park)
-        assert %Fountain.Machines.Occupancy{} = Machine.who_is_here(ctx.sandbox.id)
+      assert_receive :suspending, 2_000
+
+      quietly(fn ->
+        assert {:error, :sandbox_unavailable} =
+                 Machine.ensure_up(ctx.sandbox.id, actor: "system:wake", resume_timeout_ms: 200)
       end)
+
+      assert_receive {:park, {:ok, :parked}}, 5_000
+      Task.await(park)
+      assert %Fountain.Machines.Occupancy{} = Machine.who_is_here(ctx.sandbox.id)
 
       refute_received :resumed_at_provider, "the owner resumed a machine for nobody"
       assert Repo.reload!(ctx.sandbox).status == "suspended"
@@ -1492,34 +1459,32 @@ defmodule Fountain.Machines.BindingTest do
 
       stub(Managoat.Sandbox, :resume, fn handle -> {:ok, handle} end)
 
-      with_gate(true, fn ->
-        {:ok, owner} = Machine.ensure_started(ctx.sandbox.id)
-        Mimic.allow(Managoat.Sandbox, self(), owner)
-        sandbox_id = ctx.sandbox.id
+      {:ok, owner} = Machine.ensure_started(ctx.sandbox.id)
+      Mimic.allow(Managoat.Sandbox, self(), owner)
+      sandbox_id = ctx.sandbox.id
 
-        park =
-          Task.async(fn ->
-            capture_log(fn ->
-              send(
-                test,
-                {:park, Machine.park(sandbox_id, actor: "system:sandbox_reaper", reason: :idle)}
-              )
-            end)
+      park =
+        Task.async(fn ->
+          capture_log(fn ->
+            send(
+              test,
+              {:park, Machine.park(sandbox_id, actor: "system:sandbox_reaper", reason: :idle)}
+            )
           end)
-
-        assert_receive :suspending, 2_000
-
-        quietly(fn ->
-          assert {:ok, :resumed} =
-                   Machine.ensure_up(ctx.sandbox.id,
-                     actor: "system:wake",
-                     resume_timeout_ms: 5_000
-                   )
         end)
 
-        assert_receive {:park, {:ok, :parked}}, 5_000
-        Task.await(park)
+      assert_receive :suspending, 2_000
+
+      quietly(fn ->
+        assert {:ok, :resumed} =
+                 Machine.ensure_up(ctx.sandbox.id,
+                   actor: "system:wake",
+                   resume_timeout_ms: 5_000
+                 )
       end)
+
+      assert_receive {:park, {:ok, :parked}}, 5_000
+      Task.await(park)
 
       assert Repo.reload!(ctx.sandbox).status == "ready"
     end
@@ -1528,13 +1493,11 @@ defmodule Fountain.Machines.BindingTest do
       stamp(ctx, status: "suspended")
       stub(Managoat.Sandbox, :resume, fn handle -> {:ok, handle} end)
 
-      with_gate(true, fn ->
-        {:ok, owner} = Machine.ensure_started(ctx.sandbox.id)
-        Mimic.allow(Managoat.Sandbox, self(), owner)
+      {:ok, owner} = Machine.ensure_started(ctx.sandbox.id)
+      Mimic.allow(Managoat.Sandbox, self(), owner)
 
-        quietly(fn ->
-          assert {:ok, :resumed} = GenServer.call(owner, {:ensure_up, [actor: "system:wake"]})
-        end)
+      quietly(fn ->
+        assert {:ok, :resumed} = GenServer.call(owner, {:ensure_up, [actor: "system:wake"]})
       end)
 
       assert Repo.reload!(ctx.sandbox).status == "ready"

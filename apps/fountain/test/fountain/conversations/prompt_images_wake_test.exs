@@ -37,7 +37,7 @@ defmodule Fountain.Conversations.PromptImagesWakeTest do
       {:ok, %{status: :running, raw: %{name: "sprite-2373"}}}
     end)
 
-    stub(Horde.DynamicSupervisor, :start_child, fn _supervisor, _child_spec -> {:ok, server} end)
+    stub_server_start(fn _supervisor, _child_spec -> {:ok, server} end)
 
     test_pid = self()
 

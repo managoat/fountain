@@ -27,6 +27,7 @@ defmodule Fountain.DataCase do
 
       import Fountain.DataCase
       import Fountain.Factory
+      import Fountain.ServerStart
     end
   end
 

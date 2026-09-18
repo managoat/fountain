@@ -82,9 +82,6 @@ defmodule Fountain.Machines.MidOperationReadersTest do
   defp conv_with_sandbox(ctx), do: Repo.reload!(ctx.conv) |> Repo.preload(:sandbox)
 
   describe "Machine.busy?/2" do
-    # That the gate does not decide this is pinned in `machine_test.exs`,
-    # which is `async: false` — writing `:machine_owner_enabled` from an async
-    # module is what `async_global_config_guardrail_test.exs` refuses.
     test "a live lease, and nothing else", ctx do
       refute Machine.busy?(ctx.sandbox)
 

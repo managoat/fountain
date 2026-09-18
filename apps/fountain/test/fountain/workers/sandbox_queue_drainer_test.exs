@@ -19,7 +19,7 @@ defmodule Fountain.Workers.SandboxQueueDrainerTest do
   end
 
   defp inert_start_child do
-    stub(Horde.DynamicSupervisor, :start_child, fn _supervisor, _spec ->
+    stub_server_start(fn _supervisor, _spec ->
       {:ok, spawn(fn -> Process.sleep(:infinity) end)}
     end)
   end

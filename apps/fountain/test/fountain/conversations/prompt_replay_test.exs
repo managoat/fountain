@@ -41,7 +41,7 @@ defmodule Fountain.Conversations.PromptReplayTest do
     test = self()
 
     # Capture what would be handed to Horde, and do not actually start anything.
-    stub(Horde.DynamicSupervisor, :start_child, fn _sup, spec ->
+    stub_server_start(fn _sup, spec ->
       send(test, {:child_spec, spec})
       pid = spawn(fn -> Process.sleep(:infinity) end)
       send(test, {:started_pid, pid})

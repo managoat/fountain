@@ -37,7 +37,7 @@ defmodule Fountain.Conversations.SandboxResetTest do
       )
 
     b = insert_conversation(user_id: user.id, agent: agent, sandbox: home, status: "idle")
-    stub(Horde.DynamicSupervisor, :start_child, fn _s, _spec -> {:ok, spawn(fn -> :ok end)} end)
+    stub_server_start(fn _s, _spec -> {:ok, spawn(fn -> :ok end)} end)
     {:ok, user: user, env: env, agent: agent, home: home, a: a, b: b}
   end
 

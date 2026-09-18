@@ -19,7 +19,7 @@ defmodule Fountain.Runners.PlacementTest do
     previous = Application.get_env(:fountain, :runners_enabled)
     Application.put_env(:fountain, :runners_enabled, true)
     on_exit(fn -> Application.put_env(:fountain, :runners_enabled, previous) end)
-    stub(Horde.DynamicSupervisor, :start_child, fn _s, _spec -> {:ok, spawn(fn -> :ok end)} end)
+    stub_server_start(fn _s, _spec -> {:ok, spawn(fn -> :ok end)} end)
     :ok
   end
 

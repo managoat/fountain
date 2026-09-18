@@ -57,7 +57,7 @@ defmodule Fountain.Conversations.WakeRaceTest do
 
   describe "when the wake wins the race" do
     test "the conversation points at the new sandbox", %{conv: conv, old_sandbox: old} do
-      stub(Horde.DynamicSupervisor, :start_child, fn _sup, _spec ->
+      stub_server_start(fn _sup, _spec ->
         {:ok, spawn(fn -> Process.sleep(:infinity) end)}
       end)
 
@@ -75,7 +75,7 @@ defmodule Fountain.Conversations.WakeRaceTest do
     setup do
       winner = spawn(fn -> Process.sleep(:infinity) end)
 
-      stub(Horde.DynamicSupervisor, :start_child, fn _sup, _spec ->
+      stub_server_start(fn _sup, _spec ->
         {:error, {:already_started, winner}}
       end)
 
@@ -125,7 +125,7 @@ defmodule Fountain.Conversations.WakeRaceTest do
 
   describe "when the start fails outright" do
     test "the unused sandbox does not keep a quota slot", %{conv: conv} do
-      stub(Horde.DynamicSupervisor, :start_child, fn _sup, _spec -> {:error, :boom} end)
+      stub_server_start(fn _sup, _spec -> {:error, :boom} end)
 
       before = sandbox_ids()
 

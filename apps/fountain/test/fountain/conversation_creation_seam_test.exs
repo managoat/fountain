@@ -29,7 +29,7 @@ defmodule Fountain.ConversationCreationSeamTest do
         status: "ready"
       )
 
-    stub(Horde.DynamicSupervisor, :start_child, fn _, _ -> {:ok, spawn(fn -> :ok end)} end)
+    stub_server_start(fn _, _ -> {:ok, spawn(fn -> :ok end)} end)
     %{user: user, agent: agent, env: env, sandbox: sandbox}
   end
 

@@ -68,7 +68,7 @@ defmodule FountainWeb.TurnImageIngestTest do
     end
 
     test "every allowed type is accepted", %{raw_key: raw_key, agent: agent} do
-      stub(Horde.DynamicSupervisor, :start_child, fn _s, _spec ->
+      stub_server_start(fn _s, _spec ->
         {:ok, self()}
       end)
 
@@ -165,7 +165,7 @@ defmodule FountainWeb.TurnImageIngestTest do
 
   describe "no images" do
     test "an absent images key is fine", %{conn: conn, raw_key: raw_key, agent: agent} do
-      stub(Horde.DynamicSupervisor, :start_child, fn _s, _spec ->
+      stub_server_start(fn _s, _spec ->
         {:ok, spawn(fn -> :ok end)}
       end)
 

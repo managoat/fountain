@@ -25,7 +25,7 @@ defmodule Fountain.Conversations.OpeningInputTest do
   for path <- [:create, :attach] do
     @tag path: path
     test "#{path} refuses invalid text before allocating rows or starting work", ctx do
-      reject(Horde.DynamicSupervisor, :start_child, 2)
+      reject_server_start()
       reject(ConversationServer, :send_prompt, 4)
       counts = row_counts()
 
@@ -37,7 +37,7 @@ defmodule Fountain.Conversations.OpeningInputTest do
 
     @tag path: path
     test "#{path} refuses images without opening text", ctx do
-      reject(Horde.DynamicSupervisor, :start_child, 2)
+      reject_server_start()
       reject(ConversationServer, :send_prompt, 4)
       counts = row_counts()
       image = %{media_type: "image/png", data: <<1>>}
@@ -50,7 +50,7 @@ defmodule Fountain.Conversations.OpeningInputTest do
 
     @tag path: path
     test "#{path} rejects malformed, empty, unsupported and oversized image bytes", ctx do
-      reject(Horde.DynamicSupervisor, :start_child, 2)
+      reject_server_start()
       reject(ConversationServer, :send_prompt, 4)
       counts = row_counts()
       large = :binary.copy(<<0>>, Fountain.Images.max_prompt_image_bytes() + 1)
@@ -70,7 +70,7 @@ defmodule Fountain.Conversations.OpeningInputTest do
 
     @tag path: path
     test "#{path} still accepts a launch without an opening prompt", ctx do
-      stub(Horde.DynamicSupervisor, :start_child, fn _, _ -> {:ok, self()} end)
+      stub_server_start(fn _, _ -> {:ok, self()} end)
       assert {:ok, _} = start(ctx, %{})
     end
 
@@ -80,7 +80,7 @@ defmodule Fountain.Conversations.OpeningInputTest do
 
       case ctx.path do
         :create ->
-          expect(Horde.DynamicSupervisor, :start_child, fn _, _ -> {:ok, self()} end)
+          expect_server_start(fn _, _ -> {:ok, self()} end)
 
         :attach ->
           expect(ConversationServer, :send_prompt, fn _, "Review", [^image], _ -> :ok end)

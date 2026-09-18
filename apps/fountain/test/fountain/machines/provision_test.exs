@@ -104,20 +104,6 @@ defmodule Fountain.Machines.ProvisionTest do
     end
   end
 
-  defp with_gate(value, fun) do
-    previous = Application.fetch_env(:fountain, :machine_owner_enabled)
-    Application.put_env(:fountain, :machine_owner_enabled, value)
-
-    try do
-      fun.()
-    after
-      case previous do
-        {:ok, was} -> Application.put_env(:fountain, :machine_owner_enabled, was)
-        :error -> Application.delete_env(:fountain, :machine_owner_enabled)
-      end
-    end
-  end
-
   defp stamp(ctx, sets) do
     Repo.update_all(from(s in Sandbox, where: s.id == ^ctx.sandbox.id), set: sets)
   end
@@ -1112,21 +1098,17 @@ defmodule Fountain.Machines.ProvisionTest do
       end)
     end
 
-    for gate <- [true, false] do
-      test "provisions the same way with the gate #{gate}", ctx do
-        stub_create(ctx)
+    test "provisions through the door", ctx do
+      stub_create(ctx)
 
-        with_gate(unquote(gate), fn ->
-          assert {:ok, :provisioned, :built} =
-                   Machine.provision(ctx.sandbox.id, recording_pipeline(), opts())
-        end)
+      assert {:ok, :provisioned, :built} =
+               Machine.provision(ctx.sandbox.id, recording_pipeline(), opts())
 
-        assert row(ctx).status == "ready"
-        assert [_one] = events(ctx, "sandbox.provisioned")
-      end
+      assert row(ctx).status == "ready"
+      assert [_one] = events(ctx, "sandbox.provisioned")
     end
 
-    test "the bracket runs on the caller whichever way the gate is set", ctx do
+    test "the bracket runs on the caller, not in the owner", ctx do
       # Deliberate, and the one place the provision family differs from the
       # other three: the callback is the caller's pipeline, so it must not be
       # moved into another process. `Fountain.Machines.Provision`'s moduledoc
@@ -1139,10 +1121,8 @@ defmodule Fountain.Machines.ProvisionTest do
         {:ok, :built}
       end
 
-      with_gate(true, fn ->
-        assert {:ok, :provisioned, :built} =
-                 Machine.provision(ctx.sandbox.id, pipeline, opts())
-      end)
+      assert {:ok, :provisioned, :built} =
+               Machine.provision(ctx.sandbox.id, pipeline, opts())
 
       assert_received {:ran_in, pid}
       assert pid == self(), "the pipeline was moved out of its caller"

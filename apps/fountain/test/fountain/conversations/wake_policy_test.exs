@@ -28,7 +28,7 @@ defmodule Fountain.Conversations.WakePolicyTest do
   defp record_server_starts do
     test = self()
 
-    stub(Horde.DynamicSupervisor, :start_child, fn _supervisor, child_spec ->
+    stub_server_start(fn _supervisor, child_spec ->
       send(test, {:server_started, inspect(child_spec)})
       {:ok, spawn(fn -> :ok end)}
     end)

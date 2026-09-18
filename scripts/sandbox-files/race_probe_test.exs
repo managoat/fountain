@@ -13,7 +13,7 @@ end
 
 defmodule Fountain.SandboxFilesRaceProbe do
   @moduledoc false
-  # Both the owner gate and Mimic's provider stubs are global state.
+  # Mimic's provider stubs are global state.
   use Fountain.DataCase, async: false
   use Mimic
 
@@ -24,20 +24,12 @@ defmodule Fountain.SandboxFilesRaceProbe do
   setup :set_mimic_global
 
   setup ctx do
-    previous = Application.fetch_env(:fountain, :machine_owner_enabled)
-    Application.put_env(:fountain, :machine_owner_enabled, ctx.gate)
-
     user = insert_verified_user()
     agent = insert_agent(user_id: user.id, runtime: "claude")
     sandbox = insert_sandbox(user_id: user.id, agent_id: agent.id, status: "ready")
 
     on_exit(fn ->
       stop_machine(sandbox.id)
-
-      case previous do
-        {:ok, value} -> Application.put_env(:fountain, :machine_owner_enabled, value)
-        :error -> Application.delete_env(:fountain, :machine_owner_enabled)
-      end
     end)
 
     stub(Managoat.Sandbox, :supports?, fn :sprites, capability -> capability == :suspend end)
@@ -50,9 +42,9 @@ defmodule Fountain.SandboxFilesRaceProbe do
     {:ok, sandbox: sandbox}
   end
 
-  for gate <- [false, true], operation <- [:list, :read, :diff, :status] do
-    @tag gate: gate, operation: operation
-    test "#{operation}, owner=#{gate}: stale ready struct executes after completed park", ctx do
+  for operation <- [:list, :read, :diff, :status] do
+    @tag operation: operation
+    test "#{operation}: stale ready struct executes after completed park", ctx do
       test_pid = self()
       stub(Managoat.Sandbox, :suspend, fn _ -> :ok end)
       expect_read(ctx, fn row -> send(test_pid, {:read_row, row.status}) end)
@@ -67,8 +59,8 @@ defmodule Fountain.SandboxFilesRaceProbe do
       assert_received {:read_row, "suspended"}
     end
 
-    @tag gate: gate, operation: operation
-    test "#{operation}, owner=#{gate}: a read enters while park owns the live lease", ctx do
+    @tag operation: operation
+    test "#{operation}: a read enters while park owns the live lease", ctx do
       test_pid = self()
 
       stub(Managoat.Sandbox, :suspend, fn _ ->
@@ -97,8 +89,8 @@ defmodule Fountain.SandboxFilesRaceProbe do
       assert is_nil(Repo.reload!(ctx.sandbox).lease_node)
     end
 
-    @tag gate: gate, operation: operation
-    test "#{operation}, owner=#{gate}: park completes while read provider call is held", ctx do
+    @tag operation: operation
+    test "#{operation}: park completes while read provider call is held", ctx do
       test_pid = self()
 
       expect_read(ctx, fn row ->

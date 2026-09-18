@@ -46,9 +46,19 @@ defmodule Fountain.Test.ConversationMessagePeer do
   # stage 8b, which reads the row as a `%Sandbox{}` and asks the repo whether a
   # transaction is open before it reaches the fence; both are stubbed here as
   # the caller's side already stubs its own repo question.
+  #
+  # Since stage 9b the door always runs the detach in the machine's owner,
+  # which this VM has neither the supervisor nor the database clock for. The
+  # contract is the message between the two nodes and what reaches the fence,
+  # so the door runs the detach protocol itself — `Binding.detach/2`, where
+  # the owner would have run it.
   def init(state) do
-    start_mimic([Conversations, Lifecycle, Fountain.Repo])
+    start_mimic([Conversations, Lifecycle, Fountain.Repo, Fountain.Machines.Machine])
     Mimic.stub(Fountain.Repo, :in_transaction?, fn -> false end)
+
+    Mimic.stub(Fountain.Machines.Machine, :detach, fn sandbox_id, opts ->
+      Fountain.Machines.Binding.detach(sandbox_id, opts)
+    end)
 
     Mimic.stub(Conversations, :_unsafe_get_sandbox, fn id ->
       %Fountain.Conversations.Sandbox{id: id, status: "ready"}

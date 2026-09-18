@@ -96,7 +96,7 @@ defmodule FountainWeb.ConversationAttachControllerTest do
     # A `ready` machine with no server: the prompt probes it and starts a
     # server, exactly as prompting a parked conversation does.
     stub(Managoat.Sandbox.Sprites, :get, fn _handle -> {:ok, %{status: :running, raw: %{}}} end)
-    stub(Horde.DynamicSupervisor, :start_child, fn _s, _spec -> {:ok, spawn(fn -> :ok end)} end)
+    stub_server_start(fn _s, _spec -> {:ok, spawn(fn -> :ok end)} end)
 
     data =
       ctx
@@ -133,7 +133,7 @@ defmodule FountainWeb.ConversationAttachControllerTest do
   end
 
   test "sandbox_mode=persistent lands every launch of an identity on one home", ctx do
-    stub(Horde.DynamicSupervisor, :start_child, fn _s, _spec -> {:ok, spawn(fn -> :ok end)} end)
+    stub_server_start(fn _s, _spec -> {:ok, spawn(fn -> :ok end)} end)
 
     first =
       ctx

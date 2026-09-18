@@ -4,6 +4,12 @@ defmodule Fountain.Conversations.ResetAdmissionOrderTest do
 
   alias Ecto.Adapters.SQL.Sandbox
   alias Fountain.Conversations
+  alias Fountain.Machines.Machine
+
+  # An admission and a reset's destroy both run in the machine's owner, which
+  # serves each call on its caller's connection only in manual mode
+  # (`Fountain.ServerStart`).
+  setup :manual_pool
 
   for first <- [:reset, :admission] do
     test "#{first} wins against admission on independent connections" do
@@ -49,8 +55,9 @@ defmodule Fountain.Conversations.ResetAdmissionOrderTest do
       winner = independent(first, fn -> operation.(first) end, owner, true)
 
       try do
+        # An admission pauses in the machine's owner, which runs its insert.
         assert_receive {:locked, winner_pid}, 5_000
-        assert winner_pid == winner.pid
+        assert winner_pid in [winner.pid, Machine.whereis(home.id)]
         second = if first == :reset, do: :admission, else: :reset
         waiter = independent(second, fn -> operation.(second) end, owner, false)
 
@@ -71,11 +78,11 @@ defmodule Fountain.Conversations.ResetAdmissionOrderTest do
                  ) == 0
 
           refute_received {:destroying, _, _}
-          send(winner.pid, :continue)
+          send(winner_pid, :continue)
 
           if first == :reset do
             assert_receive {:destroying, reset_pid, false}, 5_000
-            assert reset_pid == winner.pid
+            assert reset_pid == Machine.whereis(home.id)
             assert {:error, :sandbox_unavailable} = Task.await(waiter, 5_000)
             assert Repo.reload!(home).reset_requested_at
             assert Repo.reload!(home).status == "ready"
@@ -86,7 +93,7 @@ defmodule Fountain.Conversations.ResetAdmissionOrderTest do
                      :count
                    ) == 0
 
-            send(winner.pid, :destroy)
+            send(reset_pid, :destroy)
             assert {:ok, %{status: "terminated"}} = Task.await(winner, 5_000)
           else
             assert {:ok, turn} = Task.await(winner, 5_000)
@@ -154,7 +161,9 @@ defmodule Fountain.Conversations.ResetAdmissionOrderTest do
   # Ecto emits this synchronously after the real PostgreSQL lock is acquired.
   # Pause only the selected connection; the competing call executes normally.
   def after_query(_, _, %{query: query, params: [4316, _]}, {worker, owner, handler}) do
-    if self() == worker and query == "SELECT pg_advisory_xact_lock($1, $2)" do
+    # The worker, or the machine owner serving it (`$callers`).
+    if (self() == worker or worker in Process.get(:"$callers", [])) and
+         query == "SELECT pg_advisory_xact_lock($1, $2)" do
       :telemetry.detach(handler)
       send(owner, {:locked, self()})
 

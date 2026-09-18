@@ -19,7 +19,7 @@ defmodule Fountain.Conversations.SandboxModeTest do
     env = insert_env(user_id: user.id)
     agent = insert_agent(user_id: user.id, runtime: "claude", environment_id: env.id)
     agent = agent |> Ecto.Changeset.change(sandbox_mode: "persistent") |> Repo.update!()
-    stub(Horde.DynamicSupervisor, :start_child, fn _s, _spec -> {:ok, spawn(fn -> :ok end)} end)
+    stub_server_start(fn _s, _spec -> {:ok, spawn(fn -> :ok end)} end)
     {:ok, user: user, env: env, agent: agent}
   end
 

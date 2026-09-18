@@ -35,12 +35,11 @@ defmodule Fountain.Machines.Binding do
   execution allowance. What stage 8b changes is who may call it and where it
   runs: `Fountain.Team.open_fresh_conversation/3` used to insert a bound row
   through `Conversations.create_conversation/1` with none of these checks, and
-  with `MACHINE_OWNER_ENABLED` on the write queues in the owner's mailbox
-  behind a park, a resume or a destroy of the same machine instead of being
-  refused at the door on the lease those hold (stage 6a's rule, unchanged with
-  the gate off: a live lease is `:sandbox_unavailable` at once, no wait —
-  an attach is a request, and 6a priced the immediate 503 with its
-  `Retry-After` against a wait nobody asked for).
+  the write queues in the owner's mailbox behind a park, a resume or a destroy
+  of the same machine. A lease the mailbox does not see — another node's owner
+  during a rolling deploy — is still stage 6a's rule: `:sandbox_unavailable`
+  at once, no wait. An attach is a request, and 6a priced the immediate 503
+  with its `Retry-After` against a wait nobody asked for.
 
   **A late attach is refused, not run** (rule 17, from stage 8a round 1). A
   `GenServer.call` that times out leaves its message in the mailbox, and an

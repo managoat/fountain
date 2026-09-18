@@ -29,6 +29,7 @@ defmodule FountainWeb.ConnCase do
       import Phoenix.ConnTest
       import Fountain.Factory
       import FountainWeb.ConnCase
+      import Fountain.ServerStart
     end
   end
 

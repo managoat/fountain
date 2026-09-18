@@ -43,8 +43,9 @@ DATABASE_URL=postgres://postgres:postgres@localhost:5432/fountain_2394_test \
   mise exec -- mix test ../../scripts/sandbox-files/race_probe_test.exs
 ```
 
-The 24 cases cover `list`, `read`, `diff` and `status`, with the owner gate
-both on and off, in each of these schedules:
+The 12 cases cover `list`, `read`, `diff` and `status`, through the machine
+owner (ADR 0058 stage 9b deleted `MACHINE_OWNER_ENABLED`), in each of these
+schedules:
 
 1. Save a `ready` struct, complete a real park, and call files with the saved
    struct. Provider exec sees the persisted row already `suspended`.
@@ -78,10 +79,9 @@ and resolve roots from the machine's runtime, with its defined legacy
 fallback, rather than reintroducing the mutable agent runtime here.
 
 The door must reject an enclosing transaction before dispatch, as the park
-door does. With the gate on it routes through the machine owner; with the
-gate off it runs the **same** protocol inline. Both paths acquire the
-existing durable machine lease under the same advisory lock. The owner
-mailbox only routes work; it is not the exclusion primitive. Start with one
+door does, and routes through the machine owner. It acquires the existing
+durable machine lease under the same advisory lock the other verbs take. The
+owner mailbox only routes work; it is not the exclusion primitive. Start with one
 exclusive read at a time, avoiding a second shared-reader lock protocol.
 
 Acquire and validate in a short transaction on the existing machine lock:
@@ -244,7 +244,7 @@ The implementation's proof should include:
   inside provider execution; caller/worker/owner death; stale epoch release;
   cleanup/renewal stops and eventual park/destroy.
 - Two real database connections at the claim boundary, two competing owner
-  processes, and gate-on/gate-off contenders for one machine. Use a dedicated
+  processes, and contenders on two nodes for one machine. Use a dedicated
   local database and explicit backend-PID checks, as the existing
   `scripts/verify-*-races.exs` probes do; the SQL Sandbox characterization
   above does not supply this evidence.

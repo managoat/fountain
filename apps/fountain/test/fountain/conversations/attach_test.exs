@@ -105,7 +105,7 @@ defmodule Fountain.Conversations.AttachTest do
   end
 
   test "a fresh launch stamps the identity on the sandbox it provisions", ctx do
-    stub(Horde.DynamicSupervisor, :start_child, fn _s, _spec -> {:ok, spawn(fn -> :ok end)} end)
+    stub_server_start(fn _s, _spec -> {:ok, spawn(fn -> :ok end)} end)
 
     assert {:ok, conv} =
              Launch.start_conversation(%{

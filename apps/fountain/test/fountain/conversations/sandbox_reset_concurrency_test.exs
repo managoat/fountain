@@ -6,6 +6,9 @@ defmodule Fountain.Conversations.SandboxResetConcurrencyTest do
   alias Fountain.Conversations
 
   setup :set_mimic_global
+  # Every destroy runs in the machine's owner, which serves each call on its
+  # caller's connection only in manual mode (`Fountain.ServerStart`).
+  setup :manual_pool
 
   # Two callers, one machine, and only one completion published. That is what
   # this file has always been for; what changed with ADR 0058 stage 5c is *how*
@@ -54,8 +57,10 @@ defmodule Fountain.Conversations.SandboxResetConcurrencyTest do
           end)
 
         try do
-          assert_receive {:deleting, winner_pid, _backend}, 5_000
-          assert winner_pid == winner.pid
+          # The provider call is the machine owner's, on the winner's
+          # connection, not the winner's own process.
+          assert_receive {:deleting, deleting_pid, _backend}, 5_000
+          assert deleting_pid == Fountain.Machines.Machine.whereis(home.id)
 
           # The lease is live and the winner is inside the provider call. A
           # retry arriving now is refused as busy — a retryable condition, and
@@ -68,7 +73,7 @@ defmodule Fountain.Conversations.SandboxResetConcurrencyTest do
           assert Fountain.Quotas.active_sandbox_count(user.id) == 1
           assert Repo.reload!(home).transition == "destroying"
 
-          send(winner.pid, :confirmed)
+          send(deleting_pid, :confirmed)
           assert {:ok, %{status: "terminated"}} = Task.await(winner, 5_000)
           assert Fountain.Quotas.active_sandbox_count(user.id) == 0
 

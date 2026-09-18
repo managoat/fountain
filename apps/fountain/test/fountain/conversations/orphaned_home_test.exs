@@ -26,7 +26,7 @@ defmodule Fountain.Conversations.OrphanedHomeTest do
         sandbox_mode: "persistent"
       )
 
-    stub(Horde.DynamicSupervisor, :start_child, fn _s, _spec -> {:ok, spawn(fn -> :ok end)} end)
+    stub_server_start(fn _s, _spec -> {:ok, spawn(fn -> :ok end)} end)
 
     {:ok, user: user, env: env, other_env: other_env, vault: vault, agent: agent}
   end

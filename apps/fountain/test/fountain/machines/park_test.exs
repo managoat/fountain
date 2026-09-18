@@ -111,20 +111,6 @@ defmodule Fountain.Machines.ParkTest do
     end
   end
 
-  defp with_gate(value, fun) do
-    previous = Application.fetch_env(:fountain, :machine_owner_enabled)
-    Application.put_env(:fountain, :machine_owner_enabled, value)
-
-    try do
-      fun.()
-    after
-      case previous do
-        {:ok, was} -> Application.put_env(:fountain, :machine_owner_enabled, was)
-        :error -> Application.delete_env(:fountain, :machine_owner_enabled)
-      end
-    end
-  end
-
   # The row a park leaves when its owner dies between the intent and the
   # finalize: live, stamped `parking`, lease held by a node that is not coming
   # back. Forged rather than produced, because producing it means killing a
@@ -1086,17 +1072,13 @@ defmodule Fountain.Machines.ParkTest do
       assert {:error, :not_found} = Machine.park(Ecto.UUID.generate(), opts())
     end
 
-    for gate <- [false, true] do
-      test "inline and in-owner park the same way (gate #{gate})", ctx do
-        stub(Managoat.Sandbox, :suspend, fn _ -> :ok end)
+    test "parks in the machine's owner", ctx do
+      stub(Managoat.Sandbox, :suspend, fn _ -> :ok end)
 
-        with_gate(unquote(gate), fn ->
-          assert {:ok, :parked} = Machine.park(ctx.sandbox.id, opts())
-        end)
-
-        assert row(ctx).status == "suspended"
-        assert [_one] = events(ctx, "sandbox.suspended")
-      end
+      assert {:ok, :parked} = Machine.park(ctx.sandbox.id, opts())
+      assert Machine.whereis(ctx.sandbox.id) != nil
+      assert row(ctx).status == "suspended"
+      assert [_one] = events(ctx, "sandbox.suspended")
     end
 
     test "the protocol's words become the system's", ctx do

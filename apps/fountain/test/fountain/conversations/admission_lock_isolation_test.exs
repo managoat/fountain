@@ -95,7 +95,7 @@ defmodule Fountain.Conversations.AdmissionLockIsolationTest do
 
   defp launch(tenant) do
     independent(fn ->
-      Mimic.stub(Horde.DynamicSupervisor, :start_child, fn _, _ -> {:ok, self()} end)
+      stub_server_start(fn _, _ -> {:ok, self()} end)
 
       Launch.start_conversation(%{
         "user_id" => tenant.user.id,

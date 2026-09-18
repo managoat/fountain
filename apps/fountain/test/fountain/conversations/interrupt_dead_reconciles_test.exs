@@ -73,7 +73,7 @@ defmodule Fountain.Conversations.InterruptDeadReconcilesTest do
 
     owner = self()
 
-    stub(Horde.DynamicSupervisor, :start_child, fn _supervisor, _child_spec ->
+    stub_server_start(fn _supervisor, _child_spec ->
       send(owner, :start_child_called)
       {:ok, spawn(fn -> Process.sleep(:infinity) end)}
     end)

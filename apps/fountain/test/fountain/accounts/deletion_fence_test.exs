@@ -208,8 +208,11 @@ defmodule Fountain.Accounts.DeletionFenceTest do
       end
     end)
 
+    # To the test, not to `self()`: the destroy runs in the machine's owner.
+    test = self()
+
     stub(Managoat.Sandbox.Sprites, :destroy, fn handle ->
-      send(self(), {:destroyed, handle.name})
+      send(test, {:destroyed, handle.name})
       :ok
     end)
 

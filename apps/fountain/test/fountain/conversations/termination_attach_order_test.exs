@@ -6,6 +6,12 @@ defmodule Fountain.Conversations.TerminationAttachOrderTest do
   alias Fountain.{Audit, Conversations}
   alias Fountain.Conversations.Launch
   alias Fountain.Conversations.Lifecycle
+  alias Fountain.Machines.Machine
+
+  # The attachment's locked insert runs in the machine's owner, which serves
+  # each call on its caller's connection only in manual mode
+  # (`Fountain.ServerStart`).
+  setup :manual_pool
 
   for {first, barrier} <- [termination: :row, attachment: :row, termination: :machine] do
     test "#{first} wins the race between termination and a new co-tenant at #{barrier} lock" do
@@ -49,8 +55,9 @@ defmodule Fountain.Conversations.TerminationAttachOrderTest do
       winner = independent(first, fn -> operation.(first) end, owner, barrier)
 
       try do
+        # An attachment pauses in the machine's owner, which runs its insert.
         assert_receive {:locked, winner_pid}, 5_000
-        assert winner_pid == winner.pid
+        assert winner_pid in [winner.pid, Machine.whereis(sandbox.id)]
         second = if first == :termination, do: :attachment, else: :termination
         waiter = independent(second, fn -> operation.(second) end, owner, false)
 
@@ -61,7 +68,7 @@ defmodule Fountain.Conversations.TerminationAttachOrderTest do
           await_blocked(blocked, holder, System.monotonic_time(:millisecond) + 5_000)
           assert conversation_count(user.id) == 1
           refute Repo.reload!(sandbox).reset_requested_at
-          send(winner.pid, :continue)
+          send(winner_pid, :continue)
 
           if first == :termination do
             assert {:ok, fenced} = Task.await(winner, 5_000)
@@ -145,7 +152,8 @@ defmodule Fountain.Conversations.TerminationAttachOrderTest do
         query =~ ~s(FROM "sandboxes") and (role == :termination or query =~ "FOR NO KEY UPDATE")
       end
 
-    if self() == worker and target? do
+    # The worker, or the machine owner serving it (`$callers`).
+    if (self() == worker or worker in Process.get(:"$callers", [])) and target? do
       :telemetry.detach(handler)
       send(owner, {:locked, self()})
 

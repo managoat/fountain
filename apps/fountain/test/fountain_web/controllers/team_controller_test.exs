@@ -30,7 +30,7 @@ defmodule FountainWeb.TeamControllerTest do
   end
 
   defp inert_start_child do
-    stub(Horde.DynamicSupervisor, :start_child, fn _sup, _spec ->
+    stub_server_start(fn _sup, _spec ->
       {:ok, spawn(fn -> Process.sleep(:infinity) end)}
     end)
   end

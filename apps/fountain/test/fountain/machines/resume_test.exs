@@ -93,20 +93,6 @@ defmodule Fountain.Machines.ResumeTest do
     end
   end
 
-  defp with_gate(value, fun) do
-    previous = Application.fetch_env(:fountain, :machine_owner_enabled)
-    Application.put_env(:fountain, :machine_owner_enabled, value)
-
-    try do
-      fun.()
-    after
-      case previous do
-        {:ok, was} -> Application.put_env(:fountain, :machine_owner_enabled, was)
-        :error -> Application.delete_env(:fountain, :machine_owner_enabled)
-      end
-    end
-  end
-
   defp stamp(ctx, sets) do
     Repo.update_all(from(s in Sandbox, where: s.id == ^ctx.sandbox.id), set: sets)
   end
@@ -894,28 +880,18 @@ defmodule Fountain.Machines.ResumeTest do
       end)
     end
 
-    for gate <- [true, false] do
-      test "resumes the same way with the gate #{gate}", ctx do
-        stub(Managoat.Sandbox, :resume, fn handle -> {:ok, handle} end)
+    test "resumes in the machine's owner", ctx do
+      # The owner is another process. It finds this test's connection and its
+      # stubs through `$callers`, which `Machine.ensure_started/2` hands it.
+      stub(Managoat.Sandbox, :resume, fn handle -> {:ok, handle} end)
 
-        with_gate(unquote(gate), fn ->
-          # With the gate on the protocol runs in the owner, which is a
-          # different process and needs the stub and the connection.
-          if unquote(gate) do
-            {:ok, owner} = Machine.ensure_started(ctx.sandbox.id)
-            Ecto.Adapters.SQL.Sandbox.allow(Fountain.Repo, self(), owner)
-            Mimic.allow(Managoat.Sandbox, self(), owner)
-            Mimic.allow(Fountain.Audit, self(), owner)
-          end
+      assert {:ok, :resumed} = Machine.ensure_up(ctx.sandbox.id, opts())
+      assert Machine.whereis(ctx.sandbox.id) != nil
 
-          assert {:ok, :resumed} = Machine.ensure_up(ctx.sandbox.id, opts())
-        end)
-
-        up = row(ctx)
-        assert up.status == "ready"
-        assert %DateTime{} = up.last_resumed_at
-        assert [_one] = events(ctx, "sandbox.resumed")
-      end
+      up = row(ctx)
+      assert up.status == "ready"
+      assert %DateTime{} = up.last_resumed_at
+      assert [_one] = events(ctx, "sandbox.resumed")
     end
 
     test "a superseded resume is a machine that is up, to the caller", ctx do

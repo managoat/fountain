@@ -23,7 +23,7 @@ defmodule FountainWeb.SavedAllowanceWakeTest do
       {:ok, handle}
     end)
 
-    stub(Horde.DynamicSupervisor, :start_child, fn _, _ ->
+    stub_server_start(fn _, _ ->
       send(owner, :worker_start)
       {:ok, owner}
     end)
@@ -132,19 +132,25 @@ defmodule FountainWeb.SavedAllowanceWakeTest do
       end)
 
     on_exit(fn -> Process.exit(peer, :kill) end)
-    stub(Horde.DynamicSupervisor, :start_child, fn _, _ -> {:ok, peer} end)
+    stub_server_start(fn _, _ -> {:ok, peer} end)
 
-    expect(Horde.Registry, :lookup, fn Fountain.ConversationRegistry, id ->
-      assert id == conv.id
-      []
-    end)
+    # Two lookups of the conversation, in order: none running, then the peer.
+    # Only the conversation registry: the wake asks the machine registry too,
+    # for the owner that resumes the machine.
+    {:ok, answers} = Agent.start_link(fn -> [[], [{peer, nil}]] end)
+    on_exit(fn -> if Process.alive?(answers), do: Agent.stop(answers) end)
 
-    expect(Horde.Registry, :lookup, fn Fountain.ConversationRegistry, id ->
-      assert id == conv.id
-      [{peer, nil}]
+    stub(Horde.Registry, :lookup, fn
+      Fountain.ConversationRegistry, id ->
+        assert id == conv.id
+        Agent.get_and_update(answers, fn [next | rest] -> {next, rest} end)
+
+      registry, key ->
+        Mimic.call_original(Horde.Registry, :lookup, [registry, key])
     end)
 
     assert :ok = Interruption.interrupt(conv.id)
+    assert Agent.get(answers, & &1) == []
     assert_received :interrupted
     assert_received :provider_probe
     refute_received :prompt_queued

@@ -9,7 +9,7 @@ defmodule FountainWeb.SandboxApiAccessTest do
     user = insert_verified_user()
     {_key, raw} = insert_api_key(user)
     agent = insert_agent(user_id: user.id)
-    stub(Horde.DynamicSupervisor, :start_child, fn _, _ -> {:ok, spawn(fn -> :ok end)} end)
+    stub_server_start(fn _, _ -> {:ok, spawn(fn -> :ok end)} end)
     {:ok, user: user, raw: raw, agent: agent}
   end
 

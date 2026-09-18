@@ -27,6 +27,8 @@ defmodule Fountain.Webhooks.EventsTest do
     # it. Nothing about the events changed; the file they are published from
     # did, and this list is by file.
     "lib/fountain/conversations/fresh_provision.ex",
+    # Binding-aware status reports now own provision/failed (#2393).
+    "lib/fountain/conversations/actor_status.ex",
     "lib/fountain/conversations/reapply.ex",
     "lib/fountain/conversations/checkpoints.ex",
     "lib/fountain/conversations/reattachment.ex",

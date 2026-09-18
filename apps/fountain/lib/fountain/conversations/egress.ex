@@ -271,9 +271,12 @@ defmodule Fountain.Conversations.Egress do
   end
 
   @doc "The proxy variables a session puts in the sandbox's env; none without a session."
-  @spec sandbox_env(session()) :: [{String.t(), String.t()}]
-  def sandbox_env(nil), do: []
-  def sandbox_env(session), do: Broker.sandbox_env(session)
+  @spec sandbox_env(session(), Managoat.Sandbox.Handle.t() | nil) :: [{String.t(), String.t()}]
+  def sandbox_env(session, handle \\ nil)
+  def sandbox_env(nil, _handle), do: []
+
+  def sandbox_env(session, handle),
+    do: Broker.sandbox_env(session, Provisioning.broker_ca_files(handle))
 
   @doc """
   Mint the conversation's proxy session and start the `broker` stage.

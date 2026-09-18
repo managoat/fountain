@@ -265,7 +265,8 @@ defmodule Fountain.Conversations.FreshProvision do
     prepared = Egress.prepare_state(state)
 
     with {:ok, state} <- prepared,
-         sprite_env = ConversationServer.build_sprite_env(state, agent, env, secrets, sandbox_url),
+         sprite_env =
+           ConversationServer.build_sprite_env(state, agent, env, secrets, sandbox_url, handle),
          # A real step, not best effort: an agent whose MCP servers could
          # not be written would otherwise run without them and report
          # `provision/done`. The runtimes retry the write themselves.

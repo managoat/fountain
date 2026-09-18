@@ -490,8 +490,62 @@ defmodule Fountain.Conversations.Provisioning do
   the session token anywhere, which an `apt.conf` proxy entry would do. The
   file is checked with `visudo -c` before it is installed, since a bad
   sudoers fragment disables sudo outright.
+
+  **A self-hosted runner gets none of that.** Its sandbox is a directory on
+  the tenant's own machine, run as the tenant with HOME pointed at it: `sudo`
+  wants a password nobody is there to type, a Mac has no
+  `update-ca-certificates`, and the machine's trust store is not Fountain's
+  to change even where it could. So the CA and a bundle of the machine's own
+  roots plus it are written inside the sandbox (`Fountain.Broker.home_ca_path/0`),
+  and `broker_ca_files/1` points the sandbox's CA variables there. Nothing
+  outside the sandbox trusts the broker. There is no sudoers drop-in either:
+  there is no sudo for it to configure.
   """
   @spec install_broker_ca(Handle.t(), String.t()) :: :ok | {:error, term()}
+  def install_broker_ca(%Handle{provider: :runner} = handle, conv_id) do
+    ca = Fountain.Broker.home_ca_path()
+    bundle = Fountain.Broker.home_ca_bundle()
+    staging = ca <> "." <> Ecto.UUID.generate()
+
+    # Each file is written beside its destination and renamed into place, so
+    # a conversation reading either while another installs never sees half
+    # of one. The first root store that exists wins: Debian's, Fedora's,
+    # then macOS's.
+    install =
+      "set -e; trap #{shell_quote("rm -f -- " <> shell_quote(staging))} EXIT; roots=; " <>
+        "for f in /etc/ssl/certs/ca-certificates.crt /etc/pki/tls/certs/ca-bundle.crt /etc/ssl/cert.pem; do " <>
+        ~s(if [ -s "$f" ]; then roots="$f"; break; fi; done; ) <>
+        ~s([ -n "$roots" ] || { echo "no system CA bundle to extend" >&2; exit 78; }; ) <>
+        ~s(cat "$roots" #{shell_quote(staging)} > #{shell_quote(bundle)}.$$ && ) <>
+        "mv -f #{shell_quote(bundle)}.$$ #{shell_quote(bundle)} && " <>
+        "mv -f #{shell_quote(staging)} #{shell_quote(ca)} && " <>
+        git_proxy_auth_command()
+
+    with {:ok, pem} <- Fountain.Broker.ca_pem(),
+         :ok <-
+           Retry.with_backoff(fn -> Sandbox.write_file(handle, staging, pem, mode: 0o644) end,
+             label: "broker CA write"
+           ) do
+      case Sandbox.exec(handle, "bash", ["-c", install], stderr_to_stdout: true, timeout: 30_000) do
+        {:ok, _out, 0} ->
+          :ok
+
+        {:ok, out, code} ->
+          publish_stage(conv_id, "broker", "failed", %{reason: "ca_install_exit", exit_code: code})
+
+          {:error, {:broker, :ca_install_exit, code, String.slice(to_string(out), 0, 500)}}
+
+        {:error, reason} ->
+          publish_stage(conv_id, "broker", "failed", %{reason: "ca_install_unreachable"})
+          {:error, {:broker, :ca_install, reason}}
+      end
+    else
+      {:error, reason} = err ->
+        publish_stage(conv_id, "broker", "failed", %{reason: inspect(reason)})
+        err
+    end
+  end
+
   def install_broker_ca(handle, conv_id) do
     path = Fountain.Broker.ca_path()
     staging = Fountain.Broker.ca_staging_path() <> "." <> Ecto.UUID.generate()
@@ -556,6 +610,25 @@ defmodule Fountain.Conversations.Provisioning do
   # ~/.gitconfig, which git reads whatever XDG_CONFIG_HOME says.
   defp git_proxy_auth_command,
     do: "git config --global http.proxyAuthMethod basic"
+
+  @doc """
+  The CA files a brokered sandbox's env names: the OS trust store, or on a
+  self-hosted runner the ones `install_broker_ca/2` keeps in its HOME.
+
+  A runner's are resolved to their real place on its machine. File writes and
+  command arguments reach a runner with `/home/sprite` mapped into the
+  sandbox, but env values reach it verbatim, and a CA variable naming a path
+  that does not exist costs every TLS client in the sandbox its roots.
+  """
+  @spec broker_ca_files(Handle.t() | nil) :: Fountain.Broker.ca_files()
+  def broker_ca_files(%Handle{provider: :runner} = handle) do
+    %{
+      ca: Sandbox.host_path(handle, Fountain.Broker.home_ca_path()),
+      bundle: Sandbox.host_path(handle, Fountain.Broker.home_ca_bundle())
+    }
+  end
+
+  def broker_ca_files(_handle), do: Fountain.Broker.system_ca_files()
 
   @sudoers_staging "/tmp/fountain-broker-proxy.sudoers"
   @sudoers_path "/etc/sudoers.d/fountain-broker-proxy"

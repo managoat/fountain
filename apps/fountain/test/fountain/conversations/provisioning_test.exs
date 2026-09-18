@@ -552,6 +552,99 @@ defmodule Fountain.Conversations.ProvisioningTest do
     end
   end
 
+  describe "install_broker_ca/2 on a self-hosted runner" do
+    # A runner's sandbox is a directory on the tenant's machine, run as the
+    # tenant: no sudo, no update-ca-certificates, and a trust store that is
+    # not Fountain's. The first brokered launch on one failed at the sudo.
+    defp runner_handle, do: %Managoat.Sandbox.Handle{provider: :runner, name: "runner-test"}
+
+    test "keeps the CA and its bundle in the sandbox, without sudo" do
+      conv = insert_conversation()
+      test = self()
+
+      stub(Fountain.Broker, :ca_pem, fn -> {:ok, "PEM"} end)
+
+      stub(Managoat.Sandbox, :write_file, fn _h, path, data, opts ->
+        send(test, {:wrote, path, data, opts})
+        :ok
+      end)
+
+      stub(Managoat.Sandbox, :exec, fn _h, cmd, args, _opts ->
+        send(test, {:exec, cmd, args})
+        {:ok, "", 0}
+      end)
+
+      assert :ok = Provisioning.install_broker_ca(runner_handle(), conv.id)
+
+      assert_received {:wrote, staging, "PEM", [mode: 0o644]}
+      assert String.starts_with?(staging, "/home/sprite/.fountain/broker/ca.crt.")
+
+      assert_received {:exec, "bash", ["-c", script]}
+      refute script =~ "sudo"
+      refute script =~ "update-ca-certificates"
+      assert script =~ "mv -f '#{staging}' '/home/sprite/.fountain/broker/ca.crt'"
+      assert script =~ "git config --global http.proxyAuthMethod basic"
+    end
+
+    @tag :tmp_dir
+    test "builds a bundle of the machine roots plus the broker CA", %{tmp_dir: tmp_dir} do
+      conv = insert_conversation()
+      test = self()
+      home = Path.join(tmp_dir, "sandbox")
+
+      stub(Fountain.Broker, :ca_pem, fn -> {:ok, "BROKER-CA\n"} end)
+
+      # The runner's own mapping (`mapPath`/`mapArg` in cli/internal/runner):
+      # /home/sprite is the sandbox directory, in paths and in arguments.
+      stub(Managoat.Sandbox, :write_file, fn _h, path, data, _opts ->
+        target = String.replace(path, "/home/sprite", home)
+        File.mkdir_p!(Path.dirname(target))
+        File.write!(target, data)
+        send(test, {:staged, target})
+        :ok
+      end)
+
+      stub(Managoat.Sandbox, :exec, fn _h, "bash", ["-c", script], _opts ->
+        script = String.replace(script, "/home/sprite", home)
+
+        {out, code} =
+          System.cmd("bash", ["-c", script], env: [{"HOME", home}], stderr_to_stdout: true)
+
+        {:ok, out, code}
+      end)
+
+      assert :ok = Provisioning.install_broker_ca(runner_handle(), conv.id)
+
+      ca = Path.join(home, ".fountain/broker/ca.crt")
+      bundle = File.read!(Path.join(home, ".fountain/broker/ca-bundle.crt"))
+
+      assert File.read!(ca) == "BROKER-CA\n"
+      assert String.ends_with?(bundle, "BROKER-CA\n")
+
+      assert byte_size(bundle) > byte_size("BROKER-CA\n"),
+             "the bundle must keep the machine's roots"
+
+      assert_received {:staged, staging}
+      refute File.exists?(staging)
+    end
+
+    test "names the sandbox's real paths in the env, which a runner does not map" do
+      stub(Managoat.Sandbox, :host_path, fn _h, "/home/sprite" <> rest ->
+        "/Users/t/sandboxes/x" <> rest
+      end)
+
+      env = Map.new(Fountain.Broker.ca_env(Provisioning.broker_ca_files(runner_handle())))
+
+      assert env["NODE_EXTRA_CA_CERTS"] == "/Users/t/sandboxes/x/.fountain/broker/ca.crt"
+      assert env["SSL_CERT_FILE"] == "/Users/t/sandboxes/x/.fountain/broker/ca-bundle.crt"
+      assert env["REQUESTS_CA_BUNDLE"] == env["SSL_CERT_FILE"]
+
+      # Everywhere else the OS trust store is unchanged.
+      assert Provisioning.broker_ca_files(sandbox_handle()) == Fountain.Broker.system_ca_files()
+      assert Fountain.Broker.ca_env(Fountain.Broker.system_ca_files()) == Fountain.Broker.ca_env()
+    end
+  end
+
   describe "check_network_policy_support/3" do
     test "a limited environment on a backend without :network_policy is refused by name" do
       env = insert_env(%{"networking_type" => "limited"})

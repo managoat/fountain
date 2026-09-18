@@ -23,10 +23,11 @@ var (
 	// this, `turn`/`failed`, `provision`/`failed` and a `turn`/`done` with a
 	// non-zero exit_code all returned nil, so `fountain run` in CI reported
 	// success for a crashed agent or a sandbox that never came up.
-	errTurnFailed      = errors.New("turn failed")
-	errProvisionFailed = errors.New("provisioning failed — the sandbox never started")
-	errReattachFailed  = errors.New("reattach failed — the sandbox could not be re-armed")
-	errSandboxExpired  = errors.New("sandbox hit its max lifetime")
+	errTurnFailed       = errors.New("turn failed")
+	errProvisionFailed  = errors.New("provisioning failed — the sandbox never started")
+	errReattachFailed   = errors.New("reattach failed — the sandbox could not be re-armed")
+	errSandboxExpired   = errors.New("sandbox hit its max lifetime")
+	errPromptNotStarted = errors.New("prompt was not started — send it again shortly")
 )
 
 // streamIdleTimeout allows the wait to be widened or narrowed without a rebuild.

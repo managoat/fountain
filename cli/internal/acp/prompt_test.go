@@ -1,6 +1,7 @@
 package acp
 
 import (
+	"encoding/json"
 	"errors"
 	"strings"
 	"sync"
@@ -237,6 +238,46 @@ func TestInfrastructureFailuresAreErrorsNotStopReasons(t *testing.T) {
 			}
 			if !strings.Contains(rpcErr.Message, tc.want) {
 				t.Errorf("message = %q, want it to mention %q", rpcErr.Message, tc.want)
+			}
+		})
+	}
+}
+
+// Admission refusal happens before a turn starts. It must reach the editor as
+// an error with a retry hint, without claiming the sandbox was reclaimed.
+func TestAdmissionRefusalIsAnErrorWithRetryHint(t *testing.T) {
+	for _, tc := range []struct {
+		event  string
+		reason string
+	}{
+		{"admission_refused", "sandbox_unavailable"},
+		{"at_capacity", "sandbox_at_capacity"},
+	} {
+		t.Run(tc.event, func(t *testing.T) {
+			meta, err := json.Marshal(map[string]string{"event": tc.event, "reason": tc.reason})
+			if err != nil {
+				t.Fatal(err)
+			}
+			api := &fakeAPI{events: []Event{
+				stageEvent("sandbox", "done", string(meta)),
+				stageEvent("turn", "done", `{}`),
+			}}
+			a, _ := promptAgent(t, api)
+
+			_, rpcErr := request(t, a, "session/prompt", textPrompt("conv-1", "go"))
+			if rpcErr == nil {
+				t.Fatal("refused admission reported a completed turn")
+			}
+			if rpcErr.Code != CodeInternalError {
+				t.Errorf("error code = %d, want %d", rpcErr.Code, CodeInternalError)
+			}
+			for _, want := range []string{"prompt was not started", tc.reason, "send it again shortly"} {
+				if !strings.Contains(rpcErr.Message, want) {
+					t.Errorf("message = %q, want %q", rpcErr.Message, want)
+				}
+			}
+			if strings.Contains(rpcErr.Message, "reclaimed") {
+				t.Errorf("refused admission reported a sandbox reclaim: %s", rpcErr.Message)
 			}
 		})
 	}

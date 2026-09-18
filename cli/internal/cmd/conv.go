@@ -480,15 +480,18 @@ func handleStageEvent(data map[string]any) (bool, error) {
 		return true, nil
 
 	case stage == "sandbox" && state == "done":
-		// The server stopped and no more events are coming. An idle
-		// suspend keeps the sprite — the next prompt resumes the agent
-		// where it left off, a clean end. A max-lifetime reclaim destroys
-		// it and can cut a running turn short, so it exits non-zero.
 		reason := innerDataString(data, "reason")
-		if innerDataString(data, "event") == "suspended" {
+		switch innerDataString(data, "event") {
+		case "admission_refused", "at_capacity":
+			// The prompt never started; the sandbox was not reclaimed.
+			fmt.Fprintf(os.Stderr, "▸ prompt was not started (%s) — send it again shortly\n", reason)
+			return true, errPromptNotStarted
+		case "suspended":
+			// Idle suspend keeps the sprite and the next prompt resumes it.
 			fmt.Fprintf(os.Stderr, "▸ sandbox suspended (%s) — send another prompt to resume where you left off\n", reason)
 			return true, nil
 		}
+		// A max-lifetime reclaim can cut a running turn short.
 		fmt.Fprintf(os.Stderr, "▸ sandbox reclaimed (%s) — the conversation stays resumable\n", reason)
 		if reason == "max_lifetime" {
 			return true, errSandboxExpired

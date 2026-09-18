@@ -322,12 +322,14 @@ func classifyStage(ev Event) (turnOutcome, bool) {
 		return turnOutcome{err: "the conversation was terminated"}, true
 
 	case ev.Stage == "sandbox" && ev.State == "done":
-		// An idle suspend keeps the sprite and the next prompt resumes it, so
-		// it is not a failure — but it does mean no more events are coming for
-		// this turn. A max-lifetime reclaim can cut a running turn short.
-		if event, _ := meta["event"].(string); event == "suspended" {
+		switch event, _ := meta["event"].(string); event {
+		case "admission_refused", "at_capacity":
+			return turnOutcome{err: "the prompt was not started (" + reasonText(meta) + ") — send it again shortly"}, true
+		case "suspended":
+			// Idle suspend keeps the sprite and the next prompt resumes it.
 			return turnOutcome{stopReason: "end_turn"}, true
 		}
+		// A max-lifetime reclaim can cut a running turn short.
 		return turnOutcome{err: "the sandbox was reclaimed mid-turn: " + reasonText(meta)}, true
 	}
 

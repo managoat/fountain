@@ -1,0 +1,184 @@
+{
+  "name": "run-channel-resume-preserves-client-request-id",
+  "title": "A channel resume carries the client request ID through creation and the follow-up prompt",
+  "contract": "run-states",
+  "why": "A channel resume binds an existing conversation without submitting the prompt, so dropping client_request_id from the second POST loses the caller's correlation even when it was present on creation.",
+  "client": {
+    "api_key": "conformance-key"
+  },
+  "http": [
+    {
+      "match": {
+        "method": "POST",
+        "path": "/api/conversations"
+      },
+      "respond": {
+        "status": 200,
+        "json": {
+          "data": {
+            "id": "11111111-2222-3333-4444-555555555555",
+            "status": "idle",
+            "runtime": "claude"
+          },
+          "meta": {
+            "resumed": true
+          }
+        }
+      }
+    },
+    {
+      "match": {
+        "method": "GET",
+        "path": "/api/conversations/11111111-2222-3333-4444-555555555555/stream",
+        "query": {
+          "streams": "stage",
+          "wait": "false"
+        }
+      },
+      "respond": {
+        "status": 200,
+        "headers": {
+          "content-type": "text/event-stream"
+        },
+        "sse": [
+          "id: 1\nevent: stage\ndata: {\"id\":1,\"kind\":\"stage\",\"stream\":\"stage\",\"ts\":\"2026-09-02T00:00:00Z\",\"stage\":\"turn\",\"state\":\"started\",\"data\":\"{\\\"turn_number\\\": 1, \\\"turn_id\\\": \\\"t1\\\"}\"}\n\n",
+          "id: 3\nevent: stage\ndata: {\"id\":3,\"kind\":\"stage\",\"stream\":\"stage\",\"ts\":\"2026-09-02T00:00:00Z\",\"stage\":\"turn\",\"state\":\"done\",\"data\":\"{\\\"turn_number\\\": 1, \\\"turn_id\\\": \\\"t1\\\", \\\"stop_reason\\\": \\\"end_turn\\\"}\"}\n\n"
+        ],
+        "close": "end"
+      }
+    },
+    {
+      "match": {
+        "method": "GET",
+        "path": "/api/conversations/11111111-2222-3333-4444-555555555555/turns"
+      },
+      "respond": {
+        "status": 200,
+        "json": {
+          "data": [
+            {
+              "id": "t1",
+              "prompt": "previous prompt",
+              "turn_number": 1,
+              "status": "completed"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "match": {
+        "method": "POST",
+        "path": "/api/conversations/11111111-2222-3333-4444-555555555555/prompts"
+      },
+      "respond": {
+        "status": 200,
+        "json": {
+          "status": "queued"
+        }
+      }
+    },
+    {
+      "match": {
+        "method": "GET",
+        "path": "/api/conversations/11111111-2222-3333-4444-555555555555/stream",
+        "headers": {
+          "last-event-id": "3"
+        }
+      },
+      "respond": {
+        "status": 200,
+        "headers": {
+          "content-type": "text/event-stream"
+        },
+        "sse": [
+          "id: 4\nevent: stage\ndata: {\"id\":4,\"kind\":\"stage\",\"stream\":\"stage\",\"ts\":\"2026-09-02T00:00:00Z\",\"stage\":\"turn\",\"state\":\"started\",\"data\":\"{\\\"turn_number\\\": 2, \\\"turn_id\\\": \\\"t2\\\"}\"}\n\n",
+          "id: 5\nevent: output\ndata: {\"id\":5,\"kind\":\"output\",\"stream\":\"acp\",\"ts\":\"2026-09-02T00:00:00Z\",\"turn_id\":\"t2\",\"blocks\":[{\"kind\":\"text\",\"body\":\"Resumed.\"}]}\n\n",
+          "id: 6\nevent: stage\ndata: {\"id\":6,\"kind\":\"stage\",\"stream\":\"stage\",\"ts\":\"2026-09-02T00:00:00Z\",\"stage\":\"turn\",\"state\":\"done\",\"data\":\"{\\\"turn_number\\\": 2, \\\"turn_id\\\": \\\"t2\\\", \\\"stop_reason\\\": \\\"end_turn\\\"}\"}\n\n"
+        ],
+        "close": "end"
+      }
+    },
+    {
+      "match": {
+        "method": "GET",
+        "path": "/api/conversations/11111111-2222-3333-4444-555555555555"
+      },
+      "respond": {
+        "status": 200,
+        "json": {
+          "data": {
+            "id": "11111111-2222-3333-4444-555555555555",
+            "status": "idle",
+            "runtime": "claude"
+          }
+        }
+      }
+    },
+    {
+      "match": {
+        "method": "GET",
+        "path": "/api/conversations/11111111-2222-3333-4444-555555555555"
+      },
+      "respond": {
+        "status": 200,
+        "json": {
+          "data": {
+            "id": "11111111-2222-3333-4444-555555555555",
+            "status": "idle",
+            "runtime": "claude"
+          }
+        }
+      }
+    }
+  ],
+  "steps": [
+    {
+      "op": "run",
+      "agent": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+      "prompt": "next prompt",
+      "channel_id": "conformance-channel",
+      "client_request_id": "conformance-resume-2388"
+    }
+  ],
+  "expect": {
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/api/conversations",
+        "body": {
+          "agent_id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+          "prompt": "next prompt",
+          "channel_id": "conformance-channel",
+          "client_request_id": "conformance-resume-2388"
+        }
+      },
+      {
+        "method": "GET",
+        "path": "/api/conversations/11111111-2222-3333-4444-555555555555/stream",
+        "query": {
+          "streams": "stage",
+          "wait": "false"
+        }
+      },
+      {
+        "method": "GET",
+        "path": "/api/conversations/11111111-2222-3333-4444-555555555555/turns"
+      },
+      {
+        "method": "POST",
+        "path": "/api/conversations/11111111-2222-3333-4444-555555555555/prompts",
+        "body": {
+          "prompt": "next prompt",
+          "client_request_id": "conformance-resume-2388"
+        }
+      }
+    ],
+    "result": {
+      "state": "done",
+      "text": "Resumed.",
+      "turn_number": 2,
+      "conversation_id": "11111111-2222-3333-4444-555555555555"
+    }
+  }
+}

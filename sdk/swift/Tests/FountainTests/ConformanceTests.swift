@@ -420,7 +420,9 @@ private func driveRun(
   }
   let timeout = (step["timeout_ms"] as? Int).map { TimeInterval($0) / 1_000 }
   let answers = step["answer_permissions"] as? [String: String] ?? [:]
-  let run = fountain.run(prompt, agent: agent, timeout: timeout)
+  let run = fountain.run(
+    prompt, agent: agent, clientRequestID: step["client_request_id"] as? String,
+    channelID: step["channel_id"] as? String, timeout: timeout)
   for try await event in run.events {
     observations.events.append(normalizeEvent(event))
     if case .permission(let request, _) = event,

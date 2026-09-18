@@ -251,8 +251,9 @@ fountain conv prompt <id> [flags]
 Options:
 
 ```
-  -i, --image strings   image file path (repeatable)
-  -p, --prompt string   prompt text (required)
+      --client-request-id string   caller-provided prompt correlation ID (not an idempotency key)
+  -i, --image strings              image file path (repeatable)
+  -p, --prompt string              prompt text (required)
 ```
 
 ## `fountain conv show`
@@ -405,11 +406,12 @@ fountain run <agent-name-or-id> [flags]
 Options:
 
 ```
-      --environment string    environment name or id to provision from, instead of the agent's own
-  -p, --prompt string         prompt text (required)
-      --sandbox string        sandbox id to attach to, instead of provisioning a new one
-      --sandbox-mode string   ephemeral or persistent, instead of the agent's default
-      --vault string          vault name or id
+      --client-request-id string   caller-provided prompt correlation ID (not an idempotency key)
+      --environment string         environment name or id to provision from, instead of the agent's own
+  -p, --prompt string              prompt text (required)
+      --sandbox string             sandbox id to attach to, instead of provisioning a new one
+      --sandbox-mode string        ephemeral or persistent, instead of the agent's default
+      --vault string               vault name or id
 ```
 
 ## `fountain runner`

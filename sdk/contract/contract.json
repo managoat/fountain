@@ -10113,6 +10113,16 @@
         "data": {
           "ref": "Conversation",
           "required": true
+        },
+        "meta": {
+          "properties": {
+            "resumed": {
+              "required": true,
+              "type": "boolean"
+            }
+          },
+          "required": false,
+          "type": "object"
         }
       },
       "type": "object"

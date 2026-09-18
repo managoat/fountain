@@ -311,6 +311,8 @@ private func drive(
       let run = try await client.run(
         prompt,
         agent: agent,
+        clientRequestID: step["client_request_id"]?.stringValue,
+        channelID: step["channel_id"]?.stringValue,
         timeout: step["timeout_ms"]?.intValue.map { Double($0) / 1000 }
       )
       try await withTaskCancellationHandler {

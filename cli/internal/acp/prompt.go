@@ -68,6 +68,11 @@ func (a *Agent) requester() (Requester, bool) {
 type promptParams struct {
 	SessionID string            `json:"sessionId"`
 	Prompt    []json.RawMessage `json:"prompt"`
+	// ClientRequestID names this submission, not the session or JSON-RPC
+	// request. A pointer preserves an explicitly empty value for API validation.
+	Meta struct {
+		ClientRequestID *string `json:"clientRequestId"`
+	} `json:"_meta"`
 }
 
 type contentBlock struct {
@@ -112,7 +117,7 @@ func (a *Agent) prompt(ctx context.Context, raw json.RawMessage) (any, error) {
 		return nil, Errorf(CodeInternalError, "could not read the conversation stream: %s", err)
 	}
 
-	if err := a.api.SendPrompt(ctx, sess.ID, text, images); err != nil {
+	if err := a.api.SendPrompt(ctx, sess.ID, text, images, params.Meta.ClientRequestID); err != nil {
 		return nil, Errorf(CodeInternalError, "could not send the prompt: %s", err)
 	}
 

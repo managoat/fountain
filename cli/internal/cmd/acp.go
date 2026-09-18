@@ -531,7 +531,7 @@ func (f fountainAPI) StreamHead(_ context.Context, convID string) (string, error
 	return streamHead(api.New(f.opts), convID)
 }
 
-func (f fountainAPI) SendPrompt(_ context.Context, convID, prompt string, images []acp.Image) error {
+func (f fountainAPI) SendPrompt(_ context.Context, convID, prompt string, images []acp.Image, clientRequestID *string) error {
 	payload := make([]map[string]string, 0, len(images))
 	for _, img := range images {
 		payload = append(payload, map[string]string{
@@ -540,6 +540,9 @@ func (f fountainAPI) SendPrompt(_ context.Context, convID, prompt string, images
 		})
 	}
 	body := map[string]any{"prompt": prompt, "images": payload}
+	if clientRequestID != nil {
+		body["client_request_id"] = *clientRequestID
+	}
 	return api.New(f.opts).Post("/conversations/"+convID+"/prompts", body, nil)
 }
 

@@ -122,12 +122,15 @@ expose publicly; nothing here reaches into a private class.
 | `list` | `resource` (`agents`\|`vaults`\|`environments`) | that collection's list |
 | `create_agent` | `attrs` | create an agent from a flat attribute map |
 | `get_conversation` | `conversation_id` | read one conversation |
-| `run` | `agent`, `prompt`, `timeout_ms?`, `answer_permissions?` | start a run and consume it to completion |
+| `run` | `agent`, `prompt`, `channel_id?`, `client_request_id?`, `timeout_ms?`, `answer_permissions?` | start a run and consume it to completion |
 | `send` | `conversation_id`, `prompt` | send a follow-up prompt to an existing conversation |
 | `history` | `conversation_id` | drain the event feed to its end |
 
 `run` consumes the run to completion and records both the events it yielded and
-the result. `answer_permissions` maps a permission request id (or `"*"`) to the
+the result. `channel_id` selects a channel to create or resume, and
+`client_request_id` names the prompt submission on both the create request and
+the follow-up prompt request when the channel resumes.
+`answer_permissions` maps a permission request id (or `"*"`) to the
 option id the adapter should answer with, which is how the permission flow is
 driven without the scenario knowing anything about callbacks or futures.
 

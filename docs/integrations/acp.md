@@ -165,6 +165,29 @@ The same knobs exist on the API, as `channel_id`, `fresh`, `sandbox_mode` and
 [Conversations](../api.md#conversations), and
 [Sandboxes](../api.md#sandboxes) for the list a `sandboxId` comes from.
 
+## `_meta` extensions on `session/prompt`
+
+Send `_meta.clientRequestId` to name one prompt submission:
+
+```json
+{
+  "sessionId": "<conversation-id>",
+  "prompt": [{"type": "text", "text": "Run the approved plan."}],
+  "_meta": {"clientRequestId": "plan-7-step-3"}
+}
+```
+
+The bridge sends it as `client_request_id` on the prompts API route, for both
+the first prompt and later prompts, including in resumed sessions. It belongs
+to that submission; the bridge does not reuse it for the next prompt or derive
+it from the JSON-RPC request ID. Omit it, or send null, to send no correlation
+field. Other `_meta` keys are ignored.
+
+The server validates the value: a string of 1 to 200 characters without a null
+character. Fountain stores it on the resulting turn. It is not an idempotency
+key. See [prompt correlation](../api.md#find-the-turn-your-prompt-opened) for
+how to find that turn and the limits of the contract.
+
 ## Permission prompts
 
 With `--permission ask`, the agent stops before it runs a tool and asks. The

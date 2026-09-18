@@ -308,6 +308,8 @@ async function drive(scenario: Scenario, baseUrl: string): Promise<Partial<Obser
       case "run": {
         const run = client.run(step.prompt, {
           agent: step.agent,
+          channelId: step.channel_id,
+          clientRequestId: step.client_request_id,
           ...(step.timeout_ms ? { timeoutMs: step.timeout_ms } : {}),
         });
         const events: Record<string, unknown>[] = [];

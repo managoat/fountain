@@ -8,10 +8,12 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
 
+	"github.com/managoat/fountain/cli/api"
 	"github.com/managoat/fountain/cli/credentials"
 	"github.com/managoat/fountain/cli/internal/acp"
 	"github.com/managoat/fountain/cli/internal/stream"
@@ -24,6 +26,58 @@ func acpTestAPI(t *testing.T, baseURL string) fountainAPI {
 	return fountainAPI{
 		opts: credentials.Opts{},
 		log:  slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+}
+
+func TestACPSendPromptClientRequestID(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		id     *string
+		status int
+	}{
+		{name: "supplied", id: new(" plan-7-步骤-3 "), status: http.StatusAccepted},
+		{name: "omitted", status: http.StatusAccepted},
+		{name: "empty rejected by server", id: new(""), status: http.StatusUnprocessableEntity},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			want := map[string]any{
+				"prompt": "inspect this",
+				"images": []any{map[string]any{"data": "aW1hZ2U=", "media_type": "image/png"}},
+			}
+			if tc.id != nil {
+				want["client_request_id"] = *tc.id
+			}
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodPost || r.URL.Path != "/api/conversations/conv-1/prompts" {
+					t.Errorf("unexpected request: %s %s", r.Method, r.URL)
+				}
+				var body map[string]any
+				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+					t.Error(err)
+				}
+				if !reflect.DeepEqual(body, want) {
+					t.Errorf("POST body = %#v, want %#v", body, want)
+				}
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(tc.status)
+				if tc.status == http.StatusUnprocessableEntity {
+					fmt.Fprint(w, `{"error":"invalid client_request_id"}`)
+				} else {
+					fmt.Fprint(w, `{"status":"queued"}`)
+				}
+			}))
+			defer server.Close()
+			f := acpTestAPI(t, server.URL)
+			err := f.SendPrompt(context.Background(), "conv-1", "inspect this",
+				[]acp.Image{{Data: "aW1hZ2U=", MediaType: "image/png"}}, tc.id)
+			if tc.status == http.StatusUnprocessableEntity {
+				if api.StatusCode(err) != tc.status {
+					t.Fatalf("got %v, want HTTP %d", err, tc.status)
+				}
+			} else if err != nil {
+				t.Fatal(err)
+			}
+		})
 	}
 }
 

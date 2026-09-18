@@ -452,6 +452,10 @@ Swift. A client that resumes a conversation with `channel_id` sends the value
 again on the prompts route, because that request opens the turn. A client that
 gets no value sends no field.
 
+The CLI takes `--client-request-id` on `fountain run` and `fountain conv prompt`.
+The ACP bridge takes `_meta.clientRequestId` on each `session/prompt`; see
+[ACP prompt metadata](integrations/acp.md#_meta-extensions-on-sessionprompt).
+
 ### Wait for capacity
 
 A start can reach the tenant sandbox cap or the fleet ceiling. Fountain then

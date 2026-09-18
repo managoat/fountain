@@ -6,10 +6,10 @@ Versions below describe this checkout; registry links show what is published. SD
 
 | Language | Package / install | Version | Minimum runtime | Stability | Conformance |
 |---|---|---|---|---|---|
-| [TypeScript](sdk/typescript/README.md) | [npm install @managoat/fountain-sdk](https://www.npmjs.com/package/@managoat/fountain-sdk) | 6.1.0 | Node >=20.19; browsers with fetch | Stable; SemVer | typescript: 28/28 |
-| [Python](sdk/python/README.md) | [pip install fountain-agent-sdk](https://pypi.org/project/fountain-agent-sdk/) | 0.6.0 | Python >=3.9 | Alpha; pre-1.0 | python: 28/28 |
-| [Elixir](sdk/elixir/README.md) | [{:fountain_sdk, "~> 0.6.0"}](https://hex.pm/packages/fountain_sdk) | 0.6.0 | Elixir ~> 1.15 / OTP 26+ | Pre-1.0 | elixir: 28/28 |
-| [Swift](sdk/swift/README.md) | [SwiftPM revision: "sdk-swift-v0.20.0"](https://github.com/managoat/fountain/tags) | 0.20.0 | Swift 6.1+; macOS 12, iOS/tvOS 15, watchOS 8, Linux | Pre-1.0 | swift: 28/28; swift-kit: 28/28 |
+| [TypeScript](sdk/typescript/README.md) | [npm install @managoat/fountain-sdk](https://www.npmjs.com/package/@managoat/fountain-sdk) | 6.1.0 | Node >=20.19; browsers with fetch | Stable; SemVer | typescript: 29/29 |
+| [Python](sdk/python/README.md) | [pip install fountain-agent-sdk](https://pypi.org/project/fountain-agent-sdk/) | 0.6.0 | Python >=3.9 | Alpha; pre-1.0 | python: 29/29 |
+| [Elixir](sdk/elixir/README.md) | [{:fountain_sdk, "~> 0.6.0"}](https://hex.pm/packages/fountain_sdk) | 0.6.0 | Elixir ~> 1.15 / OTP 26+ | Pre-1.0 | elixir: 29/29 |
+| [Swift](sdk/swift/README.md) | [SwiftPM revision: "sdk-swift-v0.20.0"](https://github.com/managoat/fountain/tags) | 0.20.0 | Swift 6.1+; macOS 12, iOS/tvOS 15, watchOS 8, Linux | Pre-1.0 | swift: 29/29; swift-kit: 29/29 |
 
 Conformance counts are declared coverage of the [shared scenarios](sdk/conformance/README.md),
 not a claim that every server feature exists in every client. [The matrix](sdk/conformance/matrix.json)

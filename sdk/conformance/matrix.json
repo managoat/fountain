@@ -134,6 +134,13 @@
       "swift-kit": "yes",
       "elixir": "yes"
     },
+    "run-channel-resume-preserves-client-request-id": {
+      "typescript": "yes",
+      "python": "yes",
+      "swift": "yes",
+      "swift-kit": "yes",
+      "elixir": "yes"
+    },
     "run-completes-with-text-and-tools": {
       "typescript": "yes",
       "python": "yes",

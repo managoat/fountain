@@ -206,7 +206,9 @@ defmodule Fountain.Conversations.TurnLaunch do
   crash that recurs fails the turn as it always did.
 
   A bounded turn's command belongs to its execution journal and deadline, and
-  is not relaunched here.
+  is not relaunched here. Neither is a turn whose conversation has moved to
+  another sandbox since this actor launched it: the plan write carries the
+  actor's binding and refuses.
 
   Returns `{:relaunched, state}`, or `{:finish, state}` for the caller to end
   the turn with the exit code.
@@ -221,8 +223,32 @@ defmodule Fountain.Conversations.TurnLaunch do
         fail_before_start
       )
       when is_map_key(@native_crashes, code) do
-    signal = Map.fetch!(@native_crashes, code)
+    {mode, id} = launch.plan
 
+    # Fence first, before this actor touches the peer, the transcript or the
+    # machine. An unbounded turn has no journal naming its sandbox, so the
+    # plan write carrying this actor's binding is the only check that Wake
+    # has not moved the conversation to a replacement meanwhile. On any
+    # refusal the exit ends the turn as it always did, through
+    # `Machine.end_turn/3`, which applies the same binding.
+    case TurnMachine.session_plan(turn, mode, id, state.sandbox_id) do
+      {:ok, plan} ->
+        spec = %{Map.delete(launch, :plan) | relaunched?: true}
+        relaunch(state, turn, spec, plan, Map.fetch!(@native_crashes, code), fail_before_start)
+
+      {:error, reason} ->
+        Logger.info(
+          "conv #{state.conversation_id}: adapter crashed before any output; " <>
+            "not relaunched (#{inspect(reason)})"
+        )
+
+        {:finish, state}
+    end
+  end
+
+  def relaunch_crashed(state, _code, _fail_before_start), do: {:finish, state}
+
+  defp relaunch(state, turn, spec, plan, signal, fail_before_start) do
     Logger.warning(
       "conv #{state.conversation_id}: adapter died on #{signal} before any output; " <>
         "launching it once more (#2402)"
@@ -250,23 +276,7 @@ defmodule Fountain.Conversations.TurnLaunch do
         acp_peer_mon: nil
     }
 
-    {mode, id} = launch.plan
-
-    state =
-      case TurnMachine.session_plan(turn, mode, id) do
-        {:ok, plan} ->
-          spec = %{Map.delete(launch, :plan) | relaunched?: true}
-          launch(state, turn, spec, fail_before_start, plan)
-
-        # Fenced since the first launch. Unlike a first launch's refusal, the
-        # turn was announced, so it ends through the failure path that
-        # publishes its terminal stage and closes its span.
-        {:error, reason} ->
-          previous_span = OpenTelemetry.Tracer.set_current_span(state.current_turn_span)
-          state = fail_before_start.(state, turn, {:relaunch_refused, reason})
-          OpenTelemetry.Tracer.set_current_span(previous_span)
-          state
-      end
+    state = launch(state, turn, spec, fail_before_start, plan)
 
     # A relaunch that did not start ended the turn on its own failure path,
     # which leaves the first launch's measurements behind.
@@ -282,8 +292,6 @@ defmodule Fountain.Conversations.TurnLaunch do
              stream_tracer: nil
          }}
   end
-
-  def relaunch_crashed(state, _code, _fail_before_start), do: {:finish, state}
 
   # The SDK's own view of the allowance, from the frozen journal copy rather
   # than from current policy: an in-flight turn keeps what it was admitted

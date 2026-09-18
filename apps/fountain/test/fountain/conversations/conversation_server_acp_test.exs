@@ -1174,22 +1174,51 @@ defmodule Fountain.Conversations.ConversationServerACPTest do
       end
     end
 
-    test "a turn fenced before the relaunch ends with a terminal stage", %{
+    test "a turn fenced before the relaunch ends as the exit always did", %{
       conv: conv,
       pid: pid,
       first: first
     } do
       %{"method" => "initialize"} = next_write()
 
-      stub(Fountain.Conversations, :_unsafe_set_turn_session, fn _turn, _id ->
+      stub(Fountain.Conversations, :_unsafe_set_turn_session, fn _turn, _id, _opts ->
         {:ok, %{applied: false}}
       end)
 
       crash(pid, first, 139)
 
       refute_receive {:spawned_ref, _}, 100
-      assert turn_stage_states(conv.id) == ["started", "failed"]
-      assert [%{status: "failed"}] = Conversations._unsafe_list_turns(conv.id)
+      assert turn_stage_states(conv.id) == ["started", "done"]
+      assert [%{status: "failed", exit_code: 139}] = Conversations._unsafe_list_turns(conv.id)
+      assert restarted_events(conv.id) == []
+      assert is_nil(:sys.get_state(pid).current_turn)
+    end
+
+    test "a conversation Wake moved to a replacement sandbox is not relaunched", %{
+      conv: conv,
+      pid: pid,
+      first: first
+    } do
+      %{"method" => "initialize"} = next_write()
+      old = Conversations._unsafe_get_conversation!(conv.id)
+      replacement = insert_sandbox(user_id: conv.user_id, status: "ready")
+
+      # `Wake.follow_cotenants/2`'s own write: the conversation follows the
+      # replacement and forgets its session, while this actor still holds
+      # the old machine and its running turn.
+      Repo.update_all(from(c in Fountain.Conversations.Conversation, where: c.id == ^conv.id),
+        set: [sandbox_id: replacement.id, runtime_session_id: nil]
+      )
+
+      crash(pid, first, 139)
+
+      refute_receive {:spawned_ref, _}, 100
+      moved = Conversations._unsafe_get_conversation!(conv.id)
+      assert moved.sandbox_id == replacement.id
+      refute moved.sandbox_id == old.sandbox_id
+      # The stale launch's session id is not written back onto the moved row.
+      assert is_nil(moved.runtime_session_id)
+      assert restarted_events(conv.id) == []
       assert is_nil(:sys.get_state(pid).current_turn)
     end
 

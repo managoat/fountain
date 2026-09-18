@@ -1099,9 +1099,15 @@ defmodule Fountain.Conversations do
   def _unsafe_idle_after_turn(%Turn{} = turn),
     do: write_turn_parent(turn, :idle, %{status: "idle"})
 
-  @doc "Apply a runtime session report only for the current, unretired turn."
-  def _unsafe_set_turn_session(%Turn{} = turn, session_id),
-    do: write_turn_parent(turn, :session, %{runtime_session_id: session_id})
+  @doc """
+  Apply a runtime session report only for the current, unretired turn.
+
+  `opts` takes `:sandbox_id`, the actor's own binding, to refuse the write when
+  the conversation has since moved to another sandbox
+  (`ExecutionGuard._unsafe_write_parent/4`).
+  """
+  def _unsafe_set_turn_session(%Turn{} = turn, session_id, opts \\ []),
+    do: write_turn_parent(turn, :session, %{runtime_session_id: session_id}, opts)
 
   @doc "Clear an idle legacy peer's session only if its observed identity is still current."
   def _unsafe_clear_idle_session(conv_id, expected) do
@@ -1112,12 +1118,15 @@ defmodule Fountain.Conversations do
     |> notify_parent_change()
   end
 
-  defp write_turn_parent(turn, mode, attrs) do
+  defp write_turn_parent(turn, mode, attrs, opts \\ []) do
     # ownership: the calling actor/recovery path already owns this exact turn.
     result =
-      ExecutionGuard._unsafe_write_parent(turn, mode, fn current ->
-        current |> Conversation.changeset(attrs) |> Repo.update()
-      end)
+      ExecutionGuard._unsafe_write_parent(
+        turn,
+        mode,
+        fn current -> current |> Conversation.changeset(attrs) |> Repo.update() end,
+        opts
+      )
 
     notify_parent_change(result)
   end

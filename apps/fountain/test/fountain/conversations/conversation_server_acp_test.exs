@@ -764,7 +764,7 @@ defmodule Fountain.Conversations.ConversationServerACPTest do
         case unquote(change) do
           :retire ->
             sandbox = Conversations._unsafe_get_sandbox!(conv.sandbox_id)
-            {:ok, _} = Conversations.update_sandbox(sandbox, %{status: "terminated"})
+            {:ok, _} = update_sandbox(sandbox, %{status: "terminated"})
 
           :move ->
             fresh = insert_sandbox(user_id: conv.user_id, status: "ready")

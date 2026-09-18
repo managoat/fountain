@@ -83,7 +83,7 @@ defmodule Fountain.Conversations.InitialStartFailureTest do
     expect_server_start(fn _, {ConversationServer, args} ->
       conv = Repo.get!(Conversation, args[:conversation_id])
       sandbox = Repo.get!(Sandbox, args[:sandbox_id])
-      {:ok, _} = Conversations.update_sandbox(sandbox, %{status: "ready"})
+      {:ok, _} = update_sandbox(sandbox, %{status: "ready"})
       {:ok, _} = Conversations.update_conversation(conv, %{status: "idle"})
       {:error, :max_children}
     end)

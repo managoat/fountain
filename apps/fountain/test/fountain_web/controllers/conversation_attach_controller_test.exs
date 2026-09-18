@@ -117,7 +117,7 @@ defmodule FountainWeb.ConversationAttachControllerTest do
   end
 
   test "a terminated sandbox is a 409 that names its state", ctx do
-    {:ok, _} = Fountain.Conversations.update_sandbox(ctx.sandbox, %{status: "terminated"})
+    {:ok, _} = update_sandbox(ctx.sandbox, %{status: "terminated"})
 
     assert %{"error" => "sandbox_not_attachable", "status" => "terminated"} =
              ctx |> create(%{"sandbox_id" => ctx.sandbox.id}) |> json_response(409)
@@ -149,7 +149,7 @@ defmodule FountainWeb.ConversationAttachControllerTest do
              ctx |> create(%{"sandbox_mode" => "persistent"}) |> json_response(503)
 
     {:ok, _} =
-      Fountain.Conversations.update_sandbox(
+      update_sandbox(
         Fountain.Conversations._unsafe_get_sandbox!(first["sandbox_id"]),
         %{status: "ready"}
       )

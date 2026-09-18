@@ -39,7 +39,7 @@ defmodule Fountain.Webhooks.EventsTest do
     "lib/fountain/conversations/lifecycle.ex",
     "lib/fountain/conversations/connection.ex",
     "lib/fountain/conversations/output.ex",
-    "lib/fountain/conversations/home_checkpoint.ex"
+    "lib/fountain/machines/home_checkpoint.ex"
   ]
 
   # publish_stage(<anything>, "<stage>", "<status>"
@@ -83,8 +83,7 @@ defmodule Fountain.Webhooks.EventsTest do
     # `publish(sandbox, "done", meta)` / `publish(sandbox, "failed", meta)` —
     # the private helper `HomeCheckpoint.publish/3` that every
     # `publish_stage(_, "checkpoint", state, _)` call site routes through.
-    {"lib/fountain/conversations/home_checkpoint.ex", "checkpoint",
-     ~r/publish\(\w+,\s*"([a-z_]+)"/},
+    {"lib/fountain/machines/home_checkpoint.ex", "checkpoint", ~r/publish\(\w+,\s*"([a-z_]+)"/},
     # `"turn",\n  # comment\n  if(row.status == "completed", do: "done", else: "failed")`.
     # Only the `do:`/`else:` branch values are captured; the `"completed"`
     # compared against is not one of them.

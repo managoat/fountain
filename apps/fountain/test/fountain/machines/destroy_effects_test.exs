@@ -106,7 +106,7 @@ defmodule Fountain.Machines.DestroyEffectsTest do
     # has to be the one the write saw: a `pending` row that is destroyed emits
     # `sandbox_provision_failed` as well, and a stale reload would read
     # `terminated` and emit neither.
-    {:ok, _} = Conversations.update_sandbox(ctx.sandbox, %{status: "pending"})
+    {:ok, _} = update_sandbox(ctx.sandbox, %{status: "pending"})
 
     assert {:ok, :destroyed} =
              Machine.destroy(ctx.sandbox.id, actor: "self", reason: :terminated)
@@ -116,7 +116,7 @@ defmodule Fountain.Machines.DestroyEffectsTest do
   end
 
   test "a machine that was already terminal records nothing twice", ctx do
-    {:ok, _} = Conversations.update_sandbox(ctx.sandbox, %{status: "terminated"})
+    {:ok, _} = update_sandbox(ctx.sandbox, %{status: "terminated"})
     before = usage_events(ctx)
     assert "sandbox_terminated" in before
 

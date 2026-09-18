@@ -70,7 +70,7 @@ defmodule Fountain.Workers.SandboxQueueDrainerTest do
       enqueue!(waiting, insert_agent(user_id: waiting.id))
       sandbox = insert_sandbox(user_id: owner.id, status: "ready")
 
-      {:ok, _} = Fountain.Conversations.update_sandbox(sandbox, %{status: "terminated"})
+      {:ok, _} = update_sandbox(sandbox, %{status: "terminated"})
 
       assert_enqueued(worker: SandboxQueueDrainer, args: %{scope: "all"})
       refute_enqueued(worker: SandboxQueueDrainer, args: %{user_id: waiting.id})
@@ -84,7 +84,7 @@ defmodule Fountain.Workers.SandboxQueueDrainerTest do
       user = insert_verified_user()
       sandbox = insert_sandbox(user_id: user.id, status: "ready")
 
-      {:ok, _} = Fountain.Conversations.update_sandbox(sandbox, %{status: "terminated"})
+      {:ok, _} = update_sandbox(sandbox, %{status: "terminated"})
 
       refute_enqueued(worker: SandboxQueueDrainer)
     end
@@ -96,7 +96,7 @@ defmodule Fountain.Workers.SandboxQueueDrainerTest do
       sandbox = insert_sandbox(user_id: user.id, status: "pending")
 
       # pending -> ready is still a cap-counting status on both sides.
-      {:ok, _} = Fountain.Conversations.update_sandbox(sandbox, %{status: "ready"})
+      {:ok, _} = update_sandbox(sandbox, %{status: "ready"})
 
       refute_enqueued(worker: SandboxQueueDrainer)
     end
@@ -109,7 +109,7 @@ defmodule Fountain.Workers.SandboxQueueDrainerTest do
 
       # `suspended` is deliberately outside `Quotas.active_statuses/0`, so a
       # park releases capacity exactly as a terminate does (ADR 0017).
-      {:ok, _} = Fountain.Conversations.update_sandbox(sandbox, %{status: "suspended"})
+      {:ok, _} = update_sandbox(sandbox, %{status: "suspended"})
 
       assert_enqueued(worker: SandboxQueueDrainer, args: %{scope: "all"})
     end
@@ -125,7 +125,7 @@ defmodule Fountain.Workers.SandboxQueueDrainerTest do
       end)
 
       assert {:ok, %{status: "terminated"}} =
-               Fountain.Conversations.update_sandbox(sandbox, %{status: "terminated"})
+               update_sandbox(sandbox, %{status: "terminated"})
     end
   end
 end

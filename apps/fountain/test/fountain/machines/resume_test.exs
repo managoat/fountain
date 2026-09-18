@@ -13,8 +13,8 @@ defmodule Fountain.Machines.ResumeTest do
   `wake_policy_test.exs`, `wake_race_test.exs`); this file is the protocol on
   its own.
 
-  `async: false`: the gate is application environment, and the gate-on cases run
-  the protocol inside an owner process that needs the shared sandbox connection.
+  `async: false`: several cases run the protocol inside an owner process
+  alongside cases that share state with it.
   """
 
   use Fountain.DataCase, async: false
@@ -197,7 +197,7 @@ defmodule Fountain.Machines.ResumeTest do
 
   describe "the recheck under the lease" do
     test "a machine that is already up is not resumed", ctx do
-      {:ok, _} = Conversations.update_sandbox(ctx.sandbox, %{status: "ready"})
+      {:ok, _} = update_sandbox(ctx.sandbox, %{status: "ready"})
       reject(&Managoat.Sandbox.resume/1)
 
       assert {:ok, :already_up} = Resume.run(ctx.sandbox.id, opts())
@@ -206,7 +206,7 @@ defmodule Fountain.Machines.ResumeTest do
 
     for terminal <- ~w(terminated failed) do
       test "a machine that has stopped (#{terminal}) is not resumed", ctx do
-        {:ok, _} = Conversations.update_sandbox(ctx.sandbox, %{status: unquote(terminal)})
+        {:ok, _} = update_sandbox(ctx.sandbox, %{status: unquote(terminal)})
         reject(&Managoat.Sandbox.resume/1)
 
         assert {:ok, :already_terminal} = Resume.run(ctx.sandbox.id, opts())
@@ -445,7 +445,7 @@ defmodule Fountain.Machines.ResumeTest do
 
     for observed <- [:running, :unknown, nil] do
       test "is left alone when the probe said #{inspect(observed)}", ctx do
-        {:ok, _} = Conversations.update_sandbox(ctx.sandbox, %{status: "ready"})
+        {:ok, _} = update_sandbox(ctx.sandbox, %{status: "ready"})
         reject(&Managoat.Sandbox.resume/1)
 
         assert {:ok, :already_up} =

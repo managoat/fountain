@@ -143,7 +143,7 @@ defmodule FountainWeb.ConversationJSON do
       # The checkpoint taken when this home last parked (ADR 0023, #1073):
       # `{id, at}`, or null for an ephemeral sandbox, a provider without
       # checkpoints, or a home that has not parked yet.
-      checkpoint: Fountain.Conversations.HomeCheckpoint.recorded(s),
+      checkpoint: Fountain.Machines.HomeCheckpoint.recorded(s),
       # Where a runner-backed sandbox lives (#834): the machine and the
       # directory, so a client says "on mac-mini · ~/…" without parsing the
       # name. Null for hosted providers.

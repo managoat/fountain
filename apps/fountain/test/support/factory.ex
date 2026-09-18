@@ -315,6 +315,43 @@ defmodule Fountain.Factory do
 
   # ── conversations / sandboxes / turns ─────────────────────────────────────
 
+  @doc """
+  Put an existing sandbox row into the state a test needs.
+
+  A fixture, not a door. Until ADR 0058 stage 9b this was
+  `Conversations.update_sandbox/2`, the context's general sandbox write; by then
+  nothing in `lib/` called it any more — every status change is the machine
+  owner's, through `Fountain.Machines.Lease.cas_update/4` — so it moved here.
+
+  It keeps what a fixture relies on: the write applies to the row as it is now
+  (not the struct the test holds), `terminated_at` is filled in on the way into
+  a terminal status, and the two effects every real status change owes run
+  afterwards (`Conversations.sandbox_status_effects/2`: usage metering and the
+  queue poke). It does **not** keep the guards the context write had — refusing
+  a revival and a fenced machine — because a fixture that refused would only
+  hide the state a test is trying to build. The owner's own write refuses both.
+  """
+  def update_sandbox(%Sandbox{id: id}, attrs) do
+    current = Repo.get!(Sandbox, id)
+    changeset = Sandbox.changeset(current, attrs)
+
+    changeset =
+      if Ecto.Changeset.get_field(changeset, :status) in ~w(terminated failed) and
+           is_nil(Ecto.Changeset.get_field(changeset, :terminated_at)),
+         do:
+           Ecto.Changeset.put_change(
+             changeset,
+             :terminated_at,
+             DateTime.utc_now() |> DateTime.truncate(:second)
+           ),
+         else: changeset
+
+    with {:ok, updated} <- Repo.update(changeset) do
+      :ok = Fountain.Conversations.sandbox_status_effects(updated, current.status)
+      {:ok, updated}
+    end
+  end
+
   def insert_sandbox(overrides \\ %{}) do
     overrides_map = to_atom_map(overrides)
     user_id = Map.get(overrides_map, :user_id) || insert_verified_user().id

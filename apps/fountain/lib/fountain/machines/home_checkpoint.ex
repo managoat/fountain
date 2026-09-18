@@ -1,4 +1,4 @@
-defmodule Fountain.Conversations.HomeCheckpoint do
+defmodule Fountain.Machines.HomeCheckpoint do
   @moduledoc """
   Checkpoint a persistent home when it parks (ADR 0023, #1073).
 
@@ -32,6 +32,12 @@ defmodule Fountain.Conversations.HomeCheckpoint do
 
   Best-effort by construction: a failed checkpoint is logged and recorded as
   a failed stage, and the park goes ahead — an unparked machine keeps billing.
+
+  In `Fountain.Machines` since stage 9b, which moved it from
+  `Fountain.Conversations` whole: it is part of the park protocol, runs under
+  the park's lease, and its `Managoat.Sandbox.create_checkpoint/2` is a
+  provider mutation the owner makes. The ADR's verb table says as much — "the
+  checkpoint happens inside the transition".
   """
 
   alias Fountain.Conversations

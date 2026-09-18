@@ -111,7 +111,7 @@ defmodule FountainWeb.OrphanedHomeDoorTest do
       assert first.runtime == "opencode"
       new_home = Conversations._unsafe_get_sandbox!(first.sandbox_id)
       assert new_home.runtime == "opencode"
-      {:ok, _} = Conversations.update_sandbox(new_home, %{status: "ready"})
+      {:ok, _} = update_sandbox(new_home, %{status: "ready"})
 
       second =
         ctx

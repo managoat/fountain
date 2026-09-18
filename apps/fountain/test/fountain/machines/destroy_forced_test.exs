@@ -977,7 +977,7 @@ defmodule Fountain.Machines.DestroyForcedTest do
     end
 
     test "a persistent home is reaped like anything else", ctx do
-      {:ok, _} = Conversations.update_sandbox(ctx.sandbox, %{mode: "persistent"})
+      {:ok, _} = update_sandbox(ctx.sandbox, %{mode: "persistent"})
       capture_provider()
 
       assert {:ok, :released} = Termination.reap_sandbox(ctx.sandbox.id)

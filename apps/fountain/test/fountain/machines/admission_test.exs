@@ -10,9 +10,8 @@ defmodule Fountain.Machines.AdmissionTest do
   whole ADR exists for — an admission and a park of the same machine, on real
   connections, in both orders (the #2286 shape).
 
-  `async: false`: the gate is application environment, the gate-on cases run
-  the protocol inside an owner process that needs the shared sandbox
-  connection, and the race cases use `unboxed_run`.
+  `async: false`: the protocol runs inside an owner process, and the race cases
+  use `unboxed_run`.
   """
 
   use Fountain.DataCase, async: false
@@ -260,7 +259,7 @@ defmodule Fountain.Machines.AdmissionTest do
       assert Machine.whereis(ctx.sandbox.id) == owner
     end
 
-    test "an admission whose caller has given up is refused, not run late (gate on)", ctx do
+    test "an admission whose caller has given up is refused, not run late", ctx do
       # Round 1's blocker, both reviews: a park holding the owner past the
       # caller's timeout. The caller is answered 503; the queued message then
       # reaches the front of the mailbox after the park, and without a
@@ -401,7 +400,7 @@ defmodule Fountain.Machines.AdmissionTest do
     end
 
     test "an owner that cannot run the admission refuses rather than admitting inline", ctx do
-      # The mixed-version shape: with the gate on, a `{:admit_turn, ..}` call
+      # The mixed-version shape: a `{:admit_turn, ..}` call
       # reaching an owner process that cannot serve it — a replica on the
       # previous release has no clause for it and crashes — has to come back
       # as a refusal, not as a turn admitted somewhere else. A raise inside

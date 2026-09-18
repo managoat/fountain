@@ -109,7 +109,7 @@ defmodule Fountain.Conversations.ConversationServerRefreshTest do
     stub_happy_sprite()
 
     {:ok, _} =
-      Conversations.update_sandbox(ctx.sandbox, %{
+      update_sandbox(ctx.sandbox, %{
         status: "suspended",
         build_fingerprint: Fountain.Conversations.Reapply.fingerprint(ctx.env)
       })

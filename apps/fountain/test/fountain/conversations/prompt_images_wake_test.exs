@@ -22,7 +22,7 @@ defmodule Fountain.Conversations.PromptImagesWakeTest do
   defp park(user) do
     agent = insert_agent(user_id: user.id)
     sandbox = insert_sandbox(user_id: user.id, machine_name: "sprite-2373")
-    {:ok, sandbox} = Conversations.update_sandbox(sandbox, %{status: "ready"})
+    {:ok, sandbox} = update_sandbox(sandbox, %{status: "ready"})
 
     insert_conversation(user_id: user.id, agent: agent, sandbox: sandbox, status: "idle")
   end

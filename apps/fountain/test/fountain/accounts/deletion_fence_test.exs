@@ -183,7 +183,7 @@ defmodule Fountain.Accounts.DeletionFenceTest do
     stub(ConversationServer, :whereis, fn _ -> self() end)
 
     expect(Termination, :terminate_conversation, fn _, _ ->
-      {:ok, _} = Conversations.update_sandbox(ctx.sandbox, %{status: "terminated"})
+      {:ok, _} = update_sandbox(ctx.sandbox, %{status: "terminated"})
       :ok
     end)
 

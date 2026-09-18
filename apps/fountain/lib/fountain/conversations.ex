@@ -144,48 +144,17 @@ defmodule Fountain.Conversations do
     )
   end
 
-  def create_sandbox(attrs) do
-    %Sandbox{}
-    |> Sandbox.changeset(attrs)
-    |> Repo.insert()
-  end
-
-  @doc """
-  Update a sandbox, emitting usage events on billable transitions.
-
-  Almost every sandbox status change goes through here — fresh provisioning,
-  the wake path, the park. Metering at this choke point means a new caller
-  cannot forget to record usage, which is how `Billing.emit/5` ended up with no
-  call sites at all despite being documented, schema'd and tested.
-
-  **The one other writer is the machine's owner** (ADR 0058):
-  `Fountain.Machines.Lease.cas_update/3` writes the row under the lease epoch,
-  because a compare-and-set is the thing that makes a superseded owner
-  invisible and this function's `FOR UPDATE` read cannot express it. It is not
-  outside the metering: it calls `sandbox_status_effects/2` below, which is the
-  same two effects this one runs, and `Fountain.Machines.DestroyTest` pins them
-  per site. A new writer that is neither of these two is the failure mode above,
-  returning.
-
-  The persisted previous status decides the transition. Terminal rows reject
-  attempts to become active again, including callbacks holding an older struct.
-  """
-  # The two statuses a sandbox stops at. `update_sandbox/2` reads this before
-  # `prevent_sandbox_revival/1` does, so it is declared here rather than beside it.
+  # The two statuses a sandbox stops at.
   @billable_terminal ~w(terminated failed)
 
-  def update_sandbox(%Sandbox{} = sandbox, attrs), do: do_update_sandbox(sandbox, attrs)
-
-  # The two effects a sandbox status change owes, for a writer that is not
-  # `update_sandbox/2`.
+  # The two effects a sandbox status change owes.
   #
-  # `update_sandbox/2` runs `record_sandbox_usage/2` and
-  # `maybe_poke_sandbox_queue/2` after its own transaction and, deliberately,
-  # with the status its `FOR UPDATE` read saw rather than a fresh one (#2309).
-  # `Fountain.Machines.Lease.cas_update/3` — the machine owner's write since
-  # ADR 0058 — is a single guarded `update_all` and runs neither, so the owner
-  # calls this after its finalize commits, outside every transaction, with the
-  # row the write returned and the status it had before it.
+  # Every status change is the machine owner's since ADR 0058 stage 9b, through
+  # `Fountain.Machines.Lease.cas_update/4` — a single guarded `update_all` that
+  # runs neither effect — so the owner calls this after its finalize commits,
+  # outside every transaction, with the row the write returned and the status
+  # it had before it. (`update_sandbox/2`, the context's own write, ran the
+  # same two after its transaction until 9b deleted it.)
   #
   # Both halves matter and neither is optional. `record_sandbox_usage/2` is the
   # metering choke point this context exists to keep honest — a terminal write
@@ -203,75 +172,6 @@ defmodule Fountain.Conversations do
     record_sandbox_usage(previous_status, written)
     maybe_poke_sandbox_queue(previous_status, written)
     :ok
-  end
-
-  @doc "Returns whether a write was rejected because the sandbox is retired."
-  @spec sandbox_retired?(term()) :: boolean()
-  def sandbox_retired?(%Ecto.Changeset{errors: errors}) do
-    Enum.any?(errors, fn
-      {:status, {"sandbox is retired", _metadata}} -> true
-      _ -> false
-    end)
-  end
-
-  def sandbox_retired?(_), do: false
-
-  # Was `update_sandbox_if/3` until ADR 0058 stage 5c. The conditional half —
-  # a caller-supplied predicate over the locked row — existed for one caller,
-  # the reset's finalize, which used it to elect a single winner among
-  # concurrent finalizers (`pending_reset_matches/2`). The machine's lease
-  # elects that winner now, in front of the provider rather than behind it, so
-  # the predicate went with it and every remaining caller passed `fn _ -> :ok
-  # end`. The `FOR UPDATE` read below is *not* what left with it: it is what
-  # `prevent_sandbox_revival/1` and the reset-fence check are decided on.
-  defp do_update_sandbox(sandbox, attrs) do
-    # A provider callback may still hold a starting/ready struct after reset,
-    # cancellation or the provision watchdog retired the persisted row. Read
-    # and validate under the row lock; checking the caller's struct would let
-    # that delayed callback revive the machine. No provider I/O under this lock.
-    result =
-      Repo.transaction(fn ->
-        current =
-          Repo.one(from s in Sandbox, where: s.id == ^sandbox.id, lock: "FOR UPDATE") ||
-            Repo.rollback(:not_found)
-
-        changeset =
-          current
-          |> Sandbox.changeset(attrs)
-          |> prevent_sandbox_revival()
-          |> stamp_terminated_at()
-
-        # A reset fence (`reset_sandbox/2`) stops this machine being re-used or
-        # re-purposed while its deletion is unconfirmed. It deliberately does
-        # NOT stop it being finished off, because a retiring write is how the
-        # fence is *meant* to end: the reset's own confirmed destroy, an
-        # operator reaping it from /admin/sandboxes, the agent being deleted,
-        # account deletion, or a ConversationServer giving up on it. Every one
-        # of those callers matches `{:ok, _}`, so refusing them would turn a
-        # provider timeout into a MatchError and strand the row with no way to
-        # retire it at all.
-        #
-        # The fence is the `destroying` stamp (ADR 0058 stage 9a); stage 9b
-        # stopped reading the `reset_requested_at` column beside it.
-        if current.transition == "destroying" and
-             Ecto.Changeset.get_field(changeset, :status) not in @billable_terminal,
-           do: Repo.rollback(:sandbox_reset_pending)
-
-        case Repo.update(changeset) do
-          {:ok, updated} -> {current.status, updated}
-          {:error, changeset} -> Repo.rollback(changeset)
-        end
-      end)
-
-    case result do
-      {:ok, {was, updated}} ->
-        record_sandbox_usage(was, updated)
-        maybe_poke_sandbox_queue(was, updated)
-        {:ok, updated}
-
-      {:error, _} = error ->
-        error
-    end
   end
 
   # What a caller may contribute to a sandbox name — the part after this
@@ -306,44 +206,8 @@ defmodule Fountain.Conversations do
       :ok
   end
 
-  defp prevent_sandbox_revival(changeset) do
-    if changeset.data.status in @billable_terminal and
-         Ecto.Changeset.get_field(changeset, :status) not in @billable_terminal do
-      Ecto.Changeset.add_error(changeset, :status, "sandbox is retired")
-    else
-      changeset
-    end
-  end
-
-  # `terminated_at` is when a sandbox stopped costing money, so spend
-  # attribution reads it as the end of the billed interval
-  # (`Fountain.Billing.SandboxUsage`). Stamping it here rather than at each
-  # call site is the same choke-point argument as the metering below: of the
-  # dozen writers of a terminal status, the ones that terminate passed a
-  # timestamp and the ones that fail never did, which left every failed
-  # sandbox looking like it was still running years later.
-  #
-  # Only fills a gap — a caller that passes its own `terminated_at` keeps it.
-  # A door for `Fountain.Conversations.Launch` (#2217); not part of the
-  # context's public surface.
-  @doc false
-  def stamp_terminated_at(changeset) do
-    status = Ecto.Changeset.get_field(changeset, :status)
-
-    if status in @billable_terminal and
-         is_nil(Ecto.Changeset.get_field(changeset, :terminated_at)) do
-      Ecto.Changeset.put_change(
-        changeset,
-        :terminated_at,
-        DateTime.utc_now() |> DateTime.truncate(:second)
-      )
-    else
-      changeset
-    end
-  end
-
-  # Transitions only: update_sandbox/2 is called repeatedly with the same status
-  # in places, and double-counting a sandbox would overstate a bill. Provision
+  # Transitions only: a writer can write the same status more than once, and
+  # double-counting a sandbox would overstate a bill. Provision
   # transitions only — a `suspended → ready` wake reattaches to a sprite whose
   # provision was already recorded, so re-emitting would double-count it.
   # A door for `Fountain.Conversations.Launch` (#2217); not part of the
@@ -1411,14 +1275,9 @@ defmodule Fountain.Conversations do
         current.transition == "destroying" and current.status not in @billable_terminal ->
           {:error, :sandbox_reset_pending}
 
+        # The door's decision; the write is the owner namespace's (stage 9b).
         true ->
-          {count, _} =
-            Repo.update_all(
-              from(s in Sandbox, where: s.id == ^sandbox_id),
-              set: [woken_at: DateTime.utc_now(), transition: nil, transition_reason: nil]
-            )
-
-          {:ok, count}
+          {:ok, Fountain.Machines.Binding.mark_woken(sandbox_id)}
       end
     end)
   end

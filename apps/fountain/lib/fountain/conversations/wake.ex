@@ -588,7 +588,7 @@ defmodule Fountain.Conversations.Wake do
              conv.user_id,
              [exclude: conv.sandbox_id],
              fn ->
-               Conversations.create_sandbox(%{
+               Fountain.Machines.Provision.reserve(%{
                  environment_id: conv.environment_id || agent.environment_id,
                  agent_id: conv.agent_id,
                  vault_id: conv.vault_id,

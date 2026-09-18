@@ -30,7 +30,7 @@ defmodule Fountain.Conversations.LiveMachineNameTest do
     first = insert_sandbox(status: "ready")
 
     assert {:ok, second} =
-             Conversations.create_sandbox(%{
+             Fountain.Machines.Provision.reserve(%{
                machine_name: first.machine_name,
                user_id: first.user_id,
                provider: "e2b",
@@ -45,7 +45,7 @@ defmodule Fountain.Conversations.LiveMachineNameTest do
       history = insert_sandbox(status: unquote(status))
 
       assert {:ok, fresh} =
-               Conversations.create_sandbox(%{
+               Fountain.Machines.Provision.reserve(%{
                  machine_name: history.machine_name,
                  user_id: history.user_id,
                  status: "pending"

@@ -9,9 +9,8 @@ defmodule Fountain.Machines.DestroyTest do
   `termination_actor_fence_test.exs`, `termination_fallback_test.exs`); this
   file is the protocol on its own.
 
-  `async: false`: the gate is application environment, and the gate-on cases
-  run the protocol inside an owner process that needs the shared sandbox
-  connection.
+  `async: false`: several cases run the protocol inside an owner process
+  alongside cases that share state with it.
   """
 
   use Fountain.DataCase, async: false
@@ -402,7 +401,7 @@ defmodule Fountain.Machines.DestroyTest do
         )
 
       stand_in_server(other.id)
-      {:ok, _} = Conversations.update_sandbox(ctx.sandbox, %{status: "terminated"})
+      {:ok, _} = update_sandbox(ctx.sandbox, %{status: "terminated"})
       reject(Managoat.Sandbox, :destroy, 1)
 
       assert {:ok, :already_terminal} =
@@ -552,7 +551,7 @@ defmodule Fountain.Machines.DestroyTest do
         abandon_mid_destroy(ctx)
 
         {:ok, _} =
-          Conversations.update_sandbox(Repo.reload!(ctx.sandbox), %{status: unquote(terminal)})
+          update_sandbox(Repo.reload!(ctx.sandbox), %{status: unquote(terminal)})
 
         assert row(ctx).transition == "destroying", "the reaper-shaped row was not built"
 
@@ -579,7 +578,7 @@ defmodule Fountain.Machines.DestroyTest do
       # carries no epoch, and it says nothing about `transition`.
       abandon_mid_destroy(ctx)
 
-      {:ok, _} = Conversations.update_sandbox(Repo.reload!(ctx.sandbox), %{status: "terminated"})
+      {:ok, _} = update_sandbox(Repo.reload!(ctx.sandbox), %{status: "terminated"})
 
       swept = row(ctx)
       assert swept.status == "terminated"

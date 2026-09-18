@@ -64,7 +64,7 @@ defmodule Fountain.ConversationsWakeTest do
       user = insert_verified_user()
       agent = insert_agent(user_id: user.id)
       sandbox = insert_sandbox(user_id: user.id, machine_name: "test-sprite-alive")
-      {:ok, sandbox} = Conversations.update_sandbox(sandbox, %{status: "ready"})
+      {:ok, sandbox} = update_sandbox(sandbox, %{status: "ready"})
       conv = insert_conversation(user_id: user.id, agent: agent, sandbox: sandbox, status: "idle")
 
       fake_client = %{}
@@ -88,7 +88,7 @@ defmodule Fountain.ConversationsWakeTest do
       user = insert_verified_user()
       agent = insert_agent(user_id: user.id)
       sandbox = insert_sandbox(user_id: user.id, machine_name: "test-sprite-race")
-      {:ok, sandbox} = Conversations.update_sandbox(sandbox, %{status: "ready"})
+      {:ok, sandbox} = update_sandbox(sandbox, %{status: "ready"})
       conv = insert_conversation(user_id: user.id, agent: agent, sandbox: sandbox, status: "idle")
 
       winner = spawn(fn -> Process.sleep(:infinity) end)
@@ -123,7 +123,7 @@ defmodule Fountain.ConversationsWakeTest do
       user = insert_verified_user()
       agent = insert_agent(user_id: user.id)
       sandbox = insert_sandbox(user_id: user.id, machine_name: "test-sprite-parked")
-      {:ok, sandbox} = Conversations.update_sandbox(sandbox, %{status: "suspended"})
+      {:ok, sandbox} = update_sandbox(sandbox, %{status: "suspended"})
       conv = insert_conversation(user_id: user.id, agent: agent, sandbox: sandbox, status: "idle")
 
       stub(Managoat.Sandbox.Sprites, :get, fn _handle ->
@@ -153,7 +153,7 @@ defmodule Fountain.ConversationsWakeTest do
       user = insert_verified_user()
       agent = insert_agent(user_id: user.id)
       sandbox = insert_sandbox(user_id: user.id, machine_name: "test-sprite-audited")
-      {:ok, sandbox} = Conversations.update_sandbox(sandbox, %{status: "suspended"})
+      {:ok, sandbox} = update_sandbox(sandbox, %{status: "suspended"})
       conv = insert_conversation(user_id: user.id, agent: agent, sandbox: sandbox, status: "idle")
 
       stub(Managoat.Sandbox.Sprites, :get, fn _handle ->
@@ -236,7 +236,7 @@ defmodule Fountain.ConversationsWakeTest do
       insert_sandbox(user_id: user.id, status: "ready")
 
       sandbox = insert_sandbox(user_id: user.id, machine_name: "test-sprite-capped")
-      {:ok, sandbox} = Conversations.update_sandbox(sandbox, %{status: "suspended"})
+      {:ok, sandbox} = update_sandbox(sandbox, %{status: "suspended"})
       conv = insert_conversation(user_id: user.id, agent: agent, sandbox: sandbox, status: "idle")
 
       stub(Managoat.Sandbox.Sprites, :get, fn _handle -> {:ok, %{status: :unknown, raw: %{}}} end)
@@ -253,7 +253,7 @@ defmodule Fountain.ConversationsWakeTest do
       user = insert_verified_user()
       agent = insert_agent(user_id: user.id)
       sandbox = insert_sandbox(user_id: user.id, machine_name: "test-sprite-blip")
-      {:ok, sandbox} = Conversations.update_sandbox(sandbox, %{status: "suspended"})
+      {:ok, sandbox} = update_sandbox(sandbox, %{status: "suspended"})
       conv = insert_conversation(user_id: user.id, agent: agent, sandbox: sandbox, status: "idle")
 
       stub(Managoat.Sandbox.Sprites, :get, fn _handle -> {:error, {:unavailable, :timeout}} end)
@@ -270,7 +270,7 @@ defmodule Fountain.ConversationsWakeTest do
       user = insert_verified_user()
       agent = insert_agent(user_id: user.id)
       sandbox = insert_sandbox(user_id: user.id, machine_name: "test-sprite-blip-ready")
-      {:ok, sandbox} = Conversations.update_sandbox(sandbox, %{status: "ready"})
+      {:ok, sandbox} = update_sandbox(sandbox, %{status: "ready"})
       conv = insert_conversation(user_id: user.id, agent: agent, sandbox: sandbox, status: "idle")
 
       stub(Managoat.Sandbox.Sprites, :get, fn _handle ->
@@ -290,7 +290,7 @@ defmodule Fountain.ConversationsWakeTest do
       user = insert_verified_user()
       agent = insert_agent(user_id: user.id)
       sandbox = insert_sandbox(user_id: user.id, machine_name: "test-sprite-vanished")
-      {:ok, sandbox} = Conversations.update_sandbox(sandbox, %{status: "suspended"})
+      {:ok, sandbox} = update_sandbox(sandbox, %{status: "suspended"})
       conv = insert_conversation(user_id: user.id, agent: agent, sandbox: sandbox, status: "idle")
 
       stub(Managoat.Sandbox.Sprites, :get, fn _handle -> {:error, :not_found} end)
@@ -360,7 +360,7 @@ defmodule Fountain.ConversationsWakeTest do
       user = insert_verified_user()
       agent = insert_agent(user_id: user.id)
       sandbox = insert_sandbox(user_id: user.id, machine_name: "test-sprite-gone")
-      {:ok, sandbox} = Conversations.update_sandbox(sandbox, %{status: "ready"})
+      {:ok, sandbox} = update_sandbox(sandbox, %{status: "ready"})
       conv = insert_conversation(user_id: user.id, agent: agent, sandbox: sandbox, status: "idle")
 
       fake_client = %{}
@@ -459,7 +459,7 @@ defmodule Fountain.ConversationsWakeTest do
       user = insert_verified_user()
       agent = insert_agent(user_id: user.id)
       sandbox = insert_sandbox(user_id: user.id, machine_name: "test-sprite-terminated")
-      {:ok, sandbox} = Conversations.update_sandbox(sandbox, %{status: "terminated"})
+      {:ok, sandbox} = update_sandbox(sandbox, %{status: "terminated"})
       conv = insert_conversation(user_id: user.id, agent: agent, sandbox: sandbox, status: "idle")
 
       stub_server_start(fn _supervisor, _child_spec ->

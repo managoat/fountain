@@ -59,7 +59,7 @@ defmodule Fountain.Conversations.SandboxModeTest do
     {:ok, first} = launch(ctx)
 
     {:ok, _} =
-      Conversations.update_sandbox(Conversations._unsafe_get_sandbox!(first.sandbox_id), %{
+      update_sandbox(Conversations._unsafe_get_sandbox!(first.sandbox_id), %{
         status: "ready"
       })
 
@@ -78,7 +78,7 @@ defmodule Fountain.Conversations.SandboxModeTest do
     {:ok, first} = launch(ctx)
 
     {:ok, _} =
-      Conversations.update_sandbox(Conversations._unsafe_get_sandbox!(first.sandbox_id), %{
+      update_sandbox(Conversations._unsafe_get_sandbox!(first.sandbox_id), %{
         status: "ready"
       })
 
@@ -96,7 +96,7 @@ defmodule Fountain.Conversations.SandboxModeTest do
        ctx do
     {:ok, first} = launch(ctx)
     home = Conversations._unsafe_get_sandbox!(first.sandbox_id)
-    {:ok, _} = Conversations.update_sandbox(home, %{status: "ready"})
+    {:ok, _} = update_sandbox(home, %{status: "ready"})
     {:ok, changed} = Agents.update_agent(ctx.agent, %{"runtime" => "opencode"})
 
     assert {:ok, second} = launch(%{ctx | agent: changed})
@@ -113,7 +113,7 @@ defmodule Fountain.Conversations.SandboxModeTest do
   test "runtime identity survives deleting the previous transcripts", ctx do
     {:ok, first} = launch(ctx)
     home = Conversations._unsafe_get_sandbox!(first.sandbox_id)
-    {:ok, home} = Conversations.update_sandbox(home, %{status: "ready"})
+    {:ok, home} = update_sandbox(home, %{status: "ready"})
     Repo.delete!(first)
     {:ok, changed} = Agents.update_agent(ctx.agent, %{"runtime" => "opencode"})
 
@@ -127,7 +127,7 @@ defmodule Fountain.Conversations.SandboxModeTest do
     assert {:ok, second} = launch(ctx)
     refute second.sandbox_id == home.id
     assert Repo.reload!(home).runtime == "claude"
-    assert {:error, changeset} = Conversations.update_sandbox(home, %{runtime: "opencode"})
+    assert {:error, changeset} = update_sandbox(home, %{runtime: "opencode"})
     assert %{runtime: [_]} = errors_on(changeset)
   end
 
@@ -135,7 +135,7 @@ defmodule Fountain.Conversations.SandboxModeTest do
        ctx do
     {:ok, first} = launch(ctx)
     home = Conversations._unsafe_get_sandbox!(first.sandbox_id)
-    {:ok, _} = Conversations.update_sandbox(home, %{status: "ready"})
+    {:ok, _} = update_sandbox(home, %{status: "ready"})
     {:ok, _} = Conversations.update_conversation(first, %{status: "idle"})
     {:ok, _} = Agents.update_agent(ctx.agent, %{"runtime" => "opencode"})
     stub(Managoat.Sandbox.Sprites, :get, fn _handle -> {:error, :not_found} end)
@@ -162,10 +162,10 @@ defmodule Fountain.Conversations.SandboxModeTest do
     # and the launch lands on the existing home instead.
     {:ok, first} = launch(ctx)
     home = Conversations._unsafe_get_sandbox!(first.sandbox_id)
-    {:ok, _} = Conversations.update_sandbox(home, %{status: "ready"})
+    {:ok, _} = update_sandbox(home, %{status: "ready"})
 
     assert {:error, changeset} =
-             Conversations.create_sandbox(%{
+             Fountain.Machines.Provision.reserve(%{
                user_id: ctx.user.id,
                agent_id: ctx.agent.id,
                environment_id: ctx.env.id,
@@ -196,7 +196,7 @@ defmodule Fountain.Conversations.SandboxModeTest do
   test "a wake onto a fresh sandbox keeps the home a home", ctx do
     {:ok, conv} = launch(ctx)
     old = Conversations._unsafe_get_sandbox!(conv.sandbox_id)
-    {:ok, _} = Conversations.update_sandbox(old, %{status: "ready"})
+    {:ok, _} = update_sandbox(old, %{status: "ready"})
     {:ok, _} = Conversations.update_conversation(conv, %{status: "idle"})
 
     stub(Managoat.Sandbox.Sprites, :get, fn _handle -> {:error, :not_found} end)
@@ -221,7 +221,7 @@ defmodule Fountain.Conversations.SandboxModeTest do
   test "deleting the agent destroys its homes", ctx do
     {:ok, conv} = launch(ctx)
     home = Conversations._unsafe_get_sandbox!(conv.sandbox_id)
-    {:ok, _} = Conversations.update_sandbox(home, %{status: "ready"})
+    {:ok, _} = update_sandbox(home, %{status: "ready"})
     test = self()
     stub(Managoat.Sandbox.Sprites, :destroy, fn _h -> send(test, :destroyed) && :ok end)
 

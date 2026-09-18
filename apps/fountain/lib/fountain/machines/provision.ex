@@ -402,6 +402,24 @@ defmodule Fountain.Machines.Provision do
   end
 
   @doc """
+  Insert the row a provision will build: the reservation.
+
+  Stage 7b found that the reservation needs no stamp of its own — the row is
+  inserted `pending` inside the tenant's quota transaction
+  (`Fountain.Quotas.with_sandbox_reservation/3`), and `pending` already counts
+  against the cap — so the bracket `run/3` opens begins after that commit.
+  This is the insert, moved here from `Conversations.create_sandbox/1` in stage
+  9b so that the owner's namespace is the only code that writes the
+  `sandboxes` row. It runs inside the caller's transaction, as it always did.
+  """
+  @spec reserve(map()) :: {:ok, Sandbox.t()} | {:error, Ecto.Changeset.t()}
+  def reserve(attrs) when is_map(attrs) do
+    %Sandbox{}
+    |> Sandbox.changeset(attrs)
+    |> Repo.insert()
+  end
+
+  @doc """
   How long `run/3` waits for a lease somebody else holds before refusing.
 
   Public so `machine_bounds_test.exs` can pin it against the bounds it sits

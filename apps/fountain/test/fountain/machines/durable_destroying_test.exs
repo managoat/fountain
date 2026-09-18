@@ -33,7 +33,8 @@ defmodule Fountain.Machines.DurableDestroyingTest do
   import ExUnit.CaptureLog
 
   alias Fountain.Conversations
-  alias Fountain.Conversations.{HomeCheckpoint, Lifecycle, Sandbox, Wake}
+  alias Fountain.Conversations.{Lifecycle, Sandbox, Wake}
+  alias Fountain.Machines.HomeCheckpoint
   alias Fountain.Machines.{Binding, Lease, Machine, Provision}
   alias Fountain.Workers.SandboxReaper
 
@@ -531,19 +532,6 @@ defmodule Fountain.Machines.DurableDestroyingTest do
       untouched = row(ctx)
       assert untouched.transition_reason == "terminated"
       assert untouched.updated_at == home.updated_at
-    end
-
-    test "update_sandbox/2 refuses a non-terminal write, as it does behind the column", ctx do
-      destroying(ctx.sandbox)
-
-      assert {:error, :sandbox_reset_pending} =
-               Conversations.update_sandbox(row(ctx), %{status: "suspended"})
-
-      # And the retiring write it is *meant* to end with still lands, which is
-      # the half `do_update_sandbox/2`'s own comment is about: refusing that
-      # one would strand the row with no way to retire it at all.
-      assert {:ok, retired} = Conversations.update_sandbox(row(ctx), %{status: "terminated"})
-      assert retired.status == "terminated"
     end
   end
 

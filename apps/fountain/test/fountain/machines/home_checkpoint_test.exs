@@ -1,4 +1,4 @@
-defmodule Fountain.Conversations.HomeCheckpointTest do
+defmodule Fountain.Machines.HomeCheckpointTest do
   @moduledoc """
   A persistent home is checkpointed when it parks, where the provider can
   (ADR 0023, #1073). The checkpoint is best-effort and machine-scoped: it is
@@ -19,7 +19,8 @@ defmodule Fountain.Conversations.HomeCheckpointTest do
 
   import Ecto.Query
 
-  alias Fountain.Conversations.{HomeCheckpoint, LogEvent}
+  alias Fountain.Conversations.LogEvent
+  alias Fountain.Machines.HomeCheckpoint
   alias Fountain.Machines.Lease
   alias Fountain.Repo
 

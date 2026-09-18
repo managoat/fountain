@@ -317,8 +317,41 @@ defmodule Fountain.Machines.DirectWritesTest do
   # (`Machine.fail_provision/2`, whose population — `pending` and `starting` — is
   # exactly that pass's) instead of writing `failed` through
   # `Conversations.update_sandbox/2`. That was the door's last caller in `lib/`.
-  @row_writes 3
-  @provider_mutations 3
+  #
+  # 3 -> 0 and 3 -> 2: the rest of stage 9b.
+  #
+  #   gone  `conversations.ex`   `update_sandbox/2` and its `Repo.update/1`,
+  #                              with no caller left in `lib/`; it is a test
+  #                              fixture now (`Fountain.Factory.update_sandbox/2`)
+  #   gone  `conversations.ex`   `create_sandbox/1`'s insert, which is the
+  #                              provision's reservation and moved to
+  #                              `Machines.Provision.reserve/1`
+  #   gone  `conversations.ex`   `register_server/2`'s `woken_at` marker, now
+  #                              `Machines.Binding.mark_woken/1` — still
+  #                              written inside the registration door's locked
+  #                              transaction, which decides whether to write it
+  #   gone  `home_checkpoint.ex` the park's checkpoint, with the whole module:
+  #                              it runs under the park's lease, so it is
+  #                              `Fountain.Machines.HomeCheckpoint`
+  #
+  # **Two provider mutations remain, on purpose, and they are the floor.**
+  # Neither is a machine operation an owner could hold a lease across:
+  #
+  #   * `provisioning.ex`'s environment warm-start checkpoint, which
+  #     `Checkpoints.maybe_create_async/2` runs in a detached task after the
+  #     provision, off the lease — holding the lease across an upload would
+  #     answer 503 to every prompt that arrived meanwhile (stage 7b's note
+  #     above). It is off by default (`CHECKPOINT_CREATION_ENABLED`) and cannot
+  #     restore on Sprites (#654).
+  #   * `sandbox_reaper.ex`'s pass 2, the destroy of a machine whose row is
+  #     already terminal. ADR 0058's Decision keeps it in the reaper: it
+  #     concerns machines no owner will ever claim.
+  #
+  # Moving either call into `lib/fountain/machines/` would satisfy this scan
+  # and change nothing about who calls the provider. That is what the scan is
+  # there to stop, so the pin reads 2 and says why.
+  @row_writes 0
+  @provider_mutations 2
 
   @provider_verbs ~w(create_checkpoint create resume suspend destroy)
 
@@ -383,18 +416,12 @@ defmodule Fountain.Machines.DirectWritesTest do
   # found in `machine_bounds_test.exs`. So the shapes are pinned where they
   # are, and a stage that moves one of these writes behind the owner edits
   # this list along with the number.
-  @sandbox_update_all_files ["apps/fountain/lib/fountain/conversations.ex"]
-  @sandbox_write_files [
-    # `create_sandbox/1`'s insert and `do_update_sandbox/2`'s own
-    # `Repo.update/1`.
-    "apps/fountain/lib/fountain/conversations.ex",
-    "apps/fountain/lib/fountain/conversations.ex"
-    # Stage 8b: `sandbox_identity.ex`'s `provider_instance_id` stamp is gone
-    # with the module, and `inference_binding.ex`'s `codex_inference_source`
-    # stamp is `Machines.Binding.bind_inference/2`'s. Stage 9b: the reset fence
-    # (`conversations.ex`) and the teardown fence (`lifecycle.ex`) are
-    # `Machines.Destroy.stamp_intent!/2`'s.
-  ]
+  # Stage 9b took the last one, `register_server/2`'s marker.
+  @sandbox_update_all_files []
+  # Stage 9b took the last two, `create_sandbox/1`'s insert and
+  # `update_sandbox/2`'s update. The two fences before them were stage 9b's
+  # too, and stage 8b took `sandbox_identity.ex` and `inference_binding.ex`.
+  @sandbox_write_files []
 
   test "the widened scan sees the row writes that are not calls to the context" do
     root = Path.expand("../../../../..", __DIR__)

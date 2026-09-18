@@ -38,7 +38,7 @@ defmodule Fountain.Machines.Park do
      so from here until the finalize nothing starts work on this machine; the
      stamp is what makes an *abandoned* park recognisable to the next owner.
   5. **Checkpoint**, where the machine is a home on a provider that can
-     (`Fountain.Conversations.HomeCheckpoint.on_park/2`, ADR 0023, #1073).
+     (`Fountain.Machines.HomeCheckpoint.on_park/2`, ADR 0023, #1073).
      Outside every lock, inside the transition, and best-effort: a failed
      checkpoint is logged and the park goes ahead, because an unparked machine
      keeps billing. Its `provider_meta` write goes through `Lease.cas_update/3`
@@ -147,7 +147,7 @@ defmodule Fountain.Machines.Park do
 
   alias Fountain.Audit
   alias Fountain.Conversations
-  alias Fountain.Conversations.HomeCheckpoint
+  alias Fountain.Machines.HomeCheckpoint
   alias Fountain.Conversations.Lifecycle
   alias Fountain.Conversations.MachineEvents
   alias Fountain.Conversations.Sandbox

@@ -4,9 +4,8 @@ defmodule Fountain.Machines.BindingTest do
   turns the owner ends, the owner-only `machine_gone`, the early takeover of a
   lease whose node is gone, and the deadline a late resume now carries.
 
-  `async: false`: the gate is application environment, the gate-on cases run
-  the protocol inside an owner process that needs the shared sandbox
-  connection, and the race cases use `unboxed_run`.
+  `async: false`: the protocol runs inside an owner process, and the race cases
+  use `unboxed_run`.
 
   **What `reject(&Managoat.Sandbox.destroy/1)` is worth here, and what it is
   not** (round 1). `Destroy.destroy_at_provider/2` rescues a raising adapter
@@ -223,7 +222,7 @@ defmodule Fountain.Machines.BindingTest do
       assert length(conversations(ctx)) == 1
     end
 
-    test "an attach whose caller has given up is refused, not run late (gate on)", ctx do
+    test "an attach whose caller has given up is refused, not run late", ctx do
       # Rule 17, the shape 8a's reviewers found: a park holding the owner past
       # the caller's timeout. The caller is answered 503; the queued attach
       # then reaches the front of the mailbox and, reading its deadline,
@@ -474,7 +473,7 @@ defmodule Fountain.Machines.BindingTest do
       assert Repo.reload!(ctx.sandbox).transition == "destroying"
     end
 
-    test "a detach whose caller has given up is refused, not run late (gate on)", ctx do
+    test "a detach whose caller has given up is refused, not run late", ctx do
       # A fence written for a caller told 503 would close the machine to
       # admission with this server still serving on it.
       test = self()
@@ -518,7 +517,7 @@ defmodule Fountain.Machines.BindingTest do
       assert Repo.reload!(ctx.sandbox).status == "suspended"
     end
 
-    test "a release keeps the machine and runs inline whichever way the gate is set", ctx do
+    test "a release keeps the machine and runs inline on the caller", ctx do
       reject(&Managoat.Sandbox.destroy/1)
 
       assert {:ok, :released} =
@@ -1398,7 +1397,7 @@ defmodule Fountain.Machines.BindingTest do
 
   # ── a late resume ─────────────────────────────────────────────────────────
 
-  describe "ensure_up carries the caller's deadline (gate on)" do
+  describe "ensure_up carries the caller's deadline" do
     test "a resume whose caller has given up is refused, not run late", ctx do
       test = self()
 

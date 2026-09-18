@@ -168,7 +168,7 @@ defmodule Fountain.Conversations.ConversationServerSharedSandboxTest do
 
     test "a home at the ceiling is parked, not destroyed (ADR 0023)" do
       %{a: a, sandbox: sandbox} = shared_machine("claude")
-      {:ok, _} = Conversations.update_sandbox(sandbox, %{mode: "persistent"})
+      {:ok, _} = update_sandbox(sandbox, %{mode: "persistent"})
       stub_happy_sprite()
       reject(&Managoat.Sandbox.Sprites.destroy/1)
       Mimic.stub(Managoat.Sandbox.Sprites, :suspend, fn _h -> :ok end)

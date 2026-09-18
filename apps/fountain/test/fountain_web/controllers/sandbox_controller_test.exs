@@ -84,7 +84,7 @@ defmodule FountainWeb.SandboxControllerTest do
 
     test "is the id and time the park recorded (#1073)", ctx do
       {:ok, _} =
-        Fountain.Conversations.update_sandbox(ctx.sandbox, %{
+        update_sandbox(ctx.sandbox, %{
           mode: "persistent",
           provider_meta: %{"checkpoint_id" => "v3", "checkpoint_at" => "2026-08-24T10:00:00Z"}
         })

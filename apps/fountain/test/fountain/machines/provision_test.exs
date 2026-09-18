@@ -18,8 +18,8 @@ defmodule Fountain.Machines.ProvisionTest do
   `initial_start_failure_test.exs`, `conversations_wake_test.exs` — and this file
   is the protocol on its own.
 
-  `async: false`: the gate is application environment, and the cases that drive
-  it need the shared sandbox connection.
+  `async: false`: the across-connections cases need committed rows and real
+  connections.
   """
 
   use Fountain.DataCase, async: false

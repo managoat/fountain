@@ -175,7 +175,7 @@ defmodule Fountain.Conversations.ConversationServerBrokerTest do
              terminal: terminal
            } do
         configure_broker()
-        {:ok, sandbox} = Conversations.update_sandbox(sandbox, %{status: initial})
+        {:ok, sandbox} = update_sandbox(sandbox, %{status: initial})
         test = self()
 
         stub(Fountain.Broker, :prepare, fn id, secrets, bindings, opts ->
@@ -224,7 +224,7 @@ defmodule Fountain.Conversations.ConversationServerBrokerTest do
             |> Ecto.Changeset.change(transition: "destroying", transition_reason: "reset")
             |> Fountain.Repo.update!()
           else
-            {:ok, retired} = Conversations.update_sandbox(sandbox, %{status: terminal})
+            {:ok, retired} = update_sandbox(sandbox, %{status: terminal})
             retired
           end
 
@@ -261,7 +261,7 @@ defmodule Fountain.Conversations.ConversationServerBrokerTest do
         resumed = DateTime.add(DateTime.utc_now(), -600) |> DateTime.truncate(:second)
 
         {:ok, _} =
-          Conversations.update_sandbox(sandbox, %{
+          update_sandbox(sandbox, %{
             status: unquote(initial),
             last_resumed_at: resumed
           })
@@ -673,7 +673,7 @@ defmodule Fountain.Conversations.ConversationServerBrokerTest do
             |> Ecto.Changeset.change(transition: "destroying", transition_reason: "reset")
             |> Fountain.Repo.update!()
           else
-            {:ok, retired} = Conversations.update_sandbox(sandbox, %{status: terminal})
+            {:ok, retired} = update_sandbox(sandbox, %{status: terminal})
             retired
           end
 

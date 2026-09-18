@@ -19,7 +19,7 @@ defmodule Fountain.ConversationsStartTest do
       user = insert_active_user()
       agent = insert_agent(user_id: user.id)
       sandbox = insert_sandbox(user_id: user.id, machine_name: "parked-wont-wake")
-      {:ok, sandbox} = Conversations.update_sandbox(sandbox, %{status: "suspended"})
+      {:ok, sandbox} = update_sandbox(sandbox, %{status: "suspended"})
       conv = insert_conversation(user_id: user.id, agent: agent, sandbox: sandbox, status: "idle")
 
       stub(Managoat.Sandbox.Sprites, :get, fn _handle ->
@@ -45,7 +45,7 @@ defmodule Fountain.ConversationsStartTest do
       sandbox = insert_sandbox(user_id: user.id, machine_name: "parked-on-e2b")
 
       {:ok, sandbox} =
-        Conversations.update_sandbox(sandbox, %{status: "suspended", provider: "e2b"})
+        update_sandbox(sandbox, %{status: "suspended", provider: "e2b"})
 
       conv = insert_conversation(user_id: user.id, agent: agent, sandbox: sandbox, status: "idle")
 
@@ -309,7 +309,7 @@ defmodule Fountain.ConversationsStartTest do
       assert {:error, _} =
                Launch.start_conversation(%{"agent_id" => agent.id, "user_id" => user.id})
 
-      {:ok, _} = Conversations.update_sandbox(first, %{status: "terminated"})
+      {:ok, _} = update_sandbox(first, %{status: "terminated"})
       stub_server_start(fn _s, _spec -> {:ok, spawn(fn -> :ok end)} end)
 
       assert {:ok, _} =

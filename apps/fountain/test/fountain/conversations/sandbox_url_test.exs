@@ -49,7 +49,7 @@ defmodule Fountain.Conversations.SandboxURLTest do
       sandbox = insert_sandbox(user_id: user.id)
 
       {:ok, updated} =
-        Conversations.update_sandbox(sandbox, %{
+        update_sandbox(sandbox, %{
           provider_meta: Map.put(sandbox.provider_meta || %{}, "public_url", "https://x.example")
         })
 
@@ -74,7 +74,7 @@ defmodule Fountain.Conversations.SandboxURLTest do
       sandbox = insert_sandbox(user_id: user.id)
 
       {:ok, _} =
-        Conversations.update_sandbox(sandbox, %{
+        update_sandbox(sandbox, %{
           provider_meta: %{"public_url" => "https://y.test"}
         })
 

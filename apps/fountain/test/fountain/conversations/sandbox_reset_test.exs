@@ -130,7 +130,7 @@ defmodule Fountain.Conversations.SandboxResetTest do
     assert {:error, :not_found} =
              Conversations.retry_pending_sandbox_reset(%{stale | id: Ecto.UUID.generate()})
 
-    {:ok, _} = Conversations.update_sandbox(ctx.home, %{status: "terminated"})
+    {:ok, _} = update_sandbox(ctx.home, %{status: "terminated"})
     assert {:ok, :skipped} = Conversations.retry_pending_sandbox_reset(stale)
   end
 
@@ -270,10 +270,14 @@ defmodule Fountain.Conversations.SandboxResetTest do
     assert {:error, :sandbox_reset_pending} = Conversations.reset_sandbox(ctx.home)
     assert {:error, :sandbox_reset_pending} = Wake.wake_conversation(ctx.a.id)
 
-    # A write that would keep the machine alive is refused. A write that
+    # A write that would keep the machine alive is refused: a park, which is the
+    # owner's, since stage 9b left no other writer of a status. A write that
     # retires it is not, and is covered in the describe block below.
-    assert {:error, :sandbox_reset_pending} =
-             Conversations.update_sandbox(ctx.home, %{status: "suspended"})
+    assert {:error, :fenced} =
+             Fountain.Machines.Machine.park(ctx.home.id,
+               actor: "system:sandbox_reaper",
+               reason: :idle
+             )
 
     Repo.update_all(from(s in Conversations.Sandbox, where: s.id == ^ctx.home.id),
       set: [updated_at: DateTime.add(DateTime.utc_now(), -172_800, :second)]
@@ -306,7 +310,7 @@ defmodule Fountain.Conversations.SandboxResetTest do
     end
 
     test "a server that gives up can still mark the machine failed", ctx do
-      assert {:ok, failed} = Conversations.update_sandbox(ctx.home, %{status: "failed"})
+      assert {:ok, failed} = update_sandbox(ctx.home, %{status: "failed"})
       assert failed.status == "failed"
       assert Fountain.Quotas.active_sandbox_count(ctx.user.id) == 0
     end
@@ -318,7 +322,7 @@ defmodule Fountain.Conversations.SandboxResetTest do
       # checkpoint, which is before anything is written. Since ADR 0058 stage
       # 6b the park protocol refuses such a row before it even gets here, and
       # this keeps the checkpoint's own half of the rule under test.
-      assert :skipped = Fountain.Conversations.HomeCheckpoint.on_park(Repo.reload!(ctx.home), 1)
+      assert :skipped = Fountain.Machines.HomeCheckpoint.on_park(Repo.reload!(ctx.home), 1)
       assert :ok = Fountain.Conversations.Lifecycle.park(ctx.a.id, ctx.home.id, nil, :idle)
 
       held = Repo.reload!(ctx.home)
@@ -331,8 +335,11 @@ defmodule Fountain.Conversations.SandboxResetTest do
       assert {:error, :sandbox_reset_pending} = Conversations.reset_sandbox(ctx.home)
       assert {:error, :sandbox_reset_pending} = Wake.wake_conversation(ctx.a.id)
 
-      assert {:error, :sandbox_reset_pending} =
-               Conversations.update_sandbox(ctx.home, %{status: "suspended"})
+      assert {:error, :fenced} =
+               Fountain.Machines.Machine.park(ctx.home.id,
+                 actor: "system:sandbox_reaper",
+                 reason: :idle
+               )
 
       assert Repo.reload!(ctx.home).status == "ready"
     end
@@ -380,7 +387,7 @@ defmodule Fountain.Conversations.SandboxResetTest do
   end
 
   test "a parked reset holds capacity even through replacement exclusions", ctx do
-    {:ok, home} = Conversations.update_sandbox(ctx.home, %{status: "suspended"})
+    {:ok, home} = update_sandbox(ctx.home, %{status: "suspended"})
     expect(Managoat.Sandbox.Sprites, :destroy, fn _ -> {:error, :timeout} end)
     assert {:error, :sandbox_reset_pending} = Conversations.reset_sandbox(home)
     assert Fountain.Quotas.active_sandbox_count(ctx.user.id, exclude: home.id) == 1

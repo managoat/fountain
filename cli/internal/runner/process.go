@@ -383,14 +383,14 @@ func execProcessOutput(cmd *exec.Cmd, stderrToStdout bool) ([]byte, error) {
 		cmd.Stderr = writer
 	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	killGroup := func() error {
-		err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	group := execProcessGroup{kill: func() error {
+		err := killExecGroup(cmd.Process.Pid)
 		if errors.Is(err, syscall.ESRCH) {
 			return os.ErrProcessDone
 		}
 		return err
-	}
-	cmd.Cancel = killGroup
+	}}
+	cmd.Cancel = group.cancel
 	if err := cmd.Start(); err != nil {
 		_ = writer.Close()
 		return nil, err
@@ -404,8 +404,12 @@ func execProcessOutput(cmd *exec.Cmd, stderrToStdout bool) ([]byte, error) {
 		_, err := io.Copy(&output, reader)
 		drained <- err
 	}()
-	runErr := cmd.Wait()
-	killErr := killGroup()
+	// Keep the leader unreaped while signaling its group: its PID reserves
+	// the PGID against reuse. Disable every later cancellation callback
+	// under the same lock as final cleanup, before Wait releases that PID.
+	waitErr := waitForExecExit(cmd.Process.Pid)
+	killErr := group.finish(!errors.Is(waitErr, syscall.ECHILD))
+	runErr := errors.Join(cmd.Wait(), waitErr)
 	if killErr != nil && !errors.Is(killErr, os.ErrProcessDone) {
 		runErr = errors.Join(runErr, fmt.Errorf("stop command process group: %w", killErr))
 	}
@@ -424,6 +428,35 @@ func execProcessOutput(cmd *exec.Cmd, stderrToStdout bool) ([]byte, error) {
 		runErr = errors.Join(runErr, exec.ErrWaitDelay)
 	}
 	return output.Bytes(), runErr
+}
+
+// execProcessGroup serializes all group signals with the transition to reaping.
+// Only finish may permit cmd.Wait; after it returns, even a delayed os/exec
+// context watcher can no longer signal the raw numeric process group.
+type execProcessGroup struct {
+	mu     sync.Mutex
+	closed bool
+	kill   func() error
+}
+
+func (g *execProcessGroup) cancel() error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.closed {
+		return os.ErrProcessDone
+	}
+	return g.kill()
+}
+
+func (g *execProcessGroup) finish(stillChild bool) error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.closed = true
+	if !stillChild {
+		// ECHILD means ownership was lost. Never signal an unowned PID.
+		return nil
+	}
+	return g.kill()
 }
 
 // ── sessions ─────────────────────────────────────────────────────────────────

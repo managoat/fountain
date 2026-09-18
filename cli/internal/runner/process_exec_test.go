@@ -2,6 +2,7 @@ package runner
 
 import (
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -64,24 +65,31 @@ func TestExecLifetimeHelper(t *testing.T) {
 		time.Sleep(time.Millisecond)
 	}
 	fmt.Println("ready")
-	if mode == "timeout" {
+	if mode == "stopped" {
+		_ = syscall.Kill(os.Getpid(), syscall.SIGSTOP)
+	}
+	if mode == "timeout" || mode == "stopped" {
 		_ = child.Wait()
 	}
 	os.Exit(0)
 }
 
 func TestExecStopsProcessGroup(t *testing.T) {
-	for _, mode := range []string{"timeout", "success"} {
+	for _, mode := range []string{"timeout", "success", "stopped"} {
 		for _, redirect := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/redirect=%v", mode, redirect), func(t *testing.T) {
 				d, rec, req, directory := execLifetimeRequest(t, mode, redirect)
 				started := time.Now()
 				result := do(t, d, req, rec)
-				if elapsed := time.Since(started); elapsed > 2*time.Second {
+				elapsed := time.Since(started)
+				if elapsed > 2*time.Second {
 					t.Fatalf("exec took %s after a 500ms deadline", elapsed)
 				}
+				if mode == "stopped" && elapsed < 450*time.Millisecond {
+					t.Fatalf("stopped leader was treated as exited after %s", elapsed)
+				}
 				wantCode := 0
-				if mode == "timeout" {
+				if mode != "success" {
 					wantCode = 137 // Preserve the existing killed-process exit code.
 				}
 				if result["code"] != wantCode {
@@ -203,4 +211,83 @@ func execLifetimeChildStopped(pid int) bool {
 		}
 	}
 	return false
+}
+
+// A non-reaping wait must leave the child available for repeated observation
+// and the final os/exec Wait. This pins the identity used by group signals.
+func TestExecWaitKeepsLeaderUnreaped(t *testing.T) {
+	cmd := exec.Command("sh", "-c", "exit 7")
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if cmd.ProcessState == nil {
+			_ = cmd.Process.Kill()
+			_ = cmd.Wait()
+		}
+	})
+	for i := 0; i < 2; i++ {
+		if err := waitForExecExit(cmd.Process.Pid); err != nil {
+			t.Fatalf("non-reaping wait %d: %v", i, err)
+		}
+	}
+	var exitErr *exec.ExitError
+	if err := cmd.Wait(); !errors.As(err, &exitErr) || exitErr.ExitCode() != 7 {
+		t.Fatalf("final wait lost the child's exit status: %v", err)
+	}
+}
+
+func TestExecProcessGroupFencesCancellationBeforeReaping(t *testing.T) {
+	entered, release := make(chan struct{}), make(chan struct{})
+	calls := 0
+	group := execProcessGroup{kill: func() error {
+		calls++
+		if calls == 1 {
+			close(entered)
+		}
+		<-release
+		return nil
+	}}
+	cancelled := make(chan error, 1)
+	go func() { cancelled <- group.cancel() }()
+	<-entered
+	finished := make(chan error, 1)
+	go func() { finished <- group.finish(true) }()
+	select {
+	case <-finished:
+		t.Fatal("reaping became possible while cancellation was still signaling")
+	case <-time.After(20 * time.Millisecond):
+	}
+	close(release)
+	if err := <-cancelled; err != nil {
+		t.Fatal(err)
+	}
+	if err := <-finished; err != nil {
+		t.Fatal(err)
+	}
+	if calls != 2 {
+		t.Fatalf("group signals = %d, want cancellation and final cleanup", calls)
+	}
+	// cmd.Wait may now reap and the numeric PGID may be reused. A context
+	// callback delayed until this point must not touch it.
+	if err := group.cancel(); !errors.Is(err, os.ErrProcessDone) {
+		t.Fatalf("late cancellation = %v", err)
+	}
+	if calls != 2 {
+		t.Fatal("late cancellation signaled after reaping was permitted")
+	}
+}
+
+func TestExecProcessGroupDoesNotSignalLostChild(t *testing.T) {
+	group := execProcessGroup{kill: func() error {
+		t.Fatal("signaled a PID whose child ownership was lost")
+		return nil
+	}}
+	if err := group.finish(false); err != nil {
+		t.Fatal(err)
+	}
+	if err := group.cancel(); !errors.Is(err, os.ErrProcessDone) {
+		t.Fatalf("cancellation after lost ownership = %v", err)
+	}
 }

@@ -137,6 +137,13 @@ the original bounded Fountain wave. #2402 should remain open until the
 original failure is sufficiently attributed and the remediation is verified.
 No upstream report has been posted by this investigation.
 
+[The prepared upstream report](upstream-report.md) contains a sanitized
+reproduction, exact native stack, missing environment details and candidate
+validation plan. It is ready for review and submission to Node/Sprites
+maintainers; preparing the draft did not submit it. A local offline Linux
+smoke run verifies the diagnostic CLI, but does not validate a remedy for the
+affected Sprites guest.
+
 Private artifacts are under `work/2402-investigation/` in the issue worktree:
 the fixture manifest, deployment snapshot, per-conversation events/turns,
 version and resource snapshots, process samples, individual probe JSONL files,

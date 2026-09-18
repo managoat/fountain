@@ -1353,11 +1353,15 @@ defmodule Fountain.Conversations.ConversationServer do
            sandbox_id: state.sandbox_id
          ) do
       {:ok, ended} ->
-        Output.publish_stage(state.conversation_id, "turn", "done", %{
-          turn_id: ended.id,
-          turn_number: ended.turn_number,
-          exit_code: code
-        })
+        Output.publish_stage(
+          state.conversation_id,
+          "turn",
+          "done",
+          Map.merge(
+            %{turn_id: ended.id, turn_number: ended.turn_number},
+            TurnLaunch.exit_meta(code)
+          )
+        )
 
         TurnMachine.end_span(
           state.current_turn_span,

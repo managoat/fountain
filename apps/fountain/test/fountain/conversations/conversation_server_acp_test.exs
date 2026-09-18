@@ -1074,6 +1074,13 @@ defmodule Fountain.Conversations.ConversationServerACPTest do
       _ = :sys.get_state(pid)
     end
 
+    defp turn_done(conv_id) do
+      conv_id
+      |> Conversations._unsafe_list_log_events()
+      |> Enum.filter(&(&1.kind == "stage" and &1.stage == "turn" and &1.state == "done"))
+      |> Enum.map(&Jason.decode!(&1.data))
+    end
+
     defp restarted_events(conv_id) do
       conv_id
       |> Conversations._unsafe_list_log_events()
@@ -1119,6 +1126,8 @@ defmodule Fountain.Conversations.ConversationServerACPTest do
       assert [%{status: "failed", exit_code: 139}] = Conversations._unsafe_list_turns(conv.id)
       assert Conversations._unsafe_get_conversation!(conv.id).status == "idle"
       assert length(restarted_events(conv.id)) == 1
+      # The terminal stage says the process died rather than leaving a bare 139.
+      assert [%{"exit_code" => 139, "signal" => "SIGSEGV"}] = turn_done(conv.id)
     end
 
     test "a crash after the adapter answered is not relaunched", %{
@@ -1171,6 +1180,9 @@ defmodule Fountain.Conversations.ConversationServerACPTest do
         code = unquote(code)
         assert [%{status: "failed", exit_code: ^code}] = Conversations._unsafe_list_turns(conv.id)
         assert restarted_events(conv.id) == []
+        # SIGKILL came from outside the process; only native crashes are named.
+        assert [%{"exit_code" => ^code} = done] = turn_done(conv.id)
+        refute Map.has_key?(done, "signal")
       end
     end
 

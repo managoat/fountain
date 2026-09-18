@@ -35,6 +35,26 @@ a persistent sandbox. Fountain destroys the machine and keeps the
 conversations, and the next prompt builds a clean machine. Read
 [Sandboxes](../api.md#sandboxes).
 
+## The agent runtime crashed
+
+A turn that ends with `exit_code` 132 to 136 or 139 means the runtime process
+died. It did not exit with an error of its own. The `turn` stage event names
+the signal next to the code:
+
+```
+exit_code=139 signal=SIGSEGV
+```
+
+A crash can happen while the runtime starts, before it writes any output. In
+that case Fountain starts the runtime once more on the same turn, and records a
+`session` stage event with `reason: "adapter_crashed"`. Your prompt was not
+sent before the crash, so the retry does not run it twice. A second crash
+fails the turn. A crash after the runtime has started to answer also fails the
+turn, because the prompt may already have run.
+
+Send the prompt again. If the same turn crashes again and again, report it
+with the conversation ID. A turn that has execution limits is not retried.
+
 ## The provider refused the model
 
 A turn fails when the model provider refuses the agent's model. Fountain

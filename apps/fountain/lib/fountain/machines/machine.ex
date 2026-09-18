@@ -392,8 +392,9 @@ defmodule Fountain.Machines.Machine do
   review). It was, in the first draft of this function, and it was wrong. A
   `transition` with no live lease is not an owner working — it is an owner that
   *died* mid-operation, and nothing resolves that row until a sweep gives up on
-  it: `SandboxReaper.sweep_fenced_teardowns/0` on the hourly cron, or
-  `SandboxResetReconciler` every five minutes. Treating it as busy meant every
+  it: `SandboxReaper.sweep_fenced_teardowns/0`, then on the hourly cron, or
+  `SandboxResetReconciler` every five minutes (stage 9b made the first the
+  only one, every five minutes). Treating it as busy meant every
   wake and attach onto an abandoned destroy answered 503 for between 16 and 75
   minutes, where `main` probed the provider, found the machine gone and handed
   the caller a fresh one immediately; a team schedule gave up inside that window

@@ -132,8 +132,8 @@ defmodule Fountain.Machines.Lease do
   already drifted — the SQL pair tested `lease_until` alone where `claim/4`
   decides on the holder columns too. They are now one function:
   `Workers.SandboxReaper.sweep_fenced_teardowns/0` (5a),
-  `Workers.SandboxResetReconciler`'s sweep and
-  `Conversations.retry_pending_sandbox_reset/2` (5c), and — new in 6a — the
+  `Workers.SandboxResetReconciler`'s sweep (folded into the former in stage 9b)
+  and `Conversations.retry_pending_sandbox_reset/2` (5c), and — new in 6a — the
   three readers that refuse a wake, an attach or a rehydrate onto a machine
   mid-operation, through `Machines.Machine.busy?/2`. They read the columns;
   they never write one.
@@ -247,9 +247,9 @@ defmodule Fountain.Machines.Lease do
   # `%{lease_until: nil}` in turn, so a map *missing* `:lease_node` fell through
   # to the deadline clause and read as held on the deadline alone — the exact
   # drift this function was written to remove, back as a map-shape hazard, and
-  # reachable: `SandboxResetReconciler`'s sweep hand-writes its `select` map, so
-  # a `select` that forgot the holder would have called every fenced row held
-  # with every test still green.
+  # reachable: `SandboxResetReconciler`'s sweep (deleted in stage 9b)
+  # hand-wrote its `select` map, so a `select` that forgot the holder would have
+  # called every fenced row held with every test still green.
   def live?(%{lease_node: _, lease_until: _}, _now), do: false
 
   @doc """

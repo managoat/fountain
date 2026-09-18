@@ -365,17 +365,27 @@ defmodule FountainWeb.Telemetry do
         event_name: [:fountain, :reaper, :run],
         measurement: :refused,
         description:
-          "Reclamations SandboxReaper runs could not complete — expiries, idle " <>
-            "parks and abandoned teardowns alike; the machines are still up"
+          "Reclamations the hourly SandboxReaper run could not complete — " <>
+            "expiries and idle parks; the machines are still up"
       ),
-      # Unlike the three above, a non-zero value here is not routine
-      # reclamation: it counts teardowns that fenced and then died before
-      # their terminal write, so the machine leaked until the reaper found
-      # it. Worth an operator's attention rather than a dashboard line alone.
-      sum("fountain.reaper.run.reconciled",
-        event_name: [:fountain, :reaper, :run],
+      # The five-minute teardown run's two, on its own event since ADR 0058
+      # stage 9b (they were `fountain.reaper.run.reconciled` and part of
+      # `fountain.reaper.run.refused` until then). Unlike the hourly gauges, a
+      # non-zero `reconciled` is not routine reclamation: it counts destroys
+      # that were asked for and then abandoned — a teardown whose caller died,
+      # a reset the provider never confirmed — so the machine leaked until this
+      # run found it. `refused` counts the ones an owner would not take or a
+      # provider would not confirm, which are machines still standing.
+      sum("fountain.reaper.teardowns.reconciled",
+        event_name: [:fountain, :reaper, :teardowns],
         measurement: :reconciled,
-        description: "Abandoned teardown fences finished by SandboxReaper runs"
+        description: "Abandoned destroys (teardowns and resets) finished by SandboxReaper"
+      ),
+      sum("fountain.reaper.teardowns.refused",
+        event_name: [:fountain, :reaper, :teardowns],
+        measurement: :refused,
+        description:
+          "Abandoned destroys SandboxReaper could not finish this run; the machines are still up"
       ),
       # Untracked is a LEVEL, not a delta: every reaper run re-measures the
       # full set of sprites alive at sprites.dev with no sandbox row. As a

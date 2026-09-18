@@ -3213,9 +3213,10 @@ defmodule Fountain.Conversations do
   works, and account deletion still completes. Reaping is the supported way
   out of an unconfirmed reset; it terminates the row and releases the quota
   slot, and whatever the provider did or did not do with the machine is then
-  the operator's to check. Pending resets also get durable deletion retries
-  from `SandboxResetReconciler`; automatic retries retain capacity until the
-  provider confirms deletion.
+  the operator's to check. Pending resets are also retried every five minutes
+  by `SandboxReaper`'s teardown run (`SandboxResetReconciler` until ADR 0058
+  stage 9b); automatic retries retain capacity until the provider confirms
+  deletion.
 
   Two audit rows, not one: `sandbox.reset_requested` when the fence commits,
   and `sandbox.reset` only when the provider confirms the destroy.
@@ -3242,7 +3243,7 @@ defmodule Fountain.Conversations do
   `:sandbox_unavailable`, when another teardown of this machine holds its
   owner's lease. It is the only one answered **after** the fence has committed,
   so it does not mean the reset was refused — the machine is fenced and
-  `SandboxResetReconciler` finishes it. Sending the request again answers
+  `SandboxReaper`'s teardown run finishes it. Sending the request again answers
   `:sandbox_reset_pending`, from the fence this call wrote.
 
   See `create_agent/2` for the rest of `opts` (`:actor`, `:request_ip`).

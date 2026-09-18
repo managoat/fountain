@@ -618,7 +618,7 @@ defmodule Fountain.Machines.DurableDestroyingTest do
 
   # The reset door, stopped at its fence: the provider will not confirm the
   # delete, so the fence and the stamp it wrote stand and the row stays live —
-  # which is the state `SandboxResetReconciler` retries and the one these tests
+  # which is the state `SandboxReaper`'s teardown run retries and the one these tests
   # are about. `destroy_reset_test.exs` builds the same shape the same way.
   defp fence_a_reset(ctx) do
     stub(Managoat.Sandbox.Sprites, :destroy, fn _ -> {:error, {:unavailable, :timeout}} end)

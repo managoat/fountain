@@ -64,8 +64,8 @@ defmodule Fountain.Machines.Destroy do
      `on_provider_error: :refuse` inverts that last rule for the one caller
      whose contract is the opposite. A reset holds its fence — and the
      tenant's capacity — until the provider *confirms* the machine is gone,
-     because the fence is retryable by design (`SandboxResetReconciler`, the
-     admin retry) and writing the row terminal on an unconfirmed delete would
+     because the fence is retryable by design (`SandboxReaper`'s teardown
+     run, the admin retry) and writing the row terminal on an unconfirmed delete would
      release a quota slot and record `sandbox.reset` for a machine that may
      still be running and billing. Such a destroy answers
      `{:error, :provider_unconfirmed}` and writes nothing at all.
@@ -719,7 +719,7 @@ defmodule Fountain.Machines.Destroy do
 
           # The reset: nothing is written, so the fence, the quota slot and the
           # `transition` stamp all stay exactly as they were and the retry that
-          # `SandboxResetReconciler` or the admin panel runs picks the machine
+          # `SandboxReaper`'s teardown run or the admin panel runs picks the machine
           # up where this left it — through the takeover clause above, which is
           # what the stamp is for.
           :refuse ->

@@ -125,7 +125,7 @@ defmodule FountainWeb.SandboxResetControllerTest do
 
     # The fence committed before the machine was ever claimed, and a refusal
     # does not take it back: the machine is closed to admission and
-    # `SandboxResetReconciler` owns it from here. That is the same durable
+    # `SandboxReaper`'s teardown run owns it from here. That is the same durable
     # state an unconfirmed delete leaves, and the reason this is a retryable
     # refusal rather than a failure.
     current = Conversations._unsafe_get_sandbox!(ctx.home.id)

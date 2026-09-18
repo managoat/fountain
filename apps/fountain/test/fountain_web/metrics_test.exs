@@ -95,10 +95,17 @@ defmodule FountainWeb.MetricsTest do
              "untracked is a level, not a delta; as #{inspect(untracked.__struct__)} " <>
                "it accumulates forever instead of tracking the current leak count"
 
-      # released/parked/expired/reconciled are per-run deltas — correct as sums.
-      for measurement <- [:released, :parked, :expired, :reconciled] do
+      # released/parked/expired are per-run deltas — correct as sums.
+      for measurement <- [:released, :parked, :expired] do
         metric = by_name[[:fountain, :reaper, :run, measurement]]
         assert metric, "fountain.reaper.run.#{measurement} is no longer declared"
+        assert metric.__struct__ == Telemetry.Metrics.Sum
+      end
+
+      # And the five-minute teardown run's, on its own event (ADR 0058 stage 9b).
+      for measurement <- [:reconciled, :refused] do
+        metric = by_name[[:fountain, :reaper, :teardowns, measurement]]
+        assert metric, "fountain.reaper.teardowns.#{measurement} is no longer declared"
         assert metric.__struct__ == Telemetry.Metrics.Sum
       end
     end
@@ -172,6 +179,7 @@ defmodule FountainWeb.MetricsTest do
         [:fountain, :sandbox, :reclaimed],
         [:fountain, :sandbox, :suspended],
         [:fountain, :reaper, :run],
+        [:fountain, :reaper, :teardowns],
         [:fountain, :reaper, :untracked],
         # SandboxQueue emits depth after every mutation and completion at each
         # terminal transition; OpsGauges emits the live row counts (#1033).

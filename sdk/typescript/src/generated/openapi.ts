@@ -828,7 +828,7 @@ export interface paths {
         put?: never;
         /**
          * Register an account
-         * @description Creates the account and sends the verification email. The account cannot mint an API key until it is verified, so a headless bootstrap is register → `POST /api/auth/verify` with the emailed token → `POST /api/auth/token`. Rate-limited to 5 per IP per hour. On an instance with open registration disabled this answers 403 with a reason code.
+         * @description Creates the account and sends the verification email. The account cannot mint an API key until it is verified, so a headless bootstrap is register → `POST /api/auth/verify` with the emailed token → `POST /api/auth/token`. Rate-limited to 5 per IP per hour. On an instance with open registration disabled this answers 403 with a reason code; an instance that asks for an access code answers 403 `access_code_required` until `access_code` carries it.
          */
         post: operations["FountainWeb.RegistrationController.api_create"];
         delete?: never;
@@ -4231,6 +4231,8 @@ export interface components {
         };
         /** RegisterRequest */
         RegisterRequest: {
+            /** @description The instance's signup access code. Required only when the operator set one; otherwise ignored. */
+            access_code?: string;
             /** Format: email */
             email: string;
             /** Format: password */

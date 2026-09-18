@@ -2,6 +2,7 @@ defmodule FountainWeb.RegistrationController do
   @moduledoc """
   Handles user registration via:
   - HTML form: GET/POST /auth/register
+  - GitHub:    POST /auth/register/github, when an access code is required
   - JSON API:  POST /api/auth/register
 
   and verification-email resend (#445):
@@ -28,7 +29,7 @@ defmodule FountainWeb.RegistrationController do
 
   plug FountainWeb.Plugs.RateLimit,
        [bucket: "registration", max: 5, window_ms: 3_600_000]
-       when action in [:create, :api_create]
+       when action in [:create, :api_create, :oauth]
 
   plug FountainWeb.Plugs.RateLimit,
        [bucket: "resend_verification", max: 5, window_ms: 3_600_000]
@@ -44,6 +45,7 @@ defmodule FountainWeb.RegistrationController do
   operation(:create, false)
   operation(:resend_form, false)
   operation(:resend, false)
+  operation(:oauth, false)
 
   ## HTML path
 
@@ -78,7 +80,10 @@ defmodule FountainWeb.RegistrationController do
       {:error, reason} when is_atom(reason) ->
         conn
         |> put_status(:forbidden)
-        |> render(:new, errors: %{email: [registration_message(reason)]}, layout: false)
+        |> render(:new,
+          errors: %{error_field(reason) => [registration_message(reason)]},
+          layout: false
+        )
 
       {:error, changeset} ->
         errors = Ecto.Changeset.traverse_errors(changeset, fn {msg, _opts} -> msg end)
@@ -95,7 +100,41 @@ defmodule FountainWeb.RegistrationController do
   defp registration_message(:email_domain_not_allowed),
     do: "That email domain is not permitted on this instance."
 
+  defp registration_message(:access_code_required),
+    do: "Signup on this instance needs a valid access code."
+
   defp registration_message(_), do: "Registration is not available."
+
+  defp error_field(:access_code_required), do: :access_code
+  defp error_field(_), do: :email
+
+  ## HTML — GitHub signup behind an access code
+
+  @doc """
+  The "Sign up with GitHub" button when the instance asks for an access code.
+
+  The code is typed here, but the account is created in the OAuth callback,
+  after a round trip to GitHub. It rides that trip in the session; the
+  callback hands it to `Accounts.upsert_oauth_user/3`, which checks it again.
+  Checking it here as well only saves a wasted trip to GitHub. Shares the
+  registration rate limit, so it is no faster a way to guess the code.
+  """
+  def oauth(conn, params) do
+    code = get_in(params, ["user", "access_code"])
+
+    if Accounts.access_code_valid?(code) do
+      conn
+      |> put_session(:registration_access_code, code)
+      |> redirect(to: ~p"/auth/oauth/github")
+    else
+      conn
+      |> put_status(:forbidden)
+      |> render(:new,
+        errors: %{access_code: [registration_message(:access_code_required)]},
+        layout: false
+      )
+    end
+  end
 
   ## HTML — resend verification
 
@@ -121,7 +160,8 @@ defmodule FountainWeb.RegistrationController do
         "is register → `POST /api/auth/verify` with the emailed token → " <>
         "`POST /api/auth/token`. Rate-limited to 5 per IP per hour. On an " <>
         "instance with open registration disabled this answers 403 with a " <>
-        "reason code.",
+        "reason code; an instance that asks for an access code answers 403 " <>
+        "`access_code_required` until `access_code` carries it.",
     security: [],
     request_body: {"Credentials", "application/json", Schemas.RegisterRequest, required: true},
     responses: [

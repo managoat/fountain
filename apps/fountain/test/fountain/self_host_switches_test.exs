@@ -29,7 +29,7 @@ defmodule Fountain.SelfHostSwitchesTest do
     "PUBLIC_URL" => "https://fountain.example.com"
   }
 
-  @switch_vars ~w(CREDITS_ENABLED BILLING_ENABLED REGISTRATION_ENABLED REGISTRATION_ALLOWED_EMAIL_DOMAINS STRIPE_WEBHOOK_SECRET EMAIL_DELIVERY FIRST_USER_ADMIN)
+  @switch_vars ~w(CREDITS_ENABLED BILLING_ENABLED REGISTRATION_ENABLED REGISTRATION_ALLOWED_EMAIL_DOMAINS REGISTRATION_ACCESS_CODE STRIPE_WEBHOOK_SECRET EMAIL_DELIVERY FIRST_USER_ADMIN)
 
   defp read_prod_config(extra) do
     previous = System.get_env()
@@ -132,6 +132,18 @@ defmodule Fountain.SelfHostSwitchesTest do
       assert read_prod_config(%{"REGISTRATION_ALLOWED_EMAIL_DOMAINS" => ""})[:fountain][
                :registration_allowed_email_domains
              ] == []
+    end
+
+    test "REGISTRATION_ACCESS_CODE is trimmed, and blank means no code" do
+      assert read_prod_config(%{"REGISTRATION_ACCESS_CODE" => " trythegoat\n"})[:fountain][
+               :registration_access_code
+             ] == "trythegoat"
+
+      assert read_prod_config(%{})[:fountain][:registration_access_code] == nil
+
+      assert read_prod_config(%{"REGISTRATION_ACCESS_CODE" => "  "})[:fountain][
+               :registration_access_code
+             ] == nil
     end
 
     test "EMAIL_DELIVERY=none turns :email_enabled off (ADR 0011)" do
@@ -255,6 +267,74 @@ defmodule Fountain.SelfHostSwitchesTest do
       with_env([registration_allowed_email_domains: ["example.com"]], fn ->
         assert {:error, :email_domain_not_allowed} = Accounts.registration_allowed?("no-at-sign")
         assert {:error, :email_domain_not_allowed} = Accounts.registration_allowed?(nil)
+      end)
+    end
+  end
+
+  describe "REGISTRATION_ACCESS_CODE" do
+    test "no configured code asks for none" do
+      refute Accounts.access_code_required?()
+      assert :ok = Accounts.registration_allowed?("someone@example.com")
+    end
+
+    test "a configured code refuses a missing or wrong one" do
+      with_env([registration_access_code: "trythegoat"], fn ->
+        assert Accounts.access_code_required?()
+
+        for code <- [nil, "", "trythegoats", "TRYTHEGOAT"] do
+          assert {:error, :access_code_required} =
+                   Accounts.registration_allowed?("someone@example.com", code)
+        end
+
+        assert {:error, :access_code_required} =
+                 Accounts.register_user(%{
+                   "email" => "nocode@example.com",
+                   "password" => "password123"
+                 })
+
+        refute Accounts.get_user_by_email("nocode@example.com")
+      end)
+    end
+
+    test "the right code, pasted with whitespace, opens registration" do
+      with_env([registration_access_code: "trythegoat"], fn ->
+        assert :ok = Accounts.registration_allowed?("someone@example.com", " trythegoat ")
+
+        assert {:ok, _user} =
+                 Accounts.register_user(%{
+                   "email" => "coded@example.com",
+                   "password" => "password123",
+                   "access_code" => "trythegoat"
+                 })
+      end)
+    end
+
+    test "a closed instance stays closed whatever the code" do
+      with_env([registration_enabled: false, registration_access_code: "trythegoat"], fn ->
+        assert {:error, :registration_closed} =
+                 Accounts.registration_allowed?("someone@example.com", "trythegoat")
+      end)
+    end
+
+    test "a new OAuth identity needs the code; a returning one does not" do
+      user = insert_verified_user()
+      uid = "gh-#{System.unique_integer([:positive])}"
+      {:ok, _, :existing} = Accounts.upsert_oauth_user("github", uid, %{"email" => user.email})
+
+      with_env([registration_access_code: "trythegoat"], fn ->
+        new_uid = "gh-#{System.unique_integer([:positive])}"
+
+        assert {:error, :access_code_required} =
+                 Accounts.upsert_oauth_user("github", new_uid, %{"email" => "gh-new@example.com"})
+
+        assert {:ok, _, :new} =
+                 Accounts.upsert_oauth_user("github", new_uid, %{
+                   "email" => "gh-new@example.com",
+                   "access_code" => "trythegoat"
+                 })
+
+        assert {:ok, _user, :existing} =
+                 Accounts.upsert_oauth_user("github", uid, %{"email" => user.email})
       end)
     end
   end

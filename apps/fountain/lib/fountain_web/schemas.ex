@@ -4260,7 +4260,13 @@ defmodule FountainWeb.Schemas do
       type: :object,
       properties: %{
         email: %Schema{type: :string, format: :email},
-        password: %Schema{type: :string, format: :password}
+        password: %Schema{type: :string, format: :password},
+        access_code: %Schema{
+          type: :string,
+          description:
+            "The instance's signup access code. Required only when the " <>
+              "operator set one; otherwise ignored."
+        }
       },
       required: [:email, :password]
     })

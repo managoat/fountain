@@ -55,8 +55,8 @@ defmodule Fountain.Accounts do
   callback for an unrecognised identity. A control that only covers the form is
   not a control.
   """
-  @spec registration_allowed?(String.t() | nil) :: :ok | {:error, atom()}
-  def registration_allowed?(email) do
+  @spec registration_allowed?(String.t() | nil, String.t() | nil) :: :ok | {:error, atom()}
+  def registration_allowed?(email, access_code \\ nil) do
     cond do
       not registration_enabled?() ->
         {:error, :registration_closed}
@@ -64,8 +64,39 @@ defmodule Fountain.Accounts do
       not domain_allowed?(email) ->
         {:error, :email_domain_not_allowed}
 
+      not access_code_valid?(access_code) ->
+        {:error, :access_code_required}
+
       true ->
         :ok
+    end
+  end
+
+  @doc """
+  Whether signup on this instance asks for an access code
+  (`REGISTRATION_ACCESS_CODE`), so a form knows to show the field.
+  """
+  @spec access_code_required?() :: boolean()
+  def access_code_required?, do: configured_access_code() != nil
+
+  @doc """
+  Whether `code` opens registration. Always true when no code is configured.
+
+  Surrounding whitespace is ignored: a code is typed or pasted by hand.
+  """
+  @spec access_code_valid?(String.t() | nil) :: boolean()
+  def access_code_valid?(code) do
+    case configured_access_code() do
+      nil -> true
+      expected when is_binary(code) -> Plug.Crypto.secure_compare(String.trim(code), expected)
+      _ -> false
+    end
+  end
+
+  defp configured_access_code do
+    case Application.get_env(:fountain, :registration_access_code) do
+      code when is_binary(code) and code != "" -> code
+      _ -> nil
     end
   end
 
@@ -100,7 +131,8 @@ defmodule Fountain.Accounts do
   generated DEK with the platform master key.
 
   Returns `{:ok, user}`, `{:error, changeset}`, or `{:error, reason}` when
-  registration is closed or the email domain is not allowed.
+  registration is closed, the email domain is not allowed, or the instance
+  asks for an access code (`"access_code"` in `attrs`) that was not given.
 
   Audited as `account.registered`. Recorded here rather than in the two
   controllers because `POST /api/auth/register` sits on `:api_public`, which
@@ -114,7 +146,7 @@ defmodule Fountain.Accounts do
   def register_user(attrs, opts \\ []) do
     email = attrs["email"] || attrs[:email]
 
-    with :ok <- registration_allowed?(email) do
+    with :ok <- registration_allowed?(email, attrs["access_code"] || attrs[:access_code]) do
       # Outside `do_register_user/1`, whose body is a transaction: a failed
       # audit insert inside one aborts the enclosing transaction, so recording
       # in there could roll back the very registration it is describing.
@@ -556,6 +588,10 @@ defmodule Fountain.Accounts do
   For existing users: upserts the `OauthIdentity` row (safe to call on
   every login).
 
+  A brand-new identity passes the same registration gate as the forms;
+  `attrs` may carry the `"access_code"` the person entered before leaving for
+  the provider. A returning or linked identity never needs one.
+
   Returns `{:ok, user, :new | :existing}` or `{:error, changeset}`.
   """
   # The error can also be a registration_allowed?/1 atom: a brand-new OAuth
@@ -564,7 +600,11 @@ defmodule Fountain.Accounts do
   # that handles them as unreachable — it is not.
   @spec upsert_oauth_user(String.t(), String.t(), map()) ::
           {:ok, User.t(), :new | :existing}
-          | {:error, Ecto.Changeset.t() | :registration_closed | :email_domain_not_allowed}
+          | {:error,
+             Ecto.Changeset.t()
+             | :registration_closed
+             | :email_domain_not_allowed
+             | :access_code_required}
   def upsert_oauth_user(provider, provider_uid, attrs)
       when is_binary(provider) and is_binary(provider_uid) do
     Repo.transaction(fn ->
@@ -591,7 +631,7 @@ defmodule Fountain.Accounts do
             nil ->
               # Brand-new user from OAuth — a registration like any other, and
               # the path most likely to be forgotten by a controller-level gate.
-              case registration_allowed?(email) do
+              case registration_allowed?(email, attrs[:access_code] || attrs["access_code"]) do
                 :ok -> :ok
                 {:error, reason} -> Repo.rollback(reason)
               end

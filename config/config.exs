@@ -130,6 +130,7 @@ config :fountain,
   credits_enabled: true,
   registration_enabled: true,
   registration_allowed_email_domains: [],
+  registration_access_code: nil,
   # Whether the marketing site (managoat/site) fronts this deployment, so the
   # public chrome links its pages. False everywhere but the hosted deployment,
   # which opts in with MARKETING_SITE (runtime.exs); config/test.exs pins it

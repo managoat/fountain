@@ -68,7 +68,11 @@ defmodule FountainWeb.UeberauthController do
   end
 
   defp do_callback(conn, provider, provider_uid, email) do
-    attrs = %{"email" => email}
+    # Put there by RegistrationController.oauth/2 when the instance asks for
+    # an access code. Taken now, so it is spent whatever the outcome.
+    access_code = get_session(conn, :registration_access_code)
+    conn = delete_session(conn, :registration_access_code)
+    attrs = %{"email" => email, "access_code" => access_code}
 
     case Fountain.Accounts.upsert_oauth_user(provider, provider_uid, attrs) do
       {:ok, user, :new} ->
@@ -125,6 +129,14 @@ defmodule FountainWeb.UeberauthController do
           |> put_session(:session_version, user.session_version)
           |> redirect(to: path)
         end
+
+      {:error, :access_code_required} ->
+        conn
+        |> put_flash(
+          :error,
+          "Signup on this instance needs an access code. Enter it here, then continue with GitHub."
+        )
+        |> redirect(to: ~p"/auth/register")
 
       {:error, reason} when reason in [:registration_closed, :email_domain_not_allowed] ->
         conn

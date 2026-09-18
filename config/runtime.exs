@@ -602,6 +602,15 @@ allowed_signup_domains =
 
 config :fountain, :registration_allowed_email_domains, allowed_signup_domains
 
+# A shared code every signup must present, on the form, the JSON endpoint and
+# a first GitHub sign-in alike. Unset or blank leaves signup open.
+config :fountain,
+       :registration_access_code,
+       (case System.get_env("REGISTRATION_ACCESS_CODE") do
+          nil -> nil
+          code -> if String.trim(code) == "", do: nil, else: String.trim(code)
+        end)
+
 # Self-host first-admin bootstrap (ADR 0011): the first account to become
 # verified on an instance with no admin is promoted to admin, so standing up
 # an instance needs no release-task shenanigans. Opt-in: on a multi-tenant

@@ -52,6 +52,8 @@ jobs:
       # publish, as a record of which commit produced which version. The tag is
       # an output of a release, never the input that causes one.
       contents: write
+      # Read prior attempts to prove which source actually uploaded a release.
+      actions: read
       # What lets the runner mint an OIDC token for npm to verify. Without it
       # `npm publish` looks for a token instead and fails.
       id-token: write
@@ -151,6 +153,7 @@ jobs:
       # A rerun can finish an interrupted tag write without uploading twice.
       - name: Record the release as a tag
         env:
+          GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.release.outputs.version }}
           NEEDED: ${{ steps.release.outputs.needed }}
         run: |

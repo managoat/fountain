@@ -33,6 +33,8 @@ jobs:
       # Write access is used only to record a successful publication as an
       # sdk-elixir-v* tag. Hex receives the dedicated key below.
       contents: write
+      # Read prior attempts to prove which source actually uploaded a release.
+      actions: read
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
@@ -109,6 +111,7 @@ jobs:
       # A rerun can finish an interrupted tag write without uploading twice.
       - name: Record the release as a tag
         env:
+          GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.release.outputs.version }}
           NEEDED: ${{ steps.release.outputs.needed }}
         run: |

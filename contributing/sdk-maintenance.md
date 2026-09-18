@@ -59,12 +59,19 @@ not the supported publication path.
 
 Registry publishers check the exact version first and skip an already published
 version. After a successful upload they record its language-qualified source tag.
-If uploading succeeds but recording the tag fails, rerunning must not republish:
-rerun the original version-bump workflow run. Its tag step repairs the missing
-tag at that run's original source commit, after the registry check skips upload.
-A later docs push or a fresh dispatch cannot backfill a tag for an older artifact. Never tag the latest `main` as a guess,
-move a published tag, or delete a registry version to make a retry work. A missing
-tag is a release incident; the registry remains authoritative for availability.
+If uploading succeeds but recording the tag fails, rerun the workflow run that
+actually uploaded it. This may be a later docs/source commit if the version-bump
+run failed before upload. After the registry check skips upload, recovery reads
+that run's earlier attempts through the Actions API, verifies the repository,
+workflow, source SHA and completed publisher job, and requires a successful
+`Publish` step. The job token has `actions: read` for this check.
+
+A version bump or retry count alone never proves artifact provenance. A skipped
+or failed upload, unavailable API or expired run history leaves the tag absent
+and fails recovery; investigate the registry provenance instead of guessing. A
+fresh dispatch does not backfill older artifacts. Never move a published tag or
+delete a registry version to make a retry work. A missing tag is a release
+incident; the registry remains authoritative for availability.
 
 Swift publication itself is the immutable tag. A retry that finds the tag skips
 publication and reruns a remote consumer against that same tag, so it also repairs

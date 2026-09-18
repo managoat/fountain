@@ -165,9 +165,12 @@ defmodule Fountain.SandboxFiles do
   def roots(%Sandbox{} = sandbox), do: Enum.uniq([@home, cwd(sandbox)])
 
   @doc """
-  Where a relative path resolves from — the agent's working directory.
+  Where a relative path resolves from — the runtime that shaped this disk.
   """
   @spec cwd(Sandbox.t()) :: String.t()
+  def cwd(%Sandbox{runtime: runtime}) when is_binary(runtime),
+    do: Fountain.RuntimeDispatch.cwd(runtime)
+
   def cwd(%Sandbox{} = sandbox) do
     case with_agent(sandbox) do
       %Sandbox{agent: %{runtime: runtime}} when is_binary(runtime) ->

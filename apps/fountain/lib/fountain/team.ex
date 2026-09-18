@@ -529,7 +529,7 @@ defmodule Fountain.Team do
 
   # The pair a machine for this teammate would be built from once `changes`
   # land. A cleared override falls back to the agent's own environment, which
-  # is what a sandbox row carries and what `_unsafe_find_home/4` looks up by.
+  # is what a sandbox row carries and what `_unsafe_find_home/5` looks up by.
   defp effective_identity(%Conversation{} = conv, %Agents.Agent{} = agent, changes) do
     {Map.get(changes, :environment_id, conv.environment_id) || agent.environment_id,
      Map.get(changes, :vault_id, conv.vault_id)}
@@ -570,7 +570,7 @@ defmodule Fountain.Team do
     if identity == effective_identity(conv, agent, %{}) do
       :ok
     else
-      case Conversations._unsafe_find_home(user_id, agent.id, env_id, vault_id) do
+      case Conversations._unsafe_find_home(user_id, agent.id, env_id, vault_id, conv.runtime) do
         nil -> :ok
         %Sandbox{id: id} when id == conv.sandbox_id -> :ok
         %Sandbox{} -> {:error, :destination_home_occupied}

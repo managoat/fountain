@@ -667,7 +667,8 @@ defmodule FountainWeb.FallbackController do
       error: "sandbox_runtime_mismatch",
       message:
         "the agent's runtime changed since this sandbox was built and the disk was shaped " <>
-          "by the old one; start a new conversation instead"
+          "by the old one; start a new conversation without sandbox_id for the new runtime, " <>
+          "or reset this agent's computer to rebuild it"
     })
   end
 

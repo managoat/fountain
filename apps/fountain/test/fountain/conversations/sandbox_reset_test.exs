@@ -436,7 +436,15 @@ defmodule Fountain.Conversations.SandboxResetTest do
     assert fresh.mode == "persistent"
     assert fresh.agent_id == ctx.agent.id
 
-    assert %{id: id} = Conversations._unsafe_find_home(ctx.user.id, ctx.agent.id, ctx.env.id, nil)
+    assert %{id: id} =
+             Conversations._unsafe_find_home(
+               ctx.user.id,
+               ctx.agent.id,
+               ctx.env.id,
+               nil,
+               ctx.agent.runtime
+             )
+
     assert id == woken.sandbox_id
     # The co-tenant followed onto the fresh home (#1067).
     assert Conversations._unsafe_get_conversation!(ctx.b.id).sandbox_id == woken.sandbox_id

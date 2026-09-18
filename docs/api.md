@@ -288,7 +288,7 @@ conversation that shared the retired machine, and that names a different
 environment or vault, does not follow the teammate onto the new one. It
 builds a machine from what it names on its own next message.
 
-Fountain keeps one machine for each agent, environment and vault. The row
+Fountain keeps one machine for each agent, environment, vault and runtime. The row
 fails when the agent already has one on the environment and vault the
 teammate moves to. Fountain does not join the teammate to that machine.
 Reset or delete the machine first, then apply again.

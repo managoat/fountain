@@ -234,7 +234,16 @@ defmodule Fountain.Conversations.OrphanedHomeTest do
       # The FK nilify still lands, which is exactly why the row had to be
       # retired first: a live row here would be the no-environment home.
       assert is_nil(retired.environment_id)
-      assert is_nil(Conversations._unsafe_find_home(ctx.user.id, ctx.agent.id, nil, nil))
+
+      assert is_nil(
+               Conversations._unsafe_find_home(
+                 ctx.user.id,
+                 ctx.agent.id,
+                 nil,
+                 nil,
+                 ctx.agent.runtime
+               )
+             )
     end
 
     test "a delete that would collide with an existing no-environment home succeeds", ctx do
@@ -289,7 +298,15 @@ defmodule Fountain.Conversations.OrphanedHomeTest do
 
       # The point of retiring it: a launch that asks for no vault must not
       # land on a disk holding the deleted vault's secrets.
-      assert is_nil(Conversations._unsafe_find_home(ctx.user.id, ctx.agent.id, ctx.env.id, nil))
+      assert is_nil(
+               Conversations._unsafe_find_home(
+                 ctx.user.id,
+                 ctx.agent.id,
+                 ctx.env.id,
+                 nil,
+                 ctx.agent.runtime
+               )
+             )
     end
 
     test "a delete that would collide with an existing no-vault home succeeds", ctx do

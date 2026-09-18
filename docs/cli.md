@@ -427,7 +427,7 @@ conversation that shared the retired computer, and that names a different
 environment or vault, does not follow the teammate. It builds a machine of
 its own from what it names.
 
-Fountain keeps one computer for each agent, environment and vault. It refuses
+Fountain keeps one computer for each agent, environment, vault and runtime. It refuses
 the row when the agent already has a computer on the environment and vault
 you are moving the teammate to. It does not join the teammate to that
 computer. Reset or remove the computer first, then apply again.

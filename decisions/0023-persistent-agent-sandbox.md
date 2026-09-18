@@ -45,6 +45,34 @@ apps), which was opened later the same day and merged first. Line references in
 the survey below were re-checked against `main` on the same date. Anything
 citing "ADR 0021" for a persistent sandbox — #793, #805 — means this file.
 
+**Amended 2026-09-18 — runtime is part of a home's identity (#2379).**
+
+The maintainer selected a separate home per runtime, preserving the old disk.
+The live-home key is now `(user_id, agent_id, environment_id, vault_id, runtime)`.
+A fresh launch snapshots the agent's runtime onto the sandbox; a replacement
+built for an existing conversation uses that conversation's pinned runtime.
+Changing the agent does not rewrite the computer or terminate its conversations.
+Switching back selects the previous runtime's home, subject to ordinary admission
+and capacity checks. Explicit attachment and same-computer team rotation still
+refuse a disk built for a different runtime; starting a new conversation without
+`sandbox_id` selects the appropriate home, and reset remains an explicit way to
+rebuild a disk.
+
+The migration backfills from the newest retained conversation, matching the
+previous attach rule. It never guesses from an agent that may have changed.
+A computer with no retained runtime evidence stays intact with an unknown
+runtime and is not automatically selected as a home. Existing explicit attachment
+continues to use retained conversation evidence when the stored runtime is absent.
+New persistent computers require a runtime, and normal sandbox updates cannot
+change it. A reapply may move the other identity columns but not the runtime.
+
+**Rollout:** quiesce conversation launches and wakes on old replicas before this
+schema/application cutover; old binaries do not include runtime in home lookup.
+Resume those writers only on the new version. Rolling back after multiple runtime
+homes exist for one old identity is refused by the old uniqueness constraint;
+rollback must not silently delete either disk. Runtime-separated homes count
+against the existing sandbox capacity and usage rules.
+
 **Amended 2026-09-11 — a home's identity key moves, through one narrow door.**
 The text below resolves the identity key as fixed, on the grounds that "a
 machine built from one environment is not a machine built from another, and
@@ -75,7 +103,7 @@ Two consequences for the model below. The lifecycle row for "vault or env
 changed" is no longer destroy-the-home unconditionally: a change that leaves
 the build inputs alone is applied in place instead, and the row is corrected.
 And a home's identity is now mutable, so the partial unique index on
-`(user_id, agent_id, environment_id, vault_id)` is load-bearing on update as
+`(user_id, agent_id, environment_id, vault_id, runtime)` is load-bearing on update as
 well as on insert — a reapply onto a triple that already has a home comes back
 as a changeset error on `:home` and rolls back, rather than producing a second
 home for one identity.
@@ -286,9 +314,10 @@ opinion about *where* it runs only as a default.
 
 - `ephemeral` — a sandbox per conversation. Unchanged, and the default.
 - `persistent` — one sandbox per **agent identity**, where the identity is
-  `(agent_id, environment_id, vault_id)`: the same key `find_channel_conversation`
-  already resumes by, for the same reasons (#727: two vaults on one agent are
-  two identities; #783: an environment override is a different baseline). A
+  `(agent_id, environment_id, vault_id, runtime)`. Its agent, environment and vault
+  components match channel resume identity (#727: two vaults on one agent are
+  two identities; #783: an environment override is a different baseline).
+  Runtime separates differently shaped disks (#2379). A
   persistent sandbox is a "home" — the agent's computer.
 
 So agent `foo` may run ephemeral in one conversation and on its home in
@@ -299,8 +328,8 @@ Which of these a launch does is decided at the door, not baked into the agent.
 Concretely, in the order the pieces depend on each other:
 
 **1. Make the sandbox row findable by identity.** `sandboxes` gains
-`agent_id`, `vault_id`, `mode`, and a partial unique index on
-`(user_id, agent_id, environment_id, vault_id) WHERE mode = 'persistent' AND
+`agent_id`, `vault_id`, `mode`, `runtime`, and a partial unique index on
+`(user_id, agent_id, environment_id, vault_id, runtime) WHERE mode = 'persistent' AND
 status NOT IN ('terminated','failed')`. The row is designed as if it were a
 first-class machine — its identity does not depend on any conversation.
 `start_conversation` takes `sandbox_mode` (launch attr, default
@@ -514,12 +543,12 @@ to show something a conversation-centric view cannot.
   its own change (#936) — a tenant who wants a machine up 24/7 is not
   stopped. The knob stays for operators; when set, a home at the ceiling is
   suspended, never destroyed (step 5).
-- **Identity key.** `(user_id, agent_id, environment_id, vault_id)` stays.
+- **Identity key.** `(user_id, agent_id, environment_id, vault_id, runtime)` stays.
   The disk is materialized from the environment and vault at provision —
   env vars, packages, cloned repos, setup scripts — so a machine built from
   one environment is not a machine built from another, and re-materializing
-  in place is not built. It is also the key channel resume already uses
-  (#727, #783). **Amended 2026-09-11 (#1565):** the key is the same four
+  in place is not built. The agent, environment and vault components also
+  define channel resume identity (#727, #783). **Amended 2026-09-11 (#1565):** the key retains the identity
   columns and still never spans two differently-built disks, but it is no
   longer immutable — a reapply moves it onto the conversation's new selection
   when the build inputs match. See the amendment at the top of this file.

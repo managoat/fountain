@@ -8,6 +8,7 @@ defmodule FountainWeb.OrphanedHomeDoorTest do
 
   alias Fountain.Conversations
   alias Fountain.Environments
+  alias Fountain.Repo
   alias Fountain.Vaults
 
   setup do
@@ -88,6 +89,60 @@ defmodule FountainWeb.OrphanedHomeDoorTest do
       conn = patch_agent(ctx, %{"name" => "renamed"})
 
       assert json_response(conn, 200)["data"]["name"] == "renamed"
+    end
+  end
+
+  describe "persistent home runtime changes" do
+    test "PATCH then repeated POST creates and reuses the new runtime home, preserving the old",
+         ctx do
+      assert ctx |> patch_agent(%{"runtime" => "opencode"}) |> json_response(200)
+
+      attrs = %{"agent_id" => ctx.agent.id, "vault_id" => ctx.vault.id}
+
+      first =
+        ctx
+        |> authed()
+        |> Plug.Conn.put_req_header("content-type", "application/json")
+        |> post("/api/conversations", attrs)
+        |> json_response(201)
+
+      first = Conversations.get_conversation(first["data"]["id"], ctx.user.id)
+      refute first.sandbox_id == ctx.home.id
+      assert first.runtime == "opencode"
+      new_home = Conversations._unsafe_get_sandbox!(first.sandbox_id)
+      assert new_home.runtime == "opencode"
+      {:ok, _} = Conversations.update_sandbox(new_home, %{status: "ready"})
+
+      second =
+        ctx
+        |> authed()
+        |> Plug.Conn.put_req_header("content-type", "application/json")
+        |> post("/api/conversations", attrs)
+        |> json_response(201)
+
+      second = Conversations.get_conversation(second["data"]["id"], ctx.user.id)
+      assert second.sandbox_id == first.sandbox_id
+      assert Repo.reload!(ctx.home).status == "ready"
+      assert Repo.reload!(ctx.conv).sandbox_id == ctx.home.id
+    end
+
+    test "explicit wrong-runtime attachment explains the reset and fresh-launch escape", ctx do
+      assert ctx |> patch_agent(%{"runtime" => "opencode"}) |> json_response(200)
+
+      body =
+        ctx
+        |> authed()
+        |> Plug.Conn.put_req_header("content-type", "application/json")
+        |> post("/api/conversations", %{
+          "agent_id" => ctx.agent.id,
+          "vault_id" => ctx.vault.id,
+          "sandbox_id" => ctx.home.id
+        })
+        |> json_response(422)
+
+      assert body["error"] == "sandbox_runtime_mismatch"
+      assert body["message"] =~ "without sandbox_id"
+      assert body["message"] =~ "reset"
     end
   end
 

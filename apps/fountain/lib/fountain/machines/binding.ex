@@ -354,7 +354,7 @@ defmodule Fountain.Machines.Binding do
 
       # The disk was shaped by the runtime that first ran on it; an agent
       # whose runtime changed since gets a new machine, not this one.
-      newest_runtime(sandbox.id) not in [nil, agent.runtime] ->
+      (sandbox.runtime || newest_runtime(sandbox.id)) not in [nil, agent.runtime] ->
         {:error, :sandbox_runtime_mismatch}
 
       # An owner holds a live lease (stage 6a): a destroy, a reset, a park or

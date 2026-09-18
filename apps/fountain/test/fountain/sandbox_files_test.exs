@@ -114,6 +114,29 @@ defmodule Fountain.SandboxFilesTest do
       assert {:error, :invalid_path} = SandboxFiles.resolve_path(ctx.sandbox, 42)
     end
 
+    test "a preserved home keeps its runtime roots after the agent changes or is removed", ctx do
+      agent = insert_agent(user_id: ctx.user.id, runtime: "gemini")
+
+      sandbox =
+        insert_sandbox(
+          user_id: ctx.user.id,
+          agent_id: agent.id,
+          mode: "persistent",
+          status: "ready"
+        )
+
+      {:ok, _} =
+        Fountain.Agents.update_agent(agent, %{"runtime" => "claude", "model" => ctx.agent.model})
+
+      assert SandboxFiles.cwd(Repo.reload!(sandbox)) == "/tmp/gemini-workspace"
+      assert {:ok, "/tmp/gemini-workspace/a.md"} = SandboxFiles.resolve_path(sandbox, "a.md")
+      assert SandboxFiles.roots(sandbox) == [@home, "/tmp/gemini-workspace"]
+
+      # A retained row can outlive its agent; path resolution still follows its disk.
+      Repo.delete!(agent)
+      assert SandboxFiles.cwd(Repo.reload!(sandbox)) == "/tmp/gemini-workspace"
+    end
+
     test "a gemini sandbox works from its /tmp workspace and may read the home too", ctx do
       agent = insert_agent(user_id: ctx.user.id, runtime: "gemini")
       sandbox = insert_sandbox(user_id: ctx.user.id, status: "ready", agent_id: agent.id)

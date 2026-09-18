@@ -582,6 +582,7 @@ defmodule Fountain.Conversations.Wake do
                  agent_id: conv.agent_id,
                  vault_id: conv.vault_id,
                  mode: mode,
+                 runtime: conv.runtime,
                  machine_name: machine_name,
                  status: "pending",
                  provider: Atom.to_string(provider),

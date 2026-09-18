@@ -48,6 +48,8 @@ defmodule Fountain.Conversations.Sandbox do
     # Trusted control-plane identity; general sandbox attributes cannot set it.
     field :provider_instance_id, :string
     field :mode, :string, default: "ephemeral"
+    # The runtime that shaped this disk, retained independently of transcripts.
+    field :runtime, :string
     field :terminated_at, :utc_datetime
     field :last_resumed_at, :utc_datetime
     # Internal reset fence; retained after completion as operation evidence.
@@ -117,6 +119,7 @@ defmodule Fountain.Conversations.Sandbox do
       :provider,
       :provider_meta,
       :mode,
+      :runtime,
       :terminated_at,
       :last_resumed_at,
       :build_fingerprint,
@@ -128,6 +131,7 @@ defmodule Fountain.Conversations.Sandbox do
     ])
     |> validate_required([:machine_name, :status, :provider, :mode])
     |> validate_owner()
+    |> validate_runtime()
     |> validate_inclusion(:status, @statuses)
     |> validate_inclusion(:mode, @modes)
     |> validate_inclusion(:provider, Fountain.SandboxProviders.known_providers())
@@ -139,8 +143,20 @@ defmodule Fountain.Conversations.Sandbox do
     # lost the race to create it can tell and attach to the winner instead.
     |> unique_constraint(:home,
       name: :sandboxes_home_identity_index,
-      message: "a home for this agent, environment and vault already exists"
+      message: "a home for this agent, environment, vault and runtime already exists"
     )
+  end
+
+  defp validate_runtime(changeset) do
+    if changeset.data.__meta__.state == :built do
+      if get_field(changeset, :mode) == "persistent",
+        do: validate_required(changeset, :runtime),
+        else: changeset
+    else
+      validate_change(changeset, :runtime, fn :runtime, _ ->
+        [runtime: "cannot change the runtime that shaped this disk"]
+      end)
+    end
   end
 
   # Deleting a user nilifies `sandboxes.user_id` (the row is kept for billing

@@ -10,7 +10,6 @@ defmodule Fountain.Conversations.SandboxModeTest do
   alias Fountain.Conversations
   alias Fountain.Conversations.Sandbox
   alias Fountain.Conversations.Launch
-  alias Fountain.Conversations.Lifecycle
   alias Fountain.Conversations.Wake
 
   setup do
@@ -93,6 +92,60 @@ defmodule Fountain.Conversations.SandboxModeTest do
     refute third.sandbox_id in [first.sandbox_id, second.sandbox_id]
   end
 
+  test "changing runtime creates a separate home and switching back reuses the preserved disk",
+       ctx do
+    {:ok, first} = launch(ctx)
+    home = Conversations._unsafe_get_sandbox!(first.sandbox_id)
+    {:ok, _} = Conversations.update_sandbox(home, %{status: "ready"})
+    {:ok, changed} = Agents.update_agent(ctx.agent, %{"runtime" => "opencode"})
+
+    assert {:ok, second} = launch(%{ctx | agent: changed})
+    refute second.sandbox_id == first.sandbox_id
+    assert second.runtime == "opencode"
+    assert Repo.reload!(home).status == "ready"
+    assert Repo.reload!(first).sandbox_id == home.id
+
+    {:ok, _} = Agents.update_agent(changed, %{"runtime" => "claude"})
+    assert {:ok, third} = launch(ctx)
+    assert third.sandbox_id == first.sandbox_id
+  end
+
+  test "runtime identity survives deleting the previous transcripts", ctx do
+    {:ok, first} = launch(ctx)
+    home = Conversations._unsafe_get_sandbox!(first.sandbox_id)
+    {:ok, home} = Conversations.update_sandbox(home, %{status: "ready"})
+    Repo.delete!(first)
+    {:ok, changed} = Agents.update_agent(ctx.agent, %{"runtime" => "opencode"})
+
+    assert {:error, :sandbox_runtime_mismatch} =
+             Launch.start_conversation(%{
+               "agent_id" => changed.id,
+               "user_id" => ctx.user.id,
+               "sandbox_id" => home.id
+             })
+
+    assert {:ok, second} = launch(ctx)
+    refute second.sandbox_id == home.id
+    assert Repo.reload!(home).runtime == "claude"
+    assert {:error, changeset} = Conversations.update_sandbox(home, %{runtime: "opencode"})
+    assert %{runtime: [_]} = errors_on(changeset)
+  end
+
+  test "replacement of a missing home uses the conversation's runtime after the agent changes",
+       ctx do
+    {:ok, first} = launch(ctx)
+    home = Conversations._unsafe_get_sandbox!(first.sandbox_id)
+    {:ok, _} = Conversations.update_sandbox(home, %{status: "ready"})
+    {:ok, _} = Conversations.update_conversation(first, %{status: "idle"})
+    {:ok, _} = Agents.update_agent(ctx.agent, %{"runtime" => "opencode"})
+    stub(Managoat.Sandbox.Sprites, :get, fn _handle -> {:error, :not_found} end)
+
+    assert {:ok, woken} = Wake.wake_conversation(first.id)
+    assert Conversations._unsafe_get_sandbox!(woken.sandbox_id).runtime == "claude"
+    assert {:ok, new_runtime} = launch(ctx)
+    refute new_runtime.sandbox_id == woken.sandbox_id
+  end
+
   test "a launch may ask for the other mode, and an unknown one is refused", ctx do
     assert {:ok, conv} = launch(ctx, %{"sandbox_mode" => "ephemeral"})
     assert Conversations._unsafe_get_sandbox!(conv.sandbox_id).mode == "ephemeral"
@@ -118,6 +171,7 @@ defmodule Fountain.Conversations.SandboxModeTest do
                environment_id: ctx.env.id,
                vault_id: nil,
                mode: "persistent",
+               runtime: ctx.agent.runtime,
                machine_name: "dup",
                status: "pending",
                provider: "sprites"
@@ -152,7 +206,15 @@ defmodule Fountain.Conversations.SandboxModeTest do
     assert Conversations._unsafe_get_sandbox!(woken.sandbox_id).mode == "persistent"
     assert Repo.reload(old).status == "terminated"
     # And the new one is the home now.
-    assert %{id: id} = Conversations._unsafe_find_home(ctx.user.id, ctx.agent.id, ctx.env.id, nil)
+    assert %{id: id} =
+             Conversations._unsafe_find_home(
+               ctx.user.id,
+               ctx.agent.id,
+               ctx.env.id,
+               nil,
+               ctx.agent.runtime
+             )
+
     assert id == woken.sandbox_id
   end
 

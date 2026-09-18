@@ -323,6 +323,11 @@ defmodule Fountain.Factory do
       %{machine_name: "test-sprite-#{uniq()}", status: "pending", user_id: user_id}
       |> Map.merge(overrides_map)
 
+    attrs =
+      if attrs[:mode] == "persistent",
+        do: Map.put_new_lazy(attrs, :runtime, fn -> sandbox_runtime(overrides_map) end),
+        else: attrs
+
     sandbox =
       %Sandbox{}
       |> Sandbox.changeset(attrs)
@@ -337,6 +342,15 @@ defmodule Fountain.Factory do
       at -> sandbox |> Ecto.Changeset.change(inserted_at: at) |> Repo.update!()
     end
   end
+
+  defp sandbox_runtime(%{agent_id: agent_id}) when is_binary(agent_id) do
+    case Repo.get(Fountain.Agents.Agent, agent_id) do
+      nil -> "claude"
+      agent -> agent.runtime
+    end
+  end
+
+  defp sandbox_runtime(_attrs), do: "claude"
 
   def insert_conversation(overrides \\ %{}) do
     overrides_map = to_atom_map(overrides)

@@ -117,6 +117,7 @@ defmodule Fountain.Conversations.Launch do
                agent_id: agent.id,
                vault_id: vault_id,
                mode: mode,
+               runtime: agent.runtime,
                machine_name: machine_name,
                status: "pending",
                provider: Atom.to_string(provider),
@@ -251,7 +252,8 @@ defmodule Fountain.Conversations.Launch do
                    user_id,
                    agent.id,
                    env_id || agent.environment_id,
-                   vault_id
+                   vault_id,
+                   agent.runtime
                  ) do
             attach_conversation(home.id, attrs, opts)
           else
@@ -670,10 +672,10 @@ defmodule Fountain.Conversations.Launch do
   # retry-shortly answer a mid-provision conversation gives.
   defp home_or_new("ephemeral", _user_id, _agent, _env_id, _vault_id), do: :new
 
-  defp home_or_new("persistent", user_id, %Agents.Agent{id: agent_id}, env_id, vault_id) do
+  defp home_or_new("persistent", user_id, %Agents.Agent{} = agent, env_id, vault_id) do
     # ownership: user_id/agent_id come from the scoped get_agent that ran
     # before home_or_new is reached.
-    case Conversations._unsafe_find_home(user_id, agent_id, env_id, vault_id) do
+    case Conversations._unsafe_find_home(user_id, agent.id, env_id, vault_id, agent.runtime) do
       nil -> :new
       %Sandbox{status: s} when s in ["pending", "starting"] -> {:error, :provisioning}
       %Sandbox{} = home -> {:home, home}

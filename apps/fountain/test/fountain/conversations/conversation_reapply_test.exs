@@ -39,6 +39,7 @@ defmodule Fountain.Conversations.ConversationReapplyTest do
         status: "ready",
         mode: "ephemeral",
         agent_id: agent.id,
+        runtime: agent.runtime,
         environment_id: old_env.id,
         vault_id: old_vault.id,
         build_fingerprint: Reapply.fingerprint(old_env)

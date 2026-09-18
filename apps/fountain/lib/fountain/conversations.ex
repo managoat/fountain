@@ -2034,7 +2034,7 @@ defmodule Fountain.Conversations do
   `{id, environment_id, vault_id}`, where the environment is the *effective*
   one a machine would be built from — the conversation's own override, and
   the agent's environment when it has none. That is the pair a sandbox row
-  carries and `_unsafe_find_home/4` looks a home up by.
+  carries and `_unsafe_find_home/5` looks a home up by.
 
   Co-tenants normally share one identity, because attaching to a machine
   requires the same agent, environment and vault. They can diverge afterwards:
@@ -2997,15 +2997,16 @@ defmodule Fountain.Conversations do
 
   @doc """
   The live home of an agent identity — the one persistent sandbox for
-  `(user, agent, environment, vault)` that is not terminated or failed — or
+  `(user, agent, environment, vault, runtime)` that is not terminated or failed — or
   nil. `nil` environment and vault are part of the identity, not wildcards.
   `_unsafe_`: callers have resolved the agent tenant-scoped already.
   """
-  def _unsafe_find_home(user_id, agent_id, env_id, vault_id)
+  def _unsafe_find_home(user_id, agent_id, env_id, vault_id, runtime)
       when is_binary(user_id) and is_binary(agent_id) do
     from(s in Sandbox,
       where:
-        s.user_id == ^user_id and s.agent_id == ^agent_id and s.mode == "persistent" and
+        s.user_id == ^user_id and s.agent_id == ^agent_id and s.runtime == ^runtime and
+          s.mode == "persistent" and
           s.status not in ["terminated", "failed"],
       order_by: [desc: s.inserted_at],
       limit: 1
@@ -3728,7 +3729,7 @@ defmodule Fountain.Conversations do
   # behind the agent's allowlist.
   #
   # Not part of the home identity tuple (ADR 0053 decision 6, and why
-  # `_unsafe_find_home/4` is not given one): two conversations differing only
+  # `_unsafe_find_home/5` is not given one): two conversations differing only
   # in credential set share a machine, because the credential reaches the
   # runtime as process env. InferenceBinding additionally reserves compatible
   # Codex auth state before any shared auth-file write.

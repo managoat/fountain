@@ -133,6 +133,37 @@ defmodule Fountain.Workers.SandboxReaperTest do
       assert 0 = SandboxReaper.release_stuck_sandboxes()
       assert Repo.reload(sandbox).status == "pending"
     end
+
+    test "a row whose owner still holds its lease is left alone" do
+      # Stage 9b: the pass asks the owner (`Machine.fail_provision/2`), which
+      # claims the machine's lease first. A provision that is still renewing its
+      # lease past this pass's cutoff answers `:claimed_elsewhere`, where the bare
+      # write this replaced would have failed the row underneath it.
+      sandbox = insert_sandbox(status: "pending") |> age_sandbox(120)
+      {:ok, _epoch} = Fountain.Machines.Lease.claim(sandbox.id, "builder@node", 60_000)
+
+      capture_log(fn -> assert 0 = SandboxReaper.release_stuck_sandboxes() end)
+
+      assert Repo.reload(sandbox).status == "pending"
+      assert Fountain.Audit.list_for_user(sandbox.user_id, action_prefix: "sandbox.") == []
+    end
+
+    test "a released row is recorded as the owner's failed provision, with the reaper's reason" do
+      sandbox = insert_sandbox(status: "starting") |> age_sandbox(120)
+
+      capture_log(fn -> assert 1 = SandboxReaper.release_stuck_sandboxes() end)
+
+      actions =
+        sandbox.user_id
+        |> Fountain.Audit.list_for_user(action_prefix: "sandbox.")
+        |> Enum.map(&{&1.action, &1.actor})
+        |> Enum.sort()
+
+      assert actions == [
+               {"sandbox.provision_failed", "system:sandbox_reaper"},
+               {"sandbox.released_stuck", "system:sandbox_reaper"}
+             ]
+    end
   end
 
   describe "abandoned ready sandboxes" do

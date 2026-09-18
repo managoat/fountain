@@ -458,8 +458,9 @@ unknown outcome. `DELETE /api/sandbox-queue/{id}` cancels a
 request that still has the `queued` status.
 
 A queued channel resume waits for a later pass if the conversation is busy or
-the provider cannot be reached to wake it. If a prompt call times out, the call
-may still execute later. The request instead ends with `status: "failed"` and
+the provider cannot be reached to wake it. If a prompt call times out or loses
+its connection to the conversation's node, the prompt may have run or may still
+execute later. The request instead ends with `status: "failed"` and
 `error: "prompt_delivery_unknown"`; the queue does not send it again. Inspect
 the linked conversation before deciding to resubmit. This error does not mean
 the prompt was cancelled or that it did not run.

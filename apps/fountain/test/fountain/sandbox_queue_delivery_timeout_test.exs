@@ -70,6 +70,63 @@ defmodule Fountain.SandboxQueueDeliveryTimeoutTest do
     refute_received {:delivered, 2, _, _}
   end
 
+  @tag capture_log: true
+  test "distribution loss after receipt records unknown delivery instead of recovering the claim",
+       ctx do
+    observer = self()
+
+    server =
+      start_supervised!(
+        Supervisor.child_spec(
+          {Task,
+           fn ->
+             {:ok, _} = Horde.Registry.register(Fountain.ConversationRegistry, ctx.conv.id, nil)
+
+             receive do
+               {:"$gen_call", _from, {:send_prompt, prompt, _images, meta}} ->
+                 send(observer, {:delivered, 1, prompt, meta})
+                 Horde.Registry.unregister(Fountain.ConversationRegistry, ctx.conv.id)
+                 # Model the monitor exit from distribution loss after receipt.
+                 # This exercises the real call transport, not a live partition.
+                 exit({:nodedown, :disconnected@fountain})
+             end
+           end},
+          id: :disconnected_server
+        )
+      )
+
+    assert {:ok, ^server} = ConversationServer.await_registered(ctx.conv.id, 2_000)
+
+    assert %{started: 0, failed: 1, expired: 0} = SandboxQueue.drain(ctx.user.id)
+    assert_receive {:delivered, 1, "run once", [client_request_id: "work-1"]}
+    request = Repo.get!(Request, ctx.request.id)
+    assert request.status == "failed"
+    assert request.error == "prompt_delivery_unknown"
+    assert request.conversation_id == ctx.conv.id
+    assert request.attrs == %{}
+
+    successor =
+      start_supervised!(
+        {Task,
+         fn ->
+           {:ok, _} = Horde.Registry.register(Fountain.ConversationRegistry, ctx.conv.id, nil)
+           accept_prompts(observer, 1)
+         end}
+      )
+
+    assert {:ok, ^successor} = ConversationServer.await_registered(ctx.conv.id, 2_000)
+
+    # A disconnected call must not leave an abandoned claim that can replay
+    # the accepted work once the five-minute recovery window elapses.
+    Repo.update_all(from(r in Request, where: r.id == ^request.id),
+      set: [updated_at: DateTime.add(DateTime.utc_now(), -10, :minute)]
+    )
+
+    assert %{started: 0, failed: 0, expired: 0} = SandboxQueue.drain(ctx.user.id)
+    assert GenServer.call(successor, :delivered_count) == 1
+    refute_received {:delivered, 2, _, _}
+  end
+
   test "an explicit provisioning refusal still retries safely", ctx do
     observer = self()
 

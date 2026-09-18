@@ -426,12 +426,13 @@ defmodule Fountain.SandboxQueue do
 
   # A live client sends its prompt separately after a channel resume. A queue
   # replay has no client, so it must deliver before reporting started. Let
-  # definite refusals reach the drain's retry/terminal handling. A timeout
-  # leaves a deliverable call in the mailbox, so record uncertainty and its
+  # definite refusals reach the drain's retry/terminal handling. A timeout or
+  # distribution loss can follow acceptance, so record uncertainty and its
   # conversation for inspection instead of automatically sending it again.
   defp deliver_resumed_prompt(conversation, :resumed, %{"prompt" => prompt} = attrs, opts)
        when is_binary(prompt) and prompt != "" do
-    opts = [timeout_error: :prompt_delivery_unknown] ++ PromptDelivery.from_request(attrs) ++ opts
+    opts =
+      [uncertain_error: :prompt_delivery_unknown] ++ PromptDelivery.from_request(attrs) ++ opts
 
     case ConversationServer.send_prompt(conversation.id, prompt, attrs["images"] || [], opts) do
       {:error, :prompt_delivery_unknown} -> {:error, {:prompt_delivery_unknown, conversation.id}}

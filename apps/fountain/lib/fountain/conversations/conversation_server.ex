@@ -123,27 +123,27 @@ defmodule Fountain.Conversations.ConversationServer do
     result
   end
 
-  # Every public entry point calls through here so a GenServer.call exit
-  # cannot escape to the caller (#412). The realistic exit is :timeout: a
-  # handle_continue(:provision) blocks the mailbox for up to the provision
-  # deadline, so any call issued during provisioning waits 30s and then
-  # *exits* — which none of the seven controller/LiveView call sites caught,
-  # turning prompt/interrupt/terminate into 500s and making
-  # delete_conversation/1 return before its Repo.delete. :noproc and
-  # shutdown-shaped exits are the server dying between whereis and call.
+  # Public entry points contain common GenServer.call exits here (#412).
+  # Provisioning blocks the mailbox; ordinary callers keep :provisioning on
+  # timeout. Queued delivery opts into :prompt_delivery_unknown for timeout
+  # or distribution loss, since either can follow acceptance. Normal process
+  # death returns :not_running; unclassified exits still propagate.
   @doc false
-  def call_server(pid, msg, timeout_error \\ :provisioning) do
-    GenServer.call(
-      pid,
-      msg,
-      Application.get_env(:fountain, :conversation_call_timeout_ms, 30_000)
-    )
+  def call_server(pid, msg, uncertain_error \\ :provisioning) do
+    timeout = Application.get_env(:fountain, :conversation_call_timeout_ms, 30_000)
+    GenServer.call(pid, msg, timeout)
   catch
-    :exit, {:timeout, _} -> {:error, timeout_error}
-    :exit, {:noproc, _} -> {:error, :not_running}
-    :exit, {:normal, _} -> {:error, :not_running}
-    :exit, {:shutdown, _} -> {:error, :not_running}
-    :exit, {{:shutdown, _}, _} -> {:error, :not_running}
+    :exit, {:timeout, _} ->
+      {:error, uncertain_error}
+
+    :exit, {{:nodedown, _}, _} when uncertain_error == :prompt_delivery_unknown ->
+      {:error, uncertain_error}
+
+    :exit, {reason, _} when reason in [:noproc, :normal, :shutdown] ->
+      {:error, :not_running}
+
+    :exit, {{:shutdown, _}, _} ->
+      {:error, :not_running}
   end
 
   @doc """

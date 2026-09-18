@@ -4499,7 +4499,7 @@ export interface components {
             agent_id: string;
             /**
              * Format: uuid
-             * @description The conversation the request started, or the target when a failed request reports prompt_delivery_unknown. Inspect it before resubmitting: a timed-out prompt call can still execute.
+             * @description The conversation the request started, or the target when a failed request reports prompt_delivery_unknown. Inspect it before resubmitting: after a timeout or connection loss, the prompt may have run or may still execute.
              */
             conversation_id?: string | null;
             error?: string | null;

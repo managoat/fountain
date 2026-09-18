@@ -55,9 +55,18 @@ defmodule Fountain.Conversations.TerminationAttachOrderTest do
       winner = independent(first, fn -> operation.(first) end, owner, barrier)
 
       try do
-        # An attachment pauses in the machine's owner, which runs its insert.
+        # The exact process that took the lock. A termination fences on its own
+        # process; an attachment runs its locked insert in the machine's owner.
+        # Either one, not "either process", because the check is how this test
+        # catches a lock that was never taken.
         assert_receive {:locked, winner_pid}, 5_000
-        assert winner_pid in [winner.pid, Machine.whereis(sandbox.id)]
+
+        assert winner_pid ==
+                 if(first == :termination,
+                   do: winner.pid,
+                   else: Machine.whereis(sandbox.id)
+                 )
+
         second = if first == :termination, do: :attachment, else: :termination
         waiter = independent(second, fn -> operation.(second) end, owner, false)
 

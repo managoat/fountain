@@ -40,8 +40,8 @@ defmodule Fountain.Workers.SandboxQueueDrainer do
   Enqueue one job that fans out to every tenant with live requests.
 
   One insert, not one per waiting tenant: the caller is
-  `Conversations.update_sandbox/2`, the choke point every sandbox status
-  change goes through, and the scan that finds those tenants belongs in a job
+  `Conversations.sandbox_status_effects/2`, which every sandbox status change
+  runs after its write (the machine owner's, since ADR 0058), and the scan that finds those tenants belongs in a job
   rather than on the path that wrote the row.
   """
   def poke_all_later do

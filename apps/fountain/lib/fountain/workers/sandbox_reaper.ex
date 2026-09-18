@@ -934,6 +934,9 @@ defmodule Fountain.Workers.SandboxReaper do
         {:ok, _skipped} ->
           :noop
 
+        {:error, :sandbox_unavailable} = refusal ->
+          contended_or_refused(sandbox, refusal)
+
         {:error, reason} ->
           Logger.warning(
             "reaper: abandoned reset of sandbox #{sandbox.id} (#{sandbox.machine_name}) " <>
@@ -988,6 +991,9 @@ defmodule Fountain.Workers.SandboxReaper do
 
         :noop
 
+      {:error, :sandbox_unavailable} = refusal ->
+        contended_or_refused(sandbox, refusal)
+
       {:error, reason} ->
         Logger.error(
           "reaper: could not finish abandoned teardown of sandbox #{sandbox.id} " <>
@@ -995,6 +1001,42 @@ defmodule Fountain.Workers.SandboxReaper do
         )
 
         :refused
+    end
+  end
+
+  # `:sandbox_unavailable` is the answer to "an owner holds this machine's
+  # lease", and also to a database fault or an unreachable owner. The first is
+  # not a failure to reclaim: another run of this pass, or the destroy's own
+  # caller come back, is finishing the machine right now — two runs overlapping
+  # is ordinary, and counting it in `refused`, whose meaning is "still standing
+  # and billing", would read as an outage on a healthy fleet (stage 9b round 1,
+  # protocol review). So the row is read again: a live lease, or a row that has
+  # gone terminal meanwhile, is somebody else's reclamation and counts on
+  # neither gauge. Anything else is a refusal.
+  defp contended_or_refused(%Sandbox{} = sandbox, refusal) do
+    case Repo.get(Sandbox, sandbox.id) do
+      %Sandbox{status: status} when status in @terminal_statuses ->
+        :noop
+
+      %Sandbox{} = now ->
+        if Lease.live?(now) do
+          Logger.info(
+            "reaper: abandoned destroy of sandbox #{sandbox.id} (#{sandbox.machine_name}) " <>
+              "is held by another owner; leaving it to them"
+          )
+
+          :noop
+        else
+          Logger.warning(
+            "reaper: could not finish abandoned destroy of sandbox #{sandbox.id} " <>
+              "(#{sandbox.machine_name}): #{inspect(refusal)}; left for the next pass"
+          )
+
+          :refused
+        end
+
+      nil ->
+        :noop
     end
   end
 

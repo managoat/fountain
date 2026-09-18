@@ -309,9 +309,21 @@ defmodule Fountain.Conversations.SandboxResetTest do
       assert Fountain.Quotas.active_sandbox_count(ctx.user.id) == 0
     end
 
-    test "a server that gives up can still mark the machine failed", ctx do
-      assert {:ok, failed} = update_sandbox(ctx.home, %{status: "failed"})
-      assert failed.status == "failed"
+    test "a server that gives up can still retire the machine through its owner", ctx do
+      # The production path a server takes (`ConversationServer`'s
+      # terminate-machine arm): a destroy through the owner, which continues
+      # from the reset's `destroying` stamp rather than refusing it. Until
+      # stage 9b this wrote `failed` through `update_sandbox/2`, which no
+      # production caller does any more.
+      stub(Managoat.Sandbox.Sprites, :destroy, fn _ -> :ok end)
+
+      assert {:ok, :destroyed} =
+               Fountain.Machines.Machine.destroy(ctx.home.id,
+                 actor: "system:conversation_server",
+                 reason: :terminated
+               )
+
+      assert Repo.reload!(ctx.home).status == "terminated"
       assert Fountain.Quotas.active_sandbox_count(ctx.user.id) == 0
     end
 

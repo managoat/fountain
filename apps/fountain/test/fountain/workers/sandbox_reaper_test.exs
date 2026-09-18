@@ -786,6 +786,31 @@ defmodule Fountain.Workers.SandboxReaperTest do
       end)
     end
 
+    test "a reset is retried with a server live on the home, which a teardown would wait for" do
+      # Resets skip the live-server check, as `SandboxResetReconciler` did: the
+      # servers on a reset home are told through their own cast, and a reset
+      # refuses a machine with a turn running before it fences. A teardown in
+      # the same state is left alone (`a fenced row a server still holds`).
+      with_sprites_credentials(fn ->
+        {user, home} = pending_reset()
+        conv = insert_conversation(user_id: user.id, sandbox: home, status: "idle")
+
+        stub(Fountain.Conversations.ConversationServer, :whereis, fn id ->
+          if id == conv.id, do: self(), else: nil
+        end)
+
+        test = self()
+
+        stub(Managoat.Sandbox.Sprites, :destroy, fn handle ->
+          send(test, {:destroyed, handle.name})
+          :ok
+        end)
+
+        capture_log(fn -> assert {1, 0} = SandboxReaper.sweep_fenced_teardowns() end)
+        assert Repo.reload(home).status == "terminated"
+      end)
+    end
+
     test "a persistent home whose forced teardown was abandoned is finished too" do
       # Rule 16 for the deleted reconciler's other half. A forced teardown of a
       # persistent home stamps a reason that is not `"reset"`, so it is finished
@@ -950,6 +975,37 @@ defmodule Fountain.Workers.SandboxReaperTest do
       deferred = Repo.reload(second)
       assert deferred.status == "ready"
       assert deferred.transition == "destroying"
+    end
+
+    test "a destroy another run is finishing counts on neither gauge" do
+      # Two runs overlapping is ordinary. The one that loses the lease answers
+      # `sandbox_unavailable`, and the machine is being reclaimed — by the other
+      # run — so `refused`, which means "still standing and billing", must not
+      # move (round 1, protocol review).
+      {_user, sandbox, _conv} = fenced_sandbox()
+      sandbox = age_fence(sandbox, 60)
+      live_provider([sandbox.machine_name])
+
+      stub(Fountain.Conversations.Termination, :_unsafe_destroy_machine, fn id, _opts ->
+        {:ok, _epoch} = Fountain.Machines.Lease.claim(id, "other-run@node", 60_000)
+        {:error, :sandbox_unavailable}
+      end)
+
+      capture_log(fn -> assert {0, 0} = SandboxReaper.sweep_fenced_teardowns() end)
+    end
+
+    test "sandbox_unavailable with nobody holding the machine is still a refusal" do
+      # The symmetric case: a database fault or an unreachable owner answers the
+      # same word, and that machine is still standing.
+      {_user, sandbox, _conv} = fenced_sandbox()
+      sandbox = age_fence(sandbox, 60)
+      live_provider([sandbox.machine_name])
+
+      stub(Fountain.Conversations.Termination, :_unsafe_destroy_machine, fn _id, _opts ->
+        {:error, :sandbox_unavailable}
+      end)
+
+      capture_log(fn -> assert {0, 1} = SandboxReaper.sweep_fenced_teardowns() end)
     end
 
     test "the teardown run reports on its own event" do

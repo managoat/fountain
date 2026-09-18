@@ -65,7 +65,10 @@ config :fountain, Oban,
        # caller died (ADR 0058 stage 9b; `SandboxResetReconciler` did the
        # resets on this clock until then). An abandoned destroy holds the
        # tenant's quota slot and bills, so this is the reconciler's clock
-       # rather than the hourly one.
+       # rather than the hourly one. The reconciler's module stays for one
+       # release as a no-op with no entry here, so a job the previous release
+       # enqueues during a rolling deploy completes instead of paging; stage
+       # 9b-ii deletes it.
        {"*/5 * * * *", Fountain.Workers.SandboxReaper, args: %{"pass" => "teardowns"}},
        # A server's autonomous quiet timer is in memory. Sweep old, silent
        # running turns whose server disappeared before that timer fired.

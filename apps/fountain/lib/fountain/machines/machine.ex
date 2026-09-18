@@ -1202,21 +1202,30 @@ defmodule Fountain.Machines.Machine do
     {:ok, arm_idle(state)}
   end
 
-  # Every call is served on behalf of the process that made it, and runs as
-  # if that process had run it: the verb reads and writes through the caller's
-  # `$callers` chain, which is the chain `Task` and `Machines.Renewal` hand the
-  # processes they start. Nothing in this module reads it. What does is
-  # callers-aware tooling — an Ecto SQL sandbox connection, a Mimic stub — which
-  # is how a test's connection and stubs reach the owner. Per call, not per
+  # **In the test suite only**, a call is served on behalf of the process that
+  # made it: the owner adopts the caller's `$callers` chain — the chain `Task`
+  # and `Machines.Renewal` hand the processes they start — so a test's Ecto SQL
+  # sandbox connection and its Mimic stubs reach the owner. Per call, not per
   # start, because one owner serves many callers: a chain recorded at start
-  # would run a later caller's work on the first caller's connection.
+  # would run a later caller's work on the first caller's connection. Until
+  # stage 9b `MACHINE_OWNER_ENABLED` ran every verb inline on its caller in the
+  # suite, so no test needed this.
   #
-  # Until stage 9b `MACHINE_OWNER_ENABLED` ran every verb inline on its caller
-  # in the test suite, so no test needed this. A caller on another node has no
-  # chain this node can read, and nothing on another node needs one.
+  # **Off in production, and it must stay off by accident.** `config/test.exs`
+  # sets `:owner_adopts_callers`; nothing else does, and with it off this
+  # process never puts `$callers` at all, which is exactly `main`'s owner.
+  # Something in production does read the key: `opentelemetry_ecto` walks
+  # `$callers` on every query a process with no trace context of its own
+  # makes, so adopting here would copy the caller's whole process dictionary
+  # on each of the owner's queries and re-parent the owner's database spans
+  # under the caller's. Better owner tracing, if it is wanted, is a separate
+  # and deliberate change — propagate the trace context once per call — not a
+  # side effect of a test seam. A runtime read rather than `compile_env`, so a
+  # test can switch it off and prove the production shape
+  # (`machine_test.exs`); one ETS lookup per call.
   @impl true
   def handle_call(message, {caller, _tag} = from, state) do
-    adopt_callers(caller)
+    if Application.get_env(:fountain, :owner_adopts_callers, false), do: adopt_callers(caller)
     serve(message, from, state)
   end
 

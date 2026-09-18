@@ -78,6 +78,48 @@ defmodule Fountain.Machines.MachineTest do
     ])
   end
 
+  describe "the callers seam" do
+    # `$callers` adoption is a test seam (`:owner_adopts_callers`, set in
+    # `config/test.exs` only). In production the owner must put nothing there:
+    # `opentelemetry_ecto` reads the key on every query, and `main`'s owner
+    # never set it. This file is `async: false`, so it may switch the flag.
+    defp with_adoption(value, fun) do
+      previous = Application.fetch_env(:fountain, :owner_adopts_callers)
+      Application.put_env(:fountain, :owner_adopts_callers, value)
+
+      try do
+        fun.()
+      after
+        case previous do
+          {:ok, was} -> Application.put_env(:fountain, :owner_adopts_callers, was)
+          :error -> Application.delete_env(:fountain, :owner_adopts_callers)
+        end
+      end
+    end
+
+    defp owner_callers(pid) do
+      {:dictionary, dictionary} = Process.info(pid, :dictionary)
+      Keyword.fetch(dictionary, :"$callers")
+    end
+
+    test "with the flag off, as in production, the owner never puts $callers", ctx do
+      with_adoption(false, fn ->
+        assert %Occupancy{} = Machine.who_is_here(ctx.sandbox.id)
+        pid = Machine.whereis(ctx.sandbox.id)
+        assert is_pid(pid)
+        assert owner_callers(pid) == :error, "the owner put $callers with the flag off"
+      end)
+    end
+
+    test "with the flag on, as in the suite, the owner serves as its caller", ctx do
+      with_adoption(true, fn ->
+        assert %Occupancy{} = Machine.who_is_here(ctx.sandbox.id)
+        assert {:ok, [caller | _]} = owner_callers(Machine.whereis(ctx.sandbox.id))
+        assert caller == self()
+      end)
+    end
+  end
+
   describe "ensure_started/2 and whereis/1" do
     test "starts one owner and finds it again", ctx do
       assert Machine.whereis(ctx.sandbox.id) == nil

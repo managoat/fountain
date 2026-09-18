@@ -6,9 +6,8 @@ defmodule Fountain.Conversations.ResetAdmissionOrderTest do
   alias Fountain.Conversations
   alias Fountain.Machines.Machine
 
-  # An admission and a reset's destroy both run in the machine's owner, which
-  # serves each call on its caller's connection only in manual mode
-  # (`Fountain.ServerStart`).
+  # A reset's destroy runs in the machine's owner, which serves each call on its
+  # caller's connection only in manual mode (`Fountain.ServerStart`).
   setup :manual_pool
 
   for first <- [:reset, :admission] do
@@ -55,9 +54,10 @@ defmodule Fountain.Conversations.ResetAdmissionOrderTest do
       winner = independent(first, fn -> operation.(first) end, owner, true)
 
       try do
-        # An admission pauses in the machine's owner, which runs its insert.
+        # The exact process that took the lock: both the reset fence and the
+        # locked turn insert run on the calling process, owner or no owner.
         assert_receive {:locked, winner_pid}, 5_000
-        assert winner_pid in [winner.pid, Machine.whereis(home.id)]
+        assert winner_pid == winner.pid
         second = if first == :reset, do: :admission, else: :reset
         waiter = independent(second, fn -> operation.(second) end, owner, false)
 
@@ -161,9 +161,7 @@ defmodule Fountain.Conversations.ResetAdmissionOrderTest do
   # Ecto emits this synchronously after the real PostgreSQL lock is acquired.
   # Pause only the selected connection; the competing call executes normally.
   def after_query(_, _, %{query: query, params: [4316, _]}, {worker, owner, handler}) do
-    # The worker, or the machine owner serving it (`$callers`).
-    if (self() == worker or worker in Process.get(:"$callers", [])) and
-         query == "SELECT pg_advisory_xact_lock($1, $2)" do
+    if self() == worker and query == "SELECT pg_advisory_xact_lock($1, $2)" do
       :telemetry.detach(handler)
       send(owner, {:locked, self()})
 

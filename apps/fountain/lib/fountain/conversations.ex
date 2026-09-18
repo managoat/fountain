@@ -1138,8 +1138,7 @@ defmodule Fountain.Conversations do
 
   The marker itself is an `update_all` on the primary key rather than a
   changeset: control-plane bookkeeping about a process, not a state change on
-  the machine, so it deliberately does not run `update_sandbox/2`'s guards,
-  metering or queue poke, and it is not routed through
+  the machine, so it deliberately runs no guards, metering or queue poke, and it is not routed through
   `Machines.Lease.cas_update/3` either — a starter holds no lease and must not
   appear to.
 
@@ -3062,8 +3061,9 @@ defmodule Fountain.Conversations do
   A provider error or lost caller leaves the fence and capacity in place;
   repeated resets return `:sandbox_reset_pending` without another delete, and
   so does anything that would re-use the machine. **The fence is not a dead
-  end.** A write that retires the row still goes through (`update_sandbox/2`),
-  so an operator reaps it from `/admin/sandboxes`, deleting the agent still
+  end.** A destroy through the machine's owner still retires the row — it
+  continues from the reset's stamp rather than refusing it — so an operator
+  reaps it from `/admin/sandboxes`, deleting the agent still
   works, and account deletion still completes. Reaping is the supported way
   out of an unconfirmed reset; it terminates the row and releases the quota
   slot, and whatever the provider did or did not do with the machine is then
@@ -3336,9 +3336,10 @@ defmodule Fountain.Conversations do
   # can no longer be inside `Managoat.Sandbox.destroy/1` for one machine at
   # the same time, and the compare-and-set on the lease epoch elects the
   # finalizer where `pending_reset_matches/2`'s status-and-timestamp compare
-  # under `update_sandbox/2`'s row lock used to. That predicate was the only
-  # thing `update_sandbox_if/3` existed for, so it left with the reset and the
-  # function is `do_update_sandbox/2` now.
+  # under the context's own row lock used to. That predicate was the only
+  # thing `update_sandbox_if/3` existed for, so it left with the reset; the
+  # function it became, `update_sandbox/2`, went in stage 9b with its last
+  # caller.
   #
   # Three protocol options carry the parts of a reset that are *not* a
   # teardown, and the whole of this stage is in them:

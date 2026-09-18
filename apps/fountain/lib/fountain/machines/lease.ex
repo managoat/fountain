@@ -247,7 +247,7 @@ defmodule Fountain.Machines.Lease do
   # `%{lease_until: nil}` in turn, so a map *missing* `:lease_node` fell through
   # to the deadline clause and read as held on the deadline alone — the exact
   # drift this function was written to remove, back as a map-shape hazard, and
-  # reachable: `SandboxResetReconciler`'s sweep (deleted in stage 9b)
+  # reachable: `SandboxResetReconciler`'s sweep (stage 9b folded it into the reaper)
   # hand-wrote its `select` map, so a `select` that forgot the holder would have
   # called every fenced row held with every test still green.
   def live?(%{lease_node: _, lease_until: _}, _now), do: false
@@ -435,8 +435,8 @@ defmodule Fountain.Machines.Lease do
   transition is allowed from a particular state belongs to `Machines.Policy`
   in a later stage, and nothing here decides it. The one exception is
   retirement: a terminal row is never written back to a live status, the same
-  refusal `Conversations.update_sandbox/2` gets from
-  `prevent_sandbox_revival/1`, reported as `{:error, :retired}` so the owner
+  refusal `Conversations.update_sandbox/2` made before stage 9b deleted it,
+  reported as `{:error, :retired}` so the owner
   does not mistake it for a takeover.
 
   **`:stale` beats `:retired`.** A superseded epoch is `:stale` even on a
@@ -822,8 +822,8 @@ defmodule Fountain.Machines.Lease do
   # (stage 6b decided that). What cannot be allowed is the third case, and it
   # arrived with stage 7b: a *provision* finishing onto a row somebody asked to
   # be reset while the machine was being built. `Conversations.update_sandbox/2`
-  # refuses exactly that — it rolls back with `:sandbox_reset_pending` unless the
-  # write is terminal — and it was the only thing refusing it, so a bracket that
+  # refused exactly that — it rolled back with `:sandbox_reset_pending` unless the
+  # write was terminal — and it was the only thing refusing it, so a bracket that
   # wrote `ready` through `cas_update/4` without this would have handed a
   # conversation a machine the reset reconciler was about to delete.
   #

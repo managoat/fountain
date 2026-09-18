@@ -427,15 +427,33 @@ defmodule Fountain.Machines.DestroyResetTest do
 
     test "a row whose owner holds a live lease is not retried", ctx do
       fenced = ctx |> fence() |> hold_lease()
-      reject(Managoat.Sandbox.Sprites, :destroy, 1)
+
+      # Reporting stubs, not a `reject`: a provider raise is rescued into a
+      # warning by the protocol, so a `reject` here would prove "never called"
+      # of nothing (round 1, behaviour review). The run must not reach the
+      # reset's door at all, let alone the provider.
+      test = self()
+
+      stub(Managoat.Sandbox.Sprites, :destroy, fn handle ->
+        send(test, {:provider_called, handle.name})
+        :ok
+      end)
+
+      stub(Conversations, :retry_pending_sandbox_reset, fn sandbox, opts ->
+        send(test, {:door_asked, sandbox.id})
+        Mimic.call_original(Conversations, :retry_pending_sandbox_reset, [sandbox, opts])
+      end)
 
       # The run: nothing is attempted on a machine somebody is working on.
       assert :ok = teardown_run()
+      refute_received {:door_asked, _}
+      refute_received {:provider_called, _}
 
       # And the door, for a retry that arrives while the lease is live.
       assert {:error, :sandbox_unavailable} =
                Conversations.retry_pending_sandbox_reset(fenced)
 
+      refute_received {:provider_called, _}
       assert Repo.reload!(ctx.home).status == "ready"
     end
 

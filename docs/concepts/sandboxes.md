@@ -96,12 +96,13 @@ this as a not-ready error, the launch queue and a team schedule wait and try
 again on their own, and the boot sweep leaves the machine to the operation that
 holds it.
 
-Every five minutes, Fountain finds pending resets and queues a separate retry
-for each machine. Failed deletes retry with backoff; a provider without
-credentials waits until it is enabled again. A machine another teardown is
-working on is left to that teardown. The fence and capacity reservation stay in
-place until deletion is confirmed. A long outage remains eligible for later
-retries even after a retry job exhausts its attempts.
+Every five minutes, Fountain looks for resets and deletions that were asked for
+and then abandoned. A reset whose delete the provider did not confirm is tried
+again on that run, and on each run after it until the provider confirms. A
+provider without credentials waits until it is enabled again. A deletion is
+finished when it is fifteen minutes old and no server holds the machine. A
+machine that another operation is working on is left to that operation. The
+fence and capacity reservation stay in place until deletion is confirmed.
 
 For a persistent machine with a pending reset in `ready` or `suspended`, an
 administrator can choose **Retry reset** on the admin sandbox list. This

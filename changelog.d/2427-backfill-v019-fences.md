@@ -8,9 +8,11 @@
   - A pending deletion is finished by the reaper within minutes.
   - A pending reset is finished the same way, unless the machine has run a
     turn since the reset was requested. The migration does not finish that
-    reset, because it would wipe the work done since. The machine stays live,
-    and the migration logs its id at warning level. If a reset is still
-    wanted, reset the machine again from the console or the API.
+    reset, because it would wipe the work done since. The machine is left as
+    its user last used it, and the migration logs its id at warning level.
+    Operators have no reset of their own for it. If a reset is still wanted,
+    tell the machine's owner, who can request one with
+    `DELETE /api/sandboxes/:id`.
 
 ### Fixed
 

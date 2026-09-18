@@ -27,9 +27,11 @@ defmodule Fountain.Repo.Migrations.BackfillDestroyingFromFenceColumns do
   # no running-turn check and no grace, because a stamp written on v0.20.x
   # blocks admission from the moment it lands. A backfilled stamp lands after
   # v0.20.0 has admitted work. The user's later work is taken as replacing the
-  # request. The row is left unstamped and live, and its id is logged so an
-  # operator can tell the owner, who can reset it again from the console or
-  # the API. The migration that drops the columns then discards the request.
+  # request. The row is left unstamped, as the user last used it, and its id
+  # is logged so an operator can tell the owner. Only the owner can reset it
+  # again, with `DELETE /api/sandboxes/:id`. No console or admin path does:
+  # the admin retry acts only on a row stamped `destroying`. The migration
+  # that drops the columns then discards the request.
   #
   # "Used" means a turn **inserted** at or after `reset_requested_at`, on a
   # conversation whose `sandbox_id` is this row. That is the one binding both
@@ -42,10 +44,27 @@ defmodule Fountain.Repo.Migrations.BackfillDestroyingFromFenceColumns do
   # truncation. A turn in the same second as the fence counts as used, which
   # is the safe side.
   #
+  # Any turn row counts, whatever its status: a `pending` first turn is use.
   # A conversation **bound** since the request with no turn yet does not
   # count. Attaching to an existing machine runs nothing on it, so there is no
   # work to lose. Once the stamp lands, admission refuses a first turn, and the
   # reset tells the conversation through its server, as any reset does.
+  #
+  # **The fenced rows are locked before the update, in a statement of their
+  # own.** On a rolling upgrade a v0.20.0 replica can be admitting a turn on
+  # one of these machines while this runs. Admission takes the sandbox row
+  # `FOR SHARE`, then inserts the turn, then commits. An `UPDATE` that meets
+  # that share lock waits for it, but after the wait PostgreSQL re-checks only
+  # the updated row. The `EXISTS` keeps the statement's first snapshot, misses
+  # the new turn, and the reset is stamped over a running turn. The `SELECT
+  # ... FOR UPDATE` waits out every admission already holding a row, and under
+  # READ COMMITTED the `UPDATE` after it takes a fresh snapshot that sees their
+  # turns. An admission that arrives after the lock waits for this migration
+  # to commit, then reads the stamp and is refused. This locks only
+  # `sandboxes`, the table admission locks first, and reads `turns` without
+  # locking it. `ORDER BY id` keeps two lockers of several rows in one order.
+  # It relies on the migration's own transaction: `@disable_ddl_transaction`
+  # is not set, so the lock holds until the update commits.
   #
   # **The skip is decided by intent, not by label**, so it sits in the `WHERE`
   # and not in the CASE. Intent is a reset when `teardown_requested_at` is
@@ -125,6 +144,13 @@ defmodule Fountain.Repo.Migrations.BackfillDestroyingFromFenceColumns do
   """
 
   def up do
+    repo().query!("""
+    SELECT id FROM sandboxes
+     WHERE #{@fenced}
+     ORDER BY id
+       FOR UPDATE
+    """)
+
     %{num_rows: count} =
       repo().query!("""
       UPDATE sandboxes
@@ -162,8 +188,9 @@ defmodule Fountain.Repo.Migrations.BackfillDestroyingFromFenceColumns do
       Logger.warning(
         "migration: left sandbox #{id} (#{provider}/#{name}, user #{user_id}) live: " <>
           "its reset requested on v0.19.0 at #{requested_at} UTC was not finished, " <>
-          "because the machine has run turns since. Reset it again from the console " <>
-          "or the API if it is still wanted."
+          "because the machine has run turns since. It is left as its user last used " <>
+          "it. If a reset is still wanted, only the owner can request one, with " <>
+          "DELETE /api/sandboxes/:id; tell them."
       )
     end
   end

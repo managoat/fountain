@@ -163,6 +163,94 @@ defmodule Fountain.SandboxFenceBackfillMigrationTest do
     end
   end
 
+  describe "a turn admitted while the backfill runs" do
+    # A rolling upgrade: a v0.20.0 replica admits a turn on a fenced machine
+    # while the migration runs. Admission (`_unsafe_create_turn_on_sandbox/4`)
+    # takes the sandbox row `FOR SHARE`, inserts the turn, then commits. The
+    # migration must wait for it and then see the turn.
+    #
+    # Two independent connections, committed rows, and a private schema so
+    # nothing is left in the shared tables. The schema carries only the
+    # columns the migration reads, because what is under test is how two
+    # transactions interleave, not the application's schema. The order is
+    # forced rather than timed: the migration is started only after the
+    # admission holds its lock, and the admission commits only once
+    # `pg_blocking_pids/1` shows the migration waiting on it.
+    test "is seen, and the reset is left alone" do
+      schema = "backfill_race_#{System.unique_integer([:positive])}"
+      home = Ecto.UUID.generate()
+      conversation = Ecto.UUID.generate()
+
+      committed(fn -> create_race_schema(schema, home, conversation) end)
+
+      # In `on_exit`, which runs even when a crashed task takes the test
+      # process down with it.
+      on_exit(fn ->
+        committed(fn -> Repo.query!(~s(DROP SCHEMA IF EXISTS "#{schema}" CASCADE)) end)
+      end)
+
+      owner = self()
+
+      admission =
+        independent(fn ->
+          Repo.transaction(fn ->
+            Repo.query!(~s(SET LOCAL search_path TO "#{schema}"))
+
+            Repo.query!("SELECT id FROM sandboxes WHERE id = $1 FOR SHARE", [dump(home)])
+
+            Repo.query!(
+              """
+              INSERT INTO turns (id, conversation_id, status, inserted_at)
+              VALUES ($1, $2, 'running', date_trunc('second', timezone('UTC', now())))
+              """,
+              [dump(Ecto.UUID.generate()), dump(conversation)]
+            )
+
+            send(owner, :admitted)
+
+            receive do
+              :commit -> :ok
+            after
+              5_000 -> raise "the admission was never released"
+            end
+          end)
+        end)
+
+      assert_receive {:backend, _, _}, 5_000
+      assert_receive :admitted, 5_000
+
+      {_, log} =
+        with_log(fn ->
+          migration =
+            independent(fn ->
+              Repo.transaction(fn ->
+                Repo.query!(~s(SET LOCAL search_path TO "#{schema}"))
+                run_migration_unlogged(:up)
+              end)
+            end)
+
+          try do
+            assert_receive {:backend, _, backend}, 5_000
+            await_blocked(backend, System.monotonic_time(:millisecond) + 5_000)
+            send(admission.pid, :commit)
+            assert {:ok, :ok} = Task.await(admission)
+            assert {:ok, _} = Task.await(migration)
+          after
+            Task.shutdown(migration, :brutal_kill)
+          end
+        end)
+
+      assert committed(fn ->
+               Repo.query!(
+                 ~s(SELECT transition, transition_reason FROM "#{schema}".sandboxes WHERE id = $1),
+                 [dump(home)]
+               ).rows
+             end) == [[nil, nil]]
+
+      assert log =~ "left sandbox #{home}"
+    end
+  end
+
   describe "the teardown run over the backfilled rows" do
     test "retries the reset at once and finishes the teardown past its grace" do
       with_sprites_credentials(fn ->
@@ -353,18 +441,87 @@ defmodule Fountain.SandboxFenceBackfillMigrationTest do
 
   defp dump(id), do: Ecto.UUID.dump!(id)
 
-  defp run_migration(direction) do
-    capture_log(fn ->
-      Ecto.Migration.Runner.run(
-        Repo,
-        Repo.config(),
-        @version,
-        Migration,
-        :forward,
-        direction,
-        direction,
-        log: false
-      )
+  # One v0.19.0 reset on a persistent `ready` home, fenced 30 minutes ago, with
+  # a conversation bound to it and no turn yet.
+  defp create_race_schema(schema, home, conversation) do
+    Repo.query!(~s(CREATE SCHEMA "#{schema}"))
+
+    Repo.query!("""
+    CREATE TABLE "#{schema}".sandboxes (
+      id uuid PRIMARY KEY, user_id uuid, provider text, sprite_name text,
+      mode text, status text, transition text, transition_reason text,
+      reset_requested_at timestamp(6), teardown_requested_at timestamp(6),
+      updated_at timestamp(0)
+    )
+    """)
+
+    Repo.query!(~s[CREATE TABLE "#{schema}".conversations (id uuid PRIMARY KEY, sandbox_id uuid)])
+
+    Repo.query!("""
+    CREATE TABLE "#{schema}".turns (
+      id uuid PRIMARY KEY, conversation_id uuid, status text, inserted_at timestamp(0)
+    )
+    """)
+
+    Repo.query!(
+      """
+      INSERT INTO "#{schema}".sandboxes
+        (id, user_id, provider, sprite_name, mode, status, reset_requested_at)
+      VALUES ($1, $2, 'sprites', 'race-home', 'persistent', 'ready',
+              timezone('UTC', now()) - interval '30 minutes')
+      """,
+      [dump(home), dump(Ecto.UUID.generate())]
+    )
+
+    Repo.query!(~s[INSERT INTO "#{schema}".conversations VALUES ($1, $2)], [
+      dump(conversation),
+      dump(home)
+    ])
+  end
+
+  # Outside the test's sandbox transaction, so the other connections see it.
+  defp committed(fun), do: Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fun)
+
+  # A connection of its own, as in `inference_source_write_order_test.exs`.
+  defp independent(fun) do
+    owner = self()
+
+    Task.async(fn ->
+      committed(fn ->
+        %{rows: [[backend]]} = Repo.query!("SELECT pg_backend_pid()")
+        send(owner, {:backend, self(), backend})
+        fun.()
+      end)
     end)
+  end
+
+  defp await_blocked(backend, deadline) do
+    %{rows: [[blocked]]} =
+      committed(fn ->
+        Repo.query!("SELECT cardinality(pg_blocking_pids($1)) > 0", [backend])
+      end)
+
+    unless blocked do
+      assert System.monotonic_time(:millisecond) < deadline,
+             "the migration did not wait on the admission's lock"
+
+      Process.sleep(5)
+      await_blocked(backend, deadline)
+    end
+  end
+
+  defp run_migration(direction), do: capture_log(fn -> run_migration_unlogged(direction) end)
+
+  defp run_migration_unlogged(direction) do
+    Ecto.Migration.Runner.run(
+      Repo,
+      Repo.config(),
+      @version,
+      Migration,
+      :forward,
+      direction,
+      direction,
+      log: false
+    )
   end
 end

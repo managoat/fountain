@@ -827,6 +827,8 @@ defmodule Fountain.Conversations.Lifecycle do
               # Escalating a reset to a forced teardown rewrites the reason and
               # keeps both timestamps, which is the rule the two columns above
               # already follow: the machine is going away for the newer reason.
+              transition: "destroying",
+              transition_reason: transition_reason(opts)
             )
             |> Repo.update!()
 

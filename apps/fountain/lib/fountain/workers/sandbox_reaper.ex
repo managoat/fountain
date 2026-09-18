@@ -1030,11 +1030,13 @@ defmodule Fountain.Workers.SandboxReaper do
   defp finish_teardown(%Sandbox{} = sandbox) do
     # ownership: `sandbox` came from this worker's own fleet-wide scan; the
     # reaper is a system sweep with no tenant of its own (`contributing/server.md`).
-    case Conversations.update_sandbox(sandbox, %{
-           status: "terminated",
-           terminated_at: DateTime.utc_now() |> DateTime.truncate(:second)
-         }) do
-      {:ok, _} ->
+    case Termination._unsafe_destroy_machine(sandbox.id,
+           actor: "system:sandbox_reaper",
+           destroy_reason: destroy_reason(sandbox),
+           reason: "teardown_reconciled",
+           terminating_conversation_id: nil
+         ) do
+      {:ok, :destroyed} ->
         report_finished_teardown(sandbox)
 
       # Somebody else finished this row between the scan and the claim. Nothing

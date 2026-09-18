@@ -218,6 +218,8 @@ missed. So 6b's 26 is 29 minus three writes. It is not 21 plus five.
   since. It logs that row's id, and the drop discards the request. The
   backfill's version sorts before 9b-ii's drop, so it runs first on every
   database, including an upgrade straight from v0.19.0 that runs both.
+  v0.20.1 (#2433) was released, and hosted production ran the backfill,
+  before 9b-ii merged.
 - **A canary alert watches the five-minute teardown run.**
   `FountainReaperTeardownsSilent` (jhgaylor/home-cloud#234) fires when
   `fountain_reaper_teardowns_reconciled` has been absent for 30 minutes. Its

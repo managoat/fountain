@@ -298,9 +298,18 @@ defmodule Fountain.Conversations.Redaction do
         tenant_key: secret(state.tenant_key),
         inference_credentials: secrets(state.inference_credentials),
         callback_token: secret(state.callback_token),
-        turn_session_retry: secret(state.turn_session_retry)
+        turn_session_retry: secret(state.turn_session_retry),
+        # What `TurnLaunch` keeps to relaunch a crashed adapter (#2402): the
+        # prompt, its images, the agent and the conversation. The timing and
+        # the flags beside it are the debugging signal.
+        turn_metrics: launch(state.turn_metrics)
     }
   end
+
+  defp launch(%{launch: %{} = launch} = metrics),
+    do: %{metrics | launch: %{relaunched?: launch.relaunched?}}
+
+  defp launch(metrics), do: metrics
 
   @doc """
   `server_state/1` applied to the `:state` entry of a `format_status/1` map.

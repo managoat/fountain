@@ -440,13 +440,23 @@ defmodule Fountain.Conversations.ExecutionGuard do
     end)
   end
 
-  @doc "Serialize a turn's parent update with admission and retirement; callbacks only write rows."
-  def _unsafe_write_parent(%Turn{} = observed, mode, writer) when mode in [:idle, :session] do
+  @doc """
+  Serialize a turn's parent update with admission and retirement; callbacks only write rows.
+
+  `:sandbox_id` is the writing actor's own binding, as in `_unsafe_recover_turn/3`.
+  An unbounded turn has no journal to say which machine drove it, so without
+  the option a stale actor whose conversation Wake moved to a replacement
+  sandbox still passes this fence (#2402). With it, a reassigned parent
+  rolls back `:ownership_changed` before the writer runs.
+  """
+  def _unsafe_write_parent(%Turn{} = observed, mode, writer, opts \\ [])
+      when mode in [:idle, :session] do
     transaction(fn ->
       conv = lock_parent(observed.conversation_id) || Repo.rollback(:not_found)
       execution = lock_execution_by_turn(observed.id)
       turn = lock_turn(observed.id) || Repo.rollback(:turn_missing)
       if turn.conversation_id != conv.id, do: Repo.rollback(:ownership_changed)
+      if rebound?(opts, conv), do: Repo.rollback(:ownership_changed)
 
       {execution, turn, changed, event} = parent_execution(execution, turn)
 

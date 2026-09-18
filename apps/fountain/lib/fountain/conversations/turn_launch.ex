@@ -14,6 +14,10 @@ defmodule Fountain.Conversations.TurnLaunch do
 
   Nothing here is bounded-turn specific. `run_turn/6` decides whether a turn is
   bounded and which transport it gets; by the time this runs that is settled.
+
+  `relaunch_crashed/3` is the one exception, and says why at its definition: an
+  unbounded adapter that a native crash killed before it wrote a byte is
+  launched once more under the same turn (#2402).
   """
   require Logger
   require OpenTelemetry.Tracer
@@ -25,7 +29,8 @@ defmodule Fountain.Conversations.TurnLaunch do
   def run(state, conv, turn, prompt, agent, images, fail_before_start) do
     case TurnMachine.session_plan(turn, state.runtime_session_id) do
       {:ok, plan} ->
-        launch(state, conv, turn, prompt, agent, images, fail_before_start, plan)
+        spec = %{conv: conv, agent: agent, prompt: prompt, images: images, relaunched?: false}
+        launch(state, turn, spec, fail_before_start, plan)
 
       {:error, _} ->
         session_plan_refused(state, turn)
@@ -40,37 +45,27 @@ defmodule Fountain.Conversations.TurnLaunch do
     if state.turn_execution, do: Connection.close_bounded(state), else: state
   end
 
-  defp launch(
-         state,
-         conv,
-         turn,
-         prompt,
-         agent,
-         images,
-         fail_before_start,
-         {mode, runtime_session_id}
-       ) do
+  # `spec` is what the launch runs, kept on the turn's metrics so a relaunch
+  # (`relaunch_crashed/3`) runs the same thing.
+  defp launch(state, turn, spec, fail_before_start, {mode, runtime_session_id}) do
+    %{conv: conv, agent: agent, prompt: prompt, images: images, relaunched?: relaunch?} = spec
     turn_number = turn.turn_number
 
     {cmd, args, cwd} = TurnMachine.command(conv, agent, state.handle)
 
-    Output.publish_stage(
-      state.conversation_id,
-      "turn",
-      "started",
-      Conversations.Turn.correlate(turn, %{
-        turn_id: turn.id,
-        turn_number: turn_number,
-        mode: Atom.to_string(mode)
-      })
-    )
+    # A relaunch continues the turn the first launch announced and timed.
+    unless relaunch?, do: publish_started(state, turn, turn_number, mode)
 
     # Open an OTel span for the turn. We can't use Telemetry.span here
     # because the turn finishes asynchronously (in the :exit handler);
     # so we open it explicitly and store the span context in state to
     # close it later. While this span is current, build_sprite_env
     # picks up the trace context as TRACEPARENT for the runtime CLI.
-    turn_span = TurnMachine.open_span(state.user_id, conv, turn, mode, agent)
+    turn_span =
+      if relaunch?,
+        do: state.current_turn_span,
+        else: TurnMachine.open_span(state.user_id, conv, turn, mode, agent)
+
     previous_span = OpenTelemetry.Tracer.set_current_span(turn_span)
 
     # Tag the detachable session with this conversation, on its own command
@@ -82,8 +77,12 @@ defmodule Fountain.Conversations.TurnLaunch do
     # sprites.dev — that latency is part of what the user waits through.
     # Kept local until the spawn succeeds: a spawn that never starts has no
     # run to time, and a stamp left in state would attach itself to the
-    # next turn.
-    turn_started_mono = System.monotonic_time(:millisecond)
+    # next turn. A relaunch keeps the first launch's stamp: the user has
+    # been waiting since then.
+    turn_started_mono =
+      if relaunch?,
+        do: state.turn_metrics.started_mono,
+        else: System.monotonic_time(:millisecond)
 
     try do
       spawn_opts =
@@ -145,7 +144,9 @@ defmodule Fountain.Conversations.TurnLaunch do
               runtime_session_id: runtime_session_id,
               current_turn_span: turn_span,
               turn_metrics:
-                TurnMachine.start_metrics(conv.runtime, state.handle.provider, turn_started_mono),
+                conv.runtime
+                |> TurnMachine.start_metrics(state.handle.provider, turn_started_mono)
+                |> Map.put(:launch, Map.put(spec, :plan, {mode, runtime_session_id})),
               stream_tracer: stream_tracer,
               acp_peer: peer,
               acp_peer_mon: peer_mon
@@ -160,6 +161,134 @@ defmodule Fountain.Conversations.TurnLaunch do
       # caller's previous current-span here.
       OpenTelemetry.Tracer.set_current_span(previous_span)
     end
+  end
+
+  defp publish_started(state, turn, turn_number, mode) do
+    Output.publish_stage(
+      state.conversation_id,
+      "turn",
+      "started",
+      Conversations.Turn.correlate(turn, %{
+        turn_id: turn.id,
+        turn_number: turn_number,
+        mode: Atom.to_string(mode)
+      })
+    )
+  end
+
+  # Exit statuses Sprites reports for a process a native crash killed:
+  # 128 + the signal (#2402). SIGKILL and SIGTERM are not here: something
+  # outside the process sent those, and it would send them again.
+  @native_crashes %{
+    132 => "SIGILL",
+    133 => "SIGTRAP",
+    134 => "SIGABRT",
+    135 => "SIGBUS",
+    136 => "SIGFPE",
+    139 => "SIGSEGV"
+  }
+
+  @doc """
+  Launch an unbounded turn's adapter once more after a native crash killed it
+  before it wrote a byte (#2402).
+
+  Node 24 on Sprites guests has been seen to die of SIGSEGV during startup
+  under concurrent launches, and one of six concurrent Claude turns failed
+  that way in production. Such a turn failed with nothing sent to the model.
+
+  Retrying is safe only because of what the conditions prove. The command
+  wrote nothing to stdout, and its stdout and its exit reach this actor from
+  the same command process, in order. So the adapter never answered
+  `initialize`, the peer never sent `session/new`, and no `session/prompt`
+  existed to be answered twice. The launch must also be this turn's own
+  fresh launch (`:launch` is set only here): an idle peer carried across
+  turns may already have been prompted. Only the first launch retries, so a
+  crash that recurs fails the turn as it always did.
+
+  A bounded turn's command belongs to its execution journal and deadline, and
+  is not relaunched here. Neither is a turn whose conversation has moved to
+  another sandbox since this actor launched it, including while its peer was
+  stopping: the plan write carries the actor's binding and refuses.
+
+  `finish` is the server's exit path, `(state, code) -> {:noreply, state}`.
+  Every exit goes through here; the ones that do not qualify, and any retry
+  that is refused or cannot start, end through `finish` exactly as an exit
+  always did.
+  """
+  def relaunch_crashed(
+        %{
+          turn_execution: nil,
+          current_turn: %{} = turn,
+          turn_metrics: %{first_output?: false, launch: %{relaunched?: false} = launch}
+        } = state,
+        code,
+        finish
+      )
+      when is_map_key(@native_crashes, code) do
+    # Stop the dead command's peer before the fence, as the exit path does:
+    # the stop waits, and a check made before it would be stale after it.
+    Connection.stop_peer(Connection.from_state(state))
+    state = %{state | acp_peer: nil, acp_peer_mon: nil}
+    {mode, id} = launch.plan
+
+    # An unbounded turn has no journal naming its sandbox, so the plan write
+    # carrying this actor's binding is the only check that Wake has not moved
+    # the conversation to a replacement. Nothing is announced or spawned
+    # before it passes. On any refusal the exit ends the turn as it always
+    # did: `finish` is the server's exit path, whose `Machine.end_turn/3`
+    # applies the same binding.
+    case TurnMachine.session_plan(turn, mode, id, state.sandbox_id) do
+      {:ok, plan} ->
+        spec = %{Map.delete(launch, :plan) | relaunched?: true}
+        relaunch(state, turn, spec, plan, code, finish)
+
+      {:error, reason} ->
+        Logger.info(
+          "conv #{state.conversation_id}: adapter crashed before any output; " <>
+            "not relaunched (#{inspect(reason)})"
+        )
+
+        finish.(state, code)
+    end
+  end
+
+  def relaunch_crashed(state, code, finish), do: finish.(state, code)
+
+  defp relaunch(state, turn, spec, plan, code, finish) do
+    signal = Map.fetch!(@native_crashes, code)
+
+    Logger.warning(
+      "conv #{state.conversation_id}: adapter died on #{signal} before any output; " <>
+        "launching it once more (#2402)"
+    )
+
+    Output.publish_stage(state.conversation_id, "session", "done", %{
+      event: "restarted",
+      reason: "adapter_crashed",
+      detail: signal,
+      turn_id: turn.id,
+      message:
+        "The agent's runtime crashed while starting (#{signal}), before your prompt " <>
+          "was sent. It is being started again."
+    })
+
+    TurnMachine.stamp_span(state.current_turn_span, %{"acp.adapter_relaunched" => signal})
+
+    # A relaunch that cannot start ends the turn as the crash would have:
+    # through the exit path, with the crash's code, the first launch's
+    # measurements and its completion metric. The turn already ran, so the
+    # never-started path's silence would drop it from the failure rate.
+    cannot_start = fn state, _turn, reason ->
+      Logger.warning(
+        "conv #{state.conversation_id}: adapter relaunch did not start: #{inspect(reason)}"
+      )
+
+      {:noreply, state} = finish.(state, code)
+      state
+    end
+
+    state = %{state | current_command: nil, current_command_ref: nil}
+    {:noreply, launch(state, turn, spec, cannot_start, plan)}
   end
 
   # The SDK's own view of the allowance, from the frozen journal copy rather

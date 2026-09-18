@@ -257,7 +257,6 @@ defmodule Fountain.Conversations.ConversationServerRedactionTest do
     :last_activity_at,
     :output_bytes,
     :output_capped,
-    :turn_metrics,
     :broker_network,
     :inference_source,
     :inference_model,
@@ -335,7 +334,21 @@ defmodule Fountain.Conversations.ConversationServerRedactionTest do
       tenant_key: @sentinel,
       inference_credentials: %{"sentinel" => @sentinel},
       callback_token: @sentinel,
-      turn_session_retry: @sentinel
+      turn_session_retry: @sentinel,
+      # Timing is plaintext; the relaunch context (#2402) holds the prompt.
+      turn_metrics: %{
+        started_mono: 1,
+        runtime: "claude",
+        provider: "sprites",
+        first_output?: false,
+        launch: %{
+          conv: %{title: @sentinel},
+          agent: %{system_prompt: @sentinel},
+          prompt: @sentinel,
+          images: [%{media_type: "image/png", data: @sentinel}],
+          relaunched?: false
+        }
+      }
     }
   end
 

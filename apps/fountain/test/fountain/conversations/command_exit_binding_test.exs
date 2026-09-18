@@ -129,6 +129,63 @@ defmodule Fountain.Conversations.CommandExitBindingTest do
     end
   end
 
+  # #2402: a native crash before any output relaunches the adapter, but only
+  # after the peer has stopped and the binding has been checked again. The
+  # stop waits, and Wake can move the conversation meanwhile.
+  test "a crash retry whose conversation moves during peer shutdown is not relaunched", ctx do
+    replacement = insert_sandbox(user_id: ctx.user.id)
+    owner = self()
+
+    state =
+      ctx
+      |> state(fn ->
+        {:ok, _} = Conversations.update_conversation(ctx.conv, %{sandbox_id: replacement.id})
+        send(owner, :rebound)
+      end)
+      |> relaunchable(ctx)
+
+    assert {:noreply, cleared} =
+             ConversationServer.handle_info(
+               {:exit, %{ref: state.current_command_ref}, 139},
+               state
+             )
+
+    assert_received :rebound
+    assert_cleared(cleared)
+
+    # Nothing announced on the moved conversation, nothing written to it, and
+    # the stale actor's turn neither ended nor counted.
+    assert stages(ctx) == []
+    assert session_stages(ctx) == []
+    moved = Repo.reload!(ctx.conv)
+    assert moved.sandbox_id == replacement.id
+    assert is_nil(moved.runtime_session_id)
+    assert Repo.reload!(ctx.turn).status == "running"
+    refute_receive {[:fountain, :turn, :completed], _}, 50
+  end
+
+  defp relaunchable(state, ctx) do
+    launch = %{
+      conv: ctx.conv,
+      agent: nil,
+      prompt: "p",
+      images: [],
+      plan: {:run, Ecto.UUID.generate()},
+      relaunched?: false
+    }
+
+    state
+    |> Map.put(:turn_execution, nil)
+    |> Map.update!(:turn_metrics, &Map.put(&1, :launch, launch))
+  end
+
+  defp session_stages(ctx) do
+    Repo.all(
+      from e in Conversations.LogEvent,
+        where: e.conversation_id == ^ctx.conv.id and e.stage == "session"
+    )
+  end
+
   defp state(ctx, on_stop) do
     peer = start_supervised!(Supervisor.child_spec({Peer, on_stop}, restart: :temporary))
     Ecto.Adapters.SQL.Sandbox.allow(Repo, self(), peer)

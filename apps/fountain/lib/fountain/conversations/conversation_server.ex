@@ -1225,62 +1225,9 @@ defmodule Fountain.Conversations.ConversationServer do
      })}
   end
 
-  defp handle_execution_info({:exit, %{ref: ref}, code}, %{current_command_ref: ref} = state) do
-    state = Output.flush_state(state)
-    turn = state.current_turn
-
-    # Finalize stream tracer: close any tool spans still open (abandoned calls).
-    TurnMachine.finalize_tracer(state.stream_tracer)
-
-    # An ACP adapter can exit before answering session/prompt. Attempt local
-    # peer cleanup before rechecking ownership: its callback may change the
-    # conversation while this actor waits for it to stop.
-    stop_acp_peer(state)
-
-    status = if(code == 0, do: "completed", else: "failed")
-
-    # Ownership: this actor supplies the sandbox binding captured at startup,
-    # through the owner's door (`Machines.Admission`, ADR 0058 stage 8a).
-    case Machine.end_turn(turn, {:finish, status, [exit_code: code]},
-           sandbox_id: state.sandbox_id
-         ) do
-      {:ok, ended} ->
-        Output.publish_stage(state.conversation_id, "turn", "done", %{
-          turn_id: ended.id,
-          turn_number: ended.turn_number,
-          exit_code: code
-        })
-
-        TurnMachine.end_span(
-          state.current_turn_span,
-          if(code == 0, do: :ok, else: :error),
-          %{"exit_code" => code}
-        )
-
-        emit_turn_completed(state, ended.status)
-
-      :noop ->
-        TurnMachine.end_span(state.current_turn_span, :error, %{"outcome" => "completion_ignored"})
-
-      {:error, reason} ->
-        Logger.warning("turn #{turn.id}: completion refused (#{inspect(reason)})")
-
-        TurnMachine.end_span(state.current_turn_span, :error, %{"outcome" => "completion_refused"})
-    end
-
-    {:noreply,
-     %{
-       touch_activity(state)
-       | current_command: nil,
-         current_command_ref: nil,
-         current_turn: nil,
-         current_turn_span: nil,
-         turn_metrics: nil,
-         stream_tracer: nil,
-         acp_peer: nil,
-         acp_peer_mon: nil
-     }}
-  end
+  # A native crash before any output relaunches once (#2402, `TurnLaunch.relaunch_crashed/3`).
+  defp handle_execution_info({:exit, %{ref: ref}, code}, %{current_command_ref: ref} = state),
+    do: TurnLaunch.relaunch_crashed(Output.flush_state(state), code, &finish_exited_turn/2)
 
   # An error naming the CURRENT command is terminal for the turn (#413):
   # The adapter sends it when the transport to the sandbox drops mid-run,
@@ -1386,6 +1333,62 @@ defmodule Fountain.Conversations.ConversationServer do
   defp handle_execution_info({:EXIT, _from, reason}, state), do: {:stop, reason, state}
 
   defp handle_execution_info(_msg, state), do: {:noreply, state}
+
+  defp finish_exited_turn(state, code) do
+    turn = state.current_turn
+
+    # Finalize stream tracer: close any tool spans still open (abandoned calls).
+    TurnMachine.finalize_tracer(state.stream_tracer)
+
+    # An ACP adapter can exit before answering session/prompt. Attempt local
+    # peer cleanup before rechecking ownership: its callback may change the
+    # conversation while this actor waits for it to stop.
+    stop_acp_peer(state)
+
+    status = if(code == 0, do: "completed", else: "failed")
+
+    # Ownership: this actor supplies the sandbox binding captured at startup,
+    # through the owner's door (`Machines.Admission`, ADR 0058 stage 8a).
+    case Machine.end_turn(turn, {:finish, status, [exit_code: code]},
+           sandbox_id: state.sandbox_id
+         ) do
+      {:ok, ended} ->
+        Output.publish_stage(state.conversation_id, "turn", "done", %{
+          turn_id: ended.id,
+          turn_number: ended.turn_number,
+          exit_code: code
+        })
+
+        TurnMachine.end_span(
+          state.current_turn_span,
+          if(code == 0, do: :ok, else: :error),
+          %{"exit_code" => code}
+        )
+
+        emit_turn_completed(state, ended.status)
+
+      :noop ->
+        TurnMachine.end_span(state.current_turn_span, :error, %{"outcome" => "completion_ignored"})
+
+      {:error, reason} ->
+        Logger.warning("turn #{turn.id}: completion refused (#{inspect(reason)})")
+
+        TurnMachine.end_span(state.current_turn_span, :error, %{"outcome" => "completion_refused"})
+    end
+
+    {:noreply,
+     %{
+       touch_activity(state)
+       | current_command: nil,
+         current_command_ref: nil,
+         current_turn: nil,
+         current_turn_span: nil,
+         turn_metrics: nil,
+         stream_tracer: nil,
+         acp_peer: nil,
+         acp_peer_mon: nil
+     }}
+  end
 
   defp fail_transport(%{turn_execution: %{}} = state, _reason) do
     {:noreply,
@@ -1911,7 +1914,7 @@ defmodule Fountain.Conversations.ConversationServer do
   end
 
   defp restart_current_session(state, detail) do
-    case restart_acp_peer(state.acp_peer) do
+    case Connection.restart_peer_session(state.acp_peer) do
       :ok ->
         TurnMachine.into_state(
           state,
@@ -1921,14 +1924,6 @@ defmodule Fountain.Conversations.ConversationServer do
       {:error, reason} ->
         drive_turn(state, {:failed, reason})
     end
-  end
-
-  defp restart_acp_peer(nil), do: {:error, :acp_peer_unavailable}
-
-  defp restart_acp_peer(peer) do
-    Managoat.ACP.Peer.restart_session(peer)
-  catch
-    :exit, _ -> {:error, :acp_peer_unavailable}
   end
 
   # Close the connection (`Connection.close/3`). An autonomous turn still open

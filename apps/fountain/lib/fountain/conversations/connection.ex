@@ -274,6 +274,16 @@ defmodule Fountain.Conversations.Connection do
     cleared(conn)
   end
 
+  @doc "Open a fresh session on the same peer (#1667); a peer already gone is unavailable."
+  @spec restart_peer_session(pid() | nil) :: :ok | {:error, term()}
+  def restart_peer_session(nil), do: {:error, :acp_peer_unavailable}
+
+  def restart_peer_session(peer) do
+    Managoat.ACP.Peer.restart_session(peer)
+  catch
+    :exit, _ -> {:error, :acp_peer_unavailable}
+  end
+
   @doc """
   Stop the peer, if there is one.
 

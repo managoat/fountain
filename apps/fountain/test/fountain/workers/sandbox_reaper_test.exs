@@ -1074,7 +1074,7 @@ defmodule Fountain.Workers.SandboxReaperTest do
       assert terminated == SandboxReaper.driver_floor()
     end
 
-    test "the expiries above and this pass share one run's destroy budget" do
+    test "with the driver floor off, the expiries above spend the whole destroy budget" do
       # `perform/1` hands this pass what pass 1b did not spend, because both
       # destroy at the provider now and the budget is a drain rate for the whole
       # run. A pass given the full budget over again would let one run make

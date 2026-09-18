@@ -56,6 +56,35 @@ defmodule Fountain.Conversations.ForcedHomeFenceTest do
     assert Repo.reload!(ctx.conv).status == "terminated"
   end
 
+  test "the home's fence carries `home_destroyed` as the row's destroy reason", ctx do
+    # ADR 0058 stage 9a: an owner that dies between this fence and its own
+    # stamp leaves the fence's `transition_reason` for `SandboxReaper`'s driver
+    # to record. `destroy_home/2` dropping it would have the fence fall back to
+    # `teardown`; the row cannot show that, because the protocol's stamp
+    # rewrites it a step later. Driven through agent deletion, the public
+    # entry; the home's first fence is `destroy_home/2`'s. Recorded inside the
+    # stub, asserted outside it.
+    test = self()
+
+    stub(Fountain.Conversations.Lifecycle, :fence_sandbox_for_teardown, fn sandbox, opts ->
+      send(test, {:fence_opts, sandbox.id, opts})
+
+      Mimic.call_original(Fountain.Conversations.Lifecycle, :fence_sandbox_for_teardown, [
+        sandbox,
+        opts
+      ])
+    end)
+
+    stub(Managoat.Sandbox.Sprites, :destroy, fn _ -> :ok end)
+
+    assert {:ok, _} = Agents.delete_agent(ctx.agent)
+
+    home_id = ctx.home.id
+    assert_received {:fence_opts, ^home_id, opts}
+    assert opts[:transition_reason] == :home_destroyed
+    assert Repo.reload!(ctx.home).status == "terminated"
+  end
+
   for operation <- [:agent, :home] do
     test "an enclosing transaction refuses #{operation} teardown before any side effect", ctx do
       reject(Managoat.Sandbox.Sprites, :destroy, 1)

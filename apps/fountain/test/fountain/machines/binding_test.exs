@@ -431,6 +431,37 @@ defmodule Fountain.Machines.BindingTest do
       assert {:error, :sandbox_reset_pending} = attach(ctx)
     end
 
+    test "the fence carries the caller's destroy reason as the row's word", ctx do
+      # ADR 0058 stage 9a: an owner that dies between this fence and its own
+      # stamp leaves the fence's `transition_reason` for `SandboxReaper`'s
+      # driver to record. A `fence_opts/2` that dropped `:destroy_reason` would
+      # have the fence fall back to `teardown`. `:replaced`, not the default
+      # `:terminated`, so a hardcoded default fails too. Recorded inside the
+      # stub, asserted outside it (the protocol rescues a raise).
+      test = self()
+
+      expect(Fountain.Conversations.Lifecycle, :fence_sandbox_for_teardown, fn sandbox, opts ->
+        send(test, {:fence_opts, opts})
+
+        Mimic.call_original(Fountain.Conversations.Lifecycle, :fence_sandbox_for_teardown, [
+          sandbox,
+          opts
+        ])
+      end)
+
+      reject(&Managoat.Sandbox.destroy/1)
+
+      assert {:ok, :detached} =
+               Machine.detach(
+                 ctx.sandbox.id,
+                 detach_opts(ctx, destroy: false, destroy_reason: :replaced)
+               )
+
+      assert_received {:fence_opts, opts}
+      assert opts[:transition_reason] == :replaced
+      assert Repo.reload!(ctx.sandbox).transition_reason == "replaced"
+    end
+
     test "refuses a live lease after waiting, and writes no fence", ctx do
       {:ok, _epoch} = Lease.claim(ctx.sandbox.id, "other@node", 60_000)
       started = System.monotonic_time(:millisecond)

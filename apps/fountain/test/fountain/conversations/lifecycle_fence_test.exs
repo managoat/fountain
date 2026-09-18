@@ -89,6 +89,31 @@ defmodule Fountain.Conversations.LifecycleFenceTest do
     assert [_] = Audit.list_for_user(ctx.user.id, action_prefix: "sandbox.teardown_requested")
   end
 
+  test "the server's fence carries its expiry as the row's destroy reason", ctx do
+    # ADR 0058 stage 9a: the fence stamps `transition_reason`, and an owner that
+    # dies between the fence and its own intent stamp leaves that value for
+    # `SandboxReaper`'s driver to record on `sandbox.destroyed`. A caller that
+    # stopped passing it would have the fence fall back to `teardown`. The row
+    # cannot show that here — the protocol's stamp rewrites the reason a step
+    # later — so this pins what `prepare_destroy/2` hands the fence, recorded
+    # inside the stub and asserted outside it (the protocol rescues a raise).
+    test = self()
+
+    expect(Lifecycle, :fence_sandbox_for_teardown, fn sandbox, opts ->
+      send(test, {:fence_opts, opts})
+      Mimic.call_original(Lifecycle, :fence_sandbox_for_teardown, [sandbox, opts])
+    end)
+
+    stub(Managoat.Sandbox, :close_stdin, fn :adapter -> :ok end)
+    stub(Managoat.Sandbox, :stop_command, fn :adapter -> :ok end)
+    stub(Managoat.Sandbox, :destroy, fn _ -> :ok end)
+
+    assert {:stop, :normal, _} = ConversationServer.handle_info(:lifecycle_check, ctx.state)
+
+    assert_received {:fence_opts, opts}
+    assert opts[:transition_reason] == :idle
+  end
+
   for sandbox? <- [true, false] do
     test "an enclosing transaction refuses destruction with sandbox=#{sandbox?}", ctx do
       reject(Managoat.Sandbox, :destroy, 1)

@@ -261,6 +261,58 @@ defmodule Fountain.Accounts.DeletionFenceTest do
     assert event.actor == "admin"
   end
 
+  describe "the fences carry the deletion's destroy reason as the row's word" do
+    # ADR 0058 stage 9a: an owner that dies between a fence and its own stamp
+    # leaves the fence's `transition_reason` for `SandboxReaper`'s driver to
+    # record on `sandbox.destroyed`. A fence that dropped it would fall back to
+    # `teardown`. The row cannot show that — the protocol's stamp rewrites it a
+    # step later — so these pin what each of the two fences is handed,
+    # recorded inside the stub and asserted outside it. The actor boundary
+    # message splits the first pass from the late one.
+    setup ctx do
+      test = self()
+      stub(ConversationServer, :whereis, fn _ -> self() end)
+
+      stub(Lifecycle, :fence_sandbox_for_teardown, fn sandbox, opts ->
+        send(test, {:fence_opts, sandbox.id, opts})
+        Mimic.call_original(Lifecycle, :fence_sandbox_for_teardown, [sandbox, opts])
+      end)
+
+      expect(Termination, :terminate_conversation, fn _, _ ->
+        late = insert_sandbox(user_id: ctx.user.id, status: "ready")
+        send(test, {:actors_stopped, late.id})
+        :ok
+      end)
+
+      stub(Managoat.Sandbox.Sprites, :destroy, fn _ -> :ok end)
+      :ok
+    end
+
+    test "the first pass, before any actor is stopped", ctx do
+      assert {:ok, %{sprites_destroyed: 2}} = Deletion.delete_user(ctx.user)
+
+      assert [{:fence_opts, id, opts}, {:actors_stopped, _} | _] = mailbox()
+      assert id == ctx.sandbox.id
+      assert opts[:transition_reason] == :account_deleted
+    end
+
+    test "the late pass, after the actors have stopped", ctx do
+      assert Deletion.destroy_sprites(ctx.user, reason: "principal_closed") == 2
+
+      assert [{:fence_opts, _, _}, {:actors_stopped, late_id} | late_pass] = mailbox()
+      assert {:fence_opts, _, opts} = List.keyfind(late_pass, late_id, 1)
+      assert opts[:transition_reason] == :principal_closed
+    end
+  end
+
+  defp mailbox do
+    receive do
+      msg -> [msg | mailbox()]
+    after
+      0 -> []
+    end
+  end
+
   defp admit(ctx) do
     Conversations._unsafe_create_turn_on_sandbox(
       %{conversation_id: ctx.conv.id, turn_number: 1, status: "running", prompt: "late"},

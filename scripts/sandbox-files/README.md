@@ -1,5 +1,10 @@
 # Sandbox files versus machine lifecycle (#2394)
 
+The next proof pass is in [EXECUTION-PROOF.md](EXECUTION-PROOF.md): maintainer
+decisions, offline adapter/runner reproductions, a live Sprites termination
+counterexample, and the provider execution contract required before read
+admission can claim remote exclusion.
+
 **Status: preparation only; the defect is not fixed.** Implementation should
 reconcile with [#2386](https://github.com/managoat/fountain/pull/2386), which
 was open, approved and passing CI when checked on September 18, 2026 at head

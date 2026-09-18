@@ -271,12 +271,20 @@ defmodule Fountain.Conversations.Egress do
   end
 
   @doc "The proxy variables a session puts in the sandbox's env; none without a session."
-  @spec sandbox_env(session(), Managoat.Sandbox.Handle.t() | nil) :: [{String.t(), String.t()}]
-  def sandbox_env(session, handle \\ nil)
-  def sandbox_env(nil, _handle), do: []
+  @spec sandbox_env(session(), Broker.ca_files()) :: [{String.t(), String.t()}]
+  def sandbox_env(session, ca_files \\ Broker.system_ca_files())
+  def sandbox_env(nil, _ca_files), do: []
+  def sandbox_env(session, ca_files), do: Broker.sandbox_env(session, ca_files)
 
-  def sandbox_env(session, handle),
-    do: Broker.sandbox_env(session, Provisioning.broker_ca_files(handle))
+  @doc """
+  The CA files the sandbox's env should name, resolved before it is built.
+  Only a brokered conversation asks the sandbox: an unbrokered one names no
+  CA files, and must not fail a launch over a lookup it has no use for.
+  """
+  @spec ca_files(session(), Managoat.Sandbox.Handle.t()) ::
+          {:ok, Broker.ca_files()} | {:error, term()}
+  def ca_files(nil, _handle), do: {:ok, Broker.system_ca_files()}
+  def ca_files(_session, handle), do: Provisioning.broker_ca_files(handle)
 
   @doc """
   Mint the conversation's proxy session and start the `broker` stage.

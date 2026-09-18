@@ -455,6 +455,7 @@ defmodule Fountain.Broker do
       {"SSL_CERT_FILE", bundle},
       {"REQUESTS_CA_BUNDLE", bundle},
       {"CARGO_HTTP_CAINFO", bundle},
+      {"GIT_SSL_CAINFO", bundle},
       {"UV_NATIVE_TLS", "1"}
     ]
   end
@@ -495,7 +496,8 @@ defmodule Fountain.Broker do
   @doc "The keys `ca_env/0` sets."
   @spec ca_keys() :: [String.t()]
   def ca_keys,
-    do: ~w(NODE_EXTRA_CA_CERTS SSL_CERT_FILE REQUESTS_CA_BUNDLE CARGO_HTTP_CAINFO UV_NATIVE_TLS)
+    do:
+      ~w(NODE_EXTRA_CA_CERTS SSL_CERT_FILE REQUESTS_CA_BUNDLE CARGO_HTTP_CAINFO GIT_SSL_CAINFO UV_NATIVE_TLS)
 
   @doc """
   The secrets inside a set of proxy variables: each session token, and not

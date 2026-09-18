@@ -619,16 +619,35 @@ defmodule Fountain.Conversations.Provisioning do
   command arguments reach a runner with `/home/sprite` mapped into the
   sandbox, but env values reach it verbatim, and a CA variable naming a path
   that does not exist costs every TLS client in the sandbox its roots.
+
+  The root is looked up once, and a lookup that fails is an error rather than
+  a fallback. `Managoat.Sandbox.host_path/2` answers its input when the runner
+  cannot be reached, which is `/home/sprite` itself, and a runner that
+  recovers in time for the install would leave that unmapped path in the env
+  for the life of the conversation. A lookup that succeeds and names
+  `/home/sprite` is a backend whose sandbox really is there (Firecracker's
+  guest), and is taken as it is.
   """
-  @spec broker_ca_files(Handle.t() | nil) :: Fountain.Broker.ca_files()
+  @spec broker_ca_files(Handle.t() | nil) :: {:ok, Fountain.Broker.ca_files()} | {:error, term()}
   def broker_ca_files(%Handle{provider: :runner} = handle) do
-    %{
-      ca: Sandbox.host_path(handle, Fountain.Broker.home_ca_path()),
-      bundle: Sandbox.host_path(handle, Fountain.Broker.home_ca_bundle())
-    }
+    case Retry.with_backoff(fn -> Sandbox.get(handle) end, label: "runner sandbox lookup") do
+      {:ok, %{raw: %{"path" => root}}} when is_binary(root) and root != "" ->
+        {:ok, home_ca_files(root)}
+
+      {:ok, info} ->
+        {:error, {:broker, :runner_root_unknown, info}}
+
+      {:error, _} = error ->
+        error
+    end
   end
 
-  def broker_ca_files(_handle), do: Fountain.Broker.system_ca_files()
+  def broker_ca_files(_handle), do: {:ok, Fountain.Broker.system_ca_files()}
+
+  defp home_ca_files(root) do
+    at = fn "/home/sprite" <> rest -> root <> rest end
+    %{ca: at.(Fountain.Broker.home_ca_path()), bundle: at.(Fountain.Broker.home_ca_bundle())}
+  end
 
   @sudoers_staging "/tmp/fountain-broker-proxy.sudoers"
   @sudoers_path "/etc/sudoers.d/fountain-broker-proxy"

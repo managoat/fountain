@@ -252,7 +252,7 @@ defmodule Fountain.Conversations.ProvisioningTest do
                  "|| true; }; } && " <>
                  "printf '%s\\n' 'Defaults env_keep += \"HTTPS_PROXY HTTP_PROXY https_proxy http_proxy " <>
                  "NO_PROXY NODE_EXTRA_CA_CERTS SSL_CERT_FILE REQUESTS_CA_BUNDLE CARGO_HTTP_CAINFO " <>
-                 "UV_NATIVE_TLS\"' > '/tmp/fountain-broker-proxy.sudoers' && " <>
+                 "GIT_SSL_CAINFO UV_NATIVE_TLS\"' > '/tmp/fountain-broker-proxy.sudoers' && " <>
                  "sudo visudo -cf '/tmp/fountain-broker-proxy.sudoers' && " <>
                  "sudo install -m 440 '/tmp/fountain-broker-proxy.sudoers' '/etc/sudoers.d/fountain-broker-proxy' && " <>
                  "git config --global http.proxyAuthMethod basic ) 9>'/tmp/fountain-broker-ca.lock'"
@@ -629,19 +629,128 @@ defmodule Fountain.Conversations.ProvisioningTest do
     end
 
     test "names the sandbox's real paths in the env, which a runner does not map" do
-      stub(Managoat.Sandbox, :host_path, fn _h, "/home/sprite" <> rest ->
-        "/Users/t/sandboxes/x" <> rest
+      stub(Managoat.Sandbox, :get, fn _h ->
+        {:ok, %{status: :running, raw: %{"path" => "/Users/t/sandboxes/x"}}}
       end)
 
-      env = Map.new(Fountain.Broker.ca_env(Provisioning.broker_ca_files(runner_handle())))
+      assert {:ok, files} = Provisioning.broker_ca_files(runner_handle())
+      env = Map.new(Fountain.Broker.ca_env(files))
 
       assert env["NODE_EXTRA_CA_CERTS"] == "/Users/t/sandboxes/x/.fountain/broker/ca.crt"
       assert env["SSL_CERT_FILE"] == "/Users/t/sandboxes/x/.fountain/broker/ca-bundle.crt"
+      assert env["GIT_SSL_CAINFO"] == env["SSL_CERT_FILE"]
       assert env["REQUESTS_CA_BUNDLE"] == env["SSL_CERT_FILE"]
 
       # Everywhere else the OS trust store is unchanged.
-      assert Provisioning.broker_ca_files(sandbox_handle()) == Fountain.Broker.system_ca_files()
-      assert Fountain.Broker.ca_env(Fountain.Broker.system_ca_files()) == Fountain.Broker.ca_env()
+      assert Provisioning.broker_ca_files(sandbox_handle()) ==
+               {:ok, Fountain.Broker.system_ca_files()}
+    end
+
+    test "a lookup that drops once is retried rather than answered with /home/sprite" do
+      calls = :counters.new(1, [])
+
+      stub(Managoat.Sandbox, :get, fn _h ->
+        :counters.add(calls, 1, 1)
+
+        if :counters.get(calls, 1) == 1,
+          do: {:error, {:unavailable, :runner_disconnected}},
+          else: {:ok, %{status: :running, raw: %{"path" => "/Users/t/sandboxes/x"}}}
+      end)
+
+      assert {:ok, %{bundle: "/Users/t/sandboxes/x/.fountain/broker/ca-bundle.crt"}} =
+               Provisioning.broker_ca_files(runner_handle())
+    end
+
+    test "a lookup that keeps failing fails the launch instead of naming an unmapped path" do
+      stub(Managoat.Sandbox, :get, fn _h -> {:error, {:unavailable, :runner_disconnected}} end)
+
+      assert {:error, {:unavailable, :runner_disconnected}} =
+               Provisioning.broker_ca_files(runner_handle())
+    end
+
+    test "an unbrokered conversation never asks the runner" do
+      stub(Managoat.Sandbox, :get, fn _h -> flunk("looked up a sandbox it has no use for") end)
+      assert {:ok, _} = Fountain.Conversations.Egress.ca_files(nil, runner_handle())
+    end
+
+    @tag :tmp_dir
+    @tag skip: unless(System.find_executable("git"), do: "needs git")
+    test "git trusts the broker CA through the env alone", %{tmp_dir: tmp_dir} do
+      # The OS trust store is not touched on a runner, so git has only the
+      # env to go on, and git reads none of the other CA variables: Apple's
+      # git ignores SSL_CERT_FILE. A local HTTPS server with a certificate
+      # the temporary CA signed stands in for the broker.
+      %{server_config: server, client_config: client} =
+        :public_key.pkix_test_data(%{
+          server_chain: %{
+            root: [key: {:rsa, 2048, 65537}],
+            peer: [
+              key: {:rsa, 2048, 65537},
+              extensions: [
+                {:Extension, {2, 5, 29, 17}, false, [dNSName: ~c"localhost"]}
+              ]
+            ]
+          },
+          client_chain: %{root: [key: {:rsa, 2048, 65537}], peer: [key: {:rsa, 2048, 65537}]}
+        })
+
+      {:ok, listen} =
+        :ssl.listen(0, server ++ [active: false, reuseaddr: true, versions: [:"tlsv1.2"]])
+
+      {:ok, {_, port}} = :ssl.sockname(listen)
+
+      serve = fn serve ->
+        with {:ok, socket} <- :ssl.transport_accept(listen),
+             {:ok, socket} <- :ssl.handshake(socket, 5_000) do
+          _ = :ssl.recv(socket, 0, 5_000)
+
+          :ssl.send(
+            socket,
+            "HTTP/1.1 404 Not Found\r\ncontent-length: 0\r\nconnection: close\r\n\r\n"
+          )
+
+          :ssl.close(socket)
+        end
+
+        serve.(serve)
+      end
+
+      server_pid = spawn(fn -> serve.(serve) end)
+      on_exit(fn -> Process.exit(server_pid, :kill) end)
+
+      roots =
+        Enum.find(
+          ~w(/etc/ssl/certs/ca-certificates.crt /etc/pki/tls/certs/ca-bundle.crt /etc/ssl/cert.pem),
+          &File.regular?/1
+        )
+
+      ca_pem =
+        client
+        |> Keyword.fetch!(:cacerts)
+        |> Enum.map(&:public_key.pem_encode([{:Certificate, &1, :not_encrypted}]))
+        |> Enum.join()
+
+      bundle = Path.join(tmp_dir, "ca-bundle.crt")
+      File.write!(bundle, File.read!(roots) <> ca_pem)
+      files = %{ca: Path.join(tmp_dir, "ca.crt"), bundle: bundle}
+
+      git = fn env ->
+        System.cmd("git", ["ls-remote", "https://localhost:#{port}/r.git"],
+          env:
+            [{"HOME", tmp_dir}, {"GIT_TERMINAL_PROMPT", "0"}, {"GIT_CONFIG_NOSYSTEM", "1"}] ++ env,
+          stderr_to_stdout: true
+        )
+      end
+
+      # Control: the same bundle, without the variable git reads.
+      without = Enum.reject(Fountain.Broker.ca_env(files), &(elem(&1, 0) == "GIT_SSL_CAINFO"))
+      {out, _} = git.(without)
+      assert out =~ ~r/certificate/i
+
+      # The TLS handshake succeeds; what fails is the fake repository.
+      {out, _} = git.(Fountain.Broker.ca_env(files))
+      refute out =~ ~r/certificate/i
+      assert out =~ ~r/404|not found/i
     end
   end
 

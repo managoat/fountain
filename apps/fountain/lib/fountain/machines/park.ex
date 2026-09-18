@@ -384,15 +384,14 @@ defmodule Fountain.Machines.Park do
 
   defp admissible(%Sandbox{} = sandbox, opts) do
     cond do
-      # Either fence — a reset or a teardown — read off the `destroying` stamp
-      # both write (stage 9a; 9b stopped reading the two columns beside it). A
-      # machine whose destruction has been requested is on its way out: parking
-      # it would write a live status over a row `sweep_fenced_teardowns/0` is
-      # about to finish, and re-reserve at the provider a machine somebody
-      # asked to be destroyed. The terminal statuses were answered above.
-      sandbox.transition == "destroying" ->
-        {:error, :fenced}
-
+      # No fence clause here since stage 9b. A fence is the `destroying` stamp,
+      # and `under_lease/3` refuses every stamp that is not this park's own —
+      # `destroying` among them — before this is reached, so a copy here would
+      # be a guard no test could break (9a's rule for `Resume.admissible/2`).
+      # Until 9b this read the two fence columns, which a row could carry with
+      # no stamp at all. Why a fenced machine is refused: it is on its way out,
+      # and parking it would write a live status over a row
+      # `sweep_fenced_teardowns/0` is about to finish.
       Lifecycle.idle_action(Conversations.sandbox_provider_atom(sandbox)) == :destroy ->
         {:error, :cannot_park}
 

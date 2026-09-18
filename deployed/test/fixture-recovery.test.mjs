@@ -195,3 +195,84 @@ test('changing a null vault to another vault refuses conversation termination an
   assert.equal(w.mutations.length, 0);
   assert.equal(w.load().remainingCount(), 3);
 });
+
+for (const kind of ['environment', 'vault']) {
+  for (const phase of ['reconstruction', 'replay']) {
+    test(`refuses an unrecorded agent's ${kind} allowlist during ${phase}`, async t => {
+      const w = await world(t);
+      const source = w.add(kind);
+      if (phase === 'replay') await w.reconstruct();
+      const foreign = { id: randomUUID(), name: 'unrecorded-agent', environment_id: null,
+        allowed_environment_ids: [], allowed_vault_ids: [], [`allowed_${kind}_ids`]: [source.id] };
+      w.rows.agent.push(foreign);
+      if (phase === 'reconstruction') {
+        await assert.rejects(w.reconstruct(), /Unrecorded agent/);
+        assert.equal(existsSync(w.manifestPath), false);
+      } else {
+        const failures = await w.load().cleanup(AbortSignal.timeout(5000));
+        assert.match(failures[0]?.error, /Unrecorded agent/);
+        assert.equal(w.load().remainingCount(), 1, 'retain the source cleanup intent');
+      }
+      assert.deepEqual(w.mutations, [], 'refuse before source deletion could version another agent');
+      assert.equal(w.rows[kind][0].id, source.id, 'retain the source fixture');
+      assert.deepEqual(foreign[`allowed_${kind}_ids`], [source.id]);
+    });
+  }
+}
+
+for (const phase of ['reconstruction', 'replay']) {
+  test(`refuses a child on different resources during ${phase} and retains its parent`, async t => {
+    const w = await world(t);
+    const { conv } = w.conversation();
+    if (phase === 'replay') await w.reconstruct();
+    const environment = { id: randomUUID(), name: 'child-environment' };
+    const vault = { id: randomUUID(), name: 'child-vault' };
+    const agent = { id: randomUUID(), name: 'child-agent', environment_id: environment.id };
+    const child = { id: randomUUID(), channel_id: 'unrecorded-child', parent_conversation_id: conv.id,
+      agent_id: agent.id, environment_id: environment.id, vault_id: vault.id, status: 'running' };
+    const sandbox = { id: randomUUID(), agent_id: agent.id, environment_id: environment.id,
+      vault_id: vault.id, mode: 'ephemeral', status: 'ready', conversations: [{ id: child.id }] };
+    Object.assign(child, { sandbox_id: sandbox.id, sandbox });
+    w.rows.environment.push(environment); w.rows.vault.push(vault); w.rows.agent.push(agent);
+    w.rows.conversation.push(child); w.rows.sandbox.push(sandbox);
+    if (phase === 'reconstruction') {
+      await assert.rejects(w.reconstruct(), /Unrecorded conversation/);
+      assert.equal(existsSync(w.manifestPath), false);
+    } else {
+      const failures = await w.load().cleanup(AbortSignal.timeout(5000));
+      assert.match(failures[0]?.error, /Unrecorded conversation/);
+      assert.equal(w.load().remainingCount(), 3, 'retain every parent cleanup intent');
+    }
+    assert.deepEqual(w.mutations, [], 'do not terminate or delete the recovered parent');
+    assert.ok(w.rows.conversation.some(row => row.id === conv.id));
+    assert.equal(w.rows.conversation.find(row => row.id === conv.id).status, 'running');
+    assert.equal(child.status, 'running', 'escalate the child instead of implicitly adopting it');
+    assert.equal(sandbox.status, 'ready');
+  });
+}
+
+test('null, empty and unrelated allowlists do not prevent cleanup of independent fixtures', async t => {
+  const w = await world(t);
+  w.add('environment'); w.add('vault');
+  for (const allowed of [null, [], [randomUUID()]]) {
+    w.rows.agent.push({ id: randomUUID(), name: 'unrelated-agent', environment_id: null,
+      allowed_environment_ids: allowed, allowed_vault_ids: allowed });
+  }
+  await w.reconstruct();
+  assert.deepEqual(await w.load().cleanup(AbortSignal.timeout(5000)), []);
+  assert.equal(w.load().remainingCount(), 0);
+  assert.equal(w.rows.agent.length, 3);
+  assert.equal(w.mutations.length, 2);
+  assert.ok(w.mutations.every(request => /^DELETE \/api\/(environments|vaults)\//.test(request)));
+});
+
+test('allowlists on an exactly recorded agent permit cleanup of its recorded sources', async t => {
+  const w = await world(t);
+  const environment = w.add('environment'), vault = w.add('vault');
+  w.add('agent', { environment_id: null, allowed_environment_ids: [environment.id], allowed_vault_ids: [vault.id] });
+  await w.reconstruct();
+  assert.deepEqual(await w.load().cleanup(AbortSignal.timeout(5000)), []);
+  assert.equal(w.load().remainingCount(), 0);
+  assert.equal(w.rows.agent.length, 0);
+  assert.equal(w.rows.environment.length + w.rows.vault.length, 0);
+});

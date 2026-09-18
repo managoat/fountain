@@ -126,9 +126,12 @@ node deployed/cli.mjs cleanup \
 ```
 
 Every replay of a reconstructed manifest rechecks ownership and dependent
-inventory before mutation. New or foreign conversations, sandbox co-tenants,
-unrecorded sandboxes, changed parent names and agent schedules block the
-whole pass, retaining parents as evidence. Cleanup then terminates recorded
+inventory before mutation. Unrecorded agents referencing a fixture through
+their environment/vault allowlists, and child conversations linked through
+`parent_conversation_id` even when using different resources, block the whole
+pass. So do other foreign conversations, sandbox co-tenants, unrecorded
+sandboxes, changed parent names and agent schedules. Refusal retains parents
+as evidence. Cleanup then terminates recorded
 conversations, verifies their sandbox is terminal (and resets only an exactly
 owned persistent home), deletes conversations, and finally deletes parents.
 A new sandbox discovered after reconstruction can require a fresh inventory

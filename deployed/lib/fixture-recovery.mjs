@@ -9,7 +9,10 @@ const marker = (kind, row) => kind === 'conversation' ? row.channel_id : row.nam
 const exactName = (kind, name, runId) => typeof name === 'string' &&
   new RegExp(`^suite-${runId}-${kind}-(?:0|[1-9][0-9]?)$`).test(name);
 const related = (row, resources) => resources.some(r => r.id &&
-  (row.agent_id === r.id || row.environment_id === r.id || row.vault_id === r.id));
+  (row.agent_id === r.id || row.environment_id === r.id || row.vault_id === r.id ||
+    (r.kind === 'environment' && Array.isArray(row.allowed_environment_ids) && row.allowed_environment_ids.includes(r.id)) ||
+    (r.kind === 'vault' && Array.isArray(row.allowed_vault_ids) && row.allowed_vault_ids.includes(r.id)) ||
+    (r.kind === 'conversation' && row.parent_conversation_id === r.id)));
 
 export async function recoveryIdentity(client, ownerId) {
   need(uuid(ownerId), 'Supply the dedicated suite account UUID');

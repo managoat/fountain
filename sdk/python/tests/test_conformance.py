@@ -376,6 +376,9 @@ def _drive(scenario: Dict[str, Any], base_url: str) -> Dict[str, Any]:
             output["result"] = _normalise_result(run.result())
         elif operation == "run":
             options: Dict[str, Any] = {"agent": step["agent"]}
+            for key in ("channel_id", "client_request_id"):
+                if key in step:
+                    options[key] = step[key]
             if step.get("timeout_ms") is not None:
                 options["timeout"] = step["timeout_ms"] / 1000.0
             run = client.run(step["prompt"], **options)

@@ -376,6 +376,8 @@ defmodule Fountain.ConformanceTest do
   defp drive_step(client, %{"op" => "run"} = step, observed) do
     options =
       [agent: step["agent"]]
+      |> put_option(:channel_id, step["channel_id"])
+      |> put_option(:client_request_id, step["client_request_id"])
       |> put_option(:timeout, step["timeout_ms"])
 
     run = Fountain.run(client, step["prompt"], options)

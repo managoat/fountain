@@ -635,7 +635,30 @@ defmodule FountainWeb.Schemas do
 
   list_response(ConversationTreeResponse, of: ConversationTreeNode)
 
-  item_response(ConversationResponse, of: Conversation)
+  defmodule ConversationResponse do
+    @moduledoc false
+    require OpenApiSpex
+
+    OpenApiSpex.schema(%{
+      title: "ConversationResponse",
+      type: :object,
+      properties: %{
+        data: Conversation,
+        meta: %Schema{
+          type: :object,
+          description: "Present when creating or resuming a conversation.",
+          properties: %{
+            resumed: %Schema{
+              type: :boolean,
+              description: "Whether the channel resumed an existing conversation."
+            }
+          },
+          required: [:resumed]
+        }
+      },
+      required: [:data]
+    })
+  end
 
   list_response(ConversationListResponse, of: Conversation)
 

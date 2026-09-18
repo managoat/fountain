@@ -3646,6 +3646,11 @@ export interface components {
         /** ConversationResponse */
         ConversationResponse: {
             data: components["schemas"]["Conversation"];
+            /** @description Present when creating or resuming a conversation. */
+            meta?: {
+                /** @description Whether the channel resumed an existing conversation. */
+                resumed: boolean;
+            };
         };
         /**
          * ConversationTreeNode

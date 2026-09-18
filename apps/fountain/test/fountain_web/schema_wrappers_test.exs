@@ -49,9 +49,9 @@ defmodule FountainWeb.SchemaWrappersTest do
     test "puts the item directly under data" do
       assert %Schema{
                type: :object,
-               properties: %{data: Schemas.Conversation},
+               properties: %{data: Schemas.Agent},
                required: [:data]
-             } = Schemas.ConversationResponse.schema()
+             } = Schemas.AgentResponse.schema()
     end
 
     test "titles the schema after the module" do
@@ -126,7 +126,6 @@ defmodule FountainWeb.SchemaWrappersTest do
     Schemas.AgentResponse,
     Schemas.ApiKeyListResponse,
     Schemas.ConversationListResponse,
-    Schemas.ConversationResponse,
     Schemas.ConversationTreeResponse,
     Schemas.EnvironmentListResponse,
     Schemas.EnvironmentResponse,
@@ -143,8 +142,8 @@ defmodule FountainWeb.SchemaWrappersTest do
     Schemas.VaultSecretResponse
   ]
 
-  test "all 22 generated envelopes exist and keep the envelope invariants" do
-    assert length(@generated) == 22
+  test "all 21 generated envelopes exist and keep the envelope invariants" do
+    assert length(@generated) == 21
 
     for mod <- @generated do
       assert Code.ensure_loaded?(mod), "#{inspect(mod)} was not defined"

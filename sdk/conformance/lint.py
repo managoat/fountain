@@ -49,7 +49,7 @@ OPS = {
     "history": {"conversation_id"},
 }
 OP_OPTIONAL = {
-    "run": {"timeout_ms", "answer_permissions"},
+    "run": {"channel_id", "client_request_id", "timeout_ms", "answer_permissions"},
     "list": set(),
 }
 

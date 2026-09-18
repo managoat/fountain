@@ -458,9 +458,9 @@ defmodule Fountain.Machines.Lease do
   `preserve_destroying/2`.
 
   A write that moves the status to `terminated` or `failed` stamps
-  `terminated_at` when the row has none, mirroring
-  `Conversations.stamp_terminated_at/1` — see `stamp_terminated_at/2` below for
-  why that matters and where it is deliberately narrower.
+  `terminated_at` when the row has none, as `Conversations.stamp_terminated_at/1`
+  did until stage 9b deleted it — see `stamp_terminated_at/2` below for why
+  that matters and where it is deliberately narrower.
 
   Deliberately takes no advisory lock: a single guarded `update_all` is already
   atomic, and the serialization this needs was done when the epoch was taken.
@@ -699,8 +699,8 @@ defmodule Fountain.Machines.Lease do
   # `COALESCE` in the database rather than a read here keeps the write one
   # statement and keeps a caller's own timestamp, so this only fills a gap.
   #
-  # Narrower than the original on purpose. `stamp_terminated_at/1` works off
-  # `get_field/2`, which falls back to the *stored* status, so it also repairs
+  # Narrower than the original on purpose. `stamp_terminated_at/1` worked off
+  # `get_field/2`, which falls back to the *stored* status, so it also repaired
   # a status-free write to an already-terminal row. This fires only on the
   # transition into a terminal status, which is the case with the hazard; a
   # write that never names a status leaves the column alone.

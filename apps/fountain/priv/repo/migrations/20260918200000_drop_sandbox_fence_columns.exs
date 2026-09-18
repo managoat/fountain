@@ -7,9 +7,13 @@ defmodule Fountain.Repo.Migrations.DropSandboxFenceColumns do
   # them and shipped a release before this one, so no replica that selects them
   # is still serving when this runs.
   #
-  # Before 9b-i shipped, production had no live row with a column set and no
-  # stamp (the query is in #2423's body); every row a 9a replica fenced carries
-  # the stamp too, so dropping the columns drops no intent.
+  # Dropping them drops no intent, on any upgrade path. A row fenced by 9a or
+  # later carries the `destroying` stamp beside the columns. A row fenced only
+  # in the columns — which a v0.19.0 instance wrote, since 9a first shipped in
+  # v0.20.0 — is stamped by v0.20.1's backfill,
+  # `20260918190000_stamp_column_only_fences`, which sorts and so runs before
+  # this one on every database. (Hosted production had no such row when 9b-i
+  # shipped; the query is in #2423's body.)
   def up do
     alter table(:sandboxes) do
       remove :reset_requested_at

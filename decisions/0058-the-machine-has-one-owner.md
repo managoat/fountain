@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "The machine has one owner"
-description: "Accepted 2026-09-18, built in eleven stage PRs (#2342–#2423, tracker #2344). One process per sandbox, backed by a durable lease on the row, is the only writer of sandboxes.status and the caller of the provider's create, resume, suspend and destroy and of the park's checkpoint; conversation servers, the reaper, Launch, Wake, Reapply, Termination, admin and account deletion ask it. Two provider calls stay outside it by design (the environment warm-start checkpoint, the reaper's destroy of a machine whose row is already terminal). Delivers the per-sandbox owner that ADR 0023 step 4 named; settles #2307 and the open decisions on #2255; prerequisite for two agents on one machine (#1089)."
+description: "Accepted 2026-09-18, built in sixteen stage PRs (#2342–#2425, tracker #2344). One process per sandbox, backed by a durable lease on the row, is the only writer of sandboxes.status and the caller of the provider's create, resume, suspend and destroy and of the park's checkpoint; conversation servers, the reaper, Launch, Wake, Reapply, Termination, admin and account deletion ask it. Two provider calls stay outside it by design (the environment warm-start checkpoint, the reaper's destroy of a machine whose row is already terminal). Delivers the per-sandbox owner that ADR 0023 step 4 named; settles #2307 and the open decisions on #2255; prerequisite for two agents on one machine (#1089)."
 tags: [sandbox, lifecycle, conversations]
 status: stable
 adr: "0058"
@@ -11,8 +11,8 @@ date: 2026-09-16
 
 # 0058 — The machine has one owner
 
-**Status:** Accepted — built 2026-09-16 to 2026-09-18 in eleven stage PRs,
-tracker #2344. The **Outcome** below records what shipped and where the code
+**Status:** Accepted — built from 2026-09-16 in sixteen stage PRs
+(#2342–#2425), tracker #2344. The **Outcome** below records what shipped and where the code
 differs from the Decision text, which is kept as it was written, with the
 stage notes the build added inline. **Date:** 2026-09-16. **Amends:**
 [0023](0023-persistent-agent-sandbox.md) (delivers its step 4),
@@ -24,9 +24,10 @@ into the owner). **Settles:** #2307; open decisions 1–3 on #2255.
 ## Outcome (2026-09-18)
 
 **The machine has one owner.** A sandbox's status is written only by code in
-`lib/fountain/machines/`, and every destroy, park, resume, turn admission,
-attach and detach runs in that sandbox's `Fountain.Machines.Machine` process,
-under a lease on the row. The flag that could run them inline,
+`lib/fountain/machines/`. Every destroy, park, resume, turn admission, attach
+and last detach runs in that sandbox's `Fountain.Machines.Machine` process,
+under a lease on the row; the few verbs that run on their caller instead are
+listed under "Where the code differs" with their reasons. The flag that could run them inline,
 `MACHINE_OWNER_ENABLED`, was on in production from 2026-09-17 and was deleted
 on 2026-09-18. The fence columns the owner replaced, `reset_requested_at` and
 `teardown_requested_at`, were dropped one release later: v0.20.0 ships the
@@ -114,12 +115,25 @@ missed. So 6b's 26 is 29 minus three writes. It is not 21 plus five.
   reaper's destroy of a machine whose row is already terminal, which no owner
   will ever claim. The home checkpoint does run in the owner: it is part of the
   park, under the park's lease (`Machines.HomeCheckpoint`).
-- **Some verbs run on the caller, not in the process.** These are `provision`,
-  `confirm_up`, `fail_provision`, `end_turn`, `retarget`, `bind_inference` and a
-  release (`detach` with `policy: :keep`). Provision's callback is the server's
-  own minutes-long pipeline. `end_turn` changes no machine state. The others
-  are one write inside a transaction that already holds the machine's lock.
-  Each takes the same lease or lock it would take in the process.
+- **Some verbs run on the caller, not in the process**, for three different
+  reasons:
+  - **The provision family** — `provision`, `confirm_up` and `fail_provision`.
+    Provision's callback is the conversation server's own pipeline, which
+    builds that server's state and runs for minutes, so it cannot move into
+    another process. `confirm_up` and `fail_provision` follow it so one verb
+    family has one answer. All three refuse an enclosing transaction and take
+    the machine's lease themselves, the same lease they would take in the
+    process.
+  - **Writes that change no machine state** — `end_turn`, and a release
+    (`detach` with `policy: :keep`). Each writes only the conversation's rows,
+    under their own locks. Queueing one behind a cotenant's minute-long park
+    would hold a server's shutdown path in a call. A release also refuses an
+    enclosing transaction.
+  - **Writes inside the caller's locked transaction** — `retarget` and
+    `bind_inference`. Each is one row write inside a transaction that already
+    holds the machine's advisory lock (a reapply, an inference reservation). A
+    hop through the process would have its transaction wait on that lock while
+    the caller waited on the reply.
 - **"Four liveness predicates become one" became one reading behind four
   doors.** `_unsafe_sandbox_busy_elsewhere?/4`, `Binding.held_by_other?/2`,
   `Lifecycle.live_conversation_ids/1` and `_unsafe_list_cotenant_ids/2` all read
@@ -136,15 +150,31 @@ missed. So 6b's 26 is 29 minus three writes. It is not 21 plus five.
   message. A late reset notice that arrives after a *later* teardown can still
   bring a conversation back to `idle`. The column check it replaced did not
   prevent that either (Jake, 2026-09-18).
+- **The owner adopts its caller's `$callers` in the test suite only.** In
+  tests, the owner serves each call as its caller so a test's SQL-sandbox
+  connection and stubs reach it. Production must not do this.
+  `opentelemetry_ecto`, a production-only dependency, reads `$callers` on every
+  query from a process with no trace context of its own. It copies the
+  caller's whole process dictionary each time and re-parents the owner's
+  database spans. Adopting the chain in production would have added that cost,
+  and changed tracing, as a side effect of a test fix. So Jake scoped it to
+  tests (#2423): a runtime flag set only in `config/test.exs`. No test in the
+  repo can see the production cost, because the dependency is not compiled in
+  test.
+- **The reaper's metrics for abandoned destroys were renamed** (#2423).
+  `fountain_reaper_run_reconciled` became `fountain_reaper_teardowns_reconciled`,
+  beside a new `fountain_reaper_teardowns_refused`, on the five-minute run's own
+  event. No dashboard or alert depended on the old name.
 - **`Conversations.update_sandbox/2` is gone**, with `sandbox_retired?/1`,
   after its last caller moved to the owner. That also retired #2039's four
   copies of the retirement match. A test fixture of the same name remains.
 
 ### How it was verified
 
-- **Review.** Every behaviour stage had at least three independent reviews:
-  protocol, behaviour and surfaces. Most stages took two or three rounds, and
-  each round's findings are on the stage's PR and on #2344.
+- **Review.** Every behaviour stage had at least three independent reviews.
+  From 5c on they were protocol, behaviour and surfaces; 5a and 5b had a
+  reaper review in place of surfaces. Most stages took two or three
+  rounds, and each round's findings are on the stage's PR and on #2344.
 - **Revert sweeps.** Every stage from 9a on proved its tests by planting each
   behaviour back and watching a named test fail. The plants were made by
   distinctive string, restored with `cp` and `touch`, and checked with `cmp`.
@@ -161,6 +191,24 @@ missed. So 6b's 26 is 29 minus three writes. It is not 21 plus five.
   its first attempt, and the reconciler shim drained 3 in-flight jobs with none
   discarded.
 
+### Releases and monitoring
+
+- **The release had to be cut before the columns went.** A replica on a
+  release that still selects `reset_requested_at` and `teardown_requested_at`
+  fails every sandbox query once they are dropped. A self-hosted operator
+  rolling an upgrade therefore needs a release that has stopped reading them
+  first. That was v0.20.0 (#2426), cut before 9b-ii merged.
+- **v0.20.1 stamped the fences v0.19.0 left only in the columns.** 9a first
+  shipped in v0.20.0, so a v0.19.0 instance wrote its fences to the columns
+  alone, which v0.20.0 does not read. v0.20.1's backfill migration stamps
+  `destroying` on every such row before 9b-ii's drop runs, so no fence is lost
+  on any upgrade path.
+- **A canary alert watches the five-minute teardown run.**
+  `FountainReaperTeardownsSilent` (jhgaylor/home-cloud#234) fires when
+  `fountain_reaper_teardowns_reconciled` has been absent for 30 minutes. Its
+  limit is honest: it catches a run that has never reported since boot, not
+  one that ran and then stopped.
+
 ### Not built here
 
 - #1089: two agents on one machine. `attach` does not take an agent layer yet.
@@ -168,12 +216,6 @@ missed. So 6b's 26 is 29 minus three writes. It is not 21 plus five.
 - #1120: a meter for a machine's kept time.
 
 The owner is what makes each of them tractable, and each has its own issue.
-
-A canary alert does watch the five-minute teardown run:
-`FountainReaperTeardownsSilent` (jhgaylor/home-cloud#234) fires when
-`fountain_reaper_teardowns_reconciled` has been absent for 30 minutes. Its
-limit is honest: it catches a run that has never reported since boot, not one
-that ran and then stopped.
 
 ## Context
 

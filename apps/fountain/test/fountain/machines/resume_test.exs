@@ -268,15 +268,6 @@ defmodule Fountain.Machines.ResumeTest do
       end
     end
 
-    test "a fence column still refuses, stamp or no stamp", ctx do
-      # What separates the two: a fence is a durable statement that the machine
-      # is going away, where a stamp is the leftover of an owner that stopped.
-      stamp(ctx, transition: "destroying", transition_reason: "teardown")
-      reject(&Managoat.Sandbox.resume/1)
-
-      quietly(fn -> assert {:error, :fenced} = Resume.run(ctx.sandbox.id, opts()) end)
-    end
-
     test "a destroying stamp refuses on its own, with no fence column", ctx do
       # The loop above is four transitions rather than five since ADR 0058
       # stage 9a, and this is the fifth. `destroying` is durable intent, not an

@@ -986,12 +986,20 @@ defmodule Fountain.Workers.SandboxReaperTest do
       sandbox = age_fence(sandbox, 60)
       live_provider([sandbox.machine_name])
 
-      stub(Fountain.Conversations.Termination, :_unsafe_destroy_machine, fn id, _opts ->
+      # The owner reports back, so `{0, 0}` cannot come from a row the pass
+      # never reached.
+      test = self()
+
+      expect(Fountain.Conversations.Termination, :_unsafe_destroy_machine, 1, fn id, _opts ->
+        send(test, {:destroy_asked, id})
         {:ok, _epoch} = Fountain.Machines.Lease.claim(id, "other-run@node", 60_000)
         {:error, :sandbox_unavailable}
       end)
 
       capture_log(fn -> assert {0, 0} = SandboxReaper.sweep_fenced_teardowns() end)
+      sandbox_id = sandbox.id
+      assert_received {:destroy_asked, ^sandbox_id}
+      refute_received {:destroy_asked, _}
     end
 
     test "a reset another owner is finishing counts on neither gauge" do
@@ -999,15 +1007,25 @@ defmodule Fountain.Workers.SandboxReaperTest do
       # the teardown twin above green). The reset door answers
       # `sandbox_unavailable` when a live lease holds the machine, and the row
       # is re-read the same way.
+      #
+      # `{0, 0}` is also what a row the pass never reached would report, so the
+      # door reports back and the test asserts it was asked exactly once (round
+      # 1 on #2425: this stayed green with resets planted back behind the grace
+      # window).
       with_sprites_credentials(fn ->
         {_user, home} = pending_reset()
+        test = self()
 
-        stub(Fountain.Conversations, :retry_pending_sandbox_reset, fn sandbox, _opts ->
+        expect(Fountain.Conversations, :retry_pending_sandbox_reset, 1, fn sandbox, _opts ->
+          send(test, {:reset_door, sandbox.id})
           {:ok, _epoch} = Fountain.Machines.Lease.claim(sandbox.id, "other-run@node", 60_000)
           {:error, :sandbox_unavailable}
         end)
 
         capture_log(fn -> assert {0, 0} = SandboxReaper.sweep_fenced_teardowns() end)
+        home_id = home.id
+        assert_received {:reset_door, ^home_id}
+        refute_received {:reset_door, _}
         assert Repo.reload(home).status == "ready"
       end)
     end

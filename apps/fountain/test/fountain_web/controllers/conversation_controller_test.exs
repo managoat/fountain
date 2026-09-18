@@ -1244,11 +1244,15 @@ defmodule FountainWeb.ConversationControllerTest do
       # `Machine.ensure_up/2` translates it to the word the front door has
       # always used for a machine on its way out.
       #
-      # The row is stamped before the prompt, so `Wake.maybe_reuse_sandbox/1`
-      # can refuse it first with the same answer, from a different path. What
-      # reaches the resume's arm in production is a fence that lands between
-      # that check and the lease, which is a race rather than a row shape; the
-      # assertion is the same word either way.
+      # **What this test reaches since stage 9b: the wake door, not the
+      # resume.** The row is stamped before the prompt, and
+      # `Wake.maybe_reuse_sandbox/1` refuses a `destroying` row first, with the
+      # same word, so the resume's translation is never reached here and
+      # removing it leaves this test green. The translation itself is pinned in
+      # `machines/resume_test.exs`. What reaches the resume's arm in
+      # production is a fence that lands between the wake's check and the
+      # lease: a race, not a row shape this test can build. This test pins the
+      # word the prompt gets.
       agent = insert_agent(user_id: user.id)
       sandbox = insert_sandbox(user_id: user.id, agent_id: agent.id, status: "ready")
 

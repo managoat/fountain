@@ -144,9 +144,13 @@ Shipped as seven gates, one PR each, in dependency order:
   move into one owner. **Revisited 2026-09-16, built by 2026-09-18:** there
   is now a per-sandbox owner, `Fountain.Machines.Machine`, per
   [0058](0058-the-machine-has-one-owner.md). It is a process backed by a
-  durable lease on the row, and it serializes provision, resume, park and
-  destroy as step 4 asked. The advisory lock, the refcount query and the idle
-  clock described above are what it replaced; its Outcome records how.
+  durable lease on the row. Resume, park and destroy run in it, and provision
+  runs on its caller under the same lease, so all four are serialized as step 4
+  asked. The pieces described above did not all go. The advisory lock is still
+  taken: the lease is claimed under it, and attach, reapply, launch and turn
+  admission still take it. The refcount query and the idle clock moved into
+  `Fountain.Machines.Occupancy`, which the owner and the reaper read. 0058's
+  Outcome records the rest.
 - At capacity a turn is refused (`sandbox_at_capacity`); the `queued` stage
   of the original step 4 was dropped with the lease and is not built.
 - Checkpointing (Consequences, "becomes meaningful"): a home is

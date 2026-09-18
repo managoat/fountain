@@ -28,7 +28,8 @@ applies as written (ephemeral: destroy; persistent home: park, per 0023).
 **Amended by [0058](0058-the-machine-has-one-owner.md) (2026-09-17):** the
 idle and ceiling decision is `Fountain.Machines.Policy`'s, since stage 7a. Park
 or destroy at each bound, and the capability check behind it, are decided there
-once. The machine's owner applies them under its lease (`Machines.Park`), for
+once. The machine's owner applies them under its lease — a park through
+`Machines.Park`, and the max-lifetime destroy through `Machines.Destroy` — for
 both the conversation server's own timer and the reaper's sweep. The policy
 below is unchanged; it has one home instead of two callers that decided it
 separately.

@@ -29,7 +29,8 @@ attach and detach runs in that sandbox's `Fountain.Machines.Machine` process,
 under a lease on the row. The flag that could run them inline,
 `MACHINE_OWNER_ENABLED`, was on in production from 2026-09-17 and was deleted
 on 2026-09-18. The fence columns the owner replaced, `reset_requested_at` and
-`teardown_requested_at`, were dropped one release later. A `destroying` stamp
+`teardown_requested_at`, were dropped one release later: v0.20.0 ships the
+owner with the columns unread, and the release after it drops them. A `destroying` stamp
 on the row now carries a request to destroy a machine. It survives the death
 of any owner, and a five-minute pass of the reaper finishes it.
 
@@ -150,11 +151,13 @@ missed. So 6b's 26 is 29 minus three writes. It is not 21 plus five.
   9a's first sweep restored files with `shutil.copy2`, which kept their mtime,
   so mix tested a stale build and missed a real defect. That is why the rule
   exists.
-- **Production.** The gate's first owner-driven operations ran on 2026-09-17:
-  5 provisions, 4 destroys and 1 resume, all clean. 9b-i shipped only after at
-  least one owner-driven park and several clean hourly passes of the 9a driver.
-  Its deploy watch on 2026-09-18 found no errors or restarts, no stuck
-  transitions and no phantom turns. The five-minute teardown run completed on
+- **Production.** From the flip (2026-09-17 22:40 UTC) to 9b-i's ship, the
+  owner ran 10 parks, 8 provisions, 6 resumes and 4 destroys in production,
+  all clean, with no stuck transitions and no phantom turns. (A park audits as
+  `sandbox.suspended`, not `sandbox.parked`, which an early count missed.) 9b-i
+  shipped only after owner-driven parks and several clean hourly passes of the
+  9a driver. Its deploy watch on 2026-09-18 found no errors or restarts, no
+  stuck transitions and no phantom turns. The five-minute teardown run completed on
   its first attempt, and the reconciler shim drained 3 in-flight jobs with none
   discarded.
 
@@ -165,8 +168,12 @@ missed. So 6b's 26 is 29 minus three writes. It is not 21 plus five.
 - #1120: a meter for a machine's kept time.
 
 The owner is what makes each of them tractable, and each has its own issue.
-No canary alert watches the five-minute teardown run yet; that is a home-cloud
-change.
+
+A canary alert does watch the five-minute teardown run:
+`FountainReaperTeardownsSilent` (jhgaylor/home-cloud#234) fires when
+`fountain_reaper_teardowns_reconciled` has been absent for 30 minutes. Its
+limit is honest: it catches a run that has never reported since boot, not one
+that ran and then stopped.
 
 ## Context
 
@@ -385,9 +392,10 @@ constraint 7). While it is off, every existing fence stays in force. The
 migration is additive. The fence columns are dropped in a later release, after
 the flip, under the migration and changelog rules in CONTRIBUTING.
 
-(As built: the gate was turned on in production on 2026-09-17, deleted by
-stage 9b-i a day later, and the fence columns were dropped by 9b-ii one
-release after that. See the Outcome.)
+(As built: the gate was turned on in production on 2026-09-17 and deleted by
+stage 9b-i a day later, which shipped in v0.20.0 with the columns unread. The
+fence columns were dropped by 9b-ii in the release after v0.20.0. See the
+Outcome.)
 
 ## Consequences
 

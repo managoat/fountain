@@ -234,6 +234,8 @@ defmodule Fountain.AuditGuardrailTest do
       "conditional actor bookkeeping; the sandbox stage records a current notification, and " <>
         "releasing a parent the rebind stranded repairs machine state rather than tenant state",
     "ConversationServer per-turn state" => "high-volume machine state; log_events covers it",
+    "ActorStatus.fail/2 and running/1" =>
+      "conditional actor bookkeeping; accepted provision and reattach stages carry the trail",
     "Fountain.Machines.Destroy.run/2 with audit: false, from Accounts.Deletion.delete_user/2" =>
       "the delete that follows nilifies audit_events.user_id, so a per-machine sandbox.destroyed " <>
         "would survive as an anonymous row describing a cascade; account.deleted carries the " <>

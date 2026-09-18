@@ -353,8 +353,6 @@ defmodule Fountain.Conversations.Connection do
         origin: "autonomous"
       })
 
-      {:ok, _} = Conversations.update_conversation(conv, %{status: "running"})
-
       {turn, turn_span, Managoat.ACP.Tracer.new(turn_span, prefix: "fountain")}
     end
   end

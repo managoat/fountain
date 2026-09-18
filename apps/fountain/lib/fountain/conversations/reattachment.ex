@@ -4,6 +4,7 @@ defmodule Fountain.Conversations.Reattachment do
   require Logger
 
   alias Fountain.Conversations
+  alias Fountain.Conversations.ActorStatus
   alias Fountain.Conversations.{Connection, Output, Pending, Provisioning, TurnMachine}
   alias Fountain.Machines.Machine
 
@@ -307,6 +308,18 @@ defmodule Fountain.Conversations.Reattachment do
         state
 
       {:ok, command} ->
+        finish_session_attach(state, running_turn, conv, command, session, matched_by)
+
+      {:error, reason} ->
+        Logger.warning("attach_session failed: #{inspect(reason)}")
+        mark_orphan(state, running_turn, "attach_failed")
+        state
+    end
+  end
+
+  defp finish_session_attach(state, running_turn, conv, command, session, matched_by) do
+    case ActorStatus.running(state) do
+      :ok ->
         Output.publish_stage(state.conversation_id, "reattach", "done", %{
           outcome: "session_attached",
           matched_by: matched_by,
@@ -315,8 +328,6 @@ defmodule Fountain.Conversations.Reattachment do
           turn_number: running_turn.turn_number,
           acp_prompt_id: running_turn.acp_prompt_id
         })
-
-        {:ok, _} = Conversations.update_conversation(conv, %{status: "running"})
 
         # turn_metrics stays nil on purpose, so this turn contributes no
         # duration sample (#536). Its start is in a previous BEAM lifetime:
@@ -332,9 +343,10 @@ defmodule Fountain.Conversations.Reattachment do
 
         acp_peer(state, running_turn, conv)
 
-      {:error, reason} ->
-        Logger.warning("attach_session failed: #{inspect(reason)}")
-        mark_orphan(state, running_turn, "attach_failed")
+      :stale ->
+        # The attached command belongs to this attempt's old machine. Do not
+        # create a peer or announce success against the successor's binding.
+        Managoat.Sandbox.stop_command(command)
         state
     end
   end

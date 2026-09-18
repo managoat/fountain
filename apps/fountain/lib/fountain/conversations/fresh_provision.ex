@@ -28,6 +28,7 @@ defmodule Fountain.Conversations.FreshProvision do
   require Logger
 
   alias Fountain.Conversations
+  alias Fountain.Conversations.ActorStatus
   alias Fountain.Conversations.{Checkpoints, ConversationServer, Egress, Lifecycle, Output}
   alias Fountain.Conversations.{Provisioning, ProvisionWatchdog, Reapply, TurnMachine}
   alias Fountain.Machines.Machine
@@ -62,13 +63,13 @@ defmodule Fountain.Conversations.FreshProvision do
         msg = Exception.format(:error, exception, stack)
         Logger.error("provision raised an unhandled exception:\n#{msg}")
 
-        Output.publish_stage(state.conversation_id, "provision", "failed", %{
+        ConversationServer.fail_machine(sandbox.id, :provision_raised, conv.id)
+
+        ActorStatus.fail(state, %{
           reason: Exception.message(exception),
           stack: Exception.format_stacktrace(stack) |> String.slice(0, 2000)
         })
 
-        ConversationServer.fail_machine(sandbox.id, :provision_raised, conv.id)
-        Conversations.update_conversation(conv, %{status: "failed"})
         {:stop, :normal, state}
     end
   end
@@ -230,12 +231,8 @@ defmodule Fountain.Conversations.FreshProvision do
     announce_failed_provision(state, conv, reason)
   end
 
-  defp announce_failed_provision(state, conv, reason) do
-    Output.publish_stage(state.conversation_id, "provision", "failed", %{
-      reason: inspect(reason)
-    })
-
-    Conversations.update_conversation(conv, %{status: "failed"})
+  defp announce_failed_provision(state, _conv, reason) do
+    ActorStatus.fail(state, %{reason: inspect(reason)})
     {:stop, :normal, state}
   end
 

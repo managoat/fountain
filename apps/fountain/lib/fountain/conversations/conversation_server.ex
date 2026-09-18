@@ -494,23 +494,23 @@ defmodule Fountain.Conversations.ConversationServer do
           "ConversationServer could not load tenant credentials for conv #{conv.id} (user #{conv.user_id}): #{inspect(reason)}"
         )
 
-        Output.publish_stage(state.conversation_id, "provision", "failed", %{
-          reason: "tenant_credential_load_failed: #{inspect(reason)}"
-        })
-
         # Through the owner (ADR 0058 stage 7b), which re-reads the status this
         # used to test itself: `fail_provision/2` answers `:not_provisioning`
         # for a row that is no longer pending or starting.
         fail_machine(sandbox.id, :tenant_credential_load_failed, conv.id)
-        Conversations.update_conversation(conv, %{status: "failed"})
+
+        Conversations.ActorStatus.fail(state, %{
+          reason: "tenant_credential_load_failed: #{inspect(reason)}"
+        })
+
         {:stop, :normal, state}
     end
   end
 
   # The two pre-flight failures: a row that never reached the provision bracket
-  # and has to be retired anyway. Best effort — the conversation is failed
-  # either way, and a machine the owner would not let this server retire is one
-  # another owner is already settling.
+  # and has to be retired anyway. Best effort: the caller fails the conversation
+  # only if it still holds the binding. A machine the owner refuses to retire
+  # is one another owner is already settling.
   @doc false
   def fail_machine(sandbox_id, reason, conv_id) do
     Machine.fail_provision(sandbox_id,
@@ -553,9 +553,8 @@ defmodule Fountain.Conversations.ConversationServer do
       {:error, {:missing_vars, names}} ->
         reason = "missing env/vault keys referenced in mcp_servers: #{Enum.join(names, ", ")}"
         Logger.error("provision failed for conv #{conv.id}: #{reason}")
-        Output.publish_stage(state.conversation_id, "provision", "failed", %{reason: reason})
         fail_machine(sandbox.id, :missing_mcp_vars, conv.id)
-        Conversations.update_conversation(conv, %{status: "failed"})
+        Conversations.ActorStatus.fail(state, %{reason: reason})
         {:stop, :normal, state}
     end
   end

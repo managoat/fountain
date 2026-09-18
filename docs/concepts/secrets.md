@@ -256,6 +256,12 @@ non-secrets, such as `true`, `1`, a port or a region. To redact those would
 turn logs into noise and protect nothing. The case this misses is a short
 password that somebody chose on purpose. Do not choose one.
 
+**Only the secrets are scrubbed.** The values that come from a credential go
+into the registry: your environment and vault values, the inference credential,
+the callback token and the values the broker holds. Fountain's own identifiers
+do not. The conversation id, the sandbox id and the sandbox URL stay in the
+output, where you can read them.
+
 The values live in a registry that the one log writer reads. Fountain does not
 pass them to each caller. The scrubber this replaced ran on the HTTPS clone
 path and not on the SSH one. A redaction that each caller must remember is a

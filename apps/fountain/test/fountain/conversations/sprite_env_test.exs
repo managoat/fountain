@@ -2,6 +2,7 @@ defmodule Fountain.Conversations.SpriteEnvTest do
   use Fountain.DataCase, async: true
 
   alias Fountain.Conversations.Redaction
+  alias Fountain.Conversations.RedactionCarry
   alias Fountain.Conversations.SpriteEnv
   alias Fountain.Environments.Environment
   alias Fountain.{Environments, Vaults}
@@ -14,6 +15,13 @@ defmodule Fountain.Conversations.SpriteEnvTest do
 
   defmodule SilentRuntime do
     def default_env(_agent, _creds), do: nil
+  end
+
+  # Claude's shape: one of two credentials is exported and the other is not,
+  # plus a path of its own that is no secret.
+  defmodule PickyRuntime do
+    def default_env(_agent, creds),
+      do: [{"HOME", "/home/sprite/.picky"}, {"PICKED", creds[:selected]}]
   end
 
   describe "build/4" do
@@ -158,6 +166,147 @@ defmodule Fountain.Conversations.SpriteEnvTest do
 
       assert Redaction.redact(conv_id, "upstream echoed the-real-brokered-credential back") ==
                "upstream echoed [REDACTED] back"
+    end
+
+    # #2366: the registry is what `RedactionCarry` holds output against, so a
+    # non-secret in it costs the live stream a chunk of latency for every
+    # character that begins it, and prints ordinary text as `[REDACTED]`.
+    # Registering the env whole put the conversation and sandbox UUIDs in it.
+    test "registers the secrets, and none of Fountain's own identifiers" do
+      conv_id = Ecto.UUID.generate()
+      sandbox_id = Ecto.UUID.generate()
+      sandbox_url = "https://sb-9d3f1a2b.example.com"
+      on_exit(fn -> Redaction.delete(conv_id) end)
+
+      env = %Environment{env_vars: %{"TENANT_PLAIN" => "a-plain-configuration-value"}}
+
+      SpriteEnv.build(nil, env, %{"TENANT_SECRET" => "a-decrypted-tenant-secret"},
+        runtime_module: PickyRuntime,
+        env_credentials: %{selected: "the-selected-inference-credential"},
+        callback_token: "a-callback-token-value",
+        conversation_id: conv_id,
+        sandbox_id: sandbox_id,
+        sandbox_url: sandbox_url,
+        broker_credentials: %{"BOUND" => "the-real-brokered-credential"}
+      )
+
+      registered = Redaction.lookup(conv_id)
+
+      for secret <- [
+            "the-selected-inference-credential",
+            "a-callback-token-value",
+            "a-decrypted-tenant-secret",
+            "the-real-brokered-credential",
+            # Config by intention, but nothing stops a token being pasted into
+            # one, and a tenant's own variables are few.
+            "a-plain-configuration-value"
+          ] do
+        assert secret in registered, "#{secret} must stay registered"
+      end
+
+      for identifier <- [
+            conv_id,
+            sandbox_id,
+            sandbox_url,
+            Fountain.PublicUrl.base(),
+            "/home/sprite/.picky",
+            "aod@local"
+          ] do
+        refute identifier in registered, "#{identifier} is not a secret"
+      end
+
+      # The CA defaults are paths to a trust store, and a `/`-ending chunk
+      # would be held against them.
+      for {_key, path} <- Fountain.Broker.ca_env(), do: refute(path in registered)
+
+      # A conversation that prints its own id reads it back (#2366).
+      assert Redaction.redact(conv_id, "conversation #{conv_id}") == "conversation #{conv_id}"
+    end
+
+    # The whole point of the registry is still the secrets, so the credential
+    # the runtime exported has to be in it — and the kind it passed over has
+    # to not be, as `ConversationServerAcpTest` asserts of a subscription a
+    # provider refused.
+    test "registers the credential the runtime exported, and not the one it passed over" do
+      conv_id = Ecto.UUID.generate()
+      on_exit(fn -> Redaction.delete(conv_id) end)
+
+      SpriteEnv.build(nil, nil, %{},
+        runtime_module: PickyRuntime,
+        env_credentials: %{selected: "the-exported-credential", other: "the-unused-credential"},
+        callback_token: nil,
+        conversation_id: conv_id,
+        sandbox_id: nil
+      )
+
+      registered = Redaction.lookup(conv_id)
+      assert "the-exported-credential" in registered
+      refute "the-unused-credential" in registered
+    end
+
+    # `Broker.proxy_env/1` puts the session token in a URL's userinfo. The URL
+    # is not a secret — its host is on the `broker` stage event — and holding
+    # every chunk that ends in `h` against it is the #2366 cost in miniature.
+    test "registers the broker session token, and not the URL that carries it" do
+      conv_id = Ecto.UUID.generate()
+      on_exit(fn -> Redaction.delete(conv_id) end)
+
+      token = "av_sess_a-broker-session-token"
+      proxy = "http://#{token}:vault-label@broker.example:443"
+
+      SpriteEnv.build(nil, nil, %{},
+        runtime_module: SilentRuntime,
+        env_credentials: %{},
+        callback_token: nil,
+        conversation_id: conv_id,
+        sandbox_id: nil,
+        brokered: [{"HTTPS_PROXY", proxy}, {"NO_PROXY", "localhost,127.0.0.1"}]
+      )
+
+      registered = Redaction.lookup(conv_id)
+      assert token in registered
+      refute proxy in registered
+      refute "vault-label" in registered
+
+      # An agent printing its environment still hands over nothing.
+      assert Redaction.redact(conv_id, "HTTPS_PROXY=#{proxy}") ==
+               "HTTPS_PROXY=http://[REDACTED]:vault-label@broker.example:443"
+    end
+
+    # The cost #2366 measures, end to end: `RedactionCarry` holds a chunk back
+    # when its end could begin a registered value, so a registered UUID delayed
+    # a share of every reply — one hex character in sixteen, on a stream cut
+    # wherever the model put its chunks.
+    test "an ordinary chunk ending in any hex character is written at once" do
+      conv_id = Ecto.UUID.generate()
+      on_exit(fn -> Redaction.delete(conv_id) end)
+
+      SpriteEnv.build(nil, nil, %{"TENANT_SECRET" => "SECRET-tenant-value"},
+        runtime_module: SilentRuntime,
+        env_credentials: %{},
+        # Both registered values begin with a character the chunks below do
+        # not end in, so only the registry's contents decide the result.
+        callback_token: "tok-a-callback-token-value",
+        conversation_id: conv_id,
+        sandbox_id: Ecto.UUID.generate(),
+        sandbox_url: "https://sb-#{Ecto.UUID.generate()}.example.com"
+      )
+
+      for <<char <- "0123456789abcdef">> do
+        chunk = "model reply #{<<char>>}"
+
+        assert {[{"stdout", ^chunk}], carry} =
+                 RedactionCarry.feed(RedactionCarry.new(), conv_id, "stdout", chunk),
+               "a chunk ending in #{<<char>>} waited for the next one"
+
+        assert RedactionCarry.empty?(carry)
+      end
+
+      # A secret's first byte still holds, which is what the hold is for.
+      assert {[], carry} =
+               RedactionCarry.feed(RedactionCarry.new(), conv_id, "stdout", "here it comes: S")
+
+      assert RedactionCarry.flush(carry, conv_id) == [{"stdout", "here it comes: S"}]
     end
 
     test "a run with no broker registers exactly what it did before" do

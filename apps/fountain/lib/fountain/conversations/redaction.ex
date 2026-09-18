@@ -21,6 +21,22 @@ defmodule Fountain.Conversations.Redaction do
   `Conversations.log!/1` — the single writer for every log event — consults it.
   A new log path is redacted whether or not its author knew this module existed.
 
+  ## What is registered
+
+  The conversation's secrets, and nothing else: the decrypted environment and
+  vault values, the inference credential, the ChatGPT grant, the callback
+  token, the brokered credentials and the broker session token.
+  `Fountain.Conversations.SpriteEnv.build/4` classifies them, and a value
+  registered once is never forgotten (`add/2`).
+
+  Fountain's own identifiers and configuration are left out — the
+  conversation and sandbox ids, the base and sandbox URLs, the trace context,
+  the CA paths. They are not secret, and the registry is no longer only a
+  scrubber: `RedactionCarry` holds back output that could begin a registered
+  value, so a registered UUID cost the live stream a chunk of latency for
+  every hex character output ends in, and printed a conversation's own id as
+  `[REDACTED]` (#2366).
+
   ## The length floor
 
   Only values of at least #{8} bytes are redacted. Sprite environments hold

@@ -1155,11 +1155,11 @@ defmodule Fountain.Conversations.ConversationServer do
 
     # The API key was never in the sprite env before now, so `build_sprite_env`
     # never registered it for redaction — do it here, or the very value this
-    # fix injects prints in plaintext into `log_events`. Registered as a union
-    # with the outgoing env, not a replacement: the refused OAuth token is
-    # still sitting in the sprite's `/home/sprite/.env` until a wake rewrites
-    # it, so it stays worth scrubbing — which `add/2` does by never forgetting.
-    Redaction.add(state.conversation_id, fallback_env ++ Map.to_list(state.brokered))
+    # fix injects prints in plaintext into `log_events`. The credentials this
+    # env exports, not the env whole (#2366); the refused OAuth token is still
+    # in the sprite's `/home/sprite/.env`, and `add/2` never forgets it.
+    creds = SpriteEnv.exported_credentials(fallback_env, state.env_credentials)
+    Redaction.add(state.conversation_id, creds ++ Map.values(state.brokered))
 
     state = %{
       state

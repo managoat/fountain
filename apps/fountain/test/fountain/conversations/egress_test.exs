@@ -421,6 +421,24 @@ defmodule Fountain.Conversations.EgressTest do
       assert Egress.sandbox_env(@session) == Broker.sandbox_env(@session)
     end
 
+    # What `SpriteEnv.build/4` registers for redaction out of those pairs
+    # (#2366): the session token alone. The URL around it is public — the
+    # broker stage event publishes the vault and the proxy's host — and
+    # registering it would hold back every chunk of output ending in `h`.
+    test "proxy_secrets/1 is the session token, not the URL or the vault" do
+      broker_on()
+      env = Broker.sandbox_env(@session)
+
+      assert Broker.proxy_secrets(env) == [@session.token]
+
+      # The CA half carries nothing, and neither does a `NO_PROXY` without
+      # userinfo or a pair that is not the broker's at all.
+      assert Broker.proxy_secrets(Broker.ca_env()) == []
+      assert Broker.proxy_secrets([{"NO_PROXY", "localhost,127.0.0.1"}]) == []
+      assert Broker.proxy_secrets([{"HOMEPAGE", "http://tok:v@example.com"}]) == []
+      assert Broker.proxy_secrets([]) == []
+    end
+
     test "the exported CA counter records one bounded outcome per conversation setup", %{
       user: user
     } do

@@ -6,9 +6,10 @@ defmodule Fountain.Conversations.SpriteEnv do
   One precedence rule, stated here and nowhere else: **a vault wins over an
   environment on key collision** (`merge_secrets/3`). In the assembled list
   (`build/4`) the runtime's own defaults come first and the broker's proxy
-  variables last, and the list is registered with
-  `Fountain.Conversations.Redaction` before it is returned, so what the
-  agent sees is exactly what is scrubbed from its output.
+  variables last, and the secrets in it — the credentials, not the
+  identifiers around them — are registered with
+  `Fountain.Conversations.Redaction` before it is returned, so every secret
+  the agent is given is scrubbed from its output (`secret_values/6`, #2366).
 
   Functions over rows and values, not over server state (#1369). Nothing
   here talks to a sandbox; the writes that carry the list into one are
@@ -127,10 +128,74 @@ defmodule Fountain.Conversations.SpriteEnv do
     # earlier in the conversation can still be in output on its way.
     Fountain.Conversations.Redaction.add(
       conversation_id,
-      sprite_env ++ Enum.map(broker_credentials, fn {k, v} -> {to_string(k), v} end)
+      secret_values(sprite_env, secrets, plain, proxy, broker_credentials, opts)
     )
 
     sprite_env
+  end
+
+  # What the registry holds: the values that are secret, and not the rest of
+  # the env (#2366).
+  #
+  # Registering `sprite_env` whole was one line and needed no judgement, and
+  # the judgement is now unavoidable, because the registry is no longer only
+  # a scrubber. `RedactionCarry` holds back any chunk whose end could begin a
+  # registered value, so every non-secret in the registry buys latency on the
+  # live stream and a `[REDACTED]` over ordinary text. With the conversation
+  # and sandbox ids registered — UUIDs — every hex character was the start of
+  # a value, so a large share of the model's own reply arrived a chunk late,
+  # and a conversation that printed its own id read `[REDACTED]`.
+  #
+  # So each piece is classified at its source rather than filtered back out of
+  # the assembled list: an env pair is secret when the value came from a
+  # credential, and not when the value came from Fountain's own identifiers
+  # and configuration (`FOUNTAIN_CONVERSATION_ID`, `FOUNTAIN_SANDBOX_ID`,
+  # `SANDBOX_URL`, `FOUNTAIN_BASE_URL`, the trace context, the git author, the
+  # CA paths, a runtime's `HOME`). Add a piece to `build/4` that carries a
+  # credential, and add it here too; the `SpriteEnvTest` coverage over this
+  # function is where that is checked.
+  #
+  # The tenant's plain `env_vars` stay registered. They are config by
+  # intention, but nothing stops someone from pasting a token into one, and
+  # they are few and tenant-sized — unlike the identifiers, which are on every
+  # conversation. Environments would need a secret/non-secret distinction of
+  # their own before this could drop them (#2366).
+  defp secret_values(sprite_env, secrets, plain, proxy, broker_credentials, opts) do
+    credentials = exported_credentials(sprite_env, Keyword.fetch!(opts, :env_credentials))
+
+    # The proxy variables carry the broker session token inside a URL. The
+    # token is the secret; the URL around it is public, and registering it
+    # whole would hold back every chunk of output that ends in `h`.
+    proxy_token = Fountain.Broker.proxy_secrets(proxy)
+
+    credentials ++
+      [Keyword.fetch!(opts, :callback_token)] ++
+      Map.values(secrets) ++
+      Enum.map(plain, fn {_k, v} -> to_string(v) end) ++
+      Map.values(broker_credentials) ++
+      proxy_token
+  end
+
+  @doc """
+  The credential values a sprite env exports.
+
+  A conversation resolves every credential its provider could want and the
+  runtime exports the one it picked — Claude takes the OAuth token or the API
+  key, never both. The kind it passed over is not in the sandbox, so it is not
+  in the sandbox's output either, and registering it for redaction would buy
+  nothing and hold back output that begins with its first byte (#2366).
+  `ConversationServer` registers through here too, for the API key it injects
+  when a provider refuses a subscription.
+
+  Every credential reaches a sprite through this list. One that ever reaches
+  it another way — as a brokered value does, which `build/4` registers
+  explicitly — has to be registered where that happens.
+  """
+  @spec exported_credentials([{String.t(), String.t()}], map()) :: [String.t()]
+  def exported_credentials(sprite_env, env_credentials) do
+    exported = MapSet.new(sprite_env, fn {_k, v} -> v end)
+
+    env_credentials |> Map.values() |> Enum.filter(&MapSet.member?(exported, &1))
   end
 
   def without_inference_inputs(model, inputs) do

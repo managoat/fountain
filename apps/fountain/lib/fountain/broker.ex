@@ -452,6 +452,45 @@ defmodule Fountain.Broker do
   def ca_keys,
     do: ~w(NODE_EXTRA_CA_CERTS SSL_CERT_FILE REQUESTS_CA_BUNDLE CARGO_HTTP_CAINFO UV_NATIVE_TLS)
 
+  @doc """
+  The secrets inside a set of proxy variables: each session token, and not
+  the URL that carries it.
+
+  `proxy_env/1` puts the token in a URL's userinfo, so registering the pairs
+  themselves with `Fountain.Conversations.Redaction` would register a value
+  beginning `http://`. Every chunk of sandbox output ending in `h` would then
+  be held back as a possible start of it (#2366), and the URL around the
+  token is not a secret anyway: the proxy's host is on the broker stage event.
+  Redacting the token alone still covers the whole URL wherever an agent
+  prints its environment, as `http://[REDACTED]:vault@host`.
+
+  The vault label beside it is not a secret either. It is there so git accepts
+  the URL, and it is published on the same stage event.
+  """
+  @spec proxy_secrets([{String.t(), String.t()}]) :: [String.t()]
+  def proxy_secrets(pairs) when is_list(pairs) do
+    proxy_keys = proxy_keys()
+
+    for {key, url} <- pairs,
+        to_string(key) in proxy_keys,
+        is_binary(url),
+        token = userinfo_token(url),
+        is_binary(token),
+        uniq: true,
+        do: token
+  end
+
+  def proxy_secrets(_), do: []
+
+  # `URI.to_string/1` writes the userinfo verbatim, so the token is the part
+  # before the first `:` exactly as it was minted.
+  defp userinfo_token(url) do
+    case URI.parse(url) do
+      %URI{userinfo: info} when is_binary(info) -> info |> String.split(":", parts: 2) |> hd()
+      _ -> nil
+    end
+  end
+
   @doc "The variables that carry the session token, which `Identity` keeps off the shared `.env`."
   @spec process_only_keys() :: [String.t()]
   def process_only_keys, do: ~w(HTTPS_PROXY HTTP_PROXY https_proxy http_proxy)

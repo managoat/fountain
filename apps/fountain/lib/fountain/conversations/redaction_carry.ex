@@ -19,12 +19,14 @@ defmodule Fountain.Conversations.RedactionCarry do
 
   ## Keeping row boundaries
 
-  Registered values include identifiers as well as secrets (the conversation
-  and sandbox ids, a callback token), so ordinary output ends in the first byte
-  of some value all the time: a hex id starting with `e` makes every chunk that
-  ends in `e` a candidate. Cutting such a chunk into a row without its last byte
-  and a one-byte row after it changed row boundaries almost everywhere, and
-  every rewritten line defeats reattach replay dedup.
+  Ordinary output ends in the first byte of a registered value often enough to
+  matter: with a handful of secrets registered, one of them starts with a
+  common letter sooner or later. (It used to be almost every chunk. The
+  registry held the conversation and sandbox ids too, and a hex UUID starting
+  with `e` makes every chunk ending in `e` a candidate; `SpriteEnv` registers
+  the secrets alone since #2366.) Cutting such a chunk into a row without its
+  last byte and a one-byte row after it changed row boundaries almost
+  everywhere, and every rewritten line defeats reattach replay dedup.
 
   So a chunk whose end could begin a value is first held **whole**, as the unit
   that arrived: the raw chunk, or the ACP line byte for byte. When the next

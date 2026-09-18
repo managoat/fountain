@@ -51,6 +51,7 @@ defmodule Fountain.Machines.MachineBoundsTest do
   alias Fountain.Machines.Machine
   alias Fountain.Machines.Park
   alias Fountain.Machines.Provision
+  alias Fountain.Machines.Reads
   alias Fountain.Machines.Renewal
   alias Fountain.Machines.Resume
 
@@ -220,7 +221,7 @@ defmodule Fountain.Machines.MachineBoundsTest do
   #
   # `attach_timeout_ms`, `detach_timeout_ms` and `resume_timeout_ms` joined in
   # stage 8b, each the test seam for the deadline its owner message carries.
-  @bound_option ~r/\b(busy_wait_ms|lease_ttl_ms|deadline_ms|admit_timeout_ms|attach_timeout_ms|detach_timeout_ms|resume_timeout_ms):/
+  @bound_option ~r/\b(busy_wait_ms|lease_ttl_ms|deadline_ms|admit_timeout_ms|attach_timeout_ms|detach_timeout_ms|resume_timeout_ms|read_window_ms):/
 
   test "an admission's ladder, and why it has no lease to sit under" do
     # An admission is one transaction that may first wait out a live lease, so
@@ -307,6 +308,29 @@ defmodule Fountain.Machines.MachineBoundsTest do
     assert Renewal.divisor() == 3
   end
 
+  test "a read's window, and the one caller ceiling it can overrun (#2394)" do
+    # The window has to hold the whole exec: the files API's 30 s timeout, with
+    # the margin the hard cutoff keeps before the database expiry a drain reads.
+    assert Reads.window_ms() - Reads.margin_ms() >= Fountain.SandboxFiles.exec_timeout_ms(),
+           "a read could be cut off before its own exec timeout, turning a slow git " <>
+             "status into a 503 the API never used to give"
+
+    # A drain waits at most one window, and it waits under the operation's
+    # renewed lease. Kept under both TTLs anyway, so a drain never depends on
+    # a renewal having landed to keep the machine it is draining.
+    assert Reads.window_ms() < Destroy.lease_ttl_ms()
+    assert Reads.window_ms() < Park.lease_ttl_ms()
+
+    # What this does NOT fit under, said here rather than found: a destroy's
+    # caller gives up at `destroy_timeout_ms`, and a drain of a read stuck at
+    # the provider until its cutoff is longer than that. The caller then reads
+    # `:sandbox_unavailable` for a destroy that goes on to finish in the owner
+    # — `destroying` is durable and the late message is idempotent (`serve/3`).
+    # Only a read that is itself stuck costs this; an ordinary read is gone in
+    # well under a second. Pinned so a change to either number is a decision.
+    assert Reads.window_ms() > Machine.destroy_timeout_ms()
+  end
+
   test "no call site overrides the bounds" do
     # The defaults only mean something if nothing in `lib/` passes its own. A
     # test may (and `destroy_test.exs` does) — that is the mechanism check.
@@ -346,6 +370,8 @@ defmodule Fountain.Machines.MachineBoundsTest do
           "apps/fountain/lib/fountain/machines/provision.ex",
           "apps/fountain/lib/fountain/machines/admission.ex",
           "apps/fountain/lib/fountain/machines/binding.ex",
+          "apps/fountain/lib/fountain/machines/reads.ex",
+          "apps/fountain/lib/fountain/sandbox_files.ex",
           "apps/fountain/lib/fountain/team.ex"
         ] do
       assert MapSet.member?(relative, site),

@@ -168,6 +168,7 @@ defmodule Fountain.Machines.Destroy do
   alias Fountain.Conversations.Sandbox
   alias Fountain.Machines.Admission
   alias Fountain.Machines.Lease
+  alias Fountain.Machines.Reads
   alias Fountain.Machines.Renewal
   alias Fountain.Repo
 
@@ -371,6 +372,9 @@ defmodule Fountain.Machines.Destroy do
       #{@lease_ttl_ms}.
     * `:busy_wait_ms` — how long to wait for a lease somebody else holds.
       Defaults to #{@busy_wait_ms}. Tests shorten it; no call site does.
+    * `:read_window_ms` — the bound on waiting for sandbox-files reads
+      admitted before the claim (`Machines.Reads.drain/2`). Tests shorten it;
+      no call site does.
   """
   @spec run(Ecto.UUID.t(), keyword()) :: {:ok, outcome()} | {:error, term()}
   def run(sandbox_id, opts) when is_binary(sandbox_id) and is_list(opts) do
@@ -714,8 +718,19 @@ defmodule Fountain.Machines.Destroy do
     # abandoned. `{:error, :superseded}` here is a renewal that found the
     # machine in somebody else's hands: the finalize is skipped, which is what
     # the compare-and-set would have done one round trip later anyway.
+    #
+    # A sandbox-files read admitted before this destroy's claim may still be at
+    # the provider, and the drain waits it out first (#2394). Under the renewal,
+    # so the wait cannot lapse the lease; bounded by `Reads.window_ms/0`,
+    # because no read is admitted while this lease is live. `:already_gone`
+    # calls nothing, so it has nothing to wait for.
     case Renewal.around(sandbox.id, epoch, ttl_ms, fn ->
-           destroy_at_provider(sandbox, Keyword.get(opts, :provider, :destroy))
+           provider = Keyword.get(opts, :provider, :destroy)
+
+           if provider == :destroy,
+             do: Reads.drain(sandbox.id, Keyword.take(opts, [:read_window_ms]))
+
+           destroy_at_provider(sandbox, provider)
          end) do
       # As in `Machines.Park`: nothing this module reached outlives the row it
       # has lost, so the provider's answer is dropped here.

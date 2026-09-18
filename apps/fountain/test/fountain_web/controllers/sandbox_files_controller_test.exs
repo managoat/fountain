@@ -16,12 +16,16 @@ defmodule FountainWeb.SandboxFilesControllerTest do
     {:ok, user: user, raw_key: raw_key, sprite_key: sprite_key, agent: agent, sandbox: sandbox}
   end
 
+  # The exec runs in the read's own task (`Machines.Reads`), so the argv is
+  # sent to the test by pid rather than to `self()`.
   defp exec_returns(output, code \\ 0) do
+    test = self()
+
     expect(Managoat.Sandbox, :exec, fn _handle,
                                        "bash",
                                        ["-c", _script, "fountain-files" | args],
                                        _opts ->
-      send(self(), {:exec_args, args})
+      send(test, {:exec_args, args})
       {:ok, output, code}
     end)
   end

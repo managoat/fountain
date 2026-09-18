@@ -154,6 +154,7 @@ defmodule Fountain.Machines.Park do
   alias Fountain.Machines.Admission
   alias Fountain.Machines.Lease
   alias Fountain.Machines.Occupancy
+  alias Fountain.Machines.Reads
   alias Fountain.Machines.Renewal
   alias Fountain.Repo
 
@@ -218,6 +219,9 @@ defmodule Fountain.Machines.Park do
     * `:request_ip` — attribution, passed to the audit event.
     * `:lease_ttl_ms` / `:busy_wait_ms` — the two bounds above. Tests shorten
       them; no call site does.
+    * `:read_window_ms` — the bound on waiting for sandbox-files reads
+      admitted before the claim (`Machines.Reads.drain/2`). Tests shorten it;
+      no call site does.
   """
   @spec run(Ecto.UUID.t(), keyword()) :: {:ok, outcome()} | {:error, term()}
   def run(sandbox_id, opts) when is_binary(sandbox_id) and is_list(opts) do
@@ -636,6 +640,12 @@ defmodule Fountain.Machines.Park do
            # the conversation server that had already dropped its adapter, and,
            # with the gate off, taking `SandboxReaper.perform/1` down mid-sweep
            # with every machine after this one unreaped.
+           #
+           # Before either provider call, a sandbox-files read admitted before
+           # this park's claim is waited out (#2394): the checkpoint and the
+           # suspend must not overlap its exec. Bounded by `Reads.window_ms/0`,
+           # since no read is admitted while this lease is live.
+           :ok = Reads.drain(sandbox.id, Keyword.take(opts, [:read_window_ms]))
            _ = checkpoint(sandbox, epoch)
            suspend_at_provider(sandbox)
          end) do

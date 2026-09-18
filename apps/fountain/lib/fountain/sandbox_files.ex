@@ -18,8 +18,12 @@ defmodule Fountain.SandboxFiles do
       runner's `/home/sprite` mapping holds.
     * **Not a wake.** A parked sandbox costs nothing; a read that resumed
       it would cost provider time outside any turn. Anything but `ready`
-      is refused with `{:sandbox_not_ready, status}`. This check is not atomic
-      with provider exec: a concurrent park can still race it (#1715).
+      is refused with `{:sandbox_not_ready, status}`, decided on the row read
+      under the machine's lock rather than on the struct handed in, and a
+      machine a park or a destroy holds is refused `:sandbox_unavailable`.
+      A read admitted first finishes before that operation calls the provider
+      (`Fountain.Machines.Reads`, #2394). Whether a provider that suspends a
+      machine by itself wakes it for an exec is #2395's question (#1715).
 
   Every path is confined to the sandbox home (`/home/sprite`) or the
   runtime's workspace (`Managoat.Runtimes.ACP.cwd/1`) — including the one
@@ -51,6 +55,7 @@ defmodule Fountain.SandboxFiles do
   alias Fountain.Conversations.Sandbox
   alias Fountain.Crypto
   alias Fountain.Environments
+  alias Fountain.Machines.Reads
   alias Fountain.Repo
   alias Fountain.Vaults
 
@@ -111,6 +116,8 @@ defmodule Fountain.SandboxFiles do
 
   @type error ::
           {:sandbox_not_ready, String.t()}
+          | :sandbox_unavailable
+          | :not_found
           | :invalid_path
           | :path_outside_sandbox
           | :path_not_found
@@ -439,7 +446,30 @@ defmodule Fountain.SandboxFiles do
   # `bash -c SCRIPT NAME ARGS…`: the path and flags are positional
   # parameters, never interpolated into the script, so a filename is data
   # whatever it contains. Paths cross `host_path/2` for the runner.
+  #
+  # The exec runs inside a read admitted by `Fountain.Machines.Reads` (#2394):
+  # the row is re-read under the machine's lock, a park or a destroy in flight
+  # refuses the read before it reaches the provider, and one that starts after
+  # it waits for it. The handle is built from the row the admission checked,
+  # not from the caller's struct, which may be stale.
   defp run(%Sandbox{} = sandbox, script, args) do
+    case Reads.run(sandbox.id, fn admitted, budget -> exec(admitted, script, args, budget) end) do
+      {:ok, output, 0} -> {:ok, output}
+      {:ok, _output, @exit_missing} -> {:error, :path_not_found}
+      {:ok, _output, @exit_unreadable} -> {:error, :path_unreadable}
+      {:ok, _output, @exit_not_repository} -> {:error, :not_a_repository}
+      {:ok, _output, @exit_ref_not_found} -> {:error, :ref_not_found}
+      {:ok, _output, @exit_outside} -> {:error, :path_outside_sandbox}
+      {:ok, output, @exit_wrong_kind} -> {:error, wrong_kind(script, output)}
+      {:ok, output, code} -> {:error, command_failed(sandbox, code, output)}
+      {:error, {:exec, reason}} -> {:error, {:sandbox_unreachable, reason}}
+      {:error, _refusal} = refusal -> refusal
+    end
+  end
+
+  # The provider call, and nothing else, inside the read's window. `budget` is
+  # what the window has left; it only ever shortens the timeout, never lengthens it.
+  defp exec(%Sandbox{} = sandbox, script, args, budget) do
     handle =
       Managoat.Sandbox.build_handle(
         Conversations.sandbox_provider_atom(sandbox),
@@ -449,17 +479,10 @@ defmodule Fountain.SandboxFiles do
     args = Enum.map(args, &map_path(handle, &1))
 
     case Managoat.Sandbox.exec(handle, "bash", ["-c", script, "fountain-files" | args],
-           timeout: @timeout
+           timeout: min(@timeout, budget)
          ) do
-      {:ok, output, 0} -> {:ok, output}
-      {:ok, _output, @exit_missing} -> {:error, :path_not_found}
-      {:ok, _output, @exit_unreadable} -> {:error, :path_unreadable}
-      {:ok, _output, @exit_not_repository} -> {:error, :not_a_repository}
-      {:ok, _output, @exit_ref_not_found} -> {:error, :ref_not_found}
-      {:ok, _output, @exit_outside} -> {:error, :path_outside_sandbox}
-      {:ok, output, @exit_wrong_kind} -> {:error, wrong_kind(script, output)}
-      {:ok, output, code} -> {:error, command_failed(sandbox, code, output)}
-      {:error, reason} -> {:error, {:sandbox_unreachable, reason}}
+      {:ok, _output, _code} = done -> done
+      {:error, reason} -> {:error, {:exec, reason}}
     end
   end
 
@@ -486,6 +509,12 @@ defmodule Fountain.SandboxFiles do
   defp wrong_kind(script, _output) do
     if script == read_script(), do: :is_a_directory, else: :not_a_directory
   end
+
+  # The exec timeout every script runs with, for the bounds suite: the read
+  # window in `Fountain.Machines.Reads` has to hold it.
+  @doc false
+  @spec exec_timeout_ms() :: pos_integer()
+  def exec_timeout_ms, do: @timeout
 
   # The scripts themselves, for the suite. A mocked `exec` proves what parses
   # the output and nothing about what produces it, and all three defects

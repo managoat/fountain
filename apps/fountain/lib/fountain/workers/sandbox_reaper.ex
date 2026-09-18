@@ -870,6 +870,13 @@ defmodule Fountain.Workers.SandboxReaper do
   # down.
   @owner_attempts_per_sweep 100
 
+  @doc false
+  # Overridable like `owner_attempt_limit/0` and `destroy_limit/0`, so the cap
+  # can be driven with two rows instead of a hundred and one. Nothing in `lib/`
+  # sets it.
+  def owner_attempts_per_sweep,
+    do: Application.get_env(:fountain, :reaper_sweep_attempt_limit) || @owner_attempts_per_sweep
+
   @doc """
   Drives to completion the teardowns that fenced and then died.
 
@@ -958,7 +965,7 @@ defmodule Fountain.Workers.SandboxReaper do
     # costs no registry scan — the order the two `where`-then-`reject` steps
     # had before.
     |> Enum.reject(&(Lease.live?(&1, lease_now) or Lifecycle.any_server_alive?(&1)))
-    |> Enum.reduce({0, 0, destroys_left, @owner_attempts_per_sweep}, &drive_teardown/2)
+    |> Enum.reduce({0, 0, destroys_left, owner_attempts_per_sweep()}, &drive_teardown/2)
     |> then(fn {reconciled, refused, _left, _attempts} -> {reconciled, refused} end)
   end
 
@@ -985,7 +992,7 @@ defmodule Fountain.Workers.SandboxReaper do
     # print a budget nobody was given.
     spent =
       if left > 0,
-        do: "its #{@owner_attempts_per_sweep} owner attempts",
+        do: "its #{owner_attempts_per_sweep()} owner attempts",
         else: "its #{reconciled} provider destroys"
 
     Logger.info(
@@ -1023,13 +1030,11 @@ defmodule Fountain.Workers.SandboxReaper do
   defp finish_teardown(%Sandbox{} = sandbox) do
     # ownership: `sandbox` came from this worker's own fleet-wide scan; the
     # reaper is a system sweep with no tenant of its own (`contributing/server.md`).
-    case Termination._unsafe_destroy_machine(sandbox.id,
-           actor: "system:sandbox_reaper",
-           destroy_reason: destroy_reason(sandbox),
-           reason: "teardown_reconciled",
-           terminating_conversation_id: nil
-         ) do
-      {:ok, :destroyed} ->
+    case Conversations.update_sandbox(sandbox, %{
+           status: "terminated",
+           terminated_at: DateTime.utc_now() |> DateTime.truncate(:second)
+         }) do
+      {:ok, _} ->
         report_finished_teardown(sandbox)
 
       # Somebody else finished this row between the scan and the claim. Nothing

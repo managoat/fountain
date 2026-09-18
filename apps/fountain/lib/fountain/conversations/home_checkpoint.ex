@@ -56,9 +56,13 @@ defmodule Fountain.Conversations.HomeCheckpoint do
   # second caller would arrive without them.
   #
   # The `destroying` stamp is the second of the two since ADR 0058 stage 9a,
-  # and it is the one that outlives the column: a park whose finalize lands on
-  # a machine fenced mid-suspend keeps the stamp (`Lease.cas_update/4`), so a
-  # checkpoint taken inside that same transition must read it.
+  # and it is the one that outlives the column. The race the first draft of
+  # this note described — a fence landing mid-suspend, whose stamp
+  # `Lease.cas_update/4` then keeps — cannot actually reach here: the
+  # checkpoint is taken *before* the finalize, so a fence arriving during the
+  # suspend arrives after this ran (review). What the clause is for is a second
+  # caller: `Park` refuses a fenced row today, and the rule belongs to the
+  # checkpoint as much as to the park.
   def on_park(%Sandbox{reset_requested_at: at}, _epoch) when not is_nil(at), do: :skipped
 
   def on_park(%Sandbox{transition: "destroying", status: status}, _epoch)

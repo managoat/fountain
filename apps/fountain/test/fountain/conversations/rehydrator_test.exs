@@ -143,13 +143,15 @@ defmodule Fountain.Conversations.RehydratorTest do
     #
     # 6a round 1 restored this start because refusing withheld a machine from a
     # conversation for as long as an hourly sweep took, where `main` had given
-    # it one at once. What `main` gave it was a **fresh** machine, though, not
-    # this one: `Wake.maybe_reuse_sandbox/1` answers 409 on a fenced row, so the
-    # next prompt provisions. Starting a server on the old disk buys the
-    # conversation nothing it will use, and it costs the intent — the door this
-    # sweep goes through, `Conversations.register_server/2`, cleared a
-    # lease-less stamp on its way in, which after stage 9b is the only record
-    # that the machine was asked to go.
+    # it one at once. That holds for an abandoned park or resume and not for an
+    # abandoned destroy: `main` answers 409 (`:sandbox_reset_pending`) to a
+    # prompt on a fenced row already, so this conversation is **blocked either
+    # way** until the machine is gone, and then gets a fresh one. Skipping it
+    # here costs it nothing it would have had, and starting a server costs the
+    # intent — the door this sweep goes through,
+    # `Conversations.register_server/2`, cleared a lease-less stamp on its way
+    # in, which after stage 9b is the only record that the machine was asked to
+    # go.
     #
     # The stamp with no columns is the shape 9b leaves, and it is the one
     # asserted: refusing on the columns alone would stop refusing the day they

@@ -43,5 +43,44 @@ defmodule Fountain.QuotasFleetCeilingTest do
       assert :ok = Quotas.check_fleet_ceiling()
       assert {:ok, :ran} = Quotas.with_sandbox_reservation(user.id, [], fn -> {:ok, :ran} end)
     end
+
+    test "a machine being destroyed cannot be excluded out of the count" do
+      # ADR 0058 stage 9a, and one of the two sites my revert sweep missed:
+      # `check_fleet_ceiling/1` repeats `active_sandbox_count/2`'s exclusion
+      # clause, so it is a second behaviour wearing identical text.
+      #
+      # The exclusion exists for a wake that provisions a replacement before
+      # retiring the machine it replaces. A machine somebody has asked to
+      # destroy is not replaced and not yet gone — it is still at the provider,
+      # still billing, until the reaper's driver ends it — so excluding it would
+      # let the deployment start one machine over its ceiling. The row here
+      # carries the stamp and neither fence column, which is the shape stage 9b
+      # leaves.
+      cfg = Application.get_env(:fountain, :sandboxes)
+      on_exit(fn -> Application.put_env(:fountain, :sandboxes, cfg) end)
+      Application.put_env(:fountain, :sandboxes, Keyword.put(cfg, :fleet_ceiling, 1))
+
+      other = insert_active_user()
+      going = insert_sandbox(user_id: other.id, status: "ready")
+
+      going
+      |> Ecto.Changeset.change(
+        transition: "destroying",
+        transition_reason: "terminated",
+        reset_requested_at: nil,
+        teardown_requested_at: nil
+      )
+      |> Fountain.Repo.update!()
+
+      assert {:error, :fleet_full} = Quotas.check_fleet_ceiling(exclude: going.id)
+
+      # And the symmetric case: a machine nobody is destroying really is
+      # excludable, which is what the option is for.
+      Fountain.Repo.update_all(Fountain.Conversations.Sandbox,
+        set: [transition: nil, transition_reason: nil]
+      )
+
+      assert :ok = Quotas.check_fleet_ceiling(exclude: going.id)
+    end
   end
 end

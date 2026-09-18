@@ -558,6 +558,13 @@ defmodule Fountain.Machines.Provision do
   defp clear_foreign_stamp(%Sandbox{transition: nil} = sandbox, _epoch), do: sandbox
   defp clear_foreign_stamp(%Sandbox{transition: "provisioning"} = sandbox, _epoch), do: sandbox
 
+  # **Inert, deliberately, and said so rather than tested** (review). Both doors
+  # into this function refuse a `destroying` row before reaching it, and
+  # `Lease.cas_update/4` would keep the stamp even if one did not — so no plant
+  # of this clause can fail a test, and a test that cannot fail is a claim
+  # nobody is checking. It stays as the local statement of a rule enforced
+  # twice above and once underneath; delete it with the columns at 9b if it
+  # still has no reader.
   defp clear_foreign_stamp(%Sandbox{transition: "destroying", status: status} = sandbox, _epoch)
        when status not in @terminal_statuses,
        do: sandbox

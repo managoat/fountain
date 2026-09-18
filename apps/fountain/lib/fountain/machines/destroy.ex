@@ -496,10 +496,14 @@ defmodule Fountain.Machines.Destroy do
       # destroy that stopped it. **Checked before the continuation below**, and
       # that order is the whole point: matching on `transition` alone would
       # send a finished destroy back through the provider and record a second
-      # `sandbox.destroyed` for a machine that was gone. Not a forged state —
-      # `SandboxReaper.finish_teardown/1` writes `terminated` through
-      # `Conversations.update_sandbox/2`, which knows nothing about
-      # `transition` and leaves the stamp exactly here.
+      # `sandbox.destroyed` for a machine that was gone. Not a forged state: a
+      # terminal write that knows nothing about `transition` leaves the stamp
+      # exactly here, and until stage 9a
+      # `SandboxReaper.finish_teardown/1` was that write. Since 9a it goes
+      # through this protocol and clears the stamp, so on a fleet where every
+      # replica runs 9a nothing produces the shape — and a replica that
+      # predates it still does, for as long as a rollout is half done. See the
+      # moduledoc.
       %Sandbox{transition: "destroying", status: status} = done
       when status in @terminal_statuses ->
         clear_stale_transition(done, epoch)
@@ -572,6 +576,12 @@ defmodule Fountain.Machines.Destroy do
   # fence, so a row with no `reset_requested_at` means either a caller bug or a
   # fence that vanished under it, and neither is a reason to destroy a machine
   # that is still open to admission on every other node.
+  #
+  # **Unreachable since stage 9a for the one caller that passes the option**:
+  # the reset door stamps `destroying` in the same commit as the column, so
+  # `under_lease/3`'s continuation clause takes that row first. It stays while a
+  # pre-9a replica can still write a column-only reset fence, and it is on
+  # #2344's stage 9b inventory to delete with the columns.
   defp caller_fenced_destroy(%Sandbox{status: status} = done, _epoch, opts)
        when status in @terminal_statuses,
        do: already_terminal(done, opts)
@@ -762,9 +772,10 @@ defmodule Fountain.Machines.Destroy do
   # to run, and so does the co-tenant notice: `main`'s `do_destroy/4` called
   # `stop_cotenants/5` unconditionally, and a co-tenant server still holding a
   # handle to a machine that is already gone is exactly what it exists to stop.
-  # The turns too (stage 8b), and for the same reason: a machine
-  # `SandboxReaper.finish_teardown/1` wrote terminal has had no owner end its
-  # turns, and ending one twice is a `:noop`.
+  # The turns too (stage 8b), and for the same reason: a machine written
+  # terminal without an owner — a pre-9a replica's `finish_teardown/1`, on a
+  # half-done rollout — has had no owner end its turns, and ending one twice is
+  # a `:noop`.
   defp already_terminal(%Sandbox{} = sandbox, opts) do
     end_turns(sandbox, opts)
     notify_cotenants(sandbox, opts)

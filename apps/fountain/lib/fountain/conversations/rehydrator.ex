@@ -224,13 +224,20 @@ defmodule Fountain.Conversations.Rehydrator do
   # **Except `destroying`** (ADR 0058 stage 9a). That stamp is durable intent
   # rather than an operation in flight, so it is refused whatever the lease
   # says, and this is the one place stage 6a round 1's reasoning genuinely
-  # inverts: round 1 restored a server to a machine wearing an abandoned
-  # destroy because `main` would have given the conversation a machine at once,
-  # and what `main` gave it was a **fresh** one — `Wake.maybe_reuse_sandbox/1`
-  # 409s this row, so the next prompt builds a new machine and the conversation
-  # is not stranded. Starting a server on the old disk instead buys nothing and
-  # costs the intent, since `Conversations.register_server/2` would clear the
-  # stamp on the way in.
+  # inverts.
+  #
+  # Round 1 restored a server here because refusing withheld a machine that
+  # `main` would have handed over at once. That is true of an abandoned *park*
+  # or *resume* and false of an abandoned destroy, and the difference is the
+  # fence rather than anything this stage invents: `main` answers
+  # `:sandbox_reset_pending` — 409 — to a prompt on a fenced row already, so
+  # such a conversation is **blocked either way** until the machine is gone,
+  # and then gets a fresh one. Skipping the boot sweep costs it nothing it
+  # would have had.
+  #
+  # What starting a server there does cost is real: a second writer on a disk
+  # that is about to be deleted, and the intent itself, since
+  # `Conversations.register_server/2` would clear the stamp on the way in.
   #
   # Skipping, not failing: the next boot sweep or the conversation's own next
   # prompt comes back, and by then the operation has finished or its lease has

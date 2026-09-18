@@ -929,11 +929,41 @@ defmodule Fountain.Workers.SandboxReaperTest do
       assert measurements.reconciled == 0
     end
 
-    test "one run never makes more provider calls than its budget" do
+    test "one sweep asks a bounded number of owners, whatever the backlog" do
+      # `@owner_attempts_per_sweep`, which had no case and no seam: `1_000_000`
+      # was green. It bounds the *waiting* rather than the writing — every
+      # refusal costs `Destroy.busy_wait_ms/0` — so without it a contended
+      # fleet turns an hourly sweep into an hours-long one holding a
+      # `:maintenance` slot.
+      fences =
+        for _ <- 1..3 do
+          {_user, fenced, _conv} = fenced_sandbox()
+          age_fence(fenced, 60)
+          fenced
+        end
+
+      live_provider(Enum.map(fences, & &1.machine_name))
+
+      capture_log(fn ->
+        with_bounds([reaper_sweep_attempt_limit: 2], fn ->
+          assert {2, 0} = SandboxReaper.sweep_fenced_teardowns()
+        end)
+      end)
+
+      assert Enum.count(fences, &(Repo.reload(&1).status == "terminated")) == 2
+    end
+
+    test "the passes share one allowance rather than each taking a full one" do
       # The driver destroys at the provider now, so its reclamations have to
-      # come out of the same budget pass 2 spends what is left of — otherwise a
-      # run makes the budget's worth of calls twice at a provider that is
+      # come out of the same allowance pass 2 spends what is left of — otherwise
+      # a run makes the allowance's worth of calls twice at a provider that is
       # already struggling.
+      #
+      # "Never more than its budget" would be the wrong claim and is not made:
+      # `@pass_two_floor` and `@driver_floor` are anti-starvation trickles that
+      # sit *under* the subtraction, so a saturated run makes at most
+      # `@destroy_limit + @driver_floor + @pass_two_floor`. What is pinned here
+      # is the subtraction, on a run that saturates nothing.
       #
       # Seven, because `@pass_two_floor` is five: a budget the floor swallows
       # would let the arithmetic be wrong and the test still pass.

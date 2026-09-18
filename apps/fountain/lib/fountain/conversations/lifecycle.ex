@@ -827,8 +827,6 @@ defmodule Fountain.Conversations.Lifecycle do
               # Escalating a reset to a forced teardown rewrites the reason and
               # keeps both timestamps, which is the rule the two columns above
               # already follow: the machine is going away for the newer reason.
-              transition: "destroying",
-              transition_reason: transition_reason(opts)
             )
             |> Repo.update!()
 
@@ -858,8 +856,20 @@ defmodule Fountain.Conversations.Lifecycle do
   # does not gets `:teardown`, the word this module's own event defaults to and
   # the one `Destroy.reason_from_string/1` falls back to: one unknown, spelled
   # the same at both ends.
+  #
+  # Total over what a caller can pass, which the first draft was not: it read
+  # the caller-supplied `:reason` straight into the changeset, so a non-binary
+  # one — and `:reason` carries interpolated provider errors on several paths —
+  # raised `Ecto.ChangeError` from inside the fence's transaction, a crash path
+  # that did not exist before this stage (protocol review). Only an atom or a
+  # binary is a reason; anything else is the unknown, spelled `:teardown` at
+  # both ends.
   defp transition_reason(opts) do
-    opts |> Keyword.get(:transition_reason, :teardown) |> to_string()
+    case Keyword.get(opts, :transition_reason, :teardown) do
+      reason when is_atom(reason) and not is_nil(reason) -> Atom.to_string(reason)
+      reason when is_binary(reason) -> reason
+      _other -> "teardown"
+    end
   end
 
   # One clock read, and only for a caller that asked for either check: the

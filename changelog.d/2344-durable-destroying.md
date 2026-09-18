@@ -9,8 +9,9 @@
   the `409` it already answered for a computer being reset — and leaves the
   request where it is. The computer still counts against your concurrent
   computer limit until it is gone, because until then it exists and is billed.
-  A conversation on it is not stranded: the next prompt builds a fresh
-  computer, exactly as it did while the deletion was in flight.
+  A conversation on it is not stranded: prompts answer `409` until the deletion
+  finishes — which is what they already did while a reset or a deletion was in
+  flight — and the next one after that builds a fresh computer.
 
 ### Fixed
 

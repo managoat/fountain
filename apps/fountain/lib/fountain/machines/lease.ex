@@ -749,32 +749,56 @@ defmodule Fountain.Machines.Lease do
 
   defp preserve_destroying(query, sets) do
     if preserving?(sets) do
-      {from(s in query,
-         update: [
-           set: [
-             transition:
-               fragment(
-                 "CASE WHEN ? = ? AND ? NOT IN ('terminated', 'failed') THEN ? ELSE ? END",
-                 s.transition,
-                 ^@destroying,
-                 s.status,
-                 s.transition,
-                 type(^Keyword.get(sets, :transition), :string)
-               ),
-             transition_reason:
-               fragment(
-                 "CASE WHEN ? = ? AND ? NOT IN ('terminated', 'failed') THEN ? ELSE ? END",
-                 s.transition,
-                 ^@destroying,
-                 s.status,
-                 s.transition_reason,
-                 type(^Keyword.get(sets, :transition_reason), :string)
-               )
-           ]
-         ]
-       ), Keyword.drop(sets, [:transition, :transition_reason])}
+      query =
+        from(s in query,
+          update: [
+            set: [
+              transition:
+                fragment(
+                  "CASE WHEN ? = ? AND ? NOT IN ('terminated', 'failed') THEN ? ELSE ? END",
+                  s.transition,
+                  ^@destroying,
+                  s.status,
+                  s.transition,
+                  type(^Keyword.get(sets, :transition), :string)
+                )
+            ]
+          ]
+        )
+
+      {preserve_reason(query, sets), Keyword.drop(sets, [:transition, :transition_reason])}
     else
       {query, sets}
+    end
+  end
+
+  # **Only when the caller named it.** A write that names `transition` alone —
+  # `Resume.stamp/2` is the one today — used to leave `transition_reason`
+  # untouched, because `update_all` writes the columns it is given and no
+  # others. The first draft of `preserve_destroying/2` moved *both* columns into
+  # `CASE` fragments unconditionally, so the reason's `ELSE` branch was a `nil`
+  # nobody had asked for: a stamp that named one column silently erased the
+  # other (protocol review, promoted to a blocker). The guard is the caller's
+  # own key, so this preserves a stamp without inventing a write.
+  defp preserve_reason(query, sets) do
+    if Keyword.has_key?(sets, :transition_reason) do
+      from(s in query,
+        update: [
+          set: [
+            transition_reason:
+              fragment(
+                "CASE WHEN ? = ? AND ? NOT IN ('terminated', 'failed') THEN ? ELSE ? END",
+                s.transition,
+                ^@destroying,
+                s.status,
+                s.transition_reason,
+                type(^Keyword.get(sets, :transition_reason), :string)
+              )
+          ]
+        ]
+      )
+    else
+      query
     end
   end
 

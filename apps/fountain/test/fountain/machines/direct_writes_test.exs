@@ -290,9 +290,16 @@ defmodule Fountain.Machines.DirectWritesTest do
   # when the gate does.
   #
   # `release_stuck_sandboxes/0`'s `update_sandbox/2` is the reaper's last and
-  # stays: it fails a row stuck mid-provision, which is the provision bracket's
-  # business rather than the destroy protocol's, and no owner verb exists for
-  # it yet. `create_sandbox/1`'s insert, `do_update_sandbox/2`'s own
+  # stays — but **not** for the reason the first draft of this note gave. It
+  # said no owner verb covers those rows; `Machine.fail_provision/2` takes
+  # exactly `~w(pending starting)`, which is this pass's whole population, so
+  # the verb is right there (review, blocker H). What it does not have is this
+  # pass's *reason to act*: `fail_provision/2` is the provision bracket failing
+  # a machine it was building, under the lease that bracket holds, and this
+  # sweep is a stranger to every row it touches — no lease, no bracket, and a
+  # sixty-minute cutoff instead of a deadline. Routing it through the verb is a
+  # stage of its own and is on #2344's stage 9 inventory, not a line this PR
+  # could have taken. `create_sandbox/1`'s insert, `do_update_sandbox/2`'s own
   # `Repo.update/1` and `register_server/2`'s marker are unchanged from 8b.
   @row_writes 6
   @provider_mutations 3

@@ -109,6 +109,20 @@ defmodule Fountain.Machines.DurableDestroyingTest do
       assert fenced.reset_requested_at
     end
 
+    test "a reason that is not a word at all falls back rather than raising", ctx do
+      # Blocker G's other half. `:reason` carries interpolated provider errors
+      # on several paths, and the first draft read it straight into the
+      # changeset — an `Ecto.ChangeError` from inside the fence's transaction,
+      # a crash path that did not exist before this stage.
+      {:ok, fenced} =
+        Lifecycle.fence_sandbox_for_teardown(ctx.sandbox,
+          actor: "self",
+          transition_reason: {:unexpected, %{shape: true}}
+        )
+
+      assert fenced.transition_reason == "teardown"
+    end
+
     test "a fence with no reason of its own stamps the word both ends default to", ctx do
       # `:teardown` is this module's event default *and*
       # `Destroy.reason_from_string/1`'s fallback, so a caller that names
@@ -250,6 +264,36 @@ defmodule Fountain.Machines.DurableDestroyingTest do
 
       assert written.transition == "destroying"
       assert written.transition_reason == "max_lifetime"
+    end
+
+    test "a write naming transition alone does not erase the reason", ctx do
+      # Blocker G. `Resume.stamp/2` writes `[transition: "resuming"]` and
+      # nothing else, and `update_all` has always written the columns it is
+      # given and no others. The first draft moved both columns into `CASE`
+      # fragments whatever the caller named, so the reason's `ELSE` branch was
+      # a `nil` nobody asked for — a stamp that named one column silently
+      # erased the other.
+      stamp(ctx.sandbox, transition: nil, transition_reason: "why-this-machine-matters")
+
+      assert {:ok, written} =
+               Lease.cas_update(ctx.sandbox.id, ctx.epoch, transition: "resuming")
+
+      assert written.transition == "resuming"
+      assert written.transition_reason == "why-this-machine-matters"
+    end
+
+    test "a write naming both still writes both", ctx do
+      # The symmetric case: the guard is the caller's own key, so naming the
+      # reason still sets it.
+      stamp(ctx.sandbox, transition: nil, transition_reason: "old")
+
+      assert {:ok, written} =
+               Lease.cas_update(ctx.sandbox.id, ctx.epoch,
+                 transition: "resuming",
+                 transition_reason: "new"
+               )
+
+      assert written.transition_reason == "new"
     end
 
     test "a write naming neither column is untouched by the rule", ctx do
@@ -431,6 +475,32 @@ defmodule Fountain.Machines.DurableDestroyingTest do
                end)
 
       assert row(ctx).transition == "destroying"
+    end
+
+    test "the reattach door will not confirm a machine somebody asked to destroy", ctx do
+      # Blocker B, found by two reviewers and missed by my own revert sweep.
+      # `confirm_up/2` is the reattach arm: a server that has asked the provider
+      # and been told its machine is up writes `ready` on the row. On a
+      # `destroying` row that write puts a suspended machine back to `ready`
+      # with `last_resumed_at`, a `sandbox.resumed` event and a
+      # `sandbox_resumed` usage row — **billing reopened on a machine somebody
+      # asked to destroy**, from a reachable caller.
+      #
+      # `confirm_under_lease/3` carries the same fence as `admissible/1` and
+      # needs its own case, because a clause repeated at two sites is two
+      # behaviours however identical the text.
+      stamp(ctx.sandbox, status: "suspended")
+      destroying(ctx.sandbox)
+
+      assert {:error, :fenced} =
+               capture_answer(fn -> Provision.confirm_up(ctx.sandbox.id, actor: "self") end)
+
+      kept = row(ctx)
+      assert kept.status == "suspended"
+      assert kept.transition == "destroying"
+      assert is_nil(kept.last_resumed_at)
+
+      assert Fountain.Audit.list_for_user(ctx.user.id, action_prefix: "sandbox.resumed") == []
     end
 
     test "HomeCheckpoint.on_park/2 keeps no checkpoint of a disk that is going", ctx do

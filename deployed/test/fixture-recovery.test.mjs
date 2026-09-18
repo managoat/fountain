@@ -27,7 +27,7 @@ async function world(t) {
     if (req.url === '/api/buzz/agents') return send(buzzReply.status, buzzReply.body);
     if (req.url === '/api/sandbox-queue') return queueReply
       ? send(queueReply.status, queueReply.body)
-      : send(200, { data: queue.filter(row => row.status === 'queued') });
+      : send(200, { data: queue.filter(row => row.status === 'queued').map(({ attrs, ...row }) => row) });
     if (req.url === '/api/auth/me') return send(200, { id: ownerId, email_verified: true });
     if (req.url.match(/^\/api\/team\/.+\/schedules$/)) return send(200, { data: schedules });
     const kind = Object.keys(collections).find(k => url.pathname === collections[k] || url.pathname.startsWith(collections[k] + '/'));
@@ -70,7 +70,7 @@ async function world(t) {
   const evidence = { version: 1, base_url: baseUrl, owner_id: ownerId, run_id: runId, profiles: ['execution'],
     ownership_evidence: 'Operator correlated the exact run UUID with the dedicated account and launch record.',
     writers_stopped: 'Original runner is dead and automatic retry is disabled. Every submitted create is listed.',
-    queue_settlement_evidence: 'Launch logs and suite revision establish no queue:true requests used these agents; all other writers are stopped.',
+    queue_account_settlement_evidence: 'Account-wide launch logs establish no accepted queue requests remain unsettled; all writers are stopped and all resulting resources are accounted for.',
     intent_inventory: 'Suite revision and interruption checkpoint establish these exact submitted create intents.', resources: [] };
   function add(kind, attrs = {}) {
     const r = { kind, name: `suite-${runId}-${kind}-${evidence.resources.length}`, id: randomUUID() };
@@ -437,11 +437,11 @@ for (const phase of ['reconstruction', 'replay']) {
     if (phase === 'replay') await w.reconstruct();
     w.queue.push({ id: randomUUID(), agent_id: agent.id, status: 'starting', conversation_id: null });
     if (phase === 'reconstruction') {
-      delete w.evidence.queue_settlement_evidence;
+      delete w.evidence.queue_account_settlement_evidence;
       await assert.rejects(w.reconstruct(), /queue settlement evidence/);
       assert.equal(existsSync(w.manifestPath), false);
     } else {
-      const fixtures = w.load(); delete fixtures.manifest.recovery.queue_settlement_evidence; fixtures.save();
+      const fixtures = w.load(); delete fixtures.manifest.recovery.queue_account_settlement_evidence; fixtures.save();
       const failures = await w.load().cleanup(AbortSignal.timeout(5000));
       assert.match(failures[0]?.error, /queue settlement evidence/);
       assert.equal(w.load().remainingCount(), 1);
@@ -453,16 +453,25 @@ for (const phase of ['reconstruction', 'replay']) {
   });
 }
 
-test('unrelated waiting work survives cleanup and queue settlement evidence survives repeat replay', async t => {
+test('waiting work on a different agent blocks cleanup until the operator settles it', async t => {
   const w = await world(t); w.conversation();
   const request = { id: randomUUID(), agent_id: randomUUID(), status: 'queued', conversation_id: null };
-  w.queue.push(request);
   await w.reconstruct();
-  assert.equal(w.load().manifest.recovery.queue_settlement_evidence, w.evidence.queue_settlement_evidence);
+  assert.equal(w.load().manifest.recovery.queue_account_settlement_evidence, w.evidence.queue_account_settlement_evidence);
+  w.queue.push(request);
+  const failures = await w.load().cleanup(AbortSignal.timeout(5000));
+  assert.match(failures[0]?.error, /queued request/);
+  assert.deepEqual(w.mutations, []);
+  assert.deepEqual(w.queue, [request]);
+  // An operator establishes the terminal outcome and refreshes the evidence.
+  request.status = 'cancelled';
+  const fixtures = w.load();
+  fixtures.manifest.recovery.queue_account_settlement_evidence = 'Operator verified every accepted account request is terminal, reconciled all resulting resources and kept every writer stopped.';
+  fixtures.save();
   assert.deepEqual(await w.load().cleanup(AbortSignal.timeout(5000)), []);
   assert.deepEqual(await w.load().cleanup(AbortSignal.timeout(5000)), []);
   assert.deepEqual(w.queue, [request]);
-  assert.equal(w.requests.filter(r => r === 'GET /api/sandbox-queue').length, 3);
+  assert.equal(w.requests.filter(r => r === 'GET /api/sandbox-queue').length, 4);
 });
 
 for (const response of [
@@ -538,4 +547,93 @@ for (const scenario of ['live', 'foreign-parent', 'mode', 'cotenant', 'sandbox-i
     assert.equal(w.mutations.length, count, 'retain the remaining environment without further mutations');
     assert.ok(w.load().remainingCount() > 0);
   });
+}
+
+for (const kind of ['environment', 'vault']) {
+  for (const phase of ['reconstruction', 'replay']) {
+    for (const mixed of [false, true]) {
+      test(`hidden queued ${kind} override refuses ${phase} with ${mixed ? 'mixed' : 'source-only'} evidence`, async t => {
+        const w = await world(t); const source = w.add(kind);
+        if (mixed) w.add('agent');
+        const foreignAgent = { id: randomUUID(), name: 'other-same-account-agent', environment_id: null,
+          allowed_environment_ids: null, allowed_vault_ids: null };
+        w.rows.agent.push(foreignAgent);
+        if (phase === 'replay') await w.reconstruct();
+        const request = { id: randomUUID(), agent_id: foreignAgent.id, status: 'queued', conversation_id: null,
+          attrs: { [`${kind}_id`]: source.id, prompt: 'unrecorded submitted work' } };
+        w.queue.push(request);
+        const { body } = await w.client.request('GET', '/api/sandbox-queue', { expected: 200, recordBody: false });
+        assert.equal(body.data[0].attrs, undefined, 'the public API does not expose the dependency');
+        const before = w.requests.length;
+        if (phase === 'reconstruction') {
+          await assert.rejects(w.reconstruct(), /queued request/);
+          assert.equal(existsSync(w.manifestPath), false);
+        } else {
+          const failures = await w.load().cleanup(AbortSignal.timeout(5000));
+          assert.match(failures[0]?.error, /queued request/);
+          assert.equal(w.load().remainingCount(), mixed ? 2 : 1);
+        }
+        assert.ok(w.requests.slice(before).includes('GET /api/sandbox-queue'), 'source-only recovery must inspect the queue too');
+        assert.deepEqual(w.mutations, [], 'retain the source before teardown can damage accepted work');
+        assert.equal(w.rows[kind][0].id, source.id);
+        assert.deepEqual(w.queue, [request]);
+        assert.equal(request.attrs[`${kind}_id`], source.id);
+      });
+    }
+  }
+}
+
+for (const phase of ['reconstruction', 'replay']) {
+  test(`hidden queued parent conversation refuses ${phase} before termination`, async t => {
+    const w = await world(t); const { conv, sandbox } = w.conversation();
+    const foreignAgent = { id: randomUUID(), name: 'unrecorded-agent', environment_id: null,
+      allowed_environment_ids: null, allowed_vault_ids: null };
+    w.rows.agent.push(foreignAgent);
+    if (phase === 'replay') await w.reconstruct();
+    const request = { id: randomUUID(), agent_id: foreignAgent.id, status: 'queued', conversation_id: null,
+      attrs: { parent_conversation_id: conv.id } };
+    w.queue.push(request);
+    if (phase === 'reconstruction') {
+      await assert.rejects(w.reconstruct(), /queued request/);
+      assert.equal(existsSync(w.manifestPath), false);
+    } else {
+      const failures = await w.load().cleanup(AbortSignal.timeout(5000));
+      assert.match(failures[0]?.error, /queued request/);
+      assert.equal(w.load().remainingCount(), 3);
+    }
+    assert.deepEqual(w.mutations, []);
+    assert.equal(w.rows.conversation[0].status, 'running');
+    assert.equal(sandbox.status, 'ready');
+    assert.deepEqual(w.queue, [request]);
+  });
+
+  for (const kind of ['environment', 'vault', 'conversation']) {
+    test(`agent-scoped evidence cannot authorize ${kind} ${phase} while claimed work is hidden`, async t => {
+      const w = await world(t);
+      const source = kind === 'conversation' ? w.conversation().conv : w.add(kind);
+      if (phase === 'replay') await w.reconstruct();
+      const request = { id: randomUUID(), agent_id: randomUUID(), status: 'starting', conversation_id: null,
+        attrs: { [kind === 'conversation' ? 'parent_conversation_id' : `${kind}_id`]: source.id } };
+      w.queue.push(request);
+      const oldEvidence = 'Launch records confirm no accepted queued requests used the recovered agents; other agents may have accepted work.';
+      if (phase === 'reconstruction') {
+        delete w.evidence.queue_account_settlement_evidence;
+        w.evidence.queue_settlement_evidence = oldEvidence;
+        await assert.rejects(w.reconstruct(), /queue settlement evidence/);
+        assert.equal(existsSync(w.manifestPath), false);
+      } else {
+        const fixtures = w.load();
+        delete fixtures.manifest.recovery.queue_account_settlement_evidence;
+        fixtures.manifest.recovery.queue_settlement_evidence = oldEvidence;
+        fixtures.save();
+        const failures = await w.load().cleanup(AbortSignal.timeout(5000));
+        assert.match(failures[0]?.error, /queue settlement evidence/);
+        assert.ok(w.load().remainingCount() > 0);
+      }
+      assert.ok(w.requests.includes('GET /api/sandbox-queue'));
+      assert.deepEqual(w.mutations, []);
+      assert.deepEqual(w.queue, [request]);
+      assert.ok(w.rows[kind].some(row => row.id === source.id));
+    });
+  }
 }

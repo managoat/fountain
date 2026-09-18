@@ -80,17 +80,31 @@ Review `/tmp/recovery-inventory/evidence.json` and fill:
   exact missing names from request logs or the profile's known execution
   point even when no resource is currently visible. Omit `id` when unknown;
   never invent one or copy it from an unrelated resource.
-- `queue_settlement_evidence`: required when recovering agents. Record how
-  launch logs and the suite revision establish that no `queue: true` requests
-  used those agents, or how the operator established every accepted request's
-  outcome and accounted for any resulting resources. `GET /api/sandbox-queue`
-  lists only waiting requests; claimed/`starting` work is omitted. For a known
-  request, `GET /api/sandbox-queue/:id` can establish its current status, but
-  unknown request IDs or unsettled outcomes require operator escalation.
-  An empty waiting list, a dead runner or this note alone cannot establish
-  settlement. Stop other writers before recording this evidence; do not
-  infer it from the selected profile alone. Older reconstructed manifests
-  with agents also need this reviewed note in their `recovery` object.
+- `queue_account_settlement_evidence`: required for every reconstruction and
+  replay, including inventories containing only sources. Record authoritative
+  account-wide launch records or deployment-operator findings that establish
+  no accepted queue work remains unsettled and account for every resulting
+  resource. This must cover work on **all agents in the dedicated account**,
+  including per-launch environment/vault overrides and parent conversations.
+  Stop every source of new account submissions, including other clients and
+  scheduled producers, before establishing settlement; keep them stopped
+  through cleanup. Do not infer this evidence from the selected suite profile.
+  `GET /api/sandbox-queue` lists only waiting requests; claimed/`starting` work
+  is omitted. A known request's detail endpoint can establish its status, but
+  neither list nor detail exposes its launch attributes. An empty list, a
+  different agent ID or a dead runner cannot prove settlement or independence.
+  Unknown request IDs or outcomes require operator escalation. Recovery refuses
+  **any waiting request**, even with this note; settle it outside recovery and
+  review the evidence again before retrying. The tool never cancels that work.
+
+Earlier `queue_settlement_evidence` notes covered only recovered agents and
+are no longer accepted. Reassess the whole account and supply the new
+`queue_account_settlement_evidence` field in reviewed reconstruction evidence
+or the existing manifest's `recovery` object. Renaming an old note without
+the broader investigation does not establish the required evidence.
+
+If the Buzz inventory is unavailable, also review:
+
 - `buzz_absence_evidence`: leave empty when `GET /api/buzz/agents` returns
   its identity inventory. If the extension route returns the host's 404,
   record the deployment operator's evidence that no stored Buzz identities
@@ -160,11 +174,13 @@ sandboxes, changed parent names and agent schedules. The public Buzz identity
 inventory is also checked on reconstruction and every replay: any identity
 referencing a recovered agent, environment or vault refuses cleanup, even with
 no conversation or sandbox. Buzz identities are not adopted or deleted by
-this tool. The public waiting queue is checked whenever agents are recorded;
-a request referencing a recovered agent blocks the pass before agent deletion
-could cascade it. Queue requests are separate ownership evidence and are
-neither adopted nor cancelled. The waiting list supplements the operator's
-settlement evidence; it cannot replace it. Refusal retains parents as evidence.
+this tool. The public waiting queue is checked on every reconstruction and
+replay, including source-only inventories. Any waiting request blocks the
+pass: its hidden launch attributes may reference a recovered environment,
+vault or parent conversation even when its agent differs. Queue requests are
+separate ownership evidence and are neither adopted nor cancelled. An empty
+waiting list supplements the operator's account-wide settlement evidence;
+it cannot replace it. Refusal retains fixtures as evidence.
 Cleanup then terminates recorded
 conversations, verifies their sandbox is terminal (and resets only an exactly
 owned persistent home), deletes conversations, and finally deletes parents.

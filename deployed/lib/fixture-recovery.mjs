@@ -48,17 +48,15 @@ async function verifyBuzzDependencies(client, resources, recovery, signal) {
   }
 }
 
-async function verifyQueueDependencies(client, resources, recovery, signal) {
-  const agents = resources.filter(r => r.kind === 'agent');
-  if (agents.length === 0) return;
-  for (const row of await list(client, '/api/sandbox-queue', signal)) {
-    need(uuid(row.agent_id) && row.status === 'queued', 'Invalid waiting queue dependency evidence');
-    need(!agents.some(r => r.id === row.agent_id), 'Unrecorded queued request depends on recovery agent; retain parents and escalate');
-  }
-  // This endpoint omits claimed/starting requests. Neither an empty response
-  // nor a dead client proves accepted work has settled on the server.
-  need(note(recovery.queue_settlement_evidence),
-    'Record queue settlement evidence for recovered agents; the waiting list excludes claimed work, so escalate unknown request outcomes');
+async function verifyQueueDependencies(client, recovery, signal) {
+  // Neither list nor detail exposes source overrides or conversation parents.
+  // A different agent cannot prove independence, even for source-only recovery.
+  need((await list(client, '/api/sandbox-queue', signal)).length === 0,
+    'Unrecorded queued requests have undisclosed dependencies; retain recovery fixtures and escalate until the account queue settles');
+  // The list also omits claimed/starting work. Require new account-wide evidence
+  // on every pass; the former agent-scoped queue_settlement_evidence is unsafe.
+  need(note(recovery.queue_account_settlement_evidence),
+    'Record account-wide queue settlement evidence, including source overrides and parent conversations; escalate unknown request outcomes');
 }
 
 export async function inventoryFixtures(client, { ownerId, runId }) {
@@ -79,7 +77,7 @@ export async function inventoryFixtures(client, { ownerId, runId }) {
   }
   resources.sort((a, b) => Number(a.name.split('-').at(-1)) - Number(b.name.split('-').at(-1)));
   return { version: 1, base_url: client.baseUrl, owner_id: ownerId, run_id: runId,
-    profiles: [], ownership_evidence: '', writers_stopped: '', intent_inventory: '', buzz_absence_evidence: '', queue_settlement_evidence: '', resources };
+    profiles: [], ownership_evidence: '', writers_stopped: '', intent_inventory: '', buzz_absence_evidence: '', queue_account_settlement_evidence: '', resources };
 }
 
 export function validateRecoveryEvidence(evidence, baseUrl) {
@@ -125,7 +123,7 @@ export async function verifyRecoveryDependencies(client, resources, runId, signa
     }
   }
   await verifyBuzzDependencies(client, resources, recovery, signal);
-  await verifyQueueDependencies(client, resources, recovery, signal);
+  await verifyQueueDependencies(client, recovery, signal);
   const ids = new Set(resources.map(r => r.id).filter(Boolean));
   const conversations = await list(client, '/api/conversations', signal);
   for (const row of conversations) {
@@ -213,7 +211,7 @@ export async function reconstructFixtures(client, evidence, manifestPath) {
   }
   await verifyRecoveryDependencies(client, resources, evidence.run_id, undefined, evidence);
   const manifest = { version: 1, base_url: client.baseUrl, owner_id: evidence.owner_id, run_id: evidence.run_id, resources,
-    recovery: { version: 1, ...Object.fromEntries(['profiles', 'ownership_evidence', 'writers_stopped', 'intent_inventory', 'buzz_absence_evidence', 'queue_settlement_evidence'].map(k => [k, evidence[k]])) } };
+    recovery: { version: 1, ...Object.fromEntries(['profiles', 'ownership_evidence', 'writers_stopped', 'intent_inventory', 'buzz_absence_evidence', 'queue_account_settlement_evidence'].map(k => [k, evidence[k]])) } };
   atomicJson(manifestPath, manifest);
   // Use the cleanup reader as the final check, including its parent rules.
   Fixtures.load(manifestPath, client, evidence.owner_id);

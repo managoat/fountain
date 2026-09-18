@@ -24,9 +24,11 @@ defmodule FountainWeb.ConversationJSON do
 
   def events(%{events: events, has_more: has_more?, limit: limit} = assigns) do
     blocks? = Map.get(assigns, :blocks?, false)
+    # `turn_id => prompt` when `?prompts=true` asked for them, `%{}` otherwise.
+    prompts = Map.get(assigns, :prompts, %{})
 
     %{
-      data: Enum.map(events, &(&1 |> log_event_data() |> put_blocks(&1, blocks?))),
+      data: Enum.map(events, &(&1 |> log_event_data() |> put_blocks(&1, blocks?, prompts))),
       meta: %{
         limit: limit,
         has_more: has_more?,
@@ -184,10 +186,26 @@ defmodule FountainWeb.ConversationJSON do
   Add `blocks` — the event's data parsed into the blocks a transcript renders
   — to an event's JSON when requested. Only ACP output events produce
   blocks; other events get `[]`.
-  """
-  def put_blocks(json, _event, false), do: json
 
-  def put_blocks(json, %LogEvent{kind: "output"} = ev, true) do
+  The SSE route's arity, which never carries prompts.
+  """
+  def put_blocks(json, event, blocks?), do: put_blocks(json, event, blocks?, %{})
+
+  @doc """
+  `put_blocks/3` with the turn prompts `?prompts=true` asked for, keyed by
+  turn id.
+
+  A turn's `turn`/`started` stage event is the anchor: exactly one per turn,
+  already ordered immediately before that turn's output, and carrying `[]`
+  today. Filling it costs no synthetic event, so `meta.next_cursor` — which is
+  the last row's id — and the page-size accounting are untouched. Fabricating
+  an event instead would hand a client a cursor no row has.
+
+  An empty map is today's behaviour exactly.
+  """
+  def put_blocks(json, _event, false, _prompts), do: json
+
+  def put_blocks(json, %LogEvent{kind: "output"} = ev, true, _prompts) do
     blocks =
       ev
       |> Fountain.Conversations.Blocks.for_event()
@@ -196,7 +214,19 @@ defmodule FountainWeb.ConversationJSON do
     Map.put(json, :blocks, blocks)
   end
 
-  def put_blocks(json, _event, true), do: Map.put(json, :blocks, [])
+  def put_blocks(
+        json,
+        %LogEvent{kind: "stage", stage: "turn", state: "started", turn_id: turn_id},
+        true,
+        prompts
+      )
+      when is_map_key(prompts, turn_id) do
+    block = Fountain.Conversations.Blocks.to_json(%{kind: :prompt, body: prompts[turn_id]})
+
+    Map.put(json, :blocks, [block])
+  end
+
+  def put_blocks(json, _event, true, _prompts), do: Map.put(json, :blocks, [])
 
   defp event_id(%LogEvent{id: id}), do: id
   defp event_id(nil), do: nil

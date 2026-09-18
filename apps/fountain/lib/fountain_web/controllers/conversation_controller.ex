@@ -419,6 +419,21 @@ defmodule FountainWeb.ConversationController do
             "structured blocks a transcript renders (text, thinking, tool_use, " <>
             "tool_result, init, result, error, raw) — the same parse the web UI uses, " <>
             "so no client re-implements a runtime's dialect. Defaults to false."
+      ],
+      prompts: [
+        in: :query,
+        type: :boolean,
+        required: false,
+        description:
+          "With `blocks=true`, fill each turn's `turn`/`started` stage event — whose " <>
+            "`blocks` is otherwise always `[]` — with one `prompt` block carrying the " <>
+            "prompt that opened that turn. Without it the feed holds only what the " <>
+            "runtime wrote, so a client replaying a conversation renders it as a " <>
+            "monologue in the agent's voice. No event is added, removed or reordered, " <>
+            "so `meta.next_cursor`, `has_more` and the page size are unchanged. A turn " <>
+            "whose `origin` is `autonomous` gets no block: nobody typed it. Note that " <>
+            "`streams=acp` excludes stage events, and so excludes these prompts with " <>
+            "them. Ignored without `blocks=true`. Defaults to false."
       ]
     ],
     responses: [
@@ -440,6 +455,7 @@ defmodule FountainWeb.ConversationController do
         after_id = parse_after(params["after"])
         streams = parse_streams_param(params["streams"])
         blocks? = parse_bool_param(params["blocks"], false)
+        prompts? = parse_bool_param(params["prompts"], false)
 
         # Ownership: established by the scoped get_conversation above.
         # One extra row decides has_more without a second count query.
@@ -455,9 +471,39 @@ defmodule FountainWeb.ConversationController do
           events: page,
           has_more: has_more?,
           limit: limit,
-          blocks?: blocks?
+          blocks?: blocks?,
+          prompts: turn_prompts(id, page, blocks? and prompts?)
         )
     end
+  end
+
+  # `turn_id => prompt` for `?prompts=true`, the human's half of the transcript
+  # the log feed has no room for.
+  #
+  # Only the page's own turns are read, and only when a prompt block can
+  # actually be rendered. `prompts=true` without `blocks=true` is documented as
+  # ignored, `streams=acp` filters the anchors out, and a drained cursor has no
+  # events left, so all three collect nothing and never reach PostgreSQL.
+  # Hydrating the whole conversation for those would make a client draining a
+  # long transcript re-read every turn, and every prompt image, once per page.
+  defp turn_prompts(_conversation_id, _page, false), do: %{}
+
+  # ownership: established by the scoped get_conversation/2 above, which is what
+  # lets the `turns` action read the same rows the same way. The page's anchors
+  # only choose which ids are asked for; the conversation id inside the query is
+  # what keeps another tenant's turn id from resolving.
+  defp turn_prompts(conversation_id, page, true) do
+    Conversations._unsafe_list_turn_prompts(conversation_id, anchor_turn_ids(page))
+  end
+
+  # The events that can carry a prompt block: `put_blocks/4` renders one onto a
+  # turn's start anchor and nowhere else, so asking for any other turn's prompt
+  # would fetch a row no renderer would read.
+  defp anchor_turn_ids(page) do
+    for %LogEvent{kind: "stage", stage: "turn", state: "started", turn_id: turn_id} <- page,
+        turn_id != nil,
+        uniq: true,
+        do: turn_id
   end
 
   defp split_page(events, limit) do

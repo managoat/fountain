@@ -54,6 +54,33 @@ defmodule Fountain.Conversations.BlocksTest do
              })
   end
 
+  test "prompt is a wire kind no event parse ever produces" do
+    # The human's half of a transcript. It is on the enum so a client renders
+    # it with the same vocabulary as the agent's blocks, and it is absent from
+    # `for_event/1` because there is no event whose data holds it — the API
+    # reads it off the turn.
+    assert "prompt" in Blocks.kinds()
+    assert "prompt" in FountainWeb.Schemas.Block.schema().properties.kind.enum
+
+    assert Blocks.to_json(%{kind: :prompt, body: "make the heading blue"}) ==
+             %{"kind" => "prompt", "body" => "make the heading blue"}
+
+    for stream <- ["acp", "stdout", "stderr"] do
+      refute Enum.any?(
+               Blocks.for_event(%{
+                 kind: "output",
+                 stream: stream,
+                 data:
+                   acp(%{
+                     "sessionUpdate" => "agent_message_chunk",
+                     "content" => %{"type" => "text", "text" => "hi"}
+                   })
+               }),
+               &(&1.kind == :prompt)
+             )
+    end
+  end
+
   test "non-ACP streams do not produce blocks" do
     legacy =
       Jason.encode!(%{

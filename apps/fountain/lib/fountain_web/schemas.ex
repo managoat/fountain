@@ -1819,7 +1819,10 @@ defmodule FountainWeb.Schemas do
           "`permission_request` carries `request_id`, `name`, `summary` and `options` — the " <>
           "agent is blocked on it, and a client answers with " <>
           "POST /api/conversations/{id}/requests/{request_id}. Render only the options in " <>
-          "`options`; never synthesise one the agent did not offer.",
+          "`options`; never synthesise one the agent did not offer. `prompt` carries `body` — " <>
+          "the prompt that opened the turn, which is the one kind not parsed out of a " <>
+          "runtime's output. It appears only on a turn's `turn`/`started` stage event, and " <>
+          "only when the events feed was asked for it with `blocks=true&prompts=true`.",
       type: :object,
       properties: %{
         kind: %Schema{

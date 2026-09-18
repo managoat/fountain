@@ -2188,6 +2188,10 @@
           "required": false,
           "type": "integer"
         },
+        "prompts": {
+          "required": false,
+          "type": "boolean"
+        },
         "streams": {
           "required": false,
           "type": "string"
@@ -8854,6 +8858,7 @@
             "init",
             "permission_request",
             "plan",
+            "prompt",
             "raw",
             "result",
             "text",

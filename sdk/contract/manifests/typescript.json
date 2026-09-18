@@ -146,7 +146,7 @@
   },
   "enums": {
     "Block.kind": {
-      "values": ["error", "init", "permission_request", "plan", "raw", "result", "text", "thinking", "tool_result", "tool_use"],
+      "values": ["error", "init", "permission_request", "plan", "prompt", "raw", "result", "text", "thinking", "tool_result", "tool_use"],
       "exhaustive": true
     },
     "Conversation.status": ["failed", "idle", "pending", "running", "terminated"],

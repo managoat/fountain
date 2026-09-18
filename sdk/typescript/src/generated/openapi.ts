@@ -3073,7 +3073,7 @@ export interface components {
         };
         /**
          * Block
-         * @description One structured piece of a log event's output — the same parse the web UI renders (`Fountain.Conversations.Blocks`). `kind` decides the other fields: `text`/`thinking` carry `body`; `plan` carries the full ordered checklist in `body` (entries with `content`, `status`, and optional `priority`, `id`, `activeForm`); `tool_use` carries `id`, `name`, `summary`, `body` (the input); `tool_result` carries `tool_id`, `body`, `error` and pairs with the `tool_use` of the same id; `init` carries `summary`, `body`; `result` carries `body`, `raw`; `error` carries `body`; `raw` carries `body`, `summary`; `permission_request` carries `request_id`, `name`, `summary` and `options` — the agent is blocked on it, and a client answers with POST /api/conversations/{id}/requests/{request_id}. Render only the options in `options`; never synthesise one the agent did not offer.
+         * @description One structured piece of a log event's output — the same parse the web UI renders (`Fountain.Conversations.Blocks`). `kind` decides the other fields: `text`/`thinking` carry `body`; `plan` carries the full ordered checklist in `body` (entries with `content`, `status`, and optional `priority`, `id`, `activeForm`); `tool_use` carries `id`, `name`, `summary`, `body` (the input); `tool_result` carries `tool_id`, `body`, `error` and pairs with the `tool_use` of the same id; `init` carries `summary`, `body`; `result` carries `body`, `raw`; `error` carries `body`; `raw` carries `body`, `summary`; `permission_request` carries `request_id`, `name`, `summary` and `options` — the agent is blocked on it, and a client answers with POST /api/conversations/{id}/requests/{request_id}. Render only the options in `options`; never synthesise one the agent did not offer. `prompt` carries `body` — the prompt that opened the turn, which is the one kind not parsed out of a runtime's output. It appears only on a turn's `turn`/`started` stage event, and only when the events feed was asked for it with `blocks=true&prompts=true`.
          */
         Block: {
             body?: (string | null) | ({
@@ -3089,7 +3089,7 @@ export interface components {
             error?: boolean | null;
             id?: string | null;
             /** @enum {string} */
-            kind: "text" | "thinking" | "tool_use" | "tool_result" | "init" | "result" | "error" | "raw" | "permission_request" | "plan";
+            kind: "text" | "thinking" | "tool_use" | "tool_result" | "init" | "result" | "error" | "raw" | "permission_request" | "plan" | "prompt";
             name?: string | null;
             /** @description permission_request only: the options the agent offered, in its order. Each carries at least `optionId` and `kind` (allow_once, allow_always, reject_once, reject_always, ...). */
             options?: {
@@ -11069,6 +11069,8 @@ export interface operations {
                 limit?: number;
                 /** @description Add `blocks` to each event: its `data` parsed server-side into the structured blocks a transcript renders (text, thinking, tool_use, tool_result, init, result, error, raw) — the same parse the web UI uses, so no client re-implements a runtime's dialect. Defaults to false. */
                 blocks?: boolean;
+                /** @description With `blocks=true`, fill each turn's `turn`/`started` stage event — whose `blocks` is otherwise always `[]` — with one `prompt` block carrying the prompt that opened that turn. Without it the feed holds only what the runtime wrote, so a client replaying a conversation renders it as a monologue in the agent's voice. No event is added, removed or reordered, so `meta.next_cursor`, `has_more` and the page size are unchanged. A turn whose `origin` is `autonomous` gets no block: nobody typed it. Note that `streams=acp` excludes stage events, and so excludes these prompts with them. Ignored without `blocks=true`. Defaults to false. */
+                prompts?: boolean;
             };
             header?: never;
             path: {

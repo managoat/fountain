@@ -1525,6 +1525,41 @@ defmodule Fountain.Conversations do
   end
 
   @doc """
+  `turn_id => prompt` for the given turns, for the events feed's `?prompts=true`.
+
+  Deliberately not `_unsafe_list_turns/1` with a filter on top. That helper
+  reads the whole conversation and preloads every `TurnImage`, `data` column
+  included, and an accepted prompt image is allowed to be 10 MiB. Rendering a
+  handful of prompt blocks onto one bounded event page must not read the
+  conversation's entire attachment history, so this projects the two columns
+  the caller renders and touches no image row at all.
+
+  `turn_ids` comes from the page being rendered, so the work is the page's
+  size rather than the conversation's age. The `conversation_id` is still in
+  the `where`: it is what keeps a turn id from another tenant's conversation
+  from resolving, independent of where the ids were collected.
+
+  An `autonomous` turn (#817) is left out here rather than in the caller, so
+  the rows never leave PostgreSQL. Its prompt is a placeholder this server
+  wrote for a cycle nobody asked for, and rendering that in the human's voice
+  would put words in his mouth. A NULL `origin` is a user turn, as on the
+  older rows that predate the column's default.
+  """
+  def _unsafe_list_turn_prompts(_conversation_id, []), do: %{}
+
+  def _unsafe_list_turn_prompts(conversation_id, turn_ids) when is_list(turn_ids) do
+    Repo.all(
+      from t in Turn,
+        where: t.conversation_id == ^conversation_id,
+        where: t.id in ^turn_ids,
+        where: is_nil(t.origin) or t.origin == "user",
+        where: not is_nil(t.prompt) and t.prompt != "",
+        select: {t.id, t.prompt}
+    )
+    |> Map.new()
+  end
+
+  @doc """
   Fetch a turn by conversation, scoped to the owning user.
 
   Joins through the conversation so a turn belonging to another tenant is

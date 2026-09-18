@@ -282,6 +282,81 @@ defmodule Fountain.Machines.ReadsTest do
       assert rows(ctx.sandbox.id) == 0
     end
 
+    test "a task the supervisor starts after the window never calls the provider", ctx do
+      # Starting the task waits on the supervisor. A read admitted in time
+      # whose task only starts after its cutoff must not reach the provider:
+      # a drain may already have let a park or destroy through by then.
+      test = self()
+      supervisor = start_supervised!(Task.Supervisor)
+      :sys.suspend(supervisor)
+
+      read =
+        Task.async(fn ->
+          Ecto.Adapters.SQL.Sandbox.allow(Repo, test, self())
+
+          Reads.run(ctx.sandbox.id, fn _, _ -> send(test, :provider_called) end,
+            window_ms: 500,
+            task_supervisor: supervisor
+          )
+        end)
+
+      wait_until(fn ->
+        Process.info(supervisor, :message_queue_len) >= {:message_queue_len, 1}
+      end)
+
+      Process.sleep(700)
+      :sys.resume(supervisor)
+
+      capture_log(fn ->
+        assert Task.await(read) in [
+                 {:error, :sandbox_unavailable},
+                 {:error, {:sandbox_unreachable, :read_window_closed}}
+               ]
+      end)
+
+      refute_receive :provider_called, 200
+      assert rows(ctx.sandbox.id) == 0
+    end
+
+    test "the cutoff holds for a caller killed the moment its task has started", ctx do
+      # The caller dies as `async_nolink` returns: the task is running and has
+      # its function, and the caller runs no further line. Only a cutoff armed
+      # inside the task still stands, and the read must be off the provider
+      # when it fires.
+      test = self()
+
+      stub(Task.Supervisor, :async_nolink, fn supervisor, fun ->
+        _task = call_original(Task.Supervisor, :async_nolink, [supervisor, fun])
+        Process.exit(self(), :kill)
+      end)
+
+      caller =
+        spawn(fn ->
+          receive do
+            :go -> :ok
+          end
+
+          Reads.run(
+            ctx.sandbox.id,
+            fn _sandbox, _budget ->
+              send(test, {:exec_started, self()})
+              Process.sleep(:infinity)
+            end,
+            window_ms: 600
+          )
+        end)
+
+      Ecto.Adapters.SQL.Sandbox.allow(Repo, test, caller)
+      allow(Task.Supervisor, test, caller)
+      caller_ref = Process.monitor(caller)
+      send(caller, :go)
+
+      assert_receive {:exec_started, exec}, 5_000
+      exec_ref = Process.monitor(exec)
+      assert_receive {:DOWN, ^caller_ref, :process, ^caller, :killed}, 1_000
+      assert_receive {:DOWN, ^exec_ref, :process, ^exec, :killed}, 1_000
+    end
+
     test "the exec timeout is never longer than the window allows", ctx do
       expect(Managoat.Sandbox, :exec, fn _handle, "bash", _args, opts ->
         assert opts[:timeout] == 30_000

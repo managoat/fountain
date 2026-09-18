@@ -61,16 +61,25 @@ defmodule Fountain.Machines.Reads do
   adapter *collects* output, not its synchronous startup (`ExecDeadline`'s own
   note), so it is not enough on its own. `run/3` therefore runs the caller's
   function in a task under `Fountain.TaskSupervisor` and kills it at a hard
-  cutoff `@margin_ms` before the window ends — armed on the task through the
-  timer server, so it fires whether or not the caller is still alive — measured on the monotonic clock
-  from *before* the admission, so the local cutoff always falls before the
-  database expiry the drain compares against. A read that reaches the cutoff
-  answers `{:sandbox_unreachable, :read_window_closed}`, the 503 an unreachable
+  cutoff `@margin_ms` before the window ends. The cutoff is an absolute
+  instant on the monotonic clock, taken from *before* the admission, so it
+  always falls before the database expiry the drain compares against. It is
+  never turned into a relative budget until the task itself is running.
+
+  The task, not its caller, enforces it. Starting a task waits on the
+  supervisor, and the caller can die or be descheduled at any point after
+  that. So the task starts its own watchdog, which sets an absolute timer for
+  the cutoff and kills the task when it fires, and only then checks the
+  clock. A task that starts after the cutoff returns without calling `fun`.
+  A task that starts in time has its watchdog before its first provider call,
+  so the kill comes at the cutoff however late the start was and whether or
+  not the caller is still alive. A read that reaches the cutoff answers
+  `{:sandbox_unreachable, :read_window_closed}`, the 503 an unreachable
   provider already gets.
 
   A read whose admission has already used up its budget — a caller descheduled
-  between the commit and the exec — does not start: `{:error, :sandbox_unavailable}`
-  without a provider call. Nothing is queued anywhere; the admission runs in the
+  between the commit and the exec, or a task the supervisor started late —
+  does not start: `{:error, :sandbox_unavailable}` without a provider call. Nothing is queued anywhere; the admission runs in the
   caller, so a caller that has given up has nothing left to run later.
 
   **Release** is `after`, so a read that returns, fails or raises deletes its
@@ -131,7 +140,8 @@ defmodule Fountain.Machines.Reads do
   Answers what `fun` answers, or a refusal: `{:sandbox_not_ready, status}`,
   `:sandbox_unavailable`, `:not_found`, or
   `{:sandbox_unreachable, :read_window_closed}` for a read cut off at the end
-  of its window. `:window_ms` is a test seam; no call site passes it.
+  of its window. `:window_ms` and `:task_supervisor` are test seams; no call
+  site passes them.
   """
   @spec run(Ecto.UUID.t(), (Sandbox.t(), pos_integer() -> result), keyword()) ::
           result | {:error, term()}
@@ -148,9 +158,11 @@ defmodule Fountain.Machines.Reads do
     else
       with {:ok, {read_id, sandbox}} <- admit(sandbox_id, window) do
         try do
-          case cutoff - System.monotonic_time(:millisecond) do
-            budget when budget > 0 -> bounded(sandbox, budget, fun)
-            _spent -> {:error, :sandbox_unavailable}
+          if System.monotonic_time(:millisecond) < cutoff do
+            supervisor = Keyword.get(opts, :task_supervisor, Fountain.TaskSupervisor)
+            bounded(supervisor, sandbox, cutoff, fun)
+          else
+            {:error, :sandbox_unavailable}
           end
         after
           release(read_id)
@@ -274,43 +286,71 @@ defmodule Fountain.Machines.Reads do
   # signal that kills the caller before it can.
   #
   # Unlinked also means the task outlives a caller that is killed, and that
-  # caller's `yield` was the cutoff. So the cutoff is armed on the task itself
-  # as well, through the timer server, which kills it at the same instant
-  # whether or not anybody is still waiting for its answer: a dead caller's
-  # read is off the provider before its window ends, like a live one's.
-  defp bounded(sandbox, budget, fun) do
-    task = Task.Supervisor.async_nolink(Fountain.TaskSupervisor, fn -> fun.(sandbox, budget) end)
-    {:ok, timer} = :timer.kill_after(budget, task.pid)
+  # caller's `yield` was the cutoff. `async_nolink` returns only after the
+  # supervisor has started the task, which can be late, and the task is
+  # already running by then. So nothing on the caller's side of that call can
+  # be the cutoff: `guarded/3` arms it from inside the task, on the absolute
+  # instant, before `fun` can run.
+  defp bounded(supervisor, sandbox, cutoff, fun) do
+    task = Task.Supervisor.async_nolink(supervisor, fn -> guarded(sandbox, cutoff, fun) end)
+    await(task, sandbox, cutoff)
+  end
 
-    try do
-      await(task, sandbox, budget)
-    after
-      :timer.cancel(timer)
+  # The watchdog comes first and the clock check second. So by the time `fun`
+  # runs, the kill is already set for the cutoff. The watchdog's timer is
+  # absolute, so it fires at the cutoff however long the watchdog took to
+  # start. If the watchdog only starts after the cutoff, the check below has
+  # already refused the read.
+  defp guarded(sandbox, cutoff, fun) do
+    watchdog(self(), cutoff)
+
+    case cutoff - System.monotonic_time(:millisecond) do
+      budget when budget > 0 -> {:ran, fun.(sandbox, budget)}
+      _spent -> :spent
     end
   end
 
-  defp await(task, sandbox, budget) do
-    case Task.yield(task, budget) || Task.shutdown(task, :brutal_kill) do
-      {:ok, result} ->
+  # Not linked, so a task that returns first does not take the watchdog with
+  # it, and the watchdog does not depend on the caller. It lives until the
+  # task is gone or the cutoff fires, whichever comes first.
+  defp watchdog(task, cutoff) do
+    spawn(fn ->
+      ref = Process.monitor(task)
+      :erlang.start_timer(cutoff, self(), :cutoff, abs: true)
+
+      receive do
+        {:DOWN, ^ref, :process, ^task, _reason} -> :ok
+        {:timeout, _timer, :cutoff} -> Process.exit(task, :kill)
+      end
+    end)
+  end
+
+  defp await(task, sandbox, cutoff) do
+    wait = max(cutoff - System.monotonic_time(:millisecond), 0)
+
+    case Task.yield(task, wait) || Task.shutdown(task, :brutal_kill) do
+      {:ok, {:ran, result}} ->
         result
 
-      # The timer and the `yield` share one deadline, so the timer can win by a
-      # hair; its kill is the cutoff, not a crash.
+      # The task started after the cutoff and never called `fun`.
+      {:ok, :spent} ->
+        {:error, :sandbox_unavailable}
+
+      # The watchdog and the `yield` share one deadline, so the watchdog can
+      # win by a hair; its kill is the cutoff, not a crash.
       {:exit, :killed} ->
-        cut_off(sandbox, budget)
+        cut_off(sandbox)
 
       {:exit, reason} ->
         exit(reason)
 
       nil ->
-        cut_off(sandbox, budget)
+        cut_off(sandbox)
     end
   end
 
-  defp cut_off(sandbox, budget) do
-    Logger.warning(
-      "sandbox files: read on #{sandbox.id} cut off at the end of its window (#{budget} ms)"
-    )
+  defp cut_off(sandbox) do
+    Logger.warning("sandbox files: read on #{sandbox.id} cut off at the end of its window")
 
     {:error, {:sandbox_unreachable, :read_window_closed}}
   end

@@ -10,23 +10,32 @@ on:
     branches: [main]
     paths:
       - "sdk/python/**"
+      - "scripts/sdk-release-tag.py"
   workflow_dispatch:
+
+concurrency:
+  group: pypi-fountain-sdk-publish
+  queue: max
+  cancel-in-progress: false
 
 permissions:
   contents: read
 
 jobs:
   publish:
+    if: github.ref == 'refs/heads/main'
     name: Publish to PyPI
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment: pypi
     permissions:
       id-token: write
-      contents: read
+      contents: write
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
+        with:
+          fetch-depth: 2
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
@@ -66,6 +75,16 @@ jobs:
         uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
         with:
           packages-dir: sdk/python/dist/
+
+      # A rerun can finish an interrupted tag write without uploading twice.
+      - name: Record the release as a tag
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+          NEEDED: ${{ steps.release.outputs.needed }}
+        run: |
+          flags=()
+          if [ "$NEEDED" = yes ]; then flags+=(--published-now); fi
+          python3 scripts/sdk-release-tag.py python "$VERSION" "${flags[@]}"
 
       - name: Say what happened
         env:

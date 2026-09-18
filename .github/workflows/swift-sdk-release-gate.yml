@@ -1,0 +1,34 @@
+name: Swift SDK release gate
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+    paths:
+      - "sdk/swift/**"
+      - "Package.swift"
+      - "scripts/sdk-release.py"
+      - "scripts/sdk-catalog.py"
+      - ".github/workflows/swift-sdk-release-gate.yml"
+      - ".github/workflows/swift-sdk-publish.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    name: A shipped Swift change has a releasable version
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    if: ${{ !contains(github.event.pull_request.labels.*.name, 'release:skip-sdk') && !contains(github.event.pull_request.labels.*.name, 'sdk-no-release') }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - name: Check the version and changelog
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: python3 scripts/sdk-release.py swift "origin/$BASE_REF" --check-registry

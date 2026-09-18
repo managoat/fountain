@@ -535,13 +535,18 @@ jobs:
         run: docker compose logs --timestamps
 
   swift-package:
-    name: Resolve the released Swift package remotely
+    name: Resolve the server tag's Swift package snapshot
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: read
 
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
+          persist-credentials: false
+
       - name: Set up Swift
         uses: swift-actions/setup-swift@7ca6abe6b3b0e8b5421b88be48feee39cbf52c6a # v2.4.0
         with:
@@ -557,6 +562,11 @@ jobs:
             exit 1
           fi
           version="${RELEASE_TAG#v}"
+          if [ -f sdk/swift/version.json ]; then
+            sdk_version="$(python3 -c 'import json; print(json.load(open("sdk/swift/version.json"))["version"])')"
+          else
+            sdk_version="$version" # Historical server-coupled package.
+          fi
           consumer="${RUNNER_TEMP}/fountain-swift-consumer"
           mkdir -p "${consumer}/Sources/FountainReleaseSmoke"
           cat > "${consumer}/Package.swift" <<EOF
@@ -590,8 +600,8 @@ jobs:
           swift package resolve
           swift build
           resolved_version="$(swift run FountainReleaseSmoke)"
-          if [ "${resolved_version}" != "${version}" ]; then
-            echo "remote package reports ${resolved_version}, expected ${version}" >&2
+          if [ "${resolved_version}" != "${sdk_version}" ]; then
+            echo "remote package reports ${resolved_version}, expected ${sdk_version}" >&2
             exit 1
           fi
 

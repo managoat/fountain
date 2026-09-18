@@ -430,7 +430,7 @@ Then update two things `npm version` does not touch, and open a PR as usual:
 The `SDK release gate` check on the PR fails if either is missing, if the
 version is already on npm, or if you changed what the package ships without
 bumping at all. When the PR merges, `Publish SDK` sees a version the registry
-does not have, publishes it, and tags the merge commit `sdk-v<version>`.
+does not have, publishes it, and tags the merge commit `sdk-typescript-v<version>`.
 
 A PR that touches only tests, examples or the changelog needs no bump; the
 gate stays quiet, and the publish workflow finds nothing to do. To change the

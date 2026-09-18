@@ -14,7 +14,7 @@ import { execFileSync } from "node:child_process";
 const PKG_DIR = "sdk/typescript";
 
 /** Files whose contents reach a consumer. Changing one needs a release. */
-const PUBLISHED_GLOBS = [`${PKG_DIR}/src/`, `${PKG_DIR}/package.json`, `${PKG_DIR}/README.md`];
+const PUBLISHED_GLOBS = [`${PKG_DIR}/src/`, `${PKG_DIR}/package.json`, `${PKG_DIR}/LICENSE`];
 
 /**
  * The manifest fields a consumer is actually affected by.
@@ -86,7 +86,7 @@ async function state() {
     name: pkg.name,
     version: pkg.version,
     published: await isPublished(pkg.name, pkg.version),
-    tag: `sdk-v${pkg.version}`,
+    tag: `sdk-typescript-v${pkg.version}`,
   };
 }
 

@@ -14,6 +14,8 @@ on:
     paths:
       - "sdk/python/**"
       - ".github/workflows/python-sdk-release-gate.yml"
+      - "scripts/sdk-release.py"
+      - "scripts/sdk-catalog.py"
 
 permissions:
   contents: read
@@ -33,40 +35,11 @@ jobs:
         with:
           fetch-depth: 0
 
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+
       - name: Check the version and changelog
         env:
           BASE_REF: ${{ github.base_ref }}
-        run: |
-          set -euo pipefail
-          git fetch --no-tags --quiet origin "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"
-          base=$(git merge-base "refs/remotes/origin/${BASE_REF}" HEAD)
-          changed=$(git diff --name-only "$base" HEAD -- \
-            sdk/python/src sdk/python/pyproject.toml sdk/python/README.md sdk/python/LICENSE)
-          if [ -z "$changed" ]; then
-            echo "Only Python SDK tests or release notes changed."
-            exit 0
-          fi
-
-          version=$(sed -n 's/^version = "\(.*\)"/\1/p' sdk/python/pyproject.toml)
-          base_version=$(git show "$base:sdk/python/pyproject.toml" 2>/dev/null | \
-            sed -n 's/^version = "\(.*\)"/\1/p' || true)
-          if [ -n "$base_version" ] && [ "$version" = "$base_version" ]; then
-            echo "::error::The shipped Python SDK changed without a version bump from $base_version." >&2
-            exit 1
-          fi
-          if ! grep -q "^## $version$" sdk/python/CHANGELOG.md; then
-            echo "::error::sdk/python/CHANGELOG.md has no heading for $version." >&2
-            exit 1
-          fi
-
-          code=$(curl -sS -o /dev/null -w '%{http_code}' \
-            "https://pypi.org/pypi/fountain-agent-sdk/${version}/json")
-          case "$code" in
-            200)
-              echo "::error::fountain-agent-sdk $version already exists on PyPI." >&2
-              exit 1
-              ;;
-            404) ;;
-            *) echo "::error::PyPI version check returned HTTP $code." >&2; exit 1 ;;
-          esac
-          echo "fountain-agent-sdk $version is ready to publish."
+        run: python3 scripts/sdk-release.py python "origin/$BASE_REF" --check-registry

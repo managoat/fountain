@@ -3,7 +3,7 @@ name: Release bump
 # Cuts a release in two halves, because main only takes pull requests.
 #
 # 1. "Run workflow" (Actions tab → "Release bump"; defaults to `patch`)
-#    bumps the version in both mix.exs files, the Swift SDK version source,
+#    bumps the version in both mix.exs files,
 #    and the six self-host image pins, rolls the changelog.d/ fragments into
 #    CHANGELOG.md, and opens the PR from a `release/vX.Y.Z` branch. CI runs
 #    on it like any other PR; the compose boot check knows the pinned image
@@ -133,26 +133,14 @@ jobs:
           python3 scripts/changelog.py release --version "${NEXT}" --date "$(date -u +%F)" "${flags[@]}"
           git status --short -- CHANGELOG.md changelog.d
 
-      - name: Update server and Swift SDK versions
+      - name: Update server versions
         run: |
           set -euo pipefail
           current='${{ steps.ver.outputs.current }}'
           next='${{ steps.ver.outputs.next }}'
-          # Only touch the umbrella, fountain app and the two Swift version
-          # constants (the SDK and the typed client release together).
-          # Hard-coded rather than `find` to avoid clobbering version: in deps.
+          # Swift has its own version and publisher; a server bump does not release it.
           sed -i -E "s/version: \"${current}\"/version: \"${next}\"/" mix.exs
           sed -i -E "s/version: \"${current}\"/version: \"${next}\"/" apps/fountain/mix.exs
-          sed -i -E "s/public let fountainSDKVersion = \"${current}\"/public let fountainSDKVersion = \"${next}\"/" sdk/swift/Sources/Fountain/Fountain.swift
-          if ! grep -qF "public let fountainSDKVersion = \"${next}\"" sdk/swift/Sources/Fountain/Fountain.swift; then
-            echo "Swift SDK version bump failed: expected ${current} -> ${next}" >&2
-            exit 1
-          fi
-          sed -i -E "s/public let fountainKitVersion = \"${current}\"/public let fountainKitVersion = \"${next}\"/" sdk/swift/Sources/FountainKit/Version.swift
-          if ! grep -qF "public let fountainKitVersion = \"${next}\"" sdk/swift/Sources/FountainKit/Version.swift; then
-            echo "FountainKit version bump failed: expected ${current} -> ${next}" >&2
-            exit 1
-          fi
           git diff --stat
 
       - name: Update self-host image pins
@@ -187,8 +175,7 @@ jobs:
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git checkout -b "${BRANCH}"
-          git add mix.exs apps/fountain/mix.exs sdk/swift/Sources/Fountain/Fountain.swift \
-            sdk/swift/Sources/FountainKit/Version.swift \
+          git add mix.exs apps/fountain/mix.exs \
             docker-compose.yml .env.compose.example render.yaml fly.toml \
             deploy/k8s/kustomization.yaml deploy/k8s/deployment.yaml \
             CHANGELOG.md changelog.d
@@ -199,7 +186,7 @@ jobs:
           git commit -s -m "chore(release): ${TAG}"
           git push origin "${BRANCH}"
           cat > "${RUNNER_TEMP}/body.md" <<EOF
-          Version bump for ${TAG}: both \`mix.exs\` files, the two Swift version sources, the six self-host image pins, and the changelog roll (\`[Unreleased]\` plus every \`changelog.d/\` fragment into \`## [${TAG#v}]\`).
+          Version bump for ${TAG}: both \`mix.exs\` files, the six self-host image pins, and the changelog roll (\`[Unreleased]\` plus every \`changelog.d/\` fragment into \`## [${TAG#v}]\`).
 
           Merging this PR tags the squash commit \`${TAG}\` and dispatches \`release.yml\`, which builds the CLI binaries, publishes \`ghcr.io/managoat/fountain:${TAG}\`, boots it through the documented quick start and creates the GitHub Release.
 

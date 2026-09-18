@@ -3,6 +3,20 @@
 Notable changes to the Fountain Swift SDK follow
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.20.0] - 2026-09-17
+
+### Changed
+
+- Release Fountain and FountainKit independently of the server. Install with
+  `.package(url: "https://github.com/managoat/fountain.git", revision: "sdk-swift-v0.20.0")`.
+  Historical server tags remain available; version-range installs continue to
+  select server snapshots, not independent Swift releases (#1414).
+
+### Added
+
+- Carry `clientRequestID` on create, follow-up prompts and all channel-resume
+  paths in both products; this SDK release includes the merged #1406 work.
+
 ## Unreleased
 
 ### Changed

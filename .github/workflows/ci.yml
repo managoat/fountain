@@ -1156,14 +1156,12 @@ jobs:
           dirname "$(xcrun --find swift)" >> "$GITHUB_PATH"
           xcrun swift --version
 
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+
       - name: Check Swift SDK version
-        run: |
-          server_version="$(sed -nE 's/.*version: "([0-9]+\.[0-9]+\.[0-9]+)".*/\1/p' mix.exs | head -n 1)"
-          sdk_version="$(sed -nE 's/public let fountainSDKVersion = "([^"]+)"/\1/p' sdk/swift/Sources/Fountain/Fountain.swift)"
-          kit_version="$(sed -nE 's/public let fountainKitVersion = "([^"]+)"/\1/p' sdk/swift/Sources/FountainKit/Version.swift)"
-          test -n "${server_version}"
-          test "${sdk_version}" = "${server_version}"
-          test "${kit_version}" = "${server_version}"
+        run: python3 scripts/sdk-catalog.py
 
       - name: Generated Swift conversation models are current
         run: python3 scripts/sdk-contract/generate.py --target swift --skip-export --check
@@ -1671,6 +1669,8 @@ jobs:
           # they need tags and their trees (#2284).
           fetch-depth: 0
           fetch-tags: true
+      - name: Check SDK maintenance contract
+        run: python3 scripts/sdk-catalog.py
       - name: Reject conflict markers
         run: python3 scripts/conflict-markers.py
       - name: Test CI decisions

@@ -1,0 +1,86 @@
+{
+  "fallback_owner": "@BinaryBourbon",
+  "sdks": {
+    "typescript": {
+      "manifest": "sdk/typescript/package.json",
+      "install": "npm install @managoat/fountain-sdk",
+      "registry": "https://www.npmjs.com/package/@managoat/fountain-sdk",
+      "stability": "Stable; SemVer",
+      "release_gate": ".github/workflows/sdk-release-gate.yml",
+      "publish_workflow": ".github/workflows/sdk-publish.yml",
+      "contract_check": "sdk/typescript/scripts/verify-contract.mjs",
+      "ci_hooks": [
+        "npm run verify-contract",
+        "npm run conformance"
+      ],
+      "guard_command": "node scripts/sdk-release.mjs guard",
+      "publish_command": "npm publish --tag",
+      "conformance": [
+        "typescript"
+      ],
+      "owner": "@BinaryBourbon",
+      "ci_job": "typescript-sdk"
+    },
+    "python": {
+      "manifest": "sdk/python/pyproject.toml",
+      "install": "pip install fountain-agent-sdk",
+      "registry": "https://pypi.org/project/fountain-agent-sdk/",
+      "stability": "Alpha; pre-1.0",
+      "release_gate": ".github/workflows/python-sdk-release-gate.yml",
+      "publish_workflow": ".github/workflows/python-sdk-publish.yml",
+      "contract_check": "sdk/python/scripts/verify_contract.py",
+      "ci_hooks": [
+        "python scripts/verify_contract.py",
+        "test_conformance.py"
+      ],
+      "guard_command": "python3 scripts/sdk-release.py python",
+      "publish_command": "pypa/gh-action-pypi-publish@",
+      "conformance": [
+        "python"
+      ],
+      "owner": "@BinaryBourbon",
+      "ci_job": "python-sdk"
+    },
+    "elixir": {
+      "manifest": "sdk/elixir/mix.exs",
+      "install": "{:fountain_sdk, \"~> {version}\"}",
+      "registry": "https://hex.pm/packages/fountain_sdk",
+      "stability": "Pre-1.0",
+      "release_gate": ".github/workflows/elixir-sdk-release-gate.yml",
+      "publish_workflow": ".github/workflows/elixir-sdk-publish.yml",
+      "contract_check": "sdk/elixir/test/contract_test.exs",
+      "ci_hooks": [
+        "mix test test/contract_test.exs",
+        "mix test test/conformance_test.exs"
+      ],
+      "guard_command": "elixir scripts/elixir-sdk-release.exs guard",
+      "publish_command": "mix hex.publish --yes",
+      "conformance": [
+        "elixir"
+      ],
+      "owner": "@BinaryBourbon",
+      "ci_job": "elixir-sdk"
+    },
+    "swift": {
+      "manifest": "sdk/swift/version.json",
+      "install": "SwiftPM revision: \"sdk-swift-v{version}\"",
+      "registry": "https://github.com/managoat/fountain/tags",
+      "stability": "Pre-1.0",
+      "release_gate": ".github/workflows/swift-sdk-release-gate.yml",
+      "publish_workflow": ".github/workflows/swift-sdk-publish.yml",
+      "contract_check": "sdk/swift/Tests/FountainKitTests/ContractTests.swift",
+      "ci_hooks": [
+        "--filter ContractTests",
+        "--filter ConformanceTests"
+      ],
+      "guard_command": "python3 scripts/sdk-release.py swift",
+      "publish_command": "git push origin \"$TAG\"",
+      "conformance": [
+        "swift",
+        "swift-kit"
+      ],
+      "owner": "@BinaryBourbon",
+      "ci_job": "swift-sdk"
+    }
+  }
+}

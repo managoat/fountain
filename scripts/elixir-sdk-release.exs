@@ -10,11 +10,10 @@ defmodule ElixirSdkRelease do
   @package_dir "sdk/elixir"
   @mix "#{@package_dir}/mix.exs"
   @changelog "#{@package_dir}/CHANGELOG.md"
-  @readme "#{@package_dir}/README.md"
   @license "#{@package_dir}/LICENSE"
   @http "#{@package_dir}/lib/fountain/http.ex"
   @shipped_dirs ["#{@package_dir}/lib/", "#{@package_dir}/priv/"]
-  @shipped_files [@mix, @readme, @license]
+  @shipped_files [@mix, @license]
 
   def main(["state"]) do
     {name, version} = manifest(File.read!(@mix))
@@ -23,7 +22,7 @@ defmodule ElixirSdkRelease do
       "name" => name,
       "version" => version,
       "published" => published?(name, version),
-      "tag" => "elixir-sdk-v#{version}"
+      "tag" => "sdk-elixir-v#{version}"
     }
     |> JSON.encode!()
     |> IO.puts()

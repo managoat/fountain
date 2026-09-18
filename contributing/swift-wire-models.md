@@ -65,7 +65,9 @@ The source rule therefore has no override at all. Keep the pin; a change that
 really means to drop a published Optional should add its own door and say why,
 rather than borrow an escape hatch written for a different question.
 
-Both baselines come from the last release tag, because a baseline has to be
+Both baselines come from the last reachable `sdk-swift-v*` release tag
+(or `v0.19.0`, the final coupled baseline, before the first independent release),
+because a baseline has to be
 immutable with respect to the change being checked. The committed output is
 not: a change that makes a property required and commits the regenerated file
 would offer its own candidate as the record of what shipped and authorize

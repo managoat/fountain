@@ -79,6 +79,8 @@ verification:
       paths:
         - sdk/python/**
         - .github/workflows/python-sdk-release-gate.yml
+        - scripts/sdk-release.py
+        - scripts/sdk-catalog.py
     - path: .github/workflows/sandbox-images.yml
       paths:
         - images/**
@@ -91,6 +93,14 @@ verification:
         - scripts/sdk-publish-tag*.mjs
         - .github/workflows/sdk-publish.yml
         - .github/workflows/sdk-release-gate.yml
+    - path: .github/workflows/swift-sdk-release-gate.yml
+      paths:
+        - sdk/swift/**
+        - Package.swift
+        - scripts/sdk-release.py
+        - scripts/sdk-catalog.py
+        - .github/workflows/swift-sdk-release-gate.yml
+        - .github/workflows/swift-sdk-publish.yml
     - path: .github/workflows/secrets-scan.yml
   # Cold Credo/Dialyzer took ~23 minutes on the measured fresh worker.
   command_timeout_minutes: 30
@@ -156,6 +166,7 @@ approval:
     - sdk/typescript/package.json
     - sdk/python/pyproject.toml
     - sdk/elixir/mix.exs
+    - sdk/swift/version.json
     - coverage.exs
     - .credo.exs
     - "**/.sobelow-conf"

@@ -117,11 +117,11 @@ names, optionality, dates and nullable request fields come from the contract.
 ## Install
 
 The remotely consumable `Package.swift` is at the repository root. Depend on
-Fountain 0.17.1 or newer:
+an independently released Swift revision:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/managoat/fountain.git", from: "0.17.1")
+    .package(url: "https://github.com/managoat/fountain.git", revision: "sdk-swift-v0.20.0")
 ]
 ```
 
@@ -129,13 +129,23 @@ Then add `.product(name: "Fountain", package: "fountain")` to your target —
 or `.product(name: "FountainKit", package: "fountain")` for the typed client,
 which is available starting with 0.17.0.
 
+Starting with 0.20.0, Swift releases use `sdk-swift-v<version>` independently
+of the server. SwiftPM does not interpret these tags as semantic version ranges;
+use `revision:` (or the release's full commit SHA) and commit `Package.resolved`.
+A published library that needs version-based dependencies should keep the
+historical server-tag route until SwiftPM supports prefixed version tags or a
+registry is introduced: SwiftPM does not allow a version-based package to depend
+on a revision-based package. Existing `from:` / `exact:` installs still resolve
+server snapshots; they do not select independent Swift releases.
+See [SDK maintenance](../../contributing/sdk-maintenance.md).
+
 Swift 6.1 or newer is required. The SDK supports macOS 12, iOS/tvOS 15,
 watchOS 8, and Linux FoundationNetworking, with no third-party dependencies.
 
 ## The typed client
 
 The `runRequest` examples below require [v0.17.1](https://github.com/managoat/fountain/releases/tag/v0.17.1)
-or newer. Both Swift products ship from the server's versioned Swift package;
+or newer, including the independent Swift releases. Both Swift products release together;
 the supported name-based `run` examples above also remain available.
 
 `FountainKit` is the same API with the JSON resolved into types: `Agent`,

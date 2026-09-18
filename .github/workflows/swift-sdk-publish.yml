@@ -1,0 +1,80 @@
+name: Publish Swift SDK
+
+# SwiftPM cannot use language-prefixed tags as version ranges. The immutable
+# sdk-swift-v* tag is an independent release, installed with revision:.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "sdk/swift/**"
+      - "Package.swift"
+      - "scripts/sdk-swift-smoke.py"
+      - ".github/workflows/swift-sdk-publish.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: swift-fountain-sdk-publish
+  queue: max
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Publish Swift source tag
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
+        with:
+          fetch-depth: 0
+      - uses: swift-actions/setup-swift@7ca6abe6b3b0e8b5421b88be48feee39cbf52c6a # v2.4.0
+        with:
+          swift-version: "6.1"
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - name: Read release state
+        id: release
+        run: |
+          set -euo pipefail
+          version=$(python3 -c 'import json; print(json.load(open("sdk/swift/version.json"))["version"])')
+          tag="sdk-swift-v$version"
+          remote=$(git ls-remote --tags origin "refs/tags/$tag")
+          if [ -n "$remote" ]; then needed=no; else needed=yes; fi
+          {
+            echo "version=$version"
+            echo "tag=$tag"
+            echo "needed=$needed"
+          } >> "$GITHUB_OUTPUT"
+      - name: Check SDK maintenance contract
+        run: python3 scripts/sdk-catalog.py
+      - name: Test both Swift products
+        if: steps.release.outputs.needed == 'yes'
+        run: swift test
+      - name: Build both Swift products for release
+        if: steps.release.outputs.needed == 'yes'
+        run: swift build -c release
+      - name: Resolve a clean consumer before publication
+        if: steps.release.outputs.needed == 'yes'
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: python3 scripts/sdk-swift-smoke.py --repository "file://$GITHUB_WORKSPACE" --revision "$GITHUB_SHA" --version "$VERSION"
+      - name: Publish immutable source tag
+        if: steps.release.outputs.needed == 'yes'
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "Fountain Swift ${TAG#sdk-swift-v}" "$GITHUB_SHA"
+          git push origin "$TAG"
+      - name: Resolve the published tag from a clean consumer
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+          VERSION: ${{ steps.release.outputs.version }}
+        run: python3 scripts/sdk-swift-smoke.py --repository https://github.com/managoat/fountain.git --revision "$TAG" --version "$VERSION"

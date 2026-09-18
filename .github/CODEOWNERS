@@ -1,0 +1,13 @@
+# SDK ownership. BinaryBourbon is also the fallback for shared SDK infrastructure.
+/sdk/ @BinaryBourbon
+/sdk/typescript/ @BinaryBourbon
+/sdk/python/ @BinaryBourbon
+/sdk/elixir/ @BinaryBourbon
+/sdk/swift/ @BinaryBourbon
+/Package.swift @BinaryBourbon
+/SDKs.md @BinaryBourbon
+/scripts/sdk-*/ @BinaryBourbon
+/scripts/sdk-*.py @BinaryBourbon
+/scripts/sdk-*.mjs @BinaryBourbon
+/scripts/elixir-sdk-release.exs @BinaryBourbon
+/.github/CODEOWNERS @BinaryBourbon

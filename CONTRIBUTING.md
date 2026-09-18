@@ -371,6 +371,13 @@ Do not bump an SDK's version because the contract moved. Merging a version bump
 publishes that SDK, so a version moves when its own public surface changes.
 Label a PR `release:skip-sdk` where the distinction needs saying out loud.
 
+## SDK ownership and releases
+
+[SDKs.md](SDKs.md) is the checked package and support catalog.
+[SDK maintenance](contributing/sdk-maintenance.md) owns version bumps, release
+tags, credentials, Swift revision pins and the checklist for a new client.
+After a package version or catalog change, run `python3 scripts/sdk-catalog.py --write`.
+
 ## Pull requests
 
 Every change goes through a PR with an approving review and lands through the

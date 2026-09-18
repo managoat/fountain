@@ -391,7 +391,14 @@ def _git(*command):
 @functools.lru_cache(maxsize=None)
 def released_tag():
     """The last release tag, the immutable point every baseline reads from."""
-    return _git("describe", "--tags", "--abbrev=0", "--match", "v[0-9]*").strip()
+    # After #1414 a server tag is merely a package snapshot, not a new SDK
+    # release. Fall back to the last coupled release only until the first
+    # independent tag is reachable; never let a later server bump advance it.
+    tags = _git("tag", "--merged", "HEAD", "--list", "sdk-swift-v*").split()
+    if tags:
+        return _git("describe", "--tags", "--abbrev=0", "--match", "sdk-swift-v*").strip()
+    _git("rev-parse", "--verify", "v0.19.0^{commit}")
+    return "v0.19.0"
 
 
 def released(*args):

@@ -4,8 +4,8 @@ import Foundation
   import FoundationNetworking
 #endif
 
-/// The Fountain server release this SDK shipped with.
-public let fountainSDKVersion = "0.19.0"
+/// The independent Swift SDK version, checked against `sdk/swift/version.json`.
+public let fountainSDKVersion = "0.20.0"
 
 public final class Fountain: @unchecked Sendable {
   public let configuration: FountainConfiguration

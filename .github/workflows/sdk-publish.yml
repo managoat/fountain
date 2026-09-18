@@ -25,6 +25,9 @@ on:
     branches: [main]
     paths:
       - "sdk/typescript/**"
+      - "scripts/sdk-release.mjs"
+      - ".github/workflows/sdk-publish.yml"
+      - "scripts/sdk-release-tag.py"
   workflow_dispatch:
 
 # Hold the registry read and publish in one critical section. Keep pending
@@ -39,12 +42,13 @@ permissions:
 
 jobs:
   publish:
+    if: github.ref == 'refs/heads/main'
     name: Publish to npm
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
     permissions:
-      # `contents: write` only to push the `sdk-v*` tag *after* a successful
+      # `contents: write` only to push the `sdk-typescript-v*` tag *after* a successful
       # publish, as a record of which commit produced which version. The tag is
       # an output of a release, never the input that causes one.
       contents: write
@@ -54,6 +58,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
+        with:
+          fetch-depth: 2
 
       - name: Set up Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -142,15 +148,15 @@ jobs:
 
       # After the fact, and only on success: which commit produced which
       # version. A failed publish leaves no tag to clean up.
+      # A rerun can finish an interrupted tag write without uploading twice.
       - name: Record the release as a tag
-        if: steps.release.outputs.needed == 'yes'
         env:
-          TAG: ${{ steps.release.outputs.tag }}
+          VERSION: ${{ steps.release.outputs.version }}
+          NEEDED: ${{ steps.release.outputs.needed }}
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -a "$TAG" -m "@managoat/fountain-sdk ${TAG#sdk-v}" "$GITHUB_SHA"
-          git push origin "$TAG"
+          flags=()
+          if [ "$NEEDED" = yes ]; then flags+=(--published-now); fi
+          python3 scripts/sdk-release-tag.py typescript "$VERSION" "${flags[@]}"
 
       - name: Say what happened
         env:
@@ -163,7 +169,7 @@ jobs:
               echo
               echo "https://www.npmjs.com/package/@managoat/fountain-sdk/v/$VERSION"
               echo
-              echo "Tagged \`sdk-v$VERSION\` at \`$GITHUB_SHA\`. Verify the provenance with"
+              echo "Tagged \`sdk-typescript-v$VERSION\` at \`$GITHUB_SHA\`. Verify the provenance with"
               echo '`npm audit signatures` after installing.'
               echo
               echo "A new version 404s on the public registry for a few minutes"

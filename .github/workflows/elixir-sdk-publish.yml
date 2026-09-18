@@ -12,23 +12,32 @@ on:
       - "sdk/elixir/**"
       - "scripts/elixir-sdk-release.exs"
       - ".github/workflows/elixir-sdk-publish.yml"
+      - "scripts/sdk-release-tag.py"
   workflow_dispatch:
+
+concurrency:
+  group: hex-fountain-sdk-publish
+  queue: max
+  cancel-in-progress: false
 
 permissions:
   contents: read
 
 jobs:
   publish:
+    if: github.ref == 'refs/heads/main'
     name: Publish to Hex
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
       # Write access is used only to record a successful publication as an
-      # elixir-sdk-v* tag. Hex receives the dedicated key below.
+      # sdk-elixir-v* tag. Hex receives the dedicated key below.
       contents: write
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
+        with:
+          fetch-depth: 2
 
       - name: Set up Elixir
         uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1.24.1
@@ -97,15 +106,15 @@ jobs:
           MIX_ENV: dev
         run: mix hex.publish --yes
 
+      # A rerun can finish an interrupted tag write without uploading twice.
       - name: Record the release as a tag
-        if: steps.release.outputs.needed == 'yes'
         env:
-          TAG: ${{ steps.release.outputs.tag }}
+          VERSION: ${{ steps.release.outputs.version }}
+          NEEDED: ${{ steps.release.outputs.needed }}
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -a "$TAG" -m "fountain_sdk ${TAG#elixir-sdk-v}" "$GITHUB_SHA"
-          git push origin "$TAG"
+          flags=()
+          if [ "$NEEDED" = yes ]; then flags+=(--published-now); fi
+          python3 scripts/sdk-release-tag.py elixir "$VERSION" "${flags[@]}"
 
       - name: Say what happened
         env:
@@ -118,7 +127,7 @@ jobs:
               echo
               echo "https://hex.pm/packages/fountain_sdk/$VERSION"
               echo
-              echo "Tagged \`elixir-sdk-v$VERSION\` at \`$GITHUB_SHA\`."
+              echo "Tagged \`sdk-elixir-v$VERSION\` at \`$GITHUB_SHA\`."
             } >> "$GITHUB_STEP_SUMMARY"
           else
             {

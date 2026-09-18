@@ -84,7 +84,8 @@ defmodule Fountain.Machines.Binding do
   `policy: :keep` is a **release**: the conversation ends and the machine is
   kept whatever the refcount says, which is how a teammate hands its computer
   to a successor (`Fountain.Team.open_fresh_conversation/3`). It writes the
-  conversation's row through `Termination._unsafe_release_conversation/2`
+  conversation's row through `Termination._unsafe_release_conversation/2`,
+  checking its expected `sandbox_id` under the parent lock before the write,
   and touches no machine state, so it runs inline whichever way the gate is
   set — `end_turn/3`'s reason: queueing a conversation write behind a
   cotenant's minute-long park buys no serialisation the parent lock does not
@@ -386,6 +387,9 @@ defmodule Fountain.Machines.Binding do
   @doc """
   End `opts[:conversation_id]`'s binding to the machine behind `sandbox_id`.
 
+  A release (`policy: :keep`) requires the locked parent to remain bound to
+  `sandbox_id`; a changed binding returns `{:error, :ownership_changed}`.
+
   Options:
 
     * `:conversation_id` (required) — the conversation that is ending.
@@ -416,7 +420,7 @@ defmodule Fountain.Machines.Binding do
         {:error, :transaction_open}
 
       Keyword.get(opts, :policy, :mode) == :keep ->
-        release(conversation_id, opts)
+        release(conversation_id, sandbox_id, opts)
 
       true ->
         deadline =
@@ -435,10 +439,10 @@ defmodule Fountain.Machines.Binding do
   @spec busy_wait_ms() :: pos_integer()
   def busy_wait_ms, do: @busy_wait_ms
 
-  defp release(conversation_id, opts) do
+  defp release(conversation_id, sandbox_id, opts) do
     case Termination._unsafe_release_conversation(
            conversation_id,
-           Keyword.take(opts, [:actor_alive?])
+           [sandbox_id: sandbox_id] ++ Keyword.take(opts, [:actor_alive?])
          ) do
       :ok -> {:ok, :released}
       {:error, _} = error -> error

@@ -118,10 +118,17 @@ defmodule Fountain.Conversations.ExecutionGuard do
     end)
   end
 
-  @doc "Release only a durably idle parent; refusal never retires or interrupts execution."
+  @doc """
+  Release only a durably idle parent; refusal never retires or interrupts execution.
+
+  An actor supplies `:sandbox_id`, including an explicit nil for no sandbox.
+  Its binding is compared under the parent lock that protects the status write.
+  Recovery without an actor omits the key and releases the current binding.
+  """
   def _unsafe_release_parent(conversation_id, writer, opts \\ []) do
     transaction(fn ->
       conv = lock_parent(conversation_id) || Repo.rollback(:not_running)
+      if rebound?(opts, conv), do: Repo.rollback(:ownership_changed)
 
       # A `running` turn row is evidence of a live turn only when there is a
       # server to run it. Without one it is as likely an orphan — a deploy, a

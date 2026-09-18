@@ -33,7 +33,7 @@ defmodule Fountain.Conversations.ReleaseFenceTest do
     turn = insert_turn(c.conv, status: "running")
 
     assert {:error, :busy} =
-             Termination._unsafe_release_conversation(c.conv.id, actor_alive?: true)
+             Termination._unsafe_release_binding(c.conv.id, c.sandbox.id, actor_alive?: true)
 
     assert Conversations._unsafe_get_conversation!(c.conv.id).status == "idle"
     assert Repo.reload!(turn).status == "running"
@@ -46,10 +46,10 @@ defmodule Fountain.Conversations.ReleaseFenceTest do
     # so it refuses either way — and it is bounded, because the coordinator
     # writes an obligation off once nothing can resolve it.
     assert {:error, :execution_fenced} =
-             Termination._unsafe_release_conversation(c.conv.id, actor_alive?: false)
+             Termination._unsafe_release_binding(c.conv.id, c.sandbox.id, actor_alive?: false)
 
     assert {:error, :execution_fenced} =
-             Termination._unsafe_release_conversation(c.conv.id, actor_alive?: true)
+             Termination._unsafe_release_binding(c.conv.id, c.sandbox.id, actor_alive?: true)
 
     assert Repo.get!(TurnExecution, execution.id).state == "ready"
     assert Conversations._unsafe_get_conversation!(c.conv.id).status == "idle"
@@ -107,6 +107,23 @@ defmodule Fountain.Conversations.ReleaseFenceTest do
   test "a deleted parent returns not_running", c do
     Repo.delete!(c.conv)
     assert {:error, :not_running} = Termination.release_conversation(c.conv.id)
+  end
+
+  test "an explicit no-sandbox binding cannot release a bound replacement", c do
+    assert {:error, :ownership_changed} =
+             Termination._unsafe_release_binding(c.conv.id, nil, [])
+
+    assert Repo.reload!(c.conv) == c.conv
+    assert Repo.reload!(c.sandbox) == c.sandbox
+  end
+
+  test "an actor with no sandbox still reports a missing parent as not_running", c do
+    Repo.delete!(c.conv)
+
+    assert {:error, :not_running} =
+             Termination._unsafe_release_binding(c.conv.id, nil, [])
+
+    assert Repo.reload!(c.sandbox) == c.sandbox
   end
 
   defp execution(c, state) do

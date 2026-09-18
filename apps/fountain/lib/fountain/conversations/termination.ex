@@ -125,10 +125,9 @@ defmodule Fountain.Conversations.Termination do
       case whereis(conv_id) do
         nil ->
           # ownership: established by the caller before release_conversation/2.
-          case Conversations._unsafe_get_conversation(conv_id) do
-            nil -> {:error, :not_running}
-            conv -> _unsafe_release_binding(conv_id, conv.sandbox_id, actor_alive?: false)
-          end
+          # Recovery names no actor binding. Decide against the current row
+          # under its lock, including when it has an orphan turn.
+          _unsafe_release_conversation(conv_id, actor_alive?: false)
 
         pid ->
           call_server(pid, :release_conv)
@@ -140,19 +139,21 @@ defmodule Fountain.Conversations.Termination do
 
   @doc """
   End a conversation's binding while keeping its computer — the release half
-  of `release_conversation/2`, for the server's `:release_conv` and the
-  dead-server path alike.
+  of `release_conversation/2`, for the server's `:release_conv`.
 
   Through the machine's owner when there is a machine
   (`Fountain.Machines.Machine.detach/2` with `policy: :keep`, ADR 0058 stage
-  8b), and the conversation's own write when there is none: a conversation
-  that never had a sandbox has no binding to end, only a row to close.
+  8b), and the conversation's own guard when the actor names none. Both paths
+  fence the actor's expected binding under the parent lock; an explicit nil
+  expects no sandbox and cannot release a bound row. Persisted conversations
+  currently require a sandbox. Dead-server recovery instead calls
+  `_unsafe_release_conversation/2` without a binding expectation.
   `_unsafe_` for the reason the write it wraps is: a bare id, ownership the
   caller's.
   """
   @spec _unsafe_release_binding(String.t(), String.t() | nil, keyword()) :: :ok | {:error, term()}
   def _unsafe_release_binding(conversation_id, nil, opts),
-    do: _unsafe_release_conversation(conversation_id, opts)
+    do: _unsafe_release_conversation(conversation_id, Keyword.put(opts, :sandbox_id, nil))
 
   def _unsafe_release_binding(conversation_id, sandbox_id, opts) do
     case Machine.detach(

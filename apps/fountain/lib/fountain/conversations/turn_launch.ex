@@ -254,6 +254,22 @@ defmodule Fountain.Conversations.TurnLaunch do
 
   def relaunch_crashed(state, code, finish), do: finish.(state, code)
 
+  @doc """
+  The exit a `turn`/`done` stage reports: the code, and for a native crash the
+  signal it stands for (#2402). A bare 139 reads as the runtime's own error;
+  `SIGSEGV` says the process died, which is what the reader needs to know.
+  """
+  @spec exit_meta(integer()) :: %{
+          required(:exit_code) => integer(),
+          optional(:signal) => String.t()
+        }
+  def exit_meta(code) do
+    case @native_crashes do
+      %{^code => signal} -> %{exit_code: code, signal: signal}
+      _ -> %{exit_code: code}
+    end
+  end
+
   defp relaunch(state, turn, spec, plan, code, finish) do
     signal = Map.fetch!(@native_crashes, code)
 

@@ -75,10 +75,14 @@ defmodule Fountain.Machines.Machine do
 
   **`retarget/3`, `bind_inference/2` and a `detach/2` with `policy: :keep` run
   inline for the same reason** (stage 8b). The first two are one row write
-  inside a transaction the caller already holds the machine's lock in — a
-  reapply, an inference reservation — and a hop through this process would
-  have its own transaction wait on that lock while the caller waits on the
-  reply. The third is a release: the conversation's row and no machine state.
+  under the machine's lock. `bind_inference/2` always runs inside a
+  transaction the caller already holds that lock in (an inference
+  reservation), and so does `retarget/3` for a reapply. There, a hop through
+  this process would have the owner's own transaction wait on that lock,
+  which the caller holds, while the caller waits on the reply. `retarget/3`'s other caller, the skills
+  record after a reattach, has no transaction, and `Binding.retarget/3` takes
+  the lock itself. The third is a release: the conversation's row and no
+  machine state.
   `Fountain.Machines.Binding`'s moduledoc argues each.
 
   Asking through a process for an answer available from a pure function looks
@@ -1211,7 +1215,7 @@ defmodule Fountain.Machines.Machine do
   # stage 9b `MACHINE_OWNER_ENABLED` ran every verb inline on its caller in the
   # suite, so no test needed this.
   #
-  # **Off in production, and it must stay off by accident.** `config/test.exs`
+  # **Off in production, and nothing may turn it on by accident.** `config/test.exs`
   # sets `:owner_adopts_callers`; nothing else does, and with it off this
   # process never puts `$callers` at all, which is exactly `main`'s owner.
   # Something in production does read the key: `opentelemetry_ecto` walks

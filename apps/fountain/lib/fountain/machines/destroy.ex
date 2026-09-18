@@ -759,13 +759,13 @@ defmodule Fountain.Machines.Destroy do
            transition_reason: nil
          ) do
       {:ok, %Sandbox{} = terminated} ->
-        # The two effects `update_sandbox/2` would have run — the
-        # `sandbox_terminated` usage row and the sandbox-queue poke that turns
-        # this tenant's freed slot into a drain. After the write commits and
-        # outside every transaction, with the status the row carried *going
-        # into* the finalize rather than a fresh reload, which is the same rule
-        # `Conversations.update_sandbox/2` follows with its `FOR UPDATE` read
-        # (#2309).
+        # The two effects every status change owes — the `sandbox_terminated`
+        # usage row and the sandbox-queue poke that turns this tenant's freed
+        # slot into a drain. After the write commits and outside every
+        # transaction, with the status the row carried *going into* the
+        # finalize rather than a fresh reload: the rule #2309 set, which
+        # `Conversations.update_sandbox/2` followed with its `FOR UPDATE` read
+        # until stage 9b deleted it.
         Conversations.sandbox_status_effects(terminated, sandbox.status)
 
         # The machine is gone, so no turn admitted on it can continue: the

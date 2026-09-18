@@ -171,8 +171,8 @@ defmodule Fountain.Machines.DurableDestroyingTest do
     test "the reset door stamps it, with the reason that keeps the reaper off the row", ctx do
       # The protocol is refused at its claim, so it never reaches its own
       # stamp. That is the shape this rule exists for: without the door's
-      # stamp the row would carry the intent in `reset_requested_at` alone,
-      # and stage 9b would drop it with the column. A test that let the
+      # stamp the row would carry no intent at all, since stage 9b dropped the
+      # `reset_requested_at` column that once carried it alongside. A test that let the
       # protocol run would pass from `stamp_then_destroy/3` instead and say
       # nothing about the door.
       stub(Fountain.Machines.Destroy, :run, fn _id, _opts -> {:error, :machine_busy} end)

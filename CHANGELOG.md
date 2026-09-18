@@ -20,6 +20,904 @@ Changes that have merged but not yet shipped are the files under
 [`changelog.d/`](https://github.com/managoat/fountain/tree/main/changelog.d);
 the release PR rolls them into a dated section here.
 
+## [0.20.0] - 2026-09-18
+
+### Upgrade notes
+
+- Swift SDK releases are independent of server releases starting at 0.20.0. Use
+  SwiftPM `revision: "sdk-swift-v0.20.0"` or its commit SHA to select an independent
+  release. Existing version-range installs continue to select server snapshots;
+  version-based library dependencies cannot transitively use revision-based
+  packages (#1414).
+
+- **Migration `20260915230000` adds an explicit credential set access policy to
+  agents** (#2107). Generated `inference_credential_access` columns on `agents`
+  and `agent_versions` replace the legacy "null means any set" reading of
+  `allowed_inference_credential_ids`, completing the set of three allowlists.
+  No agent changes what it can reach and no client changes: `null` still
+  permits every current and future credential set the tenant owns, `[]` permits
+  no override, and a list permits those IDs. The columns are `STORED`, so the
+  migration rewrites both tables under exclusive locks — read
+  [Credential set policy migration](https://managoat.com/docs/guides/operate/upgrade#credential-set-policy-migration)
+  before upgrading a busy database.
+
+- **Migration `20260915220000` adds an explicit environment access policy to
+  agents** (#2107). Generated `environment_access` columns on `agents` and
+  `agent_versions` replace the legacy "null means any environment" reading of
+  `allowed_environment_ids`. No agent changes what it can reach and no client
+  changes: `null` still permits every current and future environment the tenant
+  owns, `[]` permits no override, and a list permits those IDs. The columns are
+  `STORED`, so the migration rewrites both tables under exclusive locks — read
+  [Environment policy migration](https://managoat.com/docs/guides/operate/upgrade#environment-policy-migration)
+  before upgrading a busy database.
+
+- **The OpenAPI document declares one error schema** (#2324). `Error` now
+  describes every JSON error status, and `AuthError`, `ChangesetError`,
+  `UnprocessableEntityError`, `CredentialSetDeletionError` and
+  `BrokerUnavailableError` are gone from `/api/openapi.json`, as is the inline
+  402 body on `POST /api/conversations`. No response body changed: `Error`
+  gained the optional `message`, `reason`, `errors`, `upgrade_url`,
+  `active_sandboxes` and `limit` the server already sent. A client generated
+  from the document loses those five type names and gains the fields on
+  `Error`; `errors` is no longer marked required on the fifteen 422s that
+  declared `ChangesetError`, which those operations never guaranteed (they
+  also refuse with a code). The 406 `NegotiationError` keeps its own shape.
+
+- **`MACHINE_OWNER_ENABLED` is gone; every sandbox has its owner process** (#2344). A sandbox's destroy, park, wake, turn admission, attach and detach always run in the one process that owns that sandbox, so two operations on one sandbox queue behind each other instead of racing. A deployment that set the variable to `true` sees no change. A deployment that left it unset now runs the owner too. Remove the variable from your environment; Fountain no longer reads it.
+
+- Quiesce conversation launches and wakes on old replicas during the runtime-home schema/application cutover, then resume those writers only on the new version. Older versions do not include runtime in home lookup. Rollback is refused once multiple runtime homes share an old identity; it does not delete a disk to fit the old constraint. Homes without retained runtime evidence remain intact but are not automatically selected (#2379).
+
+### Added
+
+- **`POST /api/conversations` takes `client_request_id` for its first prompt**
+  (#1406). The value goes to turn 1 of a new conversation, to the first turn of
+  a conversation attached with `sandbox_id`, and waits with a queued start
+  until it runs. Fountain ignores it when the request carries no `prompt`, and
+  when `channel_id` resumes a conversation: a resume does not deliver the
+  prompt, so send the value with the prompt on the prompts route. Read
+  [Find the turn your prompt opened](https://managoat.com/docs/api#find-the-turn-your-prompt-opened).
+
+- **A prompt can carry your own `client_request_id`** (#1406).
+  `POST /api/conversations/{id}/prompts` takes an optional string of 1 to 200
+  characters and repeats it in the response. Fountain stores it on the turn the
+  prompt opens, shows it on the turn in `GET /api/conversations/{id}/turns`, and
+  sends it on that turn's `started` stage event beside `turn_id`. A client that
+  shares a conversation can now bind its work item to the exact turn instead of
+  inferring it from turn order. The value is a correlation and not an
+  idempotency key: a second prompt with the same value opens a second turn. The
+  response still cannot name the turn, because a conversation that has to wake
+  is answered before its turn exists. Read
+  [Find the turn your prompt opened](https://managoat.com/docs/api#find-the-turn-your-prompt-opened).
+
+- **Every SDK sends `client_request_id`** (#1406). TypeScript
+  `run(prompt, { clientRequestId })` and `resume(id).send(prompt, { clientRequestId })`,
+  Python and Elixir `client_request_id`, Swift `clientRequestID:` on `run`,
+  `send` and `FountainKit.conversations.prompt`. A client that resumes a
+  conversation with `channel_id` now repeats the value on the prompts route:
+  that second request is the one that opens the turn, so a value given only to
+  the create was being dropped. Read
+  [Find the turn your prompt opened](https://managoat.com/docs/api#find-the-turn-your-prompt-opened).
+
+- **One command verifies a deployed Fountain** (#1612).
+  `scripts/verify-deployment.sh https://your-instance.example.com` runs the
+  deployed-instance suite against that URL and prints the verdict: the failing
+  checks, how many fixtures were left behind and where the evidence landed.
+  A second argument selects coverage, from `probe` up to the default
+  `streaming`, which completes two real tool-using turns and checks live
+  output, reconnect, replay and paginated history. The integration profiles
+  keep their existing target-file route through `deployed/cli.mjs`. It reads
+  `FOUNTAIN_SUITE_KEY` and `FOUNTAIN_SUITE_OTHER_KEY` from the environment,
+  falling back to the macOS keychain, so a routine run puts no credential in
+  shell history. `node deployed/verify.mjs --help` covers the flags, and
+  `deployed/cli.mjs` still takes a hand-authored target file for a run the
+  flags do not cover.
+- Provisioning the two test accounts a run needs is now written down, in
+  `deployed/README.md`, including the verification gate on minting a key, what
+  onboarding creates behind you and the Connections requirement the
+  integration profiles carry (#1612).
+
+- **The integration profiles run without hosting anything** (#1614, #1615,
+  #1616). `secrets`, `mcp` and `webhooks` assert on what a deployment does
+  outbound — a secret delivered into a sandbox, an MCP server called, a webhook
+  posted — so each needs a receiver the deployment and its sandbox provider can
+  reach. A run now hosts one locally and publishes it over Cloudflare quick
+  tunnels for its duration, so
+  `node deployed/verify.mjs https://your-instance.example.com --profile secrets`
+  needs no public host, no DNS record and no account. `--receiver-url` still
+  takes an already-hosted receiver. A tunnel that never becomes reachable fails
+  setup with its own diagnostic, so a borrowed origin cannot be mistaken for a
+  failed assertion about the deployment.
+
+- The manual documents the sandbox codex builds for itself, and the one lever
+  that widens it (#1684). The pinned `codex-acp` adapter sends a per-session
+  policy of `workspaceWrite` with no writable roots and no network, which
+  `~/.codex/config.toml` cannot widen. A first turn that writes outside its
+  workspace and the temporary directories, or calls the network, is refused
+  unless codex asks for access and the request is approved, by codex's own
+  reviewer or by the agent's permission policy. Setting `INITIAL_AGENT_MODE` to
+  `agent-full-access` in an environment's `env_vars` gives codex full access
+  without asking.
+  It is all or nothing, and it does not widen the environment's own network
+  policy. It also sets codex's approval policy to `never`, so codex's own
+  commands and file edits no longer reach the agent's permission policy, and
+  `ask` or `auto_deny` no longer stops them. No behaviour changed. See
+  [Run Codex as an API](https://managoat.com/docs/catalog/runtimes/codex#the-sandbox-codex-builds-for-itself).
+
+- Recover deployed-suite fixtures from a separate machine after runner or journal loss using reviewed exact ownership evidence, read-only journal reconstruction and the existing cleanup APIs. Reconstructed cleanup refuses unrecorded dependents and retains unresolved creates (#1697).
+
+- `fountain.reaper.run.reconciled` counts those abandoned teardowns. Unlike the
+  reaper's other counters a non-zero value is not routine reclamation — it says
+  a teardown died halfway and the machine leaked until the reaper found it
+  (#2021).
+
+- API: the SSE frame each stream sends is now a described `StreamLogEvent`
+  schema instead of a bare string (#2297) — `GET /api/conversations/:id/stream`,
+  `GET /api/events/stream` and `GET /api/team/stream` all declare it on their
+  `text/event-stream` response. The frame's actual fields are unchanged;
+  a generated client can now decode it with a typed model instead of the
+  operation's prose description alone. The one synthetic frame this stream
+  sends — the "server exited, reconnect to resume" stage event on
+  `GET /api/conversations/:id/stream` — now carries `stream: ""` instead of
+  `null`, matching the schema and every persisted event; a client switching
+  on `stage`/`state` is unaffected. `GET /api/events/stream` and
+  `GET /api/team/stream` also send `conversations`/`team`/`schedule`
+  change-signal frames on the same connection, now described as a second
+  schema, `StreamSignal`, in a `oneOf` with `StreamLogEvent`.
+
+- `sandbox.destroyed` on the audit trail: one event per computer actually torn
+  down, carrying who asked, why, and which provider it was on (#2344,
+  ADR 0058). The `sandbox.teardown_requested` event that records the *intent*
+  is unchanged, so a teardown that was requested and never completed still
+  reads as exactly that.
+
+- A computer records when a conversation server was last started on it (#2344,
+  ADR 0058). Nothing is shown for it and no request reads it: it exists so
+  Fountain's cleanup pass can tell a computer somebody just woke from one that
+  was abandoned, on any replica, without waiting for the cluster registry to
+  catch up. What a cleanup pass reclaims is unchanged; a computer whose wake was
+  interrupted is now reclaimed on a later pass rather than the current one,
+  which on the hourly schedule can be up to about an hour and a quarter later.
+
+- Added an opt-in local probe for sandbox files racing machine park, with an implementation brief for bounded read admission; the lifecycle defect remains open (#2394).
+
+- Added a bounded Node startup diagnostic that records native signals and detects helper crashes concealed by a successful sandbox launcher (#2402).
+
+- API: `GET /api/conversations/{id}/events` takes `?prompts=true` (#2414). With
+  `blocks=true`, it fills each turn's `turn`/`started` stage event — whose
+  `blocks` array was otherwise always empty — with one `prompt` block carrying
+  the prompt that opened that turn. Without it the feed holds only what the
+  runtime wrote, so a client replaying a conversation renders it as a monologue
+  in the agent's voice. It is opt-in and adds, removes and reorders no event, so
+  `meta.next_cursor`, `has_more` and the page size are unchanged. A turn whose
+  `origin` is `autonomous` contributes no block. Note that `streams=acp`
+  excludes stage events, and so excludes these prompts with them. `prompt` is a
+  new value of the `Block.kind` enum, and the one kind never produced by parsing
+  a runtime's output.
+
+### Changed
+
+- New SDK release tags use `sdk-typescript-v`, `sdk-python-v`, `sdk-elixir-v` and
+  `sdk-swift-v`. Existing tags remain valid. The root SDK catalog now records
+  ownership, runtime support, independent versions and shared conformance coverage;
+  CI checks it against the packages and release hooks (#1414).
+
+- **The `fountain-fixture` runtime left the published API contract** (#1716).
+  It is one configured account's test harness on one deployment, and it was in
+  the `runtime` enum of five OpenAPI schemas and therefore in every generated
+  SDK's type. The contract now names the five shipped runtimes. A deployment
+  that sets `DEPLOYED_ACP_FIXTURE_USER_ID` still names it in the OpenAPI
+  document that deployment serves, so nothing changes for the deployed
+  deterministic suite. Keep that variable set while any fixture agent or
+  fixture conversation still exists, even after `DEPLOYED_ACP_FIXTURE_ENABLED`
+  goes false: agents are retained so their owner can edit and delete them, and
+  deleting an agent keeps its conversations, whose conversation and sandbox
+  responses still report the `fountain-fixture` runtime.
+
+- Swift SDK: `PageMeta` is generated from the contract's cursor envelope
+  rather than handwritten (#2300). `hasMore`, `limit` and `nextCursor` keep
+  their Optional types. `offset` is no longer on `PageMeta`: it was only ever
+  sent by `GET /api/search`, which pages by offset, and now lives on the
+  generated `SearchResponse.Meta`, whose members are non-Optional.
+  `Page<T>` is now `Page<Items, Meta>`, so `audit.list` and
+  `conversations.events` return `Page<[…], PageMeta>` and `search.search`
+  returns `Page<[SearchHit], SearchResponse.Meta>`; code that spelled the old
+  one-parameter type has to name the meta. `page.meta?.hasMore` and
+  `page.meta?.nextCursor` read as before. `APIErrorBody` stays handwritten.
+
+- Swift SDK: `APIErrorBody` decodes the new generated `APIErrorPayload`, read
+  from the contract's one `Error` schema, instead of declaring its own wire
+  keys (#2324). Its published members keep their names and Optional types.
+  `code` now stays the body's `error` when `error` is already a code and
+  `reason` only narrows it, as the contract describes: `credential_set_is_default`,
+  `sandbox_not_resettable` and `broker_unavailable` used to surface as their
+  `reason` (`is_default`, `ephemeral` or the sandbox status, `timeout` and
+  the like). The key-auth and scope
+  refusals, whose `error` is a sentence, still report `reason` as the code.
+  The new `APIErrorBody.reason` carries the body's `reason` as sent, and a
+  new initializer overload takes it; the published initializer is unchanged.
+
+- A turn is now admitted onto a computer by the process that owns that
+  computer, and it is refused while another operation is in flight on it
+  (#2344, ADR 0058). A prompt that arrives while the computer is being parked,
+  woken, rebuilt or deleted used to start a turn against a machine that was
+  about to change under it; it now waits for the operation to finish — up to
+  five seconds, or up to twenty with `MACHINE_OWNER_ENABLED` set, where the
+  prompt queues behind the operation — and, if it has not finished, answers
+  the ordinary `503` with a `Retry-After` (`sandbox_unavailable`) rather than
+  starting. An operation whose owner died part-way does not hold the computer:
+  the turn is admitted as before.
+
+- A prompt to a conversation whose computer is being deleted is refused
+  (#2344). While the conversation's process was still up, a computer whose
+  deletion had been asked for accepted a new turn until the deletion finished,
+  and the turn then died with it; a reset already refused in the same place.
+  Such a prompt now answers `503` `sandbox_unavailable`. Once the
+  conversation's process is gone — the usual state a little later, and the
+  state of every parked neighbour — the prompt wakes the conversation instead,
+  and that door answered `409` `sandbox_reset_pending` before this change and
+  still does.
+
+- Turn capacity on a shared computer is now counted per runtime (#2344;
+  groundwork for #1089). Runtimes that take one turn at a time — `opencode`, `gemini` —
+  had every running turn on the computer counted against them, whatever
+  runtime it ran on. A turn now counts only against conversations on the same
+  runtime, and a second `opencode` turn is still refused with `409`
+  `sandbox_at_capacity` while the first runs. Today every conversation on a
+  computer runs the same runtime (attaching a different one is refused with
+  `422` `sandbox_runtime_mismatch`), so nothing a user can do today produced
+  the wrong count; #1089, two agents on one computer, is what would have.
+
+- Opening a conversation on an existing computer, and ending one, are now
+  done by the process that owns that computer (#2344, ADR 0058). An attach or
+  a terminate that arrives while the computer is being parked, woken, rebuilt
+  or deleted used to be refused at once (an attach) or to fence the computer
+  underneath the operation and leave it for an hourly cleanup pass to finish
+  (a terminate). Now a terminate waits up to five seconds for the operation to
+  finish — up to twenty with `MACHINE_OWNER_ENABLED` set, where both queue
+  behind it — and, if it has not, answers the ordinary `503` with a
+  `Retry-After` (`sandbox_unavailable`) and leaves the computer alone; an attach
+  still answers that at once without the setting and queues with it. Where no
+  server was left driving the conversation, the conversation itself is already
+  closed by the time the computer refuses, and sending the request again — what
+  the `Retry-After` asks for — finishes the computer and records the
+  termination. An attach or a terminate the owner reaches only after its caller
+  has given up is refused rather than run for nobody, and so is a wake.
+
+- Opening a fresh conversation for a teammate on the computer it already has
+  now goes through the same door as attaching by `sandbox_id` (#2344): the
+  computer must still be the one built for that agent, environment and vault,
+  must not be reset, deleted or mid-operation, and the new conversation gets
+  an execution allowance like every other. The computer is asked *before* the
+  current conversation is retired, so a computer that refuses costs the
+  teammate nothing — the request answers `409` while the computer is being
+  reset or deleted, `503` while an operation holds it, and the teammate keeps
+  the conversation it had, so the same request can simply be sent again. An
+  agent whose environment, vault or runtime has changed since its computer was
+  built is now refused (`422`) rather than given a new session on a disk built
+  for something else; that teammate needs a conversation of its own rather than
+  a fresh one on the same computer.
+
+- When a computer is deleted, every turn still running on it is now marked
+  interrupted by the deletion itself (#2344), on every conversation bound to
+  it, rather than left `running` until a later process happened to notice.
+  Each such conversation's stream records the turn as interrupted with the
+  reason `machine_destroyed`, and its trail records `conversation.turn.orphaned`.
+  A computer parked at its maximum-lifetime ceiling now ends the turn the
+  ceiling cut the same way (`machine_parked`); a computer parked while idle
+  still leaves a turn nobody is driving where it is, so a request waiting on
+  a person's answer stays answerable.
+
+- A computer held by a Fountain server that has disappeared from the cluster
+  is released sooner (#2344). Fountain holds a computer for the length of one
+  operation and extends the hold while the work continues; a server that died
+  mid-operation used to keep the computer for the rest of its hold, up to two
+  minutes. A hold whose owner is not a connected server *and* has stopped
+  being extended is now taken over as soon as it has run down past the point
+  a live owner would have extended it. A server that is merely cut off from
+  the others keeps extending its hold and is left alone.
+
+- The provider identity binding that no code path recorded is gone (#2344):
+  `sandbox.provider_identity_bound` was an event nothing could produce.
+
+- Terminating a conversation whose server is no longer running now destroys its
+  computer straight away, instead of retiring the row and leaving the machine
+  for the reaper's next pass to collect (#2344, ADR 0058). A shared computer or
+  an agent's persistent home is still kept, exactly as before. The reaper still
+  sweeps up anything a destroy could not finish.
+
+- A computer somebody has asked Fountain to delete now stays refused until it
+  is actually gone (#2344, ADR 0058). Deleting a computer records the request
+  on it and then does the work; if the Fountain server doing that work died in
+  between, the request used to be readable as an operation that had been
+  abandoned, and the next prompt, boot or attach would clear it and carry on
+  using the disk. Now every one of those doors refuses such a computer — with
+  the `409` it already answered for a computer being reset — and leaves the
+  request where it is. The computer still counts against your concurrent
+  computer limit until it is gone, because until then it exists and is billed.
+  A conversation on it is not stranded: prompts answer `409` until the deletion
+  finishes — which is what they already did while a reset or a deletion was in
+  flight — and the next one after that builds a fresh computer.
+
+- A computer past its maximum lifetime is now destroyed in the same
+  housekeeping pass that expires it, instead of being marked finished in one
+  pass and collected in the next (#2344, ADR 0058). The pass that collects
+  leftovers is still there, as the safety net for a destroy that could not
+  finish rather than the way it normally happens.
+
+- Deleting an agent, and reaping a computer from the admin panel, now record
+  `sandbox.destroyed` on the audit trail beside the
+  `sandbox.teardown_requested` that has always marked the intent (#2344,
+  ADR 0058). Reaping a computer that has no conversation running on it also
+  destroys it at the provider straight away, where it used to wait for the
+  next housekeeping pass. A reap the computer's owner refuses — because
+  another teardown of the same computer is already running — answers
+  `503 sandbox_unavailable` with a `retry-after` instead of failing, and the
+  admin panel says so rather than dropping the page.
+
+- Closing an account records no `sandbox.destroyed` for any of the computers it
+  tears down (#2344, ADR 0058). Those events are attributed to the account,
+  which is gone moments later, so they would survive as anonymous rows
+  describing the cascade; `account.deleted` already names the account and
+  counts the computers. The teardown request for each one is still recorded.
+  Only closing an account is silent this way: stopping the compute of a
+  released or expired claimable principal keeps its rows, so each of its
+  computers is still recorded as destroyed. Neither records a per-conversation
+  event, which is unchanged.
+
+- `sprites_destroyed`, in the `account.deleted` event and in the deletion API
+  response, now counts the computers torn down rather than the provider
+  deletions confirmed (#2344, ADR 0058). A computer whose provider refused the
+  call is still counted; its row is marked finished either way, and the
+  housekeeping pass reconciles what is left behind.
+
+- The housekeeping worker counts a computer it could not reclaim separately
+  from one it did (#2344, ADR 0058). `expired` keeps meaning "reclaimed", so a
+  provider or lease outage that refuses every teardown no longer reports
+  healthy reclamation; the refusals appear as `refused` in the same run log and
+  metric. The per-run cap on provider deletions now covers both of the worker's
+  passes rather than only the second, so reclaiming a large backlog still
+  drains over several runs.
+
+- **Abandoned resets and deletions are finished by one five-minute pass** (#2344). A sandbox whose reset or deletion was asked for and then abandoned holds its tenant's quota slot and keeps billing until it is finished. A reset the provider did not confirm is tried again on the next five-minute run, as before. A deletion whose caller died is finished on the first five-minute run after it is fifteen minutes old. Before this release, an abandoned deletion of an ephemeral sandbox waited for the hourly reaper, and could wait longer when that run's destroy budget was spent on expiries. The pass no longer shares the hourly budget.
+- **The reaper's metrics for abandoned destroys moved** (#2344). `fountain_reaper_run_reconciled` is now `fountain_reaper_teardowns_reconciled`, and the new `fountain_reaper_teardowns_refused` counts the abandoned destroys a run could not finish. `fountain_reaper_run_refused` counts only the hourly run's expiries and idle parks.
+- **An attach to a home that was reset and has since been deleted answers `sandbox_not_attachable`** (#2344), as an attach to any other deleted sandbox does. It answered `sandbox_reset_pending`, although the reset had finished. Both are 409.
+
+- Parking an idle computer is now done by one Fountain process at a time, and
+  it takes the computer for the length of that operation (#2344, ADR 0058).
+  Until now a computer could be parked by the conversation using it and by
+  Fountain's hourly cleanup pass at the same moment, each having decided it was
+  idle a little earlier, and neither knowing about the other. A prompt or an
+  attach that arrives while a park is in flight answers
+  `503 sandbox_unavailable` with a `Retry-After` header; send it again and it
+  lands on a computer that has settled, which for a parked computer means it is
+  woken and carries on with everything it had.
+
+- A computer parked by the conversation on it now appears in that account's
+  activity trail as `sandbox.suspended`, the same entry Fountain's cleanup pass
+  has always recorded (#2344). The two paths park a computer for the same
+  reason and are now the same operation, so "where did my computer go" has the
+  same answer whichever of them noticed first.
+
+- Deciding not to park is now decided once, when the computer is taken, rather
+  than by each caller beforehand: a computer whose provider cannot park it, or
+  whose park the provider refuses, is reclaimed instead, exactly as before
+  (#2344). A computer somebody else is working on, or one already being reset
+  or deleted, is left alone.
+
+- A park interrupted part-way — a deploy, a lost node — is now finished or
+  undone on the next cleanup pass (#2344, ADR 0058). Fountain asks the provider
+  what actually happened to the computer: if it was parked, the park is
+  completed; if it is still running, the interrupted park is cleared and the
+  computer goes on as it was until it next falls idle. It is never both.
+
+- The admin computers page now says when Fountain is in the middle of an
+  operation on a computer, and whether anyone is still running it (#2344). A
+  computer being parked or deleted read as `ready` there, which is the reading
+  an operator decides on — and the reason the Reap button beside it answers
+  that the computer is unavailable.
+
+- The cleanup pass's hourly summary gains a `skipped` count beside `refused`
+  (#2344). A computer it decided to reclaim and then left alone — because
+  somebody had started using it again in the meantime, or it was no longer
+  idle — is not a computer it failed to reclaim, and counting the two together
+  made an ordinary busy fleet look like an outage. `refused` keeps meaning
+  "these are still there and something is wrong".
+
+- Building a computer for a conversation is now done by one Fountain process at
+  a time (#2344, ADR 0058). Fountain sometimes ends up with two processes for
+  one conversation — a rolling deploy and a lost node both produce them — and
+  until now both would build a computer, one of them billed for and unreachable.
+  The second now finds the first already at work and stands down without
+  touching anything.
+
+- Building a computer now appears in that account's activity trail, as
+  `sandbox.provisioned` when it comes up and `sandbox.provision_failed` when it
+  does not (#2344). Until now the trail began at the first turn, and a computer
+  that never came up left no trace in it at all.
+
+- A build that is interrupted part-way — a deploy, a lost node — is now tidied
+  up more reliably (#2344). Fountain has always torn down a half-built computer
+  before building again, because the steps cannot be repeated on top of
+  themselves, but it could only recognise one of the two ways a build stops
+  part-way. It now recognises both.
+
+- A prompt that arrives while a computer is being reset or deleted no longer
+  wins that race (#2344). A reset or deletion asked for while the computer was
+  still being built used to be overwritten at the last step, leaving the
+  conversation holding a computer that was about to be deleted. The build now
+  stands down, tears down what it made and leaves the reset or the deletion to
+  finish. Deletion is new here: only a reset used to be checked.
+
+- Replacing an agent's own computer when its disk is gone can now answer
+  "unavailable, try again shortly" (#2344). Fountain retires the old computer
+  before building the replacement, because an agent has one of them at a time;
+  if something else is in the middle of an operation on it, that retirement now
+  waits its turn and can be refused, and the answer is the ordinary
+  `503` with a `Retry-After` rather than a database constraint error.
+
+- A conversation whose computer the provider says is gone now retires that
+  computer the same way every other ending does, and its record says
+  `terminated` rather than `failed` (#2344). Both mean the same thing to
+  everything that reads it — the computer is gone and the next prompt builds a
+  fresh one — and the change is that the retirement is now one operation with
+  one entry in the activity trail, rather than a status written in passing. On
+  the admin computers page such a row now shows a grey `terminated` badge where
+  it showed a red `failed` one, and the reason is in the trail.
+
+- A conversation that cannot record its computer as reattached no longer
+  restarts in a loop (#2344). An unexpected database failure at that moment
+  used to crash the conversation's process, which was then restarted into the
+  same failure; it now stops cleanly, releases what it was holding, and the next
+  prompt tries again.
+
+- A conversation that reattaches to a computer Fountain had parked now records
+  that wake in the activity trail, as `sandbox.resumed` (#2344). It was already
+  recorded for billing; it was missing from the trail, in the same way waking
+  was before this series.
+
+- The absolute thirty-minute ceiling on building a computer is unchanged, and
+  now lands a little over a minute later than it used to (#2344). Fountain holds
+  a computer for the length of the operation working on it, and the ceiling
+  waits for that hold to run out before it retires the record — so that a
+  computer is never retired out from under a process that is still building it.
+  A build Fountain cannot retire at the ceiling is asked again a few times over
+  the following minutes, and only then is its process stopped — so a record that
+  cannot be written does not keep a computer reserved indefinitely, and a
+  process is never restarted onto a computer that is still marked as building,
+  which is what used to make a second computer get built.
+
+- Resetting a computer now goes through the one owner that every other
+  teardown of it goes through (#2344, ADR 0058). Nothing about what a reset
+  does has changed: it still blocks new turns first, still keeps the
+  conversations and their transcripts, still holds the computer's capacity
+  until the provider confirms the deletion, and still records
+  `sandbox.reset_requested` when it starts and `sandbox.reset` when it
+  finishes. What changed is that a reset, an automatic retry and an
+  administrator's retry of the same computer can no longer be at the provider
+  at the same time. One of them holds the computer, the others wait or stand
+  off, and the computer is deleted once. `DELETE /api/sandboxes/:id` can
+  therefore answer `503 sandbox_unavailable` when another teardown of that
+  computer is running. The reset is still accepted: the computer is fenced
+  before that answer and Fountain completes the reset on its own, so sending
+  the request again reports the reset already pending rather than starting a
+  second one. The admin panel's **Retry reset** says the computer is busy
+  rather than reporting the fence as cleared.
+
+- A provider client that raises while a reset is deleting a computer no longer
+  takes the caller down with it (#2344, ADR 0058). It reads as what it is — a
+  deletion the provider did not confirm — so the fence and the capacity stay
+  reserved and the automatic retry picks the computer up, which is what a
+  provider *error* has always done.
+
+- Stopping the compute of a released or expired claimable principal records the
+  sweep that asked for it on every computer it destroys (#2344, ADR 0058).
+  `sandbox.destroyed` used to say `self` for a computer whose conversation
+  still had a live server and `system:principal_sweep` for the rest, so who a
+  teardown was attributed to depended on whether a process happened to be
+  running. Closing an account is unaffected: it records no `sandbox.destroyed`
+  at all, and its teardown requests already named the operator.
+
+- A completed reset records whoever asked for it (#2344, ADR 0058). When a
+  reset and Fountain's automatic retry of the same reset met, the retry used to
+  finish the work and `sandbox.reset` was attributed to it; the caller now
+  finishes its own reset and the trail says so. A reset the automatic retry
+  really does complete on its own still names the retry.
+
+- Waking a parked computer is now done by one Fountain process at a time
+  (#2344, ADR 0058). Two prompts arriving on one parked computer together used
+  to wake it twice: both read it as parked, both asked the provider to start it,
+  and both wrote it down as running. Now the second one waits for the first and
+  then finds the computer already up. If the first is slow enough that the
+  second gives up waiting, the second answers `503 sandbox_unavailable` with a
+  `Retry-After` header, and sending it again lands on the computer that is now
+  running.
+
+- Waking a computer no longer holds up the rest of the account while it happens
+  (#2344). The wake used to run inside the same check that counts how many
+  computers an account has running, so starting one computer blocked every other
+  start and wake that account was making, for as long as the provider took to
+  answer. The count is now settled before the provider is asked, and what keeps
+  two wakes of the same computer apart is the computer itself. Nothing about the
+  limit changes: an account at its cap still cannot wake one more, and a
+  computer being woken counts from the moment it is allowed to, not from the
+  moment it finishes.
+
+- Waking a computer now appears in that account's activity trail as
+  `sandbox.resumed` (#2344), beside the `sandbox.suspended` that records it
+  being parked. Until now the trail showed a computer going away and never
+  coming back.
+
+- A prompt whose computer the provider says is stopped now starts it, instead of
+  handing the conversation a computer that is not running (#2344). Fountain
+  asked the provider whether the computer still existed and reused it on any
+  answer at all; on providers that really stop a computer when it is parked —
+  E2B and Daytona — a parking that had been interrupted left the computer
+  stopped and the record saying it was running. Starting a computer this way is
+  not counted as waking a parked one: it does not restart the maximum-lifetime
+  clock and it does not appear in the activity trail, because Fountain never
+  parked it.
+
+- A prompt to a conversation whose computer is being reset or deleted now
+  answers `409 sandbox_reset_pending` from every path that can meet the fence
+  (#2344). One of those paths — a reset or deletion asked for in the moment
+  between Fountain checking and taking the computer — used to answer `422` with
+  a bare `fenced`, which told a client the request itself was malformed. The
+  answer is the same one this route has given for a reset-fenced computer all
+  along; `POST /api/conversations/{id}/prompts` now documents it, which it
+  never did.
+
+- A wake the provider refuses now answers `503` with a `Retry-After` header
+  instead of `422` (#2344). Nothing was written and the disk is untouched, so it
+  is worth sending again; the old answer told every client the request itself
+  was at fault and not to retry. Scheduled runs report it, and two other
+  transient refusals, in words rather than as an error code.
+
+- A prompt to a computer that an interrupted operation left a marker on is no
+  longer refused (#2344). Fountain records what it is doing to a computer on the
+  computer's own record, and a process that stops part-way — a deploy, a lost
+  node — leaves that marker behind. A prompt arriving afterwards used to answer
+  `503` until an hourly pass cleared it, up to an hour later. The next thing to
+  take the computer now clears the marker itself, and a computer that is simply
+  running is handed over as it always was. A computer somebody has asked to
+  reset or delete is still refused, which is what that request means.
+
+- An operation that takes longer than a minute no longer loses the computer it
+  is working on (#2344, ADR 0058). Fountain holds a computer for the length of
+  one operation, and that hold used to be measured from when the operation
+  started rather than from the last sign of progress — so a slow checkpoint, or
+  a computer coming back from long-term storage, could have its hold expire
+  while it was still running and be taken over by the next cleanup pass. The
+  hold is now extended while the work continues.
+
+- An operation whose process is killed outright no longer keeps the computer
+  (#2344). Fountain extends its hold on a computer while it works, and a process
+  stopped without warning — a rolling deploy, a background job killed at its
+  time limit — used to leave that extension running with nothing behind it, on a
+  computer nothing could then take. The hold now ends when the work does, and in
+  any case after ten times its normal length.
+
+- How long Fountain is holding a computer for is now measured on the database's
+  clock rather than on each server's own (#2344). Nothing about a single-server
+  install changes; on a cluster, one server's clock running fast or slow can no
+  longer make it disagree with the others about whether an operation is still
+  running. The reading is also no longer affected by the time zone a database
+  connection happens to be configured with, which could make every live
+  operation look finished.
+
+- A prompt that wakes a computer, and an attach that opens a conversation on
+  one, now answer `503 sandbox_unavailable` with a `Retry-After` header while
+  Fountain is in the middle of an operation on that computer (#2344, ADR 0058).
+  Deleting a computer, resetting one and — shortly — parking an idle one each
+  take the computer for the length of one provider round trip, and a wake that
+  arrived during that used to race it. Send the request again: each SDK reports
+  this as a not-ready error, the launch queue puts the start back in line, a
+  team schedule waits and fires again inside its window, and the boot sweep
+  leaves the computer to the operation that holds it. A computer being reset
+  still answers `409 sandbox_reset_pending`, which says more.
+
+- An attach that lands in the moment between Fountain taking a computer for a
+  teardown and the teardown blocking new work is now refused as well (#2344,
+  ADR 0058). Until now such an attach could win by a fraction of a second, and
+  the teardown would find a conversation on the computer and stand down. The
+  computer is taken once, and the retry lands on a settled one.
+
+- A schedule that could not run because Fountain was working on its teammate's
+  computer now says so on the schedule, and waits and fires again inside its
+  window instead of giving up on the firing (#2344).
+
+- A `503 sandbox_unavailable` now carries a `message` as well as its `error`
+  code (#2344, ADR 0058). Every source of that answer gains it: a request whose
+  conversation is no longer attached to the computer it named, a teardown of a
+  computer another teardown is already running, and the wake and attach above.
+  The sentence names no cause, because those three do not share one — only the
+  outcome, that the computer will not take the request now and may later.
+  Deleting a computer keeps the fuller sentence it already had. Nothing about
+  the status code, the `Retry-After` header or the `error` code changes, and no
+  API contract moves; a client that reads only `error` sees nothing new.
+
+- **An exhausted ChatGPT account no longer blocks Codex** (#2362). When a
+  codex turn on the deployment's ChatGPT account fails with the account's
+  usage limit, that turn still fails, and Fountain asks ChatGPT for the
+  account's usage with the account's own token (at most once every five
+  minutes). Only when ChatGPT confirms the limit do new codex conversations
+  run on `PLATFORM_OPENAI_API_KEY` until ChatGPT's reset time, billed per
+  token under the daily ceiling. An error reported from a sandbox alone
+  changes nothing. The switch applies to new sandboxes only: a persistent
+  home stays bound to the credential it started on, so at the limit and
+  again at the reset, persistent launches onto it return
+  `409 codex_inference_conflict` and its parked conversations return
+  `409 inference_source_changed`. Use `sandbox_mode: ephemeral`, or reset the
+  home with `DELETE /api/sandboxes/{id}`, to run on the new selection.
+  `/admin/inference` shows the limit and its reset time,
+  and an `admin.platform_chatgpt.exhausted` event is recorded. Reconnecting
+  the same account keeps the reset time; a different account clears it.
+
+- Added provider and runner diagnostics for the sandbox-files lifecycle
+  investigation, including a live Sprites descendant-termination counterexample,
+  reproducible timeout gaps and an implementation handoff.
+  The live probe attempts identity-checked cleanup if post-create bookkeeping fails.
+  This does not change file-read behavior or fix #2394.
+
+### Fixed
+
+- **The deployed suite's `secrets` profile can pass** (#1614). It had never
+  passed against a real deployment, and three checks it had never reached were
+  stale:
+  - it required curl exit 56 for a blocked destination, where current curl
+    reports the same refused `CONNECT 403` as exit 7;
+  - it required the binding placeholder to appear unredacted in durable output,
+    which Fountain's redaction of every sandbox environment value rules out;
+  - it located the allowed egress row by URL path, which the broker has stored
+    as `/[REDACTED]` since #2132.
+
+  Each now checks the signal that actually carries the meaning — the proxy's
+  CONNECT answer, the script's own completion, the per-run receiver hostname —
+  and none of the substituted evidence was already unproven elsewhere. A missing
+  durable-output marker now names which one is missing.
+
+- **The deployed suite's `webhooks` profile can pass** (#1616). It had never
+  passed against a real deployment. Its receiver refused every real delivery,
+  because Fountain's webhook envelope gained `labels` in #1637 and the receiver
+  checks the envelope's exact keys. That check is kept exact on purpose — the
+  envelope promises "ids, a stage, a status, a duration, the labels. Nothing
+  else, ever", and a receiver that tolerated added fields would miss content
+  arriving in a webhook — so `labels` is now expected and bounded as Fountain
+  bounds it. The profile also compared the payload against a conversation
+  stream frame, which leaves `duration_ms` out by contract; it now compares
+  against the durable event.
+
+- Shared sandbox wakes hold the broker setup lock through sudoers installation and Git configuration, preventing concurrent setup from colliding on those files (#1671).
+
+- The sandbox reaper now finishes a teardown that fenced and then died before
+  its terminal write. Such a row was invisible to every reaper pass while it
+  went on consuming a tenant's concurrent-sandbox slot and a fleet slot, with
+  the machine still billing at the provider (#2021). That includes a row whose
+  account was deleted before the teardown finished: a sandbox whose owner is
+  gone can now still be retired, and a row the reaper cannot retire is logged
+  and skipped instead of stopping machine cleanup for every tenant.
+
+- A conversation server reattaching after a restart no longer interrupts a
+  turn that is running on a replacement sandbox. Its give-up path now writes
+  only while it still holds the conversation's binding (#2021).
+
+- A runner whose registration fails validation is now told why (#2332).
+  `GET /api/runners/ws` rendered a rejected changeset through a view, but the
+  route carries no `:accepts_json` — deliberately, since a WebSocket client
+  sends no JSON `Accept` — so `render/3` raised and the daemon saw
+  `connect: HTTP 500` and reconnected forever with nothing to act on. It now
+  answers the usual `validation_failed` body. Reachable by passing
+  `fountain runner --name` a name that is not `[a-z0-9][a-z0-9._-]{0,62}`;
+  the default name is derived from the hostname and is always valid.
+
+- Account, Security, Audit log, Help and every Admin page now follow dark
+  mode (#2340). Those pages predated the console's CSS-variable theme
+  (`assets/css/tokens.css`) and were still built on literal Tailwind
+  `bg-white` / `border-zinc-*` / `text-zinc-*` classes, which render the same
+  color in both themes. `<body>`'s text color *is* tokenized, so any
+  unstyled text inside one of those cards inherited dark mode's near-white
+  primary color while the card itself stayed white — pale, near-invisible
+  text on a card that never left light mode. Switched the affected classes
+  to the `var(--color-*)` arbitrary-value convention `dashboard_live/index.ex`
+  already uses.
+- Help prose now follows the selected console theme even when it differs
+  from the operating system's theme. Expired-export messages remain readable
+  in both light and dark mode.
+
+- One computer that refuses to be written no longer stops the hourly pass that
+  releases computers stuck mid-provision for every computer after it (#2344,
+  #2329). The refused one is logged and left for the next pass.
+
+- An abandoned deletion is now finished properly rather than half-finished
+  (#2344, #2021). The hourly pass that cleans these up used to mark the
+  computer deleted in Fountain and leave the machine at the provider for a
+  later pass; it now deletes the machine on the same run, through the same door
+  every other deletion goes through. So the trail records `sandbox.destroyed`
+  with the same reason the original request gave — the reason the deletion
+  recorded on the computer when it started, not a generic one — beside the
+  `sandbox.teardown_reconciled` that says the pass had to finish it, and the
+  usage record closes at the moment the computer really stopped. A computer the
+  pass cannot reach is counted in the run's `refused` total and left for the
+  next run.
+
+- A computer whose deletion was abandoned is no longer left behind indefinitely
+  on a busy instance (#2344). The hourly reaper spends one allowance of
+  provider deletions per run, and ordinary expiries could consume all of it
+  before the abandoned deletions were reached — so on an instance with a
+  standing backlog of expiring computers, an abandoned deletion of an
+  *ephemeral* computer had no route to completion at all: it kept billing, kept
+  holding a slot against your concurrent computer limit, and answered `409` to
+  every prompt. Each run now guarantees them a small
+  allowance of their own, on top of what ordinary reclamation spends, so a
+  backlog delays that work rather than preventing it.
+
+- Fountain's cleanup pass can no longer park a computer that a prompt has just
+  woken (#2307, #2344). Its decision that a computer was idle was made before
+  it began, and nothing re-checked it: a prompt landing in between could find
+  its computer suspended out from under it, or leave the row saying `ready` for
+  a computer that had been parked. Every condition the decision rested on — who
+  is on the computer, whether a turn is running, whether a wake has just
+  started a session on it, and how long it has been quiet — is now re-read at
+  the moment the computer is taken, and the park stands down if any of them has
+  changed.
+
+- A failed start no longer leaves a computer reserved against the account's
+  limit when only part of it could be cleaned up (#2344). When a conversation's
+  process will not start at all, Fountain marks the conversation and its
+  computer failed; the two are now done in an order where an interruption
+  between them leaves the conversation to repair itself on its next prompt,
+  rather than leaving a reserved computer nothing would collect for an hour.
+
+- **A flag that gates a built feature now says so when PostHog is not
+  evaluating it** (#2347). `Fountain.FeatureFlags` fails closed, so a flag
+  missing from PostHog's answer read exactly like a flag deliberately turned
+  off, and silently switched the feature off for every account. A flag being
+  evaluated comes back in the answer even when it says no, so Fountain now
+  logs an error naming the flag when one it treats as built is absent, once
+  per minute. The log says what was observed rather than guessing a cause:
+  no flag has that key, a flag has it and is switched off, or its evaluation
+  runtime excludes the call. An answer PostHog marks as incomplete, one kept
+  from before an outage, and a failed lookup are never used to draw that
+  conclusion. It still fails closed; nothing about who has a feature changes.
+
+- The deployed-instance suite no longer corrupts its own report when a
+  `secrets` run fails (#1612). Findings live under a key the credential
+  heuristic matched, so the whole block was replaced with `[REDACTED]` and
+  every string inside it — including a leak record's `transport: "sse"` —
+  became a redaction token. A run then rewrote `passed` to `pa[REDACTED]d`
+  in `result.json`, leaving check statuses outside their own enum and the
+  failure counts in `junit.xml` wrong. The report now has registered secrets
+  removed from its strings without the key-name guessing, which still applies
+  to the responses an instance sends.
+
+- The suite no longer retains a malformed instance's structured
+  `info.version` in its report. That document is fetched without body
+  recording, so the value never crossed a redaction boundary; the report now
+  keeps it only when it is the version scalar it is declared to be (#1612).
+
+- **A brokered credential no longer appears in conversation output.** A secret
+  bound to an egress binding is deliberately kept out of the sandbox: the
+  broker swaps it for a placeholder and injects the real value at the proxy
+  (ADR 0019). Output redaction is built from what the sandbox environment
+  holds, so the one credential the sandbox never holds was the one value never
+  scrubbed. An upstream that echoed the header back — a debug endpoint, a
+  verbose error, a request mirror — returned it as ordinary tool output, and
+  that was persisted verbatim in the conversation's log events and served on
+  its stream. Brokered values are now registered for redaction alongside the
+  sandbox environment, so an echoed credential reads `[REDACTED]` like any
+  other secret.
+
+  That holds after a rotation too. Editing a bound vault secret or refreshing
+  a connection token takes effect on a running conversation's next turn, and
+  that refresh now registers the new value before the broker can inject it.
+  A conversation also keeps redacting every credential it has held until it
+  ends, so output produced under the old value is still scrubbed if it
+  arrives after the rotation.
+
+  This affects any deployment with brokered egress and at least one secret
+  binding, and was found by the deployed-instance suite's `secrets` profile
+  running against production (#1614). It is not a cross-tenant disclosure: the
+  conversation, its events and its stream are scoped to the account that owns
+  the credential. What it fixes is the credential sitting in plaintext in
+  `log_events` — a table without the envelope encryption the secret itself
+  has — and being served through the conversation's history and stream, to
+  the Conversations app and to anything else reading output through Fountain.
+
+  **What it does not change:** the agent itself still sees an echoed
+  credential. The echo arrives inside the sandbox, where the runtime reads the
+  tool's output and hands it to the model before Fountain persists anything,
+  and redaction applies only at that later point. Brokering keeps a credential
+  out of the sandbox's environment and files; it cannot stop an upstream from
+  handing that credential back to the agent in a response. Bind a secret only
+  to hosts that do not return it.
+
+- Streaming output is no longer delayed by a conversation's own identifiers.
+  The redaction registry now holds the conversation's secrets alone — the
+  environment and vault values, the inference credential, the callback token,
+  the brokered credentials and the broker session token — instead of the whole
+  sandbox environment, so a reply chunk waits only when it could begin a
+  secret. A conversation id, a sandbox id, a sandbox URL or a broker
+  placeholder printed by an agent is no longer shown as `[REDACTED]` (#2366).
+
+- When a sandbox cannot accept a prompt, the CLI and editor now say the prompt was not started and can be sent again shortly, instead of reporting a sandbox reclaim. One-shot CLI commands exit with an error for these refusals (#2371).
+
+- Raw stdout/stderr containing invalid UTF-8 or NUL bytes no longer crashes
+  the conversation server. Unrepresentable bytes are shown as `?`; a Unicode
+  character split across log rows is replaced in each row (#2372).
+
+- **A prompt that wakes a parked conversation keeps its images** (#2373).
+  `POST /api/conversations/{id}/prompts` accepts `images`, and a conversation
+  with a live server got them. One with no server — parked, or in the gap
+  after a deploy — was woken first, and the wake delivered the prompt text
+  without them: the turn opened with no images while the request answered
+  `200 {"status":"queued"}` and the `conversation.prompted` audit row recorded
+  the real `image_count`. Both roads now carry the images to the turn.
+
+- A queued conversation start now delivers its prompt if another request bound
+  its `channel_id` while it waited, preserving `client_request_id` and queue
+  attribution. A queued prompt with a nonempty permission override fails before
+  resumed delivery; a fresh launch preserves that override. Busy conversations
+  and temporary wake failures leave the request queued for a later pass. A prompt
+  call timeout or node disconnect records
+  `prompt_delivery_unknown` and the target conversation, without automatically
+  resending a prompt that may still execute. Other terminal delivery failures
+  are recorded instead of reporting a successful start (#2378).
+
+- Changing a persistent agent's runtime now selects a separate computer for the new runtime instead of repeatedly refusing launches. The previous computer and its disk remain available when the agent returns to that runtime. Explicitly attaching to a computer built for another runtime still refuses and explains how to start fresh or reset it (#2379).
+
+- **Three supervised processes no longer crash on a message they do not
+  match** (#2380). Defining any `handle_info/2` or `handle_cast/2` clause
+  removes the one `use GenServer` supplies, so the execution deadline worker,
+  the native broker's request log and the analytics sink were taken down by an
+  unrelated monitor, a linked process exiting or a cast from a later release.
+  Each now logs the message's shape and continues, keeping its in-flight jobs,
+  its buffered egress rows and its queued events. A new guardrail test holds
+  the rule for the rest of the server.
+
+- The conversation response schema now declares the existing `meta.resumed` flag used by SDKs when resuming a channel (#2388).
+
+- The CLI can send `client_request_id` with `fountain run --client-request-id`
+  and `fountain conv prompt --client-request-id`. The ACP bridge accepts
+  `_meta.clientRequestId` on each `session/prompt`, so editors can correlate
+  their submissions with the resulting turns (#2389).
+
+- A stale conversation actor can no longer release a conversation after it moves to another sandbox, including while the replacement is idle (#2392).
+
+- Delayed attach, provisioning failures, and provision watchdogs no longer overwrite a conversation after it moves to a replacement sandbox or announce a stale terminal failure. Autonomous turn admission also leaves a later replacement's status intact (#2393).
+
+- Runner one-shot commands now kill their process group on timeout or parent exit, and stop waiting after 250 ms if an escaped descendant retains the output pipe (#2394). Background work must use a streaming session. Process-group escape and recovery after daemon loss still require further work before file reads can safely coordinate with park/delete.
+
+- Sprites and E2B commands with finite execution timeouts no longer extend
+  their local output-collection deadline when stdout or stderr keeps arriving
+  (#2394). This dependency update also makes explicit Sprites force termination
+  available for follow-up work; it does not yet coordinate file reads with
+  park/delete or confirm remote command termination after a local timeout.
+
+- A turn no longer fails when the agent runtime crashes while starting
+  (#2402). If a native crash (such as SIGSEGV) kills the adapter before it
+  writes any output, Fountain starts it once more under the same turn. No
+  prompt was sent before the crash, so the retry cannot run the prompt twice.
+  The transcript records a `session` stage with `event: "restarted"` and
+  `reason: "adapter_crashed"`. A second crash fails the turn with its exit code,
+  as before. Turns with execution limits are not retried.
+
+- The prompt API's 409 response description now covers sandboxes being reset or
+  deleted (#2406).
+
+### Security
+
+- **Secret redaction now holds when output splits a value across chunks**
+  (#2359). Before this fix, redaction checked each stored output chunk
+  separately. A registered secret split between two chunks matched neither
+  chunk, so both halves were stored and streamed as plain text. This happened
+  in a model's streamed reply and in raw stdout or stderr. A turn's stored
+  reply text, which the search API returns, then held the whole value. Output
+  whose end could be the start of a secret is now held until the next chunk
+  arrives. Other output is written without delay.
+- A secret containing a quote, a backslash or a newline, such as a PEM key, is
+  now redacted in agent protocol output (#2359). That output is stored as
+  JSON, so these characters are escaped, and redaction did not recognise the
+  escaped form.
+
 ## [0.19.0] - 2026-09-15
 
 ### Upgrade notes

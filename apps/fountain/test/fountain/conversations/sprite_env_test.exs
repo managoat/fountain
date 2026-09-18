@@ -387,6 +387,81 @@ defmodule Fountain.Conversations.SpriteEnvTest do
       assert RedactionCarry.empty?(carry)
     end
 
+    # Review of #2396: a placeholder is recognised by the broker's own account
+    # of what it replaced, never by the shape of the value. A tenant may store
+    # `__password__` as a password, and unbrokered it is a secret like any
+    # other — dropping it would put it in `log_events` in plaintext.
+    test "an unbrokered secret that looks like a placeholder is still a secret" do
+      conv_id = Ecto.UUID.generate()
+      on_exit(fn -> Redaction.delete(conv_id) end)
+
+      # No binding and not a catalog key: the split leaves it alone and
+      # brokers nothing.
+      {sandbox_secrets, brokered} = Broker.split(%{"PASSWORD" => Broker.placeholder("PASSWORD")})
+      assert sandbox_secrets == %{"PASSWORD" => "__password__"}
+      assert brokered == %{}
+
+      SpriteEnv.build(nil, nil, sandbox_secrets,
+        runtime_module: SilentRuntime,
+        env_credentials: %{},
+        callback_token: nil,
+        conversation_id: conv_id,
+        sandbox_id: nil,
+        broker_credentials: brokered
+      )
+
+      assert "__password__" in Redaction.lookup(conv_id)
+      assert Redaction.redact(conv_id, "PASSWORD=__password__") == "PASSWORD=[REDACTED]"
+    end
+
+    # Review of #2396: the broker keys its map by its own name for a
+    # credential, and a runtime may export that credential under another.
+    # opencode reads a Google key as `GOOGLE_GENERATIVE_AI_API_KEY` while the
+    # broker holds it as `GEMINI_API_KEY`, so the placeholder in the env is
+    # `AIza__gemini_api_key__` and matching on the exported name missed it.
+    test "a brokered credential exported under a runtime's own alias is still a placeholder" do
+      conv_id = Ecto.UUID.generate()
+      on_exit(fn -> Redaction.delete(conv_id) end)
+
+      {env_credentials, brokered, _implicit} =
+        Broker.split_inference(%{gemini_api_key: "AIzaSy_the_real_gemini_secret"})
+
+      placeholder = Broker.placeholder("GEMINI_API_KEY")
+      assert env_credentials == %{gemini_api_key: placeholder}
+      assert brokered == %{"GEMINI_API_KEY" => "AIzaSy_the_real_gemini_secret"}
+
+      sprite_env =
+        SpriteEnv.build(%{model: "google/gemini-2.5-pro"}, nil, %{},
+          runtime_module: Managoat.Runtimes.OpenCode,
+          env_credentials: env_credentials,
+          callback_token: nil,
+          conversation_id: conv_id,
+          sandbox_id: nil,
+          broker_credentials: brokered
+        )
+
+      # The alias is what opencode reads, and it carries the broker's key.
+      assert {"GOOGLE_GENERATIVE_AI_API_KEY", placeholder} in sprite_env
+
+      registered = Redaction.lookup(conv_id)
+      assert "AIzaSy_the_real_gemini_secret" in registered
+      refute placeholder in registered
+
+      assert Redaction.redact(conv_id, "GOOGLE_GENERATIVE_AI_API_KEY=#{placeholder}") ==
+               "GOOGLE_GENERATIVE_AI_API_KEY=#{placeholder}"
+
+      # `AIza__` begins the placeholder and no registered value, so the chunk
+      # goes out as it arrived. A chunk ending where the real key begins is
+      # still held.
+      chunk = "public placeholder AIza__"
+
+      assert {[{"stdout", ^chunk}], carry} =
+               RedactionCarry.feed(RedactionCarry.new(), conv_id, "stdout", chunk)
+
+      assert RedactionCarry.empty?(carry)
+      assert {[], _held} = RedactionCarry.feed(RedactionCarry.new(), conv_id, "stdout", "key: A")
+    end
+
     test "a run with no broker registers exactly what it did before" do
       conv_id = "conv-#{System.unique_integer([:positive])}"
       on_exit(fn -> Redaction.delete(conv_id) end)

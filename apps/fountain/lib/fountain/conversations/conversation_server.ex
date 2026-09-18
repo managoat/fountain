@@ -1158,7 +1158,7 @@ defmodule Fountain.Conversations.ConversationServer do
     # fix injects prints in plaintext into `log_events`. The credentials this
     # env exports, not the env whole (#2366); the refused OAuth token is still
     # in the sprite's `/home/sprite/.env`, and `add/2` never forgets it.
-    creds = SpriteEnv.exported_credentials(fallback_env, state.env_credentials)
+    creds = SpriteEnv.exported_credentials(fallback_env, state.env_credentials, state.brokered)
     Redaction.add(state.conversation_id, creds ++ Map.values(state.brokered))
 
     state = %{

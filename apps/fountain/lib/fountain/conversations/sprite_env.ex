@@ -161,13 +161,26 @@ defmodule Fountain.Conversations.SpriteEnv do
   # conversation. Environments would need a secret/non-secret distinction of
   # their own before this could drop them (#2366).
   defp secret_values(sprite_env, secrets, plain, proxy, broker_credentials, opts) do
-    credentials = exported_credentials(sprite_env, Keyword.fetch!(opts, :env_credentials))
+    credentials =
+      exported_credentials(
+        sprite_env,
+        Keyword.fetch!(opts, :env_credentials),
+        broker_credentials
+      )
 
     # A brokered key's value here is the placeholder `Broker.split/2` left in
     # its place, and the credential it stands for arrives in
-    # `broker_credentials` below. The placeholder is generated from the key
-    # and is not a secret (`Broker.placeholder?/2`).
-    tenant_secrets = for {key, value} <- secrets, not Broker.placeholder?(key, value), do: value
+    # `broker_credentials` below.
+    #
+    # Provenance decides, not shape. `broker_credentials` is the map the split
+    # produced, so a key in it is a key the broker took custody of, and only
+    # such a key's value can be a stand-in. A tenant is free to store
+    # `PASSWORD=__password__`; unbrokered, that is a secret like any other and
+    # stays registered, which testing the value's shape alone would get wrong.
+    tenant_secrets =
+      for {key, value} <- secrets,
+          not (Map.has_key?(broker_credentials, key) and Broker.placeholder?(key, value)),
+          do: value
 
     # The proxy variables carry the broker session token inside a URL. The
     # token is the secret; the URL around it is public, and registering it
@@ -193,25 +206,44 @@ defmodule Fountain.Conversations.SpriteEnv do
   `ConversationServer` registers through here too, for the API key it injects
   when a provider refuses a subscription.
 
-  A brokered credential is exported as `Broker.placeholder/1` and is not one
-  of these either: `split_inference/2` put the value itself in the brokered
-  map, which `build/4` registers, and the sandbox holds a string generated
-  from the key.
+  A brokered credential is not one of these either: `split_inference/2` put
+  the value itself in `brokered`, which `build/4` registers, and left the
+  runtime a string generated from the broker's own key name. Pass that map as
+  `brokered` and each credential in it is matched against the placeholder for
+  **its** key, not for the name it is exported under: opencode reads a Google
+  key as `GOOGLE_GENERATIVE_AI_API_KEY` while the broker holds it as
+  `GEMINI_API_KEY`, so comparing against the exported name left
+  `AIza__gemini_api_key__` in the registry.
 
   Every credential reaches a sprite through this list. One that ever reaches
   it another way — as a brokered value does, which `build/4` registers
   explicitly — has to be registered where that happens.
   """
-  @spec exported_credentials([{String.t(), String.t()}], map()) :: [String.t()]
-  def exported_credentials(sprite_env, env_credentials) do
-    exported =
-      for {key, value} <- sprite_env,
-          is_binary(value),
-          not Broker.placeholder?(key, value),
-          into: MapSet.new(),
-          do: value
+  @spec exported_credentials([{String.t(), String.t()}], map(), map()) :: [String.t()]
+  def exported_credentials(sprite_env, env_credentials, brokered \\ %{}) do
+    exported = MapSet.new(sprite_env, fn {_key, value} -> value end)
+    stand_ins = credential_placeholders(brokered)
 
-    env_credentials |> Map.values() |> Enum.filter(&MapSet.member?(exported, &1))
+    for {credential, value} <- env_credentials,
+        is_binary(value),
+        value != Map.get(stand_ins, credential),
+        MapSet.member?(exported, value),
+        do: value
+  end
+
+  # What each brokered inference credential carries in the sandbox, by
+  # credential rather than by env name. `Broker.inference_keys/0` maps the
+  # broker's key names to the credentials they hold, and `placeholder/1` is
+  # generated from the key, so this is the broker's own account of what it
+  # replaced — never a guess from the value's shape.
+  defp credential_placeholders(brokered) do
+    inference = Broker.inference_keys()
+
+    for {key, _value} <- brokered,
+        key = to_string(key),
+        credential = Map.get(inference, key),
+        into: %{},
+        do: {credential, Broker.placeholder(key)}
   end
 
   def without_inference_inputs(model, inputs) do

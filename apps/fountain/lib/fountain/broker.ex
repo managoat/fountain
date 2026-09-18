@@ -242,8 +242,12 @@ defmodule Fountain.Broker do
   sandbox, and the broker puts it back on the way out. So a placeholder is
   left out of the redaction registry, where it would hold back every chunk of
   output ending in `_` and print the agent's own `__github_token__` back as
-  `[REDACTED]` (#2366). Keyed rather than pattern-matched, so a tenant secret
-  that happens to look like one is still a secret.
+  `[REDACTED]` (#2366).
+
+  This answers "is this the placeholder for that key", and nothing more. It is
+  not evidence that the broker replaced anything: an unbrokered secret is free
+  to hold `__password__`, and it is still a secret. A caller asks this only of
+  a key the broker's own map says it took custody of.
   """
   @spec placeholder?(String.t(), term()) :: boolean()
   def placeholder?(key, value) when is_binary(key) and is_binary(value),

@@ -40,10 +40,9 @@ defmodule Fountain.SpritesExecutionProbe do
 
     case Req.post(req, url: "/v1/sprites", json: %{name: name}) do
       {:ok, %{status: status, body: %{"id" => id}}} when status in 200..299 ->
-        File.write!(record, Jason.encode!(%{name: name, id: id, status: "created"}))
-        emit(%{event: "created", name: name, id: id})
-
         try do
+          File.write!(record, Jason.encode!(%{name: name, id: id, status: "created"}))
+          emit(%{event: "created", name: name, id: id})
           probe(Adapter.build_handle(name))
         after
           cleanup(req, name, id, record)

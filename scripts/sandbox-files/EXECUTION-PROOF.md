@@ -72,6 +72,18 @@ passing means the existing gaps were reproduced. When production behavior is
 fixed, these expectations should fail: replace them with ordinary correctness
 regressions rather than weakening the new behavior to retain this result.
 
+The live probe's cleanup has a separate offline correctness regression:
+
+```sh
+MIX_ENV=test mise exec -- mix run --no-start scripts/sandbox-files/sprites_cleanup_test.exs
+```
+
+Its two cases force a real recovery-file write failure after a stubbed successful
+creation. They verify that cleanup still checks the resource ID, deletes the
+owned resource and confirms its absence, while refusing to delete a different
+incarnation. No provider resource or credential is used. Passing these cases
+means the cleanup safeguards hold, rather than that a production gap persists.
+
 ## Live Sprites counterexample
 
 The opt-in [Sprites probe](sprites_execution_probe.exs) used the same locked

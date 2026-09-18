@@ -32,7 +32,7 @@ listed under "Where the code differs" with their reasons. The flag that could ru
 on 2026-09-18. The fence columns the owner replaced, `reset_requested_at` and
 `teardown_requested_at`, were dropped two releases later: v0.20.0 ships the
 owner with the columns unread, v0.20.1 stamps the fences v0.19.0 left in
-them, and the release after that drops them. A `destroying` stamp
+them, and the release after that stamps any written since and drops them. A `destroying` stamp
 on the row now carries a request to destroy a machine. It survives the death
 of any owner, and a five-minute pass of the reaper finishes it.
 
@@ -56,7 +56,7 @@ of any owner, and a five-minute pass of the reaper finishes it.
 | — | The gate turned on in production | home-cloud#233 | 2026-09-17 |
 | 9a | `destroying` is the one durable transition; the reaper's teardown pass drives abandoned ones | #2386 | `e2241a146` |
 | 9b-i | The gate deleted; one driver; the fence columns unread | #2423 | `9816560d4` |
-| v0.20.1 | The fences v0.19.0 wrote only to the columns, stamped `destroying` by a backfill migration | #2427 | `56d55bbbd` |
+| v0.20.1 | The fences v0.19.0 had written only to the columns, stamped `destroying` by a backfill migration that 9b-ii runs again before the drop | #2427 | `56d55bbbd` |
 | 9b-ii | The fence columns dropped; the reconciler's shim deleted; this Outcome | this PR | — |
 
 ### The ratchet
@@ -115,7 +115,11 @@ missed. So 6b's 26 is 29 minus three writes. It is not 21 plus five.
   self-hosted instance upgrading from it could carry a pending deletion or
   reset that v0.20.0 could not see, and this stage's drop would have erased
   the last record of it. The review of 9b-ii found this. v0.20.1's backfill
-  (#2427) stamps those rows before the drop, and the drop waited for it.
+  (#2427) stamps those rows, and the drop waited for it. A second review
+  found the backfill alone was not enough: on a rolling upgrade, a v0.19.0
+  replica still serving after it ran can write a new column-only fence. So
+  9b-ii's drop runs the same backfill again, immediately before it drops the
+  columns.
 
 ### Where the code differs from the Decision text
 
@@ -140,11 +144,17 @@ missed. So 6b's 26 is 29 minus three writes. It is not 21 plus five.
     under their own locks. Queueing one behind a cotenant's minute-long park
     would hold a server's shutdown path in a call. A release also refuses an
     enclosing transaction.
-  - **Writes inside the caller's locked transaction** — `retarget` and
-    `bind_inference`. Each is one row write inside a transaction that already
-    holds the machine's advisory lock (a reapply, an inference reservation). A
-    hop through the process would have its transaction wait on that lock while
-    the caller waited on the reply.
+  - **Writes under the machine's advisory lock, taken where they run** —
+    `retarget` and `bind_inference`. `bind_inference` is one row write that
+    requires the caller's transaction, which already holds the lock (an
+    inference reservation). `retarget` has two callers. A reapply calls it
+    inside its own locked transaction, and it writes there. A reattach's skills
+    record (`Reapply.mount_skills/3`) calls it with no transaction, and it
+    takes the lock itself. For the reapply and the inference reservation, a
+    hop through the process would have the caller's transaction wait on that
+    lock while the caller waited on the reply. The reattach's call is not
+    inside a transaction, so that reason does not apply to it; it runs on the
+    caller because it is the same function.
 - **"Four liveness predicates become one" became one reading behind four
   doors.** `_unsafe_sandbox_busy_elsewhere?/4`, `Binding.held_by_other?/2`,
   `Lifecycle.live_conversation_ids/1` and `_unsafe_list_cotenant_ids/2` all read
@@ -213,13 +223,20 @@ missed. So 6b's 26 is 29 minus three writes. It is not 21 plus five.
   shipped in v0.20.0, so a v0.19.0 instance wrote its fences to the columns
   alone, which v0.20.0 does not read. v0.20.1's backfill migration (#2427)
   stamps `destroying` on such a row, and the reaper's five-minute run
-  finishes it. It skips one kind on purpose: a reset on a machine that has run
-  a turn since the request, because finishing it would wipe the work done
-  since. It logs that row's id, and the drop discards the request. The
-  backfill's version sorts before 9b-ii's drop, so it runs first on every
-  database, including an upgrade straight from v0.19.0 that runs both.
-  v0.20.1 (#2433) was released, and hosted production ran the backfill,
-  before 9b-ii merged.
+  finishes it. v0.20.1 (#2433) was released, and hosted production ran the
+  backfill, before 9b-ii merged.
+- **9b-ii's drop runs the backfill again first.** The backfill runs when the
+  first v0.20.1 replica migrates, and on a rolling upgrade a v0.19.0 replica
+  can still write a column-only fence after that. The drop's migration copies
+  the backfill's SQL and runs it immediately before it drops the columns, in
+  the same transaction. So every column-only fence is stamped before the
+  columns go, however the upgrade is rolled. The one request discarded is a
+  reset on a machine that has run a turn since the request. Both runs skip it
+  on purpose, because finishing it would wipe the work done since, and log
+  its id. Only the machine's owner can reset it again. The same migration
+  deletes queued jobs of the removed `SandboxResetReconciler`, which a
+  stop-the-world upgrade straight from v0.19.0 could otherwise bring with no
+  module to run them.
 - **A canary alert watches the five-minute teardown run.**
   `FountainReaperTeardownsSilent` (jhgaylor/home-cloud#234) fires when
   `fountain_reaper_teardowns_reconciled` has been absent for 30 minutes. Its
@@ -399,8 +416,10 @@ reader, refused regardless of lease, kept by `Lease.cas_update/4` through any
 write that does not retire the row — and its completion is *driven*:
 `Destroy.run/2` already continues from a `destroying` stamp on claim, and
 `SandboxReaper.sweep_fenced_teardowns/0` became the thing that calls it on a row
-whose lease is dead. Every fence writer stamps it in the same commit as the
-columns, so no row records the intent in a column alone before 9b drops them.)
+whose lease is dead. Every fence writer from 9a on stamps it in the same
+commit as the columns. A v0.19.0 replica, which predates 9a, writes the
+columns alone. v0.20.1's backfill stamps those rows, and 9b-ii's drop runs
+it again first, so none is dropped with the columns.)
 
 ### The verbs
 
@@ -454,7 +473,8 @@ the flip, under the migration and changelog rules in CONTRIBUTING.
 (As built: the gate was turned on in production on 2026-09-17 and deleted by
 stage 9b-i a day later, which shipped in v0.20.0 with the columns unread. The
 fence columns were dropped by 9b-ii in the release after v0.20.1, whose
-backfill stamped the fences v0.19.0 had written to them alone. See the
+backfill stamped the fences v0.19.0 had written to them alone. The drop
+runs that backfill again first. See the
 Outcome.)
 
 ## Consequences
@@ -472,7 +492,8 @@ deleted but became the one driver for an abandoned destroy, and
 9a wrote both the stamp and the columns, 9b-i stopped reading the columns, and
 9b-ii dropped them two releases later rather than in the same PR. The
 window 9a opened had one more side than the plan saw: the release before 9a
-wrote only the columns, which v0.20.1's backfill covers. The one shape
+wrote only the columns. v0.20.1's backfill covers what it wrote before the
+upgrade, and the drop's re-run of it covers what it wrote during one. The one shape
 that can outlive a window is a *terminal* row still wearing the stamp;
 `Machines.Destroy`'s `already_terminal` clause clears it.
 

@@ -249,14 +249,13 @@ defmodule Fountain.Conversations.ProvisioningTest do
                  "sudo update-ca-certificates && " <>
                  "{ [ \"$safe\" = 1 ] && sudo sh -c " <>
                  "'sha256sum '\\''#{bundle}'\\'' > '\\''#{marker}'\\''' " <>
-                 "|| true; }; } " <>
-                 ") 9>'/tmp/fountain-broker-ca.lock' && " <>
+                 "|| true; }; } && " <>
                  "printf '%s\\n' 'Defaults env_keep += \"HTTPS_PROXY HTTP_PROXY https_proxy http_proxy " <>
                  "NO_PROXY NODE_EXTRA_CA_CERTS SSL_CERT_FILE REQUESTS_CA_BUNDLE CARGO_HTTP_CAINFO " <>
                  "UV_NATIVE_TLS\"' > '/tmp/fountain-broker-proxy.sudoers' && " <>
                  "sudo visudo -cf '/tmp/fountain-broker-proxy.sudoers' && " <>
                  "sudo install -m 440 '/tmp/fountain-broker-proxy.sudoers' '/etc/sudoers.d/fountain-broker-proxy' && " <>
-                 "git config --global http.proxyAuthMethod basic"
+                 "git config --global http.proxyAuthMethod basic ) 9>'/tmp/fountain-broker-ca.lock'"
     end
 
     @tag :tmp_dir
@@ -264,7 +263,9 @@ defmodule Fountain.Conversations.ProvisioningTest do
            unless(@posix_trust_store,
              do: "needs GNU install -D, flock and sha256sum; runs on Linux"
            )
-    test "rebuilds only when needed and retries a failed rebuild", %{tmp_dir: tmp_dir} do
+    test "serializes broker setup and repairs the trust store only when needed", %{
+      tmp_dir: tmp_dir
+    } do
       conv = insert_conversation()
       test = self()
 
@@ -409,6 +410,61 @@ defmodule Fountain.Conversations.ProvisioningTest do
       assert File.read!(counter) == String.duplicate("rebuild\n", 4)
 
       Task.await(holder, 10_000)
+
+      # A wake also writes the shared sudoers drop-in and ~/.gitconfig.
+      # Pause the first caller in each operation, then make a second caller
+      # exhaust its lock wait. Releasing the lock after the CA rebuild lets
+      # the second caller enter the same operation and fail with exit 73.
+      for step <- ["visudo", "git"] do
+        ready = Path.join(tmp_dir, "#{step}-ready")
+        release = Path.join(tmp_dir, "#{step}-release")
+        gate = Path.join(bin, step)
+
+        File.write!(gate, """
+        #!/bin/sh
+        if [ ! -f "$TEST_CA_ROOT/#{step}-release" ]; then
+          mkdir "$TEST_CA_ROOT/#{step}-owner" 2>/dev/null || exit 73
+          touch "$TEST_CA_ROOT/#{step}-ready"
+          while [ ! -f "$TEST_CA_ROOT/#{step}-release" ]; do sleep 0.01; done
+        fi
+        """)
+
+        first = Task.async(run)
+
+        try do
+          assert Enum.reduce_while(1..500, false, fn _, _ ->
+                   if File.exists?(ready) do
+                     {:halt, true}
+                   else
+                     Process.sleep(10)
+                     {:cont, false}
+                   end
+                 end),
+                 "first setup never reached #{step}"
+
+          # Every real invocation stages its own PEM before taking the lock.
+          other_staging = staging <> ".contender"
+          File.write!(tmp_dir <> other_staging, pem)
+          other_cmd = String.replace(contended, staging, other_staging)
+
+          assert {_, 75} =
+                   System.cmd("bash", ["-c", other_cmd],
+                     env: [
+                       {"PATH", bin <> ":" <> System.fetch_env!("PATH")},
+                       {"TEST_CA_ROOT", tmp_dir}
+                     ],
+                     stderr_to_stdout: true
+                   )
+
+          refute File.exists?(tmp_dir <> other_staging)
+        after
+          File.touch!(release)
+          assert {_, 0} = Task.await(first, 10_000)
+          File.write!(gate, "#!/bin/sh\nexit 0\n")
+        end
+
+        assert {_, 0} = run.()
+      end
     end
 
     # The trap that removes the staging file runs inside bash, so an exec that

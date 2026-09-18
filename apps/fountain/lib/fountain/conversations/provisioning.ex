@@ -47,9 +47,8 @@ defmodule Fountain.Conversations.Provisioning do
 
   @env_file "/home/sprite/.env"
 
-  # One lock file for the machine, not for the conversation: what it
-  # serialises is `update-ca-certificates`, whose temporary bundle path is
-  # fixed and shared by every run on the sandbox.
+  # One lock file for the machine, not for the conversation: the trust
+  # bundle, sudoers drop-in and git config are shared by every setup.
   @ca_lock "/tmp/fountain-broker-ca.lock"
 
   @doc """
@@ -462,8 +461,11 @@ defmodule Fountain.Conversations.Provisioning do
       subshell's `EXIT` trap removes it, and the error arm removes it for an
       exec that never reached bash.
 
-  The work stays `&&`-chained, so its exit status is still what the caller
-  sees.
+  Hold that same lock through the sudoers install and git configuration.
+  They also write shared files: releasing it after the CA rebuild lets
+  concurrent wakes collide on the sudoers destination or `.gitconfig.lock`
+  (#1671). The work stays `&&`-chained, so its exit status is still what the
+  caller sees.
 
   It also pins git's `http.proxyAuthMethod` to `basic`. git defaults to
   `anyauth`, which by definition cannot send a credential until it has seen a
@@ -510,11 +512,11 @@ defmodule Fountain.Conversations.Provisioning do
         "sudo update-ca-certificates && " <>
         ~s({ [ "$safe" = 1 ] && sudo sh -c ) <>
         shell_quote(stamp) <>
-        " || true; }; } " <>
-        ") 9>#{shell_quote(@ca_lock)} && " <>
+        " || true; }; } && " <>
         sudo_env_keep_command() <>
         " && " <>
-        git_proxy_auth_command()
+        git_proxy_auth_command() <>
+        " ) 9>#{shell_quote(@ca_lock)}"
 
     with {:ok, pem} <- Fountain.Broker.ca_pem(),
          :ok <-

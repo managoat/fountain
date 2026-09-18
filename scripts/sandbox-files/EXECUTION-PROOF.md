@@ -20,6 +20,21 @@ proposal, not an approved schema.
 
 ## Baselines and evidence level
 
+Fountain's subsequent dependency update takes Sandbox 0.5.0, Runner 0.2.4
+and Runtimes 0.4.4. Sandbox 0.5.0 corrects the local Sprites/E2B collection
+counterexamples below: output cannot replenish the deadline, and elapsed
+startup time consumes the budget. Its ordinary correctness regressions live in
+[the library's deadline tests](https://github.com/managoat/managoat_sandbox/blob/09303b4891a9c6964ad288ae3d375d0c56a9d7b5/test/managoat/sandbox/exec_deadline_test.exs).
+This does not interrupt synchronous startup or prove remote termination.
+
+The results below remain **historical evidence for the explicitly named old
+pins**, not validation of the current dependencies. The opt-in characterization
+scripts are outside normal test discovery and required CI; their old-success
+assertions are deliberately preserved. In particular, the old delayed-start
+fixture lacks a local command PID because its original path never timed out.
+Do not run those old fixtures against 0.5.0 or weaken the corrected behavior to
+make them pass. Use the historical checkout below when reproducing this report.
+
 The executed probes use Fountain main `6870016c6` and its locked
 `managoat_sandbox` **0.3.0**, `managoat_runner` **0.2.2**, and `sprites` **0.2.2**.
 Local host: macOS; Elixir 1.19.2 / OTP 28; Go 1.26.5. The runner probe was also
@@ -52,17 +67,20 @@ bounded helper subprocess. They do not exercise a WebSocket or Firecracker VM.
 
 ## Reproduce without provider credentials
 
-Use the locked dependencies and toolchain as described in `SETUP.md`. From
-the Fountain repository root:
+Use the dependency lock and probes together from the proof's merged commit,
+which still pins Sandbox 0.3.0 and Runner 0.2.2. From a Fountain checkout:
 
 ```sh
+git worktree add --detach /tmp/fountain-2394-characterization 6fa0f1069
+cd /tmp/fountain-2394-characterization
+mise exec -- mix deps.get
 MIX_ENV=test mise exec -- mix run --no-start scripts/sandbox-files/execution_probe.exs
 python3 scripts/sandbox-files/run_runner_execution_probe.py
 ```
 
-The first command starts only Mimic, loads an isolated ExUnit suite and stubs
+The Elixir probe starts only Mimic, loads an isolated ExUnit suite and stubs
 the provider boundaries. It does not start Fountain or connect to the database.
-The second uses a temporary Go overlay to inject the probe into the runner's
+The Python command uses a temporary Go overlay to inject the probe into the runner's
 test package without adding it to normal test discovery. Its helper processes
 use temporary files, have a ten-second self-exit bound, and get a cleanup signal
 on test exit. The Go test itself is capped at twenty seconds.

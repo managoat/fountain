@@ -196,7 +196,32 @@ defmodule Fountain.SandboxFenceBackfillMigrationTest do
         assert destroyed.metadata["reason"] == "teardown"
         assert destroyed.actor == "system:sandbox_reaper"
         assert [] = audits(user, "sandbox.reset", teardown)
-        assert [_] = audits(user, "sandbox.teardown_reconciled", teardown)
+
+        # The label the backfill stored, as the teardown run read it. The
+        # destroyed event alone cannot show it: `Destroy.reason_from_string/1`
+        # answers `:teardown` for a null or unknown label too.
+        assert [reconciled] = audits(user, "sandbox.teardown_reconciled", teardown)
+        assert reconciled.metadata["transition_reason"] == "teardown"
+      end)
+    end
+
+    test "a reset fenced a minute before the upgrade is retried on the first run" do
+      # A reset has no grace window, so a recent request is not held back the
+      # way a recent teardown is.
+      with_sprites_credentials(fn ->
+        user = insert_verified_user()
+        reset = v019_row(user, "ready", "persistent", reset: 1)
+        destroys = capture_destroys()
+
+        run_migration(:up)
+
+        capture_log(fn ->
+          assert :ok = perform_job(SandboxReaper, %{"pass" => "teardowns"})
+        end)
+
+        assert Repo.get!(Sandbox, reset).status == "terminated"
+        assert destroys.() == [name(reset)]
+        assert [_] = audits(user, "sandbox.reset", reset)
       end)
     end
 

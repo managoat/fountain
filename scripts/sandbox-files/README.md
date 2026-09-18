@@ -166,12 +166,15 @@ the provider work.
 | Lost epoch or uncertain execution termination | Do not publish success or release another epoch; preserve the uncertainty until the defined cleanup/expiry boundary |
 | Worker/node death | The lease expires without renewal; reclaim using the documented boundary, with no callback or queued read replay |
 
-There is an implementation prerequisite hidden by today's `timeout: 30_000`:
-Sprites and E2B `exec` collectors restart the receive timeout on every output
-message. It is an inactivity timeout, not an absolute duration bound.
-Sprites kills its local command process at timeout; that alone is not remote
-termination evidence. Daytona's `exec` also calls `ensure_started`, relevant
-to the separate provider-wake decision in #2395.
+At this brief's original Sandbox 0.3.0 baseline, Sprites and E2B `exec`
+collectors restarted the receive timeout on every output message. Sandbox
+0.5.0 now uses one monotonic collection deadline and deducts elapsed startup
+time. Its synchronous startup and remote process lifetime remain separate
+bounds: killing the local command process at timeout does not establish remote
+termination. See [the historical probe instructions](EXECUTION-PROOF.md#reproduce-without-provider-credentials)
+for the old counterexamples and current library regression coverage. Daytona's
+`exec` also calls `ensure_started`, relevant to the separate provider-wake
+decision in #2395.
 
 Therefore a plain `try/after Lease.release` around today's blocking `exec/4`
 is not enough for a strict remote-execution exclusion claim. Before calling

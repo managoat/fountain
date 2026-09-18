@@ -25,6 +25,7 @@ defmodule FountainWeb.RegistrationController do
   alias Fountain.Accounts
   alias Fountain.Workers.VerificationEmail
   alias FountainWeb.Audited
+  alias FountainWeb.RegistrationGrant
   alias FountainWeb.Schemas
 
   plug FountainWeb.Plugs.RateLimit,
@@ -34,6 +35,10 @@ defmodule FountainWeb.RegistrationController do
   plug FountainWeb.Plugs.RateLimit,
        [bucket: "resend_verification", max: 5, window_ms: 3_600_000]
        when action in [:resend, :api_resend]
+
+  # Every response that can render the sign-up page, because the policy that
+  # governs a form submission is the one on the page that submitted it.
+  plug :allow_github_form_action when action in [:new, :create, :oauth]
 
   tags(["Auth"])
 
@@ -114,17 +119,18 @@ defmodule FountainWeb.RegistrationController do
   The "Sign up with GitHub" button when the instance asks for an access code.
 
   The code is typed here, but the account is created in the OAuth callback,
-  after a round trip to GitHub. It rides that trip in the session; the
-  callback hands it to `Accounts.upsert_oauth_user/3`, which checks it again.
-  Checking it here as well only saves a wasted trip to GitHub. Shares the
-  registration rate limit, so it is no faster a way to guess the code.
+  after a round trip to GitHub. `FountainWeb.RegistrationGrant` carries it
+  there, encrypted; the callback hands it to `Accounts.upsert_oauth_user/3`,
+  which checks it again. Checking it here as well only saves a wasted trip to
+  GitHub. Shares the registration rate limit, so it is no faster a way to
+  guess the code.
   """
   def oauth(conn, params) do
     code = get_in(params, ["user", "access_code"])
 
-    if Accounts.access_code_valid?(code) do
+    if is_binary(code) and Accounts.access_code_valid?(code) do
       conn
-      |> put_session(:registration_access_code, code)
+      |> RegistrationGrant.put(code)
       |> redirect(to: ~p"/auth/oauth/github")
     else
       conn
@@ -133,6 +139,24 @@ defmodule FountainWeb.RegistrationController do
         errors: %{access_code: [registration_message(:access_code_required)]},
         layout: false
       )
+    end
+  end
+
+  # With an access code, "Sign up with GitHub" is a form submission, and its
+  # redirect chain ends at GitHub's authorize page. The base browser CSP is
+  # `form-action 'self'`, which Chrome enforces on every hop of a form's
+  # redirects, so the page that holds the form has to name GitHub's origin
+  # too. Only then, and only that origin — the same narrowing as
+  # OAuthAuthorizeController's consent page.
+  defp allow_github_form_action(conn, _opts) do
+    with true <- Accounts.access_code_required?(),
+         true <- FountainWeb.OAuth.github_configured?(),
+         origin when is_binary(origin) <- FountainWeb.OAuth.github_authorize_origin() do
+      update_resp_header(conn, "content-security-policy", "", fn csp ->
+        Regex.replace(~r/form-action[^;]*/, csp, "form-action 'self' #{origin}")
+      end)
+    else
+      _ -> conn
     end
   end
 

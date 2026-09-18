@@ -35,6 +35,9 @@ defmodule FountainWeb.UeberauthController do
   # On success Ueberauth sets `conn.assigns.ueberauth_auth`.
   # On failure it sets `conn.assigns.ueberauth_failure`.
   def callback(%{assigns: %{ueberauth_failure: failure}} = conn, _params) do
+    # A cancelled trip still spends the access-code grant.
+    {conn, _access_code} = FountainWeb.RegistrationGrant.take(conn)
+
     reason =
       case failure.errors do
         [%{message: msg} | _] when is_binary(msg) -> msg
@@ -47,6 +50,10 @@ defmodule FountainWeb.UeberauthController do
   end
 
   def callback(%{assigns: %{ueberauth_auth: auth}} = conn, _params) do
+    # Put there by RegistrationController.oauth/2 when the instance asks for
+    # an access code. Taken before anything can refuse, so it is spent
+    # whatever the outcome.
+    {conn, access_code} = FountainWeb.RegistrationGrant.take(conn)
     provider = to_string(auth.provider)
     provider_uid = to_string(auth.uid)
     # Not `auth.info.email`: that address can be a GitHub primary that has never
@@ -63,15 +70,11 @@ defmodule FountainWeb.UeberauthController do
         |> redirect(to: ~p"/auth/login")
 
       {:ok, email} ->
-        do_callback(conn, provider, provider_uid, email)
+        do_callback(conn, provider, provider_uid, email, access_code)
     end
   end
 
-  defp do_callback(conn, provider, provider_uid, email) do
-    # Put there by RegistrationController.oauth/2 when the instance asks for
-    # an access code. Taken now, so it is spent whatever the outcome.
-    access_code = get_session(conn, :registration_access_code)
-    conn = delete_session(conn, :registration_access_code)
+  defp do_callback(conn, provider, provider_uid, email, access_code) do
     attrs = %{"email" => email, "access_code" => access_code}
 
     case Fountain.Accounts.upsert_oauth_user(provider, provider_uid, attrs) do

@@ -78,8 +78,8 @@ defmodule Fountain.Machines.Machine do
   under the machine's lock. `bind_inference/2` always runs inside a
   transaction the caller already holds that lock in (an inference
   reservation), and so does `retarget/3` for a reapply. There, a hop through
-  this process would have the caller's transaction wait on that lock while
-  the caller waits on the reply. `retarget/3`'s other caller, the skills
+  this process would have the owner's own transaction wait on that lock,
+  which the caller holds, while the caller waits on the reply. `retarget/3`'s other caller, the skills
   record after a reattach, has no transaction, and `Binding.retarget/3` takes
   the lock itself. The third is a release: the conversation's row and no
   machine state.

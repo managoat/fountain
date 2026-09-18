@@ -9,7 +9,8 @@ defmodule Fountain.Repo.Migrations.DropSandboxFenceColumns do
   # writing them, and shipped in v0.20.0.
   #
   # **Every column-only fence is stamped before the columns go, however the
-  # upgrade is rolled.** A row fenced by 9a or later carries the `destroying`
+  # upgrade is rolled, except a reset on a machine used since the request,
+  # which is neither stamped nor kept, and is logged by id.** A row fenced by 9a or later carries the `destroying`
   # stamp beside the columns. A row fenced only in the columns was written by
   # v0.19.0, where 9a had not shipped. v0.20.1's backfill (#2427),
   # `20260918190000_backfill_destroying_from_fence_columns`, stamps those rows,
@@ -20,9 +21,9 @@ defmodule Fountain.Repo.Migrations.DropSandboxFenceColumns do
   # same transaction. What either run stamps, the reaper's teardown run
   # finishes.
   #
-  # **The one request discarded is a reset on a machine used since the
-  # request.** Both runs skip it on purpose, for the reasons in #2427's
-  # comment: finishing it would wipe the work done since. It is left as its
+  # **That reset is the one request discarded.** Both runs skip it on
+  # purpose, for the reasons in #2427's comment: finishing it would wipe the
+  # work done since. It is left as its
   # user last used it, and logged by id. Only its owner can reset it again,
   # with `DELETE /api/sandboxes/:id`. A row the backfill already skipped is
   # logged again here, because this is where its request is discarded.

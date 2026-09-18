@@ -229,10 +229,14 @@ defmodule Fountain.Workers.SandboxResetReconcilerTest do
       {:ok, fenced} =
         Fountain.Conversations.Lifecycle.fence_sandbox_for_teardown(home,
           actor: "admin",
-          reason: "reaped"
+          reason: "reaped",
+          transition_reason: :admin_reap
         )
 
-      assert fenced.transition_reason == "reaped"
+      # The destroy vocabulary, which is what the column holds everywhere; the
+      # point here is only that it is not `"reset"`, so the reaper's driver
+      # leaves this row to this worker.
+      assert fenced.transition_reason == "admin_reap"
 
       assert :ok = perform_job(SandboxResetReconciler, %{})
       assert [job] = all_enqueued(worker: SandboxResetReconciler)

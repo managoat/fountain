@@ -98,16 +98,21 @@ defmodule Fountain.Machines.DurableDestroyingTest do
       {:ok, fenced} =
         Lifecycle.fence_sandbox_for_teardown(ctx.sandbox,
           actor: "system:conversation_server",
-          reason: "conversation_terminated"
+          reason: "conversation_terminated",
+          transition_reason: :terminated
         )
 
       assert fenced.transition == "destroying"
-      assert fenced.transition_reason == "conversation_terminated"
+      # The destroy vocabulary, not the event's — see the describe below.
+      assert fenced.transition_reason == "terminated"
       assert fenced.teardown_requested_at
       assert fenced.reset_requested_at
     end
 
-    test "a fence with no reason of its own stamps the word its event defaults to", ctx do
+    test "a fence with no reason of its own stamps the word both ends default to", ctx do
+      # `:teardown` is this module's event default *and*
+      # `Destroy.reason_from_string/1`'s fallback, so a caller that names
+      # neither leaves one unknown rather than two.
       {:ok, fenced} = Lifecycle.fence_sandbox_for_teardown(ctx.sandbox, actor: "self")
 
       assert fenced.transition_reason == "teardown"
@@ -123,24 +128,37 @@ defmodule Fountain.Machines.DurableDestroyingTest do
       assert row(ctx).transition_reason == "reset"
 
       {:ok, escalated} =
-        Lifecycle.fence_sandbox_for_teardown(row(ctx), actor: "admin", reason: "reaped")
+        Lifecycle.fence_sandbox_for_teardown(row(ctx),
+          actor: "admin",
+          reason: "reaped",
+          transition_reason: :admin_reap
+        )
 
       # The newer intent wins, as it does for the two columns: the machine is
       # going away for this reason now, and `SandboxReaper`'s driver reads the
       # reason to decide whether the row is a reset to leave alone.
       assert escalated.transition == "destroying"
-      assert escalated.transition_reason == "reaped"
+      assert escalated.transition_reason == "admin_reap"
       assert escalated.reset_requested_at
       assert escalated.teardown_requested_at
     end
 
     test "a repeated fence leaves the stamp and the reason it already had", ctx do
-      {:ok, _} = Lifecycle.fence_sandbox_for_teardown(ctx.sandbox, actor: "self", reason: "first")
+      {:ok, _} =
+        Lifecycle.fence_sandbox_for_teardown(ctx.sandbox,
+          actor: "self",
+          reason: "first",
+          transition_reason: :terminated
+        )
 
       {:ok, again} =
-        Lifecycle.fence_sandbox_for_teardown(row(ctx), actor: "self", reason: "again")
+        Lifecycle.fence_sandbox_for_teardown(row(ctx),
+          actor: "self",
+          reason: "again",
+          transition_reason: :admin_reap
+        )
 
-      assert again.transition_reason == "first"
+      assert again.transition_reason == "terminated"
       assert [_one] = Fountain.Audit.list_for_user(ctx.user.id, action_prefix: "sandbox.teardown")
     end
 
@@ -270,6 +288,75 @@ defmodule Fountain.Machines.DurableDestroyingTest do
     end
   end
 
+  describe "the reason on the row is the destroy vocabulary" do
+    # Surfaces S1. `transition_reason` has always held the *destroy* vocabulary,
+    # because `Destroy.stamp_then_destroy/3` wrote it. Stage 9a made the fence
+    # stamp first and the protocol continue from that stamp without writing its
+    # own, so a fence that stamped its own event wording would have changed what
+    # the column means — and `SandboxReaper`'s driver, which reads it back to
+    # finish an abandoned destroy, would record `teardown` where the owner
+    # recorded `terminated`, for the same machine in the same situation.
+
+    test "every term in the vocabulary survives a round trip", _ctx do
+      # Total by construction, and driven term by term rather than by sampling:
+      # the first version used `String.to_existing_atom/1`, where whether a term
+      # converts depends on what else is loaded. Six of the twelve strings this
+      # column can hold raised under `mix run` and fell back to `:teardown`.
+      for reason <- Fountain.Machines.Destroy.reasons() do
+        assert Fountain.Machines.Destroy.reason_from_string(to_string(reason)) == reason
+      end
+    end
+
+    test "a word from outside the vocabulary is the one documented fallback", _ctx do
+      # A row written by an older replica, or by hand. Finishing its destroy
+      # with a generic word beats refusing to finish it — and `:teardown` is the
+      # same word `Lifecycle`'s fence defaults its own event to, so the unknown
+      # is spelled the same at both ends.
+      for other <- ["conversation_terminated", "agent_deleted", "sandbox_expired", "", nil] do
+        assert Fountain.Machines.Destroy.reason_from_string(other) == :teardown
+      end
+    end
+
+    test "the fence stamps what the owner would have stamped", ctx do
+      # The parity S1 says was claimed and untrue. The fence's own `:reason` is
+      # the event's wording and is deliberately different; what lands on the row
+      # is the destroy reason, so an operator reading the row and an operator
+      # reading the trail see one story.
+      {:ok, fenced} =
+        Lifecycle.fence_sandbox_for_teardown(ctx.sandbox,
+          actor: "admin",
+          reason: "reaped",
+          transition_reason: :admin_reap
+        )
+
+      assert fenced.transition_reason == "admin_reap"
+      assert Fountain.Machines.Destroy.reason_from_string(fenced.transition_reason) == :admin_reap
+
+      # And the event keeps its own word, which is the half that must not move.
+      assert [event] =
+               Fountain.Audit.list_for_user(ctx.user.id, action_prefix: "sandbox.teardown")
+
+      assert event.metadata["reason"] == "reaped"
+    end
+
+    test "a terminate and the sweep that finishes it record the same reason", ctx do
+      # End to end, and the shape the claim was actually about: a conversation
+      # terminate fences with `conversation_terminated` and destroys with
+      # `:terminated`. If its owner dies between the two, the driver has to
+      # reach the same `:terminated` — where reading the fence's word would have
+      # given `:teardown`.
+      {:ok, fenced} =
+        Lifecycle.fence_sandbox_for_teardown(ctx.sandbox,
+          actor: "self",
+          reason: "conversation_terminated",
+          transition_reason: :terminated
+        )
+
+      assert fenced.transition_reason == "terminated"
+      assert Fountain.Machines.Destroy.reason_from_string(fenced.transition_reason) == :terminated
+    end
+  end
+
   describe "the readers refuse it, lease or no lease" do
     test "Wake.maybe_reuse_sandbox/1 answers the fence's word, not the lease's", ctx do
       reject(Managoat.Sandbox, :get, 1)
@@ -362,6 +449,29 @@ defmodule Fountain.Machines.DurableDestroyingTest do
 
       {:ok, epoch} = Lease.claim(ctx.sandbox.id, "fountain@test", 60_000)
       assert {:ok, "cp-1"} = HomeCheckpoint.on_park(home(ctx), epoch)
+    end
+
+    test "the reset door refuses a second reset on a machine already being deleted", ctx do
+      # The last reader in this family that still checked the column alone
+      # (surfaces, non-blocking). A `destroying` stamp with no column is a
+      # machine already on its way out, and letting a second reset through
+      # would fence it again and hand `Machines.Destroy` a row whose first
+      # destroy is still in flight.
+      #
+      # The refusal word alone proves nothing here, and that is worth saying:
+      # a reset that is *not* refused goes on to the provider, fails there and
+      # answers `:sandbox_reset_pending` too. So what is asserted is that the
+      # door refused before doing anything — no provider call, and no second
+      # fence written over the first.
+      home = home(ctx)
+      destroying(home)
+      reject(Managoat.Sandbox, :destroy, 1)
+
+      assert {:error, :sandbox_reset_pending} = Conversations.reset_sandbox(row(ctx))
+
+      untouched = row(ctx)
+      assert is_nil(untouched.reset_requested_at)
+      assert untouched.transition_reason == "terminated"
     end
 
     test "update_sandbox/2 refuses a non-terminal write, as it does behind the column", ctx do

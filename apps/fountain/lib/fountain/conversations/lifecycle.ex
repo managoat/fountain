@@ -533,7 +533,12 @@ defmodule Fountain.Conversations.Lifecycle do
              {:ok, _} <-
                __MODULE__.fence_sandbox_for_teardown(sandbox,
                  actor: "system:conversation_server",
-                 reason: to_string(reason)
+                 reason: to_string(reason),
+                 # `reason` here is `:idle | :max_lifetime`, which is already
+                 # the destroy vocabulary — `destroy/4` hands `Machine.destroy/2`
+                 # the same atom — so the fence stamps exactly what the protocol
+                 # would have.
+                 transition_reason: reason
                ) do
           :ok
         else
@@ -682,8 +687,11 @@ defmodule Fountain.Conversations.Lifecycle do
   retaining capacity until retirement completes. `teardown_requested_at`
   distinguishes forced teardown from an ordinary reset. Since ADR 0058 stage 9a
   the same commit also stamps `transition: "destroying"` with the fence's own
-  reason, so that a row never records the intent in a column alone and stage 9b
-  can drop the columns without losing it. A new forced intent
+  reason — the **destroy** reason the caller is about to ask for
+  (`Fountain.Machines.Destroy.reasons/0`), passed as `:transition_reason`, where
+  `:reason` is this event's own wording — so that a row never records the intent
+  in a column alone and stage 9b can drop the columns without losing it. A
+  caller that names none stamps `:teardown`. A new forced intent
   records `sandbox.teardown_requested` after commit; repeats preserve both
   timestamps and the stamp. Escalating an existing reset preserves its admission fence.
   Refuses an enclosing transaction. `opts` carries actor, request_ip, reason and
@@ -832,15 +840,27 @@ defmodule Fountain.Conversations.Lifecycle do
     end)
   end
 
-  # What the fence writes into `transition_reason`, which an operator reads off
-  # the row and `SandboxReaper`'s driver reads back as the destroy's reason.
+  # What the fence writes into `transition_reason`.
   #
-  # The fence's own `:reason` is the right source: it is what
-  # `sandbox.teardown_requested` already records, `Machines.Destroy` passes
-  # `fence_reason || to_string(reason)` into it, and a row and a trail that
-  # disagreed about why a machine was destroyed would be worse than either.
-  # `"teardown"` is the default the event uses when a caller names none.
-  defp transition_reason(opts), do: Keyword.get(opts, :reason, "teardown")
+  # **The destroy vocabulary, not this module's** (`Machines.Destroy.reasons/0`),
+  # and the distinction is the whole of surfaces' S1. The fence's own `:reason`
+  # is the *event's* wording — "conversation_terminated", "agent_deleted",
+  # "reaped" — and `Machines.Destroy` documents at length that the two
+  # vocabularies are deliberately different. Before stage 9a this column only
+  # ever held the destroy vocabulary, because `Destroy.stamp_then_destroy/3`
+  # wrote it; 9a made the fence stamp first and the protocol continue from that
+  # stamp without writing its own, so a fence that wrote its own word here would
+  # have silently changed what the column means and made `SandboxReaper`'s
+  # driver record `teardown` where the owner records `terminated`.
+  #
+  # So the caller passes `:transition_reason` — the atom it is about to hand
+  # `Destroy` as `:reason` — and every caller that knows one does. A caller that
+  # does not gets `:teardown`, the word this module's own event defaults to and
+  # the one `Destroy.reason_from_string/1` falls back to: one unknown, spelled
+  # the same at both ends.
+  defp transition_reason(opts) do
+    opts |> Keyword.get(:transition_reason, :teardown) |> to_string()
+  end
 
   # One clock read, and only for a caller that asked for either check: the
   # forced callers pay nothing. `statement_timestamp()` advances between

@@ -66,6 +66,7 @@ defmodule Fountain.Workers.SandboxReaper do
 
   alias Fountain.Conversations
   alias Fountain.Conversations.{Lifecycle, Sandbox, Termination}
+  alias Fountain.Machines.Destroy
   alias Fountain.Machines.Lease
   alias Fountain.Machines.Machine
   alias Fountain.Machines.Occupancy
@@ -1054,24 +1055,17 @@ defmodule Fountain.Workers.SandboxReaper do
 
   # The reason the fence recorded, handed back to the protocol so that the row
   # it writes and the `sandbox.destroyed` it records say what the caller who
-  # asked for this teardown said — rather than a word this sweep invented for
-  # a decision it did not make.
+  # asked for this teardown said — rather than a word this sweep invented for a
+  # decision it did not make.
   #
-  # `String.to_existing_atom/1` because `:reason` reaches `transition_reason`
-  # and the audit metadata as the caller's own atom, and a reason no code has
-  # ever named is a row written by something that is not this system.
-  # `:teardown` is the fallback for exactly two shapes: a row fenced by a
-  # replica older than stage 9a, which has the column and no stamp, and a
-  # string that is not an atom here. It is also the word
-  # `Lifecycle.fence_sandbox_for_teardown/2` defaults its own event to, so the
-  # two agree.
-  defp destroy_reason(%Sandbox{transition_reason: nil}), do: :teardown
-
-  defp destroy_reason(%Sandbox{transition_reason: reason}) do
-    String.to_existing_atom(reason)
-  rescue
-    ArgumentError -> :teardown
-  end
+  # `Machines.Destroy` owns that vocabulary and does the conversion
+  # (`reason_from_string/1`), because it is the module that put the string on
+  # the row. It is a total match over a closed set, **not**
+  # `String.to_existing_atom/1` with a rescue: that version was wrong twice, and
+  # both ways are recorded there — whether a term converts depended on what else
+  # was loaded, and a term that did convert was not thereby the right one.
+  defp destroy_reason(%Sandbox{transition_reason: reason}),
+    do: Destroy.reason_from_string(reason)
 
   defp report_finished_teardown(sandbox) do
     was = sandbox.status

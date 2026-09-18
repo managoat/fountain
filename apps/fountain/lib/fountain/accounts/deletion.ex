@@ -249,7 +249,10 @@ defmodule Fountain.Accounts.Deletion do
     user_id
     |> live_sandboxes()
     |> Enum.each(fn sandbox ->
-      case Lifecycle.fence_sandbox_for_teardown(sandbox, opts) do
+      case Lifecycle.fence_sandbox_for_teardown(
+             sandbox,
+             Keyword.put(opts, :transition_reason, destroy_reason(opts))
+           ) do
         {:ok, _} ->
           :ok
 
@@ -325,7 +328,10 @@ defmodule Fountain.Accounts.Deletion do
     user_id
     |> live_sandboxes()
     |> Enum.reduce_while(0, fn sandbox, count ->
-      case Lifecycle.fence_sandbox_for_teardown(sandbox, opts) do
+      case Lifecycle.fence_sandbox_for_teardown(
+             sandbox,
+             Keyword.put(opts, :transition_reason, destroy_reason(opts))
+           ) do
         {:ok, %{status: status} = fenced} when status in @non_terminal ->
           {:cont, count + if(destroy_sprite(fenced, opts), do: 1, else: 0)}
 

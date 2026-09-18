@@ -3228,7 +3228,11 @@ defmodule Fountain.Conversations do
           current.status not in ["ready", "suspended"] ->
             Repo.rollback({:sandbox_not_resettable, current.status})
 
-          current.reset_requested_at ->
+          # The fence, in the column and in the stamp that outlives it (stage
+          # 9a) — the last reader in this family still checking the column
+          # alone, which would have made a second reset land on a machine
+          # already being deleted the day 9b drops it.
+          current.reset_requested_at || current.transition == "destroying" ->
             Repo.rollback(:sandbox_reset_pending)
 
           _unsafe_running_turns_elsewhere(current.id, nil) > 0 ->
@@ -3253,7 +3257,10 @@ defmodule Fountain.Conversations do
         # 9a): stage 9b drops `reset_requested_at`, and a fence that lived only
         # in it would take the reset's intent with it.
         #
-        # `"reset"` is what tells the reaper's driver to leave this row alone.
+        # `"reset"` is `to_string(:reset)`, the destroy vocabulary this column
+        # holds everywhere (`Machines.Destroy.reasons/0`) — and the same atom
+        # `destroy_reset_machine/3` hands the protocol below. It is also what
+        # tells the reaper's driver to leave this row alone.
         # A reset is retryable by design — the fence stands until a provider
         # *confirms* the machine is gone, and `SandboxResetReconciler` is what
         # retries it — where the driver finishes a teardown after fifteen

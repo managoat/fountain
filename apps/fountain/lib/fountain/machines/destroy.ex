@@ -207,6 +207,57 @@ defmodule Fountain.Machines.Destroy do
   # `@billable_terminal` and `Lease`'s `@terminal_statuses`.
   @terminal_statuses ~w(terminated failed)
 
+  # **The destroy vocabulary**, closed and owned here because this module is
+  # what puts it on the row and in the trail. `:reason` becomes
+  # `transition_reason` on the machine and `"reason"` in `sandbox.destroyed`.
+  #
+  # It is deliberately *not* the fence vocabulary. `Lifecycle`'s own
+  # `sandbox.teardown_requested` says why a caller asked
+  # ("conversation_terminated", "agent_deleted", "reaped", …) and this says what
+  # happened to the machine; the two are paired at every call site and the
+  # option names keep them apart (`:reason` against `:fence_reason`, or
+  # `:destroy_reason` against `:reason` one layer up in `Termination`).
+  @reasons ~w(terminated idle max_lifetime reclaimed reset admin_reap home_destroyed
+              provider_gone replaced account_deleted principal_closed compute_stopped
+              teardown)a
+
+  @reason_by_string Map.new(@reasons, &{Atom.to_string(&1), &1})
+  @known_reason_strings Map.keys(@reason_by_string)
+
+  @doc """
+  The destroy reason a `transition_reason` string names, as an atom.
+
+  A machine's `transition_reason` is written by this protocol's stamp and, since
+  ADR 0058 stage 9a, by the fence that precedes it — which stamps this
+  vocabulary rather than its own precisely so that one column means one thing.
+  `SandboxReaper`'s driver reads it back to continue a destroy somebody
+  abandoned, and it must get the same word the original caller gave or the row
+  and the trail will disagree about why a machine went away.
+
+  **Total, and explicitly so.** The first version of the driver used
+  `String.to_existing_atom/1` with a fallback, which is wrong twice over: whether
+  a term converts depends on what else happens to be loaded — `"reaped"`
+  converted under the suite and raised under `mix run`, so two replicas could
+  write two different reasons for one row — and a term that does convert is not
+  thereby the right one, since `"reaped"` is the *fence's* word for a machine
+  whose destroy reason is `:admin_reap`. A closed vocabulary is matched, not
+  parsed.
+
+  Anything else is `:teardown`, which is the word `Lifecycle`'s fence defaults
+  its own event to. Reaching it means a row carries a reason no caller in this
+  release writes — an older replica's, or a hand-edited row — and finishing that
+  destroy with a generic word is better than refusing to finish it.
+  """
+  @spec reason_from_string(String.t() | nil) :: atom()
+  def reason_from_string(reason) when reason in @known_reason_strings,
+    do: @reason_by_string[reason]
+
+  def reason_from_string(_other), do: :teardown
+
+  @doc "The closed destroy vocabulary, for the tests that pin it term by term."
+  @spec reasons() :: [atom()]
+  def reasons, do: @reasons
+
   @doc """
   Destroy the machine behind `sandbox_id`.
 

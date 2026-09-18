@@ -364,7 +364,9 @@ defmodule FountainWeb.Telemetry do
       sum("fountain.reaper.run.refused",
         event_name: [:fountain, :reaper, :run],
         measurement: :refused,
-        description: "Expiries SandboxReaper runs could not complete; the machines are still up"
+        description:
+          "Reclamations SandboxReaper runs could not complete — expiries, idle " <>
+            "parks and abandoned teardowns alike; the machines are still up"
       ),
       # Unlike the three above, a non-zero value here is not routine
       # reclamation: it counts teardowns that fenced and then died before

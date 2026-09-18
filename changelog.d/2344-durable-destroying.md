@@ -19,7 +19,8 @@
   computer deleted in Fountain and leave the machine at the provider for a
   later pass; it now deletes the machine on the same run, through the same door
   every other deletion goes through. So the trail records `sandbox.destroyed`
-  with the reason the original request gave, beside the
+  with the same reason the original request gave — the reason the deletion
+  recorded on the computer when it started, not a generic one — beside the
   `sandbox.teardown_reconciled` that says the pass had to finish it, and the
   usage record closes at the moment the computer really stopped. A computer the
   pass cannot reach is counted in the run's `refused` total and left for the

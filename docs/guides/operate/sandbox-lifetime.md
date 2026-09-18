@@ -75,11 +75,12 @@ kubectl logs -n fountain -l app=fountain --since=2h | grep 'reaper:'
 `parked` counts the idle sandboxes the reaper suspended. The reaper can undo
 that, and it is not a teardown.
 
-`refused` counts the sandboxes the reaper decided to reclaim or park and then
-could not reach: another operation was holding the machine, or the provider or
-the database would not answer. A non-zero value is not a fault on its own — the
-next run looks again — but a value that stays high run after run means machines
-are not being reclaimed, and those machines are still billing.
+`refused` counts the sandboxes the reaper decided to reclaim, park or finish
+deleting and then could not reach: another operation was holding the machine, or
+the provider or the database would not answer. A non-zero value is not a fault
+on its own — the next run looks again — but a value that stays high run after
+run means machines are not being reclaimed, and those machines are still
+billing.
 
 `skipped` counts the sandboxes the reaper decided to act on and then left
 alone, because by the time it took the machine somebody was using it again, or

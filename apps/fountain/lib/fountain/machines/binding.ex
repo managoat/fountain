@@ -499,7 +499,13 @@ defmodule Fountain.Machines.Binding do
       terminating_conversation_id: conversation_id,
       refuse_busy: true,
       actor: Keyword.get(opts, :actor, "self"),
-      reason: Keyword.get(opts, :reason, "conversation_terminated")
+      reason: Keyword.get(opts, :reason, "conversation_terminated"),
+      # The row's word, which is the destroy vocabulary and not this event's.
+      # The same default `destroy_opts/1` below hands the protocol, so a detach
+      # that fences and then destroys stamps once and says one thing — and an
+      # abandoned one hands `SandboxReaper`'s driver the reason the caller
+      # actually asked for rather than a generic teardown.
+      transition_reason: Keyword.get(opts, :destroy_reason, :terminated)
     ]
     |> put_unless_nil(:request_ip, Keyword.get(opts, :request_ip))
     |> put_unless_nil(:metadata, Keyword.get(opts, :metadata))

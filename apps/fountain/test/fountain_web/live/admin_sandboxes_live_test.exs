@@ -15,6 +15,24 @@ defmodule FountainWeb.AdminSandboxesLiveTest do
     :ok
   end
 
+  # The transition badge on *this* machine's row, rather than anywhere on the
+  # page. The table lists every non-terminal sandbox, so a whole-page
+  # `refute html =~ "abandoned"` reads every other row in the database too —
+  # which passed or failed by test order rather than by what this test set up.
+  defp badge(html, sandbox) do
+    # The page identifies a row by the first eight characters of the sandbox
+    # id, which is the only thing on it unique to one machine.
+    id = String.slice(sandbox.id, 0, 8)
+
+    html
+    |> String.split("<tr")
+    |> Enum.find(&String.contains?(&1, id))
+    |> case do
+      nil -> flunk("no row for sandbox #{id} on /admin/sandboxes")
+      row -> row
+    end
+  end
+
   defp stamp(sandbox, sets) do
     import Ecto.Query
 
@@ -310,15 +328,16 @@ defmodule FountainWeb.AdminSandboxesLiveTest do
 
       {:ok, _live, html} = conn |> login_user(admin) |> live(~p"/admin/sandboxes")
 
-      assert html =~ "parking"
-      refute html =~ "abandoned"
+      row = badge(html, sandbox)
+      assert row =~ "parking"
+      refute row =~ "abandoned"
 
       # And the other reading: a stamp with no live lease is an operation whose
       # owner died, which is a different thing for an operator to see.
       stamp(sandbox, lease_until: DateTime.add(DateTime.utc_now(), -60, :second))
 
       {:ok, _live, html} = conn |> login_user(admin) |> live(~p"/admin/sandboxes")
-      assert html =~ "abandoned"
+      assert badge(html, sandbox) =~ "abandoned"
     end
   end
 end

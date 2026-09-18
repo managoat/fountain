@@ -335,7 +335,12 @@ defmodule Fountain.Conversations.Termination do
       # fence's `sandbox.teardown_requested` and the protocol's
       # `sandbox.destroyed` never disagree about why the machine went away when
       # this function is called on its own.
-      opts = Keyword.put_new(opts, :reason, "agent_deleted")
+      opts =
+        opts
+        |> Keyword.put_new(:reason, "agent_deleted")
+        # The row's word is the destroy vocabulary, and this path's is the one
+        # `destroy_home/2` hands the protocol just below.
+        |> Keyword.put_new(:transition_reason, :home_destroyed)
 
       # ownership: this sandbox belongs to the agent whose deletion is in
       # progress — established by destroy_homes_for_agent/2's own scoped

@@ -156,17 +156,39 @@ defmodule FountainWeb.AdminLive.Sandboxes do
       {:error, "pending",
        "Deletion is still unconfirmed; reset fence and capacity remain reserved"}
 
-  # What a stamp with no live lease means, which is not one thing (ADR 0058
-  # stage 9a). `parking`, `resuming` and `provisioning` are operations whose
-  # owner died: abandoned, and the next owner to claim the machine clears them.
-  # `destroying` is durable intent that outlived its owner — the machine is
-  # still on its way out, and `SandboxReaper.sweep_fenced_teardowns/0` finishes
-  # it — so calling it abandoned would tell an operator the opposite of what
-  # the row means, and the opposite of what the Reap button will do.
-  defp lease_less_note(%{transition: "destroying"}, _lease_now), do: " (unfinished)"
-
-  defp lease_less_note(sandbox, lease_now) do
-    if Machine.busy?(sandbox, lease_now), do: "", else: " (abandoned)"
+  # What a stamp means, and it depends on the lease first (ADR 0058 stage 9a).
+  #
+  # **The lease question is asked before anything else**, because a live lease
+  # means an owner is working on this machine right now whatever the stamp says
+  # — the amber badge beside this note says exactly that, and a row that
+  # rendered "an owner is working" next to a word meaning "nobody is" would be
+  # the page contradicting itself. `admin_sandboxes_live_test.exs` has pinned
+  # that rule for `parking` since 6b; the first draft of this function skipped
+  # it for `destroying` and broke it (surfaces review, S2).
+  #
+  # With no live lease the two cases genuinely differ. `parking`, `resuming`,
+  # `provisioning` and `retargeting` are operations whose owner died: abandoned,
+  # and the next owner to claim the machine clears them. `destroying` is durable
+  # intent that outlived its owner — nothing clears it and the machine is still
+  # on its way out — so "abandoned" would tell an operator the opposite of both
+  # what the row means and what the Reap button will do.
+  #
+  # Deliberately one word for both kinds of unfinished destroy, because the
+  # operator's question is "is this machine going away", not "which worker will
+  # finish it". A forced teardown is finished by
+  # `SandboxReaper.sweep_fenced_teardowns/0`; a *reset* is not — that sweep
+  # skips reason `"reset"` — and `SandboxResetReconciler` finishes it instead,
+  # with a Retry reset button on this same row.
+  @doc false
+  # Public so `admin_sandboxes_live_test.exs` can drive the rule directly. The
+  # page-level assertion for it could only match strings over the whole
+  # rendered document, which reads every other row in the table as well.
+  def lease_less_note(sandbox, lease_now) do
+    cond do
+      Machine.busy?(sandbox, lease_now) -> ""
+      sandbox.transition == "destroying" -> " (unfinished)"
+      true -> " (abandoned)"
+    end
   end
 
   defp assign_sandboxes(socket) do

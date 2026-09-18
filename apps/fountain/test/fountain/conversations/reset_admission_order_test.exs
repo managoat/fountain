@@ -84,7 +84,7 @@ defmodule Fountain.Conversations.ResetAdmissionOrderTest do
             assert_receive {:destroying, reset_pid, false}, 5_000
             assert reset_pid == Machine.whereis(home.id)
             assert {:error, :sandbox_unavailable} = Task.await(waiter, 5_000)
-            assert Repo.reload!(home).reset_requested_at
+            assert Repo.reload!(home).transition == "destroying"
             assert Repo.reload!(home).status == "ready"
             assert Repo.reload!(conv).runtime_session_id == nil
 
@@ -100,7 +100,7 @@ defmodule Fountain.Conversations.ResetAdmissionOrderTest do
             assert {:error, :sandbox_mid_turn} = Task.await(waiter, 5_000)
             assert Repo.get!(Conversations.Turn, turn.id).status == "running"
             assert Repo.reload!(home).status == "ready"
-            refute Repo.reload!(home).reset_requested_at
+            refute Repo.reload!(home).transition == "destroying"
             assert Repo.reload!(conv).runtime_session_id == "before-reset"
             refute_received {:destroying, _, _}
           end

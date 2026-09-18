@@ -38,8 +38,9 @@ defmodule Fountain.Conversations.Sandbox do
   # withdraw it, so every reader refuses such a row whatever its lease says,
   # `Machines.Lease.cas_update/4` keeps the stamp through any write that does
   # not retire the row, and `SandboxReaper.sweep_fenced_teardowns/0` drives it
-  # to terminal. That is what lets stage 9b drop `reset_requested_at` and
-  # `teardown_requested_at`, whose whole job this column then does.
+  # to terminal. It is the whole record that a machine was asked to be
+  # destroyed: stage 9b stopped reading and writing `reset_requested_at` and
+  # `teardown_requested_at`, whose job this column had taken over in 9a.
   @transitions ~w(provisioning resuming parking destroying retargeting)
 
   @type t :: %__MODULE__{}
@@ -65,10 +66,11 @@ defmodule Fountain.Conversations.Sandbox do
     field :runtime, :string
     field :terminated_at, :utc_datetime
     field :last_resumed_at, :utc_datetime
-    # Internal reset fence; retained after completion as operation evidence.
-    field :reset_requested_at, :utc_datetime_usec
-    # Forced teardown intent; admission still uses the shared reset fence.
-    field :teardown_requested_at, :utc_datetime_usec
+    # `reset_requested_at` and `teardown_requested_at` are still columns on
+    # the table and no longer fields here (ADR 0058 stage 9b): a replica on the
+    # previous release writes them during a rolling deploy, and nothing on
+    # this one reads them. The `destroying` stamp above carries the intent.
+    # The next release drops the columns.
     # A digest of the Environment fields provisioning turned into disk state:
     # packages, repositories, the setup script and the network policy. Written
     # when the machine reaches `ready`, so a later reapply can tell whether the

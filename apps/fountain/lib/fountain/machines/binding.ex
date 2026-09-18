@@ -334,17 +334,19 @@ defmodule Fountain.Machines.Binding do
           :ok | {:error, term()}
   def attachable(sandbox, agent, vault_id, env_id, now \\ :db)
 
-  def attachable(%Sandbox{reset_requested_at: at}, _agent, _vault_id, _env_id, _now)
-      when not is_nil(at),
-      do: {:error, :sandbox_reset_pending}
-
-  # The same fence read off the stamp, which is where it lives once stage 9b
-  # drops the column above (ADR 0058 stage 9a). Refused whatever the lease
-  # says, and before the status clause for the reason the reset fence is:
+  # The fence, read off the `destroying` stamp (ADR 0058 stage 9a). Refused
+  # whatever the lease says, and before the status clause:
   # `destroying` on a live row is a machine somebody asked to be destroyed, and
   # an owner that died mid-destroy did not withdraw the request. A terminal row
   # never reaches here wearing a stale stamp either — `{:sandbox_not_attachable,
   # status}` below is the more useful answer and this clause hands it on.
+  #
+  # Stage 9b removed a clause above this one that refused on
+  # `reset_requested_at` **at any status**. That column stayed on a row after a
+  # reset completed, so an attach to a home that had been reset and terminated
+  # answered `:sandbox_reset_pending` — a reset long since done. It answers
+  # `{:sandbox_not_attachable, "terminated"}` now, the same as any other
+  # terminated machine.
   def attachable(%Sandbox{transition: "destroying", status: status}, _agent, _v, _e, _now)
       when status in @attachable_statuses,
       do: {:error, :sandbox_reset_pending}

@@ -67,12 +67,12 @@ defmodule Fountain.Conversations.TerminationAttachOrderTest do
           refute holder == blocked
           await_blocked(blocked, holder, System.monotonic_time(:millisecond) + 5_000)
           assert conversation_count(user.id) == 1
-          refute Repo.reload!(sandbox).reset_requested_at
+          refute Repo.reload!(sandbox).transition == "destroying"
           send(winner_pid, :continue)
 
           if first == :termination do
             assert {:ok, fenced} = Task.await(winner, 5_000)
-            assert fenced.reset_requested_at
+            assert fenced.transition == "destroying"
             assert {:error, :sandbox_reset_pending} = Task.await(waiter, 5_000)
             assert conversation_count(user.id) == 1
             assert [_] = Audit.list_for_user(user.id, action_prefix: "sandbox.teardown_requested")
@@ -81,7 +81,7 @@ defmodule Fountain.Conversations.TerminationAttachOrderTest do
             assert attached.sandbox_id == sandbox.id
             assert {:error, :sandbox_kept} = Task.await(waiter, 5_000)
             assert conversation_count(user.id) == 2
-            refute Repo.reload!(sandbox).reset_requested_at
+            refute Repo.reload!(sandbox).transition == "destroying"
             assert Audit.list_for_user(user.id, action_prefix: "sandbox.teardown_requested") == []
           end
 

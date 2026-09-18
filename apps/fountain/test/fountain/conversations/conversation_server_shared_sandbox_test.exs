@@ -236,12 +236,7 @@ defmodule Fountain.Conversations.ConversationServerSharedSandboxTest do
       {pid, ref} = start(b)
       Phoenix.PubSub.subscribe(Fountain.PubSub, "sidebar:#{b.user_id}")
 
-      Repo.update!(
-        Ecto.Changeset.change(sandbox,
-          status: "terminated",
-          reset_requested_at: DateTime.utc_now()
-        )
-      )
+      Repo.update!(Ecto.Changeset.change(sandbox, status: "terminated"))
 
       GenServer.cast(pid, {:sandbox_reset, sandbox.id, "reset_reconciled", "system", "confirmed"})
       assert :normal = assert_stopped(ref)
@@ -251,6 +246,35 @@ defmodule Fountain.Conversations.ConversationServerSharedSandboxTest do
 
       assert_receive {:sidebar_update, user_id}
       assert user_id == b.user_id
+    end
+
+    test "the reset cast alone brings the conversation back to idle on a terminated machine" do
+      # ADR 0058 stage 9b (Jake, 2026-09-18): the notice trusts its cast. Only
+      # the reset's completion sends `{:sandbox_reset, ...}`, so
+      # `MachineEvents.reset/6` asks only that the machine is terminated. The
+      # row carries no fence of any kind here — no stamp, and none of the
+      # columns 9b stopped reading — and the conversation still goes `idle`.
+      # It starts `running`, as a lost completion leaves it, so the assertion
+      # can fail.
+      %{sandbox: sandbox, b: b} = shared_machine("claude")
+      stub_happy_sprite()
+      {pid, ref} = start(b)
+      {:ok, _} = Conversations.update_conversation(b, %{status: "running"})
+
+      terminated =
+        Repo.update!(
+          Ecto.Changeset.change(sandbox,
+            status: "terminated",
+            transition: nil,
+            transition_reason: nil
+          )
+        )
+
+      assert is_nil(terminated.transition)
+
+      GenServer.cast(pid, {:sandbox_reset, sandbox.id, "reset_reconciled", "system", "confirmed"})
+      assert :normal = assert_stopped(ref)
+      assert Repo.reload!(b).status == "idle"
     end
 
     for active? <- [false, true] do

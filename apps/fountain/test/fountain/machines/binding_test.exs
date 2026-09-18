@@ -192,9 +192,9 @@ defmodule Fountain.Machines.BindingTest do
       assert {:error, {:sandbox_not_attachable, "pending"}} = attach(ctx)
       stamp(ctx, status: "ready")
 
-      stamp(ctx, reset_requested_at: DateTime.utc_now())
+      stamp(ctx, transition: "destroying", transition_reason: "reset")
       assert {:error, :sandbox_reset_pending} = attach(ctx)
-      stamp(ctx, reset_requested_at: nil)
+      stamp(ctx, transition: nil, transition_reason: nil)
 
       {:ok, _epoch} = Lease.claim(ctx.sandbox.id, "other@node", 60_000)
       started = System.monotonic_time(:millisecond)
@@ -381,7 +381,7 @@ defmodule Fountain.Machines.BindingTest do
       insert_conversation(user_id: ctx.user.id, agent: ctx.agent, sandbox: ctx.sandbox)
 
       assert {:ok, :kept} = Machine.detach(ctx.sandbox.id, detach_opts(ctx))
-      refute Repo.reload!(ctx.sandbox).reset_requested_at
+      refute Repo.reload!(ctx.sandbox).transition == "destroying"
 
       stamp(ctx, mode: "persistent")
 
@@ -399,8 +399,7 @@ defmodule Fountain.Machines.BindingTest do
 
       assert {:ok, :detached} = Machine.detach(ctx.sandbox.id, detach_opts(ctx, destroy: false))
 
-      assert Repo.reload!(ctx.sandbox).reset_requested_at
-      assert Repo.reload!(ctx.sandbox).teardown_requested_at
+      assert Repo.reload!(ctx.sandbox).transition == "destroying"
       assert Repo.reload!(ctx.sandbox).status == "ready"
       # The door is closed: the fence refuses a new attach in the same breath.
       assert {:error, :sandbox_reset_pending} = attach(ctx)
@@ -449,7 +448,7 @@ defmodule Fountain.Machines.BindingTest do
       waited = System.monotonic_time(:millisecond) - started
       assert waited >= 250, "the wait gave up without waiting at all"
       assert waited < 5_000
-      refute Repo.reload!(ctx.sandbox).reset_requested_at
+      refute Repo.reload!(ctx.sandbox).transition == "destroying"
       assert Repo.reload!(ctx.conv).status == "idle"
     end
 
@@ -463,8 +462,7 @@ defmodule Fountain.Machines.BindingTest do
                Binding.detach(ctx.sandbox.id, conversation_id: ctx.conv.id, deadline: past)
 
       fenced = Repo.reload!(ctx.sandbox)
-      refute fenced.teardown_requested_at, "an expired detach fenced the machine"
-      refute fenced.reset_requested_at
+      refute fenced.transition == "destroying", "an expired detach fenced the machine"
       assert fenced.status == "ready"
 
       # The positive control: the same detach inside its deadline decides.
@@ -473,7 +471,7 @@ defmodule Fountain.Machines.BindingTest do
       assert {:ok, :detached} =
                Binding.detach(ctx.sandbox.id, conversation_id: ctx.conv.id, deadline: future)
 
-      assert Repo.reload!(ctx.sandbox).teardown_requested_at
+      assert Repo.reload!(ctx.sandbox).transition == "destroying"
     end
 
     test "a detach whose caller has given up is refused, not run late (gate on)", ctx do
@@ -514,7 +512,9 @@ defmodule Fountain.Machines.BindingTest do
       Task.await(park)
       assert %Fountain.Machines.Occupancy{} = Machine.who_is_here(ctx.sandbox.id)
 
-      refute Repo.reload!(ctx.sandbox).reset_requested_at, "the owner fenced a machine for nobody"
+      refute Repo.reload!(ctx.sandbox).transition == "destroying",
+             "the owner fenced a machine for nobody"
+
       assert Repo.reload!(ctx.sandbox).status == "suspended"
     end
 
@@ -528,7 +528,7 @@ defmodule Fountain.Machines.BindingTest do
 
       assert Repo.reload!(ctx.conv).status == "terminated"
       assert Repo.reload!(ctx.sandbox).status == "ready"
-      refute Repo.reload!(ctx.sandbox).reset_requested_at
+      refute Repo.reload!(ctx.sandbox).transition == "destroying"
     end
 
     test "a release refuses a running turn only when a server is driving it", ctx do
@@ -577,7 +577,7 @@ defmodule Fountain.Machines.BindingTest do
       end)
 
       Task.await(park)
-      refute Repo.reload!(ctx.sandbox).reset_requested_at
+      refute Repo.reload!(ctx.sandbox).transition == "destroying"
       assert Repo.reload!(ctx.sandbox).status == "suspended"
 
       # Detach first: the machine is gone, and the park that follows finds it.
@@ -653,7 +653,7 @@ defmodule Fountain.Machines.BindingTest do
             assert_receive {:detach, {:ok, :kept}}, 5_000
             Task.await(detach)
             assert Repo.reload!(sandbox).status == "ready"
-            refute Repo.reload!(sandbox).reset_requested_at
+            refute Repo.reload!(sandbox).transition == "destroying"
           after
             Task.shutdown(detach, :brutal_kill)
           end

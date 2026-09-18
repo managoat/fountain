@@ -507,12 +507,11 @@ defmodule Fountain.Machines.Provision do
 
   defp admissible(%Sandbox{} = sandbox) do
     cond do
-      # The `destroying` stamp counts as a fence since stage 9a, which is what
-      # makes `clear_foreign_stamp/2`'s claim below structural rather than
-      # incidental — and what keeps this refusal once stage 9b drops the two
-      # columns beside it.
-      not is_nil(sandbox.reset_requested_at) or not is_nil(sandbox.teardown_requested_at) or
-          sandbox.transition == "destroying" ->
+      # The fence is the `destroying` stamp — both fences write it (stage 9a),
+      # and since stage 9b it is the only thing read — which is what makes
+      # `clear_foreign_stamp/2`'s claim below structural rather than
+      # incidental.
+      sandbox.transition == "destroying" ->
         {:error, :fenced}
 
       sandbox.status in @provisionable ->
@@ -1026,9 +1025,8 @@ defmodule Fountain.Machines.Provision do
 
   defp confirm_under_lease(%Sandbox{} = sandbox, epoch, opts) do
     cond do
-      # `admissible/1`'s fence, in the same three parts and for its reasons.
-      not is_nil(sandbox.reset_requested_at) or not is_nil(sandbox.teardown_requested_at) or
-          sandbox.transition == "destroying" ->
+      # `admissible/1`'s fence, for its reasons.
+      sandbox.transition == "destroying" ->
         {:error, :fenced}
 
       sandbox.status not in @confirmable ->

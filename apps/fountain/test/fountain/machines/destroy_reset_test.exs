@@ -4,8 +4,8 @@ defmodule Fountain.Machines.DestroyResetTest do
 
   A reset is a destroy, and it was the last one outside the owner. What makes
   it unlike the seven sites 5a and 5b moved is that it arrives *already
-  fenced*: `Conversations.reset_sandbox/2` commits `reset_requested_at` under
-  the per-sandbox advisory lock, refuses a mid-turn or execution-fenced
+  fenced*: `Conversations.reset_sandbox/2` commits the `destroying` stamp,
+  reason `"reset"`, under the per-sandbox advisory lock, refuses a mid-turn or execution-fenced
   machine, drops every runtime session on it, and records
   `sandbox.reset_requested` — all before anything goes near a provider. Its
   front door is untouched by this stage and is covered by
@@ -14,10 +14,11 @@ defmodule Fountain.Machines.DestroyResetTest do
   Three protocol options carry the difference, and this file exists to hold
   each of them to what it claims:
 
-    * `fence: :held_by_caller` — the teardown fence is *not* written.
-      `teardown_requested_at` means something else in this tree
-      (`SandboxReaper.sweep_fenced_teardowns/0` finishes rows wearing it after
-      15 minutes), and a reset that has not been confirmed is not an abandoned
+    * `fence: :held_by_caller` — the teardown fence is *not* written. A
+      teardown's reason on the stamp means something else in this tree
+      (`SandboxReaper.sweep_fenced_teardowns/0` finishes a teardown through the
+      owner after 15 minutes, and retries a reset through the reset's own
+      door), and a reset that has not been confirmed is not an abandoned
       teardown. The option asserts the caller's fence rather than trusting it.
     * `on_provider_error: :refuse` — an unconfirmed delete writes nothing. Every
       other caller retires the fenced row anyway; this one holds the fence and
@@ -179,7 +180,6 @@ defmodule Fountain.Machines.DestroyResetTest do
       assert mid.transition == "destroying"
       assert mid.transition_reason == "reset"
       assert mid.status == "ready"
-      assert mid.reset_requested_at
 
       # After: terminal, the stamp cleared, `terminated_at` filled in by the
       # lease's own `COALESCE`, and the fence timestamp kept — an operator
@@ -188,7 +188,7 @@ defmodule Fountain.Machines.DestroyResetTest do
       assert completed.terminated_at
       assert completed.transition == nil
       assert completed.transition_reason == nil
-      assert completed.reset_requested_at == Repo.reload!(ctx.home).reset_requested_at
+      assert completed.transition == Repo.reload!(ctx.home).transition
     end
 
     test "the teardown fence is not written on top of the reset's own", ctx do
@@ -196,13 +196,12 @@ defmodule Fountain.Machines.DestroyResetTest do
       assert {:ok, %Sandbox{}} = Conversations.reset_sandbox(ctx.home)
 
       # The whole point of `fence: :held_by_caller`. A reset is not a forced
-      # teardown: `teardown_requested_at` would put this row in front of
-      # `SandboxReaper.sweep_fenced_teardowns/0`, which terminates what it
-      # finds after 15 minutes, and a reset that is merely unconfirmed must
-      # stay the reconciler's to retry.
+      # teardown: a teardown's reason on the stamp would have
+      # `SandboxReaper.sweep_fenced_teardowns/0` finish this row as a teardown
+      # after 15 minutes, and a reset that is merely unconfirmed must stay
+      # retryable through the reset's own door.
       assert [{_name, mid}] = destroyed()
-      assert is_nil(mid.teardown_requested_at)
-      assert is_nil(Repo.reload!(ctx.home).teardown_requested_at)
+      assert mid.transition_reason == "reset"
 
       # And no second intent event: the reset's own `sandbox.reset_requested`
       # is the one that was recorded.
@@ -286,7 +285,7 @@ defmodule Fountain.Machines.DestroyResetTest do
       reject(Managoat.Sandbox.Sprites, :destroy, 1)
 
       # The option says the caller holds a durable fence. A row with no
-      # `reset_requested_at` is open to admission on every node in the fleet,
+      # `destroying` stamp is open to admission on every node in the fleet,
       # so destroying it because a caller *said* it was fenced is exactly the
       # bypass the assertion exists to refuse.
       assert capture_log(fn ->
@@ -302,7 +301,6 @@ defmodule Fountain.Machines.DestroyResetTest do
       current = Repo.reload!(ctx.home)
       assert current.status == "ready"
       assert is_nil(current.transition)
-      assert is_nil(current.reset_requested_at)
       assert Quotas.active_sandbox_count(ctx.user.id) == 1
     end
 

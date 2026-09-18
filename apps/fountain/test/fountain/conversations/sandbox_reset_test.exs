@@ -48,7 +48,7 @@ defmodule Fountain.Conversations.SandboxResetTest do
              Repo.transaction(fn -> Conversations.reset_sandbox(ctx.home) end)
 
     assert Repo.reload!(ctx.home).status == "ready"
-    refute Repo.reload!(ctx.home).reset_requested_at
+    refute Repo.reload!(ctx.home).transition == "destroying"
     assert Repo.reload!(ctx.a).runtime_session_id == "sess-a"
     assert Conversations._unsafe_list_log_events(ctx.a.id) == []
   end
@@ -74,11 +74,11 @@ defmodule Fountain.Conversations.SandboxResetTest do
     stub(Managoat.Sandbox.Sprites, :destroy, fn _ -> {:error, {:unavailable, :timeout}} end)
     assert {:error, :sandbox_reset_pending} = Conversations.reset_sandbox(ctx.home)
     fenced = Repo.reload!(ctx.home)
-    assert fenced.reset_requested_at
+    assert fenced.transition == "destroying"
     assert Fountain.Quotas.active_sandbox_count(ctx.user.id) == 1
 
     assert {:error, :sandbox_reset_pending} = Conversations.retry_pending_sandbox_reset(ctx.home)
-    assert Repo.reload!(ctx.home).reset_requested_at == fenced.reset_requested_at
+    assert Repo.reload!(ctx.home).transition == fenced.transition
     assert Repo.reload!(ctx.home).status == "ready"
     assert Fountain.Quotas.active_sandbox_count(ctx.user.id) == 1
 
@@ -92,7 +92,7 @@ defmodule Fountain.Conversations.SandboxResetTest do
              Conversations.retry_pending_sandbox_reset(ctx.home, actor: "system:reset_retry")
 
     assert completed.status == "terminated"
-    assert completed.reset_requested_at == fenced.reset_requested_at
+    assert is_nil(completed.transition)
     assert completed.terminated_at
     assert Fountain.Quotas.active_sandbox_count(ctx.user.id) == 0
     assert {:ok, :skipped} = Conversations.retry_pending_sandbox_reset(ctx.home)
@@ -121,7 +121,7 @@ defmodule Fountain.Conversations.SandboxResetTest do
 
   test "retry re-reads the owned row and skips unfenced or terminal machines", ctx do
     reject(Managoat.Sandbox.Sprites, :destroy, 1)
-    stale = %{ctx.home | reset_requested_at: DateTime.utc_now()}
+    stale = %{ctx.home | transition: "destroying", transition_reason: "reset"}
     assert {:ok, :skipped} = Conversations.retry_pending_sandbox_reset(stale)
 
     assert {:error, :not_found} =
@@ -323,7 +323,7 @@ defmodule Fountain.Conversations.SandboxResetTest do
 
       held = Repo.reload!(ctx.home)
       assert held.status == "ready"
-      refute is_nil(held.reset_requested_at)
+      assert held.transition == "destroying"
       assert Repo.reload!(ctx.a).status == "idle"
     end
 
@@ -375,7 +375,7 @@ defmodule Fountain.Conversations.SandboxResetTest do
       ctx.home |> Ecto.Changeset.change(status: status) |> Repo.update!()
 
       assert {:error, {:sandbox_not_resettable, ^status}} = Conversations.reset_sandbox(ctx.home)
-      refute Repo.reload!(ctx.home).reset_requested_at
+      refute Repo.reload!(ctx.home).transition == "destroying"
     end
   end
 
@@ -405,7 +405,7 @@ defmodule Fountain.Conversations.SandboxResetTest do
            end) =~ "caller lost"
 
     assert Repo.reload!(ctx.home).status == "ready"
-    assert Repo.reload!(ctx.home).reset_requested_at
+    assert Repo.reload!(ctx.home).transition == "destroying"
     assert Fountain.Quotas.active_sandbox_count(ctx.user.id) == 1
     assert {:error, :sandbox_reset_pending} = Conversations.reset_sandbox(ctx.home)
 

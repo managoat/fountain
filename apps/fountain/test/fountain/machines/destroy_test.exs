@@ -166,8 +166,10 @@ defmodule Fountain.Machines.DestroyTest do
       assert {:ok, :destroyed} = Destroy.run(ctx.sandbox.id, opts(ctx, reason: :idle))
 
       assert_received {:mid_destroy, mid}
-      assert mid.teardown_requested_at, "the fence had not committed before the provider call"
-      assert mid.reset_requested_at
+
+      assert mid.transition == "destroying",
+             "the fence had not committed before the provider call"
+
       assert mid.transition == "destroying"
       assert mid.transition_reason == "idle"
       assert mid.status == "ready", "the row went terminal before the machine was gone"
@@ -346,8 +348,6 @@ defmodule Fountain.Machines.DestroyTest do
 
       kept = row(ctx)
       assert kept.status == "ready"
-      refute kept.reset_requested_at
-      refute kept.teardown_requested_at
       assert is_nil(kept.transition)
       # The lease was taken to make the decision and given back; the epoch it
       # spent is not reused.
@@ -600,9 +600,12 @@ defmodule Fountain.Machines.DestroyTest do
       # nothing else.
       abandon_mid_destroy(ctx)
 
+      # Past the driver's grace window, which runs from the stamp — the row's
+      # last write.
       Repo.update_all(from(s in Sandbox, where: s.id == ^ctx.sandbox.id),
         set: [
-          teardown_requested_at: DateTime.add(DateTime.utc_now(), -20 * 60, :second),
+          updated_at:
+            DateTime.utc_now() |> DateTime.add(-20 * 60, :second) |> DateTime.truncate(:second),
           lease_until: DateTime.add(DateTime.utc_now(), -60, :second)
         ]
       )
@@ -639,7 +642,7 @@ defmodule Fountain.Machines.DestroyTest do
 
       refused = row(ctx)
       assert refused.status == "ready", "a refused finalize wrote the row anyway"
-      assert refused.teardown_requested_at, "the admission fence was rolled back with it"
+      assert refused.transition == "destroying", "the admission fence was rolled back with it"
       assert events(ctx, "sandbox.destroyed") == []
     end
 
@@ -735,10 +738,9 @@ defmodule Fountain.Machines.DestroyTest do
       superseded = row(ctx)
       assert superseded.status == "ready", "a superseded owner wrote the row terminal"
       assert superseded.transition == "destroying"
-      assert superseded.lease_epoch == 99
       # The fence is committed — the machine is closed to admission, which is
       # what the successor needs — but the destroy is not claimed as done.
-      assert superseded.teardown_requested_at
+      assert superseded.lease_epoch == 99
       assert events(ctx, "sandbox.destroyed") == []
     end
 
@@ -753,9 +755,7 @@ defmodule Fountain.Machines.DestroyTest do
           lease_node: "dead@node",
           lease_until: past,
           transition: "destroying",
-          transition_reason: "terminated",
-          reset_requested_at: past,
-          teardown_requested_at: past
+          transition_reason: "terminated"
         ]
       )
 
@@ -837,7 +837,7 @@ defmodule Fountain.Machines.DestroyTest do
 
       assert row(ctx).status == "ready"
       assert row(ctx).lease_epoch == 0
-      refute row(ctx).teardown_requested_at
+      refute row(ctx).transition == "destroying"
     end
 
     test "a missing actor or reason is a caller bug, not an answer", ctx do
@@ -902,12 +902,5 @@ defmodule Fountain.Machines.DestroyTest do
       assert [_] = events(ctx, "sandbox.teardown_requested")
       assert row(ctx).status == "terminated"
     end
-  end
-
-  defp actions(user_id) do
-    user_id
-    |> Audit.list_recent_for_user(200)
-    |> Enum.map(& &1.action)
-    |> Enum.sort()
   end
 end

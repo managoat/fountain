@@ -955,7 +955,7 @@ defmodule Fountain.TeamTest do
       refused.(
         fn sandbox ->
           sandbox
-          |> Ecto.Changeset.change(reset_requested_at: DateTime.utc_now())
+          |> Ecto.Changeset.change(transition: "destroying", transition_reason: "reset")
           |> Repo.update!()
         end,
         :sandbox_reset_pending

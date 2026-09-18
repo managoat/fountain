@@ -130,7 +130,7 @@ defmodule FountainWeb.SandboxResetControllerTest do
     # refusal rather than a failure.
     current = Conversations._unsafe_get_sandbox!(ctx.home.id)
     assert current.status == "ready"
-    assert current.reset_requested_at
+    assert current.transition == "destroying"
 
     # And the reason the message says what it says: the fence this call wrote
     # is what refuses the next one, busy owner or not. `docs/concepts/sandboxes.md`

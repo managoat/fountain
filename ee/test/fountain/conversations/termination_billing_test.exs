@@ -138,7 +138,7 @@ defmodule Fountain.Conversations.TerminationBillingTest do
     turn = Repo.reload!(turn)
 
     stub(Managoat.Sandbox.Sprites, :close_stdin, fn _ ->
-      assert Repo.reload!(sandbox).reset_requested_at
+      assert Repo.reload!(sandbox).transition == "destroying"
 
       {:ok, _} =
         Conversations.update_conversation(conv, %{sandbox_id: replacement.id, status: "running"})
@@ -156,7 +156,7 @@ defmodule Fountain.Conversations.TerminationBillingTest do
     assert %{sandbox_id: replacement_id, status: "running"} = Repo.reload!(conv)
     assert replacement_id == replacement.id
     assert Repo.reload!(replacement).status == "ready"
-    assert Repo.reload!(replacement).reset_requested_at == nil
+    refute Repo.reload!(replacement).transition == "destroying"
     assert Repo.reload!(sandbox).status == "terminated"
     assert %{turns: 0} = CreditPricer.run()
   end

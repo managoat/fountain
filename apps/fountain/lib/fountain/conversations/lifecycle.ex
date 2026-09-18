@@ -84,6 +84,7 @@ defmodule Fountain.Conversations.Lifecycle do
   alias Fountain.Conversations.Egress
   alias Fountain.Conversations.{Conversation, Sandbox}
   alias Fountain.Machines.Binding
+  alias Fountain.Machines.Destroy
   alias Fountain.Machines.Machine
   alias Fountain.Machines.Occupancy
   alias Fountain.Machines.Policy
@@ -683,17 +684,19 @@ defmodule Fountain.Conversations.Lifecycle do
   I/O runs here. The caller owns this row and must stop actors and clean up
   the provider after success. Already admitted turns may be forcibly stopped.
 
-  Reuses the reset fence so every existing reuse path refuses the machine,
-  retaining capacity until retirement completes. `teardown_requested_at`
-  distinguishes forced teardown from an ordinary reset. Since ADR 0058 stage 9a
-  the same commit also stamps `transition: "destroying"` with the fence's own
-  reason — the **destroy** reason the caller is about to ask for
-  (`Fountain.Machines.Destroy.reasons/0`), passed as `:transition_reason`, where
-  `:reason` is this event's own wording — so that a row never records the intent
-  in a column alone and stage 9b can drop the columns without losing it. A
-  caller that names none stamps `:teardown`. A new forced intent
-  records `sandbox.teardown_requested` after commit; repeats preserve both
-  timestamps and the stamp. Escalating an existing reset preserves its admission fence.
+  The fence is the `destroying` stamp (`Fountain.Machines.Destroy.stamp_intent!/2`),
+  the one every reader refuses and `Quotas` counts until the row is terminal,
+  so the machine is closed to reuse and holds its capacity until retirement
+  completes. Its reason is the **destroy** reason the caller is about to ask
+  for (`Fountain.Machines.Destroy.reasons/0`), passed as `:transition_reason`,
+  where `:reason` is this event's own wording; a caller that names none stamps
+  `:teardown`. That reason is what tells a forced teardown from an ordinary
+  reset (`"reset"`). A new forced intent records `sandbox.teardown_requested`
+  after commit; a repeat writes nothing and records nothing. Escalating an
+  existing reset rewrites the reason and records the event: the machine is
+  going away for the newer reason. (Until ADR 0058 stage 9b this fence also
+  wrote `reset_requested_at` and `teardown_requested_at`, and told a repeat
+  from new intent by the second.)
   Refuses an enclosing transaction. `opts` carries actor, request_ip, reason and
   `:metadata` — extra keys merged into the event, for a caller whose own delete
   is about to nilify `user_id` on both the event and the sandbox it names.
@@ -802,40 +805,23 @@ defmodule Fountain.Conversations.Lifecycle do
         Repo.rollback(:sandbox_kept)
       end
 
-      # Forced teardown may stop an admitted turn. Keep the admission fence
-      # and its timestamp when an ordinary reset is escalated to forced teardown.
+      # Forced teardown may stop an admitted turn.
       cond do
         current.status in @billable_terminal ->
           {current, false}
 
-        is_nil(current.teardown_requested_at) ->
-          now = DateTime.utc_now()
-
-          fenced =
-            current
-            |> Ecto.Changeset.change(
-              reset_requested_at: current.reset_requested_at || now,
-              teardown_requested_at: now,
-              # The same intent on the column stage 9b keeps, written in the
-              # same statement as the two it replaces so no row ever carries
-              # one without the other (ADR 0058 stage 9a). Not through
-              # `Lease.cas_update/4`: this fence is written by a caller that
-              # holds no lease — that is what a fence *is* — and the protocol's
-              # own stamp, one step later and under its epoch, restates it with
-              # the destroy's reason.
-              #
-              # Escalating a reset to a forced teardown rewrites the reason and
-              # keeps both timestamps, which is the rule the two columns above
-              # already follow: the machine is going away for the newer reason.
-              transition: "destroying",
-              transition_reason: transition_reason(opts)
-            )
-            |> Repo.update!()
-
-          {fenced, true}
-
-        true ->
+        # A forced teardown is already asked for: a repeat, which writes nothing
+        # and records no second intent. A reset's stamp is not one — escalating
+        # it is new intent, below.
+        current.transition == "destroying" and current.transition_reason != "reset" ->
           {current, false}
+
+        # New intent, or a reset escalated to a forced teardown, which rewrites
+        # the reason: the machine is going away for the newer reason. The whole
+        # write is the stamp (ADR 0058 stage 9b), in the owner's namespace and
+        # this transaction — see `Destroy.stamp_intent!/2`.
+        true ->
+          {Destroy.stamp_intent!(current, transition_reason(opts)), true}
       end
     end)
   end

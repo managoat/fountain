@@ -150,9 +150,8 @@ defmodule Fountain.Machines.MidOperationReadersTest do
       reject(Managoat.Sandbox, :get, 1)
 
       stamp(ctx.sandbox,
-        reset_requested_at: DateTime.utc_now(),
-        teardown_requested_at: DateTime.utc_now(),
         transition: "destroying",
+        transition_reason: "teardown",
         lease_epoch: 1,
         lease_node: nil,
         lease_until: nil
@@ -278,8 +277,8 @@ defmodule Fountain.Machines.MidOperationReadersTest do
       reject(Managoat.Sandbox, :get, 1)
 
       stamp(ctx.sandbox,
-        reset_requested_at: DateTime.utc_now(),
         transition: "destroying",
+        transition_reason: "reset",
         lease_epoch: 1,
         lease_node: nil,
         lease_until: nil
@@ -355,10 +354,7 @@ defmodule Fountain.Machines.MidOperationReadersTest do
 
     test "the reset fence still wins, and says so precisely", ctx do
       row =
-        stamp(ctx.sandbox,
-          reset_requested_at: DateTime.utc_now(),
-          transition: "destroying"
-        )
+        stamp(ctx.sandbox, transition: "destroying", transition_reason: "reset")
 
       assert {:error, :sandbox_reset_pending} = attach(ctx, row)
     end

@@ -66,9 +66,7 @@ defmodule Fountain.QuotasFleetCeilingTest do
       going
       |> Ecto.Changeset.change(
         transition: "destroying",
-        transition_reason: "terminated",
-        reset_requested_at: nil,
-        teardown_requested_at: nil
+        transition_reason: "terminated"
       )
       |> Fountain.Repo.update!()
 

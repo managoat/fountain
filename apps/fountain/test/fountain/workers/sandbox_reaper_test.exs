@@ -545,18 +545,16 @@ defmodule Fountain.Workers.SandboxReaperTest do
       assert destroyed.metadata["reason"] == "reclaimed"
     end
 
-    test "a row carrying the stamp and no column is driven — the shape stage 9b leaves" do
-      # The other end of the same predicate, and the one that matters after the
-      # flip: stage 9b drops both fence columns, so this is what every
-      # abandoned teardown looks like. Forged here because no writer produces
-      # it yet, which is the point — the pass has to be right about it before
-      # the columns go, not afterwards.
-      {_user, sandbox, _conv} = fenced_sandbox()
+    test "a row carrying the stamp alone is driven" do
+      # Forged rather than fenced, to show the stamp is all the pass reads:
+      # stage 9b stopped reading the two columns a fence once wrote beside it.
+      user = insert_verified_user()
+      sandbox = insert_sandbox(user_id: user.id, status: "ready")
 
       Repo.update_all(from(s in Sandbox, where: s.id == ^sandbox.id),
         set: [
-          reset_requested_at: nil,
-          teardown_requested_at: nil,
+          transition: "destroying",
+          transition_reason: "teardown",
           updated_at: minutes_ago(60)
         ]
       )

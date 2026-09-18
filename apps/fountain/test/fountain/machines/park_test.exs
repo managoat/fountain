@@ -164,8 +164,12 @@ defmodule Fountain.Machines.ParkTest do
   end
 
   defp use_the_machine(ctx, :woken), do: stamp(ctx, woken_at: DateTime.utc_now())
-  defp use_the_machine(ctx, :teardown), do: stamp(ctx, teardown_requested_at: DateTime.utc_now())
-  defp use_the_machine(ctx, :reset), do: stamp(ctx, reset_requested_at: DateTime.utc_now())
+
+  defp use_the_machine(ctx, :teardown),
+    do: stamp(ctx, transition: "destroying", transition_reason: "teardown")
+
+  defp use_the_machine(ctx, :reset),
+    do: stamp(ctx, transition: "destroying", transition_reason: "reset")
 
   defp stamp(ctx, sets) do
     Repo.update_all(from(s in Sandbox, where: s.id == ^ctx.sandbox.id), set: sets)
@@ -449,7 +453,7 @@ defmodule Fountain.Machines.ParkTest do
       # `main`'s `park_row/1` checked this one, and it is the reason it did:
       # the disk is meant to be gone, and parking would re-reserve it.
       Repo.update_all(from(s in Sandbox, where: s.id == ^ctx.sandbox.id),
-        set: [reset_requested_at: DateTime.utc_now()]
+        set: [transition: "destroying", transition_reason: "reset"]
       )
 
       assert {:error, :fenced} = Park.run(ctx.sandbox.id, opts())
@@ -464,11 +468,13 @@ defmodule Fountain.Machines.ParkTest do
       # over a row `sweep_fenced_teardowns/0` is about to finish, and
       # re-reserving the machine at the provider.
       Repo.update_all(from(s in Sandbox, where: s.id == ^ctx.sandbox.id),
-        set: [teardown_requested_at: DateTime.utc_now()]
+        set: [transition: "destroying", transition_reason: "teardown"]
       )
 
       assert {:error, :fenced} = Park.run(ctx.sandbox.id, opts())
       assert row(ctx).status == "ready"
+      # The fence is the stamp, and a refusal leaves it for the driver.
+      assert row(ctx).transition == "destroying"
     end
 
     test "a provider that cannot park", ctx do
@@ -848,7 +854,7 @@ defmodule Fountain.Machines.ParkTest do
           {"a teardown somebody has asked for", :teardown, :fenced},
           {"a reset that is unconfirmed", :reset, :fenced}
         ] do
-      test "a takeover refuses #{label}, and clears the stamp", ctx do
+      test "a takeover refuses #{label}, and clears its own stamp", ctx do
         :ok = abandon_mid_park(ctx)
         use_the_machine(ctx, unquote(shape))
 
@@ -861,10 +867,20 @@ defmodule Fountain.Machines.ParkTest do
         final = row(ctx)
         assert final.status == "ready", "a machine in use was written down as parked"
 
-        assert is_nil(final.transition),
-               "the stamp was left, so the next owner reads the same lie"
+        # The abandoned `parking` stamp does not survive, so the next owner does
+        # not read it as its own interrupted work. A fence *replaced* it: the
+        # teardown and reset fences write `destroying` over whatever was there
+        # (since stage 9b the fence is the stamp alone), and that one is the
+        # driver's to finish, so it stays.
+        if unquote(refusal) == :fenced do
+          assert final.transition == "destroying"
+        else
+          assert is_nil(final.transition),
+                 "the stamp was left, so the next owner reads the same lie"
 
-        assert is_nil(final.transition_reason)
+          assert is_nil(final.transition_reason)
+        end
+
         assert events(ctx, "sandbox.suspended") == []
       end
     end

@@ -384,12 +384,13 @@ defmodule Fountain.Machines.Park do
 
   defp admissible(%Sandbox{} = sandbox, opts) do
     cond do
-      # Both fences, where `park_row/1` on `main` checked only the reset one.
-      # A machine whose teardown has been requested is on its way out: parking
+      # Either fence — a reset or a teardown — read off the `destroying` stamp
+      # both write (stage 9a; 9b stopped reading the two columns beside it). A
+      # machine whose destruction has been requested is on its way out: parking
       # it would write a live status over a row `sweep_fenced_teardowns/0` is
       # about to finish, and re-reserve at the provider a machine somebody
-      # asked to be destroyed.
-      not is_nil(sandbox.reset_requested_at) or not is_nil(sandbox.teardown_requested_at) ->
+      # asked to be destroyed. The terminal statuses were answered above.
+      sandbox.transition == "destroying" ->
         {:error, :fenced}
 
       Lifecycle.idle_action(Conversations.sandbox_provider_atom(sandbox)) == :destroy ->

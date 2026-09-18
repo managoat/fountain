@@ -289,19 +289,17 @@ defmodule Fountain.Machines.ProvisionTest do
       end
     end
 
-    for {column, label} <- [
-          {:reset_requested_at, "a reset"},
-          {:teardown_requested_at, "a teardown"}
-        ] do
+    for {reason, label} <- [{"reset", "a reset"}, {"teardown", "a teardown"}] do
       test "#{label} fence refuses before the machine exists", ctx do
-        stamp(ctx, [{unquote(column), DateTime.utc_now()}])
+        stamp(ctx, transition: "destroying", transition_reason: unquote(reason))
         reject(&Managoat.Sandbox.create/2)
 
         assert {:error, :fenced} = Provision.run(ctx.sandbox.id, recording_pipeline(), opts())
 
         current = row(ctx)
         assert current.status == "pending"
-        assert current.transition == nil
+        # The fence is the stamp, and a refusal leaves it for the driver.
+        assert current.transition == "destroying"
         assert_lease_released(current)
       end
     end
@@ -420,7 +418,12 @@ defmodule Fountain.Machines.ProvisionTest do
     test "a takeover re-reads every condition under its own lease", ctx do
       # There is no separate takeover clause, and this is why that is safe: the
       # abandoned row goes through `admissible/1` like any other.
-      abandon_mid_provision(ctx, status: "starting", reset_requested_at: DateTime.utc_now())
+      abandon_mid_provision(ctx,
+        status: "starting",
+        transition: "destroying",
+        transition_reason: "reset"
+      )
+
       reject(&Managoat.Sandbox.create/2)
       reject(&Managoat.Sandbox.destroy/1)
 
@@ -732,7 +735,7 @@ defmodule Fountain.Machines.ProvisionTest do
       end)
 
       pipeline = fn _handle, _epoch ->
-        stamp(ctx, reset_requested_at: DateTime.utc_now())
+        stamp(ctx, transition: "destroying", transition_reason: "reset")
         {:ok, :built}
       end
 
@@ -984,7 +987,7 @@ defmodule Fountain.Machines.ProvisionTest do
     end
 
     test "a fenced row is refused", ctx do
-      stamp(ctx, status: "ready", reset_requested_at: DateTime.utc_now())
+      stamp(ctx, status: "ready", transition: "destroying", transition_reason: "reset")
 
       assert {:error, :fenced} = Provision.confirm_up(ctx.sandbox.id, opts())
     end

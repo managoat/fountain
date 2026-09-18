@@ -123,7 +123,7 @@ defmodule Fountain.Machines.DestroyForcedTest do
 
       send(
         test,
-        {:at_provider, handle.name, row.status, row.transition, row.teardown_requested_at}
+        {:at_provider, handle.name, row.status, row.transition, teardown_fenced?(row)}
       )
 
       :ok
@@ -312,7 +312,7 @@ defmodule Fountain.Machines.DestroyForcedTest do
 
         # The fence is already committed when the conversations are stopped, so
         # nothing can attach to the home while their servers shut down.
-        send(test, {:terminating, id, Repo.reload!(ctx.home).teardown_requested_at})
+        send(test, {:terminating, id, teardown_fenced?(Repo.reload!(ctx.home))})
         Mimic.call_original(Termination, :terminate_conversation, [id, opts])
       end)
 
@@ -349,7 +349,7 @@ defmodule Fountain.Machines.DestroyForcedTest do
       # `SandboxReaper.sweep_fenced_teardowns/0` exists to finish.
       home = Repo.reload!(ctx.home)
       assert home.status == "ready"
-      assert home.teardown_requested_at
+      assert home.transition == "destroying"
       assert events(ctx.user.id, "sandbox.destroyed") == []
     end
   end
@@ -579,7 +579,7 @@ defmodule Fountain.Machines.DestroyForcedTest do
       assert log =~ "refused"
       refute Repo.get(Fountain.Accounts.User, ctx.user.id)
       assert Repo.reload!(ctx.sandbox).status == "ready"
-      assert Repo.reload!(ctx.sandbox).teardown_requested_at
+      assert Repo.reload!(ctx.sandbox).transition == "destroying"
     end
 
     test "an enclosing transaction is still refused before any teardown", ctx do
@@ -589,7 +589,7 @@ defmodule Fountain.Machines.DestroyForcedTest do
                Repo.transaction(fn -> Deletion.delete_user(ctx.user) end)
 
       assert Repo.reload!(ctx.sandbox).status == "ready"
-      refute Repo.reload!(ctx.sandbox).teardown_requested_at
+      refute teardown_fenced?(Repo.reload!(ctx.sandbox))
     end
   end
 
@@ -890,10 +890,8 @@ defmodule Fountain.Machines.DestroyForcedTest do
       for row <- deferred do
         reloaded = Repo.reload!(row)
 
-        refute reloaded.teardown_requested_at,
+        refute reloaded.transition == "destroying",
                "a deferred row was fenced — the next run must see it exactly as it was"
-
-        refute reloaded.reset_requested_at
       end
     end
 
@@ -1110,4 +1108,9 @@ defmodule Fountain.Machines.DestroyForcedTest do
       assert Repo.reload!(sandbox).transition == nil
     end
   end
+
+  # A forced teardown's fence: the `destroying` stamp with a reason that is not
+  # a reset's. The stamp is the whole of it since ADR 0058 stage 9b.
+  defp teardown_fenced?(row),
+    do: row.transition == "destroying" and row.transition_reason != "reset"
 end

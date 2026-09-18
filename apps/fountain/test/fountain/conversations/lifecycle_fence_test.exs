@@ -49,7 +49,7 @@ defmodule Fountain.Conversations.LifecycleFenceTest do
     expect(Managoat.Sandbox, :destroy, fn handle ->
       assert handle == ctx.handle
       refute Repo.in_transaction?()
-      assert Repo.reload!(ctx.sandbox).reset_requested_at
+      assert Repo.reload!(ctx.sandbox).transition == "destroying"
       assert Repo.reload!(ctx.sandbox).status == "ready"
       assert Fountain.Quotas.active_sandbox_count(ctx.user.id) == 1
       assert {:error, :sandbox_unavailable} = admit(ctx)
@@ -75,7 +75,7 @@ defmodule Fountain.Conversations.LifecycleFenceTest do
   test "the server fences before closing its adapter and records one request", ctx do
     expect(Managoat.Sandbox, :close_stdin, fn :adapter ->
       refute Repo.in_transaction?()
-      assert Repo.reload!(ctx.sandbox).reset_requested_at
+      assert Repo.reload!(ctx.sandbox).transition == "destroying"
       assert {:error, :sandbox_unavailable} = admit(ctx)
       :ok
     end)
@@ -125,7 +125,7 @@ defmodule Fountain.Conversations.LifecycleFenceTest do
                end)
 
       assert Repo.reload!(ctx.sandbox).status == "ready"
-      refute Repo.reload!(ctx.sandbox).reset_requested_at
+      refute Repo.reload!(ctx.sandbox).transition == "destroying"
     end
   end
 
@@ -139,7 +139,7 @@ defmodule Fountain.Conversations.LifecycleFenceTest do
              end)
 
     assert unchanged == ctx.state
-    refute Repo.reload!(ctx.sandbox).reset_requested_at
+    refute Repo.reload!(ctx.sandbox).transition == "destroying"
 
     refute Repo.exists?(
              from(e in Conversations.LogEvent,
@@ -182,7 +182,7 @@ defmodule Fountain.Conversations.LifecycleFenceTest do
     assert retry.current_command == nil
     assert retry.handle == ctx.handle
     fenced = Repo.reload!(ctx.sandbox)
-    assert fenced.reset_requested_at
+    assert fenced.transition == "destroying"
     assert fenced.status == "ready"
     # And the stamp the pre-check wrote is still on the row, which is what the
     # retry — this server's next tick, or `SandboxReaper`'s driver — continues

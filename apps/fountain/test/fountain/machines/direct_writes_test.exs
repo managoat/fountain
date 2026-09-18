@@ -301,7 +301,18 @@ defmodule Fountain.Machines.DirectWritesTest do
   # stage of its own and is on #2344's stage 9 inventory, not a line this PR
   # could have taken. `create_sandbox/1`'s insert, `do_update_sandbox/2`'s own
   # `Repo.update/1` and `register_server/2`'s marker are unchanged from 8b.
-  @row_writes 6
+  #
+  # 6 -> 4: stage 9b made the two fences a stamp and nothing else. The
+  # teardown fence (`Lifecycle.do_fence_sandbox_for_teardown/2`) and the reset
+  # fence (`Conversations.do_reset_sandbox/2`) stopped writing
+  # `reset_requested_at` and `teardown_requested_at`, and the one write each
+  # still makes — `transition: "destroying"` and its reason — is
+  # `Machines.Destroy.stamp_intent!/2`, in the owner's namespace. It still runs
+  # inside each fence's own advisory-locked transaction, as it must (the
+  # teardown fence's last-detach rule reads rows that transaction has not yet
+  # committed), so this is the owner's module and not its process — and the
+  # scan counts the one and exempts the other, which is what it is for.
+  @row_writes 4
   @provider_mutations 3
 
   @provider_verbs ~w(create_checkpoint create resume suspend destroy)
@@ -369,17 +380,15 @@ defmodule Fountain.Machines.DirectWritesTest do
   # this list along with the number.
   @sandbox_update_all_files ["apps/fountain/lib/fountain/conversations.ex"]
   @sandbox_write_files [
-    # `create_sandbox/1`'s insert, `do_update_sandbox/2`'s own `Repo.update/1`,
-    # and `do_reset_sandbox/2`'s reset fence — which stamps `destroying`
-    # beside the column since stage 9a.
+    # `create_sandbox/1`'s insert and `do_update_sandbox/2`'s own
+    # `Repo.update/1`.
     "apps/fountain/lib/fountain/conversations.ex",
-    "apps/fountain/lib/fountain/conversations.ex",
-    "apps/fountain/lib/fountain/conversations.ex",
-    # `do_fence_sandbox_for_teardown/2` — the teardown fence.
-    "apps/fountain/lib/fountain/conversations/lifecycle.ex"
+    "apps/fountain/lib/fountain/conversations.ex"
     # Stage 8b: `sandbox_identity.ex`'s `provider_instance_id` stamp is gone
     # with the module, and `inference_binding.ex`'s `codex_inference_source`
-    # stamp is `Machines.Binding.bind_inference/2`'s.
+    # stamp is `Machines.Binding.bind_inference/2`'s. Stage 9b: the reset fence
+    # (`conversations.ex`) and the teardown fence (`lifecycle.ex`) are
+    # `Machines.Destroy.stamp_intent!/2`'s.
   ]
 
   test "the widened scan sees the row writes that are not calls to the context" do

@@ -306,13 +306,11 @@ defmodule Fountain.Workers.SandboxReaper do
       [s],
       s.status in ^@active_statuses and s.updated_at < ^cutoff
     )
-    # Not a machine somebody has asked to be destroyed. `reset_requested_at`
-    # said that until stage 9a and the `destroying` stamp says it afterwards,
-    # and both are read so the predicate survives 9b dropping the column: a
-    # fenced row belongs to `sweep_fenced_teardowns/0`'s driver, which finishes
-    # the destroy the fence asked for, where this pass would write `failed`
-    # over it and leave the stamp and the sprite behind.
-    |> where([s], is_nil(s.reset_requested_at))
+    # Not a machine somebody has asked to be destroyed: the `destroying` stamp
+    # (stage 9a; 9b stopped reading the `reset_requested_at` column beside it).
+    # A fenced row belongs to `sweep_fenced_teardowns/0`'s driver, which
+    # finishes the destroy the fence asked for, where this pass would write
+    # `failed` over it and leave the stamp and the sprite behind.
     |> where(^not_destroying())
     # The wake-registration marker, on its own grace (ADR 0058 stage 6a). Not
     # this pass's 60-minute cutoff: the marker answers "did somebody start a
@@ -455,7 +453,7 @@ defmodule Fountain.Workers.SandboxReaper do
         Sandbox
         |> where(
           [s],
-          s.status == "ready" and is_nil(s.reset_requested_at) and s.updated_at < ^grace_cutoff
+          s.status == "ready" and s.updated_at < ^grace_cutoff
         )
         # And not a machine on its way out, in the words that outlive the
         # column beside them (stage 9a). Idle-parking or expiring a fenced

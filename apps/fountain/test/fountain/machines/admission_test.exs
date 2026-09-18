@@ -145,7 +145,7 @@ defmodule Fountain.Machines.AdmissionTest do
 
   describe "the fences" do
     test "a teardown fence refuses the turn, where main admitted it", ctx do
-      stamp(ctx, teardown_requested_at: DateTime.utc_now())
+      stamp(ctx, transition: "destroying", transition_reason: "teardown")
 
       assert {:error, :sandbox_unavailable} = Admission.run(ctx.sandbox.id, attrs(ctx.conv))
       assert turns(ctx.conv) == []
@@ -153,7 +153,7 @@ defmodule Fountain.Machines.AdmissionTest do
     end
 
     test "a reset fence refuses the turn, as it always has", ctx do
-      stamp(ctx, reset_requested_at: DateTime.utc_now())
+      stamp(ctx, transition: "destroying", transition_reason: "reset")
 
       assert {:error, :sandbox_unavailable} = Admission.run(ctx.sandbox.id, attrs(ctx.conv))
       assert turns(ctx.conv) == []
@@ -175,7 +175,7 @@ defmodule Fountain.Machines.AdmissionTest do
     end
 
     test "a fence is judged before the lease, so it is final rather than waited out", ctx do
-      stamp(ctx, teardown_requested_at: DateTime.utc_now())
+      stamp(ctx, transition: "destroying", transition_reason: "teardown")
       {:ok, _epoch} = Lease.claim(ctx.sandbox.id, "other@node", 60_000)
       started = System.monotonic_time(:millisecond)
 

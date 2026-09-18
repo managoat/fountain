@@ -290,7 +290,7 @@ defmodule FountainWeb.AdminLive.Sandboxes do
                 <button
                   :if={
                     s.mode == "persistent" and s.status in ["ready", "suspended"] and
-                      not is_nil(s.reset_requested_at)
+                      s.transition == "destroying"
                   }
                   phx-click="retry_reset"
                   phx-value-id={s.id}

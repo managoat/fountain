@@ -516,7 +516,7 @@ defmodule FountainWeb.TeamControllerTest do
       fenced_prev = insert_teammate_conv(user, fenced_agent, sandbox: fenced, status: "idle")
 
       fenced
-      |> Ecto.Changeset.change(reset_requested_at: DateTime.utc_now())
+      |> Ecto.Changeset.change(transition: "destroying", transition_reason: "reset")
       |> Repo.update!()
 
       assert %{"error" => "sandbox_reset_pending"} =

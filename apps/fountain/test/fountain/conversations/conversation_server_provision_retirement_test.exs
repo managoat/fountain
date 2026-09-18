@@ -50,7 +50,7 @@ defmodule Fountain.Conversations.ConversationServerProvisionRetirementTest do
       retired =
         if unquote(terminal) == "reset_pending" do
           sandbox
-          |> Ecto.Changeset.change(reset_requested_at: DateTime.utc_now())
+          |> Ecto.Changeset.change(transition: "destroying", transition_reason: "reset")
           |> Fountain.Repo.update!()
         else
           {:ok, retired} = Conversations.update_sandbox(sandbox, %{status: unquote(terminal)})
@@ -64,7 +64,7 @@ defmodule Fountain.Conversations.ConversationServerProvisionRetirementTest do
       assert :normal = assert_stopped(ref, 5_000)
       assert Fountain.Repo.reload!(sandbox).status == retired.status
       assert Fountain.Repo.reload!(sandbox).terminated_at == retired.terminated_at
-      assert Fountain.Repo.reload!(sandbox).reset_requested_at == retired.reset_requested_at
+      assert Fountain.Repo.reload!(sandbox).transition == retired.transition
       assert Fountain.Repo.reload!(conv).status == "idle"
       assert Fountain.Repo.reload!(conv).sandbox_id == replacement.id
       assert Fountain.Repo.reload!(replacement).status == "ready"

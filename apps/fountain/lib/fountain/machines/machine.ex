@@ -563,8 +563,8 @@ defmodule Fountain.Machines.Machine do
       read `:fenced` verbatim (round 1, surfaces review). `:sandbox_reset_pending`
       is what `main` answers for the fence it did check — 409, "Fountain
       completes it, and sending it again answers sandbox_reset_pending" — and it
-      is right for both fences, because a teardown escalation writes
-      `reset_requested_at` too (stage 5c).
+      is right for both fences, because both write the same `destroying`
+      stamp.
     * `:provisioning` — the machine is still being built. `main`'s word,
       unchanged, and the caller waits for the registry rather than the machine
       (#800).

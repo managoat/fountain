@@ -56,11 +56,11 @@ defmodule Fountain.Conversations.TerminationFallbackTest do
 
     assert_received {:at_provider, observed}
     refute observed.in_transaction?
-    assert observed.fenced.reset_requested_at
-    assert observed.fenced.teardown_requested_at
     # Durable intent, stamped before the provider call and before the row is
     # terminal: a reader sees what is being done to the machine (ADR 0058).
+    # A teardown's, not a reset's.
     assert observed.fenced.transition == "destroying"
+    refute observed.fenced.transition_reason == "reset"
     assert observed.fenced.status == "ready"
     assert {:error, :sandbox_reset_pending} = observed.racing_attach
 
@@ -161,7 +161,10 @@ defmodule Fountain.Conversations.TerminationFallbackTest do
 
     assert :ok = terminate(ctx)
     assert Repo.reload!(ctx.sandbox).status == "terminated"
-    assert Repo.reload!(ctx.sandbox).reset_requested_at
+    # Retired: the finalize takes the stamp off. The fence columns stayed on a
+    # retired row as evidence until ADR 0058 stage 9b; the audit trail is the
+    # evidence now.
+    assert is_nil(Repo.reload!(ctx.sandbox).transition)
     assert [_] = events(ctx, "sandbox.teardown_requested")
     assert [_] = events(ctx, "sandbox.destroyed")
     assert [_] = events(ctx, "conversation.terminated")
@@ -171,7 +174,7 @@ defmodule Fountain.Conversations.TerminationFallbackTest do
     Repo.update!(Ecto.Changeset.change(ctx.sandbox, mode: "persistent"))
     assert :ok = terminate(ctx)
     assert Repo.reload!(ctx.sandbox).status == "ready"
-    refute Repo.reload!(ctx.sandbox).reset_requested_at
+    refute Repo.reload!(ctx.sandbox).transition == "destroying"
     assert events(ctx, "sandbox.teardown_requested") == []
   end
 

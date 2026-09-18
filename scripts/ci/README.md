@@ -38,11 +38,7 @@ name in a red build says which toolchain to look at:
 
 `mix hex.audit` is not one of these: `scripts/hex-audit-gate.exs` fails the
 build on a security advisory unless it is acknowledged in `mix.exs`, and only
-retirements stay non-blocking. `config/hex_advisories.exs` additionally
-acknowledges the incorrect Decimal CVE-2026-32686 finding for the reviewed
-3.1.1 artifact only, matching both checksums; remove it when the EEF feed is
-corrected (`decisions/evidence/decimal-advisory.json`,
-`python3 scripts/verify-decimal-audit.py`).
+retirements stay non-blocking.
 
 Outside `ci.yml`, `dead-code.yml` publishes a monthly advisory report of
 public Elixir functions nothing calls and unreachable Go functions

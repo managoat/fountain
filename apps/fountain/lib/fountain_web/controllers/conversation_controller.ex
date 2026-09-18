@@ -816,7 +816,7 @@ defmodule FountainWeb.ConversationController do
       # that reached it. Nobody had. Stage 7a's `Machines.Resume` gives the same
       # word a second path here (a fence landing between the reuse check and the
       # machine's lease), which is what produced that test.
-      conflict: {"Sandbox is being reset", "application/json", Schemas.Error},
+      conflict: {"Sandbox is being reset or deleted", "application/json", Schemas.Error},
       ok: {"Queued", "application/json", Schemas.PromptResponse},
       not_found: {"Not found", "application/json", Schemas.Error},
       bad_request: {"Busy", "application/json", Schemas.Error}

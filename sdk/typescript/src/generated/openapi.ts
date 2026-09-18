@@ -11386,7 +11386,7 @@ export interface operations {
                     "application/json": components["schemas"]["NegotiationError"];
                 };
             };
-            /** @description Sandbox is being reset */
+            /** @description Sandbox is being reset or deleted */
             409: {
                 headers: {
                     [name: string]: unknown;

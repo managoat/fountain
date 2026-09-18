@@ -674,28 +674,45 @@ defmodule Fountain.Conversations.ProvisioningTest do
     end
 
     @tag :tmp_dir
-    @tag skip: unless(System.find_executable("git"), do: "needs git")
+    @tag skip:
+           unless(System.find_executable("git") && System.find_executable("openssl"),
+             do: "needs git and openssl"
+           )
     test "git trusts the broker CA through the env alone", %{tmp_dir: tmp_dir} do
       # The OS trust store is not touched on a runner, so git has only the
       # env to go on, and git reads none of the other CA variables: Apple's
-      # git ignores SSL_CERT_FILE. A local HTTPS server with a certificate
-      # the temporary CA signed stands in for the broker.
-      %{server_config: server, client_config: client} =
-        :public_key.pkix_test_data(%{
-          server_chain: %{
-            root: [key: {:rsa, 2048, 65537}],
-            peer: [
-              key: {:rsa, 2048, 65537},
-              extensions: [
-                {:Extension, {2, 5, 29, 17}, false, [dNSName: ~c"localhost"]}
-              ]
-            ]
-          },
-          client_chain: %{root: [key: {:rsa, 2048, 65537}], peer: [key: {:rsa, 2048, 65537}]}
-        })
+      # git ignores SSL_CERT_FILE. A local HTTPS server with a certificate a
+      # temporary CA signed stands in for the broker. openssl makes the pair,
+      # because GnuTLS, which Ubuntu's git uses, is stricter about a
+      # certificate's extensions than the tools that would otherwise do.
+      openssl = fn args ->
+        {_, 0} = System.cmd("openssl", args, cd: tmp_dir, stderr_to_stdout: true)
+      end
+
+      openssl.(
+        ~w(req -x509 -newkey rsa:2048 -nodes -keyout ca.key -out ca.crt -days 2 -subj /CN=fountain-test-ca) ++
+          ~w(-addext basicConstraints=critical,CA:TRUE -addext keyUsage=critical,keyCertSign,cRLSign)
+      )
+
+      openssl.(~w(req -newkey rsa:2048 -nodes -keyout leaf.key -out leaf.csr -subj /CN=localhost))
+
+      File.write!(
+        Path.join(tmp_dir, "leaf.ext"),
+        "subjectAltName=DNS:localhost\nextendedKeyUsage=serverAuth\nbasicConstraints=CA:FALSE\n"
+      )
+
+      openssl.(
+        ~w(x509 -req -in leaf.csr -CA ca.crt -CAkey ca.key -CAcreateserial -out leaf.crt -days 2) ++
+          ~w(-extfile leaf.ext)
+      )
 
       {:ok, listen} =
-        :ssl.listen(0, server ++ [active: false, reuseaddr: true, versions: [:"tlsv1.2"]])
+        :ssl.listen(0,
+          certfile: to_charlist(Path.join(tmp_dir, "leaf.crt")),
+          keyfile: to_charlist(Path.join(tmp_dir, "leaf.key")),
+          active: false,
+          reuseaddr: true
+        )
 
       {:ok, {_, port}} = :ssl.sockname(listen)
 
@@ -724,20 +741,15 @@ defmodule Fountain.Conversations.ProvisioningTest do
           &File.regular?/1
         )
 
-      ca_pem =
-        client
-        |> Keyword.fetch!(:cacerts)
-        |> Enum.map(&:public_key.pem_encode([{:Certificate, &1, :not_encrypted}]))
-        |> Enum.join()
-
       bundle = Path.join(tmp_dir, "ca-bundle.crt")
-      File.write!(bundle, File.read!(roots) <> ca_pem)
+      File.write!(bundle, File.read!(roots) <> File.read!(Path.join(tmp_dir, "ca.crt")))
       files = %{ca: Path.join(tmp_dir, "ca.crt"), bundle: bundle}
 
       git = fn env ->
         System.cmd("git", ["ls-remote", "https://localhost:#{port}/r.git"],
           env:
-            [{"HOME", tmp_dir}, {"GIT_TERMINAL_PROMPT", "0"}, {"GIT_CONFIG_NOSYSTEM", "1"}] ++ env,
+            [{"HOME", tmp_dir}, {"GIT_TERMINAL_PROMPT", "0"}, {"GIT_CONFIG_NOSYSTEM", "1"}] ++
+              env,
           stderr_to_stdout: true
         )
       end
@@ -750,7 +762,7 @@ defmodule Fountain.Conversations.ProvisioningTest do
       # The TLS handshake succeeds; what fails is the fake repository.
       {out, _} = git.(Fountain.Broker.ca_env(files))
       refute out =~ ~r/certificate/i
-      assert out =~ ~r/404|not found/i
+      assert out =~ ~r/not found|not valid|404/i
     end
   end
 

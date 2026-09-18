@@ -234,7 +234,12 @@ defmodule Fountain.Conversations.ConversationServerPlatformInferenceTest do
       # through the facade, which a runner reaches without a daemon here.
       stub_happy_sprite()
       stub(Managoat.Sandbox, :create, fn :runner, _name -> {:ok, handle} end)
-      stub(Managoat.Sandbox, :get, fn _handle -> {:ok, %{status: :running, raw: %{}}} end)
+      # A runner's `get` names the sandbox's directory, which the broker's
+      # CA variables are resolved under.
+      stub(Managoat.Sandbox, :get, fn _handle ->
+        {:ok, %{status: :running, raw: %{"path" => "/runner/sandboxes/x"}}}
+      end)
+
       stub(Managoat.Sandbox, :exec, fn _handle, _cmd, _args, _opts -> {:ok, "", 0} end)
       stub(Managoat.Sandbox, :write_file, fn _handle, _path, _data, _opts -> :ok end)
       stub(Managoat.Sandbox, :list_sessions, fn _handle -> {:ok, []} end)

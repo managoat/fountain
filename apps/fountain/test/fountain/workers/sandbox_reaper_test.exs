@@ -915,8 +915,11 @@ defmodule Fountain.Workers.SandboxReaperTest do
         {:error, :machine_busy}
       end)
 
+      handler = "reaper-refused-#{System.unique_integer([:positive])}"
+      on_exit(fn -> :telemetry.detach(handler) end)
+
       :telemetry.attach(
-        "reaper-refused-#{System.unique_integer([:positive])}",
+        handler,
         [:fountain, :reaper, :run],
         fn _event, measurements, _meta, pid -> send(pid, {:reaper_run, measurements}) end,
         self()
@@ -1167,8 +1170,11 @@ defmodule Fountain.Workers.SandboxReaperTest do
 
       test = self()
 
+      handler = "reaper-untracked-#{System.unique_integer([:positive])}"
+      on_exit(fn -> :telemetry.detach(handler) end)
+
       :telemetry.attach(
-        "reaper-untracked-#{System.unique_integer([:positive])}",
+        handler,
         [:fountain, :reaper, :untracked],
         fn _e, measurements, _meta, _cfg -> send(test, {:untracked, measurements.count}) end,
         nil

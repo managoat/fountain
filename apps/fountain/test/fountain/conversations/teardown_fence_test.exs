@@ -20,8 +20,7 @@ defmodule Fountain.Conversations.TeardownFenceTest do
 
     expect(Audit, :record, fn attrs ->
       refute Repo.in_transaction?()
-      assert Repo.reload!(ctx.home).reset_requested_at
-      assert Repo.reload!(ctx.home).teardown_requested_at
+      assert Repo.reload!(ctx.home).transition == "destroying"
       Mimic.call_original(Audit, :record, [attrs])
     end)
 
@@ -33,7 +32,8 @@ defmodule Fountain.Conversations.TeardownFenceTest do
              )
 
     assert fenced.status == "ready"
-    assert fenced.teardown_requested_at == fenced.reset_requested_at
+    assert fenced.transition == "destroying"
+    assert fenced.transition_reason == "teardown"
     assert Fountain.Quotas.active_sandbox_count(ctx.user.id) == 1
     assert [event] = events(ctx)
     assert event.actor == "ui"
@@ -42,9 +42,13 @@ defmodule Fountain.Conversations.TeardownFenceTest do
     assert event.resource_id == ctx.home.id
     assert event.metadata == %{"reason" => "agent_deleted", "provider" => ctx.home.provider}
 
-    assert {:ok, repeated} = Lifecycle.fence_sandbox_for_teardown(ctx.home)
-    assert repeated.reset_requested_at == fenced.reset_requested_at
-    assert repeated.teardown_requested_at == fenced.teardown_requested_at
+    # A repeat writes nothing — not even a new reason — and records no second
+    # intent.
+    assert {:ok, repeated} =
+             Lifecycle.fence_sandbox_for_teardown(ctx.home, transition_reason: :admin_reap)
+
+    assert repeated.transition_reason == "teardown"
+    assert repeated.updated_at == fenced.updated_at
     assert [^event] = events(ctx)
   end
 
@@ -56,49 +60,53 @@ defmodule Fountain.Conversations.TeardownFenceTest do
 
       assert {:ok, retired} = Lifecycle.fence_sandbox_for_teardown(ctx.home)
       assert retired.status == unquote(status)
-      refute retired.reset_requested_at
-      refute retired.teardown_requested_at
+      refute retired.transition == "destroying"
       assert events(ctx) == []
     end
   end
 
-  test "escalating a reset records forced intent while retaining the original admission fence",
-       ctx do
-    requested_at = DateTime.add(DateTime.utc_now(), -60)
-    ctx.home |> Ecto.Changeset.change(reset_requested_at: requested_at) |> Repo.update!()
+  test "escalating a reset records forced intent and keeps the machine fenced", ctx do
+    # A reset's stamp is not a teardown's, so a forced fence on top of one is
+    # new intent: the reason is rewritten — the machine is going away for the
+    # newer reason — and the event is recorded. The machine never stops being
+    # fenced along the way. A second forced fence is then a repeat.
+    ctx.home
+    |> Ecto.Changeset.change(transition: "destroying", transition_reason: "reset")
+    |> Repo.update!()
+
     reject(Managoat.Sandbox.Sprites, :destroy, 1)
 
     assert {:ok, fenced} =
-             Lifecycle.fence_sandbox_for_teardown(ctx.home, actor: "ui")
+             Lifecycle.fence_sandbox_for_teardown(ctx.home,
+               actor: "ui",
+               transition_reason: :admin_reap
+             )
 
-    assert fenced.reset_requested_at == requested_at
-    assert DateTime.compare(fenced.teardown_requested_at, requested_at) == :gt
+    assert fenced.transition == "destroying"
+    assert fenced.transition_reason == "admin_reap"
     assert [event] = events(ctx)
     assert event.actor == "ui"
     assert {:ok, repeated} = Lifecycle.fence_sandbox_for_teardown(ctx.home)
-    assert repeated.teardown_requested_at == fenced.teardown_requested_at
+    assert repeated.transition_reason == "admin_reap"
     assert [^event] = events(ctx)
   end
 
   test "an ordinary failed reset does not become a forced teardown", ctx do
     stub(Managoat.Sandbox.Sprites, :destroy, fn _ -> {:error, :provider_unavailable} end)
     assert {:error, :sandbox_reset_pending} = Conversations.reset_sandbox(ctx.home)
-    assert Repo.reload!(ctx.home).reset_requested_at
-    refute Repo.reload!(ctx.home).teardown_requested_at
+    assert Repo.reload!(ctx.home).transition == "destroying"
+    assert Repo.reload!(ctx.home).transition_reason == "reset"
     assert events(ctx) == []
   end
 
   test "general sandbox attributes cannot forge or clear forced intent", ctx do
     assert {:ok, fenced} = Lifecycle.fence_sandbox_for_teardown(ctx.home)
 
-    for value <- [nil, DateTime.add(DateTime.utc_now(), 60)] do
-      changeset =
-        Fountain.Conversations.Sandbox.changeset(fenced, %{teardown_requested_at: value})
+    for {field, value} <- [transition: nil, transition: "parking", transition_reason: "reset"] do
+      changeset = Fountain.Conversations.Sandbox.changeset(fenced, %{field => value})
 
-      refute Map.has_key?(changeset.changes, :teardown_requested_at)
-
-      assert Ecto.Changeset.get_field(changeset, :teardown_requested_at) ==
-               fenced.teardown_requested_at
+      refute Map.has_key?(changeset.changes, field)
+      assert Ecto.Changeset.get_field(changeset, field) == Map.fetch!(fenced, field)
     end
   end
 
@@ -119,8 +127,7 @@ defmodule Fountain.Conversations.TeardownFenceTest do
                Lifecycle.fence_sandbox_for_teardown(ctx.home)
              end)
 
-    refute Repo.reload!(ctx.home).reset_requested_at
-    refute Repo.reload!(ctx.home).teardown_requested_at
+    refute Repo.reload!(ctx.home).transition == "destroying"
     assert events(ctx) == []
   end
 

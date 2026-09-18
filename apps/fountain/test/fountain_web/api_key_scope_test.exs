@@ -96,7 +96,7 @@ defmodule FountainWeb.ApiKeyScopeTest do
 
     test "can spawn a sub-agent conversation", %{conn: conn, user: user, sprite_key: key} do
       agent = insert_agent(user_id: user.id)
-      stub(Horde.DynamicSupervisor, :start_child, fn _s, _spec -> {:ok, spawn(fn -> :ok end)} end)
+      stub_server_start(fn _s, _spec -> {:ok, spawn(fn -> :ok end)} end)
 
       conn =
         conn

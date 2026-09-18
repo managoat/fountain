@@ -40,7 +40,7 @@ defmodule FountainWeb.OrphanedHomeDoorTest do
 
     conv = insert_conversation(user_id: user.id, agent: agent, sandbox: home, status: "idle")
     stub(Managoat.Sandbox.Sprites, :destroy, fn _h -> :ok end)
-    stub(Horde.DynamicSupervisor, :start_child, fn _s, _spec -> {:ok, spawn(fn -> :ok end)} end)
+    stub_server_start(fn _s, _spec -> {:ok, spawn(fn -> :ok end)} end)
 
     {:ok,
      user: user,
@@ -111,7 +111,7 @@ defmodule FountainWeb.OrphanedHomeDoorTest do
       assert first.runtime == "opencode"
       new_home = Conversations._unsafe_get_sandbox!(first.sandbox_id)
       assert new_home.runtime == "opencode"
-      {:ok, _} = Conversations.update_sandbox(new_home, %{status: "ready"})
+      {:ok, _} = update_sandbox(new_home, %{status: "ready"})
 
       second =
         ctx

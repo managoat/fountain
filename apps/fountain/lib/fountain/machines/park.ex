@@ -38,7 +38,7 @@ defmodule Fountain.Machines.Park do
      so from here until the finalize nothing starts work on this machine; the
      stamp is what makes an *abandoned* park recognisable to the next owner.
   5. **Checkpoint**, where the machine is a home on a provider that can
-     (`Fountain.Conversations.HomeCheckpoint.on_park/2`, ADR 0023, #1073).
+     (`Fountain.Machines.HomeCheckpoint.on_park/2`, ADR 0023, #1073).
      Outside every lock, inside the transition, and best-effort: a failed
      checkpoint is logged and the park goes ahead, because an unparked machine
      keeps billing. Its `provider_meta` write goes through `Lease.cas_update/3`
@@ -147,7 +147,7 @@ defmodule Fountain.Machines.Park do
 
   alias Fountain.Audit
   alias Fountain.Conversations
-  alias Fountain.Conversations.HomeCheckpoint
+  alias Fountain.Machines.HomeCheckpoint
   alias Fountain.Conversations.Lifecycle
   alias Fountain.Conversations.MachineEvents
   alias Fountain.Conversations.Sandbox
@@ -384,14 +384,14 @@ defmodule Fountain.Machines.Park do
 
   defp admissible(%Sandbox{} = sandbox, opts) do
     cond do
-      # Both fences, where `park_row/1` on `main` checked only the reset one.
-      # A machine whose teardown has been requested is on its way out: parking
-      # it would write a live status over a row `sweep_fenced_teardowns/0` is
-      # about to finish, and re-reserve at the provider a machine somebody
-      # asked to be destroyed.
-      not is_nil(sandbox.reset_requested_at) or not is_nil(sandbox.teardown_requested_at) ->
-        {:error, :fenced}
-
+      # No fence clause here since stage 9b. A fence is the `destroying` stamp,
+      # and `under_lease/3` refuses every stamp that is not this park's own —
+      # `destroying` among them — before this is reached, so a copy here would
+      # be a guard no test could break (9a's rule for `Resume.admissible/2`).
+      # Until 9b this read the two fence columns, which a row could carry with
+      # no stamp at all. Why a fenced machine is refused: it is on its way out,
+      # and parking it would write a live status over a row
+      # `sweep_fenced_teardowns/0` is about to finish.
       Lifecycle.idle_action(Conversations.sandbox_provider_atom(sandbox)) == :destroy ->
         {:error, :cannot_park}
 

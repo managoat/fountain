@@ -11,8 +11,8 @@ defmodule Fountain.Billing.SandboxUsage do
 
   The `sandboxes` table is the authority, not `usage_events`. A sandbox row
   carries the four facts an interval needs — `provider`, `user_id`,
-  `inserted_at` and `terminated_at` — it is written by the one choke point
-  every status change goes through (`Conversations.update_sandbox/2`), and it
+  `inserted_at` and `terminated_at` — every status change is the machine
+  owner's write (`Fountain.Machines.Lease.cas_update/4`, ADR 0058), and it
   is never pruned. `usage_events` supplies exactly one thing on top: the
   `sandbox_suspended` / `sandbox_resumed` pairs that say when a sandbox was
   parked rather than running.

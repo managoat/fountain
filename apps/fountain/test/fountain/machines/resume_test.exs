@@ -13,8 +13,8 @@ defmodule Fountain.Machines.ResumeTest do
   `wake_policy_test.exs`, `wake_race_test.exs`); this file is the protocol on
   its own.
 
-  `async: false`: the gate is application environment, and the gate-on cases run
-  the protocol inside an owner process that needs the shared sandbox connection.
+  `async: false`: several cases run the protocol inside an owner process
+  alongside cases that share state with it.
   """
 
   use Fountain.DataCase, async: false
@@ -90,20 +90,6 @@ defmodule Fountain.Machines.ResumeTest do
         after
           2_000 -> Process.demonitor(ref, [:flush])
         end
-    end
-  end
-
-  defp with_gate(value, fun) do
-    previous = Application.fetch_env(:fountain, :machine_owner_enabled)
-    Application.put_env(:fountain, :machine_owner_enabled, value)
-
-    try do
-      fun.()
-    after
-      case previous do
-        {:ok, was} -> Application.put_env(:fountain, :machine_owner_enabled, was)
-        :error -> Application.delete_env(:fountain, :machine_owner_enabled)
-      end
     end
   end
 
@@ -211,7 +197,7 @@ defmodule Fountain.Machines.ResumeTest do
 
   describe "the recheck under the lease" do
     test "a machine that is already up is not resumed", ctx do
-      {:ok, _} = Conversations.update_sandbox(ctx.sandbox, %{status: "ready"})
+      {:ok, _} = update_sandbox(ctx.sandbox, %{status: "ready"})
       reject(&Managoat.Sandbox.resume/1)
 
       assert {:ok, :already_up} = Resume.run(ctx.sandbox.id, opts())
@@ -220,7 +206,7 @@ defmodule Fountain.Machines.ResumeTest do
 
     for terminal <- ~w(terminated failed) do
       test "a machine that has stopped (#{terminal}) is not resumed", ctx do
-        {:ok, _} = Conversations.update_sandbox(ctx.sandbox, %{status: unquote(terminal)})
+        {:ok, _} = update_sandbox(ctx.sandbox, %{status: unquote(terminal)})
         reject(&Managoat.Sandbox.resume/1)
 
         assert {:ok, :already_terminal} = Resume.run(ctx.sandbox.id, opts())
@@ -229,7 +215,7 @@ defmodule Fountain.Machines.ResumeTest do
     end
 
     test "a machine whose reset is unconfirmed is fenced, not woken", ctx do
-      stamp(ctx, reset_requested_at: DateTime.utc_now())
+      stamp(ctx, transition: "destroying", transition_reason: "reset")
       reject(&Managoat.Sandbox.resume/1)
 
       assert {:error, :fenced} = Resume.run(ctx.sandbox.id, opts())
@@ -237,7 +223,7 @@ defmodule Fountain.Machines.ResumeTest do
     end
 
     test "a machine whose teardown has been asked for is fenced, not woken", ctx do
-      stamp(ctx, teardown_requested_at: DateTime.utc_now())
+      stamp(ctx, transition: "destroying", transition_reason: "teardown")
       reject(&Managoat.Sandbox.resume/1)
 
       assert {:error, :fenced} = Resume.run(ctx.sandbox.id, opts())
@@ -285,7 +271,7 @@ defmodule Fountain.Machines.ResumeTest do
     test "a fence column still refuses, stamp or no stamp", ctx do
       # What separates the two: a fence is a durable statement that the machine
       # is going away, where a stamp is the leftover of an owner that stopped.
-      stamp(ctx, transition: "destroying", teardown_requested_at: DateTime.utc_now())
+      stamp(ctx, transition: "destroying", transition_reason: "teardown")
       reject(&Managoat.Sandbox.resume/1)
 
       quietly(fn -> assert {:error, :fenced} = Resume.run(ctx.sandbox.id, opts()) end)
@@ -363,8 +349,8 @@ defmodule Fountain.Machines.ResumeTest do
     end
 
     for {label, sets} <- [
-          {"a fence", [reset_requested_at: ~U[2026-01-01 00:00:00Z]]},
-          {"a teardown fence", [teardown_requested_at: ~U[2026-01-01 00:00:00Z]]},
+          {"a fence", [transition: "destroying", transition_reason: "reset"]},
+          {"a teardown fence", [transition: "destroying", transition_reason: "teardown"]},
           {"an abandoned stamp", [transition: "parking"]},
           {"a lease holder", [lease_epoch: 1, lease_node: "somebody@else"]}
         ] do
@@ -459,7 +445,7 @@ defmodule Fountain.Machines.ResumeTest do
 
     for observed <- [:running, :unknown, nil] do
       test "is left alone when the probe said #{inspect(observed)}", ctx do
-        {:ok, _} = Conversations.update_sandbox(ctx.sandbox, %{status: "ready"})
+        {:ok, _} = update_sandbox(ctx.sandbox, %{status: "ready"})
         reject(&Managoat.Sandbox.resume/1)
 
         assert {:ok, :already_up} =
@@ -692,13 +678,14 @@ defmodule Fountain.Machines.ResumeTest do
       assert row(ctx).status == "suspended"
     end
 
-    test "a takeover re-applies the whole recheck, and clears the stamp when it refuses", ctx do
+    test "a takeover re-applies the whole recheck, and leaves the fence when it refuses", ctx do
       # `Park`'s round-1 blocker in this protocol's shape: a fence that landed
-      # on the row while the dead owner held it must not be overwritten, and
-      # the stamp must not survive the refusal — nothing else clears a
-      # lease-less stamp except an owner.
+      # on the row while the dead owner held it must not be overwritten. The
+      # fence is the stamp since stage 9b, written over the abandoned
+      # `resuming`, so the `resuming` stamp is already gone and the
+      # `destroying` one stays for the driver.
       abandon_mid_resume(ctx)
-      stamp(ctx, teardown_requested_at: DateTime.utc_now())
+      stamp(ctx, transition: "destroying", transition_reason: "teardown")
 
       reject(&Managoat.Sandbox.get/1)
       reject(&Managoat.Sandbox.resume/1)
@@ -707,7 +694,7 @@ defmodule Fountain.Machines.ResumeTest do
         assert {:error, :fenced} = Resume.run(ctx.sandbox.id, opts())
       end)
 
-      assert is_nil(row(ctx).transition)
+      assert row(ctx).transition == "destroying"
       assert row(ctx).status == "suspended"
     end
 
@@ -894,28 +881,18 @@ defmodule Fountain.Machines.ResumeTest do
       end)
     end
 
-    for gate <- [true, false] do
-      test "resumes the same way with the gate #{gate}", ctx do
-        stub(Managoat.Sandbox, :resume, fn handle -> {:ok, handle} end)
+    test "resumes in the machine's owner", ctx do
+      # The owner is another process. It finds this test's connection and its
+      # stubs through `$callers`, which `Machine.ensure_started/2` hands it.
+      stub(Managoat.Sandbox, :resume, fn handle -> {:ok, handle} end)
 
-        with_gate(unquote(gate), fn ->
-          # With the gate on the protocol runs in the owner, which is a
-          # different process and needs the stub and the connection.
-          if unquote(gate) do
-            {:ok, owner} = Machine.ensure_started(ctx.sandbox.id)
-            Ecto.Adapters.SQL.Sandbox.allow(Fountain.Repo, self(), owner)
-            Mimic.allow(Managoat.Sandbox, self(), owner)
-            Mimic.allow(Fountain.Audit, self(), owner)
-          end
+      assert {:ok, :resumed} = Machine.ensure_up(ctx.sandbox.id, opts())
+      assert Machine.whereis(ctx.sandbox.id) != nil
 
-          assert {:ok, :resumed} = Machine.ensure_up(ctx.sandbox.id, opts())
-        end)
-
-        up = row(ctx)
-        assert up.status == "ready"
-        assert %DateTime{} = up.last_resumed_at
-        assert [_one] = events(ctx, "sandbox.resumed")
-      end
+      up = row(ctx)
+      assert up.status == "ready"
+      assert %DateTime{} = up.last_resumed_at
+      assert [_one] = events(ctx, "sandbox.resumed")
     end
 
     test "a superseded resume is a machine that is up, to the caller", ctx do
@@ -969,7 +946,7 @@ defmodule Fountain.Machines.ResumeTest do
     test "a fenced machine answers the fence's word end to end", ctx do
       # Through the real protocol rather than a stubbed one, so the translation
       # and the recheck that produces it are pinned together.
-      stamp(ctx, teardown_requested_at: DateTime.utc_now())
+      stamp(ctx, transition: "destroying", transition_reason: "teardown")
       reject(&Managoat.Sandbox.resume/1)
 
       assert {:error, :sandbox_reset_pending} = Machine.ensure_up(ctx.sandbox.id, opts())

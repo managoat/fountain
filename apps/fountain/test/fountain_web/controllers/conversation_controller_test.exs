@@ -547,7 +547,7 @@ defmodule FountainWeb.ConversationControllerTest do
       agent = insert_agent(user_id: user.id)
       insert_sandbox(user_id: user.id, status: "ready")
 
-      stub(Horde.DynamicSupervisor, :start_child, fn _s, _spec -> {:ok, spawn(fn -> :ok end)} end)
+      stub_server_start(fn _s, _spec -> {:ok, spawn(fn -> :ok end)} end)
 
       conn =
         conn
@@ -647,7 +647,7 @@ defmodule FountainWeb.ConversationControllerTest do
       |> Ecto.Changeset.change(status: "destroyed")
       |> Fountain.Repo.update!()
 
-      stub(Horde.DynamicSupervisor, :start_child, fn _supervisor, _spec ->
+      stub_server_start(fn _supervisor, _spec ->
         {:ok, spawn(fn -> :ok end)}
       end)
 
@@ -708,7 +708,7 @@ defmodule FountainWeb.ConversationControllerTest do
 
       occupied |> Ecto.Changeset.change(status: "destroyed") |> Fountain.Repo.update!()
 
-      stub(Horde.DynamicSupervisor, :start_child, fn _supervisor, _spec ->
+      stub_server_start(fn _supervisor, _spec ->
         {:ok, spawn(fn -> :ok end)}
       end)
 
@@ -898,7 +898,7 @@ defmodule FountainWeb.ConversationControllerTest do
       raw_key: raw_key
     } do
       agent = insert_agent(user_id: user.id)
-      stub(Horde.DynamicSupervisor, :start_child, fn _s, _spec -> {:ok, spawn(fn -> :ok end)} end)
+      stub_server_start(fn _s, _spec -> {:ok, spawn(fn -> :ok end)} end)
 
       conn =
         conn
@@ -1258,7 +1258,7 @@ defmodule FountainWeb.ConversationControllerTest do
         insert_conversation(user_id: user.id, agent: agent, sandbox: sandbox, status: "idle")
 
       sandbox
-      |> Ecto.Changeset.change(teardown_requested_at: DateTime.utc_now())
+      |> Ecto.Changeset.change(transition: "destroying", transition_reason: "teardown")
       |> Fountain.Repo.update!()
 
       stub(Managoat.Sandbox.Sprites, :get, fn _handle -> {:ok, %{status: :running, raw: %{}}} end)
@@ -2022,7 +2022,7 @@ defmodule FountainWeb.ConversationControllerTest do
       agent = insert_agent(user_id: user.id)
       parent_conv = insert_conversation(user_id: user.id)
 
-      stub(Horde.DynamicSupervisor, :start_child, fn _supervisor, _child_spec ->
+      stub_server_start(fn _supervisor, _child_spec ->
         {:ok, spawn(fn -> :ok end)}
       end)
 
@@ -2045,7 +2045,7 @@ defmodule FountainWeb.ConversationControllerTest do
       agent = insert_agent(user_id: user.id)
       parent_conv = insert_conversation(user_id: user.id)
 
-      stub(Horde.DynamicSupervisor, :start_child, fn _supervisor, _child_spec ->
+      stub_server_start(fn _supervisor, _child_spec ->
         {:ok, spawn(fn -> :ok end)}
       end)
 
@@ -2068,7 +2068,7 @@ defmodule FountainWeb.ConversationControllerTest do
     } do
       agent = insert_agent(user_id: user.id)
 
-      stub(Horde.DynamicSupervisor, :start_child, fn _supervisor, _child_spec ->
+      stub_server_start(fn _supervisor, _child_spec ->
         {:ok, spawn(fn -> :ok end)}
       end)
 
@@ -2088,7 +2088,7 @@ defmodule FountainWeb.ConversationControllerTest do
     } do
       agent = insert_agent(user_id: user.id)
 
-      stub(Horde.DynamicSupervisor, :start_child, fn _supervisor, _child_spec ->
+      stub_server_start(fn _supervisor, _child_spec ->
         {:ok, spawn(fn -> :ok end)}
       end)
 
@@ -2106,7 +2106,7 @@ defmodule FountainWeb.ConversationControllerTest do
 
   describe "POST /api/conversations with environment_id (#783)" do
     setup %{user: user} do
-      stub(Horde.DynamicSupervisor, :start_child, fn _s, _spec -> {:ok, spawn(fn -> :ok end)} end)
+      stub_server_start(fn _s, _spec -> {:ok, spawn(fn -> :ok end)} end)
       agent_env = insert_env(user_id: user.id)
       other_env = insert_env(user_id: user.id)
       agent = insert_agent(user_id: user.id, environment_id: agent_env.id)
@@ -2177,7 +2177,7 @@ defmodule FountainWeb.ConversationControllerTest do
   # 404 rather than a hint that it exists.
   describe "POST /api/conversations with inference_credential_id (ADR 0053)" do
     setup %{user: user} do
-      stub(Horde.DynamicSupervisor, :start_child, fn _s, _spec -> {:ok, spawn(fn -> :ok end)} end)
+      stub_server_start(fn _s, _spec -> {:ok, spawn(fn -> :ok end)} end)
       {:ok, _default} = Fountain.InferenceCredentials.create_set(user.id, "Default")
       {:ok, second} = Fountain.InferenceCredentials.create_set(user.id, "Second subscription")
       {:ok, dek} = Fountain.Crypto.load_tenant_key(user.id)
@@ -2260,7 +2260,7 @@ defmodule FountainWeb.ConversationControllerTest do
     # on the same conversation, and so the same sandbox, rather than opening a
     # fresh one per restart. The key is opaque; Fountain only matches it.
     setup %{user: user} do
-      stub(Horde.DynamicSupervisor, :start_child, fn _s, _spec -> {:ok, spawn(fn -> :ok end)} end)
+      stub_server_start(fn _s, _spec -> {:ok, spawn(fn -> :ok end)} end)
       # Channel binding, not the quota: several of these open three sandboxes
       # for one tenant, which is above the default plan's cap. An override
       # takes the cap out of the way rather than shaping the test around it.
@@ -2399,7 +2399,7 @@ defmodule FountainWeb.ConversationControllerTest do
          %{conn: conn, user: user, raw_key: raw_key} do
       agent = insert_agent(user_id: user.id)
 
-      stub(Horde.DynamicSupervisor, :start_child, fn _supervisor, _child_spec ->
+      stub_server_start(fn _supervisor, _child_spec ->
         {:ok, self()}
       end)
 
@@ -2425,7 +2425,7 @@ defmodule FountainWeb.ConversationControllerTest do
       raw_key: raw_key
     } do
       agent = insert_agent(user_id: user.id)
-      reject(Horde.DynamicSupervisor, :start_child, 2)
+      reject_server_start()
 
       conn =
         conn
@@ -2447,7 +2447,7 @@ defmodule FountainWeb.ConversationControllerTest do
     } do
       agent = insert_agent(user_id: user.id)
 
-      stub(Horde.DynamicSupervisor, :start_child, fn _supervisor, _child_spec ->
+      stub_server_start(fn _supervisor, _child_spec ->
         {:ok, spawn(fn -> :ok end)}
       end)
 

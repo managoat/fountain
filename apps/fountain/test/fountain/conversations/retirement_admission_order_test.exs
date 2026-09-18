@@ -30,9 +30,33 @@ defmodule Fountain.Conversations.RetirementAdmissionOrderTest do
 
       owner = self()
 
+      # The retirement writer is the owner's compare-and-set since ADR 0058
+      # stage 9b deleted `Conversations.update_sandbox/2`, the row-lock writer
+      # this race was first written against (#1969). It takes no advisory lock,
+      # which is exactly the writer the admission's `FOR SHARE` hold exists for.
+      #
+      # **Not production's shape in one respect, deliberately.** Production's
+      # finalize is one statement outside any transaction, so its row lock
+      # lasts only for that statement. Here it runs inside a transaction
+      # (`nest: true`) so the retirement-first arm has a row lock to hold across
+      # the pause. The admission-first arm is production's shape exactly: the
+      # UPDATE waits on the admission's `FOR SHARE` until the insert commits.
+      #
+      # The lease is taken here and left to lapse first, so the admission side
+      # does not read the machine as busy; `cas_update/4` answers to the epoch,
+      # not the clock.
+      {:ok, epoch} = Fountain.Machines.Lease.claim(home.id, "retirer@node", 1)
+      Process.sleep(10)
+
       operation = fn
         :retirement ->
-          Conversations.update_sandbox(home, %{status: "terminated"})
+          with {:ok, {:ok, retired}} <-
+                 Repo.transaction(fn ->
+                   Fountain.Machines.Lease.cas_update(home.id, epoch, [status: "terminated"],
+                     nest: true
+                   )
+                 end),
+               do: {:ok, retired}
 
         :admission ->
           Conversations._unsafe_create_turn_on_sandbox(
@@ -148,7 +172,7 @@ defmodule Fountain.Conversations.RetirementAdmissionOrderTest do
   def after_query(_, _, %{query: query}, {worker, owner, handler, role}) do
     target? =
       case role do
-        :retirement -> query =~ ~s(FROM "sandboxes") and query =~ "FOR UPDATE"
+        :retirement -> query =~ ~s(UPDATE "sandboxes")
         :admission -> query =~ ~s(FROM "sandboxes") and query =~ "FOR SHARE"
       end
 

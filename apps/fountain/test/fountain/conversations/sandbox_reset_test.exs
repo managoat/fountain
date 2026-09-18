@@ -37,7 +37,7 @@ defmodule Fountain.Conversations.SandboxResetTest do
       )
 
     b = insert_conversation(user_id: user.id, agent: agent, sandbox: home, status: "idle")
-    stub(Horde.DynamicSupervisor, :start_child, fn _s, _spec -> {:ok, spawn(fn -> :ok end)} end)
+    stub_server_start(fn _s, _spec -> {:ok, spawn(fn -> :ok end)} end)
     {:ok, user: user, env: env, agent: agent, home: home, a: a, b: b}
   end
 
@@ -48,7 +48,7 @@ defmodule Fountain.Conversations.SandboxResetTest do
              Repo.transaction(fn -> Conversations.reset_sandbox(ctx.home) end)
 
     assert Repo.reload!(ctx.home).status == "ready"
-    refute Repo.reload!(ctx.home).reset_requested_at
+    refute Repo.reload!(ctx.home).transition == "destroying"
     assert Repo.reload!(ctx.a).runtime_session_id == "sess-a"
     assert Conversations._unsafe_list_log_events(ctx.a.id) == []
   end
@@ -74,11 +74,11 @@ defmodule Fountain.Conversations.SandboxResetTest do
     stub(Managoat.Sandbox.Sprites, :destroy, fn _ -> {:error, {:unavailable, :timeout}} end)
     assert {:error, :sandbox_reset_pending} = Conversations.reset_sandbox(ctx.home)
     fenced = Repo.reload!(ctx.home)
-    assert fenced.reset_requested_at
+    assert fenced.transition == "destroying"
     assert Fountain.Quotas.active_sandbox_count(ctx.user.id) == 1
 
     assert {:error, :sandbox_reset_pending} = Conversations.retry_pending_sandbox_reset(ctx.home)
-    assert Repo.reload!(ctx.home).reset_requested_at == fenced.reset_requested_at
+    assert Repo.reload!(ctx.home).transition == fenced.transition
     assert Repo.reload!(ctx.home).status == "ready"
     assert Fountain.Quotas.active_sandbox_count(ctx.user.id) == 1
 
@@ -92,7 +92,7 @@ defmodule Fountain.Conversations.SandboxResetTest do
              Conversations.retry_pending_sandbox_reset(ctx.home, actor: "system:reset_retry")
 
     assert completed.status == "terminated"
-    assert completed.reset_requested_at == fenced.reset_requested_at
+    assert is_nil(completed.transition)
     assert completed.terminated_at
     assert Fountain.Quotas.active_sandbox_count(ctx.user.id) == 0
     assert {:ok, :skipped} = Conversations.retry_pending_sandbox_reset(ctx.home)
@@ -121,7 +121,7 @@ defmodule Fountain.Conversations.SandboxResetTest do
 
   test "retry re-reads the owned row and skips unfenced or terminal machines", ctx do
     reject(Managoat.Sandbox.Sprites, :destroy, 1)
-    stale = %{ctx.home | reset_requested_at: DateTime.utc_now()}
+    stale = %{ctx.home | transition: "destroying", transition_reason: "reset"}
     assert {:ok, :skipped} = Conversations.retry_pending_sandbox_reset(stale)
 
     assert {:error, :not_found} =
@@ -130,7 +130,7 @@ defmodule Fountain.Conversations.SandboxResetTest do
     assert {:error, :not_found} =
              Conversations.retry_pending_sandbox_reset(%{stale | id: Ecto.UUID.generate()})
 
-    {:ok, _} = Conversations.update_sandbox(ctx.home, %{status: "terminated"})
+    {:ok, _} = update_sandbox(ctx.home, %{status: "terminated"})
     assert {:ok, :skipped} = Conversations.retry_pending_sandbox_reset(stale)
   end
 
@@ -270,10 +270,14 @@ defmodule Fountain.Conversations.SandboxResetTest do
     assert {:error, :sandbox_reset_pending} = Conversations.reset_sandbox(ctx.home)
     assert {:error, :sandbox_reset_pending} = Wake.wake_conversation(ctx.a.id)
 
-    # A write that would keep the machine alive is refused. A write that
+    # A write that would keep the machine alive is refused: a park, which is the
+    # owner's, since stage 9b left no other writer of a status. A write that
     # retires it is not, and is covered in the describe block below.
-    assert {:error, :sandbox_reset_pending} =
-             Conversations.update_sandbox(ctx.home, %{status: "suspended"})
+    assert {:error, :fenced} =
+             Fountain.Machines.Machine.park(ctx.home.id,
+               actor: "system:sandbox_reaper",
+               reason: :idle
+             )
 
     Repo.update_all(from(s in Conversations.Sandbox, where: s.id == ^ctx.home.id),
       set: [updated_at: DateTime.add(DateTime.utc_now(), -172_800, :second)]
@@ -305,9 +309,21 @@ defmodule Fountain.Conversations.SandboxResetTest do
       assert Fountain.Quotas.active_sandbox_count(ctx.user.id) == 0
     end
 
-    test "a server that gives up can still mark the machine failed", ctx do
-      assert {:ok, failed} = Conversations.update_sandbox(ctx.home, %{status: "failed"})
-      assert failed.status == "failed"
+    test "a server that gives up can still retire the machine through its owner", ctx do
+      # The production path a server takes (`ConversationServer`'s
+      # terminate-machine arm): a destroy through the owner, which continues
+      # from the reset's `destroying` stamp rather than refusing it. Until
+      # stage 9b this wrote `failed` through `update_sandbox/2`, which no
+      # production caller does any more.
+      stub(Managoat.Sandbox.Sprites, :destroy, fn _ -> :ok end)
+
+      assert {:ok, :destroyed} =
+               Fountain.Machines.Machine.destroy(ctx.home.id,
+                 actor: "system:conversation_server",
+                 reason: :terminated
+               )
+
+      assert Repo.reload!(ctx.home).status == "terminated"
       assert Fountain.Quotas.active_sandbox_count(ctx.user.id) == 0
     end
 
@@ -318,12 +334,12 @@ defmodule Fountain.Conversations.SandboxResetTest do
       # checkpoint, which is before anything is written. Since ADR 0058 stage
       # 6b the park protocol refuses such a row before it even gets here, and
       # this keeps the checkpoint's own half of the rule under test.
-      assert :skipped = Fountain.Conversations.HomeCheckpoint.on_park(Repo.reload!(ctx.home), 1)
+      assert :skipped = Fountain.Machines.HomeCheckpoint.on_park(Repo.reload!(ctx.home), 1)
       assert :ok = Fountain.Conversations.Lifecycle.park(ctx.a.id, ctx.home.id, nil, :idle)
 
       held = Repo.reload!(ctx.home)
       assert held.status == "ready"
-      refute is_nil(held.reset_requested_at)
+      assert held.transition == "destroying"
       assert Repo.reload!(ctx.a).status == "idle"
     end
 
@@ -331,8 +347,11 @@ defmodule Fountain.Conversations.SandboxResetTest do
       assert {:error, :sandbox_reset_pending} = Conversations.reset_sandbox(ctx.home)
       assert {:error, :sandbox_reset_pending} = Wake.wake_conversation(ctx.a.id)
 
-      assert {:error, :sandbox_reset_pending} =
-               Conversations.update_sandbox(ctx.home, %{status: "suspended"})
+      assert {:error, :fenced} =
+               Fountain.Machines.Machine.park(ctx.home.id,
+                 actor: "system:sandbox_reaper",
+                 reason: :idle
+               )
 
       assert Repo.reload!(ctx.home).status == "ready"
     end
@@ -375,12 +394,12 @@ defmodule Fountain.Conversations.SandboxResetTest do
       ctx.home |> Ecto.Changeset.change(status: status) |> Repo.update!()
 
       assert {:error, {:sandbox_not_resettable, ^status}} = Conversations.reset_sandbox(ctx.home)
-      refute Repo.reload!(ctx.home).reset_requested_at
+      refute Repo.reload!(ctx.home).transition == "destroying"
     end
   end
 
   test "a parked reset holds capacity even through replacement exclusions", ctx do
-    {:ok, home} = Conversations.update_sandbox(ctx.home, %{status: "suspended"})
+    {:ok, home} = update_sandbox(ctx.home, %{status: "suspended"})
     expect(Managoat.Sandbox.Sprites, :destroy, fn _ -> {:error, :timeout} end)
     assert {:error, :sandbox_reset_pending} = Conversations.reset_sandbox(home)
     assert Fountain.Quotas.active_sandbox_count(ctx.user.id, exclude: home.id) == 1
@@ -405,7 +424,7 @@ defmodule Fountain.Conversations.SandboxResetTest do
            end) =~ "caller lost"
 
     assert Repo.reload!(ctx.home).status == "ready"
-    assert Repo.reload!(ctx.home).reset_requested_at
+    assert Repo.reload!(ctx.home).transition == "destroying"
     assert Fountain.Quotas.active_sandbox_count(ctx.user.id) == 1
     assert {:error, :sandbox_reset_pending} = Conversations.reset_sandbox(ctx.home)
 

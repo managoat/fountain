@@ -55,13 +55,13 @@ defmodule Fountain.Conversations.AttachTest do
   for status <- ["pending", "starting", "terminated", "failed"] do
     test "a #{status} machine refuses a conversation", ctx do
       status = unquote(status)
-      {:ok, _} = Conversations.update_sandbox(ctx.sandbox, %{status: status})
+      {:ok, _} = update_sandbox(ctx.sandbox, %{status: status})
       assert {:error, {:sandbox_not_attachable, ^status}} = attach(ctx)
     end
   end
 
   test "a suspended machine takes a conversation", ctx do
-    {:ok, _} = Conversations.update_sandbox(ctx.sandbox, %{status: "suspended"})
+    {:ok, _} = update_sandbox(ctx.sandbox, %{status: "suspended"})
     assert {:ok, _} = attach(ctx)
   end
 
@@ -105,7 +105,7 @@ defmodule Fountain.Conversations.AttachTest do
   end
 
   test "a fresh launch stamps the identity on the sandbox it provisions", ctx do
-    stub(Horde.DynamicSupervisor, :start_child, fn _s, _spec -> {:ok, spawn(fn -> :ok end)} end)
+    stub_server_start(fn _s, _spec -> {:ok, spawn(fn -> :ok end)} end)
 
     assert {:ok, conv} =
              Launch.start_conversation(%{

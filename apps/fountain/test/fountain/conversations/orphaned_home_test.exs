@@ -26,7 +26,7 @@ defmodule Fountain.Conversations.OrphanedHomeTest do
         sandbox_mode: "persistent"
       )
 
-    stub(Horde.DynamicSupervisor, :start_child, fn _s, _spec -> {:ok, spawn(fn -> :ok end)} end)
+    stub_server_start(fn _s, _spec -> {:ok, spawn(fn -> :ok end)} end)
 
     {:ok, user: user, env: env, other_env: other_env, vault: vault, agent: agent}
   end
@@ -375,7 +375,7 @@ defmodule Fountain.Conversations.OrphanedHomeTest do
       assert {:ok, _} = Agents.update_agent(ctx.agent, %{"environment_id" => ctx.other_env.id})
       held = Conversations._unsafe_get_sandbox!(old.id)
       assert held.status == "ready"
-      refute is_nil(held.reset_requested_at)
+      assert held.transition == "destroying"
       assert Fountain.Quotas.active_sandbox_count(ctx.user.id) == 1
       assert {:error, :sandbox_reset_pending} = Conversations.reset_sandbox(old)
     end

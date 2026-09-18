@@ -19,7 +19,7 @@ defmodule Fountain.ConversationsStartTest do
       user = insert_active_user()
       agent = insert_agent(user_id: user.id)
       sandbox = insert_sandbox(user_id: user.id, machine_name: "parked-wont-wake")
-      {:ok, sandbox} = Conversations.update_sandbox(sandbox, %{status: "suspended"})
+      {:ok, sandbox} = update_sandbox(sandbox, %{status: "suspended"})
       conv = insert_conversation(user_id: user.id, agent: agent, sandbox: sandbox, status: "idle")
 
       stub(Managoat.Sandbox.Sprites, :get, fn _handle ->
@@ -45,7 +45,7 @@ defmodule Fountain.ConversationsStartTest do
       sandbox = insert_sandbox(user_id: user.id, machine_name: "parked-on-e2b")
 
       {:ok, sandbox} =
-        Conversations.update_sandbox(sandbox, %{status: "suspended", provider: "e2b"})
+        update_sandbox(sandbox, %{status: "suspended", provider: "e2b"})
 
       conv = insert_conversation(user_id: user.id, agent: agent, sandbox: sandbox, status: "idle")
 
@@ -66,7 +66,7 @@ defmodule Fountain.ConversationsStartTest do
       victim = insert_active_user()
       attacker = insert_active_user()
       agent = insert_agent(user_id: attacker.id)
-      stub(Horde.DynamicSupervisor, :start_child, fn _s, _spec -> {:ok, spawn(fn -> :ok end)} end)
+      stub_server_start(fn _s, _spec -> {:ok, spawn(fn -> :ok end)} end)
 
       # Named the way Fountain names one, so this is the collision a caller
       # can actually mount: read a name off your own transcript, hand it back.
@@ -91,7 +91,7 @@ defmodule Fountain.ConversationsStartTest do
     test "a supplied name becomes the suffix of this account's prefix" do
       user = insert_active_user()
       agent = insert_agent(user_id: user.id)
-      stub(Horde.DynamicSupervisor, :start_child, fn _s, _spec -> {:ok, spawn(fn -> :ok end)} end)
+      stub_server_start(fn _s, _spec -> {:ok, spawn(fn -> :ok end)} end)
 
       assert {:ok, conv} =
                Launch.start_conversation(%{
@@ -109,7 +109,7 @@ defmodule Fountain.ConversationsStartTest do
     test "a name that already carries this account's prefix is not prefixed twice" do
       user = insert_active_user()
       agent = insert_agent(user_id: user.id)
-      stub(Horde.DynamicSupervisor, :start_child, fn _s, _spec -> {:ok, spawn(fn -> :ok end)} end)
+      stub_server_start(fn _s, _spec -> {:ok, spawn(fn -> :ok end)} end)
 
       full = "fountain-" <> binary_part(user.id, 0, 8) <> "-again"
 
@@ -143,7 +143,7 @@ defmodule Fountain.ConversationsStartTest do
     test "an empty sprite_name is no override rather than an error" do
       user = insert_active_user()
       agent = insert_agent(user_id: user.id)
-      stub(Horde.DynamicSupervisor, :start_child, fn _s, _spec -> {:ok, spawn(fn -> :ok end)} end)
+      stub_server_start(fn _s, _spec -> {:ok, spawn(fn -> :ok end)} end)
 
       assert {:ok, conv} =
                Launch.start_conversation(%{
@@ -179,7 +179,7 @@ defmodule Fountain.ConversationsStartTest do
     test "sandbox_api_access none is still fine without a name" do
       user = insert_active_user()
       agent = insert_agent(user_id: user.id)
-      stub(Horde.DynamicSupervisor, :start_child, fn _s, _spec -> {:ok, spawn(fn -> :ok end)} end)
+      stub_server_start(fn _s, _spec -> {:ok, spawn(fn -> :ok end)} end)
 
       assert {:ok, conv} =
                Launch.start_conversation(%{
@@ -197,7 +197,7 @@ defmodule Fountain.ConversationsStartTest do
     test "the sandbox row is stamped with the resolved provider" do
       user = insert_active_user()
       agent = insert_agent(user_id: user.id)
-      stub(Horde.DynamicSupervisor, :start_child, fn _s, _spec -> {:ok, spawn(fn -> :ok end)} end)
+      stub_server_start(fn _s, _spec -> {:ok, spawn(fn -> :ok end)} end)
 
       assert {:ok, conv} =
                Launch.start_conversation(%{"agent_id" => agent.id, "user_id" => user.id})
@@ -210,7 +210,7 @@ defmodule Fountain.ConversationsStartTest do
       user = insert_active_user()
       agent = insert_agent(user_id: user.id)
       {:ok, _} = Agents.update_agent(agent, %{"description" => "edited"})
-      stub(Horde.DynamicSupervisor, :start_child, fn _s, _spec -> {:ok, spawn(fn -> :ok end)} end)
+      stub_server_start(fn _s, _spec -> {:ok, spawn(fn -> :ok end)} end)
 
       assert {:ok, conv} =
                Launch.start_conversation(%{"agent_id" => agent.id, "user_id" => user.id})
@@ -292,7 +292,7 @@ defmodule Fountain.ConversationsStartTest do
 
       agent = insert_agent(user_id: other.id)
 
-      stub(Horde.DynamicSupervisor, :start_child, fn _s, _spec -> {:ok, spawn(fn -> :ok end)} end)
+      stub_server_start(fn _s, _spec -> {:ok, spawn(fn -> :ok end)} end)
 
       assert {:ok, _} =
                Launch.start_conversation(%{"agent_id" => agent.id, "user_id" => other.id})
@@ -309,8 +309,8 @@ defmodule Fountain.ConversationsStartTest do
       assert {:error, _} =
                Launch.start_conversation(%{"agent_id" => agent.id, "user_id" => user.id})
 
-      {:ok, _} = Conversations.update_sandbox(first, %{status: "terminated"})
-      stub(Horde.DynamicSupervisor, :start_child, fn _s, _spec -> {:ok, spawn(fn -> :ok end)} end)
+      {:ok, _} = update_sandbox(first, %{status: "terminated"})
+      stub_server_start(fn _s, _spec -> {:ok, spawn(fn -> :ok end)} end)
 
       assert {:ok, _} =
                Launch.start_conversation(%{"agent_id" => agent.id, "user_id" => user.id})
@@ -320,7 +320,7 @@ defmodule Fountain.ConversationsStartTest do
       user = insert_active_user()
       agent = insert_agent(user_id: user.id)
 
-      stub(Horde.DynamicSupervisor, :start_child, fn _supervisor, _child_spec ->
+      stub_server_start(fn _supervisor, _child_spec ->
         {:ok, spawn(fn -> :ok end)}
       end)
 
@@ -341,7 +341,7 @@ defmodule Fountain.ConversationsStartTest do
       agent = insert_agent(user_id: user.id)
       parent_conv = insert_conversation(user_id: user.id)
 
-      stub(Horde.DynamicSupervisor, :start_child, fn _supervisor, _child_spec ->
+      stub_server_start(fn _supervisor, _child_spec ->
         {:ok, spawn(fn -> :ok end)}
       end)
 
@@ -359,7 +359,7 @@ defmodule Fountain.ConversationsStartTest do
       user = insert_active_user()
       agent = insert_agent(user_id: user.id)
 
-      stub(Horde.DynamicSupervisor, :start_child, fn _sup, _spec ->
+      stub_server_start(fn _sup, _spec ->
         {:ok, spawn(fn -> :ok end)}
       end)
 
@@ -373,7 +373,7 @@ defmodule Fountain.ConversationsStartTest do
       agent = insert_agent(user_id: user.id)
       vault = insert_vault(user_id: user.id)
 
-      stub(Horde.DynamicSupervisor, :start_child, fn _sup, _spec ->
+      stub_server_start(fn _sup, _spec ->
         {:ok, spawn(fn -> :ok end)}
       end)
 
@@ -398,7 +398,7 @@ defmodule Fountain.ConversationsStartTest do
       vault = insert_vault(user_id: user.id)
       agent = insert_agent(user_id: user.id, allowed_vault_ids: [vault.id])
 
-      stub(Horde.DynamicSupervisor, :start_child, fn _sup, _spec ->
+      stub_server_start(fn _sup, _spec ->
         {:ok, spawn(fn -> :ok end)}
       end)
 
@@ -430,7 +430,7 @@ defmodule Fountain.ConversationsStartTest do
       user = insert_active_user()
       agent = insert_agent(user_id: user.id, allowed_vault_ids: [])
 
-      stub(Horde.DynamicSupervisor, :start_child, fn _sup, _spec ->
+      stub_server_start(fn _sup, _spec ->
         {:ok, spawn(fn -> :ok end)}
       end)
 
@@ -446,7 +446,7 @@ defmodule Fountain.ConversationsStartTest do
 
   describe "start_conversation/2 permission_policy override (#939)" do
     setup do
-      stub(Horde.DynamicSupervisor, :start_child, fn _sup, _spec ->
+      stub_server_start(fn _sup, _spec ->
         {:ok, spawn(fn -> :ok end)}
       end)
 
@@ -615,7 +615,7 @@ defmodule Fountain.ConversationsStartTest do
 
   describe "start_conversation/2 environment_id override" do
     setup do
-      stub(Horde.DynamicSupervisor, :start_child, fn _sup, _spec ->
+      stub_server_start(fn _sup, _spec ->
         {:ok, spawn(fn -> :ok end)}
       end)
 
@@ -789,7 +789,7 @@ defmodule Fountain.ConversationsStartTest do
 
   describe "start_or_resume_conversation/2 sandbox liveness" do
     setup do
-      stub(Horde.DynamicSupervisor, :start_child, fn _sup, _spec ->
+      stub_server_start(fn _sup, _spec ->
         {:ok, spawn(fn -> :ok end)}
       end)
 

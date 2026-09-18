@@ -27,7 +27,7 @@ defmodule Fountain.Conversations.ConversationServerReprovisionTest do
     agent = insert_agent(user_id: user.id, runtime: "gemini")
     conv = insert_conversation(user_id: user.id, agent_id: agent.id)
     sandbox = Conversations._unsafe_get_sandbox!(conv.sandbox_id)
-    {:ok, _} = Conversations.update_sandbox(sandbox, %{status: "starting"})
+    {:ok, _} = update_sandbox(sandbox, %{status: "starting"})
 
     {pid, _ref, :alive} = start_server(conv)
 
@@ -68,7 +68,7 @@ defmodule Fountain.Conversations.ConversationServerReprovisionTest do
     agent = insert_agent(user_id: user.id, runtime: "gemini")
     conv = insert_conversation(user_id: user.id, agent_id: agent.id)
     sandbox = Conversations._unsafe_get_sandbox!(conv.sandbox_id)
-    {:ok, _} = Conversations.update_sandbox(sandbox, %{status: "starting"})
+    {:ok, _} = update_sandbox(sandbox, %{status: "starting"})
 
     {pid, _ref, :alive} = start_server(conv)
     assert Conversations._unsafe_get_sandbox!(conv.sandbox_id).status == "ready"

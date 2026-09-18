@@ -132,8 +132,8 @@ defmodule Fountain.Machines.Lease do
   already drifted — the SQL pair tested `lease_until` alone where `claim/4`
   decides on the holder columns too. They are now one function:
   `Workers.SandboxReaper.sweep_fenced_teardowns/0` (5a),
-  `Workers.SandboxResetReconciler`'s sweep and
-  `Conversations.retry_pending_sandbox_reset/2` (5c), and — new in 6a — the
+  `Workers.SandboxResetReconciler`'s sweep (folded into the former in stage 9b)
+  and `Conversations.retry_pending_sandbox_reset/2` (5c), and — new in 6a — the
   three readers that refuse a wake, an attach or a rehydrate onto a machine
   mid-operation, through `Machines.Machine.busy?/2`. They read the columns;
   they never write one.
@@ -247,9 +247,9 @@ defmodule Fountain.Machines.Lease do
   # `%{lease_until: nil}` in turn, so a map *missing* `:lease_node` fell through
   # to the deadline clause and read as held on the deadline alone — the exact
   # drift this function was written to remove, back as a map-shape hazard, and
-  # reachable: `SandboxResetReconciler`'s sweep hand-writes its `select` map, so
-  # a `select` that forgot the holder would have called every fenced row held
-  # with every test still green.
+  # reachable: `SandboxResetReconciler`'s sweep (stage 9b folded it into the reaper)
+  # hand-wrote its `select` map, so a `select` that forgot the holder would have
+  # called every fenced row held with every test still green.
   def live?(%{lease_node: _, lease_until: _}, _now), do: false
 
   @doc """
@@ -435,8 +435,8 @@ defmodule Fountain.Machines.Lease do
   transition is allowed from a particular state belongs to `Machines.Policy`
   in a later stage, and nothing here decides it. The one exception is
   retirement: a terminal row is never written back to a live status, the same
-  refusal `Conversations.update_sandbox/2` gets from
-  `prevent_sandbox_revival/1`, reported as `{:error, :retired}` so the owner
+  refusal `Conversations.update_sandbox/2` made before stage 9b deleted it,
+  reported as `{:error, :retired}` so the owner
   does not mistake it for a takeover.
 
   **`:stale` beats `:retired`.** A superseded epoch is `:stale` even on a
@@ -719,17 +719,17 @@ defmodule Fountain.Machines.Lease do
   # `parking` or `resuming` with no live lease is looking at an owner that
   # died, and three sites clear it on sight so the machine can be used again.
   # `destroying` is the opposite statement — somebody asked for this machine to
-  # go away, and an owner dying halfway through does not withdraw the request —
-  # which is what lets stage 9b drop `reset_requested_at` and
-  # `teardown_requested_at` and leave the intent on this column alone.
+  # go away, and an owner dying halfway through does not withdraw the request.
+  # Since stage 9b stopped reading `reset_requested_at` and
+  # `teardown_requested_at`, this column is the only record of that intent.
   #
   # Enforced here rather than only at the callers because the write that would
   # lose it is not a clearing write at all. `Machines.Park`'s finalize writes
   # `status: "suspended", transition: nil` on a row it stamped `parking`, and a
   # teardown fence committing *during* the suspend — the fence takes the
   # advisory lock, the park holds only its lease — lands on that row between the
-  # stamp and the finalize. Under 9a the fence columns catch it; under 9b they
-  # are gone, and nothing but this would. So the park still finalizes (the
+  # stamp and the finalize. Under 9a the fence columns also caught it; since 9b
+  # nothing but this does. So the park still finalizes (the
   # machine really is suspended and the row must say so) and the stamp rides
   # through, for the driver to finish.
   #
@@ -738,9 +738,9 @@ defmodule Fountain.Machines.Lease do
   # reason. A write that moves the row to a terminal status is the destroy
   # finishing, and clearing the stamp there is the finalize. And a stamp on a
   # row that is *already* terminal is not intent but leftovers —
-  # `Destroy.clear_stale_transition/2`'s tidying after
-  # `SandboxReaper.finish_teardown/1` wrote a row terminal without an epoch —
-  # so the guard reads the row's status, not only the write's.
+  # `Destroy.clear_stale_transition/2`'s tidying of a row some older writer
+  # retired without an epoch — so the guard reads the row's status, not only
+  # the write's.
   #
   # The columns leave `sets` when it fires, because Ecto raises on a field set
   # twice; `stamp_terminated_at/2` avoids the same collision by checking the
@@ -812,35 +812,33 @@ defmodule Fountain.Machines.Lease do
       Keyword.get(sets, :status) not in @terminal_statuses
   end
 
-  # **`refuse_fenced: true`** additionally requires both fence columns to be
-  # null **and no `destroying` stamp** (the stamp since stage 9a, so the check
-  # survives the columns), and it is opt-in for the same reason `nest:` is:
-  # everywhere else the fence is not this write's business.
+  # **`refuse_fenced: true`** additionally requires **no `destroying` stamp** —
+  # the fence, since stage 9b stopped reading the two columns 9a stamped beside
+  # it — and it is opt-in for the same reason `nest:` is: everywhere else the
+  # fence is not this write's business.
   #
   # `Destroy` writes a terminal status onto a row it has just fenced, and
   # `Park`'s finalize is allowed to land on a fence that arrived mid-operation
   # (stage 6b decided that). What cannot be allowed is the third case, and it
   # arrived with stage 7b: a *provision* finishing onto a row somebody asked to
   # be reset while the machine was being built. `Conversations.update_sandbox/2`
-  # refuses exactly that — it rolls back with `:sandbox_reset_pending` unless the
-  # write is terminal — and it was the only thing refusing it, so a bracket that
+  # refused exactly that — it rolled back with `:sandbox_reset_pending` unless the
+  # write was terminal — and it was the only thing refusing it, so a bracket that
   # wrote `ready` through `cas_update/4` without this would have handed a
   # conversation a machine the reset reconciler was about to delete.
   #
-  # **Both fence columns, where `update_sandbox/2` read only the reset one**
-  # (round 1, behaviour review). That is wider than the thing it replaces, and
-  # deliberately: a `ready` finalize landing on a *teardown*-fenced row hands a
-  # conversation a machine somebody has asked to be destroyed, which
-  # `SandboxReaper.sweep_fenced_teardowns/0` then finishes underneath it.
-  # `Provision.admissible/1` refuses on either fence for the same reason, so the
-  # two ends of the bracket agree about what a fence means.
+  # **Either fence, where `update_sandbox/2` once read only the reset one**
+  # (7b round 1, behaviour review). A `ready` finalize landing on a
+  # *teardown*-fenced row hands a conversation a machine somebody has asked to
+  # be destroyed, which `SandboxReaper.sweep_fenced_teardowns/0` then finishes
+  # underneath it. Both fences stamp `destroying`, so one condition refuses
+  # both, and `Provision.admissible/1` reads the same one, so the two ends of
+  # the bracket agree about what a fence means.
   defp refuse_fenced(query, false), do: query
 
   defp refuse_fenced(query, true) do
     from s in query,
-      where:
-        is_nil(s.reset_requested_at) and is_nil(s.teardown_requested_at) and
-          (is_nil(s.transition) or s.transition != ^@destroying)
+      where: is_nil(s.transition) or s.transition != ^@destroying
   end
 
   # Only on the refusal path, so the write itself stays one statement. Without
@@ -852,7 +850,7 @@ defmodule Fountain.Machines.Lease do
   defp zero_row_reason(sandbox_id, epoch, opts) do
     case Repo.one(
            from s in held_by(sandbox_id, epoch),
-             select: map(s, [:status, :reset_requested_at, :teardown_requested_at, :transition])
+             select: map(s, [:status, :transition])
          ) do
       nil ->
         :stale
@@ -867,13 +865,9 @@ defmodule Fountain.Machines.Lease do
     end
   end
 
-  # The three things `refuse_fenced/2` requires to be absent, read back in the
-  # same words so the diagnosis and the write cannot disagree about what a
-  # fence is.
-  defp fenced?(row) do
-    not is_nil(row.reset_requested_at) or not is_nil(row.teardown_requested_at) or
-      row.transition == @destroying
-  end
+  # What `refuse_fenced/2` requires to be absent, read back in the same words
+  # so the diagnosis and the write cannot disagree about what a fence is.
+  defp fenced?(row), do: row.transition == @destroying
 
   # A struct is a map, so `is_map/1` and the `@spec` both let one through, and
   # `Enum.reduce_while/3` then raises `Protocol.UndefinedError` on it. Refused

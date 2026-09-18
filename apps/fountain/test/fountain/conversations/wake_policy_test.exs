@@ -17,7 +17,7 @@ defmodule Fountain.Conversations.WakePolicyTest do
     sandbox =
       insert_sandbox(user_id: user.id, machine_name: "test-sprite-home", mode: "persistent")
 
-    {:ok, sandbox} = Conversations.update_sandbox(sandbox, %{status: "suspended"})
+    {:ok, sandbox} = update_sandbox(sandbox, %{status: "suspended"})
     a = insert_conversation(user_id: user.id, agent: agent, sandbox: sandbox, status: "idle")
     b = insert_conversation(user_id: user.id, agent: agent, sandbox: sandbox, status: "idle")
     %{sandbox: sandbox, a: a, b: b}
@@ -28,7 +28,7 @@ defmodule Fountain.Conversations.WakePolicyTest do
   defp record_server_starts do
     test = self()
 
-    stub(Horde.DynamicSupervisor, :start_child, fn _supervisor, child_spec ->
+    stub_server_start(fn _supervisor, child_spec ->
       send(test, {:server_started, inspect(child_spec)})
       {:ok, spawn(fn -> :ok end)}
     end)

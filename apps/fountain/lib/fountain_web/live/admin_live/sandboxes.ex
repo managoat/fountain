@@ -175,10 +175,9 @@ defmodule FountainWeb.AdminLive.Sandboxes do
   #
   # Deliberately one word for both kinds of unfinished destroy, because the
   # operator's question is "is this machine going away", not "which worker will
-  # finish it". A forced teardown is finished by
-  # `SandboxReaper.sweep_fenced_teardowns/0`; a *reset* is not — that sweep
-  # skips reason `"reset"` — and `SandboxResetReconciler` finishes it instead,
-  # with a Retry reset button on this same row.
+  # finish it". Both are finished by `SandboxReaper.sweep_fenced_teardowns/0`
+  # — a *reset* through the reset's own door, and with a Retry reset button on
+  # this same row.
   @doc false
   # Public so `admin_sandboxes_live_test.exs` can drive the rule directly. The
   # page-level assertion for it could only match strings over the whole
@@ -291,7 +290,7 @@ defmodule FountainWeb.AdminLive.Sandboxes do
                 <button
                   :if={
                     s.mode == "persistent" and s.status in ["ready", "suspended"] and
-                      not is_nil(s.reset_requested_at)
+                      s.transition == "destroying"
                   }
                   phx-click="retry_reset"
                   phx-value-id={s.id}

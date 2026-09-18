@@ -26,7 +26,7 @@ defmodule Fountain.Conversations.LaunchCommitBoundaryTest do
   for path <- [:create, :attach, :wake] do
     @tag path: path
     test "#{path} refuses an enclosing transaction before external work or row changes", ctx do
-      reject(Horde.DynamicSupervisor, :start_child, 2)
+      reject_server_start()
       reject(Managoat.Sandbox.Sprites, :get, 1)
       reject(Managoat.Sandbox.Sprites, :create, 2)
       reject(Managoat.Sandbox.Sprites, :resume, 1)

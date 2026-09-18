@@ -18,7 +18,7 @@ defmodule Fountain.Conversations.InferenceNamedSetGateTest do
       end)
     end)
 
-    stub(Horde.DynamicSupervisor, :start_child, fn _, _ -> {:ok, spawn(fn -> :ok end)} end)
+    stub_server_start(fn _, _ -> {:ok, spawn(fn -> :ok end)} end)
     user = insert_verified_user()
     {:ok, dek} = Crypto.load_tenant_key(user.id)
     {:ok, default} = InferenceCredentials.create_set(user.id, "Default without inference")

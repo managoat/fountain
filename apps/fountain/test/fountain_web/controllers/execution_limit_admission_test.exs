@@ -45,7 +45,7 @@ defmodule FountainWeb.ExecutionLimitAdmissionTest do
 
     owner = self()
 
-    stub(Horde.DynamicSupervisor, :start_child, fn _, _ ->
+    stub_server_start(fn _, _ ->
       send(owner, :worker_started)
       {:ok, spawn(fn -> :ok end)}
     end)
@@ -280,7 +280,7 @@ defmodule FountainWeb.ExecutionLimitAdmissionTest do
   test "fresh allowance is committed before worker startup and its initial prompt", ctx do
     owner = self()
 
-    stub(Horde.DynamicSupervisor, :start_child, fn _, {_, opts} ->
+    stub_server_start(fn _, {_, opts} ->
       id = Keyword.fetch!(opts, :conversation_id)
       assert Repo.get!(ExecutionAllowance, id).limits == %{}
       refute Repo.in_transaction?()
@@ -352,7 +352,7 @@ defmodule FountainWeb.ExecutionLimitAdmissionTest do
   end
 
   test "worker startup failure retains the admitted allowance with its failed rows", ctx do
-    stub(Horde.DynamicSupervisor, :start_child, fn _, _ -> {:error, :fixture_rejection} end)
+    stub_server_start(fn _, _ -> {:error, :fixture_rejection} end)
 
     assert %{"data" => %{"id" => id, "status" => "failed"}} =
              request(ctx, attrs(ctx, :fresh)) |> json_response(201)
@@ -416,7 +416,7 @@ defmodule FountainWeb.ExecutionLimitAdmissionTest do
         send(owner, :binding_checked)
       end
 
-      stub(Horde.DynamicSupervisor, :start_child, fn _, {_, opts} ->
+      stub_server_start(fn _, {_, opts} ->
         check_binding.(Keyword.fetch!(opts, :conversation_id))
         {:ok, owner}
       end)
@@ -437,7 +437,7 @@ defmodule FountainWeb.ExecutionLimitAdmissionTest do
   end
 
   test "worker startup failure restores the old binding", ctx do
-    stub(Horde.DynamicSupervisor, :start_child, fn _, _ -> {:error, :fixture_rejection} end)
+    stub_server_start(fn _, _ -> {:error, :fixture_rejection} end)
 
     assert {:ok, failed, :created} =
              Launch.start_or_resume_conversation(rotation_attrs(ctx, :fresh))
@@ -464,7 +464,7 @@ defmodule FountainWeb.ExecutionLimitAdmissionTest do
   test "failed startup cannot restore the old binding over a newer rotation", ctx do
     owner = self()
 
-    stub(Horde.DynamicSupervisor, :start_child, fn _, {_, opts} ->
+    stub_server_start(fn _, {_, opts} ->
       replacement = Repo.get!(Conversation, Keyword.fetch!(opts, :conversation_id))
       replacement |> Ecto.Changeset.change(channel_id: nil) |> Repo.update!()
 

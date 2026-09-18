@@ -7,7 +7,7 @@ defmodule Fountain.Machines.SupervisionTest do
   five seconds — and that budget is **shared by every child on the node**. One
   machine whose owner crashes deterministically exhausts it in under a second,
   and exceeding it terminates the supervisor and with it every *other* machine's
-  owner: with the gate on, every destroy, park and resume on the node failing at
+  owner: every destroy, park, resume and admission on the node failing at
   once because of one bad row. That is the opposite of what a per-machine owner
   is for, and #2348's review said to size it when the owner started doing work.
 

@@ -10,9 +10,8 @@ defmodule Fountain.Machines.AdmissionTest do
   whole ADR exists for — an admission and a park of the same machine, on real
   connections, in both orders (the #2286 shape).
 
-  `async: false`: the gate is application environment, the gate-on cases run
-  the protocol inside an owner process that needs the shared sandbox
-  connection, and the race cases use `unboxed_run`.
+  `async: false`: the protocol runs inside an owner process, and the race cases
+  use `unboxed_run`.
   """
 
   use Fountain.DataCase, async: false
@@ -85,20 +84,6 @@ defmodule Fountain.Machines.AdmissionTest do
     end
   end
 
-  defp with_gate(value, fun) do
-    previous = Application.fetch_env(:fountain, :machine_owner_enabled)
-    Application.put_env(:fountain, :machine_owner_enabled, value)
-
-    try do
-      fun.()
-    after
-      case previous do
-        {:ok, was} -> Application.put_env(:fountain, :machine_owner_enabled, was)
-        :error -> Application.delete_env(:fountain, :machine_owner_enabled)
-      end
-    end
-  end
-
   # ── what the lock decides ─────────────────────────────────────────────────
 
   describe "a live lease" do
@@ -159,7 +144,7 @@ defmodule Fountain.Machines.AdmissionTest do
 
   describe "the fences" do
     test "a teardown fence refuses the turn, where main admitted it", ctx do
-      stamp(ctx, teardown_requested_at: DateTime.utc_now())
+      stamp(ctx, transition: "destroying", transition_reason: "teardown")
 
       assert {:error, :sandbox_unavailable} = Admission.run(ctx.sandbox.id, attrs(ctx.conv))
       assert turns(ctx.conv) == []
@@ -167,7 +152,7 @@ defmodule Fountain.Machines.AdmissionTest do
     end
 
     test "a reset fence refuses the turn, as it always has", ctx do
-      stamp(ctx, reset_requested_at: DateTime.utc_now())
+      stamp(ctx, transition: "destroying", transition_reason: "reset")
 
       assert {:error, :sandbox_unavailable} = Admission.run(ctx.sandbox.id, attrs(ctx.conv))
       assert turns(ctx.conv) == []
@@ -189,7 +174,7 @@ defmodule Fountain.Machines.AdmissionTest do
     end
 
     test "a fence is judged before the lease, so it is final rather than waited out", ctx do
-      stamp(ctx, teardown_requested_at: DateTime.utc_now())
+      stamp(ctx, transition: "destroying", transition_reason: "teardown")
       {:ok, _epoch} = Lease.claim(ctx.sandbox.id, "other@node", 60_000)
       started = System.monotonic_time(:millisecond)
 
@@ -258,30 +243,23 @@ defmodule Fountain.Machines.AdmissionTest do
       assert turns(ctx.conv) == []
     end
 
-    for gate <- [false, true] do
-      test "inline and in-owner admit the same way (gate #{gate})", ctx do
-        with_gate(unquote(gate), fn ->
-          assert {:ok, %Turn{status: "running"} = turn} =
-                   Machine.admit_turn(ctx.sandbox.id, attrs(ctx.conv))
+    test "admits in the machine's owner", ctx do
+      assert {:ok, %Turn{status: "running"} = turn} =
+               Machine.admit_turn(ctx.sandbox.id, attrs(ctx.conv))
 
-          assert turn.conversation_id == ctx.conv.id
-          assert Machine.whereis(ctx.sandbox.id) != nil == unquote(gate)
-        end)
-
-        assert Repo.reload!(ctx.conv).status == "running"
-        assert [%Turn{status: "running"}] = turns(ctx.conv)
-      end
+      assert turn.conversation_id == ctx.conv.id
+      assert Machine.whereis(ctx.sandbox.id) != nil
+      assert Repo.reload!(ctx.conv).status == "running"
+      assert [%Turn{status: "running"}] = turns(ctx.conv)
     end
 
-    test "with the gate on, the owner survives to answer again", ctx do
-      with_gate(true, fn ->
-        {:ok, owner} = Machine.ensure_started(ctx.sandbox.id)
-        assert {:ok, _turn} = Machine.admit_turn(ctx.sandbox.id, attrs(ctx.conv))
-        assert Machine.whereis(ctx.sandbox.id) == owner
-      end)
+    test "the owner survives to answer again", ctx do
+      {:ok, owner} = Machine.ensure_started(ctx.sandbox.id)
+      assert {:ok, _turn} = Machine.admit_turn(ctx.sandbox.id, attrs(ctx.conv))
+      assert Machine.whereis(ctx.sandbox.id) == owner
     end
 
-    test "an admission whose caller has given up is refused, not run late (gate on)", ctx do
+    test "an admission whose caller has given up is refused, not run late", ctx do
       # Round 1's blocker, both reviews: a park holding the owner past the
       # caller's timeout. The caller is answered 503; the queued message then
       # reaches the front of the mailbox after the park, and without a
@@ -296,35 +274,33 @@ defmodule Fountain.Machines.AdmissionTest do
         :ok
       end)
 
-      with_gate(true, fn ->
-        {:ok, owner} = Machine.ensure_started(ctx.sandbox.id)
-        Mimic.allow(Managoat.Sandbox, self(), owner)
-        sandbox_id = ctx.sandbox.id
+      {:ok, owner} = Machine.ensure_started(ctx.sandbox.id)
+      Mimic.allow(Managoat.Sandbox, self(), owner)
+      sandbox_id = ctx.sandbox.id
 
-        park =
-          Task.async(fn ->
-            capture_log(fn ->
-              send(
-                test,
-                {:park, Machine.park(sandbox_id, actor: "system:sandbox_reaper", reason: :idle)}
-              )
-            end)
+      park =
+        Task.async(fn ->
+          capture_log(fn ->
+            send(
+              test,
+              {:park, Machine.park(sandbox_id, actor: "system:sandbox_reaper", reason: :idle)}
+            )
           end)
-
-        # The park is at the provider, holding the owner.
-        assert_receive :suspending, 2_000
-
-        quietly(fn ->
-          assert {:error, :sandbox_unavailable} =
-                   Machine.admit_turn(ctx.sandbox.id, attrs(ctx.conv), admit_timeout_ms: 200)
         end)
 
-        assert_receive {:park, {:ok, :parked}}, 5_000
-        Task.await(park)
-        # The queued admission has now been handled too: the owner answers
-        # the next question only after it.
-        assert %Fountain.Machines.Occupancy{} = Machine.who_is_here(ctx.sandbox.id)
+      # The park is at the provider, holding the owner.
+      assert_receive :suspending, 2_000
+
+      quietly(fn ->
+        assert {:error, :sandbox_unavailable} =
+                 Machine.admit_turn(ctx.sandbox.id, attrs(ctx.conv), admit_timeout_ms: 200)
       end)
+
+      assert_receive {:park, {:ok, :parked}}, 5_000
+      Task.await(park)
+      # The queued admission has now been handled too: the owner answers
+      # the next question only after it.
+      assert %Fountain.Machines.Occupancy{} = Machine.who_is_here(ctx.sandbox.id)
 
       assert turns(ctx.conv) == [], "the owner admitted a turn its caller had been told 503 about"
       assert Repo.reload!(ctx.conv).status == "idle"
@@ -346,29 +322,27 @@ defmodule Fountain.Machines.AdmissionTest do
         :ok
       end)
 
-      with_gate(true, fn ->
-        {:ok, owner} = Machine.ensure_started(ctx.sandbox.id)
-        Mimic.allow(Managoat.Sandbox, self(), owner)
-        sandbox_id = ctx.sandbox.id
+      {:ok, owner} = Machine.ensure_started(ctx.sandbox.id)
+      Mimic.allow(Managoat.Sandbox, self(), owner)
+      sandbox_id = ctx.sandbox.id
 
-        park =
-          Task.async(fn ->
-            capture_log(fn ->
-              send(
-                test,
-                {:park, Machine.park(sandbox_id, actor: "system:sandbox_reaper", reason: :idle)}
-              )
-            end)
+      park =
+        Task.async(fn ->
+          capture_log(fn ->
+            send(
+              test,
+              {:park, Machine.park(sandbox_id, actor: "system:sandbox_reaper", reason: :idle)}
+            )
           end)
+        end)
 
-        assert_receive :suspending, 2_000
+      assert_receive :suspending, 2_000
 
-        assert {:ok, %Turn{status: "running"}} =
-                 Machine.admit_turn(ctx.sandbox.id, attrs(ctx.conv), admit_timeout_ms: 5_000)
+      assert {:ok, %Turn{status: "running"}} =
+               Machine.admit_turn(ctx.sandbox.id, attrs(ctx.conv), admit_timeout_ms: 5_000)
 
-        assert_receive {:park, {:ok, :parked}}, 5_000
-        Task.await(park)
-      end)
+      assert_receive {:park, {:ok, :parked}}, 5_000
+      Task.await(park)
 
       assert [%Turn{status: "running"}] = turns(ctx.conv)
     end
@@ -388,19 +362,17 @@ defmodule Fountain.Machines.AdmissionTest do
       :telemetry.attach(handler, [:fountain, :repo, :query], &__MODULE__.report_lock/4, test)
 
       try do
-        with_gate(true, fn ->
-          {:ok, owner} = Machine.ensure_started(ctx.sandbox.id)
-          past = DateTime.add(Lease.now(), -1, :second)
-          started = System.monotonic_time(:millisecond)
+        {:ok, owner} = Machine.ensure_started(ctx.sandbox.id)
+        past = DateTime.add(Lease.now(), -1, :second)
+        started = System.monotonic_time(:millisecond)
 
-          quietly(fn ->
-            assert {:error, :admission_expired} =
-                     GenServer.call(owner, {:admit_turn, attrs(ctx.conv), [], past})
-          end)
-
-          assert System.monotonic_time(:millisecond) - started < 250,
-                 "the expired message polled the locked insert instead of refusing at once"
+        quietly(fn ->
+          assert {:error, :admission_expired} =
+                   GenServer.call(owner, {:admit_turn, attrs(ctx.conv), [], past})
         end)
+
+        assert System.monotonic_time(:millisecond) - started < 250,
+               "the expired message polled the locked insert instead of refusing at once"
       after
         :telemetry.detach(handler)
       end
@@ -415,36 +387,32 @@ defmodule Fountain.Machines.AdmissionTest do
       # deadline. An owner without a clause for it would crash, and a
       # cotenant's park queued behind it would go with it. It is refused in the
       # one word every version of the door translates.
-      with_gate(true, fn ->
-        {:ok, owner} = Machine.ensure_started(ctx.sandbox.id)
+      {:ok, owner} = Machine.ensure_started(ctx.sandbox.id)
 
-        quietly(fn ->
-          assert {:error, :machine_busy} =
-                   GenServer.call(owner, {:admit_turn, attrs(ctx.conv), []})
-        end)
-
-        assert Machine.whereis(ctx.sandbox.id) == owner
+      quietly(fn ->
+        assert {:error, :machine_busy} =
+                 GenServer.call(owner, {:admit_turn, attrs(ctx.conv), []})
       end)
+
+      assert Machine.whereis(ctx.sandbox.id) == owner
 
       assert turns(ctx.conv) == []
     end
 
     test "an owner that cannot run the admission refuses rather than admitting inline", ctx do
-      # The mixed-version shape: with the gate on, a `{:admit_turn, ..}` call
+      # The mixed-version shape: a `{:admit_turn, ..}` call
       # reaching an owner process that cannot serve it — a replica on the
       # previous release has no clause for it and crashes — has to come back
       # as a refusal, not as a turn admitted somewhere else. A raise inside
       # the owner is the same exit the caller sees in that case.
-      with_gate(true, fn ->
-        {:ok, owner} = Machine.ensure_started(ctx.sandbox.id)
-        Mimic.allow(Admission, self(), owner)
+      {:ok, owner} = Machine.ensure_started(ctx.sandbox.id)
+      Mimic.allow(Admission, self(), owner)
 
-        stub(Admission, :run, fn _id, _attrs, _opts -> raise "no clause for {:admit_turn, ..}" end)
+      stub(Admission, :run, fn _id, _attrs, _opts -> raise "no clause for {:admit_turn, ..}" end)
 
-        quietly(fn ->
-          assert {:error, :sandbox_unavailable} =
-                   Machine.admit_turn(ctx.sandbox.id, attrs(ctx.conv))
-        end)
+      quietly(fn ->
+        assert {:error, :sandbox_unavailable} =
+                 Machine.admit_turn(ctx.sandbox.id, attrs(ctx.conv))
       end)
 
       assert turns(ctx.conv) == []

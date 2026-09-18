@@ -23,7 +23,7 @@ defmodule Fountain.Conversations.ForcedHomeFenceTest do
     expect(Managoat.Sandbox.Sprites, :destroy, fn handle ->
       assert handle.name == ctx.home.machine_name
       refute Repo.in_transaction?()
-      assert Repo.reload!(ctx.home).reset_requested_at
+      assert Repo.reload!(ctx.home).transition == "destroying"
       assert Repo.reload!(ctx.home).status == "ready"
       assert Fountain.Quotas.active_sandbox_count(ctx.user.id) == 1
       assert {:error, :sandbox_unavailable} = admit(ctx)
@@ -46,7 +46,7 @@ defmodule Fountain.Conversations.ForcedHomeFenceTest do
     expect(Termination, :terminate_conversation, fn id, opts ->
       refute Repo.in_transaction?()
       assert id == ctx.conv.id
-      assert Repo.reload!(ctx.home).reset_requested_at
+      assert Repo.reload!(ctx.home).transition == "destroying"
       assert {:error, :sandbox_unavailable} = admit(ctx)
       Mimic.call_original(Termination, :terminate_conversation, [id, opts])
     end)
@@ -99,7 +99,7 @@ defmodule Fountain.Conversations.ForcedHomeFenceTest do
                end)
 
       assert Repo.get(Agents.Agent, ctx.agent.id)
-      refute Repo.reload!(ctx.home).reset_requested_at
+      refute Repo.reload!(ctx.home).transition == "destroying"
       assert Repo.reload!(ctx.home).status == "ready"
       assert Repo.reload!(ctx.conv).status == "idle"
     end

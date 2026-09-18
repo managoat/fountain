@@ -190,7 +190,7 @@ defmodule Fountain.SelfHostSwitchesTest do
       agent = insert_agent(user_id: user.id)
 
       with_env([credits_enabled: false], fn ->
-        Mimic.stub(Horde.DynamicSupervisor, :start_child, fn _s, _spec ->
+        stub_server_start(fn _s, _spec ->
           {:ok, spawn(fn -> :ok end)}
         end)
 

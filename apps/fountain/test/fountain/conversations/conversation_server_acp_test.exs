@@ -764,7 +764,7 @@ defmodule Fountain.Conversations.ConversationServerACPTest do
         case unquote(change) do
           :retire ->
             sandbox = Conversations._unsafe_get_sandbox!(conv.sandbox_id)
-            {:ok, _} = Conversations.update_sandbox(sandbox, %{status: "terminated"})
+            {:ok, _} = update_sandbox(sandbox, %{status: "terminated"})
 
           :move ->
             fresh = insert_sandbox(user_id: conv.user_id, status: "ready")
@@ -2409,7 +2409,7 @@ defmodule Fountain.Conversations.ConversationServerACPTest do
       # No server, so the answer takes the wake path.
       test = self()
 
-      Mimic.stub(Horde.DynamicSupervisor, :start_child, fn _sup, _spec ->
+      stub_server_start(fn _sup, _spec ->
         {:ok, spawn(fn -> Process.sleep(:infinity) end)}
       end)
 

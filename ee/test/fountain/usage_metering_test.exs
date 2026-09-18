@@ -27,7 +27,7 @@ defmodule Fountain.UsageMeteringTest do
       user = insert_verified_user()
       sandbox = insert_sandbox(user_id: user.id, status: "pending")
 
-      {:ok, _} = Conversations.update_sandbox(sandbox, %{status: "ready"})
+      {:ok, _} = update_sandbox(sandbox, %{status: "ready"})
 
       assert [event] = events_for(user.id, "sandbox_provisioned")
       assert event.resource_id == sandbox.id
@@ -38,7 +38,7 @@ defmodule Fountain.UsageMeteringTest do
       user = insert_verified_user()
       sandbox = insert_sandbox(user_id: user.id, status: "pending")
 
-      {:ok, _} = Conversations.update_sandbox(sandbox, %{status: "starting"})
+      {:ok, _} = update_sandbox(sandbox, %{status: "starting"})
 
       assert events_for(user.id, "sandbox_provisioned") == []
     end
@@ -49,9 +49,9 @@ defmodule Fountain.UsageMeteringTest do
       user = insert_verified_user()
       sandbox = insert_sandbox(user_id: user.id, status: "pending")
 
-      {:ok, ready} = Conversations.update_sandbox(sandbox, %{status: "ready"})
-      {:ok, ready} = Conversations.update_sandbox(ready, %{status: "ready"})
-      {:ok, _} = Conversations.update_sandbox(ready, %{status: "ready"})
+      {:ok, ready} = update_sandbox(sandbox, %{status: "ready"})
+      {:ok, ready} = update_sandbox(ready, %{status: "ready"})
+      {:ok, _} = update_sandbox(ready, %{status: "ready"})
 
       assert length(events_for(user.id, "sandbox_provisioned")) == 1
     end
@@ -62,9 +62,9 @@ defmodule Fountain.UsageMeteringTest do
       user = insert_verified_user()
       sandbox = insert_sandbox(user_id: user.id, status: "pending")
 
-      {:ok, ready} = Conversations.update_sandbox(sandbox, %{status: "ready"})
-      {:ok, parked} = Conversations.update_sandbox(ready, %{status: "suspended"})
-      {:ok, _} = Conversations.update_sandbox(parked, %{status: "ready"})
+      {:ok, ready} = update_sandbox(sandbox, %{status: "ready"})
+      {:ok, parked} = update_sandbox(ready, %{status: "suspended"})
+      {:ok, _} = update_sandbox(parked, %{status: "ready"})
 
       assert length(events_for(user.id, "sandbox_provisioned")) == 1
     end
@@ -76,9 +76,9 @@ defmodule Fountain.UsageMeteringTest do
       user = insert_verified_user()
       sandbox = insert_sandbox(user_id: user.id, status: "pending")
 
-      {:ok, ready} = Conversations.update_sandbox(sandbox, %{status: "ready"})
-      {:ok, parked} = Conversations.update_sandbox(ready, %{status: "suspended"})
-      {:ok, _} = Conversations.update_sandbox(parked, %{status: "terminated"})
+      {:ok, ready} = update_sandbox(sandbox, %{status: "ready"})
+      {:ok, parked} = update_sandbox(ready, %{status: "suspended"})
+      {:ok, _} = update_sandbox(parked, %{status: "terminated"})
 
       assert events_for(user.id, "sandbox_provision_failed") == []
       assert [_] = events_for(user.id, "sandbox_terminated")
@@ -90,7 +90,7 @@ defmodule Fountain.UsageMeteringTest do
       user = insert_verified_user()
       sandbox = insert_sandbox(user_id: user.id, status: "ready")
 
-      {:ok, _} = Conversations.update_sandbox(sandbox, %{status: "suspended"})
+      {:ok, _} = update_sandbox(sandbox, %{status: "suspended"})
 
       assert [event] = events_for(user.id, "sandbox_suspended")
       assert event.resource_id == sandbox.id
@@ -101,8 +101,8 @@ defmodule Fountain.UsageMeteringTest do
       user = insert_verified_user()
       sandbox = insert_sandbox(user_id: user.id, status: "ready")
 
-      {:ok, parked} = Conversations.update_sandbox(sandbox, %{status: "suspended"})
-      {:ok, _} = Conversations.update_sandbox(parked, %{status: "ready"})
+      {:ok, parked} = update_sandbox(sandbox, %{status: "suspended"})
+      {:ok, _} = update_sandbox(parked, %{status: "ready"})
 
       assert [event] = events_for(user.id, "sandbox_resumed")
       assert event.resource_id == sandbox.id
@@ -112,9 +112,9 @@ defmodule Fountain.UsageMeteringTest do
       user = insert_verified_user()
       sandbox = insert_sandbox(user_id: user.id, status: "ready")
 
-      {:ok, parked} = Conversations.update_sandbox(sandbox, %{status: "suspended"})
-      {:ok, woken} = Conversations.update_sandbox(parked, %{status: "ready"})
-      {:ok, _} = Conversations.update_sandbox(woken, %{status: "terminated"})
+      {:ok, parked} = update_sandbox(sandbox, %{status: "suspended"})
+      {:ok, woken} = update_sandbox(parked, %{status: "ready"})
+      {:ok, _} = update_sandbox(woken, %{status: "terminated"})
 
       assert length(events_for(user.id, "sandbox_suspended")) == 1
       assert length(events_for(user.id, "sandbox_resumed")) == 1
@@ -125,8 +125,8 @@ defmodule Fountain.UsageMeteringTest do
       user = insert_verified_user()
       sandbox = insert_sandbox(user_id: user.id, status: "ready")
 
-      {:ok, parked} = Conversations.update_sandbox(sandbox, %{status: "suspended"})
-      {:ok, _} = Conversations.update_sandbox(parked, %{status: "terminated"})
+      {:ok, parked} = update_sandbox(sandbox, %{status: "suspended"})
+      {:ok, _} = update_sandbox(parked, %{status: "terminated"})
 
       assert length(events_for(user.id, "sandbox_suspended")) == 1
       assert events_for(user.id, "sandbox_resumed") == []
@@ -140,7 +140,7 @@ defmodule Fountain.UsageMeteringTest do
       sandbox = insert_sandbox(user_id: user.id, status: "ready")
 
       {:ok, _} =
-        Conversations.update_sandbox(sandbox, %{
+        update_sandbox(sandbox, %{
           status: "terminated",
           terminated_at: DateTime.utc_now() |> DateTime.truncate(:second)
         })
@@ -155,7 +155,7 @@ defmodule Fountain.UsageMeteringTest do
       user = insert_verified_user()
       sandbox = insert_sandbox(user_id: user.id, status: "starting")
 
-      {:ok, _} = Conversations.update_sandbox(sandbox, %{status: "failed"})
+      {:ok, _} = update_sandbox(sandbox, %{status: "failed"})
 
       assert [event] = events_for(user.id, "sandbox_terminated")
       assert event.metadata["final_status"] == "failed"
@@ -165,8 +165,8 @@ defmodule Fountain.UsageMeteringTest do
       user = insert_verified_user()
       sandbox = insert_sandbox(user_id: user.id, status: "ready")
 
-      {:ok, term} = Conversations.update_sandbox(sandbox, %{status: "terminated"})
-      {:ok, _} = Conversations.update_sandbox(term, %{status: "terminated"})
+      {:ok, term} = update_sandbox(sandbox, %{status: "terminated"})
+      {:ok, _} = update_sandbox(term, %{status: "terminated"})
 
       assert length(events_for(user.id, "sandbox_terminated")) == 1
     end
@@ -177,7 +177,7 @@ defmodule Fountain.UsageMeteringTest do
       user = insert_verified_user()
       sandbox = insert_sandbox(user_id: user.id, status: "starting")
 
-      {:ok, _} = Conversations.update_sandbox(sandbox, %{status: "failed"})
+      {:ok, _} = update_sandbox(sandbox, %{status: "failed"})
 
       assert [event] = events_for(user.id, "sandbox_provision_failed")
       assert event.resource_id == sandbox.id
@@ -190,10 +190,10 @@ defmodule Fountain.UsageMeteringTest do
       user = insert_verified_user()
       sandbox = insert_sandbox(user_id: user.id, status: "pending")
 
-      {:ok, ready} = Conversations.update_sandbox(sandbox, %{status: "ready"})
+      {:ok, ready} = update_sandbox(sandbox, %{status: "ready"})
 
       {:ok, _} =
-        Conversations.update_sandbox(ready, %{
+        update_sandbox(ready, %{
           status: "failed",
           terminated_at: DateTime.utc_now() |> DateTime.truncate(:second)
         })
@@ -210,7 +210,7 @@ defmodule Fountain.UsageMeteringTest do
       sandbox = insert_sandbox(user_id: user.id, status: "starting")
 
       {:ok, _} =
-        Conversations.update_sandbox(sandbox, %{
+        update_sandbox(sandbox, %{
           status: "failed",
           terminated_at: DateTime.utc_now() |> DateTime.truncate(:second)
         })
@@ -269,7 +269,7 @@ defmodule Fountain.UsageMeteringTest do
       conv = insert_conversation(user_id: user.id)
       sandbox = insert_sandbox(user_id: user.id, status: "pending")
 
-      {:ok, ready} = Conversations.update_sandbox(sandbox, %{status: "ready"})
+      {:ok, ready} = update_sandbox(sandbox, %{status: "ready"})
 
       for n <- 1..3 do
         {:ok, _} =
@@ -282,7 +282,7 @@ defmodule Fountain.UsageMeteringTest do
       end
 
       {:ok, _} =
-        Conversations.update_sandbox(ready, %{
+        update_sandbox(ready, %{
           status: "terminated",
           terminated_at: DateTime.utc_now() |> DateTime.truncate(:second)
         })
@@ -306,7 +306,7 @@ defmodule Fountain.UsageMeteringTest do
       b = insert_verified_user()
 
       insert_sandbox(user_id: a.id, status: "pending")
-      |> Conversations.update_sandbox(%{status: "ready"})
+      |> update_sandbox(%{status: "ready"})
 
       {:ok, _} =
         Billing.record_usage(a.id, "turn_started", nil, nil, %{
@@ -388,7 +388,7 @@ defmodule Fountain.UsageMeteringTest do
       user = insert_verified_user()
       sandbox = insert_sandbox(user_id: user.id, status: "pending")
 
-      assert {:ok, updated} = Conversations.update_sandbox(sandbox, %{status: "ready"})
+      assert {:ok, updated} = update_sandbox(sandbox, %{status: "ready"})
       assert updated.status == "ready"
     end
   end

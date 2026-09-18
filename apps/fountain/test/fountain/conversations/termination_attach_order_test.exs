@@ -6,6 +6,12 @@ defmodule Fountain.Conversations.TerminationAttachOrderTest do
   alias Fountain.{Audit, Conversations}
   alias Fountain.Conversations.Launch
   alias Fountain.Conversations.Lifecycle
+  alias Fountain.Machines.Machine
+
+  # The attachment's locked insert runs in the machine's owner, which serves
+  # each call on its caller's connection only in manual mode
+  # (`Fountain.ServerStart`).
+  setup :manual_pool
 
   for {first, barrier} <- [termination: :row, attachment: :row, termination: :machine] do
     test "#{first} wins the race between termination and a new co-tenant at #{barrier} lock" do
@@ -49,8 +55,18 @@ defmodule Fountain.Conversations.TerminationAttachOrderTest do
       winner = independent(first, fn -> operation.(first) end, owner, barrier)
 
       try do
+        # The exact process that took the lock. A termination fences on its own
+        # process; an attachment runs its locked insert in the machine's owner.
+        # Either one, not "either process", because the check is how this test
+        # catches a lock that was never taken.
         assert_receive {:locked, winner_pid}, 5_000
-        assert winner_pid == winner.pid
+
+        assert winner_pid ==
+                 if(first == :termination,
+                   do: winner.pid,
+                   else: Machine.whereis(sandbox.id)
+                 )
+
         second = if first == :termination, do: :attachment, else: :termination
         waiter = independent(second, fn -> operation.(second) end, owner, false)
 
@@ -60,12 +76,12 @@ defmodule Fountain.Conversations.TerminationAttachOrderTest do
           refute holder == blocked
           await_blocked(blocked, holder, System.monotonic_time(:millisecond) + 5_000)
           assert conversation_count(user.id) == 1
-          refute Repo.reload!(sandbox).reset_requested_at
-          send(winner.pid, :continue)
+          refute Repo.reload!(sandbox).transition == "destroying"
+          send(winner_pid, :continue)
 
           if first == :termination do
             assert {:ok, fenced} = Task.await(winner, 5_000)
-            assert fenced.reset_requested_at
+            assert fenced.transition == "destroying"
             assert {:error, :sandbox_reset_pending} = Task.await(waiter, 5_000)
             assert conversation_count(user.id) == 1
             assert [_] = Audit.list_for_user(user.id, action_prefix: "sandbox.teardown_requested")
@@ -74,7 +90,7 @@ defmodule Fountain.Conversations.TerminationAttachOrderTest do
             assert attached.sandbox_id == sandbox.id
             assert {:error, :sandbox_kept} = Task.await(waiter, 5_000)
             assert conversation_count(user.id) == 2
-            refute Repo.reload!(sandbox).reset_requested_at
+            refute Repo.reload!(sandbox).transition == "destroying"
             assert Audit.list_for_user(user.id, action_prefix: "sandbox.teardown_requested") == []
           end
 
@@ -145,7 +161,8 @@ defmodule Fountain.Conversations.TerminationAttachOrderTest do
         query =~ ~s(FROM "sandboxes") and (role == :termination or query =~ "FOR NO KEY UPDATE")
       end
 
-    if self() == worker and target? do
+    # The worker, or the machine owner serving it (`$callers`).
+    if (self() == worker or worker in Process.get(:"$callers", [])) and target? do
       :telemetry.detach(handler)
       send(owner, {:locked, self()})
 

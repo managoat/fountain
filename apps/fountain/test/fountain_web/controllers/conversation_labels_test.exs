@@ -21,7 +21,7 @@ defmodule FountainWeb.ConversationLabelsTest do
     # the row. A stub of `start_or_resume_conversation/2` would test the view
     # and leave the create path uncovered.
     defp create_conversation(conn, raw_key, body) do
-      Mimic.stub(Horde.DynamicSupervisor, :start_child, fn _s, _spec ->
+      stub_server_start(fn _s, _spec ->
         {:ok, spawn(fn -> :ok end)}
       end)
 

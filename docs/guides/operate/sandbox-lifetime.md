@@ -65,18 +65,20 @@ ceiling costs.
 
 ## Verify it worked
 
-The reaper logs one summary line for each run, each hour at :07.
+The reaper logs a summary line each hour at :07, and a second, shorter line
+every five minutes for the deletions it finishes.
 
 ```bash
 kubectl logs -n fountain -l app=fountain --since=2h | grep 'reaper:'
-# reaper: released=0 parked=1 expired=0 refused=0 skipped=0 reconciled=0 destroyed=2 untracked=102 live=114
+# reaper: released=0 parked=1 expired=0 refused=0 skipped=0 destroyed=2 untracked=102 live=114
+# reaper: teardowns reconciled=0 refused=0
 ```
 
 `parked` counts the idle sandboxes the reaper suspended. The reaper can undo
 that, and it is not a teardown.
 
-`refused` counts the sandboxes the reaper decided to reclaim, park or finish
-deleting and then could not reach: another operation was holding the machine, or
+On the hourly line, `refused` counts the sandboxes the reaper decided to
+reclaim or park and then could not reach: another operation was holding the machine, or
 the provider or the database would not answer. A non-zero value is not a fault
 on its own — the next run looks again — but a value that stays high run after
 run means machines are not being reclaimed, and those machines are still
@@ -88,20 +90,30 @@ it was no longer past a bound, or a reset or teardown had been asked for. That
 is the reaper being told it was out of date, which is normal on a busy fleet
 and is deliberately kept out of `refused`.
 
-`reconciled` counts the deletions the reaper finished for somebody else. A
-deletion records its intent on the machine first and deletes it second, so a
-Fountain server that dies between the two leaves a machine nobody is deleting
-and nothing else can see. Once it is fifteen minutes old, the reaper's next
-hourly run finishes it: the machine is deleted at the provider on that run and the trail records both
-`sandbox.destroyed` and `sandbox.teardown_reconciled`. So a non-zero value is
-not routine reclamation — it says a deletion was abandoned somewhere upstream,
-and the number is how many.
+On the five-minute line, `reconciled` counts the deletions and resets the
+reaper finished for somebody else. Both record their intent on the machine
+first and delete it second, so a Fountain server that dies between the two, or
+a provider that does not confirm the delete, leaves a machine nobody is
+deleting.
 
-A reaper run parks or reclaims at most a fixed number of machines. The
-abandoned deletions it finishes are guaranteed a small share of their own on
-top of that, so a steady stream of ordinary expiries cannot hold one back
-indefinitely. A large backlog of either still drains over several runs rather
-than all at once.
+- A **reset** is tried again on the next five-minute run, and on every run
+  after it until the provider confirms the delete. The trail then records
+  `sandbox.reset`.
+- A **deletion** is finished on the first five-minute run after it is fifteen
+  minutes old, when no server holds the machine. The machine is deleted at the
+  provider on that run, and the trail records both `sandbox.destroyed` and
+  `sandbox.teardown_reconciled`.
+
+So a non-zero `reconciled` is not routine reclamation. It says that a deletion
+or a reset was abandoned somewhere upstream, and the number is how many.
+`refused` on the same line counts the ones the reaper could not finish on that
+run. The machines are still up and billing, and the next run tries again. A
+machine that another run or operation is finishing is not counted as refused.
+
+An hourly run parks or reclaims at most a fixed number of machines, so a large
+backlog drains over several runs rather than all at once. The five-minute run
+also asks about at most a fixed number of machines each time, and it deletes
+them one at a time.
 
 ## Related
 

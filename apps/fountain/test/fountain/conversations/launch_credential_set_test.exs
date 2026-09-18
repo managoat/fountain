@@ -24,7 +24,7 @@ defmodule Fountain.Conversations.LaunchCredentialSetTest do
     # what the door resolves and stores, and a live server spawns processes
     # outside the SQL Sandbox's ownership. Same shape the environment
     # override tests in conversations_start_test.exs use.
-    stub(Horde.DynamicSupervisor, :start_child, fn _sup, _spec ->
+    stub_server_start(fn _sup, _spec ->
       {:ok, spawn(fn -> :ok end)}
     end)
 

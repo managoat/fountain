@@ -9,7 +9,7 @@ defmodule Fountain.Conversations.RehydratorTest do
   setup do
     owner = self()
 
-    stub(Horde.DynamicSupervisor, :start_child, fn _, {ConversationServer, args} ->
+    stub_server_start(fn _, {ConversationServer, args} ->
       send(owner, {:worker_start, args})
       {:ok, owner}
     end)
@@ -78,7 +78,7 @@ defmodule Fountain.Conversations.RehydratorTest do
     save(existing, %{})
     owner = self()
 
-    stub(Horde.DynamicSupervisor, :start_child, fn _, {ConversationServer, args} ->
+    stub_server_start(fn _, {ConversationServer, args} ->
       send(owner, {:worker_start, args})
 
       if args[:conversation_id] == existing.id,

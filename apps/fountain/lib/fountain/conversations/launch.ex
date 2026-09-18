@@ -646,7 +646,7 @@ defmodule Fountain.Conversations.Launch do
         Fountain.Quotas.with_sandbox_reservation(conversation_attrs.user_id, fn ->
           with {:ok, limits} <-
                  Conversations.resolve_admission_limits(conversation_attrs.user_id, request),
-               {:ok, sandbox} <- Conversations.create_sandbox(sandbox_attrs),
+               {:ok, sandbox} <- Fountain.Machines.Provision.reserve(sandbox_attrs),
                {:ok, conv} <-
                  Conversations.insert_conversation_row(
                    Map.put(conversation_attrs, :sandbox_id, sandbox.id)

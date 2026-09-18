@@ -22,7 +22,7 @@ defmodule Fountain.Conversations.PromptImagesWakeTest do
   defp park(user) do
     agent = insert_agent(user_id: user.id)
     sandbox = insert_sandbox(user_id: user.id, machine_name: "sprite-2373")
-    {:ok, sandbox} = Conversations.update_sandbox(sandbox, %{status: "ready"})
+    {:ok, sandbox} = update_sandbox(sandbox, %{status: "ready"})
 
     insert_conversation(user_id: user.id, agent: agent, sandbox: sandbox, status: "idle")
   end
@@ -37,7 +37,7 @@ defmodule Fountain.Conversations.PromptImagesWakeTest do
       {:ok, %{status: :running, raw: %{name: "sprite-2373"}}}
     end)
 
-    stub(Horde.DynamicSupervisor, :start_child, fn _supervisor, _child_spec -> {:ok, server} end)
+    stub_server_start(fn _supervisor, _child_spec -> {:ok, server} end)
 
     test_pid = self()
 

@@ -56,12 +56,9 @@ defmodule Fountain.Conversations.Wake do
 
   def maybe_reuse_sandbox(%Conversation{sandbox_id: sandbox_id}) do
     case Conversations._unsafe_get_sandbox(sandbox_id) do
-      %Sandbox{reset_requested_at: at, status: status}
-      when not is_nil(at) and status not in @terminal_statuses ->
-        {:error, :sandbox_reset_pending}
-
-      # The same answer from the stamp, which is where the intent lives once
-      # stage 9b drops the column above (ADR 0058 stage 9a). `destroying` is
+      # A reset or a teardown has been asked for: the `destroying` stamp, where
+      # the intent lives (ADR 0058 stage 9a; stage 9b stopped reading the
+      # `reset_requested_at` column that stood beside it). `destroying` is
       # the one durable transition: it is refused here whatever the lease says,
       # because an owner that died between its fence and its finalize has not
       # withdrawn the request — the machine is still on its way out and the
@@ -591,7 +588,7 @@ defmodule Fountain.Conversations.Wake do
              conv.user_id,
              [exclude: conv.sandbox_id],
              fn ->
-               Conversations.create_sandbox(%{
+               Fountain.Machines.Provision.reserve(%{
                  environment_id: conv.environment_id || agent.environment_id,
                  agent_id: conv.agent_id,
                  vault_id: conv.vault_id,

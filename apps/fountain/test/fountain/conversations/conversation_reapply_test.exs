@@ -356,7 +356,7 @@ defmodule Fountain.Conversations.ConversationReapplyTest do
     end
 
     test "is refused while its machine is still being built", ctx do
-      {:ok, _} = Conversations.update_sandbox(ctx.sandbox, %{status: "starting"})
+      {:ok, _} = update_sandbox(ctx.sandbox, %{status: "starting"})
       {:ok, provisioning} = Conversations.update_conversation(ctx.conv, %{status: "pending"})
 
       assert {:error, :provisioning} = Reapply.reapply_conversation(provisioning, %{})
@@ -384,7 +384,7 @@ defmodule Fountain.Conversations.ConversationReapplyTest do
     end
 
     test "a conflicting persistent home rolls back both bindings", ctx do
-      {:ok, _} = Conversations.update_sandbox(ctx.sandbox, %{mode: "persistent"})
+      {:ok, _} = update_sandbox(ctx.sandbox, %{mode: "persistent"})
 
       insert_sandbox(
         user_id: ctx.user.id,

@@ -35,7 +35,7 @@ defmodule Fountain.ManifestTest do
   # Adding a teammate opens its conversation, which provisions its computer.
   # The supervisor start is what a DataCase test cannot do for real.
   defp inert_start_child do
-    stub(Horde.DynamicSupervisor, :start_child, fn _sup, _spec ->
+    stub_server_start(fn _sup, _spec ->
       {:ok, spawn(fn -> Process.sleep(:infinity) end)}
     end)
   end

@@ -4,6 +4,11 @@ defmodule Fountain.Conversations.ResetAdmissionOrderTest do
 
   alias Ecto.Adapters.SQL.Sandbox
   alias Fountain.Conversations
+  alias Fountain.Machines.Machine
+
+  # A reset's destroy runs in the machine's owner, which serves each call on its
+  # caller's connection only in manual mode (`Fountain.ServerStart`).
+  setup :manual_pool
 
   for first <- [:reset, :admission] do
     test "#{first} wins against admission on independent connections" do
@@ -49,6 +54,8 @@ defmodule Fountain.Conversations.ResetAdmissionOrderTest do
       winner = independent(first, fn -> operation.(first) end, owner, true)
 
       try do
+        # The exact process that took the lock: both the reset fence and the
+        # locked turn insert run on the calling process, owner or no owner.
         assert_receive {:locked, winner_pid}, 5_000
         assert winner_pid == winner.pid
         second = if first == :reset, do: :admission, else: :reset
@@ -71,13 +78,13 @@ defmodule Fountain.Conversations.ResetAdmissionOrderTest do
                  ) == 0
 
           refute_received {:destroying, _, _}
-          send(winner.pid, :continue)
+          send(winner_pid, :continue)
 
           if first == :reset do
             assert_receive {:destroying, reset_pid, false}, 5_000
-            assert reset_pid == winner.pid
+            assert reset_pid == Machine.whereis(home.id)
             assert {:error, :sandbox_unavailable} = Task.await(waiter, 5_000)
-            assert Repo.reload!(home).reset_requested_at
+            assert Repo.reload!(home).transition == "destroying"
             assert Repo.reload!(home).status == "ready"
             assert Repo.reload!(conv).runtime_session_id == nil
 
@@ -86,14 +93,14 @@ defmodule Fountain.Conversations.ResetAdmissionOrderTest do
                      :count
                    ) == 0
 
-            send(winner.pid, :destroy)
+            send(reset_pid, :destroy)
             assert {:ok, %{status: "terminated"}} = Task.await(winner, 5_000)
           else
             assert {:ok, turn} = Task.await(winner, 5_000)
             assert {:error, :sandbox_mid_turn} = Task.await(waiter, 5_000)
             assert Repo.get!(Conversations.Turn, turn.id).status == "running"
             assert Repo.reload!(home).status == "ready"
-            refute Repo.reload!(home).reset_requested_at
+            refute Repo.reload!(home).transition == "destroying"
             assert Repo.reload!(conv).runtime_session_id == "before-reset"
             refute_received {:destroying, _, _}
           end

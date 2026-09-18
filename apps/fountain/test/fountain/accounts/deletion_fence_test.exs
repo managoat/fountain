@@ -24,7 +24,7 @@ defmodule Fountain.Accounts.DeletionFenceTest do
   test "account deletion fences admission before provider deletion", ctx do
     expect(Managoat.Sandbox.Sprites, :destroy, fn _ ->
       refute Repo.in_transaction?()
-      assert Repo.reload!(ctx.sandbox).reset_requested_at
+      assert Repo.reload!(ctx.sandbox).transition == "destroying"
       assert Fountain.Quotas.active_sandbox_count(ctx.user.id) == 1
       assert {:error, :sandbox_unavailable} = admit(ctx)
       assert [event] = events(ctx.user.id)
@@ -50,7 +50,8 @@ defmodule Fountain.Accounts.DeletionFenceTest do
       send(
         self(),
         {:actor_boundary, id, Repo.in_transaction?(),
-         Repo.reload!(ctx.sandbox).reset_requested_at, Repo.reload!(other).reset_requested_at}
+         Repo.reload!(ctx.sandbox).transition == "destroying",
+         Repo.reload!(other).transition == "destroying"}
       )
 
       :ok
@@ -58,7 +59,7 @@ defmodule Fountain.Accounts.DeletionFenceTest do
 
     expect(Managoat.Sandbox.Sprites, :destroy, 2, fn _ -> :ok end)
     assert Deletion.destroy_sprites(ctx.user) == 2
-    assert_received {:actor_boundary, id, false, %DateTime{}, %DateTime{}}
+    assert_received {:actor_boundary, id, false, true, true}
     assert id == ctx.conv.id
     assert length(events(ctx.user.id)) == 2
   end
@@ -75,7 +76,7 @@ defmodule Fountain.Accounts.DeletionFenceTest do
     expect(Managoat.Sandbox.Sprites, :destroy, 2, fn handle ->
       sandbox = Repo.get_by!(Conversations.Sandbox, machine_name: handle.name)
       refute Repo.in_transaction?()
-      assert sandbox.reset_requested_at
+      assert sandbox.transition == "destroying"
       :ok
     end)
 
@@ -112,7 +113,7 @@ defmodule Fountain.Accounts.DeletionFenceTest do
     sandbox = insert_sandbox(user_id: claimable.user_id, status: "ready")
 
     expect(Managoat.Sandbox.Sprites, :destroy, fn _ ->
-      assert Repo.reload!(sandbox).reset_requested_at
+      assert Repo.reload!(sandbox).transition == "destroying"
       refute Repo.in_transaction?()
       :ok
     end)
@@ -128,7 +129,7 @@ defmodule Fountain.Accounts.DeletionFenceTest do
     assert event.request_ip == "192.0.2.2"
     assert event.metadata["reason"] == "principal_closed"
     assert Repo.reload!(sandbox).status == "terminated"
-    refute Repo.reload!(ctx.sandbox).reset_requested_at
+    refute Repo.reload!(ctx.sandbox).transition == "destroying"
   end
 
   test "provider failure still retires the fenced row and still counts the machine", ctx do
@@ -145,7 +146,7 @@ defmodule Fountain.Accounts.DeletionFenceTest do
     expect(Managoat.Sandbox.Sprites, :destroy, fn _ -> {:error, :unavailable} end)
     assert Deletion.destroy_sprites(ctx.user) == 1
     assert Repo.reload!(ctx.sandbox).status == "terminated"
-    assert Repo.reload!(ctx.sandbox).reset_requested_at
+    assert is_nil(Repo.reload!(ctx.sandbox).transition)
     assert Fountain.Quotas.active_sandbox_count(ctx.user.id) == 0
   end
 
@@ -174,7 +175,7 @@ defmodule Fountain.Accounts.DeletionFenceTest do
     assert log =~ "destroy #{ctx.sandbox.machine_name} refused"
     assert log =~ ":sandbox_unavailable"
     assert Repo.reload!(ctx.sandbox).status == "ready"
-    assert Repo.reload!(ctx.sandbox).teardown_requested_at
+    assert Repo.reload!(ctx.sandbox).transition == "destroying"
     assert Repo.reload!(other).status == "terminated"
   end
 
@@ -182,7 +183,7 @@ defmodule Fountain.Accounts.DeletionFenceTest do
     stub(ConversationServer, :whereis, fn _ -> self() end)
 
     expect(Termination, :terminate_conversation, fn _, _ ->
-      {:ok, _} = Conversations.update_sandbox(ctx.sandbox, %{status: "terminated"})
+      {:ok, _} = update_sandbox(ctx.sandbox, %{status: "terminated"})
       :ok
     end)
 
@@ -208,8 +209,11 @@ defmodule Fountain.Accounts.DeletionFenceTest do
       end
     end)
 
+    # To the test, not to `self()`: the destroy runs in the machine's owner.
+    test = self()
+
     stub(Managoat.Sandbox.Sprites, :destroy, fn handle ->
-      send(self(), {:destroyed, handle.name})
+      send(test, {:destroyed, handle.name})
       :ok
     end)
 
@@ -226,7 +230,7 @@ defmodule Fountain.Accounts.DeletionFenceTest do
     late = Repo.get!(Conversations.Sandbox, late_id)
     late_name = late.machine_name
     refute_received {:destroyed, ^late_name}
-    refute late.reset_requested_at
+    refute late.transition == "destroying"
     assert late.status == "ready"
     original_name = ctx.sandbox.machine_name
     assert_received {:destroyed, ^original_name}

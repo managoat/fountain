@@ -18,8 +18,8 @@ defmodule Fountain.Machines.ProvisionTest do
   `initial_start_failure_test.exs`, `conversations_wake_test.exs` — and this file
   is the protocol on its own.
 
-  `async: false`: the gate is application environment, and the cases that drive
-  it need the shared sandbox connection.
+  `async: false`: the across-connections cases need committed rows and real
+  connections.
   """
 
   use Fountain.DataCase, async: false
@@ -101,20 +101,6 @@ defmodule Fountain.Machines.ProvisionTest do
         after
           2_000 -> Process.demonitor(ref, [:flush])
         end
-    end
-  end
-
-  defp with_gate(value, fun) do
-    previous = Application.fetch_env(:fountain, :machine_owner_enabled)
-    Application.put_env(:fountain, :machine_owner_enabled, value)
-
-    try do
-      fun.()
-    after
-      case previous do
-        {:ok, was} -> Application.put_env(:fountain, :machine_owner_enabled, was)
-        :error -> Application.delete_env(:fountain, :machine_owner_enabled)
-      end
     end
   end
 
@@ -303,19 +289,17 @@ defmodule Fountain.Machines.ProvisionTest do
       end
     end
 
-    for {column, label} <- [
-          {:reset_requested_at, "a reset"},
-          {:teardown_requested_at, "a teardown"}
-        ] do
+    for {reason, label} <- [{"reset", "a reset"}, {"teardown", "a teardown"}] do
       test "#{label} fence refuses before the machine exists", ctx do
-        stamp(ctx, [{unquote(column), DateTime.utc_now()}])
+        stamp(ctx, transition: "destroying", transition_reason: unquote(reason))
         reject(&Managoat.Sandbox.create/2)
 
         assert {:error, :fenced} = Provision.run(ctx.sandbox.id, recording_pipeline(), opts())
 
         current = row(ctx)
         assert current.status == "pending"
-        assert current.transition == nil
+        # The fence is the stamp, and a refusal leaves it for the driver.
+        assert current.transition == "destroying"
         assert_lease_released(current)
       end
     end
@@ -434,7 +418,12 @@ defmodule Fountain.Machines.ProvisionTest do
     test "a takeover re-reads every condition under its own lease", ctx do
       # There is no separate takeover clause, and this is why that is safe: the
       # abandoned row goes through `admissible/1` like any other.
-      abandon_mid_provision(ctx, status: "starting", reset_requested_at: DateTime.utc_now())
+      abandon_mid_provision(ctx,
+        status: "starting",
+        transition: "destroying",
+        transition_reason: "reset"
+      )
+
       reject(&Managoat.Sandbox.create/2)
       reject(&Managoat.Sandbox.destroy/1)
 
@@ -746,7 +735,7 @@ defmodule Fountain.Machines.ProvisionTest do
       end)
 
       pipeline = fn _handle, _epoch ->
-        stamp(ctx, reset_requested_at: DateTime.utc_now())
+        stamp(ctx, transition: "destroying", transition_reason: "reset")
         {:ok, :built}
       end
 
@@ -998,7 +987,7 @@ defmodule Fountain.Machines.ProvisionTest do
     end
 
     test "a fenced row is refused", ctx do
-      stamp(ctx, status: "ready", reset_requested_at: DateTime.utc_now())
+      stamp(ctx, status: "ready", transition: "destroying", transition_reason: "reset")
 
       assert {:error, :fenced} = Provision.confirm_up(ctx.sandbox.id, opts())
     end
@@ -1112,21 +1101,17 @@ defmodule Fountain.Machines.ProvisionTest do
       end)
     end
 
-    for gate <- [true, false] do
-      test "provisions the same way with the gate #{gate}", ctx do
-        stub_create(ctx)
+    test "provisions through the door", ctx do
+      stub_create(ctx)
 
-        with_gate(unquote(gate), fn ->
-          assert {:ok, :provisioned, :built} =
-                   Machine.provision(ctx.sandbox.id, recording_pipeline(), opts())
-        end)
+      assert {:ok, :provisioned, :built} =
+               Machine.provision(ctx.sandbox.id, recording_pipeline(), opts())
 
-        assert row(ctx).status == "ready"
-        assert [_one] = events(ctx, "sandbox.provisioned")
-      end
+      assert row(ctx).status == "ready"
+      assert [_one] = events(ctx, "sandbox.provisioned")
     end
 
-    test "the bracket runs on the caller whichever way the gate is set", ctx do
+    test "the bracket runs on the caller, not in the owner", ctx do
       # Deliberate, and the one place the provision family differs from the
       # other three: the callback is the caller's pipeline, so it must not be
       # moved into another process. `Fountain.Machines.Provision`'s moduledoc
@@ -1139,10 +1124,8 @@ defmodule Fountain.Machines.ProvisionTest do
         {:ok, :built}
       end
 
-      with_gate(true, fn ->
-        assert {:ok, :provisioned, :built} =
-                 Machine.provision(ctx.sandbox.id, pipeline, opts())
-      end)
+      assert {:ok, :provisioned, :built} =
+               Machine.provision(ctx.sandbox.id, pipeline, opts())
 
       assert_received {:ran_in, pid}
       assert pid == self(), "the pipeline was moved out of its caller"

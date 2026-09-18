@@ -21,7 +21,7 @@ defmodule FountainWeb.AdminSandboxResetRetryLiveTest do
 
     home =
       insert_sandbox(user_id: owner.id, status: "ready", mode: "persistent", provider: "sprites")
-      |> Ecto.Changeset.change(reset_requested_at: DateTime.utc_now())
+      |> Ecto.Changeset.change(transition: "destroying", transition_reason: "reset")
       |> Repo.update!()
 
     {:ok, lv, _html} = conn |> login_user(admin) |> live(~p"/admin/sandboxes")
@@ -56,7 +56,7 @@ defmodule FountainWeb.AdminSandboxResetRetryLiveTest do
       assert handle.name == ctx.home.machine_name
       refute Repo.in_transaction?()
       assert Quotas.active_sandbox_count(ctx.owner.id) == 1
-      assert Repo.reload!(ctx.home).reset_requested_at
+      assert Repo.reload!(ctx.home).transition == "destroying"
       :ok
     end)
 
@@ -113,7 +113,7 @@ defmodule FountainWeb.AdminSandboxResetRetryLiveTest do
     reject(Managoat.Sandbox, :destroy, 1)
 
     for attrs <- [
-          [reset_requested_at: nil],
+          [transition: nil, transition_reason: nil],
           [mode: "ephemeral"],
           [status: "pending"],
           [status: "starting"],
@@ -125,7 +125,9 @@ defmodule FountainWeb.AdminSandboxResetRetryLiveTest do
 
       ctx.home
       |> Repo.reload!()
-      |> Ecto.Changeset.change(Map.take(ctx.home, [:mode, :status, :reset_requested_at]))
+      |> Ecto.Changeset.change(
+        Map.take(ctx.home, [:mode, :status, :transition, :transition_reason])
+      )
       |> Repo.update!()
     end
 
@@ -183,7 +185,7 @@ defmodule FountainWeb.AdminSandboxResetRetryLiveTest do
   defp assert_fenced(ctx) do
     current = Repo.reload!(ctx.home)
     assert current.status == "ready"
-    assert current.reset_requested_at == ctx.home.reset_requested_at
+    assert current.transition == ctx.home.transition
     refute current.terminated_at
     assert Quotas.active_sandbox_count(ctx.owner.id) == 1
   end
@@ -192,7 +194,7 @@ defmodule FountainWeb.AdminSandboxResetRetryLiveTest do
     current = Repo.reload!(ctx.home)
     assert current.status == "terminated"
     assert current.terminated_at
-    assert current.reset_requested_at == ctx.home.reset_requested_at
+    assert is_nil(current.transition)
     assert Quotas.active_sandbox_count(ctx.owner.id) == 0
   end
 

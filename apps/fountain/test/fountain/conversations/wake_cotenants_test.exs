@@ -47,7 +47,7 @@ defmodule Fountain.Conversations.WakeCotenantsTest do
     # The sprite is gone: the probe says so, and the wake builds a fresh one.
     stub(Managoat.Sandbox, :get, fn _handle -> {:error, :not_found} end)
 
-    stub(Horde.DynamicSupervisor, :start_child, fn _sup, _spec ->
+    stub_server_start(fn _sup, _spec ->
       {:ok, spawn(fn -> Process.sleep(:infinity) end)}
     end)
 

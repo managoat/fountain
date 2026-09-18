@@ -156,7 +156,7 @@ defmodule Fountain.ConversationsReadStateTest do
       agent = insert_agent(user_id: user.id)
       conv = insert_conversation(user_id: user.id, agent: agent, status: "idle")
 
-      stub(Horde.DynamicSupervisor, :start_child, fn _sup, _spec ->
+      stub_server_start(fn _sup, _spec ->
         {:error, {:already_started, self()}}
       end)
 
@@ -198,7 +198,7 @@ defmodule Fountain.ConversationsReadStateTest do
       conv = insert_conversation(user_id: user.id, agent: agent, status: "idle")
       test_pid = self()
 
-      stub(Horde.DynamicSupervisor, :start_child, fn _sup, _spec ->
+      stub_server_start(fn _sup, _spec ->
         {:error, {:already_started, self()}}
       end)
 
@@ -218,7 +218,7 @@ defmodule Fountain.ConversationsReadStateTest do
       agent = insert_agent(user_id: user.id)
       conv = insert_conversation(user_id: user.id, agent: agent, status: "idle")
 
-      stub(Horde.DynamicSupervisor, :start_child, fn _sup, _spec ->
+      stub_server_start(fn _sup, _spec ->
         {:error, :max_children}
       end)
 

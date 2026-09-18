@@ -215,7 +215,7 @@ defmodule Fountain.ConversationsLogEventsTest do
       user = insert_verified_user()
       pending = insert_sandbox(user_id: user.id)
       ready = insert_sandbox(user_id: user.id)
-      {:ok, _} = Conversations.update_sandbox(ready, %{status: "ready"})
+      {:ok, _} = update_sandbox(ready, %{status: "ready"})
 
       ids = Conversations._unsafe_list_sandboxes_admin() |> Enum.map(& &1.id)
       assert pending.id in ids
@@ -225,7 +225,7 @@ defmodule Fountain.ConversationsLogEventsTest do
     test "excludes sandboxes with terminated status" do
       user = insert_verified_user()
       sandbox = insert_sandbox(user_id: user.id)
-      {:ok, _} = Conversations.update_sandbox(sandbox, %{status: "terminated"})
+      {:ok, _} = update_sandbox(sandbox, %{status: "terminated"})
 
       ids = Conversations._unsafe_list_sandboxes_admin() |> Enum.map(& &1.id)
       refute sandbox.id in ids
@@ -234,7 +234,7 @@ defmodule Fountain.ConversationsLogEventsTest do
     test "excludes sandboxes with failed status" do
       user = insert_verified_user()
       sandbox = insert_sandbox(user_id: user.id)
-      {:ok, _} = Conversations.update_sandbox(sandbox, %{status: "failed"})
+      {:ok, _} = update_sandbox(sandbox, %{status: "failed"})
 
       ids = Conversations._unsafe_list_sandboxes_admin() |> Enum.map(& &1.id)
       refute sandbox.id in ids
@@ -244,7 +244,7 @@ defmodule Fountain.ConversationsLogEventsTest do
       user = insert_verified_user()
       active = insert_sandbox(user_id: user.id)
       terminated = insert_sandbox(user_id: user.id)
-      {:ok, _} = Conversations.update_sandbox(terminated, %{status: "terminated"})
+      {:ok, _} = update_sandbox(terminated, %{status: "terminated"})
 
       ids = Conversations._unsafe_list_sandboxes_admin() |> Enum.map(& &1.id)
       assert active.id in ids
@@ -275,8 +275,8 @@ defmodule Fountain.ConversationsLogEventsTest do
       user = insert_verified_user()
       s1 = insert_sandbox(user_id: user.id)
       s2 = insert_sandbox(user_id: user.id)
-      {:ok, _} = Conversations.update_sandbox(s1, %{status: "terminated"})
-      {:ok, _} = Conversations.update_sandbox(s2, %{status: "failed"})
+      {:ok, _} = update_sandbox(s1, %{status: "terminated"})
+      {:ok, _} = update_sandbox(s2, %{status: "failed"})
 
       # All sandboxes in this test's db partition are terminal
       results = Conversations._unsafe_list_sandboxes_admin()
@@ -294,7 +294,7 @@ defmodule Fountain.ConversationsLogEventsTest do
     test "returns idle conversation whose sandbox is ready" do
       user = insert_verified_user()
       sandbox = insert_sandbox(user_id: user.id)
-      {:ok, _} = Conversations.update_sandbox(sandbox, %{status: "ready"})
+      {:ok, _} = update_sandbox(sandbox, %{status: "ready"})
       conv = insert_conversation(user_id: user.id, status: "idle", sandbox_id: sandbox.id)
 
       ids = Conversations._unsafe_list_resumable_conversations() |> Enum.map(& &1.id)
@@ -304,7 +304,7 @@ defmodule Fountain.ConversationsLogEventsTest do
     test "returns running conversation whose sandbox is ready" do
       user = insert_verified_user()
       sandbox = insert_sandbox(user_id: user.id)
-      {:ok, _} = Conversations.update_sandbox(sandbox, %{status: "ready"})
+      {:ok, _} = update_sandbox(sandbox, %{status: "ready"})
       conv = insert_conversation(user_id: user.id, status: "running", sandbox_id: sandbox.id)
 
       ids = Conversations._unsafe_list_resumable_conversations() |> Enum.map(& &1.id)
@@ -324,7 +324,7 @@ defmodule Fountain.ConversationsLogEventsTest do
     test "excludes terminated conversation even when sandbox is ready" do
       user = insert_verified_user()
       sandbox = insert_sandbox(user_id: user.id)
-      {:ok, _} = Conversations.update_sandbox(sandbox, %{status: "ready"})
+      {:ok, _} = update_sandbox(sandbox, %{status: "ready"})
       conv = insert_conversation(user_id: user.id, status: "terminated", sandbox_id: sandbox.id)
 
       ids = Conversations._unsafe_list_resumable_conversations() |> Enum.map(& &1.id)
@@ -337,7 +337,7 @@ defmodule Fountain.ConversationsLogEventsTest do
       # a status nothing could produce, so it proved nothing.
       user = insert_verified_user()
       sandbox = insert_sandbox(user_id: user.id)
-      {:ok, _} = Conversations.update_sandbox(sandbox, %{status: "ready"})
+      {:ok, _} = update_sandbox(sandbox, %{status: "ready"})
       conv = insert_conversation(user_id: user.id, status: "terminated", sandbox_id: sandbox.id)
 
       ids = Conversations._unsafe_list_resumable_conversations() |> Enum.map(& &1.id)
@@ -347,7 +347,7 @@ defmodule Fountain.ConversationsLogEventsTest do
     test "preloads sandbox association" do
       user = insert_verified_user()
       sandbox = insert_sandbox(user_id: user.id)
-      {:ok, _} = Conversations.update_sandbox(sandbox, %{status: "ready"})
+      {:ok, _} = update_sandbox(sandbox, %{status: "ready"})
       conv = insert_conversation(user_id: user.id, status: "idle", sandbox_id: sandbox.id)
 
       results = Conversations._unsafe_list_resumable_conversations()

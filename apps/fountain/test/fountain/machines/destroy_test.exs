@@ -9,9 +9,8 @@ defmodule Fountain.Machines.DestroyTest do
   `termination_actor_fence_test.exs`, `termination_fallback_test.exs`); this
   file is the protocol on its own.
 
-  `async: false`: the gate is application environment, and the gate-on cases
-  run the protocol inside an owner process that needs the shared sandbox
-  connection.
+  `async: false`: several cases run the protocol inside an owner process
+  alongside cases that share state with it.
   """
 
   use Fountain.DataCase, async: false
@@ -87,20 +86,6 @@ defmodule Fountain.Machines.DestroyTest do
     )
 
     :ok
-  end
-
-  defp with_gate(value, fun) do
-    previous = Application.fetch_env(:fountain, :machine_owner_enabled)
-    Application.put_env(:fountain, :machine_owner_enabled, value)
-
-    try do
-      fun.()
-    after
-      case previous do
-        {:ok, was} -> Application.put_env(:fountain, :machine_owner_enabled, was)
-        :error -> Application.delete_env(:fountain, :machine_owner_enabled)
-      end
-    end
   end
 
   # A plain process standing in for a co-tenant's server: `whereis/1` only asks
@@ -180,8 +165,10 @@ defmodule Fountain.Machines.DestroyTest do
       assert {:ok, :destroyed} = Destroy.run(ctx.sandbox.id, opts(ctx, reason: :idle))
 
       assert_received {:mid_destroy, mid}
-      assert mid.teardown_requested_at, "the fence had not committed before the provider call"
-      assert mid.reset_requested_at
+
+      assert mid.transition == "destroying",
+             "the fence had not committed before the provider call"
+
       assert mid.transition == "destroying"
       assert mid.transition_reason == "idle"
       assert mid.status == "ready", "the row went terminal before the machine was gone"
@@ -360,8 +347,6 @@ defmodule Fountain.Machines.DestroyTest do
 
       kept = row(ctx)
       assert kept.status == "ready"
-      refute kept.reset_requested_at
-      refute kept.teardown_requested_at
       assert is_nil(kept.transition)
       # The lease was taken to make the decision and given back; the epoch it
       # spent is not reused.
@@ -416,7 +401,7 @@ defmodule Fountain.Machines.DestroyTest do
         )
 
       stand_in_server(other.id)
-      {:ok, _} = Conversations.update_sandbox(ctx.sandbox, %{status: "terminated"})
+      {:ok, _} = update_sandbox(ctx.sandbox, %{status: "terminated"})
       reject(Managoat.Sandbox, :destroy, 1)
 
       assert {:ok, :already_terminal} =
@@ -566,7 +551,7 @@ defmodule Fountain.Machines.DestroyTest do
         abandon_mid_destroy(ctx)
 
         {:ok, _} =
-          Conversations.update_sandbox(Repo.reload!(ctx.sandbox), %{status: unquote(terminal)})
+          update_sandbox(Repo.reload!(ctx.sandbox), %{status: unquote(terminal)})
 
         assert row(ctx).transition == "destroying", "the reaper-shaped row was not built"
 
@@ -593,7 +578,7 @@ defmodule Fountain.Machines.DestroyTest do
       # carries no epoch, and it says nothing about `transition`.
       abandon_mid_destroy(ctx)
 
-      {:ok, _} = Conversations.update_sandbox(Repo.reload!(ctx.sandbox), %{status: "terminated"})
+      {:ok, _} = update_sandbox(Repo.reload!(ctx.sandbox), %{status: "terminated"})
 
       swept = row(ctx)
       assert swept.status == "terminated"
@@ -614,9 +599,12 @@ defmodule Fountain.Machines.DestroyTest do
       # nothing else.
       abandon_mid_destroy(ctx)
 
+      # Past the driver's grace window, which runs from the stamp — the row's
+      # last write.
       Repo.update_all(from(s in Sandbox, where: s.id == ^ctx.sandbox.id),
         set: [
-          teardown_requested_at: DateTime.add(DateTime.utc_now(), -20 * 60, :second),
+          updated_at:
+            DateTime.utc_now() |> DateTime.add(-20 * 60, :second) |> DateTime.truncate(:second),
           lease_until: DateTime.add(DateTime.utc_now(), -60, :second)
         ]
       )
@@ -653,7 +641,7 @@ defmodule Fountain.Machines.DestroyTest do
 
       refused = row(ctx)
       assert refused.status == "ready", "a refused finalize wrote the row anyway"
-      assert refused.teardown_requested_at, "the admission fence was rolled back with it"
+      assert refused.transition == "destroying", "the admission fence was rolled back with it"
       assert events(ctx, "sandbox.destroyed") == []
     end
 
@@ -709,25 +697,20 @@ defmodule Fountain.Machines.DestroyTest do
       end
     end
 
-    test "an enclosing transaction is refused by the door, in both modes", ctx do
-      # `Destroy.run/2`'s own guard is process-local, so with the gate on it
-      # runs in the owner — never inside this caller's transaction — and cannot
-      # fire. Checking before the dispatch is what keeps "same protocol either
-      # way" true of step 1 as well.
+    test "an enclosing transaction is refused by the door", ctx do
+      # `Destroy.run/2`'s own guard is process-local, and the protocol runs in
+      # the owner — never inside this caller's transaction — so it cannot fire
+      # there. The door checks before it asks.
       reject(Managoat.Sandbox, :destroy, 1)
 
-      for gate <- [false, true] do
-        with_gate(gate, fn ->
-          assert {:ok, {:error, :provider_transaction_open}} =
-                   Repo.transaction(fn ->
-                     Machine.destroy(ctx.sandbox.id, actor: "api", reason: :terminated)
-                   end)
-        end)
-      end
+      assert {:ok, {:error, :provider_transaction_open}} =
+               Repo.transaction(fn ->
+                 Machine.destroy(ctx.sandbox.id, actor: "api", reason: :terminated)
+               end)
 
       assert row(ctx).lease_epoch == 0
-      refute row(ctx).teardown_requested_at
-      assert Machine.whereis(ctx.sandbox.id) == nil, "the gate-on refusal started an owner"
+      refute row(ctx).transition
+      assert Machine.whereis(ctx.sandbox.id) == nil, "the refusal started an owner"
     end
   end
 
@@ -754,10 +737,9 @@ defmodule Fountain.Machines.DestroyTest do
       superseded = row(ctx)
       assert superseded.status == "ready", "a superseded owner wrote the row terminal"
       assert superseded.transition == "destroying"
-      assert superseded.lease_epoch == 99
       # The fence is committed — the machine is closed to admission, which is
       # what the successor needs — but the destroy is not claimed as done.
-      assert superseded.teardown_requested_at
+      assert superseded.lease_epoch == 99
       assert events(ctx, "sandbox.destroyed") == []
     end
 
@@ -772,9 +754,7 @@ defmodule Fountain.Machines.DestroyTest do
           lease_node: "dead@node",
           lease_until: past,
           transition: "destroying",
-          transition_reason: "terminated",
-          reset_requested_at: past,
-          teardown_requested_at: past
+          transition_reason: "terminated"
         ]
       )
 
@@ -856,7 +836,7 @@ defmodule Fountain.Machines.DestroyTest do
 
       assert row(ctx).status == "ready"
       assert row(ctx).lease_epoch == 0
-      refute row(ctx).teardown_requested_at
+      refute row(ctx).transition == "destroying"
     end
 
     test "a missing actor or reason is a caller bug, not an answer", ctx do
@@ -871,68 +851,8 @@ defmodule Fountain.Machines.DestroyTest do
     end
   end
 
-  describe "the gate chooses where, not what" do
-    test "inline and in-process leave the same row and the same trail", ctx do
-      stub(Managoat.Sandbox, :destroy, fn _ -> :ok end)
-
-      other_user = insert_verified_user()
-      other_agent = insert_agent(user_id: other_user.id)
-
-      other_sandbox =
-        insert_sandbox(user_id: other_user.id, agent_id: other_agent.id, status: "ready")
-
-      other_conv =
-        insert_conversation(
-          user_id: other_user.id,
-          agent: other_agent,
-          sandbox: other_sandbox,
-          status: "idle"
-        )
-
-      on_exit(fn -> stop_machine(other_sandbox.id) end)
-
-      with_gate(false, fn ->
-        assert {:ok, :destroyed} =
-                 Machine.destroy(ctx.sandbox.id,
-                   actor: "api",
-                   reason: :terminated,
-                   terminating_conversation_id: ctx.conv.id
-                 )
-
-        assert Machine.whereis(ctx.sandbox.id) == nil, "the gate was off and an owner started"
-      end)
-
-      with_gate(true, fn ->
-        {:ok, owner} = Machine.ensure_started(other_sandbox.id)
-        Mimic.allow(Managoat.Sandbox, self(), owner)
-
-        assert {:ok, :destroyed} =
-                 Machine.destroy(other_sandbox.id,
-                   actor: "api",
-                   reason: :terminated,
-                   terminating_conversation_id: other_conv.id
-                 )
-      end)
-
-      inline = Repo.reload!(ctx.sandbox)
-      in_process = Repo.reload!(other_sandbox)
-
-      assert inline.status == in_process.status
-      assert inline.transition == in_process.transition
-      assert inline.lease_epoch == in_process.lease_epoch
-      assert inline.lease_node == in_process.lease_node
-      assert inline.teardown_requested_at && in_process.teardown_requested_at
-
-      assert actions(ctx.user.id) == actions(other_user.id)
-
-      assert [%{actor: "api", metadata: %{"reason" => "terminated"}}] =
-               events(ctx, "sandbox.destroyed")
-
-      assert [%{actor: "api", metadata: %{"reason" => "terminated"}}] =
-               Audit.list_for_user(other_user.id, action_prefix: "sandbox.destroyed")
-    end
-
-    test "with the gate on, two destroys of one machine produce one of each", ctx do
+  describe "the owner serializes" do
+    test "two destroys of one machine produce one of each", ctx do
       calls = :counters.new(1, [])
       test = self()
 
@@ -944,51 +864,42 @@ defmodule Fountain.Machines.DestroyTest do
         :ok
       end)
 
-      with_gate(true, fn ->
-        {:ok, owner} = Machine.ensure_started(ctx.sandbox.id)
-        Mimic.allow(Managoat.Sandbox, self(), owner)
+      {:ok, owner} = Machine.ensure_started(ctx.sandbox.id)
+      Mimic.allow(Managoat.Sandbox, self(), owner)
 
-        racers =
-          for _ <- 1..2 do
-            pid =
-              spawn(fn ->
-                send(
-                  test,
-                  {:result,
-                   Machine.destroy(ctx.sandbox.id,
-                     actor: "system:conversation_server",
-                     reason: :terminated,
-                     terminating_conversation_id: ctx.conv.id
-                   )}
-                )
-              end)
+      racers =
+        for _ <- 1..2 do
+          pid =
+            spawn(fn ->
+              send(
+                test,
+                {:result,
+                 Machine.destroy(ctx.sandbox.id,
+                   actor: "system:conversation_server",
+                   reason: :terminated,
+                   terminating_conversation_id: ctx.conv.id
+                 )}
+              )
+            end)
 
-            Ecto.Adapters.SQL.Sandbox.allow(Repo, self(), pid)
-            pid
-          end
+          Ecto.Adapters.SQL.Sandbox.allow(Repo, self(), pid)
+          pid
+        end
 
-        assert length(racers) == 2
+      assert length(racers) == 2
 
-        results =
-          for _ <- 1..2 do
-            assert_receive {:result, result}, 10_000
-            result
-          end
+      results =
+        for _ <- 1..2 do
+          assert_receive {:result, result}, 10_000
+          result
+        end
 
-        assert Enum.sort(results) == [{:ok, :already_terminal}, {:ok, :destroyed}]
-      end)
+      assert Enum.sort(results) == [{:ok, :already_terminal}, {:ok, :destroyed}]
 
       assert :counters.get(calls, 1) == 1, "the machine was destroyed twice"
       assert [_] = events(ctx, "sandbox.destroyed")
       assert [_] = events(ctx, "sandbox.teardown_requested")
       assert row(ctx).status == "terminated"
     end
-  end
-
-  defp actions(user_id) do
-    user_id
-    |> Audit.list_recent_for_user(200)
-    |> Enum.map(& &1.action)
-    |> Enum.sort()
   end
 end

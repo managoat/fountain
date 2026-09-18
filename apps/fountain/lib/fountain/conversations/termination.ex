@@ -215,8 +215,8 @@ defmodule Fountain.Conversations.Termination do
   Three options steer the protocol rather than describing the operation, and
   all three are forwarded untouched because the reset family is a caller of
   this door too (ADR 0058 stage 5c). `:fence` is `:held_by_caller` for a
-  caller that already holds a durable fence — the reset's `reset_requested_at`
-  — so the teardown fence is not written on top of it; `:provider` is
+  caller that already holds a durable fence — the reset's `destroying` stamp,
+  reason `"reset"` — so the teardown fence is not written on top of it; `:provider` is
   `:already_gone` when the caller has already probed and been told the machine
   does not exist; `:on_provider_error` is `:refuse` for a caller whose fence
   must survive an unconfirmed delete. `Fountain.Machines.Destroy` documents

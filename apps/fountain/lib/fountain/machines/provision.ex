@@ -114,10 +114,9 @@ defmodule Fountain.Machines.Provision do
   ## What is deliberately *not* here
 
   **No hop through the owner process.** `Machine.destroy/2`, `park/2` and
-  `ensure_up/2` run inside `Fountain.Machines.Machine` when
-  `MACHINE_OWNER_ENABLED` is on, so two operations on one machine queue in one
-  mailbox. `Machine.provision/3` runs inline on its caller whichever way the gate
-  is set, and says so. Three reasons, in order of how much they matter:
+  `ensure_up/2` run inside `Fountain.Machines.Machine`, so two operations on one
+  machine queue in one mailbox. `Machine.provision/3` runs inline on its
+  caller, and says so. Three reasons, in order of how much they matter:
 
     * the callback **is** the caller's pipeline. It builds and returns the
       `ConversationServer`'s own state, spawns its adapter and closes over its
@@ -403,6 +402,24 @@ defmodule Fountain.Machines.Provision do
   end
 
   @doc """
+  Insert the row a provision will build: the reservation.
+
+  Stage 7b found that the reservation needs no stamp of its own — the row is
+  inserted `pending` inside the tenant's quota transaction
+  (`Fountain.Quotas.with_sandbox_reservation/3`), and `pending` already counts
+  against the cap — so the bracket `run/3` opens begins after that commit.
+  This is the insert, moved here from `Conversations.create_sandbox/1` in stage
+  9b so that the owner's namespace is the only code that writes the
+  `sandboxes` row. It runs inside the caller's transaction, as it always did.
+  """
+  @spec reserve(map()) :: {:ok, Sandbox.t()} | {:error, Ecto.Changeset.t()}
+  def reserve(attrs) when is_map(attrs) do
+    %Sandbox{}
+    |> Sandbox.changeset(attrs)
+    |> Repo.insert()
+  end
+
+  @doc """
   How long `run/3` waits for a lease somebody else holds before refusing.
 
   Public so `machine_bounds_test.exs` can pin it against the bounds it sits
@@ -508,12 +525,11 @@ defmodule Fountain.Machines.Provision do
 
   defp admissible(%Sandbox{} = sandbox) do
     cond do
-      # The `destroying` stamp counts as a fence since stage 9a, which is what
-      # makes `clear_foreign_stamp/2`'s claim below structural rather than
-      # incidental — and what keeps this refusal once stage 9b drops the two
-      # columns beside it.
-      not is_nil(sandbox.reset_requested_at) or not is_nil(sandbox.teardown_requested_at) or
-          sandbox.transition == "destroying" ->
+      # The fence is the `destroying` stamp — both fences write it (stage 9a),
+      # and since stage 9b it is the only thing read — which is what makes
+      # `clear_foreign_stamp/2`'s claim below structural rather than
+      # incidental.
+      sandbox.transition == "destroying" ->
         {:error, :fenced}
 
       sandbox.status in @provisionable ->
@@ -1027,9 +1043,8 @@ defmodule Fountain.Machines.Provision do
 
   defp confirm_under_lease(%Sandbox{} = sandbox, epoch, opts) do
     cond do
-      # `admissible/1`'s fence, in the same three parts and for its reasons.
-      not is_nil(sandbox.reset_requested_at) or not is_nil(sandbox.teardown_requested_at) or
-          sandbox.transition == "destroying" ->
+      # `admissible/1`'s fence, for its reasons.
+      sandbox.transition == "destroying" ->
         {:error, :fenced}
 
       sandbox.status not in @confirmable ->

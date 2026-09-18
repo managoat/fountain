@@ -106,8 +106,9 @@ defmodule Fountain.Machines.LeaseTest do
     end
 
     test "live?/2 takes a selected map, not only a row", ctx do
-      # `SandboxResetReconciler`'s sweep selects the two columns beside the id
-      # rather than loading rows, and asks the same predicate.
+      # A caller may select the two columns beside the id rather than load
+      # rows, as `SandboxResetReconciler`'s sweep did, and ask the same
+      # predicate.
       {:ok, 1} = Lease.claim(ctx.sandbox.id, ctx.node, @ttl_ms)
 
       selected =

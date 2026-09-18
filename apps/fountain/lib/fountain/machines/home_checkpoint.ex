@@ -1,4 +1,4 @@
-defmodule Fountain.Conversations.HomeCheckpoint do
+defmodule Fountain.Machines.HomeCheckpoint do
   @moduledoc """
   Checkpoint a persistent home when it parks (ADR 0023, #1073).
 
@@ -32,6 +32,12 @@ defmodule Fountain.Conversations.HomeCheckpoint do
 
   Best-effort by construction: a failed checkpoint is logged and recorded as
   a failed stage, and the park goes ahead — an unparked machine keeps billing.
+
+  In `Fountain.Machines` since stage 9b, which moved it from
+  `Fountain.Conversations` whole: it is part of the park protocol, runs under
+  the park's lease, and its `Managoat.Sandbox.create_checkpoint/2` is a
+  provider mutation the owner makes. The ADR's verb table says as much — "the
+  checkpoint happens inside the transition".
   """
 
   alias Fountain.Conversations
@@ -51,20 +57,16 @@ defmodule Fountain.Conversations.HomeCheckpoint do
   @spec on_park(Sandbox.t(), Lease.epoch()) :: {:ok, String.t()} | :skipped | {:error, term()}
   # A machine whose destruction has been asked for keeps no checkpoint: the disk
   # is meant to be gone. `Park` refuses a fenced row before it ever gets here,
-  # so these clauses are belt and braces rather than the guard they were — kept
+  # so this clause is belt and braces rather than the guard it was — kept
   # because the rule belongs to the checkpoint as much as to the park, and a
-  # second caller would arrive without them.
+  # second caller would arrive without it.
   #
-  # The `destroying` stamp is the second of the two since ADR 0058 stage 9a,
-  # and it is the one that outlives the column. The race the first draft of
-  # this note described — a fence landing mid-suspend, whose stamp
-  # `Lease.cas_update/4` then keeps — cannot actually reach here: the
+  # The fence is the `destroying` stamp, since ADR 0058 stage 9b stopped
+  # reading the `reset_requested_at` column this clause's sibling matched on.
+  # The race an earlier note described — a fence landing mid-suspend, whose
+  # stamp `Lease.cas_update/4` then keeps — cannot actually reach here: the
   # checkpoint is taken *before* the finalize, so a fence arriving during the
-  # suspend arrives after this ran (review). What the clause is for is a second
-  # caller: `Park` refuses a fenced row today, and the rule belongs to the
-  # checkpoint as much as to the park.
-  def on_park(%Sandbox{reset_requested_at: at}, _epoch) when not is_nil(at), do: :skipped
-
+  # suspend arrives after this ran (9a review).
   def on_park(%Sandbox{transition: "destroying", status: status}, _epoch)
       when status not in ["terminated", "failed"],
       do: :skipped

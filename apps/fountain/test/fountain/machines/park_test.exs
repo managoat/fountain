@@ -9,9 +9,8 @@ defmodule Fountain.Machines.ParkTest do
   `sandbox_reaper_test.exs`, `sandbox_reaper_park_test.exs`); this file is the
   protocol on its own.
 
-  `async: false`: the gate is application environment, and the gate-on cases
-  run the protocol inside an owner process that needs the shared sandbox
-  connection.
+  `async: false`: several cases run the protocol inside an owner process
+  alongside cases that share state with it.
   """
 
   use Fountain.DataCase, async: false
@@ -111,20 +110,6 @@ defmodule Fountain.Machines.ParkTest do
     end
   end
 
-  defp with_gate(value, fun) do
-    previous = Application.fetch_env(:fountain, :machine_owner_enabled)
-    Application.put_env(:fountain, :machine_owner_enabled, value)
-
-    try do
-      fun.()
-    after
-      case previous do
-        {:ok, was} -> Application.put_env(:fountain, :machine_owner_enabled, was)
-        :error -> Application.delete_env(:fountain, :machine_owner_enabled)
-      end
-    end
-  end
-
   # The row a park leaves when its owner dies between the intent and the
   # finalize: live, stamped `parking`, lease held by a node that is not coming
   # back. Forged rather than produced, because producing it means killing a
@@ -178,8 +163,12 @@ defmodule Fountain.Machines.ParkTest do
   end
 
   defp use_the_machine(ctx, :woken), do: stamp(ctx, woken_at: DateTime.utc_now())
-  defp use_the_machine(ctx, :teardown), do: stamp(ctx, teardown_requested_at: DateTime.utc_now())
-  defp use_the_machine(ctx, :reset), do: stamp(ctx, reset_requested_at: DateTime.utc_now())
+
+  defp use_the_machine(ctx, :teardown),
+    do: stamp(ctx, transition: "destroying", transition_reason: "teardown")
+
+  defp use_the_machine(ctx, :reset),
+    do: stamp(ctx, transition: "destroying", transition_reason: "reset")
 
   defp stamp(ctx, sets) do
     Repo.update_all(from(s in Sandbox, where: s.id == ^ctx.sandbox.id), set: sets)
@@ -206,7 +195,7 @@ defmodule Fountain.Machines.ParkTest do
 
   describe "the happy path" do
     test "stamps the intent, checkpoints, suspends, finalizes, audits, in that order", ctx do
-      {:ok, home} = Conversations.update_sandbox(ctx.sandbox, %{mode: "persistent"})
+      {:ok, home} = update_sandbox(ctx.sandbox, %{mode: "persistent"})
       test = self()
       machine_name = home.machine_name
 
@@ -296,7 +285,7 @@ defmodule Fountain.Machines.ParkTest do
       # `HomeCheckpoint`'s own rule, asserted from the protocol's side: an
       # unparked machine keeps billing, so a home that could not be
       # checkpointed is parked anyway.
-      {:ok, home} = Conversations.update_sandbox(ctx.sandbox, %{mode: "persistent"})
+      {:ok, home} = update_sandbox(ctx.sandbox, %{mode: "persistent"})
       stub(Managoat.Sandbox, :supports?, fn :sprites, cap -> cap in [:suspend, :checkpoint] end)
       stub(Managoat.Sandbox, :create_checkpoint, fn _h, _o -> {:error, :nope} end)
       stub(Managoat.Sandbox, :suspend, fn _ -> :ok end)
@@ -340,7 +329,7 @@ defmodule Fountain.Machines.ParkTest do
     end
 
     test "a machine that was already parked is not counted twice", ctx do
-      {:ok, _} = Conversations.update_sandbox(ctx.sandbox, %{status: "suspended"})
+      {:ok, _} = update_sandbox(ctx.sandbox, %{status: "suspended"})
       before = usage_events(ctx)
       assert before == ["sandbox_suspended"]
 
@@ -361,9 +350,9 @@ defmodule Fountain.Machines.ParkTest do
       # B2, from the protocol review. `Retry.with_backoff/2` re-raises once its
       # attempts are spent, and an exception here unwound the whole park: the
       # row kept its `parking` stamp with the lease released, the conversation
-      # server crashed after dropping its adapter, and with the gate off the
-      # reaper's whole sweep died with it.
-      {:ok, home} = Conversations.update_sandbox(ctx.sandbox, %{mode: "persistent"})
+      # server crashed after dropping its adapter, and run inline on the
+      # reaper, as it could be before stage 9b, the whole sweep died with it.
+      {:ok, home} = update_sandbox(ctx.sandbox, %{mode: "persistent"})
       stub(Managoat.Sandbox, :supports?, fn :sprites, cap -> cap in [:suspend, :checkpoint] end)
       stub(Managoat.Sandbox, :create_checkpoint, fn _h, _o -> raise "sprites client exploded" end)
       expect(Managoat.Sandbox, :suspend, fn _ -> :ok end)
@@ -379,9 +368,10 @@ defmodule Fountain.Machines.ParkTest do
     end
 
     test "and a sweep carries on to the machines behind it", ctx do
-      # The blast radius the rescue actually closes, with the gate off: an
-      # exception out of one park took `SandboxReaper.perform/1` with it.
-      {:ok, _home} = Conversations.update_sandbox(ctx.sandbox, %{mode: "persistent"})
+      # The blast radius the rescue closed, when a park could run inline on the
+      # reaper (before stage 9b): an exception out of one park took
+      # `SandboxReaper.perform/1` with it.
+      {:ok, _home} = update_sandbox(ctx.sandbox, %{mode: "persistent"})
       stub(Managoat.Sandbox, :supports?, fn :sprites, cap -> cap in [:suspend, :checkpoint] end)
       stub(Managoat.Sandbox, :create_checkpoint, fn _h, _o -> raise "boom" end)
       stub(Managoat.Sandbox, :suspend, fn _ -> :ok end)
@@ -441,7 +431,7 @@ defmodule Fountain.Machines.ParkTest do
   describe "the recheck under the lease" do
     test "a machine that is already parked", ctx do
       reject(&Managoat.Sandbox.suspend/1)
-      {:ok, _} = Conversations.update_sandbox(ctx.sandbox, %{status: "suspended"})
+      {:ok, _} = update_sandbox(ctx.sandbox, %{status: "suspended"})
 
       assert {:ok, :already_parked} = Park.run(ctx.sandbox.id, opts())
       assert_lease_released(row(ctx))
@@ -450,7 +440,7 @@ defmodule Fountain.Machines.ParkTest do
     for terminal <- ["terminated", "failed"] do
       test "a machine that has stopped (#{terminal})", ctx do
         reject(&Managoat.Sandbox.suspend/1)
-        {:ok, _} = Conversations.update_sandbox(ctx.sandbox, %{status: unquote(terminal)})
+        {:ok, _} = update_sandbox(ctx.sandbox, %{status: unquote(terminal)})
 
         assert {:ok, :already_terminal} = Park.run(ctx.sandbox.id, opts())
         assert row(ctx).status == unquote(terminal)
@@ -463,7 +453,7 @@ defmodule Fountain.Machines.ParkTest do
       # `main`'s `park_row/1` checked this one, and it is the reason it did:
       # the disk is meant to be gone, and parking would re-reserve it.
       Repo.update_all(from(s in Sandbox, where: s.id == ^ctx.sandbox.id),
-        set: [reset_requested_at: DateTime.utc_now()]
+        set: [transition: "destroying", transition_reason: "reset"]
       )
 
       assert {:error, :fenced} = Park.run(ctx.sandbox.id, opts())
@@ -478,11 +468,13 @@ defmodule Fountain.Machines.ParkTest do
       # over a row `sweep_fenced_teardowns/0` is about to finish, and
       # re-reserving the machine at the provider.
       Repo.update_all(from(s in Sandbox, where: s.id == ^ctx.sandbox.id),
-        set: [teardown_requested_at: DateTime.utc_now()]
+        set: [transition: "destroying", transition_reason: "teardown"]
       )
 
       assert {:error, :fenced} = Park.run(ctx.sandbox.id, opts())
       assert row(ctx).status == "ready"
+      # The fence is the stamp, and a refusal leaves it for the driver.
+      assert row(ctx).transition == "destroying"
     end
 
     test "a provider that cannot park", ctx do
@@ -827,7 +819,7 @@ defmodule Fountain.Machines.ParkTest do
 
     test "a mid-park row that somebody else already finished is not re-parked", ctx do
       :ok = abandon_mid_park(ctx)
-      {:ok, _} = Conversations.update_sandbox(ctx.sandbox, %{status: "terminated"})
+      {:ok, _} = update_sandbox(ctx.sandbox, %{status: "terminated"})
       reject(&Managoat.Sandbox.get/1)
       reject(&Managoat.Sandbox.suspend/1)
 
@@ -841,7 +833,7 @@ defmodule Fountain.Machines.ParkTest do
 
     test "a mid-park row that reached suspended is not parked twice", ctx do
       :ok = abandon_mid_park(ctx)
-      {:ok, _} = Conversations.update_sandbox(ctx.sandbox, %{status: "suspended"})
+      {:ok, _} = update_sandbox(ctx.sandbox, %{status: "suspended"})
       reject(&Managoat.Sandbox.get/1)
       reject(&Managoat.Sandbox.suspend/1)
 
@@ -862,7 +854,7 @@ defmodule Fountain.Machines.ParkTest do
           {"a teardown somebody has asked for", :teardown, :fenced},
           {"a reset that is unconfirmed", :reset, :fenced}
         ] do
-      test "a takeover refuses #{label}, and clears the stamp", ctx do
+      test "a takeover refuses #{label}, and clears its own stamp", ctx do
         :ok = abandon_mid_park(ctx)
         use_the_machine(ctx, unquote(shape))
 
@@ -875,10 +867,20 @@ defmodule Fountain.Machines.ParkTest do
         final = row(ctx)
         assert final.status == "ready", "a machine in use was written down as parked"
 
-        assert is_nil(final.transition),
-               "the stamp was left, so the next owner reads the same lie"
+        # The abandoned `parking` stamp does not survive, so the next owner does
+        # not read it as its own interrupted work. A fence *replaced* it: the
+        # teardown and reset fences write `destroying` over whatever was there
+        # (since stage 9b the fence is the stamp alone), and that one is the
+        # driver's to finish, so it stays.
+        if unquote(refusal) == :fenced do
+          assert final.transition == "destroying"
+        else
+          assert is_nil(final.transition),
+                 "the stamp was left, so the next owner reads the same lie"
 
-        assert is_nil(final.transition_reason)
+          assert is_nil(final.transition_reason)
+        end
+
         assert events(ctx, "sandbox.suspended") == []
       end
     end
@@ -1086,17 +1088,13 @@ defmodule Fountain.Machines.ParkTest do
       assert {:error, :not_found} = Machine.park(Ecto.UUID.generate(), opts())
     end
 
-    for gate <- [false, true] do
-      test "inline and in-owner park the same way (gate #{gate})", ctx do
-        stub(Managoat.Sandbox, :suspend, fn _ -> :ok end)
+    test "parks in the machine's owner", ctx do
+      stub(Managoat.Sandbox, :suspend, fn _ -> :ok end)
 
-        with_gate(unquote(gate), fn ->
-          assert {:ok, :parked} = Machine.park(ctx.sandbox.id, opts())
-        end)
-
-        assert row(ctx).status == "suspended"
-        assert [_one] = events(ctx, "sandbox.suspended")
-      end
+      assert {:ok, :parked} = Machine.park(ctx.sandbox.id, opts())
+      assert Machine.whereis(ctx.sandbox.id) != nil
+      assert row(ctx).status == "suspended"
+      assert [_one] = events(ctx, "sandbox.suspended")
     end
 
     test "the protocol's words become the system's", ctx do

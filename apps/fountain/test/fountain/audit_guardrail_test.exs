@@ -737,7 +737,7 @@ defmodule Fountain.AuditGuardrailTest do
   def do_team_add(user) do
     agent = insert_agent(user_id: user.id)
 
-    stub(Horde.DynamicSupervisor, :start_child, fn _sup, _spec ->
+    stub_server_start(fn _sup, _spec ->
       {:ok, spawn(fn -> Process.sleep(:infinity) end)}
     end)
 

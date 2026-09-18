@@ -82,9 +82,6 @@ defmodule Fountain.Machines.MidOperationReadersTest do
   defp conv_with_sandbox(ctx), do: Repo.reload!(ctx.conv) |> Repo.preload(:sandbox)
 
   describe "Machine.busy?/2" do
-    # That the gate does not decide this is pinned in `machine_test.exs`,
-    # which is `async: false` — writing `:machine_owner_enabled` from an async
-    # module is what `async_global_config_guardrail_test.exs` refuses.
     test "a live lease, and nothing else", ctx do
       refute Machine.busy?(ctx.sandbox)
 
@@ -153,9 +150,8 @@ defmodule Fountain.Machines.MidOperationReadersTest do
       reject(Managoat.Sandbox, :get, 1)
 
       stamp(ctx.sandbox,
-        reset_requested_at: DateTime.utc_now(),
-        teardown_requested_at: DateTime.utc_now(),
         transition: "destroying",
+        transition_reason: "teardown",
         lease_epoch: 1,
         lease_node: nil,
         lease_until: nil
@@ -281,8 +277,8 @@ defmodule Fountain.Machines.MidOperationReadersTest do
       reject(Managoat.Sandbox, :get, 1)
 
       stamp(ctx.sandbox,
-        reset_requested_at: DateTime.utc_now(),
         transition: "destroying",
+        transition_reason: "reset",
         lease_epoch: 1,
         lease_node: nil,
         lease_until: nil
@@ -358,10 +354,7 @@ defmodule Fountain.Machines.MidOperationReadersTest do
 
     test "the reset fence still wins, and says so precisely", ctx do
       row =
-        stamp(ctx.sandbox,
-          reset_requested_at: DateTime.utc_now(),
-          transition: "destroying"
-        )
+        stamp(ctx.sandbox, transition: "destroying", transition_reason: "reset")
 
       assert {:error, :sandbox_reset_pending} = attach(ctx, row)
     end

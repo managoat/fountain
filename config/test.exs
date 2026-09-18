@@ -38,6 +38,12 @@ config :fountain, FountainWeb.Endpoint,
   server: false
 
 config :fountain, :skip_rehydrate, true
+
+# The machine owner (ADR 0058) serves each call as its caller, so a test's SQL
+# sandbox connection and Mimic stubs reach it. Test-only by design: production
+# must not put `$callers` in the owner (`Fountain.Machines.Machine.handle_call/3`
+# says why).
+config :fountain, :owner_adopts_callers, true
 # Tests start the coordinator explicitly with owned database fixtures.
 config :fountain, :execution_deadline_worker_enabled, false
 config :fountain, :checkpoint_creation_enabled, false

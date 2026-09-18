@@ -14,7 +14,7 @@ defmodule FountainWeb.SavedAllowanceChannelTest do
     owner = self()
     stub(ConversationServer, :queue_initial_prompt, fn _, _, _ -> send(owner, :queued) end)
 
-    stub(Horde.DynamicSupervisor, :start_child, fn _, _ ->
+    stub_server_start(fn _, _ ->
       send(owner, :worker_started)
       {:ok, owner}
     end)

@@ -247,7 +247,7 @@ defmodule FountainWeb.ApplyControllerTest do
       raw_key: raw_key
     } do
       # Adding a teammate opens its conversation, which provisions its computer.
-      stub(Horde.DynamicSupervisor, :start_child, fn _sup, _spec ->
+      stub_server_start(fn _sup, _spec ->
         {:ok, spawn(fn -> Process.sleep(:infinity) end)}
       end)
 

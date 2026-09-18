@@ -11,6 +11,15 @@ defmodule Fountain.Conversations.MachineEvents do
   # A reset fence admitted no running turn, and forbids another on that
   # machine. A notification must never interrupt a later turn. The conditional
   # write also rechecks the persisted binding if a wake races this mailbox.
+  #
+  # The cast is the evidence of a reset (ADR 0058 stage 9b). Only the reset's
+  # completion sends `{:sandbox_reset, ...}` (`Conversations.record_reset_completed/3`),
+  # so the write asks only that the machine is terminated. Until 9b it also
+  # asked for `reset_requested_at`, which never told a reset from a teardown —
+  # the teardown fence set it too — and which 9b stopped reading. A late notice
+  # that arrives after a *later* teardown of the same machine could still bring
+  # a conversation back to `idle`, as it could with the column: an accepted
+  # residual, not a regression.
   def reset(
         %{sandbox_id: sandbox_id, current_turn: nil, turn_execution: nil} = state,
         sandbox_id,
@@ -27,7 +36,7 @@ defmodule Fountain.Conversations.MachineEvents do
           where:
             c.id == ^state.conversation_id and c.user_id == ^state.user_id and
               c.sandbox_id == ^sandbox_id and c.status in ["idle", "running"] and
-              s.status == "terminated" and not is_nil(s.reset_requested_at)
+              s.status == "terminated"
         ),
         set: [status: "idle", updated_at: DateTime.utc_now() |> DateTime.truncate(:second)]
       )

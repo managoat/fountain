@@ -548,7 +548,7 @@ defmodule Fountain.Conversations.ExecutionAllowanceRaceTest do
       try do
         admitting =
           independent_writer(fn ->
-            Mimic.stub(Horde.DynamicSupervisor, :start_child, fn _, _ ->
+            Fountain.ServerStart.stub_server_start(fn _, _ ->
               send(owner, :unexpected_worker_started)
               {:error, :fixture_rejection}
             end)
@@ -703,7 +703,7 @@ defmodule Fountain.Conversations.ExecutionAllowanceRaceTest do
 
           rotating =
             independent_writer(fn ->
-              Mimic.stub(Horde.DynamicSupervisor, :start_child, fn _, _ ->
+              Fountain.ServerStart.stub_server_start(fn _, _ ->
                 send(owner, :unexpected_worker_started)
                 {:error, :fixture_rejection}
               end)
@@ -800,10 +800,12 @@ defmodule Fountain.Conversations.ExecutionAllowanceRaceTest do
 
           winner =
             independent_writer(fn ->
-              Mimic.stub(Horde.DynamicSupervisor, :start_child, fn _, _ -> {:ok, self()} end)
+              Fountain.ServerStart.stub_server_start(fn _, _ -> {:ok, self()} end)
 
+              # On an attach this runs in the machine's owner, which inserts
+              # the conversation, so the barrier names the process it holds.
               Mimic.stub(Allowance, :new_changeset, fn id, limits ->
-                send(owner, :rotation_reserved)
+                send(owner, {:rotation_reserved, self()})
 
                 receive do
                   :commit -> Mimic.call_original(Allowance, :new_changeset, [id, limits])
@@ -816,14 +818,14 @@ defmodule Fountain.Conversations.ExecutionAllowanceRaceTest do
             end)
 
           try do
-            assert_receive :rotation_reserved, 5_000
+            assert_receive {:rotation_reserved, reserving}, 5_000
             # Uncommitted unbinding is invisible: the existing conversation remains
             # the channel's binding while the winner waits to commit admission.
             assert Launch.channel_conversation(params).id == previous.id
 
             loser =
               independent_writer(fn ->
-                Mimic.stub(Horde.DynamicSupervisor, :start_child, fn _, _ ->
+                Fountain.ServerStart.stub_server_start(fn _, _ ->
                   send(owner, :unexpected_worker_started)
                   {:error, :fixture_rejection}
                 end)
@@ -838,7 +840,7 @@ defmodule Fountain.Conversations.ExecutionAllowanceRaceTest do
               assert loser_pid == loser.pid
               refute winner_backend == loser_backend
               await_blocked(loser_backend, System.monotonic_time(:millisecond) + 5_000)
-              send(winner.pid, :commit)
+              send(reserving, :commit)
               assert {:ok, replacement, :created} = Task.await(winner)
               assert {:error, changeset} = Task.await(loser)
               assert errors_on(changeset).channel_id == ["binding changed; retry the rotation"]

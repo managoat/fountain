@@ -27,9 +27,9 @@ defmodule Fountain.Conversations.PromptDelivery do
   prompt that never ran. The window is a rollout across the release that
   introduced this module, and it closes with it.
 
-  The machine owner has the same window when `MACHINE_OWNER_ENABLED` is on: an
-  owner on the previous release inserts the turn from a changeset that does not
-  cast `client_request_id`, so that turn opens without it.
+  The machine owner has the same window: an owner on the previous release
+  inserts the turn from a changeset that does not cast `client_request_id`, so
+  that turn opens without it.
   """
 
   require Logger

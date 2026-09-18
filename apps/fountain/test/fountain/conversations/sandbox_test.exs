@@ -52,7 +52,7 @@ defmodule Fountain.Conversations.SandboxTest do
 
         assert handle.name == name
         assert Atom.to_string(handle.provider) == unquote(provider)
-        assert {:ok, updated} = Fountain.Conversations.update_sandbox(loaded, %{status: "ready"})
+        assert {:ok, updated} = update_sandbox(loaded, %{status: "ready"})
         assert updated.machine_name == name
 
         assert %{rows: [[^name, "ready"]]} =
@@ -83,59 +83,6 @@ defmodule Fountain.Conversations.SandboxTest do
   describe "statuses/0" do
     test "returns all six valid statuses" do
       assert Sandbox.statuses() == ~w(pending starting ready suspended terminated failed)
-    end
-  end
-
-  describe "retired sandbox updates" do
-    for retired <- ~w(terminated failed), requested <- ~w(pending starting ready suspended) do
-      test "a stale callback cannot move #{retired} to #{requested}" do
-        user = insert_user()
-        observed = insert_sandbox(user_id: user.id, status: "starting")
-
-        assert {:ok, _} =
-                 Fountain.Conversations.update_sandbox(observed, %{status: unquote(retired)})
-
-        assert {:error, changeset} =
-                 Fountain.Conversations.update_sandbox(observed, %{status: unquote(requested)})
-
-        assert "sandbox is retired" in errors_on(changeset).status
-        assert Fountain.Repo.reload!(observed).status == unquote(retired)
-      end
-    end
-
-    test "metadata updates preserve the current retired status" do
-      user = insert_user()
-      observed = insert_sandbox(user_id: user.id, status: "starting")
-
-      assert {:ok, retired} =
-               Fountain.Conversations.update_sandbox(observed, %{status: "terminated"})
-
-      assert {:ok, updated} =
-               Fountain.Conversations.update_sandbox(observed, %{
-                 provider_meta: %{"public_url" => "fixture"}
-               })
-
-      assert updated.status == "terminated"
-      assert updated.terminated_at == retired.terminated_at
-    end
-  end
-
-  describe "sandbox_retired?/1" do
-    test "checks every status error regardless of order" do
-      for errors <- [
-            [status: {"other failure", []}, status: {"sandbox is retired", []}],
-            [status: {"sandbox is retired", []}, status: {"other failure", []}]
-          ] do
-        assert Conversations.sandbox_retired?(%Ecto.Changeset{errors: errors})
-      end
-    end
-
-    test "does not mistake unrelated fields or errors for retirement" do
-      refute Conversations.sandbox_retired?(%Ecto.Changeset{
-               errors: [mode: {"sandbox is retired", []}, status: {"other failure", []}]
-             })
-
-      refute Conversations.sandbox_retired?(nil)
     end
   end
 

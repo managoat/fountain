@@ -25,7 +25,7 @@ defmodule Fountain.Conversations.InitialStartFailureTest do
       :ok
     end)
 
-    expect(Horde.DynamicSupervisor, :start_child, fn _, _ -> {:error, :max_children} end)
+    expect_server_start(fn _, _ -> {:error, :max_children} end)
     assert {:ok, conv} = start(ctx)
     assert conv.status == "failed"
     sandbox = Repo.get!(Sandbox, conv.sandbox_id)
@@ -49,7 +49,7 @@ defmodule Fountain.Conversations.InitialStartFailureTest do
       {:error, {:database, :some_sqlstate}}
     end)
 
-    expect(Horde.DynamicSupervisor, :start_child, fn _, _ -> {:error, :max_children} end)
+    expect_server_start(fn _, _ -> {:error, :max_children} end)
     assert {:ok, conv} = start(ctx)
 
     assert conv.status == "pending", "the conversation was failed without its machine"
@@ -59,7 +59,7 @@ defmodule Fountain.Conversations.InitialStartFailureTest do
   test "a delayed start error preserves a replacement binding and both machines", ctx do
     test = self()
 
-    expect(Horde.DynamicSupervisor, :start_child, fn _, {ConversationServer, args} ->
+    expect_server_start(fn _, {ConversationServer, args} ->
       conv = Repo.get!(Conversation, args[:conversation_id])
       original = Repo.get!(Sandbox, args[:sandbox_id])
       replacement = insert_sandbox(user_id: ctx.user.id, status: "ready")
@@ -80,10 +80,10 @@ defmodule Fountain.Conversations.InitialStartFailureTest do
   end
 
   test "a start error cannot overwrite an already-provisioned conversation", ctx do
-    expect(Horde.DynamicSupervisor, :start_child, fn _, {ConversationServer, args} ->
+    expect_server_start(fn _, {ConversationServer, args} ->
       conv = Repo.get!(Conversation, args[:conversation_id])
       sandbox = Repo.get!(Sandbox, args[:sandbox_id])
-      {:ok, _} = Conversations.update_sandbox(sandbox, %{status: "ready"})
+      {:ok, _} = update_sandbox(sandbox, %{status: "ready"})
       {:ok, _} = Conversations.update_conversation(conv, %{status: "idle"})
       {:error, :max_children}
     end)
@@ -94,7 +94,7 @@ defmodule Fountain.Conversations.InitialStartFailureTest do
   end
 
   test "a cancelled parent keeps its terminal status", ctx do
-    expect(Horde.DynamicSupervisor, :start_child, fn _, {ConversationServer, args} ->
+    expect_server_start(fn _, {ConversationServer, args} ->
       conv = Repo.get!(Conversation, args[:conversation_id])
       {:ok, _} = Conversations.update_conversation(conv, %{status: "terminated"})
       {:error, :max_children}
@@ -109,7 +109,7 @@ defmodule Fountain.Conversations.InitialStartFailureTest do
     test "a #{change} parent is not returned to the original caller", ctx do
       other = insert_active_user()
 
-      expect(Horde.DynamicSupervisor, :start_child, fn _, {ConversationServer, args} ->
+      expect_server_start(fn _, {ConversationServer, args} ->
         conv = Repo.get!(Conversation, args[:conversation_id])
 
         case ctx.change do

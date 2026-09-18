@@ -44,7 +44,7 @@ defmodule Fountain.TeamTest do
   end
 
   defp inert_start_child(_context \\ nil) do
-    stub(Horde.DynamicSupervisor, :start_child, fn _sup, _spec ->
+    stub_server_start(fn _sup, _spec ->
       {:ok, spawn(fn -> Process.sleep(:infinity) end)}
     end)
 
@@ -955,7 +955,7 @@ defmodule Fountain.TeamTest do
       refused.(
         fn sandbox ->
           sandbox
-          |> Ecto.Changeset.change(reset_requested_at: DateTime.utc_now())
+          |> Ecto.Changeset.change(transition: "destroying", transition_reason: "reset")
           |> Repo.update!()
         end,
         :sandbox_reset_pending

@@ -4,8 +4,8 @@ defmodule Fountain.Machines.DestroyResetTest do
 
   A reset is a destroy, and it was the last one outside the owner. What makes
   it unlike the seven sites 5a and 5b moved is that it arrives *already
-  fenced*: `Conversations.reset_sandbox/2` commits `reset_requested_at` under
-  the per-sandbox advisory lock, refuses a mid-turn or execution-fenced
+  fenced*: `Conversations.reset_sandbox/2` commits the `destroying` stamp,
+  reason `"reset"`, under the per-sandbox advisory lock, refuses a mid-turn or execution-fenced
   machine, drops every runtime session on it, and records
   `sandbox.reset_requested` — all before anything goes near a provider. Its
   front door is untouched by this stage and is covered by
@@ -14,10 +14,11 @@ defmodule Fountain.Machines.DestroyResetTest do
   Three protocol options carry the difference, and this file exists to hold
   each of them to what it claims:
 
-    * `fence: :held_by_caller` — the teardown fence is *not* written.
-      `teardown_requested_at` means something else in this tree
-      (`SandboxReaper.sweep_fenced_teardowns/0` finishes rows wearing it after
-      15 minutes), and a reset that has not been confirmed is not an abandoned
+    * `fence: :held_by_caller` — the teardown fence is *not* written. A
+      teardown's reason on the stamp means something else in this tree
+      (`SandboxReaper.sweep_fenced_teardowns/0` finishes a teardown through the
+      owner after 15 minutes, and retries a reset through the reset's own
+      door), and a reset that has not been confirmed is not an abandoned
       teardown. The option asserts the caller's fence rather than trusting it.
     * `on_provider_error: :refuse` — an unconfirmed delete writes nothing. Every
       other caller retires the fenced row anyway; this one holds the fence and
@@ -53,7 +54,7 @@ defmodule Fountain.Machines.DestroyResetTest do
   alias Fountain.Machines.Machine
   alias Fountain.Quotas
   alias Fountain.Workers.SandboxQueueDrainer
-  alias Fountain.Workers.SandboxResetReconciler
+  alias Fountain.Workers.SandboxReaper
 
   setup do
     previous = Application.get_env(:managoat_sandbox, Managoat.Sandbox.Sprites)
@@ -179,7 +180,6 @@ defmodule Fountain.Machines.DestroyResetTest do
       assert mid.transition == "destroying"
       assert mid.transition_reason == "reset"
       assert mid.status == "ready"
-      assert mid.reset_requested_at
 
       # After: terminal, the stamp cleared, `terminated_at` filled in by the
       # lease's own `COALESCE`, and the fence timestamp kept — an operator
@@ -188,7 +188,7 @@ defmodule Fountain.Machines.DestroyResetTest do
       assert completed.terminated_at
       assert completed.transition == nil
       assert completed.transition_reason == nil
-      assert completed.reset_requested_at == Repo.reload!(ctx.home).reset_requested_at
+      assert completed.transition == Repo.reload!(ctx.home).transition
     end
 
     test "the teardown fence is not written on top of the reset's own", ctx do
@@ -196,13 +196,12 @@ defmodule Fountain.Machines.DestroyResetTest do
       assert {:ok, %Sandbox{}} = Conversations.reset_sandbox(ctx.home)
 
       # The whole point of `fence: :held_by_caller`. A reset is not a forced
-      # teardown: `teardown_requested_at` would put this row in front of
-      # `SandboxReaper.sweep_fenced_teardowns/0`, which terminates what it
-      # finds after 15 minutes, and a reset that is merely unconfirmed must
-      # stay the reconciler's to retry.
+      # teardown: a teardown's reason on the stamp would have
+      # `SandboxReaper.sweep_fenced_teardowns/0` finish this row as a teardown
+      # after 15 minutes, and a reset that is merely unconfirmed must stay
+      # retryable through the reset's own door.
       assert [{_name, mid}] = destroyed()
-      assert is_nil(mid.teardown_requested_at)
-      assert is_nil(Repo.reload!(ctx.home).teardown_requested_at)
+      assert mid.transition_reason == "reset"
 
       # And no second intent event: the reset's own `sandbox.reset_requested`
       # is the one that was recorded.
@@ -286,7 +285,7 @@ defmodule Fountain.Machines.DestroyResetTest do
       reject(Managoat.Sandbox.Sprites, :destroy, 1)
 
       # The option says the caller holds a durable fence. A row with no
-      # `reset_requested_at` is open to admission on every node in the fleet,
+      # `destroying` stamp is open to admission on every node in the fleet,
       # so destroying it because a caller *said* it was fenced is exactly the
       # bypass the assertion exists to refuse.
       assert capture_log(fn ->
@@ -302,7 +301,6 @@ defmodule Fountain.Machines.DestroyResetTest do
       current = Repo.reload!(ctx.home)
       assert current.status == "ready"
       assert is_nil(current.transition)
-      assert is_nil(current.reset_requested_at)
       assert Quotas.active_sandbox_count(ctx.user.id) == 1
     end
 
@@ -422,49 +420,58 @@ defmodule Fountain.Machines.DestroyResetTest do
 
   # ── the lease, and who stands off ─────────────────────────────────────────
 
-  describe "the reconciler honours the machine's lease" do
-    test "a row whose owner holds a live lease is neither swept nor retried", ctx do
+  describe "the teardown run honours the machine's lease" do
+    # `SandboxResetReconciler`'s cases, against the pass that took its rows in
+    # stage 9b: `SandboxReaper`'s five-minute teardown run.
+    defp teardown_run, do: perform_job(SandboxReaper, %{"pass" => "teardowns"})
+
+    test "a row whose owner holds a live lease is not retried", ctx do
       fenced = ctx |> fence() |> hold_lease()
-      reject(Managoat.Sandbox.Sprites, :destroy, 1)
 
-      # The sweep: no job is enqueued for a machine somebody is working on.
-      assert :ok = perform_job(SandboxResetReconciler, %{})
-      assert all_enqueued(worker: SandboxResetReconciler) == []
+      # Reporting stubs, not a `reject`: a provider raise is rescued into a
+      # warning by the protocol, so a `reject` here would prove "never called"
+      # of nothing (round 1, behaviour review). The run must not reach the
+      # reset's door at all, let alone the provider.
+      test = self()
 
-      # And the door, for a job enqueued before the lease was taken.
+      stub(Managoat.Sandbox.Sprites, :destroy, fn handle ->
+        send(test, {:provider_called, handle.name})
+        :ok
+      end)
+
+      stub(Conversations, :retry_pending_sandbox_reset, fn sandbox, opts ->
+        send(test, {:door_asked, sandbox.id})
+        Mimic.call_original(Conversations, :retry_pending_sandbox_reset, [sandbox, opts])
+      end)
+
+      # The run: nothing is attempted on a machine somebody is working on.
+      assert :ok = teardown_run()
+      refute_received {:door_asked, _}
+      refute_received {:provider_called, _}
+
+      # And the door, for a retry that arrives while the lease is live.
       assert {:error, :sandbox_unavailable} =
                Conversations.retry_pending_sandbox_reset(fenced)
 
-      # A snooze, not an error. The job made no provider call and has nothing
-      # to reconcile yet, so spending one of `max_attempts: 10` on it would let
-      # contention alone discard a job that has never once asked a provider
-      # anything — and stage 6 makes contention ordinary.
-      assert {:snooze, 60} = perform_job(SandboxResetReconciler, %{sandbox_id: fenced.id})
-
+      refute_received {:provider_called, _}
       assert Repo.reload!(ctx.home).status == "ready"
     end
 
-    test "the same row is swept and retried once the lease has expired", ctx do
-      fenced = ctx |> fence() |> hold_lease(-1_000)
+    test "the same row is retried once the lease has expired", ctx do
+      ctx |> fence() |> hold_lease(-1_000)
       capture_provider()
 
-      assert :ok = perform_job(SandboxResetReconciler, %{})
-      assert [job] = all_enqueued(worker: SandboxResetReconciler)
-      assert job.args == %{"sandbox_id" => fenced.id}
-      assert :ok = perform_job(SandboxResetReconciler, job.args)
+      assert :ok = teardown_run()
 
       assert Repo.reload!(ctx.home).status == "terminated"
       assert [{name, _}] = destroyed()
       assert name == ctx.home.machine_name
     end
 
-    test "a forced destroy mid-flight is not joined by the reconciler", ctx do
-      # The 5b review's finding, made concrete: a forced teardown stamps
-      # `reset_requested_at` too (the teardown fence reuses the reset fence),
-      # so a machine being destroyed outright matches the reconciler's sweep
-      # exactly. Forged rather than raced, because what is under test is the
-      # predicate, not the timing: a row mid-destroy, at the provider, with its
-      # owner's lease live.
+    test "a forced destroy mid-flight is not joined by the teardown run", ctx do
+      # The 5b review's finding, made concrete: a row mid-destroy, at the
+      # provider, with its owner's lease live. Forged rather than raced,
+      # because what is under test is the predicate, not the timing.
       fenced = fence(ctx)
 
       {:ok, epoch} = Lease.claim(fenced.id, "another@node", 60_000)
@@ -475,36 +482,29 @@ defmodule Fountain.Machines.DestroyResetTest do
           transition_reason: "account_deleted"
         )
 
-      # The teardown fence the forced destroy would have written. Not a
-      # `Lease` write — `teardown_requested_at` is not one of its writable
-      # columns, because the fence is `Lifecycle`'s.
-      Repo.update_all(from(s in Sandbox, where: s.id == ^fenced.id),
-        set: [teardown_requested_at: DateTime.utc_now()]
-      )
-
       # Observed rather than rejected, and on purpose: the second half of this
       # test needs the provider to work, and a `reject` set here would still be
       # in force then — Mimic's expectations replace one another, they do not
       # take turns. So the provider is captured once and the standoff is "it
       # was never called".
       capture_provider()
-      assert :ok = perform_job(SandboxResetReconciler, %{})
-      assert all_enqueued(worker: SandboxResetReconciler) == []
-
-      assert {:snooze, 60} = perform_job(SandboxResetReconciler, %{sandbox_id: fenced.id})
+      assert :ok = teardown_run()
 
       assert destroyed() == [],
-             "the reconciler called the provider on a machine another destroy was " <>
-               "halfway through deleting"
+             "the teardown run called the provider on a machine another destroy " <>
+               "was halfway through deleting"
 
       # Once the owner is gone, the row is an interrupted destroy like any
-      # other and the protocol's takeover finishes it — from the provider call,
-      # with no second fence and no second intent event.
+      # other — a teardown, by its reason, so it waits out the grace window —
+      # and the protocol's takeover finishes it from the provider call, with no
+      # second fence and no second intent event.
+      stale = DateTime.utc_now() |> DateTime.add(-3_600, :second) |> DateTime.truncate(:second)
+
       Repo.update_all(from(s in Sandbox, where: s.id == ^fenced.id),
-        set: [lease_until: DateTime.add(DateTime.utc_now(), -1, :second)]
+        set: [lease_until: DateTime.add(DateTime.utc_now(), -1, :second), updated_at: stale]
       )
 
-      assert :ok = perform_job(SandboxResetReconciler, %{sandbox_id: fenced.id})
+      capture_log(fn -> assert :ok = teardown_run() end)
       assert [{_name, _row}] = destroyed()
       assert Repo.reload!(ctx.home).status == "terminated"
     end

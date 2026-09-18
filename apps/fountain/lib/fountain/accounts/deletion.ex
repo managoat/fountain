@@ -236,7 +236,7 @@ defmodule Fountain.Accounts.Deletion do
   end
 
   # A refused fence is logged and the run continues. A halt here would leave
-  # the rows already fenced `ready` with `teardown_requested_at` set, and their
+  # the rows already fenced `ready` and stamped `destroying`, and their
   # machines running, while the account is still there. The reaper's other
   # passes skip such a row; only `SandboxReaper.sweep_fenced_teardowns/0`
   # finishes it, and only after its grace period (#2329). Until then the row

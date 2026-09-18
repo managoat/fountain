@@ -33,22 +33,20 @@ defmodule Fountain.Machines.Destroy do
      `{:error, :machine_busy}`. The owner process does **not** hold a standing
      lease yet — that arrives with `park` and `ensure_up` in stages 6 and 7 —
      so this lease bounds this destroy and nothing more.
-  3. **Fence** with `Lifecycle.fence_sandbox_for_teardown/2`, the fence that
-     already exists. This is what makes a mixed-version rollout safe: a
-     replica that has not been given this code still honours
-     `teardown_requested_at`, so the machine is closed to admission on every
-     node whatever the gate says. The gate chooses in-process or inline; it
-     does not choose whether the fence is written.
+  3. **Fence** with `Lifecycle.fence_sandbox_for_teardown/2`, which stamps
+     `transition: "destroying"` under the per-sandbox advisory lock and closes
+     the machine to admission on every node. (Until stage 9b it also wrote
+     `reset_requested_at` and `teardown_requested_at`, which a replica that
+     predated the owner honoured.)
 
      Skipped, and only skipped, for a caller that already holds a durable
      fence of its own: `fence: :held_by_caller`, which stage 5c's reset uses.
-     A reset is not a forced teardown — `reset_sandbox/2` wrote
-     `reset_requested_at` in its own advisory-locked transaction and every
-     reader honours it, which is the intent an old replica needs — and
-     stamping `teardown_requested_at` on top would tell
-     `SandboxReaper.sweep_fenced_teardowns/0` to finish a machine whose reset
-     is merely unconfirmed. The option is not a way past fencing: the row is
-     checked for `reset_requested_at` and an unfenced one is refused.
+     A reset is not a forced teardown — `reset_sandbox/2` stamped the row
+     `destroying` with the reason `"reset"` in its own advisory-locked
+     transaction — and a teardown's reason on top would tell
+     `SandboxReaper.sweep_fenced_teardowns/0` to finish as a teardown a
+     machine whose reset is merely unconfirmed. The option is not a way past
+     fencing: a row that reaches it without the stamp is refused.
   4. **Stamp the intent**: `transition: "destroying"` by compare-and-set on
      the lease epoch, before any provider I/O. A reader that finds it sees
      what is being done to the machine rather than racing it, and a takeover
@@ -64,8 +62,8 @@ defmodule Fountain.Machines.Destroy do
      `on_provider_error: :refuse` inverts that last rule for the one caller
      whose contract is the opposite. A reset holds its fence — and the
      tenant's capacity — until the provider *confirms* the machine is gone,
-     because the fence is retryable by design (`SandboxResetReconciler`, the
-     admin retry) and writing the row terminal on an unconfirmed delete would
+     because the fence is retryable by design (`SandboxReaper`'s teardown
+     run, the admin retry) and writing the row terminal on an unconfirmed delete would
      release a quota slot and record `sandbox.reset` for a machine that may
      still be running and billing. Such a destroy answers
      `{:error, :provider_unconfirmed}` and writes nothing at all.
@@ -95,8 +93,8 @@ defmodule Fountain.Machines.Destroy do
   between step 4 and step 6. It now also describes the first pass of any
   destroy whose fence ran before the claim, because the fence writes the stamp
   with it — `Lifecycle.fence_sandbox_for_teardown/2` and
-  `Conversations.reset_sandbox/2` both do, so that no row records the intent in
-  a column stage 9b deletes and nowhere else. `SandboxReaper`'s driver for
+  `Conversations.reset_sandbox/2` both do, and since stage 9b the stamp is the
+  only record of the intent. `SandboxReaper`'s driver for
   abandoned fences is the third such caller. Reaching this clause is therefore
   the same assertion `caller_fenced_destroy/3` makes for
   `fence: :held_by_caller` — a `destroying` stamp is written by a fence or by
@@ -259,6 +257,34 @@ defmodule Fountain.Machines.Destroy do
   def reasons, do: @reasons
 
   @doc """
+  Record that `sandbox` is to be destroyed: `transition: "destroying"`, with
+  `reason` in the destroy vocabulary. The whole of a fence's write (ADR 0058
+  stage 9b), for the two fences that ask for a destroy before the owner runs
+  one — `Lifecycle.fence_sandbox_for_teardown/2` and
+  `Conversations.reset_sandbox/2`.
+
+  **In the owner's namespace, not its process.** Each fence decides under the
+  per-sandbox advisory lock, on a row it read `FOR UPDATE`, and the teardown
+  fence's last-detach rule reads rows its own transaction has written and not
+  yet committed (#2348 review), so the write runs inside the caller's
+  transaction and never behind a `GenServer.call`. What moving it here buys is
+  one writer of the stamp's shape, beside the protocol that continues from it
+  (`under_lease/3`'s continuation clause) and the vocabulary it is written in.
+
+  Not through `Lease.cas_update/4`: a fence is written by a caller that holds
+  no lease — that is what a fence *is* — and the protocol's own stamp, one step
+  later and under its epoch, restates it. Raises on a failed update, like the
+  `Repo.update!/1` it replaces, because the caller's transaction is the thing
+  that has to roll back.
+  """
+  @spec stamp_intent!(Sandbox.t(), String.t()) :: Sandbox.t()
+  def stamp_intent!(%Sandbox{} = locked, reason) when is_binary(reason) do
+    locked
+    |> Ecto.Changeset.change(transition: "destroying", transition_reason: reason)
+    |> Repo.update!()
+  end
+
+  @doc """
   Destroy the machine behind `sandbox_id`.
 
   Options:
@@ -284,16 +310,17 @@ defmodule Fountain.Machines.Destroy do
     * `:fence` — `:teardown` (the default) writes the teardown fence at step
       3. `:held_by_caller` skips it, for a caller that has already committed a
       durable fence of its own, and asserts that it really did: a row with no
-      `reset_requested_at` is refused as `{:error, :not_fenced}` rather than
+      `destroying` stamp is refused as `{:error, :not_fenced}` rather than
       destroyed, so the option can never be used to destroy an unfenced
       machine. Exactly one caller passes it — `Conversations`' reset family,
-      whose `reset_sandbox/2` front door stamps `reset_requested_at` under the
-      per-sandbox advisory lock, refuses a mid-turn or execution-fenced
-      machine, and drops every runtime session on it. Adding
-      `teardown_requested_at` on top would be a different statement about the
-      machine (`SandboxReaper.sweep_fenced_teardowns/0` finishes rows wearing
-      it after 15 minutes), and a reset that is merely unconfirmed is not an
-      abandoned teardown (#2344, stage 5c).
+      whose `reset_sandbox/2` front door stamps the row `destroying` with the
+      reason `"reset"` under the per-sandbox advisory lock, refuses a mid-turn
+      or execution-fenced machine, and drops every runtime session on it. A
+      teardown's reason on top would be a different statement about the
+      machine (`SandboxReaper.sweep_fenced_teardowns/0` finishes a teardown
+      after 15 minutes and retries a reset through the reset's own door), and
+      a reset that is merely unconfirmed is not an abandoned teardown (#2344,
+      stage 5c).
     * `:provider` — `:destroy` (the default) calls
       `Managoat.Sandbox.destroy/1` at step 5. `:already_gone` skips the call
       because the caller has just asked the provider and been told this
@@ -517,8 +544,8 @@ defmodule Fountain.Machines.Destroy do
       # provider call or was superseded before it could finalize.
       #
       # The other arrived with stage 9a and is now the *ordinary* path for every
-      # destroy whose fence ran before the claim: the fence writes the stamp in
-      # the same commit as the columns, so `reset_sandbox/2`'s reset, and
+      # destroy whose fence ran before the claim: the fence writes the stamp
+      # (and, since stage 9b, only the stamp), so `reset_sandbox/2`'s reset, and
       # `SandboxReaper`'s driver continuing a fence somebody abandoned, both
       # come through here on their first pass rather than through the fence
       # below. What that skips is the fence write (already done, and idempotent
@@ -572,21 +599,21 @@ defmodule Fountain.Machines.Destroy do
   # terminal-to-terminal, so it is not refused as a revival — and run the
   # metering effects a second time.
   #
-  # An unfenced row is refused. The caller's contract is that it *holds* a
-  # fence, so a row with no `reset_requested_at` means either a caller bug or a
-  # fence that vanished under it, and neither is a reason to destroy a machine
-  # that is still open to admission on every other node.
+  # Anything else is refused as unfenced. The caller's contract is that it
+  # *holds* a fence, and a fence is the `destroying` stamp — which
+  # `under_lease/3`'s continuation clause has already taken, one clause up. So a
+  # row that reaches here carries none: a caller bug, or a fence that vanished
+  # under it, and neither is a reason to destroy a machine that is still open
+  # to admission on every other node.
   #
-  # **Unreachable since stage 9a for the one caller that passes the option**:
-  # the reset door stamps `destroying` in the same commit as the column, so
-  # `under_lease/3`'s continuation clause takes that row first. It stays while a
-  # pre-9a replica can still write a column-only reset fence, and it is on
-  # #2344's stage 9b inventory to delete with the columns.
+  # Until stage 9b this looked for `reset_requested_at` and destroyed a row
+  # that carried the column alone, which only a replica predating stage 9a
+  # could write. That clause went with 9b's column reads.
   defp caller_fenced_destroy(%Sandbox{status: status} = done, _epoch, opts)
        when status in @terminal_statuses,
        do: already_terminal(done, opts)
 
-  defp caller_fenced_destroy(%Sandbox{reset_requested_at: nil} = sandbox, _epoch, _opts) do
+  defp caller_fenced_destroy(%Sandbox{} = sandbox, _epoch, _opts) do
     Logger.warning(
       "machine #{sandbox.id}: refused a destroy claiming a caller-held fence on a row " <>
         "that carries none"
@@ -594,9 +621,6 @@ defmodule Fountain.Machines.Destroy do
 
     {:error, :not_fenced}
   end
-
-  defp caller_fenced_destroy(%Sandbox{} = fenced, epoch, opts),
-    do: stamp_then_destroy(fenced, epoch, opts)
 
   # Answering `:already_terminal` is the outcome; clearing the stamp is the
   # tidying that makes the column mean something again — while it is set on a
@@ -719,7 +743,7 @@ defmodule Fountain.Machines.Destroy do
 
           # The reset: nothing is written, so the fence, the quota slot and the
           # `transition` stamp all stay exactly as they were and the retry that
-          # `SandboxResetReconciler` or the admin panel runs picks the machine
+          # `SandboxReaper`'s teardown run or the admin panel runs picks the machine
           # up where this left it — through the takeover clause above, which is
           # what the stamp is for.
           :refuse ->

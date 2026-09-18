@@ -423,7 +423,7 @@ defmodule Fountain.Conversations.ConversationServerLifetimeTest do
       resumed_at = DateTime.utc_now() |> DateTime.add(-60, :second) |> DateTime.truncate(:second)
 
       {:ok, _} =
-        Fountain.Conversations.update_sandbox(Fountain.Repo.reload(sandbox), %{
+        update_sandbox(Fountain.Repo.reload(sandbox), %{
           last_resumed_at: resumed_at
         })
 

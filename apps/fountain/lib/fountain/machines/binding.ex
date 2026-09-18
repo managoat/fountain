@@ -35,12 +35,11 @@ defmodule Fountain.Machines.Binding do
   execution allowance. What stage 8b changes is who may call it and where it
   runs: `Fountain.Team.open_fresh_conversation/3` used to insert a bound row
   through `Conversations.create_conversation/1` with none of these checks, and
-  with `MACHINE_OWNER_ENABLED` on the write queues in the owner's mailbox
-  behind a park, a resume or a destroy of the same machine instead of being
-  refused at the door on the lease those hold (stage 6a's rule, unchanged with
-  the gate off: a live lease is `:sandbox_unavailable` at once, no wait —
-  an attach is a request, and 6a priced the immediate 503 with its
-  `Retry-After` against a wait nobody asked for).
+  the write queues in the owner's mailbox behind a park, a resume or a destroy
+  of the same machine. A lease the mailbox does not see — another node's owner
+  during a rolling deploy — is still stage 6a's rule: `:sandbox_unavailable`
+  at once, no wait. An attach is a request, and 6a priced the immediate 503
+  with its `Retry-After` against a wait nobody asked for.
 
   **A late attach is refused, not run** (rule 17, from stage 8a round 1). A
   `GenServer.call` that times out leaves its message in the mailbox, and an
@@ -335,17 +334,19 @@ defmodule Fountain.Machines.Binding do
           :ok | {:error, term()}
   def attachable(sandbox, agent, vault_id, env_id, now \\ :db)
 
-  def attachable(%Sandbox{reset_requested_at: at}, _agent, _vault_id, _env_id, _now)
-      when not is_nil(at),
-      do: {:error, :sandbox_reset_pending}
-
-  # The same fence read off the stamp, which is where it lives once stage 9b
-  # drops the column above (ADR 0058 stage 9a). Refused whatever the lease
-  # says, and before the status clause for the reason the reset fence is:
+  # The fence, read off the `destroying` stamp (ADR 0058 stage 9a). Refused
+  # whatever the lease says, and before the status clause:
   # `destroying` on a live row is a machine somebody asked to be destroyed, and
   # an owner that died mid-destroy did not withdraw the request. A terminal row
   # never reaches here wearing a stale stamp either — `{:sandbox_not_attachable,
   # status}` below is the more useful answer and this clause hands it on.
+  #
+  # Stage 9b removed a clause above this one that refused on
+  # `reset_requested_at` **at any status**. That column stayed on a row after a
+  # reset completed, so an attach to a home that had been reset and terminated
+  # answered `:sandbox_reset_pending` — a reset long since done. It answers
+  # `{:sandbox_not_attachable, "terminated"}` now, the same as any other
+  # terminated machine.
   def attachable(%Sandbox{transition: "destroying", status: status}, _agent, _v, _e, _now)
       when status in @attachable_statuses,
       do: {:error, :sandbox_reset_pending}
@@ -553,6 +554,34 @@ defmodule Fountain.Machines.Binding do
 
   defp put_unless_nil(opts, _key, nil), do: opts
   defp put_unless_nil(opts, key, value), do: Keyword.put(opts, key, value)
+
+  @doc """
+  Mark `sandbox_id` as woken for a server about to start on it, and clear an
+  abandoned stamp: the write `Conversations.register_server/2` makes, moved
+  here in stage 9b so that the owner's namespace is the only code that writes
+  the `sandboxes` row.
+
+  The wake-registration marker is stage 6a's (#2307 constraint 4): a durable
+  `woken_at` committed before the server is started, which the reaper's two
+  liveness passes honour as a grace condition because Horde's registry may
+  not have published the new server yet. The registration door decides under
+  the per-sandbox advisory lock, on a row it read `FOR UPDATE`, whether the
+  machine may be woken at all — a live lease refuses, a `destroying` stamp
+  refuses — and calls this inside that transaction. It is the door's decision
+  and this is its write.
+
+  Returns the number of rows written: `1`, or `0` for a row that vanished.
+  """
+  @spec mark_woken(Ecto.UUID.t()) :: non_neg_integer()
+  def mark_woken(sandbox_id) when is_binary(sandbox_id) do
+    {count, _} =
+      Repo.update_all(
+        from(s in Sandbox, where: s.id == ^sandbox_id),
+        set: [woken_at: DateTime.utc_now(), transition: nil, transition_reason: nil]
+      )
+
+    count
+  end
 
   @doc """
   Whether a conversation other than `conv_id` still holds `sandbox_id` — one

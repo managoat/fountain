@@ -120,10 +120,7 @@ defmodule Fountain.Application do
         #
         # One `Fountain.Machines.Machine` per *active* machine, registered
         # under the sandbox id and idle-stopping when nothing has asked it
-        # anything. Started unconditionally, whatever `MACHINE_OWNER_ENABLED`
-        # says: an empty registry and an empty dynamic supervisor cost nothing,
-        # and supervision that appears and disappears with a runtime flag is
-        # its own failure mode.
+        # anything.
         {Horde.Registry, [name: Fountain.MachineRegistry, keys: :unique, members: :auto]},
         {Horde.DynamicSupervisor,
          [
@@ -138,8 +135,8 @@ defmodule Fountain.Application do
            # 5s — and that budget is SHARED by every machine owner on the node:
            # one machine whose owner crashes deterministically exhausts it in
            # under a second, and exceeding it terminates this supervisor and
-           # with it every other machine's owner here. With the gate on that is
-           # every destroy, park and resume on the node failing at once, which
+           # with it every other machine's owner here. That is every destroy,
+           # park, resume and admission on the node failing at once, which
            # is the opposite of what a per-machine owner is for.
            #
            # 100/10s for the same shape of burst: a provider outage failing

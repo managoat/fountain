@@ -37,14 +37,14 @@ defmodule Fountain.Conversations.TerminationActorFenceTest do
        ctx do
     expect(Managoat.Sandbox, :close_stdin, fn :adapter ->
       refute Repo.in_transaction?()
-      assert Repo.reload!(ctx.sandbox).reset_requested_at
+      assert Repo.reload!(ctx.sandbox).transition == "destroying"
       :ok
     end)
 
     expect(Managoat.Sandbox, :destroy, fn handle ->
       assert handle == ctx.handle
       refute Repo.in_transaction?()
-      assert Repo.reload!(ctx.sandbox).reset_requested_at
+      assert Repo.reload!(ctx.sandbox).transition == "destroying"
       assert Fountain.Quotas.active_sandbox_count(ctx.user.id) == 1
       assert {:error, :sandbox_unavailable} = admit(ctx)
       :ok
@@ -101,7 +101,7 @@ defmodule Fountain.Conversations.TerminationActorFenceTest do
       assert stopped.handle == nil
       assert Repo.reload!(ctx.conv).status == "terminated"
       assert Repo.reload!(ctx.sandbox).status == "ready"
-      refute Repo.reload!(ctx.sandbox).reset_requested_at
+      refute Repo.reload!(ctx.sandbox).transition == "destroying"
       assert events(ctx) == []
     end
   end
@@ -117,8 +117,8 @@ defmodule Fountain.Conversations.TerminationActorFenceTest do
 
     assert unchanged == ctx.state
     assert Repo.reload!(ctx.conv).status == "idle"
-    refute Repo.reload!(ctx.sandbox).reset_requested_at
-    refute Repo.reload!(replacement).reset_requested_at
+    refute Repo.reload!(ctx.sandbox).transition == "destroying"
+    refute Repo.reload!(replacement).transition == "destroying"
   end
 
   for cleanup <- [:destroy, :keep] do
@@ -157,7 +157,7 @@ defmodule Fountain.Conversations.TerminationActorFenceTest do
       assert Repo.reload!(ctx.conv).sandbox_id == replacement.id
       assert Repo.reload!(ctx.conv).status == "running"
       assert Repo.reload!(replacement).status == "ready"
-      refute Repo.reload!(replacement).reset_requested_at
+      refute Repo.reload!(replacement).transition == "destroying"
       expected_old_status = if ctx.cleanup == :keep, do: "ready", else: "terminated"
       assert Repo.reload!(ctx.sandbox).status == expected_old_status
       assert termination_stages(ctx) == []
@@ -187,7 +187,7 @@ defmodule Fountain.Conversations.TerminationActorFenceTest do
 
     assert unchanged == ctx.state
     assert Repo.reload!(ctx.conv).status == "idle"
-    refute Repo.reload!(ctx.sandbox).reset_requested_at
+    refute Repo.reload!(ctx.sandbox).transition == "destroying"
   end
 
   test "a missing machine returns refusal without closing the adapter", ctx do
@@ -216,7 +216,7 @@ defmodule Fountain.Conversations.TerminationActorFenceTest do
     replacement = insert_sandbox(user_id: ctx.user.id, status: "ready")
 
     expect(Managoat.Sandbox, :close_stdin, fn :adapter ->
-      assert Repo.reload!(ctx.sandbox).reset_requested_at, "the fence had not committed"
+      assert Repo.reload!(ctx.sandbox).transition == "destroying", "the fence had not committed"
 
       {:ok, _} =
         Conversations.update_conversation(ctx.conv, %{
@@ -237,7 +237,7 @@ defmodule Fountain.Conversations.TerminationActorFenceTest do
 
     assert Repo.reload!(ctx.sandbox).status == "terminated"
     assert Repo.reload!(replacement).status == "ready"
-    refute Repo.reload!(replacement).reset_requested_at
+    refute Repo.reload!(replacement).transition == "destroying"
     assert Repo.reload!(ctx.conv).sandbox_id == replacement.id
   end
 
@@ -245,7 +245,7 @@ defmodule Fountain.Conversations.TerminationActorFenceTest do
     expect(Managoat.Sandbox, :destroy, fn _ -> {:error, :unavailable} end)
     assert {:stop, :normal, :ok, _} = terminate(ctx, {:terminate_conv, []})
     assert Repo.reload!(ctx.sandbox).status == "terminated"
-    assert Repo.reload!(ctx.sandbox).reset_requested_at
+    assert is_nil(Repo.reload!(ctx.sandbox).transition)
   end
 
   defp terminate(ctx, message),

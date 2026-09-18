@@ -242,9 +242,9 @@ defmodule Fountain.Machines.Resume do
   #
   #   * anything but `ready` — `suspended` is the resume this exists for, and
   #     terminal and provisioning rows have answers of their own;
-  #   * either fence set, which is `:fenced` and has to be said;
-  #   * any `transition` stamp, which is a row with an abandoned operation on it
-  #     to clear;
+  #   * any `transition` stamp — a `destroying` one is the fence, which is
+  #     `:fenced` and has to be said, and any other is a row with an abandoned
+  #     operation on it to clear;
   #   * any holder on the lease, live or lapsed. Testing `lease_node` rather than
   #     `Lease.live?/2` is deliberate: it needs no clock, so this stays one
   #     query, and it is *stricter* — a machine whose lease has merely expired
@@ -253,13 +253,7 @@ defmodule Fountain.Machines.Resume do
   #     which is the one shape where a `ready` row does need the provider.
   defp up_already?(sandbox_id, opts) do
     case Conversations._unsafe_get_sandbox(sandbox_id) do
-      %Sandbox{
-        status: "ready",
-        reset_requested_at: nil,
-        teardown_requested_at: nil,
-        transition: nil,
-        lease_node: nil
-      } ->
+      %Sandbox{status: "ready", transition: nil, lease_node: nil} ->
         Keyword.get(opts, :observed) != :suspended
 
       _ ->
@@ -401,14 +395,12 @@ defmodule Fountain.Machines.Resume do
       # prompt until an hourly sweep happened to clear it — the same
       # up-to-75-minute withholding 6a round 1 found and closed.
       #
-      # What still refuses is a **fence**: `admissible/2` reads
-      # `reset_requested_at` and `teardown_requested_at`, which are durable
-      # statements that this machine is going away, not leftovers of an owner
-      # that stopped. Until stage 9a a `destroying` stamp happened to arrive
-      # with one, and this clause leaned on that coincidence; 9a makes it a rule
-      # by refusing the stamp itself in the clause above, which is what lets 9b
-      # drop the columns. What reaches here is `parking` and `resuming`, which
-      # carry no fence and never meant "refuse me".
+      # What still refuses is a **fence**, and a fence is the `destroying`
+      # stamp: the durable statement that this machine is going away, not the
+      # leftovers of an owner that stopped. The clause above refuses it (stage
+      # 9a), and it is the only fence since stage 9b stopped reading the two
+      # columns that once stood beside it. What reaches here is `parking` and
+      # `resuming`, which carry no fence and never meant "refuse me".
       #
       # Clearing another verb's stamp is `Conversations.register_server/2`'s
       # precedent, and it costs the same thing there: `Destroy` loses a
@@ -443,29 +435,15 @@ defmodule Fountain.Machines.Resume do
 
   defp admissible(%Sandbox{} = sandbox, opts) do
     cond do
-      # Both fences, and **before** the status, which is the one ordering choice
-      # here worth arguing for. A machine whose reset or teardown has been asked
-      # for is on its way out, and there is nothing to wake it for: bringing it
-      # up would re-reserve at the provider a machine somebody asked to be
-      # destroyed, and write a live status over a row
-      # `sweep_fenced_teardowns/0` is about to finish. `Park.admissible/2`
-      # reaches the same answer from the other end.
-      #
-      # This is a behaviour change on one narrow path, and it is deliberate.
-      # `Wake.maybe_reuse_sandbox/1` already refuses a `reset_requested_at` row
-      # with `:sandbox_reset_pending` before anything reaches here, so what this
-      # adds is the *teardown* fence, and a fence of either kind that landed
-      # between that check and this one. `main` had no recheck at all and woke
-      # the machine.
-      # The `destroying` stamp is **not** read here, and that is deliberate
-      # (stage 9a). `under_lease/3` refuses it one step earlier, before this is
-      # reached and before the terminal head above, so a copy of the rule here
-      # would be a guard no test could break — and an unbreakable guard is a
-      # claim nobody is checking. When stage 9b drops the two columns this
-      # clause goes with them, leaving that one door.
-      not is_nil(sandbox.reset_requested_at) or not is_nil(sandbox.teardown_requested_at) ->
-        {:error, :fenced}
-
+      # No fence clause here since stage 9b. The fence is the `destroying`
+      # stamp, and `under_lease/3` refuses it one step earlier — before this is
+      # reached and before the terminal head above — so a copy here would be a
+      # guard no test could break (stage 9a). The two columns this clause read
+      # until then went with 9b. Why a fenced machine is refused rather than
+      # woken, where `main` woke it: it is on its way out, and bringing it up
+      # would re-reserve at the provider a machine somebody asked to be
+      # destroyed and write a live status over a row
+      # `sweep_fenced_teardowns/0` is about to finish.
       # A `ready` row whose machine the provider says is parked. This is the
       # other half of the 6b review's note, and `Wake.probe_sandbox/4` is what
       # supplies the reading: a park whose finalize was lost leaves exactly this

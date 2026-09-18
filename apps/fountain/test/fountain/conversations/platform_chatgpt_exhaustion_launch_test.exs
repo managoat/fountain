@@ -37,7 +37,7 @@ defmodule Fountain.Conversations.PlatformChatGPTExhaustionLaunchTest do
 
   setup do
     # These tests are about admission and binding; no server runs.
-    stub(Horde.DynamicSupervisor, :start_child, fn _sup, _spec ->
+    stub_server_start(fn _sup, _spec ->
       {:ok, spawn(fn -> :ok end)}
     end)
 

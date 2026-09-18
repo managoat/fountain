@@ -45,7 +45,7 @@ defmodule Fountain.ConversationsWakeTest do
       # real one under the shared Horde supervisor, with no sandbox connection
       # in an async test and `restart: :transient` to put it back after every
       # raise (#1862).
-      stub(Horde.DynamicSupervisor, :start_child, fn _supervisor, _child_spec ->
+      stub_server_start(fn _supervisor, _child_spec ->
         {:ok, spawn(fn -> Process.sleep(:infinity) end)}
       end)
 
@@ -64,7 +64,7 @@ defmodule Fountain.ConversationsWakeTest do
       user = insert_verified_user()
       agent = insert_agent(user_id: user.id)
       sandbox = insert_sandbox(user_id: user.id, machine_name: "test-sprite-alive")
-      {:ok, sandbox} = Conversations.update_sandbox(sandbox, %{status: "ready"})
+      {:ok, sandbox} = update_sandbox(sandbox, %{status: "ready"})
       conv = insert_conversation(user_id: user.id, agent: agent, sandbox: sandbox, status: "idle")
 
       fake_client = %{}
@@ -73,7 +73,7 @@ defmodule Fountain.ConversationsWakeTest do
         {:ok, %{status: :running, raw: %{name: "test-sprite-alive"}}}
       end)
 
-      stub(Horde.DynamicSupervisor, :start_child, fn _supervisor, _child_spec ->
+      stub_server_start(fn _supervisor, _child_spec ->
         {:ok, spawn(fn -> :ok end)}
       end)
 
@@ -88,7 +88,7 @@ defmodule Fountain.ConversationsWakeTest do
       user = insert_verified_user()
       agent = insert_agent(user_id: user.id)
       sandbox = insert_sandbox(user_id: user.id, machine_name: "test-sprite-race")
-      {:ok, sandbox} = Conversations.update_sandbox(sandbox, %{status: "ready"})
+      {:ok, sandbox} = update_sandbox(sandbox, %{status: "ready"})
       conv = insert_conversation(user_id: user.id, agent: agent, sandbox: sandbox, status: "idle")
 
       winner = spawn(fn -> Process.sleep(:infinity) end)
@@ -98,7 +98,7 @@ defmodule Fountain.ConversationsWakeTest do
         {:ok, %{status: :running, raw: %{name: "test-sprite-race"}}}
       end)
 
-      stub(Horde.DynamicSupervisor, :start_child, fn _supervisor, _child_spec ->
+      stub_server_start(fn _supervisor, _child_spec ->
         {:error, {:already_started, winner}}
       end)
 
@@ -123,7 +123,7 @@ defmodule Fountain.ConversationsWakeTest do
       user = insert_verified_user()
       agent = insert_agent(user_id: user.id)
       sandbox = insert_sandbox(user_id: user.id, machine_name: "test-sprite-parked")
-      {:ok, sandbox} = Conversations.update_sandbox(sandbox, %{status: "suspended"})
+      {:ok, sandbox} = update_sandbox(sandbox, %{status: "suspended"})
       conv = insert_conversation(user_id: user.id, agent: agent, sandbox: sandbox, status: "idle")
 
       stub(Managoat.Sandbox.Sprites, :get, fn _handle ->
@@ -134,7 +134,7 @@ defmodule Fountain.ConversationsWakeTest do
       # is the stubbing seam, so it needs its own stub here.
       stub(Managoat.Sandbox.Sprites, :resume, fn handle -> {:ok, handle} end)
 
-      stub(Horde.DynamicSupervisor, :start_child, fn _supervisor, _child_spec ->
+      stub_server_start(fn _supervisor, _child_spec ->
         {:ok, spawn(fn -> :ok end)}
       end)
 
@@ -153,7 +153,7 @@ defmodule Fountain.ConversationsWakeTest do
       user = insert_verified_user()
       agent = insert_agent(user_id: user.id)
       sandbox = insert_sandbox(user_id: user.id, machine_name: "test-sprite-audited")
-      {:ok, sandbox} = Conversations.update_sandbox(sandbox, %{status: "suspended"})
+      {:ok, sandbox} = update_sandbox(sandbox, %{status: "suspended"})
       conv = insert_conversation(user_id: user.id, agent: agent, sandbox: sandbox, status: "idle")
 
       stub(Managoat.Sandbox.Sprites, :get, fn _handle ->
@@ -162,7 +162,7 @@ defmodule Fountain.ConversationsWakeTest do
 
       stub(Managoat.Sandbox.Sprites, :resume, fn handle -> {:ok, handle} end)
 
-      stub(Horde.DynamicSupervisor, :start_child, fn _supervisor, _child_spec ->
+      stub_server_start(fn _supervisor, _child_spec ->
         {:ok, spawn(fn -> :ok end)}
       end)
 
@@ -198,7 +198,7 @@ defmodule Fountain.ConversationsWakeTest do
         {:ok, handle}
       end)
 
-      stub(Horde.DynamicSupervisor, :start_child, fn _supervisor, _child_spec ->
+      stub_server_start(fn _supervisor, _child_spec ->
         {:ok, spawn(fn -> :ok end)}
       end)
 
@@ -219,7 +219,7 @@ defmodule Fountain.ConversationsWakeTest do
       stub(Managoat.Sandbox.Sprites, :get, fn _handle -> {:ok, %{status: :running, raw: %{}}} end)
       reject(&Managoat.Sandbox.Sprites.resume/1)
 
-      stub(Horde.DynamicSupervisor, :start_child, fn _supervisor, _child_spec ->
+      stub_server_start(fn _supervisor, _child_spec ->
         {:ok, spawn(fn -> :ok end)}
       end)
 
@@ -236,7 +236,7 @@ defmodule Fountain.ConversationsWakeTest do
       insert_sandbox(user_id: user.id, status: "ready")
 
       sandbox = insert_sandbox(user_id: user.id, machine_name: "test-sprite-capped")
-      {:ok, sandbox} = Conversations.update_sandbox(sandbox, %{status: "suspended"})
+      {:ok, sandbox} = update_sandbox(sandbox, %{status: "suspended"})
       conv = insert_conversation(user_id: user.id, agent: agent, sandbox: sandbox, status: "idle")
 
       stub(Managoat.Sandbox.Sprites, :get, fn _handle -> {:ok, %{status: :unknown, raw: %{}}} end)
@@ -253,7 +253,7 @@ defmodule Fountain.ConversationsWakeTest do
       user = insert_verified_user()
       agent = insert_agent(user_id: user.id)
       sandbox = insert_sandbox(user_id: user.id, machine_name: "test-sprite-blip")
-      {:ok, sandbox} = Conversations.update_sandbox(sandbox, %{status: "suspended"})
+      {:ok, sandbox} = update_sandbox(sandbox, %{status: "suspended"})
       conv = insert_conversation(user_id: user.id, agent: agent, sandbox: sandbox, status: "idle")
 
       stub(Managoat.Sandbox.Sprites, :get, fn _handle -> {:error, {:unavailable, :timeout}} end)
@@ -270,7 +270,7 @@ defmodule Fountain.ConversationsWakeTest do
       user = insert_verified_user()
       agent = insert_agent(user_id: user.id)
       sandbox = insert_sandbox(user_id: user.id, machine_name: "test-sprite-blip-ready")
-      {:ok, sandbox} = Conversations.update_sandbox(sandbox, %{status: "ready"})
+      {:ok, sandbox} = update_sandbox(sandbox, %{status: "ready"})
       conv = insert_conversation(user_id: user.id, agent: agent, sandbox: sandbox, status: "idle")
 
       stub(Managoat.Sandbox.Sprites, :get, fn _handle ->
@@ -290,12 +290,12 @@ defmodule Fountain.ConversationsWakeTest do
       user = insert_verified_user()
       agent = insert_agent(user_id: user.id)
       sandbox = insert_sandbox(user_id: user.id, machine_name: "test-sprite-vanished")
-      {:ok, sandbox} = Conversations.update_sandbox(sandbox, %{status: "suspended"})
+      {:ok, sandbox} = update_sandbox(sandbox, %{status: "suspended"})
       conv = insert_conversation(user_id: user.id, agent: agent, sandbox: sandbox, status: "idle")
 
       stub(Managoat.Sandbox.Sprites, :get, fn _handle -> {:error, :not_found} end)
 
-      stub(Horde.DynamicSupervisor, :start_child, fn _supervisor, _child_spec ->
+      stub_server_start(fn _supervisor, _child_spec ->
         {:ok, spawn(fn -> :ok end)}
       end)
 
@@ -334,7 +334,7 @@ defmodule Fountain.ConversationsWakeTest do
 
       stub(Managoat.Sandbox.Sprites, :get, fn _handle -> {:error, :not_found} end)
 
-      stub(Horde.DynamicSupervisor, :start_child, fn _supervisor, _child_spec ->
+      stub_server_start(fn _supervisor, _child_spec ->
         {:ok, spawn(fn -> :ok end)}
       end)
 
@@ -360,14 +360,14 @@ defmodule Fountain.ConversationsWakeTest do
       user = insert_verified_user()
       agent = insert_agent(user_id: user.id)
       sandbox = insert_sandbox(user_id: user.id, machine_name: "test-sprite-gone")
-      {:ok, sandbox} = Conversations.update_sandbox(sandbox, %{status: "ready"})
+      {:ok, sandbox} = update_sandbox(sandbox, %{status: "ready"})
       conv = insert_conversation(user_id: user.id, agent: agent, sandbox: sandbox, status: "idle")
 
       fake_client = %{}
 
       stub(Managoat.Sandbox.Sprites, :get, fn _handle -> {:error, :not_found} end)
 
-      stub(Horde.DynamicSupervisor, :start_child, fn _supervisor, _child_spec ->
+      stub_server_start(fn _supervisor, _child_spec ->
         {:ok, spawn(fn -> :ok end)}
       end)
 
@@ -384,7 +384,7 @@ defmodule Fountain.ConversationsWakeTest do
       sandbox = insert_sandbox(user_id: user.id)
       conv = insert_conversation(user_id: user.id, agent: agent, sandbox: sandbox, status: "idle")
 
-      stub(Horde.DynamicSupervisor, :start_child, fn _supervisor, _child_spec ->
+      stub_server_start(fn _supervisor, _child_spec ->
         {:ok, spawn(fn -> :ok end)}
       end)
 
@@ -459,10 +459,10 @@ defmodule Fountain.ConversationsWakeTest do
       user = insert_verified_user()
       agent = insert_agent(user_id: user.id)
       sandbox = insert_sandbox(user_id: user.id, machine_name: "test-sprite-terminated")
-      {:ok, sandbox} = Conversations.update_sandbox(sandbox, %{status: "terminated"})
+      {:ok, sandbox} = update_sandbox(sandbox, %{status: "terminated"})
       conv = insert_conversation(user_id: user.id, agent: agent, sandbox: sandbox, status: "idle")
 
-      stub(Horde.DynamicSupervisor, :start_child, fn _supervisor, _child_spec ->
+      stub_server_start(fn _supervisor, _child_spec ->
         {:ok, spawn(fn -> :ok end)}
       end)
 
@@ -502,7 +502,7 @@ defmodule Fountain.ConversationsWakeTest do
       Ecto.Adapters.SQL.query!(Fountain.Repo, "SET session_replication_role = DEFAULT", [])
       Fountain.Repo.delete!(sandbox)
 
-      stub(Horde.DynamicSupervisor, :start_child, fn _supervisor, _child_spec ->
+      stub_server_start(fn _supervisor, _child_spec ->
         {:ok, spawn(fn -> :ok end)}
       end)
 

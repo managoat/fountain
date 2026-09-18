@@ -30,7 +30,7 @@ defmodule FountainWeb.TeamControllerTest do
   end
 
   defp inert_start_child do
-    stub(Horde.DynamicSupervisor, :start_child, fn _sup, _spec ->
+    stub_server_start(fn _sup, _spec ->
       {:ok, spawn(fn -> Process.sleep(:infinity) end)}
     end)
   end
@@ -516,7 +516,7 @@ defmodule FountainWeb.TeamControllerTest do
       fenced_prev = insert_teammate_conv(user, fenced_agent, sandbox: fenced, status: "idle")
 
       fenced
-      |> Ecto.Changeset.change(reset_requested_at: DateTime.utc_now())
+      |> Ecto.Changeset.change(transition: "destroying", transition_reason: "reset")
       |> Repo.update!()
 
       assert %{"error" => "sandbox_reset_pending"} =

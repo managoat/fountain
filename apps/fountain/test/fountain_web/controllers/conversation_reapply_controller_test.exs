@@ -130,7 +130,7 @@ defmodule FountainWeb.ConversationReapplyControllerTest do
     test "missing build evidence refuses #{status} reapply and retries (edited: #{edited?})",
          ctx do
       {:ok, sandbox} =
-        Conversations.update_sandbox(ctx.sandbox, %{
+        update_sandbox(ctx.sandbox, %{
           status: unquote(status),
           build_fingerprint: nil
         })
@@ -156,7 +156,7 @@ defmodule FountainWeb.ConversationReapplyControllerTest do
   end
 
   test "503 while the machine is still being built", ctx do
-    {:ok, _} = Conversations.update_sandbox(ctx.sandbox, %{status: "starting"})
+    {:ok, _} = update_sandbox(ctx.sandbox, %{status: "starting"})
     {:ok, _} = Conversations.update_conversation(ctx.conv, %{status: "pending"})
 
     conn = reapply(ctx, %{})

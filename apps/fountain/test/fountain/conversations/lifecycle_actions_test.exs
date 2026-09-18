@@ -82,7 +82,7 @@ defmodule Fountain.Conversations.LifecycleActionsTest do
 
   describe "home?/1" do
     test "a persistent sandbox is a home; an ephemeral one and nil are not", ctx do
-      {:ok, home} = Conversations.update_sandbox(ctx.sandbox, %{mode: "persistent"})
+      {:ok, home} = update_sandbox(ctx.sandbox, %{mode: "persistent"})
 
       assert Lifecycle.home?(home.id)
       refute Lifecycle.home?(insert_sandbox(user_id: ctx.user.id).id)
@@ -172,14 +172,14 @@ defmodule Fountain.Conversations.LifecycleActionsTest do
     end
 
     test "a home is parked at the ceiling instead (ADR 0023)", ctx do
-      {:ok, home} = Conversations.update_sandbox(ctx.sandbox, %{mode: "persistent"})
+      {:ok, home} = update_sandbox(ctx.sandbox, %{mode: "persistent"})
       reject(&Managoat.Sandbox.suspend/1)
 
       assert Lifecycle.max_lifetime_action(home.id, handle()) == :park
     end
 
     test "a home on a provider that cannot park is destroyed as an ephemeral one would be", ctx do
-      {:ok, home} = Conversations.update_sandbox(ctx.sandbox, %{mode: "persistent"})
+      {:ok, home} = update_sandbox(ctx.sandbox, %{mode: "persistent"})
       stub(Managoat.Sandbox, :supports?, fn :sprites, :suspend -> false end)
 
       assert Lifecycle.max_lifetime_action(home.id, handle()) == :destroy
@@ -212,7 +212,7 @@ defmodule Fountain.Conversations.LifecycleActionsTest do
     end
 
     test "a row already terminated or failed is left alone", ctx do
-      {:ok, sandbox} = Conversations.update_sandbox(ctx.sandbox, %{status: "failed"})
+      {:ok, sandbox} = update_sandbox(ctx.sandbox, %{status: "failed"})
 
       assert Lifecycle.park(ctx.conv.id, sandbox.id, handle(), :idle) == :ok
       assert Repo.reload(sandbox).status == "failed"
@@ -235,7 +235,7 @@ defmodule Fountain.Conversations.LifecycleActionsTest do
         # retired machine keeps its terminal status and its `terminated_at`,
         # the *replacement* machine the conversation has been repointed at is
         # untouched, and no "suspended" stage reaches the transcript.
-        {:ok, home} = Conversations.update_sandbox(ctx.sandbox, %{mode: "persistent"})
+        {:ok, home} = update_sandbox(ctx.sandbox, %{mode: "persistent"})
         test = self()
 
         stub(Managoat.Sandbox, :supports?, fn :sprites, cap -> cap in [:checkpoint, :suspend] end)
@@ -257,12 +257,13 @@ defmodule Fountain.Conversations.LifecycleActionsTest do
         Ecto.Adapters.SQL.Sandbox.allow(Repo, self(), pid)
         Mimic.allow(Managoat.Sandbox, self(), pid)
         send(pid, :park)
-        assert_receive {:checkpoint_paused, ^pid}, 5_000
+        # The park runs in the machine's owner, so that is where it pauses.
+        assert_receive {:checkpoint_paused, parking}, 5_000
 
-        {:ok, retired} = Conversations.update_sandbox(home, %{status: unquote(terminal)})
+        {:ok, retired} = update_sandbox(home, %{status: unquote(terminal)})
         replacement = insert_sandbox(user_id: ctx.user.id, status: "ready")
         {:ok, _} = Conversations.update_conversation(ctx.conv, %{sandbox_id: replacement.id})
-        send(pid, :resume_checkpoint)
+        send(parking, :resume_checkpoint)
 
         assert_receive {:park_result, :ok}, 5_000
         assert Repo.reload!(home).status == unquote(terminal)

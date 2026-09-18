@@ -21,7 +21,7 @@ defmodule FountainWeb.ConversationCredentialInputTest do
 
     owner = self()
 
-    stub(Horde.DynamicSupervisor, :start_child, fn _, _ ->
+    stub_server_start(fn _, _ ->
       send(owner, :worker_started)
       {:ok, owner}
     end)

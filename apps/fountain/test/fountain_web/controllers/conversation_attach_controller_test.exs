@@ -96,7 +96,7 @@ defmodule FountainWeb.ConversationAttachControllerTest do
     # A `ready` machine with no server: the prompt probes it and starts a
     # server, exactly as prompting a parked conversation does.
     stub(Managoat.Sandbox.Sprites, :get, fn _handle -> {:ok, %{status: :running, raw: %{}}} end)
-    stub(Horde.DynamicSupervisor, :start_child, fn _s, _spec -> {:ok, spawn(fn -> :ok end)} end)
+    stub_server_start(fn _s, _spec -> {:ok, spawn(fn -> :ok end)} end)
 
     data =
       ctx
@@ -117,7 +117,7 @@ defmodule FountainWeb.ConversationAttachControllerTest do
   end
 
   test "a terminated sandbox is a 409 that names its state", ctx do
-    {:ok, _} = Fountain.Conversations.update_sandbox(ctx.sandbox, %{status: "terminated"})
+    {:ok, _} = update_sandbox(ctx.sandbox, %{status: "terminated"})
 
     assert %{"error" => "sandbox_not_attachable", "status" => "terminated"} =
              ctx |> create(%{"sandbox_id" => ctx.sandbox.id}) |> json_response(409)
@@ -133,7 +133,7 @@ defmodule FountainWeb.ConversationAttachControllerTest do
   end
 
   test "sandbox_mode=persistent lands every launch of an identity on one home", ctx do
-    stub(Horde.DynamicSupervisor, :start_child, fn _s, _spec -> {:ok, spawn(fn -> :ok end)} end)
+    stub_server_start(fn _s, _spec -> {:ok, spawn(fn -> :ok end)} end)
 
     first =
       ctx
@@ -149,7 +149,7 @@ defmodule FountainWeb.ConversationAttachControllerTest do
              ctx |> create(%{"sandbox_mode" => "persistent"}) |> json_response(503)
 
     {:ok, _} =
-      Fountain.Conversations.update_sandbox(
+      update_sandbox(
         Fountain.Conversations._unsafe_get_sandbox!(first["sandbox_id"]),
         %{status: "ready"}
       )

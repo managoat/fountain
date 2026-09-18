@@ -681,7 +681,7 @@ defmodule Fountain.Conversations.ConversationServerTest do
     # old error arm marked all nine `failed`, which is what the reaper's
     # destroy pass keys on.
     setup %{sandbox: sandbox, conv: conv} do
-      {:ok, sandbox} = Conversations.update_sandbox(sandbox, %{status: "ready"})
+      {:ok, sandbox} = update_sandbox(sandbox, %{status: "ready"})
       {:ok, conv} = Conversations.update_conversation(conv, %{status: "idle"})
       {:ok, sandbox: sandbox, conv: conv}
     end
@@ -1233,7 +1233,7 @@ defmodule Fountain.Conversations.ConversationServerTest do
     end
 
     test "does not resurrect an already-failed sandbox", %{conv: conv, sandbox: sandbox} do
-      {:ok, _} = Conversations.update_sandbox(sandbox, %{status: "failed"})
+      {:ok, _} = update_sandbox(sandbox, %{status: "failed"})
 
       assert :ok = Termination.terminate_conversation(conv.id)
       assert Conversations._unsafe_get_sandbox!(sandbox.id).status == "failed"
@@ -1284,7 +1284,7 @@ defmodule Fountain.Conversations.ConversationServerTest do
     end
 
     test "with no server, marks the conversation alone", %{conv: conv, sandbox: sandbox} do
-      {:ok, _} = Conversations.update_sandbox(sandbox, %{status: "ready"})
+      {:ok, _} = update_sandbox(sandbox, %{status: "ready"})
 
       assert :ok = Termination.release_conversation(conv.id)
       assert Conversations._unsafe_get_conversation!(conv.id).status == "terminated"
@@ -1296,7 +1296,7 @@ defmodule Fountain.Conversations.ConversationServerTest do
 
     test "terminating the retired conversation later leaves its successor's sandbox alone",
          %{conv: conv, sandbox: sandbox, user: user, agent: agent} do
-      {:ok, _} = Conversations.update_sandbox(sandbox, %{status: "ready"})
+      {:ok, _} = update_sandbox(sandbox, %{status: "ready"})
       assert :ok = Termination.release_conversation(conv.id)
 
       successor =

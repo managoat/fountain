@@ -172,12 +172,17 @@ export class Fixtures {
     // Stop outbound sources before conversation teardown can emit more events.
     const resources = [...this.manifest.resources].reverse();
     resources.sort((a, b) => Number(b.kind === 'webhook') - Number(a.kind === 'webhook'));
+    const isSource = r => ['environment', 'vault'].includes(r.kind);
+    // Reconstructed agent intents may lack their submitted source references.
+    // Reconcile every agent before sources, including across combined profiles.
+    if (this.manifest.recovery) resources.sort((a, b) => Number(isSource(a)) - Number(isSource(b)));
     for (const r of resources) {
       if (r.state === 'cleaned') continue;
       try {
         const source = this.manifest.schedule;
         if (source && source.state !== 'cleaned' && [source.agent_id, source.environment_id].includes(r.id)) throw new Error('Retaining parent fixture until schedule cleanup succeeds');
         if (r.kind !== 'conversation' && this.manifest.resources.some(child => child.kind === 'conversation' && child.state !== 'cleaned' && (r.kind === 'binding' || [child.agent_id, child.environment_id, child.vault_id].includes(r.id)))) throw new Error('Retaining parent fixture until conversation cleanup succeeds');
+        if (this.manifest.recovery && isSource(r) && this.manifest.resources.some(agent => agent.kind === 'agent' && agent.state !== 'cleaned')) throw new Error('Retaining source fixture until all recovered agents are cleaned');
         signal?.throwIfAborted();
         const collection = collections[r.kind];
         let value;

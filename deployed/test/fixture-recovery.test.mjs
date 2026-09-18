@@ -501,25 +501,25 @@ for (const mode of ['ephemeral', 'persistent']) {
     test(`partial ${mode} cleanup retries after FK nulling${lostReply ? ' and a lost parent-delete reply' : ''}`, async t => {
       const w = await world(t); const { agent, environment, vault, sandbox } = w.conversation(mode, true);
       await w.reconstruct();
-      w.failDelete('environment');
-      if (lostReply) w.loseDeleteReply('agent');
+      if (lostReply) w.loseDeleteReply('agent'); else w.failDelete('environment');
       const failures = await w.load().cleanup(AbortSignal.timeout(5000));
       assert.ok(failures.some(f => f.kind === 'environment'));
       assert.equal(sandbox.status, 'terminated');
       assert.equal(sandbox.agent_id, null);
-      assert.equal(sandbox.vault_id, null);
+      assert.equal(sandbox.vault_id, lostReply ? vault.id : null, 'an unconfirmed agent deletion retains the vault too');
       assert.equal(sandbox.environment_id, environment.id);
       assert.equal(w.load().manifest.resources.find(r => r.id === agent.id).state, lostReply ? 'created' : 'cleaned');
       const count = w.mutations.length;
       const requestCount = w.requests.length;
       assert.deepEqual(await w.load().cleanup(AbortSignal.timeout(5000)), []);
-      assert.deepEqual(w.mutations.slice(count), [`DELETE /api/environments/${environment.id}`]);
+      const remainingDeletes = [...(lostReply ? [`DELETE /api/vaults/${vault.id}`] : []), `DELETE /api/environments/${environment.id}`];
+      assert.deepEqual(w.mutations.slice(count), remainingDeletes);
       assert.ok(w.requests.slice(requestCount).includes(`GET /api/agents/${agent.id}`), 'verify the deleted agent by exact ID on this retry');
-      assert.ok(w.requests.slice(requestCount).includes(`GET /api/vaults/${vault.id}`), 'verify the deleted vault by exact ID on this retry');
+      assert.ok(w.requests.slice(requestCount).includes(`GET /api/vaults/${vault.id}`), 'check the retained or deleted vault by exact ID on this retry');
       assert.equal(sandbox.environment_id, null);
       assert.equal(w.load().remainingCount(), 0);
       assert.deepEqual(await w.load().cleanup(AbortSignal.timeout(5000)), []);
-      assert.equal(w.mutations.length, count + 1, 'all-null terminal history remains an idempotent no-op');
+      assert.equal(w.mutations.length, count + remainingDeletes.length, 'all-null terminal history remains an idempotent no-op');
     });
   }
 }
@@ -637,3 +637,75 @@ for (const phase of ['reconstruction', 'replay']) {
     });
   }
 }
+
+for (const kind of ['environment', 'vault']) {
+  for (const explicitDependency of [false, true]) {
+    test(`an invisible agent retains its ${kind} with ${explicitDependency ? 'explicit' : 'unknown'} source evidence until a later pass`, async t => {
+      const w = await world(t); const source = w.add(kind);
+      const attrs = kind === 'environment'
+        ? { environment_id: source.id, allowed_environment_ids: [source.id] }
+        : { environment_id: null, allowed_vault_ids: [source.id] };
+      const agent = w.add('agent', attrs);
+      if (explicitDependency) Object.assign(agent, attrs);
+      const late = w.rows.agent.pop(); delete agent.id;
+      const manifest = await w.reconstruct();
+      assert.equal(manifest.resources[1].state, 'pending');
+      assert.equal(manifest.resources[1].id, undefined);
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const failures = await w.load().cleanup(AbortSignal.timeout(5000));
+        assert.ok(failures.some(f => f.kind === 'agent' && /Unresolved create intent/.test(f.error)));
+        assert.deepEqual(w.mutations, [], 'an unsettled direct agent POST must not lose its possible source');
+        assert.equal(w.rows[kind][0].id, source.id);
+        assert.deepEqual(w.load().manifest.resources.map(r => r.state), ['created', 'pending']);
+        assert.equal(w.load().remainingCount(), 2);
+      }
+      w.rows.agent.push(late);
+      assert.deepEqual(await w.load().cleanup(AbortSignal.timeout(5000)), []);
+      assert.deepEqual(w.mutations, [`DELETE /api/agents/${late.id}`, `DELETE /api/${kind === 'vault' ? 'vaults' : 'environments'}/${source.id}`]);
+      assert.equal(w.load().remainingCount(), 0);
+      assert.deepEqual(await w.load().cleanup(AbortSignal.timeout(5000)), []);
+      assert.equal(w.mutations.length, 2);
+    });
+  }
+}
+
+for (const lostReply of [false, true]) {
+  test(`agent deletion ${lostReply ? 'with a lost reply' : 'failure'} retains every possible source until retry`, async t => {
+    const w = await world(t);
+    const environment = w.add('environment'), vault = w.add('vault');
+    const agent = w.add('agent', { environment_id: environment.id, allowed_vault_ids: [vault.id] });
+    await w.reconstruct();
+    if (lostReply) w.loseDeleteReply('agent'); else w.failDelete('agent');
+    const failures = await w.load().cleanup(AbortSignal.timeout(5000));
+    assert.ok(failures.some(f => f.kind === 'agent'));
+    assert.deepEqual(w.mutations, [`DELETE /api/agents/${agent.id}`]);
+    assert.equal(w.rows.environment[0].id, environment.id);
+    assert.equal(w.rows.vault[0].id, vault.id);
+    assert.equal(w.load().remainingCount(), 3);
+    assert.deepEqual(await w.load().cleanup(AbortSignal.timeout(5000)), []);
+    assert.equal(w.load().remainingCount(), 0);
+    assert.deepEqual(w.mutations.slice(lostReply ? 1 : 2), [`DELETE /api/vaults/${vault.id}`, `DELETE /api/environments/${environment.id}`]);
+    const count = w.mutations.length;
+    assert.deepEqual(await w.load().cleanup(AbortSignal.timeout(5000)), []);
+    assert.equal(w.mutations.length, count);
+  });
+}
+
+test('combined profile recovery cleans every agent before sources regardless of creation index', async t => {
+  const w = await world(t);
+  w.evidence.profiles = ['basic', 'execution'];
+  const basicEnvironment = w.add('environment'), basicAgent = w.add('agent');
+  w.rows.agent.pop(); // Basic lifecycle already deleted this agent, but cleanup has not reconciled it.
+  const { environment, agent, conv } = w.conversation();
+  await w.reconstruct();
+  assert.deepEqual(await w.load().cleanup(AbortSignal.timeout(5000)), []);
+  assert.equal(w.load().remainingCount(), 0);
+  const deletes = w.mutations.filter(request => request.startsWith('DELETE'));
+  assert.deepEqual(deletes, [`DELETE /api/conversations/${conv.id}`, `DELETE /api/agents/${agent.id}`,
+    `DELETE /api/environments/${environment.id}`, `DELETE /api/environments/${basicEnvironment.id}`]);
+  const firstSource = w.requests.indexOf(`DELETE /api/environments/${environment.id}`);
+  assert.ok(w.requests.lastIndexOf(`GET /api/agents/${basicAgent.id}`) < firstSource, 'reconcile the older agent before the newer source');
+  const count = w.mutations.length;
+  assert.deepEqual(await w.load().cleanup(AbortSignal.timeout(5000)), []);
+  assert.equal(w.mutations.length, count);
+});

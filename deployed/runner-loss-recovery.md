@@ -134,9 +134,19 @@ must investigate the request outcome rather than marking it cleaned from
 absence alone.
 
 A pending agent that later appears with its exact recorded name and source
-references is reconciled before the dependency check. Replay then deletes that
-agent before its environment; changed IDs/names, duplicate matches and a
-reappearing cleaned fixture still refuse the pass.
+references is reconciled before the dependency check. While an agent create
+remains invisible, its unresolved intent stays failed and replay retains every
+recorded environment and vault. Reconstruction cannot establish the complete
+source relationships of a missing agent, so these possible parents remain
+until **all recorded agents are cleaned**. Failed agent deletions and lost
+delete replies retain sources too; replay must reconcile the agent first.
+Account-wide sandbox queue settlement does not establish the outcome of an
+ordinary `POST /api/agents` request.
+
+Once the exact agent appears, replay deletes it before releasing sources.
+Combined profiles reconcile all agents before any environment or vault,
+regardless of their original creation order. Changed IDs/names, duplicate
+matches and a reappearing cleaned fixture still refuse the pass.
 
 Reconstruct only after that review:
 
@@ -183,7 +193,8 @@ waiting list supplements the operator's account-wide settlement evidence;
 it cannot replace it. Refusal retains fixtures as evidence.
 Cleanup then terminates recorded
 conversations, verifies their sandbox is terminal (and resets only an exactly
-owned persistent home), deletes conversations, and finally deletes parents.
+owned persistent home), deletes conversations, cleans all recorded agents,
+and finally deletes environments and vaults once their agent guard is clear.
 A new sandbox discovered after reconstruction can require a fresh inventory
 and reviewed reconstruction; refusal does not mean it was cleaned.
 

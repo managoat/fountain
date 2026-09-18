@@ -36,7 +36,8 @@ fountain quickstart       # run the first request and stream the reply
 account, then waits while you click the link in your email. It saves the API
 key and prints the same first request your start page shows. The wait ends
 after about ten minutes. The account and the emailed link both survive that,
-so `fountain auth login` finishes the job later.
+so `fountain auth login` finishes the job later. If the instance's operator
+set an access code, pass it with `--access-code <code>`.
 
 `quickstart` sends that request. It runs the prompt against the agent your
 account already has, streams the reply, and prints where to go next.

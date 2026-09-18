@@ -89,7 +89,7 @@ custom harnesses. See [Test the deployed ACP path](integrations/acp.md#test-the-
 |---|---|---|---|
 | `REGISTRATION_ENABLED` | `true` | — | A `false` closes signup entirely. Somebody will find an open instance on the public internet. |
 | `REGISTRATION_ALLOWED_EMAIL_DOMAINS` | any | — | A comma-separated list. Fountain refuses a signup outside these domains. Empty means no restriction. |
-| `REGISTRATION_ACCESS_CODE` | — | — | A shared code that every signup must give: in the sign-up form, as `access_code` to `POST /api/auth/register`, and before a first GitHub sign-in. Existing accounts sign in without it. Empty means no code. |
+| `REGISTRATION_ACCESS_CODE` | — | — | A shared code that every signup must give: in the sign-up form, as `access_code` to `POST /api/auth/register` (`--access-code` on `fountain auth register`), and before a first GitHub sign-in. Existing accounts sign in without it. Empty means no code. |
 | `UNVERIFIED_PRUNE_EXEMPT` | — | — | Comma-separated email substrings that the sweep never prunes. Use it for an operator or test account that stays unverified on purpose. |
 | `FIRST_USER_ADMIN` | `false` | — | A `true` promotes the first account that becomes verified to admin, while the instance has no admin. The audit trail records it (ADR 0011). Leave it off on a multi-tenant deployment, because it hands admin to whoever verifies first. |
 

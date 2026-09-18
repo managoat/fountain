@@ -88,7 +88,7 @@ func (d registerDeps) steps() []time.Duration {
 }
 
 // authRegister is `fountain auth register`.
-func authRegister(email, password string) error {
+func authRegister(email, password, accessCode string) error {
 	d := registerLive()
 
 	var err error
@@ -107,7 +107,7 @@ func authRegister(email, password string) error {
 		Fatal("email and password are both required")
 	}
 
-	if err := d.createAccount(email, password); err != nil {
+	if err := d.createAccount(email, password, strings.TrimSpace(accessCode)); err != nil {
 		return err
 	}
 
@@ -132,8 +132,17 @@ func authRegister(email, password string) error {
 // createAccount posts to /api/auth/register and reports what the server said.
 // A 403 here is a policy refusal — registration closed, a domain that is not
 // allowed — and its message is the server's to write, not the CLI's to guess.
-func (d registerDeps) createAccount(email, password string) error {
-	body, err := json.Marshal(map[string]string{"email": email, "password": password})
+// The one refusal the CLI can act on is a missing access code, so that one
+// names the flag.
+//
+// access_code goes on the wire only when given: an instance without a code
+// ignores the field, but there is no reason to send it one.
+func (d registerDeps) createAccount(email, password, accessCode string) error {
+	fields := map[string]string{"email": email, "password": password}
+	if accessCode != "" {
+		fields["access_code"] = accessCode
+	}
+	body, err := json.Marshal(fields)
 	if err != nil {
 		return err
 	}
@@ -153,6 +162,12 @@ func (d registerDeps) createAccount(email, password string) error {
 			fmt.Fprintln(d.errOut, out.Message)
 		}
 		return nil
+
+	case resp.StatusCode == http.StatusForbidden && refusal(raw) == "access_code_required":
+		if accessCode == "" {
+			return fmt.Errorf("signup on %s needs an access code. Run it again with --access-code <code>", d.baseURL)
+		}
+		return fmt.Errorf("%s did not accept that access code", d.baseURL)
 
 	case resp.StatusCode == http.StatusUnprocessableEntity:
 		Fatalf("the server rejected those details: %s", strings.TrimSpace(string(raw)))
@@ -260,6 +275,15 @@ func unverified(raw []byte) bool {
 	}
 	_ = json.Unmarshal(raw, &out)
 	return out.Reason == "email_unverified"
+}
+
+// refusal is the reason code RegistrationController puts on a 403.
+func refusal(raw []byte) string {
+	var out struct {
+		Error string `json:"error"`
+	}
+	_ = json.Unmarshal(raw, &out)
+	return out.Error
 }
 
 // retryAfter reads the header the rate limiter sets. Seconds only: that is

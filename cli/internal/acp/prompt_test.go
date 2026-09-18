@@ -83,6 +83,62 @@ func TestPromptForwardsUpdatesAndReturnsTheStopReason(t *testing.T) {
 	}
 }
 
+func TestPromptClientRequestIDBelongsToEachSubmission(t *testing.T) {
+	api := &fakeAPI{events: []Event{stageEvent("turn", "done", `{"stop_reason":"end_turn"}`)}}
+	a, _ := promptAgent(t, api)
+
+	for _, tc := range []struct {
+		name string
+		meta map[string]any
+		want *string
+	}{
+		{name: "first", meta: map[string]any{"clientRequestId": "plan-7-step-1"}, want: new("plan-7-step-1")},
+		{name: "follow-up", meta: map[string]any{"clientRequestId": " plan-7-步骤-2 "}, want: new(" plan-7-步骤-2 ")},
+		{name: "omitted after a named prompt"},
+		{name: "unrelated metadata", meta: map[string]any{"editor": "test"}},
+		{name: "null", meta: map[string]any{"clientRequestId": nil}},
+		{name: "empty stays supplied", meta: map[string]any{"clientRequestId": ""}, want: new("")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			params := textPrompt("conv-1", "continue")
+			if tc.meta != nil {
+				params["_meta"] = tc.meta
+			}
+			before := len(api.prompts)
+			if _, rpcErr := request(t, a, "session/prompt", params); rpcErr != nil {
+				t.Fatal(rpcErr)
+			}
+			if len(api.prompts) != before+1 {
+				t.Fatalf("sent %d prompts, want one", len(api.prompts)-before)
+			}
+			got := api.prompts[before].clientRequestID
+			if tc.want == nil {
+				if got != nil {
+					t.Fatalf("omitted clientRequestId became %q", *got)
+				}
+			} else if got == nil || *got != *tc.want {
+				t.Fatalf("clientRequestId = %v, want %q", got, *tc.want)
+			}
+		})
+	}
+}
+
+func TestPromptRejectsNonStringClientRequestID(t *testing.T) {
+	for _, value := range []any{42, true, []string{"id"}, map[string]any{"id": "value"}} {
+		api := &fakeAPI{}
+		a, _ := promptAgent(t, api)
+		params := textPrompt("conv-1", "go")
+		params["_meta"] = map[string]any{"clientRequestId": value}
+		_, rpcErr := request(t, a, "session/prompt", params)
+		if rpcErr == nil || rpcErr.Code != CodeInvalidParams {
+			t.Fatalf("clientRequestId %v: got %v, want invalid params", value, rpcErr)
+		}
+		if len(api.prompts) != 0 {
+			t.Fatal("invalid metadata sent a prompt")
+		}
+	}
+}
+
 // The stored update carries the sprite's own session id, which means nothing
 // outside the sandbox that holds it (#649). The editor knows this conversation
 // by ours.

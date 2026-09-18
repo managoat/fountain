@@ -26,8 +26,9 @@ type API interface {
 	// can skip the history. Called BEFORE a prompt is sent — see prompt.go.
 	StreamHead(ctx context.Context, convID string) (string, error)
 	// SendPrompt queues a turn. It returns as soon as the server accepts it;
-	// the turn's outcome arrives on the stream.
-	SendPrompt(ctx context.Context, convID, prompt string, images []Image) error
+	// the turn's outcome arrives on the stream. A nil clientRequestID omits
+	// the optional correlation field; a supplied value is validated by the server.
+	SendPrompt(ctx context.Context, convID, prompt string, images []Image, clientRequestID *string) error
 	// Follow consumes the conversation's event stream from lastEventID until
 	// fn reports stop, reconnecting across the disconnects the server produces
 	// by design.

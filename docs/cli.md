@@ -171,6 +171,17 @@ fountain conv delete <id>
 
 You can repeat `-i` and `--image`. Each one takes a local file path.
 
+Use `--client-request-id` on `conv prompt` or `run` to name a prompt submission:
+
+```bash
+fountain conv prompt <id> -p "Run the approved plan" --client-request-id plan-7-step-3
+```
+
+Fountain stores this value on the resulting turn. It is a correlation ID, not
+an idempotency key; repeating it can run the work again. Omit the flag to send
+no ID. See [prompt correlation](api.md#find-the-turn-your-prompt-opened) for
+the limits and how to find the turn.
+
 Conversation output uses ACP. Setup and provisioning diagnostics and stderr
 remain visible. Historical vendor stdout has no formatted transcript.
 Its stored `data` remains available through `GET /api/conversations/:id/events`.
@@ -198,6 +209,7 @@ fountain run <agent-name-or-id> -p "Audit the auth module"
 fountain run <agent-name-or-id> -p "Run the test suite" --vault staging-creds
 fountain run <agent-name-or-id> -p "Run the test suite" --environment staging
 fountain run <agent-name-or-id> -p "Now fix the failures" --sandbox <sandbox-id>
+fountain run <agent-name-or-id> -p "Run the approved plan" --client-request-id plan-7-step-1
 ```
 
 For the full conversation creation API, pass a JSON object with wire names and

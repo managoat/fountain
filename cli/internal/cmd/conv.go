@@ -37,6 +37,7 @@ func init() {
 	}
 	promptCmd.Flags().StringP("prompt", "p", "", "prompt text (required)")
 	promptCmd.Flags().StringSliceP("image", "i", nil, "image file path (repeatable)")
+	promptCmd.Flags().String("client-request-id", "", "caller-provided prompt correlation ID (not an idempotency key)")
 
 	convCmd.AddCommand(
 		newConversationCreateCommand(),
@@ -83,6 +84,7 @@ func init() {
 		RunE:  func(cmd *cobra.Command, args []string) error { return runAgent(cmd, args[0]) },
 	}
 	runCmd.Flags().StringP("prompt", "p", "", "prompt text (required)")
+	runCmd.Flags().String("client-request-id", "", "caller-provided prompt correlation ID (not an idempotency key)")
 	runCmd.Flags().String("vault", "", "vault name or id")
 	runCmd.Flags().String("environment", "", "environment name or id to provision from, instead of the agent's own")
 	runCmd.Flags().String("sandbox", "", "sandbox id to attach to, instead of provisioning a new one")
@@ -209,6 +211,9 @@ func convPrompt(cmd *cobra.Command, id string) error {
 		Fatal(err.Error())
 	}
 	body := map[string]any{"prompt": prompt, "images": images}
+	if cmd.Flags().Changed("client-request-id") {
+		body["client_request_id"], _ = cmd.Flags().GetString("client-request-id")
+	}
 	if err := c.Post("/conversations/"+id+"/prompts", body, nil); err != nil {
 		Fatal(err.Error())
 	}
@@ -275,6 +280,9 @@ func runAgent(cmd *cobra.Command, target string) error {
 
 	agentID := resolveAgentID(target)
 	body := map[string]any{"agent_id": agentID, "prompt": prompt}
+	if cmd.Flags().Changed("client-request-id") {
+		body["client_request_id"], _ = cmd.Flags().GetString("client-request-id")
+	}
 	if vault != "" {
 		body["vault_id"] = resolveVaultID(vault)
 	}

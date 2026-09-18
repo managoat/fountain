@@ -60,9 +60,10 @@ type permissionAnswer struct {
 }
 
 type sentPrompt struct {
-	convID string
-	text   string
-	images []Image
+	convID          string
+	text            string
+	images          []Image
+	clientRequestID *string
 }
 
 func (f *fakeAPI) Agent(_ context.Context, target string) (AgentRef, error) {
@@ -94,8 +95,8 @@ func (f *fakeAPI) StreamHead(context.Context, string) (string, error) {
 	return f.head, nil
 }
 
-func (f *fakeAPI) SendPrompt(_ context.Context, convID, text string, images []Image) error {
-	f.prompts = append(f.prompts, sentPrompt{convID: convID, text: text, images: images})
+func (f *fakeAPI) SendPrompt(_ context.Context, convID, text string, images []Image, clientRequestID *string) error {
+	f.prompts = append(f.prompts, sentPrompt{convID: convID, text: text, images: images, clientRequestID: clientRequestID})
 	return f.promptErr
 }
 

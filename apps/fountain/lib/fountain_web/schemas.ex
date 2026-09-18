@@ -771,8 +771,9 @@ defmodule FountainWeb.Schemas do
         client_request_id:
           ClientRequestId.request(
             "Your own name for the first prompt. Ignored when the request carries no " <>
-              "`prompt`, and when `channel_id` resumes a conversation: a resume does not " <>
-              "deliver the prompt, so send the value with it on the prompts route. "
+              "`prompt`. An immediate `channel_id` resume does not deliver the prompt; " <>
+              "send the value with it on the prompts route. If a queued start resumes " <>
+              "a channel bound while it waited, the queue delivers the prompt and value. "
           ),
         title: %Schema{
           type: :string,
@@ -893,7 +894,10 @@ defmodule FountainWeb.Schemas do
           type: :string,
           format: :uuid,
           nullable: true,
-          description: "The conversation the request became, once it started."
+          description:
+            "The conversation the request started, or the target when a failed request " <>
+              "reports prompt_delivery_unknown. Inspect it before resubmitting: a timed-out " <>
+              "prompt call can still execute."
         },
         error: %Schema{type: :string, nullable: true},
         position: %Schema{

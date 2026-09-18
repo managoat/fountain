@@ -291,6 +291,75 @@ defmodule Fountain.SandboxQueueDrainTest do
   end
 
   describe "a queued start that resumes a bound channel" do
+    for failure <- [:sprite_probe_failed, :sandbox_resume_failed] do
+      @failure failure
+      test "#{failure} preserves the prompt until the provider recovers" do
+        user = insert_active_user()
+        agent = insert_agent(user_id: user.id)
+
+        request =
+          enqueue!(user, agent, %{
+            attrs: %{
+              "channel_id" => "outage-channel",
+              "prompt" => "waiting task",
+              "client_request_id" => "waiting-task-1"
+            }
+          })
+
+        status = if @failure == :sprite_probe_failed, do: "ready", else: "suspended"
+        sandbox = insert_sandbox(user_id: user.id, status: status)
+
+        conv =
+          insert_conversation(
+            user_id: user.id,
+            agent: agent,
+            sandbox: sandbox,
+            status: "idle",
+            channel_id: "outage-channel"
+          )
+
+        assert ConversationServer.whereis(conv.id) == nil
+
+        if @failure == :sprite_probe_failed do
+          expect(Managoat.Sandbox.Sprites, :get, fn _ -> {:error, {:unavailable, :timeout}} end)
+        else
+          stub(Managoat.Sandbox.Sprites, :get, fn _ -> {:ok, %{status: :suspended}} end)
+          expect(Managoat.Sandbox, :resume, fn _ -> {:error, {:unavailable, :timeout}} end)
+        end
+
+        observer = self()
+
+        stub(ConversationServer, :queue_initial_prompt, fn pid, prompt, images, meta ->
+          send(observer, {:queued_prompt, pid, prompt, images, meta})
+          :ok
+        end)
+
+        assert %{started: 0, failed: 0, expired: 0} = SandboxQueue.drain(user.id)
+        waiting = Repo.get!(Request, request.id)
+        assert waiting.status == "queued"
+        assert waiting.attrs == request.attrs
+        assert waiting.error == nil
+        refute_received {:queued_prompt, _, _, _, _}
+
+        # Exercise the real wake handoff after the provider becomes available.
+        stub(Managoat.Sandbox.Sprites, :get, fn _ -> {:ok, %{status: :running}} end)
+        stub(Managoat.Sandbox, :resume, fn handle -> {:ok, handle} end)
+        server = start_supervised!({Task, fn -> Process.sleep(:infinity) end})
+        stub(Horde.DynamicSupervisor, :start_child, fn _, _ -> {:ok, server} end)
+
+        assert %{started: 1, failed: 0, expired: 0} = SandboxQueue.drain(user.id)
+
+        assert_received {:queued_prompt, ^server, "waiting task", [],
+                         [client_request_id: "waiting-task-1"]}
+
+        refute_received {:queued_prompt, _, _, _, _}
+        finished = Repo.get!(Request, request.id)
+        assert finished.status == "started"
+        assert finished.conversation_id == conv.id
+        assert finished.attrs == %{}
+      end
+    end
+
     test "a busy conversation waits for another pass without blocking later work" do
       user = insert_active_user()
       agent = insert_agent(user_id: user.id)

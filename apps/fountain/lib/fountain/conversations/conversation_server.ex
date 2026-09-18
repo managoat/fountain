@@ -109,7 +109,7 @@ defmodule Fountain.Conversations.ConversationServer do
           end
 
         pid ->
-          call_server(pid, PromptDelivery.call(pid, prompt, images, opts))
+          PromptDelivery.deliver(pid, prompt, images, opts)
       end
 
     # Size and image count, never the text. A prompt is the tenant's content —
@@ -132,14 +132,14 @@ defmodule Fountain.Conversations.ConversationServer do
   # delete_conversation/1 return before its Repo.delete. :noproc and
   # shutdown-shaped exits are the server dying between whereis and call.
   @doc false
-  def call_server(pid, msg) do
+  def call_server(pid, msg, timeout_error \\ :provisioning) do
     GenServer.call(
       pid,
       msg,
       Application.get_env(:fountain, :conversation_call_timeout_ms, 30_000)
     )
   catch
-    :exit, {:timeout, _} -> {:error, :provisioning}
+    :exit, {:timeout, _} -> {:error, timeout_error}
     :exit, {:noproc, _} -> {:error, :not_running}
     :exit, {:normal, _} -> {:error, :not_running}
     :exit, {:shutdown, _} -> {:error, :not_running}

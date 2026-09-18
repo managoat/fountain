@@ -3557,7 +3557,7 @@ export interface components {
             agent_id: string;
             /** @description Opaque key for the external channel this conversation is bound to (for example a Buzz channel id). When set, the latest live conversation for the same agent, vault and channel is resumed (200) instead of a new one being opened (201). */
             channel_id?: string | null;
-            /** @description Your own name for the first prompt. Ignored when the request carries no `prompt`, and when `channel_id` resumes a conversation: a resume does not deliver the prompt, so send the value with it on the prompts route. Fountain stores it on the turn the prompt opens and sends it on that turn's `started` stage event, beside the `turn_id`, so a client can bind its work item to the exact turn without inferring it from turn order. Use the event to find a candidate turn and the turn itself to confirm it: the event's copy has been through event redaction, and the turn's is what you sent. It is a correlation and not an idempotency key: a second prompt with the same value opens a second turn that carries it too. Make it unique within the conversation. */
+            /** @description Your own name for the first prompt. Ignored when the request carries no `prompt`. An immediate `channel_id` resume does not deliver the prompt; send the value with it on the prompts route. If a queued start resumes a channel bound while it waited, the queue delivers the prompt and value. Fountain stores it on the turn the prompt opens and sends it on that turn's `started` stage event, beside the `turn_id`, so a client can bind its work item to the exact turn without inferring it from turn order. Use the event to find a candidate turn and the turn itself to confirm it: the event's copy has been through event redaction, and the turn's is what you sent. It is a correlation and not an idempotency key: a second prompt with the same value opens a second turn that carries it too. Make it unique within the conversation. */
             client_request_id?: string | null;
             /**
              * Format: uuid
@@ -4499,7 +4499,7 @@ export interface components {
             agent_id: string;
             /**
              * Format: uuid
-             * @description The conversation the request became, once it started.
+             * @description The conversation the request started, or the target when a failed request reports prompt_delivery_unknown. Inspect it before resubmitting: a timed-out prompt call can still execute.
              */
             conversation_id?: string | null;
             error?: string | null;

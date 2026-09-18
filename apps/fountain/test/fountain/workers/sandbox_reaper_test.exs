@@ -493,8 +493,8 @@ defmodule Fountain.Workers.SandboxReaperTest do
     test "a teardown that died before its terminal write is driven to completion" do
       # The hole this pass exists for. The fence commits, then the destroy
       # raises or the pod dies, and the row is left `ready` with the fence set:
-      # invisible to both sweeps above (they require is_nil(reset_requested_at)
-      # and no `destroying` stamp, which the fence sets), to the dead-sprite
+      # invisible to both sweeps above (they require no `destroying` stamp,
+      # which the fence sets), to the dead-sprite
       # pass (it wants a terminal status) and to the untracked count (the sprite
       # has a row). Quotas keeps charging for it and nothing else can clear it.
       #
@@ -992,6 +992,49 @@ defmodule Fountain.Workers.SandboxReaperTest do
       end)
 
       capture_log(fn -> assert {0, 0} = SandboxReaper.sweep_fenced_teardowns() end)
+    end
+
+    test "a reset another owner is finishing counts on neither gauge" do
+      # The reset branch of the same rule (round 2 on #2423: deleting it left
+      # the teardown twin above green). The reset door answers
+      # `sandbox_unavailable` when a live lease holds the machine, and the row
+      # is re-read the same way.
+      with_sprites_credentials(fn ->
+        {_user, home} = pending_reset()
+
+        stub(Fountain.Conversations, :retry_pending_sandbox_reset, fn sandbox, _opts ->
+          {:ok, _epoch} = Fountain.Machines.Lease.claim(sandbox.id, "other-run@node", 60_000)
+          {:error, :sandbox_unavailable}
+        end)
+
+        capture_log(fn -> assert {0, 0} = SandboxReaper.sweep_fenced_teardowns() end)
+        assert Repo.reload(home).status == "ready"
+      end)
+    end
+
+    test "a reset answered sandbox_unavailable with nobody holding it is a refusal" do
+      with_sprites_credentials(fn ->
+        {_user, _home} = pending_reset()
+
+        stub(Fountain.Conversations, :retry_pending_sandbox_reset, fn _sandbox, _opts ->
+          {:error, :sandbox_unavailable}
+        end)
+
+        capture_log(fn -> assert {0, 1} = SandboxReaper.sweep_fenced_teardowns() end)
+      end)
+    end
+
+    test "a teardown whose provider delete fails is still reconciled, and the row retires" do
+      # The protocol retires a fenced row whatever the provider answers, so the
+      # machine is left to the hourly pass for rows already finished. That is
+      # a reclamation, and the sandbox-lifetime guide says it counts as one.
+      {_user, sandbox, _conv} = fenced_sandbox()
+      sandbox = age_fence(sandbox, 60)
+      live_provider([sandbox.machine_name])
+      stub(Sprites, :destroy, fn _ -> {:error, :provider_down} end)
+
+      capture_log(fn -> assert {1, 0} = SandboxReaper.sweep_fenced_teardowns() end)
+      assert Repo.reload(sandbox).status == "terminated"
     end
 
     test "sandbox_unavailable with nobody holding the machine is still a refusal" do

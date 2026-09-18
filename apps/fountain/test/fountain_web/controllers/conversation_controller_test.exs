@@ -1244,13 +1244,11 @@ defmodule FountainWeb.ConversationControllerTest do
       # `Machine.ensure_up/2` translates it to the word the front door has
       # always used for a machine on its way out.
       #
-      # Only `teardown_requested_at` is stamped, and that isolates the arm under
-      # test rather than describing a row production makes: a teardown writes
-      # *both* fence columns (`Lifecycle.do_fence_sandbox_for_teardown/2`), and
-      # a row carrying `reset_requested_at` is refused one step earlier by
-      # `Wake.maybe_reuse_sandbox/1` — with the same answer, from a different
-      # path. What reaches this one in production is a fence that lands between
-      # that check and the lease, which is a race rather than a row shape.
+      # The row is stamped before the prompt, so `Wake.maybe_reuse_sandbox/1`
+      # can refuse it first with the same answer, from a different path. What
+      # reaches the resume's arm in production is a fence that lands between
+      # that check and the lease, which is a race rather than a row shape; the
+      # assertion is the same word either way.
       agent = insert_agent(user_id: user.id)
       sandbox = insert_sandbox(user_id: user.id, agent_id: agent.id, status: "ready")
 

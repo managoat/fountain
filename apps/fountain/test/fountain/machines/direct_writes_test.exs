@@ -483,12 +483,9 @@ defmodule Fountain.Machines.DirectWritesTest do
 
   # The three options stage 5c added to `Fountain.Machines.Destroy` each turn a
   # rule of the protocol off, and each is safe only because of something the
-  # *caller* guarantees. `fence: :held_by_caller` asserts `reset_requested_at`
-  # and nothing narrower, and that timestamp is shared with the teardown fence
-  # (`Lifecycle.do_fence_sandbox_for_teardown/2` writes
-  # `reset_requested_at: current.reset_requested_at || now` beside
-  # `teardown_requested_at`), so the assertion says "a fence", not "the reset's
-  # fence". What keeps it exact is that exactly one caller passes the option,
+  # *caller* guarantees. `fence: :held_by_caller` asserts a `destroying` stamp
+  # and nothing narrower, and both fences write that stamp (the reason tells
+  # them apart), so the assertion says "a fence", not "the reset's fence". What keeps it exact is that exactly one caller passes the option,
   # and that caller re-reads the row under the reset's own rules first.
   #
   # `on_provider_error: :refuse` leaves a fenced row live on a provider error,

@@ -87,10 +87,10 @@ defmodule Fountain.Accounts.DeletionFenceTest do
   end
 
   test "a refused fence is logged and the account is still deleted", ctx do
-    # Halting here would strand this row: `reset_requested_at` set on a `ready`
-    # sandbox whose account survives is invisible to every SandboxReaper pass
-    # and keeps burning a quota slot forever. ADR 0009 decision 2 keeps sprite
-    # teardown best-effort for exactly this reason.
+    # Halting here would strand this row: a `ready` sandbox stamped
+    # `destroying` whose account survives holds a quota slot and bills until
+    # the reaper's teardown run finishes it, fifteen minutes on. ADR 0009
+    # decision 2 keeps sprite teardown best-effort for exactly this reason.
     stub(Lifecycle, :fence_sandbox_for_teardown, fn _, _ ->
       {:error, :fixture_refusal}
     end)

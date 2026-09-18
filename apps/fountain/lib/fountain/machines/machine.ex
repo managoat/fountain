@@ -1211,7 +1211,7 @@ defmodule Fountain.Machines.Machine do
   # stage 9b `MACHINE_OWNER_ENABLED` ran every verb inline on its caller in the
   # suite, so no test needed this.
   #
-  # **Off in production, and it must stay off by accident.** `config/test.exs`
+  # **Off in production, and nothing may turn it on by accident.** `config/test.exs`
   # sets `:owner_adopts_callers`; nothing else does, and with it off this
   # process never puts `$callers` at all, which is exactly `main`'s owner.
   # Something in production does read the key: `opentelemetry_ecto` walks

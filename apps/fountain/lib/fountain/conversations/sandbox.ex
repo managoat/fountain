@@ -66,11 +66,9 @@ defmodule Fountain.Conversations.Sandbox do
     field :runtime, :string
     field :terminated_at, :utc_datetime
     field :last_resumed_at, :utc_datetime
-    # `reset_requested_at` and `teardown_requested_at` are still columns on
-    # the table and no longer fields here (ADR 0058 stage 9b): a replica on the
-    # previous release writes them during a rolling deploy, and nothing on
-    # this one reads them. The `destroying` stamp above carries the intent.
-    # The next release drops the columns.
+    # `reset_requested_at` and `teardown_requested_at` were the fence until
+    # ADR 0058 stage 9a moved the intent onto the `destroying` stamp above.
+    # Stage 9b-i stopped reading them and 9b-ii dropped the columns.
     # A digest of the Environment fields provisioning turned into disk state:
     # packages, repositories, the setup script and the network policy. Written
     # when the machine reaches `ready`, so a later reapply can tell whether the

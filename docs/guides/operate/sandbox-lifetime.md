@@ -102,7 +102,10 @@ deleting.
 - A **deletion** is finished on the first five-minute run after it is fifteen
   minutes old, when no server holds the machine. The machine is deleted at the
   provider on that run, and the trail records both `sandbox.destroyed` and
-  `sandbox.teardown_reconciled`.
+  `sandbox.teardown_reconciled`. If the provider refuses the delete, the row
+  is retired anyway and the deletion still counts as reconciled, not refused.
+  The machine is then deleted by the hourly run's pass for machines whose row
+  is already finished.
 
 So a non-zero `reconciled` is not routine reclamation. It says that a deletion
 or a reset was abandoned somewhere upstream, and the number is how many.

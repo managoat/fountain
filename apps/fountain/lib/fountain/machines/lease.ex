@@ -677,10 +677,10 @@ defmodule Fountain.Machines.Lease do
   # claim ever produced — it is the column default wearing an epoch's clothes.
   defp taken_epoch?(epoch), do: epoch >= 1
 
-  # Mirrors `Fountain.Conversations.prevent_sandbox_revival/1`: holding the
-  # lease is not permission to un-retire a row. Terminal-to-terminal still goes
-  # through and a write that never names a status is not a revival, so the two
-  # refusals agree exactly.
+  # Holding the lease is not permission to un-retire a row. Terminal-to-terminal
+  # still goes through, and a write that never names a status is not a revival.
+  # The same rule as `Fountain.Conversations.prevent_sandbox_revival/1`, which
+  # stage 9b deleted with `update_sandbox/2`; this is the only copy now.
   defp refuse_revival(query, sets) do
     case Keyword.get(sets, :status) do
       nil -> query
@@ -689,10 +689,10 @@ defmodule Fountain.Machines.Lease do
     end
   end
 
-  # Mirrors `Fountain.Conversations.stamp_terminated_at/1`, the second of
-  # `Conversations.update_sandbox/2`'s two guards and the one with a billing
-  # consequence:
-  # `Billing.SandboxUsage` reads `terminated_at` as the end of the billed
+  # Fills `terminated_at` on the way into a terminal status, as
+  # `Fountain.Conversations.stamp_terminated_at/1` did for `update_sandbox/2`
+  # until stage 9b deleted both; this is the only copy now, and it has a
+  # billing consequence: `Billing.SandboxUsage` reads `terminated_at` as the end of the billed
   # interval, and of the writers of a terminal status the ones that *fail* a
   # machine never pass a timestamp — which once left every failed sandbox
   # reading as still running. `cas_update/3` is another such writer.

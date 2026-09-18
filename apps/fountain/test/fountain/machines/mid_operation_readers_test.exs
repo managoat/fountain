@@ -140,9 +140,8 @@ defmodule Fountain.Machines.MidOperationReadersTest do
     test "an abandoned destroy answers its fence here, on this tree and on main", ctx do
       # The shape `Destroy` really leaves behind, which is not the one the
       # round-1 note reached for: it fences *before* it stamps, and the
-      # teardown fence writes `reset_requested_at` beside
-      # `teardown_requested_at`. So a destroy whose owner died carries both,
-      # and this door answers the fence from its first clause — on `main` too.
+      # teardown fence writes the `destroying` stamp. So a destroy whose owner
+      # died carries it, and this door answers the fence from its first clause.
       # The wake door was therefore never the live 6a regression; the
       # rehydrator's sweep was, because its query has no reset filter
       # (`rehydrator_test.exs` pins that). Recorded here so a later reader does

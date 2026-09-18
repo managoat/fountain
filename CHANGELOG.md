@@ -20,6 +20,46 @@ Changes that have merged but not yet shipped are the files under
 [`changelog.d/`](https://github.com/managoat/fountain/tree/main/changelog.d);
 the release PR rolls them into a dated section here.
 
+## [0.20.1] - 2026-09-18
+
+### Upgrade notes
+
+- **Upgrading from v0.19.0: pending deletions are finished, and some pending
+  resets are dropped** (#2427). v0.20.0 could not see a sandbox deletion or
+  reset that was requested on v0.19.0 and had not finished before the
+  upgrade. Such a machine looked live and kept billing. v0.20.1 finds these
+  machines when it migrates:
+  - A pending deletion is finished by the reaper within minutes.
+  - A pending reset is finished the same way, unless the machine has run a
+    turn since the reset was requested. The migration does not finish that
+    reset, because it would wipe the work done since. The machine is left as
+    its user last used it, and the migration logs its id at warning level.
+    Operators have no reset of their own for it. If a reset is still wanted,
+    tell the machine's owner, who can request one with
+    `DELETE /api/sandboxes/:id`.
+
+### Changed
+
+- **A turn that a native crash ended names the signal** (#2402). The `turn`
+  stage event that ends such a turn carries `signal` (for example `SIGSEGV`)
+  next to `exit_code`, for exit codes 132 to 136 and 139. Other exit codes are
+  unchanged. Read
+  [The agent runtime crashed](https://managoat.com/docs/troubleshooting/conversation-stuck-or-failed#the-agent-runtime-crashed).
+
+### Fixed
+
+- **A crashing adapter version check no longer reinstalls the adapter**
+  (#2402). When the pinned ACP adapter's `--version` dies on a signal, sandbox
+  setup checks once more and then fails with that exit code (for example
+  139). Before, it ran `npm install -g` over the shared global prefix while
+  other conversations could be running the adapter from it. A missing or
+  outdated adapter is still installed. This comes from `managoat_runtimes`
+  0.4.5.
+
+- A sandbox whose deletion was requested on v0.19.0 and had not finished
+  before the upgrade is now deleted. The same goes for a pending reset on a
+  machine that has not been used since the request (#2427).
+
 ## [0.20.0] - 2026-09-18
 
 ### Upgrade notes

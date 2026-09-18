@@ -38,7 +38,7 @@ services:
     # umbrella, the Go CLI and fetches the pinned Buzz binaries — so prefer the
     # image unless you have changes to run.
     image:
-      url: ghcr.io/managoat/fountain:v0.20.0
+      url: ghcr.io/managoat/fountain:v0.20.1
 
     region: oregon
     plan: starter

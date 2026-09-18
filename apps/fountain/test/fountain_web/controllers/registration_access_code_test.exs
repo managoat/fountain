@@ -31,6 +31,25 @@ defmodule FountainWeb.RegistrationAccessCodeTest do
     }
   end
 
+  describe "request logging" do
+    test "redacts the code on the form and the JSON shapes, and still redacts the rest" do
+      filtered =
+        Phoenix.Logger.filter_values(%{
+          "access_code" => "trythegoat",
+          "password" => "hunter22",
+          "token" => "t0k3n",
+          "user" => %{"access_code" => "trythegoat", "password" => "hunter22"}
+        })
+
+      assert filtered == %{
+               "access_code" => "[FILTERED]",
+               "password" => "[FILTERED]",
+               "token" => "[FILTERED]",
+               "user" => %{"access_code" => "[FILTERED]", "password" => "[FILTERED]"}
+             }
+    end
+  end
+
   describe "the form" do
     test "asks for the code, and GitHub signup submits it", %{conn: conn} do
       body = conn |> get(~p"/auth/register") |> html_response(200)

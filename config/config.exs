@@ -232,6 +232,11 @@ config :logger, :default_formatter,
 
 config :phoenix, :json_library, Jason
 
+# Request parameters Phoenix redacts from its debug `Parameters:` log line.
+# Phoenix's own default is the first two; setting the key replaces it, so they
+# stay. A key matches if it contains one of these, at any depth.
+config :phoenix, :filter_parameters, ["password", "token", "access_code"]
+
 # Swoosh mailer
 config :fountain, Fountain.Mailer, adapter: Swoosh.Adapters.Local
 

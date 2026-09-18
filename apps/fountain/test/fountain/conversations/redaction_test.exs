@@ -193,7 +193,8 @@ defmodule Fountain.Conversations.RedactionTest do
       tenant_key: nil,
       inference_credentials: %{},
       callback_token: nil,
-      turn_session_retry: nil
+      turn_session_retry: nil,
+      turn_metrics: nil
     }
     |> Redaction.server_state()
     |> Map.fetch!(:resolved_mcp_servers)

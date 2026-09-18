@@ -1046,6 +1046,176 @@ defmodule Fountain.Conversations.ConversationServerACPTest do
     end
   end
 
+  describe "an adapter a native crash kills while starting (#2402)" do
+    setup do
+      user = insert_verified_user()
+      conv = insert_conversation(agent: acp_agent(user), user_id: user.id)
+      stub_happy_sprite()
+      # Its stdin stubs; spawn is replaced below.
+      _ = stub_acp_transport()
+      test = self()
+
+      # A fresh ref per spawn, so an exit can only ever name the command it
+      # belongs to.
+      Mimic.stub(Managoat.Sandbox.Sprites, :spawn, fn _h, _cmd, _args, _opts ->
+        command_ref = make_ref()
+        send(test, {:spawned_ref, command_ref})
+        {:ok, %Managoat.Sandbox.Command{provider: :sprites, ref: command_ref}}
+      end)
+
+      {pid, _mon, :alive} = start_server(conv, initial_prompt: "first")
+      on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
+      assert_receive {:spawned_ref, first}, 1_000
+      {:ok, conv: conv, pid: pid, first: first}
+    end
+
+    defp crash(pid, ref, code) do
+      send(pid, {:exit, %{ref: ref}, code})
+      _ = :sys.get_state(pid)
+    end
+
+    defp restarted_events(conv_id) do
+      conv_id
+      |> Conversations._unsafe_list_log_events()
+      |> Enum.filter(&(&1.kind == "stage" and &1.stage == "session"))
+      |> Enum.map(&Jason.decode!(&1.data))
+    end
+
+    test "a SIGSEGV before any output launches the adapter once more", %{
+      conv: conv,
+      pid: pid,
+      first: first
+    } do
+      # The peer asked the first command to initialize; nothing answered.
+      %{"method" => "initialize"} = next_write()
+      crash(pid, first, 139)
+
+      assert_receive {:spawned_ref, second}, 1_000
+      refute second == first
+
+      prompt_id = drive_to_prompt(pid, second)
+      reply(pid, second, prompt_id, %{"stopReason" => "end_turn"})
+
+      assert [%{status: "completed", exit_code: nil}] = Conversations._unsafe_list_turns(conv.id)
+      # One turn, announced once and ended once.
+      assert turn_stage_states(conv.id) == ["started", "done"]
+
+      assert [%{"event" => "restarted", "reason" => "adapter_crashed", "detail" => "SIGSEGV"}] =
+               restarted_events(conv.id)
+    end
+
+    test "a second crash fails the turn with its exit code", %{
+      conv: conv,
+      pid: pid,
+      first: first
+    } do
+      %{"method" => "initialize"} = next_write()
+      crash(pid, first, 139)
+      assert_receive {:spawned_ref, second}, 1_000
+      %{"method" => "initialize"} = next_write()
+      crash(pid, second, 139)
+
+      refute_receive {:spawned_ref, _}, 100
+      assert [%{status: "failed", exit_code: 139}] = Conversations._unsafe_list_turns(conv.id)
+      assert Conversations._unsafe_get_conversation!(conv.id).status == "idle"
+      assert length(restarted_events(conv.id)) == 1
+    end
+
+    test "a crash after the adapter answered is not relaunched", %{
+      conv: conv,
+      pid: pid,
+      first: first
+    } do
+      # Once the adapter has written, the peer may have prompted it: running
+      # the prompt again could run it twice.
+      %{"id" => init_id, "method" => "initialize"} = next_write()
+      reply(pid, first, init_id, %{"agentCapabilities" => %{}})
+      crash(pid, first, 139)
+
+      refute_receive {:spawned_ref, _}, 100
+      assert [%{status: "failed", exit_code: 139}] = Conversations._unsafe_list_turns(conv.id)
+      assert restarted_events(conv.id) == []
+    end
+
+    test "a crash on the peer carried over from the last turn is not relaunched", %{
+      conv: conv,
+      pid: pid,
+      first: first
+    } do
+      # An idle peer prompts at once, with nothing to initialize first, so a
+      # silent adapter proves nothing about whether the prompt was sent.
+      prompt_id = drive_to_prompt(pid, first)
+      reply(pid, first, prompt_id, %{"stopReason" => "end_turn"})
+      assert :ok = GenServer.call(pid, {:send_prompt, "again", []})
+      %{"method" => "session/set_model"} = next_write()
+      crash(pid, first, 139)
+
+      refute_receive {:spawned_ref, _}, 100
+
+      assert [%{status: "completed"}, %{status: "failed", exit_code: 139}] =
+               conv.id |> Conversations._unsafe_list_turns() |> Enum.sort_by(& &1.turn_number)
+
+      assert restarted_events(conv.id) == []
+    end
+
+    for code <- [1, 137] do
+      test "exit #{code} before any output fails the turn as before", %{
+        conv: conv,
+        pid: pid,
+        first: first
+      } do
+        %{"method" => "initialize"} = next_write()
+        crash(pid, first, unquote(code))
+
+        refute_receive {:spawned_ref, _}, 100
+        code = unquote(code)
+        assert [%{status: "failed", exit_code: ^code}] = Conversations._unsafe_list_turns(conv.id)
+        assert restarted_events(conv.id) == []
+      end
+    end
+
+    test "a turn fenced before the relaunch ends with a terminal stage", %{
+      conv: conv,
+      pid: pid,
+      first: first
+    } do
+      %{"method" => "initialize"} = next_write()
+
+      stub(Fountain.Conversations, :_unsafe_set_turn_session, fn _turn, _id ->
+        {:ok, %{applied: false}}
+      end)
+
+      crash(pid, first, 139)
+
+      refute_receive {:spawned_ref, _}, 100
+      assert turn_stage_states(conv.id) == ["started", "failed"]
+      assert [%{status: "failed"}] = Conversations._unsafe_list_turns(conv.id)
+      assert is_nil(:sys.get_state(pid).current_turn)
+    end
+
+    test "a relaunch that cannot start fails the turn and clears it", %{
+      conv: conv,
+      pid: pid,
+      first: first
+    } do
+      %{"method" => "initialize"} = next_write()
+
+      Mimic.stub(Managoat.Sandbox.Sprites, :spawn, fn _h, _cmd, _args, _opts ->
+        {:error, {:unavailable, :gone}}
+      end)
+
+      crash(pid, first, 139)
+
+      assert [%{status: "failed"}] = Conversations._unsafe_list_turns(conv.id)
+      assert turn_stage_states(conv.id) == ["started", "failed"]
+      state = :sys.get_state(pid)
+      assert is_nil(state.current_turn)
+      assert is_nil(state.current_command_ref)
+      assert is_nil(state.turn_metrics)
+      assert is_nil(state.current_turn_span)
+    end
+  end
+
   describe "org-disallowed oauth (#655)" do
     setup do
       user = insert_verified_user()

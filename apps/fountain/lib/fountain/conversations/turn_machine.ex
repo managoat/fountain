@@ -1286,8 +1286,17 @@ defmodule Fountain.Conversations.TurnMachine do
           {:ok, {:run | :continue, String.t()}} | {:error, term()}
   def session_plan(turn, runtime_session_id) do
     mode = if is_nil(runtime_session_id), do: :run, else: :continue
-    id = runtime_session_id || Ecto.UUID.generate()
+    session_plan(turn, mode, runtime_session_id || Ecto.UUID.generate())
+  end
 
+  @doc """
+  A plan already chosen for this turn, fenced again: a relaunched adapter
+  (#2402) runs the plan its first launch had, since the session that launch
+  named was never created.
+  """
+  @spec session_plan(Conversations.Turn.t(), :run | :continue, String.t()) ::
+          {:ok, {:run | :continue, String.t()}} | {:error, term()}
+  def session_plan(turn, mode, id) do
     # A placeholder chooses run/resume, not ACP identity. Preparing even that
     # placeholder must remain tied to the admitted turn across cancellation.
     case Conversations._unsafe_set_turn_session(turn, id) do

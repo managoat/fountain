@@ -48,6 +48,19 @@ async function verifyBuzzDependencies(client, resources, recovery, signal) {
   }
 }
 
+async function verifyQueueDependencies(client, resources, recovery, signal) {
+  const agents = resources.filter(r => r.kind === 'agent');
+  if (agents.length === 0) return;
+  for (const row of await list(client, '/api/sandbox-queue', signal)) {
+    need(uuid(row.agent_id) && row.status === 'queued', 'Invalid waiting queue dependency evidence');
+    need(!agents.some(r => r.id === row.agent_id), 'Unrecorded queued request depends on recovery agent; retain parents and escalate');
+  }
+  // This endpoint omits claimed/starting requests. Neither an empty response
+  // nor a dead client proves accepted work has settled on the server.
+  need(note(recovery.queue_settlement_evidence),
+    'Record queue settlement evidence for recovered agents; the waiting list excludes claimed work, so escalate unknown request outcomes');
+}
+
 export async function inventoryFixtures(client, { ownerId, runId }) {
   need(uuid(runId), 'Supply the exact run UUID, not a suite prefix');
   await recoveryIdentity(client, ownerId);
@@ -66,7 +79,7 @@ export async function inventoryFixtures(client, { ownerId, runId }) {
   }
   resources.sort((a, b) => Number(a.name.split('-').at(-1)) - Number(b.name.split('-').at(-1)));
   return { version: 1, base_url: client.baseUrl, owner_id: ownerId, run_id: runId,
-    profiles: [], ownership_evidence: '', writers_stopped: '', intent_inventory: '', buzz_absence_evidence: '', resources };
+    profiles: [], ownership_evidence: '', writers_stopped: '', intent_inventory: '', buzz_absence_evidence: '', queue_settlement_evidence: '', resources };
 }
 
 export function validateRecoveryEvidence(evidence, baseUrl) {
@@ -112,6 +125,7 @@ export async function verifyRecoveryDependencies(client, resources, runId, signa
     }
   }
   await verifyBuzzDependencies(client, resources, recovery, signal);
+  await verifyQueueDependencies(client, resources, recovery, signal);
   const ids = new Set(resources.map(r => r.id).filter(Boolean));
   const conversations = await list(client, '/api/conversations', signal);
   for (const row of conversations) {
@@ -121,12 +135,29 @@ export async function verifyRecoveryDependencies(client, resources, runId, signa
     }
   }
   const sandboxes = await list(client, '/api/sandboxes', signal);
-  for (const row of sandboxes.filter(row => related(row, resources))) {
+  const recordedSandboxes = new Set(resources.filter(r => r.kind === 'conversation').map(r => r.sandbox_id).filter(Boolean));
+  const deletedParents = new Set();
+  for (const row of sandboxes.filter(row => recordedSandboxes.has(row.id) || related(row, resources))) {
     const records = resources.filter(r => r.kind === 'conversation' && r.sandbox_id === row.id);
     need(records.length > 0, 'Unrecorded sandbox depends on recovery fixtures; retain parents and escalate');
-    need(['terminated', 'failed'].includes(row.status) || records.some(r => r.state !== 'cleaned'), 'A cleaned conversation still has a live sandbox');
-    need(records.every(r => row.agent_id === r.agent_id && row.environment_id === r.environment_id &&
-      (row.vault_id ?? null) === (r.vault_id ?? null) && row.mode === r.sandbox_mode), 'Sandbox ownership or mode differs');
+    const terminal = ['terminated', 'failed'].includes(row.status);
+    need(terminal || records.some(r => r.state !== 'cleaned'), 'A cleaned conversation still has a live sandbox');
+    for (const r of records) {
+      need(row.mode === r.sandbox_mode, 'Sandbox ownership or mode differs');
+      for (const kind of ['agent', 'environment', 'vault']) {
+        const field = `${kind}_id`, expected = r[field] ?? null;
+        if ((row[field] ?? null) === expected) continue;
+        // Parent deletion nilifies terminal sandbox history. Accept only an
+        // explicit null on this exact sandbox, with a fresh 404 for the
+        // recorded parent; journal state or collection absence is not proof.
+        need(terminal && row[field] === null && resources.some(parent => parent.kind === kind && parent.id === expected), 'Sandbox ownership or mode differs');
+        if (!deletedParents.has(expected)) {
+          const parent = await client.request('GET', `${kinds[kind]}/${expected}`, { expected: [200, 404], recordBody: false, signal });
+          need(parent.status === 404, 'Sandbox parent reference is null but the recorded parent still exists');
+          deletedParents.add(expected);
+        }
+      }
+    }
     need(Array.isArray(row.conversations) && row.conversations.every(c => ids.has(c.id)), 'Sandbox has an unrecorded co-tenant');
   }
   for (const r of resources.filter(r => r.kind === 'agent' && r.id && r.state !== 'cleaned')) {
@@ -182,7 +213,7 @@ export async function reconstructFixtures(client, evidence, manifestPath) {
   }
   await verifyRecoveryDependencies(client, resources, evidence.run_id, undefined, evidence);
   const manifest = { version: 1, base_url: client.baseUrl, owner_id: evidence.owner_id, run_id: evidence.run_id, resources,
-    recovery: { version: 1, ...Object.fromEntries(['profiles', 'ownership_evidence', 'writers_stopped', 'intent_inventory', 'buzz_absence_evidence'].map(k => [k, evidence[k]])) } };
+    recovery: { version: 1, ...Object.fromEntries(['profiles', 'ownership_evidence', 'writers_stopped', 'intent_inventory', 'buzz_absence_evidence', 'queue_settlement_evidence'].map(k => [k, evidence[k]])) } };
   atomicJson(manifestPath, manifest);
   // Use the cleanup reader as the final check, including its parent rules.
   Fixtures.load(manifestPath, client, evidence.owner_id);

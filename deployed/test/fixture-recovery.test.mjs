@@ -17,12 +17,17 @@ async function world(t) {
   const mutations = [], requests = [];
   let schedules = [];
   let buzzReply = { status: 200, body: { data: [] } };
+  const queue = [], deleteFailures = new Set(), lostDeleteReplies = new Set();
+  let queueReply;
   const server = createServer(async (req, res) => {
     requests.push(`${req.method} ${req.url}`);
     const url = new URL(req.url, 'http://localhost');
     const send = (code, body) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(body === undefined ? undefined : JSON.stringify(body)); };
     if (req.headers.authorization !== 'Bearer dedicated-test') return send(401, { error: 'unauthorized' });
     if (req.url === '/api/buzz/agents') return send(buzzReply.status, buzzReply.body);
+    if (req.url === '/api/sandbox-queue') return queueReply
+      ? send(queueReply.status, queueReply.body)
+      : send(200, { data: queue.filter(row => row.status === 'queued') });
     if (req.url === '/api/auth/me') return send(200, { id: ownerId, email_verified: true });
     if (req.url.match(/^\/api\/team\/.+\/schedules$/)) return send(200, { data: schedules });
     const kind = Object.keys(collections).find(k => url.pathname === collections[k] || url.pathname.startsWith(collections[k] + '/'));
@@ -43,9 +48,17 @@ async function world(t) {
       return send(row ? 204 : 404);
     }
     if (req.method === 'DELETE') {
+      if (deleteFailures.delete(kind)) return send(503, { error: 'transient deletion failure' });
       if (kind === 'sandbox' && row) row.status = 'terminated';
       else if (row) rows[kind].splice(rows[kind].indexOf(row), 1);
-      for (const sandbox of rows.sandbox) sandbox.conversations = sandbox.conversations.filter(c => c.id !== id);
+      for (const sandbox of rows.sandbox) {
+        sandbox.conversations = sandbox.conversations.filter(c => c.id !== id);
+        if (['agent', 'environment', 'vault'].includes(kind) && sandbox[`${kind}_id`] === id) sandbox[`${kind}_id`] = null;
+      }
+      if (kind === 'agent') {
+        for (let i = queue.length - 1; i >= 0; i--) if (queue[i].agent_id === id) queue.splice(i, 1);
+      }
+      if (lostDeleteReplies.delete(kind)) return send(503, { error: 'reply lost after committed deletion' });
       return send(row ? 204 : 404);
     }
     return send(405);
@@ -57,6 +70,7 @@ async function world(t) {
   const evidence = { version: 1, base_url: baseUrl, owner_id: ownerId, run_id: runId, profiles: ['execution'],
     ownership_evidence: 'Operator correlated the exact run UUID with the dedicated account and launch record.',
     writers_stopped: 'Original runner is dead and automatic retry is disabled. Every submitted create is listed.',
+    queue_settlement_evidence: 'Launch logs and suite revision establish no queue:true requests used these agents; all other writers are stopped.',
     intent_inventory: 'Suite revision and interruption checkpoint establish these exact submitted create intents.', resources: [] };
   function add(kind, attrs = {}) {
     const r = { kind, name: `suite-${runId}-${kind}-${evidence.resources.length}`, id: randomUUID() };
@@ -64,19 +78,23 @@ async function world(t) {
     rows[kind].push({ id: r.id, [kind === 'conversation' ? 'channel_id' : 'name']: r.name, ...attrs });
     return r;
   }
-  function conversation(mode = 'ephemeral') {
-    const environment = add('environment'), agent = add('agent', { environment_id: environment.id });
-    const sandbox = { id: randomUUID(), agent_id: agent.id, environment_id: environment.id, vault_id: null, mode, status: 'ready', conversations: [] };
-    const conv = add('conversation', { agent_id: agent.id, environment_id: environment.id, vault_id: null,
+  function conversation(mode = 'ephemeral', withVault = false) {
+    const environment = add('environment'), vault = withVault ? add('vault') : null;
+    const agent = add('agent', { environment_id: environment.id });
+    const sandbox = { id: randomUUID(), agent_id: agent.id, environment_id: environment.id, vault_id: vault?.id ?? null, mode, status: 'ready', conversations: [] };
+    const conv = add('conversation', { agent_id: agent.id, environment_id: environment.id, vault_id: sandbox.vault_id,
       sandbox_id: sandbox.id, sandbox, status: 'running', parent_conversation_id: null });
-    Object.assign(conv, { agent_id: agent.id, environment_id: environment.id, vault_id: null, sandbox_id: sandbox.id, sandbox_mode: mode });
+    Object.assign(conv, { agent_id: agent.id, environment_id: environment.id, vault_id: sandbox.vault_id, sandbox_id: sandbox.id, sandbox_mode: mode });
     sandbox.conversations.push({ id: conv.id }); rows.sandbox.push(sandbox);
-    return { environment, agent, conv, sandbox };
+    return { environment, vault, agent, conv, sandbox };
   }
   const manifestPath = join(dir, 'cleanup.json');
-  return { dir, ownerId, runId, client, evidence, rows, mutations, requests, add, conversation, manifestPath,
+  return { dir, ownerId, runId, client, evidence, rows, mutations, requests, add, conversation, manifestPath, queue,
     schedule: value => { schedules = value; },
     buzz: (body, status = 200) => { buzzReply = { body, status }; },
+    queueResponse: (body, status = 200) => { queueReply = { body, status }; },
+    failDelete: kind => deleteFailures.add(kind),
+    loseDeleteReply: kind => lostDeleteReplies.add(kind),
     reconstruct: () => reconstructFixtures(client, evidence, manifestPath),
     load: () => Fixtures.load(manifestPath, client, ownerId) };
 }
@@ -391,5 +409,133 @@ for (const response of [
     await assert.rejects(w.reconstruct());
     assert.deepEqual(w.mutations, []);
     assert.equal(existsSync(w.manifestPath), false);
+  });
+}
+
+for (const phase of ['reconstruction', 'replay']) {
+  test(`refuses waiting queue work during ${phase} before agent deletion could cascade it`, async t => {
+    const w = await world(t); const agent = w.add('agent');
+    if (phase === 'replay') await w.reconstruct();
+    const request = { id: randomUUID(), agent_id: agent.id, status: 'queued', conversation_id: null };
+    w.queue.push(request);
+    if (phase === 'reconstruction') {
+      await assert.rejects(w.reconstruct(), /queued request/);
+      assert.equal(existsSync(w.manifestPath), false);
+    } else {
+      const failures = await w.load().cleanup(AbortSignal.timeout(5000));
+      assert.match(failures[0]?.error, /queued request/);
+      assert.equal(w.load().remainingCount(), 1);
+    }
+    assert.ok(w.requests.includes('GET /api/sandbox-queue'));
+    assert.deepEqual(w.mutations, []);
+    assert.deepEqual(w.queue, [request], 'retain the request and its agent; do not cancel or adopt it');
+    assert.equal(w.rows.agent[0].id, agent.id);
+  });
+
+  test(`an empty waiting list cannot authorize ${phase} without claimed-work settlement evidence`, async t => {
+    const w = await world(t); const agent = w.add('agent');
+    if (phase === 'replay') await w.reconstruct();
+    w.queue.push({ id: randomUUID(), agent_id: agent.id, status: 'starting', conversation_id: null });
+    if (phase === 'reconstruction') {
+      delete w.evidence.queue_settlement_evidence;
+      await assert.rejects(w.reconstruct(), /queue settlement evidence/);
+      assert.equal(existsSync(w.manifestPath), false);
+    } else {
+      const fixtures = w.load(); delete fixtures.manifest.recovery.queue_settlement_evidence; fixtures.save();
+      const failures = await w.load().cleanup(AbortSignal.timeout(5000));
+      assert.match(failures[0]?.error, /queue settlement evidence/);
+      assert.equal(w.load().remainingCount(), 1);
+    }
+    assert.ok(w.requests.includes('GET /api/sandbox-queue'));
+    assert.deepEqual(w.mutations, []);
+    assert.equal(w.queue[0].status, 'starting', 'the waiting-only list omits claimed requests');
+    assert.equal(w.rows.agent[0].id, agent.id);
+  });
+}
+
+test('unrelated waiting work survives cleanup and queue settlement evidence survives repeat replay', async t => {
+  const w = await world(t); w.conversation();
+  const request = { id: randomUUID(), agent_id: randomUUID(), status: 'queued', conversation_id: null };
+  w.queue.push(request);
+  await w.reconstruct();
+  assert.equal(w.load().manifest.recovery.queue_settlement_evidence, w.evidence.queue_settlement_evidence);
+  assert.deepEqual(await w.load().cleanup(AbortSignal.timeout(5000)), []);
+  assert.deepEqual(await w.load().cleanup(AbortSignal.timeout(5000)), []);
+  assert.deepEqual(w.queue, [request]);
+  assert.equal(w.requests.filter(r => r === 'GET /api/sandbox-queue').length, 3);
+});
+
+for (const response of [
+  { status: 404, body: { error: 'not_found' } },
+  { status: 503, body: { error: 'unavailable' } },
+  { status: 200, body: {} },
+  { status: 200, body: { data: [{ id: randomUUID(), status: 'queued' }] } },
+  { status: 200, body: { data: [], has_more: true } },
+]) {
+  test(`unavailable or incomplete queue inventory fails closed (${JSON.stringify(response)})`, async t => {
+    const w = await world(t); w.add('agent');
+    await w.reconstruct();
+    w.queueResponse(response.body, response.status);
+    const failures = await w.load().cleanup(AbortSignal.timeout(5000));
+    assert.equal(failures[0]?.kind, 'recovery');
+    assert.equal(w.load().remainingCount(), 1);
+    assert.deepEqual(w.mutations, []);
+    rmSync(w.manifestPath);
+    await assert.rejects(w.reconstruct());
+    assert.equal(existsSync(w.manifestPath), false);
+    assert.deepEqual(w.mutations, []);
+  });
+}
+
+for (const mode of ['ephemeral', 'persistent']) {
+  for (const lostReply of [false, true]) {
+    test(`partial ${mode} cleanup retries after FK nulling${lostReply ? ' and a lost parent-delete reply' : ''}`, async t => {
+      const w = await world(t); const { agent, environment, vault, sandbox } = w.conversation(mode, true);
+      await w.reconstruct();
+      w.failDelete('environment');
+      if (lostReply) w.loseDeleteReply('agent');
+      const failures = await w.load().cleanup(AbortSignal.timeout(5000));
+      assert.ok(failures.some(f => f.kind === 'environment'));
+      assert.equal(sandbox.status, 'terminated');
+      assert.equal(sandbox.agent_id, null);
+      assert.equal(sandbox.vault_id, null);
+      assert.equal(sandbox.environment_id, environment.id);
+      assert.equal(w.load().manifest.resources.find(r => r.id === agent.id).state, lostReply ? 'created' : 'cleaned');
+      const count = w.mutations.length;
+      const requestCount = w.requests.length;
+      assert.deepEqual(await w.load().cleanup(AbortSignal.timeout(5000)), []);
+      assert.deepEqual(w.mutations.slice(count), [`DELETE /api/environments/${environment.id}`]);
+      assert.ok(w.requests.slice(requestCount).includes(`GET /api/agents/${agent.id}`), 'verify the deleted agent by exact ID on this retry');
+      assert.ok(w.requests.slice(requestCount).includes(`GET /api/vaults/${vault.id}`), 'verify the deleted vault by exact ID on this retry');
+      assert.equal(sandbox.environment_id, null);
+      assert.equal(w.load().remainingCount(), 0);
+      assert.deepEqual(await w.load().cleanup(AbortSignal.timeout(5000)), []);
+      assert.equal(w.mutations.length, count + 1, 'all-null terminal history remains an idempotent no-op');
+    });
+  }
+}
+
+for (const scenario of ['live', 'foreign-parent', 'mode', 'cotenant', 'sandbox-id', 'missing-field', 'parent-present']) {
+  test(`a terminal sandbox's deleted-parent allowance still refuses ${scenario}`, async t => {
+    const w = await world(t); const { agent, sandbox } = w.conversation();
+    await w.reconstruct();
+    w.failDelete('environment');
+    if (scenario === 'parent-present') w.failDelete('agent');
+    assert.ok((await w.load().cleanup(AbortSignal.timeout(5000))).length > 0);
+    if (scenario === 'live') sandbox.status = 'ready';
+    if (scenario === 'foreign-parent') sandbox.agent_id = randomUUID();
+    if (scenario === 'mode') sandbox.mode = 'persistent';
+    if (scenario === 'cotenant') sandbox.conversations.push({ id: randomUUID() });
+    if (scenario === 'sandbox-id') sandbox.id = randomUUID();
+    if (scenario === 'missing-field') delete sandbox.agent_id;
+    if (scenario === 'parent-present') {
+      sandbox.agent_id = null;
+      assert.equal(w.rows.agent[0].id, agent.id);
+    }
+    const count = w.mutations.length;
+    const failures = await w.load().cleanup(AbortSignal.timeout(5000));
+    assert.equal(failures[0]?.kind, 'recovery');
+    assert.equal(w.mutations.length, count, 'retain the remaining environment without further mutations');
+    assert.ok(w.load().remainingCount() > 0);
   });
 }

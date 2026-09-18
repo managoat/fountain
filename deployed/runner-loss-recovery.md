@@ -80,6 +80,17 @@ Review `/tmp/recovery-inventory/evidence.json` and fill:
   exact missing names from request logs or the profile's known execution
   point even when no resource is currently visible. Omit `id` when unknown;
   never invent one or copy it from an unrelated resource.
+- `queue_settlement_evidence`: required when recovering agents. Record how
+  launch logs and the suite revision establish that no `queue: true` requests
+  used those agents, or how the operator established every accepted request's
+  outcome and accounted for any resulting resources. `GET /api/sandbox-queue`
+  lists only waiting requests; claimed/`starting` work is omitted. For a known
+  request, `GET /api/sandbox-queue/:id` can establish its current status, but
+  unknown request IDs or unsettled outcomes require operator escalation.
+  An empty waiting list, a dead runner or this note alone cannot establish
+  settlement. Stop other writers before recording this evidence; do not
+  infer it from the selected profile alone. Older reconstructed manifests
+  with agents also need this reviewed note in their `recovery` object.
 - `buzz_absence_evidence`: leave empty when `GET /api/buzz/agents` returns
   its identity inventory. If the extension route returns the host's 404,
   record the deployment operator's evidence that no stored Buzz identities
@@ -149,12 +160,24 @@ sandboxes, changed parent names and agent schedules. The public Buzz identity
 inventory is also checked on reconstruction and every replay: any identity
 referencing a recovered agent, environment or vault refuses cleanup, even with
 no conversation or sandbox. Buzz identities are not adopted or deleted by
-this tool. Refusal retains parents
-as evidence. Cleanup then terminates recorded
+this tool. The public waiting queue is checked whenever agents are recorded;
+a request referencing a recovered agent blocks the pass before agent deletion
+could cascade it. Queue requests are separate ownership evidence and are
+neither adopted nor cancelled. The waiting list supplements the operator's
+settlement evidence; it cannot replace it. Refusal retains parents as evidence.
+Cleanup then terminates recorded
 conversations, verifies their sandbox is terminal (and resets only an exactly
 owned persistent home), deletes conversations, and finally deletes parents.
 A new sandbox discovered after reconstruction can require a fresh inventory
 and reviewed reconstruction; refusal does not mean it was cleaned.
+
+If a pass deletes some parents and then fails, their database references on
+terminal sandbox history become `null`. Replay accepts that transition only
+for the exact recorded sandbox and after a fresh parent-by-ID lookup confirms
+its absence. Sandbox mode and co-tenant checks still apply. Live sandboxes,
+non-null foreign references and cleared references to parents that still
+exist refuse the pass. Recorded sandboxes remain checked even after every
+parent reference has been cleared, so a revived sandbox cannot pass unnoticed.
 
 Recovery is bounded to 100 intents, 1,000 rows per public collection, a
 2 MiB response, and two minutes for reconstruction. Oversized or paginated

@@ -91,15 +91,17 @@ and is deliberately kept out of `refused`.
 `reconciled` counts the deletions the reaper finished for somebody else. A
 deletion records its intent on the machine first and deletes it second, so a
 Fountain server that dies between the two leaves a machine nobody is deleting
-and nothing else can see. Fifteen minutes later the reaper finishes it: the
-machine is deleted at the provider on that same run and the trail records both
+and nothing else can see. Once it is fifteen minutes old, the reaper's next
+hourly run finishes it: the machine is deleted at the provider on that run and the trail records both
 `sandbox.destroyed` and `sandbox.teardown_reconciled`. So a non-zero value is
 not routine reclamation — it says a deletion was abandoned somewhere upstream,
 and the number is how many.
 
-A reaper run parks or reclaims at most a fixed number of machines, and the
-abandoned deletions it finishes come out of that same number, so a large
-backlog drains over several runs rather than all at once.
+A reaper run parks or reclaims at most a fixed number of machines. The
+abandoned deletions it finishes are guaranteed a small share of their own on
+top of that, so a steady stream of ordinary expiries cannot hold one back
+indefinitely. A large backlog of either still drains over several runs rather
+than all at once.
 
 ## Related
 

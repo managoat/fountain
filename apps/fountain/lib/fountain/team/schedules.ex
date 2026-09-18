@@ -460,7 +460,7 @@ defmodule Fountain.Team.Schedules do
   # Not "busy" and not a retry: the fence's own owner finishes the job, and a
   # run against a computer being deleted has nowhere to go.
   def describe_error(:sandbox_reset_pending),
-    do: "teammate's computer is being reset"
+    do: "teammate's computer is being reset or deleted"
 
   def describe_error({:sandbox_quota_exceeded, %{count: c, limit: l}}),
     do: "sandbox quota: #{c}/#{l}"

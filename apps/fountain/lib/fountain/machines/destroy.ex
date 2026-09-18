@@ -644,7 +644,14 @@ defmodule Fountain.Machines.Destroy do
 
     [
       actor: Keyword.fetch!(opts, :actor),
-      reason: Keyword.get(opts, :fence_reason) || to_string(reason)
+      reason: Keyword.get(opts, :fence_reason) || to_string(reason),
+      # The row's word, in this module's own vocabulary — the same one
+      # `stamp_then_destroy/3` writes a step later. The fence commits first and
+      # the stamp only follows it, so an owner that dies between the two leaves
+      # this value for `SandboxReaper`'s driver to hand back through
+      # `reason_from_string/1`. Without it every such row read `teardown`, and
+      # the sweep recorded a reason the caller never gave (review, round 2).
+      transition_reason: reason
     ]
     |> put_unless_nil(:request_ip, Keyword.get(opts, :request_ip))
     # Merged into `sandbox.teardown_requested` by the fence, for a caller whose

@@ -20,6 +20,7 @@ defmodule Fountain.Machines.DestroyTest do
   alias Fountain.Audit
   alias Fountain.Conversations
   alias Fountain.Conversations.ConversationServer
+  alias Fountain.Conversations.Lifecycle
   alias Fountain.Conversations.Sandbox
   alias Fountain.Machines.Destroy
   alias Fountain.Machines.Lease
@@ -119,6 +120,48 @@ defmodule Fountain.Machines.DestroyTest do
 
     assert {:ok, ^pid} = ConversationServer.await_registered(conversation_id, 2_000)
     pid
+  end
+
+  describe "an owner that dies between the fence and its own stamp" do
+    # The fence commits and the owner's intent stamp follows it
+    # (`fence_then_destroy/3`), so for one write the row carries only what the
+    # fence wrote. An owner that dies there leaves that value for
+    # `SandboxReaper`'s driver, which reads `transition_reason` back to record
+    # why the machine was destroyed. These read the row at exactly that instant
+    # — after the real fence has committed, before the stamp — which is the one
+    # place a missing reason shows: by the provider call the stamp has already
+    # rewritten it, so a test that looked there would pass either way.
+    #
+    # The row is recorded from inside the fence and asserted on outside it: the
+    # protocol rescues what its steps raise, so an assertion inside the stub
+    # could fail without failing the test.
+    for reason <- [:terminated, :idle, :max_lifetime, :admin_reap, :provider_gone, :replaced] do
+      test "leaves `#{reason}` on the row for the driver, not `teardown`", ctx do
+        test = self()
+        reason = unquote(reason)
+
+        expect(Lifecycle, :fence_sandbox_for_teardown, fn sandbox, fence_opts ->
+          result =
+            Mimic.call_original(Lifecycle, :fence_sandbox_for_teardown, [sandbox, fence_opts])
+
+          send(test, {:after_fence, Repo.reload!(ctx.sandbox)})
+          result
+        end)
+
+        stub(Managoat.Sandbox, :destroy, fn _ -> :ok end)
+
+        assert {:ok, :destroyed} = Destroy.run(ctx.sandbox.id, opts(ctx, reason: reason))
+
+        assert_received {:after_fence, fenced}
+        assert fenced.transition == "destroying"
+
+        assert fenced.transition_reason == Atom.to_string(reason),
+               "the fence stamped #{inspect(fenced.transition_reason)}; an owner dying " <>
+                 "here would have the driver record that instead of #{inspect(reason)}"
+
+        assert Destroy.reason_from_string(fenced.transition_reason) == reason
+      end
+    end
   end
 
   describe "the happy path" do

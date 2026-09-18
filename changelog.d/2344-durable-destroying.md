@@ -34,5 +34,6 @@
   standing backlog of expiring computers, an abandoned deletion of an
   *ephemeral* computer had no route to completion at all: it kept billing, kept
   holding a slot against your concurrent computer limit, and answered `409` to
-  every prompt. A small part of each run's allowance is now reserved for
-  finishing them, so a backlog delays that work rather than preventing it.
+  every prompt. Each run now guarantees them a small
+  allowance of their own, on top of what ordinary reclamation spends, so a
+  backlog delays that work rather than preventing it.

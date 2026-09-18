@@ -1,5 +1,3 @@
-Code.require_file("config/hex_advisories.exs", __DIR__)
-
 defmodule Fountain.Umbrella.MixProject do
   use Mix.Project
 
@@ -10,21 +8,20 @@ defmodule Fountain.Umbrella.MixProject do
       # computes the next tag from this value.
       version: "0.20.1",
       hex: [
-        ignore_advisories:
-          [
-            # cowlib 2.19.0 is already the newest Hex release, OSV lists no fixed
-            # Hex version, and Fountain serves HTTP with Bandit rather than Cowboy.
-            "EEF-CVE-2026-43969",
-            # cowlib 2.19.0 is already the newest Hex release, OSV lists no fixed
-            # Hex version, and Fountain serves HTTP with Bandit rather than Cowboy.
-            "EEF-CVE-2026-43971",
-            # cowlib 2.19.0 is already the newest Hex release, OSV lists no fixed
-            # Hex version, and Fountain serves HTTP with Bandit rather than Cowboy.
-            "EEF-CVE-2026-43966",
-            # gun 2.5.0 is already the newest Hex release, OSV lists no fixed Hex
-            # version, and Fountain serves HTTP with Bandit rather than Cowboy.
-            "GHSA-w4f7-4cxr-rv3c"
-          ] ++ Fountain.Build.HexAdvisories.for_lock(Path.join(__DIR__, "mix.lock"))
+        ignore_advisories: [
+          # cowlib 2.19.0 is already the newest Hex release, OSV lists no fixed
+          # Hex version, and Fountain serves HTTP with Bandit rather than Cowboy.
+          "EEF-CVE-2026-43969",
+          # cowlib 2.19.0 is already the newest Hex release, OSV lists no fixed
+          # Hex version, and Fountain serves HTTP with Bandit rather than Cowboy.
+          "EEF-CVE-2026-43971",
+          # cowlib 2.19.0 is already the newest Hex release, OSV lists no fixed
+          # Hex version, and Fountain serves HTTP with Bandit rather than Cowboy.
+          "EEF-CVE-2026-43966",
+          # gun 2.5.0 is already the newest Hex release, OSV lists no fixed Hex
+          # version, and Fountain serves HTTP with Bandit rather than Cowboy.
+          "GHSA-w4f7-4cxr-rv3c"
+        ]
       ],
       deps: deps(),
       releases: releases(),

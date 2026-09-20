@@ -71,10 +71,22 @@ What the codebase has today, verified against `main` at `9122474f`:
   alongside the `user_id` and `generation`
   (`chatgpt_accounts.ex:133,150` at `105fb6d1`). Its **lookup half assumes
   one**: `status_for_user/1` selects `where: a.user_id == ^user_id` with no
-  grant id and ends in `Repo.one()` (`chatgpt_accounts.ex:97-114`), which
-  raises `Ecto.MultipleResultsError` the moment a user holds two. The
-  revert is a starting point for decisions 3 and 6; every
-  read-the-user's-grant call site is new work.
+  grant id and ends in `Repo.one()` (`chatgpt_accounts.ex:97-119`), which
+  raises `Ecto.MultipleResultsError` the moment a user holds two. Nothing
+  deleted ever *chose* a grant: at `105fb6d1` there were no production
+  callers of any `*_for_user` function, because 0052's selection half was
+  never built. The revert is a starting point for decisions 3 and 6; the
+  lookup entry point and all of selection are new work.
+- The revert has one merge hazard. #2188's deletions were `73fe870d`
+  (#2198, the workers, sweep, coordinator and supervisor) and `4563e3df`
+  (#2199, the reads, the typed `Grant` and `ProtectedCompiler`), together
+  about 715 lib and 1,447 test lines, and **no column or index was
+  dropped**. But #2362 (`231773be`) later rewrote `do_refresh`,
+  `current_result`, `current_query` and `swap_in` — the same functions whose
+  owner branches #2199 stripped — so those have to be re-threaded by hand.
+  The whole-file deletions and the `application.ex` / `config.exs` wiring
+  revert mechanically, and `Cipher` and `RefreshLock` are unchanged since
+  `105fb6d1`.
 - `Source` (0053 decision 2) already anticipates this work: "Add `set_id`
   with named sets, and owner scope, `grant_id`, `generation` and matching
   provider-account metadata with managed grants."
@@ -121,6 +133,13 @@ NOT NULL")`. Add a `name`, non-null for a user grant, and
 place. Leave `platform_chatgpt_account_platform_row` alone: the deployment
 still has exactly one grant of its own, and the platform row keeps its NULL
 name.
+
+Add a second partial unique index on `[:user_id, :account_id]` so a user
+cannot link the **same** ChatGPT account twice under two names. Two rows for
+one upstream account would give one subscription two independent refresh
+chains, two generations and two sets of broker rules over a single quota —
+distinct rows that OpenAI cannot tell apart. Reconnecting an existing
+account is a reconnect of that grant, not a second link.
 
 Keep the table and its historical name, as 0052 decision 1 already decided.
 Renaming it is a migration that buys nothing; the create migration's comment
@@ -222,15 +241,35 @@ before the next run rather than discovering it mid-turn.
 0052 decision 3 is inherited whole: request coalescing by grant id, a
 per-grant PostgreSQL advisory lock tried without waiting, writes fenced by
 grant id, generation, `lock_version` and active state, and refresh both
-before expiry and before a turn. It was already written per grant, so
-several grants per user need no new coordination model.
+before expiry and before a turn.
 
-What changes is volume. Keepalive fans out over active refreshable grants in
-bounded batches with jitter, one job per grant, and the batch size and
-concurrency are sized for the grant count rather than the user count. Bound
-refresh-worker concurrency and HTTP timeouts so lock holders cannot exhaust
-the DB pool — 0052 decision 3's constraint, now load-bearing, because a
-single user can multiply the work.
+**One lock has to change, and it is not the one 0052 names.**
+`ChatGPTAccounts.RefreshLock` is already per grant — it keys on
+`:erlang.phash2(grant_id)` under namespace `52_001`
+(`chatgpt_accounts/refresh_lock.ex:42`) — so the refresh path itself
+survives. But every grant *write* also takes
+`InferenceCredentials.lock_platform_source/0`, a single deployment-wide
+advisory key `hashtextextended('inference:platform', 0)`
+(`inference_credentials.ex:612`), from `store/3`, `platform_disconnect/1`,
+`swap_in/3`, `mark_revoked/2`, `mark_expired/1` and `write_exhaustion/4`.
+Worse, `lock_source/1` (`inference_credentials.ex:604`) takes that same key
+**shared** before every `resolve/4`. With one platform grant that is a
+non-event. With many user grants it serializes every grant's refresh against
+every user's credential resolution, deployment-wide.
+
+Key that lock by owner — the platform row keeps `'inference:platform'`, a
+user grant takes a per-user or per-grant key — so one user's reconnect
+cannot block another user's turn admission. This is new work that 0052 did
+not anticipate, because at one grant per deployment the contention did not
+exist.
+
+The rest is volume. Keepalive today is one cron entry refreshing one row
+(`workers/platform_chatgpt_keepalive.ex:23`, `config/config.exs:100`); it
+becomes a fan-out over active refreshable grants in bounded batches with
+jitter, one job per grant, sized for the grant count rather than the user
+count. Bound refresh-worker concurrency and HTTP timeouts so lock holders
+cannot exhaust the DB pool — 0052 decision 3's constraint, now load-bearing,
+because a single user can multiply the work.
 
 Keep the interval provisional until 0047's measurement 5 is recorded, and
 size the fan-out from the measured lifetime rather than from the 10-day
@@ -246,7 +285,23 @@ access-token figure alone.
   so two of one user's subscriptions in one shared sandbox cannot overwrite
   each other's account file. 0052 decision 5 required this for a user grant
   against a platform one; several grants per user makes the collision
-  reachable within a single account.
+  reachable within a single account. Three specific things stand in the way
+  and are work, not inheritance: `CodexChatGPT.auth_path/0`
+  (`conversations/codex_chatgpt.ex:118`) is a fixed `$CODEX_HOME/auth.json`;
+  `CodexChatGPT.prepare_sandbox/3` (`:80,89`) reaches for the global
+  `ChatGPTAccounts.platform_sandbox_auth/0` and is passed no user,
+  conversation or `Source` by its caller (`conversations/provisioning.ex:994`),
+  which is exactly the lookup 0052 decision 5 said to eliminate; and the
+  broker derives a credential's placeholder from the env-var name alone
+  (`broker.ex:250`), so **two grants produce the identical
+  `__codex_chatgpt_access_token__`** and `Broker.@inference`
+  (`broker.ex:295-309`) holds one entry per name per conversation. Carrying
+  two grants into one sandbox needs the placeholder and the broker entry to
+  be per grant, not per key name.
+- Identify the grant by id and generation, never by its token. `Egress`
+  currently recognises the credential to refresh by comparing token strings
+  (`conversations/egress.ex:136`), which 0052 decision 4 forbids outright
+  and which cannot distinguish two grants at all.
 - Owner scope, grant id and generation persist as broker authorization data
   on each managed rule; disconnect and replacement fence and invalidate in
   the same transaction; the broker authorizes every credential-bearing
@@ -257,9 +312,15 @@ access-token figure alone.
   refuses configuration that names `CODEX_CHATGPT_ACCESS_TOKEN` or its
   placeholder, for every grant, and keeps doing so.
 - A user grant produces `inference_origin: :own`: no platform inference
-  debit and no platform daily-ceiling consumption. The usage stamp records
-  **which** grant served the turn, not merely that a user grant did, so
-  reconnect, restart or a repointed set cannot relabel usage.
+  debit and no platform daily-ceiling consumption. This is not automatic —
+  `Source.platform?/1` (`inference_credentials/source.ex:38`) is the only
+  origin signal today, and it is what charges the deployment ceiling at
+  `conversations/turn_machine.ex:1099` and `platform_inference.ex:441`. A
+  user grant that resolved as `:platform`, as the platform grant does now,
+  would burn the deployment's ceiling on the user's own subscription. The
+  usage stamp records **which** grant served the turn, not merely that a
+  user grant did, so reconnect, restart or a repointed set cannot relabel
+  usage.
 
 Audit events — connected, renamed, reconnect-required, disconnected — are
 tenant events with an explicit actor and carry the grant id and name, never
@@ -271,10 +332,15 @@ Each stage is its own PR; 0052's adversarial cases are required for the
 platform grant and for **two grants of one user**, which is the new case.
 
 1. **The table and the context.** Index swap, `name`, the cap, and
-   owner-scoped reads and writes rebuilt from `105fb6d1` for many grants.
-   No user surface yet. Tests: two grants for one user, a third refused at
-   the cap, name uniqueness per user, cross-user read refused, wrong-DEK
-   failure, the platform row unaffected by every one of them.
+   owner-scoped reads and writes rebuilt from `105fb6d1` for many grants —
+   re-threading the four functions #2362 rewrote, and replacing
+   `status_for_user/1` with a list. Re-key the `'inference:platform'`
+   advisory lock by owner (decision 5) in this stage, before anything can
+   contend on it. No user surface yet. Tests: two grants for one user, a
+   third refused at the cap, name uniqueness per user, the same upstream
+   account refused a second link, cross-user read refused, wrong-DEK
+   failure, one user's write not blocking another user's resolve, and the
+   platform row unaffected by every one of them.
 2. **Selection.** `chatgpt_grant_id` on the set, resolution through
    `Source` with `grant_id` and `generation`, cross-owner naming refused.
    Tests: an agent on set A and an agent on set B of one user resolve to

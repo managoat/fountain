@@ -614,21 +614,73 @@ defmodule Fountain.PlatformChatGPTTest do
       {:ok, source, _} =
         InferenceCredentials.resolve(user.id, "openai/gpt-5.5-codex", "codex", [])
 
+      assert :ok = InferenceCredentials.validate_source(user.id, source)
+
       stub_refusal()
       assert :ok = Fountain.Conversations.CodexChatGPT.ensure_fresh(user.id, source)
-      # The proxy refuses it, by name, and the next validation sees the change.
       assert %Account{status: "revoked"} = row()
+
+      # The proxy refuses it, by name: no credential for a revoked grant.
+      ref = Fountain.Conversations.CodexChatGPT.managed_grant(source, user.id)
+      assert {:error, :denied} = ChatGPTAccounts.protected_credential(ref, "acct_platform_1")
+
+      # And the next validation sees the change.
+      assert {:error, :inference_source_changed} =
+               InferenceCredentials.validate_source(user.id, source)
     end
 
-    test "refresh_before_turn/1 leaves a conversation on the grant alone: no token, no rewrite" do
-      assert {state, false} =
-               Egress.refresh_before_turn(%{
-                 broker: nil,
-                 brokered: %{},
-                 inference_credentials: %{}
-               })
+    test "refresh_before_turn/1 leaves a conversation on the grant alone across a rotation" do
+      broker_on()
+      old = access_token(60)
+      connect!(%{access_token: old})
+      user = insert_verified_user()
 
-      assert state.brokered == %{}
+      {:ok, source, creds} =
+        InferenceCredentials.resolve(user.id, "openai/gpt-5.5-codex", "codex", [])
+
+      {:ok, dek} = Crypto.load_tenant_key(user.id)
+
+      session = %{
+        vault: "c-test",
+        token: "fb_live",
+        expires_at: DateTime.add(DateTime.utc_now(), 3600)
+      }
+
+      state = %{
+        conversation_id: Ecto.UUID.generate(),
+        user_id: user.id,
+        tenant_key: dek,
+        broker: session,
+        brokered: %{},
+        tenant_keys: [],
+        connection_keys: [],
+        secret_sources: nil,
+        broker_bindings: %{},
+        inference_credentials: creds,
+        inference_source: source,
+        inference_model: "openai/gpt-5.5-codex",
+        broker_network: :unrestricted,
+        sprite_env: []
+      }
+
+      # The rotation the previous release answered by rewriting the rules.
+      new_access = access_token(7_200, %{"n" => 2})
+      stub_refresh(%{access_token: new_access})
+      assert :ok = ChatGPTAccounts.platform_ensure_fresh()
+      assert decrypt!(row().access_token_ciphertext) == new_access
+
+      stub(Broker, :refresh, fn _, _, _, _ -> flunk("a rotated grant rewrites no rule") end)
+      stub(Broker, :prepare, fn _, _, _, _ -> flunk("a rotated grant mints no session") end)
+
+      assert {next, false} = Egress.refresh_before_turn(state)
+      assert next.broker == session
+      assert next.brokered == %{}
+      assert next.inference_credentials == creds
+
+      for token <- [old, new_access] do
+        refute inspect(next, limit: :infinity, printable_limit: :infinity) =~ token
+      end
+
       refute function_exported?(Egress, :refresh_platform_chatgpt, 2)
       refute function_exported?(Egress, :refresh_platform_chatgpt, 3)
     end

@@ -197,10 +197,11 @@ defmodule Fountain.InferenceCredentials.Resolver do
 
   # From the row's metadata alone. A token inside its refresh margin, or past
   # it, is usable here as the platform grant's is: renewing is the turn's
-  # business, outside this lock. Exhaustion is read but never yet written for
-  # a user's grant (ADR 0060 stage 5). Public behind
-  # `InferenceCredentials.grant_state/1`, so that a page showing a grant's
-  # state shows this reading and not one of its own.
+  # business, outside this lock. Exhaustion is what
+  # `ChatGPTAccounts.confirm_exhausted_for_user/3` recorded, and it refuses
+  # the grant until the reset passes: nothing below is tried in its place.
+  # Public behind `InferenceCredentials.grant_state/1`, so that a page showing
+  # a grant's state shows this reading and not one of its own.
   def grant_state(nil), do: {:not_found, nil}
 
   def grant_state(view) do

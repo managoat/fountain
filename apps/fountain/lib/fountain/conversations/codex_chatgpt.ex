@@ -206,6 +206,7 @@ defmodule Fountain.Conversations.CodexChatGPT do
       reason: "chatgpt_grant_unusable",
       grant_reason: Atom.to_string(reason),
       grant_id: detail[:grant_id],
+      until: detail[:until],
       message: Fountain.InferenceCredentials.grant_unusable_message(detail),
       retryable: false
     }

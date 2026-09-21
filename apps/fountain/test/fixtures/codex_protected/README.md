@@ -62,6 +62,9 @@ one client version's request shape. The capture predates the current
 `managoat_runtimes` pin (it was taken against the 0.4.1 pin named above; the
 lock file has since moved to 0.4.5), so **re-run the probe against the adapter
 and CLI the deployed image installs, and refresh `capture.json`, before any
-grant is served through the protected path in production.** A new required
+grant is served through the protected path in production.** The first such
+grant is the deployment's own (ADR 0047), which ADR 0060's platform move puts
+on this path; that move is gated on this re-run and on one hosted turn (ADR
+0060, "The platform move is gated on a measurement"). A new required
 header shows up here as a failing replay test; a new required *route* does not,
 and would be a 403 at the proxy.

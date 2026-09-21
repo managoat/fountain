@@ -42,9 +42,11 @@ conversation, and for a set that names no grant it resolves exactly what it
 did. **The deployment's own grant (0047) moved onto the new path in a
 change of its own (stage 3b, #2458)** (see
 [Stage 3 as built](#stage-3-as-built), item 4): that is the one part of
-this ADR that changes what a running deployment does. The two measurements
-and the two broker gates named there are still owed **before the flag is
-turned on for anyone**. What stage 1 left running is
+this ADR that changes what a running deployment does, and **it is gated on
+a measurement nobody has taken**
+([The platform move is gated on a measurement](#the-platform-move-is-gated-on-a-measurement)).
+The two measurements and the two broker gates named there are still owed
+**before the flag is turned on for anyone**. What stage 1 left running is
 `ChatGPTAccounts.RefreshSupervisor`, a task supervisor and the refresh
 coordinator, which start idle on every node; since stage 5b they serve the
 keepalive's jobs as well as a turn's renewal. The Context section describes
@@ -1007,16 +1009,53 @@ Five things stage 3 settled or found:
      and its reset is published behaviour (0047 decision 6 as amended by
      #2362); lifting the binding would change it, and is a decision of its
      own.
-   - **Not measured**, like the rest of this stage: the route list against
-     the client the image installs today, and a real turn through the
-     protected path. For the platform grant that is a measurement of a
-     feature in production, and it should be taken before this change is
-     deployed, not after.
+   - **Not measured, and gated on it.** The route list against the client
+     the image installs today, and a real turn through the protected path.
+     For the platform grant that is a feature in production, so the move
+     does not merge before it: see
+     [The platform move is gated on a measurement](#the-platform-move-is-gated-on-a-measurement).
 5. **The published wording of `codex_inference_conflict` was left alone.**
    `Schemas`, the fallback message and `docs/configuration.md` say a shared
    Codex sandbox requires the same resolved source. That stays true of every
    source an account can hold until stage 4, which regenerates the contract
    for `chatgpt_grant_id` and rewords it then.
+
+### The platform move is gated on a measurement
+
+**Do not merge or deploy item 4's change until
+`scripts/probe-codex-protected.py` has been run against the codex-acp and
+codex CLI the sandbox image installs, and one real hosted codex turn on the
+deployment's account has succeeded through the protected path. Record the
+result in [0047](0047-codex-platform-chatgpt-account.md), under Measured.**
+Nobody who wrote or reviewed the change could take it: it needs the
+deployment's ChatGPT account and a sandbox built from the production image.
+
+Why this one is a gate and the rest of the stage's unmeasured list is not:
+everything else on this path is reachable by no user until stage 4. The
+platform grant has run production turns since 2026-09-08, and item 4 moves
+every one of them onto a path whose two assumptions were read from the
+client's source and not observed:
+
+- *That `POST /backend-api/codex/responses` is the only thing the client
+  needs from `chatgpt.com`.* The capture in `test/fixtures/codex_protected`
+  predates the current `managoat_runtimes` pin. And 0047's own measurement 2
+  counted 40 requests to `chatgpt.com` in one turn, one of them answered
+  204, on the path where every route on that host was served; it did not
+  record their targets, and a streamed Responses call answers 200. On the
+  protected path every other route is a 403 at the proxy. Whether the
+  client shrugs that off or fails the turn is what the hosted turn shows.
+- *That codex-acp and the codex CLI honour `CODEX_HOME`.* If they do not,
+  they read `~/.codex/auth.json`, which no grant writes any more.
+
+**What failure looks like.** Every codex turn on the deployment's account
+fails, from its first request: a 403 from the broker on a `chatgpt.com`
+route in `/admin/broker`'s denied table, or codex reporting that it is not
+signed in. **The #2362 fallback to the platform API key does not fire**,
+because the grant is `active` and not exhausted, so new conversations keep
+being selected onto it. The way out is to disconnect the account at
+`/admin/inference`, which sends codex conversations to
+`PLATFORM_OPENAI_API_KEY` where one is set, or to revert the change, whose
+migration has nothing to undo.
 
 **After review.** Two reviews of this stage, one for security and one for
 correctness, found nothing of high severity. What they changed is in the

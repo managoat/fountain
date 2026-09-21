@@ -48,7 +48,11 @@ reconnected mid-turn fails at the proxy on its next request with a 403,
 rather than running on until its next turn. The transport, the ACP peer's
 `:none` auth and the selection rule of decision 6 are unchanged, including
 what a persistent home does across the account's usage limit. **None of the
-measurements below was repeated on the new path.**
+measurements below was repeated on the new path, and the move does not
+merge or deploy until one is**: measurement 6 under [Measured](#measured),
+and 0060's
+[The platform move is gated on a measurement](0060-many-user-chatgpt-subscriptions.md#the-platform-move-is-gated-on-a-measurement)
+for why and for what a failure looks like.
 
 **[0060](0060-many-user-chatgpt-subscriptions.md) stage 5 (2026-09-21)
 amends decision 6 as amended by #2362, for a user's own subscription
@@ -486,6 +490,7 @@ sandbox dialled the broker over the container's host gateway.
 | 3 | **Rotation.** Refresh with `curl`, reuse the old token, refresh again with the new one, refresh a garbage token, refresh a mangled one. | Decision 5, and the whole premise. | **Refresh tokens rotate but are not single-use.** Every refresh returns a new refresh token, `expires_in: 864000`, and `earliest_refresh_at` about nine days out (advisory: an immediate second refresh succeeded). **Reusing the old token returned 200 and forked a second chain**, and both chains kept working. The terminal shapes are a 401 with `error.code = refresh_token_reused` (which the server also answers a garbage token with) and a 400 `invalid_refresh_token_ciphertext_integrity` for a corrupted one; `Fountain.PlatformChatGPT.OAuth` treats both as terminal. The brief's "first sandbox to refresh kills every other copy" did not reproduce today; the design stands on its other merits (the refresh token never leaves the server). |
 | 4 | **Device flow from a non-CLI caller.** The three calls from Elixir with Req and Codex's client id, the code approved on `auth.openai.com/codex/device`. | Whether G3's Connect is real. | **Passes.** The server issued a code with a 5 s interval, approval landed 20 s later, and the exchange returned a refresh token, an id_token with the account id and plan, and a ten-day access token. The account had device-code login switched on in ChatGPT security settings first. |
 | 5 | **Idle lifetime.** The second sign-in is left untouched; refresh it on day 9 (2026-09-17) and day 30 (2026-10-08). | The keepalive interval in decision 3. | **Pending.** Nothing before 2026-09-17 can settle it. |
+| 6 | **The protected path, on the client the image installs.** `scripts/probe-codex-protected.py` against that codex-acp and codex CLI, with `test/fixtures/codex_protected/capture.json` refreshed; then one hosted codex turn on the deployment's account with 0060's platform move in place, reading `/admin/broker` for any `chatgpt.com` request that was not `POST /backend-api/codex/responses`. | Whether 0060's move of this grant onto the protected path may merge and deploy: that one route is enough, and that the client reads the `auth.json` in its `CODEX_HOME`. | **Not taken. The move is gated on it.** Measurement 2 is not a substitute: it ran where every `chatgpt.com` route was served, did not record the 40 requests' targets, and one of them was answered 204, which a streamed Responses call is not. |
 
 Three things the measurements found that the reading of the source had not:
 

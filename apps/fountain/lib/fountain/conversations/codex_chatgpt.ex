@@ -56,13 +56,18 @@ defmodule Fountain.Conversations.CodexChatGPT do
       #1910 prefers, is not set here.
     * the placeholder is the grant's own (`Reserved.placeholder/1`).
 
-  **Not measured against a real client.** `managoat_runtimes` fixes codex's
-  config root (`Managoat.Runtimes.Layout`) and neither it nor `managoat_acp`
-  reads `CODEX_HOME`; the symlinked home is Fountain's way round that without
-  a library release. That codex-acp and the codex CLI honour `CODEX_HOME`,
+  **Not measured against a real client, and the deployment's grant is on
+  this path too.** `managoat_runtimes` fixes codex's config root
+  (`Managoat.Runtimes.Layout`) and neither it nor `managoat_acp` reads
+  `CODEX_HOME`; the symlinked home is Fountain's way round that without a
+  library release. That codex-acp and the codex CLI honour `CODEX_HOME`,
   resume a session through a linked `sessions/`, and find skills through a
-  linked `skills/` is asserted from their source, not observed. It has to be
-  measured in a real sandbox before a user can link a subscription.
+  linked `skills/` is asserted from their source, not observed. The
+  deployment's grant has run production turns since 2026-09-08 (ADR 0047),
+  so for it this is a gate on the merge and not only on a later stage: ADR
+  0060, "The platform move is gated on a measurement", says what to run and
+  what a failure looks like. The same has to be measured before a user can
+  link a subscription.
 
   An API-key source keeps the shared `~/.codex/auth.json`, which the
   library's `codex login` writes; no grant writes there any more.

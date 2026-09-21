@@ -52,9 +52,13 @@ ChatGPT account connected since 2026-09-16
 Of the two measurements against a real client that stage 3 named, the
 probe's re-run against the pinned client is that offline half. The other, a
 symlinked `CODEX_HOME` across a reattach and a `thread/resume` in a real
-sandbox, is not taken. It, a hosted turn through the protected path and the
-two broker gates are still owed **before the flag is turned on for
-anyone**. What stage 1 left running is
+sandbox, is not taken. It and a hosted turn through the protected path are
+still owed **before the flag is turned on for anyone**. The two broker
+gates stage 3 named are built: `managoat_broker` 0.15.0
+(managoat/managoat_broker#39), adopted on 2026-09-21 (#2453; "Stage 3 as
+built", "Gates A and B as built"). What they have not had is a request to
+`chatgpt.com` through them, which the same hosted turn will be. What stage 1
+left running is
 `ChatGPTAccounts.RefreshSupervisor`, a task supervisor and the refresh
 coordinator, which start idle on every node; since stage 5b they serve the
 keepalive's jobs as well as a turn's renewal. The Context section describes
@@ -844,12 +848,14 @@ grant is never in the `brokered` map, a rule, a binding or a template. No
 conversation process ever holds the bearer: it exists only inside
 `Sessions.authorize/2`, for one request, as a `%Grant{}` whose `inspect`
 omits it. One consequence follows, and review of this stage made it a
-gate rather than an accepted risk (gate A under "Not built"): the bearer is
+gate rather than an accepted risk (gate A, below): the bearer is
 the one brokered credential that is not in the conversation's redaction
 registry, because it was never anywhere to register it from. A response
 that echoed `Authorization` back would put it in `log_events` and on the
 SSE stream unredacted. The only destination is the fixed Codex route, which
-is not known to; "not known to" is not a control.
+is not known to; "not known to" is not a control. Since `managoat_broker`
+0.15.0 the proxy refuses such a response ("Gates A and B as built", which
+also says what it does not recognise).
 
 **The sandbox.** `CodexChatGPT.managed_grant/2` says which sources are on
 this path. For one, `env/3` exports the placeholder and
@@ -1036,7 +1042,11 @@ Five things stage 3 settled or found:
      protected response that reflects the bearer, therefore covers the
      platform grant too, and for it the exposure is not waiting on stage 4:
      it opens when this change deploys. The only destination is the one
-     Codex route, which is not known to reflect `Authorization`.
+     Codex route, which is not known to reflect `Authorization`. (Gate A
+     was built afterwards, in `managoat_broker` 0.15.0, adopted by #2453 on
+     2026-09-21: "Gates A and B as built". The deployment's account had
+     been disconnected since 2026-09-16, so by then no request had gone
+     through the path without it.)
    - **A tenant's `CODEX_HOME` is dropped on a platform-grant
      conversation.** `own_home?/1` is true for the platform source now, so
      `SpriteEnv` drops a `CODEX_HOME` from the environment's variables, its
@@ -1196,8 +1206,9 @@ paragraphs above where it belongs, and in one place here:
 
 What review left is the rest of this section: two claims corrected rather
 than code changed (what "shared" means under a per-grant home, and that
-homes are bounded but never removed), two security gates that need a
-library release, a rate cap, and two lock orders.
+homes are bounded but never removed), two security gates that needed a
+library release (since built: "Gates A and B as built"), a rate cap, and
+two lock orders.
 
 **After review of the platform move.** Item 4's change was reviewed on its
 own, on 2026-09-21, after it was rebased onto the reviewed stage 3. One
@@ -1251,7 +1262,7 @@ are in item 4 where they belong:
 
 Not built by that review: recovery for a conversation on this release whose
 managed session an old replica overwrote (item 4), and anything for gates A
-and B, which are the library's.
+and B, which are the library's (and were built there afterwards, in 0.15.0).
 
 **Not built, and said so where it lives:**
 
@@ -1333,9 +1344,11 @@ and B, which are the library's.
   not done because no audit of every other path that locks a user row after
   a grant row stands behind it.
 
-**Two security gates, not built, both before the console surface opens
-(stage 4's route, stage 5's gate), and both a `managoat_broker` release
-rather than Fountain code.** Since item 4's move they cover the
+**Two security gates, not built by this stage, both before the console
+surface opens (stage 4's route, stage 5's gate), and both a
+`managoat_broker` release rather than Fountain code. Both are built now:
+"Gates A and B as built", below, is what the release does. What follows is
+the gap as review found it.** Since item 4's move they cover the
 deployment's grant as well, which is not waiting on any console surface:
 for it both are open from the day the move deploys. Against that, the move
 closes more than they open: before it the same bearer sat in a stored rule,
@@ -1363,6 +1376,70 @@ deploy.
   nothing legitimate is lost by refusing one; an agent that can reach the
   proxy can add one today. The gate is a library option to refuse a
   non-empty query on a protected route, set by `ProtectedCompiler.policy/1`.
+
+**Gates A and B as built.** `managoat_broker` 0.15.0
+(managoat/managoat_broker#39, 2026-09-21), adopted by #2453 the same day.
+Both are on for every protected route with nothing to configure, and gate A
+has no option that turns it off. The issues were #2463 and #2464.
+
+- **Gate A refuses; it does not scrub.** Every response to a protected
+  request is searched for the bearer that request went out with: the status
+  line and the headers whole, before any of them is released, then the body
+  as it streams, decoded from chunked framing, then the trailers. Bytes that
+  could be the start of the bearer are held until the next read settles
+  them, so a value split across reads or chunks is caught before its first
+  half is forwarded; nothing is accumulated, and at most the bearer's length
+  less one byte waits. On a match nothing more is forwarded and both
+  connections close. Where the sandbox had been sent none of the response it
+  gets a fixed `502`; where the head had gone, a cut stream. The request's
+  row at `/admin/broker` and in the conversation's egress log carries
+  `credential_reflected`, the library logs a warning, and Fountain logs an
+  `error` line once a minute per conversation
+  (`Fountain.Broker.Native.handle_request/4`), by conversation, host and
+  rule. No broker refusal raises an alert or an audit row today, and this one
+  does not either: that is not built. Neither the event nor either log line
+  holds the bearer or the bytes that matched.
+- **What gate A recognises** is the bearer's exact bytes, which any longer
+  string holding them (`Bearer <token>`) contains, and its JSON spelling
+  with `/` written `\/`. **What it does not:** base64, hex, percent-encoding
+  or any other transformation of the token; a truncated or partial copy; a
+  body compressed without a `Content-Encoding` header that says so; a copy
+  on any other request or connection (an origin that stored the token and
+  served it back on an unprotected route would not be caught); and any
+  secret other than this bearer.
+- **Every protected request goes out with `Accept-Encoding: identity`**,
+  whatever the client sent, because a compressed body cannot be searched. A
+  response that carries any other `Content-Encoding` anyway is refused
+  unread, with a `502` and `protected_response_encoded`.
+  `ProtectedCompiler` no longer lists `accept-encoding` among the headers
+  that survive, because listing it has no effect. **Whether `chatgpt.com`
+  honours `identity` on the Codex route is unmeasured.** The recorded client
+  (codex-acp 1.10.0, codex-cli 0.153.4) sends no `accept-encoding` at all,
+  and its turns through the broker completed on the route (ADR 0047,
+  measurement 2), so the route answers a request without the header with a
+  stream that client reads, which is an uncompressed one. It is expected
+  to answer `identity` the same way; nobody has looked. The hosted turn of #2479 will show it: an origin that
+  compresses regardless would appear there as failed codex turns whose
+  rows at `/admin/broker` read `502 protected_response_encoded`, and the
+  answer would be a library change, not a policy one, because there is no
+  switch.
+- **Gate B.** `ProtectedRule.query` is `:refuse` or `:allow`, and `:refuse`
+  is the default. `ProtectedCompiler.policy/1` sets `:refuse` itself, so a
+  later default cannot widen the route. A target holding a `?` on the Codex
+  route, a bare `path?` included, is a `403` with `protected_query`, decided
+  before `Sessions.authorize/2` is called, so no session or grant row is
+  read for it and the origin is not dialled. Nothing persists a policy:
+  `Sessions.lookup/1` compiles it from the session's account id on every
+  lookup, so a session minted before the release gets the new policy the
+  next time a tunnel opens on it. A policy map without the key reads as
+  `:refuse` in the library all the same.
+
+`broker/managed_grant_proxy_test.exs` drives both through Fountain's store
+and policy, for the platform's grant and a user's: a reflecting origin, a
+reflecting streamed origin, a query and a bare `?` with the repo's queries
+counted, and a gzipped answer to a request that asked for gzip. Its origin
+used to echo `authorization` back, which is now refused; it reports the
+header's SHA-256 instead.
 
 What the tests hold, for the platform's grant and for a user's unless the
 case is about two of one user's: this stage's three acceptance tests
@@ -1410,7 +1487,8 @@ and its token is good, so it is a selection fact, not an authorization one.
 Stage 4 owes the `owner_ineligible` reason a place in `Schemas.Error` beside
 the others, the `codex_inference_conflict` wording of item 5, a sentence in
 the manual about what a `setup_script` sees of `CODEX_HOME`, and, before any
-of it is reachable, the two measurements and gates A and B.
+of it is reachable, the two measurements and gates A and B. (The gates were
+built afterwards: "Gates A and B as built".)
 
 ## Stage 4a as built
 
@@ -1676,8 +1754,9 @@ maintainer may reverse:
   platform grant's move onto the protected path, the two measurements
   against a real client, and broker gates A and B. (The move has since
   merged, as stage 3b, #2458, on 2026-09-21, without its own measurement.
-  The probe's re-run was taken offline later that day; the hosted turn, the
-  symlinked-home measurement and the gates are still owed.)
+  The probe's re-run was taken offline later that day, and the gates
+  arrived the same day in `managoat_broker` 0.15.0, adopted by #2453; the
+  hosted turn and the symlinked-home measurement are still owed.)
 - **Stage 4b.** The **ChatGPT subscriptions** card and the set picker, whose
   confirm text says naming a grant ends the set's running codex
   conversations; page reload; whether a set that names a grant counts for
@@ -2362,7 +2441,9 @@ the hammer. A turn's own renewal is never held.
 ### Not built
 
 - **The controlled run** of item 5, and everything on the rollout
-  checklist.
+  checklist but its items (a) and (b). Broker gates A and B, which every
+  stage up to this one listed as owed, are built ("Gates A and B as built",
+  under stage 3); what they have not had is a request to `chatgpt.com`.
 - **Whether `auth.openai.com` throttles by address or by account is
   unmeasured.** 0047 measured a 401 `refresh_token_reused` and a 400
   ciphertext-integrity answer and nothing else. So is what a throttled
@@ -2416,7 +2497,8 @@ for the idle lifetime go in 0047's table, measurement 5.
 | Exhaustion, real or a stubbed `/wham/usage`: the card and the refusal (optional) | | | |
 | The keepalive observed for seven days: no unexpected `reconnect_required` | | | |
 | What a throttled refresh looks like: its status, whether the body names a code, and whether it follows the address or the account | | | |
-| Gate A (a bearer in a response is scrubbed) and Gate B (a query carrying it is refused), on the released `managoat_broker` | | | |
+| Gate A (a protected response that repeats its bearer is refused, not scrubbed), on the released `managoat_broker` | `managoat_broker` 0.15.0 (#2453). No codex client, image or hosted instance was involved. | 2026-09-21, the suite only | **Built and tested against a local origin; not measured against `chatgpt.com`.** `broker/managed_grant_proxy_test.exs`: a reflecting origin gets the sandbox a fixed `502`, a reflecting streamed one a cut stream with none of the bearer in what arrived, a gzipped answer a `502`, and the origin was asked for `identity`. Whether `chatgpt.com` honours `Accept-Encoding: identity` on the Codex route is unmeasured; the hosted turn of #2479 shows it, as `protected_response_encoded` rows if it does not. |
+| Gate B (a query on the protected route is refused), on the released `managoat_broker` | `managoat_broker` 0.15.0 (#2453) | 2026-09-21, the suite only | **Built and tested.** `?x=1` and a bare `?` are `403 protected_query` with no session or grant row read and no origin hit. The recorded client sends no query (`capture.json`, asserted in `protected_compiler_test.exs`), so a hosted turn is not expected to meet it; a `protected_query` row on a real turn would be a finding. |
 | The platform grant on the protected path (stage 3b, #2458, merged 2026-09-21 without this measurement): 0047's measurement 6 | codex-acp 1.10.0, codex-cli 0.153.4, under `managoat_runtimes` 0.4.5. No broker, image or hosted instance was involved. | 2026-09-21, the offline half only | **Offline half taken; hosted half not taken, and still owed.** The probe's output was byte-identical to the committed capture. The client reads `CODEX_HOME`. It asks `chatgpt.com` for ten routes besides the allowed one and completes both turns with all of them refused. No hosted turn: the deployment has had no account connected since 2026-09-16. The record is [0047](0047-codex-platform-chatgpt-account.md#measured), measurement 6. |
 
 ## Consequences

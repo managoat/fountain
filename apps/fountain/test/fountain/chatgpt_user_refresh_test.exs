@@ -302,6 +302,47 @@ defmodule Fountain.ChatGPTUserRefreshTest do
     assert length(tenant_locks) == 2
   end
 
+  # The nested transaction can come back `{:error, _}`. After a rotation that
+  # is the worst moment to crash on a bad match: the log would name the match
+  # and not the token that was not stored.
+  for {response, stub} <- [success: :stub_refresh, terminal: :stub_refusal] do
+    test "a fenced #{response} write that does not commit is an error the caller can match" do
+      account = user_grant!(insert_verified_user().id)
+
+      case unquote(stub) do
+        :stub_refresh ->
+          stub_refresh(%{
+            expect_refresh: "rt_user",
+            id_token: id_token(%{account_id: account.account_id})
+          })
+
+        :stub_refusal ->
+          stub_refusal("invalid_grant")
+      end
+
+      stub(Fountain.InferenceCredentials, :with_tenant_source_lock, fn _user_id, _fun ->
+        {:error, :rollback}
+      end)
+
+      log =
+        capture_log(fn ->
+          # In this process, where the stub is.
+          assert {:error, :refresh_unavailable} =
+                   ChatGPTAccounts.refresh_serialized_for_user(
+                     account.id,
+                     account.user_id,
+                     account.generation
+                   )
+        end)
+
+      assert log =~ account.id
+      assert log =~ "was not stored"
+      refute log =~ "rt_rotated"
+      assert Repo.get!(Account, account.id) == account
+      refute Repo.exists?(from(e in Event, where: e.action == "chatgpt_grant.reconnect_required"))
+    end
+  end
+
   for response <- [:success, :terminal] do
     test "reconnect fences a late user #{response} response" do
       account = user_grant!(insert_verified_user().id)

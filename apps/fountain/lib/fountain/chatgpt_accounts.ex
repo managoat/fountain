@@ -1381,6 +1381,7 @@ defmodule Fountain.ChatGPTAccounts do
           case mark_revoked(current, code) do
             :ok -> revoked_result(current, code)
             :stale -> current_result(current)
+            {:error, _} = unwritten -> unwritten
           end
 
         {:error, reason} ->
@@ -1396,15 +1397,26 @@ defmodule Fountain.ChatGPTAccounts do
   defp swap_in(current, attrs, access) do
     sets = attrs |> Map.put(:updated_at, now()) |> Enum.to_list()
 
-    {n, _} =
-      with_grant_source_lock(current, fn ->
-        current_query(current) |> Repo.update_all(set: sets, inc: [lock_version: 1])
-      end)
-
-    case n do
-      1 -> refreshed_result(current, access)
-      0 -> current_result(current)
+    case with_grant_source_lock(current, fn ->
+           current_query(current) |> Repo.update_all(set: sets, inc: [lock_version: 1])
+         end) do
+      {1, _} -> refreshed_result(current, access)
+      {0, _} -> current_result(current)
+      {:error, _} when is_binary(current.user_id) -> unwritten(current, "renewed token set")
     end
+  end
+
+  # The nested transaction answered `{:error, _}` instead of a count. For a
+  # renewal that is after the provider rotated the refresh token, so the log
+  # says what was lost, by id, and the caller gets an error it can match.
+  # A user's grant only: the platform's writes are as they were.
+  defp unwritten(%Account{id: id, user_id: user_id}, what) do
+    Logger.error(
+      "chatgpt grant #{id} of #{user_id}: the #{what} was not stored; " <>
+        "if this repeats the owner must reconnect the account"
+    )
+
+    {:error, :refresh_unavailable}
   end
 
   # The user base joins the eligible owner, so a late refresh for an owner
@@ -1536,19 +1548,16 @@ defmodule Fountain.ChatGPTAccounts do
   end
 
   defp mark_revoked(row, code) do
-    {count, _} =
-      with_grant_source_lock(row, fn ->
-        current_query(row)
-        |> Repo.update_all(
-          set: [status: "revoked", revoked_reason: code, updated_at: now()],
-          inc: [lock_version: 1]
-        )
-      end)
-
-    if count == 1 do
-      :ok
-    else
-      :stale
+    case with_grant_source_lock(row, fn ->
+           current_query(row)
+           |> Repo.update_all(
+             set: [status: "revoked", revoked_reason: code, updated_at: now()],
+             inc: [lock_version: 1]
+           )
+         end) do
+      {1, _} -> :ok
+      {:error, _} when is_binary(row.user_id) -> unwritten(row, "revocation")
+      _ -> :stale
     end
   end
 

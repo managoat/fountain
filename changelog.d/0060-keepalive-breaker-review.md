@@ -1,7 +1,7 @@
 ### Changed
 
 - **The ChatGPT keepalive's pause says so in the log, and holds better under
-  a throttle that lasts** (#2453). When a replica pauses its keepalive jobs
+  a throttle that lasts** (#2476). When a replica pauses its keepalive jobs
   because `auth.openai.com` turned its address away for two accounts, it now
   logs one line at `error` starting `chatgpt refresh:`, with how many
   accounts and none of their ids, at most once a minute. A paused job whose
@@ -24,7 +24,7 @@
 ### Fixed
 
 - **The deployment's ChatGPT grant no longer logs the raw reason when a
-  renewal fails** (#2453). Since #1755 the two warnings starting `platform
+  renewal fails** (#2476). Since #1755 the two warnings starting `platform
   chatgpt:` printed the failure as Elixir inspects it. For a response whose
   JSON body was cut short in transit, that failure carried the body, so a
   truncated successful token response would have put part of a token in a

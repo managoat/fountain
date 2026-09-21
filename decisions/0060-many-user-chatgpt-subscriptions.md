@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "A user links several ChatGPT subscriptions, and a credential set names one"
-description: "Not built. Rebuilds ADR 0052's user surface with many grants per user instead of one: the grant table loses its one-row-per-user index for a named row, an inference credential set names a grant, and an agent selects a subscription the same way it selects an API key. No automatic failover between a user's subscriptions and no platform fallback when the named one is exhausted."
+description: "Stage 1 of 5 is built (the table, the owner-scoped context and the per-owner source lock); nothing a user can reach exists yet. Rebuilds ADR 0052's user surface with many grants per user instead of one: the grant table loses its one-row-per-user index for a named row, an inference credential set names a grant, and an agent selects a subscription the same way it selects an API key. No automatic failover between a user's subscriptions and no platform fallback when the named one is exhausted."
 tags: [inference, codex, oauth, security, billing]
 status: draft
 adr: "0060"
@@ -11,10 +11,19 @@ date: 2026-09-20
 
 # 0060 — A user links several ChatGPT subscriptions, and a credential set names one
 
-**Status:** Proposed, 2026-09-20. **Nothing in this ADR is built.** It is
-the design for work not yet started; no column, function or endpoint
-described below exists on `main` at `9122474f` unless this document says it
-already does.
+**Status:** Proposed, 2026-09-20. **Stage 1 of the five below is built;
+nothing a user can reach is.** What exists is the table change, the
+owner-scoped context in `Fountain.ChatGPTAccounts` and the per-owner source
+lock, with their tests. No production code calls any of it: there is no
+route, no page, no job, no selection by a credential set, no broker path, no
+keepalive for a user's grant and no environment variable. Stages 2 to 5 are
+not started, and everything below that belongs to them is the design for
+work not yet done. The Context section describes `main` at `9122474f`,
+before stage 1.
+
+What stage 1 built, and the four places it settled something this ADR left
+open or had wrong, are recorded under
+[Stage 1 as built](#stage-1-as-built).
 
 Rebuilds the user-facing half of
 [0052](0052-user-owned-chatgpt-grants.md) — its decisions 2, 4 and 5, which
@@ -77,16 +86,25 @@ What the codebase has today, verified against `main` at `9122474f`:
   callers of any `*_for_user` function, because 0052's selection half was
   never built. The revert is a starting point for decisions 3 and 6; the
   lookup entry point and all of selection are new work.
-- The revert has one merge hazard. #2188's deletions were `73fe870d`
+- The revert is mostly mechanical. #2188's deletions were `73fe870d`
   (#2198, the workers, sweep, coordinator and supervisor) and `4563e3df`
   (#2199, the reads, the typed `Grant` and `ProtectedCompiler`), together
   about 715 lib and 1,447 test lines, and **no column or index was
-  dropped**. But #2362 (`231773be`) later rewrote `do_refresh`,
-  `current_result`, `current_query` and `swap_in` — the same functions whose
-  owner branches #2199 stripped — so those have to be re-threaded by hand.
-  The whole-file deletions and the `application.ex` / `config.exs` wiring
-  revert mechanically, and `Cipher` and `RefreshLock` are unchanged since
-  `105fb6d1`.
+  dropped**. An earlier draft of this ADR said #2362 (`231773be`) had since
+  rewritten `do_refresh`, `current_result`, `current_query` and `swap_in`.
+  It had not: `git diff 4563e3df 9122474f` over `chatgpt_accounts.ex`
+  touches the moduledoc, the new exhaustion block, one `platform_status`
+  field and the `exhausted_until/2` helper, and none of those four
+  functions. Restoring their owner branches is #2199's hunks reversed. What
+  needs care is the other direction: #2362's additions are scoped to the
+  NULL-owner row and stay that way (decision 4 treats a user grant's
+  exhaustion differently, in stage 5). The whole-file deletions and the
+  `application.ex` wiring revert mechanically, and `Cipher` and
+  `RefreshLock` are unchanged since `105fb6d1`.
+- At `105fb6d1` there was **no application writer** for a user grant: test
+  rows were inserted through the schema, and the fixture said "application
+  linking remains unbuilt". So the reads and the refresh path are a
+  rebuild; connect, reconnect, rename, disconnect and the cap are new.
 - `Source` (0053 decision 2) already anticipates this work: "Add `set_id`
   with named sets, and owner scope, `grant_id`, `generation` and matching
   provider-account metadata with managed grants."
@@ -263,6 +281,21 @@ cannot block another user's turn admission. This is new work that 0052 did
 not anticipate, because at one grant per deployment the contention did not
 exist.
 
+**The lock is also taken by a database trigger, which this decision
+originally missed.** `fountain_lock_inference_source()`
+(`20260913120000_bind_inference_sources.exs`) runs before every INSERT,
+UPDATE and DELETE on `platform_chatgpt_account` and took
+`'inference:platform'` exclusive for every row whatever its `user_id`.
+Re-keying only the Elixir call sites would have changed nothing: the first
+write to a user's row would still have taken the platform key. The re-key
+is therefore a migration that replaces the function as well. And the key is
+per user, not per grant, because one already exists: `lock_source/1` takes
+the platform key shared and then `'inference:' || user_id` exclusive, and
+the same trigger takes that per-user key for the user's credential sets,
+environments and vaults. Resolution has to lock before it reads the set, so
+it cannot know a grant id yet; a user's grant row joins the things that
+per-user key already serializes.
+
 The rest is volume. Keepalive today is one cron entry refreshing one row
 (`workers/platform_chatgpt_keepalive.ex:23`, `config/config.exs:100`); it
 becomes a fan-out over active refreshable grants in bounded batches with
@@ -331,11 +364,12 @@ tokens or raw provider responses.
 Each stage is its own PR; 0052's adversarial cases are required for the
 platform grant and for **two grants of one user**, which is the new case.
 
-1. **The table and the context.** Index swap, `name`, the cap, and
-   owner-scoped reads and writes rebuilt from `105fb6d1` for many grants —
-   re-threading the four functions #2362 rewrote, and replacing
-   `status_for_user/1` with a list. Re-key the `'inference:platform'`
-   advisory lock by owner (decision 5) in this stage, before anything can
+1. **The table and the context. Built; see
+   [Stage 1 as built](#stage-1-as-built).** Index swap, `name`, the cap,
+   the owner-scoped reads rebuilt from `105fb6d1` for many grants with
+   `status_for_user/1` replaced by a list, and the owner-scoped writes,
+   which are new. Re-key the `'inference:platform'` advisory lock by owner
+   (decision 5), in the trigger as well as in Elixir, before anything can
    contend on it. No user surface yet. Tests: two grants for one user, a
    third refused at the cap, name uniqueness per user, the same upstream
    account refused a second link, cross-user read refused, wrong-DEK
@@ -364,6 +398,96 @@ platform grant and for **two grants of one user**, which is the new case.
 The console surface stays gated until stages 1 to 3 pass. Disabling new
 linking must not orphan existing grants: list, status, refresh, reconnect
 and disconnect stay operable.
+
+## Stage 1 as built
+
+Built on 2026-09-20, with no caller in production.
+
+**The table.** `20260920235854_name_chatgpt_grants`: `name`; the check
+`chatgpt_grant_name_follows_owner` (an owned row has a non-blank name, the
+platform row has none); the one-per-user index replaced by
+`platform_chatgpt_account_user_id_name_index` and
+`platform_chatgpt_account_user_id_account_id_index`; and
+`platform_chatgpt_account_id_user_id_index`, there for stage 2's composite
+reference to a grant together with its owner.
+`platform_chatgpt_account_platform_row` is untouched. `down` refuses,
+rather than deletes, when a user holds two grants.
+
+**The context.** In `Fountain.ChatGPTAccounts`, every function scoped by
+the owner and, where it addresses one grant, by the grant id:
+`list_for_user/1` and `get_for_user/2` (metadata only; they replace
+`status_for_user/1`), `connect_for_user/4`, `reconnect_for_user/4`,
+`rename_for_user/4`, `disconnect_for_user/3`, `remove_for_user/3`, and the
+restored `credential_for_user/4`, `refresh_for_user/3`, the typed `Grant`,
+`RefreshCoordinator` and `RefreshSupervisor`. The cap is `config :fountain,
+:chatgpt_grant_ceiling` (5), refused as `{:grant_limit_reached, %{count:,
+limit:}}` under the owner's source lock so a count and an insert cannot
+interleave. There is no environment variable for it until stage 4 makes
+linking reachable. Not restored, and still gone: the two keepalive workers,
+the sweep, their queue and cron entry (stage 5), and `ProtectedCompiler`
+(stage 3).
+
+**The lock.** `20260921000305_key_chatgpt_grant_source_lock_by_owner`
+replaces the trigger function as decision 5 now describes, and
+`InferenceCredentials.lock_tenant_source/1` is the Elixir half. A write to a
+user's grant takes that user's key and never the platform's, not even
+shared: PostgreSQL queues a new shared request behind a waiting exclusive
+one, so a shared platform lock would have let an admin key write or an
+account deletion stall every user's token refresh. `resolve/4` is
+unchanged. The order everywhere is platform key, tenant key, row lock, and
+the refresh try-lock is never waited on. A user's row never sets
+`updated_by_user_id`, which keeps one account's deletion from writing
+another account's grant row under that account's key.
+
+One rule follows for stage 2, and it is in the `ChatGPTAccounts` moduledoc:
+never renew a grant while holding `lock_source/1` for its owner. Inside the
+lock, read with `refresh: false`.
+
+Four things stage 1 settled that this ADR left open:
+
+1. **Disconnect is a tombstone, not a delete.** Decision 3 says
+   "Disconnect" without saying what happens to the row. A user's
+   disconnected grant keeps its id, name and upstream account and drops both
+   tokens and the stored claims; `generation` and `lock_version` advance, so
+   a refresh in flight writes nothing and every pin goes stale; `status` is
+   `"disconnected"`, and `chatgpt_grant_tokens_follow_status`
+   (`20260921001220`) holds "a tombstone has no token, every other row has
+   one" in the database. The reason is decision 4. A set that names a
+   disconnected grant has to fail by name, with no fallback; if the row were
+   deleted the reference would be nilified or dangling, and a nilified
+   reference is exactly the silent switch decision 4 forbids. It is also
+   what 0052 decision 5 meant by "disconnect commits the inactive state and
+   generation fence": a state change. The same subscription comes back by
+   reconnecting the tombstone, which the per-owner account index enforces. A
+   tombstone holds its slot under the cap until `remove_for_user/3` deletes
+   it, and removal is refused for a grant that still holds a credential.
+   The platform grant is unchanged: its disconnect deletes the row.
+2. **A reconnect may land on a different upstream account**, as it may for
+   the platform grant. It is refused only when another of the user's grants
+   holds that account. Usage exhaustion recorded for the old account is
+   cleared. Between reconnects the account is pinned: a refresh whose
+   `id_token` names another account or provider user is refused as
+   `:account_mismatch` and writes nothing.
+3. **A user grant's ciphertext is bound to the grant, not only to its
+   owner.** This deliberately strengthens what is inherited from 0052
+   decision 1, whose AAD named the owner and the token field. With one grant
+   per user that was enough; with several, one DEK covers several rows, and
+   one subscription's ciphertext would have decrypted in another's row of
+   the same user. The AAD is now
+   `fountain.chatgpt_grant:<user_id>:<grant_id>:<field>`, and a writer
+   chooses the row id before it encrypts. No owned row has ever existed
+   (`20260912020000` refused them and nothing has written one since), so
+   this was free now and would have been a data migration after stage 4.
+   The platform row's format is untouched.
+4. **The database refuses to change a grant's owner.** 0052 decision 1's
+   "no transfer of a grant between users or scopes" was held only by the
+   changesets not casting `user_id`. The trigger function now raises on an
+   UPDATE that changes it.
+
+One gap to carry: stage 4 makes linking reachable and stage 5 brings the
+keepalive. Between them an idle user grant would lapse at the auth server's
+window. `refresh_for_user/3` already renews a grant that is idle past
+`platform_keepalive_days/0`; only the schedule is missing.
 
 ## Consequences
 

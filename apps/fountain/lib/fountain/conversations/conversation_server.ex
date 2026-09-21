@@ -435,21 +435,17 @@ defmodule Fountain.Conversations.ConversationServer do
       {:ok, dek, inference_source, inference_creds} ->
         # Before the selection: a tenant secret named after a credential wins
         # in the sandbox, so it decides the source too (ADR 0053 decision 5).
-        tenant_secrets = SpriteEnv.merge_secrets(env, vault, dek)
+        tenant_secrets =
+          SpriteEnv.without_inference_inputs(
+            agent && agent.model,
+            SpriteEnv.merge_secrets(env, vault, dek),
+            inference_source
+          )
 
         bindings = Egress.bindings(conv.user_id)
 
         {merged, bindings, connection_keys} =
-          Egress.add_connection_secrets(
-            conv.user_id,
-            SpriteEnv.without_inference_inputs(
-              agent && agent.model,
-              tenant_secrets,
-              inference_source
-            ),
-            bindings,
-            agent
-          )
+          Egress.add_connection_secrets(conv.user_id, tenant_secrets, bindings, agent)
 
         {secrets, brokered} = Egress.split_brokered(merged, bindings)
 
@@ -1002,10 +998,7 @@ defmodule Fountain.Conversations.ConversationServer do
         {:error, reason} ->
           # A cast has no caller to reply to. Preserve existing work and its
           # connection when this queued prompt cannot be admitted.
-          Logger.info(
-            "conv #{state.conversation_id}: dropping initial prompt " <>
-              "(#{inspect(Fountain.InferenceCredentials.loggable_reason(reason))})"
-          )
+          TurnMachine.log_refusal(state.conversation_id, "dropping initial prompt", reason)
 
           {:noreply, state}
       end
@@ -1655,10 +1648,7 @@ defmodule Fountain.Conversations.ConversationServer do
   end
 
   defp log_initial_refusal(state, reason) do
-    Logger.info(
-      "conv #{state.conversation_id}: initial turn refused " <>
-        "(#{inspect(Fountain.InferenceCredentials.loggable_reason(reason))})"
-    )
+    TurnMachine.log_refusal(state.conversation_id, "initial turn refused", reason)
 
     state
   end

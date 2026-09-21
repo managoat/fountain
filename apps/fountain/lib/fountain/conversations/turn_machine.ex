@@ -1112,6 +1112,18 @@ defmodule Fountain.Conversations.TurnMachine do
     end
   end
 
+  @doc """
+  The log line for a prompt the server could not turn into a turn. The
+  reason goes through `InferenceCredentials.loggable_reason/1`: an unusable
+  ChatGPT grant carries the name its owner chose, which is theirs and stays
+  out of the application log.
+  """
+  @spec log_refusal(String.t(), String.t(), term()) :: :ok
+  def log_refusal(conversation_id, what, reason) do
+    reason = Fountain.InferenceCredentials.loggable_reason(reason)
+    Logger.info("conv #{conversation_id}: #{what} (#{inspect(reason)})")
+  end
+
   defp validate_inference(user_id, %Source{identity: identity} = source) when is_binary(identity),
     do: Fountain.InferenceCredentials.validate_source(user_id, source)
 

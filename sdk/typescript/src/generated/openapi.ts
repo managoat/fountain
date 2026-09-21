@@ -99,7 +99,7 @@ export interface paths {
         put?: never;
         /**
          * Start a ChatGPT sign-in
-         * @description `name` links a new subscription; `grant_id` reconnects one, which keeps the old credential serving until the new sign-in commits. The answer carries the code to type and the page to type it on. It expires in fifteen minutes. Limited to ten an hour per API key and three open at once per account.
+         * @description `name` links a new subscription; `grant_id` reconnects one, which keeps the old credential serving until the new sign-in commits. The answer carries the code to type and the page to type it on. It expires in fifteen minutes. Limited to ten an hour and three open at once, per account.
          */
         post: operations["FountainWeb.ChatGPTSubscriptionController.create_attempt"];
         delete?: never;
@@ -3362,6 +3362,8 @@ export interface components {
          * @description One device-code sign-in, for a new subscription or to reconnect one. Show `user_code` and `verification_url` to the person, then read the attempt again every `poll_interval` seconds until `state` leaves `pending`. The server does the polling of ChatGPT; reading this costs nothing upstream.
          */
         ChatGPTLinkAttempt: {
+            /** @description True while a pending attempt's last poll of ChatGPT's sign-in service went unanswered. The attempt is still open and Fountain asks again, less often. */
+            auth_unreachable: boolean;
             /** Format: date-time */
             expires_at: string;
             /** @description Why a `failed` attempt failed. Null otherwise. */
@@ -3370,10 +3372,10 @@ export interface components {
                 /** Format: uuid */
                 grant_id: string | null;
                 /**
-                 * @description `stale_grant`: the subscription was reconnected or disconnected after this attempt began, and what is there now was left alone. `account_already_linked`: the account holds this ChatGPT account already, as `grant`; reconnect that one instead.
+                 * @description `stale_grant`: the subscription was reconnected or disconnected after this attempt began, and what is there now was left alone. `account_already_linked`: the account holds this ChatGPT account already, as `grant`; reconnect that one instead. `linking_disabled`: linking was turned off for the account while this new link was open.
                  * @enum {string}
                  */
-                reason: "stale_grant" | "account_already_linked" | "grant_limit_reached" | "grant_not_found" | "name_taken" | "owner_ineligible" | "tenant_key_unavailable" | "invalid_sign_in" | "authorization_failed" | "exchange_failed" | "internal_error";
+                reason: "stale_grant" | "account_already_linked" | "grant_limit_reached" | "grant_not_found" | "name_taken" | "owner_ineligible" | "linking_disabled" | "tenant_key_unavailable" | "invalid_sign_in" | "authorization_failed" | "exchange_failed" | "internal_error";
             } | null;
             /**
              * Format: uuid
@@ -4126,12 +4128,14 @@ export interface components {
              * @description The ChatGPT subscription the refusal is about, on `chatgpt_grant_unusable` (409).
              */
             grant_id?: string;
-            /** @description The account's concurrent-sandbox cap, on `sandbox_quota_exceeded` (429); how many ChatGPT subscriptions it may hold, on `chatgpt_grant_limit_reached` (409); how many sign-ins it may have open, on `chatgpt_link_attempts_exceeded` (409). */
+            /** @description The account's concurrent-sandbox cap, on `sandbox_quota_exceeded` (429); how many ChatGPT subscriptions it may hold, on `chatgpt_grant_limit_reached` (409); how many sign-ins it may have open, on `chatgpt_link_attempts_exceeded` (409); how many it may start in an hour, on `chatgpt_link_attempts_rate_limited` (429). */
             limit?: number;
             /** @description A sentence for a human, when there is one. */
             message?: string;
             /** @description A second stable word. On the 401 and 403 refusals from key authentication and scope checks, `error` is prose and this is the code (`api_key_invalid`, `api_key_expired`, `insufficient_scope`). On `broker_unavailable`, `sandbox_not_resettable` and `credential_set_is_default`, `error` is the code and this narrows it (`econnrefused`, `timeout`, `is_default`, ...). On `chatgpt_grant_unusable` it says why the named subscription cannot serve: `disconnected`, `revoked`, `expired`, `reconnect_required`, `exhausted`, `not_found`, `broker_required` or `owner_ineligible`. */
             reason?: string;
+            /** @description Seconds until another sign-in may be started, on `chatgpt_link_attempts_rate_limited` (429); the `Retry-After` header says the same. */
+            retry_after_seconds?: number;
             /** @description The credential sets that still name the subscription, by name, on `chatgpt_grant_named_by_sets` (409): point them elsewhere first. */
             sets?: string[];
             /** @description What the attempt had already become, on `chatgpt_link_attempt_not_pending` (409). */
@@ -5973,7 +5977,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description Rate limited */
+            /** @description `chatgpt_link_attempts_rate_limited`, with `Retry-After` */
             429: {
                 headers: {
                     [name: string]: unknown;

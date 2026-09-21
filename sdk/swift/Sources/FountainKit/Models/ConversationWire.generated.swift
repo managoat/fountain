@@ -1525,6 +1525,7 @@ public struct APIErrorPayload: Sendable, Decodable, Hashable {
   public var limit: Int?
   public var message: String?
   public var reason: String?
+  public var retryAfterSeconds: Int?
   public var sets: [String]?
   public var state: String?
   public var until: Date?
@@ -1541,6 +1542,7 @@ public struct APIErrorPayload: Sendable, Decodable, Hashable {
     case limit = "limit"
     case message = "message"
     case reason = "reason"
+    case retryAfterSeconds = "retry_after_seconds"
     case sets = "sets"
     case state = "state"
     case until = "until"

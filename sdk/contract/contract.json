@@ -9586,6 +9586,10 @@
     },
     "ChatGPTLinkAttempt": {
       "properties": {
+        "auth_unreachable": {
+          "required": true,
+          "type": "boolean"
+        },
         "expires_at": {
           "format": "date-time",
           "required": true,
@@ -9614,6 +9618,7 @@
                 "grant_not_found",
                 "internal_error",
                 "invalid_sign_in",
+                "linking_disabled",
                 "name_taken",
                 "owner_ineligible",
                 "stale_grant",
@@ -11221,6 +11226,10 @@
         "reason": {
           "required": false,
           "type": "string"
+        },
+        "retry_after_seconds": {
+          "required": false,
+          "type": "integer"
         },
         "sets": {
           "items": {

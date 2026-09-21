@@ -6,11 +6,21 @@ defmodule Fountain.Broker.Native.ProtectedCompilerTest do
   alias Fountain.SecretBindings.Binding
   alias Managoat.Broker.{Injector, ProtectedCredential, ProtectedRule, Session}
 
+  # The compiler takes no bearer (ADR 0060 stage 3): the session path never
+  # holds one. This one exists for the library half of the contract, which is
+  # handed a `ProtectedCredential` per request.
   @token "synthetic-managed-bearer"
+  @identity "account-fixture"
   @path "/backend-api/codex/responses"
 
-  defp grant(identity \\ "account-fixture"),
-    do: %Grant{access_token: @token, source: %{account_id: identity}}
+  # What `Sessions` assembles from the two halves: the ordinary rules, and the
+  # policy for the account the fenced read of the grant row named.
+  defp compile(brokered, bindings, network, identity \\ @identity) do
+    with {:ok, compiled} <- ProtectedCompiler.compile(brokered, bindings, network),
+         {:ok, policy} <- ProtectedCompiler.policy(identity) do
+      {:ok, Map.put(compiled, :protected, policy)}
+    end
+  end
 
   defp binding(key, host, extra \\ %{}),
     do: struct(%Binding{key: key, host: host, auth_type: "bearer", enabled: true}, extra)
@@ -26,7 +36,7 @@ defmodule Fountain.Broker.Native.ProtectedCompilerTest do
     do: struct(Session, Map.put(compiled, :authorization, :synthetic_test_authority))
 
   test "fixed policy contains identity, but no bearer or authority" do
-    assert {:ok, compiled} = ProtectedCompiler.compile(grant(), %{}, %{}, :unrestricted)
+    assert {:ok, compiled} = compile(%{}, %{}, :unrestricted)
     assert compiled.http_only
     assert compiled.unmatched_host_policy == :passthrough
     assert compiled.rules == []
@@ -49,7 +59,7 @@ defmodule Fountain.Broker.Native.ProtectedCompilerTest do
       ]
     }
 
-    assert {:ok, compiled} = ProtectedCompiler.compile(grant(), secrets, bindings, :unrestricted)
+    assert {:ok, compiled} = compile(secrets, bindings, :unrestricted)
     assert [%{scheme: :custom, credential: ^secrets}, %{scheme: :substitute}] = compiled.rules
     refute :erlang.term_to_binary(compiled) =~ @token
     assert Enum.all?(compiled.rules, &Injector.matches?(&1.pattern, "api.stripe.com", 443, "/v1"))
@@ -67,18 +77,18 @@ defmodule Fountain.Broker.Native.ProtectedCompilerTest do
     for secrets <- [
           %{Reserved.key() => "some-token"},
           %{"ALIAS" => Reserved.placeholder()},
-          %{"ALIAS" => "Bearer " <> @token},
-          %{"ALIAS" => grant()}
+          %{"ALIAS" => "Bearer " <> Reserved.placeholder(Ecto.UUID.generate())},
+          %{"ALIAS" => %Grant{access_token: @token, source: %{account_id: @identity}}}
         ] do
       assert {:error, :managed_credential_conflict} =
-               ProtectedCompiler.compile(grant(), secrets, %{}, :unrestricted)
+               ProtectedCompiler.compile(secrets, %{}, :unrestricted)
     end
 
     for template <- [
           "{{ CODEX_CHATGPT_ACCESS_TOKEN }}",
           "{{CODEX_CHATGPT_ACCESS_TOKEN}}",
           Reserved.placeholder(),
-          "Bearer " <> @token
+          "Bearer " <> Reserved.placeholder(Ecto.UUID.generate())
         ] do
       bindings = %{
         "OTHER" => [
@@ -90,12 +100,7 @@ defmodule Fountain.Broker.Native.ProtectedCompilerTest do
       }
 
       assert {:error, :managed_credential_conflict} =
-               ProtectedCompiler.compile(
-                 grant(),
-                 %{"OTHER" => "ordinary"},
-                 bindings,
-                 :unrestricted
-               )
+               ProtectedCompiler.compile(%{"OTHER" => "ordinary"}, bindings, :unrestricted)
     end
 
     # A persisted managed binding is rejected even if no value currently
@@ -103,7 +108,7 @@ defmodule Fountain.Broker.Native.ProtectedCompilerTest do
     bindings = %{Reserved.key() => [binding(Reserved.key(), "attacker.example")]}
 
     assert {:error, :managed_credential_conflict} =
-             ProtectedCompiler.compile(grant(), %{}, bindings, :unrestricted)
+             ProtectedCompiler.compile(%{}, bindings, :unrestricted)
   end
 
   test "exact, wildcard and path-specific ordinary injection conflicts fail compilation" do
@@ -117,49 +122,28 @@ defmodule Fountain.Broker.Native.ProtectedCompilerTest do
       bindings = %{"OTHER" => [binding("OTHER", host)]}
 
       assert {:error, :managed_destination_conflict} =
-               ProtectedCompiler.compile(
-                 grant(),
-                 %{"OTHER" => "ordinary"},
-                 bindings,
-                 :unrestricted
-               )
+               ProtectedCompiler.compile(%{"OTHER" => "ordinary"}, bindings, :unrestricted)
     end
   end
 
   test "network patterns and nested invalid inputs cannot smuggle a managed value into output" do
-    for value <- [Reserved.placeholder(), @token] do
+    for value <- [Reserved.placeholder(), Reserved.placeholder(Ecto.UUID.generate())] do
       assert {:error, :managed_credential_conflict} =
-               ProtectedCompiler.compile(
-                 grant(),
-                 %{},
-                 %{},
-                 {:limited, ["attacker.example/" <> value]}
-               )
+               ProtectedCompiler.compile(%{}, %{}, {:limited, ["attacker.example/" <> value]})
 
       assert {:error, :managed_credential_conflict} =
-               ProtectedCompiler.compile(
-                 grant(),
-                 %{"ALIAS" => {:nested, value}},
-                 %{},
-                 :unrestricted
-               )
+               ProtectedCompiler.compile(%{"ALIAS" => {:nested, value}}, %{}, :unrestricted)
     end
 
-    assert {:error, :managed_credential_conflict} =
-             ProtectedCompiler.compile(grant(@token), %{}, %{}, :unrestricted)
+    assert {:error, :invalid_managed_identity} = ProtectedCompiler.policy(Reserved.placeholder())
 
     assert {:error, :invalid_broker_configuration} =
-             ProtectedCompiler.compile(grant(), %{"OTHER" => 123}, %{}, :unrestricted)
+             ProtectedCompiler.compile(%{"OTHER" => 123}, %{}, :unrestricted)
   end
 
   test "tenant network entries do not widen protected methods, scheme, port or route" do
     assert {:ok, compiled} =
-             ProtectedCompiler.compile(
-               grant(),
-               %{},
-               %{},
-               {:limited, ["chatgpt.com", "*.com", "attacker.example"]}
-             )
+             compile(%{}, %{}, {:limited, ["chatgpt.com", "*.com", "attacker.example"]})
 
     session = session(compiled)
     assert compiled.unmatched_host_policy == :deny
@@ -195,7 +179,7 @@ defmodule Fountain.Broker.Native.ProtectedCompilerTest do
   end
 
   test "broker sets only the paired identity and bearer; client routing/identity headers cannot survive" do
-    assert {:ok, compiled} = ProtectedCompiler.compile(grant(), %{}, %{}, :unrestricted)
+    assert {:ok, compiled} = compile(%{}, %{}, :unrestricted)
 
     headers = [
       {"authorization", "Bearer client-value"},
@@ -241,19 +225,30 @@ defmodule Fountain.Broker.Native.ProtectedCompilerTest do
   end
 
   test "malformed inputs produce fixed errors without credential diagnostics" do
-    assert {:error, :invalid_managed_grant} =
-             ProtectedCompiler.compile(%{}, %{}, %{}, :unrestricted)
+    assert {:error, :invalid_broker_configuration} =
+             ProtectedCompiler.compile(:not_a_map, %{}, :unrestricted)
 
-    assert {:error, :invalid_managed_identity} =
-             ProtectedCompiler.compile(grant("account\r\nInjected: bad"), %{}, %{}, :unrestricted)
+    for identity <- ["account\r\nInjected: bad", "", nil, 123] do
+      assert {:error, :invalid_managed_identity} = ProtectedCompiler.policy(identity)
+    end
 
     assert {:error, :invalid_broker_configuration} =
              ProtectedCompiler.compile(
-               grant(),
                %{"OTHER" => "ordinary"},
                %{"OTHER" => [%{}]},
                :unrestricted
              )
+  end
+
+  test "the policy is the fixed Codex backend route, whatever was compiled beside it" do
+    assert {:ok, policy} = ProtectedCompiler.policy(@identity)
+    assert policy.name == ProtectedCompiler.rule_name()
+    assert {policy.host, policy.port} == {"chatgpt.com", 443}
+    assert policy.paths == [@path]
+    assert policy.methods == ["POST"]
+    assert policy.identity_header == "chatgpt-account-id"
+    refute "authorization" in policy.allowed_headers
+    refute "cookie" in policy.allowed_headers
   end
 
   test "the captured two-turn ACP request contract survives protected preparation" do
@@ -270,7 +265,7 @@ defmodule Fountain.Broker.Native.ProtectedCompilerTest do
 
     assert fixture["turns"] == ["end_turn", "end_turn"]
     assert length(fixture["requests"]) == 2
-    assert {:ok, compiled} = ProtectedCompiler.compile(grant(), %{}, %{}, :unrestricted)
+    assert {:ok, compiled} = compile(%{}, %{}, :unrestricted)
 
     for captured <- fixture["requests"] do
       assert captured["content_length_matches"]

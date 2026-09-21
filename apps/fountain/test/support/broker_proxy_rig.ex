@@ -33,17 +33,28 @@ defmodule Fountain.BrokerProxyRig do
     @moduledoc false
     # Echoes what it was actually sent, so a test can tell the difference
     # between "the proxy logged a path" and "the origin received a target".
+    #
+    # Two query parameters shape the answer, for the tests that need more than
+    # an echo: `delay=<ms>` holds the response back, and `stream=1` sends it
+    # as three chunks the way an SSE reply arrives. Every request is also
+    # announced to the process that started the rig, so "the origin never saw
+    # it" is an assertion rather than an absence.
     import Plug.Conn
 
     def init(opts), do: opts
 
     def call(conn, _opts) do
       {:ok, body, conn} = read_body(conn)
+      conn = fetch_query_params(conn)
 
-      conn
-      |> put_resp_content_type("application/json")
-      |> send_resp(
-        200,
+      case :persistent_term.get({Fountain.BrokerProxyRig, :observer}, nil) do
+        nil -> :ok
+        pid -> send(pid, {:origin_hit, conn.method, conn.request_path, Map.new(conn.req_headers)})
+      end
+
+      with %{"delay" => ms} <- conn.query_params, do: Process.sleep(String.to_integer(ms))
+
+      echo =
         Jason.encode!(%{
           method: conn.method,
           path: conn.request_path,
@@ -51,7 +62,20 @@ defmodule Fountain.BrokerProxyRig do
           headers: Map.new(conn.req_headers),
           body: body
         })
-      )
+
+      if conn.query_params["stream"] == "1" do
+        conn = conn |> put_resp_content_type("text/event-stream") |> send_chunked(200)
+        third = div(byte_size(echo), 3)
+
+        ([binary_part(echo, 0, third), binary_part(echo, third, third)] ++
+           [binary_part(echo, 2 * third, byte_size(echo) - 2 * third)])
+        |> Enum.reduce(conn, fn part, conn ->
+          {:ok, conn} = chunk(conn, part)
+          conn
+        end)
+      else
+        conn |> put_resp_content_type("application/json") |> send_resp(200, echo)
+      end
     end
   end
 
@@ -59,13 +83,19 @@ defmodule Fountain.BrokerProxyRig do
   The whole rig: a TLS origin on loopback, the request-log writer, the
   telemetry handler and a listener on port 0 that trusts the origin.
 
-  Returns `%{proxy_port:, origin_port:, origin_host:, log:}`. The caller is
+  Returns `%{proxy_port:, origin_port:, origin_host:, log:}`. The process that
+  calls this is sent `{:origin_hit, method, path, headers}` for every request
+  the origin receives. The caller is
   responsible for `Ecto.Adapters.SQL.Sandbox.mode(Repo, {:shared, self()})`
   — the proxy answers on its own processes.
   """
   def start(opts \\ []) do
     {origin_ca, tls} = origin_tls()
     origin_port = start_https_origin(tls)
+
+    observer = self()
+    :persistent_term.put({__MODULE__, :observer}, observer)
+    ExUnit.Callbacks.on_exit(fn -> :persistent_term.erase({__MODULE__, :observer}) end)
 
     log = start_supervised!(Fountain.Broker.Native.RequestLog)
     Ecto.Adapters.SQL.Sandbox.allow(Fountain.Repo, self(), log)
@@ -145,9 +175,12 @@ defmodule Fountain.BrokerProxyRig do
 
   @doc """
   A tunnel as a brokered sandbox opens one: `CONNECT` with the session's own
-  proxy credential, then TLS trusting the broker CA.
+  proxy credential, then TLS trusting the broker CA. `authority` is the
+  origin under another name (`"127.0.0.1:<port>"`), for a test that needs two
+  destinations out of the one origin; an IP authority sends no SNI.
   """
-  def tunnel(rig, session) do
+  def tunnel(rig, session, authority \\ nil) do
+    authority = authority || rig.origin_host
     [{"HTTPS_PROXY", url} | _] = Broker.sandbox_env(session)
     %URI{userinfo: userinfo} = URI.parse(url)
 
@@ -157,28 +190,30 @@ defmodule Fountain.BrokerProxyRig do
     :ok =
       :gen_tcp.send(
         tcp,
-        "CONNECT #{rig.origin_host} HTTP/1.1\r\nHost: #{rig.origin_host}\r\n" <>
+        "CONNECT #{authority} HTTP/1.1\r\nHost: #{authority}\r\n" <>
           "Proxy-Authorization: Basic #{Base.encode64(userinfo)}\r\n\r\n"
       )
 
     {:ok, reply} = :gen_tcp.recv(tcp, 0, 5_000)
 
     unless reply =~ "HTTP/1.1 200" do
-      raise "CONNECT #{rig.origin_host} answered #{inspect(reply)}"
+      raise "CONNECT #{authority} answered #{inspect(reply)}"
     end
+
+    name =
+      if String.starts_with?(authority, "localhost"),
+        do: [
+          server_name_indication: ~c"localhost",
+          customize_hostname_check: [
+            match_fun: :public_key.pkix_verify_hostname_match_fun(:https)
+          ]
+        ],
+        else: [server_name_indication: :disable]
 
     {:ok, tls} =
       :ssl.connect(
         tcp,
-        [
-          verify: :verify_peer,
-          cacerts: broker_ca_ders(),
-          server_name_indication: ~c"localhost",
-          customize_hostname_check: [
-            match_fun: :public_key.pkix_verify_hostname_match_fun(:https)
-          ],
-          active: false
-        ],
+        [verify: :verify_peer, cacerts: broker_ca_ders(), active: false] ++ name,
         5_000
       )
 
@@ -189,6 +224,77 @@ defmodule Fountain.BrokerProxyRig do
   def request(tls, raw) do
     :ok = :ssl.send(tls, raw)
     read_json(tls, "")
+  end
+
+  @doc """
+  Send one origin-form request down the tunnel and return whatever came back,
+  the proxy's own refusals included: `%{status:, headers:, body:}`, with the
+  body de-chunked. `{:error, reason}` when the tunnel is gone.
+  """
+  def exchange(tls, raw) do
+    with :ok <- :ssl.send(tls, raw), do: read_response(tls, "")
+  end
+
+  defp read_response(tls, acc) do
+    case response(acc) do
+      {:ok, response} ->
+        response
+
+      :more ->
+        case :ssl.recv(tls, 0, 5_000) do
+          {:ok, data} -> read_response(tls, acc <> data)
+          {:error, reason} -> {:error, reason}
+        end
+    end
+  end
+
+  defp response(acc) do
+    with [head, rest] <- String.split(acc, "\r\n\r\n", parts: 2),
+         [status_line | lines] = String.split(head, "\r\n"),
+         [_, status] <- Regex.run(~r/\AHTTP\/1\.1 (\d{3})/, status_line) do
+      headers =
+        Map.new(lines, fn line ->
+          [name, value] = String.split(line, ":", parts: 2)
+          {String.downcase(name), String.trim(value)}
+        end)
+
+      body =
+        cond do
+          headers["transfer-encoding"] == "chunked" -> dechunk(rest, "")
+          length = headers["content-length"] -> sized(rest, String.to_integer(length))
+          true -> {:ok, rest}
+        end
+
+      with {:ok, body} <- body do
+        {:ok, %{status: String.to_integer(status), headers: headers, body: body}}
+      end
+    else
+      _ -> :more
+    end
+  end
+
+  defp sized(rest, length) when byte_size(rest) >= length, do: {:ok, binary_part(rest, 0, length)}
+  defp sized(_rest, _length), do: :more
+
+  defp dechunk(rest, acc) do
+    with [size, tail] <- String.split(rest, "\r\n", parts: 2),
+         {size, ""} <- Integer.parse(size, 16) do
+      cond do
+        size == 0 ->
+          {:ok, acc}
+
+        byte_size(tail) >= size + 2 ->
+          dechunk(
+            binary_part(tail, size + 2, byte_size(tail) - size - 2),
+            acc <> binary_part(tail, 0, size)
+          )
+
+        true ->
+          :more
+      end
+    else
+      _ -> :more
+    end
   end
 
   @doc """

@@ -54,10 +54,14 @@ origin rather than the real HTTPS provider. The broker's own transport suite
 covers protected TLS, HTTP-only enforcement and streaming; a controlled hosted
 client/broker/provider run is still required before activation.
 
-ProtectedCompiler is not called by session issuance. Before adoption, implement
-durable owner/generation/session fencing and per-request authorization, preserve
-source-specific runtime auth homes, preflight existing reserved configuration,
-drain legacy sockets on every serving node, and verify the deployed CLI version.
-Migrate the existing platform path before enabling user linking. Until then the
-legacy platform compiler remains in service; this PR does not claim to secure
-existing managed sessions.
+`ProtectedCompiler` is called by session issuance since ADR 0060 stage 3: a
+broker session that may use a managed grant carries the policy compiled here,
+its issuance is fenced on the grant row, and `Sessions.authorize/2` resolves
+the bearer per request. None of that changes what this fixture is: a record of
+one client version's request shape. The capture predates the current
+`managoat_runtimes` pin (it was taken against the 0.4.1 pin named above; the
+lock file has since moved to 0.4.5), so **re-run the probe against the adapter
+and CLI the deployed image installs, and refresh `capture.json`, before any
+grant is served through the protected path in production.** A new required
+header shows up here as a failing replay test; a new required *route* does not,
+and would be a 403 at the proxy.

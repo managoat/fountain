@@ -601,9 +601,13 @@ defmodule Fountain.Broker do
   or binding reaches the broker on the next wake, the same way the `.env`
   file is refreshed. Between wakes the conversation process holds the
   session, and `refresh/4` is how an edit reaches it before the next turn
-  (#1736). `opts`: `network:` (`network_for/1`), and `user_id:`, which the
+  (#1736). `opts`: `network:` (`network_for/1`), `user_id:`, which the
   native backend needs to reach the tenant's key and looks up from the
-  conversation when the caller has not got it to hand.
+  conversation when the caller has not got it to hand, and `managed:`, the
+  managed ChatGPT grant the conversation runs on, if any
+  (`t:Fountain.ChatGPTAccounts.grant_ref/0`; see
+  `Fountain.Broker.Native.Sessions`). Issuance for a grant that is no longer active at that generation
+  is refused.
   """
   @spec prepare(String.t(), %{String.t() => String.t()}, bindings(), keyword()) ::
           {:ok, session()} | {:error, term()}
@@ -633,6 +637,17 @@ defmodule Fountain.Broker do
       backend -> impl(backend).refresh(conversation_id, brokered, bindings, opts)
     end
   end
+
+  @doc """
+  Revoke every live session's authority to use a managed ChatGPT grant, at
+  one generation or (`:all`) at any, and return how many it marked. Called by
+  `Fountain.ChatGPTAccounts` inside the transaction that ends the grant's
+  generation, so it is not gated on `configured?/0`: rows minted while the
+  broker was on are revoked after it is turned off. The rows and every other
+  rule in them stay.
+  """
+  @spec revoke_grant(Ecto.UUID.t(), Ecto.UUID.t() | :all) :: non_neg_integer()
+  def revoke_grant(grant_id, generation), do: Native.Sessions.revoke_grant(grant_id, generation)
 
   @doc """
   Release a conversation's session at the end of its life, so nothing

@@ -193,6 +193,63 @@ defmodule Fountain.Conversations.ChatGPTGrantAdmissionTest do
     assert Fountain.Conversations._unsafe_list_turns(conv.id) == []
   end
 
+  # Unreachable until stage 3 lets a conversation run on a grant, and live the
+  # commit it does: `validate_source/2` keeps the refusal whole, and the stream
+  # used to flatten any non-atom refusal to "invalid_turn".
+  test "a turn refused because its subscription is unusable says so on the stream", ctx do
+    {:ok, %Source{scope: :grant} = source, _} =
+      InferenceCredentials.resolve(ctx.user.id, ctx.agent.model, "codex",
+        credential_set_id: ctx.set.id
+      )
+
+    sandbox = insert_sandbox(user_id: ctx.user.id, agent_id: ctx.agent.id, status: "ready")
+
+    conv =
+      insert_conversation(
+        user_id: ctx.user.id,
+        agent: ctx.agent,
+        sandbox_id: sandbox.id,
+        runtime: "codex"
+      )
+
+    conv
+    |> Ecto.Changeset.change(inference_source: Source.dump(source))
+    |> Repo.update!()
+
+    :ok = ChatGPTAccounts.disconnect_for_user(ctx.grant.id, ctx.user.id)
+
+    assert {:error, {:chatgpt_grant_unusable, %{reason: :disconnected} = detail}} =
+             Fountain.Conversations.TurnMachine.open(
+               conv.id,
+               sandbox.id,
+               "hi",
+               ctx.agent,
+               nil,
+               source
+             )
+
+    events =
+      Repo.all(
+        from e in Fountain.Conversations.LogEvent,
+          where: e.conversation_id == ^conv.id and e.kind == "stage" and e.stage == "sandbox",
+          order_by: e.id
+      )
+
+    assert [%{state: "done", data: data}] = events
+
+    assert %{
+             "event" => "admission_refused",
+             "reason" => "chatgpt_grant_unusable",
+             "grant_reason" => "disconnected",
+             "grant_id" => grant_id,
+             "message" => message
+           } = Jason.decode!(data)
+
+    assert grant_id == ctx.grant.id
+    assert message == InferenceCredentials.grant_unusable_message(detail)
+    assert message =~ ~s("Work" is disconnected)
+  end
+
   test "transport_ready/1 refuses only a grant source" do
     assert {:error, :chatgpt_grant_transport_unavailable} =
              CodexChatGPT.transport_ready(Source.grant())

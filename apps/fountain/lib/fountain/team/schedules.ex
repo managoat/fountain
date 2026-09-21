@@ -465,6 +465,13 @@ defmodule Fountain.Team.Schedules do
   def describe_error({:sandbox_quota_exceeded, %{count: c, limit: l}}),
     do: "sandbox quota: #{c}/#{l}"
 
+  # The teammate's credential set names a ChatGPT subscription that cannot
+  # serve the run (ADR 0060 decision 4). The sentence names the subscription
+  # and what is wrong with it first, which is what survives `last_error`'s
+  # 250 characters.
+  def describe_error({:chatgpt_grant_unusable, detail}),
+    do: Fountain.InferenceCredentials.grant_unusable_message(detail)
+
   def describe_error(%Ecto.Changeset{}), do: "could not open a conversation"
   def describe_error(other), do: inspect(other) |> String.slice(0, 250)
 

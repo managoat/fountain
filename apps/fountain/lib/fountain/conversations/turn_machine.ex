@@ -1254,6 +1254,21 @@ defmodule Fountain.Conversations.TurnMachine do
 
         :at_capacity
 
+      # The subscription this conversation runs on cannot serve the turn (ADR
+      # 0060 decision 4). `validate_source/2` keeps this refusal whole so it
+      # stays actionable; the stream says the same thing the 409 does, rather
+      # than "invalid_turn".
+      {:error, {:chatgpt_grant_unusable, %{reason: reason} = detail}} = error ->
+        publish_stage(conversation_id, "sandbox", "done", %{
+          event: "admission_refused",
+          reason: "chatgpt_grant_unusable",
+          grant_reason: Atom.to_string(reason),
+          grant_id: detail[:grant_id],
+          message: Fountain.InferenceCredentials.grant_unusable_message(detail)
+        })
+
+        error
+
       {:error, reason} = error ->
         publish_stage(conversation_id, "sandbox", "done", %{
           event: "admission_refused",

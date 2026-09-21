@@ -499,9 +499,14 @@ defmodule Fountain.Conversations.ConversationServer do
         # for a row that is no longer pending or starting.
         fail_machine(sandbox.id, :tenant_credential_load_failed, conv.id)
 
-        Conversations.ActorStatus.fail(state, %{
-          reason: "tenant_credential_load_failed: #{inspect(reason)}"
-        })
+        # A named subscription that cannot serve says so as the turn's refusal
+        # and a failed reattach do (`CodexChatGPT.refusal_stage/3`: the grant,
+        # why, and `until` at a usage limit), not as an inspected tuple.
+        Conversations.ActorStatus.fail(
+          state,
+          Fountain.Conversations.CodexChatGPT.refusal_stage(reason, conv.user_id, nil) ||
+            %{reason: "tenant_credential_load_failed: #{inspect(reason)}"}
+        )
 
         {:stop, :normal, state}
     end

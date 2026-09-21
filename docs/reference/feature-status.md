@@ -17,13 +17,13 @@ describes one of these features.
 **In development.** The feature is not complete, and it is off everywhere
 until it is. For ChatGPT subscriptions, the console and the
 [API](../api.md#chatgpt-subscriptions) can link a subscription and a
-credential set can name one. These parts are not built: the
-schedule that keeps an idle subscription's sign-in alive, the record of which
-subscription served a turn, the detection of a subscription that has spent
-its plan's Codex allowance, and two protections at the credential broker for
-a response or a request that carries the subscription's token. Until the
-detection is built, a spent subscription stays **Connected** on the card and
-its turns fail with the error that OpenAI returns. The flag holds
+credential set can name one. Each turn records which subscription served it.
+Fountain detects a subscription that has spent its plan's Codex allowance
+after a turn fails on it, and refuses the subscription until the reset time.
+These parts are not built: the schedule that keeps an idle subscription's
+sign-in alive, a check of the usage before a turn fails, an email or a
+webhook about a spent plan, and two protections at the credential broker for
+a response or a request that carries the subscription's token. The flag holds
 only the door that links a new subscription. An account that holds one can
 always list, rename, disconnect and remove it, and keeps the **ChatGPT
 subscriptions** card in the console. It can reconnect it on a deployment that

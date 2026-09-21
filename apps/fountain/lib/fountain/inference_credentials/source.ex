@@ -50,6 +50,16 @@ defmodule Fountain.InferenceCredentials.Source do
   # Absent from a stored map unless set. See the moduledoc.
   @optional ~w(grant_id generation)
 
+  @scopes [:credential, :tenant_secret, :grant, :platform, :none, :missing]
+
+  @doc "Every scope a source can have; the API's `inference.scope` enum is this list."
+  @spec scopes() :: [atom()]
+  def scopes, do: @scopes
+
+  @doc "The two values of `origin/1`."
+  @spec origins() :: [String.t()]
+  def origins, do: ~w(own platform)
+
   def credential, do: %__MODULE__{scope: :credential}
   def tenant_secret, do: %__MODULE__{scope: :tenant_secret}
   def grant, do: %__MODULE__{scope: :grant}
@@ -79,12 +89,49 @@ defmodule Fountain.InferenceCredentials.Source do
     |> Map.put("origin", origin(source))
   end
 
+  @doc """
+  What a stored source says to its owner, for a turn's `inference` field in
+  the API and the export (ADR 0060 decision 6): the `"origin"`, the scope and,
+  on a `:grant` source, which subscription. Nil for a row with no source, or
+  with one whose scope this version does not know.
+
+  Deliberately three keys. `generation`, `identity` and `revision` are
+  fencing values and are in no body; the set, the environment and the vault
+  are on the conversation.
+  """
+  @spec summary(map() | nil) ::
+          %{origin: String.t(), scope: String.t(), chatgpt_grant_id: String.t() | nil} | nil
+  def summary(nil), do: nil
+
+  def summary(%{} = stored) do
+    case load(stored) do
+      %__MODULE__{scope: nil} ->
+        nil
+
+      %__MODULE__{scope: scope} = source ->
+        %{
+          origin: origin(source),
+          scope: Atom.to_string(scope),
+          chatgpt_grant_id: if(scope == :grant, do: uuid(source.grant_id))
+        }
+    end
+  end
+
+  # The schema says `format: uuid`: a stored value that is not one is not shown.
+  defp uuid(value) when is_binary(value) do
+    case Ecto.UUID.cast(value) do
+      {:ok, uuid} -> uuid
+      :error -> nil
+    end
+  end
+
+  defp uuid(_value), do: nil
+
   def load(nil), do: nil
 
   def load(%{} = source) do
     %__MODULE__{
-      scope:
-        decode(source["scope"], [:credential, :tenant_secret, :grant, :platform, :none, :missing]),
+      scope: decode(source["scope"], @scopes),
       kind:
         decode(source["kind"], [
           :anthropic_api_key,

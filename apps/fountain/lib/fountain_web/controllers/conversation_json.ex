@@ -256,7 +256,10 @@ defmodule FountainWeb.ConversationJSON do
       # The end-of-turn figure as the runtime reported it (#827); null when
       # it reported none or the turn predates the column.
       model_selection: t.model_selection,
-      usage: turn_usage(t.usage)
+      usage: turn_usage(t.usage),
+      # Which inference source served the turn (ADR 0060 decision 6), written
+      # once at turn start; null on a row from before it was kept.
+      inference: Fountain.InferenceCredentials.Source.summary(t.inference_source)
     }
   end
 

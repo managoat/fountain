@@ -106,6 +106,8 @@ defmodule Fountain.AuditGuardrailTest do
     {"chatgpt grant rename", &__MODULE__.do_grant_rename/1, "chatgpt_grant.renamed"},
     {"chatgpt grant disconnect", &__MODULE__.do_grant_disconnect/1, "chatgpt_grant.disconnected"},
     {"chatgpt grant remove", &__MODULE__.do_grant_remove/1, "chatgpt_grant.removed"},
+    # No caller: a failed turn's hint, once OpenAI's usage endpoint confirms it.
+    {"chatgpt grant usage limit", &__MODULE__.do_grant_exhausted/1, "chatgpt_grant.exhausted"},
     # The sign-in that links or reconnects one (ADR 0060 stage 4). A completion
     # is the grant's own `connected`; the attempt's other three ends are its own.
     {"chatgpt link attempt start", &__MODULE__.do_attempt_start/1,
@@ -579,6 +581,24 @@ defmodule Fountain.AuditGuardrailTest do
   def do_grant_remove(user) do
     grant = do_grant_disconnect(user)
     :ok = Fountain.ChatGPTAccounts.remove_for_user(grant.grant_id, user.id)
+  end
+
+  # The usage endpoint is stubbed for this process alone; the check runs in it.
+  def do_grant_exhausted(user) do
+    grant = Fountain.ChatGPTFixtures.user_grant!(user.id)
+
+    Req.Test.stub(Fountain.PlatformChatGPT.OAuth, fn conn ->
+      Req.Test.json(conn, %{"rate_limit" => %{"allowed" => false, "limit_reached" => true}})
+    end)
+
+    source = %{
+      Fountain.InferenceCredentials.Source.grant()
+      | kind: :codex_chatgpt_access_token,
+        grant_id: grant.id,
+        generation: grant.generation
+    }
+
+    :recorded = Fountain.ChatGPTAccounts.confirm_exhausted_for_user(source, user.id)
   end
 
   # A reconnect of a grant put there through the schema: it needs the broker

@@ -65,14 +65,16 @@ defmodule Fountain.Conversations.TurnMachine do
   swaps the env before the call; the machine words the message), and the
   pair the usage stamp needs — `:inference` (the
   `Fountain.InferenceCredentials.Source` whose key ran this turn, #1388 and
-  ADR 0053) and `:model` (what it ran).
+  ADR 0053) and `:model` (what it ran). `:user_id` is the conversation's
+  owner, which a usage check of the owner's own ChatGPT grant is scoped by.
   """
   @type ctx :: %{
           optional(:autonomous?) => boolean(),
           optional(:runtime_module) => module(),
           optional(:oauth_switched?) => boolean(),
           optional(:inference) => Fountain.InferenceCredentials.Source.t() | nil,
-          optional(:model) => String.t() | nil
+          optional(:model) => String.t() | nil,
+          optional(:user_id) => String.t() | nil
         }
 
   @type effect ::
@@ -161,7 +163,8 @@ defmodule Fountain.Conversations.TurnMachine do
         autonomous?: autonomous_turn?(state),
         runtime_module: state.runtime_module,
         inference: state.inference_source,
-        model: state.inference_model
+        model: state.inference_model,
+        user_id: state.user_id
       ] ++ extra
     )
   end
@@ -563,13 +566,26 @@ defmodule Fountain.Conversations.TurnMachine do
   # the ChatGPT backend itself, in the background, throttled, and records the
   # exhaustion only when the backend confirms it
   # (`ChatGPTAccounts.platform_confirm_exhausted/2`). This turn fails as it
-  # would have, and nothing is retried. A turn on any other source starts no
-  # check.
+  # would have, and nothing is retried.
+  #
+  # A turn bound to one of the owner's own subscriptions (ADR 0060 decision
+  # 4) is asked about the same way, scoped by the owner
+  # (`ChatGPTAccounts.confirm_exhausted_for_user/3`): the hint is no more
+  # trustworthy for being about the tenant's own grant, and what a confirmed
+  # limit changes is that later turns and launches on that grant are refused
+  # by name until it resets. Nothing is substituted for it. A turn on any
+  # other source starts no check.
   def handle(%__MODULE__{} = turn, {:failed, {:acp_error, :prompt, error} = reason}, ctx) do
-    with %Source{scope: :platform, kind: :codex_chatgpt_access_token} = source <-
-           Map.get(ctx, :inference),
+    with %Source{scope: scope, kind: :codex_chatgpt_access_token} = source
+         when scope in [:platform, :grant] <- Map.get(ctx, :inference),
          true <- Fountain.PlatformChatGPT.UsageLimit.hint?(error) do
-      Fountain.ChatGPTAccounts.platform_check_exhaustion(source)
+      case scope do
+        :platform ->
+          Fountain.ChatGPTAccounts.platform_check_exhaustion(source)
+
+        :grant ->
+          Fountain.ChatGPTAccounts.check_exhaustion_for_user(source, Map.get(ctx, :user_id))
+      end
     end
 
     handle_failed(turn, reason)
@@ -913,8 +929,10 @@ defmodule Fountain.Conversations.TurnMachine do
   platform API key is configured.
 
   A user's own named ChatGPT grant (scope `:grant`, ADR 0060) is a tenant
-  source and is stamped `"own"`. Which grant served the turn is not recorded
-  yet: decision 6 asks for it, and it arrives with exhaustion in stage 5.
+  source and is stamped `"own"`. Which grant served the turn is not in this
+  map, which the pricer and `Turn.inference_stamp_only?/1` key off: it is in
+  the turn's `inference_source`, written beside the stamp, and the API reads
+  it from there (`Source.summary/1`, decision 6).
 
   The `"model"` key is deliberately absent on an `"own"` turn: nothing prices
   it, so recording it would put a configuration detail in a column that
@@ -1279,6 +1297,7 @@ defmodule Fountain.Conversations.TurnMachine do
           reason: "chatgpt_grant_unusable",
           grant_reason: Atom.to_string(reason),
           grant_id: detail[:grant_id],
+          until: detail[:until],
           message: Fountain.InferenceCredentials.grant_unusable_message(detail)
         })
 

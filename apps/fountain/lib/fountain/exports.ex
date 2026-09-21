@@ -463,8 +463,18 @@ defmodule Fountain.Exports do
       "status" => turn.status,
       "exit_code" => turn.exit_code,
       "started_at" => turn.started_at,
-      "ended_at" => turn.ended_at
+      "ended_at" => turn.ended_at,
+      # The API's `inference` object: whose credential served the turn, and
+      # which ChatGPT subscription when it was one. Never a fencing value.
+      "inference" => inference_entry(turn.inference_source)
     }
+  end
+
+  defp inference_entry(stored) do
+    case Fountain.InferenceCredentials.Source.summary(stored) do
+      nil -> nil
+      summary -> Map.new(summary, fn {key, value} -> {Atom.to_string(key), value} end)
+    end
   end
 
   defp log_entry(le) do

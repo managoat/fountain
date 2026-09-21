@@ -96,14 +96,22 @@ another subscription, to the set's OpenAI key or to platform inference.
 | **Reconnect required** | `409 chatgpt_grant_unusable` with the subscription's name. | Click **Reconnect**, then start a new conversation. |
 | **Disconnected** | The same refusal. | Click **Reconnect**, or point the set at another subscription. |
 | **Cannot serve here** | The same refusal. The deployment does not run the credential broker. | Ask the operator. **Reconnect** does not help. |
-| **Usage spent** | The same refusal, with the reset time. **Not built yet:** see below. | Wait for the reset, or point the set at another subscription. |
+| **Usage spent** | The same refusal, with `reason` `exhausted` and the reset time in `until`. | Wait for the reset, or point the set at another subscription. |
 
-**Fountain does not yet detect a spent plan.** Nothing records that a
-subscription has used its Codex allowance, so the card never shows **Usage
-spent** today. A subscription that has spent its allowance stays
-**Connected**, and the turn fails with the error that OpenAI returns.
-Fountain still does not switch to another subscription or to a key. See
-[feature status](../reference/feature-status.md).
+**Fountain detects a spent plan after a turn fails on it.** The first turn
+that reaches the limit fails with the message from codex. Fountain then asks
+OpenAI about that subscription. When OpenAI confirms the limit, the card
+changes to **Usage spent** and shows the reset time. An open page changes
+without a reload. Each launch and each turn on the subscription is then
+refused until the reset time. Fountain does not switch to another
+subscription, to a key or to platform inference. When the reset time passes,
+the card shows **Connected** again and the same conversations can continue.
+
+Fountain asks OpenAI at most one time in 5 minutes for each subscription. If
+that request fails, the subscription stays **Connected** and its turns keep
+failing with the message from codex. The next request can be up to 5 minutes
+later. Fountain does not check usage before a turn fails, and it sends no
+email and no webhook about a spent plan.
 
 An account that is suspended cannot run on a subscription, whatever state the
 card shows. The card and the **ChatGPT subscription** row say so.

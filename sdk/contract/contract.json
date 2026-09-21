@@ -13771,6 +13771,39 @@
           "required": false,
           "type": "integer"
         },
+        "inference": {
+          "nullable": true,
+          "properties": {
+            "chatgpt_grant_id": {
+              "format": "uuid",
+              "nullable": true,
+              "required": true,
+              "type": "string"
+            },
+            "origin": {
+              "enum": [
+                "own",
+                "platform"
+              ],
+              "required": true,
+              "type": "string"
+            },
+            "scope": {
+              "enum": [
+                "credential",
+                "grant",
+                "missing",
+                "none",
+                "platform",
+                "tenant_secret"
+              ],
+              "required": true,
+              "type": "string"
+            }
+          },
+          "required": false,
+          "type": "object"
+        },
         "inserted_at": {
           "format": "date-time",
           "required": false,

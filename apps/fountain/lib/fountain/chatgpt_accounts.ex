@@ -43,6 +43,14 @@ defmodule Fountain.ChatGPTAccounts do
       (`Fountain.ChatGPTAccounts.RefreshCoordinator`) and the PostgreSQL
       refresh lock, using only the owner's encryption key. Callers re-read
       their pinned grant after renewal; the coordinator holds no tokens.
+    * `check_exhaustion_for_user/2`, `confirm_exhausted_for_user/3` -- the
+      grant ran out of Codex usage (decision 4). The platform grant's rule
+      with the owner in every query: a failed turn's `usageLimitExceeded` is
+      a hint from a sandbox, the server asks the ChatGPT backend with that
+      grant's token, and only a confirmed limit records the reset time, on
+      that row alone. Resolution then refuses the grant with `:exhausted`
+      until it passes, and nothing is substituted for it: not another of the
+      user's grants, not a key, not the platform.
 
   ## The broker's two reads
 
@@ -213,7 +221,7 @@ defmodule Fountain.ChatGPTAccounts do
   secret; the generation is a lifecycle counter, not key material.
   `:refreshable` says whether a refresh token is stored, without loading it.
   `:exhausted_until` is the recorded usage reset while it is still in the
-  future, else nil; nothing records one for a user's grant yet.
+  future, else nil (`confirm_exhausted_for_user/3` records it).
   """
   @type grant_view :: %{
           grant_id: Ecto.UUID.t(),
@@ -609,10 +617,11 @@ defmodule Fountain.ChatGPTAccounts do
   The PubSub topic on which `{:chatgpt_grants_changed, user_id}` is sent
   after every committed write to one of that user's grants or link attempts:
   a link, a reconnect, a rename, a disconnect, a removal, a revocation found
-  by a refresh, an attempt starting or ending, and a pending attempt's
-  `:auth_unreachable` changing. The message carries nothing else; a
-  subscriber reads `list_for_user/1`, `list_pending_attempts_for_user/1` and
-  `list_recent_attempts_for_user/1` again.
+  by a refresh, a confirmed usage limit, an attempt starting or ending, and a
+  pending attempt's `:auth_unreachable` changing. The message carries
+  nothing else; a subscriber reads `list_for_user/1`,
+  `list_pending_attempts_for_user/1` and `list_recent_attempts_for_user/1`
+  again.
   """
   @spec topic(String.t()) :: String.t()
   def topic(user_id) when is_binary(user_id), do: "chatgpt_grants:#{user_id}"
@@ -1444,12 +1453,7 @@ defmodule Fountain.ChatGPTAccounts do
   def platform_check_exhaustion(source) do
     case grant_fence(source) do
       {:ok, _id, _generation} ->
-        {:ok, _pid} =
-          Task.Supervisor.start_child(Fountain.TaskSupervisor, fn ->
-            platform_confirm_exhausted(source)
-          end)
-
-        :started
+        start_usage_check(fn -> platform_confirm_exhausted(source) end)
 
       :error ->
         :ignored
@@ -1477,13 +1481,17 @@ defmodule Fountain.ChatGPTAccounts do
        `usage_checked_at` (grant id, generation, `active`, and no check in
        the last `platform_usage_check_cooldown_seconds/0`). That is both the
        in-flight bound and the cooldown, across nodes; a lost claim is
-       `:throttled`. No lock or transaction is held past that statement.
+       `:throttled`. No lock or transaction is held past that statement, and
+       a row already read as checked inside the cooldown is `:throttled`
+       before the statement is tried. The statement returns the row, and the
+       token sent is that row's.
     4. The HTTP call, outside any lock or transaction, as the refresher does.
     5. `{:limited, until}` writes `usage_exhausted_at` and
        `usage_exhausted_until`, fenced on the same grant id and generation,
        then records `admin.platform_chatgpt.exhausted` outside the write
        (account id, kind, `until`; never a token): `:recorded`. The row
-       already saying exactly that is `:unchanged`.
+       already saying exactly that is `:unchanged`; a grant reconnected or
+       disconnected since the claim is `:ignored`.
 
   `:not_limited` and `{:error, _}` record nothing.
   """
@@ -1496,35 +1504,116 @@ defmodule Fountain.ChatGPTAccounts do
           | :ignored
           | {:error, term()}
   def platform_confirm_exhausted(source, now \\ DateTime.utc_now()) do
+    case grant_fence(source) do
+      {:ok, id, generation} -> confirm_exhausted(nil, id, generation, now)
+      :error -> :ignored
+    end
+  end
+
+  @doc """
+  A codex turn bound to one of `user_id`'s own grants failed with a
+  usage-limit hint: check it in the background, as
+  `platform_check_exhaustion/1` does for the deployment's. Anything but a
+  `:grant` source, or no owner, is `:ignored` without starting anything.
+  """
+  @spec check_exhaustion_for_user(Source.t() | nil, String.t() | nil) :: :started | :ignored
+  def check_exhaustion_for_user(source, user_id) do
+    case user_grant_fence(source, user_id) do
+      {:ok, _owner, _id, _generation} ->
+        start_usage_check(fn -> confirm_exhausted_for_user(source, user_id) end)
+
+      :error ->
+        :ignored
+    end
+  end
+
+  @doc """
+  Confirm with OpenAI that one of `user_id`'s grants has spent its Codex
+  usage, and record it only if so (ADR 0060 decision 4). The steps, the
+  cooldown and the answers are `platform_confirm_exhausted/2`'s; what differs
+  is whose row it is.
+
+  `source` must be the `:grant` source the turn was bound to, and the row is
+  read through the eligible-owner query by owner, grant id, generation and
+  `active`: another user's grant, a generation since replaced, a tombstone
+  and a suspended owner's grant are all `:ignored`, with no call. The token
+  is decrypted with the owner's key and goes to the usage endpoint and
+  nowhere else. Both writes take the owner's source key before the row and
+  never the platform's, and neither is held across the call.
+
+  `:recorded` leaves a `chatgpt_grant.exhausted` tenant event (the grant's
+  name and the reset time; no account id, no generation, no token) and
+  broadcasts on `topic/1`. Nothing else changes: `status` stays `active`,
+  no other grant and no key is substituted, and resolution refuses this
+  grant with `:exhausted` until the reset passes.
+  """
+  @spec confirm_exhausted_for_user(Source.t() | nil, String.t() | nil, DateTime.t()) ::
+          :recorded
+          | :unchanged
+          | :not_limited
+          | :already
+          | :throttled
+          | :ignored
+          | {:error, term()}
+  def confirm_exhausted_for_user(source, user_id, now \\ DateTime.utc_now()) do
+    case user_grant_fence(source, user_id) do
+      {:ok, owner, id, generation} -> confirm_exhausted(owner, id, generation, now)
+      :error -> :ignored
+    end
+  end
+
+  # The caller is a ConversationServer finishing a failed turn, and a hint is
+  # only a hint: a supervisor that cannot take the task (a restart, a child
+  # limit) drops the check and never the caller.
+  defp start_usage_check(fun) do
+    case Task.Supervisor.start_child(Fountain.TaskSupervisor, fun) do
+      {:ok, _pid} -> :started
+      _ -> :ignored
+    end
+  end
+
+  # `owner` is nil for the deployment's grant and the owning user's id for
+  # theirs; every query below is scoped by it.
+  defp confirm_exhausted(owner, id, generation, now) do
     now = DateTime.truncate(now, :second)
 
-    with {:ok, id, generation} <- grant_fence(source),
-         %Account{} = row <- grant_row(id, generation),
-         nil <- exhausted_until(row, now),
-         :ok <- claim_usage_check(id, generation, now),
+    with %Account{} = seen <- grant_row(owner, id, generation),
+         nil <- exhausted_until(seen, now),
+         :ok <- outside_cooldown(seen, now),
+         {:ok, row} <- claim_usage_check(owner, id, generation, now),
          {:ok, token} <- Cipher.decrypt_token(row, :access_token) do
       case UsageLimit.fetch(token, row.account_id, now) do
         {:limited, until} ->
-          write_exhaustion(id, generation, until, now)
+          write_exhaustion(owner, id, generation, until, now)
 
         :not_limited ->
           :not_limited
 
         {:error, reason} = error ->
-          Logger.warning(
-            "platform chatgpt: usage check was inconclusive; recording nothing: " <>
-              inspect(reason)
-          )
-
+          log_inconclusive(row, reason)
           error
       end
     else
-      :error -> :ignored
       nil -> :ignored
       %DateTime{} -> :already
       :throttled -> :throttled
       {:error, _} = error -> error
     end
+  end
+
+  defp log_inconclusive(%Account{user_id: nil}, reason) do
+    Logger.warning(
+      "platform chatgpt: usage check was inconclusive; recording nothing: " <>
+        inspect(UsageLimit.loggable_reason(reason))
+    )
+  end
+
+  # The grant's id and a status or an atom; never what the transport said.
+  defp log_inconclusive(%Account{id: id}, reason) do
+    Logger.warning(
+      "chatgpt grant #{id}: usage check was inconclusive; recording nothing: " <>
+        inspect(UsageLimit.loggable_reason(reason))
+    )
   end
 
   defp grant_fence(%Source{
@@ -1542,58 +1631,138 @@ defmodule Fountain.ChatGPTAccounts do
 
   defp grant_fence(_source), do: :error
 
-  defp grant_row(id, generation) do
+  defp user_grant_fence(
+         %Source{
+           scope: :grant,
+           kind: :codex_chatgpt_access_token,
+           grant_id: id,
+           generation: generation
+         },
+         user_id
+       )
+       when is_binary(id) and is_binary(generation) and is_binary(user_id) do
+    with {:ok, owner} <- Ecto.UUID.cast(user_id),
+         {:ok, id} <- Ecto.UUID.cast(id),
+         {:ok, generation} <- Ecto.UUID.cast(generation) do
+      {:ok, owner, id, generation}
+    end
+  end
+
+  defp user_grant_fence(_source, _user_id), do: :error
+
+  # The platform's row, or one user's through the eligible-owner query.
+  defp owned_grant_query(nil, id),
+    do: from(a in Account, where: is_nil(a.user_id) and a.id == ^id)
+
+  defp owned_grant_query(owner, id) when is_binary(owner), do: user_grant_query(id, owner)
+
+  defp grant_row(owner, id, generation) do
     Repo.one(
-      from a in Account,
-        where:
-          is_nil(a.user_id) and a.id == ^id and a.generation == ^generation and
-            a.status == "active"
+      from a in owned_grant_query(owner, id),
+        where: a.generation == ^generation and a.status == "active"
     )
   end
 
-  defp claim_usage_check(id, generation, now) do
-    since = DateTime.add(now, -platform_usage_check_cooldown_seconds(), :second)
-
-    {count, _} =
-      from(a in Account,
-        where:
-          is_nil(a.user_id) and a.id == ^id and a.generation == ^generation and
-            a.status == "active" and
-            (is_nil(a.usage_checked_at) or a.usage_checked_at <= ^since)
-      )
-      |> Repo.update_all(set: [usage_checked_at: now])
-
-    if count == 1, do: :ok, else: :throttled
+  # The row already read says a check was claimed inside the cooldown: the
+  # hint is dropped here, before a transaction or the owner's key is taken. A
+  # sandbox chooses how often a turn fails, and each dropped hint would
+  # otherwise cost the owner's exclusive lock. Only a shortcut: the claim
+  # below is the authority, and a stale read here only reaches it.
+  defp outside_cooldown(%Account{usage_checked_at: %DateTime{} = at}, now) do
+    if DateTime.compare(at, usage_check_floor(now)) == :gt, do: :throttled, else: :ok
   end
 
-  defp write_exhaustion(id, generation, until, now) do
+  defp outside_cooldown(%Account{}, _now), do: :ok
+
+  defp usage_check_floor(now),
+    do: DateTime.add(now, -platform_usage_check_cooldown_seconds(), :second)
+
+  # A user's claim takes the owner's key before the row, as every writer of
+  # an owned row does; the platform's is the one statement it always was. The
+  # statement returns the row it claimed, so the token the check sends is the
+  # one stored at the claim and not one a refresh has since replaced (a
+  # refresh rotates the token and keeps the generation).
+  defp claim_usage_check(owner, id, generation, now) do
+    since = usage_check_floor(now)
+
+    claim = fn ->
+      from(a in owned_grant_query(owner, id),
+        where:
+          a.generation == ^generation and a.status == "active" and
+            (is_nil(a.usage_checked_at) or a.usage_checked_at <= ^since),
+        select: a
+      )
+      |> Repo.update_all(set: [usage_checked_at: now])
+    end
+
+    claimed =
+      if is_nil(owner),
+        do: claim.(),
+        else: with_grant_source_lock(%Account{user_id: owner}, claim)
+
+    case claimed do
+      {1, [%Account{} = row]} ->
+        {:ok, row}
+
+      {:error, _} ->
+        log_usage_write_failed(id, :claim)
+        :throttled
+
+      _ ->
+        :throttled
+    end
+  end
+
+  defp write_exhaustion(owner, id, generation, until, now) do
     until = DateTime.truncate(until, :second)
 
-    {count, rows} =
-      Fountain.InferenceCredentials.with_platform_source_lock(fn ->
-        from(a in Account,
+    written =
+      with_grant_source_lock(%Account{user_id: owner}, fn ->
+        from(a in owned_grant_query(owner, id),
           where:
-            is_nil(a.user_id) and a.id == ^id and a.generation == ^generation and
-              a.status == "active" and
+            a.generation == ^generation and a.status == "active" and
               (is_nil(a.usage_exhausted_until) or a.usage_exhausted_until != ^until),
-          select: %{account_id: a.account_id, kind: a.kind}
+          select: %{
+            id: a.id,
+            user_id: a.user_id,
+            name: a.name,
+            account_id: a.account_id,
+            kind: a.kind
+          }
         )
         |> Repo.update_all(
           set: [usage_exhausted_at: now, usage_exhausted_until: until, updated_at: now]
         )
+        |> case do
+          {1, [row]} -> {:written, row}
+          # Nothing matched: the row says exactly this already, or the fence
+          # went stale (a reconnect or a disconnect since the claim). Told
+          # apart under the same lock.
+          _ -> if grant_row(owner, id, generation), do: :unchanged, else: :ignored
+        end
       end)
 
-    case {count, rows} do
-      {1, [row]} ->
+    case written do
+      {:written, row} ->
         record_exhaustion(row, until)
         :recorded
 
-      _ ->
-        :unchanged
+      {:error, _} ->
+        log_usage_write_failed(id, :record)
+        {:error, :usage_write_failed}
+
+      answer ->
+        answer
     end
   end
 
-  defp record_exhaustion(row, until) do
+  # The transaction itself failed. The grant's id and which write; never the
+  # reason, which is the database's and may quote a row.
+  defp log_usage_write_failed(id, step) do
+    Logger.warning("chatgpt grant #{id}: usage check could not #{step}; recording nothing")
+  end
+
+  defp record_exhaustion(%{user_id: nil} = row, until) do
     Audit.record_admin(%{
       actor_user_id: nil,
       event_type: "admin.platform_chatgpt.exhausted",
@@ -1610,6 +1779,30 @@ defmodule Fountain.ChatGPTAccounts do
       "platform chatgpt: OpenAI confirms the account is at its Codex usage limit; new codex " <>
         "conversations skip the grant until #{DateTime.to_iso8601(until)} and use " <>
         "PLATFORM_OPENAI_API_KEY when one is set"
+    )
+  end
+
+  # After the write's transaction has returned. A tenant event, so no
+  # provider account id and no generation (`audit_grant/4`).
+  defp record_exhaustion(%{user_id: user_id} = row, until) do
+    Audit.record(%{
+      user_id: user_id,
+      actor: @user_system_actor,
+      action: "chatgpt_grant.exhausted",
+      resource_type: "chatgpt_grant",
+      resource_id: row.id,
+      metadata: %{
+        "name" => row.name,
+        "until" => DateTime.to_iso8601(until),
+        "confirmed_by" => "wham/usage"
+      }
+    })
+
+    broadcast_changed(user_id)
+
+    Logger.warning(
+      "chatgpt grant #{row.id}: OpenAI confirms the account is at its Codex usage limit; " <>
+        "it is refused until #{DateTime.to_iso8601(until)} and nothing is substituted"
     )
   end
 

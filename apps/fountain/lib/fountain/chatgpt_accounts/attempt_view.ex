@@ -23,6 +23,11 @@ defmodule Fountain.ChatGPTAccounts.AttemptView do
   holds the account, which is the one to reconnect.
   """
 
+  @kinds [:link, :reconnect]
+
+  @doc "What an attempt may be for."
+  def kinds, do: @kinds
+
   @derive {Inspect, except: [:user_code]}
   defstruct [
     :id,

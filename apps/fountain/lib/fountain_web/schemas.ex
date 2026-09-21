@@ -2688,7 +2688,7 @@ defmodule FountainWeb.Schemas do
           properties: %{
             id: %Schema{type: :string, format: :uuid},
             name: %Schema{type: :string},
-            status: %Schema{type: :string, enum: ~w(active revoked expired disconnected)}
+            status: %Schema{type: :string, enum: Fountain.PlatformChatGPT.Account.statuses()}
           },
           required: [:id, :name, :status]
         },
@@ -2774,7 +2774,7 @@ defmodule FountainWeb.Schemas do
         name: %Schema{type: :string, description: "Unique within the account."},
         status: %Schema{
           type: :string,
-          enum: ~w(active revoked expired disconnected),
+          enum: Fountain.PlatformChatGPT.Account.statuses(),
           description:
             "`active` serves runs. `revoked`: the auth server refused the refresh " <>
               "token; reconnect it. `disconnected`: the account disconnected it; the " <>
@@ -2883,7 +2883,10 @@ defmodule FountainWeb.Schemas do
       type: :object,
       properties: %{
         id: %Schema{type: :string, format: :uuid},
-        kind: %Schema{type: :string, enum: ~w(link reconnect)},
+        kind: %Schema{
+          type: :string,
+          enum: Enum.map(Fountain.ChatGPTAccounts.AttemptView.kinds(), &Atom.to_string/1)
+        },
         name: %Schema{
           type: :string,
           nullable: true,
@@ -2897,7 +2900,7 @@ defmodule FountainWeb.Schemas do
         },
         state: %Schema{
           type: :string,
-          enum: ~w(pending completed cancelled expired failed),
+          enum: Fountain.ChatGPTAccounts.LinkAttempt.states(),
           description: "`pending`, then exactly one of the other four, which are final."
         },
         user_code: %Schema{

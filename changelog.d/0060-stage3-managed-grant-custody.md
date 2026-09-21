@@ -1,6 +1,6 @@
 ### Upgrade notes
 
-- **Two additive migrations, no operator action** (#2453).
+- **Two additive migrations, no operator action** (#2457).
   `20260921021249` adds five nullable columns, a partial index and two check
   constraints to `broker_sessions`: which managed ChatGPT grant a broker
   session may use, at which generation, for which owner and ChatGPT account,
@@ -18,7 +18,7 @@
 ### Fixed
 
 - **A secret whose value mentions `CODEX_CHATGPT_ACCESS_TOKEN` can be saved**
-  (#2453). Environment and vault secrets refused any value that contained
+  (#2457). Environment and vault secrets refused any value that contained
   the reserved name, in any case, so a setup script or a JSON blob that
   mentions it failed with "is reserved for managed ChatGPT credentials". A
   value is now refused only when it is the reserved name by itself, contains

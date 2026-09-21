@@ -268,6 +268,49 @@ defmodule Fountain.Conversations.CodexGrantPeersTest do
     end
   end
 
+  # The setup's machine is `ready` with `codex_peer_homes` already set, so the
+  # test above only ever wakes it. This is how a machine gets there: a new one,
+  # with the column's default, whose first Codex bind is a subscription's
+  # (`Machines.Binding.bind_inference/2`; unit-covered in
+  # `machines/binding_test.exs`), and then the second subscription joining it.
+  test "a new machine's first bind gives it peer homes, and the second subscription joins it",
+       %{user: user} = ctx do
+    record_sandbox()
+    machine = insert_sandbox(user_id: user.id, agent_id: hd(ctx.peers).conv.agent_id)
+    assert {machine.status, machine.codex_peer_homes} == {"pending", false}
+
+    for peer <- ctx.peers do
+      conv =
+        insert_conversation(
+          user_id: user.id,
+          agent: Fountain.Agents._unsafe_get_agent!(peer.conv.agent_id),
+          sandbox: machine,
+          runtime: "codex",
+          inference_credential_id: peer.conv.inference_credential_id
+        )
+
+      {pid, _mon, :alive} = start_server(conv, runtime: Managoat.Runtimes.Codex)
+      on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
+
+      assert %Source{scope: :grant, grant_id: grant_id} = :sys.get_state(pid).inference_source
+      assert grant_id == peer.grant.id
+      assert Repo.reload!(conv).status != "failed"
+
+      # Set by the first, left by the second, and the machine bound to neither.
+      bound = Repo.reload!(machine)
+      assert {bound.status, bound.codex_peer_homes} == {"ready", true}
+      assert is_nil(bound.codex_inference_source)
+
+      assert [%Session{managed_grant_id: ^grant_id}] =
+               Repo.all(from s in Session, where: s.conversation_id == ^conv.id)
+    end
+
+    files = for {:written, path, _body, _opts} <- recorded(), path =~ "auth.json", do: path
+
+    assert Enum.sort(files) ==
+             Enum.sort(for peer <- ctx.peers, do: home(peer.grant) <> "/auth.json")
+  end
+
   # ADR 0060's second acceptance test: refresh between prompts on one while
   # the other is idle.
   test "a prompt renews its own subscription, by id and generation; the idle one does not move",

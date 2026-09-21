@@ -337,7 +337,7 @@ defmodule Fountain.Conversations.ConversationServerBrokerTest do
   end
 
   describe "a brokered conversation" do
-    setup %{user: user} do
+    setup do
       configure_broker()
       :ok
     end

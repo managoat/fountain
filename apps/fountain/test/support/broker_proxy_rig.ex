@@ -31,12 +31,24 @@ defmodule Fountain.BrokerProxyRig do
 
   defmodule Origin do
     @moduledoc false
-    # Echoes what it was actually sent, so a test can tell the difference
+    # Reports what it was actually sent, so a test can tell the difference
     # between "the proxy logged a path" and "the origin received a target".
     #
-    # Two query parameters shape the answer, for the tests that need more than
-    # an echo: `delay=<ms>` holds the response back, and `stream=1` sends it
-    # as three chunks the way an SSE reply arrives. Every request is also
+    # Every header comes back as it arrived but `authorization`, which comes
+    # back as its SHA-256 (`Fountain.BrokerProxyRig.digest/1`). On a protected
+    # route the proxy refuses a response that repeats the bearer it injected
+    # (managoat_broker 0.15.0), and an origin that echoed it would be testing
+    # that and nothing else. The digest still says which bearer arrived, per
+    # response, which is what a test with six tunnels open needs.
+    #
+    # A few directives shape the answer, for the tests that need more than a
+    # report. They come from the query string, or from a `"rig"` object in a
+    # JSON body for a protected route, where a query is refused:
+    # `delay=<ms>` holds the response back; `stream=1` sends it as three
+    # chunks the way an SSE reply arrives; `reflect=1` puts the
+    # `authorization` header in as it arrived, which is the misbehaving
+    # origin the proxy's response gate exists for; `encoding=gzip` answers
+    # gzipped whatever `accept-encoding` said. Every request is also
     # announced to the process that started the rig, so "the origin never saw
     # it" is an assertion rather than an absence.
     import Plug.Conn
@@ -46,38 +58,76 @@ defmodule Fountain.BrokerProxyRig do
     def call(conn, _opts) do
       {:ok, body, conn} = read_body(conn)
       conn = fetch_query_params(conn)
+      directives = Map.merge(conn.query_params, body_directives(body))
 
       case :persistent_term.get({Fountain.BrokerProxyRig, :observer}, nil) do
         nil -> :ok
         pid -> send(pid, {:origin_hit, conn.method, conn.request_path, Map.new(conn.req_headers)})
       end
 
-      with %{"delay" => ms} <- conn.query_params, do: Process.sleep(String.to_integer(ms))
+      with %{"delay" => ms} <- directives, do: Process.sleep(String.to_integer(ms))
 
-      echo =
+      report =
         Jason.encode!(%{
           method: conn.method,
           path: conn.request_path,
           query: conn.query_string,
-          headers: Map.new(conn.req_headers),
+          headers: reported_headers(conn.req_headers, directives["reflect"] == "1"),
           body: body
         })
 
-      if conn.query_params["stream"] == "1" do
-        conn = conn |> put_resp_content_type("text/event-stream") |> send_chunked(200)
-        third = div(byte_size(echo), 3)
+      cond do
+        directives["stream"] == "1" ->
+          conn = conn |> put_resp_content_type("text/event-stream") |> send_chunked(200)
+          third = div(byte_size(report), 3)
 
-        ([binary_part(echo, 0, third), binary_part(echo, third, third)] ++
-           [binary_part(echo, 2 * third, byte_size(echo) - 2 * third)])
-        |> Enum.reduce(conn, fn part, conn ->
-          {:ok, conn} = chunk(conn, part)
+          ([binary_part(report, 0, third), binary_part(report, third, third)] ++
+             [binary_part(report, 2 * third, byte_size(report) - 2 * third)])
+          |> Enum.reduce(conn, fn part, conn ->
+            {:ok, conn} = chunk(conn, part)
+            conn
+          end)
+
+        directives["encoding"] == "gzip" ->
           conn
-        end)
-      else
-        conn |> put_resp_content_type("application/json") |> send_resp(200, echo)
+          |> put_resp_content_type("application/json")
+          |> put_resp_header("content-encoding", "gzip")
+          |> send_resp(200, :zlib.gzip(report))
+
+        true ->
+          conn |> put_resp_content_type("application/json") |> send_resp(200, report)
+      end
+    end
+
+    defp body_directives(body) do
+      case Jason.decode(body) do
+        {:ok, %{"rig" => %{} = rig}} -> Map.new(rig, fn {k, v} -> {k, to_string(v)} end)
+        _ -> %{}
+      end
+    end
+
+    defp reported_headers(headers, reflect?) do
+      headers = Map.new(headers)
+
+      case Map.pop(headers, "authorization") do
+        {nil, headers} ->
+          headers
+
+        {_value, _rest} when reflect? ->
+          headers
+
+        {value, rest} ->
+          Map.put(rest, "authorization_sha256", Fountain.BrokerProxyRig.digest(value))
       end
     end
   end
+
+  @doc """
+  How the origin reports an `authorization` header it received: the value's
+  SHA-256, in hex. A test compares it with the digest of the value it
+  expected.
+  """
+  def digest(value), do: :sha256 |> :crypto.hash(value) |> Base.encode16(case: :lower)
 
   @doc """
   The whole rig: a TLS origin on loopback, the request-log writer, the
@@ -220,7 +270,7 @@ defmodule Fountain.BrokerProxyRig do
     tls
   end
 
-  @doc "Send one origin-form request down the tunnel; returns the origin's decoded echo."
+  @doc "Send one origin-form request down the tunnel; returns the origin's decoded report."
   def request(tls, raw) do
     :ok = :ssl.send(tls, raw)
     read_json(tls, "")
@@ -233,6 +283,23 @@ defmodule Fountain.BrokerProxyRig do
   """
   def exchange(tls, raw) do
     with :ok <- :ssl.send(tls, raw), do: read_response(tls, "")
+  end
+
+  @doc """
+  Send one request down the tunnel and return every byte that came back
+  before the proxy closed it, undecoded. For a response the proxy cuts part
+  way, where what matters is exactly what the sandbox was left holding.
+  """
+  def drain(tls, raw) do
+    :ok = :ssl.send(tls, raw)
+    read_until_closed(tls, "")
+  end
+
+  defp read_until_closed(tls, acc) do
+    case :ssl.recv(tls, 0, 5_000) do
+      {:ok, data} -> read_until_closed(tls, acc <> data)
+      {:error, :closed} -> acc
+    end
   end
 
   defp read_response(tls, acc) do

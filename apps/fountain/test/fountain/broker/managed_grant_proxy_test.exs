@@ -5,12 +5,17 @@ defmodule Fountain.Broker.Native.ManagedGrantProxyTest do
   # beside this one assert about `Sessions.authorize/2`, this asserts about
   # bytes: which bearer and which account id the origin actually received.
   #
+  # The origin reports the bearer by digest and never repeats it: since
+  # managoat_broker 0.15.0 a protected response that does is refused, which
+  # the last describe block asserts through Fountain's own store and policy.
+  #
   # The origin stands in for the Codex backend: `:codex_chatgpt_backend` is
   # pointed at it, which only the test suite does. Every adversarial case runs
   # for the deployment's grant and for a user's. Global app env and the one
   # platform row, so async: false.
   use Fountain.DataCase, async: false
 
+  import ExUnit.CaptureLog
   import Fountain.ChatGPTFixtures
 
   alias Fountain.Broker
@@ -77,8 +82,15 @@ defmodule Fountain.Broker.Native.ManagedGrantProxyTest do
 
   # The request codex sends, as a raw sandbox client may forge it: its own
   # idea of the bearer and of the account, and things no client may set.
+  # `:rig` steers the origin from the body, the one place a protected request
+  # can: the route refuses a query.
   defp codex_request(rig, opts \\ []) do
-    body = ~s({"model":"gpt-5.5-codex"})
+    body =
+      case Keyword.get(opts, :rig) do
+        nil -> ~s({"model":"gpt-5.5-codex"})
+        directives -> Jason.encode!(%{"model" => "gpt-5.5-codex", "rig" => directives})
+      end
+
     target = @route <> Keyword.get(opts, :query, "")
 
     headers =
@@ -96,7 +108,11 @@ defmodule Fountain.Broker.Native.ManagedGrantProxyTest do
       Enum.map_join(headers, &"#{elem(&1, 0)}: #{elem(&1, 1)}\r\n") <> "\r\n" <> body
   end
 
-  defp echo(%{status: 200, body: body}), do: Jason.decode!(body)
+  defp report(%{status: 200, body: body}), do: Jason.decode!(body)
+
+  # Which bearer the origin says it was sent, against the one expected.
+  defp bearer?(seen, token),
+    do: seen["headers"]["authorization_sha256"] == Rig.digest("Bearer " <> token)
 
   defp flush_hits do
     receive do
@@ -116,10 +132,11 @@ defmodule Fountain.Broker.Native.ManagedGrantProxyTest do
         conv = conversation(user)
         tls = Rig.tunnel(rig, session!(conv, user, account))
 
-        seen = tls |> Rig.exchange(codex_request(rig)) |> echo()
+        seen = tls |> Rig.exchange(codex_request(rig)) |> report()
 
         assert seen["path"] == @route
-        assert seen["headers"]["authorization"] == "Bearer " <> access
+        assert bearer?(seen, access)
+        refute bearer?(seen, "__placeholder__")
         assert seen["headers"]["chatgpt-account-id"] == account.account_id
         assert seen["headers"]["content-type"] == "application/json"
         refute Map.has_key?(seen["headers"], "cookie")
@@ -137,9 +154,9 @@ defmodule Fountain.Broker.Native.ManagedGrantProxyTest do
         {account, access} = grant(owner, user, "stream")
         tls = Rig.tunnel(rig, session!(conversation(user), user, account))
 
-        response = Rig.exchange(tls, codex_request(rig, query: "?stream=1"))
+        response = Rig.exchange(tls, codex_request(rig, rig: %{stream: 1}))
         assert response.headers["transfer-encoding"] == "chunked"
-        assert echo(response)["headers"]["authorization"] == "Bearer " <> access
+        assert response |> report() |> bearer?(access)
       end
 
       # 0052: open a CONNECT tunnel before disconnect, then send another
@@ -191,11 +208,11 @@ defmodule Fountain.Broker.Native.ManagedGrantProxyTest do
         {account, access} = grant(owner, user, "in-flight")
         tls = Rig.tunnel(rig, session!(conversation(user), user, account))
 
-        slow = Task.async(fn -> Rig.exchange(tls, codex_request(rig, query: "?delay=400")) end)
+        slow = Task.async(fn -> Rig.exchange(tls, codex_request(rig, rig: %{delay: 400})) end)
         assert_receive {:origin_hit, "POST", @route, _}, 5_000
         :ok = end_generation(account)
 
-        assert echo(Task.await(slow, 5_000))["headers"]["authorization"] == "Bearer " <> access
+        assert slow |> Task.await(5_000) |> report() |> bearer?(access)
       end
 
       test "a protocol upgrade is refused before the origin sees it, on any host of the session",
@@ -273,9 +290,9 @@ defmodule Fountain.Broker.Native.ManagedGrantProxyTest do
           rig
           |> Rig.tunnel(session, elsewhere)
           |> Rig.exchange("GET /v1/charges HTTP/1.1\r\nHost: #{elsewhere}\r\n\r\n")
-          |> echo()
+          |> report()
 
-        assert seen["headers"]["authorization"] == "Bearer sk_ordinary"
+        assert bearer?(seen, "sk_ordinary")
         refute Map.has_key?(seen["headers"], "chatgpt-account-id")
         refute inspect(seen) =~ access
       end
@@ -302,7 +319,7 @@ defmodule Fountain.Broker.Native.ManagedGrantProxyTest do
                 account: claimed.account_id
               )
 
-            {session.token, rig |> Rig.tunnel(session) |> Rig.exchange(forged) |> echo()}
+            {session.token, rig |> Rig.tunnel(session) |> Rig.exchange(forged) |> report()}
           end)
         end
         |> Task.await_many(10_000)
@@ -315,7 +332,7 @@ defmodule Fountain.Broker.Native.ManagedGrantProxyTest do
             do: {personal, personal_access},
             else: {work, work_access}
 
-        assert seen["headers"]["authorization"] == "Bearer " <> access
+        assert bearer?(seen, access)
         assert seen["headers"]["chatgpt-account-id"] == account.account_id
       end
     end
@@ -331,8 +348,7 @@ defmodule Fountain.Broker.Native.ManagedGrantProxyTest do
       personal_tls = Rig.tunnel(rig, session!(personal_conv, user, personal))
       work_tls = Rig.tunnel(rig, session!(work_conv, user, work))
 
-      assert echo(Rig.exchange(personal_tls, codex_request(rig)))["headers"]["authorization"] ==
-               "Bearer " <> stale
+      assert personal_tls |> Rig.exchange(codex_request(rig)) |> report() |> bearer?(stale)
 
       sessions_before = Repo.all(from s in Session, order_by: s.id)
       renewed = access_token(7_200, %{"grant" => "personal", "renewed" => true})
@@ -347,11 +363,8 @@ defmodule Fountain.Broker.Native.ManagedGrantProxyTest do
 
       # The same tunnel, the same session row, the new bearer: rotation reaches
       # the proxy through the grant row, with no rule rewritten.
-      assert echo(Rig.exchange(personal_tls, codex_request(rig)))["headers"]["authorization"] ==
-               "Bearer " <> renewed
-
-      assert echo(Rig.exchange(work_tls, codex_request(rig)))["headers"]["authorization"] ==
-               "Bearer " <> work_access
+      assert personal_tls |> Rig.exchange(codex_request(rig)) |> report() |> bearer?(renewed)
+      assert work_tls |> Rig.exchange(codex_request(rig)) |> report() |> bearer?(work_access)
 
       assert Repo.all(from s in Session, order_by: s.id) == sessions_before
       assert Repo.get!(Account, work.id) == work
@@ -371,10 +384,146 @@ defmodule Fountain.Broker.Native.ManagedGrantProxyTest do
 
       assert %{status: 403} = Rig.exchange(personal_tls, codex_request(rig))
 
-      assert echo(Rig.exchange(work_tls, codex_request(rig)))["headers"]["authorization"] ==
-               "Bearer " <> work_access
+      assert work_tls |> Rig.exchange(codex_request(rig)) |> report() |> bearer?(work_access)
 
       assert Repo.get!(Account, work.id) == work
+    end
+  end
+
+  # managoat_broker 0.15.0's two gates (ADR 0060 "Stage 3 as built"; #2463,
+  # #2464), through the session Fountain's store hands the listener and the
+  # policy `ProtectedCompiler` writes. What the library recognises is its own
+  # suite's business; that Fountain's route is under both gates is this one's.
+  for owner <- [:platform, :user] do
+    describe "#{owner} grant, the protected route's gates" do
+      @describetag owner: owner
+
+      test "a response that repeats the bearer is refused, and the sandbox gets a fixed 502",
+           %{owner: owner, user: user, rig: rig} do
+        {account, access} = grant(owner, user, "reflected")
+        conv = conversation(user)
+        tls = Rig.tunnel(rig, session!(conv, user, account))
+
+        log =
+          capture_log(fn ->
+            received = Rig.drain(tls, codex_request(rig, rig: %{reflect: 1}))
+            send(self(), {:received, received})
+          end)
+
+        assert_receive {:received, received}
+        assert received =~ ~r/\AHTTP\/1\.1 502 /
+        refute received =~ access
+        refute received =~ account.account_id
+
+        # The origin did get the request: it is the answer that was refused.
+        assert_receive {:origin_hit, "POST", @route, _}
+
+        assert [event] = Rig.rows(rig, conv.id)
+        assert event.status == 502
+        assert event.error == "credential_reflected"
+        assert event.service == "codex-chatgpt"
+        refute inspect(event) =~ access
+
+        # Said at `error`, by conversation and rule, and never by value.
+        assert log =~ "[error] broker: the response to POST localhost under rule codex-chatgpt"
+        assert log =~ conv.id
+        refute log =~ access
+      end
+
+      test "a streamed response that repeats the bearer is cut before any of it arrives",
+           %{owner: owner, user: user, rig: rig} do
+        {account, access} = grant(owner, user, "reflected-stream")
+        conv = conversation(user)
+        tls = Rig.tunnel(rig, session!(conv, user, account))
+
+        capture_log(fn ->
+          send(
+            self(),
+            {:received, Rig.drain(tls, codex_request(rig, rig: %{reflect: 1, stream: 1}))}
+          )
+        end)
+
+        # The head had gone, so there is no 502 to write and the close is the
+        # answer. Nothing of the bearer went with what did arrive, not its
+        # first bytes either: what could be its start is held back.
+        assert_receive {:received, received}
+        refute received =~ access
+        refute received =~ binary_part(access, 0, 24)
+        refute received =~ "\r\n0\r\n"
+
+        assert [event] = Rig.rows(rig, conv.id)
+        assert event.error == "credential_reflected"
+      end
+
+      test "a query on the route is refused before the grant is read or the origin dialled",
+           %{owner: owner, user: user, rig: rig} do
+        {account, access} = grant(owner, user, "query")
+        conv = conversation(user)
+        session = session!(conv, user, account)
+
+        # `authorize` begins by reading the session row, on the proxy's own
+        # process, and goes on to the grant's. Opening a tunnel reads the
+        # session too, so all three are up before anything is counted.
+        [pinned | refused] = for _ <- 1..3, do: Rig.tunnel(rig, session)
+        test = self()
+        handler = "managed-grant-proxy-#{System.unique_integer([:positive])}"
+
+        :telemetry.attach(
+          handler,
+          [:fountain, :repo, :query],
+          fn _event, _measurements, meta, _config -> send(test, {:repo_query, meta[:source]}) end,
+          nil
+        )
+
+        on_exit(fn -> :telemetry.detach(handler) end)
+
+        for {query, tls} <- Enum.zip(["?x=1", "?"], refused) do
+          assert %{status: 403, body: body} = Rig.exchange(tls, codex_request(rig, query: query))
+          refute body =~ access
+        end
+
+        refute_received {:repo_query, "broker_sessions"}
+        refute_received {:repo_query, "platform_chatgpt_account"}
+        refute_receive {:origin_hit, _, _, _}, 100
+
+        assert [second, first] = Rig.rows(rig, conv.id, 2)
+
+        for denied <- [first, second] do
+          assert denied.status == 403
+          assert denied.error == "protected_query"
+          assert denied.credential_keys == []
+        end
+
+        # Refused, not fenced: the session still carries the pinned request,
+        # and that one is authorized the way the two above were not.
+        assert pinned |> Rig.exchange(codex_request(rig)) |> report() |> bearer?(access)
+        assert_received {:repo_query, "broker_sessions"}
+        assert_received {:repo_query, "platform_chatgpt_account"}
+      end
+
+      test "a compressed response is refused unread",
+           %{owner: owner, user: user, rig: rig} do
+        {account, _access} = grant(owner, user, "encoded")
+        conv = conversation(user)
+        tls = Rig.tunnel(rig, session!(conv, user, account))
+
+        capture_log(fn ->
+          encoded = [{"Accept-Encoding", "gzip"}]
+          request = codex_request(rig, rig: %{encoding: "gzip"}, headers: encoded)
+          send(self(), {:received, Rig.drain(tls, request)})
+        end)
+
+        assert_receive {:received, received}
+        assert received =~ ~r/\AHTTP\/1\.1 502 /
+        refute received =~ "content-encoding"
+
+        # The client asked for gzip; the origin was asked for none.
+        assert_receive {:origin_hit, "POST", @route, %{"accept-encoding" => "identity"}}
+
+        assert [event] = Rig.rows(rig, conv.id)
+        assert event.status == 502
+        assert event.error == "protected_response_encoded"
+      end
     end
   end
 end

@@ -268,9 +268,10 @@ defmodule FountainWeb.ChatGPTSubscriptionsLiveTest do
       assert html =~ "The sign-in code for Work expired before it was approved"
       assert ChatGPTAccounts.list_for_user(user.id) == []
 
-      # A reload shows no code for it either.
+      # A reload shows no code for it either, and still says what happened.
       {:ok, _view, html} = live(conn, @path)
       refute html =~ @user_code
+      assert html =~ "The sign-in code for Work expired before it was approved"
     end
 
     test "a sign-in the auth server refuses says so", %{conn: conn, user: user} do
@@ -512,6 +513,13 @@ defmodule FountainWeb.ChatGPTSubscriptionsLiveTest do
       assert html =~ "Reconnect Work instead"
       refute html =~ "account_already_linked"
       refute html =~ "acct-work"
+
+      # The owner approved the code in another app and this page's socket
+      # dropped meanwhile: the page that mounts afterwards reads the same row.
+      {:ok, remounted, html} = live(conn, @path)
+      assert html =~ "approved the code for Personal is already linked here as Work"
+      refute html =~ "account_already_linked"
+      assert Process.alive?(remounted.pid)
 
       # The same for a new link.
       submit_connect(view, "Third")

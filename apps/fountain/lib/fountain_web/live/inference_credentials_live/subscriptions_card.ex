@@ -7,16 +7,21 @@ defmodule FountainWeb.InferenceCredentialsLive.SubscriptionsCard do
   and whatever names it, and keeps serving on the credential it has until the
   new one commits.
 
-  The card holds nothing a reload would lose. `load/1` reads the grants and
-  the open sign-ins from `Fountain.ChatGPTAccounts`; the page calls it on
-  mount and again on every `{:chatgpt_grants_changed, _}`, so a sign-in begun
-  in another tab, finished by the job or ended by a disconnect elsewhere shows
-  up here, and a fresh mount renders a pending sign-in's code from its row.
+  The card holds nothing a reload would lose. `load/1` reads the grants, the
+  open sign-ins and the ones that ended in the past half hour from
+  `Fountain.ChatGPTAccounts`; the page calls it on mount and again on every
+  `{:chatgpt_grants_changed, _}`, so a sign-in begun in another tab, finished
+  by the job or ended by a disconnect elsewhere shows up here, a fresh mount
+  renders a pending sign-in's code from its row, and how a sign-in ended is
+  said from its row too: to a page that was open when it ended and to one
+  that was not, a socket that dropped while its owner was approving the code
+  in another app included.
 
   What reaches the assigns is `load/1`'s projection and never a context view
   whole: a subscription is its id, name, state, plan, email and times, and an
   open sign-in is its id, what it is for, its user code, its page and its
-  expiry. No token, claim, provider account id, generation or device id is
+  expiry, and an ended one is its id, what it was for, how it ended and the
+  grant it wrote or ran into. No token, claim, provider account id, generation or device id is
   assigned or rendered. The user code is there only while the sign-in is
   pending, because the context only answers it then.
 
@@ -46,11 +51,16 @@ defmodule FountainWeb.InferenceCredentialsLive.SubscriptionsCard do
   def load(user_id) when is_binary(user_id) do
     grants = user_id |> ChatGPTAccounts.list_for_user() |> Enum.map(&grant/1)
     attempts = user_id |> ChatGPTAccounts.list_pending_attempts_for_user() |> Enum.map(&attempt/1)
+
+    ended =
+      user_id |> ChatGPTAccounts.list_recent_attempts_for_user() |> Enum.map(&ended_attempt/1)
+
     linking? = ChatGPTAccounts.linking_enabled_for?(user_id)
 
     %{
       grants: grants,
       attempts: attempts,
+      ended: ended,
       count: length(grants),
       limit: ChatGPTAccounts.grant_ceiling(),
       linking?: linking?,
@@ -102,6 +112,20 @@ defmodule FountainWeb.InferenceCredentialsLive.SubscriptionsCard do
     }
   end
 
+  # An attempt that is over. `failure` is the reason and, for an upstream
+  # account that is already linked, the name of the grant that holds it.
+  defp ended_attempt(%ChatGPTAccounts.AttemptView{} = view) do
+    %{
+      id: view.id,
+      kind: view.kind,
+      name: view.name,
+      grant_id: view.grant_id,
+      state: view.state,
+      result_grant_id: view.result_grant_id,
+      failure: view.failure && %{reason: view.failure.reason, grant: view.failure.grant}
+    }
+  end
+
   defp verification_link(url) when is_binary(url) do
     case URI.new(url) do
       {:ok, %URI{scheme: "https", host: host, userinfo: nil, port: 443}}
@@ -117,61 +141,59 @@ defmodule FountainWeb.InferenceCredentialsLive.SubscriptionsCard do
 
   @impl true
   def update(assigns, socket) do
-    previous = socket.assigns[:subscriptions]
+    socket =
+      socket
+      |> assign(assigns)
+      |> assign_new(:message, fn -> nil end)
+      |> assign_new(:dismissed, fn -> MapSet.new() end)
 
     {:ok,
-     socket
-     |> assign(assigns)
-     |> assign_new(:message, fn -> nil end)
-     |> assign_new(:notices, fn -> [] end)
-     |> note_ended(previous)}
+     assign(socket, :notices, notices(socket.assigns.subscriptions, socket.assigns.dismissed))}
   end
 
-  # A sign-in this page was showing is no longer open: say how it ended. Read
-  # from its row, by the owner, so the sentence is the same whichever tab,
-  # job or API call ended it. One the page never showed says nothing, and
-  # neither does a cancel, which somebody asked for.
-  defp note_ended(socket, nil), do: socket
-
-  defp note_ended(socket, %{attempts: before}) do
-    open = MapSet.new(socket.assigns.subscriptions.attempts, & &1.id)
-
-    notices =
-      before
-      |> Enum.reject(&MapSet.member?(open, &1.id))
-      |> Enum.flat_map(&ended_notice(&1, socket.assigns))
-
-    assign(socket, :notices, Enum.take(notices ++ socket.assigns.notices, 3))
+  # How the account's recent sign-ins ended, newest first, read from their
+  # rows by the owner: the sentence is the same whichever tab, job or API call
+  # ended one, and a page mounted afterwards says it too. A cancel says
+  # nothing, because somebody asked for it, and neither does one this page
+  # has started another sign-in since.
+  defp notices(%{ended: ended, grants: grants}, dismissed) do
+    ended
+    |> Enum.reject(&MapSet.member?(dismissed, &1.id))
+    |> Enum.flat_map(&ended_notice(&1, grants))
+    |> Enum.take(3)
   end
 
-  defp ended_notice(attempt, assigns) do
-    label = attempt_label(attempt, assigns.subscriptions.grants)
-
-    case ChatGPTAccounts.get_attempt_for_user(attempt.id, assigns.user_id) do
-      {:ok, %{state: "completed", kind: :reconnect}} ->
+  # A completion is said of the grant it wrote, under the name that has now,
+  # and not at all once that grant is gone.
+  defp ended_notice(%{state: "completed", result_grant_id: grant_id} = attempt, grants) do
+    case Enum.find(grants, &(&1.id == grant_id)) do
+      %{name: name} when attempt.kind == :reconnect ->
         [
           {:info,
-           "#{label} is reconnected. Conversations that were running on its old sign-in " <>
+           "#{name} is reconnected. Conversations that were running on its old sign-in " <>
              "have ended; start new ones."}
         ]
 
-      {:ok, %{state: "completed"}} ->
-        [{:info, "#{label} is connected."}]
+      %{name: name} ->
+        [{:info, "#{name} is connected."}]
 
-      {:ok, %{state: "expired"}} ->
-        [
-          {:error,
-           "The sign-in code for #{label} expired before it was approved. Nothing was " <>
-             "linked; start again when you are ready."}
-        ]
-
-      {:ok, %{state: "failed", failure: failure}} ->
-        [{:error, failure_text(failure, label)}]
-
-      _cancelled_or_gone ->
+      nil ->
         []
     end
   end
+
+  defp ended_notice(%{state: "expired"} = attempt, grants) do
+    [
+      {:error,
+       "The sign-in code for #{attempt_label(attempt, grants)} expired before it was " <>
+         "approved. Nothing was linked; start again when you are ready."}
+    ]
+  end
+
+  defp ended_notice(%{state: "failed", failure: failure} = attempt, grants),
+    do: [{:error, failure_text(failure, attempt_label(attempt, grants))}]
+
+  defp ended_notice(_cancelled, _grants), do: []
 
   # One sentence per `LinkAttempt.failure_reasons/0`, and a plain one for a
   # reason a later stage adds before it adds the sentence.
@@ -249,7 +271,7 @@ defmodule FountainWeb.InferenceCredentialsLive.SubscriptionsCard do
            %{name: String.trim(name)},
            socket.assigns.attribution
          ) do
-      {:ok, _attempt} -> {:noreply, socket |> assign(:notices, []) |> message(nil)}
+      {:ok, _attempt} -> {:noreply, socket |> dismiss_notices() |> message(nil)}
       {:error, reason} -> {:noreply, message(socket, {:error, error_text(reason, :sign_in)})}
     end
   end
@@ -260,7 +282,7 @@ defmodule FountainWeb.InferenceCredentialsLive.SubscriptionsCard do
            %{grant_id: id},
            socket.assigns.attribution
          ) do
-      {:ok, _attempt} -> {:noreply, socket |> assign(:notices, []) |> message(nil)}
+      {:ok, _attempt} -> {:noreply, socket |> dismiss_notices() |> message(nil)}
       {:error, reason} -> {:noreply, message(socket, {:error, error_text(reason, :reconnect)})}
     end
   end
@@ -319,6 +341,16 @@ defmodule FountainWeb.InferenceCredentialsLive.SubscriptionsCard do
     do: {:noreply, message(socket, {:error, "That request was not understood."})}
 
   defp message(socket, message), do: assign(socket, :message, message)
+
+  # Starting again is the answer to what the notices said: they go, for this
+  # page. A later mount reads them from their rows again, for half an hour.
+  defp dismiss_notices(socket) do
+    seen = MapSet.new(socket.assigns.subscriptions.ended, & &1.id)
+
+    socket
+    |> assign(:dismissed, MapSet.union(socket.assigns.dismissed, seen))
+    |> assign(:notices, [])
+  end
 
   # The name the page is showing for the id, for the sentence only: whether
   # the id is this account's is the context's to say.

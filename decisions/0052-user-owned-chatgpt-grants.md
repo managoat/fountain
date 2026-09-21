@@ -79,8 +79,9 @@ honours the auth server's interval with backoff, a completion that rechecks
 the owner, cancellation, expiry and the grant's generation before it stores
 anything, and the same operations under `/api/account`. The card on
 `/account/inference-credentials` was not part of it (see 4b below). Linking is behind a rollout
-flag that is off for every account, and the two parts above are owed before
-it is turned on. Two things decision 2 asks for are still open: account
+flag that is off for every account, and what is listed as still owed above,
+with the measurements against a real client, is owed before it is turned
+on. Two things decision 2 asks for are still open: account
 deletion "cancels" pending attempts only in that they are deleted with the
 account, and tokens an attempt does not store are not revoked upstream. See
 0060, "Stage 4a as built".

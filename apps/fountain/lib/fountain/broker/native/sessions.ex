@@ -290,11 +290,28 @@ defmodule Fountain.Broker.Native.Sessions do
   egress keeps working, and only the Codex backend is closed to it. This is
   the fast path and not the authority; `authorize/2` denies from the grant
   row's generation and status whether or not this ever ran.
+
+  Only live rows. An expired one is denied at `authorize/2` already and is
+  `sweep_expired/0`'s to delete, and leaving it alone keeps this statement
+  and that one off each other's rows, which they would otherwise lock in
+  whatever order each scan met them. That is safe because nothing extends a
+  row's `expires_at`: it is written at the insert and by nothing else, so a
+  row skipped here cannot come back to life unrevoked. **A write that ever
+  extends a session must revoke what this skipped.** `update_rules/4` does
+  share live rows with this, two of them when a conversation's re-minted
+  session overlaps its old one; PostgreSQL would detect that deadlock and
+  abort one side, and nothing here orders the locks to prevent it.
   """
   @spec revoke_grant(Ecto.UUID.t(), Ecto.UUID.t() | :all) :: non_neg_integer()
   def revoke_grant(grant_id, generation) when is_binary(grant_id) do
+    now = DateTime.utc_now()
+
     query =
-      from(s in Session, where: s.managed_grant_id == ^grant_id and is_nil(s.managed_revoked_at))
+      from(s in Session,
+        where:
+          s.managed_grant_id == ^grant_id and is_nil(s.managed_revoked_at) and
+            s.expires_at >= ^now
+      )
 
     query =
       case generation do
@@ -305,7 +322,6 @@ defmodule Fountain.Broker.Native.Sessions do
           from(s in query, where: s.managed_grant_generation == ^generation)
       end
 
-    now = DateTime.utc_now()
     {n, _} = Repo.update_all(query, set: [managed_revoked_at: now, updated_at: now])
     n
   end

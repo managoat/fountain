@@ -468,6 +468,29 @@ defmodule Fountain.Broker.Native.ManagedGrantSessionTest do
       refute revoked?(ctx.bystander)
     end
 
+    # An expired row is the sweep's, and denied already. Leaving it out keeps
+    # the revocation and the sweep off each other's rows.
+    test "an expired session is not touched, and is denied all the same",
+         %{user: user, conv: conv} = ctx do
+      {account, _access, managed} = grant(:user, user)
+      {:ok, _} = prepare(conv, user, managed)
+      past = DateTime.add(DateTime.utc_now(), -60, :second)
+
+      Repo.update_all(from(s in Session, where: s.conversation_id == ^conv.id),
+        set: [expires_at: past]
+      )
+
+      before = row(conv)
+
+      assert Sessions.revoke_grant(account.id, :all) == 0
+      :ok = ChatGPTAccounts.disconnect_for_user(account.id, user.id)
+
+      assert row(conv) == before
+      refute revoked?(ctx.bystander)
+      assert {:error, :denied} = Sessions.authorize({:managed, before.id}, @protected)
+      assert {:error, :denied} = Sessions.authorize({:managed, before.id}, @ordinary)
+    end
+
     test "a user's reconnect ends every session of the old sign-in",
          %{user: user, conv: conv} = ctx do
       {account, _access, managed} = grant(:user, user)

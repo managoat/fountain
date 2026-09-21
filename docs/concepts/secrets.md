@@ -144,6 +144,13 @@ Existing credential rows become Default sets on upgrade.
 A set holds up to four values: an Anthropic key, a Claude OAuth token, an
 OpenAI key and a Gemini key. Most accounts never need a second set.
 
+A set can also name one ChatGPT subscription that the account linked. That is
+a reference, and the set holds no token for it. The `codex` runs of the set
+then use the subscription, or fail with its name when it cannot serve. Each
+other runtime still uses the set's keys. The feature is in development and
+off for every account. See
+[Run Codex on a ChatGPT subscription](../guides/chatgpt-subscriptions.md).
+
 Make a second set when you hold a second subscription. A set carries a name
 you choose. Exactly one set is the default, and the default is what Fountain
 reads unless something names another.
@@ -194,9 +201,10 @@ for the sandbox's lifetime, including after all its conversations terminate
 or are deleted. A different Codex source needs a new sandbox; resetting an
 existing sandbox does not clear this binding. An existing machine without a
 provable source binding must also be replaced before it can use a new source.
-Separate per-peer Codex auth directories and managed user ChatGPT execution
-remain unbuilt. Use separate principals when different customers need
-isolation.
+A ChatGPT subscription that a set names is the exception: Codex keeps that
+sign-in in a home of its own, so it shares a sandbox with each other source.
+A sandbox that was first bound before Fountain prepared such homes keeps the
+rule above. Use separate principals when different customers need isolation.
 
 Set the whole thing up at `/account/inference-credentials`, or over the API
 under `/api/account/inference-credential-sets`.

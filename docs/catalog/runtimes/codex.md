@@ -43,6 +43,14 @@ The model must carry the `openai/` prefix.
 
 Add your OpenAI key at `/account/inference-credentials` in the app.
 
+!!! note "ChatGPT subscriptions"
+
+    A credential set can name a linked ChatGPT subscription, and codex then
+    runs on that plan with no OpenAI key. This is in development and off for
+    every account. See
+    [Run Codex on a ChatGPT subscription](../../guides/chatgpt-subscriptions.md),
+    which also says what a setup script must not do with `CODEX_HOME`.
+
 ## Call it over HTTP
 
 After you apply the agent definition, set `FOUNTAIN_AGENT_ID` to the returned

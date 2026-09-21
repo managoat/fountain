@@ -73,6 +73,7 @@ nav:
   - Connect a service:
       - Connect a service with your own OAuth app: guides/connect/own-oauth-app.md
       - Connect a remote MCP server: guides/connect/remote-mcp-server.md
+      - Run Codex on a ChatGPT subscription: guides/chatgpt-subscriptions.md
   - Configuration reference: configuration.md
   - Catalog:
       - Overview: catalog/index.md

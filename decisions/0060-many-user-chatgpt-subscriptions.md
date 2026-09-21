@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "A user links several ChatGPT subscriptions, and a credential set names one"
-description: "Stages 1 to 3 of 5 are built, and the API half of stage 4 (the table, the owner-scoped context and the per-owner source lock; a credential set naming a grant and resolution to it with no fallback; the transport and custody: a CODEX_HOME per grant and generation, broker sessions that carry which grant they may use, and a per-request check against the durable generation; then durable link attempts and /api/account/chatgpt-subscriptions). Linking is behind a flag that is off everywhere; the console, accounting and rollout are not built. Rebuilds ADR 0052's user surface with many grants per user instead of one: the grant table loses its one-row-per-user index for a named row, an inference credential set names a grant, and an agent selects a subscription the same way it selects an API key. No automatic failover between a user's subscriptions and no platform fallback when the named one is exhausted."
+description: "Stages 1 to 4 of 5 are built (the table, the owner-scoped context and the per-owner source lock; a credential set naming a grant and resolution to it with no fallback; the transport and custody: a CODEX_HOME per grant and generation, broker sessions that carry which grant they may use, and a per-request check against the durable generation; then durable link attempts, /api/account/chatgpt-subscriptions, and the ChatGPT subscriptions card and the set picker in the console). Linking is behind a flag that is off everywhere; accounting and rollout are not built. Rebuilds ADR 0052's user surface with many grants per user instead of one: the grant table loses its one-row-per-user index for a named row, an inference credential set names a grant, and an agent selects a subscription the same way it selects an API key. No automatic failover between a user's subscriptions and no platform fallback when the named one is exhausted."
 tags: [inference, codex, oauth, security, billing]
 status: draft
 adr: "0060"
@@ -11,8 +11,9 @@ date: 2026-09-20
 
 # 0060 — A user links several ChatGPT subscriptions, and a credential set names one
 
-**Status:** Proposed, 2026-09-20. **Stages 1 to 3 of the five below are
-built, and the API half of stage 4 (4a); linking is off for every account.**
+**Status:** Proposed, 2026-09-20. **Stages 1 to 4 of the five below are
+built, stage 4 in two halves (4a the API, 4b the console); linking is off
+for every account.**
 Stage 1 is the table change, the owner-scoped context in
 `Fountain.ChatGPTAccounts` and the per-owner source lock. Stage 2 is
 selection: `inference_credentials.chatgpt_grant_id`,
@@ -25,9 +26,12 @@ and never holds its bearer, a check against the grant row on every request,
 and a renewal by grant id and generation before every turn. Stage 4a is the
 link-attempt lifecycle, its job, `/api/account/chatgpt-subscriptions`,
 `chatgpt_grant_id` on the credential-set API and `CHATGPT_GRANT_CEILING`.
+Stage 4b is the console: the **ChatGPT subscriptions** card and a set's
+picker on `/account/inference-credentials`, and the `/start` banner and the
+agent form saying when a named grant cannot serve.
 A new link is behind the `chatgpt_subscriptions` flag, which fails closed:
 it is off wherever nobody has turned it on, a deployment with no PostHog
-included, and nobody has. There is still no console page (4b), no keepalive
+included, and nobody has. There is still no keepalive
 for a user's grant, no record of which grant served a turn and no export of
 a grant (stage 5). Resolution does run in production, for every
 conversation, and for a set that names no grant it resolves exactly what it
@@ -38,16 +42,17 @@ exactly as before stage 3; moving it is a separate change (see
 the two broker gates named there are owed **before the flag is turned on
 for anyone**. What stage 1 left running is
 `ChatGPTAccounts.RefreshSupervisor`, a task supervisor and the refresh
-coordinator, which start idle on every node. Stage 4b and stage 5 are not
-started, and everything below that belongs to them is the design for work
+coordinator, which start idle on every node. Stage 5 is not
+started, and everything below that belongs to it is the design for work
 not yet done. The Context section describes `main` at `9122474f`, before
 stage 1.
 
 What each stage built, and where it settled something this ADR left open or
 had wrong, is recorded under [Stage 1 as built](#stage-1-as-built),
 [Stage 2 as built](#stage-2-as-built),
-[Stage 3 as built](#stage-3-as-built) and
-[Stage 4a as built](#stage-4a-as-built).
+[Stage 3 as built](#stage-3-as-built),
+[Stage 4a as built](#stage-4a-as-built) and
+[Stage 4b as built](#stage-4b-as-built).
 
 Rebuilds the user-facing half of
 [0052](0052-user-owned-chatgpt-grants.md) — its decisions 2, 4 and 5, which
@@ -428,8 +433,9 @@ platform grant and for **two grants of one user**, which is the new case.
    protected rule builder. Tests: two of one user's subscriptions in one
    shared sandbox, concurrently; refresh between prompts on one while the
    other is idle; disconnect one and prove the other is untouched.
-4. **The account surface. The API half is built (4a); see
-   [Stage 4a as built](#stage-4a-as-built). The console half (4b) is not.**
+4. **The account surface. Built, in two halves; see
+   [Stage 4a as built](#stage-4a-as-built) for the API and
+   [Stage 4b as built](#stage-4b-as-built) for the console.**
    Attempts, list, rename, reconnect, disconnect, on both the console and
    the API, with OpenAPI and SDK contracts. Tests: ownership and full-scope
    authorization, cancellation, expiry, replay, late completion against a
@@ -1519,6 +1525,159 @@ can see as 422 with no device code spent; a disconnect and a removal ending
 the open attempt, and the fence against a tombstone written outside the
 context; linking turned off under an open link; and the recent list, its
 ownership and its half hour.
+
+## Stage 4b as built
+
+Built on 2026-09-21: the console half of item 4. **Linking is still off for
+every account**, and nothing here changes what is owed before the flag is
+turned on. With the flag off and no grant held, the page is what it was.
+
+**The card.** `FountainWeb.InferenceCredentialsLive.SubscriptionsCard`, a
+LiveComponent under the provider rows of `/account/inference-credentials`:
+one row per grant with its state (Connected, Reconnect required, Usage
+spent, Disconnected), the owner's ChatGPT email and plan, Rename, Reconnect,
+Disconnect and Remove; the count against the ceiling; and a Connect form
+that takes a name and starts an attempt. An open attempt shows its user
+code, the page to type it on, when it expires, Copy and Cancel, and one
+sentence this ADR did not ask for and a device-code flow needs: approve a
+code only if you started it yourself, because whoever's code you approve
+gets the use of your plan. The page subscribes to `ChatGPTAccounts.topic/1`
+and, on `{:chatgpt_grants_changed, _}`, calls `SubscriptionsCard.load/1`
+again; every event handler writes through the context and lets that
+message redraw the card, so a second tab, an API call and the job all
+arrive the same way. **Page reload** is therefore a `mount`: the test opens
+a second LiveView on a pending attempt, sees the same code, runs the job,
+and watches both pages turn to Connected without a reload.
+
+**What is assigned.** `load/1` is the one place the page reads
+`ChatGPTAccounts`, and it projects key by key: a grant is its id, name,
+display state, plan, email, last renewal and `exhausted_until`; an attempt
+is its id, kind, name or grant id, user code, verification link and expiry.
+`generation`, `lock_version`, `account_id` and the claims are in the
+context's grant view and are not in an assign, so no template can print
+them; the redaction test reads the rendered page in three states and
+`inspect` of the projection, with no `:sys.get_state`. The verification
+URL becomes a link only when it parses as `https` on `auth.openai.com` with
+no userinfo; otherwise the card shows the code and tells the user to type
+`https://auth.openai.com/codex/device`, a constant of the module and not
+the row's value. Names and everything else go through HEEx's escaping;
+nothing is `raw/1`.
+
+**Ownership.** Every handler calls the context with the user the page was
+mounted for and treats an id in an event as the client's word. Another
+account's grant or attempt id is the context's `:not_found` and reads "no
+longer on this account"; an event with no id, a non-string id or an unknown
+name gets a plain sentence from a catch-all clause, and the LiveView stays
+up. Every refusal `ChatGPTAccounts` documents has a sentence, and a term
+the card does not know gets a generic one, never `inspect/1`.
+
+**Reconnect.** A second attempt over the same row, offered where the
+deployment brokers, whatever the flag says. The button goes while an
+attempt is open on the grant, its confirm text says a completed reconnect
+ends conversations pinned to the old sign-in (stage 2, item 2), and the
+test reads the old bearer through `credential_for_user/4` while the attempt
+is pending and the new one, under the new generation, after. When an
+attempt the page was showing stops being pending, the card reads it with
+`get_attempt_for_user/2` and says how it ended: connected, reconnected,
+expired, or the failure in words. `stale_grant` is "approved too late ...
+left exactly as it is"; `account_already_linked` names the grant to
+reconnect instead.
+
+**The picker.** A fifth row beside the four providers, about the selected
+set, with a select of the owner's grants and None, submitted through
+`InferenceCredentials.set_grant/3` behind a confirm that says what stage 2
+found: changing what a set names ends the codex conversations running on
+it. The set's named grant is always listed, with its state when it is not
+connected, and the row warns that codex runs on the set are refused. A
+disconnected grant is offered only to the set that already names it.
+
+**The gate, in the console.** The card renders when
+`linking_enabled_for?/1` is true, or the account holds a grant, or has an
+attempt open. With the flag off Connect is absent and the context refuses a
+crafted `connect`; the picker lists only the grant the set already names,
+with None, and the handler refuses any other id; Rename, Reconnect,
+Disconnect, Remove and Cancel stay. With no broker the card says these
+cannot serve or be reconnected, and Reconnect is absent.
+
+**What stage 2 left for this one.** `/start` shows a second banner, the
+sentence of `grant_unusable_message/1`, for a `{:chatgpt_grant_unusable,
+_}`. `InferenceCredentials.named_grant_problem/4` asks `resolve/4` the same
+question for the agent form, only for codex on a set that names a grant,
+and the form shows the sentence when the set is selected.
+`missing_for_model/3` no longer asks for an `openai_api_key` for such a
+set, broker or no broker: for codex the grant is the source or the run is
+refused, so the form had been collecting a key resolution would never use.
+
+Six things stage 4b settled that this ADR left open. Each is a call a
+maintainer may reverse:
+
+1. **The picker is a provider-style row, not a control on the set panel.**
+   The panel is hidden for an account with at most one set (0053), and the
+   default set names a grant like any other. An account with no set at all
+   gets its default set by naming a grant, as a first key would have given
+   it one.
+2. **The flag gates naming as well as linking.** `set_grant/3` and the API
+   ask no flag; the console does, for a grant the set does not already
+   name. It is the narrower reading of "the console surface stays gated",
+   and it is the console's alone: the API can still repoint a set with the
+   flag off.
+3. **A set that names an `active` grant counts for `has_any_credential?/1`
+   and the admin funnel's `_unsafe_user_ids_with_credential/1`.** A grant
+   no set names does not, and neither does a named one that is
+   disconnected, revoked or expired. Both are account-level questions and
+   cannot ask "for a codex agent only"; the per-agent questions are the
+   banner's and the form's, which do.
+4. **The card's display state restates `Resolver.grant_state/1`**, less the
+   broker, because that function is private to resolution and the card must
+   not resolve per row. A state resolution learns and the card has not
+   reads "Reconnect required".
+5. **How an attempt ended is shown only to a page that saw it pending.**
+   4a has no read of recently ended attempts, so after a reload a failed
+   sign-in leaves no trace on the card, and the guide says so. A list of an
+   owner's recently ended attempts, if 4a's review adds one, belongs in
+   `load/1`, which would then seed the card's notices on mount.
+6. **No new JavaScript.** Copy is the existing `CopyToClipboard` hook, and
+   the expiry is a clock time, not a countdown. A code whose time passes
+   stays on an open page until the job's next run writes the expiry and
+   broadcasts, at most one poll interval later; no write admits it
+   meanwhile.
+
+**The manual.** `docs/guides/chatgpt-subscriptions.md`, in the nav, with
+the in-development note, the approval warning, the state table, and the
+sentence stage 3 owed: a `setup_script` runs with `CODEX_HOME` already
+pointing at the grant's home and before Fountain prepares it, so it must
+not run codex or write there. `docs/concepts/secrets.md`, the codex runtime
+page, `docs/api.md` and `docs/reference/feature-status.md` point at it, and
+the secrets page no longer says per-source Codex homes are unbuilt.
+
+**Owed, with who owes it:**
+
+- **Before the flag is on for anyone**: unchanged from stage 3 and 4a.
+- **Stage 5.** Unchanged: the keepalive fan-out, exhaustion written for a
+  user's grant (the card already renders it as Usage spent), which grant
+  served a turn, and deletion and export. When the keepalive exists the
+  card's "Last renewed" is where an idle grant's health shows.
+- **Not built, and nobody's yet.** Revoking a token upstream on Disconnect
+  (the card says to sign the device out at ChatGPT), and a CLI for any of
+  this.
+
+What the tests hold: connect, the code, the link and the expiry; a link
+refused for four URLs that are not OpenAI's; page reload and a completion
+reaching two open pages; an attempt begun elsewhere appearing; cancel, and
+a late approval after it linking nothing; expiry and an auth-server refusal
+in words; rename, disconnect, remove, removal refused with the sets named;
+markup in a name escaped; another account's ids and malformed events on
+every handler with the other account's rows compared whole; redaction; the
+flag off with and without grants; reconnect keeping the old credential,
+cancelled, over a disconnected grant, late, already linked, cross-owner,
+flag off and broker off; the picker on one set, no set, a second set, a
+disconnected grant and a foreign id
+(`chatgpt_subscriptions_live_test.exs`), and with linking off
+(`inference_credential_sets_live_test.exs`); the banner and the form for a
+usable, a disconnected and an unbrokered grant
+(`chatgpt_grant_problem_live_test.exs`); and `named_grant_problem/4`,
+`missing_for_model/3` and `has_any_credential?/1`
+(`grant_selection_test.exs`).
 
 ## Consequences
 

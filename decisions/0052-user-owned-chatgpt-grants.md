@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Users link a ChatGPT subscription and Fountain manages the grant"
-description: "Proposed; linking a grant is behind a flag that is off for every account. ADR 0060 stage 4a built decision 2's attempts and its API, not its card; stages 1 to 3 built the owner-scoped lifecycle, selection, and the revocation-fenced broker authorization and protected destination for a user's grant; the platform grant is not yet on that path. Tenant-owned ChatGPT grants use tenant encryption, coordinated refresh, revocation-fenced broker authorization, protected provider destinations, and no automatic paid fallback."
+description: "Proposed; linking a grant is behind a flag that is off for every account. ADR 0060 stage 4 built decision 2's attempts, its API and its card; stages 1 to 3 built the owner-scoped lifecycle, selection, and the revocation-fenced broker authorization and protected destination for a user's grant; the platform grant is not yet on that path. Tenant-owned ChatGPT grants use tenant encryption, coordinated refresh, revocation-fenced broker authorization, protected provider destinations, and no automatic paid fallback."
 tags: [inference, codex, oauth, security, billing]
 status: draft
 adr: "0052"
@@ -75,12 +75,19 @@ encrypted exchange secrets, a job that carries ids and never tokens and
 honours the auth server's interval with backoff, a completion that rechecks
 the owner, cancellation, expiry and the grant's generation before it stores
 anything, and the same operations under `/api/account`. The card on
-`/account/inference-credentials` is not built. Linking is behind a rollout
+`/account/inference-credentials` was not part of it (see 4b below). Linking is behind a rollout
 flag that is off for every account, and the two parts above are owed before
 it is turned on. Two things decision 2 asks for are still open: account
 deletion "cancels" pending attempts only in that they are deleted with the
 account, and tokens an attempt does not store are not revoked upstream. See
 0060, "Stage 4a as built".
+
+**0060 stage 4b (2026-09-21) builds decision 2's card**, per grant, on
+`/account/inference-credentials`: connect with a name, the code and its
+page, Connecting, Connected, Reconnect required, rename, reconnect,
+disconnect and remove, a page reload that reads the attempt's row, and the
+credential set's picker. The flag is still off for every account. See 0060,
+"Stage 4b as built".
 
 Extends [0047](0047-codex-platform-chatgpt-account.md),
 [0008](0008-byo-inference-credentials.md), and

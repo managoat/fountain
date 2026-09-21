@@ -10,7 +10,7 @@
 - **`chatgpt_subscriptions` is a new feature flag, and it is off** (#2459).
   It holds the one door that links a new ChatGPT subscription to an account.
   Unlike `connections` it reads off on a deployment with no PostHog as well:
-  the feature is in development (ADR 0060), with no console page, no
+  the feature is in development (ADR 0060), with no
   schedule that keeps an idle subscription alive and two broker protections
   still to build. `FEATURE_FLAGS_ON=chatgpt_subscriptions` forces it on
   where the credential broker is configured; do not do that on an instance

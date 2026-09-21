@@ -476,7 +476,8 @@ defmodule Fountain.Conversations.Egress do
         state.tenant_keys,
         Fountain.Conversations.SpriteEnv.without_inference_inputs(
           Map.get(state, :inference_model),
-          tenant_secrets(state)
+          tenant_secrets(state),
+          Map.get(state, :inference_source)
         ),
         brokered,
         state.broker_bindings,

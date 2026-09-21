@@ -442,7 +442,11 @@ defmodule Fountain.Conversations.ConversationServer do
         {merged, bindings, connection_keys} =
           Egress.add_connection_secrets(
             conv.user_id,
-            SpriteEnv.without_inference_inputs(agent && agent.model, tenant_secrets),
+            SpriteEnv.without_inference_inputs(
+              agent && agent.model,
+              tenant_secrets,
+              inference_source
+            ),
             bindings,
             agent
           )
@@ -804,7 +808,8 @@ defmodule Fountain.Conversations.ConversationServer do
       sandbox_id: state.sandbox_id,
       sandbox_url: sandbox_url,
       brokered: Egress.sandbox_env(state.broker, ca_files || Fountain.Broker.system_ca_files()),
-      broker_credentials: state.brokered
+      broker_credentials: state.brokered,
+      inference_source: Map.get(state, :inference_source)
     )
   end
 

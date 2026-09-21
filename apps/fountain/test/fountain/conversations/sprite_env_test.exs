@@ -120,6 +120,45 @@ defmodule Fountain.Conversations.SpriteEnvTest do
       assert sprite_env == [{"FOUNTAIN_CONVERSATION_ID", conv_id}] ++ SpriteEnv.git_author_env()
     end
 
+    # ADR 0060 decision 4. The auth names dropped from the tenant's inputs
+    # come from the model's `provider/` prefix, and an agent's model may have
+    # none. On a `:grant` source that left an environment or vault
+    # `OPENAI_API_KEY` in a codex sandbox beside the subscription.
+    test "a :grant source drops OpenAI's auth names whatever the model string says" do
+      conv_id = "conv-#{System.unique_integer([:positive])}"
+      on_exit(fn -> Redaction.delete(conv_id) end)
+
+      env = %Environment{env_vars: %{"OPENAI_API_KEY" => "sk-env-plain", "PLAIN" => "p"}}
+      secrets = %{"OPENAI_API_KEY" => "sk-vault", "OTHER" => "kept"}
+      grant = Fountain.InferenceCredentials.Source.grant()
+
+      build = fn source ->
+        SpriteEnv.build(%{model: "gpt-5", runtime: "codex"}, env, secrets,
+          runtime_module: SilentRuntime,
+          env_credentials: %{},
+          callback_token: nil,
+          conversation_id: conv_id,
+          sandbox_id: nil,
+          inference_source: source
+        )
+      end
+
+      granted = build.(grant)
+      refute List.keymember?(granted, "OPENAI_API_KEY", 0)
+      assert {"PLAIN", "p"} in granted
+      assert {"OTHER", "kept"} in granted
+
+      assert SpriteEnv.without_inference_inputs("gpt-5", secrets, grant) == %{"OTHER" => "kept"}
+
+      # Any other source on the same agent is as it was: no prefix, nothing dropped.
+      for source <- [nil, Fountain.InferenceCredentials.Source.none()] do
+        assert {"OPENAI_API_KEY", "sk-vault"} in build.(source)
+        assert SpriteEnv.without_inference_inputs("gpt-5", secrets, source) == secrets
+      end
+
+      assert SpriteEnv.without_inference_inputs("gpt-5", secrets) == secrets
+    end
+
     test "registers the secrets for redaction before returning" do
       conv_id = "conv-#{System.unique_integer([:positive])}"
       on_exit(fn -> Redaction.delete(conv_id) end)

@@ -44,7 +44,7 @@ defmodule Fountain.InferenceCredentials.Resolver do
                runtime: runtime,
                own: own,
                overrides: overrides,
-               grant: named_grant(set, provider, user_id)
+               grant: named_grant(set, provider, runtime, user_id)
              })
              |> pinned_elsewhere(expected),
            :ok <-
@@ -63,21 +63,31 @@ defmodule Fountain.InferenceCredentials.Resolver do
     end)
   end
 
-  # The grant a set names, read only for a model a subscription can serve, so
-  # every other resolution costs nothing more than it did. Scoped by the
-  # owner a second time, after the changeset and the foreign key: a row that
-  # somehow names a grant its owner does not hold is `{:named, id, nil}`, and
-  # that resolves to an error, never to another credential. Metadata only, as
-  # everything under the source lock must be: no decrypt, no provider I/O,
-  # and no renewal (`Fountain.ChatGPTAccounts`, "The source lock").
-  defp named_grant(%{chatgpt_grant_id: id}, "openai", user_id) when is_binary(id) do
+  # The grant a set names, read only for a run a subscription can bear on, so
+  # every other resolution costs nothing more than it did: an OpenAI model,
+  # or the codex runtime whatever its model string says. An agent's model may
+  # carry no `provider/` prefix (`Agent.changeset/2` refuses only a wrong
+  # one), and codex reaches OpenAI and nothing else; keyed on the provider
+  # alone, such an agent would skip the grant and run on the set's API key,
+  # which is decision 4's silent switch. The platform grant's rule is
+  # narrower (`PlatformInference.credential_for/2` wants the prefix) and can
+  # be: with no prefix nothing of the platform's is selected at all.
+  #
+  # Scoped by the owner a second time, after the changeset and the foreign
+  # key: a row that somehow names a grant its owner does not hold is
+  # `{:named, id, nil}`, and that resolves to an error, never to another
+  # credential. Metadata only, as everything under the source lock must be:
+  # no decrypt, no provider I/O, and no renewal (`Fountain.ChatGPTAccounts`,
+  # "The source lock").
+  defp named_grant(%{chatgpt_grant_id: id}, provider, runtime, user_id)
+       when is_binary(id) and (provider == "openai" or runtime == "codex") do
     case Fountain.ChatGPTAccounts.get_for_user(id, user_id) do
       {:ok, view} -> {:named, id, view}
       {:error, :not_found} -> {:named, id, nil}
     end
   end
 
-  defp named_grant(_set, _provider, _user_id), do: :none
+  defp named_grant(_set, _provider, _runtime, _user_id), do: :none
 
   # A conversation pinned to something else (the set's API key, or another
   # grant the set named then) has not lost a subscription; its source
@@ -113,8 +123,9 @@ defmodule Fountain.InferenceCredentials.Resolver do
   # fallback, another of the user's grants is not, and the platform is not.
   # The key is dropped from what the runtime is handed so codex cannot log in
   # with it beside the grant. No bearer is put there: a grant's token never
-  # travels in the credentials map (ADR 0052 decision 6).
-  defp select(%Inputs{provider: "openai", runtime: "codex", grant: {:named, id, view}, own: own}) do
+  # travels in the credentials map (ADR 0052 decision 6). Matched on the
+  # runtime alone: see `named_grant/4`.
+  defp select(%Inputs{runtime: "codex", grant: {:named, id, view}, own: own}) do
     case grant_state(view) do
       :ok ->
         source = %{

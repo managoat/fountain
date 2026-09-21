@@ -646,30 +646,37 @@ defmodule Fountain.InferenceCredentials do
   @spec missing_for_model(binary(), String.t() | nil, keyword()) ::
           nil | {String.t(), [atom()]}
   def missing_for_model(user_id, model, opts \\ []) when is_binary(user_id) do
-    provider = Managoat.Runtimes.Model.provider(model)
+    set = set_for(user_id, Keyword.get(opts, :credential_set_id))
+    runtime = Keyword.get(opts, :runtime)
+    provider = Managoat.Runtimes.Model.provider(model) || grant_provider(set, runtime)
 
     case credentials_for_provider(provider) do
       [] ->
         nil
 
       accepted ->
-        set = set_for(user_id, Keyword.get(opts, :credential_set_id))
         status = status_for_set(set)
 
-        if Enum.any?(accepted, &Map.get(status, &1, false)) or
-             grant_serves?(set, provider, Keyword.get(opts, :runtime)),
-           do: nil,
-           else: {provider, accepted}
+        if Enum.any?(accepted, &Map.get(status, &1, false)) or grant_serves?(set, runtime),
+          do: nil,
+          else: {provider, accepted}
     end
   end
 
   defp set_for(user_id, nil), do: get_for_user(user_id)
   defp set_for(user_id, set_id), do: get_set(set_id, user_id)
 
-  defp grant_serves?(%Credential{chatgpt_grant_id: id}, "openai", "codex") when is_binary(id),
+  # Keyed on the runtime, as resolution is (`Resolver.named_grant/4`): a codex
+  # run on a set that names a subscription is OpenAI's whatever the model
+  # string says, so a model with no `provider/` prefix is asked about here
+  # instead of being waved through as a provider that needs nothing.
+  defp grant_provider(%Credential{chatgpt_grant_id: id}, "codex") when is_binary(id), do: "openai"
+  defp grant_provider(_set, _runtime), do: nil
+
+  defp grant_serves?(%Credential{chatgpt_grant_id: id}, "codex") when is_binary(id),
     do: Fountain.Broker.configured?()
 
-  defp grant_serves?(_set, _provider, _runtime), do: false
+  defp grant_serves?(_set, _runtime), do: false
 
   @typedoc """
   Why the ChatGPT subscription a set names cannot serve a codex run, in a

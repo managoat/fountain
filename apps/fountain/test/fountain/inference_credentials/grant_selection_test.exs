@@ -333,6 +333,76 @@ defmodule Fountain.InferenceCredentials.GrantSelectionTest do
     end
   end
 
+  # `Agent.changeset/2` refuses a wrong `provider/` prefix and accepts none at
+  # all, and `Model.provider("gpt-5")` is nil. Codex reaches OpenAI whatever
+  # the model string says, so the grant is keyed on the runtime: keyed on the
+  # provider alone, this agent skipped the grant and ran on the set's key.
+  describe "a codex model with no provider prefix" do
+    @bare [model: "gpt-5", runtime: "codex"]
+
+    test "resolves to the named grant, not to the set's key or an env or vault key", ctx do
+      grant = user_grant!(ctx.user.id)
+      set = set_naming(ctx.user, "Set", grant)
+      %{opts: opts} = every_fallback(ctx, set)
+
+      assert {:ok, %Source{scope: :grant, grant_id: id, model: "gpt-5"} = source, creds} =
+               resolve(ctx.user, set, @bare ++ opts)
+
+      assert id == grant.id
+      assert source.identity == "chatgpt_grant:" <> grant.id
+      refute Map.has_key?(creds, :openai_api_key)
+
+      # The account default set, which this first set is, is no different.
+      assert set.is_default
+      assert {:ok, %Source{scope: :grant, grant_id: ^id}, _} = resolve(ctx.user, nil, @bare)
+    end
+
+    test "with the grant disconnected it is the tagged error, never the key", ctx do
+      grant = user_grant!(ctx.user.id, %{name: "Work"})
+      set = set_naming(ctx.user, "Set", grant)
+      %{opts: opts} = every_fallback(ctx, set)
+      :ok = ChatGPTAccounts.disconnect_for_user(grant.id, ctx.user.id)
+
+      for extra <- [[], opts] do
+        assert {:error, {:chatgpt_grant_unusable, detail}} =
+                 resolve(ctx.user, set, @bare ++ extra)
+
+        assert detail == %{grant_id: grant.id, name: "Work", reason: :disconnected, until: nil}
+      end
+    end
+
+    test "a set that names no grant resolves as it always did", ctx do
+      {:ok, set} = InferenceCredentials.create_set(ctx.user.id, "Plain")
+      {:ok, _} = InferenceCredentials.put_credential_in(set, ctx.dek, :openai_api_key, "sk-own")
+
+      assert {:ok, %Source{scope: :none}, %{openai_api_key: "sk-own"}} =
+               resolve(ctx.user, set, @bare)
+    end
+
+    test "missing_for_model/3 answers for OpenAI when the set names a grant", ctx do
+      grant = user_grant!(ctx.user.id)
+      set = set_naming(ctx.user, "Set", grant)
+      {:ok, plain} = InferenceCredentials.create_set(ctx.user.id, "Plain")
+
+      missing = fn set, runtime ->
+        InferenceCredentials.missing_for_model(ctx.user.id, "gpt-5",
+          runtime: runtime,
+          credential_set_id: set.id
+        )
+      end
+
+      assert missing.(set, "codex") == nil
+      # No prefix, no grant or no codex: a provider that asks for nothing, as before.
+      assert missing.(plain, "codex") == nil
+      assert missing.(set, "opencode") == nil
+
+      # Unbrokered, the grant cannot serve; the prefixed model says the same.
+      Application.delete_env(:fountain, :broker_listen_port)
+      assert missing.(set, "codex") == {"openai", [:openai_api_key]}
+      assert missing.(plain, "codex") == nil
+    end
+  end
+
   describe "a grant and no key" do
     test "is eligible for codex and missing for every other OpenAI consumer", ctx do
       grant = user_grant!(ctx.user.id)

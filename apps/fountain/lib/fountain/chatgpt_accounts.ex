@@ -323,8 +323,10 @@ defmodule Fountain.ChatGPTAccounts do
                   {:ok, current} <- locked_user_grant(grant_id, user_id),
                   :ok <- expected_generation(current, opts[:expected_generation]),
                   :ok <- account_unlinked(user_id, claims["account_id"], current.id),
-                  {:ok, attrs} <- user_attrs(user_id, current.id, tokens, claims) do
-               current |> Account.user_reconnect_changeset(attrs) |> Repo.update()
+                  {:ok, attrs} <- user_attrs(user_id, current.id, tokens, claims),
+                  {:ok, account} <-
+                    current |> Account.user_reconnect_changeset(attrs) |> Repo.update() do
+               {:ok, revoke_broker(account)}
              end
            end) do
       metadata = account |> connected_metadata(opts) |> Map.put("reconnect", true)
@@ -386,6 +388,15 @@ defmodule Fountain.ChatGPTAccounts do
   through `reconnect_for_user/4`; the row still counts against the ceiling
   until `remove_for_user/3` deletes it.
 
+  It is the kill switch for the broker as well. The same transaction marks
+  every broker session issued for the grant as revoked, and from the moment
+  it commits no request may use the grant, inside a tunnel that was already
+  open too: the proxy reads this row's generation on every request
+  (`protected_credential/2`), so that holds on a node that never heard of
+  the disconnect. A request admitted before the commit is in flight and may
+  finish. Already-open tunnels are not closed, and the token is not revoked
+  upstream.
+
   `:ok` for a grant already disconnected, with no second event. The
   platform grant is not like this: `platform_disconnect/1` deletes its row.
 
@@ -406,7 +417,7 @@ defmodule Fountain.ChatGPTAccounts do
 
           {:ok, account} ->
             with {:ok, tombstone} <- account |> Account.disconnect_changeset() |> Repo.update() do
-              {:ok, {account.generation, tombstone}}
+              {:ok, {account.generation, revoke_broker(tombstone)}}
             end
 
           {:error, _} = error ->
@@ -475,11 +486,29 @@ defmodule Fountain.ChatGPTAccounts do
   defp delete_unnamed(%Account{} = account) do
     case Fountain.InferenceCredentials.set_names_for_grant(account.id, account.user_id) do
       [] ->
-        Repo.delete(account)
+        with {:ok, deleted} <- Repo.delete(account), do: {:ok, revoke_broker(deleted)}
 
       names ->
         {:error, {:named_by_sets, names}}
     end
+  end
+
+  # The one seam between a grant's lifecycle and the broker (ADR 0052
+  # decision 5): every write that ends what a broker session was issued for
+  # calls this **inside its own transaction**, so the fence and the
+  # invalidation commit together or not at all. A disconnect, a reconnect, a
+  # removal and the platform's delete end every generation the row has had
+  # (`:all`); a revocation or an expiry keeps the generation and ends that
+  # one. A token rotation ends nothing and does not come here.
+  #
+  # It marks the sessions and leaves them: only the Codex backend closes to
+  # their conversations. It is the fast path, not the authority, which is
+  # `protected_credential/2` reading the row on every request. Account
+  # deletion does not come through here either: the grant rows go by cascade
+  # and so do the user's broker sessions.
+  defp revoke_broker(%Account{id: id} = account, generation \\ :all) do
+    Fountain.Broker.revoke_grant(id, generation)
+    account
   end
 
   # Every write to a user's grants: one transaction under that user's source
@@ -1351,7 +1380,7 @@ defmodule Fountain.ChatGPTAccounts do
 
         case locked_platform_row() do
           nil -> nil
-          row -> Repo.delete!(row)
+          row -> row |> Repo.delete!() |> revoke_broker()
         end
       end)
 
@@ -1383,7 +1412,7 @@ defmodule Fountain.ChatGPTAccounts do
         case (locked_platform_row() || %Account{})
              |> Account.connect_changeset(attrs)
              |> Repo.insert_or_update() do
-          {:ok, account} -> account
+          {:ok, account} -> revoke_broker(account)
           {:error, changeset} -> Repo.rollback(changeset)
         end
       end)
@@ -1709,12 +1738,22 @@ defmodule Fountain.ChatGPTAccounts do
              set: [status: "revoked", revoked_reason: code, updated_at: now()],
              inc: [lock_version: 1]
            )
+           |> revoke_broker_if_written(row)
          end) do
       {1, _} -> :ok
       {:error, _} when is_binary(row.user_id) -> unwritten(row, "revocation")
       _ -> :stale
     end
   end
+
+  # A fenced status write that landed ends this generation's broker sessions,
+  # in the same transaction; one that lost its fence ends nothing.
+  defp revoke_broker_if_written({1, _} = written, %Account{} = row) do
+    revoke_broker(row, row.generation)
+    written
+  end
+
+  defp revoke_broker_if_written(unwritten, _row), do: unwritten
 
   defp record_revocation(account_id, code) do
     Audit.record_admin(%{
@@ -1744,6 +1783,7 @@ defmodule Fountain.ChatGPTAccounts do
       Fountain.InferenceCredentials.with_platform_source_lock(fn ->
         current_query(row)
         |> Repo.update_all(set: [status: "expired", updated_at: now()], inc: [lock_version: 1])
+        |> revoke_broker_if_written(row)
       end)
 
     if count == 1 do

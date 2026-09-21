@@ -336,6 +336,127 @@ defmodule Fountain.Broker.Native.ManagedGrantSessionTest do
     end
   end
 
+  # The invalidation half of ADR 0052 decision 5: every write that ends what a
+  # session was issued for marks it, in that write's own transaction. Each
+  # case leaves a second, unrelated managed session alone.
+  describe "the grant's own transaction revokes its sessions" do
+    setup %{user: user} do
+      bystander = user_grant!(user.id)
+      other = insert_conversation(user_id: user.id, agent: insert_agent(user_id: user.id))
+      {:ok, _} = prepare(other, user, ref(bystander))
+      {:ok, bystander: other}
+    end
+
+    defp revoked?(conv), do: match?(%DateTime{}, row(conv).managed_revoked_at)
+
+    test "a user's disconnect, and the removal after it", %{user: user, conv: conv} = ctx do
+      {account, _access, managed} = grant(:user, user)
+      {:ok, _} = prepare(conv, user, managed)
+
+      :ok = ChatGPTAccounts.disconnect_for_user(account.id, user.id)
+      assert revoked?(conv)
+      refute revoked?(ctx.bystander)
+
+      Repo.update_all(from(s in Session, where: s.conversation_id == ^conv.id),
+        set: [managed_revoked_at: nil]
+      )
+
+      :ok = ChatGPTAccounts.remove_for_user(account.id, user.id)
+      assert revoked?(conv)
+      refute revoked?(ctx.bystander)
+    end
+
+    test "a user's reconnect ends every session of the old sign-in",
+         %{user: user, conv: conv} = ctx do
+      {account, _access, managed} = grant(:user, user)
+      {:ok, _} = prepare(conv, user, managed)
+
+      {:ok, view} =
+        ChatGPTAccounts.reconnect_for_user(account.id, user.id, %{
+          access_token: access_token(),
+          refresh_token: "rt_again",
+          id_token: id_token(%{account_id: account.account_id})
+        })
+
+      refute view.generation == account.generation
+      assert revoked?(conv)
+      refute revoked?(ctx.bystander)
+      assert {:error, :denied} = Sessions.authorize({:managed, row(conv).id}, @protected)
+    end
+
+    test "a user's grant the auth server refuses", %{user: user, conv: conv} = ctx do
+      stale = access_token(60)
+      account = user_grant!(user.id, %{access_token: stale})
+      {:ok, _} = prepare(conv, user, ref(account))
+      stub_refusal("invalid_grant")
+
+      assert {:error, :revoked} =
+               ChatGPTAccounts.refresh_for_user(account.id, user.id, account.generation)
+
+      assert revoked?(conv)
+      refute revoked?(ctx.bystander)
+    end
+
+    test "a token rotation ends nothing", %{user: user, conv: conv} do
+      account = user_grant!(user.id, %{access_token: access_token(60)})
+      {:ok, _} = prepare(conv, user, ref(account))
+      renewed = access_token(7_200, %{"renewed" => true})
+
+      stub_refresh(%{
+        expect_refresh: "rt_user",
+        access_token: renewed,
+        id_token: id_token(%{account_id: account.account_id})
+      })
+
+      assert :ok = ChatGPTAccounts.refresh_for_user(account.id, user.id, account.generation)
+      refute revoked?(conv)
+
+      assert {:ok, %ProtectedCredential{bearer: ^renewed}} =
+               Sessions.authorize({:managed, row(conv).id}, @protected)
+    end
+
+    test "the platform's disconnect and its reconnect", %{user: user, conv: conv} = ctx do
+      {_account, _access, managed} = grant(:platform, user)
+      {:ok, _} = prepare(conv, user, managed)
+      :ok = ChatGPTAccounts.platform_disconnect()
+      assert revoked?(conv)
+      refute revoked?(ctx.bystander)
+
+      again = insert_conversation(user_id: user.id, agent: insert_agent(user_id: user.id))
+      first = connect!()
+      {:ok, _} = prepare(again, user, ref(first))
+      second = connect!(%{refresh_token: "rt_again"})
+      refute second.generation == first.generation
+      assert revoked?(again)
+      refute revoked?(ctx.bystander)
+    end
+
+    test "the platform's grant refused by the auth server, and a lapsed workspace token",
+         %{user: user, conv: conv} = ctx do
+      stale = connect!(%{access_token: access_token(60)})
+      {:ok, _} = prepare(conv, user, ref(stale))
+      stub_refusal()
+      assert ChatGPTAccounts.platform_access_token() == {:error, :revoked}
+      assert revoked?(conv)
+
+      {:ok, workspace} =
+        ChatGPTAccounts.platform_connect_workspace_token("wst_opaque_token", nil,
+          account_id: "acct_ws"
+        )
+
+      lapsing = insert_conversation(user_id: user.id, agent: insert_agent(user_id: user.id))
+      {:ok, _} = prepare(lapsing, user, ref(workspace))
+
+      Repo.update_all(from(a in Account, where: a.id == ^workspace.id),
+        set: [access_expires_at: ~U[2020-01-01 00:00:00Z]]
+      )
+
+      assert ChatGPTAccounts.platform_access_token() == {:error, :expired}
+      assert revoked?(lapsing)
+      refute revoked?(ctx.bystander)
+    end
+  end
+
   describe "a user grant's owner" do
     test "an owner who may no longer use a grant is denied at issuance and at every request",
          %{user: user, conv: conv} do

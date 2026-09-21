@@ -218,8 +218,12 @@ defmodule Fountain.PlatformChatGPT.Account do
 
   # An owned row is always a refreshable ChatGPT sign-in. A NULL
   # `account_id` would slip the per-owner index, so one is required.
+  # `updated_by_user_id` is the operator who connected the platform grant and
+  # stays nil here: the owner is `user_id`, and a second user column would
+  # have that user's deletion write this owner's row.
   defp owned_rules(changeset) do
     changeset
+    |> put_change(:updated_by_user_id, nil)
     |> validate_required([:account_id, :refresh_token_ciphertext])
     |> validate_inclusion(:kind, ["chatgpt"])
     |> unique_constraint(:account_id,

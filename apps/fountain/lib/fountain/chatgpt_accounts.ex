@@ -260,8 +260,7 @@ defmodule Fountain.ChatGPTAccounts do
                |> Account.user_connect_changeset(Map.put(attrs, :name, name))
                |> Repo.insert()
              end
-           end)
-           |> linked_twice(user_id, id) do
+           end) do
       audit_grant(account, "chatgpt_grant.connected", opts, connected_metadata(account, opts))
       {:ok, view(account, DateTime.utc_now())}
     end
@@ -306,8 +305,7 @@ defmodule Fountain.ChatGPTAccounts do
                   {:ok, attrs} <- user_attrs(user_id, current.id, tokens, claims) do
                current |> Account.user_reconnect_changeset(attrs) |> Repo.update()
              end
-           end)
-           |> linked_twice(user_id, grant_id) do
+           end) do
       metadata = account |> connected_metadata(opts) |> Map.put("reconnect", true)
       audit_grant(account, "chatgpt_grant.connected", opts, metadata)
       {:ok, view(account, DateTime.utc_now())}
@@ -490,22 +488,9 @@ defmodule Fountain.ChatGPTAccounts do
     }
   end
 
-  # The `(user_id, account_id)` index is the backstop for the check made
-  # under the lock; either way the caller learns which grant holds the
-  # account. Looked up once the refused transaction has rolled back.
-  defp linked_twice({:error, %Ecto.Changeset{errors: errors} = changeset} = error, user_id, id) do
-    with {_message, meta} <- errors[:account_id],
-         :unique <- meta[:constraint],
-         account_id = Ecto.Changeset.get_field(changeset, :account_id),
-         {:error, _} = linked <- account_unlinked(user_id, account_id, id) do
-      linked
-    else
-      _ -> error
-    end
-  end
-
-  defp linked_twice(result, _user_id, _id), do: result
-
+  # Every writer of a user's rows holds that user's source key, the trigger
+  # included, so this answers before the `(user_id, account_id)` index can:
+  # the index is the backstop, and its refusal is a changeset error.
   defp account_unlinked(user_id, account_id, except_id) do
     holder =
       from(a in Account,
@@ -570,30 +555,28 @@ defmodule Fountain.ChatGPTAccounts do
     end
   end
 
-  # `updated_by_user_id` stays nil on a user's row. The owner is `user_id`
-  # and the actor is on the audit event; a second user column would make one
-  # account's deletion write another account's row, under that account's
-  # source lock.
+  # No `updated_by_user_id`: the owner is `user_id`, the actor is on the audit
+  # event, and `Account`'s owned changesets refuse the column anyway.
   defp user_attrs(user_id, grant_id, %{access_token: access} = tokens, claims) do
-    with {:encrypted, {:ok, encrypted}} <-
-           {:encrypted,
-            Cipher.encrypt_user_tokens(user_id, grant_id, %{
-              access_token: access,
-              refresh_token: tokens.refresh_token
-            })} do
-      {:ok,
-       Map.merge(encrypted, %{
-         kind: "chatgpt",
-         id_claims: Map.drop(claims, ["email"]),
-         account_id: claims["account_id"],
-         account_email: claims["email"],
-         plan_type: claims["plan_type"],
-         access_expires_at: Tokens.expires_at(access),
-         last_refreshed_at: now()
-       })}
-    else
+    case Cipher.encrypt_user_tokens(user_id, grant_id, %{
+           access_token: access,
+           refresh_token: tokens.refresh_token
+         }) do
+      {:ok, encrypted} ->
+        {:ok,
+         Map.merge(encrypted, %{
+           kind: "chatgpt",
+           id_claims: Map.drop(claims, ["email"]),
+           account_id: claims["account_id"],
+           account_email: claims["email"],
+           plan_type: claims["plan_type"],
+           access_expires_at: Tokens.expires_at(access),
+           last_refreshed_at: now()
+         })}
+
       # Not the key's own reason: `:not_found` here would read as "no such grant".
-      {:encrypted, {:error, _}} -> {:error, :tenant_key_unavailable}
+      {:error, _} ->
+        {:error, :tenant_key_unavailable}
     end
   end
 

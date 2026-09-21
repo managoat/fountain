@@ -301,8 +301,7 @@ defmodule Fountain.ChatGPTUserGrantsTest do
       assert_platform_untouched(ctx)
     end
 
-    test "the index refuses what the check under the lock would have, with the same answer",
-         ctx do
+    test "the index stands behind the check made under the lock", ctx do
       assert {:ok, work} = link(ctx.user, "Work", "acct-work")
       row = Repo.get!(Account, work.grant_id)
 

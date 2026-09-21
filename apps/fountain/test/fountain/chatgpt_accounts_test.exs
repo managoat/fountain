@@ -310,6 +310,33 @@ defmodule Fountain.ChatGPTAccountsTest do
     assert {:ok, _} = read(reconnected, owner)
   end
 
+  # The owner is `user_id` and the actor is on the audit event. A second user
+  # column on an owned row would have one account's deletion nilify, and so
+  # write, another account's grant row.
+  test "an owned row's changesets never set the operator column" do
+    owner = insert_verified_user()
+    other = insert_verified_user()
+
+    linked =
+      %Account{id: Ecto.UUID.generate(), user_id: owner.id}
+      |> Account.user_connect_changeset(
+        owner
+        |> owned_attrs("acct-linked", "Linked")
+        |> Map.put(:updated_by_user_id, other.id)
+      )
+      |> Repo.insert!()
+
+    assert linked.updated_by_user_id == nil
+
+    reconnected =
+      linked
+      |> Account.user_reconnect_changeset(%{updated_by_user_id: other.id})
+      |> Repo.update!()
+
+    assert reconnected.updated_by_user_id == nil
+    assert Repo.get!(Account, linked.id).updated_by_user_id == nil
+  end
+
   describe "an owned row is named, and a user may hold several (ADR 0060 decision 1)" do
     test "two grants for one user, and the platform row beside them" do
       owner = insert_verified_user()

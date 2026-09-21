@@ -127,6 +127,26 @@ defmodule Fountain.ChatGPTLinkAttemptsTest do
       assert [_only] = events(user)
     end
 
+    test "the auth server's interval is kept between a second and a minute", %{user: user} do
+      for {said, kept} <- [{3600, 60}, {"3600", 60}, {"7", 7}, {0, 5}, {"soon", 5}, {nil, 5}] do
+        stub_auth(%{
+          "/api/accounts/deviceauth/usercode" => fn _ ->
+            {200,
+             %{"user_code" => "CODE-1", "device_auth_id" => "deviceauth_1", "interval" => said}}
+          end
+        })
+
+        assert {:ok, %{poll_interval: ^kept} = view} =
+                 ChatGPTAccounts.start_attempt_for_user(user.id, %{name: "Work"})
+
+        assert {:ok, _} = ChatGPTAccounts.cancel_attempt_for_user(view.id, user.id)
+      end
+
+      # Whoever answers in the auth server's place is held to the same.
+      assert {:ok, %{poll_interval: 60}} =
+               start(user, %{name: "Work"}, device_start: device_start(self(), %{interval: 900}))
+    end
+
     test "neither a name nor a grant is refused", %{user: user} do
       assert {:error, :invalid_target} = start(user, %{})
       refute_received {:device_start, _}

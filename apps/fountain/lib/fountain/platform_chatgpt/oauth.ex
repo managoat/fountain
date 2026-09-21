@@ -258,8 +258,21 @@ defmodule Fountain.PlatformChatGPT.OAuth do
   end
 
   # Never zero: a server that says 0 would have the poll spin. Codex's own
-  # floor is positive too.
-  defp interval(n) when is_integer(n) and n >= 1, do: n
+  # floor is positive too. Never more than a minute either, which is where
+  # Codex stops backing off: a code lives fifteen, and an answer of an hour
+  # would poll it once after it had died. A string of digits is taken for
+  # what it says rather than silently replaced by the default.
+  @max_interval 60
+
+  defp interval(n) when is_integer(n) and n >= 1, do: min(n, @max_interval)
+
+  defp interval(n) when is_binary(n) do
+    case Integer.parse(n) do
+      {seconds, ""} -> interval(seconds)
+      _ -> 5
+    end
+  end
+
   defp interval(_), do: 5
 
   defp present(value) when is_binary(value) and value != "", do: value

@@ -37,6 +37,10 @@ defmodule Fountain.ChatGPTAccounts.LinkAttempts do
   @start_limit 10
   @start_window_seconds 60 * 60
 
+  # Codex backs off to a minute at most, and so does this. It is also the
+  # longest interval a row will keep, whoever answered `device_start`.
+  @max_backoff_seconds 60
+
   @system_actor "system:chatgpt_link_attempt"
 
   def ttl_seconds, do: @ttl_seconds
@@ -229,7 +233,7 @@ defmodule Fountain.ChatGPTAccounts.LinkAttempts do
         |> Map.merge(secrets)
         |> Map.merge(%{
           verification_url: started.verification_url,
-          poll_interval: max(started.interval, 1),
+          poll_interval: started.interval |> max(1) |> min(@max_backoff_seconds),
           expires_at: DateTime.add(now, @ttl_seconds, :second)
         })
 
@@ -340,9 +344,6 @@ defmodule Fountain.ChatGPTAccounts.LinkAttempts do
   defp end_pending(%LinkAttempt{} = attempt, _now), do: {:ok, {:unchanged, attempt}}
 
   # ── poll ─────────────────────────────────────────────────────────────────
-
-  # Codex backs off to a minute at most, and so does this.
-  @max_backoff_seconds 60
 
   def poll(attempt_id, user_id, opts)
       when is_binary(attempt_id) and is_binary(user_id) and is_list(opts) do

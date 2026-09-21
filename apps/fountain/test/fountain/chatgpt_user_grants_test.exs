@@ -30,7 +30,10 @@ defmodule Fountain.ChatGPTUserGrantsTest do
   defp assert_platform_untouched(ctx) do
     assert Repo.get!(Account, ctx.platform.id) == ctx.platform
     assert %{status: "active", account_id: "acct_platform_1"} = ChatGPTAccounts.platform_status()
-    assert {:ok, _token} = ChatGPTAccounts.platform_credential(refresh: false)
+
+    assert ChatGPTAccounts.platform_selection() ==
+             {:ok, %{grant_id: ctx.platform.id, generation: ctx.platform.generation}}
+
     # A user's grant never writes the privilege trail.
     assert Repo.aggregate(AdminEvent, :count) == ctx.admin_events
   end

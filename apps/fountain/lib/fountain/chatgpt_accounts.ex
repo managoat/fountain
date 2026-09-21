@@ -152,13 +152,13 @@ defmodule Fountain.ChatGPTAccounts do
       token is handed out. A terminal refusal marks the row `revoked` with
       the server's reason code; a workspace token past its expiry marks it
       `expired`.
-    * `platform_credential/1` -- `{:ok, token}` or `:none`, for
-      `Fountain.PlatformInference.credential_for/2`, which takes the grant for a
-      codex agent whose tenant has no OpenAI key of their own.
     * `platform_selection/0`, `platform_ensure_fresh/0` -- which grant a
-      codex conversation is selected onto, and its renewal before a turn.
-      Neither returns a token. The sandbox file's account id and synthesised
-      `id_token` come from `sandbox_auth/1`, pinned to the selected sign-in.
+      codex conversation is selected onto
+      (`Fountain.PlatformInference.credential_for/2`, for a codex agent
+      whose tenant has no OpenAI key of their own), and its renewal before a
+      turn. Neither returns a token, and nothing a conversation calls does.
+      The sandbox file's account id and synthesised `id_token` come from
+      `sandbox_auth/1`, pinned to the selected sign-in.
     * `platform_connect_from_auth_json/2`,
       `platform_connect_from_tokens/3`,
       `platform_connect_workspace_token/3`, `platform_disconnect/1` -- the
@@ -1408,35 +1408,6 @@ defmodule Fountain.ChatGPTAccounts do
   @doc "Whether the deployment holds a usable grant right now (no refresh is attempted)."
   @spec platform_active?() :: boolean()
   def platform_active?, do: match?(%Account{status: "active"}, platform_row())
-
-  @doc """
-  The grant as `Fountain.PlatformInference.credential_for/2` wants it:
-  `{:ok, access_token}` when it is active and refreshable, else `:none`.
-
-  `refresh: false` answers from the row alone, refreshing nothing: for a
-  caller that only asks whether a grant is there (a page render), not for
-  one about to hand the token to a sandbox.
-  """
-  @spec platform_credential(keyword()) :: {:ok, String.t()} | :none
-  def platform_credential(opts \\ []) do
-    if Keyword.get(opts, :refresh, true) do
-      case platform_access_token() do
-        {:ok, token} -> {:ok, token}
-        _ -> :none
-      end
-    else
-      case platform_row() do
-        %Account{status: "active"} = row ->
-          case Cipher.decrypt_token(row, :access_token) do
-            {:ok, token} -> {:ok, token}
-            _ -> :none
-          end
-
-        _ ->
-          :none
-      end
-    end
-  end
 
   @doc """
   A valid access token, refreshing when within the margin of expiry.

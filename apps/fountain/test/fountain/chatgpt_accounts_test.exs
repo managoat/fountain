@@ -100,8 +100,6 @@ defmodule Fountain.ChatGPTAccountsTest do
 
     refute ChatGPTAccounts.platform_active?()
     assert ChatGPTAccounts.platform_status() == :not_connected
-    assert ChatGPTAccounts.platform_credential() == :none
-    assert ChatGPTAccounts.platform_credential(refresh: false) == :none
     assert ChatGPTAccounts.platform_access_token() == {:error, :not_connected}
     assert ChatGPTAccounts.platform_selection() == :none
 

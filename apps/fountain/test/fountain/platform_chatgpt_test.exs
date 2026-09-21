@@ -179,20 +179,17 @@ defmodule Fountain.PlatformChatGPTTest do
   describe "platform_access_token/0" do
     test "not connected, then served from the row without a refresh while fresh" do
       assert ChatGPTAccounts.platform_access_token() == {:error, :not_connected}
-      assert ChatGPTAccounts.platform_credential() == :none
+      assert ChatGPTAccounts.platform_selection() == :none
 
       access = access_token(3_600)
       connect!(%{access_token: access})
       assert ChatGPTAccounts.platform_access_token() == {:ok, access}
-      assert ChatGPTAccounts.platform_credential() == {:ok, access}
     end
 
-    test "credential(refresh: false) answers from the row and never dials out" do
+    test "selection answers from the row and never dials out" do
       broker_on()
       stale = access_token(60)
       connect!(%{access_token: stale})
-      # No stub for /oauth/token: a refresh here would raise.
-      assert ChatGPTAccounts.platform_credential(refresh: false) == {:ok, stale}
       user = insert_verified_user()
 
       # Selection hands out which grant, as its placeholder, never the token.
@@ -204,9 +201,12 @@ defmodule Fountain.PlatformChatGPTTest do
       assert {:ok, %Source{scope: :platform}, %{codex_chatgpt_access_token: ^placeholder}} =
                InferenceCredentials.resolve(user.id, "openai/gpt-5.5-codex", "codex", [])
 
+      # No stub for /oauth/token until here: a refresh above would have
+      # raised, and the token inside its margin is still the one stored.
+      assert decrypt!(row().access_token_ciphertext) == stale
+
       stub_refusal()
       assert ChatGPTAccounts.platform_access_token() == {:error, :revoked}
-      assert ChatGPTAccounts.platform_credential(refresh: false) == :none
       assert ChatGPTAccounts.platform_selection() == :none
     end
 
@@ -235,7 +235,7 @@ defmodule Fountain.PlatformChatGPTTest do
 
       assert ChatGPTAccounts.platform_access_token() == {:error, :revoked}
       assert %Account{status: "revoked", revoked_reason: "refresh_token_reused"} = row()
-      assert ChatGPTAccounts.platform_credential() == :none
+      assert ChatGPTAccounts.platform_selection() == :none
       refute ChatGPTAccounts.platform_active?()
 
       assert %{status: "revoked", revoked_reason: "refresh_token_reused"} =
@@ -313,7 +313,7 @@ defmodule Fountain.PlatformChatGPTTest do
       assert expired.metadata["actor"] == "system:platform_chatgpt"
       assert ChatGPTAccounts.platform_access_token() == {:error, :expired}
       assert length(events("admin.platform_chatgpt.expired")) == 1
-      assert ChatGPTAccounts.platform_credential() == :none
+      assert ChatGPTAccounts.platform_selection() == :none
     end
 
     test "a JWT-shaped token supplies its own account id and expiry" do

@@ -27,13 +27,23 @@ defmodule Fountain.LogThrottle do
 
   @doc "Log `message` as a warning unless `key` already logged within the last minute."
   @spec warning(term(), String.t()) :: :ok
-  def warning(key, message) when is_binary(message) do
+  def warning(key, message) when is_binary(message), do: throttled(:warning, key, message)
+
+  @doc """
+  The same at `error`, for a failure an operator must see and that an outage
+  repeats once per tenant: the first line says it, and a counter says how
+  many.
+  """
+  @spec error(term(), String.t()) :: :ok
+  def error(key, message) when is_binary(message), do: throttled(:error, key, message)
+
+  defp throttled(level, key, message) do
     now = System.monotonic_time(:millisecond)
 
     if due?(key, now) do
       :ets.select_delete(@table, [{{:_, :"$1"}, [{:"=<", :"$1", now - @interval_ms}], [true]}])
       :ets.insert(@table, {key, now})
-      Logger.warning(message)
+      Logger.log(level, message)
     end
 
     :ok

@@ -562,7 +562,11 @@ defmodule Fountain.InferenceCredentials do
   4b): that account has connected a provider, for its codex agents, and the
   checklist should stop asking. A named subscription that is disconnected,
   revoked or expired does not, and neither does a subscription no set names,
-  which no run would use. This is an account-level question and cannot ask
+  which no run would use. `active` is the row's status and all that is asked:
+  a subscription that can no longer be renewed, a deployment with no broker
+  or an owner who may not use one still counts, so the checklist skips the
+  step for an account whose codex runs are refused. That is not a dead end,
+  because the `/start` banner and the agent form say why. This is an account-level question and cannot ask
   which runtime; whether one agent will reach a model is
   `named_grant_problem/4`'s and `resolve/4`'s.
   """
@@ -598,13 +602,15 @@ defmodule Fountain.InferenceCredentials do
   end
 
   @doc """
-  Of `user_ids`, the ones holding at least one provider credential.
+  Of `user_ids`, the ones holding at least one provider credential, or a set
+  that names an active ChatGPT subscription of their own (ADR 0060 stage 4b).
 
   The set form of `has_any_credential?/1`, for the admin funnel's stalled
   breakdown (#1421). A row whose every ciphertext is `nil` belongs to an
   account that cleared its last key (`put_credential/5` clears to `nil`), so
   the row existing is not the signal and this asks the same question
-  `has_any_credential?/1` asks, one query instead of one account at a time.
+  `has_any_credential?/1` asks, a named subscription included, in two queries
+  instead of one account at a time.
 
   `_unsafe_` because it crosses tenants: it answers for whatever ids it is
   handed. The legitimate caller is a system-level aggregate — today

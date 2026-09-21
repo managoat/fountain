@@ -85,8 +85,9 @@ defmodule Fountain.ChatGPTAccounts do
   and removes grants and starts, reads and cancels attempts; the attempt's
   worker links and reconnects; the resolver's `get_for_user/2` turns a set
   that names a grant into a `:grant` source or an error naming the grant,
-  and `InferenceCredentials.set_grant/3` reads through the same function. A
-  conversation that resolved to a grant runs on it:
+  and `InferenceCredentials.set_grant/3`, behind the credential-set API,
+  reads through the same function. A conversation that resolved to a grant
+  runs on it:
   `ensure_fresh_for_user/3` renews it before each turn, outside the source
   lock, and the broker reads it through the two functions above (ADR 0060
   stage 3). There is no console page yet (stage 4b), and a new link is off

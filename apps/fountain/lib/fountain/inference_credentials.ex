@@ -187,9 +187,10 @@ defmodule Fountain.InferenceCredentials do
 
   @doc """
   Name the ChatGPT subscription a set's codex runs use, or with `nil` stop
-  naming one (ADR 0060 decision 2). **Nothing in production calls this yet**:
-  the account surface that lets a user hold a grant, and point a set at one,
-  is ADR 0060 stage 4.
+  naming one (ADR 0060 decision 2). Its caller is `PATCH
+  /api/account/inference-credential-sets/:id`, which fetches the set scoped
+  by the caller first: this function takes its tenant from the struct it is
+  handed.
 
   A reference and never a token. The grant is read through
   `Fountain.ChatGPTAccounts.get_for_user/2`, scoped by the set's owner, under

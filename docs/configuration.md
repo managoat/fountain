@@ -290,6 +290,13 @@ the persistent home with `DELETE /api/sandboxes/{id}`. The next persistent
 conversation then builds a new home. A reset replaces the home's disk. See
 [Sandboxes](api.md#sandboxes).
 
+These effects belong to the deployment's account and key, which share one
+Codex sign-in file on a sandbox. A ChatGPT subscription that a tenant links
+and a credential set names is different. Codex keeps that sign-in in a home
+of its own, so it shares a sandbox with each other source and gets no
+`409 codex_inference_conflict`. A sandbox that was first bound before Fountain
+prepared such homes keeps the old rule for each source.
+
 A personal subscription is one account for every tenant on the deployment.
 That pattern is behind reported account bans, and it is an operator's own
 risk. The page says so.

@@ -309,8 +309,11 @@ defmodule FountainWeb.FallbackController do
       message:
         "this sandbox is reserved for a different Codex credential source or revision; a " <>
           "persistent home keeps the source it started on, including across the platform ChatGPT " <>
-          "account's usage limit and its reset. Use the same source or a fresh sandbox: launch " <>
-          "with sandbox_mode ephemeral, or reset the home with DELETE /api/sandboxes/{id}"
+          "account's usage limit and its reset. A credential set that names a ChatGPT " <>
+          "subscription is the exception and shares a sandbox with any source, unless the " <>
+          "sandbox was first bound before subscriptions had a Codex home of their own. Use the " <>
+          "same source or a fresh sandbox: launch with sandbox_mode ephemeral, or reset the " <>
+          "home with DELETE /api/sandboxes/{id}"
     })
   end
 

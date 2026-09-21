@@ -763,7 +763,10 @@ defmodule FountainWeb.Schemas do
               "bound across wakes; replacing or deleting the source returns 409 " <>
               "inference_source_changed. Not part of sandbox identity, but a shared " <>
               "Codex sandbox requires the same resolved source and revision (409 " <>
-              "codex_inference_conflict otherwise)."
+              "codex_inference_conflict otherwise). The exception is a set that names " <>
+              "a ChatGPT subscription: Codex keeps that sign-in in a home of its own, " <>
+              "so it shares a sandbox with any other source, unless the sandbox was " <>
+              "first bound before Fountain prepared such homes."
         },
         sandbox_api_access: %Schema{
           type: :string,
@@ -2664,10 +2667,44 @@ defmodule FountainWeb.Schemas do
           },
           description: "The credentials this set holds, by name. Never the values."
         },
+        chatgpt_grant_id: %Schema{
+          type: :string,
+          format: :uuid,
+          nullable: true,
+          description:
+            "The ChatGPT subscription this set's codex runs use, or null. A named " <>
+              "subscription is used or the run fails with 409 `chatgpt_grant_unusable`: " <>
+              "nothing falls back to the set's `openai_api_key`, to another " <>
+              "subscription or to the platform. Every other OpenAI consumer still " <>
+              "needs the key."
+        },
+        chatgpt_grant: %Schema{
+          type: :object,
+          nullable: true,
+          description:
+            "The named subscription's name and status, so a set that will fail says so " <>
+              "here. Read-only; the whole subscription is at " <>
+              "`/api/account/chatgpt-subscriptions`.",
+          properties: %{
+            id: %Schema{type: :string, format: :uuid},
+            name: %Schema{type: :string},
+            status: %Schema{type: :string, enum: ~w(active revoked expired disconnected)}
+          },
+          required: [:id, :name, :status]
+        },
         inserted_at: %Schema{type: :string, format: :"date-time"},
         updated_at: %Schema{type: :string, format: :"date-time"}
       },
-      required: [:id, :name, :is_default, :providers, :inserted_at, :updated_at]
+      required: [
+        :id,
+        :name,
+        :is_default,
+        :providers,
+        :chatgpt_grant_id,
+        :chatgpt_grant,
+        :inserted_at,
+        :updated_at
+      ]
     })
   end
 
@@ -2701,13 +2738,22 @@ defmodule FountainWeb.Schemas do
     OpenApiSpex.schema(%{
       title: "InferenceCredentialSetUpdateRequest",
       description:
-        "Rename a set, make it the default, or both. Omitting a field leaves " <>
-          "it alone. `is_default: false` is refused: a set stops being the " <>
-          "default when another becomes it, never on its own.",
+        "Rename a set, make it the default, name a ChatGPT subscription, or any " <>
+          "of them. Omitting a field leaves it alone. `is_default: false` is " <>
+          "refused: a set stops being the default when another becomes it, never " <>
+          "on its own.",
       type: :object,
       properties: %{
         name: %Schema{type: :string, minLength: 1, maxLength: 200},
-        is_default: %Schema{type: :boolean}
+        is_default: %Schema{type: :boolean},
+        chatgpt_grant_id: %Schema{
+          type: :string,
+          format: :uuid,
+          nullable: true,
+          description:
+            "One of the account's ChatGPT subscriptions, or null to stop naming one. " <>
+              "Naming one ends the set's running codex conversations."
+        }
       }
     })
   end
@@ -3721,7 +3767,10 @@ defmodule FountainWeb.Schemas do
               "code (`api_key_invalid`, `api_key_expired`, `insufficient_scope`). " <>
               "On `broker_unavailable`, `sandbox_not_resettable` and " <>
               "`credential_set_is_default`, `error` is the code and this narrows " <>
-              "it (`econnrefused`, `timeout`, `is_default`, ...)."
+              "it (`econnrefused`, `timeout`, `is_default`, ...). On " <>
+              "`chatgpt_grant_unusable` it says why the named subscription cannot " <>
+              "serve: `disconnected`, `revoked`, `expired`, `reconnect_required`, " <>
+              "`exhausted`, `not_found`, `broker_required` or `owner_ineligible`."
         },
         errors: %Schema{
           type: :object,
@@ -3752,6 +3801,25 @@ defmodule FountainWeb.Schemas do
           description:
             "How many the account has against `limit`, on `chatgpt_grant_limit_reached` " <>
               "and `chatgpt_link_attempts_exceeded` (409)."
+        },
+        grant_id: %Schema{
+          type: :string,
+          format: :uuid,
+          description:
+            "The ChatGPT subscription the refusal is about, on `chatgpt_grant_unusable` (409)."
+        },
+        grant: %Schema{
+          type: :string,
+          nullable: true,
+          description: "That subscription's name, on `chatgpt_grant_unusable` (409)."
+        },
+        until: %Schema{
+          type: :string,
+          format: :"date-time",
+          nullable: true,
+          description:
+            "When the subscription's Codex usage resets, on `chatgpt_grant_unusable` " <>
+              "with `reason: \"exhausted\"`; null otherwise."
         },
         attempt_id: %Schema{
           type: :string,

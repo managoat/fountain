@@ -97,7 +97,7 @@ defmodule Fountain.AuditGuardrailTest do
     {"credential set delete", &__MODULE__.do_set_delete/1, "inference_credential_set.deleted"},
     {"credential set default", &__MODULE__.do_set_default/1,
      "inference_credential_set.default_changed"},
-    # ADR 0060 stage 2. No surface calls it yet, like the grant writes below.
+    # ADR 0060 stage 2, reached through the credential-set API's PATCH.
     {"credential set names a chatgpt grant", &__MODULE__.do_set_grant/1,
      "inference_credential_set.chatgpt_grant_changed"},
     # A user's ChatGPT grants (ADR 0060 stage 1), reached through

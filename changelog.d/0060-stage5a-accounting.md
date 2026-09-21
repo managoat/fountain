@@ -1,7 +1,7 @@
 ### Added
 
 - **A ChatGPT subscription that has spent its Codex usage says so, and
-  nothing takes its place** (#2453). The codex turn that reaches the limit
+  nothing takes its place** (#2461). The codex turn that reaches the limit
   fails with codex's own message. Fountain then asks OpenAI with that
   subscription's token, because the report comes from the sandbox, and
   records the limit only when OpenAI confirms it. From then the
@@ -19,7 +19,7 @@
   and back to **Connected** when the time passes. No email or webhook says a
   plan is spent. See https://managoat.com/docs/api#chatgpt-subscriptions.
 
-- **A turn says which inference source served it** (#2453).
+- **A turn says which inference source served it** (#2461).
   `GET /api/conversations/:id/turns` gives each turn a read-only `inference`
   object: `origin` (`own` or `platform`), `scope`, and `chatgpt_grant_id`
   when a ChatGPT subscription served it. It is written when the turn starts
@@ -34,14 +34,14 @@
 ### Fixed
 
 - **`/start`, the agent form and the credential set's picker say when a named
-  ChatGPT subscription is spent** (#2453). They already said when it was
+  ChatGPT subscription is spent** (#2461). They already said when it was
   disconnected, revoked or expired. A spent plan was not among those states,
   because nothing recorded a usage limit on an account's own subscription.
   Now they read it from the same resolution that refuses the run, with the
   reset time that the `409` gives.
 
 - **A conversation server that cannot start on its ChatGPT subscription says
-  which one and why** (#2453). A server that starts without a prompt in
+  which one and why** (#2461). A server that starts without a prompt in
   front of it, such as one that reattaches a running turn after a restart,
   published `tenant_credential_load_failed` with an internal term when its
   named subscription could not serve. The stage event now carries

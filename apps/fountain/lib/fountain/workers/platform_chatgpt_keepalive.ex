@@ -29,7 +29,12 @@ defmodule Fountain.Workers.PlatformChatGPTKeepalive do
         :ok
 
       {:error, reason} ->
-        Logger.warning("platform chatgpt: keepalive could not refresh: #{inspect(reason)}")
+        # The shape only: the reason may be a struct holding a URL or a body.
+        Logger.warning(
+          "platform chatgpt: keepalive could not refresh: " <>
+            Fountain.ChatGPTAccounts.failure_shape(reason)
+        )
+
         :ok
     end
   end

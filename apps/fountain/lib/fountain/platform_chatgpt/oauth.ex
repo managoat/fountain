@@ -227,16 +227,20 @@ defmodule Fountain.PlatformChatGPT.OAuth do
   defp token_response({:error, reason}), do: {:error, {:token, reason}}
 
   # The server answers `{"error": "code"}` or `{"error": {"code": "code"}}`.
-  defp error_code(%{"error" => code}) when is_binary(code), do: code
-  defp error_code(%{"error" => %{"code" => code}}) when is_binary(code), do: code
-  defp error_code(%{"error" => %{"type" => code}}) when is_binary(code), do: code
+  # Public for its test only.
+  @doc false
+  def error_code(%{"error" => code}) when is_binary(code), do: code
+  def error_code(%{"error" => %{"code" => code}}) when is_binary(code), do: code
+  def error_code(%{"error" => %{"type" => code}}) when is_binary(code), do: code
   # A body that is not a JSON object did not come from the auth server's own
   # error path: an HTML page, nothing, a bare string. A proxy in front of it
   # answers that way, which `ChatGPTAccounts` reads, on a 403, as this
   # address being turned away. An object with no code it can read is
-  # `"unknown"`, and says nothing about the address.
-  defp error_code(body) when not is_map(body), do: "unreadable"
-  defp error_code(_body), do: "unknown"
+  # `"unknown"`, and says nothing about the address. A body labelled JSON
+  # that does not parse (cut short, say) reaches here as the binary it was,
+  # `post/3` having kept it, so it is `"unreadable"` with its status.
+  def error_code(body) when not is_map(body), do: "unreadable"
+  def error_code(_body), do: "unknown"
 
   # The device flow's legs take the refresh's limits. Nothing holds a database
   # checkout across them, but a user's sign-in is polled from a queue every
@@ -245,6 +249,11 @@ defmodule Fountain.PlatformChatGPT.OAuth do
   # slot for as long as the socket liked.
   defp bounded, do: [finch: refresh_finch_options()]
 
+  # Req's own body decoding is off. It answers a JSON body that does not
+  # parse with `{:error, %Jason.DecodeError{}}`: the status is gone, which is
+  # what says whether a refusal was a throttled address, and the exception's
+  # `data` is the whole body, which on a token response cut short is tokens.
+  # `decoded/1` reads the same bodies and keeps the binary when it cannot.
   defp post(path, json, opts) do
     [
       url: base_url() <> path,
@@ -255,13 +264,30 @@ defmodule Fountain.PlatformChatGPT.OAuth do
     ]
     |> Keyword.merge(Application.get_env(:fountain, :platform_chatgpt_req_options, []))
     |> Keyword.merge(opts)
+    |> Keyword.put(:decode_body, false)
     |> Req.new()
     |> Req.post()
     |> case do
-      {:ok, %Req.Response{status: status, body: body}} -> {:ok, %{status: status, body: body}}
-      {:error, reason} -> {:error, reason}
+      {:ok, %Req.Response{status: status} = response} ->
+        {:ok, %{status: status, body: decoded(response)}}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
+
+  # What Req decoded: a body whose content type says JSON, and no other.
+  defp decoded(%Req.Response{body: body} = response) when is_binary(body) and body != "" do
+    with [type | _] <- Req.Response.get_header(response, "content-type"),
+         true <- String.contains?(type, "json"),
+         {:ok, json} <- Jason.decode(body) do
+      json
+    else
+      _ -> body
+    end
+  end
+
+  defp decoded(%Req.Response{body: body}), do: body
 
   defp base_url do
     Application.get_env(:fountain, :platform_chatgpt_auth_url, @default_base_url)

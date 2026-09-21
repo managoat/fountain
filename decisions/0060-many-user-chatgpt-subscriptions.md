@@ -2250,15 +2250,78 @@ verified and none wrong.
   `discarded` says how many; a run that raises on its last attempt logs it
   too. The breaker takes a test clock.
 
-**What is bounded now, exactly.** Under real throttling of the address: a
-node's keepalive sends one request per fifteen minutes, a job at most one
-in that time, and no attempt is spent on it. Under a breaker held open on
-false evidence, which takes two accounts that are each reliably refused as
-a throttled address is: one victim's job waits as long as the breaker
-stands, less whatever a success from any owner cuts it short by, and at
-most seventy-two hours. It is no longer promised a request of its own at
-two hours; that promise, made to every job, was the hammer. A turn's own
-renewal is never held.
+**After the third review (5b).** An independent review of the final pass
+found nothing urgent, with no user grant yet in production, and nine
+lesser things. Eight were as described; one was half wrong: a 429 or 403
+labelled JSON with an *empty* body was already evidence, because Req does
+not decode an empty body. What changed:
+
+- **An undecodable body keeps its status.** Req answers a JSON-labelled
+  body that does not parse with `{:error, %Jason.DecodeError{}}`, so a 429
+  cut short lost its status, read as `:refresh_failed`, was never heard by
+  the breaker and cost the job an attempt. `OAuth.post/3` turns Req's
+  decoding off and decodes the same bodies by hand, keeping the binary
+  when it cannot, which `error_code/1` calls `"unreadable"`. The device
+  legs go through the same door; a 2xx cut short, which the link-attempt
+  poller used to see as a transport error, is still asked for again. That
+  exception's `data` is the whole body, and since #1755 the platform
+  grant's two failure lines printed `inspect(reason)`, so a token response
+  cut short would have been written to a warning. They print a status or
+  an atom now, whatever reaches them.
+- **The breaker's evidence no longer competes for its probe.** A grant
+  that is reliably refused never advances `last_refreshed_at`, so from its
+  seventh day it was due to probe at every wake, first come, against the
+  jobs it was holding; restarting its two hours did nothing, the seven
+  days being an `or`. A `:rate_limited` answer now writes `refused_at` and
+  `refusals` to the job's `meta`, and the job is not due to probe by
+  either clock until `refused_at + min(24 h, 2 h x 2^(refusals - 1))`.
+  With the breaker down it runs as any job does, so a grant that really is
+  throttled loses nothing.
+- **A refused probe re-opens the breaker by itself**
+  (`RefreshBreaker.probe_refused/0`), which the second review's text
+  claimed and the code did only when another owner had been refused in
+  the last ten minutes. It stands for two pause lengths from the refusal,
+  the next probe being one pause length after the last claim, so the
+  breaker does not lapse between probes. It does nothing if a success
+  closed the breaker while the probe was out.
+- **A probe that asked nothing gives its turn back** (`release_probe/0`):
+  a renewal crowded out, a grant that cannot be renewed (a suspended
+  owner's reads as active to the held job's first, owner-only read, and
+  the renewal's own read ends it), one already renewed. A due job that
+  lost the claim wakes when the next can be made, or at the pause's end if
+  sooner. `claim_probe/0` removes the stale claim it read and no other,
+  which at the expiry boundary could have been a claim just made.
+- **The opening is logged**, once a minute at `error`, as a count of
+  owners; so is a held grant known to be seven days unrenewed, by its id.
+  Until now a throttle of days showed in counters only and the first
+  `error` line was the 72-hour stop.
+- Lesser: `observe/2` ignores ids of another shape where it raised; the
+  test clock is read only in a build compiled with
+  `:chatgpt_refresh_breaker_test_clock`; every held snooze has the
+  thirty-second floor; a grant with no renewal on record is of unknown
+  age and is due to probe at once. The no-table test stops the table
+  through its supervisor, where it used to skip its assertions whenever
+  the restart won the race, which was usually.
+
+**What is bounded now, exactly.** Under real throttling of the address,
+while some job is due to probe (held two hours, or its grant seven days
+idle, and not inside a refusal's back-off): a node's keepalive sends one
+request per fifteen minutes and the breaker does not lapse between them.
+When no job is due, as in a throttle's first two hours or once every due
+job has been refused and is backing off, the breaker lapses fifteen
+minutes after it opened, or thirty after the last refused probe, and the
+jobs that wake then call until two owners have been refused again: two
+requests, or three with both queue slots busy. A job is refused at most
+once per wait, the wait is at least fifteen minutes, and no attempt is
+spent on it. Under a breaker held open on false evidence, which takes two
+accounts that are each reliably refused as a throttled address is: their
+grants probe once each and then at two hours, four, and so on to a day, so
+the probe is a victim's job's whenever one is due; that job's success
+closes the breaker for everybody, and a victim's job that is not due
+waits as long as the breaker stands, less whatever a success from any
+owner cuts it short by, and at most seventy-two hours. It is not promised
+a request of its own at two hours; that promise, made to every job, was
+the hammer. A turn's own renewal is never held.
 
 ### Not built
 

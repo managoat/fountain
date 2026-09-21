@@ -356,6 +356,23 @@ defmodule Fountain.Workers.ChatGPTLinkAttemptTest do
       assert %LinkAttempt{poll_failures: 0} = Repo.get!(LinkAttempt, view.id)
     end
 
+    test "an approval cut short on the way is asked for again, and none of it is logged",
+         %{user: user} do
+      stub_legs(%{})
+      view = start!(user, %{name: "Work"})
+
+      Req.Test.stub(Fountain.PlatformChatGPT.OAuth, fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.send_resp(200, ~s({"authorization_code":"ac_SECRET_cu))
+      end)
+
+      log = capture_log(fn -> assert {:snooze, 14} = run(view, user) end)
+      assert log =~ "authorization_failed: status 200"
+      refute log =~ "SECRET"
+      assert %LinkAttempt{state: "pending", poll_failures: 1} = Repo.get!(LinkAttempt, view.id)
+    end
+
     test "is said to the page when it stops answering and when it answers again, and not between",
          %{user: user} do
       user_id = user.id

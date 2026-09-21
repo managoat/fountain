@@ -12,6 +12,21 @@ defmodule FountainWeb.FallbackControllerTest do
     assert message =~ "administrator can retry from the admin sandbox list"
   end
 
+  test "a ChatGPT subscription atom nothing maps yet reaches the safety net", %{conn: conn} do
+    log =
+      ExUnit.CaptureLog.capture_log(fn ->
+        conn =
+          FountainWeb.FallbackController.call(
+            conn,
+            {:error, {:chatgpt_subscription, :a_refusal_nobody_mapped}}
+          )
+
+        assert json_response(conn, 422) == %{"error" => "a_refusal_nobody_mapped"}
+      end)
+
+    assert log =~ "unmapped error atom :a_refusal_nobody_mapped"
+  end
+
   # Driven directly rather than through the route: reaching this refusal needs
   # an agent on the runner provider, and `runners_enabled` is global
   # application env this async module must not write (#1214). The `message` is

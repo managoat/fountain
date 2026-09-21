@@ -225,6 +225,12 @@ defmodule FountainWeb.FallbackController do
     })
   end
 
+  # The tag takes an atom out of the terminal safety net's reach (#332), so
+  # the next one the context grows is handed back to it rather than met as a
+  # `FunctionClauseError`.
+  def call(conn, {:error, {:chatgpt_subscription, reason}}) when is_atom(reason),
+    do: call(conn, {:error, reason})
+
   def call(conn, {:error, {:grant_limit_reached, %{count: count, limit: limit}}}) do
     conn
     |> put_status(:conflict)

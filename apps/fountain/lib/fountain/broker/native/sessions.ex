@@ -56,6 +56,21 @@ defmodule Fountain.Broker.Native.Sessions do
   already open on other nodes, and revoking the token upstream. Correctness
   does not wait on either, because nothing is cached per tunnel.
 
+  ## A session that holds a grant's bearer as a rule
+
+  Until the deployment's grant moved onto that path, its conversations
+  carried the bearer inside `rules_ciphertext`, as a `substitute` rule for
+  `chatgpt.com` under the reserved placeholder. `20260921025746` deletes
+  those rows once, and a replica still on the previous release can write
+  another after it has run: by minting one, or by rewriting the rules of a
+  conversation's live sessions when the token rotates, a managed one
+  included. The proxy of any replica serves any sandbox, so the drain is
+  continuous here. Rules that name the reserved credential
+  (`grant_rule?/1`) are served by nothing: `lookup/1` answers `:error`, which
+  is the proxy's 407, `authorize/2` denies, and either deletes the row. It
+  is a walk over rules already decrypted, so it costs no read, and a delete
+  only on a hit.
+
   A session is not tenant-editable state and is not audited: it is
   provisioning machinery, created and deleted with the sandbox it serves,
   and the audit trail records the conversation's lifecycle instead.
@@ -68,6 +83,7 @@ defmodule Fountain.Broker.Native.Sessions do
   alias Fountain.Broker
   alias Fountain.Broker.Native.{ProtectedCompiler, Session}
   alias Fountain.ChatGPTAccounts
+  alias Fountain.ChatGPTAccounts.Reserved
   alias Fountain.Crypto
   alias Fountain.Repo
   alias Managoat.Broker.{ProtectedCredential, Rule}
@@ -197,8 +213,13 @@ defmodule Fountain.Broker.Native.Sessions do
           :error
         else
           case decrypt(session) do
-            {:ok, _} = ok -> report(:ok, ok)
-            :error -> report(:unreadable)
+            {:ok, %{rules: rules}} = ok ->
+              if Enum.any?(rules, &grant_rule?/1),
+                do: report(drain_legacy(session)),
+                else: report(:ok, ok)
+
+            :error ->
+              report(:unreadable)
           end
         end
     end
@@ -268,9 +289,48 @@ defmodule Fountain.Broker.Native.Sessions do
 
   defp admit(%Session{} = session, false) do
     case rules(session, &Crypto.load_tenant_key(&1, @request_read)) do
-      {:ok, rules} -> {:ok, rules}
-      _ -> unavailable(session.id, "the session's rules could not be read")
+      {:ok, rules} ->
+        if Enum.any?(rules, &grant_rule?/1) do
+          drain_legacy(session)
+          {:error, :denied}
+        else
+          {:ok, rules}
+        end
+
+      _ ->
+        unavailable(session.id, "the session's rules could not be read")
     end
+  end
+
+  # Whether a rule names the reserved credential, which no rule this release
+  # writes does: `ProtectedCompiler.compile/3` refuses one for a managed
+  # session, a secret's key and every field of a binding are refused at the
+  # write, and the inference registry no longer knows the name. What is left
+  # is the previous release's rule for the deployment's grant, whose
+  # placeholder is the reserved one, and its `custom` rules, whose credential
+  # is the whole brokered map with the bearer under the reserved key.
+  #
+  # The strict rule, `Reserved.conflict?/1`, over everything that names. A
+  # string credential is a secret's value, which the tenant owns and which
+  # may mention the name (`Reserved`, "Names and values"), and it is not
+  # looked at: the rule above never needs it to be.
+  defp grant_rule?(%Rule{credential: credential} = rule) do
+    Reserved.conflict?(%{rule | credential: nil}) or
+      (is_map(credential) and Reserved.conflict?(Map.keys(credential)))
+  end
+
+  # Once per row in practice, since the row is gone afterwards; throttled
+  # all the same, because a replica that mints them decides how many.
+  defp drain_legacy(%Session{} = session) do
+    Repo.delete_all(from(s in Session, where: s.id == ^session.id))
+
+    Fountain.LogThrottle.warning(
+      {:broker_legacy_session, session.conversation_id},
+      "broker: a session of conv #{session.conversation_id} held a managed ChatGPT " <>
+        "credential as a rule and was deleted; a replica on a previous release wrote it"
+    )
+
+    :unreadable
   end
 
   # By session id and cause only. Never the request, and never an exception's

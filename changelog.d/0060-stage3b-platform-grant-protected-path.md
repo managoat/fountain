@@ -42,7 +42,10 @@
   conversations on the account** (#2453), because they hold the token as a
   rule. A turn on the account that is in flight across the upgrade fails at
   its next request with a 407. Every conversation mints a new session when
-  its server starts on the new release, so the next turn runs. Roll every
-  replica: a replica still on the previous release can mint one more session
-  of the old kind, which lasts until it expires (six hours at most) and is
-  never renewed.
+  its server starts on the new release, so the next turn runs. The migration
+  runs once, and a replica still on the previous release can write a session
+  of the old kind after it: by minting one, or, when the account's token
+  rotates, by rewriting the rules of a conversation's live sessions with the
+  new token. A replica on this release refuses such a session with a 407
+  and deletes it the first time a request presents it. A replica on the
+  previous release still serves it. Roll every replica.

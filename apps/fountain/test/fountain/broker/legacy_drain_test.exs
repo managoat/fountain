@@ -11,6 +11,10 @@ defmodule Fountain.Broker.Native.LegacyDrainTest do
   conversation's next server start mints a session that records the grant and
   holds no bearer.
 
+  The migration runs once and a replica still on the previous release can
+  write such a session after it, so `Sessions` drains continuously too: rules
+  that name the reserved credential are served by nothing, and the row goes.
+
   `async: false`: the platform row and the broker's application env.
   """
 
@@ -84,19 +88,24 @@ defmodule Fountain.Broker.Native.LegacyDrainTest do
         conversation_id: conv.id,
         user_id: user.id,
         ttl_seconds: 600,
-        rules: [
-          %Rule{
-            name: "codex-chatgpt-access-token-chatgpt-com",
-            pattern: "chatgpt.com",
-            scheme: :substitute,
-            placeholder: "__codex_chatgpt_access_token__",
-            credential: bearer
-          }
-        ]
+        rules: [legacy_rule(bearer)]
       })
 
     session
   end
+
+  defp legacy_rule(bearer) do
+    %Rule{
+      name: "codex-chatgpt-access-token-chatgpt-com",
+      pattern: "chatgpt.com",
+      scheme: :substitute,
+      placeholder: "__codex_chatgpt_access_token__",
+      credential: bearer
+    }
+  end
+
+  defp sessions_of(conv),
+    do: Repo.aggregate(from(s in Session, where: s.conversation_id == ^conv.id), :count)
 
   defp drain do
     capture_log(fn ->
@@ -113,7 +122,8 @@ defmodule Fountain.Broker.Native.LegacyDrainTest do
 
     on_grant = conversation(user, source)
     legacy = legacy_session!(on_grant, user, access)
-    assert {:ok, %{rules: [%Rule{credential: ^access}]}} = Sessions.lookup(legacy.token)
+    # Not looked up before the migration runs: a lookup would drain it first.
+    assert sessions_of(on_grant) == 1
 
     # A conversation on an API key, and one already on the protected path.
     on_key = conversation(user, %{Source.credential() | kind: :openai_api_key})
@@ -133,8 +143,7 @@ defmodule Fountain.Broker.Native.LegacyDrainTest do
     assert {:ok, _} = Sessions.lookup(ordinary.token)
     assert {:ok, %{protected: %{}}} = Sessions.lookup(managed.token)
 
-    assert Repo.aggregate(from(s in Session, where: s.conversation_id == ^on_grant.id), :count) ==
-             0
+    assert sessions_of(on_grant) == 0
 
     # What the conversation gets when its server next starts: a session that
     # records the grant, and holds its bearer nowhere.
@@ -156,6 +165,103 @@ defmodule Fountain.Broker.Native.LegacyDrainTest do
     row = Repo.one!(from s in Session, where: s.conversation_id == ^on_grant.id)
     assert row.managed_grant_id == grant.id
     assert is_nil(row.managed_grant_owner_id)
+  end
+
+  describe "after the migration has run, a replica on the previous release" do
+    setup do
+      Fountain.LogThrottle.reset()
+      drain()
+      :ok
+    end
+
+    test "mints another legacy session: refused at the lookup and removed, in one line", %{
+      user: user
+    } do
+      access = access_token()
+      grant = connect!(%{access_token: access})
+      conv = conversation(user, platform_source(grant))
+
+      first = legacy_session!(conv, user, access)
+      second = legacy_session!(conv, user, access)
+
+      log =
+        capture_log(fn ->
+          assert :error = Sessions.lookup(first.token)
+          assert :error = Sessions.lookup(first.token)
+          assert :error = Sessions.lookup(second.token)
+        end)
+
+      assert sessions_of(conv) == 0
+      assert [_once] = Regex.scan(~r/held a managed ChatGPT credential as a rule/, log)
+      refute log =~ access
+    end
+
+    test "is refused whatever else its rules hold, and by a custom rule's brokered map", %{
+      user: user
+    } do
+      access = access_token()
+      conv = conversation(user, nil)
+
+      {:ok, session} =
+        Sessions.create(%{
+          conversation_id: conv.id,
+          user_id: user.id,
+          ttl_seconds: 600,
+          rules: [
+            %Rule{name: "gh", pattern: "api.github.com", scheme: :bearer, credential: "g"},
+            %Rule{
+              name: "export",
+              pattern: "example.com",
+              scheme: :custom,
+              template: %{"x-export" => "{{ GH_TOKEN }}"},
+              credential: %{"GH_TOKEN" => "g", "CODEX_CHATGPT_ACCESS_TOKEN" => access}
+            }
+          ]
+        })
+
+      capture_log(fn -> assert :error = Sessions.lookup(session.token) end)
+      assert sessions_of(conv) == 0
+    end
+
+    test "rewrites a managed session's rules on a rotation: denied per request and removed", %{
+      user: user
+    } do
+      access = access_token()
+      grant = connect!(%{access_token: access})
+      conv = conversation(user, platform_source(grant))
+
+      {:ok, managed} =
+        Broker.prepare(conv.id, %{}, %{},
+          user_id: user.id,
+          managed: %{owner: :platform, grant_id: grant.id, generation: grant.generation}
+        )
+
+      # A tunnel opened before the rewrite holds the reference already.
+      assert {:ok, %{authorization: reference}} = Sessions.lookup(managed.token)
+      assert {:ok, []} = Sessions.authorize(reference, %{protected: false})
+
+      # What the previous release's rotation does: every live session of the
+      # conversation, this one included, gets the bearer as a rule.
+      assert {:ok, 1} = Sessions.update_rules(conv.id, user.id, [legacy_rule(access)], %{})
+
+      capture_log(fn ->
+        assert {:error, :denied} = Sessions.authorize(reference, %{protected: false})
+      end)
+
+      assert sessions_of(conv) == 0
+      assert :error = Sessions.lookup(managed.token)
+    end
+
+    test "does not touch a session whose secret's value mentions the reserved name", %{
+      user: user
+    } do
+      conv = conversation(user, nil)
+      value = "export CODEX_CHATGPT_ACCESS_TOKEN=unset # a tenant's own script"
+      {:ok, ordinary} = Broker.prepare(conv.id, %{"GH_TOKEN" => value}, %{}, user_id: user.id)
+
+      assert {:ok, %{rules: [_ | _]}} = Sessions.lookup(ordinary.token)
+      assert sessions_of(conv) == 1
+    end
   end
 
   test "is a no-op where there is nothing to drain, and running it again is harmless", %{

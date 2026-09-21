@@ -24,9 +24,12 @@ defmodule Fountain.Repo.Migrations.DrainLegacyChatgptBrokerSessions do
   # does on the upgraded release, so the next turn runs.
   #
   # What it cannot do: stop a replica still running the previous release from
-  # minting another such session after this has run. Roll every replica; a
-  # straggler's session is gone at its expiry, and nothing renews the bearer
-  # inside it.
+  # writing another such session after this has run, by minting one or, when
+  # the token rotates, by rewriting the rules of a conversation's live
+  # sessions with the new bearer. This is the fast path and runs once;
+  # `Fountain.Broker.Native.Sessions` is the continuous one, and refuses and
+  # deletes such a row whenever a replica on this release meets it. A replica
+  # on the previous release still serves it, so roll every replica.
   def up do
     execute("SET LOCAL lock_timeout = '5s'")
     execute("SET LOCAL statement_timeout = '30s'")

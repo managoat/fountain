@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "A user links several ChatGPT subscriptions, and a credential set names one"
-description: "Stages 1 and 2 of 5 are built (the table, the owner-scoped context and the per-owner source lock; then a credential set naming a grant and resolution to it with no fallback); nothing a user can reach exists yet, and a resolved grant is refused at admission until stage 3 builds its transport. Rebuilds ADR 0052's user surface with many grants per user instead of one: the grant table loses its one-row-per-user index for a named row, an inference credential set names a grant, and an agent selects a subscription the same way it selects an API key. No automatic failover between a user's subscriptions and no platform fallback when the named one is exhausted."
+description: "Stages 1 to 3 of 5 are built (the table, the owner-scoped context and the per-owner source lock; a credential set naming a grant and resolution to it with no fallback; then the transport and custody: a CODEX_HOME per grant and generation, broker sessions that carry which grant they may use, and a per-request check against the durable generation); nothing a user can reach exists yet. Rebuilds ADR 0052's user surface with many grants per user instead of one: the grant table loses its one-row-per-user index for a named row, an inference credential set names a grant, and an agent selects a subscription the same way it selects an API key. No automatic failover between a user's subscriptions and no platform fallback when the named one is exhausted."
 tags: [inference, codex, oauth, security, billing]
 status: draft
 adr: "0060"
@@ -11,29 +11,35 @@ date: 2026-09-20
 
 # 0060 — A user links several ChatGPT subscriptions, and a credential set names one
 
-**Status:** Proposed, 2026-09-20. **Stages 1 and 2 of the five below are
+**Status:** Proposed, 2026-09-20. **Stages 1 to 3 of the five below are
 built; nothing a user can reach is.** Stage 1 is the table change, the
 owner-scoped context in `Fountain.ChatGPTAccounts` and the per-owner source
 lock. Stage 2 is selection: `inference_credentials.chatgpt_grant_id`,
 `InferenceCredentials.set_grant/3`, and a resolver that turns a set naming
 a grant into a `:grant` source for a codex run or into an error naming the
-grant, with no fallback. There is still no route, no page, no job, no
-broker path, no keepalive for a user's grant and no environment variable,
-so no user holds a grant and no set names one. Resolution does run in
-production, for every conversation, and for a set that names no grant it
-resolves exactly what it did. **A `:grant` source cannot run anything
-yet:** admission, `InferenceBinding.reserve/2` and every turn refuse it as
-`:chatgpt_grant_transport_unavailable` until stage 3 builds the transport,
-because today's would pair a user's bearer with the deployment's account
-id. The one thing stage 1 left running is
+grant, with no fallback. Stage 3 is transport and custody: a conversation
+that resolved to a grant now runs on it, with a `CODEX_HOME` of its own per
+grant and generation, a broker session that records which grant it may use
+and never holds its bearer, a check against the grant row on every request,
+and a renewal by grant id and generation before every turn. There is still
+no route, no page, no job, no keepalive for a user's grant and no
+environment variable, so no user holds a grant and no set names one.
+Resolution does run in production, for every conversation, and for a set
+that names no grant it resolves exactly what it did. **The deployment's own
+grant (0047) is not on the new path**: it still travels as a substitution
+rule and writes the shared `~/.codex/auth.json`, exactly as before stage 3;
+moving it is a separate change (see
+[Stage 3 as built](#stage-3-as-built)). What stage 1 left running is
 `ChatGPTAccounts.RefreshSupervisor`, a task supervisor and the refresh
-coordinator, which start idle on every node. Stages 3 to 5 are not started,
-and everything below that belongs to them is the design for work not yet
-done. The Context section describes `main` at `9122474f`, before stage 1.
+coordinator, which start idle on every node. Stages 4 and 5 are not
+started, and everything below that belongs to them is the design for work
+not yet done. The Context section describes `main` at `9122474f`, before
+stage 1.
 
 What each stage built, and where it settled something this ADR left open or
-had wrong, is recorded under [Stage 1 as built](#stage-1-as-built) and
-[Stage 2 as built](#stage-2-as-built).
+had wrong, is recorded under [Stage 1 as built](#stage-1-as-built),
+[Stage 2 as built](#stage-2-as-built) and
+[Stage 3 as built](#stage-3-as-built).
 
 Rebuilds the user-facing half of
 [0052](0052-user-owned-chatgpt-grants.md) — its decisions 2, 4 and 5, which
@@ -343,6 +349,18 @@ access-token figure alone.
   (`broker.ex:295-309`) holds one entry per name per conversation. Carrying
   two grants into one sandbox needs the placeholder and the broker entry to
   be per grant, not per key name.
+
+  **Two things in that paragraph were wrong about the code, and stage 3
+  found both.** The placeholder and the `@inference` entry do not collide
+  across two grants in one sandbox: a broker session is per *conversation*,
+  not per sandbox, and a conversation is pinned to one source, so two grants
+  in one sandbox are two sessions. They are made per grant anyway, because it
+  is cheap and makes a file read out of place attributable, but they were
+  never a blocker. And the list missed the thing that really refused the
+  acceptance test: `Machines.Binding.bind_inference/2` binds a codex machine
+  to one inference source for its life and answers
+  `:codex_inference_conflict` to a peer on another. See
+  [Stage 3 as built](#stage-3-as-built), items 1 and 2.
 - Identify the grant by id and generation, never by its token. `Egress`
   currently recognises the credential to refresh by comparing token strings
   (`conversations/egress.ex:136`), which 0052 decision 4 forbids outright
@@ -395,7 +413,9 @@ platform grant and for **two grants of one user**, which is the new case.
    actionable error with no fallback. (This read "resolves `:missing` with
    an actionable error", which is two different results in the resolver;
    item 1 under stage 2 says which it is.)
-3. **Transport and custody.** Separate `CODEX_HOME` per grant/generation,
+3. **Transport and custody. Built; see
+   [Stage 3 as built](#stage-3-as-built).** Separate `CODEX_HOME` per
+   grant/generation,
    broker rules from the named grant, per-request generation checks, the
    protected rule builder. Tests: two of one user's subscriptions in one
    shared sandbox, concurrently; refresh between prompts on one while the
@@ -648,7 +668,7 @@ admission's locked check in `Conversations._unsafe_create_turn_on_sandbox/4`.
 The first two keep a conversation from being bound to a grant. The turn's
 two are for a source persisted some other way: a wake that reuses a live
 machine starts a server on the stored source without binding again. Stage 3
-deletes the function and all four calls.
+deleted the function and all four calls, with the transport in place.
 
 **The usage stamp.** A turn on a `:grant` source is stamped `"inference" =>
 "own"` with no `"model"`, like any other tenant source, so it is never
@@ -724,6 +744,235 @@ Deliberately left for later stages, each with the stage that owes it:
   served a turn joins the usage stamp (decision 6); the scope is already
   stamped `"own"`.
 
+## Stage 3 as built
+
+Built on 2026-09-20. A conversation that resolves to a user's grant now
+runs on it; no user can hold one before stage 4, so nothing does.
+
+**No library release was needed.** `managoat_broker` 0.14 already had the
+protected path 0052 decision 5 asks for: `Session.authorization`,
+`http_only` and `protected`, a per-request `Store.authorize/2` called for
+every request inside an open tunnel, and `ProtectedRule` /
+`ProtectedCredential`, which inject the bearer and the identity header
+themselves and refuse upgrades. Fountain's store implemented `lookup/1`
+alone and built every session without them. Stage 3 is that half.
+
+**The broker.** `20260921021249` adds the pin to `broker_sessions` as plain
+columns: grant id, generation, owner (NULL for the deployment's grant), the
+ChatGPT account id, and `managed_revoked_at`. They are outside
+`rules_ciphertext` because the proxy reads them and the grant's own
+transaction writes one; two checks hold that the pin is all or nothing and
+that a user's grant rides only that user's session. There is deliberately
+no foreign key to the grant: a grant that is gone must deny, not cascade
+the session away from under a conversation whose other egress is good.
+
+- *Issuance.* `Sessions.create/1` with `managed:` locks the grant row `FOR
+  SHARE` and re-reads it in the transaction that inserts the session
+  (`ChatGPTAccounts.lock_active_grant/1`): same owner, same generation,
+  `active`, and for a user an owner who may still use a grant. The account
+  id stored beside the pin comes from that read. Every issuance path passes
+  the grant (`Egress.session_opts/1`: provision, reattach, the re-mint of an
+  expiring session), so a grant disconnected since a conversation began
+  gets no fresh session.
+- *Every request.* `lookup/1` answers a managed session with an
+  authorization reference that names the row and nothing else,
+  `http_only: true`, and the policy for the account. `authorize/2` then
+  admits a request to the Codex backend only while the session is live and
+  unrevoked **and** the grant row still says the same owner, generation,
+  `active` and account (`ChatGPTAccounts.protected_credential/2`): one row,
+  no lock, nothing cached, the bearer and the account id from that single
+  row version. Any other request gets the session's ordinary rules, read
+  fresh; a fenced grant closes the Codex backend and nothing else. A failed
+  read is `:unavailable`, a 503 at the proxy, never a cached success.
+- *Invalidation.* One private seam in `ChatGPTAccounts`, `revoke_broker/2`,
+  called inside the transaction of every write that ends what a session was
+  issued for: a user's disconnect, reconnect and removal, the platform's
+  disconnect and reconnect, a revocation and an expiry. The sessions are
+  marked, not deleted. The mark is the fast path; the authority is the
+  per-request read, which denies on a node that never heard of any of it.
+  `update_rules/4` writes rules and `meta` and no `managed_*` column, so a
+  delayed rewrite cannot restore a grant or move a session onto a newer
+  generation.
+- *The rule builder.* `ProtectedCompiler`, restored from `105fb6d1` and
+  reshaped to take no bearer: `policy/1` is the fixed route (`POST
+  https://chatgpt.com:443/backend-api/codex/responses`) for one account, and
+  `compile/3` builds the session's ordinary rules and refuses any input that
+  names the managed credential or injects into that route, including
+  bindings persisted before `Reserved` refused them at the write. Its
+  destination is fixed except under the test suite's
+  `:codex_chatgpt_backend`, which is how the proxy rig drives the real
+  listener through it; no environment variable sets it.
+
+**The typed input.** The resolver hands a `:grant` run the grant's own
+placeholder (`Reserved.placeholder/1`) where a credential would be, and
+nothing else. `Broker.split_inference/2` takes no custody of one, so the
+grant is never in the `brokered` map, a rule, a binding or a template. No
+conversation process ever holds the bearer: it exists only inside
+`Sessions.authorize/2`, for one request, as a `%Grant{}` whose `inspect`
+omits it. One consequence is accepted rather than fixed: the bearer is not
+in the redaction registry either, because it was never anywhere to
+register it from. An upstream that echoed `Authorization` back would put it
+in `log_events`; the only destination is the fixed Codex route, which does
+not.
+
+**The sandbox.** `CodexChatGPT.managed_grant/2` says which sources are on
+this path. For one, `env/3` exports the placeholder and
+`CODEX_HOME=/home/sprite/.codex-grants/<grant id>.<generation>`, both from
+the source; `prepare_sandbox/5` takes the source and the owner, which both
+callers already held and passed neither of, links everything in `~/.codex`
+except `auth.json` into that home with a constant script, and writes
+`auth.json` from `ChatGPTAccounts.sandbox_auth/1`, pinned by owner, id and
+generation. `platform_sandbox_auth/0` is no longer reachable from a user's
+source. The home is process env only (`Identity.disk_env/1`, by its value,
+so a tenant's own `CODEX_HOME` is where it was), a tenant `CODEX_HOME` is
+dropped beside it, and on a self-hosted runner the value goes through
+`Sandbox.host_path/2` because env values reach a runner verbatim. Same unix
+user, so this prevents overwrite and mis-attribution, not reads: a peer
+that reads another grant's file gets a placeholder and an account id, and
+its own session still sends only its own grant's bearer and account.
+
+**The turn.** `TurnMachine.gate/2` ends in `CodexChatGPT.ensure_fresh/2`:
+for a grant inside its refresh margin, `refresh_for_user/3` by grant id and
+generation, outside the source lock, after the account's own gates so a
+suspended account costs no provider call. Nothing is handed back and no
+rule is rewritten: rotation reaches the proxy through the grant row. A
+grant that cannot serve refuses the turn with stage 2's tagged error,
+including the reasons only the credential side can see (stage 2's item 4):
+`:revoked` for a refresh token the auth server has just refused, and a new
+`:owner_ineligible`, with its own sentence, for an owner who may no longer
+use a grant. A renewal that failed for a reason that may pass lets the turn
+go ahead on the token it has (0047's limitation, kept). `Egress` renews
+nothing for a user's grant and compares no token for one.
+
+**The guard is gone.** `CodexChatGPT.transport_ready/1`, its four call
+sites and the 409 `chatgpt_grant_transport_unavailable` are deleted. The
+four tests that pinned the refusal became the tests of what replaces it.
+
+Five things stage 3 settled or found:
+
+1. **Decision 6's placeholder paragraph was wrong as a blocker.** A broker
+   session is per conversation (`broker.ex`, "Custody"), its token rides in
+   `HTTPS_PROXY`, which is process env, and a conversation is pinned to one
+   source. "Two grants in one sandbox" is two conversations, two sessions
+   and two policies, and `managoat_broker`'s "one non-exportable bearer per
+   session" is enough. Under the protected path the placeholder is not even
+   read by the broker: the proxy drops the client's `Authorization` and
+   supplies its own. Two grants inside *one conversation* would need a
+   library release; nothing here wants that.
+2. **The fourth blocker decision 6 missed: the machine binding.**
+   `bind_inference/2` is 0053 decision 6's interim rule, one inference
+   source per codex machine for its life, there because every codex peer
+   shared one `~/.codex/auth.json`. It would have answered the acceptance
+   test with a 409. `20260921023458` adds `sandboxes.codex_peer_homes`, set
+   at a machine's very first Codex bind and never again. On such a machine
+   a source with a home of its own is compatible with every peer, is not
+   recorded as the machine's binding, and is not counted against a newcomer
+   that uses the shared file; and nothing recorded means nothing has used
+   the shared file, so an API key may join a subscription. **Unchanged:**
+   two API keys still collide (0053 decision 6's isolation for them is out
+   of this ADR's scope), and a machine first bound before the column
+   existed keeps the old rule for every source, a subscription included;
+   the way forward on one is still an ephemeral sandbox or a reset of the
+   home. No existing assertion of `:codex_inference_conflict` moved.
+3. **`CODEX_HOME` is per source, and done from Fountain.** Per grant and
+   generation, as decision 6 words it, not per conversation: two
+   conversations on one sign-in share a home and write identical files, and
+   the directories are bounded by grants times reconnects.
+   `managoat_runtimes` fixes codex's config root and neither it nor
+   `managoat_acp` reads `CODEX_HOME`; 0052 decision 5 anticipated a library
+   release here, and this ADR's authors cannot make one, so the home is a
+   directory of symbolic links made from Fountain.
+4. **The deployment's grant is not moved onto this path here.** Every piece
+   above serves owner `:platform` and is tested for it: issuance, the
+   per-request check, every lifecycle write's revocation, 0052's adversarial
+   cases through the real proxy. But `managed_grant/2` names a user's
+   subscription only. Moving the platform grant changes a working feature
+   in ways nobody can re-measure from here: no WebSocket egress from a
+   codex conversation on it, `chatgpt.com` narrowed to one route whose
+   capture predates the current `managoat_runtimes` pin, a tenant binding
+   that matches the route failing the provision instead of being shadowed.
+   So `Broker.@inference` keeps its `CODEX_CHATGPT_ACCESS_TOKEN` entry, the
+   platform bearer is still a substitution rule in `rules_ciphertext` and
+   still reaches a custom binding's template map behind `Reserved`'s
+   write-time guards, and **`Egress.refresh_platform_chatgpt/3` still
+   recognises the platform grant by comparing token strings**, which 0052
+   decision 4 forbids. That compare now serves the platform grant only and
+   can never see a user's. 0052 decision 6's "apply these restrictions to
+   the existing platform path before enabling user grants" is therefore
+   **still owed**, and is a gate on stage 4's surface opening. The change
+   that pays it is one clause of `managed_grant/2`, the platform resolver
+   returning a placeholder, a drain of the legacy substitute sessions, and
+   the deletion of that compare; it is prepared as its own branch so it can
+   be reviewed, measured and reverted alone.
+5. **The published wording of `codex_inference_conflict` was left alone.**
+   `Schemas`, the fallback message and `docs/configuration.md` say a shared
+   Codex sandbox requires the same resolved source. That stays true of every
+   source an account can hold until stage 4, which regenerates the contract
+   for `chatgpt_grant_id` and rewords it then.
+
+**Not built, and said so where it lives:**
+
+- Closing tunnels that are already open on other nodes, and revoking the
+  token upstream (0052 decision 5, "evict ... close affected tunnels").
+  Correctness does not wait on either: nothing is cached per tunnel, and
+  the next request in an open tunnel is refused.
+- The legacy drain (0052 decision 5, "no old socket is grandfathered").
+  There is nothing to drain for a user's grant, which has never had a
+  session of the old kind. It belongs to the platform move in item 4.
+- API-key peer isolation on a shared machine (item 2).
+- **Any measurement against a real client.** That codex-acp and the codex
+  CLI honour `CODEX_HOME`, resume a session through a linked `sessions/`,
+  find skills through a linked `skills/`, and that an atomic-rename writer
+  replacing a link with a real file degrades to per-source state rather
+  than failing, is asserted from their source and not observed. Nor is it
+  observed that the real `chatgpt.com` accepts the protected request shape
+  for the client the image installs, or that codex asks that host for
+  nothing the one route would refuse: `test/fixtures/codex_protected`
+  captured two turns on codex-acp 1.10.0 and CLI 0.153.4, before the
+  current `managoat_runtimes` pin. **Both are required before the user
+  surface opens**: one run in a real sandbox with a symlinked home across a
+  reattach and a `thread/resume`, and a re-run of
+  `scripts/probe-codex-protected.py` against the pinned client with
+  `capture.json` refreshed. Stage 5's controlled run is where they belong.
+  If the symlinked home does not hold, the remaining fix is a
+  `managoat_runtimes` release that lets `Layout.config_root/1` take an
+  override.
+- A per-request cost that is new: every egress request of a conversation
+  on a grant, `apt` and `npm` included, is one indexed read and one AES
+  open, because the library calls `authorize/2` for all of a managed
+  session's requests. The reads have a five-second timeout. 0052's
+  consequences accept it; it is worth watching once there is traffic.
+
+What the tests hold, for the platform's grant and for a user's unless the
+case is about two of one user's: this stage's three acceptance tests
+(`conversations/codex_grant_peers_test.exs` through two real
+`ConversationServer`s, `broker/managed_grant_proxy_test.exs` through the real
+listener, a CONNECT tunnel and a TLS origin); 0052's pause-and-resume cases
+with really contending connections (`broker/managed_grant_fence_test.exs`);
+a request inside a tunnel opened before the disconnect, refused from the
+durable generation with the revocation mark cleared, which is the
+suppressed-notification case; an unavailable store; an in-flight request
+that completes; an upgrade and a nested CONNECT refused before the origin
+sees them, on every host of the session; a forged account id and the other
+grant's placeholder; persisted bindings that name the managed key or a
+wildcard over its route; and the bearer absent from server state, the
+`brokered` map, `rules_ciphertext`, the redaction registry, log events and
+every `inspect`.
+
+**For stages 4 and 5.** Disconnect, reconnect and removal already revoke
+broker authorization, because the revocation is inside
+`disconnect_for_user/3`, `reconnect_for_user/4` and `remove_for_user/3`; a
+surface that calls those needs nothing more. Account deletion needs nothing
+either: grants and broker sessions both go by cascade, and a session whose
+grant is gone denies. The turn-path renewal is `CodexChatGPT.ensure_fresh/2`
+at the end of `TurnMachine.gate/2`; stage 5's keepalive is a different
+caller of the same `refresh_for_user/3`. Exhaustion, when stage 5 writes it,
+should stay out of `protected_credential/2`: an exhausted grant is `active`
+and its token is good, so it is a selection fact, not an authorization one.
+Stage 4 owes the `owner_ineligible` reason a place in `Schemas.Error` beside
+the others, the `codex_inference_conflict` wording of item 5, and, before
+any of it is reachable, item 4's platform move and the two measurements.
+
 ## Consequences
 
 A user can hold a personal and a work subscription and point different
@@ -745,10 +994,11 @@ discovered at the next turn is a bad experience, just a legible one.
 `platform_chatgpt_account` now holds mostly user rows under a platform name.
 That was already true of the column; it is now true of the row count.
 
-The custody surface of 0052 decision 6 does not get easier with more grants,
-and none of it is built. Nothing in this ADR reduces what 0052 requires
-before any managed grant — platform or user — is brokered under the
-protected path.
+The custody surface of 0052 decision 6 does not get easier with more grants.
+Stage 3 built it and put a user's grant on it; the deployment's own grant
+is still on the older path, and 0052's requirement that it move first is
+still owed before any user can link a subscription
+([Stage 3 as built](#stage-3-as-built), item 4).
 
 ## Alternatives considered
 

@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Users link a ChatGPT subscription and Fountain manages the grant"
-description: "Proposed, not built: tenant-owned ChatGPT grants use tenant encryption, coordinated refresh, revocation-fenced broker authorization, protected provider destinations, and no automatic paid fallback."
+description: "Proposed; no user can link a grant yet. ADR 0060 stages 1 to 3 built the owner-scoped lifecycle, selection, and the revocation-fenced broker authorization and protected destination for a user's grant; the platform grant is not yet on that path. Tenant-owned ChatGPT grants use tenant encryption, coordinated refresh, revocation-fenced broker authorization, protected provider destinations, and no automatic paid fallback."
 tags: [inference, codex, oauth, security, billing]
 status: draft
 adr: "0052"
@@ -47,6 +47,27 @@ source carrying the grant id and generation with origin own, and an
 unusable selected grant is an actionable error with no API-key or platform
 switch. No user can link a grant yet, and the transport of decision 5 is
 not built, so a resolved grant is refused at admission.
+
+**0060 stage 3 (2026-09-20) builds decisions 5 and 6 for a user's grant**,
+and for both owners in the code. A broker session records which grant it
+may use (owner, grant id, generation, ChatGPT account) as authorization
+data; its issuance is fenced on the grant row; every request to the Codex
+backend, inside an open tunnel too, is admitted against the durable
+generation and gets the bearer from that one row read; disconnect,
+replacement and revocation mark the grant's sessions in their own
+transaction; the session is HTTP only; `ProtectedCompiler` is back, taking
+no bearer; and each grant and generation has a `CODEX_HOME` of its own. The
+adversarial cases in the implementation sequence below run for the
+platform's grant and for a user's. **Two parts are still owed.** The
+deployment's own grant is not moved onto that path, so decision 6's "apply
+these restrictions to the existing platform path before enabling user
+grants" and decision 5's legacy drain are open, and
+`Egress.refresh_platform_chatgpt/3` still compares token strings for that
+one grant. And decision 5's "evict cached credentials and close affected
+tunnels across serving nodes" and upstream revocation are not built;
+nothing is cached per tunnel, so the next request in an open tunnel is
+refused regardless. Nothing has been measured against a real client. See
+0060, "Stage 3 as built".
 
 Extends [0047](0047-codex-platform-chatgpt-account.md),
 [0008](0008-byo-inference-credentials.md), and

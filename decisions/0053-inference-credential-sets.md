@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "An account holds several inference credential sets"
-description: "Accepted. The #2018 stack (thirteen PRs, #2019 to #2046, merged 2026-09-13) built named sets, source resolution and durable bindings, process-only inputs, and current-owner principal writes. Codex uses an interim machine-lifetime source binding; per-peer auth isolation remains unbuilt except for a user's ChatGPT subscription (ADR 0060 stage 3), and linking one is behind a flag that is off for every account (ADR 0060 stage 4a)."
+description: "Accepted. The #2018 stack (thirteen PRs, #2019 to #2046, merged 2026-09-13) built named sets, source resolution and durable bindings, process-only inputs, and current-owner principal writes. Codex uses an interim machine-lifetime source binding; per-peer auth isolation remains unbuilt except for a user's ChatGPT subscription (ADR 0060 stage 3), and linking one is behind a flag (ADR 0060 stage 4a) that is off unless turned on; the hosted instance turned it on for every account on 2026-09-21, ahead of ADR 0060's rollout checklist."
 tags: [inference, billing, security, conversations, accounts]
 status: stable
 adr: "0053"

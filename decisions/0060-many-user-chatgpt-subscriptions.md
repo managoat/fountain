@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "A user links several ChatGPT subscriptions, and a credential set names one"
-description: "All five stages are built except stage 5's controlled run with two real subscriptions, and the ADR is still Proposed: accepting it is the maintainer's decision (the table, the owner-scoped context and the per-owner source lock; a credential set naming a grant and resolution to it with no fallback; the transport and custody: a CODEX_HOME per grant and generation, broker sessions that carry which grant they may use, and a per-request check against the durable generation; then durable link attempts, /api/account/chatgpt-subscriptions, and the ChatGPT subscriptions card and the set picker in the console; then exhaustion recorded for a user's grant when OpenAI confirms it with nothing substituted, which grant served a turn, a daily keepalive with one job per grant, and grants in the account export and deletion). A change of its own after stage 3 (stage 3b, #2458) moves the deployment's grant (ADR 0047) onto that path and drains its legacy broker sessions; it merged on 2026-09-21 without the measurement against the image's codex client that gated it, by the maintainer's decision; the measurement's offline half was taken later that day (ADR 0047, measurement 6), and its hosted half that evening for a first and a second turn, once the account was reconnected: both completed through the real broker on managoat_broker 0.15.0, and chatgpt.com honoured the forced identity encoding. The reattached turn is still owed. Linking is behind a flag that is off everywhere, and a rollout checklist says what is owed before it is on for anyone. Rebuilds ADR 0052's user surface with many grants per user instead of one: the grant table loses its one-row-per-user index for a named row, an inference credential set names a grant, and an agent selects a subscription the same way it selects an API key. No automatic failover between a user's subscriptions and no platform fallback when the named one is exhausted."
+description: "All five stages are built except stage 5's controlled run with two real subscriptions, and the ADR is still Proposed: accepting it is the maintainer's decision (the table, the owner-scoped context and the per-owner source lock; a credential set naming a grant and resolution to it with no fallback; the transport and custody: a CODEX_HOME per grant and generation, broker sessions that carry which grant they may use, and a per-request check against the durable generation; then durable link attempts, /api/account/chatgpt-subscriptions, and the ChatGPT subscriptions card and the set picker in the console; then exhaustion recorded for a user's grant when OpenAI confirms it with nothing substituted, which grant served a turn, a daily keepalive with one job per grant, and grants in the account export and deletion). A change of its own after stage 3 (stage 3b, #2458) moves the deployment's grant (ADR 0047) onto that path and drains its legacy broker sessions; it merged on 2026-09-21 without the measurement against the image's codex client that gated it, by the maintainer's decision; the measurement's offline half was taken later that day (ADR 0047, measurement 6), and its hosted half that evening for a first and a second turn, once the account was reconnected: both completed through the real broker on managoat_broker 0.15.0, and chatgpt.com honoured the forced identity encoding. The reattached turn is still owed. Linking is behind a flag that fails closed. On 2026-09-21 the maintainer turned it on for every account on the hosted instance, ahead of the rollout checklist's controlled run, idle-lifetime measurement and keepalive observation, none of which is done; a self-hosted deployment is unchanged, off unless its operator forces the flag. Rebuilds ADR 0052's user surface with many grants per user instead of one: the grant table loses its one-row-per-user index for a named row, an inference credential set names a grant, and an agent selects a subscription the same way it selects an API key. No automatic failover between a user's subscriptions and no platform fallback when the named one is exhausted."
 tags: [inference, codex, oauth, security, billing]
 status: draft
 adr: "0060"
@@ -13,10 +13,15 @@ date: 2026-09-20
 
 **Status:** Proposed, 2026-09-20. **All five stages below are built, stages
 4 and 5 in two halves each, except the second sentence of stage 5: the
-controlled run with two real subscriptions has not been made. Linking is
-off for every account.** The status stays Proposed: accepting this ADR is
-the maintainer's decision, and the run and the rollout checklist
-(`contributing/chatgpt-subscriptions-rollout.md`) come first.
+controlled run with two real subscriptions has not been made. Linking has
+been open to every account on the hosted instance since 2026-09-21, by the
+maintainer's decision and ahead of that run
+([2026-09-21: linking opened on the hosted instance](#2026-09-21-linking-opened-on-the-hosted-instance));
+on a self-hosted deployment it is off unless the operator forces the
+flag.** The status stays Proposed: accepting this ADR is the maintainer's
+separate decision, and opening the flag did not make it. The run and the
+rest of the rollout checklist
+(`contributing/chatgpt-subscriptions-rollout.md`) are still owed.
 Stage 1 is the table change, the owner-scoped context in
 `Fountain.ChatGPTAccounts` and the per-owner source lock. Stage 2 is
 selection: `inference_credentials.chatgpt_grant_id`,
@@ -34,7 +39,8 @@ picker on `/account/inference-credentials`, and the `/start` banner and the
 agent form saying when a named grant cannot serve.
 A new link is behind the `chatgpt_subscriptions` flag, which fails closed:
 it is off wherever nobody has turned it on, a deployment with no PostHog
-included, and nobody has. Stage 5a records a user's grant as exhausted when
+included. Until late on 2026-09-21 nobody had; since then it is on for
+every account on the hosted instance and nowhere else. Stage 5a records a user's grant as exhausted when
 OpenAI confirms it, with nothing substituted, and says which grant served a
 turn. Stage 5b is the daily keepalive, one job per grant, and grants in the
 account export and deletion. Resolution does run in production, for every
@@ -54,8 +60,8 @@ still owed**
 Of the two measurements against a real client that stage 3 named, the
 probe's re-run against the pinned client is that offline half. The other, a
 symlinked `CODEX_HOME` across a reattach and a `thread/resume` in a real
-sandbox, is not taken, and is still owed **before the flag is turned on for
-anyone**. The two broker
+sandbox, is not taken. It was owed **before the flag is turned on for
+anyone**; the flag was turned on without it, and it is still owed. The two broker
 gates stage 3 named are built: `managoat_broker` 0.15.0
 (managoat/managoat_broker#39), adopted on 2026-09-21 (#2483; "Stage 3 as
 built", "Gates A and B as built"). Their forced `identity` encoding has now
@@ -1533,10 +1539,12 @@ built afterwards: "Gates A and B as built".)
 
 Built on 2026-09-21: the half of item 4 that is not a page. A subscription
 can be linked, reconnected, renamed, disconnected and removed over the API,
-and a credential set can name one over the API. **Linking is off for every
-account**, behind a flag that fails closed, and the things stage 3 said are
-owed before a user's surface opens are owed before that flag is turned on:
-this stage merges dark. The console is 4b.
+and a credential set can name one over the API. When this stage merged,
+**linking was off for every account**, behind a flag that fails closed, and
+the things stage 3 said are owed before a user's surface opens were owed
+before that flag is turned on: this stage merged dark. (The flag was turned
+on for the hosted instance later that day, with part of that list still
+owed: "Stage 5 as built".) The console is 4b.
 
 **The attempt.** `20260921060000` creates `chatgpt_link_attempts`, one row
 per device-code sign-in (`ChatGPTAccounts.LinkAttempt`). The row is the
@@ -1784,8 +1792,8 @@ maintainer may reverse:
   start. Each has a fallback clause that names no value, and a comment
   saying why it must stay.
 - **An idle user grant still lapses** at the auth server's window (stage
-  1's gap): the keepalive is stage 5, and is one more reason the flag is
-  off.
+  1's gap): the keepalive is stage 5, and was one more reason the flag was
+  off when this stage merged.
 
 **Owed, with who owes it:**
 
@@ -1797,7 +1805,8 @@ maintainer may reverse:
   arrived the same day in `managoat_broker` 0.15.0, adopted by #2483. A
   hosted first and second turn on the deployment's account were taken that
   evening, #2479; the reattached turn and the symlinked-home measurement
-  are still owed.)
+  are still owed. The flag was turned on for the hosted instance that
+  night without them: "Stage 5 as built".)
 - **Stage 4b.** The **ChatGPT subscriptions** card and the set picker, whose
   confirm text says naming a grant ends the set's running codex
   conversations; page reload; whether a set that names a grant counts for
@@ -1903,9 +1912,9 @@ ownership and its half hour.
 
 ## Stage 4b as built
 
-Built on 2026-09-21: the console half of item 4. **Linking is still off for
-every account**, and nothing here changes what is owed before the flag is
-turned on. With the flag off and no grant held, the page is what it was.
+Built on 2026-09-21: the console half of item 4. When this stage merged,
+**linking was still off for every account**, and nothing here changed what
+was owed before the flag is turned on. With the flag off and no grant held, the page is what it was.
 
 **The card.** `FountainWeb.InferenceCredentialsLive.SubscriptionsCard`, a
 LiveComponent under the provider rows of `/account/inference-credentials`:
@@ -2113,7 +2122,8 @@ the secrets page no longer says per-source Codex homes are unbuilt.
 
 **Owed, with who owes it:**
 
-- **Before the flag is on for anyone**: unchanged from stage 3 and 4a.
+- **Before the flag is on for anyone**: unchanged from stage 3 and 4a, as
+  of this stage's merge.
 - **Stage 5.** Unchanged: the keepalive fan-out, exhaustion written for a
   user's grant (the card already renders it as Usage spent, and until it
   is written never does: a spent plan reads Connected and its turn fails
@@ -2154,12 +2164,13 @@ when its inputs change (`chatgpt_grant_problem_live_test.exs`); and
 Built on 2026-09-21, in two halves: 5a is accounting (exhaustion for a
 user's grant, and which grant served a turn), 5b is the keepalive, export
 and deletion. **Item 5's second sentence is not done**: nobody has linked
-two real subscriptions and run the controlled sequence. That run, the
-checklist it belongs to and what is owed before the flag is on for anyone
-are in
+two real subscriptions and run the controlled sequence. That run and the
+checklist it belongs to are in
 `contributing/chatgpt-subscriptions-rollout.md`,
-and its results go in [Measured](#measured) below. Linking is still off for
-every account. No migration in either half: the exhaustion columns were
+and its results go in [Measured](#measured) below. When this stage merged,
+linking was still off for every account; it was opened on the hosted
+instance that night, ahead of the run
+([below](#2026-09-21-linking-opened-on-the-hosted-instance)). No migration in either half: the exhaustion columns were
 already on the shared table, and `turns.inference_source` already held the
 serving grant.
 
@@ -2479,12 +2490,67 @@ owner cuts it short by, and at most seventy-two hours. It is not promised
 a request of its own at two hours; that promise, made to every job, was
 the hammer. A turn's own renewal is never held.
 
+### 2026-09-21: linking opened on the hosted instance
+
+Late on 2026-09-21 (UTC) the maintainer decided to open linking to **every
+account on the hosted instance**, out of the order the rollout checklist
+lays down, and it was done (#2475). The `chatgpt_subscriptions` flag was
+created in the instance's PostHog project, active, released to everyone
+with no filter, and checked by evaluating the flag with the instance's
+project key for arbitrary user ids. The maintainer's reason: every user of
+the hosted instance is the maintainer or a close friend, and the unproven
+parts fail recoverably. That is a judgement about who is exposed, not a
+measurement of the feature.
+
+The checklist when it opened:
+
+- (a) the platform grant on the protected path: merged, and a hosted first
+  and second turn pass on the real client (#2479; 0047, measurement 6).
+  **The reattached turn is not measured.** The maintainer took it for
+  granted for this decision; it is still owed.
+- (b) `managoat_broker` 0.15.0 with gates A and B: done (#2483).
+- (c) the real-client measurements: the offline probe and hosted turns one
+  and two are done. **The controlled two-subscription run (#2465) is not**,
+  and the symlinked `CODEX_HOME` has not been tried across a reattach.
+- (d) 0047's measurement 5, the idle lifetime: **not recorded.** The
+  keepalive's six-day interval is still provisional on it.
+- (e) seven days of keepalive observation: **not done.** No user grant
+  existed to observe.
+- (f) the PostHog release, written as staff, then 5%, then everyone: done
+  as everyone, in one step.
+- (g) rollback is the flag: true, and not confirmed on a staging instance
+  first, as the checklist asked.
+
+So when linking opened, a **user's** subscription had not met the real auth
+server (the device-code sign-in and the link-attempt poller), a real
+browser (the card has attribute-level tests only), a second subscription in
+a shared sandbox (per-grant homes side by side), the keepalive sweep, or
+the usage check made with a user's token. The first real links on the
+hosted instance are that test. Whether `auth.openai.com` throttles by
+address or by account remains unmeasured. Items (c), (d) and (e) are now
+observations of a live feature, not gates in front of one, and their
+results still go in [Measured](#measured) and in 0047's table.
+
+**Rollback** is the flag: set it inactive in PostHog, and within the sixty
+seconds `Fountain.FeatureFlags` caches an answer nobody can start a new
+link. The subscriptions people hold stay listable, renamable,
+reconnectable, disconnectable and removable, and the keepalive goes on
+renewing them.
+
+**What did not change.** The flag is still not in `@on_without_posthog`, so
+a self-hosted deployment is as it was: off unless its operator sets
+`FEATURE_FLAGS_ON=chatgpt_subscriptions` where the credential broker is
+configured. `adr_status` is still Proposed. Opening the flag is a rollout
+decision about one instance; accepting this ADR remains the maintainer's
+separate decision.
+
 ### Not built
 
-- **The controlled run** of item 5, and everything on the rollout
-  checklist but its items (a) and (b). Broker gates A and B, which every
-  stage up to this one listed as owed, are built ("Gates A and B as built",
-  under stage 3); what they have not had is a request to `chatgpt.com`.
+- **The controlled run** of item 5, and the rollout checklist's items (c),
+  (d) and (e); (f) was done ahead of them, above. Broker gates A and B,
+  which every stage up to this one listed as owed, are built ("Gates A and
+  B as built", under stage 3). They have carried two hosted turns to
+  `chatgpt.com` (#2479); neither has had anything there to refuse.
 - **Whether `auth.openai.com` throttles by address or by account is
   unmeasured.** 0047 measured a 401 `refresh_token_reused` and a 400
   ciphertext-integrity answer and nothing else. So is what a throttled

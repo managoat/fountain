@@ -95,10 +95,15 @@ defmodule Fountain.Crypto do
   The caller (typically `ConversationServer.init/1`) should store the DEK in
   GenServer state and pass it to `encrypt/3` / `decrypt/3` for the conversation
   lifetime, then discard it on terminate.
+
+  `opts` go to the read and are empty for every caller but one: the broker's
+  per-request path (`Fountain.Broker.Native.Sessions.authorize/2`) passes a
+  `:timeout`, because it runs for every egress request of a sandbox and must
+  not wait on the database for longer than it says it does.
   """
-  @spec load_tenant_key(binary()) :: {:ok, binary()} | {:error, atom()}
-  def load_tenant_key(user_id) when is_binary(user_id) do
-    case Fountain.Repo.get_by(Fountain.Accounts.UserDataKey, user_id: user_id) do
+  @spec load_tenant_key(binary(), keyword()) :: {:ok, binary()} | {:error, atom()}
+  def load_tenant_key(user_id, opts \\ []) when is_binary(user_id) and is_list(opts) do
+    case Fountain.Repo.get_by(Fountain.Accounts.UserDataKey, [user_id: user_id], opts) do
       nil ->
         {:error, :not_found}
 

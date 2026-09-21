@@ -5,6 +5,7 @@ defmodule Fountain.Broker.Native.ManagedGrantSessionTest do
   # against the durable generation. Every case runs for both owners a grant
   # can have. The platform row is one per deployment, so async: false.
   use Fountain.DataCase, async: false
+  use Mimic
 
   import Fountain.ChatGPTFixtures
 
@@ -382,6 +383,34 @@ defmodule Fountain.Broker.Native.ManagedGrantSessionTest do
         assert {:error, :denied} = Sessions.authorize({:managed, rewritten.id}, @protected)
         assert {:ok, rules} = Sessions.authorize({:managed, rewritten.id}, @ordinary)
         assert Enum.any?(rules, &(&1.credential == "ghp_edited"))
+      end
+
+      # The session's and the grant's reads name their timeout in place. The
+      # tenant key's is a function away on both paths, and unbounded for every
+      # other caller, so it is the one that could lose it quietly.
+      test "the tenant key is read under the request's timeout",
+           %{owner: owner, user: user, conv: conv} do
+        {_account, _access, managed} = grant(owner, user)
+        {:ok, _} = prepare(conv, user, managed)
+        id = row(conv).id
+        test = self()
+
+        stub(Crypto, :load_tenant_key, fn user_id, opts ->
+          send(test, {:key_read, opts})
+          Mimic.call_original(Crypto, :load_tenant_key, [user_id, opts])
+        end)
+
+        assert {:ok, [_ | _]} = Sessions.authorize({:managed, id}, @ordinary)
+        assert_received {:key_read, opts}
+        assert opts[:timeout] == 5_000
+
+        assert {:ok, %ProtectedCredential{}} = Sessions.authorize({:managed, id}, @protected)
+
+        # The deployment's token is under the master key: no key read at all.
+        case owner do
+          :user -> assert_received {:key_read, timeout: 5_000}
+          :platform -> refute_received {:key_read, _}
+        end
       end
 
       test "a store that cannot answer is unavailable, never a cached success",

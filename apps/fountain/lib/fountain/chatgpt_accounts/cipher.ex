@@ -62,22 +62,34 @@ defmodule Fountain.ChatGPTAccounts.Cipher do
 
   @spec decrypt_token(Account.t(), :access_token | :refresh_token) ::
           {:ok, String.t()} | {:error, atom()}
-  def decrypt_token(%Account{} = account, field) when field in [:access_token, :refresh_token] do
+  def decrypt_token(%Account{} = account, field) when field in [:access_token, :refresh_token],
+    do: open(account, field, &Crypto.load_tenant_key/1)
+
+  # With read options for the tenant key, and only for it. One caller passes
+  # any: the broker's per-request read (`ChatGPTAccounts.protected_credential/2`)
+  # passes a `:timeout`, so that path is bounded end to end.
+  @spec decrypt_token(Account.t(), :access_token | :refresh_token, keyword()) ::
+          {:ok, String.t()} | {:error, atom()}
+  def decrypt_token(%Account{} = account, field, opts)
+      when field in [:access_token, :refresh_token] and is_list(opts),
+      do: open(account, field, &Crypto.load_tenant_key(&1, opts))
+
+  defp open(account, field, load_key) do
     case ciphertext(account, field) do
       nil -> {:error, :no_token}
-      blob -> decrypt(account, field, blob)
+      blob -> decrypt(account, field, blob, load_key)
     end
   end
 
   defp ciphertext(account, :access_token), do: account.access_token_ciphertext
   defp ciphertext(account, :refresh_token), do: account.refresh_token_ciphertext
 
-  defp decrypt(%Account{user_id: nil}, field, blob),
+  defp decrypt(%Account{user_id: nil}, field, blob, _load_key),
     do: normalize(Crypto.decrypt_platform(blob), :platform, field)
 
-  defp decrypt(%Account{user_id: user_id, id: grant_id}, field, blob)
+  defp decrypt(%Account{user_id: user_id, id: grant_id}, field, blob, load_key)
        when is_binary(user_id) and is_binary(grant_id) do
-    with {:ok, dek} <- Crypto.load_tenant_key(user_id) do
+    with {:ok, dek} <- load_key.(user_id) do
       normalize(
         Crypto.decrypt(blob, dek, aad(user_id, grant_id, field)),
         {user_id, grant_id},

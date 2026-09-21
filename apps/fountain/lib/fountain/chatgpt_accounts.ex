@@ -160,6 +160,10 @@ defmodule Fountain.ChatGPTAccounts do
   @system_actor "system:platform_chatgpt"
   @user_system_actor "system:chatgpt_accounts"
 
+  # `protected_credential/2`'s reads, the grant row's and the tenant key's:
+  # it is the broker's per-request path, so neither waits without a bound.
+  @request_read [timeout: 5_000]
+
   # ── a user's grants ──────────────────────────────────────────────────────
 
   @typedoc """
@@ -931,7 +935,9 @@ defmodule Fountain.ChatGPTAccounts do
   `{:error, :denied}`: a disconnected, revoked, replaced or deleted grant, an
   owner who may no longer use one, a grant that now answers as a different
   account. A key that will not load or a token that will not open is
-  `{:error, :unavailable}`. No lock is taken, nothing is renewed and nothing
+  `{:error, :unavailable}`. Both reads, the row's and the owner's key's, carry
+  a five-second timeout; one that runs out raises, which the caller answers
+  as `:unavailable` too. No lock is taken, nothing is renewed and nothing
   is cached: a request admitted before a disconnect commits is in flight,
   and the next one is refused.
   """
@@ -940,9 +946,9 @@ defmodule Fountain.ChatGPTAccounts do
   def protected_credential(%{owner: _, grant_id: _, generation: _} = ref, identity)
       when is_binary(identity) and identity != "" do
     with {:ok, query} <- active_grant_query(ref),
-         %Account{account_id: ^identity} = account <- Repo.one(query, timeout: 5_000),
+         %Account{account_id: ^identity} = account <- Repo.one(query, @request_read),
          :ok <- servable(account) do
-      case Cipher.decrypt_token(account, :access_token) do
+      case Cipher.decrypt_token(account, :access_token, @request_read) do
         {:ok, access_token} -> {:ok, Grant.new(account, access_token)}
         {:error, _} -> {:error, :unavailable}
       end

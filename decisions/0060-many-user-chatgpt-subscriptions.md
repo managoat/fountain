@@ -937,11 +937,18 @@ Five things stage 3 settled or found:
   If the symlinked home does not hold, the remaining fix is a
   `managoat_runtimes` release that lets `Layout.config_root/1` take an
   override.
-- A per-request cost that is new: every egress request of a conversation
-  on a grant, `apt` and `npm` included, is one indexed read and one AES
-  open, because the library calls `authorize/2` for all of a managed
-  session's requests. The reads have a five-second timeout. 0052's
-  consequences accept it; it is worth watching once there is traffic.
+- A per-request cost that is new, because the library calls `authorize/2`
+  for all of a managed session's requests, `apt` and `npm` included. An
+  ordinary request is two indexed reads (the session row, the owner's
+  wrapped key) and two AES opens (the key, the rules). A request to the
+  Codex backend is three reads (the session, the grant joined to its owner,
+  the owner's wrapped key) and two opens (the key, the bearer); on the
+  deployment's grant, two reads and one open, its token being under the
+  master key. That is beside `lookup/1`, which costs an ordinary request's
+  worth once per tunnel and once per request on the plain path. Every one
+  of `authorize/2`'s reads has a five-second timeout, the key's included,
+  which `Crypto.load_tenant_key/2` takes for this caller only. 0052's
+  consequences accept the cost; it is worth watching once there is traffic.
 
 What the tests hold, for the platform's grant and for a user's unless the
 case is about two of one user's: this stage's three acceptance tests

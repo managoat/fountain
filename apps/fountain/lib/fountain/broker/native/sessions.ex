@@ -75,6 +75,12 @@ defmodule Fountain.Broker.Native.Sessions do
   require Logger
 
   @aad "fountain.broker.rules"
+
+  # Every read `authorize/2` makes, the tenant key's included: it runs for
+  # every egress request of a managed session, so none of them may wait on
+  # the database without a bound. A read that runs out raises, and that is
+  # `:unavailable`.
+  @request_read [timeout: 5_000]
   @schemes %{
     "bearer" => :bearer,
     "basic" => :basic,
@@ -221,7 +227,7 @@ defmodule Fountain.Broker.Native.Sessions do
 
     case Repo.one(
            from(s in Session, where: s.id == ^session_id and s.expires_at >= ^now),
-           timeout: 5_000
+           @request_read
          ) do
       nil -> {:error, :denied}
       %Session{} = session -> admit(session, Map.get(request, :protected) == true)
@@ -261,7 +267,7 @@ defmodule Fountain.Broker.Native.Sessions do
   end
 
   defp admit(%Session{} = session, false) do
-    case rules(session) do
+    case rules(session, &Crypto.load_tenant_key(&1, @request_read)) do
       {:ok, rules} -> {:ok, rules}
       _ -> unavailable(session.id, "the session's rules could not be read")
     end
@@ -392,8 +398,9 @@ defmodule Fountain.Broker.Native.Sessions do
     end
   end
 
-  defp rules(%Session{} = s) do
-    with {:ok, dek} <- Crypto.load_tenant_key(s.user_id),
+  # `authorize/2` bounds the key's read; `lookup/1` reads it as it always has.
+  defp rules(%Session{} = s, load_key \\ &Crypto.load_tenant_key/1) do
+    with {:ok, dek} <- load_key.(s.user_id),
          {:ok, json} <- Crypto.decrypt(s.rules_ciphertext, dek, @aad) do
       decode_rules(json)
     end

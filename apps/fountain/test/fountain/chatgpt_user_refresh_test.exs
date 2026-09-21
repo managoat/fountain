@@ -210,6 +210,56 @@ defmodule Fountain.ChatGPTUserRefreshTest do
            ) == 1
   end
 
+  # ADR 0060 decision 5. The trigger's half is held down in
+  # `chatgpt_grant_source_lock_test.exs`; this is the Elixir half, where the
+  # platform branch of `with_grant_source_lock/2` sits one clause away.
+  test "a user refresh and a terminal refusal take the owner's source key, never the platform's" do
+    user = insert_verified_user()
+    renewed = user_grant!(user.id)
+    refused = user_grant!(user.id)
+    test = self()
+    handler = "user-refresh-source-lock-#{System.unique_integer([:positive])}"
+
+    # The write runs in a coordinator worker, so the handler reports to the test.
+    :telemetry.attach(
+      handler,
+      [:fountain, :repo, :query],
+      fn _event, _measurements, %{query: query} = metadata, _config ->
+        # A lock's key is the only parameter worth keeping; a write's are ciphertexts.
+        params = if query =~ "pg_advisory", do: metadata.params, else: []
+        send(test, {:statement, query, params})
+      end,
+      nil
+    )
+
+    on_exit(fn -> :telemetry.detach(handler) end)
+
+    stub_refresh(%{
+      expect_refresh: "rt_user",
+      id_token: id_token(%{account_id: renewed.account_id})
+    })
+
+    assert {:ok, %Grant{}} = credential(renewed)
+    assert Repo.get!(Account, renewed.id).lock_version == renewed.lock_version + 1
+
+    stub_refusal("invalid_grant")
+    assert {:error, :revoked} = credential(refused)
+    assert Repo.get!(Account, refused.id).status == "revoked"
+
+    :telemetry.detach(handler)
+    statements = drain_statements()
+
+    refute Enum.any?(statements, fn {query, _} -> query =~ "inference:platform" end)
+
+    tenant_locks =
+      Enum.filter(statements, fn {query, params} ->
+        query =~ "pg_advisory_xact_lock(" and params == ["inference:" <> user.id]
+      end)
+
+    # One for the fenced token write, one for the fenced revocation.
+    assert length(tenant_locks) == 2
+  end
+
   for response <- [:success, :terminal] do
     test "reconnect fences a late user #{response} response" do
       account = user_grant!(insert_verified_user().id)
@@ -276,6 +326,14 @@ defmodule Fountain.ChatGPTUserRefreshTest do
 
   defp credential(account),
     do: ChatGPTAccounts.credential_for_user(account.id, account.user_id, account.generation)
+
+  defp drain_statements(acc \\ []) do
+    receive do
+      {:statement, query, params} -> drain_statements([{query, params} | acc])
+    after
+      0 -> Enum.reverse(acc)
+    end
+  end
 
   defp await_waiters(count, deadline \\ nil) do
     deadline = deadline || System.monotonic_time(:millisecond) + 2_000

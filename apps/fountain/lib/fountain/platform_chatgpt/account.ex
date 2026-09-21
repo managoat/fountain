@@ -63,6 +63,13 @@ defmodule Fountain.PlatformChatGPT.Account do
   the token is still good, and the grant is skipped for new selections only
   until the reset passes. Nothing writes them for an owned row.
 
+  Both ciphertexts, `id_claims` and `account_email` are `redact: true`: a
+  row or a changeset that reaches a log line through `inspect/1` prints
+  `**redacted**` for them, in the struct and in a changeset's `changes`
+  alike. A refused write hands its caller a changeset, and a user's row
+  holds a tenant-wrapped refresh token and the email of their ChatGPT
+  account.
+
   There is no plaintext column. The application writers are
   `Fountain.ChatGPTAccounts`'s admin mutations and refresh path, and its
   `*_for_user` writes, which nothing in production calls yet (ADR 0060).
@@ -84,11 +91,11 @@ defmodule Fountain.PlatformChatGPT.Account do
     field :generation, Ecto.UUID, autogenerate: true
     field :lock_version, :integer, default: 1
     field :kind, :string
-    field :refresh_token_ciphertext, :binary
-    field :access_token_ciphertext, :binary
-    field :id_claims, :map, default: %{}
+    field :refresh_token_ciphertext, :binary, redact: true
+    field :access_token_ciphertext, :binary, redact: true
+    field :id_claims, :map, default: %{}, redact: true
     field :account_id, :string
-    field :account_email, :string
+    field :account_email, :string, redact: true
     field :plan_type, :string
     field :access_expires_at, :utc_datetime
     field :last_refreshed_at, :utc_datetime

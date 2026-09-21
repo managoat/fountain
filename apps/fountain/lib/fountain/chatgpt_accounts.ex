@@ -364,8 +364,14 @@ defmodule Fountain.ChatGPTAccounts do
 
   `:ok` for a grant already disconnected, with no second event. The
   platform grant is not like this: `platform_disconnect/1` deletes its row.
+
+  A changeset is the database refusing the tombstone
+  (`chatgpt_grant_tokens_follow_status`). The changeset this writes cannot
+  produce one; it is in the type so that a caller matches it rather than
+  meeting it as a crash.
   """
-  @spec disconnect_for_user(Ecto.UUID.t(), String.t(), keyword()) :: :ok | {:error, :not_found}
+  @spec disconnect_for_user(Ecto.UUID.t(), String.t(), keyword()) ::
+          :ok | {:error, :not_found | Ecto.Changeset.t()}
   def disconnect_for_user(grant_id, user_id, opts \\ [])
       when is_binary(grant_id) and is_binary(user_id) do
     result =
@@ -397,7 +403,7 @@ defmodule Fountain.ChatGPTAccounts do
 
         :ok
 
-      {:error, :not_found} = error ->
+      {:error, _} = error ->
         error
     end
   end
@@ -406,10 +412,12 @@ defmodule Fountain.ChatGPTAccounts do
   Delete a disconnected grant's row, which frees its slot under the ceiling
   and lets its upstream account be linked afresh. A grant that still holds
   a credential is `{:error, :still_connected}`: disconnect it first, so
-  removal never drops a live refresh token as a side effect.
+  removal never drops a live refresh token as a side effect. A changeset is
+  the database refusing the delete; nothing declares a constraint that
+  would produce one yet.
   """
   @spec remove_for_user(Ecto.UUID.t(), String.t(), keyword()) ::
-          :ok | {:error, :not_found | :still_connected}
+          :ok | {:error, :not_found | :still_connected | Ecto.Changeset.t()}
   def remove_for_user(grant_id, user_id, opts \\ [])
       when is_binary(grant_id) and is_binary(user_id) do
     result =

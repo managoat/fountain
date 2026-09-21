@@ -711,6 +711,44 @@ defmodule Fountain.ChatGPTUserGrantsTest do
     end
   end
 
+  describe "inspection" do
+    # A refusal hands its caller a changeset, and the ordinary thing to do
+    # with an unexpected one is to log it.
+    test "neither a row nor a refused changeset prints a ciphertext, the email or a claim",
+         ctx do
+      assert {:ok, work} = link(ctx.user, "Work", "acct-secret-id")
+      assert {:ok, _} = link(ctx.user, "Personal", "acct-personal")
+      row = Repo.get!(Account, work.grant_id)
+
+      assert {:error, %Ecto.Changeset{} = on_connect} = link(ctx.user, "Work", "acct-third")
+
+      assert {:error, %Ecto.Changeset{} = on_rename} =
+               ChatGPTAccounts.rename_for_user(work.grant_id, ctx.user.id, "Personal")
+
+      # Untruncated on both sides, or a long blob would pass by being cut short.
+      print = &inspect(&1, limit: :infinity, printable_limit: :infinity)
+
+      secrets = [
+        print.(row.access_token_ciphertext),
+        print.(row.refresh_token_ciphertext),
+        print.(on_connect.changes.access_token_ciphertext),
+        print.(on_connect.changes.refresh_token_ciphertext),
+        "admin@example.com",
+        # A stored claim, as the map prints it.
+        ~s("account_id" =>)
+      ]
+
+      for printed <- [print.(row), print.(on_connect), print.(on_rename)], secret <- secrets do
+        refute printed =~ secret
+      end
+
+      # What an operator needs to tell rows apart is still there.
+      assert inspect(row) =~ work.grant_id
+      assert inspect(row) =~ "Work"
+      assert_platform_untouched(ctx)
+    end
+  end
+
   defp grant_events(user) do
     Repo.all(from(e in Event, where: e.user_id == ^user.id and like(e.action, "chatgpt_grant.%")))
   end

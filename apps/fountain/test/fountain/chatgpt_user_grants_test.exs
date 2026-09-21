@@ -90,7 +90,6 @@ defmodule Fountain.ChatGPTUserGrantsTest do
 
       assert event.metadata == %{
                "name" => "Work",
-               "generation" => grant.generation,
                "method" => "device_code",
                "plan" => "pro"
              }
@@ -229,7 +228,7 @@ defmodule Fountain.ChatGPTUserGrantsTest do
                )
 
       assert reconnect.metadata["reconnect"] == true
-      assert reconnect.metadata["generation"] == again.generation
+      refute Map.has_key?(reconnect.metadata, "generation")
       assert_platform_untouched(ctx)
     end
 
@@ -574,7 +573,8 @@ defmodule Fountain.ChatGPTUserGrantsTest do
       event = Repo.one!(from(e in Event, where: e.action == "chatgpt_grant.disconnected"))
       assert event.actor == "ui"
       assert event.resource_id == work.grant_id
-      assert event.metadata == %{"name" => "Work", "generation" => work.generation}
+      # A fencing value is in no tenant event: `GET /api/audit` is any key's to read.
+      assert event.metadata == %{"name" => "Work"}
 
       # Idempotent, and silent the second time.
       assert :ok = ChatGPTAccounts.disconnect_for_user(work.grant_id, ctx.user.id)

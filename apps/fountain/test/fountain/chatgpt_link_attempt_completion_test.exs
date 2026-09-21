@@ -99,8 +99,17 @@ defmodule Fountain.ChatGPTLinkAttemptCompletionTest do
 
       assert actions(user) == ["chatgpt_link_attempt.started", "chatgpt_grant.connected"]
 
-      assert %{actor: "system:chatgpt_link_attempt", metadata: %{"method" => "device_code"}} =
+      # The job has no address and the system's name: the attempt's id is what
+      # ties this event to the `started` that says who began it.
+      assert %{actor: "system:chatgpt_link_attempt", metadata: metadata} =
                Repo.get_by!(Event, user_id: user.id, action: "chatgpt_grant.connected")
+
+      assert metadata == %{
+               "name" => "Work",
+               "method" => "device_code",
+               "plan" => "pro",
+               "attempt_id" => view.id
+             }
 
       user_id = user.id
       assert_receive {:chatgpt_grants_changed, ^user_id}
@@ -285,7 +294,9 @@ defmodule Fountain.ChatGPTLinkAttemptCompletionTest do
 
       assert new == bearer("new")
 
-      assert %{metadata: %{"reconnect" => true}} =
+      attempt_id = view.id
+
+      assert %{metadata: %{"reconnect" => true, "attempt_id" => ^attempt_id}} =
                Repo.one!(
                  from(e in Event,
                    where: e.user_id == ^user.id and e.action == "chatgpt_grant.connected",

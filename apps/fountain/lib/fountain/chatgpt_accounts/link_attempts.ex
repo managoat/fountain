@@ -508,7 +508,7 @@ defmodule Fountain.ChatGPTAccounts.LinkAttempts do
       attempt.user_id,
       attempt.name,
       tokens,
-      grant_opts(opts, within: fence)
+      grant_opts(opts, within: fence, attempt_id: attempt.id)
     )
   end
 
@@ -517,7 +517,11 @@ defmodule Fountain.ChatGPTAccounts.LinkAttempts do
       grant_id,
       attempt.user_id,
       tokens,
-      grant_opts(opts, within: fence, expected_generation: attempt.expected_generation)
+      grant_opts(opts,
+        within: fence,
+        attempt_id: attempt.id,
+        expected_generation: attempt.expected_generation
+      )
     )
   end
 

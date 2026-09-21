@@ -307,8 +307,9 @@ defmodule Fountain.ChatGPTAccounts do
   user: both run under that user's source lock, which the table's trigger
   also takes for any other writer of the user's rows.
 
-  `opts`: `:actor` (default `"self"`), `:request_ip`, and `:method` (default
-  `"device_code"`), all for the `chatgpt_grant.connected` event. `:within` is
+  `opts`: `:actor` (default `"self"`), `:request_ip`, `:method` (default
+  `"device_code"`) and `:attempt_id` (the link attempt whose completion this
+  is, if one), all for the `chatgpt_grant.connected` event. `:within` is
   `complete_attempt_for_user/4`'s and nobody else's: a function handed the
   write, run inside this transaction under the owner's lock and before any
   row is read, which is how a link attempt's row is locked, checked and
@@ -487,7 +488,7 @@ defmodule Fountain.ChatGPTAccounts do
           {:ok, account} ->
             with {:ok, tombstone} <- account |> Account.disconnect_changeset() |> Repo.update() do
               ended = LinkAttempts.end_locked(open, "stale_grant")
-              {:ok, {account.generation, revoke_broker(tombstone), ended}}
+              {:ok, {revoke_broker(tombstone), ended}}
             end
 
           {:error, _} = error ->
@@ -499,14 +500,9 @@ defmodule Fountain.ChatGPTAccounts do
       {:ok, :already} ->
         :ok
 
-      # The generation on the event is the one that was retired.
-      {:ok, {retired, account, ended}} ->
+      {:ok, {account, ended}} ->
         LinkAttempts.announce_ended(ended, opts)
-
-        audit_grant(account, "chatgpt_grant.disconnected", opts, %{
-          "name" => account.name,
-          "generation" => retired
-        })
+        audit_grant(account, "chatgpt_grant.disconnected", opts, %{"name" => account.name})
 
         broadcast_changed(user_id)
         :ok
@@ -661,7 +657,9 @@ defmodule Fountain.ChatGPTAccounts do
   # After the transaction has returned, never inside it. A tenant event: the
   # grant's id and name and the caller's attribution. No account email, no
   # provider account id, no claim and nothing the provider said, because a
-  # tenant event's metadata travels further than an admin event's.
+  # tenant event's metadata travels further than an admin event's: `GET
+  # /api/audit` hands it to any key of the account, a sandbox's included. So
+  # no `generation` either, which is a fencing value and in no API body.
   defp audit_grant(%Account{} = account, action, opts, metadata) do
     Audit.record(%{
       user_id: account.user_id,
@@ -674,13 +672,20 @@ defmodule Fountain.ChatGPTAccounts do
     })
   end
 
+  # `"attempt_id"` when a link attempt's completion made the write: the job's
+  # actor is the system's and it has no address, so this is what ties the
+  # event to the `chatgpt_link_attempt.started` that says who began it.
   defp connected_metadata(account, opts) do
-    %{
+    metadata = %{
       "name" => account.name,
-      "generation" => account.generation,
       "method" => Keyword.get(opts, :method, "device_code"),
       "plan" => account.plan_type
     }
+
+    case Keyword.get(opts, :attempt_id) do
+      nil -> metadata
+      attempt_id -> Map.put(metadata, "attempt_id", attempt_id)
+    end
   end
 
   # Every writer of a user's rows holds that user's source key, the trigger
@@ -1882,7 +1887,7 @@ defmodule Fountain.ChatGPTAccounts do
       action: "chatgpt_grant.reconnect_required",
       resource_type: "chatgpt_grant",
       resource_id: grant.grant_id,
-      metadata: %{"name" => grant.name, "generation" => grant.generation, "reason" => code}
+      metadata: %{"name" => grant.name, "reason" => code}
     })
 
     broadcast_changed(grant.user_id)

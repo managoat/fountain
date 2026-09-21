@@ -139,6 +139,40 @@ defmodule FountainWeb.FallbackController do
     })
   end
 
+  # The ChatGPT subscription a credential set names cannot serve this codex
+  # run (ADR 0060 decision 4). 409, like `inference_source_changed`: the
+  # request is fine and the state of something the caller owns is not.
+  # Nothing was substituted, and the message says so. Ids, the name the
+  # tenant chose, a reason atom and a time; never a token.
+  def call(conn, {:error, {:chatgpt_grant_unusable, %{reason: reason} = detail}}) do
+    conn
+    |> put_status(:conflict)
+    |> json(%{
+      error: "chatgpt_grant_unusable",
+      reason: Atom.to_string(reason),
+      grant_id: detail[:grant_id],
+      grant: detail[:name],
+      until: detail[:until],
+      message: Fountain.InferenceCredentials.grant_unusable_message(detail)
+    })
+  end
+
+  # ADR 0060 stage 2 only: a named subscription resolves, and the transport
+  # that carries it into a sandbox is stage 3. Nothing can reach this before
+  # a user can link a subscription, which is stage 4. 409 and not 503: the
+  # SDKs document 503 as "the same call will work shortly", and this one
+  # will not until a deploy; what the caller can change is the set.
+  def call(conn, {:error, :chatgpt_grant_transport_unavailable}) do
+    conn
+    |> put_status(:conflict)
+    |> json(%{
+      error: "chatgpt_grant_transport_unavailable",
+      message:
+        "this credential set names a ChatGPT subscription, and this deployment cannot run " <>
+          "a conversation on one yet; select a set that does not name one"
+    })
+  end
+
   def call(conn, {:error, :inference_credential_unusable}) do
     conn
     |> put_status(:unprocessable_entity)

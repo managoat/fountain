@@ -186,6 +186,137 @@ defmodule Fountain.InferenceCredentials do
   end
 
   @doc """
+  Name the ChatGPT subscription a set's codex runs use, or with `nil` stop
+  naming one (ADR 0060 decision 2). **Nothing in production calls this yet**:
+  the account surface that lets a user hold a grant, and point a set at one,
+  is ADR 0060 stage 4.
+
+  A reference and never a token. The grant is read through
+  `Fountain.ChatGPTAccounts.get_for_user/2`, scoped by the set's owner, under
+  that owner's source lock, which every write to the owner's grants also
+  takes. Another account's grant, the deployment's, a missing one and an id
+  that is not one are all the same changeset error on `:chatgpt_grant_id`
+  (`Credential.grant_message/0`), so an id cannot be probed; the composite
+  foreign key holds the same rule in the database. A disconnected grant is
+  refused too: it holds no credential, and the set would fail every codex
+  run until it was reconnected. A grant that is revoked or expired may be
+  named; that is a state a named grant reaches anyway, and resolution
+  reports it by name.
+
+  The set's `revision` does not move: a grant source's identity is the grant
+  itself, so repointing already reads as a different source to a
+  conversation bound to the old one. A conversation on the set's API key
+  keeps validating if its runtime is not codex. A codex one does not: its
+  next turn resolves to the grant, which is not what it is pinned to, and
+  reads `:inference_source_changed` through resolution rather than through
+  `revision`. Naming a grant ends the set's running codex conversations.
+
+  Naming the grant the set already names is a no-op that records nothing,
+  whatever state that grant is in: a caller that sends the whole set back
+  must not be refused because the grant it already names was disconnected
+  since. Otherwise audited, after the transaction, as
+  `inference_credential_set.chatgpt_grant_changed` with both grant ids and
+  the new grant's name.
+  """
+  @spec set_grant(Credential.t(), Ecto.UUID.t() | nil, keyword()) ::
+          {:ok, Credential.t()} | {:error, :not_found | Ecto.Changeset.t()}
+  def set_grant(%Credential{} = set, grant_id, opts \\ [])
+      when is_binary(grant_id) or is_nil(grant_id) do
+    result =
+      with_source_lock(set.user_id, fn ->
+        with %Credential{} = current <- get_set(set.id, set.user_id),
+             :changes <- unchanged(current, grant_id),
+             {:ok, grant} <- nameable_grant(current, grant_id) do
+          write_grant(current, grant)
+        else
+          {:unchanged, _} = unchanged -> unchanged
+          nil -> {:error, :not_found}
+          {:error, _} = error -> error
+        end
+      end)
+
+    case result do
+      {:unchanged, current} ->
+        {:ok, current}
+
+      {:changed, updated, was, grant} ->
+        audited_set(
+          {:ok, updated},
+          "inference_credential_set.chatgpt_grant_changed",
+          Keyword.put(opts, :metadata, %{
+            "was" => was,
+            "now" => updated.chatgpt_grant_id,
+            "grant" => grant && grant.name
+          })
+        )
+
+      error ->
+        error
+    end
+  end
+
+  # Before the grant is read: what the set already names needs no permission
+  # to go on being named. The id is compared as a UUID, not as the caller
+  # spelled it.
+  defp unchanged(%Credential{chatgpt_grant_id: named} = current, grant_id) do
+    same? =
+      case {named, grant_id} do
+        {nil, nil} -> true
+        {named, id} when is_binary(named) and is_binary(id) -> Ecto.UUID.cast(id) == {:ok, named}
+        _ -> false
+      end
+
+    if same?, do: {:unchanged, current}, else: :changes
+  end
+
+  defp nameable_grant(_set, nil), do: {:ok, nil}
+
+  defp nameable_grant(set, grant_id) do
+    case Fountain.ChatGPTAccounts.get_for_user(grant_id, set.user_id) do
+      {:ok, %{status: "disconnected"}} ->
+        {:error, grant_error(set, "is disconnected; reconnect it before a set names it")}
+
+      {:ok, grant} ->
+        {:ok, grant}
+
+      {:error, :not_found} ->
+        {:error, grant_error(set, Credential.grant_message())}
+    end
+  end
+
+  defp grant_error(set, message) do
+    set |> Ecto.Changeset.change() |> Ecto.Changeset.add_error(:chatgpt_grant_id, message)
+  end
+
+  defp write_grant(current, grant) do
+    case current |> Credential.grant_changeset(grant && grant.grant_id) |> Repo.update() do
+      {:ok, updated} -> {:changed, updated, current.chatgpt_grant_id, grant}
+      error -> error
+    end
+  end
+
+  @doc """
+  The names of the owner's sets that name `grant_id`, in order; `[]` for a
+  grant no set names. Scoped by the owner. What
+  `Fountain.ChatGPTAccounts.remove_for_user/3` asks before it deletes a row
+  the sets' foreign key would refuse to lose.
+  """
+  @spec set_names_for_grant(Ecto.UUID.t(), binary()) :: [String.t()]
+  def set_names_for_grant(grant_id, user_id) when is_binary(grant_id) and is_binary(user_id) do
+    with {:ok, grant} <- Ecto.UUID.cast(grant_id),
+         {:ok, owner} <- Ecto.UUID.cast(user_id) do
+      Repo.all(
+        from c in Credential,
+          where: c.user_id == ^owner and c.chatgpt_grant_id == ^grant,
+          order_by: [asc: c.name],
+          select: c.name
+      )
+    else
+      :error -> []
+    end
+  end
+
+  @doc """
   Returns a map `%{provider => plaintext}` of every credential the user has
   set, decrypted with the supplied tenant DEK. Missing providers are absent
   from the map.
@@ -518,30 +649,146 @@ defmodule Fountain.InferenceCredentials do
   set, which is the only set that existed when every caller of this was
   written. A missing or foreign explicit set reports every credential absent;
   it never reports credentials from the account default or another tenant.
+
+  `opts` may also name the `:runtime`. A set that names a ChatGPT
+  subscription is missing nothing for a codex run on a brokered deployment,
+  and is still missing `openai_api_key` for every other OpenAI consumer (ADR
+  0060 decision 2), which is how a set with a grant and no key says so when
+  it is selected rather than at the turn. Only that the set names a grant is
+  asked, never the grant's state: a status read does not decrypt or renew
+  (ADR 0052 decision 4), and an unusable grant is resolution's to report.
   """
   @spec missing_for_model(binary(), String.t() | nil, keyword()) ::
           nil | {String.t(), [atom()]}
   def missing_for_model(user_id, model, opts \\ []) when is_binary(user_id) do
-    provider = Managoat.Runtimes.Model.provider(model)
+    set = set_for(user_id, Keyword.get(opts, :credential_set_id))
+    runtime = Keyword.get(opts, :runtime)
+    provider = Managoat.Runtimes.Model.provider(model) || grant_provider(set, runtime)
 
     case credentials_for_provider(provider) do
       [] ->
         nil
 
       accepted ->
-        status = status_for(user_id, Keyword.get(opts, :credential_set_id))
-        if Enum.any?(accepted, &Map.get(status, &1, false)), do: nil, else: {provider, accepted}
+        status = status_for_set(set)
+
+        if Enum.any?(accepted, &Map.get(status, &1, false)) or grant_serves?(set, runtime),
+          do: nil,
+          else: {provider, accepted}
     end
   end
 
-  defp status_for(user_id, nil), do: status_for_user(user_id)
+  defp set_for(user_id, nil), do: get_for_user(user_id)
+  defp set_for(user_id, set_id), do: get_set(set_id, user_id)
 
-  defp status_for(user_id, set_id) do
-    case get_set(set_id, user_id) do
-      nil -> status_for_set(nil)
-      set -> status_for_set(set)
-    end
+  # Keyed on the runtime, as resolution is (`Resolver.named_grant/4`): a codex
+  # run on a set that names a subscription is OpenAI's whatever the model
+  # string says, so a model with no `provider/` prefix is asked about here
+  # instead of being waved through as a provider that needs nothing.
+  defp grant_provider(%Credential{chatgpt_grant_id: id}, "codex") when is_binary(id), do: "openai"
+  defp grant_provider(_set, _runtime), do: nil
+
+  defp grant_serves?(%Credential{chatgpt_grant_id: id}, "codex") when is_binary(id),
+    do: Fountain.Broker.configured?()
+
+  defp grant_serves?(_set, _runtime), do: false
+
+  @typedoc """
+  Why the ChatGPT subscription a set names cannot serve a codex run, in a
+  shape that is safe to inspect, log and return: ids, the name the tenant
+  chose, an atom and a time, never a token or anything the provider said.
+
+  `:reason` is `:disconnected`, `:revoked`, `:expired`, `:reconnect_required`
+  (active, but holding nothing that can be renewed), `:exhausted` (with
+  `:until`, the reset the provider gave), `:not_found` (the owner holds no
+  such grant; `:name` is nil) or `:broker_required` (this deployment runs no
+  egress broker, so the token would reach the sandbox in the clear).
+  `:grant_id` is what the set names. `grant_unusable_message/1` is the
+  sentence.
+  """
+  @type grant_unusable :: %{
+          grant_id: Ecto.UUID.t(),
+          name: String.t() | nil,
+          reason:
+            :disconnected
+            | :revoked
+            | :expired
+            | :reconnect_required
+            | :exhausted
+            | :not_found
+            | :broker_required,
+          until: DateTime.t() | nil
+        }
+
+  @no_fallback "Fountain does not switch to another subscription, an API key or platform inference for you."
+
+  # A conversation is pinned to the grant and generation it started on (ADR
+  # 0052 decision 5). Reconnecting is a new generation and repointing the set
+  # is a different grant, so either one ends every conversation that was
+  # running on this one: its next turn is `:inference_source_changed`. So the
+  # remedy ends in a new conversation rather than implying this one resumes,
+  # which is also the right thing to say to a launch that was refused.
+  @then_new "and start a new conversation"
+
+  @doc """
+  What to tell the owner about a `t:grant_unusable/0`: which subscription,
+  what is wrong with it, what to do, and that nothing was substituted.
+
+  Total on purpose. It is called while rendering a refusal (the 409, the
+  turn stream, a schedule's `last_error`), so a reason this does not know,
+  which a later stage may add before it adds the sentence, gets a plain
+  one and never raises.
+  """
+  @spec grant_unusable_message(grant_unusable() | map()) :: String.t()
+  def grant_unusable_message(%{reason: :not_found}),
+    do:
+      "This credential set names a ChatGPT subscription that is not on this account. " <>
+        "Point the set at one of yours #{@then_new}. " <> @no_fallback
+
+  def grant_unusable_message(%{reason: :broker_required}),
+    do:
+      "This credential set names a ChatGPT subscription, and this deployment does not run " <>
+        "the egress broker a subscription needs. " <> @no_fallback
+
+  # The one state a pinned conversation outlives: the row is the same grant
+  # and generation once the reset passes.
+  def grant_unusable_message(%{reason: :exhausted} = detail),
+    do:
+      "ChatGPT subscription #{inspect(detail[:name])} has used its Codex allowance" <>
+        "#{until(detail)}. Wait for the reset, or point this credential set at another " <>
+        "subscription and start a new conversation. " <> @no_fallback
+
+  def grant_unusable_message(%{reason: reason} = detail) do
+    problem =
+      case reason do
+        :disconnected -> "is disconnected"
+        :revoked -> "is no longer accepted by OpenAI"
+        :expired -> "has expired"
+        :reconnect_required -> "can no longer be renewed"
+        _ -> "cannot serve this run"
+      end
+
+    "ChatGPT subscription #{inspect(detail[:name])} #{problem}. Reconnect it, or point this " <>
+      "credential set at another subscription, #{@then_new}. " <> @no_fallback
   end
+
+  @doc """
+  A resolution refusal as it may be written to the application log. A
+  `t:grant_unusable/0` carries the name the tenant chose for the
+  subscription, which is free text and theirs; the log gets the grant id,
+  the reason and the reset time, which say the same thing to an operator.
+  Every other reason is returned as it is.
+  """
+  @spec loggable_reason(term()) :: term()
+  def loggable_reason({:chatgpt_grant_unusable, %{} = detail}),
+    do: {:chatgpt_grant_unusable, Map.take(detail, [:grant_id, :reason, :until])}
+
+  def loggable_reason(reason), do: reason
+
+  defp until(%{until: %DateTime{} = at}),
+    do: " until " <> (at |> DateTime.truncate(:second) |> DateTime.to_iso8601())
+
+  defp until(_), do: ""
 
   @doc """
   Resolve the credential a conversation on `model` and `runtime` runs on: the
@@ -561,26 +808,41 @@ defmodule Fountain.InferenceCredentials do
      then the vault's secrets (`:environment_id`, `:vault_id`), normalized by
      credential kind; two aliases that disagree inside one layer are
      `:inference_credential_conflict`; the vault wins over the environment.
-  4. **Select.** An override wins over the set's value for the same kind;
+  4. **Named subscription.** When the set names a ChatGPT grant
+     (`set_grant/3`, ADR 0060 decision 2) and the model is OpenAI's: a codex
+     run resolves to that grant, a `:grant` source carrying its `grant_id`
+     and `generation` and no bearer, ahead of every override and with the
+     OpenAI key dropped from what the runtime is handed. A grant that cannot
+     serve is `{:chatgpt_grant_unusable, detail}` (`t:grant_unusable/0`) and
+     nothing else is tried: not another of the user's grants, not the set's
+     own key, not an environment or vault key, not the platform. Any other
+     runtime needs a key, and with none anywhere is `Source.missing/0`,
+     never the platform's key. The grant is read by owner and id, metadata
+     only.
+  5. **Select.** An override wins over the set's value for the same kind;
      the runtime's kind precedence picks (Claude prefers OAuth, OpenCode's
      Anthropic path accepts only an API key). An empty selected value, or a
      tenant value for the provider that the runtime cannot use, is
      `:inference_credential_unusable`.
-  5. **Platform policy**, only when no tenant source was selected:
+  6. **Platform policy**, only when no tenant source was selected:
      `Fountain.PlatformInference.credential_for/2`. Nothing anywhere is
      `Source.missing/0`, never an error: the sandbox still provisions, with
      nothing to call. Under an explicit `:credential_set_id`, `:missing` and
      `:platform` are refused as unusable rather than substituted.
-  6. **Bind** the source's identity and revision per scope, then stamp the
+  7. **Bind** the source's identity and revision per scope, then stamp the
      model, runtime, environment and vault.
-  7. **Compare** the dumped source with `:expected_source`; a difference is
-     `:inference_source_changed`.
+  8. **Compare** the dumped source with `:expected_source`; a difference is
+     `:inference_source_changed`. So is an unusable grant under an expected
+     source that is not that grant: a conversation pinned to the set's API
+     key has not lost a subscription, its source changed. A reconnect of
+     the named grant is a new generation, and so a changed source.
 
   `opts` accepts exactly `:credential_set_id`, `:environment_id`, `:vault_id`
   and `:expected_source`; anything else raises.
   """
   @spec resolve(binary(), String.t() | nil, String.t() | nil, keyword()) ::
-          {:ok, Source.t(), %{atom() => String.t()}} | {:error, atom()}
+          {:ok, Source.t(), %{atom() => String.t()}}
+          | {:error, atom() | {:chatgpt_grant_unusable, grant_unusable()}}
   def resolve(user_id, model, runtime, opts \\ []),
     do: Fountain.InferenceCredentials.Resolver.resolve(user_id, model, runtime, opts)
 
@@ -665,6 +927,11 @@ defmodule Fountain.InferenceCredentials do
 
     case resolve(user_id, source.model, source.runtime, opts) do
       {:ok, _, _} -> :ok
+      # Not flattened: "your source changed" tells the owner of a revoked or
+      # disconnected subscription nothing they can act on, and this runs
+      # before every turn (ADR 0060 decision 4). The resolver answers this
+      # only for the grant the source is pinned to.
+      {:error, {:chatgpt_grant_unusable, _} = reason} -> {:error, reason}
       {:error, _} -> {:error, :inference_source_changed}
     end
   end

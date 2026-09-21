@@ -346,6 +346,18 @@ defmodule Fountain.Team.SchedulesTest do
     assert Schedules.describe_error(:insufficient_credits) == "out of credit"
   end
 
+  # ADR 0060 decision 4. The catch-all would have stored `inspect/1` of the
+  # tuple; the owner gets which subscription, what is wrong and what to do.
+  test "a teammate whose set names an unusable ChatGPT subscription is told which and why" do
+    detail = %{grant_id: Ecto.UUID.generate(), name: "Work", reason: :revoked, until: nil}
+    described = Schedules.describe_error({:chatgpt_grant_unusable, detail})
+
+    assert described == Fountain.InferenceCredentials.grant_unusable_message(detail)
+    assert described =~ ~s(ChatGPT subscription "Work" is no longer accepted by OpenAI)
+    # What survives `last_error`'s 250 characters is the actionable half.
+    assert String.slice(described, 0, 250) =~ "Reconnect it"
+  end
+
   test "a full fleet is described in words too (#1033)" do
     assert Schedules.describe_error(:fleet_full) == "sandbox fleet is full"
   end

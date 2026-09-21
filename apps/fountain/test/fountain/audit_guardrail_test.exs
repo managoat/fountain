@@ -97,6 +97,9 @@ defmodule Fountain.AuditGuardrailTest do
     {"credential set delete", &__MODULE__.do_set_delete/1, "inference_credential_set.deleted"},
     {"credential set default", &__MODULE__.do_set_default/1,
      "inference_credential_set.default_changed"},
+    # ADR 0060 stage 2. No surface calls it yet, like the grant writes below.
+    {"credential set names a chatgpt grant", &__MODULE__.do_set_grant/1,
+     "inference_credential_set.chatgpt_grant_changed"},
     # A user's ChatGPT grants (ADR 0060 stage 1). No surface calls these yet;
     # the entries are here so the first one that does inherits the events.
     {"chatgpt grant link", &__MODULE__.do_grant_link/1, "chatgpt_grant.connected"},
@@ -585,6 +588,12 @@ defmodule Fountain.AuditGuardrailTest do
     {:ok, _default} = InferenceCredentials.create_set(user.id, "guard-default")
     {:ok, second} = InferenceCredentials.create_set(user.id, "guard-second")
     {:ok, _} = InferenceCredentials.set_default(second)
+  end
+
+  def do_set_grant(user) do
+    {:ok, set} = InferenceCredentials.create_set(user.id, "guard-grant")
+    grant = Fountain.ChatGPTFixtures.user_grant!(user.id)
+    {:ok, _} = InferenceCredentials.set_grant(set, grant.id)
   end
 
   def do_conv_delete(user) do

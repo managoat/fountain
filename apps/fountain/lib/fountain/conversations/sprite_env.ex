@@ -72,9 +72,10 @@ defmodule Fountain.Conversations.SpriteEnv do
 
   `opts` carries what `ConversationServer` holds: `:runtime_module`,
   `:env_credentials`, `:callback_token`, `:conversation_id` and
-  `:sandbox_id`, plus `:sandbox_url` (nil before the sandbox has one) and
+  `:sandbox_id`, plus `:sandbox_url` (nil before the sandbox has one),
   `:brokered` (the pairs from the broker session, `[]` when the conversation
-  is not brokered; the broker half is #1373's).
+  is not brokered; the broker half is #1373's) and `:inference_source` (the
+  resolved source, when the caller holds one).
   """
   @spec build(map() | nil, Environment.t() | nil, map(), keyword()) ::
           [{String.t(), String.t()}]
@@ -87,10 +88,7 @@ defmodule Fountain.Conversations.SpriteEnv do
 
     # Only the resolved kind reaches the selected provider's auth inputs.
     # Its value has already passed through Egress, including broker custody.
-    auth_names =
-      (agent && Managoat.Runtimes.Model.provider(agent.model))
-      |> InferenceCredentials.credentials_for_provider()
-      |> Enum.flat_map(&Map.fetch!(InferenceCredentials.env_aliases(), &1))
+    auth_names = inference_input_names(agent && agent.model, Keyword.get(opts, :inference_source))
 
     plain = if env, do: Map.drop(env.env_vars || %{}, auth_names), else: %{}
     secrets = Map.drop(secrets, auth_names)
@@ -246,14 +244,24 @@ defmodule Fountain.Conversations.SpriteEnv do
         do: {credential, Broker.placeholder(key)}
   end
 
-  def without_inference_inputs(model, inputs) do
-    names =
-      model
-      |> Managoat.Runtimes.Model.provider()
-      |> InferenceCredentials.credentials_for_provider()
-      |> Enum.flat_map(&Map.fetch!(InferenceCredentials.env_aliases(), &1))
+  def without_inference_inputs(model, inputs, source \\ nil),
+    do: Map.drop(inputs, inference_input_names(model, source))
 
-    Map.drop(inputs, names)
+  # The env names that would carry a credential for the provider the run
+  # reaches. The model's prefix says which provider, except on a `:grant`
+  # source: that is a codex run on a ChatGPT subscription whatever the model
+  # string says (the resolver keys the grant on the runtime, and an agent's
+  # model may carry no prefix), so OpenAI's names are dropped there too. An
+  # `OPENAI_API_KEY` from the environment or the vault beside the grant would
+  # be the silent switch ADR 0060 decision 4 forbids.
+  defp inference_input_names(model, source) do
+    granted =
+      if match?(%InferenceCredentials.Source{scope: :grant}, source), do: ["openai"], else: []
+
+    [Managoat.Runtimes.Model.provider(model) | granted]
+    |> Enum.uniq()
+    |> Enum.flat_map(&InferenceCredentials.credentials_for_provider/1)
+    |> Enum.flat_map(&Map.fetch!(InferenceCredentials.env_aliases(), &1))
   end
 
   # The overridable half of the broker's pairs, and the half that is not.

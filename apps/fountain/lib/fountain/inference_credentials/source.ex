@@ -8,13 +8,28 @@ defmodule Fountain.InferenceCredentials.Source do
   stored binding before preparing auth or starting another turn.
 
   `scope` says where the credential came from: the tenant's set
-  (`:credential`), a tenant secret named after one (`:tenant_secret`), the
-  deployment (`:platform`), nowhere because the provider needs none
-  (`:none`), or nowhere at all (`:missing`). Whether a source is the
-  platform's is a function of that, `platform?/1`; the `"origin"` key every
-  stored map carries (`"platform"` or `"own"`) is written by `dump/1` from
-  the scope and ignored by `load/1`, so rows written before it was derived
-  and the `expected_source` comparison keep their shape.
+  (`:credential`), a tenant secret named after one (`:tenant_secret`), a
+  ChatGPT subscription of the tenant's that their set names (`:grant`, ADR
+  0060 decision 2), the deployment (`:platform`), nowhere because the
+  provider needs none (`:none`), or nowhere at all (`:missing`). Whether a
+  source is the platform's is a function of that, `platform?/1`; the
+  `"origin"` key every stored map carries (`"platform"` or `"own"`) is
+  written by `dump/1` from the scope and ignored by `load/1`, so rows
+  written before it was derived and the `expected_source` comparison keep
+  their shape.
+
+  A `:grant` source is the tenant's own, so its origin is `"own"` and it
+  never reaches the platform ceiling or the platform debit. It alone carries
+  `grant_id` and `generation`, the pin `ChatGPTAccounts.credential_for_user/4`
+  takes; its `identity` is `"chatgpt_grant:" <> grant_id` and its `revision`
+  the generation, so everything that compares identity and revision already
+  tells two grants, and two sign-ins of one grant, apart. The bearer never
+  travels with a source.
+
+  `dump/1` writes `"grant_id"` and `"generation"` only when they are set.
+  Every stored map is compared whole with a fresh dump, so a key that every
+  source started to carry, even as `nil`, would make every conversation
+  admitted before it read as `:inference_source_changed`.
   """
   @type t :: %__MODULE__{}
   @enforce_keys [:scope]
@@ -27,11 +42,17 @@ defmodule Fountain.InferenceCredentials.Source do
     :runtime,
     :model,
     :environment_id,
-    :vault_id
+    :vault_id,
+    :grant_id,
+    :generation
   ]
+
+  # Absent from a stored map unless set. See the moduledoc.
+  @optional ~w(grant_id generation)
 
   def credential, do: %__MODULE__{scope: :credential}
   def tenant_secret, do: %__MODULE__{scope: :tenant_secret}
+  def grant, do: %__MODULE__{scope: :grant}
   def none, do: %__MODULE__{scope: :none}
   def platform, do: %__MODULE__{scope: :platform}
   def missing, do: %__MODULE__{scope: :missing}
@@ -54,6 +75,7 @@ defmodule Fountain.InferenceCredentials.Source do
       {Atom.to_string(key),
        if(is_atom(value) and not is_nil(value), do: Atom.to_string(value), else: value)}
     end)
+    |> Map.reject(fn {key, value} -> key in @optional and is_nil(value) end)
     |> Map.put("origin", origin(source))
   end
 
@@ -61,7 +83,8 @@ defmodule Fountain.InferenceCredentials.Source do
 
   def load(%{} = source) do
     %__MODULE__{
-      scope: decode(source["scope"], [:credential, :tenant_secret, :platform, :none, :missing]),
+      scope:
+        decode(source["scope"], [:credential, :tenant_secret, :grant, :platform, :none, :missing]),
       kind:
         decode(source["kind"], [
           :anthropic_api_key,
@@ -76,9 +99,33 @@ defmodule Fountain.InferenceCredentials.Source do
       runtime: source["runtime"],
       model: source["model"],
       environment_id: source["environment_id"],
-      vault_id: source["vault_id"]
+      vault_id: source["vault_id"],
+      grant_id: source["grant_id"],
+      generation: source["generation"]
     }
   end
+
+  @doc """
+  The managed ChatGPT grant a source is pinned to: whose it is, its id and
+  the generation it was resolved at, or `nil` for a source that is not on a
+  grant. Never a token. The platform's is read out of its identity and
+  revision, which is where that path has always kept them.
+  """
+  @spec grant_ref(t() | nil) :: {:user | :platform, String.t(), String.t()} | nil
+  def grant_ref(%__MODULE__{scope: :grant, grant_id: id, generation: generation})
+      when is_binary(id) and is_binary(generation),
+      do: {:user, id, generation}
+
+  def grant_ref(%__MODULE__{
+        scope: :platform,
+        kind: :codex_chatgpt_access_token,
+        identity: "platform:chatgpt:" <> id,
+        revision: generation
+      })
+      when is_binary(generation),
+      do: {:platform, id, generation}
+
+  def grant_ref(_), do: nil
 
   defp decode(value, allowed), do: Enum.find(allowed, &(Atom.to_string(&1) == value))
 end

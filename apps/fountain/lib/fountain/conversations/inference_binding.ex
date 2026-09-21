@@ -56,6 +56,12 @@ defmodule Fountain.Conversations.InferenceBinding do
       with :ok <- current_source(current, source),
            :ok <- InferenceCredentials.validate_source(current.user_id, source),
            :ok <- Fountain.PlatformInference.gate_source(source),
+           # ADR 0060 stage 2 only. Every path that *binds* a conversation to
+           # a source comes through here: provision, reattach, reapply, and a
+           # wake that provisions. Not every path that runs one: a wake that
+           # reuses a live machine starts on the persisted source, which is
+           # why `TurnMachine.gate/2` and turn admission ask the same thing.
+           :ok <- Fountain.Conversations.CodexChatGPT.transport_ready(source),
            :ok <- compatible_machine(current, source) do
         case current
              |> Ecto.Changeset.change(inference_source: Source.dump(source))

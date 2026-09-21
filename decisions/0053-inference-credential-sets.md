@@ -218,6 +218,15 @@ untouched: an account still links one ChatGPT subscription, the preference
 for which source a Codex agent takes
 stays user-level, and a set may name a grant only once 0052 decision 4 lands.
 
+*2026-09-20:* [0060](0060-many-user-chatgpt-subscriptions.md) takes this up
+and changes two of those three clauses: an account may link several
+subscriptions, and there is no user-level preference, because a set names
+the grant. Its stage 2 is built: `inference_credentials.chatgpt_grant_id`,
+`InferenceCredentials.set_grant/3`, and a `:grant` source from the resolver
+that follows decision 5 rule 2 below. Nothing a user can reach sets the
+field yet, and a `:grant` source is refused at admission until 0060 stage 3
+builds its transport.
+
 ### 4. Inference auth inputs leave the shared environment file
 
 Add every supported runtime's inference credential variable name and alias to

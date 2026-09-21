@@ -38,6 +38,37 @@ defmodule Fountain.Conversations.CodexChatGPT do
   def credential, do: @credential
 
   @doc """
+  Whether this module can carry a resolved source into a sandbox: `:ok` for
+  everything but a `:grant` source, a user's own subscription that their
+  credential set names (ADR 0060 decision 2).
+
+  **Temporary, and ADR 0060 stage 3 deletes it.** Selection of a user's
+  grant is built and its transport is not. `prepare_sandbox/3` below writes
+  the *platform* grant's account id and `id_token` whatever the source is,
+  so a user's bearer would travel beside the deployment's account; the
+  broker holds one `CODEX_CHATGPT_ACCESS_TOKEN` entry per conversation; and
+  `Egress` renews only the platform grant. Until those follow the named
+  grant, a `:grant` source is refused here at three doors: launch admission,
+  `InferenceBinding.reserve/2`, and every turn (`TurnMachine.gate/2`, and
+  turn admission's locked check in
+  `Conversations._unsafe_create_turn_on_sandbox/4`). The first two keep a
+  conversation from being bound to one; the turn's is for a source that was
+  persisted some other way, which a wake reusing a live machine would
+  otherwise run without binding again. No user can hold a grant before
+  stage 4, so this refuses nothing anyone can do today; it keeps each stage
+  safe on its own.
+
+  `nil` is a conversation admitted before sources were stored, and is ready.
+  """
+  @spec transport_ready(Fountain.InferenceCredentials.Source.t() | nil) ::
+          :ok | {:error, :chatgpt_grant_transport_unavailable}
+  def transport_ready(%Fountain.InferenceCredentials.Source{scope: :grant}),
+    do: {:error, :chatgpt_grant_transport_unavailable}
+
+  def transport_ready(%Fountain.InferenceCredentials.Source{}), do: :ok
+  def transport_ready(nil), do: :ok
+
+  @doc """
   The spawn env entry for the grant: `[{"CODEX_CHATGPT_ACCESS_TOKEN", value}]`
   for the codex runtime when the credentials carry it, else `[]`.
   """

@@ -907,10 +907,14 @@ defmodule Fountain.Conversations.TurnMachine do
   against the rate card.
 
   Platform turns are stamped from the credential source selected for the
-  turn, including a ChatGPT grant without any platform API key. A later
-  configuration change cannot erase the source that served the turn.
-  Tenant-owned turns retain their legacy shape when no platform API key is
-  configured.
+  turn, including the deployment's ChatGPT grant (scope `:platform`) without
+  any platform API key. A later configuration change cannot erase the source
+  that served the turn. Tenant-owned turns retain their legacy shape when no
+  platform API key is configured.
+
+  A user's own named ChatGPT grant (scope `:grant`, ADR 0060) is a tenant
+  source and is stamped `"own"`. Which grant served the turn is not recorded
+  yet: decision 6 asks for it, and it arrives with exhaustion in stage 5.
 
   The `"model"` key is deliberately absent on an `"own"` turn: nothing prices
   it, so recording it would put a configuration detail in a column that
@@ -924,7 +928,8 @@ defmodule Fountain.Conversations.TurnMachine do
         |> Map.put("inference", "platform")
         |> put_model(:platform, Map.get(ctx, :model))
 
-      %Source{scope: scope} when scope in [:credential, :tenant_secret, :none, :missing] ->
+      %Source{scope: scope}
+      when scope in [:credential, :tenant_secret, :grant, :none, :missing] ->
         if Fountain.PlatformInference.enabled?(),
           do: Map.put(usage, "inference", "own"),
           else: usage
@@ -1094,12 +1099,29 @@ defmodule Fountain.Conversations.TurnMachine do
   @spec gate(String.t(), Source.t() | nil) :: :ok | {:error, term()}
   def gate(user_id, inference \\ nil) do
     with :ok <- validate_inference(user_id, inference),
+         # ADR 0060 stage 2 only, and stage 3 deletes it with the function.
+         # Binding refuses a `:grant` source (`InferenceBinding.reserve/2`),
+         # but a wake that reuses a live machine starts a server on the
+         # persisted source without binding again, so the turn asks too.
+         :ok <- Fountain.Conversations.CodexChatGPT.transport_ready(inference),
          :ok <- Fountain.Accounts.check_not_suspended(user_id),
          :ok <- Fountain.Billing.check_spend(user_id) do
       if Source.platform?(inference),
         do: Fountain.PlatformInference.check_ceiling(),
         else: :ok
     end
+  end
+
+  @doc """
+  The log line for a prompt the server could not turn into a turn. The
+  reason goes through `InferenceCredentials.loggable_reason/1`: an unusable
+  ChatGPT grant carries the name its owner chose, which is theirs and stays
+  out of the application log.
+  """
+  @spec log_refusal(String.t(), String.t(), term()) :: :ok
+  def log_refusal(conversation_id, what, reason) do
+    reason = Fountain.InferenceCredentials.loggable_reason(reason)
+    Logger.info("conv #{conversation_id}: #{what} (#{inspect(reason)})")
   end
 
   defp validate_inference(user_id, %Source{identity: identity} = source) when is_binary(identity),
@@ -1243,6 +1265,21 @@ defmodule Fountain.Conversations.TurnMachine do
         })
 
         :at_capacity
+
+      # The subscription this conversation runs on cannot serve the turn (ADR
+      # 0060 decision 4). `validate_source/2` keeps this refusal whole so it
+      # stays actionable; the stream says the same thing the 409 does, rather
+      # than "invalid_turn".
+      {:error, {:chatgpt_grant_unusable, %{reason: reason} = detail}} = error ->
+        publish_stage(conversation_id, "sandbox", "done", %{
+          event: "admission_refused",
+          reason: "chatgpt_grant_unusable",
+          grant_reason: Atom.to_string(reason),
+          grant_id: detail[:grant_id],
+          message: Fountain.InferenceCredentials.grant_unusable_message(detail)
+        })
+
+        error
 
       {:error, reason} = error ->
         publish_stage(conversation_id, "sandbox", "done", %{

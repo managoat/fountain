@@ -22,7 +22,8 @@ defmodule FountainWeb.AgentsLive.Form do
      |> assign(
        :missing_credential,
        InferenceCredentials.missing_for_model(user_id, credential_model(agent),
-         credential_set_id: agent.inference_credential_id
+         credential_set_id: agent.inference_credential_id,
+         runtime: agent.runtime
        )
      )
      |> assign(:credential_message, nil)
@@ -259,7 +260,8 @@ defmodule FountainWeb.AgentsLive.Form do
        if(model_required?(params["runtime"]),
          do:
            InferenceCredentials.missing_for_model(socket.assigns.user_id, params["model"],
-             credential_set_id: selected_credential_id(params)
+             credential_set_id: selected_credential_id(params),
+             runtime: params["runtime"]
            ),
          else: nil
        )
@@ -287,7 +289,8 @@ defmodule FountainWeb.AgentsLive.Form do
            InferenceCredentials.missing_for_model(
              socket.assigns.user_id,
              socket.assigns.form["model"],
-             credential_set_id: selected_credential_id(socket.assigns.form)
+             credential_set_id: selected_credential_id(socket.assigns.form),
+             runtime: socket.assigns.form["runtime"]
            )
          )}
 

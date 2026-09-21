@@ -44,11 +44,16 @@ defmodule Fountain.ChatGPTAccounts do
       refresh lock, using only the owner's encryption key. Callers re-read
       their pinned grant after renewal; the coordinator holds no tokens.
 
-  **Nothing in production calls any of these yet.** There is no route, no
-  page and no job; selection by a credential set, the broker path, the
-  account surface and the keepalive schedule are stages 2 to 5 of ADR 0060.
-  Until the keepalive exists an idle user grant would lapse at the auth
-  server's window, which is one reason linking is not reachable.
+  **No user can reach any of these yet.** There is no route, no page and no
+  job, so no user holds a grant. The one call production code makes is the
+  resolver's `get_for_user/2`, for every set that names a grant, of which
+  there are none: it turns such a set into a `:grant` source or an error
+  naming the grant. `InferenceCredentials.set_grant/3` reads through the
+  same function and has no production caller either (ADR 0060 stage 4 adds
+  it), and `remove_for_user/3` asks the sets before it deletes. The broker path,
+  the account surface and the keepalive schedule are stages 3 to 5. Until
+  the keepalive exists an idle user grant would lapse at the auth server's
+  window, which is one reason linking is not reachable.
 
   ### The source lock, and one rule for whoever selects a grant
 
@@ -423,19 +428,31 @@ defmodule Fountain.ChatGPTAccounts do
   Delete a disconnected grant's row, which frees its slot under the ceiling
   and lets its upstream account be linked afresh. A grant that still holds
   a credential is `{:error, :still_connected}`: disconnect it first, so
-  removal never drops a live refresh token as a side effect. A changeset is
-  the database refusing the delete; nothing declares a constraint that
-  would produce one yet.
+  removal never drops a live refresh token as a side effect.
+
+  A grant that credential sets still name is `{:error, {:named_by_sets,
+  names}}`, the sets' names in order: point them elsewhere first. Removing
+  it from under them would either fail on their foreign key or, had that
+  nilified, turn each into a set with no grant whose next codex run resolves
+  to something the user never chose (ADR 0060 decision 4). The check and the
+  delete cannot interleave with a set being pointed at the grant: both hold
+  the owner's source lock. This check is the guard, not the sets' foreign
+  key: that key is deferred, so it would refuse at COMMIT by raising, which
+  the lock should make unreachable.
   """
   @spec remove_for_user(Ecto.UUID.t(), String.t(), keyword()) ::
-          :ok | {:error, :not_found | :still_connected | Ecto.Changeset.t()}
+          :ok
+          | {:error,
+             :not_found
+             | :still_connected
+             | {:named_by_sets, [String.t()]}
+             | Ecto.Changeset.t()}
   def remove_for_user(grant_id, user_id, opts \\ [])
       when is_binary(grant_id) and is_binary(user_id) do
     result =
       user_write(user_id, fn ->
         case locked_user_grant(grant_id, user_id) do
-          # ADR 0060 stage 2 adds the refusal for a grant a credential set names.
-          {:ok, %Account{status: "disconnected"} = account} -> Repo.delete(account)
+          {:ok, %Account{status: "disconnected"} = account} -> delete_unnamed(account)
           {:ok, %Account{}} -> {:error, :still_connected}
           {:error, _} = error -> error
         end
@@ -444,6 +461,16 @@ defmodule Fountain.ChatGPTAccounts do
     with {:ok, account} <- result do
       audit_grant(account, "chatgpt_grant.removed", opts, %{"name" => account.name})
       :ok
+    end
+  end
+
+  defp delete_unnamed(%Account{} = account) do
+    case Fountain.InferenceCredentials.set_names_for_grant(account.id, account.user_id) do
+      [] ->
+        Repo.delete(account)
+
+      names ->
+        {:error, {:named_by_sets, names}}
     end
   end
 

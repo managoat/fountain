@@ -315,6 +315,25 @@ defmodule Fountain.ChatGPTLinkAttemptsTest do
              ] = events(user)
     end
 
+    test "the clock is read again once the auth server has answered", %{user: user} do
+      grant = link!(user, "Work", "acct-work")
+      assert {:ok, first} = start(user, %{name: "Side"})
+      answer = device_start(self())
+
+      # The auth server takes its time, and the open sign-in runs out meanwhile.
+      slow = fn ->
+        overdue!(first.id)
+        Process.sleep(2_100)
+        answer.()
+      end
+
+      asked_at = DateTime.utc_now()
+      assert {:ok, second} = start(user, %{grant_id: grant.grant_id}, device_start: slow)
+
+      assert %LinkAttempt{state: "expired"} = Repo.get!(LinkAttempt, first.id)
+      assert DateTime.diff(second.expires_at, asked_at, :second) > 900
+    end
+
     test "a disconnected grant may be reconnected", %{user: user} do
       grant = link!(user, "Work", "acct-work")
       assert :ok = ChatGPTAccounts.disconnect_for_user(grant.grant_id, user.id)

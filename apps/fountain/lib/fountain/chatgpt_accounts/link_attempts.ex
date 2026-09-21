@@ -36,22 +36,39 @@ defmodule Fountain.ChatGPTAccounts.LinkAttempts do
   # ── start ────────────────────────────────────────────────────────────────
 
   def start(user_id, target, opts) when is_binary(user_id) and is_list(opts) do
-    now = now()
     device_start = Keyword.get(opts, :device_start, &OAuth.device_start/0)
 
     with {:ok, target} <- target(target),
          :ok <- enabled(user_id, target),
-         :ok <- expire_overdue(user_id, now),
          # Asked twice: here, so a request that will be refused costs the auth
          # server nothing, and again in the transaction that inserts the row.
-         {:ok, _pins} <-
-           ChatGPTAccounts.user_write(user_id, fn -> admit(user_id, target, now) end),
+         {:ok, _pins} <- admitted(user_id, fn now -> admit(user_id, target, now) end),
          {:ok, started} <- device_code(device_start),
-         {:ok, {attempt, label}} <-
-           ChatGPTAccounts.user_write(user_id, fn -> insert(user_id, target, started, now) end) do
+         {:ok, {attempt, label, now}} <-
+           admitted(user_id, fn now -> insert(user_id, target, started, now) end) do
       audit(attempt, "chatgpt_link_attempt.started", opts, %{"name" => label})
       ChatGPTAccounts.broadcast_changed(user_id)
       {:ok, view(attempt, now)}
+    end
+  end
+
+  # One admission: the clock is read when it begins, because the auth server
+  # may have taken seconds to answer between the two, and the account's
+  # overdue rows are written `expired` in its transaction before anything is
+  # counted. A refusal rolls that sweep back with the rest, which costs
+  # nothing: no query here counts a row past its time (`pending_query/2`).
+  defp admitted(user_id, fun) do
+    now = now()
+
+    result =
+      ChatGPTAccounts.user_write(user_id, :ineligible_owner, fn ->
+        expired = expire_overdue(user_id, now)
+        with {:ok, admitted} <- fun.(now), do: {:ok, {admitted, expired}}
+      end)
+
+    with {:ok, {admitted, expired}} <- result do
+      Enum.each(expired, &expired/1)
+      {:ok, admitted}
     end
   end
 
@@ -189,7 +206,7 @@ defmodule Fountain.ChatGPTAccounts.LinkAttempts do
              |> LinkAttempt.start_changeset(attrs)
              |> Repo.insert(),
            {:ok, _job} <- Fountain.Workers.ChatGPTLinkAttempt.enqueue(attempt) do
-        {:ok, {attempt, Map.get(pins, :label) || attempt.name}}
+        {:ok, {attempt, Map.get(pins, :label) || attempt.name, now}}
       end
     end
   end
@@ -552,23 +569,16 @@ defmodule Fountain.ChatGPTAccounts.LinkAttempts do
 
   # Correctness never waits for this: every reader and every write compares
   # `expires_at` itself. It is here so an overdue row stops holding its
-  # grant's one open reconnect, and so the row says what happened.
+  # grant's one open reconnect, and so the row says what happened. Inside
+  # `admitted/2`'s transaction, under the owner's key; the rows it answers
+  # are announced by `expired/1` once that has committed.
   defp expire_overdue(user_id, now) do
-    result =
-      ChatGPTAccounts.user_write(user_id, :ineligible_owner, fn ->
-        overdue =
-          from(a in LinkAttempt,
-            where: a.user_id == ^user_id and a.state == "pending" and a.expires_at <= ^now,
-            lock: "FOR UPDATE"
-          )
-
-        {:ok, overdue |> Repo.all() |> Enum.flat_map(&expire/1)}
-      end)
-
-    with {:ok, expired} <- result do
-      Enum.each(expired, &expired/1)
-      :ok
-    end
+    from(a in LinkAttempt,
+      where: a.user_id == ^user_id and a.state == "pending" and a.expires_at <= ^now,
+      lock: "FOR UPDATE"
+    )
+    |> Repo.all()
+    |> Enum.flat_map(&expire/1)
   end
 
   defp expire(attempt) do

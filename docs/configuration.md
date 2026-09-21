@@ -484,17 +484,22 @@ service keeps the feature, and an upgrade does not take it away. Where you
 configure PostHog, the answer from PostHog decides.
 
 The `chatgpt_subscriptions` flag is the other kind. It holds the door that
-links a new ChatGPT subscription to an account, and that feature is not
-released. The flag reads off everywhere that nobody turned it on, and a
+links a new ChatGPT subscription to an account, and that feature is in
+development. The flag reads off everywhere that nobody turned it on, and a
 deployment with no PostHog is one such place. It needs the credential broker
-too. An account that loses the flag keeps each subscription it linked. The API
+too. To have the feature on your own instance, add `chatgpt_subscriptions` to
+`FEATURE_FLAGS_ON`. The hosted platform turned the flag on for every account
+on 2026-09-21, before the feature was tested with a user's subscription on
+the real service, and its first use there is the only use it has had. Read
+[feature status](reference/feature-status.md) first, and do not force the
+flag on an instance that serves people you do not trust. An account that loses the flag keeps each subscription it linked. The API
 still lists, renames, reconnects, disconnects and removes them.
 
 | Variable | Default | Required | Effect |
 |---|---|---|---|
 | `POSTHOG_PROJECT_API_KEY` | — | — | The PostHog *project* API key. That is the public `phc_…` token, and not a personal key. Unset, Fountain looks up no flag remotely. |
 | `POSTHOG_HOST` | `https://us.i.posthog.com` | — | The PostHog ingestion host. Use `https://eu.i.posthog.com` for EU Cloud, or an instance you host yourself. |
-| `FEATURE_FLAGS_ON` | — | — | Comma-separated flag keys, forced on for each user. It wins over PostHog. No shipped feature needs a key here today: `openai_compat` did until the OpenAI-compatible API was retired, and Connections is turned on by `BROKER_LISTEN_PORT`. |
+| `FEATURE_FLAGS_ON` | — | — | Comma-separated flag keys, forced on for each user. It wins over PostHog. No released feature needs a key here today: `openai_compat` did until the OpenAI-compatible API was retired, and Connections is turned on by `BROKER_LISTEN_PORT`. One feature in development does: ChatGPT subscriptions are off on your own instance unless `chatgpt_subscriptions` is here, and the feature is not proven on the real service. See [feature status](reference/feature-status.md). |
 
 For a hosted Connections rollout, leave the global override unset. Enable
 `connections` for the intended test accounts in PostHog, with evaluation

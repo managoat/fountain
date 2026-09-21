@@ -46,8 +46,11 @@ Add your OpenAI key at `/account/inference-credentials` in the app.
 !!! note "ChatGPT subscriptions"
 
     A credential set can name a linked ChatGPT subscription, and codex then
-    runs on that plan with no OpenAI key. This is in development and off for
-    every account. See
+    runs on that plan with no OpenAI key. This is in development. It is on
+    for every account on the hosted platform since 2026-09-21, with parts
+    not tested on the real service, and off on your own instance unless the
+    operator forces the `chatgpt_subscriptions` flag. See
+    [feature status](../../reference/feature-status.md) and
     [Run Codex on a ChatGPT subscription](../../guides/chatgpt-subscriptions.md),
     which also says what a setup script must not do with `CODEX_HOME`.
 

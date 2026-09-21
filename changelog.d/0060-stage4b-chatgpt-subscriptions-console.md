@@ -7,7 +7,7 @@
   by itself when the sign-in completes, and for half an hour the card says
   how a sign-in ended, also on a page that was not open when it did. A **ChatGPT subscription** row names
   the subscription a credential set's `codex` runs use. The feature is in
-  development and off for every account: the card appears only where the
+  development and off by default: the card appears only where the
   `chatgpt_subscriptions` flag and the credential broker are on, or for an
   account that already holds a subscription, which can always rename,
   reconnect, disconnect and remove it. See

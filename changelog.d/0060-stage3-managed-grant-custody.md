@@ -13,7 +13,7 @@
   account now runs on. That move is not additive: it deletes broker
   sessions, fails codex turns on the account during a rolling upgrade, and
   has notes of its own in this section. Linking a subscription is behind a
-  flag that is off for every account. Rolling `20260921021249` back deletes
+  flag that is off until someone turns it on. Rolling `20260921021249` back deletes
   any broker session that carries a managed grant; its conversation mints a
   new one on its next turn.
 

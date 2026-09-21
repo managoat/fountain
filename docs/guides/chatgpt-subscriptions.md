@@ -8,13 +8,18 @@ the [API](../api.md#chatgpt-subscriptions).
 
 !!! note "ChatGPT subscriptions"
 
-    Linking a ChatGPT subscription is in development and off for every
-    account. The **ChatGPT subscriptions** card is absent from the page
-    unless the `chatgpt_subscriptions` flag is on for your account and the
-    deployment runs the credential broker, or your account already holds a
-    subscription. See [feature status](../reference/feature-status.md) for
-    what is not built yet. Do not rely on this feature for work that must
-    not stop.
+    Linking a ChatGPT subscription is in development. On the hosted
+    platform it is on for every account since 2026-09-21. We turned it on
+    before we had tested it with a user's subscription on the real service,
+    so the first links are the test. On your own instance it is off unless
+    the operator adds `chatgpt_subscriptions` to
+    [`FEATURE_FLAGS_ON`](../configuration.md#feature-flags). The **ChatGPT
+    subscriptions** card is absent from the page unless the flag is on for
+    your account and the deployment runs the credential broker, or your
+    account already holds a subscription. See
+    [feature status](../reference/feature-status.md) for what is not tested
+    and what is not built yet. Do not rely on this feature for work that
+    must not stop.
 
 ## What a linked subscription is
 

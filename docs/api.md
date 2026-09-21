@@ -150,8 +150,11 @@ and the [generated reference](/api/docs) for response schemas and refusals.
 
 !!! note "ChatGPT subscriptions"
 
-    Linking a ChatGPT subscription is in development and off for every
-    account. See [feature status](reference/feature-status.md).
+    Linking a ChatGPT subscription is in development. On the hosted
+    platform it is on for every account since 2026-09-21, and parts of it
+    are not tested on the real service. On your own instance it is off
+    unless the operator forces the `chatgpt_subscriptions` flag. See
+    [feature status](reference/feature-status.md).
 
 The console does the same on one page. See
 [Run Codex on a ChatGPT subscription](guides/chatgpt-subscriptions.md).

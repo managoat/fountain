@@ -147,9 +147,12 @@ OpenAI key and a Gemini key. Most accounts never need a second set.
 A set can also name one ChatGPT subscription that the account linked. That is
 a reference, and the set holds no token for it. The `codex` runs of the set
 then use the subscription, or fail with its name when it cannot serve. Each
-other runtime still uses the set's keys. The feature is in development and
-off for every account. See
-[Run Codex on a ChatGPT subscription](../guides/chatgpt-subscriptions.md).
+other runtime still uses the set's keys. The feature is in development. It
+is on for every account on the hosted platform since 2026-09-21, with parts
+not tested on the real service, and off on your own instance unless the
+operator forces its flag. See
+[Run Codex on a ChatGPT subscription](../guides/chatgpt-subscriptions.md)
+and [feature status](../reference/feature-status.md).
 
 Make a second set when you hold a second subscription. A set carries a name
 you choose. Exactly one set is the default, and the default is what Fountain

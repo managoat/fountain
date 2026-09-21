@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Users link a ChatGPT subscription and Fountain manages the grant"
-description: "Proposed; linking a grant is behind a flag that is off for every account. ADR 0060 stage 4 built decision 2's attempts, its API and its card; stages 1 to 3 built the owner-scoped lifecycle, selection, and the revocation-fenced broker authorization and protected destination, for a user's grant and then for the platform grant. Tenant-owned ChatGPT grants use tenant encryption, coordinated refresh, revocation-fenced broker authorization, protected provider destinations, and no automatic paid fallback."
+description: "Proposed; linking a grant is behind a flag that the maintainer turned on for every account on the hosted instance on 2026-09-21, ahead of ADR 0060's rollout checklist, and that is off on a self-hosted deployment unless forced. ADR 0060 stage 4 built decision 2's attempts, its API and its card; stages 1 to 3 built the owner-scoped lifecycle, selection, and the revocation-fenced broker authorization and protected destination, for a user's grant and then for the platform grant. Tenant-owned ChatGPT grants use tenant encryption, coordinated refresh, revocation-fenced broker authorization, protected provider destinations, and no automatic paid fallback."
 tags: [inference, codex, oauth, security, billing]
 status: draft
 adr: "0052"
@@ -78,10 +78,10 @@ encrypted exchange secrets, a job that carries ids and never tokens and
 honours the auth server's interval with backoff, a completion that rechecks
 the owner, cancellation, expiry and the grant's generation before it stores
 anything, and the same operations under `/api/account`. The card on
-`/account/inference-credentials` was not part of it (see 4b below). Linking is behind a rollout
-flag that is off for every account, and what is listed as still owed above,
-with the measurements against a real client, is owed before it is turned
-on. Two things decision 2 asks for are still open: account
+`/account/inference-credentials` was not part of it (see 4b below). When 4a
+merged, linking was behind a rollout flag that was off for every account,
+and what is listed as still owed above, with the measurements against a
+real client, was owed before it is turned on. Two things decision 2 asks for are still open: account
 deletion "cancels" pending attempts only in that they are deleted with the
 account, and tokens an attempt does not store are not revoked upstream. See
 0060, "Stage 4a as built".
@@ -90,8 +90,17 @@ account, and tokens an attempt does not store are not revoked upstream. See
 `/account/inference-credentials`: connect with a name, the code and its
 page, Connecting, Connected, Reconnect required, rename, reconnect,
 disconnect and remove, a page reload that reads the attempt's row, and the
-credential set's picker. The flag is still off for every account. See 0060,
-"Stage 4b as built".
+credential set's picker. When 4b merged the flag was still off for every
+account. See 0060, "Stage 4b as built".
+
+**2026-09-21: the flag is on for the hosted instance.** Late that day the
+maintainer turned `chatgpt_subscriptions` on for every account on the
+hosted instance, ahead of the controlled two-subscription run, the
+idle-lifetime measurement and the keepalive observation that 0060's rollout
+checklist put first; none of the three is done, and what is listed as still
+owed above is still owed. A self-hosted deployment is unchanged. This ADR
+and 0060 both stay Proposed. See 0060,
+"2026-09-21: linking opened on the hosted instance".
 
 Extends [0047](0047-codex-platform-chatgpt-account.md),
 [0008](0008-byo-inference-credentials.md), and

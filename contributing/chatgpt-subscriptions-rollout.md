@@ -3,16 +3,25 @@
 Contributor material, not published. The decision is
 [ADR 0060](../decisions/0060-many-user-chatgpt-subscriptions.md); the user
 guide is [docs/guides/chatgpt-subscriptions.md](../docs/guides/chatgpt-subscriptions.md).
-This page is what stands between "all five stages are built" and the
+This page was written to stand between "all five stages are built" and the
 `chatgpt_subscriptions` flag being on for anyone: a checklist, and the
 runbook for the one item on it that only a maintainer with two real ChatGPT
 subscriptions can do.
 
-Until every item is ticked, **the flag stays off and stays out of
-`@on_without_posthog`** (`Fountain.FeatureFlags`). `FEATURE_FLAGS_ON` can
-force it on where the credential broker is configured; do that only on the
-staging instance of the run below, never on an instance that serves people
-you do not trust.
+**It no longer stands there for the hosted instance.** Late on 2026-09-21
+(UTC) the maintainer turned the flag on for every account on the hosted
+instance, with (c), (d) and (e) below not done (#2475; ADR 0060,
+["2026-09-21: linking opened on the hosted instance"](../decisions/0060-many-user-chatgpt-subscriptions.md#2026-09-21-linking-opened-on-the-hosted-instance)).
+The stated reason: every user of that instance is the maintainer or a close
+friend, and the unproven parts fail recoverably. The unticked items are now
+observations of a live feature rather than gates, and
+["While it is open"](#while-it-is-open) says what to watch.
+
+Until every item is ticked, **the flag stays out of `@on_without_posthog`**
+(`Fountain.FeatureFlags`), so a self-hosted deployment is off unless its
+operator forces it. `FEATURE_FLAGS_ON` can force it on where the credential
+broker is configured; never do that on an instance that serves people you
+do not trust.
 
 ## The rollout checklist
 
@@ -50,7 +59,9 @@ you do not trust.
   `protected_response_encoded` row appeared. No `credential_reflected` or
   `protected_query` row appeared either, which tests neither gate's
   refusal: nothing on those turns should have set one off.
-- [ ] **(c) Both real-client measurements pass**: the protected-path probe
+- [ ] **(c) Both real-client measurements pass** (since 2026-09-21 an
+  observation of a live feature on the hosted instance, not a gate; still
+  owed): the protected-path probe
   against the pinned client (which is also the measurement stage 3b merged
   without, and covers the deployment's account as well as a user's), and a symlinked `CODEX_HOME` across a reattach
   and a `thread/resume`. Steps 1 and 5 of the runbook. The probe was run
@@ -59,26 +70,70 @@ you do not trust.
   stage 3b also owed were taken on 2026-09-21 and both completed (#2479).
   Not ticked: the reattached turn on that account is still owed (#2479; it
   waits on the conversation's sandbox parking), and the symlinked home has
-  not been tried.
-- [ ] **(d) ADR 0047's measurement 5 is recorded**, the day-9 reading (due
+  not been tried. The controlled two-subscription run (#2465) has not been
+  made.
+- [ ] **(d) ADR 0047's measurement 5 is recorded** (not a gate on the
+  hosted instance since 2026-09-21; still owed), the day-9 reading (due
   2026-09-17, still "Pending") and the day-30 reading (2026-10-08), and the
   keepalive interval is confirmed or changed from them. Six days is the
   platform grant's guess. The margin it leaves is thin: a first keepalive
   attempt can come 7 days 6 hours after the last renewal.
 - [ ] **(e) The keepalive has been observed for 7 days with zero unexpected
-  `reconnect_required`.** Watch `fountain_chatgpt_keepalive_sweep_due`,
+  `reconnect_required`.** Not started when linking opened on 2026-09-21: no
+  user grant had existed to observe. The seven days now run on the hosted
+  instance's real grants, from the first link. Watch `fountain_chatgpt_keepalive_sweep_due`,
   `fountain_chatgpt_keepalive_grant_count` by `result`,
   `fountain_chatgpt_refresh_rate_limited_count`,
   `fountain_chatgpt_refresh_breaker_opened_count` and
   `fountain_chatgpt_refresh_breaker_closed_count`, the
   `chatgpt_grant.reconnect_required` audit events, and any `error` line that
   starts `chatgpt keepalive:`.
-- [ ] **(f) The PostHog release**: staff, then 5%, then everyone.
-  `@on_without_posthog` only after that, if at all.
-- [ ] **(g) Rollback is the flag.** Off, nobody can link a new subscription;
+- [x] **(f) The PostHog release**: staff, then 5%, then everyone.
+  Ticked 2026-09-21: everyone, in one step, ahead of (c), (d) and (e), by
+  the maintainer's decision (#2475). The flag is active in the hosted
+  instance's PostHog project for all users with no filter, checked by
+  evaluating it with the instance's project key for arbitrary user ids.
+  There was no staff step and no 5% step. `@on_without_posthog` only after
+  (c), (d) and (e), if at all.
+- [x] **(g) Rollback is the flag.** Off, nobody can link a new subscription;
   the grants people hold stay listable, renamable, reconnectable,
   disconnectable and removable, and the keepalive goes on renewing them.
-  Confirm that on staging before (f).
+  True of the code and its suite. "Confirm that on staging before (f)" was
+  not done: (f) came first.
+
+### While it is open
+
+What a user's own subscription had **not** met when linking opened: the
+real auth server (the device-code sign-in and the link-attempt poller), a
+real browser (the console card has attribute-level tests only), a second
+subscription in a shared sandbox (per-grant homes side by side), the
+keepalive sweep, and the usage check made with a user's token. The
+reattached turn on the deployment's account is not measured either (#2479).
+The first real links on the hosted instance are the test. Watch:
+
+- `fountain_chatgpt_keepalive_sweep_due`,
+  `fountain_chatgpt_keepalive_grant_count` by `result`,
+  `fountain_chatgpt_refresh_rate_limited_count` and
+  `fountain_chatgpt_refresh_lock_contention_count`, and beside them
+  `fountain_chatgpt_refresh_breaker_opened_count` and
+  `fountain_chatgpt_refresh_breaker_closed_count`. A breaker that opens is
+  the first evidence anyone will have of how `auth.openai.com` throttles;
+  record it as the runbook's last section says.
+- `chatgpt_grant.reconnect_required` audit events. Each one on a user's
+  grant is a finding until it is explained.
+- `/admin/broker` rows on `chatgpt.com` ending `credential_reflected`,
+  `protected_response_encoded` or `protected_query`. Step 3 of the runbook
+  says what each means and what to do.
+- Link attempts that fail, and the reason each row ended with. A run of
+  the same reason is a finding about the real auth server or a real
+  browser, which no test here has met.
+- Any `error` line that starts `chatgpt keepalive:`.
+
+**Rollback:** set `chatgpt_subscriptions` inactive in the hosted instance's
+PostHog project. Fountain caches an answer for sixty seconds
+(`Fountain.FeatureFlags`), so the door closes within a minute; a sign-in
+that is open when it closes fails with `linking_disabled`. Existing
+subscriptions stay manageable and keep being renewed, as (g) says.
 
 Accepting ADR 0060 is the maintainer's decision and is not an item here. Its
 status stays Proposed until they change it.

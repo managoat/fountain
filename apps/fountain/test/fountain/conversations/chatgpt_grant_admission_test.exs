@@ -390,7 +390,9 @@ defmodule Fountain.Conversations.ChatGPTGrantAdmissionTest do
         agent: agent,
         main: main,
         spare: spare,
+        on_main: on_main,
         on_spare: on_spare,
+        env: env,
         vault: vault,
         source: source,
         sandbox: sandbox,
@@ -437,11 +439,67 @@ defmodule Fountain.Conversations.ChatGPTGrantAdmissionTest do
 
     defp grant_row(grant), do: Repo.get!(Fountain.PlatformChatGPT.Account, grant.id)
 
+    # Each thing the spent grant could be swapped for resolves, one at a time
+    # and by the value it hands the runtime, so "nothing is substituted" is
+    # never true only because there was nothing to substitute.
+    defp assert_every_alternative_usable(ctx) do
+      model = ctx.agent.model
+      user_id = ctx.user.id
+      resolve = &InferenceCredentials.resolve(user_id, model, &1, &2)
+
+      # The account's default set, which is what no set named means.
+      assert {:ok, %Source{scope: :credential, kind: :openai_api_key},
+              %{openai_api_key: "sk-default"}} = resolve.("codex", [])
+
+      # `OPENAI_API_KEY` in the environment alone, and in the vault alone.
+      assert {:ok, %Source{scope: :tenant_secret, kind: :openai_api_key},
+              %{openai_api_key: "sk-env"}} = resolve.("codex", environment_id: ctx.env.id)
+
+      assert {:ok, %Source{scope: :tenant_secret, kind: :openai_api_key},
+              %{openai_api_key: "sk-vault"}} = resolve.("codex", vault_id: ctx.vault.id)
+
+      # The user's other subscriptions.
+      spare_id = ctx.spare.id
+
+      assert {:ok, %Source{scope: :grant, grant_id: ^spare_id}, _} =
+               resolve.("codex", credential_set_id: ctx.on_spare.id)
+
+      work_id = ctx.grant.id
+
+      assert {:ok, %Source{scope: :grant, grant_id: ^work_id}, _} =
+               resolve.("codex", credential_set_id: ctx.set.id)
+
+      # The set's own key, which every OpenAI consumer but codex runs on.
+      assert {:ok, %Source{scope: :credential, kind: :openai_api_key},
+              %{openai_api_key: "sk-set"}} =
+               resolve.("opencode", credential_set_id: ctx.on_main.id)
+
+      # The deployment's grant and its key, as an account holding nothing of
+      # its own gets them.
+      assert Fountain.PlatformInference.enabled?()
+      bare = insert_active_user()
+
+      assert {:ok, %Source{scope: :platform, kind: :codex_chatgpt_access_token}, _} =
+               InferenceCredentials.resolve(bare.id, model, "codex", [])
+
+      assert {:ok, %Source{scope: :platform, kind: :openai_api_key},
+              %{openai_api_key: "sk-platform"}} =
+               InferenceCredentials.resolve(bare.id, model, "opencode", [])
+    end
+
+    defp admission_refusals(conv) do
+      Repo.all(
+        from e in Fountain.Conversations.LogEvent,
+          where: e.conversation_id == ^conv.id and e.kind == "stage" and e.stage == "sandbox"
+      )
+    end
+
     @tag :capture_log
     test "the launch and the turn are refused with the reset time, and nothing is substituted",
          ctx do
       reset = DateTime.utc_now() |> DateTime.add(86_400) |> DateTime.truncate(:second)
       stub_usage(limited(reset))
+      assert_every_alternative_usable(ctx)
 
       # The turn that hit the limit fails as it would have, with nothing retried.
       assert {_turn, [{:finish, "failed", _, _}, {:drop_connection, "failed"}]} =
@@ -470,7 +528,18 @@ defmodule Fountain.Conversations.ChatGPTGrantAdmissionTest do
 
       assert rows(ctx.user) == before
 
-      # The conversation already on it: both doors of the turn.
+      # Still all there to be taken, and none was.
+      assert_every_alternative_usable(ctx)
+
+      # The conversation already on it: the prompt's wake, then both doors of
+      # the turn.
+      stub(Managoat.Sandbox.Sprites, :get, fn _ -> {:ok, %{status: :running, raw: %{}}} end)
+
+      assert {:error, {:chatgpt_grant_unusable, %{reason: :exhausted, until: ^reset}}} =
+               Fountain.Conversations.Wake.wake_conversation(ctx.conv.id, "hi")
+
+      assert Repo.reload!(ctx.conv).status == ctx.conv.status
+
       assert {:error, {:chatgpt_grant_unusable, %{reason: :exhausted, until: ^reset}}} =
                TurnMachine.gate(ctx.user.id, ctx.source)
 
@@ -478,13 +547,7 @@ defmodule Fountain.Conversations.ChatGPTGrantAdmissionTest do
               {:chatgpt_grant_unusable, %{grant_id: ^main_id, reason: :exhausted, until: ^reset}}} =
                TurnMachine.open(ctx.conv.id, ctx.sandbox.id, "hi", ctx.agent, nil, ctx.source)
 
-      assert [%{data: data}] =
-               Repo.all(
-                 from e in Fountain.Conversations.LogEvent,
-                   where:
-                     e.conversation_id == ^ctx.conv.id and e.kind == "stage" and
-                       e.stage == "sandbox"
-               )
+      assert [%{data: data}] = admission_refusals(ctx.conv)
 
       assert %{
                "event" => "admission_refused",
@@ -531,6 +594,12 @@ defmodule Fountain.Conversations.ChatGPTGrantAdmissionTest do
       before = grant_row(ctx.main)
       assert :ok = InferenceCredentials.validate_source(ctx.user.id, ctx.source)
       assert :ok = TurnMachine.gate(ctx.user.id, ctx.source)
+
+      assert {:ok, _conv, %{status: "running"} = turn} =
+               TurnMachine.open(ctx.conv.id, ctx.sandbox.id, "hi", ctx.agent, nil, ctx.source)
+
+      assert turn.inference_source == Source.dump(ctx.source)
+      assert admission_refusals(ctx.conv) == []
       assert grant_row(ctx.main) == before
     end
 

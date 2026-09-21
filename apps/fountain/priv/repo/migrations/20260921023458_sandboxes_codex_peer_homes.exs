@@ -15,7 +15,13 @@ defmodule Fountain.Repo.Migrations.SandboxesCodexPeerHomes do
   # shared directory. It is set at a machine's first Codex bind and never
   # afterwards, so every existing row is `false` and keeps today's rule, the
   # deployment's grant included.
+  #
+  # A constant default, so no rewrite, but the lock is ACCESS EXCLUSIVE and
+  # `sandboxes` is written by every provision, wake and reaper pass: give up
+  # after five seconds rather than queue all of them behind a long reader.
   def change do
+    execute("SET LOCAL lock_timeout = '5s'", "SET LOCAL lock_timeout = '5s'")
+
     alter table(:sandboxes) do
       add :codex_peer_homes, :boolean, null: false, default: false
     end

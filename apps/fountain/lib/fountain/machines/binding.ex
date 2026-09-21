@@ -705,10 +705,10 @@ defmodule Fountain.Machines.Binding do
   identity and revision match its recorded binding, and only if every Codex
   co-tenant's does too. Legacy peers without a binding are incompatible. A
   source with a `CODEX_HOME` of its own is outside that rule on a machine
-  with `codex_peer_homes` (the moduledoc, "The Codex auth binding"). Must be called inside `InferenceBinding.with_current/2`'s
-  transaction — this is the one protocol entry point that *requires* an
-  enclosing transaction rather than refusing one, because the row it binds is
-  locked there.
+  with `codex_peer_homes` (the moduledoc, "The Codex auth binding"). Must be
+  called inside `InferenceBinding.with_current/2`'s transaction — this is the
+  one protocol entry point that *requires* an enclosing transaction rather
+  than refusing one, because the row it binds is locked there.
 
   **What the guard actually checks is weaker than that sentence**, and it is
   worth saying so (round 1, protocol review). `Repo.in_transaction?/0` sees a

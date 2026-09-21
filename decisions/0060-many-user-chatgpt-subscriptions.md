@@ -1123,8 +1123,9 @@ one, all ambient (plugin discovery, an MCP surface, a model list, telemetry,
 a settings read), and both turns completed. None of that went to the real
 `chatgpt.com` or through the broker. Still owed: one hosted turn and one
 reattached turn on the deployment's account, which wait on the maintainer
-reconnecting it at `/admin/inference`, and the maintainer's decision on
-whether any of the ten routes should be allowed.
+reconnecting it at `/admin/inference`. The maintainer decided the same day
+that none of the ten routes is allowed: the policy stays the one `POST`
+(0047, measurement 6).
 
 **Do not merge or deploy item 4's change until
 `scripts/probe-codex-protected.py` has been run against the codex-acp and

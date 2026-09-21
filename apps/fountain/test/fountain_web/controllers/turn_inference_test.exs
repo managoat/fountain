@@ -160,6 +160,36 @@ defmodule FountainWeb.TurnInferenceTest do
     assert [%{"inference" => %{"chatgpt_grant_id" => ^work_id}}, _] = turns(conn, ctx)
   end
 
+  test "a restart that reattaches a running turn does not relabel it", %{conn: conn} = ctx do
+    work_id = ctx.work.id
+
+    {source, row} = open_turn(ctx, "on work")
+
+    # What a server that restarted holds for the turn it found running: the
+    # row, and whatever source its context now names. The peer's report just
+    # before the prompt goes out is the one write that stamps a turn.
+    machine = %TurnMachine{
+      conversation_id: ctx.conv.id,
+      sandbox_id: ctx.sandbox.id,
+      row: Repo.get!(Turn, row.id),
+      metrics: TurnMachine.start_metrics("codex", :runner, System.monotonic_time(:millisecond))
+    }
+
+    other = %{source | grant_id: ctx.side.id, generation: ctx.side.generation}
+
+    {_machine, []} =
+      TurnMachine.handle(
+        machine,
+        {:model_selected, ctx.agent.model, ctx.agent.model, "runtime"},
+        %{inference: other, model: ctx.agent.model}
+      )
+
+    assert Repo.get!(Turn, row.id).inference_source == Source.dump(source)
+
+    assert [%{"inference" => %{"scope" => "grant", "chatgpt_grant_id" => ^work_id}}] =
+             turns(conn, ctx)
+  end
+
   test "a key, the platform and a row with no source", %{conn: conn} = ctx do
     {:ok, dek} = Crypto.load_tenant_key(ctx.user.id)
     {:ok, keys} = InferenceCredentials.create_set(ctx.user.id, "Keys")

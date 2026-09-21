@@ -46,14 +46,27 @@ defmodule FountainWeb.InferenceCredentialsLive.SubscriptionsCard do
   "Implementation sequence"): the card is there when the account may link,
   and stays there for an account that already holds a subscription or has a
   sign-in open, so turning linking off strands nothing.
+
+  `live?: false` is the render before the socket connects, which is an HTTP
+  response and goes out without `Cache-Control: no-store`: no sign-in is read
+  for it, so no user code is in that HTML, and the card says it is still
+  reading. The API sends the same code under `no-store`.
   """
-  @spec load(String.t()) :: map()
-  def load(user_id) when is_binary(user_id) do
+  @spec load(String.t(), keyword()) :: map()
+  def load(user_id, opts \\ []) when is_binary(user_id) do
+    live? = Keyword.get(opts, :live?, true)
     grants = user_id |> ChatGPTAccounts.list_for_user() |> Enum.map(&grant/1)
-    attempts = user_id |> ChatGPTAccounts.list_pending_attempts_for_user() |> Enum.map(&attempt/1)
+
+    attempts =
+      if live?,
+        do: user_id |> ChatGPTAccounts.list_pending_attempts_for_user() |> Enum.map(&attempt/1),
+        else: []
 
     ended =
-      user_id |> ChatGPTAccounts.list_recent_attempts_for_user() |> Enum.map(&ended_attempt/1)
+      if live?,
+        do:
+          user_id |> ChatGPTAccounts.list_recent_attempts_for_user() |> Enum.map(&ended_attempt/1),
+        else: []
 
     linking? = ChatGPTAccounts.linking_enabled_for?(user_id)
 
@@ -61,6 +74,7 @@ defmodule FountainWeb.InferenceCredentialsLive.SubscriptionsCard do
       grants: grants,
       attempts: attempts,
       ended: ended,
+      live?: live?,
       count: length(grants),
       limit: ChatGPTAccounts.grant_ceiling(),
       linking?: linking?,
@@ -486,6 +500,10 @@ defmodule FountainWeb.InferenceCredentialsLive.SubscriptionsCard do
         class="text-sm text-[var(--color-text-secondary)]"
       >
         No subscription is linked yet.
+      </p>
+
+      <p :if={!@subscriptions.live?} class="text-xs text-[var(--color-text-secondary)]">
+        Reading this account's open sign-ins…
       </p>
 
       <div

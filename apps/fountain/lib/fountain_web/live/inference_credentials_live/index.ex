@@ -62,8 +62,15 @@ defmodule FountainWeb.InferenceCredentialsLive.Index do
      |> load_sets()}
   end
 
-  defp load_subscriptions(socket),
-    do: assign(socket, :subscriptions, SubscriptionsCard.load(socket.assigns.user_id))
+  # A sign-in's code is read only once the socket is up: the render before
+  # that is a cacheable HTTP response (`SubscriptionsCard.load/2`).
+  defp load_subscriptions(socket) do
+    assign(
+      socket,
+      :subscriptions,
+      SubscriptionsCard.load(socket.assigns.user_id, live?: connected?(socket))
+    )
+  end
 
   # The sets, and which one the provider rows are about. Re-read after every
   # write rather than patched in place: `set_default/2` moves a flag on a row

@@ -243,6 +243,24 @@ defmodule FountainWeb.ChatGPTSubscriptionsLiveTest do
       refute html =~ @user_code
     end
 
+    test "the code is not in the HTTP response, only in the connected page",
+         %{conn: conn, user: user} do
+      grant = link!(user, "Work", "acct-work")
+      attempt = start_attempt!(user, %{name: "Personal"})
+
+      # The dead render: what a cache, a proxy or a saved page would hold.
+      dead = conn |> get(@path) |> html_response(200)
+      refute dead =~ attempt.user_code
+      refute dead =~ "chatgpt-code-"
+      assert dead =~ "chatgpt-grant-#{grant.grant_id}"
+      assert dead =~ "open sign-ins"
+
+      {:ok, view, html} = live(conn, @path)
+      assert html =~ attempt.user_code
+      refute html =~ "Reading this account"
+      assert view |> element("#chatgpt-code-#{attempt.id}") |> render() =~ attempt.user_code
+    end
+
     test "a sign-in started over the API appears on an open page", %{conn: conn, user: user} do
       {:ok, view, html} = live(conn, @path)
       refute html =~ "Connecting"

@@ -50,6 +50,7 @@ defmodule Fountain.ChatGPTAccounts.LinkAttempts do
          {:ok, {attempt, label}} <-
            ChatGPTAccounts.user_write(user_id, fn -> insert(user_id, target, started, now) end) do
       audit(attempt, "chatgpt_link_attempt.started", opts, %{"name" => label})
+      ChatGPTAccounts.broadcast_changed(user_id)
       {:ok, view(attempt, now)}
     end
   end
@@ -227,6 +228,7 @@ defmodule Fountain.ChatGPTAccounts.LinkAttempts do
     case result do
       {:ok, {:cancelled, attempt}} ->
         audit(attempt, "chatgpt_link_attempt.cancelled", opts)
+        ChatGPTAccounts.broadcast_changed(user_id)
         {:ok, view(attempt, now)}
 
       {:ok, {:unchanged, %LinkAttempt{state: "cancelled"} = attempt}} ->
@@ -238,7 +240,7 @@ defmodule Fountain.ChatGPTAccounts.LinkAttempts do
       # It ran out before the cancel arrived. That is written, and it is what
       # the caller is told: the attempt was not cancelled.
       {:ok, {:expired, attempt}} ->
-        audit_expired(attempt)
+        expired(attempt)
         {:error, {:link_attempt_not_pending, %{state: attempt.state}}}
 
       {:error, _} = error ->
@@ -259,6 +261,160 @@ defmodule Fountain.ChatGPTAccounts.LinkAttempts do
 
   defp end_pending(%LinkAttempt{} = attempt, _now), do: {:ok, {:unchanged, attempt}}
 
+  # ── complete ─────────────────────────────────────────────────────────────
+
+  def complete(attempt_id, user_id, %{access_token: _} = tokens, opts)
+      when is_binary(attempt_id) and is_binary(user_id) and is_list(opts) do
+    now = now()
+
+    # Unlocked, and only to learn what the attempt is for, which never
+    # changes. Whether it may still complete is asked again under the lock.
+    with {:ok, query} <- owned_query(attempt_id, user_id),
+         %LinkAttempt{} = attempt <- Repo.one(query) do
+      attempt |> write_grant(tokens, fence(attempt, now), opts) |> completed(attempt, opts, now)
+    else
+      _ -> {:error, :not_found}
+    end
+  end
+
+  # `connect_for_user/4`'s and `reconnect_for_user/4`'s `:within`. It runs in
+  # their transaction, under the owner's key and before the grant's row is
+  # touched: the attempt's row is locked, must still be pending and in time,
+  # and is marked in the transaction that stores the grant, or none of it
+  # happens.
+  defp fence(%LinkAttempt{id: id, user_id: user_id}, now) do
+    fn write ->
+      with {:ok, attempt} <- locked(id, user_id),
+           :ok <- still_pending(attempt, now),
+           {:ok, account} <- write.(),
+           {:ok, _done} <-
+             attempt
+             |> LinkAttempt.finish_changeset("completed", %{result_grant_id: account.id})
+             |> Repo.update() do
+        {:ok, account}
+      end
+    end
+  end
+
+  defp still_pending(%LinkAttempt{state: "pending"} = attempt, now) do
+    if LinkAttempt.expired?(attempt, now),
+      do: {:error, {:link_attempt_not_pending, %{state: "expired"}}},
+      else: :ok
+  end
+
+  defp still_pending(%LinkAttempt{state: state}, _now),
+    do: {:error, {:link_attempt_not_pending, %{state: state}}}
+
+  defp write_grant(%LinkAttempt{grant_id: nil} = attempt, tokens, fence, opts) do
+    ChatGPTAccounts.connect_for_user(
+      attempt.user_id,
+      attempt.name,
+      tokens,
+      grant_opts(opts, within: fence)
+    )
+  end
+
+  defp write_grant(%LinkAttempt{grant_id: grant_id} = attempt, tokens, fence, opts) do
+    ChatGPTAccounts.reconnect_for_user(
+      grant_id,
+      attempt.user_id,
+      tokens,
+      grant_opts(opts, within: fence, expected_generation: attempt.expected_generation)
+    )
+  end
+
+  defp grant_opts(opts, extra),
+    do: opts |> Keyword.take([:actor, :request_ip]) |> Keyword.merge(extra)
+
+  defp completed({:ok, _grant}, attempt, _opts, now), do: reread(attempt, now)
+
+  # Somebody else ended it first. A replay of a completion that landed reads
+  # the completed attempt; a cancel is left as the cancel wrote it; a row
+  # that only ran out of time is written so.
+  defp completed(
+         {:error, {:link_attempt_not_pending, %{state: state}}} = refusal,
+         attempt,
+         _,
+         now
+       ) do
+    case state do
+      "completed" -> reread(attempt, now)
+      "expired" -> with {:ok, _view} <- conclude(attempt, "expired", %{}, []), do: refusal
+      _ -> refusal
+    end
+  end
+
+  defp completed({:error, reason} = refusal, attempt, opts, _now) do
+    with {:ok, _view} <- conclude(attempt, "failed", failure_attrs(reason), opts), do: refusal
+  end
+
+  defp reread(%LinkAttempt{id: id, user_id: user_id}, now),
+    do: {:ok, view(Repo.get_by!(LinkAttempt, id: id, user_id: user_id), now)}
+
+  # Only what the context itself answered, mapped onto the schema's list:
+  # nothing the auth server said is stored.
+  defp failure_attrs(:stale_grant), do: %{failure_reason: "stale_grant"}
+
+  defp failure_attrs({:account_already_linked, %{grant_id: grant_id}}),
+    do: %{failure_reason: "account_already_linked", conflict_grant_id: grant_id}
+
+  defp failure_attrs({:grant_limit_reached, _}), do: %{failure_reason: "grant_limit_reached"}
+  defp failure_attrs(:not_found), do: %{failure_reason: "grant_not_found"}
+  defp failure_attrs(:ineligible_owner), do: %{failure_reason: "owner_ineligible"}
+  defp failure_attrs(:tenant_key_unavailable), do: %{failure_reason: "tenant_key_unavailable"}
+
+  defp failure_attrs(reason) when reason in [:no_refresh_token, :invalid_id_token],
+    do: %{failure_reason: "invalid_sign_in"}
+
+  # The grant's two unique indexes, which the admission answers first. The
+  # account's is the backstop of `{:account_already_linked, _}`.
+  defp failure_attrs(%Ecto.Changeset{} = changeset) do
+    cond do
+      Keyword.has_key?(changeset.errors, :name) ->
+        %{failure_reason: "name_taken"}
+
+      Keyword.has_key?(changeset.errors, :account_id) ->
+        %{failure_reason: "account_already_linked"}
+
+      true ->
+        %{failure_reason: "internal_error"}
+    end
+  end
+
+  defp failure_attrs(_reason), do: %{failure_reason: "internal_error"}
+
+  # The write that ends an attempt some other way than by completing or being
+  # cancelled: its own transaction, after whatever refused has rolled back,
+  # under the same two locks. A row that is no longer pending is left alone.
+  defp conclude(%LinkAttempt{id: id, user_id: user_id}, state, attrs, opts) do
+    result =
+      ChatGPTAccounts.user_write(user_id, fn ->
+        with {:ok, attempt} <- locked(id, user_id) do
+          conclude_locked(attempt, state, attrs)
+        end
+      end)
+
+    with {:ok, {written?, attempt}} <- result do
+      if written?, do: concluded(attempt, opts)
+      {:ok, view(attempt, now())}
+    end
+  end
+
+  defp conclude_locked(%LinkAttempt{state: "pending"} = attempt, state, attrs) do
+    with {:ok, ended} <- attempt |> LinkAttempt.finish_changeset(state, attrs) |> Repo.update() do
+      {:ok, {true, ended}}
+    end
+  end
+
+  defp conclude_locked(%LinkAttempt{} = attempt, _state, _attrs), do: {:ok, {false, attempt}}
+
+  defp concluded(%LinkAttempt{state: "expired"} = attempt, _opts), do: expired(attempt)
+
+  defp concluded(%LinkAttempt{state: "failed"} = attempt, opts) do
+    audit(attempt, "chatgpt_link_attempt.failed", opts, %{"reason" => attempt.failure_reason})
+    ChatGPTAccounts.broadcast_changed(attempt.user_id)
+  end
+
   # ── expiry ───────────────────────────────────────────────────────────────
 
   # Correctness never waits for this: every reader and every write compares
@@ -277,7 +433,7 @@ defmodule Fountain.ChatGPTAccounts.LinkAttempts do
       end)
 
     with {:ok, expired} <- result do
-      Enum.each(expired, &audit_expired/1)
+      Enum.each(expired, &expired/1)
       :ok
     end
   end
@@ -289,8 +445,9 @@ defmodule Fountain.ChatGPTAccounts.LinkAttempts do
     end
   end
 
-  defp audit_expired(attempt) do
+  defp expired(attempt) do
     audit(attempt, "chatgpt_link_attempt.expired", actor: @system_actor)
+    ChatGPTAccounts.broadcast_changed(attempt.user_id)
   end
 
   # ── helpers ──────────────────────────────────────────────────────────────

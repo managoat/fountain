@@ -277,7 +277,12 @@ defmodule Fountain.ChatGPTAccounts do
   also takes for any other writer of the user's rows.
 
   `opts`: `:actor` (default `"self"`), `:request_ip`, and `:method` (default
-  `"device_code"`), all for the `chatgpt_grant.connected` event.
+  `"device_code"`), all for the `chatgpt_grant.connected` event. `:within` is
+  `complete_attempt_for_user/4`'s and nobody else's: a function handed the
+  write, run inside this transaction under the owner's lock and before any
+  row is read, which is how a link attempt's row is locked, checked and
+  marked in the transaction that stores the grant. `reconnect_for_user/4`
+  takes it too.
   """
   @spec connect_for_user(String.t(), String.t(), OAuth.tokens(), keyword()) ::
           {:ok, grant_view()} | {:error, term()}
@@ -289,16 +294,19 @@ defmodule Fountain.ChatGPTAccounts do
     with {:ok, claims} <- user_claims(tokens),
          {:ok, account} <-
            user_write(user_id, :ineligible_owner, fn ->
-             with :ok <- eligible_owner(user_id),
-                  :ok <- account_unlinked(user_id, claims["account_id"], id),
-                  :ok <- under_ceiling(user_id),
-                  {:ok, attrs} <- user_attrs(user_id, id, tokens, claims) do
-               %Account{id: id, user_id: user_id}
-               |> Account.user_connect_changeset(Map.put(attrs, :name, name))
-               |> Repo.insert()
-             end
+             within(opts, fn ->
+               with :ok <- eligible_owner(user_id),
+                    :ok <- account_unlinked(user_id, claims["account_id"], id),
+                    :ok <- under_ceiling(user_id),
+                    {:ok, attrs} <- user_attrs(user_id, id, tokens, claims) do
+                 %Account{id: id, user_id: user_id}
+                 |> Account.user_connect_changeset(Map.put(attrs, :name, name))
+                 |> Repo.insert()
+               end
+             end)
            end) do
       audit_grant(account, "chatgpt_grant.connected", opts, connected_metadata(account, opts))
+      broadcast_changed(user_id)
       {:ok, view(account, DateTime.utc_now())}
     end
   end
@@ -335,18 +343,21 @@ defmodule Fountain.ChatGPTAccounts do
     with {:ok, claims} <- user_claims(tokens),
          {:ok, account} <-
            user_write(user_id, fn ->
-             with :ok <- eligible_owner(user_id),
-                  {:ok, current} <- locked_user_grant(grant_id, user_id),
-                  :ok <- expected_generation(current, opts[:expected_generation]),
-                  :ok <- account_unlinked(user_id, claims["account_id"], current.id),
-                  {:ok, attrs} <- user_attrs(user_id, current.id, tokens, claims),
-                  {:ok, account} <-
-                    current |> Account.user_reconnect_changeset(attrs) |> Repo.update() do
-               {:ok, revoke_broker(account)}
-             end
+             within(opts, fn ->
+               with :ok <- eligible_owner(user_id),
+                    {:ok, current} <- locked_user_grant(grant_id, user_id),
+                    :ok <- expected_generation(current, opts[:expected_generation]),
+                    :ok <- account_unlinked(user_id, claims["account_id"], current.id),
+                    {:ok, attrs} <- user_attrs(user_id, current.id, tokens, claims),
+                    {:ok, account} <-
+                      current |> Account.user_reconnect_changeset(attrs) |> Repo.update() do
+                 {:ok, revoke_broker(account)}
+               end
+             end)
            end) do
       metadata = account |> connected_metadata(opts) |> Map.put("reconnect", true)
       audit_grant(account, "chatgpt_grant.connected", opts, metadata)
+      broadcast_changed(user_id)
       {:ok, view(account, DateTime.utc_now())}
     end
   end
@@ -385,6 +396,7 @@ defmodule Fountain.ChatGPTAccounts do
           "previous_name" => previous
         })
 
+        broadcast_changed(user_id)
         {:ok, view(account, DateTime.utc_now())}
 
       {:error, _} = error ->
@@ -452,6 +464,7 @@ defmodule Fountain.ChatGPTAccounts do
           "generation" => retired
         })
 
+        broadcast_changed(user_id)
         :ok
 
       {:error, _} = error ->
@@ -495,6 +508,7 @@ defmodule Fountain.ChatGPTAccounts do
 
     with {:ok, account} <- result do
       audit_grant(account, "chatgpt_grant.removed", opts, %{"name" => account.name})
+      broadcast_changed(user_id)
       :ok
     end
   end
@@ -525,6 +539,39 @@ defmodule Fountain.ChatGPTAccounts do
   defp revoke_broker(%Account{id: id} = account, generation \\ :all) do
     Fountain.Broker.revoke_grant(id, generation)
     account
+  end
+
+  # `connect_for_user/4`'s and `reconnect_for_user/4`'s `:within`: the write,
+  # handed to whoever has more to do in its transaction. Already under the
+  # owner's key, and nothing has been read or locked yet, so what the wrapper
+  # locks first comes before the grant's row in the order.
+  defp within(opts, write) when is_function(write, 0) do
+    case Keyword.get(opts, :within) do
+      nil -> write.()
+      wrap when is_function(wrap, 1) -> wrap.(write)
+    end
+  end
+
+  @doc """
+  The PubSub topic on which `{:chatgpt_grants_changed, user_id}` is sent
+  after every committed write to one of that user's grants or link attempts:
+  a link, a reconnect, a rename, a disconnect, a removal, a revocation found
+  by a refresh, and an attempt starting or ending. The message carries
+  nothing else; a subscriber reads `list_for_user/1` and
+  `list_pending_attempts_for_user/1` again.
+  """
+  @spec topic(String.t()) :: String.t()
+  def topic(user_id) when is_binary(user_id), do: "chatgpt_grants:#{user_id}"
+
+  @doc "Subscribe the calling process to `topic/1`."
+  @spec subscribe(String.t()) :: :ok | {:error, term()}
+  def subscribe(user_id) when is_binary(user_id),
+    do: Phoenix.PubSub.subscribe(Fountain.PubSub, topic(user_id))
+
+  # After the transaction has returned, like the audit event beside it.
+  @doc false
+  def broadcast_changed(user_id) when is_binary(user_id) do
+    Phoenix.PubSub.broadcast(Fountain.PubSub, topic(user_id), {:chatgpt_grants_changed, user_id})
   end
 
   # Every write to a user's grants: one transaction under that user's source
@@ -977,6 +1024,44 @@ defmodule Fountain.ChatGPTAccounts do
           | {:error, :not_found | {:link_attempt_not_pending, map()} | Ecto.Changeset.t()}
   def cancel_attempt_for_user(attempt_id, user_id, opts \\ []),
     do: LinkAttempts.cancel(attempt_id, user_id, opts)
+
+  @doc """
+  Finish one attempt with the token set its sign-in produced: link the new
+  subscription, or reconnect the grant, and mark the attempt `completed`, in
+  one transaction. The caller has done the exchange, outside any lock;
+  nothing here contacts anybody.
+
+  It is `connect_for_user/4` or `reconnect_for_user/4` with the attempt's
+  row locked first, under the owner's key, and required to be pending and in
+  time (ADR 0052 decision 2, "completion rechecks owner eligibility,
+  cancellation, expiry, and grant generation before storing anything"). A
+  reconnect carries the generation the attempt was pinned to. So:
+
+    * a second completion of the same attempt is `{:ok, view}` of the
+      completed attempt and writes nothing: one grant, one event.
+    * one that arrives after a cancel, or after the attempt ran out of time,
+      is `{:error, {:link_attempt_not_pending, %{state: _}}}` and stores no
+      grant. Cancel takes the same two locks in the same order, so exactly
+      one of the two ends the attempt.
+    * one that arrives after a newer sign-in, a disconnect or anything else
+      that moved the grant's generation is `{:error, :stale_grant}`: the
+      credential that is there stays, untouched.
+    * every other refusal is the write's own (`{:account_already_linked, _}`,
+      `{:grant_limit_reached, _}`, `:ineligible_owner`, `:not_found` for a
+      grant removed since, a changeset for a name taken since, ...).
+
+  A refusal rolls the transaction back. The attempt is then written `failed`
+  with one of `LinkAttempt.failure_reasons/0`, and
+  `chatgpt_link_attempt.failed` recorded, in a transaction of its own
+  afterwards; the tokens are dropped and are not revoked upstream. A
+  completion is `chatgpt_grant.connected`, from the write itself.
+
+  `opts`: `:actor` and `:request_ip`, for either event.
+  """
+  @spec complete_attempt_for_user(Ecto.UUID.t(), String.t(), OAuth.tokens(), keyword()) ::
+          {:ok, AttemptView.t()} | {:error, term()}
+  def complete_attempt_for_user(attempt_id, user_id, tokens, opts \\ []),
+    do: LinkAttempts.complete(attempt_id, user_id, tokens, opts)
 
   # ── broker authorization ─────────────────────────────────────────────────
 
@@ -1708,6 +1793,7 @@ defmodule Fountain.ChatGPTAccounts do
       metadata: %{"name" => grant.name, "generation" => grant.generation, "reason" => code}
     })
 
+    broadcast_changed(grant.user_id)
     {:error, :revoked}
   end
 

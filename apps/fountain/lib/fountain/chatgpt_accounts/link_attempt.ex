@@ -51,6 +51,7 @@ defmodule Fountain.ChatGPTAccounts.LinkAttempt do
     invalid_sign_in
     authorization_failed
     exchange_failed
+    internal_error
   )
 
   @type t :: %__MODULE__{}

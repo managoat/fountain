@@ -47,6 +47,10 @@ defmodule Fountain.Conversations.Sandbox do
 
   schema "sandboxes" do
     field :codex_inference_source, :map
+    # Set at the machine's first Codex bind and never again: every codex peer
+    # on it that runs on a managed ChatGPT grant keeps its `auth.json` in a
+    # `CODEX_HOME` of its own (`Fountain.Machines.Binding.bind_inference/2`).
+    field :codex_peer_homes, :boolean, default: false
     # Provider-scoped sandbox identity: the name Fountain mints
     # (`fountain-<tenant-prefix>-<hex>`) and uses as the primary external ref.
     # The database column keeps its historical name; application code uses

@@ -1,6 +1,6 @@
 ### Added
 
-- **The ChatGPT subscriptions card** (#2453) on
+- **The ChatGPT subscriptions card** (#2460) on
   `/account/inference-credentials`: link a subscription with a device code,
   see each one's state, plan and email, and rename, reconnect, disconnect
   and remove it. A reload shows the same pending code, the page updates
@@ -16,11 +16,11 @@
 ### Fixed
 
 - **`/start` and the agent form say when a named ChatGPT subscription
-  cannot serve** (#2453). For a `codex` agent on a credential set whose
+  cannot serve** (#2460). For a `codex` agent on a credential set whose
   subscription is disconnected, revoked or expired, on a
   deployment with no credential broker, or for an account that is suspended, `/start` no longer implies the
   launch will work, and the agent form shows the reason instead of asking
   for an OpenAI key that the run would not use.
 
 - **The dashboard's provider checklist counts a credential set that names a
-  connected ChatGPT subscription** (#2453), as it counts a stored key.
+  connected ChatGPT subscription** (#2460), as it counts a stored key.

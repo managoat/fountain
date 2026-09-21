@@ -22,10 +22,13 @@ Fountain detects a subscription that has spent its plan's Codex allowance
 after a turn fails on it, and refuses the subscription until the reset time.
 A daily job renews a subscription that nobody used for 6 days, so that its
 sign-in does not end. An account export lists the subscriptions, and an
-account deletion removes them. These parts are not built: a check of the usage
-before a turn fails, an email or a webhook about a spent plan, a way to revoke
-a sign-in at OpenAI, and two protections at the credential broker for a
-response or a request that carries the subscription's token. The flag holds
+account deletion removes them. The credential broker refuses a response that
+repeats the subscription's token, and refuses a request that adds a query
+string to the one route that carries the token. The broker finds only an exact
+copy of the token. It does not find an encoded copy or a partial copy. These
+parts are not built: a check of the usage before a turn fails, an email or a
+webhook about a spent plan, and a way to revoke a sign-in at OpenAI. The flag
+holds
 only the door that links a new subscription. An account that holds one can
 always list, rename, disconnect and remove it, and keeps the **ChatGPT
 subscriptions** card in the console. It can reconnect it on a deployment that

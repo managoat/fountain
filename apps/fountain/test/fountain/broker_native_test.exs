@@ -790,6 +790,47 @@ defmodule Fountain.BrokerNativeTest do
       assert refused.error == "credential_missing"
     end
 
+    # The row takes whatever reason the library names, as text: a release
+    # that adds one (0.15.0 added the first three) needs nothing here, and one
+    # Fountain has never heard of is a row like any other, not a lost one.
+    test "an error the handler has never heard of is a row like any other", ctx do
+      %{user: user, conv: conv, log: log} = ctx
+
+      errors =
+        ~w(protected_query credential_reflected protected_response_encoded a_reason_from_a_later_release)a
+
+      log_output =
+        capture_log(fn ->
+          for error <- errors, do: emit(%{count: 1, duration: 0}, %{error: error}, conv, user)
+        end)
+
+      assert :ok = Fountain.Broker.Native.RequestLog.flush(log)
+      assert {:ok, %{events: events}} = Broker.request_log(conv.id)
+
+      assert events |> Enum.map(& &1.error) |> Enum.sort() ==
+               errors |> Enum.map(&to_string/1) |> Enum.sort()
+
+      refute log_output =~ "skipped a row"
+    end
+
+    # A reflected credential is the one ending said at `error`: once a minute
+    # per conversation, because the sandbox chooses how often it happens.
+    test "a reflected credential is logged at error, once per conversation", ctx do
+      %{user: user, conv: conv} = ctx
+      reflected = %{status: 502, error: :credential_reflected, rule: "codex-chatgpt"}
+
+      log_output =
+        capture_log(fn ->
+          for _ <- 1..3, do: emit(%{count: 1, duration: 0}, reflected, conv, user)
+        end)
+
+      assert [_, _] =
+               String.split(log_output, "[error] broker: the response to GET api.github.com")
+
+      assert log_output =~ "under rule codex-chatgpt repeated the credential"
+      assert log_output =~ conv.id
+    end
+
     test "an event with no duration and no status stores neither", ctx do
       %{user: user, conv: conv, log: log} = ctx
       emit(%{count: 1}, %{}, conv, user)

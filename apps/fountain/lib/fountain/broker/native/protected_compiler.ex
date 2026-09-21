@@ -8,8 +8,9 @@ defmodule Fountain.Broker.Native.ProtectedCompiler do
     * `policy/1` -- the `Managoat.Broker.ProtectedRule` for one ChatGPT
       account: the Codex backend's host and port, the one route and method
       the pinned client uses, the account id the proxy sends as
-      `chatgpt-account-id`, and the request headers that survive. Nothing a
-      tenant configures reaches it.
+      `chatgpt-account-id`, the request headers that survive, and that a
+      query string on the route is refused. Nothing a tenant configures
+      reaches it.
     * `compile/3` -- the ordinary rules of a session that also carries a
       managed grant, from the same `brokered` map and bindings every other
       session is built from. Reserved names and placeholders in those inputs
@@ -23,8 +24,11 @@ defmodule Fountain.Broker.Native.ProtectedCompiler do
   stores which grant a session may use as authorization data, and resolves
   the bearer for one request at a time
   (`Fountain.ChatGPTAccounts.protected_credential/2`); the library injects it
-  and the identity header itself, on the policy's destination only, and
-  refuses protocol upgrades on the whole session.
+  and the identity header itself, on the policy's destination only, refuses
+  protocol upgrades on the whole session, and refuses a response on the
+  protected route that repeats the bearer or arrives compressed
+  (`managoat_broker` 0.15; what that does and does not recognise is in
+  `Managoat.Broker.ProtectedRule`).
 
   Only the HTTP Responses surface is supported. See the adjacent
   compatibility fixture (`test/fixtures/codex_protected`) for the audited
@@ -36,7 +40,13 @@ defmodule Fountain.Broker.Native.ProtectedCompiler do
   alias Managoat.Broker.{ProtectedRule, Session}
 
   @path "/backend-api/codex/responses"
-  @headers ~w(accept accept-encoding content-type content-encoding user-agent originator
+
+  # `accept-encoding` is not here: the library sends `identity` on every
+  # protected request whatever the client asked for, because it searches the
+  # response for the bearer and cannot search a compressed one. Naming it
+  # would promise something that does not happen. `content-encoding` is the
+  # request body's, which the pinned client compresses.
+  @headers ~w(accept content-type content-encoding user-agent originator
               version session-id thread-id x-client-request-id x-openai-subagent
               x-codex-turn-state x-codex-turn-metadata x-codex-beta-features
               x-codex-window-id x-codex-routing-hint)
@@ -129,7 +139,11 @@ defmodule Fountain.Broker.Native.ProtectedCompiler do
       methods: ["POST"],
       identity: "unset",
       identity_header: "chatgpt-account-id",
-      allowed_headers: @headers
+      allowed_headers: @headers,
+      # The library's default, written down so a later default cannot widen
+      # the route: the pinned client sends no query, and one the sandbox
+      # wrote would go out under the bearer.
+      query: :refuse
     }
   end
 

@@ -26,15 +26,22 @@ python3 scripts/probe-codex-protected.py \
 Review the resulting metadata before replacing `capture.json`. The probe fails
 if versions differ, a turn does not complete, the route/method changes, the
 synthetic bearer/account pair differs, or the body lacks a matching nonzero
-Content-Length. ExUnit replays the captured request shape through broker 0.14's
+Content-Length. ExUnit replays the captured request shape through broker 0.15's
 protected policy and header preparation. This makes new required headers visible
 without requiring a downloaded Codex executable during ordinary CI runs.
 
 The observed POST is zstd-compressed JSON with Content-Length, not a chunked
 request. Preserve `content-encoding` along with `content-type`; the broker forwards
 the compressed body unchanged. SSE responses remain supported. The fixed policy
-allows only `POST https://chatgpt.com:443/backend-api/codex/responses`, including
-unchanged queries. It does not grant a subtree or additional methods.
+allows only `POST https://chatgpt.com:443/backend-api/codex/responses`, with no
+query string: since broker 0.15 a target holding a `?` is refused, and the
+captured client sends none. It does not grant a subtree or additional methods.
+
+The captured client sends no `accept-encoding`. Broker 0.15 sends `identity` on
+every protected request whatever the client asked for, and refuses a response in
+any other `Content-Encoding`, because it searches the response for the bearer.
+The probe runs against a local origin, so whether `chatgpt.com` honours
+`identity` on this route is not something this fixture measures.
 
 Source audit for this exact CLI version:
 

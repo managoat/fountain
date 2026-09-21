@@ -150,11 +150,14 @@ defmodule Fountain.Broker.Native.ProtectedCompilerTest do
     assert {:error, :denied} = Injector.inject([], "unlisted.example", 443, "/", session)
     assert {:ok, _} = ProtectedRule.select(session, request())
 
-    assert {:ok, _} =
-             ProtectedRule.select(
-               session,
-               request(%{host: "CHATGPT.COM", target: @path <> "?fixture=1"})
-             )
+    assert {:ok, _} = ProtectedRule.select(session, request(%{host: "CHATGPT.COM"}))
+
+    # A query is a parameter to the pinned operation that nobody pinned. A
+    # bare `?` is one too.
+    for query <- ["?fixture=1", "?"] do
+      assert {:error, :protected_query} =
+               ProtectedRule.select(session, request(%{target: @path <> query}))
+    end
 
     for extra <- [
           %{scheme: :http},
@@ -190,7 +193,8 @@ defmodule Fountain.Broker.Native.ProtectedCompilerTest do
       {"x-arbitrary", "client-value"},
       {"content-type", "application/json"},
       {"content-length", "2"},
-      {"accept", "text/event-stream"}
+      {"accept", "text/event-stream"},
+      {"accept-encoding", "gzip, br"}
     ]
 
     assert {:ok, kept} =
@@ -207,7 +211,10 @@ defmodule Fountain.Broker.Native.ProtectedCompilerTest do
              "host" => "chatgpt.com",
              "content-type" => "application/json",
              "content-length" => "2",
-             "accept" => "text/event-stream"
+             "accept" => "text/event-stream",
+             # The library's, never the client's: a compressed response
+             # cannot be searched for the bearer.
+             "accept-encoding" => "identity"
            }
 
     assert {:error, :authorization_unavailable} =
@@ -249,6 +256,22 @@ defmodule Fountain.Broker.Native.ProtectedCompilerTest do
     assert policy.identity_header == "chatgpt-account-id"
     refute "authorization" in policy.allowed_headers
     refute "cookie" in policy.allowed_headers
+    refute "accept-encoding" in policy.allowed_headers
+    assert policy.query == :refuse
+  end
+
+  # Nothing persists a policy: `Sessions.lookup/1` compiles it from the
+  # session's account id every time, so a session minted before the `query`
+  # key existed gets this one. Should a policy of the older shape ever reach
+  # the library anyway, it refuses the query all the same.
+  test "a policy without the query key refuses a query" do
+    assert {:ok, compiled} = compile(%{}, %{}, :unrestricted)
+    older = %{compiled | protected: Map.delete(compiled.protected, :query)}
+
+    assert ProtectedRule.valid_session?(session(older))
+
+    assert {:error, :protected_query} =
+             ProtectedRule.select(session(older), request(%{target: @path <> "?x=1"}))
   end
 
   test "the captured two-turn ACP request contract survives protected preparation" do
@@ -273,6 +296,10 @@ defmodule Fountain.Broker.Native.ProtectedCompilerTest do
       assert captured["synthetic_identity_matches"]
       assert captured["content_encoding"] == "zstd"
       refute "transfer-encoding" in captured["header_names"]
+      # What broker 0.15's two gates need of the pinned client: no query on
+      # the route, and no `accept-encoding` of its own to be overridden.
+      refute captured["target"] =~ "?"
+      refute "accept-encoding" in captured["header_names"]
 
       request = request(%{target: captured["target"], method: captured["method"]})
       assert {:ok, policy} = ProtectedRule.select(session(compiled), request)

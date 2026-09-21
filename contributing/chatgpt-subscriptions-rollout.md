@@ -34,12 +34,20 @@ you do not trust.
   stays silent, because the grant still reads `active`), revert the squash
   commit of #2458; ADR 0060, "The platform move is gated on a measurement",
   has the rest.
-- [ ] **(b) A `managoat_broker` hex release with Gate A and Gate B**, the pin
+- [x] **(b) A `managoat_broker` hex release with Gate A and Gate B**, the pin
   bumped in `apps/fountain/mix.exs`, and `ProtectedCompiler.policy/1` setting
-  the option. Gate A scrubs or refuses a protected response that contains the
-  bearer its request was sent with. Gate B refuses a non-empty query string on
-  a protected route. Both are library code, not Fountain's (ADR 0060, "Stage
-  3 as built"). Neither exists yet.
+  the option. Ticked 2026-09-21: `managoat_broker` 0.15.0
+  (managoat/managoat_broker#39), adopted by #2483. Gate A refuses (it does
+  not scrub) a protected response that contains the bearer its request was
+  sent with, and refuses one that arrives compressed, having asked for
+  `Accept-Encoding: identity`. Gate B refuses any query string on a
+  protected route, a bare `?` included. Both are library code, not
+  Fountain's; ADR 0060, "Gates A and B as built", says what gate A does not
+  recognise. **Unmeasured, and part of (c):** whether `chatgpt.com` honours
+  `identity` on the Codex route. The recorded client sends no
+  `accept-encoding` and its turns completed (ADR 0047, measurement 2), so
+  the route answers that uncompressed and is expected to answer `identity`
+  the same way; the hosted turn (#2479) shows it.
 - [ ] **(c) Both real-client measurements pass**: the protected-path probe
   against the pinned client (which is also the measurement stage 3b merged
   without, and covers the deployment's account as well as a user's), and a symlinked `CODEX_HOME` across a reattach
@@ -108,6 +116,28 @@ nothing.
    table. The request log stores no path, so the comparison is by method and
    count. Only a failed turn, or refusals that do not fit the table, is
    news; to name a new route, record the client's egress as #2479 did.
+   **Three endings at `/admin/broker` are news whenever they appear**, on
+   this run or after it, all on `chatgpt.com` rows:
+   - `502 protected_response_encoded`, under Failed: the origin answered
+     the Codex route compressed although the broker asked for
+     `Accept-Encoding: identity`, and the broker refused it unread because
+     it cannot search a compressed body for the token. Every codex turn on a
+     subscription or on the deployment's account fails while this lasts.
+     There is no switch; it is a `managoat_broker` change. Record the row
+     and stop the run.
+   - `credential_reflected`, under Failed, with a `502` or with the status
+     the origin sent: a response repeated the token its request carried, and
+     the broker cut it before the sandbox got the token. This is a security
+     event, not a fault of the turn. The server log has one `error` line a
+     minute per conversation that starts `broker: the response to`; it names
+     the conversation, the host and the rule and never the token. Find out
+     what answered (the origin, or an error page in front of it), and treat
+     the grant as exposed to whatever that was: disconnect it and link it
+     again.
+   - `403 protected_query`, under Denied: something in the sandbox put a
+     query string on the Codex route. The pinned client sends none, so this
+     is either a client that changed (re-run step 1) or an agent probing the
+     route. Nothing was sent to the origin.
 4. **Force a refresh of A.** Nothing in the product does this, so it is a
    SQL UPDATE, **on the STAGING database only, never production**: put A's
    `access_expires_at` inside the fifteen-minute refresh margin, then run a

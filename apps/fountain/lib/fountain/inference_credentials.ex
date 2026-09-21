@@ -205,11 +205,16 @@ defmodule Fountain.InferenceCredentials do
 
   The set's `revision` does not move: a grant source's identity is the grant
   itself, so repointing already reads as a different source to a
-  conversation bound to the old one, and one bound to the set's API key has
-  lost nothing.
+  conversation bound to the old one. A conversation on the set's API key
+  keeps validating if its runtime is not codex. A codex one does not: its
+  next turn resolves to the grant, which is not what it is pinned to, and
+  reads `:inference_source_changed` through resolution rather than through
+  `revision`. Naming a grant ends the set's running codex conversations.
 
-  Naming the grant the set already names is a no-op that records nothing.
-  Otherwise audited, after the transaction, as
+  Naming the grant the set already names is a no-op that records nothing,
+  whatever state that grant is in: a caller that sends the whole set back
+  must not be refused because the grant it already names was disconnected
+  since. Otherwise audited, after the transaction, as
   `inference_credential_set.chatgpt_grant_changed` with both grant ids and
   the new grant's name.
   """
@@ -220,9 +225,11 @@ defmodule Fountain.InferenceCredentials do
     result =
       with_source_lock(set.user_id, fn ->
         with %Credential{} = current <- get_set(set.id, set.user_id),
+             :changes <- unchanged(current, grant_id),
              {:ok, grant} <- nameable_grant(current, grant_id) do
           write_grant(current, grant)
         else
+          {:unchanged, _} = unchanged -> unchanged
           nil -> {:error, :not_found}
           {:error, _} = error -> error
         end
@@ -248,6 +255,20 @@ defmodule Fountain.InferenceCredentials do
     end
   end
 
+  # Before the grant is read: what the set already names needs no permission
+  # to go on being named. The id is compared as a UUID, not as the caller
+  # spelled it.
+  defp unchanged(%Credential{chatgpt_grant_id: named} = current, grant_id) do
+    same? =
+      case {named, grant_id} do
+        {nil, nil} -> true
+        {named, id} when is_binary(named) and is_binary(id) -> Ecto.UUID.cast(id) == {:ok, named}
+        _ -> false
+      end
+
+    if same?, do: {:unchanged, current}, else: :changes
+  end
+
   defp nameable_grant(_set, nil), do: {:ok, nil}
 
   defp nameable_grant(set, grant_id) do
@@ -266,12 +287,6 @@ defmodule Fountain.InferenceCredentials do
   defp grant_error(set, message) do
     set |> Ecto.Changeset.change() |> Ecto.Changeset.add_error(:chatgpt_grant_id, message)
   end
-
-  # The view's id, not the caller's spelling of it.
-  defp write_grant(%Credential{chatgpt_grant_id: id} = current, %{grant_id: id}),
-    do: {:unchanged, current}
-
-  defp write_grant(%Credential{chatgpt_grant_id: nil} = current, nil), do: {:unchanged, current}
 
   defp write_grant(current, grant) do
     case current |> Credential.grant_changeset(grant && grant.grant_id) |> Repo.update() do

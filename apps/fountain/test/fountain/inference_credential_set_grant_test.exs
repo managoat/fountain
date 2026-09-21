@@ -109,6 +109,28 @@ defmodule Fountain.InferenceCredentialSetGrantTest do
       assert [_only] = events(ctx.user)
     end
 
+    # A caller that sends the whole set back (stage 4's PATCH will) names the
+    # grant the set already names. That needs no permission, and a disconnect
+    # since must not turn an unrelated edit into an error.
+    test "re-sending the grant a set names is a no-op even once that grant is a tombstone", ctx do
+      grant = user_grant!(ctx.user.id)
+      {:ok, named} = InferenceCredentials.set_grant(ctx.set, grant.id)
+      :ok = ChatGPTAccounts.disconnect_for_user(grant.id, ctx.user.id)
+      before = stored(ctx.set)
+      recorded = length(events(ctx.user))
+
+      for id <- [grant.id, String.upcase(grant.id)] do
+        assert {:ok, ^before} = InferenceCredentials.set_grant(named, id)
+      end
+
+      assert stored(ctx.set) == before
+      assert length(events(ctx.user)) == recorded
+
+      # Naming it afresh is still refused: only what is already named is kept.
+      {:ok, other} = InferenceCredentials.create_set(ctx.user.id, "Other")
+      assert {:error, %Ecto.Changeset{}} = InferenceCredentials.set_grant(other, grant.id)
+    end
+
     test "another account's grant, the platform's, a missing one and a malformed id are one refusal",
          ctx do
       foreign = user_grant!(ctx.other.id, %{name: "Theirs"})

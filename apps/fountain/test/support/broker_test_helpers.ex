@@ -27,6 +27,29 @@ defmodule Fountain.BrokerTestHelpers do
     :ok
   end
 
+  @doc """
+  Broker on, plus the `chatgpt_subscriptions` rollout flag: what
+  `Fountain.ChatGPTAccounts.linking_enabled_for?/1` asks (ADR 0060 stage 4).
+  """
+  def enable_chatgpt_subscriptions do
+    enable_broker()
+    chatgpt_subscriptions_flag(true)
+  end
+
+  @doc "The `chatgpt_subscriptions` flag alone, on or off, whatever the broker is."
+  def chatgpt_subscriptions_flag(on?) when is_boolean(on?) do
+    previous = Application.get_env(:fountain, :feature_flag_overrides, %{})
+    on_exit(fn -> Application.put_env(:fountain, :feature_flag_overrides, previous) end)
+
+    Application.put_env(
+      :fountain,
+      :feature_flag_overrides,
+      Map.put(previous, "chatgpt_subscriptions", on?)
+    )
+
+    :ok
+  end
+
   @doc "Broker on for this test."
   def enable_broker do
     restore_after()

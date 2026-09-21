@@ -102,6 +102,45 @@ defmodule Fountain.ChatGPTFixtures do
   end
 
   @doc """
+  The token set a device-code exchange hands back for the upstream account
+  `account_id`: what `ChatGPTAccounts.connect_for_user/4` and a link
+  attempt's completion take.
+  """
+  def user_tokens(account_id, opts \\ []) do
+    %{
+      access_token: Keyword.get(opts, :access, access_token()),
+      refresh_token: Keyword.get(opts, :refresh, "rt_" <> account_id),
+      id_token: id_token(%{account_id: account_id})
+    }
+  end
+
+  @doc """
+  A stand-in for `OAuth.device_start/0`, for
+  `ChatGPTAccounts.start_attempt_for_user/3`'s `:device_start`. It tells
+  `notify` each time it is asked, as `{:device_start, user_code}`, so a test
+  can assert the auth server was, or was not, called.
+  """
+  def device_start(notify, overrides \\ %{}) when is_pid(notify) do
+    fn ->
+      unique = System.unique_integer([:positive])
+
+      started =
+        Map.merge(
+          %{
+            user_code: "CODE-#{unique}",
+            device_auth_id: "deviceauth_#{unique}",
+            interval: 5,
+            verification_url: "https://auth.openai.com/codex/device"
+          },
+          overrides
+        )
+
+      send(notify, {:device_start, started.user_code})
+      {:ok, started}
+    end
+  end
+
+  @doc """
   Stub `auth.openai.com`. `handlers` maps a request path to a function of
   the decoded JSON body returning `{status, body}`; a path with no handler
   fails the test, so a call nobody expected is visible.

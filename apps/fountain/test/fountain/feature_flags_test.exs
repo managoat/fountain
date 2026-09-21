@@ -97,6 +97,18 @@ defmodule Fountain.FeatureFlagsTest do
       refute FeatureFlags.enabled?(@flag, @user_id)
     end
 
+    # The opposite call, made on purpose: linking a ChatGPT subscription is
+    # behind gates ADR 0060 has not passed, so its flag is not on that list
+    # and a deployment with no PostHog does not get the feature by default.
+    test "the chatgpt_subscriptions flag fails closed" do
+      posthog_off()
+      refute FeatureFlags.enabled?(:chatgpt_subscriptions, @user_id)
+      refute FeatureFlags.enabled?(:chatgpt_subscriptions, nil)
+
+      Application.put_env(:fountain, :feature_flag_overrides, %{"chatgpt_subscriptions" => true})
+      assert FeatureFlags.enabled?(:chatgpt_subscriptions, @user_id)
+    end
+
     test "a static override still decides, in both directions" do
       posthog_off()
       Application.put_env(:fountain, :feature_flag_overrides, %{"connections" => false})

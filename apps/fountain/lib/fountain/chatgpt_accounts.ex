@@ -152,7 +152,16 @@ defmodule Fountain.ChatGPTAccounts do
 
   alias Fountain.Accounts.User
   alias Fountain.Audit
-  alias Fountain.ChatGPTAccounts.{Cipher, Grant, RefreshCoordinator, RefreshLock}
+
+  alias Fountain.ChatGPTAccounts.{
+    AttemptView,
+    Cipher,
+    Grant,
+    LinkAttempts,
+    RefreshCoordinator,
+    RefreshLock
+  }
+
   alias Fountain.InferenceCredentials.Source
   alias Fountain.PlatformChatGPT.{Account, OAuth, Refresher, Tokens, UsageLimit}
   alias Fountain.Repo
@@ -524,8 +533,12 @@ defmodule Fountain.ChatGPTAccounts do
   #
   # An owner id that is not a UUID owns nothing, so it is refused with
   # `malformed` before the lock or any query is asked to cast it.
-  defp user_write(user_id, malformed \\ :not_found, fun)
-       when is_binary(user_id) and is_function(fun, 0) do
+  #
+  # Public for `Fountain.ChatGPTAccounts.LinkAttempts`, whose rows are this
+  # owner's too and take the same key before any row. Not an interface.
+  @doc false
+  def user_write(user_id, malformed \\ :not_found, fun)
+      when is_binary(user_id) and is_function(fun, 0) do
     case Ecto.UUID.cast(user_id) do
       {:ok, _} ->
         Repo.transaction(fn ->
@@ -589,7 +602,10 @@ defmodule Fountain.ChatGPTAccounts do
   defp expected_generation(%Account{generation: generation}, generation), do: :ok
   defp expected_generation(%Account{}, _other), do: {:error, :stale_grant}
 
-  defp under_ceiling(user_id) do
+  # Asked under the owner's source lock, or the count means nothing. Public,
+  # like `eligible_owner/1`, for the link attempt's admission.
+  @doc false
+  def under_ceiling(user_id) do
     count = Repo.aggregate(from(a in Account, where: a.user_id == ^user_id), :count)
     limit = grant_ceiling()
 
@@ -598,7 +614,8 @@ defmodule Fountain.ChatGPTAccounts do
       else: {:error, {:grant_limit_reached, %{count: count, limit: limit}}}
   end
 
-  defp eligible_owner(user_id) do
+  @doc false
+  def eligible_owner(user_id) do
     eligible =
       from(u in User, as: :owner, where: u.id == ^user_id, where: ^eligible_owner_filter())
 
@@ -867,6 +884,99 @@ defmodule Fountain.ChatGPTAccounts do
       not u.principal and not is_nil(u.email_verified_at) and is_nil(u.suspended_at)
     )
   end
+
+  # ── a user's link attempts ───────────────────────────────────────────────
+
+  @doc """
+  Whether this account may link a **new** subscription: the deployment
+  brokers egress, without which a grant resolves `:broker_required` and
+  could serve nothing, and the `chatgpt_subscriptions` rollout flag is on for
+  them. The flag fails closed (`Fountain.FeatureFlags`): it is off wherever
+  nobody has turned it on.
+
+  It gates that one door. Listing, renaming, reconnecting, disconnecting and
+  removing the grants an account already holds never ask it, so turning
+  linking off strands nothing (ADR 0060, "Implementation sequence").
+  """
+  @spec linking_enabled_for?(String.t()) :: boolean()
+  def linking_enabled_for?(user_id) when is_binary(user_id) do
+    Fountain.Broker.configured?() and
+      Fountain.FeatureFlags.enabled?(:chatgpt_subscriptions, user_id)
+  end
+
+  @doc """
+  Begin a device-code sign-in for `user_id` (ADR 0060 decision 3). `target`
+  is `%{name: name}` for a new subscription, or `%{grant_id: id}` to
+  reconnect one grant, whose current generation the server pins on the
+  attempt so a completion that arrives after a newer sign-in is refused. The
+  answer carries the user code and the page to type it on.
+
+  Refused, with nothing written, nothing audited and, except for the last,
+  the auth server not asked:
+
+    * `:subscriptions_not_enabled` -- `linking_enabled_for?/1` is false for a
+      new link, or the deployment has no broker for a reconnect.
+    * `:ineligible_owner` -- not a verified, claimed, unsuspended account.
+    * `{:link_attempts_exceeded, %{count: _, limit: _}}` -- three sign-ins
+      are open already, across all of the account's grants.
+    * a changeset -- the name is blank, too long, or already names one of
+      this user's grants or open attempts.
+    * `{:grant_limit_reached, %{count: _, limit: _}}` -- at
+      `grant_ceiling/0`. Asked again when the attempt completes.
+    * `:not_found` -- the grant to reconnect is not this user's.
+    * `{:link_attempt_pending, %{attempt_id: _}}` -- that grant already has
+      a sign-in open: read or cancel that one.
+    * `:tenant_key_unavailable` -- the owner's encryption key would not load.
+    * `:auth_unreachable` -- the auth server gave no device code.
+
+  The admission runs twice, each time under the owner's source lock: before
+  the auth server is asked, and again in the transaction that inserts the
+  row. The auth server is never called inside a transaction.
+
+  `opts`: `:actor` (default `"self"`) and `:request_ip` for the
+  `chatgpt_link_attempt.started` event, and `:device_start`, a zero-arity
+  function in place of `OAuth.device_start/0`.
+  """
+  @spec start_attempt_for_user(String.t(), map(), keyword()) ::
+          {:ok, AttemptView.t()} | {:error, term()}
+  def start_attempt_for_user(user_id, target, opts \\ []),
+    do: LinkAttempts.start(user_id, target, opts)
+
+  @doc """
+  One attempt, by its id and its owner: the read a page reload and an API
+  poll both make. Another user's attempt and an id that is not one are
+  `{:error, :not_found}`. A pending attempt past its time reads `"expired"`
+  and shows no code, whether or not anything has written that yet.
+  """
+  @spec get_attempt_for_user(Ecto.UUID.t(), String.t()) ::
+          {:ok, AttemptView.t()} | {:error, :not_found}
+  def get_attempt_for_user(attempt_id, user_id), do: LinkAttempts.get(attempt_id, user_id)
+
+  @doc "The user's open, unexpired attempts, oldest first; `[]` when there is none."
+  @spec list_pending_attempts_for_user(String.t()) :: [AttemptView.t()]
+  def list_pending_attempts_for_user(user_id), do: LinkAttempts.list_pending(user_id)
+
+  @doc """
+  Cancel one pending attempt. Its secrets are dropped with the write, and a
+  completion that arrives afterwards finds no pending row and stores
+  nothing: the two take the same locks in the same order, the owner's key
+  and then the attempt's row, so exactly one of them ends the attempt.
+
+  `{:ok, view}` for an attempt already cancelled, with no second event.
+  `{:error, {:link_attempt_not_pending, %{state: _}}}` for one that has
+  completed, failed or run out of time; a pending row found past its time is
+  written `expired` and answered the same way.
+
+  A cancel that loses to the exchange by a moment changes nothing: the grant
+  is linked and the attempt reads `completed`. One that wins after the
+  exchange has returned discards tokens the auth server has already issued;
+  they are not revoked upstream (ADR 0060, "Stage 4a as built").
+  """
+  @spec cancel_attempt_for_user(Ecto.UUID.t(), String.t(), keyword()) ::
+          {:ok, AttemptView.t()}
+          | {:error, :not_found | {:link_attempt_not_pending, map()} | Ecto.Changeset.t()}
+  def cancel_attempt_for_user(attempt_id, user_id, opts \\ []),
+    do: LinkAttempts.cancel(attempt_id, user_id, opts)
 
   # ── broker authorization ─────────────────────────────────────────────────
 

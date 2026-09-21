@@ -327,4 +327,25 @@ defmodule Fountain.RuntimeConfigTest do
       end
     end
   end
+
+  describe "CHATGPT_GRANT_CEILING (ADR 0060)" do
+    test "is five unless set, takes a whole number, and refuses anything else by name",
+         %{base: base} do
+      on_exit(fn -> System.delete_env("CHATGPT_GRANT_CEILING") end)
+      base = Map.put(base, "PUBLIC_URL", "https://fountain.example.com")
+
+      assert read_prod_config(base)[:chatgpt_grant_ceiling] == 5
+
+      for {value, ceiling} <- [{"", 5}, {"2", 2}, {" 12 ", 12}, {"0", 0}] do
+        cfg = read_prod_config(Map.put(base, "CHATGPT_GRANT_CEILING", value))
+        assert cfg[:chatgpt_grant_ceiling] == ceiling
+      end
+
+      for value <- ["many", "-1", "2.5"] do
+        assert_raise RuntimeError, ~r/CHATGPT_GRANT_CEILING must be a whole number/, fn ->
+          read_prod_config(Map.put(base, "CHATGPT_GRANT_CEILING", value))
+        end
+      end
+    end
+  end
 end

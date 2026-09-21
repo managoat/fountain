@@ -992,6 +992,11 @@ config :fountain,
 # Hosted Buzz agents one account may run at once — an abuse ceiling (#1017).
 config :fountain_buzz, :buzz_identity_ceiling, whole_number.("BUZZ_IDENTITY_CEILING", 10)
 
+# ChatGPT subscriptions one account may link (ADR 0060 decision 1). It stops a
+# runaway client and prices nothing; a disconnected subscription holds its
+# place until it is removed. Lowering it refuses new links only.
+config :fountain, :chatgpt_grant_ceiling, whole_number.("CHATGPT_GRANT_CEILING", 5)
+
 config :fountain, :credits,
   # The opening grant a new account gets, and how many days it lasts.
   opening_cents: credit_cents.("CREDIT_OPENING_CENTS") || 500,

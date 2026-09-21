@@ -245,11 +245,12 @@ defmodule Fountain.ChatGPTAccounts do
 
   @doc """
   How many grants one account may hold: `config :fountain,
-  :chatgpt_grant_ceiling`, five unless set. It stops a runaway client; it
-  does not price anything. Lowering it below what an account already holds
-  refuses new links only.
+  :chatgpt_grant_ceiling`, which is `CHATGPT_GRANT_CEILING`, five unless set.
+  It stops a runaway client; it does not price anything. Lowering it below
+  what an account already holds refuses new links only, and zero refuses
+  every one.
   """
-  @spec grant_ceiling() :: pos_integer()
+  @spec grant_ceiling() :: non_neg_integer()
   def grant_ceiling, do: Application.get_env(:fountain, :chatgpt_grant_ceiling, 5)
 
   @doc """

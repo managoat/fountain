@@ -46,7 +46,9 @@ defmodule Fountain.ChatGPTRefreshCoordinatorTest do
         send(ctx.server, {:not_a_refresh, "synthetic-secret-payload"})
         send(ctx.server, "synthetic-secret-binary")
         caller = call(ctx)
-        assert_receive {:started, worker, "owner", "generation"}
+        # Two captured log writes sit ahead of the call; under a loaded suite
+        # they outlast assert_receive's default 100 ms.
+        assert_receive {:started, worker, "owner", "generation"}, 2_000
         send(worker, {:finish, :ok})
         assert :ok = Task.await(caller)
       end)

@@ -254,13 +254,26 @@ defmodule Fountain.ChatGPTAccounts.LinkAttempts do
   # ── reads ────────────────────────────────────────────────────────────────
 
   def get(attempt_id, user_id) when is_binary(attempt_id) and is_binary(user_id) do
+    now = now()
+
     with {:ok, query} <- owned_query(attempt_id, user_id),
          %LinkAttempt{} = attempt <- Repo.one(query) do
-      {:ok, view(attempt, now())}
+      {:ok, attempt |> polled(now) |> view(now)}
     else
       _ -> {:error, :not_found}
     end
   end
+
+  # A pending attempt in time whose job was lost gets it back from whoever
+  # reads it (`Fountain.Workers.ChatGPTLinkAttempt.ensure_enqueued/1`).
+  defp polled(%LinkAttempt{state: "pending"} = attempt, now) do
+    unless LinkAttempt.expired?(attempt, now),
+      do: Fountain.Workers.ChatGPTLinkAttempt.ensure_enqueued(attempt)
+
+    attempt
+  end
+
+  defp polled(%LinkAttempt{} = attempt, _now), do: attempt
 
   def list_pending(user_id) when is_binary(user_id) do
     now = now()
@@ -269,7 +282,7 @@ defmodule Fountain.ChatGPTAccounts.LinkAttempts do
       {:ok, owner} ->
         from(a in pending_query(owner, now), order_by: [asc: a.inserted_at, asc: a.id])
         |> Repo.all()
-        |> Enum.map(&view(&1, now))
+        |> Enum.map(&(&1 |> polled(now) |> view(now)))
 
       :error ->
         []

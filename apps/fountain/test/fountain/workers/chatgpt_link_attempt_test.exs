@@ -78,6 +78,53 @@ defmodule Fountain.Workers.ChatGPTLinkAttemptTest do
     )
   end
 
+  describe "a job that was lost" do
+    defp jobs(attempt_id) do
+      Repo.all(
+        from(j in Oban.Job,
+          where: fragment("?->>'attempt_id' = ?", j.args, ^attempt_id),
+          order_by: [asc: j.id]
+        )
+      )
+    end
+
+    test "comes back when the attempt is read, once, and only while it is pending",
+         %{user: user} do
+      stub_legs(%{})
+      {:ok, attempt} = ChatGPTAccounts.start_attempt_for_user(user.id, %{name: "Work"})
+      assert [%Oban.Job{id: first}] = jobs(attempt.id)
+
+      # A read of an attempt that is being polled inserts nothing.
+      assert {:ok, _} = ChatGPTAccounts.get_attempt_for_user(attempt.id, user.id)
+      assert [%Oban.Job{id: ^first}] = jobs(attempt.id)
+
+      # Orphaned in `executing`, it is still incomplete: nothing replaces it.
+      Repo.update_all(from(j in Oban.Job, where: j.id == ^first), set: [state: "executing"])
+      assert {:ok, _} = ChatGPTAccounts.get_attempt_for_user(attempt.id, user.id)
+      assert [%Oban.Job{id: ^first}] = jobs(attempt.id)
+
+      Repo.update_all(from(j in Oban.Job, where: j.id == ^first), set: [state: "discarded"])
+      assert {:ok, _} = ChatGPTAccounts.get_attempt_for_user(attempt.id, user.id)
+      assert [_lost, %Oban.Job{state: "scheduled", args: args}] = jobs(attempt.id)
+      assert args == %{"attempt_id" => attempt.id, "user_id" => user.id}
+
+      assert [_] = ChatGPTAccounts.list_pending_attempts_for_user(user.id)
+      assert [_lost, _one] = jobs(attempt.id)
+
+      Repo.delete_all(Oban.Job)
+      assert [_] = ChatGPTAccounts.list_pending_attempts_for_user(user.id)
+      assert [%Oban.Job{state: "scheduled"}] = jobs(attempt.id)
+
+      Repo.delete_all(Oban.Job)
+      assert {:ok, _} = ChatGPTAccounts.cancel_attempt_for_user(attempt.id, user.id)
+
+      assert {:ok, %{state: "cancelled"}} =
+               ChatGPTAccounts.get_attempt_for_user(attempt.id, user.id)
+
+      assert jobs(attempt.id) == []
+    end
+  end
+
   describe "a run that raised" do
     test "is retried in seconds however often the job has snoozed" do
       for attempt <- [1, 9, 60, 180] do

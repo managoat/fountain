@@ -28,6 +28,14 @@ defmodule Fountain.Workers.ChatGPTLinkAttempt do
 
   Unique per attempt while a job for it is incomplete, so a retried insert
   cannot start a second poller against one device code.
+
+  A job can still be lost: discarded after its last raise, or deleted by an
+  operator. `ensure_enqueued/1` is what the attempt's readers call for a
+  pending attempt in time, and it inserts the job again when no incomplete
+  one names the attempt. A job orphaned in `executing` by a killed node is
+  incomplete, so this does not replace it, and `Oban.Plugins.Lifeline`
+  rescues it only after the attempt has run out (ADR 0060, "Stage 4a as
+  built", known limitations).
   """
 
   use Oban.Worker,
@@ -35,8 +43,11 @@ defmodule Fountain.Workers.ChatGPTLinkAttempt do
     max_attempts: 10,
     unique: [keys: [:attempt_id], period: :infinity, states: :incomplete]
 
+  import Ecto.Query, only: [from: 2]
+
   alias Fountain.ChatGPTAccounts
   alias Fountain.ChatGPTAccounts.LinkAttempt
+  alias Fountain.Repo
 
   @retry_seconds 10
 
@@ -57,5 +68,26 @@ defmodule Fountain.Workers.ChatGPTLinkAttempt do
     %{attempt_id: id, user_id: user_id}
     |> new(schedule_in: interval)
     |> Oban.insert()
+  end
+
+  @doc """
+  Put `attempt`'s poller back if it has none. One indexed read when it has
+  one, which is every time but the rare one; the insert is the unique one, so
+  two readers that both find nothing still start one poller.
+  """
+  @spec ensure_enqueued(LinkAttempt.t()) :: :ok
+  def ensure_enqueued(%LinkAttempt{id: id} = attempt) do
+    states = Enum.map(Oban.Job.unique_states(:incomplete), &Atom.to_string/1)
+
+    polled? =
+      Repo.exists?(
+        from(j in Oban.Job,
+          where: j.worker == ^inspect(__MODULE__) and j.state in ^states,
+          where: fragment("? @> ?", j.args, ^%{"attempt_id" => id})
+        )
+      )
+
+    unless polled?, do: enqueue(attempt)
+    :ok
   end
 end

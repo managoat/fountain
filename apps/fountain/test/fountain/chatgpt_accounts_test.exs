@@ -70,7 +70,18 @@ defmodule Fountain.ChatGPTAccountsTest do
     end
 
     assert_raise FunctionClauseError, fn ->
-      Cipher.encrypt_user_tokens(nil, %{access_token: "access", refresh_token: "refresh"})
+      Cipher.encrypt_user_tokens(nil, Ecto.UUID.generate(), %{
+        access_token: "access",
+        refresh_token: "refresh"
+      })
+    end
+
+    # Nor is there a user blob bound to no row.
+    assert_raise FunctionClauseError, fn ->
+      Cipher.encrypt_user_tokens(Ecto.UUID.generate(), nil, %{
+        access_token: "access",
+        refresh_token: "refresh"
+      })
     end
   end
 
@@ -131,6 +142,45 @@ defmodule Fountain.ChatGPTAccountsTest do
              )
   end
 
+  # The AAD names the grant as well as the owner and the field. Before a user
+  # could hold two grants the owner was enough; now the same DEK covers
+  # several rows, and one subscription's token must not open in another's.
+  test "tokens cannot be swapped between two grants of one owner" do
+    owner = insert_verified_user()
+    personal = owned_row(owner, %{name: "Personal"}, "personal-access-token")
+    work = owned_row(owner, %{name: "Work", account_id: "acct-work"}, "work-access-token")
+
+    swapped = %{
+      work
+      | access_token_ciphertext: personal.access_token_ciphertext,
+        refresh_token_ciphertext: personal.refresh_token_ciphertext
+    }
+
+    assert {:error, :undecryptable} = Cipher.decrypt_token(swapped, :access_token)
+    assert {:error, :undecryptable} = Cipher.decrypt_token(swapped, :refresh_token)
+
+    # Through the context too: the swapped row is written, and refused.
+    work
+    |> change(access_token_ciphertext: personal.access_token_ciphertext)
+    |> Repo.update!()
+
+    assert {:error, :undecryptable} = read(work, owner)
+    assert {:ok, %Grant{access_token: "personal-access-token"}} = read(personal, owner)
+  end
+
+  # The grant id is in a user's AAD only. The platform row stays exactly
+  # `Crypto.encrypt_platform/1`'s format, which is what production holds.
+  test "the platform row's tokens are bound to nothing but the master key" do
+    platform = %Account{} |> Account.connect_changeset(platform_attrs()) |> Repo.insert!()
+    assert {:ok, "platform-access"} = Cipher.decrypt_token(platform, :access_token)
+
+    assert {:ok, "platform-access"} =
+             Cipher.decrypt_token(%{platform | id: Ecto.UUID.generate()}, :access_token)
+
+    assert {:ok, "platform-access"} =
+             Crypto.decrypt_platform(Cipher.encrypt_platform_token("platform-access"))
+  end
+
   # This warning is the only thing that tells an operator a key rotation
   # killed the grant: the credential read answers `:none`, codex falls back
   # to the platform API key, and the status read never decrypts, so the
@@ -149,6 +199,7 @@ defmodule Fountain.ChatGPTAccountsTest do
 
     assert tenant_log =~ "does not decrypt under the tenant key"
     assert tenant_log =~ owner.id
+    assert tenant_log =~ grant.id
     assert tenant_log =~ "access_token"
     refute tenant_log =~ "platform"
 
@@ -228,7 +279,7 @@ defmodule Fountain.ChatGPTAccountsTest do
 
   test "encryption refuses an owner without a tenant key" do
     assert {:error, :not_found} =
-             Cipher.encrypt_user_tokens(Ecto.UUID.generate(), %{
+             Cipher.encrypt_user_tokens(Ecto.UUID.generate(), Ecto.UUID.generate(), %{
                access_token: "access",
                refresh_token: "refresh"
              })
@@ -410,7 +461,7 @@ defmodule Fountain.ChatGPTAccountsTest do
 
   defp owned_attrs(owner, account_id, name) do
     {:ok, encrypted} =
-      Cipher.encrypt_user_tokens(owner.id, %{
+      Cipher.encrypt_user_tokens(owner.id, Ecto.UUID.generate(), %{
         access_token: "user-access-token",
         refresh_token: "user-refresh-token"
       })
@@ -430,8 +481,10 @@ defmodule Fountain.ChatGPTAccountsTest do
   # has, inserted straight through the schema. The name is unique per call
   # because `(user_id, name)` is; pass `:account_id` for a user's second row.
   defp owned_row(owner, overrides \\ %{}, access \\ "user-access-token") do
+    id = Ecto.UUID.generate()
+
     {:ok, encrypted} =
-      Cipher.encrypt_user_tokens(owner.id, %{
+      Cipher.encrypt_user_tokens(owner.id, id, %{
         access_token: access,
         refresh_token: "user-refresh-token"
       })
@@ -446,7 +499,7 @@ defmodule Fountain.ChatGPTAccountsTest do
         last_refreshed_at: DateTime.utc_now() |> DateTime.truncate(:second)
       })
 
-    %Account{user_id: owner.id, name: "grant-#{System.unique_integer([:positive])}"}
+    %Account{id: id, user_id: owner.id, name: "grant-#{System.unique_integer([:positive])}"}
     |> Account.connect_changeset(attrs)
     |> change(overrides)
     |> Repo.insert!()

@@ -67,6 +67,7 @@ defmodule Fountain.ChatGPTFixtures do
   A user's grant, inserted straight through the schema. A user may hold
   several (ADR 0060), so the name and the upstream account id are unique per
   call unless `opts` names them; the stored claims follow the account id.
+  The row id is chosen first, because the tokens are encrypted to it.
   """
   def user_grant!(user_id, opts \\ %{}) do
     alias Fountain.ChatGPTAccounts.Cipher
@@ -76,8 +77,10 @@ defmodule Fountain.ChatGPTFixtures do
     access = Map.get(opts, :access_token, access_token(60))
     account_id = Map.get(opts, :account_id, "acct-user-#{unique}")
 
+    id = Ecto.UUID.generate()
+
     {:ok, encrypted} =
-      Cipher.encrypt_user_tokens(user_id, %{
+      Cipher.encrypt_user_tokens(user_id, id, %{
         access_token: access,
         refresh_token: Map.get(opts, :refresh_token, "rt_user")
       })
@@ -93,7 +96,7 @@ defmodule Fountain.ChatGPTFixtures do
           Map.get(opts, :last_refreshed_at, DateTime.utc_now() |> DateTime.truncate(:second))
       })
 
-    %Account{user_id: user_id, name: Map.get(opts, :name, "grant-#{unique}")}
+    %Account{id: id, user_id: user_id, name: Map.get(opts, :name, "grant-#{unique}")}
     |> Account.connect_changeset(attrs)
     |> Fountain.Repo.insert!()
   end

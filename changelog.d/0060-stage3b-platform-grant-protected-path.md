@@ -17,22 +17,36 @@
 
 ### Upgrade notes
 
-- **Release gate, not yet passed, and the measurement is still owed: this
-  change has not run against a real codex client** (#2458). It was written
-  not to merge or deploy until `scripts/probe-codex-protected.py` had been
-  run against the codex-acp and Codex CLI the sandbox image installs and one
-  real hosted codex turn on the deployment's account had succeeded, with the
-  result recorded in ADR 0047. That measurement was not taken before the
-  merge; merging without it was the maintainer's decision on 2026-09-21. If
-  the installed client needs a second `chatgpt.com` route, or does not read
-  `CODEX_HOME`, every codex turn on the account fails, with a 403 from the
-  broker or with codex finding no auth file, and the fallback to
-  `PLATFORM_OPENAI_API_KEY` does not happen, because the account is still
-  active and not out of usage. Disconnecting the account at
+- **Release gate, half passed: no hosted codex turn has run on this change
+  yet** (#2458, #2479). It was written not to merge or deploy until
+  `scripts/probe-codex-protected.py` had been run against the codex-acp and
+  Codex CLI the sandbox image installs and one real hosted codex turn on the
+  deployment's account had succeeded, with the result recorded in ADR 0047.
+  Neither was done before the merge; merging without them was the
+  maintainer's decision on 2026-09-21. The probe was run later that day
+  against codex-acp 1.10.0 and Codex CLI 0.153.4 and passed: that client
+  reads `CODEX_HOME`, and it completes its turns with every `chatgpt.com`
+  route but the allowed one refused. That run was offline, against a local
+  origin and a local proxy, not against `chatgpt.com` through the broker.
+  The hosted turn is still owed. On the hosted instance the account has
+  been disconnected since 2026-09-16, so the new path has carried no
+  request there. The path is used only while an account is connected at
+  `/admin/inference`. If the first codex turns after you connect one fail
+  with a 403 from the broker, or with codex finding no auth file, the
+  fallback to `PLATFORM_OPENAI_API_KEY` does not happen, because the account
+  is still active and not out of usage. Disconnecting the account at
   `/admin/inference` is the quick way out; the rollback is to revert this
   change, whose migration has nothing to undo, after which a conversation
   mints a session of the old kind when its server next starts. Remove this
-  note when the measurement is recorded.
+  note when the hosted turn is recorded.
+
+- **Expect refused `chatgpt.com` requests at `/admin/broker` on every codex
+  turn on the account** (#2479). The Codex client asks `chatgpt.com` for
+  plugin lists, an MCP surface, a model list, telemetry and a settings read
+  as well as the one allowed route. In an offline run on codex-acp 1.10.0
+  and Codex CLI 0.153.4 that was ten routes, about 29 requests over two
+  turns. The broker refuses them, and the turn completes without them. They
+  are harmless. A failed turn is not.
 
 - **A codex conversation on the deployment's ChatGPT account cannot open a
   WebSocket through the broker any more, to any host** (#2458). The session

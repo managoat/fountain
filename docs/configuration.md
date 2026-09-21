@@ -259,6 +259,11 @@ requests and streamed responses work as before. Fountain sets `CODEX_HOME`
 for such a conversation, and ignores a `CODEX_HOME` from its environment or
 vault.
 
+Codex also asks `chatgpt.com` for plugin lists, a model list and telemetry on
+every turn. The broker refuses those requests, and `/admin/broker` lists them
+as denied. This is expected. In a test with codex-acp 1.10.0 and Codex CLI
+0.153.4, turns completed without them.
+
 A ChatGPT account has Codex usage limits. When a codex turn on the account
 fails because the account is at its limit, that turn fails. Fountain does
 not retry it. The error comes from the sandbox, and a tenant can change what

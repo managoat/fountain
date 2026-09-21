@@ -22,12 +22,18 @@ you do not trust.
   deployment does. It carried a gate of its own, a run of
   `scripts/probe-codex-protected.py` against the image's client and one real
   hosted turn, recorded in ADR 0047, before it might merge. **That gate was
-  not passed: the maintainer chose to merge without the measurement**, and
-  it is still owed, under (c) and as ADR 0047's measurement 6. If
-  platform-codex turns fail with a 403 from the broker or with no auth file
-  (the #2362 fallback stays silent, because the grant still reads
-  `active`), revert the squash commit of #2458; ADR 0060, "The platform move
-  is gated on a measurement", has the rest.
+  not passed: the maintainer chose to merge without the measurement.** The
+  probe was run later that day, 2026-09-21, against codex-acp 1.10.0 and
+  codex-cli 0.153.4, and passed (ADR 0047, measurement 6). **The hosted
+  turn is still owed**, under (c) and in #2479. It cannot run until the
+  maintainer reconnects the deployment's ChatGPT account at
+  `/admin/inference`: the account has been disconnected since 2026-09-16,
+  so nothing has used the protected path in production, and the failure
+  below cannot happen until it is reconnected. If platform-codex turns then
+  fail with a 403 from the broker or with no auth file (the #2362 fallback
+  stays silent, because the grant still reads `active`), revert the squash
+  commit of #2458; ADR 0060, "The platform move is gated on a measurement",
+  has the rest.
 - [ ] **(b) A `managoat_broker` hex release with Gate A and Gate B**, the pin
   bumped in `apps/fountain/mix.exs`, and `ProtectedCompiler.policy/1` setting
   the option. Gate A scrubs or refuses a protected response that contains the
@@ -37,7 +43,11 @@ you do not trust.
 - [ ] **(c) Both real-client measurements pass**: the protected-path probe
   against the pinned client (which is also the measurement stage 3b merged
   without, and covers the deployment's account as well as a user's), and a symlinked `CODEX_HOME` across a reattach
-  and a `thread/resume`. Steps 1 and 5 of the runbook.
+  and a `thread/resume`. Steps 1 and 5 of the runbook. The probe was run
+  offline on 2026-09-21 against codex-acp 1.10.0 and codex-cli 0.153.4 and
+  passed. Not ticked: the hosted turn on the deployment's account that stage
+  3b also owed waits on the account being reconnected (#2479), and the
+  symlinked home has not been tried.
 - [ ] **(d) ADR 0047's measurement 5 is recorded**, the day-9 reading (due
   2026-09-17, still "Pending") and the day-30 reading (2026-10-08), and the
   keepalive interval is confirmed or changed from them. Six days is the
@@ -77,14 +87,27 @@ nothing.
 1. **Re-run `scripts/probe-codex-protected.py` against the pinned client.**
    Review `apps/fountain/test/fixtures/codex_protected/capture.json` against
    what it captures, replace it if the shape moved, and update the README
-   beside it. The fixture in the tree is from codex-acp 1.10.0 and CLI
-   0.153.4, before the current `managoat_runtimes` pin.
+   beside it. **Done on 2026-09-21 for codex-acp 1.10.0 and CLI 0.153.4**,
+   the pair `managoat_runtimes` 0.4.5 resolved that day: the output was
+   byte-identical to the fixture in the tree, so nothing was replaced (ADR
+   0047, measurement 6). Do it again only if either version has moved by
+   the day of the run. The probe cannot see a route the client needs beyond
+   the allowed one; step 3 can.
 2. **Staging with `FEATURE_FLAGS_ON=chatgpt_subscriptions`.** Link A and B.
    Make two credential sets, one naming each, and two agents, one on each
    set, in **one shared sandbox**.
 3. **A turn on each agent.** From `broker_requests`, record the hosts, the
    routes, the `injected` counts and any refused request. A refused request
-   that codex needed is a finding; so is a host nobody expected.
+   that codex needed is a finding; so is a host nobody expected. **Refused
+   requests to `chatgpt.com` are expected on every codex turn.** Offline, on
+   1.10.0 and 0.153.4, the client asked for ten ambient routes besides the
+   allowed one, about 29 requests over two turns, GET and POST, and
+   completed both turns with all of them refused (ADR 0047,
+   ["Measurement 6, the offline half"](../decisions/0047-codex-platform-chatgpt-account.md#measurement-6-the-offline-half)).
+   Compare `/admin/broker`'s denied rows for `chatgpt.com` against that
+   table. The request log stores no path, so the comparison is by method and
+   count. Only a failed turn, or refusals that do not fit the table, is
+   news; to name a new route, record the client's egress as #2479 did.
 4. **Force a refresh of A.** Nothing in the product does this, so it is a
    SQL UPDATE, **on the STAGING database only, never production**: put A's
    `access_expires_at` inside the fifteen-minute refresh margin, then run a
@@ -140,5 +163,6 @@ before the pause. Either reading belongs in the ADR.
 ["Measured" table](../decisions/0060-many-user-chatgpt-subscriptions.md#measured),
 with the pins and the date. The idle-lifetime readings and their pins go in
 ADR 0047's measurement table, row 5. The 3b measurement, which was not
-taken before #2458 merged, goes in ADR 0047's table too, row 6. A gate that fails is recorded as failed, with what was
+taken before #2458 merged, goes in ADR 0047's table too, row 6; its offline
+half is there, and the hosted turn of #2479 goes beside it. A gate that fails is recorded as failed, with what was
 seen; it is not left blank.

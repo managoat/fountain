@@ -185,7 +185,9 @@ attempt, show its `user_code` and `verification_url` to the person, and read
 the attempt every `poll_interval` seconds. Fountain polls ChatGPT. A read of
 the attempt contacts nobody. The `state` goes from `pending` to one of
 `completed`, `cancelled`, `expired` and `failed`, and it does not change again.
-The `user_code` is null after that. An attempt expires after 15 minutes. A
+The `user_code` is null after that. An attempt expires after 15 minutes. While
+`auth_unreachable` is true, ChatGPT's sign-in service did not answer the last
+poll; the attempt stays open and Fountain asks again. A
 `failed` attempt gives a `failure.reason`. For `account_already_linked`, the
 `failure` also names the subscription that holds the ChatGPT account, which is
 the one to reconnect.

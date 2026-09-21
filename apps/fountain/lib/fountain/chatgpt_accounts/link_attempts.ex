@@ -294,6 +294,42 @@ defmodule Fountain.ChatGPTAccounts.LinkAttempts do
     end
   end
 
+  # How long an ended attempt stays worth showing, and how many of them.
+  @recent_seconds 30 * 60
+  @recent_limit 10
+
+  def list_recent(user_id) when is_binary(user_id) do
+    now = now()
+    since = DateTime.add(now, -@recent_seconds, :second)
+
+    case Ecto.UUID.cast(user_id) do
+      {:ok, owner} ->
+        # Ended when the row was last written, or, for one that ran out and
+        # that nobody has written yet, when it ran out.
+        from(a in LinkAttempt,
+          where: a.user_id == ^owner,
+          where:
+            (a.state != "pending" and a.updated_at > ^since) or
+              (a.state == "pending" and a.expires_at <= ^now and a.expires_at > ^since)
+        )
+        |> Repo.all()
+        |> Enum.sort_by(&{ended_at(&1), &1.id}, fn {a, x}, {b, y} ->
+          case DateTime.compare(a, b) do
+            :eq -> x >= y
+            order -> order == :gt
+          end
+        end)
+        |> Enum.take(@recent_limit)
+        |> Enum.map(&view(&1, now))
+
+      :error ->
+        []
+    end
+  end
+
+  defp ended_at(%LinkAttempt{state: "pending", expires_at: at}), do: at
+  defp ended_at(%LinkAttempt{updated_at: at}), do: at
+
   # ── cancel ───────────────────────────────────────────────────────────────
 
   def cancel(attempt_id, user_id, opts)
@@ -428,9 +464,16 @@ defmodule Fountain.ChatGPTAccounts.LinkAttempts do
   defp again(%LinkAttempt{poll_failures: failures} = attempt, failures),
     do: {:again, delay(attempt, failures)}
 
-  defp again(%LinkAttempt{id: id} = attempt, failures) do
-    from(a in LinkAttempt, where: a.id == ^id and a.state == "pending")
-    |> Repo.update_all(set: [poll_failures: failures])
+  defp again(%LinkAttempt{id: id, poll_failures: before} = attempt, failures) do
+    {written, _} =
+      from(a in LinkAttempt, where: a.id == ^id and a.state == "pending")
+      |> Repo.update_all(set: [poll_failures: failures])
+
+    # Said when the auth server stops answering and when it answers again,
+    # which is when `AttemptView`'s `:auth_unreachable` changes; not on every
+    # failure in between, which changes nothing anybody is shown.
+    if written == 1 and before == 0 != (failures == 0),
+      do: ChatGPTAccounts.broadcast_changed(attempt.user_id)
 
     {:again, delay(attempt, failures)}
   end
@@ -744,6 +787,7 @@ defmodule Fountain.ChatGPTAccounts.LinkAttempts do
       user_code: if(pending?, do: user_code(attempt)),
       verification_url: if(pending?, do: attempt.verification_url),
       poll_interval: attempt.poll_interval,
+      auth_unreachable: pending? and attempt.poll_failures > 0,
       expires_at: attempt.expires_at,
       result_grant_id: attempt.result_grant_id,
       failure: failure(attempt),

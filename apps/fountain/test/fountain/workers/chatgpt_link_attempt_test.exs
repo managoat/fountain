@@ -356,6 +356,44 @@ defmodule Fountain.Workers.ChatGPTLinkAttemptTest do
       assert %LinkAttempt{poll_failures: 0} = Repo.get!(LinkAttempt, view.id)
     end
 
+    test "is said to the page when it stops answering and when it answers again, and not between",
+         %{user: user} do
+      user_id = user.id
+      stub_legs(%{poll: fn _ -> {503, %{}} end})
+      view = start!(user, %{name: "Work"})
+      refute view.auth_unreachable
+      ChatGPTAccounts.subscribe(user.id)
+
+      capture_log(fn -> run(view, user) end)
+      assert_receive {:chatgpt_grants_changed, ^user_id}
+
+      assert {:ok, %{state: "pending", auth_unreachable: true}} =
+               ChatGPTAccounts.get_attempt_for_user(view.id, user.id)
+
+      capture_log(fn -> run(view, user) end)
+      refute_receive {:chatgpt_grants_changed, _}, 50
+
+      stub_legs(%{})
+      run(view, user)
+      assert_receive {:chatgpt_grants_changed, ^user_id}
+
+      assert {:ok, %{auth_unreachable: false}} =
+               ChatGPTAccounts.get_attempt_for_user(view.id, user.id)
+
+      # A poll that is answered "not yet" every time says nothing.
+      run(view, user)
+      refute_receive {:chatgpt_grants_changed, _}, 50
+    end
+
+    test "an attempt that has ended does not read unreachable", %{user: user} do
+      stub_legs(%{poll: fn _ -> {503, %{}} end})
+      view = start!(user, %{name: "Work"})
+      capture_log(fn -> run(view, user) end)
+
+      assert {:ok, %{state: "cancelled", auth_unreachable: false}} =
+               ChatGPTAccounts.cancel_attempt_for_user(view.id, user.id)
+    end
+
     test "a rate limit is patience, not a refusal", %{user: user} do
       stub_legs(%{poll: fn _ -> {429, %{"error" => "slow_down"}} end})
       view = start!(user, %{name: "Work"})

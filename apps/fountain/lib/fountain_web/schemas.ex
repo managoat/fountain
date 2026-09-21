@@ -2913,6 +2913,12 @@ defmodule FountainWeb.Schemas do
           type: :integer,
           description: "Seconds to wait between reads of this attempt."
         },
+        auth_unreachable: %Schema{
+          type: :boolean,
+          description:
+            "True while a pending attempt's last poll of ChatGPT's sign-in service went " <>
+              "unanswered. The attempt is still open and Fountain asks again, less often."
+        },
         expires_at: %Schema{type: :string, format: :"date-time"},
         result_grant_id: %Schema{
           type: :string,
@@ -2932,7 +2938,9 @@ defmodule FountainWeb.Schemas do
                 "`stale_grant`: the subscription was reconnected or disconnected after " <>
                   "this attempt began, and what is there now was left alone. " <>
                   "`account_already_linked`: the account holds this ChatGPT account " <>
-                  "already, as `grant`; reconnect that one instead."
+                  "already, as `grant`; reconnect that one instead. " <>
+                  "`linking_disabled`: linking was turned off for the account while " <>
+                  "this new link was open."
             },
             grant_id: %Schema{type: :string, format: :uuid, nullable: true},
             grant: %Schema{type: :string, nullable: true}
@@ -2951,6 +2959,7 @@ defmodule FountainWeb.Schemas do
         :user_code,
         :verification_url,
         :poll_interval,
+        :auth_unreachable,
         :expires_at,
         :result_grant_id,
         :failure,

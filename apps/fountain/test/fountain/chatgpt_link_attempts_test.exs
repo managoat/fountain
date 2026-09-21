@@ -420,6 +420,75 @@ defmodule Fountain.ChatGPTLinkAttemptsTest do
     end
   end
 
+  describe "attempts that ended a moment ago" do
+    test "are listed newest first with why, without a code, and only to their owner",
+         %{user: user, other: other} do
+      grant = link!(user, "Work", "acct-work")
+      assert {:ok, cancelled} = start(user, %{name: "Side"})
+      assert {:ok, _} = ChatGPTAccounts.cancel_attempt_for_user(cancelled.id, user.id)
+      assert {:ok, ran_out} = start(user, %{name: "Personal"})
+      assert {:ok, stale} = start(user, %{grant_id: grant.grant_id})
+      assert {:ok, open} = start(user, %{name: "Open"})
+      assert :ok = ChatGPTAccounts.disconnect_for_user(grant.grant_id, user.id)
+
+      # Out of time a minute ago, and nobody has written that yet.
+      minute_ago = DateTime.utc_now() |> DateTime.add(-60, :second) |> DateTime.truncate(:second)
+
+      Repo.update_all(from(a in LinkAttempt, where: a.id == ^ran_out.id),
+        set: [expires_at: minute_ago]
+      )
+
+      recent = ChatGPTAccounts.list_recent_attempts_for_user(user.id)
+
+      assert Enum.map(recent, & &1.id) |> Enum.sort() ==
+               Enum.sort([cancelled.id, ran_out.id, stale.id])
+
+      assert List.last(recent).id == ran_out.id
+      refute open.id in Enum.map(recent, & &1.id)
+
+      assert %AttemptView{state: "failed", failure: %{reason: "stale_grant"}} =
+               Enum.find(recent, &(&1.id == stale.id))
+
+      assert %AttemptView{state: "expired"} = Enum.find(recent, &(&1.id == ran_out.id))
+      assert Enum.all?(recent, &(is_nil(&1.user_code) and is_nil(&1.verification_url)))
+
+      assert ChatGPTAccounts.list_recent_attempts_for_user(other.id) == []
+      assert ChatGPTAccounts.list_recent_attempts_for_user("not-a-uuid") == []
+    end
+
+    test "one that ended more than half an hour ago is not", %{user: user} do
+      assert {:ok, view} = start(user, %{name: "Work"})
+      assert {:ok, _} = ChatGPTAccounts.cancel_attempt_for_user(view.id, user.id)
+      assert [_] = ChatGPTAccounts.list_recent_attempts_for_user(user.id)
+
+      long_ago = DateTime.utc_now() |> DateTime.add(-1801, :second) |> DateTime.truncate(:second)
+
+      Repo.update_all(from(a in LinkAttempt, where: a.id == ^view.id),
+        set: [updated_at: long_ago]
+      )
+
+      assert ChatGPTAccounts.list_recent_attempts_for_user(user.id) == []
+    end
+
+    test "at most ten", %{user: user} do
+      started = fn ->
+        assert {:ok, view} = start(user, %{name: "Work"})
+        assert {:ok, _} = ChatGPTAccounts.cancel_attempt_for_user(view.id, user.id)
+        view.id
+      end
+
+      [first | _] = for _ <- 1..10, do: started.()
+
+      # Begun before the hour the start limit counts, ended inside this half hour.
+      long_ago = DateTime.utc_now() |> DateTime.add(-7200, :second) |> DateTime.truncate(:second)
+      Repo.update_all(from(a in LinkAttempt, where: a.id == ^first), set: [inserted_at: long_ago])
+      started.()
+
+      assert Repo.aggregate(LinkAttempt, :count) == 11
+      assert length(ChatGPTAccounts.list_recent_attempts_for_user(user.id)) == 10
+    end
+  end
+
   describe "cancelling" do
     test "ends the attempt, drops its secrets, and is recorded once however often it is asked",
          %{user: user} do

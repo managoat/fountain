@@ -16,6 +16,11 @@ defmodule Fountain.ChatGPTAccounts.AttemptView do
   code. The auth server's `device_auth_id`, the pinned generation and every
   token are not fields at all.
 
+  `:auth_unreachable` is true while a pending attempt's last poll of the auth
+  server went unanswered (it was unreachable, or asked for patience): the
+  sign-in is still open and is being asked again, less often. It says nothing
+  of why, and is false once the attempt has ended.
+
   `:result_grant_id` is the grant a completed attempt wrote. `:failure` is
   nil or `%{reason: _, grant_id: _, grant: _}`: `reason` is one of
   `Fountain.ChatGPTAccounts.LinkAttempt.failure_reasons/0`, and for
@@ -38,6 +43,7 @@ defmodule Fountain.ChatGPTAccounts.AttemptView do
     :user_code,
     :verification_url,
     :poll_interval,
+    :auth_unreachable,
     :expires_at,
     :result_grant_id,
     :failure,
@@ -60,6 +66,7 @@ defmodule Fountain.ChatGPTAccounts.AttemptView do
           user_code: String.t() | nil,
           verification_url: String.t() | nil,
           poll_interval: pos_integer(),
+          auth_unreachable: boolean(),
           expires_at: DateTime.t(),
           result_grant_id: Ecto.UUID.t() | nil,
           failure: failure() | nil,

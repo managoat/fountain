@@ -608,9 +608,10 @@ defmodule Fountain.ChatGPTAccounts do
   The PubSub topic on which `{:chatgpt_grants_changed, user_id}` is sent
   after every committed write to one of that user's grants or link attempts:
   a link, a reconnect, a rename, a disconnect, a removal, a revocation found
-  by a refresh, and an attempt starting or ending. The message carries
-  nothing else; a subscriber reads `list_for_user/1` and
-  `list_pending_attempts_for_user/1` again.
+  by a refresh, an attempt starting or ending, and a pending attempt's
+  `:auth_unreachable` changing. The message carries nothing else; a
+  subscriber reads `list_for_user/1`, `list_pending_attempts_for_user/1` and
+  `list_recent_attempts_for_user/1` again.
   """
   @spec topic(String.t()) :: String.t()
   def topic(user_id) when is_binary(user_id), do: "chatgpt_grants:#{user_id}"
@@ -1067,6 +1068,18 @@ defmodule Fountain.ChatGPTAccounts do
   @doc "The user's open, unexpired attempts, oldest first; `[]` when there is none."
   @spec list_pending_attempts_for_user(String.t()) :: [AttemptView.t()]
   def list_pending_attempts_for_user(user_id), do: LinkAttempts.list_pending(user_id)
+
+  @doc """
+  The user's attempts that ended in the last half hour, newest first, ten at
+  most; `[]` when there is none. `list_pending_attempts_for_user/1` drops an
+  attempt the moment it ends, so this is where a page that was reloaded, or
+  that was not open when the job finished, reads **why** a sign-in failed:
+  `failure.reason`, and for `account_already_linked` the grant to reconnect
+  instead. A pending row that ran out of time is here as `"expired"` whether
+  or not anything has written that yet. No view here carries a code.
+  """
+  @spec list_recent_attempts_for_user(String.t()) :: [AttemptView.t()]
+  def list_recent_attempts_for_user(user_id), do: LinkAttempts.list_recent(user_id)
 
   @doc """
   Cancel one pending attempt. Its secrets are dropped with the write, and a

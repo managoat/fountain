@@ -49,6 +49,7 @@ defmodule FountainWeb.ChatGPTSubscriptionJSON do
       user_code: attempt.user_code,
       verification_url: attempt.verification_url,
       poll_interval: attempt.poll_interval,
+      auth_unreachable: attempt.auth_unreachable,
       expires_at: attempt.expires_at,
       result_grant_id: attempt.result_grant_id,
       failure: attempt.failure,

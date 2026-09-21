@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Run the codex runtime on the platform's ChatGPT account"
-description: "An admin signs the Fountain server in to ChatGPT once; the server keeps the rotating refresh token, the broker carries the access token to chatgpt.com, and a codex sandbox holds only a placeholder. Built and measured in #1755: four of the five G0 measurements pass, a codex turn has run on the grant through Fountain, and the idle-lifetime measurement is due 2026-09-17. Amended 2026-09-16 (#2362): a grant whose account OpenAI confirms has spent its Codex usage is skipped for the platform API key until the reset time OpenAI gives; a sandbox's report only triggers the server-side check, and the failing turn is not retried. Amended 2026-09-20 by ADR 0060: the grant moves onto the protected broker path (no bearer in a broker session or a conversation, a per-request check, one chatgpt.com route, HTTP only, a CODEX_HOME of its own), in a change gated on a measurement of that path against the image's codex client which has not been taken."
+description: "An admin signs the Fountain server in to ChatGPT once; the server keeps the rotating refresh token, the broker carries the access token to chatgpt.com, and a codex sandbox holds only a placeholder. Built and measured in #1755: four of the five G0 measurements pass, a codex turn has run on the grant through Fountain, and the idle-lifetime measurement is due 2026-09-17. Amended 2026-09-16 (#2362): a grant whose account OpenAI confirms has spent its Codex usage is skipped for the platform API key until the reset time OpenAI gives; a sandbox's report only triggers the server-side check, and the failing turn is not retried. Amended 2026-09-20 by ADR 0060: the grant moves onto the protected broker path (no bearer in a broker session or a conversation, a per-request check, one chatgpt.com route, HTTP only, a CODEX_HOME of its own), in a change gated on a measurement of that path against the image's codex client. It merged on 2026-09-21 without that measurement; the offline half was taken the same day (the client honours CODEX_HOME, and it asks chatgpt.com for ten routes besides the allowed one and completes its turns with all of them refused), and the hosted turn is still owed, because the deployment has had no ChatGPT account connected since 2026-09-16."
 tags: [inference, broker, codex, security, billing]
 status: draft
 adr: "0047"
@@ -57,8 +57,10 @@ passed through. The transport, the ACP peer's
 what a persistent home does across the account's usage limit. **None of the
 measurements below was repeated on the new path. The move was written not
 to merge or deploy until one was, and merged on 2026-09-21 without it, by
-the maintainer's decision; it is still owed**: measurement 6 under
-[Measured](#measured), and 0060's
+the maintainer's decision.** Its offline half was taken later that day and
+its hosted half is still owed: no hosted turn has run on the new path,
+because the deployment has had no account connected since 2026-09-16. See
+measurement 6 under [Measured](#measured), and 0060's
 [The platform move is gated on a measurement](0060-many-user-chatgpt-subscriptions.md#the-platform-move-is-gated-on-a-measurement)
 for why and for what a failure looks like.
 
@@ -498,7 +500,7 @@ sandbox dialled the broker over the container's host gateway.
 | 3 | **Rotation.** Refresh with `curl`, reuse the old token, refresh again with the new one, refresh a garbage token, refresh a mangled one. | Decision 5, and the whole premise. | **Refresh tokens rotate but are not single-use.** Every refresh returns a new refresh token, `expires_in: 864000`, and `earliest_refresh_at` about nine days out (advisory: an immediate second refresh succeeded). **Reusing the old token returned 200 and forked a second chain**, and both chains kept working. The terminal shapes are a 401 with `error.code = refresh_token_reused` (which the server also answers a garbage token with) and a 400 `invalid_refresh_token_ciphertext_integrity` for a corrupted one; `Fountain.PlatformChatGPT.OAuth` treats both as terminal. The brief's "first sandbox to refresh kills every other copy" did not reproduce today; the design stands on its other merits (the refresh token never leaves the server). |
 | 4 | **Device flow from a non-CLI caller.** The three calls from Elixir with Req and Codex's client id, the code approved on `auth.openai.com/codex/device`. | Whether G3's Connect is real. | **Passes.** The server issued a code with a 5 s interval, approval landed 20 s later, and the exchange returned a refresh token, an id_token with the account id and plan, and a ten-day access token. The account had device-code login switched on in ChatGPT security settings first. |
 | 5 | **Idle lifetime.** The second sign-in is left untouched; refresh it on day 9 (2026-09-17) and day 30 (2026-10-08). | The keepalive interval in decision 3. | **Pending.** Nothing before 2026-09-17 can settle it. |
-| 6 | **The protected path, on the client the image installs.** `scripts/probe-codex-protected.py` against that codex-acp and codex CLI, with `test/fixtures/codex_protected/capture.json` refreshed; then one hosted codex turn on the deployment's account with 0060's platform move in place, reading `/admin/broker` for any `chatgpt.com` request that was not `POST /backend-api/codex/responses`. | Whether 0060's move of this grant onto the protected path works on the real client: that one route is enough, and that the client reads the `auth.json` in its `CODEX_HOME`. It was written as the gate on the move's merge and deploy. | **Not taken, and still owed. The move merged on 2026-09-21 without it, by the maintainer's decision** (0060, "The platform move is gated on a measurement"). Measurement 2 is not a substitute: it ran where every `chatgpt.com` route was served, did not record the 40 requests' targets, and one of them was answered 204, which a streamed Responses call is not. |
+| 6 | **The protected path, on the client the image installs.** `scripts/probe-codex-protected.py` against that codex-acp and codex CLI, with `test/fixtures/codex_protected/capture.json` refreshed; then one hosted codex turn on the deployment's account with 0060's platform move in place, reading `/admin/broker` for any `chatgpt.com` request that was not `POST /backend-api/codex/responses`. | Whether 0060's move of this grant onto the protected path works on the real client: that one route is enough, and that the client reads the `auth.json` in its `CODEX_HOME`. It was written as the gate on the move's merge and deploy. | **The offline half was taken on 2026-09-21, after the merge. The hosted half was not taken and is still owed. The move merged on 2026-09-21 without either, by the maintainer's decision** (0060, "The platform move is gated on a measurement"). *Offline* ([#2479](https://github.com/managoat/fountain/issues/2479)): the probe ran against codex-acp 1.10.0 and codex-cli 0.153.4, the pair a provision resolves today. It exited 0, both synthetic turns ended `end_turn`, and its output was byte-identical to the committed `capture.json`, so nothing was refreshed. **The client reads the `auth.json` in its `CODEX_HOME`: true** for that pair. **That one route is enough: false as written, and the client shrugs it off.** With the client's whole egress through a local recording proxy that answered every `chatgpt.com` route with a 403, it made 29 requests to `chatgpt.com` on ten method-and-path pairs besides the allowed one, and both turns still ended `end_turn` with exactly the two expected `POST /backend-api/codex/responses`. With every `chatgpt.com` connection refused it made 33 attempts, and both turns completed again. The routes, and what this does not establish, are under [Measurement 6, the offline half](#measurement-6-the-offline-half). *Hosted*: not runnable. The deployment has had no ChatGPT account connected since 2026-09-16 20:18:33 UTC, five days before #2458 deployed, so the move has never had a grant to put on the protected path in production. **Still owed:** one hosted codex turn and one reattached turn on the deployment's account (#2479, steps 3 to 6), which wait only on the maintainer reconnecting the account at `/admin/inference`, and the maintainer's decision on whether any of the ten routes should be allowed. Measurement 2 is not a substitute for the hosted half: it ran where every `chatgpt.com` route was served, did not record the 40 requests' targets, and one of them was answered 204, which a streamed Responses call is not. |
 
 Three things the measurements found that the reading of the source had not:
 
@@ -523,6 +525,102 @@ Three things the measurements found that the reading of the source had not:
   the one library change this ADR needs after all.
 - **The custom provider is a "gateway" to codex-acp**, which reports it as
   such in `_auth/status_update`; nothing downstream minded.
+
+### Measurement 6, the offline half
+
+Taken on 2026-09-21 between about 20:50 and 21:10 UTC, by the person who
+ran the production check of
+[#2479](https://github.com/managoat/fountain/issues/2479), whose comment
+there is the record. It was run because the hosted half could not be.
+
+**Why there was no hosted turn.** Both production replicas ran the image
+tagged `sha-c4796d5…`, so #2458 was deployed. `platform_chatgpt_account` had
+no rows. The admin audit trail shows the account connected on 2026-09-08,
+then disconnected, reconnected and disconnected again on 2026-09-16, the
+last at 20:18:33 UTC, and nothing since. With no grant,
+`PlatformInference.credential_for/2` gets `:none` from
+`ChatGPTAccounts.platform_selection/0` and takes `key_for/1`, so a codex
+agent with no key of its own runs on `PLATFORM_OPENAI_API_KEY`, which
+production sets. No codex conversation had been created in production since
+2026-09-08 21:33 UTC. The failure mode 0060 describes for the move was
+therefore not live on 2026-09-21. It becomes live when the account is
+reconnected.
+
+**The versions.** `managoat_runtimes` 0.4.5 still pins
+`@agentclientprotocol/codex-acp` at 1.10.0, as 0.4.1 did. The CLI is the
+adapter's own npm dependency, `@openai/codex ^0.153.3`, and the published
+versions in that range were 0.153.3 and 0.153.4, so a provision resolves
+0.153.4. That is the pair `capture.json` already pins. The probe, run as the
+fixture's README says, exited 0 with both synthetic turns `end_turn` and
+output byte-identical to the committed capture.
+
+**`CODEX_HOME`.** The probe writes its synthetic `auth.json` under an
+isolated `CODEX_HOME` and nowhere else. Both turns carried the synthetic
+bearer and `chatgpt-account-id` on the Responses call, so this pair reads
+the file there and does not fall back to `~/.codex/auth.json`.
+
+**The routes.** The committed probe sees only the local origin it points the
+Responses base URL at. Two further runs sent the client's whole egress
+through a local recording proxy, with the base URL left on the local origin:
+
+- *Every `chatgpt.com` connection refused* (the proxy answered `CONNECT`
+  with a 502). The client made 33 attempts to `chatgpt.com:443`. Both turns
+  ended `end_turn`, and the provider origin saw exactly the two expected
+  `POST /backend-api/codex/responses`.
+- *TLS terminated with a throwaway CA, and every route answered 403*, the
+  closest analogue to the protected path's refusal. The client made 29
+  requests to `chatgpt.com` on ten method-and-path pairs. Both turns ended
+  `end_turn`, again with exactly the two expected provider POSTs.
+
+The second run's requests, counted over its two turns. The allowed route is
+there for contrast; the local provider origin served it, not the proxy.
+
+| n | Method | Path | On the protected path |
+|---|---|---|---|
+| 2 | POST | `/backend-api/codex/responses` | allowed, the one route |
+| 6 | POST | `/backend-api/ps/mcp` | denied |
+| 5 | GET | `/backend-api/ps/plugins/suggested/codex?scope=GLOBAL` | denied |
+| 4 | GET | `/backend-api/codex/models?client_version=0.153.4` | denied |
+| 3 | POST | `/backend-api/codex/analytics-events/events` | denied |
+| 3 | GET | `/backend-api/wham/settings/user` | denied |
+| 3 | GET | `/backend-api/codex/responses` | denied: the allowed path, with the wrong method |
+| 2 | GET | `/backend-api/ps/plugins/installed?limit=200` | denied |
+| 1 | GET | `/backend-api/ps/plugins/installed?limit=200&includeDownloadUrls=true` | denied |
+| 1 | GET | `/backend-api/ps/plugins/list?scope=GLOBAL&limit=200` | denied |
+| 1 | GET | `/backend-api/plugins/featured?platform=codex` | denied |
+
+All ten denied requests carried `authorization` and `chatgpt-account-id`
+headers. `GET /backend-api/codex/responses` is refused because
+`ProtectedCompiler` sets `methods: ["POST"]` on that target; the policy
+names a method as well as a path. For this client version all ten are ambient and none
+is needed for a turn: plugin discovery, an MCP surface, a model list the
+custom provider does not use, telemetry and a settings read. Fountain's own
+usage check is not among them and is not affected:
+`PlatformChatGPT.UsageLimit.fetch/2` asks `GET …/wham/usage` from the
+server, not from the sandbox, so it never meets the broker. These ten are a
+plausible account of measurement 2's 40 requests and its one 204. Nobody
+has matched them up.
+
+**What this does not establish.**
+
+- The Responses call went to a local HTTP origin, not to `chatgpt.com`
+  through the broker. Real TLS, the real proxy, the provider accepting the
+  request, compaction and token lifetime are untested.
+- The 403s came from a throwaway intercepting proxy, not from
+  `Managoat.Broker.ProtectedRule`. It is an analogue. The first run covers
+  the other shape a refusal can take, a refused connection.
+- A sandbox reattaching after it parks cannot be reproduced offline.
+- It is one client version. The fixture's replay test catches a new required
+  header and cannot see a new required route, so every CLI bump carries this
+  exposure again. A recorded-egress run like the second one above is what
+  would see it.
+
+One more limit comes from Fountain's code, not from the run. The broker's
+request log stores `/[REDACTED]` for every path
+(`Broker.Native.RequestLog.record/2`), so `/admin/broker` shows a denied
+request's method, host and status and never its path. The hosted half can
+count the refused `chatgpt.com` requests and compare their methods with the
+table. It cannot reproduce the table.
 
 ## Consequences
 

@@ -260,6 +260,11 @@ with tempfile.TemporaryDirectory(prefix="adr52-codex-probe-") as temp:
             )
         )
     finally:
-        os.killpg(proc.pid, signal.SIGTERM)
+        # An adapter that already exited is usually why we are here; its
+        # group being gone must not replace the failure that says so.
+        try:
+            os.killpg(proc.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
         proc.communicate(timeout=10)
         server.shutdown()

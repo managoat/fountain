@@ -58,7 +58,12 @@ defmodule Fountain.Broker.Native.ProtectedCompiler do
              | :invalid_broker_configuration}
   def compile(brokered, bindings, network) when is_map(brokered) and is_map(bindings) do
     cond do
-      Reserved.conflict?([brokered, bindings, network]) ->
+      # Everything that names a credential or says where one goes is held to
+      # the strict rule; a secret's value to the one for values, so a script
+      # that mentions the reserved name does not fail every provision
+      # (`Fountain.ChatGPTAccounts.Reserved`, "Names and values").
+      Reserved.conflict?([Map.keys(brokered), bindings, network]) or
+          Enum.any?(Map.values(brokered), &Reserved.value_conflict?/1) ->
         {:error, :managed_credential_conflict}
 
       not ordinary_secrets?(brokered) ->

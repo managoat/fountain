@@ -79,6 +79,88 @@ defmodule Fountain.ChatGPTAccounts.ReservedTest do
     end
   end
 
+  # A secret's value is the tenant's own text. One that mentions the reserved
+  # name names nothing; one that could stand for the managed credential does.
+  describe "a secret's value" do
+    @mentions [
+      "#!/bin/sh\n# codex reads CODEX_CHATGPT_ACCESS_TOKEN from its env\nexec codex \"$@\"",
+      ~s({"unset": ["OPENAI_API_KEY", "CODEX_CHATGPT_ACCESS_TOKEN"]}),
+      "echo ${CODEX_CHATGPT_ACCESS_TOKEN:-none}",
+      "codex_chatgpt_access_token_notes.txt",
+      "__codex_chatgpt_access_token_nothex__",
+      "_codex_chatgpt_access_token_"
+    ]
+
+    test "may mention the reserved name: as a value, in a write and in a compile" do
+      dek = :crypto.strong_rand_bytes(32)
+
+      for value <- @mentions do
+        refute Reserved.value_conflict?(value)
+        # As a key, a binding field or a network pattern it is still refused.
+        assert Reserved.conflict?(value)
+
+        for {schema, owner_field} <- [{Secret, "environment_id"}, {VaultSecret, "vault_id"}] do
+          attrs = %{owner_field => Ecto.UUID.generate(), "key" => "SETUP", "value" => value}
+          assert schema.changeset(struct(schema), attrs, dek).valid?
+        end
+
+        assert {:ok, _} =
+                 Fountain.Broker.Native.ProtectedCompiler.compile(
+                   %{"SETUP" => value},
+                   %{},
+                   :unrestricted
+                 )
+      end
+    end
+
+    test "may not stand for the managed credential" do
+      grant = Reserved.placeholder(Ecto.UUID.generate())
+
+      for value <- [
+            Reserved.key(),
+            " codex_chatgpt_access_token\n",
+            Reserved.placeholder(),
+            grant,
+            String.upcase(grant),
+            "Bearer " <> grant,
+            ~s({"Authorization": "Bearer sk-#{Reserved.placeholder()}"}),
+            "{{ CODEX_CHATGPT_ACCESS_TOKEN }}",
+            "Bearer {{CODEX_CHATGPT_ACCESS_TOKEN}}",
+            %Fountain.ChatGPTAccounts.Grant{access_token: "bearer", source: %{account_id: "acct"}},
+            {:nested, grant}
+          ] do
+        assert Reserved.value_conflict?(value)
+
+        assert {:error, :managed_credential_conflict} =
+                 Fountain.Broker.Native.ProtectedCompiler.compile(
+                   %{"ALIAS" => value},
+                   %{},
+                   :unrestricted
+                 )
+      end
+    end
+
+    test "a key is still held to the strict rule, whatever its value" do
+      for key <- ["CODEX_CHATGPT_ACCESS_TOKEN_2", "MY_CODEX_CHATGPT_ACCESS_TOKEN"] do
+        assert {:error, :managed_credential_conflict} =
+                 Fountain.Broker.Native.ProtectedCompiler.compile(
+                   %{key => "ordinary"},
+                   %{},
+                   :unrestricted
+                 )
+
+        cs =
+          Secret.changeset(
+            %Secret{},
+            %{"environment_id" => Ecto.UUID.generate(), "key" => key, "value" => "ordinary"},
+            :crypto.strong_rand_bytes(32)
+          )
+
+        assert errors_on(cs).key == ["is reserved for managed ChatGPT credentials"]
+      end
+    end
+  end
+
   # ADR 0060 decision 6: a placeholder per grant. `conflict?/1` is a
   # case-insensitive substring match on the reserved key, which every one of
   # them contains, so no list of grants is consulted and none can be missed.

@@ -138,6 +138,29 @@ defmodule FountainWeb.ChatGPTSubscriptionsLiveTest do
       assert pending(user) == []
     end
 
+    test "the console shares the context's limit on starts, and says when to try again",
+         %{conn: conn, user: user} do
+      grant = link!(user, "Work", "acct-work")
+
+      # Ten begun in the hour, in any state, by any caller.
+      for n <- 1..10 do
+        attempt = start_attempt!(user, %{name: "Attempt #{n}"})
+        {:ok, _} = ChatGPTAccounts.cancel_attempt_for_user(attempt.id, user.id)
+      end
+
+      {:ok, view, _html} = live(conn, @path)
+
+      html = submit_connect(view, "Eleventh")
+      assert html =~ "has started 10 sign-ins in the past hour"
+      assert html =~ ~r/try again in (a minute|\d+ minutes)\./
+      refute html =~ "rate_limited"
+
+      assert hostile(view, "reconnect", %{"id" => grant.grant_id}) =~
+               "has started 10 sign-ins in the past hour"
+
+      assert pending(user) == []
+    end
+
     test "the count and the ceiling are shown, and a full account is not offered another",
          %{conn: conn, user: user} do
       previous = Application.get_env(:fountain, :chatgpt_grant_ceiling)

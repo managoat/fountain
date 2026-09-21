@@ -382,6 +382,14 @@ defmodule FountainWeb.InferenceCredentialsLive.SubscriptionsCard do
   defp error_text({:link_attempts_exceeded, %{limit: limit}}, _subject),
     do: "#{limit} sign-ins are already open on this account. Finish or cancel one first."
 
+  # The context's limit on starts, which this page shares with the API: the
+  # rows are counted per account, whoever began them.
+  defp error_text({:link_attempts_rate_limited, %{limit: limit, retry_after: seconds}}, _subject)
+       when is_integer(seconds),
+       do:
+         "This account has started #{limit} sign-ins in the past hour, which is as many as it " <>
+           "may. Nothing was started; try again in #{minutes(seconds)}."
+
   defp error_text({:grant_limit_reached, %{count: count, limit: limit}}, _subject),
     do:
       "This account holds #{count} of the #{limit} subscriptions it may. Remove a " <>
@@ -418,6 +426,9 @@ defmodule FountainWeb.InferenceCredentialsLive.SubscriptionsCard do
   defp ended("expired"), do: "expired"
   defp ended("failed"), do: "failed"
   defp ended(_state), do: "ended"
+
+  defp minutes(seconds) when seconds <= 60, do: "a minute"
+  defp minutes(seconds), do: "#{div(seconds + 59, 60)} minutes"
 
   defp sets([name]), do: "the credential set #{name}"
   defp sets(names), do: "the credential sets #{Enum.join(names, ", ")}"

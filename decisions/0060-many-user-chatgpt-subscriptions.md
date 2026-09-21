@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "A user links several ChatGPT subscriptions, and a credential set names one"
-description: "Stage 1 of 5 is built (the table, the owner-scoped context and the per-owner source lock); nothing a user can reach exists yet. Rebuilds ADR 0052's user surface with many grants per user instead of one: the grant table loses its one-row-per-user index for a named row, an inference credential set names a grant, and an agent selects a subscription the same way it selects an API key. No automatic failover between a user's subscriptions and no platform fallback when the named one is exhausted."
+description: "Stages 1 and 2 of 5 are built (the table, the owner-scoped context and the per-owner source lock; then a credential set naming a grant and resolution to it with no fallback); nothing a user can reach exists yet, and a resolved grant is refused at admission until stage 3 builds its transport. Rebuilds ADR 0052's user surface with many grants per user instead of one: the grant table loses its one-row-per-user index for a named row, an inference credential set names a grant, and an agent selects a subscription the same way it selects an API key. No automatic failover between a user's subscriptions and no platform fallback when the named one is exhausted."
 tags: [inference, codex, oauth, security, billing]
 status: draft
 adr: "0060"
@@ -11,21 +11,29 @@ date: 2026-09-20
 
 # 0060 — A user links several ChatGPT subscriptions, and a credential set names one
 
-**Status:** Proposed, 2026-09-20. **Stage 1 of the five below is built;
-nothing a user can reach is.** What exists is the table change, the
+**Status:** Proposed, 2026-09-20. **Stages 1 and 2 of the five below are
+built; nothing a user can reach is.** Stage 1 is the table change, the
 owner-scoped context in `Fountain.ChatGPTAccounts` and the per-owner source
-lock, with their tests. No production code calls any of it: there is no
-route, no page, no job, no selection by a credential set, no broker path, no
-keepalive for a user's grant and no environment variable. The one thing
-that runs is `ChatGPTAccounts.RefreshSupervisor`, a task supervisor and the
-refresh coordinator, which now start idle on every node. Stages 2 to 5 are
-not started, and everything below that belongs to them is the design for
-work not yet done. The Context section describes `main` at `9122474f`,
-before stage 1.
+lock. Stage 2 is selection: `inference_credentials.chatgpt_grant_id`,
+`InferenceCredentials.set_grant/3`, and a resolver that turns a set naming
+a grant into a `:grant` source for a codex run or into an error naming the
+grant, with no fallback. There is still no route, no page, no job, no
+broker path, no keepalive for a user's grant and no environment variable,
+so no user holds a grant and no set names one. Resolution does run in
+production, for every conversation, and for a set that names no grant it
+resolves exactly what it did. **A `:grant` source cannot run anything
+yet:** admission and `InferenceBinding.reserve/2` refuse it as
+`:chatgpt_grant_transport_unavailable` until stage 3 builds the transport,
+because today's would pair a user's bearer with the deployment's account
+id. The one thing stage 1 left running is
+`ChatGPTAccounts.RefreshSupervisor`, a task supervisor and the refresh
+coordinator, which start idle on every node. Stages 3 to 5 are not started,
+and everything below that belongs to them is the design for work not yet
+done. The Context section describes `main` at `9122474f`, before stage 1.
 
-What stage 1 built, and the four places it settled something this ADR left
-open or had wrong, are recorded under
-[Stage 1 as built](#stage-1-as-built).
+What each stage built, and where it settled something this ADR left open or
+had wrong, is recorded under [Stage 1 as built](#stage-1-as-built) and
+[Stage 2 as built](#stage-2-as-built).
 
 Rebuilds the user-facing half of
 [0052](0052-user-owned-chatgpt-grants.md) — its decisions 2, 4 and 5, which
@@ -379,11 +387,14 @@ platform grant and for **two grants of one user**, which is the new case.
    account refused a second link, cross-user read refused, wrong-DEK
    failure, one user's write not blocking another user's resolve, and the
    platform row unaffected by every one of them.
-2. **Selection.** `chatgpt_grant_id` on the set, resolution through
-   `Source` with `grant_id` and `generation`, cross-owner naming refused.
-   Tests: an agent on set A and an agent on set B of one user resolve to
-   different grants in one account; a set naming a disconnected grant
-   resolves `:missing` with an actionable error and no fallback.
+2. **Selection. Built; see [Stage 2 as built](#stage-2-as-built).**
+   `chatgpt_grant_id` on the set, resolution through `Source` with
+   `grant_id` and `generation`, cross-owner naming refused. Tests: an agent
+   on set A and an agent on set B of one user resolve to different grants
+   in one account; a set naming a disconnected grant resolves to an
+   actionable error with no fallback. (This read "resolves `:missing` with
+   an actionable error", which is two different results in the resolver;
+   item 1 under stage 2 says which it is.)
 3. **Transport and custody.** Separate `CODEX_HOME` per grant/generation,
    broker rules from the named grant, per-request generation checks, the
    protected rule builder. Tests: two of one user's subscriptions in one
@@ -515,6 +526,116 @@ One gap to carry: stage 4 makes linking reachable and stage 5 brings the
 keepalive. Between them an idle user grant would lapse at the auth server's
 window. `refresh_for_user/3` already renews a grant that is idle past
 `platform_keepalive_days/0`; only the schedule is missing.
+
+## Stage 2 as built
+
+Built on 2026-09-20. Nothing a user can reach sets the field, so nothing a
+user can do resolves to a grant; the HTTP API and the console for it are
+stage 4.
+
+**The reference.** `20260921010319_sets_name_a_chatgpt_grant` adds a
+nullable `inference_credentials.chatgpt_grant_id` whose foreign key is
+composite: `(chatgpt_grant_id, user_id)` references the grant's `(id,
+user_id)`, the index stage 1 left for it. "A set names only a grant its
+owner holds" is therefore a fact of the database, and the deployment's
+grant is out of reach for free: its `user_id` is NULL and a set's never is.
+The key is NO ACTION. Nilifying would turn a set whose grant went away into
+a set with no grant, whose next codex run resolves to its own key or to the
+platform, which is decision 4's silent switch; RESTRICT is checked
+immediately and would fail an account deletion, which cascades to sets and
+grants in one statement in an order nobody chose. So
+`ChatGPTAccounts.remove_for_user/3` now answers `{:error, {:named_by_sets,
+names}}` for a tombstone that sets still name, under the same owner's lock
+`set_grant/3` holds. Disconnect is never blocked by a set: it is the kill
+switch.
+
+**The write.** `InferenceCredentials.set_grant/3` names a grant or, with
+`nil`, stops naming one. It reads the grant with
+`ChatGPTAccounts.get_for_user/2` under the owner's source lock. Another
+account's grant, the platform's, a missing one and an id that is not one
+are a single changeset error, so an id cannot be probed; a disconnected
+grant is refused by name; a revoked or expired one may be named, since that
+is a state a named grant reaches anyway. `Credential.changeset/2` does not
+cast the field, so a credential or name write cannot carry a grant along.
+The set's `revision` does not move on a repoint: the source's identity is
+the grant, so a repoint already reads as a changed source, and a
+conversation bound to the set's API key has lost nothing. Audited after the
+transaction as `inference_credential_set.chatgpt_grant_changed` with both
+grant ids and the new grant's name.
+
+**The source.** A new scope, `:grant`, beside `:credential`,
+`:tenant_secret`, `:platform`, `:none` and `:missing`. It is not
+`:platform`, so `Source.platform?/1` is false, the origin is `"own"`, and
+neither the platform ceiling nor the platform debit is reached, with no
+billing code touched. `kind` is `:codex_chatgpt_access_token`, `identity`
+is `chatgpt_grant:<grant id>`, `revision` is the generation, and
+`grant_id` and `generation` are carried as fields of their own: the pin
+`credential_for_user/4` takes. `Source.dump/1` writes those two keys only
+when they are set. Every stored source is compared whole with a fresh dump
+(`Resolver.matches/2`, `InferenceBinding`, turn admission), so a key every
+source began to carry, even as `nil`, would have refused every conversation
+admitted before the deploy with `:inference_source_changed`. The platform
+path's dump is held to a literal map. `Source.grant_ref/1` answers `{:user
+| :platform, id, generation}` for stage 3.
+
+**Resolution.** Only for an OpenAI model is the named grant read, by owner
+and id, metadata only; this is the third refusal of a cross-owner
+reference. For the codex runtime the grant is the source, decided ahead of
+the override merge, so an `OPENAI_API_KEY` in the environment or the vault
+does not outrank it (0053 decision 5 rule 2); the OpenAI key is dropped
+from what the runtime is handed and no bearer is put there. For any other
+runtime the grant is not a credential: with a key the ordinary selection
+serves, with none anywhere the result is `Source.missing/0`, never the
+platform's key, and `missing_for_model/3` takes the runtime so the agent
+form says so when the set is selected. An unusable grant is
+`{:error, {:chatgpt_grant_unusable, %{grant_id:, name:, reason:, until:}}}`
+with `reason` one of `:disconnected`, `:revoked`, `:expired`,
+`:reconnect_required`, `:exhausted` (with `until`), `:not_found` and
+`:broker_required`, and `InferenceCredentials.grant_unusable_message/1` is
+the sentence. `validate_source/2`, which runs before every turn, passes it
+through instead of flattening it to `:inference_source_changed`. The
+acceptance test puts a connected platform grant, a platform key, the set's
+own key, an environment and a vault `OPENAI_API_KEY` and a second active
+grant in place, proves each would serve a set that names nothing, and then
+asserts the error.
+
+Four things stage 2 settled or found:
+
+1. **"Resolves `:missing` with an actionable error" was two results.** In
+   the resolver `{:ok, Source.missing(), creds}` is a success: the sandbox
+   provisions with nothing to call, and under an explicit set it becomes
+   `:inference_credential_unusable`, which names nothing. An unusable named
+   grant on a codex run is always the tagged error above, whether the set
+   was named explicitly or is the account default. `Source.missing/0` is
+   kept for the other half of decision 2, a set with a grant and no key
+   asked to serve a non-codex OpenAI consumer.
+2. **A conversation pinned to something else is told its source changed,
+   not that a grant is unusable.** Re-validating a conversation bound to
+   the set's API key, or to a grant the set named before it was repointed,
+   can meet an unusable grant that conversation never ran on. The resolver
+   answers `{:chatgpt_grant_unusable, _}` under an expected source only
+   when that source is the same grant, and `:inference_source_changed`
+   otherwise. A reconnect is a new generation and also a changed source,
+   which is 0052 decision 5's "invalidates old-generation peers".
+3. **An unbrokered deployment refuses a named grant; it does not use the
+   set's key.** `:broker_required`, for the reason the platform grant is
+   never selected there: the token would reach the sandbox in the clear.
+4. **Resolution cannot see whether the owner may still use a grant.**
+   `get_for_user/2` answers for a suspended, unverified or principal owner,
+   and `credential_for_user/4` does not. Suspension is gated beside the
+   source check on every turn, and neither of the other two can link a
+   grant, so nothing resolves wrongly today; stage 3's credential read is
+   where an ineligible owner is refused, and it must map that to the same
+   tagged error rather than to a different credential.
+
+Deliberately left for later stages: `chatgpt_grant_id` on the credential-set
+HTTP API, the OpenAPI contract, the SDKs and the console (stage 4); whether
+a set that names a grant counts for `has_any_credential?/1` and the admin
+funnel (stage 4, with the first user who can link one); the `/start`
+banner, whose text is about a missing key; the usage stamp for a `:grant`
+source, which `TurnMachine.with_inference/2` does not write yet (stage 5);
+and exhaustion, which the resolver already reads from the row and which
+nothing writes for a user's grant until stage 5.
 
 ## Consequences
 

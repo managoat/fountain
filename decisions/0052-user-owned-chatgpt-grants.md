@@ -41,6 +41,13 @@ decision 4's one-link model and carries the rest forward. 0060 also binds
 a user grant's ciphertext to the grant id as well as the owner, which
 decision 1 here did not need at one grant per user.
 
+**0060 stage 2 (2026-09-20) builds the selection half of decision 4** in
+0060's shape: a credential set names the grant, the resolver returns a
+source carrying the grant id and generation with origin own, and an
+unusable selected grant is an actionable error with no API-key or platform
+switch. No user can link a grant yet, and the transport of decision 5 is
+not built, so a resolved grant is refused at admission.
+
 Extends [0047](0047-codex-platform-chatgpt-account.md),
 [0008](0008-byo-inference-credentials.md), and
 [0019](0019-egress-credential-brokerage.md). Preserves the distinction between

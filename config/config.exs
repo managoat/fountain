@@ -18,8 +18,14 @@ config :fountain, Oban,
   # concurrency 1 behind eight sweeps, so a notification would queue single
   # file behind whichever one is mid-run. Same argument as exports and
   # webhooks above, one more time.
+  # chatgpt carries the pollers of users' ChatGPT sign-ins (ADR 0060 stage 4):
+  # one short HTTP call to the auth server every few seconds per open attempt,
+  # for at most fifteen minutes. Its own queue so a burst of sign-ins never
+  # sits in front of a schedule or a webhook, and three because an account may
+  # have three attempts open and the call is bounded by the OAuth timeout.
   queues: [
     maintenance: 1,
+    chatgpt: 3,
     credits: 5,
     exports: 1,
     mailer: 5,

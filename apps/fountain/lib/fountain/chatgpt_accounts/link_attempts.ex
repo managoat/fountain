@@ -170,10 +170,13 @@ defmodule Fountain.ChatGPTAccounts.LinkAttempts do
           expires_at: DateTime.add(now, @ttl_seconds, :second)
         })
 
+      # The job is inserted with the row or not at all: it carries the two
+      # ids and nothing else.
       with {:ok, attempt} <-
              %LinkAttempt{id: id, user_id: user_id}
              |> LinkAttempt.start_changeset(attrs)
-             |> Repo.insert() do
+             |> Repo.insert(),
+           {:ok, _job} <- Fountain.Workers.ChatGPTLinkAttempt.enqueue(attempt) do
         {:ok, {attempt, Map.get(pins, :label) || attempt.name}}
       end
     end
@@ -260,6 +263,125 @@ defmodule Fountain.ChatGPTAccounts.LinkAttempts do
   end
 
   defp end_pending(%LinkAttempt{} = attempt, _now), do: {:ok, {:unchanged, attempt}}
+
+  # ── poll ─────────────────────────────────────────────────────────────────
+
+  # Codex backs off to a minute at most, and so does this.
+  @max_backoff_seconds 60
+
+  def poll(attempt_id, user_id, opts)
+      when is_binary(attempt_id) and is_binary(user_id) and is_list(opts) do
+    now = now()
+
+    with {:ok, query} <- owned_query(attempt_id, user_id),
+         %LinkAttempt{state: "pending"} = attempt <- Repo.one(query) do
+      if LinkAttempt.expired?(attempt, now) do
+        conclude(attempt, "expired", %{}, [])
+        :done
+      else
+        ask(attempt, opts)
+      end
+    else
+      # Gone with its account, or ended already: nothing is asked of anybody.
+      _ -> :done
+    end
+  end
+
+  # Everything the auth server is asked happens here, with no transaction
+  # open and no lock held. The device id, the user code, the authorization
+  # code and the tokens are locals of this call and of nothing else.
+  defp ask(attempt, opts) do
+    device_poll = Keyword.get(opts, :device_poll, &OAuth.device_poll/2)
+
+    with {:ok, device_auth_id} <- Cipher.decrypt_attempt_secret(attempt, :device_auth_id),
+         {:ok, user_code} <- Cipher.decrypt_attempt_secret(attempt, :user_code) do
+      case device_poll.(device_auth_id, user_code) do
+        :pending -> again(attempt, 0)
+        {:ok, approval} -> exchange(attempt, approval, opts)
+        {:error, reason} -> unanswered(attempt, reason, "authorization_failed")
+      end
+    else
+      {:error, _} -> failed(attempt, "tenant_key_unavailable")
+    end
+  end
+
+  defp exchange(attempt, approval, opts) do
+    device_exchange = Keyword.get(opts, :device_exchange, &OAuth.device_exchange/1)
+
+    case device_exchange.(approval) do
+      {:ok, tokens} ->
+        complete(attempt.id, attempt.user_id, tokens, actor: @system_actor)
+        :done
+
+      {:error, reason} ->
+        unanswered(attempt, reason, "exchange_failed")
+    end
+  end
+
+  # A refusal ends the attempt; an auth server that could not be reached, or
+  # asked for patience, is asked again later and less often.
+  defp unanswered(attempt, reason, failure) do
+    Logger.warning("chatgpt link attempt #{attempt.id}: #{failure}: #{shape(reason)}")
+
+    if retryable?(reason),
+      do: again(attempt, attempt.poll_failures + 1),
+      else: failed(attempt, failure)
+  end
+
+  defp retryable?({_leg, status, _body}) when is_integer(status),
+    do: status in [408, 425, 429] or status >= 500
+
+  defp retryable?({:terminal, _code}), do: false
+  defp retryable?(_transport), do: true
+
+  # A status or a terminal code, both the auth server's own vocabulary and
+  # neither a secret. A transport error is not printed: it may name a URL.
+  defp shape({_leg, status, _body}) when is_integer(status), do: "status #{status}"
+  defp shape({:terminal, code}) when is_binary(code), do: "terminal #{code}"
+  defp shape(_transport), do: "unreachable"
+
+  defp failed(attempt, reason) do
+    conclude(attempt, "failed", %{failure_reason: reason}, actor: @system_actor)
+    :done
+  end
+
+  # One statement on one row, which waits for nothing while it holds it, so it
+  # takes no key. It writes only a row that is still pending.
+  defp again(%LinkAttempt{poll_failures: failures} = attempt, failures),
+    do: {:again, delay(attempt, failures)}
+
+  defp again(%LinkAttempt{id: id} = attempt, failures) do
+    from(a in LinkAttempt, where: a.id == ^id and a.state == "pending")
+    |> Repo.update_all(set: [poll_failures: failures])
+
+    {:again, delay(attempt, failures)}
+  end
+
+  defp delay(%LinkAttempt{poll_interval: interval}, 0), do: interval
+
+  defp delay(%LinkAttempt{poll_interval: interval}, failures),
+    do: min(interval * Integer.pow(2, min(failures, 6)), max(interval, @max_backoff_seconds))
+
+  # ── purge ────────────────────────────────────────────────────────────────
+
+  # Ended a week ago, or never ended and a week past its time (its job was
+  # lost): either way nothing reads it again. A pending row in time is never
+  # touched whatever the cutoff says.
+  @purge_after_days 7
+
+  def purge do
+    cutoff = DateTime.add(now(), -@purge_after_days, :day)
+
+    {count, _} =
+      from(a in LinkAttempt,
+        where:
+          (a.state != "pending" and a.updated_at < ^cutoff) or
+            (a.state == "pending" and a.expires_at < ^cutoff)
+      )
+      |> Repo.delete_all()
+
+    count
+  end
 
   # ── complete ─────────────────────────────────────────────────────────────
 

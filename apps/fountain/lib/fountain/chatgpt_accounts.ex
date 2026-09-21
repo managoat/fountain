@@ -1063,6 +1063,38 @@ defmodule Fountain.ChatGPTAccounts do
   def complete_attempt_for_user(attempt_id, user_id, tokens, opts \\ []),
     do: LinkAttempts.complete(attempt_id, user_id, tokens, opts)
 
+  @doc """
+  One step of an attempt's sign-in, for `Fountain.Workers.ChatGPTLinkAttempt`:
+  ask the auth server once whether the code has been approved, and if it has,
+  exchange it and `complete_attempt_for_user/4`. `:done` when the attempt
+  needs nothing more, whatever way it ended; `{:again, seconds}` when it is
+  still pending, which is the auth server's own interval, doubled per
+  consecutive unanswered poll up to a minute.
+
+  The auth server is asked only for a pending attempt in time, and with no
+  transaction open and no lock held. One past its time is written `expired`
+  and one that is gone, cancelled or finished is left alone, each without a
+  request. A refusal from the auth server ends the attempt as
+  `authorization_failed` or `exchange_failed`; an unreachable or rate-limited
+  one is asked again later. The device id, the user code, the authorization
+  code and the tokens live only in this call: none is logged, returned or
+  stored anywhere but the attempt's and the grant's ciphertext.
+
+  `opts`: `:device_poll` and `:device_exchange`, in place of `OAuth`'s.
+  """
+  @spec poll_attempt_for_user(Ecto.UUID.t(), String.t(), keyword()) ::
+          :done | {:again, pos_integer()}
+  def poll_attempt_for_user(attempt_id, user_id, opts \\ []),
+    do: LinkAttempts.poll(attempt_id, user_id, opts)
+
+  @doc """
+  Delete attempts nothing will read again: ended a week ago, or a week past
+  their time and never ended. For `Fountain.Workers.RetentionPruner`; a
+  system sweep across owners that returns a count and no row.
+  """
+  @spec purge_ended_attempts() :: non_neg_integer()
+  def purge_ended_attempts, do: LinkAttempts.purge()
+
   # ── broker authorization ─────────────────────────────────────────────────
 
   @typedoc """

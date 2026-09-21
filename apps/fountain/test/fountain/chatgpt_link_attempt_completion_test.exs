@@ -469,6 +469,8 @@ defmodule Fountain.ChatGPTLinkAttemptCompletionTest do
         fun.(user, start!(user, %{name: "Race"}))
       after
         Repo.delete_all(from(e in Event, where: e.user_id == ^user.id))
+        # The attempt's poller, committed with it.
+        Repo.delete_all(from(j in Oban.Job, where: j.args["user_id"] == ^user.id))
         Repo.delete!(user)
       end
     end)

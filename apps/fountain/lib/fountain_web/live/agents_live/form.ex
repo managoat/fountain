@@ -236,6 +236,20 @@ defmodule FountainWeb.AgentsLive.Form do
     end
   end
 
+  # A codex agent on a set whose named ChatGPT subscription cannot serve (ADR
+  # 0060 decision 4): said here, when the set is selected, rather than as a
+  # refused launch. Not a missing key, and no key would fix it, so it is its
+  # own notice and `missing_for_model/3` stays quiet about such a set.
+  defp grant_problem(user_id, form, environment_id) do
+    case InferenceCredentials.named_grant_problem(user_id, form["model"], form["runtime"],
+           credential_set_id: selected_credential_id(form),
+           environment_id: if(environment_id in [nil, ""], do: nil, else: environment_id)
+         ) do
+      nil -> nil
+      detail -> InferenceCredentials.grant_unusable_message(detail)
+    end
+  end
+
   defp selected_credential_id(form) do
     case form["inference_credential_id"] do
       id when id in [nil, ""] -> nil
@@ -271,20 +285,6 @@ defmodule FountainWeb.AgentsLive.Form do
        :grant_problem,
        grant_problem(socket.assigns.user_id, params, params["environment_id"])
      )}
-  end
-
-  # A codex agent on a set whose named ChatGPT subscription cannot serve (ADR
-  # 0060 decision 4): said here, when the set is selected, rather than as a
-  # refused launch. Not a missing key, and no key would fix it, so it is its
-  # own notice and `missing_for_model/3` stays quiet about such a set.
-  defp grant_problem(user_id, form, environment_id) do
-    case InferenceCredentials.named_grant_problem(user_id, form["model"], form["runtime"],
-           credential_set_id: selected_credential_id(form),
-           environment_id: if(environment_id in [nil, ""], do: nil, else: environment_id)
-         ) do
-      nil -> nil
-      detail -> InferenceCredentials.grant_unusable_message(detail)
-    end
   end
 
   # The model needs a provider this account has no credential for: collect

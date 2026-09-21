@@ -194,10 +194,12 @@ defmodule Fountain.PlatformChatGPT.Account do
   end
 
   # The unique error sits on the field a person can change, not on the
-  # index's leading `user_id`.
+  # index's leading `user_id`. `cast/3` turns a blank name into a nil
+  # change on a row that has one, so the trim has to let nil through for
+  # `validate_required/2` to answer.
   defp name_rules(changeset) do
     changeset
-    |> update_change(:name, &String.trim/1)
+    |> update_change(:name, &(&1 && String.trim(&1)))
     |> validate_required([:name])
     |> validate_length(:name, min: 1, max: 200)
     |> unique_constraint(:name,

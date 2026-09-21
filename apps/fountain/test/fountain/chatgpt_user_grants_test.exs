@@ -134,6 +134,23 @@ defmodule Fountain.ChatGPTUserGrantsTest do
       assert_platform_untouched(ctx)
     end
 
+    test "a rename to a blank or oversized name is refused, and writes and records nothing",
+         ctx do
+      assert {:ok, work} = link(ctx.user, "Work", "acct-work")
+      row = Repo.get!(Account, work.grant_id)
+
+      for name <- ["", "   ", String.duplicate("n", 201)] do
+        assert {:error, %Ecto.Changeset{} = changeset} =
+                 ChatGPTAccounts.rename_for_user(work.grant_id, ctx.user.id, name)
+
+        assert Map.has_key?(errors_on(changeset), :name)
+      end
+
+      assert Repo.get!(Account, work.grant_id) == row
+      assert [%{action: "chatgpt_grant.connected"}] = grant_events(ctx.user)
+      assert_platform_untouched(ctx)
+    end
+
     test "a rename keeps the pin, refuses a taken name, and records only a real change", ctx do
       assert {:ok, work} = link(ctx.user, "Work", "acct-work")
       assert {:ok, _personal} = link(ctx.user, "Personal", "acct-personal")

@@ -29,7 +29,8 @@ defmodule Fountain.Conversations.FreshProvision do
 
   alias Fountain.Conversations
   alias Fountain.Conversations.ActorStatus
-  alias Fountain.Conversations.{Checkpoints, ConversationServer, Egress, Lifecycle, Output}
+  alias Fountain.Conversations.{Checkpoints, CodexChatGPT, ConversationServer, Egress}
+  alias Fountain.Conversations.{Lifecycle, Output}
   alias Fountain.Conversations.{Provisioning, ProvisionWatchdog, Reapply, TurnMachine}
   alias Fountain.Machines.Machine
 
@@ -231,8 +232,17 @@ defmodule Fountain.Conversations.FreshProvision do
     announce_failed_provision(state, conv, reason)
   end
 
+  # A reason that is the grant's (the broker minted no session for it, or its
+  # home could not be written for it) is published in stage 2's words, with
+  # `retryable: false`; every other reason as it always was.
   defp announce_failed_provision(state, _conv, reason) do
-    ActorStatus.fail(state, %{reason: inspect(reason)})
+    source = Map.get(state, :inference_source)
+
+    ActorStatus.fail(
+      state,
+      CodexChatGPT.refusal_stage(reason, state.user_id, source) || %{reason: inspect(reason)}
+    )
+
     {:stop, :normal, state}
   end
 
@@ -307,7 +317,9 @@ defmodule Fountain.Conversations.FreshProvision do
              runtime,
              state.runtime_module,
              agent,
-             sprite_env
+             sprite_env,
+             state.inference_source,
+             state.user_id
            ) do
       {:ok,
        %{

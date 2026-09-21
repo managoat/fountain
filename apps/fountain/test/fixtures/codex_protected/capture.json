@@ -1,0 +1,68 @@
+{
+  "versions": {
+    "adapter": "@agentclientprotocol/codex-acp 1.10.0",
+    "codex": "codex-cli 0.153.4"
+  },
+  "turns": [
+    "end_turn",
+    "end_turn"
+  ],
+  "requests": [
+    {
+      "method": "POST",
+      "target": "/backend-api/codex/responses",
+      "header_names": [
+        "accept",
+        "authorization",
+        "chatgpt-account-id",
+        "content-encoding",
+        "content-length",
+        "content-type",
+        "host",
+        "originator",
+        "session-id",
+        "thread-id",
+        "user-agent",
+        "x-client-request-id",
+        "x-codex-beta-features",
+        "x-codex-routing-hint",
+        "x-codex-turn-metadata",
+        "x-codex-window-id"
+      ],
+      "content_type": "application/json",
+      "content_encoding": "zstd",
+      "accept": "text/event-stream",
+      "content_length_matches": true,
+      "synthetic_auth_matches": true,
+      "synthetic_identity_matches": true
+    },
+    {
+      "method": "POST",
+      "target": "/backend-api/codex/responses",
+      "header_names": [
+        "accept",
+        "authorization",
+        "chatgpt-account-id",
+        "content-encoding",
+        "content-length",
+        "content-type",
+        "host",
+        "originator",
+        "session-id",
+        "thread-id",
+        "user-agent",
+        "x-client-request-id",
+        "x-codex-beta-features",
+        "x-codex-routing-hint",
+        "x-codex-turn-metadata",
+        "x-codex-window-id"
+      ],
+      "content_type": "application/json",
+      "content_encoding": "zstd",
+      "accept": "text/event-stream",
+      "content_length_matches": true,
+      "synthetic_auth_matches": true,
+      "synthetic_identity_matches": true
+    }
+  ]
+}

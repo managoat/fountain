@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "An account holds several inference credential sets"
-description: "Accepted. The #2018 stack (thirteen PRs, #2019 to #2046, merged 2026-09-13) built named sets, source resolution and durable bindings, process-only inputs, and current-owner principal writes. Codex uses an interim machine-lifetime source binding; per-peer auth isolation and managed user execution remain unbuilt."
+description: "Accepted. The #2018 stack (thirteen PRs, #2019 to #2046, merged 2026-09-13) built named sets, source resolution and durable bindings, process-only inputs, and current-owner principal writes. Codex uses an interim machine-lifetime source binding; per-peer auth isolation remains unbuilt except for a user's ChatGPT subscription (ADR 0060 stage 3), and no user can link one yet."
 tags: [inference, billing, security, conversations, accounts]
 status: stable
 adr: "0053"
@@ -38,8 +38,15 @@ its Codex source identity/revision after conversation termination or deletion;
 a different source requires a new sandbox. There is no proven reset path
 that clears this binding. Existing machines without a provable binding are
 not eligible for a new source. Separate per-peer auth directories required
-by decision 6 remain unbuilt. This guard restricts admission while mutable
-auth state remains shared.
+by decision 6 remain unbuilt for every source but one: since
+[0060](0060-many-user-chatgpt-subscriptions.md) stage 3 (2026-09-20) a
+user's ChatGPT subscription keeps its `auth.json` in a `CODEX_HOME` of its
+own per grant and generation, and on a machine first bound under that code
+(`sandboxes.codex_peer_homes`) such a source is outside the binding: it is
+compatible with every peer and is not recorded. API keys, tenant secrets
+and the platform's grant still share `~/.codex/auth.json` and keep the
+binding as it was, as does every machine bound before the column existed.
+This guard restricts admission while mutable auth state remains shared.
 
 Plain `env_vars` sources currently use the environment's whole-map revision,
 so an unrelated plain-variable edit conservatively invalidates that source.
@@ -48,10 +55,13 @@ new source-before-row mutation lock order. Migration triggers preserve the
 revision checks but cannot make older writers' lock ordering safe. This is a
 rollout constraint, not evidence that a mixed-version fleet is compatible.
 
-The managed execution and user-linking work in ADR 0052 remains unbuilt:
-durable broker authorization, issuance/update fences, legacy connection
-drain, protected activation, user subscription selection and acceptance
-across link/turn/refresh/restart/disconnect are not completed by this stack.
+The managed execution and user-linking work in ADR 0052 was not completed
+by this stack. [0060](0060-many-user-chatgpt-subscriptions.md) has since
+built user subscription selection (stage 2) and, for a user's grant, durable
+broker authorization and the issuance and update fences (stage 3). Still
+unbuilt: linking itself, the legacy connection drain and protected
+activation for the platform's grant, and acceptance across
+link/turn/refresh/restart/disconnect against a real client.
 The requirements and release checks below still apply. A successful source
 review or test run does not establish rollout, cleanup of a deployed fleet,
 or managed-path activation.

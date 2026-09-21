@@ -106,6 +106,8 @@ defmodule Fountain.ConversationServerCase do
     # Per-tenant crypto is exercised in its own tests; here it only needs to
     # succeed so provisioning can proceed.
     Mimic.stub(Fountain.Crypto, :load_tenant_key, fn _user_id -> {:ok, <<0::256>>} end)
+    # The arity the broker's per-request path calls, with its read timeout.
+    Mimic.stub(Fountain.Crypto, :load_tenant_key, fn _user_id, _opts -> {:ok, <<0::256>>} end)
     Mimic.stub(Fountain.InferenceCredentials, :decrypted_for_user, fn _u, _k -> {:ok, %{}} end)
 
     # `decrypted_for/3` (the verified landing's read of an agent's set) goes

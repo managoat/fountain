@@ -716,7 +716,8 @@ defmodule Fountain.InferenceCredentials do
             | :reconnect_required
             | :exhausted
             | :not_found
-            | :broker_required,
+            | :broker_required
+            | :owner_ineligible,
           until: DateTime.t() | nil
         }
 
@@ -749,6 +750,12 @@ defmodule Fountain.InferenceCredentials do
     do:
       "This credential set names a ChatGPT subscription, and this deployment does not run " <>
         "the egress broker a subscription needs. " <> @no_fallback
+
+  # Not the subscription's fault, and reconnecting it would not help.
+  def grant_unusable_message(%{reason: :owner_ineligible} = detail),
+    do:
+      "ChatGPT subscription #{inspect(detail[:name])} cannot be used by this account right " <>
+        "now: a subscription serves a verified account that is not suspended. " <> @no_fallback
 
   # The one state a pinned conversation outlives: the row is the same grant
   # and generation once the reset passes.

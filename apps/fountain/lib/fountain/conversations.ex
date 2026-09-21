@@ -1597,9 +1597,7 @@ defmodule Fountain.Conversations do
 
         if source = Source.load(conv.inference_source) do
           with :ok <- InferenceCredentials.validate_source(user_id, source),
-               :ok <- Fountain.PlatformInference.gate_source(source),
-               # ADR 0060 stage 2 only; see `CodexChatGPT.transport_ready/1`.
-               :ok <- Fountain.Conversations.CodexChatGPT.transport_ready(source) do
+               :ok <- Fountain.PlatformInference.gate_source(source) do
             :ok
           else
             {:error, reason} -> Repo.rollback(reason)

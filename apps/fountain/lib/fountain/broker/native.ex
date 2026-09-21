@@ -34,8 +34,10 @@ defmodule Fountain.Broker.Native do
   """
 
   alias Fountain.Broker
+  alias Fountain.Broker.Native.ProtectedCompiler
   alias Fountain.Broker.Native.RequestLog
   alias Fountain.Broker.Native.Sessions
+  alias Fountain.ChatGPTAccounts
   alias Fountain.Conversations.Conversation
   alias Fountain.Repo
   alias Managoat.Broker.Rule
@@ -231,21 +233,31 @@ defmodule Fountain.Broker.Native do
   per allowed host under `limited`), stored under the tenant's key with a
   fresh token. `opts[:user_id]` names the tenant; without it the
   conversation row does.
+
+  `opts[:managed]` (a `t:Fountain.ChatGPTAccounts.grant_ref/0`) makes it a
+  session that may use that managed ChatGPT grant. Its ordinary rules then
+  go through `Fountain.Broker.Native.ProtectedCompiler.compile/3`, which
+  refuses any input that names the managed credential or injects into the
+  Codex backend, and `Sessions.create/1` fences the issuance on the grant
+  row. The grant's bearer is not an input here and is in nothing this stores.
   """
   @spec prepare(String.t(), %{String.t() => String.t()}, Broker.bindings(), keyword()) ::
           {:ok, Broker.session()} | {:error, term()}
   def prepare(conversation_id, brokered, bindings, opts)
       when is_binary(conversation_id) and is_map(brokered) and is_map(bindings) do
     network = Keyword.get(opts, :network, :unrestricted)
+    managed = Keyword.get(opts, :managed)
 
-    with {:ok, user_id} <- user_id(conversation_id, opts) do
+    with {:ok, user_id} <- user_id(conversation_id, opts),
+         {:ok, rules} <- compile(managed, brokered, bindings, network) do
       Sessions.create(%{
         conversation_id: conversation_id,
         user_id: user_id,
-        rules: rules_for(brokered, bindings, network),
+        rules: rules,
         unmatched_host_policy: policy_for(network),
-        meta: meta_for(conversation_id, user_id, brokered, bindings),
-        ttl_seconds: Application.get_env(:fountain, :broker_session_ttl_seconds, 21_600)
+        meta: meta_for(conversation_id, user_id, brokered, bindings, managed),
+        ttl_seconds: Application.get_env(:fountain, :broker_session_ttl_seconds, 21_600),
+        managed: managed
       })
     end
   end
@@ -257,29 +269,54 @@ defmodule Fountain.Broker.Native do
   secret edit leaves the network shape alone, so only the rules and the
   `credential_keys` in `meta` move. `{:ok, 0}` means no live session was
   there to update.
+
+  With `opts[:managed]` the new rules are compiled under the same
+  restrictions as at issuance, and a conflict rewrites nothing. Which grant a
+  session may use is not something a rewrite can change: a grant's token
+  rotation needs no rewrite at all, because the proxy reads the grant row on
+  every request.
   """
   @spec refresh(String.t(), %{String.t() => String.t()}, Broker.bindings(), keyword()) ::
           {:ok, non_neg_integer()} | {:error, term()}
   def refresh(conversation_id, brokered, bindings, opts)
       when is_binary(conversation_id) and is_map(brokered) and is_map(bindings) do
     network = Keyword.get(opts, :network, :unrestricted)
+    managed = Keyword.get(opts, :managed)
 
-    with {:ok, user_id} <- user_id(conversation_id, opts) do
+    with {:ok, user_id} <- user_id(conversation_id, opts),
+         {:ok, rules} <- compile(managed, brokered, bindings, network) do
       Sessions.update_rules(
         conversation_id,
         user_id,
-        rules_for(brokered, bindings, network),
-        meta_for(conversation_id, user_id, brokered, bindings)
+        rules,
+        meta_for(conversation_id, user_id, brokered, bindings, managed)
       )
     end
   end
 
-  defp meta_for(conversation_id, user_id, brokered, bindings) do
-    %{
-      "conversation_id" => conversation_id,
-      "user_id" => user_id,
-      "credential_keys" => credential_keys(brokered, bindings)
-    }
+  defp compile(nil, brokered, bindings, network),
+    do: {:ok, rules_for(brokered, bindings, network)}
+
+  # Fixed reasons with no supplied value in them: they reach a stage event.
+  defp compile(%{}, brokered, bindings, network) do
+    case ProtectedCompiler.compile(brokered, bindings, network) do
+      {:ok, %{rules: rules}} -> {:ok, rules}
+      {:error, reason} -> {:error, {:broker, :session, reason}}
+    end
+  end
+
+  # The protected rule's name arrives on the request event like any other,
+  # so the egress log can say which credential rode a Codex request: by its
+  # reserved name, as for every other key, and never by value.
+  defp meta_for(conversation_id, user_id, brokered, bindings, managed) do
+    keys = credential_keys(brokered, bindings)
+
+    keys =
+      if managed,
+        do: Map.put(keys, ProtectedCompiler.rule_name(), [ChatGPTAccounts.Reserved.key()]),
+        else: keys
+
+    %{"conversation_id" => conversation_id, "user_id" => user_id, "credential_keys" => keys}
   end
 
   defp user_id(conversation_id, opts) do

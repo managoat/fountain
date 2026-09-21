@@ -85,7 +85,7 @@ defmodule Fountain.Conversations.LegacyWakeReapplyTest do
     stub_happy_sprite()
     owner = self()
 
-    stub(Provisioning, :prepare_runtime_sprite, fn _, _, _, _, pairs ->
+    stub(Provisioning, :prepare_runtime_sprite, fn _, _, _, _, pairs, _source, _user ->
       send(owner, {:runtime_prepared, pairs})
       :ok
     end)

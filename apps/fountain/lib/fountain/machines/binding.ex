@@ -130,6 +130,19 @@ defmodule Fountain.Machines.Binding do
   #2348 reason as well: the call sits inside an advisory-locked transaction
   whose own uncommitted rows are the ones being bound.
 
+  The binding exists because every codex peer on a machine shared one
+  `~/.codex/auth.json` (ADR 0053 decision 6's interim rule). A source whose
+  peer keeps that file in a `CODEX_HOME` of its own
+  (`Fountain.Conversations.CodexChatGPT.own_home?/1`: a user's ChatGPT
+  subscription, ADR 0060 decision 6) shares nothing, so on a machine first
+  bound under that code (`codex_peer_homes`) it is compatible with every
+  peer, is not recorded as the machine's binding, and is not counted against
+  a newcomer that does use the shared file. Two of one user's subscriptions
+  therefore run side by side on one persistent home. Everything else is as
+  it was: two API keys still collide there, a machine bound before the
+  column existed keeps the old rule for every source, and the way forward on
+  one is still an ephemeral sandbox or a reset of the home.
+
   ## Vocabulary
 
   Every answer here is a word the callers already handled on `main`:
@@ -146,7 +159,7 @@ defmodule Fountain.Machines.Binding do
 
   alias Fountain.Agents
   alias Fountain.Conversations
-  alias Fountain.Conversations.{Conversation, ExecutionAllowance, Sandbox}
+  alias Fountain.Conversations.{CodexChatGPT, Conversation, ExecutionAllowance, Sandbox}
   alias Fountain.Conversations.{InferenceBinding, Launch, Lifecycle, Termination}
   alias Fountain.InferenceCredentials
   alias Fountain.InferenceCredentials.Source
@@ -687,13 +700,15 @@ defmodule Fountain.Machines.Binding do
   compatible with what the machine and its Codex co-tenants already carry.
 
   `InferenceBinding.compatible_machine/2` until stage 8b, unchanged in what it
-  decides: a machine still being built takes any source; a built one takes a
-  source whose kind, identity and revision match its recorded binding, and only
-  if every Codex co-tenant's does too. Legacy peers without a binding are
-  incompatible. Must be called inside `InferenceBinding.with_current/2`'s
-  transaction — this is the one protocol entry point that *requires* an
-  enclosing transaction rather than refusing one, because the row it binds is
-  locked there.
+  decides for a source that uses the shared `~/.codex/auth.json`: a machine
+  still being built takes any source; a built one takes a source whose kind,
+  identity and revision match its recorded binding, and only if every Codex
+  co-tenant's does too. Legacy peers without a binding are incompatible. A
+  source with a `CODEX_HOME` of its own is outside that rule on a machine
+  with `codex_peer_homes` (the moduledoc, "The Codex auth binding"). Must be
+  called inside `InferenceBinding.with_current/2`'s transaction — this is the
+  one protocol entry point that *requires* an enclosing transaction rather
+  than refusing one, because the row it binds is locked there.
 
   **What the guard actually checks is weaker than that sentence**, and it is
   worth saying so (round 1, protocol review). `Repo.in_transaction?/0` sees a
@@ -732,23 +747,53 @@ defmodule Fountain.Machines.Binding do
 
     if sandbox do
       peers = codex_peer_sources(sandbox.id, conv.id)
-      dumped = Source.dump(source)
       fresh? = sandbox.status in ["pending", "starting"]
 
-      if ((is_nil(sandbox.codex_inference_source) and fresh?) or
-            compatible?(sandbox.codex_inference_source, dumped)) and
-           Enum.all?(peers, &compatible?(&1, dumped)) do
-        sandbox
-        |> Ecto.Changeset.change(codex_inference_source: dumped)
-        |> Repo.update!()
+      # Decided once, at the machine's very first Codex bind: nothing is
+      # recorded, nobody else is here, and the machine is still being built.
+      peer_homes? =
+        sandbox.codex_peer_homes or
+          (fresh? and is_nil(sandbox.codex_inference_source) and peers == [])
 
-        :ok
-      else
-        {:error, :codex_inference_conflict}
+      cond do
+        # A home of its own shares nothing: compatible with every peer, and
+        # not the machine's binding.
+        peer_homes? and CodexChatGPT.own_home?(source) ->
+          record(sandbox, codex_peer_homes: true)
+
+        # Every bind that uses the shared file records itself, so on such a
+        # machine nothing recorded means nothing has, built or not; and the
+        # peers with homes of their own are not in the way.
+        peer_homes? ->
+          shared = Enum.reject(peers, &(&1 |> Source.load() |> CodexChatGPT.own_home?()))
+          bind_shared(sandbox, source, shared, true, codex_peer_homes: true)
+
+        # A machine first bound before the column existed: today's rule, for
+        # every source. Built and unrecorded, its auth file is unknown.
+        true ->
+          bind_shared(sandbox, source, peers, fresh?, [])
       end
     else
       {:error, :sandbox_not_found}
     end
+  end
+
+  # The shared `~/.codex/auth.json`: one source for the machine's life.
+  defp bind_shared(sandbox, source, peers, unbound_ok?, also) do
+    dumped = Source.dump(source)
+
+    if ((is_nil(sandbox.codex_inference_source) and unbound_ok?) or
+          compatible?(sandbox.codex_inference_source, dumped)) and
+         Enum.all?(peers, &compatible?(&1, dumped)) do
+      record(sandbox, [codex_inference_source: dumped] ++ also)
+    else
+      {:error, :codex_inference_conflict}
+    end
+  end
+
+  defp record(sandbox, changes) do
+    sandbox |> Ecto.Changeset.change(changes) |> Repo.update!()
+    :ok
   end
 
   # Every Codex conversation the machine has carried, the retired ones too —

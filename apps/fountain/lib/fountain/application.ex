@@ -100,6 +100,7 @@ defmodule Fountain.Application do
         FountainWeb.Plugs.RateLimit.Sweeper,
         Fountain.Conversations.Redaction,
         Fountain.FeatureFlags.Cache,
+        Fountain.LogThrottle.Table,
         Fountain.Analytics.Sink,
         # Extensions may add cron entries (ADR 0043, #1507). Core-only, this is
         # the configured options untouched; nothing in config names a worker

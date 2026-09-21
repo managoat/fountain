@@ -33,9 +33,26 @@ defmodule Fountain.Conversations.Reattachment do
           runtime,
           state.runtime_module,
           agent,
-          sprite_env
+          sprite_env,
+          state.inference_source,
+          state.user_id
         )
       end
+    end
+  end
+
+  @doc """
+  What a failed reattach publishes. A reason that is the grant's is permanent
+  and says so in stage 2's words (`CodexChatGPT.refusal_stage/3`); any other
+  is `inspect/1`ed beside whatever the caller's arm says of it in `meta`.
+  """
+  @spec failed_stage(map(), term(), map()) :: map()
+  def failed_stage(state, reason, meta \\ %{}) do
+    source = Map.get(state, :inference_source)
+
+    case Fountain.Conversations.CodexChatGPT.refusal_stage(reason, state.user_id, source) do
+      nil -> Map.put(meta, :reason, inspect(reason))
+      refusal -> Map.merge(meta, refusal)
     end
   end
 

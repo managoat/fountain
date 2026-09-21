@@ -160,17 +160,22 @@ defmodule FountainWeb.FallbackControllerTest do
     assert %{"reason" => "not_found", "grant" => nil, "until" => nil} = body
   end
 
-  # Not a 503: that tells a client the same call will work shortly, and this
-  # one will not until the deployment changes. What the caller can change is
-  # the set, which is a conflict with the state of something they own.
-  test "a named grant with no transport yet is a 409 that says what to select", %{conn: conn} do
+  test "a grant its owner may not use right now says so, and not to reconnect it", %{conn: conn} do
+    detail = %{
+      grant_id: Ecto.UUID.generate(),
+      name: "Work",
+      reason: :owner_ineligible,
+      until: nil
+    }
+
     body =
       conn
-      |> FountainWeb.FallbackController.call({:error, :chatgpt_grant_transport_unavailable})
+      |> FountainWeb.FallbackController.call({:error, {:chatgpt_grant_unusable, detail}})
       |> json_response(409)
 
-    assert body["error"] == "chatgpt_grant_transport_unavailable"
-    assert body["message"] =~ "select a set that does not name one"
+    assert %{"error" => "chatgpt_grant_unusable", "reason" => "owner_ineligible"} = body
+    assert body["message"] =~ "verified account"
+    refute body["message"] =~ "Reconnect"
   end
 
   # #2362: a persistent home keeps its Codex source when the platform ChatGPT

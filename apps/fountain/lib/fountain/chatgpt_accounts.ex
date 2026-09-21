@@ -44,16 +44,27 @@ defmodule Fountain.ChatGPTAccounts do
       refresh lock, using only the owner's encryption key. Callers re-read
       their pinned grant after renewal; the coordinator holds no tokens.
 
+  ## The broker's two reads
+
+  For either owner, pinned by a `t:grant_ref/0` (owner, id, generation):
+  `lock_active_grant/1` is the issuance fence a broker session is minted
+  under, and `protected_credential/2` is the per-request read behind
+  `Fountain.Broker.Native.Sessions.authorize/2` (ADR 0052 decision 5). They
+  are the only way a grant's bearer reaches the proxy.
+
   **No user can reach any of these yet.** There is no route, no page and no
   job, so no user holds a grant. The one call production code makes is the
   resolver's `get_for_user/2`, for every set that names a grant, of which
   there are none: it turns such a set into a `:grant` source or an error
   naming the grant. `InferenceCredentials.set_grant/3` reads through the
   same function and has no production caller either (ADR 0060 stage 4 adds
-  it), and `remove_for_user/3` asks the sets before it deletes. The broker path,
-  the account surface and the keepalive schedule are stages 3 to 5. Until
-  the keepalive exists an idle user grant would lapse at the auth server's
-  window, which is one reason linking is not reachable.
+  it), and `remove_for_user/3` asks the sets before it deletes. A conversation
+  that resolved to a grant runs on it: `ensure_fresh_for_user/3` renews it
+  before each turn, outside the source lock, and the broker reads it through
+  the two functions below (ADR 0060 stage 3). The account surface and the
+  keepalive schedule are stages 4 and 5. Until the keepalive exists an idle
+  user grant would lapse at the auth server's window, which is one reason
+  linking is not reachable.
 
   ### The source lock, and one rule for whoever selects a grant
 
@@ -148,6 +159,10 @@ defmodule Fountain.ChatGPTAccounts do
 
   @system_actor "system:platform_chatgpt"
   @user_system_actor "system:chatgpt_accounts"
+
+  # `protected_credential/2`'s reads, the grant row's and the tenant key's:
+  # it is the broker's per-request path, so neither waits without a bound.
+  @request_read [timeout: 5_000]
 
   # ── a user's grants ──────────────────────────────────────────────────────
 
@@ -315,8 +330,10 @@ defmodule Fountain.ChatGPTAccounts do
                   {:ok, current} <- locked_user_grant(grant_id, user_id),
                   :ok <- expected_generation(current, opts[:expected_generation]),
                   :ok <- account_unlinked(user_id, claims["account_id"], current.id),
-                  {:ok, attrs} <- user_attrs(user_id, current.id, tokens, claims) do
-               current |> Account.user_reconnect_changeset(attrs) |> Repo.update()
+                  {:ok, attrs} <- user_attrs(user_id, current.id, tokens, claims),
+                  {:ok, account} <-
+                    current |> Account.user_reconnect_changeset(attrs) |> Repo.update() do
+               {:ok, revoke_broker(account)}
              end
            end) do
       metadata = account |> connected_metadata(opts) |> Map.put("reconnect", true)
@@ -378,6 +395,15 @@ defmodule Fountain.ChatGPTAccounts do
   through `reconnect_for_user/4`; the row still counts against the ceiling
   until `remove_for_user/3` deletes it.
 
+  It is the kill switch for the broker as well. The same transaction marks
+  every broker session issued for the grant as revoked, and from the moment
+  it commits no request may use the grant, inside a tunnel that was already
+  open too: the proxy reads this row's generation on every request
+  (`protected_credential/2`), so that holds on a node that never heard of
+  the disconnect. A request admitted before the commit is in flight and may
+  finish. Already-open tunnels are not closed, and the token is not revoked
+  upstream.
+
   `:ok` for a grant already disconnected, with no second event. The
   platform grant is not like this: `platform_disconnect/1` deletes its row.
 
@@ -398,7 +424,7 @@ defmodule Fountain.ChatGPTAccounts do
 
           {:ok, account} ->
             with {:ok, tombstone} <- account |> Account.disconnect_changeset() |> Repo.update() do
-              {:ok, {account.generation, tombstone}}
+              {:ok, {account.generation, revoke_broker(tombstone)}}
             end
 
           {:error, _} = error ->
@@ -467,11 +493,29 @@ defmodule Fountain.ChatGPTAccounts do
   defp delete_unnamed(%Account{} = account) do
     case Fountain.InferenceCredentials.set_names_for_grant(account.id, account.user_id) do
       [] ->
-        Repo.delete(account)
+        with {:ok, deleted} <- Repo.delete(account), do: {:ok, revoke_broker(deleted)}
 
       names ->
         {:error, {:named_by_sets, names}}
     end
+  end
+
+  # The one seam between a grant's lifecycle and the broker (ADR 0052
+  # decision 5): every write that ends what a broker session was issued for
+  # calls this **inside its own transaction**, so the fence and the
+  # invalidation commit together or not at all. A disconnect, a reconnect, a
+  # removal and the platform's delete end every generation the row has had
+  # (`:all`); a revocation or an expiry keeps the generation and ends that
+  # one. A token rotation ends nothing and does not come here.
+  #
+  # It marks the sessions and leaves them: only the Codex backend closes to
+  # their conversations. It is the fast path, not the authority, which is
+  # `protected_credential/2` reading the row on every request. Account
+  # deletion does not come through here either: the grant rows go by cascade
+  # and so do the user's broker sessions.
+  defp revoke_broker(%Account{id: id} = account, generation \\ :all) do
+    Fountain.Broker.revoke_grant(id, generation)
+    account
   end
 
   # Every write to a user's grants: one transaction under that user's source
@@ -720,6 +764,24 @@ defmodule Fountain.ChatGPTAccounts do
     end
   end
 
+  @doc """
+  The renewal a turn asks for before it runs (ADR 0052 decision 3, "refresh
+  both before expiry and before a turn"): `:ok` from the row alone when the
+  pinned grant is active and outside its refresh margin, else
+  `refresh_for_user/3`. Status only, never a bearer, and the same refusals as
+  the credential read. Like `refresh_for_user/3` it must not run under
+  `InferenceCredentials.lock_source/1`.
+  """
+  @spec ensure_fresh_for_user(Ecto.UUID.t(), String.t(), Ecto.UUID.t()) ::
+          :ok | {:error, atom()}
+  def ensure_fresh_for_user(grant_id, user_id, generation)
+      when is_binary(grant_id) and is_binary(user_id) and is_binary(generation) do
+    with {:ok, account} <- pinned_user_grant(grant_id, user_id, generation),
+         :ok <- user_account_state(account) do
+      if fresh?(account), do: :ok, else: refresh_for_user(grant_id, user_id, generation)
+    end
+  end
+
   @doc false
   def refresh_serialized_for_user(grant_id, user_id, generation)
       when is_binary(grant_id) and is_binary(user_id) and is_binary(generation) do
@@ -805,6 +867,148 @@ defmodule Fountain.ChatGPTAccounts do
       not u.principal and not is_nil(u.email_verified_at) and is_nil(u.suspended_at)
     )
   end
+
+  # ── broker authorization ─────────────────────────────────────────────────
+
+  @typedoc """
+  One sign-in of one managed grant, as the broker pins it: whose it is, its
+  id and its generation. `:platform` is the deployment's grant. Never a
+  token, and not authority by itself: every function that takes one reads
+  the row again.
+  """
+  @type grant_ref :: %{
+          owner: :platform | {:user, String.t()},
+          grant_id: Ecto.UUID.t(),
+          generation: Ecto.UUID.t()
+        }
+
+  @doc """
+  The issuance fence (ADR 0052 decision 5): lock the grant `ref` pins `FOR
+  SHARE` if it is still that owner's, still at that generation and still
+  active, and answer the ChatGPT account it is for. The caller is in a
+  transaction and writes the broker session inside it, so a disconnect, a
+  reconnect or a revocation of the grant either commits first, and this
+  answers `:managed_grant_inactive`, or waits for the session to exist and
+  then revokes it (`Fountain.Broker.revoke_grant/2`). A provision that
+  selected the grant before it was disconnected cannot mint a session for it
+  afterwards.
+
+  For a user's grant the owner must also still be eligible, as for every
+  credential read. No decrypt and no provider I/O.
+
+  ## Lock order
+
+  This takes the row and never the owner's source key. The rule in the
+  moduledoc is for writers, whose trigger takes that key after the row; a
+  `FOR SHARE` fires no trigger, and the caller's transaction must not take a
+  source key after calling this. Holding one before is fine: that is the
+  writers' own order.
+  """
+  @spec lock_active_grant(grant_ref()) ::
+          {:ok, %{account_id: String.t()}}
+          | {:error, :managed_grant_inactive | :transaction_required}
+  def lock_active_grant(%{owner: _, grant_id: _, generation: _} = ref) do
+    if Repo.in_transaction?() do
+      with {:ok, query} <- active_grant_query(ref),
+           %Account{account_id: account_id} = account
+           when is_binary(account_id) and account_id != "" <-
+             Repo.one(from(a in query, lock: fragment("FOR SHARE OF ?", a))),
+           :ok <- servable(account) do
+        {:ok, %{account_id: account_id}}
+      else
+        _ -> {:error, :managed_grant_inactive}
+      end
+    else
+      {:error, :transaction_required}
+    end
+  end
+
+  @doc """
+  The bearer for one request the broker is about to send to the Codex
+  backend, or a refusal. Called by `Fountain.Broker.Native.Sessions.authorize/2`
+  on every such request, inside an open tunnel too.
+
+  One read of one row: `ref`'s owner, id and generation, `status` active, and
+  the account still `identity`, the one the session was issued for. The
+  bearer and the account id in the answer come from that single row version,
+  so a bearer never travels under another account's id. Anything else is
+  `{:error, :denied}`: a disconnected, revoked, replaced or deleted grant, an
+  owner who may no longer use one, a grant that now answers as a different
+  account. A key that will not load or a token that will not open is
+  `{:error, :unavailable}`. Both reads, the row's and the owner's key's, carry
+  a five-second timeout; one that runs out raises, which the caller answers
+  as `:unavailable` too. No lock is taken, nothing is renewed and nothing
+  is cached: a request admitted before a disconnect commits is in flight,
+  and the next one is refused.
+  """
+  @spec protected_credential(grant_ref(), String.t()) ::
+          {:ok, Grant.t()} | {:error, :denied | :unavailable}
+  def protected_credential(%{owner: _, grant_id: _, generation: _} = ref, identity)
+      when is_binary(identity) and identity != "" do
+    with {:ok, query} <- active_grant_query(ref),
+         %Account{account_id: ^identity} = account <- Repo.one(query, @request_read),
+         :ok <- servable(account) do
+      case Cipher.decrypt_token(account, :access_token, read: @request_read, throttle_log: true) do
+        {:ok, access_token} -> {:ok, Grant.new(account, access_token)}
+        {:error, _} -> {:error, :unavailable}
+      end
+    else
+      _ -> {:error, :denied}
+    end
+  end
+
+  def protected_credential(_ref, _identity), do: {:error, :denied}
+
+  @doc """
+  What one grant's sandbox `auth.json` carries beside the placeholder: the
+  real account id (not a secret; codex sends it in a header in the clear) and
+  an unsigned `id_token` built from the stored claims. Pinned by owner, id
+  and generation, like every other read through a `t:grant_ref/0`, so the
+  file a conversation gets is its own grant's at the sign-in it resolved, or
+  nothing: `:none` when that sign-in is gone (reconnected, disconnected,
+  removed), when the owner may no longer use a grant, or when the row names
+  no account. Never another grant's and never a deployment-wide lookup (ADR
+  0052 decision 5). The row's `status` is not asked: the file holds a
+  placeholder, and whether the grant may serve is the broker's question on
+  every request.
+  """
+  @spec sandbox_auth(grant_ref()) ::
+          {:ok, %{account_id: String.t(), id_token: String.t()}} | :none
+  def sandbox_auth(%{owner: _, grant_id: _, generation: _} = ref) do
+    with {:ok, query} <- pinned_grant_query(ref),
+         %Account{account_id: account_id, id_claims: claims}
+         when is_binary(account_id) and account_id != "" <- Repo.one(query) do
+      {:ok, %{account_id: account_id, id_token: Tokens.synthesize_id_token(claims)}}
+    else
+      _ -> :none
+    end
+  end
+
+  # The platform's grant may be a static workspace token; a user's is always
+  # a refreshable sign-in, as for every other read of one.
+  defp servable(%Account{user_id: nil}), do: :ok
+  defp servable(%Account{} = account), do: user_account_state(account)
+
+  defp active_grant_query(ref) do
+    with {:ok, pinned} <- pinned_grant_query(ref),
+         do: {:ok, from(a in pinned, where: a.status == "active")}
+  end
+
+  defp pinned_grant_query(%{owner: owner, grant_id: grant_id, generation: generation}) do
+    with {:ok, id} <- Ecto.UUID.cast(grant_id),
+         {:ok, generation} <- Ecto.UUID.cast(generation),
+         {:ok, owned} <- owner_query(owner, id) do
+      {:ok, from(a in owned, where: a.id == ^id and a.generation == ^generation)}
+    end
+  end
+
+  defp owner_query(:platform, _id), do: {:ok, from(a in Account, where: is_nil(a.user_id))}
+
+  defp owner_query({:user, user_id}, id) when is_binary(user_id) do
+    with {:ok, user_id} <- Ecto.UUID.cast(user_id), do: {:ok, user_grant_query(id, user_id)}
+  end
+
+  defp owner_query(_owner, _id), do: :error
 
   # ── reads ────────────────────────────────────────────────────────────────
 
@@ -1230,7 +1434,7 @@ defmodule Fountain.ChatGPTAccounts do
 
         case locked_platform_row() do
           nil -> nil
-          row -> Repo.delete!(row)
+          row -> row |> Repo.delete!() |> revoke_broker()
         end
       end)
 
@@ -1262,7 +1466,7 @@ defmodule Fountain.ChatGPTAccounts do
         case (locked_platform_row() || %Account{})
              |> Account.connect_changeset(attrs)
              |> Repo.insert_or_update() do
-          {:ok, account} -> account
+          {:ok, account} -> revoke_broker(account)
           {:error, changeset} -> Repo.rollback(changeset)
         end
       end)
@@ -1588,12 +1792,22 @@ defmodule Fountain.ChatGPTAccounts do
              set: [status: "revoked", revoked_reason: code, updated_at: now()],
              inc: [lock_version: 1]
            )
+           |> revoke_broker_if_written(row)
          end) do
       {1, _} -> :ok
       {:error, _} when is_binary(row.user_id) -> unwritten(row, "revocation")
       _ -> :stale
     end
   end
+
+  # A fenced status write that landed ends this generation's broker sessions,
+  # in the same transaction; one that lost its fence ends nothing.
+  defp revoke_broker_if_written({1, _} = written, %Account{} = row) do
+    revoke_broker(row, row.generation)
+    written
+  end
+
+  defp revoke_broker_if_written(unwritten, _row), do: unwritten
 
   defp record_revocation(account_id, code) do
     Audit.record_admin(%{
@@ -1623,6 +1837,7 @@ defmodule Fountain.ChatGPTAccounts do
       Fountain.InferenceCredentials.with_platform_source_lock(fn ->
         current_query(row)
         |> Repo.update_all(set: [status: "expired", updated_at: now()], inc: [lock_version: 1])
+        |> revoke_broker_if_written(row)
       end)
 
     if count == 1 do

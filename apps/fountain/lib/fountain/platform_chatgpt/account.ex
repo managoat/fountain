@@ -37,8 +37,10 @@ defmodule Fountain.PlatformChatGPT.Account do
 
   Reconnect and disconnect change `generation`. Normal refresh retains the
   generation and increments `lock_version`, as do terminal lifecycle writes.
-  These fields fence stale writes; broker authorization is not yet
-  generation-aware.
+  These fields fence stale writes, and `generation` fences the broker too:
+  a broker session that may use a grant is pinned to one generation, and
+  every request is admitted against the row's current one
+  (`Fountain.ChatGPTAccounts.protected_credential/2`).
 
   `connect_changeset/2` starts a lifecycle: a fresh grant, or a reconnect
   over an existing row. `user_connect_changeset/2` and

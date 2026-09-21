@@ -5,9 +5,13 @@ defmodule Fountain.ChatGPTAccounts.Grant do
   Keep this value separate from generic environment/template inputs. Inspect
   omits the bearer, and no JSON encoder is derived. `source` is a snapshot of
   one row version: the grant's `name` is a label a user may change and is
-  deliberately not part of it. The protected rule builder that takes this
-  separate input, session authorization and runtime adoption are not built
-  (ADR 0060 stage 3).
+  deliberately not part of it.
+
+  It is what `Fountain.ChatGPTAccounts.protected_credential/2` answers the
+  broker with for one request, and it goes no further than
+  `Fountain.Broker.Native.Sessions.authorize/2`, which hands the bearer and
+  the account id to the proxy as a `Managoat.Broker.ProtectedCredential`. It
+  never enters a conversation process, the `brokered` map, a rule or a row.
   """
 
   alias Fountain.PlatformChatGPT.Account

@@ -672,9 +672,8 @@ defmodule Fountain.Conversations.ConversationServer do
         end
       else
         {:error, reason} ->
-          Output.publish_stage(state.conversation_id, "reattach", "failed", %{
-            reason: inspect(reason)
-          })
+          failed = Reattachment.failed_stage(state, reason)
+          Output.publish_stage(state.conversation_id, "reattach", "failed", failed)
 
           Egress.release_prepared({:ok, state})
           {:stop, :normal, state}
@@ -728,7 +727,7 @@ defmodule Fountain.Conversations.ConversationServer do
         # `probe_sandbox/4` applies on the wake path.
         Logger.warning(
           "reattach failed for sprite #{sandbox.machine_name}: #{inspect(reason)} — " <>
-            "transient; sandbox row left untouched"
+            "nothing about the sandbox; its row is left untouched"
         )
 
         running_turn = Reattachment.find_running_turn(state.conversation_id)
@@ -740,11 +739,11 @@ defmodule Fountain.Conversations.ConversationServer do
              ] and not is_nil(running_turn) and not is_nil(running_turn.acp_prompt_id) do
           Reattachment.wait_for_runner(%{state | current_turn: running_turn}, &fail_transport/2)
         else
-          Output.publish_stage(state.conversation_id, "reattach", "failed", %{
-            reason: inspect(reason),
-            retryable: true,
-            node: to_string(node())
-          })
+          # Not every reason here is transient: a grant the broker will mint
+          # no session for is permanent, and `failed_stage/3` says which.
+          meta = %{retryable: true, node: to_string(node())}
+          failed = Reattachment.failed_stage(state, reason, meta)
+          Output.publish_stage(state.conversation_id, "reattach", "failed", failed)
 
           {:stop, :normal, state}
         end
@@ -821,10 +820,7 @@ defmodule Fountain.Conversations.ConversationServer do
 
     state = %{state | brokered: brokered, broker_bindings: bindings, env_credentials: env_creds}
 
-    case Egress.reprepare(state.conversation_id, brokered, bindings, state.sprite_env,
-           network: state.broker_network,
-           user_id: state.user_id
-         ) do
+    case Egress.reprepare(state) do
       {:ok, session, sprite_env} ->
         %{state | broker: session, sprite_env: sprite_env}
 

@@ -30,6 +30,15 @@ sandbox's `usageLimitExceeded` only prompts the server to ask OpenAI; the
 exhaustion is recorded only when OpenAI confirms it. The failing turn is not
 retried.
 
+**[0060](0060-many-user-chatgpt-subscriptions.md) stage 3 (2026-09-20)
+adds a second way a ChatGPT grant reaches a codex sandbox, for a user's own
+subscription**: a `CODEX_HOME` per grant and generation, and a broker
+session that records which grant it may use and asks for the bearer on
+every request, where decisions 4 and 5 below describe a shared
+`~/.codex/auth.json`, a substitution rule and a rewrite of that rule on
+rotation. Decisions 4 and 5 still describe the deployment's grant exactly:
+it is not on the new path, and nothing here changed for it.
+
 Amends [0038](0038-onboarding-first-reply.md) decision 3 (platform inference
 keys) with a second kind of platform credential, and
 [0019](0019-egress-credential-brokerage.md) gate 3 (brokered inference

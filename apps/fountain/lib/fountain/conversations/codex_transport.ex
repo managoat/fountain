@@ -66,8 +66,8 @@ defmodule Fountain.Conversations.CodexTransport do
   # collapsed by the rewrite, which rejects every entry and appends one.
   @resolved_names ["OPENAI_API_KEY", "OPENAI_BASE_URL", @chatgpt_key]
 
-  def spawn_opts(%{broker: broker}, "codex", opts) when not is_nil(broker) do
-    env = Keyword.get(opts, :env, [])
+  def spawn_opts(%{broker: broker} = state, "codex", opts) when not is_nil(broker) do
+    env = opts |> Keyword.get(:env, []) |> host_codex_home(Map.get(state, :handle))
 
     # `SpriteEnv.build/4` concatenates its pieces without merging, so a name
     # can appear more than once. Nothing states which duplicate the sandbox
@@ -104,6 +104,29 @@ defmodule Fountain.Conversations.CodexTransport do
   end
 
   def spawn_opts(_state, _runtime, opts), do: {:ok, opts}
+
+  # A managed grant's `CODEX_HOME` (`CodexChatGPT.home/1`) is a path under
+  # `/home/sprite`. File writes and command arguments reach a self-hosted
+  # runner with that prefix mapped, but an env value reaches it verbatim (see
+  # `Provisioning.broker_ca_files/1`), and codex would be pointed at a
+  # directory that is not there. The same translation the ACP `cwd` gets; the
+  # identity on every hosted provider. Only a home Fountain made is touched.
+  defp host_codex_home(env, %Managoat.Sandbox.Handle{} = handle) do
+    key = Fountain.Conversations.CodexChatGPT.home_key()
+    root = Fountain.Conversations.CodexChatGPT.homes_root()
+
+    Enum.map(env, fn
+      {^key, value} = pair when is_binary(value) ->
+        if String.starts_with?(value, root <> "/"),
+          do: {key, Managoat.Sandbox.host_path(handle, value)},
+          else: pair
+
+      pair ->
+        pair
+    end)
+  end
+
+  defp host_codex_home(env, _handle), do: env
 
   # Repoint the conversation at an equivalent provider with the websocket
   # transport off. Only the one that would otherwise dial OpenAI directly: an

@@ -1155,6 +1155,44 @@ defmodule FountainWeb.Schemas do
           description:
             "The end-of-turn token figure; null while the turn runs, when the runtime " <>
               "reported none, or on turns that predate the field."
+        },
+        inference: %Schema{
+          type: :object,
+          nullable: true,
+          readOnly: true,
+          description:
+            "Which inference source served this turn, recorded once when the turn " <>
+              "started and never rewritten: repointing the credential set, reconnecting " <>
+              "the subscription or restarting the conversation changes later turns only. " <>
+              "Null on a turn that started before the source was recorded.",
+          properties: %{
+            origin: %Schema{
+              type: :string,
+              enum: ~w(own platform),
+              description:
+                "`own` for a credential of the account's, `platform` for the deployment's."
+            },
+            scope: %Schema{
+              type: :string,
+              enum: ~w(credential tenant_secret grant platform none missing),
+              description:
+                "Where the credential came from: the account's credential set " <>
+                  "(`credential`), an environment or vault value (`tenant_secret`), a ChatGPT " <>
+                  "subscription the set names (`grant`), the deployment (`platform`), or " <>
+                  "nowhere because the provider needs none (`none`) or none was found " <>
+                  "(`missing`)."
+            },
+            chatgpt_grant_id: %Schema{
+              type: :string,
+              format: :uuid,
+              nullable: true,
+              description:
+                "The ChatGPT subscription that served the turn when `scope` is `grant`, " <>
+                  "as listed by `GET /api/account/chatgpt-subscriptions`; null otherwise. " <>
+                  "It keeps naming that subscription after the subscription is removed."
+            }
+          },
+          required: [:origin, :scope, :chatgpt_grant_id]
         }
       },
       required: [:id, :turn_number, :prompt, :status]

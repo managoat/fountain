@@ -929,8 +929,10 @@ defmodule Fountain.Conversations.TurnMachine do
   platform API key is configured.
 
   A user's own named ChatGPT grant (scope `:grant`, ADR 0060) is a tenant
-  source and is stamped `"own"`. Which grant served the turn is not recorded
-  yet: decision 6 asks for it, and it arrives with exhaustion in stage 5.
+  source and is stamped `"own"`. Which grant served the turn is not in this
+  map, which the pricer and `Turn.inference_stamp_only?/1` key off: it is in
+  the turn's `inference_source`, written beside the stamp, and the API reads
+  it from there (`Source.summary/1`, decision 6).
 
   The `"model"` key is deliberately absent on an `"own"` turn: nothing prices
   it, so recording it would put a configuration detail in a column that

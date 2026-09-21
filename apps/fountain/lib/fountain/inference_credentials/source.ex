@@ -79,6 +79,34 @@ defmodule Fountain.InferenceCredentials.Source do
     |> Map.put("origin", origin(source))
   end
 
+  @doc """
+  What a stored source says to its owner, for a turn's `inference` field in
+  the API and the export (ADR 0060 decision 6): the `"origin"`, the scope and,
+  on a `:grant` source, which subscription. Nil for a row with no source, or
+  with one whose scope this version does not know.
+
+  Deliberately three keys. `generation`, `identity` and `revision` are
+  fencing values and are in no body; the set, the environment and the vault
+  are on the conversation.
+  """
+  @spec summary(map() | nil) ::
+          %{origin: String.t(), scope: String.t(), chatgpt_grant_id: String.t() | nil} | nil
+  def summary(nil), do: nil
+
+  def summary(%{} = stored) do
+    case load(stored) do
+      %__MODULE__{scope: nil} ->
+        nil
+
+      %__MODULE__{scope: scope} = source ->
+        %{
+          origin: origin(source),
+          scope: Atom.to_string(scope),
+          chatgpt_grant_id: if(scope == :grant, do: source.grant_id)
+        }
+    end
+  end
+
   def load(nil), do: nil
 
   def load(%{} = source) do

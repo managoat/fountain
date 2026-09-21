@@ -92,4 +92,73 @@ defmodule Fountain.Credits.ChatGPTInferenceTest do
     assert %{inference: 0} = CreditPricer.run(since: DateTime.add(now, -60), now: now)
     assert Billing.platform_inference_spend_today(now) == before + cost
   end
+
+  # ADR 0060 decision 6: a user's own subscription is `"own"` inference. The
+  # deployment sells platform inference here, so the stamp is written and the
+  # pricer and the ceiling both have something to get wrong.
+  @tag :capture_log
+  test "a turn on a user's own subscription debits nothing and consumes no ceiling" do
+    Application.put_env(:fountain, :platform_openai_api_key, "sk-platform")
+    previous_ceiling = Application.get_env(:fountain, :platform_inference_daily_cents)
+
+    on_exit(fn ->
+      if is_nil(previous_ceiling),
+        do: Application.delete_env(:fountain, :platform_inference_daily_cents),
+        else: Application.put_env(:fountain, :platform_inference_daily_cents, previous_ceiling)
+    end)
+
+    assert PlatformInference.enabled?()
+
+    model = "openai/gpt-6-astra"
+    user = insert_verified_user()
+    # Outside its refresh margin: the gate below asks the auth server nothing.
+    grant =
+      Fountain.ChatGPTFixtures.user_grant!(user.id, %{
+        access_token: Fountain.ChatGPTFixtures.access_token()
+      })
+
+    {:ok, set} = InferenceCredentials.create_set(user.id, "Subscription")
+    {:ok, set} = InferenceCredentials.set_grant(set, grant.id)
+
+    {:ok, %Source{scope: :grant} = source, _} =
+      InferenceCredentials.resolve(user.id, model, "codex", credential_set_id: set.id)
+
+    usage =
+      TurnMachine.with_inference(%{"input" => 1_000_000, "output" => 1_000_000}, %{
+        inference: source,
+        model: model
+      })
+
+    # No model, which is what the rate card is read by, and no grant id.
+    assert usage == %{"input" => 1_000_000, "output" => 1_000_000, "inference" => "own"}
+
+    agent = insert_agent(user_id: user.id, runtime: "codex", model: model)
+    conv = insert_conversation(user_id: user.id, agent: agent)
+    now = DateTime.utc_now()
+
+    insert_turn(conv,
+      status: "completed",
+      started_at: now,
+      ended_at: now,
+      usage: usage,
+      inference_source: Source.dump(source)
+    )
+
+    balance = Credits.balance(user.id)
+    spent = Billing.platform_inference_spend_today(now)
+
+    assert %{inference: 0} = CreditPricer.run(since: DateTime.add(now, -60), now: now)
+    assert Enum.filter(Credits.list_entries(user.id), &(&1.reason == "burn_inference")) == []
+    assert Credits.balance(user.id) == balance
+    assert Billing.platform_inference_spend_today(now) == spent
+
+    # The ceiling spent: platform turns stop, and this one is not asked.
+    Application.put_env(:fountain, :platform_inference_daily_cents, 0)
+
+    assert {:error, :platform_inference_unavailable} =
+             PlatformInference.gate_source(%{Source.platform() | kind: :openai_api_key})
+
+    assert :ok = PlatformInference.gate_source(source)
+    assert :ok = TurnMachine.gate(user.id, source)
+  end
 end

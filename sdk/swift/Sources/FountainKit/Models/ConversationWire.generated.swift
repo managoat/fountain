@@ -77,6 +77,7 @@ public struct Turn: Sendable, Decodable, Hashable, Identifiable {
   public var exitCode: Int?
   public var id: String
   public var imageCount: Int?
+  public var inference: TurnInference?
   public var insertedAt: Date?
   public var limitReason: String?
   public var modelSelection: TurnModelSelection?
@@ -94,6 +95,7 @@ public struct Turn: Sendable, Decodable, Hashable, Identifiable {
     case exitCode = "exit_code"
     case id = "id"
     case imageCount = "image_count"
+    case inference = "inference"
     case insertedAt = "inserted_at"
     case limitReason = "limit_reason"
     case modelSelection = "model_selection"
@@ -1593,6 +1595,18 @@ public struct Sandbox: Sendable, Decodable, Hashable, Identifiable {
     case status = "status"
     case url = "url"
     case vaultID = "vault_id"
+  }
+}
+
+public struct TurnInference: Sendable, Decodable, Hashable {
+  public var chatgptGrantID: String?
+  public var origin: String
+  public var scope: String
+
+  enum CodingKeys: String, CodingKey {
+    case chatgptGrantID = "chatgpt_grant_id"
+    case origin = "origin"
+    case scope = "scope"
   }
 }
 

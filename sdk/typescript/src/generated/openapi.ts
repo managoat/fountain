@@ -5274,6 +5274,24 @@ export interface components {
             id: string;
             /** @description Number of images attached to this turn. */
             image_count?: number;
+            /** @description Which inference source served this turn, recorded once when the turn started and never rewritten: repointing the credential set, reconnecting the subscription or restarting the conversation changes later turns only. Null on a turn that started before the source was recorded. */
+            readonly inference?: {
+                /**
+                 * Format: uuid
+                 * @description The ChatGPT subscription that served the turn when `scope` is `grant`, as listed by `GET /api/account/chatgpt-subscriptions`; null otherwise. It keeps naming that subscription after the subscription is removed.
+                 */
+                chatgpt_grant_id: string | null;
+                /**
+                 * @description `own` for a credential of the account's, `platform` for the deployment's.
+                 * @enum {string}
+                 */
+                origin: "own" | "platform";
+                /**
+                 * @description Where the credential came from: the account's credential set (`credential`), an environment or vault value (`tenant_secret`), a ChatGPT subscription the set names (`grant`), the deployment (`platform`), or nowhere because the provider needs none (`none`) or none was found (`missing`).
+                 * @enum {string}
+                 */
+                scope: "credential" | "tenant_secret" | "grant" | "platform" | "none" | "missing";
+            } | null;
             /** Format: date-time */
             inserted_at?: string;
             /** @description The service-enforced limit that ended this turn, or null. Set independently of exit_code: a runtime that exits zero after its deadline is still an incomplete turn, so a client must read this before treating a turn as successful. */

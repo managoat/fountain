@@ -169,6 +169,16 @@ subscription's name. Fountain does not try another subscription, the set's
 own key or the platform. To name a subscription ends the set's running codex
 conversations with `409 inference_source_changed`.
 
+A subscription can spend its Codex usage. The turn that reaches the limit
+fails with the message from codex. Fountain then asks OpenAI, and records the
+limit only when OpenAI confirms it. After that, the subscription shows
+`exhausted_until`. Each launch and each turn on it gets
+`409 chatgpt_grant_unusable` with `reason` `exhausted` and the reset time in
+`until`, and the `admission_refused` stage event carries the same `until`. The
+rule above still applies: nothing else is used in its place. The subscription
+is usable again when the time passes. Fountain does not check usage before a
+turn fails.
+
 These routes require a full-scope account key. The ID of another account is
 `404`.
 
@@ -418,6 +428,18 @@ A turn that a limit ended carries `limit_reason`. Read it before you read
 `exit_code`. A runtime that answers after its deadline can exit zero. A client
 that reads only `exit_code` then shows a stopped turn as a success. The
 transcript event for that turn puts the same value in `stop_reason`.
+
+Each turn has a read-only `inference` object that says which inference source
+served it. `origin` is `own` for a credential of the account and `platform`
+for the deployment's. `scope` is one of `credential`, `tenant_secret`, `grant`,
+`platform`, `none` and `missing`. `chatgpt_grant_id` is the
+[ChatGPT subscription](#chatgpt-subscriptions) that served the turn when
+`scope` is `grant`, and null otherwise. Fountain writes the object when the
+turn starts and does not change it. A later change to the credential set, a
+reconnect of the subscription or a restart changes later turns only. The
+object is null on a turn from before Fountain recorded it. A turn on a
+subscription of the account uses no credits. The data export shows the same
+object on each turn.
 
 ```bash
 curl --fail-with-body \

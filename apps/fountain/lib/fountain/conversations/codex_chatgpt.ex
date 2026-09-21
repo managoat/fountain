@@ -200,19 +200,27 @@ defmodule Fountain.Conversations.CodexChatGPT do
   Both come from the source, whatever the credentials map holds. On any other
   source, `CODEX_CHATGPT_ACCESS_TOKEN` when the credentials carry it
   (brokered, the placeholder `Fountain.Broker.split_inference/2` put there).
+
+  A `:grant` source that names no grant and generation, or names ones that
+  make no path, exports nothing, and `prepare_sandbox/5` refuses the spawn.
+  It never falls through to the other sources' entry: that one is followed
+  by the deployment's account file in the shared home.
   """
   @spec env(module() | nil, map(), Source.t() | nil) :: [{String.t(), String.t()}]
-  def env(Managoat.Runtimes.Codex, credentials, source) when is_map(credentials) do
-    with true <- own_home?(source),
-         {:user, grant_id, generation} <- Source.grant_ref(source),
+  def env(Managoat.Runtimes.Codex, credentials, %Source{scope: :grant} = source)
+      when is_map(credentials) do
+    with {:user, grant_id, generation} <- Source.grant_ref(source),
          {:ok, home} <- home(%{grant_id: grant_id, generation: generation}) do
       [{@env_key, Reserved.placeholder(grant_id)}, {@home_key, home}]
     else
-      _ ->
-        case Map.get(credentials, @credential) do
-          value when is_binary(value) and value != "" -> [{@env_key, value}]
-          _ -> []
-        end
+      _ -> []
+    end
+  end
+
+  def env(Managoat.Runtimes.Codex, credentials, _source) when is_map(credentials) do
+    case Map.get(credentials, @credential) do
+      value when is_binary(value) and value != "" -> [{@env_key, value}]
+      _ -> []
     end
   end
 
@@ -251,6 +259,9 @@ defmodule Fountain.Conversations.CodexChatGPT do
   key that got through would be the silent switch ADR 0060 decision 4
   forbids.
 
+  A `:grant` source with no owner, grant id or generation to pin is
+  `{:error, :invalid_codex_home}`; it is never treated as any other source.
+
   For any other source: `:skip` when the spawn does not carry the
   deployment's grant, or when an `OPENAI_API_KEY` sits beside it (the
   library's `prepare_sandbox/3` then runs as today); `:ok` or
@@ -264,9 +275,14 @@ defmodule Fountain.Conversations.CodexChatGPT do
           String.t() | nil
         ) :: :skip | :ok | {:error, term()}
   def prepare_sandbox(handle, @runtime, sprite_env, source, user_id) do
-    case managed_grant(source, user_id) do
-      nil -> prepare_shared(handle, sprite_env)
-      ref -> prepare_home(handle, sprite_env, ref)
+    case {managed_grant(source, user_id), source} do
+      # A user's source that pins nothing: no owner, or a persisted source
+      # without its grant id or generation. Refused here, because the shared
+      # path below writes the deployment's account, and a user's source must
+      # never reach it.
+      {nil, %Source{scope: :grant}} -> {:error, :invalid_codex_home}
+      {nil, _} -> prepare_shared(handle, sprite_env)
+      {ref, _} -> prepare_home(handle, sprite_env, ref)
     end
   end
 

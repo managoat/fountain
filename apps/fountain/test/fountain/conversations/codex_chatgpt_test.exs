@@ -270,6 +270,36 @@ defmodule Fountain.Conversations.CodexChatGPTTest do
                CodexChatGPT.prepare_sandbox(@handle, "codex", env, source, user.id)
     end
 
+    # The shared path ends in the deployment's account file. A user's source
+    # that pins nothing must not reach it, connected platform grant or not.
+    test "a :grant source that pins nothing is refused, and never takes the shared path",
+         %{user: user, source: source} do
+      # Connected, so the shared path would have a file to write, and handed
+      # the entry it keys on: it writes with these two calls or not at all.
+      connect!()
+      reject(&Managoat.Sandbox.exec/4)
+      reject(&Managoat.Sandbox.write_file/4)
+      placeholder = [{"CODEX_CHATGPT_ACCESS_TOKEN", @placeholder}]
+
+      unpinned = [
+        {source, nil},
+        {%{source | grant_id: nil}, user.id},
+        {%{source | generation: nil}, user.id}
+      ]
+
+      for {source, user_id} <- unpinned do
+        assert {:error, :invalid_codex_home} =
+                 CodexChatGPT.prepare_sandbox(@handle, "codex", placeholder, source, user_id)
+      end
+
+      # And what it exports is nothing: not the entry the shared path keys on.
+      creds = %{codex_chatgpt_access_token: @placeholder}
+
+      for bad <- [%{source | grant_id: nil}, %{source | generation: nil}, %{source | grant_id: "x"}] do
+        assert CodexChatGPT.env(Managoat.Runtimes.Codex, creds, bad) == []
+      end
+    end
+
     test "prepare_sandbox/5 refuses an API key beside the grant, and reports a sandbox that refuses",
          %{user: user, source: source} do
       env = CodexChatGPT.env(Managoat.Runtimes.Codex, %{}, source)

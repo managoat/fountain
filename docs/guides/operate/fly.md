@@ -54,7 +54,9 @@ fly mpg attach <cluster-name>
 ```
 
 The attach step sets `DATABASE_URL` as a secret on the app. Managed Postgres
-serves TLS, which the app expects.
+serves TLS, which the app expects. Its host resolves to a private IPv6
+address only, so `fly.toml` sets `DATABASE_IPV6 = "true"`. Without it the app
+exits at boot with `:nxdomain`.
 
 The older `fly pg create` command makes an unmanaged Postgres app instead, and
 that one serves no TLS. Against one of those, set `DATABASE_SSL = "false"` in

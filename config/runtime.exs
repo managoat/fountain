@@ -1280,6 +1280,12 @@ if config_env() == :prod do
 
   config :fountain, Fountain.Repo,
     url: database_url,
+    # Fly Managed Postgres (`fly mpg attach`) hands out a *.flympg.net host
+    # that resolves to a private 6PN IPv6 address only. Postgrex resolves as
+    # IPv4 unless told otherwise, so without this every boot on Fly dies in
+    # migrate_on_boot with :nxdomain. Opt-in, because an IPv4-only database
+    # host would stop resolving under :inet6.
+    socket_options: if(System.get_env("DATABASE_IPV6") == "true", do: [:inet6], else: []),
     pool_size: String.to_integer(System.get_env("POOL_SIZE") || "10"),
     # TLS was hardcoded on with no override, which meant the canonical
     # self-host setup — app and Postgres in containers — could not connect at

@@ -51,6 +51,11 @@ primary_region = "iad"
 [env]
   PHX_SERVER = "true"
 
+  # `fly mpg attach` sets DATABASE_URL to a *.flympg.net host, which resolves
+  # to a private IPv6 (6PN) address only. Without this the app looks the host
+  # up as IPv4, finds nothing, and exits at boot with :nxdomain.
+  DATABASE_IPV6 = "true"
+
   # Fly's proxy sends to whatever `internal_port` says. The image defaults to
   # 4000, so this has to be explicit rather than inherited.
   PORT = "8080"

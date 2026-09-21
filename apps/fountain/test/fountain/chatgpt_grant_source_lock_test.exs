@@ -143,6 +143,33 @@ defmodule Fountain.ChatGPTGrantSourceLockTest do
     end
   end
 
+  # The trigger builds its key from `uuid::text`, which is canonical. The
+  # Elixir side builds it from a string it was handed; two spellings of one
+  # id must not be two locks, or the mutual exclusion silently stops holding.
+  describe "the Elixir key and the trigger's" do
+    @held """
+    SELECT count(*) FROM pg_locks l,
+      (SELECT hashtextextended('inference:' || ($1::uuid)::text, 0) AS key) k
+    WHERE l.locktype = 'advisory' AND l.pid = pg_backend_pid() AND l.objsubid = 1
+      AND l.classid::bigint = ((k.key >> 32) & 4294967295)
+      AND l.objid::bigint = (k.key & 4294967295)
+    """
+
+    test "another spelling of a user id takes the key the trigger takes for that user" do
+      id = Ecto.UUID.generate()
+
+      Repo.transaction(fn ->
+        assert %{rows: [[0]]} = Repo.query!(@held, [Ecto.UUID.dump!(id)])
+        assert :ok = InferenceCredentials.lock_tenant_source(String.upcase(id))
+        assert %{rows: [[1]]} = Repo.query!(@held, [Ecto.UUID.dump!(id)])
+      end)
+    end
+
+    test "what is not a user id takes no key" do
+      assert_raise Ecto.CastError, fn -> InferenceCredentials.lock_tenant_source("platform") end
+    end
+  end
+
   defp resolve(user_id), do: InferenceCredentials.resolve(user_id, @model, "codex")
 
   defp link(user, name, account_id) do

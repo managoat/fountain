@@ -616,9 +616,15 @@ defmodule Fountain.InferenceCredentials do
 
   A transaction holding this must not go on to ask for the platform key.
   The order everywhere is platform, then tenant.
+
+  The key is built from the canonical spelling of the id, because the
+  trigger builds its own from `uuid::text`: another spelling would be
+  another lock. What is not a UUID raises, so no string can spell the
+  platform's key through here.
   """
   def lock_tenant_source(user_id) when is_binary(user_id) do
-    Repo.query!("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", ["inference:" <> user_id])
+    key = "inference:" <> Ecto.UUID.cast!(user_id)
+    Repo.query!("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [key])
 
     :ok
   end

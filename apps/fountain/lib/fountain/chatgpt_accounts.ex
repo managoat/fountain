@@ -2182,6 +2182,11 @@ defmodule Fountain.ChatGPTAccounts do
     with {:ok, refresh} <- Cipher.decrypt_token(current, :refresh_token) do
       case OAuth.refresh(refresh) do
         {:ok, %{access_token: access} = fresh} ->
+          # The auth server answered this address with tokens, for whichever
+          # owner: the keepalive's breaker closes, whatever becomes of the
+          # write below. ETS only, and it never raises.
+          RefreshBreaker.succeeded()
+
           # The rotated refresh token lands before the access token is
           # handed out: a crash between the two would otherwise leave the
           # row holding a refresh token the server has already retired.
@@ -2329,12 +2334,12 @@ defmodule Fountain.ChatGPTAccounts do
     {:error, :refresh_failed}
   end
 
-  # A 429, or a 403 whose body named no code `OAuth` could read, which is a
-  # proxy in front of the auth server and not the auth server's verdict on an
-  # account. A 403 that names a code (a deactivated or restricted account) is
-  # that account's, and must not pause anybody else's keepalive.
+  # A 429, or a 403 whose body was not a JSON object at all (`OAuth` calls
+  # that `"unreadable"`): a proxy in front of the auth server, not the auth
+  # server's verdict on an account. A 403 with an object body, a code in it
+  # or not, is that account's, and must not pause anybody else's keepalive.
   defp throttled?({:token, 429, _code}), do: true
-  defp throttled?({:token, 403, "unknown"}), do: true
+  defp throttled?({:token, 403, "unreadable"}), do: true
   defp throttled?(_reason), do: false
 
   # A refresh that comes back as somebody else is not this grant's: between

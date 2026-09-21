@@ -18,6 +18,7 @@ defmodule Fountain.Workers.ChatGPTGrantKeepaliveTest do
 
   setup do
     RefreshBreaker.reset()
+    Fountain.LogThrottle.reset()
     on_exit(&RefreshBreaker.reset/0)
     :ok
   end
@@ -54,6 +55,45 @@ defmodule Fountain.Workers.ChatGPTGrantKeepaliveTest do
   # Due for the keepalive, and not so idle that a job stops waiting for the
   # breaker (seven days).
   defp recently_idle, do: days_ago(6)
+
+  # The breaker's clock, frozen at `ms` until the test says otherwise.
+  defp clock(ms) do
+    Application.put_env(:fountain, :chatgpt_refresh_breaker_now_ms, ms)
+    on_exit(fn -> Application.delete_env(:fountain, :chatgpt_refresh_breaker_now_ms) end)
+  end
+
+  # The token endpoint answering every refresh with one raw response, for
+  # bodies that are not JSON. `stub_auth/1` can only answer JSON.
+  defp stub_raw(status, content_type, body) do
+    test_pid = self()
+    Req.Test.set_req_test_to_shared(%{})
+
+    Req.Test.stub(Fountain.PlatformChatGPT.OAuth, fn conn ->
+      {:ok, raw, conn} = Plug.Conn.read_body(conn)
+      send(test_pid, {:token_call, Jason.decode!(raw)["refresh_token"]})
+
+      conn
+      |> Plug.Conn.put_resp_content_type(content_type)
+      |> Plug.Conn.send_resp(status, body)
+    end)
+  end
+
+  defp capture_log_result(fun) do
+    test_pid = self()
+    capture_log(fn -> send(test_pid, {:result, fun.()}) end)
+    assert_received {:result, result}
+    result
+  end
+
+  defp wait_until(fun, tries \\ 100) do
+    cond do
+      fun.() -> :ok
+      tries == 0 -> flunk("the condition never held")
+      true -> Process.sleep(10) && wait_until(fun, tries - 1)
+    end
+  end
+
+  defp stringify(map), do: Map.new(map, fn {key, value} -> {Atom.to_string(key), value} end)
 
   # Two owners nobody has heard of were refused just now.
   defp open_breaker do
@@ -254,11 +294,15 @@ defmodule Fountain.Workers.ChatGPTGrantKeepaliveTest do
       log =
         capture_log(fn ->
           for _ <- 1..3, grant <- [a, b] do
-            assert {:error, :rate_limited} = perform_job(Worker, args(grant))
+            # A wait, not a failed attempt: it does not ask again for a
+            # quarter of an hour, and spends none of its three attempts.
+            assert {:snooze, seconds} = perform_job(Worker, args(grant))
+            assert seconds >= 900
           end
         end)
 
       refute RefreshBreaker.open?()
+      assert RefreshBreaker.heard?(a.id) and RefreshBreaker.heard?(b.id)
       refute_received {:telemetry, [:refresh, :breaker_opened], _, _}
       assert_received {:telemetry, [:refresh, :rate_limited], %{count: 1}, %{}}
 
@@ -271,63 +315,69 @@ defmodule Fountain.Workers.ChatGPTGrantKeepaliveTest do
     end
 
     test "two owners' refusals stand it up, another owner's job waits without asking, and it clears by time" do
-      Application.put_env(:fountain, :chatgpt_refresh_breaker_ms, 1_500)
-      on_exit(fn -> Application.delete_env(:fountain, :chatgpt_refresh_breaker_ms) end)
-
+      clock(1_000_000)
       a = idle_grant(insert_verified_user(), "rt_a")
       b = idle_grant(insert_verified_user(), "rt_b")
       c = idle_grant(insert_verified_user(), "rt_c", recently_idle())
       stub_token(%{"rt_a" => throttled(), "rt_b" => throttled(), "rt_c" => renewed(c, "rt_c2")})
       watch_telemetry([[:keepalive, :grant], [:refresh, :breaker_opened]])
 
-      assert {:error, :rate_limited} = perform_job(Worker, args(a))
+      assert {:snooze, _} = perform_job(Worker, args(a))
       refute RefreshBreaker.open?()
-      assert {:error, :rate_limited} = perform_job(Worker, args(b))
+      assert {:snooze, _} = perform_job(Worker, args(b))
       assert RefreshBreaker.open?()
+      assert RefreshBreaker.remaining_seconds() == 900
       assert_received {:telemetry, [:refresh, :breaker_opened], %{count: 1}, %{}}
       assert_received {:token_call, "rt_a"}
       assert_received {:token_call, "rt_b"}
 
       assert {:snooze, seconds} = perform_job(Worker, args(c))
-      assert seconds >= 1 and seconds <= 2 + 300
+      assert seconds >= 900 and seconds <= 900 + 300
       refute_received {:token_call, _}
       assert row(c) == c
 
       assert_received {:telemetry, [:keepalive, :grant], %{count: 1},
                        %{result: :snoozed, reason: :breaker_open}}
 
-      Process.sleep(1_600)
+      clock(1_000_000 + 900_000)
       refute RefreshBreaker.open?()
       assert :ok = perform_job(Worker, args(c))
       assert_received {:token_call, "rt_c"}
       assert row(c).lock_version == c.lock_version + 1
     end
 
-    test "a 403 that names a code is that account's: a failed refresh, and no evidence of a throttle" do
-      named = idle_grant(insert_verified_user(), "rt_a")
-      other = idle_grant(insert_verified_user(), "rt_b")
+    # What the auth server really answers a throttled address with is not
+    # measured (ADR 0060); this is what is taken for it, and what is not.
+    for {label, status, type, body, evidence?} <- [
+          {"a bare 429", 429, "text/plain", "", true},
+          {"a 429 with a JSON body", 429, "application/json", ~s({"error":"rate_limited"}), true},
+          {"a 403 that is an HTML page", 403, "text/html",
+           "<html><body>Access denied</body></html>", true},
+          {"a 403 with no body", 403, "text/plain", "", true},
+          {"a 403 whose JSON object names a code", 403, "application/json",
+           ~s({"error":{"code":"account_deactivated"}}), false},
+          {"a 403 whose JSON object names none", 403, "application/json",
+           ~s({"message":"blocked"}), false},
+          {"a 403 whose JSON object is shaped another way", 403, "application/json",
+           ~s({"detail":"Your workspace does not allow this."}), false}
+        ] do
+      test "#{label} is #{if evidence?, do: "evidence of a throttled address", else: "that account's own failure, and no evidence"}" do
+        account = idle_grant(insert_verified_user(), "rt_a")
+        stub_raw(unquote(status), unquote(type), unquote(body))
 
-      stub_token(%{
-        "rt_a" => {403, %{"error" => %{"code" => "account_deactivated"}}},
-        "rt_b" => throttled()
-      })
+        result = capture_log_result(fn -> perform_job(Worker, args(account)) end)
+        assert_received {:token_call, "rt_a"}
 
-      assert {:error, :refresh_failed} = perform_job(Worker, args(named))
-      assert {:error, :rate_limited} = perform_job(Worker, args(other))
-      # Had the 403 counted, that was the second owner.
-      refute RefreshBreaker.open?()
-      assert row(named) == named
-    end
+        if unquote(evidence?) do
+          assert {:snooze, _} = result
+          assert RefreshBreaker.heard?(account.id)
+        else
+          assert {:error, :refresh_failed} = result
+          refute RefreshBreaker.heard?(account.id)
+        end
 
-    test "a 403 whose body names no code is a proxy's, and counts" do
-      a = idle_grant(insert_verified_user(), "rt_a")
-      b = idle_grant(insert_verified_user(), "rt_b")
-      stub_token(%{"rt_a" => {403, %{}}, "rt_b" => {403, %{"message" => "blocked"}}})
-
-      assert {:error, :rate_limited} = perform_job(Worker, args(a))
-      assert {:error, :rate_limited} = perform_job(Worker, args(b))
-      assert RefreshBreaker.open?()
-      assert row(a) == a
+        assert row(account) == account
+      end
     end
 
     test "the deployment's own grant is an owner: its 429 and one user's stand it up" do
@@ -340,11 +390,12 @@ defmodule Fountain.Workers.ChatGPTGrantKeepaliveTest do
       assert_received {:token_call, "rt_original"}
       refute RefreshBreaker.open?()
 
-      assert {:error, :rate_limited} = perform_job(Worker, args(user_grant))
+      assert {:snooze, _} = perform_job(Worker, args(user_grant))
       assert RefreshBreaker.open?()
     end
 
     test "a grant is heard once per window, and an owner counts once" do
+      clock(5_000_000)
       owner = Ecto.UUID.generate()
       grant = Ecto.UUID.generate()
 
@@ -354,41 +405,183 @@ defmodule Fountain.Workers.ChatGPTGrantKeepaliveTest do
       assert :recorded = RefreshBreaker.observe(owner, Ecto.UUID.generate())
       refute RefreshBreaker.open?()
 
+      # Ten minutes on, what was heard has lapsed: that owner alone again.
+      clock(5_000_000 + 600_000)
+      refute RefreshBreaker.heard?(grant)
+      assert :recorded = RefreshBreaker.observe(owner, grant)
+      refute RefreshBreaker.open?()
+
       assert :opened = RefreshBreaker.observe(Ecto.UUID.generate(), Ecto.UUID.generate())
-      assert RefreshBreaker.remaining_seconds() in 899..900
+      assert RefreshBreaker.remaining_seconds() == 900
     end
 
-    test "a job it has held two hours goes ahead as a probe, and a refused probe is an ordinary failure" do
-      account = idle_grant(insert_verified_user(), "rt_a", recently_idle())
-      stub_token(%{"rt_a" => throttled()})
+    test "with no table it is not standing, and nothing raises" do
+      table = :fountain_chatgpt_refresh_breaker
+      pid = Process.whereis(RefreshBreaker.Table)
+      ref = Process.monitor(pid)
+      Process.exit(pid, :kill)
+      assert_receive {:DOWN, ^ref, _, _, _}
+
+      # Between the owner's death and its restart the table may be gone.
+      if :ets.whereis(table) == :undefined do
+        assert :ignored = RefreshBreaker.observe(Ecto.UUID.generate(), Ecto.UUID.generate())
+        assert :ok = RefreshBreaker.succeeded()
+        assert :closed = RefreshBreaker.claim_probe()
+        refute RefreshBreaker.open?()
+      end
+
+      wait_until(fn -> :ets.whereis(table) != :undefined end)
+      assert :recorded = RefreshBreaker.observe(Ecto.UUID.generate(), Ecto.UUID.generate())
+    end
+
+    test "a held job never sleeps past the moment it is due to probe, by the two hours or by the seven days" do
+      stub_token(%{})
       open_breaker()
       now = System.os_time(:second)
+      six_hours = %{"window" => 21_600}
 
-      # Held for an hour: it still waits.
-      held = %{"first_run_at" => now - 3_600, "breaker_deferred_at" => now - 3_600}
-      assert {:snooze, _} = perform_job(Worker, args(account), meta: held)
+      # Held for an hour and a half: due in thirty minutes.
+      account = idle_grant(insert_verified_user(), "rt_a", recently_idle())
+
+      held =
+        Map.merge(six_hours, %{
+          "first_run_at" => now - 5_400,
+          "breaker_deferred_at" => now - 5_400
+        })
+
+      for _ <- 1..20 do
+        assert {:snooze, seconds} = perform_job(Worker, args(account), meta: held)
+        assert seconds >= 30 and seconds <= 1_800 + 121
+      end
+
+      # Just held, and its grant reaches seven days idle in ten minutes.
+      almost = DateTime.add(days_ago(7), 600, :second)
+      nearly_seven = idle_grant(insert_verified_user(), "rt_b", almost)
+
+      for _ <- 1..20 do
+        assert {:snooze, seconds} = perform_job(Worker, args(nearly_seven), meta: six_hours)
+        assert seconds >= 30 and seconds <= 600 + 121
+      end
+
+      # Just held, nothing near: the two hours are still the ceiling.
+      for _ <- 1..20 do
+        assert {:snooze, seconds} = perform_job(Worker, args(account), meta: six_hours)
+        assert seconds <= 7_200 + 121
+      end
+
       refute_received {:token_call, _}
-
-      # Held past two: it asks, is refused, and the breaker still stands.
-      held = %{"first_run_at" => now - 7_300, "breaker_deferred_at" => now - 7_300}
-
-      capture_log(fn ->
-        assert {:error, :rate_limited} = perform_job(Worker, args(account), meta: held)
-      end)
-
-      assert_received {:token_call, "rt_a"}
-      assert RefreshBreaker.open?()
-      assert row(account) == account
     end
 
-    test "a grant seven days idle does not wait for it, and its probe can succeed" do
-      account = idle_grant(insert_verified_user(), "rt_a", days_ago(7))
+    test "one probe per node per pause: the first held job asks, a refused probe waits again, and the rest do not ask" do
+      first = idle_grant(insert_verified_user(), "rt_a", recently_idle())
+      second = idle_grant(insert_verified_user(), "rt_b", recently_idle())
+      week_idle = idle_grant(insert_verified_user(), "rt_c", days_ago(8))
+      stub_token(%{"rt_a" => throttled(), "rt_b" => throttled(), "rt_c" => throttled()})
+      open_breaker()
+      now = System.os_time(:second)
+      held = %{"first_run_at" => now - 7_300, "breaker_deferred_at" => now - 7_300}
+
+      job = enqueue!(first)
+      Repo.update_all(from(j in Oban.Job, where: j.id == ^job.id), set: [meta: held])
+      refute RefreshBreaker.heard?(first.id)
+
+      assert %{snoozed: 1, failure: 0} = Oban.drain_queue(queue: :chatgpt_refresh)
+      assert_received {:token_call, "rt_a"}
+
+      # The refusal is on record for this grant, which the breaker being open
+      # already would not show; the job has spent no attempt; and its two
+      # hours start again, so its next wake is not another request.
+      assert RefreshBreaker.heard?(first.id)
+      waiting = Repo.get!(Oban.Job, job.id)
+      assert waiting.state == "scheduled"
+      assert waiting.max_attempts - waiting.attempt == 3
+      assert_in_delta waiting.meta["breaker_deferred_at"], now, 5
+      assert DateTime.diff(waiting.scheduled_at, DateTime.utc_now()) >= 890
+
+      assert %{snoozed: 1} = Oban.drain_queue(queue: :chatgpt_refresh, with_scheduled: true)
+      refute_received {:token_call, _}
+
+      # Held as long, and eight days idle: the pause's probe is spent.
+      assert {:snooze, seconds} = perform_job(Worker, args(second), meta: held)
+      assert seconds <= 900 + 121
+      assert {:snooze, seconds} = perform_job(Worker, args(week_idle))
+      assert seconds <= 900 + 121
+      refute_received {:token_call, _}
+
+      # The refused probe was evidence and extended the pause; that is not a
+      # new probe. A pause length after the claim there is one more, and one
+      # only.
+      clock(System.monotonic_time(:millisecond) + 900_000)
+      open_breaker()
+      assert {:snooze, _} = perform_job(Worker, args(week_idle))
+      assert_received {:token_call, "rt_c"}
+      assert {:snooze, _} = perform_job(Worker, args(second), meta: held)
+      refute_received {:token_call, _}
+    end
+
+    test "a probe that succeeds closes it, and a held job runs at its next wake" do
+      probe = idle_grant(insert_verified_user(), "rt_a", days_ago(7))
+      held = idle_grant(insert_verified_user(), "rt_b", recently_idle())
+      stub_token(%{"rt_a" => renewed(probe, "rt_a2"), "rt_b" => renewed(held, "rt_b2")})
+      open_breaker()
+      heard = Ecto.UUID.generate()
+      RefreshBreaker.observe(Ecto.UUID.generate(), heard)
+      watch_telemetry([[:refresh, :breaker_closed]])
+
+      assert {:snooze, _} = perform_job(Worker, args(held))
+      refute_received {:token_call, _}
+
+      assert :ok = perform_job(Worker, args(probe))
+      assert_received {:token_call, "rt_a"}
+      refute RefreshBreaker.open?()
+      assert_received {:telemetry, [:refresh, :breaker_closed], %{count: 1}, %{}}
+      # The success refutes what was heard before it.
+      refute RefreshBreaker.heard?(heard)
+
+      assert :ok = perform_job(Worker, args(held))
+      assert_received {:token_call, "rt_b"}
+      assert row(held).lock_version == held.lock_version + 1
+    end
+
+    test "a turn's renewal that succeeds closes it too" do
+      user = insert_verified_user()
+      account = idle_grant(user, "rt_a")
       stub_token(%{"rt_a" => renewed(account, "rt_a2")})
       open_breaker()
 
-      assert :ok = perform_job(Worker, args(account))
+      assert :ok = ChatGPTAccounts.ensure_fresh_for_user(account.id, user.id, account.generation)
       assert_received {:token_call, "rt_a"}
-      assert row(account).lock_version == account.lock_version + 1
+      refute RefreshBreaker.open?()
+    end
+
+    test "a job that runs with it down forgets it was held, so a later pause starts its two hours afresh" do
+      account = idle_grant(insert_verified_user(), "rt_a", recently_idle())
+      stub_token(%{})
+      open_breaker()
+      job = enqueue!(account)
+
+      assert %{snoozed: 1} = Oban.drain_queue(queue: :chatgpt_refresh)
+      held_at = Repo.get!(Oban.Job, job.id).meta["breaker_deferred_at"]
+      assert is_integer(held_at)
+
+      # Long ago, as far as the job knows. The breaker comes down and the job
+      # runs, crowded out this once.
+      Repo.update_all(from(j in Oban.Job, where: j.id == ^job.id),
+        set: [
+          meta: %{"first_run_at" => held_at - 10_000, "breaker_deferred_at" => held_at - 10_000}
+        ]
+      )
+
+      RefreshBreaker.reset()
+      stub(RefreshCoordinator, :run, fn _, _, _ -> {:error, :refresh_busy} end)
+      assert %{snoozed: 1} = Oban.drain_queue(queue: :chatgpt_refresh, with_scheduled: true)
+      refute Map.has_key?(Repo.get!(Oban.Job, job.id).meta, "breaker_deferred_at")
+
+      # It stands again: held from now, not from hours ago, so no probe.
+      open_breaker()
+      assert %{snoozed: 1} = Oban.drain_queue(queue: :chatgpt_refresh, with_scheduled: true)
+      assert_in_delta Repo.get!(Oban.Job, job.id).meta["breaker_deferred_at"], held_at, 5
+      refute_received {:token_call, _}
     end
 
     test "a held job's wake-up is spread over the sweep's window again, which rides in meta" do
@@ -404,7 +597,8 @@ defmodule Fountain.Workers.ChatGPTGrantKeepaliveTest do
           seconds
         end
 
-      assert Enum.all?(waits, &(&1 >= 899 and &1 <= 900 + 20_000))
+      # Never past the two hours at which it is due to probe.
+      assert Enum.all?(waits, &(&1 >= 899 and &1 <= 7_200 + 121))
       # Six draws from 20,000 s all inside the old two minutes: one in 10^13.
       assert Enum.max(waits) > 900 + 120
 
@@ -414,35 +608,17 @@ defmodule Fountain.Workers.ChatGPTGrantKeepaliveTest do
       refute_received {:token_call, _}
     end
 
-    test "when it first held the job is written on the row, once" do
-      account = idle_grant(insert_verified_user(), "rt_a", recently_idle())
-      stub_token(%{})
-      open_breaker()
-      job = enqueue!(account)
-
-      assert %{snoozed: 1} = Oban.drain_queue(queue: :chatgpt_refresh)
-
-      %{meta: %{"breaker_deferred_at" => first, "first_run_at" => ran}} =
-        Repo.get!(Oban.Job, job.id)
-
-      assert is_integer(first) and is_integer(ran)
-
-      Repo.update_all(from(j in Oban.Job, where: j.id == ^job.id),
-        set: [meta: %{"breaker_deferred_at" => first - 50, "first_run_at" => ran - 50}]
-      )
-
-      assert %{snoozed: 1} = Oban.drain_queue(queue: :chatgpt_refresh, with_scheduled: true)
-      assert %{"breaker_deferred_at" => kept} = Repo.get!(Oban.Job, job.id).meta
-      assert kept == first - 50
-    end
-
-    test "a job it holds for a grant that is gone ends at once" do
+    test "a job it holds for a grant that is gone, or revoked under the same generation, ends at once" do
       user = insert_verified_user()
+      revoked = idle_grant(user, "rt_r", recently_idle())
+      revoked |> change(status: "revoked", revoked_reason: "invalid_grant") |> Repo.update!()
       account = idle_grant(user, "rt_a", recently_idle())
       stub_token(%{})
       open_breaker()
-      :ok = ChatGPTAccounts.disconnect_for_user(account.id, user.id)
 
+      assert {:cancel, :revoked} = perform_job(Worker, args(revoked))
+
+      :ok = ChatGPTAccounts.disconnect_for_user(account.id, user.id)
       assert {:cancel, :stale_grant} = perform_job(Worker, args(account))
       :ok = ChatGPTAccounts.remove_for_user(account.id, user.id)
       assert {:cancel, :not_connected} = perform_job(Worker, args(account))
@@ -451,16 +627,13 @@ defmodule Fountain.Workers.ChatGPTGrantKeepaliveTest do
 
     test "any other provider error is an ordinary retry and is no evidence" do
       account = idle_grant(insert_verified_user(), "rt_a")
-      other = idle_grant(insert_verified_user(), "rt_b")
-      stub_token(%{"rt_a" => {503, %{"error" => "unavailable"}}, "rt_b" => throttled()})
+      stub_token(%{"rt_a" => {503, %{"error" => "unavailable"}}})
       job = enqueue!(account)
 
       assert %{failure: 1} = Oban.drain_queue(queue: :chatgpt_refresh)
       assert Repo.get!(Oban.Job, job.id).state == "retryable"
+      refute RefreshBreaker.heard?(account.id)
       assert row(account) == account
-
-      assert {:error, :rate_limited} = perform_job(Worker, args(other))
-      refute RefreshBreaker.open?()
     end
   end
 
@@ -494,13 +667,13 @@ defmodule Fountain.Workers.ChatGPTGrantKeepaliveTest do
   end
 
   describe "a job that cannot finish" do
-    test "says so once, at error, when its last attempt fails: the grant's id and an atom" do
+    test "says so at error when its last attempt fails, once a minute however many grants" do
       user = insert_verified_user()
       account = idle_grant(user, "rt_a")
-
-      stub_token(%{
-        "rt_a" => {503, %{"error" => "unavailable", "error_description" => "rt_SECRET_echo"}}
-      })
+      other = idle_grant(insert_verified_user(), "rt_b")
+      failing = {503, %{"error" => "unavailable", "error_description" => "rt_SECRET_echo"}}
+      stub_token(%{"rt_a" => failing, "rt_b" => failing})
+      watch_telemetry([[:keepalive, :grant]])
 
       quiet =
         capture_log([level: :error], fn ->
@@ -509,11 +682,14 @@ defmodule Fountain.Workers.ChatGPTGrantKeepaliveTest do
         end)
 
       refute quiet =~ "chatgpt keepalive"
+      assert_received {:telemetry, [:keepalive, :grant], _, %{result: :error}}
 
       log =
         capture_log([level: :error], fn ->
-          assert {:error, :refresh_failed} =
-                   perform_job(Worker, args(account), attempt: 3, max_attempts: 3)
+          for grant <- [account, other] do
+            assert {:error, :refresh_failed} =
+                     perform_job(Worker, args(grant), attempt: 3, max_attempts: 3)
+          end
         end)
 
       assert log =~ "[error]"
@@ -521,44 +697,56 @@ defmodule Fountain.Workers.ChatGPTGrantKeepaliveTest do
       assert log =~
                "grant #{account.id} was not renewed and the job is discarded (refresh_failed)"
 
+      # An outage is one line a minute, and the counter says how many.
+      refute log =~ other.id
+      assert_received {:telemetry, [:keepalive, :grant], _, %{result: :discarded}}
+      assert_received {:telemetry, [:keepalive, :grant], _, %{result: :discarded}}
       refute log =~ user.id
       refute log =~ "rt_SECRET_echo"
     end
 
-    test "gives way twenty hours after its first run, not after it was queued, and not while its grant is due" do
+    test "a run that raises on its last attempt says the same and still raises" do
+      account = idle_grant(insert_verified_user(), "rt_a")
+      stub(RefreshCoordinator, :run, fn _, _, _ -> raise "the coordinator is not what it was" end)
+      job = %Oban.Job{args: stringify(args(account)), attempt: 3, max_attempts: 3, meta: %{}}
+
+      log =
+        capture_log([level: :error], fn ->
+          assert_raise RuntimeError, fn -> Worker.perform(job) end
+        end)
+
+      assert log =~ "grant #{account.id} was not renewed and the job is discarded (raised)"
+    end
+
+    test "stops three days after its first run whatever it is waiting on, and not before" do
       account = idle_grant(insert_verified_user(), "rt_a")
       stub_token(%{"rt_a" => renewed(account, "rt_a2")})
       now = System.os_time(:second)
 
-      ran_long_ago = %{"first_run_at" => now - 21 * 3_600}
+      log =
+        capture_log([level: :error], fn ->
+          assert {:cancel, :gave_up} =
+                   perform_job(Worker, args(account), meta: %{"first_run_at" => now - 73 * 3_600})
+        end)
 
-      # Somebody renewed it meanwhile: nothing is left to do, and it goes.
-      fresh = idle_grant(insert_verified_user(), "rt_fresh", days_ago(1))
-      assert {:cancel, :gave_up} = perform_job(Worker, args(fresh), meta: ran_long_ago)
+      assert log =~ "grant #{account.id} was not renewed in three days of trying"
       refute_received {:token_call, _}
 
-      # Still due: the next sweep's insert would conflict with this job, so
-      # giving up would skip the grant for a day. It carries on.
-      assert :ok = perform_job(Worker, args(account), meta: ran_long_ago)
+      # Two days in, still due: it is the grant's place in the queue, since
+      # the next sweep's insert conflicts with it. It carries on.
+      assert :ok = perform_job(Worker, args(account), meta: %{"first_run_at" => now - 48 * 3_600})
       assert_received {:token_call, "rt_a"}
-      stub_token(%{"rt_a2" => renewed(account, "rt_a3")})
-      account = account |> row() |> change(last_refreshed_at: @long_ago) |> Repo.update!()
+    end
 
-      # Queued two days ago behind a paused queue and never run: it has tried
-      # nothing yet, so it renews the grant instead of giving up on sight.
-      old = DateTime.add(DateTime.utc_now(), -2 * 86_400, :second)
+    test "the clock starts at its first run, not when it was queued" do
+      account = idle_grant(insert_verified_user(), "rt_a")
+      stub_token(%{"rt_a" => renewed(account, "rt_a2")})
+
+      # Queued four days ago behind a paused queue and never run.
+      old = DateTime.add(DateTime.utc_now(), -4 * 86_400, :second)
       assert :ok = perform_job(Worker, args(account), inserted_at: old)
-      assert_received {:token_call, "rt_a2"}
+      assert_received {:token_call, "rt_a"}
     end
-  end
-
-  test "the backoff is bounded however many snoozes have raised the attempt" do
-    for attempt <- [1, 2, 3, 10, 50, 5_000] do
-      seconds = Worker.backoff(%Oban.Job{attempt: attempt})
-      assert seconds >= 30 and seconds <= 930
-    end
-
-    assert Worker.backoff(%Oban.Job{attempt: 1}) <= 60
   end
 
   test "its lines carry the grant's id and an atom, and nothing of the owner's" do

@@ -130,12 +130,15 @@ defmodule FountainWeb.Telemetry do
       ),
       # The keepalive for users' ChatGPT grants (ADR 0060 stage 5). `due` is
       # what the daily sweep found idle; `grant` counts each job's end by
-      # result (ok, cancelled, snoozed, rate_limited, error). `rate_limited`
-      # counts every refusal that looks like a throttled address (a 429, or a
-      # 403 naming no code), whoever's grant it was; `breaker_opened` counts
-      # the times two owners' refusals inside ten minutes paused this node's
-      # keepalive, which is `auth.openai.com` throttling this server's
-      # address and every tenant's problem.
+      # result (ok, cancelled, snoozed, rate_limited, error, discarded);
+      # `discarded` is a job that failed its last attempt, which logs once a
+      # minute at most. `rate_limited` counts every refusal that looks like a
+      # throttled address (a 429, or a 403 whose body is not a JSON object),
+      # whoever's grant it was; `breaker_opened` counts the times two owners'
+      # refusals inside ten minutes paused this node's keepalive, which is
+      # `auth.openai.com` throttling this server's address and every
+      # tenant's problem; `breaker_closed` counts the times a renewal that
+      # succeeded ended such a pause early.
       last_value("fountain.chatgpt.keepalive.sweep.due",
         event_name: [:fountain, :chatgpt, :keepalive, :sweep],
         measurement: :due,
@@ -149,7 +152,11 @@ defmodule FountainWeb.Telemetry do
       counter("fountain.chatgpt.refresh.rate_limited.count",
         event_name: [:fountain, :chatgpt, :refresh, :rate_limited],
         description:
-          "Refreshes the auth server refused as a throttled address (429, or a 403 naming no code)"
+          "Refreshes the auth server refused as a throttled address (429, or a 403 with no JSON object)"
+      ),
+      counter("fountain.chatgpt.refresh.breaker_closed.count",
+        event_name: [:fountain, :chatgpt, :refresh, :breaker_closed],
+        description: "Times a successful renewal ended this node's ChatGPT keepalive pause early"
       ),
       counter("fountain.chatgpt.refresh.breaker_opened.count",
         event_name: [:fountain, :chatgpt, :refresh, :breaker_opened],

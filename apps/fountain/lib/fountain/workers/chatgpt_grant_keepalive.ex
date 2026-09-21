@@ -26,31 +26,46 @@ defmodule Fountain.Workers.ChatGPTGrantKeepalive do
 
   While `Fountain.ChatGPTAccounts.RefreshBreaker` stands, because the auth
   server has turned this server's address away for two different owners, a
-  job snoozes without calling. It does not wait without limit, because the
-  breaker's evidence could be wrong and what is waiting is somebody's
-  subscription: a job the breaker has held for `@max_deferral_seconds`, or
-  whose grant has gone `@probe_idle_days` days unrenewed, goes ahead as a
-  probe. Two run at a time per node, and a probe that is refused is an
-  ordinary failed attempt. The wake-up is spread again, over the breaker's
-  remaining time plus the window the sweep spread the jobs over (it is in the
-  job's `meta`; the args stay the three ids), so the jobs a breaker held do
-  not all come back in the two minutes after it clears.
+  job snoozes without calling. The breaker's evidence could be wrong and
+  what is waiting is somebody's subscription, so the wait is bounded, and
+  what bounds it is a probe: a job the breaker has held for
+  `@max_deferral_seconds`, or whose grant has gone `@probe_idle_days` days
+  unrenewed, asks to be the probe, and **one job per node per fifteen
+  minutes is**. The others wait for the pause to end. A probe that succeeds closes
+  the breaker for every job. A job never sleeps past the moment it would
+  become due to probe, because that is only looked at when it wakes; short
+  of that its wake-up is spread over the breaker's remaining time plus the
+  window the sweep spread the jobs over (it is in the job's `meta`; the args
+  stay the three ids), so the jobs a pause held do not all come back in the
+  two minutes after it clears. When the breaker is down again the job
+  forgets it was held, so a later pause starts its two hours afresh.
+
+  What this bounds, and what it does not. Under real throttling a node
+  sends one keepalive request per fifteen minutes, and a job at most one
+  in that time: a refusal that looks like a throttled address
+  (`:rate_limited`), to a probe or to any run, is a snooze and not a failed
+  attempt, and restarts the job's two hours. Under a breaker somebody is
+  holding open on false evidence, one victim's job may wait as long as the
+  breaker stands, less whatever a success from any owner, a turn's renewal
+  included, cuts it short by: it is no longer guaranteed a request of its
+  own at two hours, because that guarantee for every job was the hammer.
 
   A snooze raises the job's `attempt`, and Oban's default backoff grows with
   it, so `backoff/1` is bounded (ADR 0060, "Stage 4a as built", after
-  review). And a job gives way to the next day's sweep rather than snoozing
-  without end: `@give_up_seconds` after its **first run**, which is also in
-  `meta`, it is cancelled, unless its grant is still due. From the first run
-  and not from the insert: a job is scheduled up to six hours out, and one
-  that sat behind a paused queue for a day has not tried anything yet. And
-  not while the grant is due: the next sweep's insert for that grant
-  conflicts with this job for as long as it is incomplete, so giving up
-  would leave the grant unqueued for a day, which the margin does not have.
+  review). Snoozes raise `max_attempts` too, so nothing in Oban ends a job
+  that only ever snoozes: `@stop_seconds`, three days, after its **first
+  run** (kept in `meta`; a job is scheduled up to six hours out and may sit
+  behind a paused queue) it is cancelled whatever it is waiting on. There is
+  no earlier give-up: while the job is incomplete the next sweep's insert
+  for its grant conflicts with it, so the job is the grant's place in the
+  queue, and a grant that is no longer due is an `:ok` at its next run.
 
-  A job that fails its last attempt says so once, at `error`, with the
-  grant's id and the atom: a grant that fails every day without being
-  refused for good is otherwise visible only in a counter. Nothing damps
-  such a grant yet; it is queued again by the next sweep.
+  A job that fails its last attempt, or raises on it, or is stopped at three
+  days, says so at `error` through `Fountain.LogThrottle`: once a minute per
+  node, with one grant's id and the atom, and the counter's `discarded`
+  says how many there were. A run Oban kills at its timeout is not seen
+  here. Nothing damps a grant that fails every day without being refused
+  for good; it is queued again by the next sweep.
 
   Unique on the three ids while a job for them is incomplete, so a replayed
   sweep page queues nothing twice. A reconnect changes the generation, which
@@ -83,11 +98,12 @@ defmodule Fountain.Workers.ChatGPTGrantKeepalive do
   # Somebody else holds the renewal, or this node has no room for it.
   @crowded ~w(refresh_busy refresh_timeout refresh_unavailable)a
 
-  @give_up_seconds 20 * 60 * 60
+  @stop_seconds 72 * 60 * 60
   @max_backoff_seconds 900
   @max_deferral_seconds 2 * 60 * 60
   @probe_idle_days 7
   @default_window_seconds 300
+  @throttled_pause_seconds 900
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: args} = job) do
@@ -96,17 +112,25 @@ defmodule Fountain.Workers.ChatGPTGrantKeepalive do
       job = remember(job, "first_run_at", now)
 
       cond do
-        now - job.meta["first_run_at"] > @give_up_seconds and
-            not still_due?(grant_id, user_id, generation, now) ->
-          finish(job, grant_id, :gave_up, {:cancel, :gave_up})
+        now - job.meta["first_run_at"] > @stop_seconds ->
+          stopped(job, grant_id)
 
         RefreshBreaker.open?() ->
           deferred(job, grant_id, user_id, generation, now)
 
         true ->
-          renew(job, grant_id, user_id, generation)
+          # The breaker is down, so whatever it held this job for is over:
+          # the next time it stands, the two hours start again.
+          job |> forget("breaker_deferred_at") |> renew(grant_id, user_id, generation, now)
       end
     end
+  rescue
+    error ->
+      # A run that raises on its last attempt is discarded like one that
+      # fails it. A run Oban kills at `timeout/1`, or that exits, is not
+      # seen here: that one shows only in Oban's own telemetry.
+      if last_attempt?(job), do: discarded(job.args["grant_id"], :raised)
+      reraise error, __STACKTRACE__
   end
 
   # A retry waits 30 s, 60 s, 120 s and so on up to fifteen minutes, with a
@@ -122,17 +146,21 @@ defmodule Fountain.Workers.ChatGPTGrantKeepalive do
   def timeout(_job), do: 35_000
 
   # The breaker stands. The grant is read by its owner first, metadata only:
-  # one that is gone or no longer this generation ends now rather than after
-  # the wait, and one too long idle, like a job held too long, is the probe.
+  # one that is gone, reconnected or no longer active ends now rather than
+  # after the wait. One held two hours, or seven days idle, asks to be the
+  # probe, and one job per node per pause length is.
   defp deferred(job, grant_id, user_id, generation, now) do
     job = remember(job, "breaker_deferred_at", now)
-    held = now - job.meta["breaker_deferred_at"]
 
     case ChatGPTAccounts.get_for_user(grant_id, user_id) do
-      {:ok, %{generation: ^generation} = grant} ->
-        if held > @max_deferral_seconds or idle_days(grant, now) >= @probe_idle_days,
-          do: renew(job, grant_id, user_id, generation),
-          else: finish(job, grant_id, :breaker_open, {:snooze, breaker_snooze(job)})
+      {:ok, %{generation: ^generation, status: "active"} = grant} ->
+        if probe_due?(job, grant, now) and RefreshBreaker.claim_probe() == :claimed,
+          do: renew(job, grant_id, user_id, generation, now),
+          else: finish(job, grant_id, :breaker_open, {:snooze, held_snooze(job, grant, now)})
+
+      {:ok, %{generation: ^generation, status: status}} ->
+        reason = String.to_existing_atom(status)
+        finish(job, grant_id, reason, {:cancel, reason})
 
       {:ok, _reconnected} ->
         finish(job, grant_id, :stale_grant, {:cancel, :stale_grant})
@@ -142,26 +170,45 @@ defmodule Fountain.Workers.ChatGPTGrantKeepalive do
     end
   end
 
-  # Past the give-up clock. While this job is incomplete the next sweep's
-  # insert for the grant is a conflict with it, so a job that gave up while
-  # its grant was still due would leave the grant unqueued for a day. It
-  # carries on instead; it gives way only when there is nothing left to do.
-  defp still_due?(grant_id, user_id, generation, now) do
-    case ChatGPTAccounts.get_for_user(grant_id, user_id) do
-      {:ok, %{generation: ^generation, status: "active"} = grant} ->
-        idle_days(grant, now) >= ChatGPTAccounts.platform_keepalive_days()
+  defp probe_due?(job, grant, now) do
+    now - job.meta["breaker_deferred_at"] >= @max_deferral_seconds or
+      idle_seconds(grant, now) >= @probe_idle_days * 86_400
+  end
 
-      _ ->
-        false
+  # How long a held job sleeps. Spread over the sweep's window again, so the
+  # jobs a pause held come back at the sweep's rate; and never past the
+  # moment this job becomes due to probe, by the two hours or by its grant
+  # reaching seven days, because those are only looked at when it wakes. One
+  # that is due already and was not the probe waits for the pause to end:
+  # the next pause has a probe of its own. The queue's two slots pace
+  # whatever wakes together.
+  defp held_snooze(job, grant, now) do
+    remaining = RefreshBreaker.remaining_seconds()
+    spread = remaining + :rand.uniform(window(job))
+
+    if probe_due?(job, grant, now) do
+      min(spread, remaining + :rand.uniform(120))
+    else
+      until_held = job.meta["breaker_deferred_at"] + @max_deferral_seconds - now
+      until_idle = @probe_idle_days * 86_400 - idle_seconds(grant, now)
+
+      Enum.min([
+        spread,
+        max(30, until_held) + :rand.uniform(120),
+        max(30, until_idle) + :rand.uniform(120)
+      ])
     end
   end
 
-  defp idle_days(%{last_refreshed_at: %DateTime{} = at}, now),
-    do: div(now - DateTime.to_unix(at), 86_400)
+  defp window(%Oban.Job{meta: %{"window" => seconds}}) when is_integer(seconds) and seconds > 0,
+    do: seconds
 
-  defp idle_days(_grant, _now), do: @probe_idle_days
+  defp window(_job), do: @default_window_seconds
 
-  defp renew(job, grant_id, user_id, generation) do
+  defp idle_seconds(%{last_refreshed_at: %DateTime{} = at}, now), do: now - DateTime.to_unix(at)
+  defp idle_seconds(_grant, _now), do: @probe_idle_days * 86_400
+
+  defp renew(job, grant_id, user_id, generation, now) do
     case ChatGPTAccounts.refresh_for_user(grant_id, user_id, generation) do
       :ok ->
         finish(job, grant_id, :ok, :ok)
@@ -172,34 +219,61 @@ defmodule Fountain.Workers.ChatGPTGrantKeepalive do
       {:error, reason} when reason in @crowded ->
         finish(job, grant_id, reason, {:snooze, 60 + :rand.uniform(60)})
 
+      # Turned away as a throttled address is, as a probe or not. Asking again
+      # soon is the one thing not to do, so this is a wait and not a failed
+      # attempt: the two hours start again from now, and the job asks once
+      # per wait at most.
+      {:error, :rate_limited} ->
+        job = restart(job, "breaker_deferred_at", now)
+        pause = max(RefreshBreaker.remaining_seconds(), @throttled_pause_seconds)
+        finish(job, grant_id, :rate_limited, {:snooze, pause + :rand.uniform(window(job))})
+
       {:error, reason} when is_atom(reason) ->
         finish(job, grant_id, reason, {:error, reason})
     end
   end
 
+  # Three days after its first run, whatever it is waiting on. Snoozes raise
+  # `max_attempts` with `attempt`, so nothing else ends a job that is always
+  # answered "busy", or always turned away, and by now the sign-in has
+  # lapsed at the auth server if this was its only renewal. The next sweep
+  # queues the grant again if it still reads as due.
+  defp stopped(job, grant_id) do
+    Fountain.LogThrottle.error(
+      {:chatgpt_keepalive, :stopped},
+      "chatgpt keepalive: grant #{grant_id} was not renewed in three days of trying and the " <>
+        "job is cancelled; others may have been too (fountain_chatgpt_keepalive_grant_count)"
+    )
+
+    finish(job, grant_id, :gave_up, {:cancel, :gave_up})
+  end
+
   defp finish(job, grant_id, reason, result) do
-    outcome = outcome(result)
+    outcome = outcome(result, reason, job)
 
     :telemetry.execute([:fountain, :chatgpt, :keepalive, :grant], %{count: 1}, %{
       result: outcome,
       reason: reason
     })
 
-    cond do
-      outcome == :ok ->
-        :ok
-
-      match?({:error, _}, result) and last_attempt?(job) ->
-        Logger.error(
-          "chatgpt keepalive: grant #{grant_id} was not renewed and the job is discarded " <>
-            "(#{reason}); the next sweep queues it again if it is still due"
-        )
-
-      true ->
-        Logger.info("chatgpt keepalive: grant #{grant_id} #{outcome} (#{reason})")
+    case outcome do
+      :ok -> :ok
+      :discarded -> discarded(grant_id, reason)
+      _ -> Logger.info("chatgpt keepalive: grant #{grant_id} #{outcome} (#{reason})")
     end
 
     result
+  end
+
+  # Once a minute per node at most: an outage discards a job per grant, and
+  # the counter's `discarded` says how many.
+  defp discarded(grant_id, reason) do
+    Fountain.LogThrottle.error(
+      {:chatgpt_keepalive, :discarded},
+      "chatgpt keepalive: grant #{grant_id} was not renewed and the job is discarded " <>
+        "(#{reason}); the next sweep queues it again if it is still due. Others may have " <>
+        "been too (fountain_chatgpt_keepalive_grant_count)"
+    )
   end
 
   defp last_attempt?(%Oban.Job{attempt: attempt, max_attempts: max})
@@ -208,44 +282,49 @@ defmodule Fountain.Workers.ChatGPTGrantKeepalive do
 
   defp last_attempt?(_job), do: false
 
-  defp outcome(:ok), do: :ok
-  defp outcome({:cancel, _}), do: :cancelled
-  defp outcome({:snooze, _}), do: :snoozed
-  defp outcome({:error, :rate_limited}), do: :rate_limited
-  defp outcome({:error, _}), do: :error
+  defp outcome(:ok, _reason, _job), do: :ok
+  defp outcome({:cancel, _}, _reason, _job), do: :cancelled
+  defp outcome({:snooze, _}, :rate_limited, _job), do: :rate_limited
+  defp outcome({:snooze, _}, _reason, _job), do: :snoozed
 
-  # Until the breaker clears, and then somewhere in the window the sweep
-  # spread these jobs over, so they come back at the sweep's rate.
-  defp breaker_snooze(%Oban.Job{meta: meta}) do
-    window =
-      case meta do
-        %{"window" => seconds} when is_integer(seconds) and seconds > 0 -> seconds
-        _ -> @default_window_seconds
-      end
+  defp outcome({:error, _}, _reason, job),
+    do: if(last_attempt?(job), do: :discarded, else: :error)
 
-    RefreshBreaker.remaining_seconds() + :rand.uniform(window)
-  end
-
-  # A clock the job keeps about itself, in `meta`: written once, on the row,
-  # and read back from the struct. A job that is not a row (a test's) keeps
-  # it for the one run.
+  # Clocks the job keeps about itself, in `meta`, on the row and on the
+  # struct: `remember/3` writes one once, `restart/3` writes it over and
+  # `forget/2` takes it away. A job that is not a row (a test's) keeps them
+  # for the one run.
   defp remember(%Oban.Job{meta: %{} = meta} = job, key, value) do
-    if is_integer(meta[key]) do
-      job
-    else
-      if is_integer(job.id) do
-        from(j in Oban.Job,
-          where: j.id == ^job.id,
-          update: [set: [meta: fragment("? || ?", j.meta, ^%{key => value})]]
-        )
-        |> Fountain.Repo.update_all([])
-      end
-
-      %{job | meta: Map.put(meta, key, value)}
-    end
+    if is_integer(meta[key]), do: job, else: restart(job, key, value)
   end
 
   defp remember(%Oban.Job{} = job, key, value), do: remember(%{job | meta: %{}}, key, value)
+
+  defp restart(%Oban.Job{meta: meta} = job, key, value) do
+    if is_integer(job.id) do
+      from(j in Oban.Job,
+        where: j.id == ^job.id,
+        update: [set: [meta: fragment("? || ?", j.meta, ^%{key => value})]]
+      )
+      |> Fountain.Repo.update_all([])
+    end
+
+    %{job | meta: Map.put(meta, key, value)}
+  end
+
+  defp forget(%Oban.Job{meta: %{} = meta} = job, key) when is_map_key(meta, key) do
+    if is_integer(job.id) do
+      from(j in Oban.Job,
+        where: j.id == ^job.id,
+        update: [set: [meta: fragment("? - ?", j.meta, type(^key, :string))]]
+      )
+      |> Fountain.Repo.update_all([])
+    end
+
+    %{job | meta: Map.delete(meta, key)}
+  end
+
+  defp forget(job, _key), do: job
 
   defp identity(%{"grant_id" => grant, "user_id" => user, "generation" => generation} = args)
        when map_size(args) == 3 do

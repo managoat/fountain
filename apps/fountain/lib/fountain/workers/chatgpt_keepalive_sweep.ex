@@ -70,7 +70,8 @@ defmodule Fountain.Workers.ChatGPTKeepaliveSweep do
   # A page that fails its last attempt takes its continuation with it: the
   # grants after the cursor wait for tomorrow's sweep, a day inside the
   # margin. Nothing else says so, so this does, once. The cursor is a grant's
-  # id and no more.
+  # id and no more. A page Oban kills at its timeout, or that exits, is not
+  # seen here; that one shows only in Oban's own telemetry.
   defp abandoned(%Oban.Job{attempt: attempt, max_attempts: max, args: args}, result)
        when is_integer(attempt) and is_integer(max) and attempt >= max do
     Logger.error(

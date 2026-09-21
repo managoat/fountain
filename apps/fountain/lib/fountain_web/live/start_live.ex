@@ -60,7 +60,7 @@ defmodule FountainWeb.StartLive do
       |> assign(:has_key?, Accounts.list_api_keys(user.id) != [])
       |> assign(:reply, Activation.first_reply(user.id))
       |> assign(:sent?, false)
-      |> assign(:needs_credential?, needs_credential?(user.id, agent))
+      |> assign_credential_problem(user.id, agent)
 
     {:ok, if(connected?(socket), do: on_connect(socket, user), else: socket)}
   end
@@ -106,9 +106,26 @@ defmodule FountainWeb.StartLive do
   # model's provider, and an account holding an Anthropic key still has
   # nothing for an agent on a `gemini` model. One short transaction under
   # the source lock per render, which this page tolerates.
-  defp needs_credential?(_user_id, nil), do: false
+  #
+  # Two answers, and two banners. `:missing` is an account with nothing for
+  # this provider. `{:grant, sentence}` is a set whose named ChatGPT
+  # subscription cannot serve (ADR 0060 decision 4): the launch below would
+  # be refused by name, a key would not help, and the sentence is
+  # `grant_unusable_message/1`'s.
+  defp assign_credential_problem(socket, user_id, agent) do
+    problem = credential_problem(user_id, agent)
 
-  defp needs_credential?(user_id, agent) do
+    socket
+    |> assign(:needs_credential?, problem == :missing)
+    |> assign(:grant_problem, grant_sentence(problem))
+  end
+
+  defp grant_sentence({:grant, sentence}), do: sentence
+  defp grant_sentence(_other), do: nil
+
+  defp credential_problem(_user_id, nil), do: nil
+
+  defp credential_problem(user_id, agent) do
     # The agent's credential set, not the account's default (ADR 0053
     # decision 3): the banner asks whether *this* agent will reach a model,
     # and an agent pointed at a set that holds nothing will not, whatever the
@@ -124,11 +141,19 @@ defmodule FountainWeb.StartLive do
            credential_set_id: agent.inference_credential_id,
            environment_id: agent.environment_id
          ) do
-      {:ok, %InferenceCredentials.Source{scope: :missing}, _} -> true
-      {:error, :inference_credential_unusable} -> true
+      {:ok, %InferenceCredentials.Source{scope: :missing}, _} ->
+        :missing
+
+      {:error, :inference_credential_unusable} ->
+        :missing
+
+      {:error, {:chatgpt_grant_unusable, %{} = detail}} ->
+        {:grant, InferenceCredentials.grant_unusable_message(detail)}
+
       # A tenant key that will not load, a set that is gone: bigger problems
       # than this banner, and not this page's to report.
-      _ -> false
+      _ ->
+        nil
     end
   end
 
@@ -228,6 +253,20 @@ defmodule FountainWeb.StartLive do
           This deployment holds no model key for your agent's provider either, so the
           request below reaches a sandbox and the agent in it has nothing to call. Add
           an Anthropic, OpenAI or Google key first. It takes a minute.
+        </p>
+      </.link>
+
+      <.link
+        :if={@grant_problem}
+        id="start-grant-problem"
+        navigate={~p"/account/inference-credentials"}
+        class="block rounded-lg border border-amber-300 bg-amber-50 p-4 text-amber-900 hover:border-amber-500"
+      >
+        <p class="text-sm font-medium">
+          Your agent's ChatGPT subscription cannot serve a run right now
+        </p>
+        <p class="mt-1 text-sm">
+          {@grant_problem} The request below would be refused until then.
         </p>
       </.link>
 

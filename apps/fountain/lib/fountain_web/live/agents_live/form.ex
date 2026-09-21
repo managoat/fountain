@@ -26,6 +26,7 @@ defmodule FountainWeb.AgentsLive.Form do
          runtime: agent.runtime
        )
      )
+     |> assign(:grant_problem, grant_problem(user_id, agent_to_form(agent), agent.environment_id))
      |> assign(:credential_message, nil)
      |> assign(:credential_sets, InferenceCredentials.list_sets(user_id))
      |> assign(:envs, envs)
@@ -265,7 +266,25 @@ defmodule FountainWeb.AgentsLive.Form do
            ),
          else: nil
        )
+     )
+     |> assign(
+       :grant_problem,
+       grant_problem(socket.assigns.user_id, params, params["environment_id"])
      )}
+  end
+
+  # A codex agent on a set whose named ChatGPT subscription cannot serve (ADR
+  # 0060 decision 4): said here, when the set is selected, rather than as a
+  # refused launch. Not a missing key, and no key would fix it, so it is its
+  # own notice and `missing_for_model/3` stays quiet about such a set.
+  defp grant_problem(user_id, form, environment_id) do
+    case InferenceCredentials.named_grant_problem(user_id, form["model"], form["runtime"],
+           credential_set_id: selected_credential_id(form),
+           environment_id: if(environment_id in [nil, ""], do: nil, else: environment_id)
+         ) do
+      nil -> nil
+      detail -> InferenceCredentials.grant_unusable_message(detail)
+    end
   end
 
   # The model needs a provider this account has no credential for: collect
@@ -659,6 +678,18 @@ defmodule FountainWeb.AgentsLive.Form do
         missing={@missing_credential}
         message={@credential_message}
       />
+
+      <div
+        :if={@grant_problem}
+        id="agent-grant-problem"
+        class="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900"
+      >
+        <span class="font-medium">This agent's conversations will not start.</span>
+        {@grant_problem}
+        <.link navigate={~p"/account/inference-credentials"} class="underline">
+          Inference credentials
+        </.link>
+      </div>
 
       <form
         id="agent-form"

@@ -557,10 +557,37 @@ defmodule Fountain.InferenceCredentials do
   connected a provider at all", and an account whose only key lives in a set
   they made for one agent has connected one. Asking only the default would
   put the onboarding nag back in front of somebody who is already running.
+
+  A set that names a connected ChatGPT subscription counts (ADR 0060 stage
+  4b): that account has connected a provider, for its codex agents, and the
+  checklist should stop asking. A named subscription that is disconnected,
+  revoked or expired does not, and neither does a subscription no set names,
+  which no run would use. This is an account-level question and cannot ask
+  which runtime; whether one agent will reach a model is
+  `named_grant_problem/4`'s and `resolve/4`'s.
   """
   @spec has_any_credential?(binary()) :: boolean()
   def has_any_credential?(user_id) when is_binary(user_id) do
-    user_id |> list_sets() |> Enum.any?(&holds_any?/1)
+    sets = list_sets(user_id)
+
+    Enum.any?(sets, &holds_any?/1) or
+      (Enum.any?(sets, &is_binary(&1.chatgpt_grant_id)) and
+         MapSet.member?(owners_naming_active_grant([user_id]), user_id))
+  end
+
+  # Of `user_ids`, the owners with a set that names an active grant of their
+  # own. Both halves of the scope are in the join, as they are in the sets'
+  # composite foreign key.
+  defp owners_naming_active_grant(user_ids) do
+    from(c in Credential,
+      join: g in Fountain.PlatformChatGPT.Account,
+      on: g.id == c.chatgpt_grant_id and g.user_id == c.user_id,
+      where: c.user_id in ^user_ids and g.status == "active",
+      distinct: true,
+      select: c.user_id
+    )
+    |> Repo.all()
+    |> MapSet.new()
   end
 
   defp holds_any?(%Credential{} = cred) do
@@ -597,6 +624,7 @@ defmodule Fountain.InferenceCredentials do
     |> where(^held)
     |> Repo.all()
     |> MapSet.new()
+    |> MapSet.union(owners_naming_active_grant(user_ids))
   end
 
   # The environment variable each static credential is exported as. A tenant
@@ -671,12 +699,14 @@ defmodule Fountain.InferenceCredentials do
   it never reports credentials from the account default or another tenant.
 
   `opts` may also name the `:runtime`. A set that names a ChatGPT
-  subscription is missing nothing for a codex run on a brokered deployment,
-  and is still missing `openai_api_key` for every other OpenAI consumer (ADR
-  0060 decision 2), which is how a set with a grant and no key says so when
-  it is selected rather than at the turn. Only that the set names a grant is
-  asked, never the grant's state: a status read does not decrypt or renew
-  (ADR 0052 decision 4), and an unusable grant is resolution's to report.
+  subscription is missing no key for a codex run, and is still missing
+  `openai_api_key` for every other OpenAI consumer (ADR 0060 decision 2),
+  which is how a set with a grant and no key says so when it is selected
+  rather than at the turn. Only that the set names a grant is asked, never
+  the grant's state or the deployment's broker: for a codex run the named
+  grant is the source or the run is refused, so a key is not what is missing
+  and asking for one would collect a key resolution never uses. What is
+  wrong with the grant is `named_grant_problem/4`'s to say.
   """
   @spec missing_for_model(binary(), String.t() | nil, keyword()) ::
           nil | {String.t(), [atom()]}
@@ -708,10 +738,42 @@ defmodule Fountain.InferenceCredentials do
   defp grant_provider(%Credential{chatgpt_grant_id: id}, "codex") when is_binary(id), do: "openai"
   defp grant_provider(_set, _runtime), do: nil
 
-  defp grant_serves?(%Credential{chatgpt_grant_id: id}, "codex") when is_binary(id),
-    do: Fountain.Broker.configured?()
-
+  defp grant_serves?(%Credential{chatgpt_grant_id: id}, "codex") when is_binary(id), do: true
   defp grant_serves?(_set, _runtime), do: false
+
+  @doc """
+  Why the ChatGPT subscription a set names cannot serve a codex run on it, or
+  `nil`: no codex run, no subscription named, or one that is usable. The
+  agent form's question beside `missing_for_model/3`, asked when a set is
+  selected rather than found out at the turn: disconnected, revoked, expired,
+  gone, spent, or a deployment with no broker. `grant_unusable_message/1` is
+  the sentence.
+
+  It is `resolve/4`'s answer and not a second reading of the grant. Asked
+  only for the codex runtime and a set that names a grant, so every other
+  form pays one read of the set. `opts` are `resolve/4`'s.
+  """
+  @spec named_grant_problem(binary(), String.t() | nil, String.t() | nil, keyword()) ::
+          grant_unusable() | nil
+  def named_grant_problem(user_id, model, runtime, opts \\ [])
+
+  def named_grant_problem(user_id, model, "codex", opts) when is_binary(user_id) do
+    with %Credential{chatgpt_grant_id: id} when is_binary(id) <-
+           set_for(user_id, Keyword.get(opts, :credential_set_id)),
+         {:error, {:chatgpt_grant_unusable, %{} = detail}} <-
+           resolve(
+             user_id,
+             model,
+             "codex",
+             Keyword.take(opts, [:credential_set_id, :environment_id, :vault_id])
+           ) do
+      detail
+    else
+      _ -> nil
+    end
+  end
+
+  def named_grant_problem(user_id, _model, _runtime, _opts) when is_binary(user_id), do: nil
 
   @typedoc """
   Why the ChatGPT subscription a set names cannot serve a codex run, in a

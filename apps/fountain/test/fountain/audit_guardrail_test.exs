@@ -612,7 +612,8 @@ defmodule Fountain.AuditGuardrailTest do
   def do_attempt_fail(user) do
     {grant, attempt} = do_attempt_start(user)
     tokens = Fountain.ChatGPTFixtures.user_tokens(grant.account_id)
-    :ok = Fountain.ChatGPTAccounts.disconnect_for_user(grant.id, user.id)
+    # A newer sign-in lands first. A disconnect would end the attempt itself.
+    {:ok, _newer} = Fountain.ChatGPTAccounts.reconnect_for_user(grant.id, user.id, tokens)
 
     {:error, :stale_grant} =
       Fountain.ChatGPTAccounts.complete_attempt_for_user(attempt.id, user.id, tokens)

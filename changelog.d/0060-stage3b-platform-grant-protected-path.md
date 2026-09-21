@@ -1,7 +1,7 @@
 ### Security
 
 - **The deployment's ChatGPT account is no longer exportable through the
-  egress broker** (#2453, ADR 0052 decisions 5 and 6). A codex conversation
+  egress broker** (#2458, ADR 0052 decisions 5 and 6). A codex conversation
   on the account (`/admin/inference`) used to carry the account's access
   token inside its broker session as a substitution rule. A custom header
   template could name it, nothing checked it again after the session was

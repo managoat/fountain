@@ -233,6 +233,50 @@ defmodule Fountain.ChatGPTUserGrantsTest do
       assert_platform_untouched(ctx)
     end
 
+    test "a late completion against a newer reconnect is refused and leaves the newer one alone",
+         ctx do
+      assert {:ok, work} = link(ctx.user, "Work", "acct-work")
+
+      # Two sign-ins begin against the same generation; this one finishes first.
+      assert {:ok, first} =
+               ChatGPTAccounts.reconnect_for_user(
+                 work.grant_id,
+                 ctx.user.id,
+                 tokens("acct-work", access: bearer("first")),
+                 expected_generation: work.generation
+               )
+
+      row = Repo.get!(Account, work.grant_id)
+
+      assert {:error, :stale_grant} =
+               ChatGPTAccounts.reconnect_for_user(
+                 work.grant_id,
+                 ctx.user.id,
+                 tokens("acct-work", access: bearer("late")),
+                 expected_generation: work.generation
+               )
+
+      assert Repo.get!(Account, work.grant_id) == row
+      assert {:ok, %Grant{access_token: access}} = credential(first, ctx.user)
+      assert access == bearer("first")
+
+      assert Repo.aggregate(
+               from(e in Event, where: e.action == "chatgpt_grant.connected"),
+               :count
+             ) == 2
+
+      # Another user's grant answers as it does without the fence.
+      assert {:error, :not_found} =
+               ChatGPTAccounts.reconnect_for_user(
+                 work.grant_id,
+                 ctx.other.id,
+                 tokens("acct-t"),
+                 expected_generation: first.generation
+               )
+
+      assert_platform_untouched(ctx)
+    end
+
     test "a reconnect may change the account, but not onto another of the user's grants", ctx do
       assert {:ok, work} = link(ctx.user, "Work", "acct-work")
       assert {:ok, personal} = link(ctx.user, "Personal", "acct-personal")

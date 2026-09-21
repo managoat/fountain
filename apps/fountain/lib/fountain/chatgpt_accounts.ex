@@ -275,9 +275,16 @@ defmodule Fountain.ChatGPTAccounts do
   of this user's grants holds that account. Between reconnects the account
   is pinned: a refresh that answers as another one is refused.
 
+  A sign-in takes minutes, and two may be open on one grant. Pass
+  `:expected_generation`, the generation the attempt began against, and a
+  completion that finds another one is `{:error, :stale_grant}` with nothing
+  written: the later sign-in to finish does not replace the credential the
+  earlier one already installed. It is compared under the row lock. Without
+  the option the reconnect is unconditional.
+
   Refusals are `connect_for_user/4`'s, less the ceiling and the name, plus
-  `:not_found` for a grant that is not this user's. The event is
-  `chatgpt_grant.connected` with `"reconnect" => true`.
+  `:not_found` for a grant that is not this user's and `:stale_grant`. The
+  event is `chatgpt_grant.connected` with `"reconnect" => true`.
   """
   @spec reconnect_for_user(Ecto.UUID.t(), String.t(), OAuth.tokens(), keyword()) ::
           {:ok, grant_view()} | {:error, term()}
@@ -288,6 +295,7 @@ defmodule Fountain.ChatGPTAccounts do
            user_write(user_id, fn ->
              with :ok <- eligible_owner(user_id),
                   {:ok, current} <- locked_user_grant(grant_id, user_id),
+                  :ok <- expected_generation(current, opts[:expected_generation]),
                   :ok <- account_unlinked(user_id, claims["account_id"], current.id),
                   {:ok, attrs} <- user_attrs(user_id, current.id, tokens, claims) do
                current |> Account.user_reconnect_changeset(attrs) |> Repo.update()
@@ -483,6 +491,10 @@ defmodule Fountain.ChatGPTAccounts do
       [linked | _] -> {:error, {:account_already_linked, linked}}
     end
   end
+
+  defp expected_generation(_current, nil), do: :ok
+  defp expected_generation(%Account{generation: generation}, generation), do: :ok
+  defp expected_generation(%Account{}, _other), do: {:error, :stale_grant}
 
   defp under_ceiling(user_id) do
     count = Repo.aggregate(from(a in Account, where: a.user_id == ^user_id), :count)

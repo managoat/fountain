@@ -157,15 +157,22 @@ defmodule Fountain.Emails.UserEmails do
   Takes a raw address, not a `User` — by send time the row is gone. Honest
   about the two things that survive: Stripe keeps the invoices (financial
   records), and backups age out on their own schedule.
+
+  `chatgpt_subscriptions: n` is how many ChatGPT subscriptions the account
+  had linked (ADR 0060). Above zero, the email is honest about a third
+  thing: Fountain deleted its copy of each sign-in and cannot revoke one at
+  OpenAI, so it says where the person ends it themselves.
   """
-  @spec deliver_account_deleted_email(String.t()) :: {:ok, term()} | {:error, term()}
-  def deliver_account_deleted_email(email) when is_binary(email) do
+  @spec deliver_account_deleted_email(String.t(), keyword()) :: {:ok, term()} | {:error, term()}
+  def deliver_account_deleted_email(email, opts \\ []) when is_binary(email) do
+    subscriptions = Keyword.get(opts, :chatgpt_subscriptions, 0)
+
     new()
     |> from(from_address())
     |> to({email, email})
     |> subject("Your #{brand()} account has been deleted")
-    |> html_body(account_deleted_html())
-    |> text_body(account_deleted_text())
+    |> html_body(account_deleted_html(subscriptions))
+    |> text_body(account_deleted_text(subscriptions))
     |> Mailer.deliver()
   end
 
@@ -488,7 +495,7 @@ defmodule Fountain.Emails.UserEmails do
     """
   end
 
-  defp account_deleted_html do
+  defp account_deleted_html(subscriptions) do
     """
     <!DOCTYPE html>
     <html>
@@ -500,6 +507,7 @@ defmodule Fountain.Emails.UserEmails do
         permanently deleted. Nothing recurs, so nothing was cancelled; you
         will not be charged again.
       </p>
+      #{chatgpt_sign_ins_html(subscriptions)}
       <p style="color: #71717a; font-size: 13px;">
         Past invoices remain available from Stripe, as financial records.
         Database backups that predate the deletion age out on their own
@@ -513,19 +521,49 @@ defmodule Fountain.Emails.UserEmails do
     """
   end
 
-  defp account_deleted_text do
+  defp account_deleted_text(subscriptions) do
     """
     Your #{brand()} account has been deleted
 
     This confirms your #{brand()} account and its data — agents, environments,
     vaults, conversations and stored secrets — have been permanently deleted.
     Nothing recurs, so nothing was cancelled; you will not be charged again.
-
+    #{chatgpt_sign_ins_text(subscriptions)}
     Past invoices remain available from Stripe, as financial records. Database
     backups that predate the deletion age out on their own retention schedule.
 
     If you did not request this, #{support_phrase()} immediately.
     """
+  end
+
+  # The one thing a deletion cannot do for an account that had linked a
+  # ChatGPT subscription: there is no revoke leg in
+  # `Fountain.PlatformChatGPT.OAuth`, so the sign-in OpenAI issued outlives
+  # Fountain's copy of it. Nothing at all for an account that linked none.
+  defp chatgpt_sign_ins_html(count) when is_integer(count) and count > 0 do
+    """
+    <p>
+      #{chatgpt_sign_ins_sentence(count)}
+    </p>
+    """
+  end
+
+  defp chatgpt_sign_ins_html(_count), do: ""
+
+  defp chatgpt_sign_ins_text(count) when is_integer(count) and count > 0,
+    do: "\n" <> chatgpt_sign_ins_sentence(count) <> "\n"
+
+  defp chatgpt_sign_ins_text(_count), do: ""
+
+  defp chatgpt_sign_ins_sentence(count) do
+    linked =
+      if count == 1,
+        do: "the ChatGPT subscription you linked",
+        else: "the #{count} ChatGPT subscriptions you linked"
+
+    "#{brand()} has deleted its copy of the sign-in for #{linked}, but it " <>
+      "cannot revoke a sign-in at OpenAI: there it stays valid until it expires " <>
+      "or you end it. To end it now, sign the device out in your ChatGPT account."
   end
 
   defp verification_html(url) do

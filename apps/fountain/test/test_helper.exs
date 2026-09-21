@@ -88,6 +88,10 @@ Mimic.copy(FountainWeb.OAuth)
 Mimic.copy(Fountain.Mailer)
 Mimic.copy(Fountain.InferenceCredentials)
 Mimic.copy(Fountain.Workers.SandboxQueueDrainer)
+# The user-grant refresh coordinator, copied so one grant's renewal can be
+# answered `:refresh_timeout` while another's runs for real (ADR 0060 stage 5,
+# `workers/chatgpt_grant_keepalive_test.exs`).
+Mimic.copy(Fountain.ChatGPTAccounts.RefreshCoordinator)
 # The machine owner's one write primitive (ADR 0058). Copied so a destroy's
 # finalize can be handed a database fault — the `{:database, sqlstate}` shape
 # `Lease.guarded/2` produces for #2309's `57014` — without one to reproduce.

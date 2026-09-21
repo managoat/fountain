@@ -230,6 +230,12 @@ defmodule Fountain.PlatformChatGPT.OAuth do
   defp error_code(%{"error" => code}) when is_binary(code), do: code
   defp error_code(%{"error" => %{"code" => code}}) when is_binary(code), do: code
   defp error_code(%{"error" => %{"type" => code}}) when is_binary(code), do: code
+  # A body that is not a JSON object did not come from the auth server's own
+  # error path: an HTML page, nothing, a bare string. A proxy in front of it
+  # answers that way, which `ChatGPTAccounts` reads, on a 403, as this
+  # address being turned away. An object with no code it can read is
+  # `"unknown"`, and says nothing about the address.
+  defp error_code(body) when not is_map(body), do: "unreadable"
   defp error_code(_body), do: "unknown"
 
   # The device flow's legs take the refresh's limits. Nothing holds a database

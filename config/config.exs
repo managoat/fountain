@@ -27,9 +27,16 @@ config :fountain, Oban,
   # at eighteen seconds (`OAuth.refresh_timeout_ceiling_ms/0`), so an auth
   # server that stops answering delays the other polls by seconds, and an
   # account's own three open attempts cannot fill it.
+  # chatgpt_refresh carries the keepalive's renewals of users' idle ChatGPT
+  # grants (ADR 0060 stage 5): one call to the auth server's token endpoint
+  # per job, through `ChatGPTAccounts.RefreshCoordinator`. Two per node, on
+  # purpose below the four renewals that coordinator admits, so a turn whose
+  # grant needs renewing never finds the keepalive holding every slot. Not
+  # on chatgpt, whose ten slots would let it.
   queues: [
     maintenance: 1,
     chatgpt: 10,
+    chatgpt_refresh: 2,
     credits: 5,
     exports: 1,
     mailer: 5,
@@ -108,6 +115,11 @@ config :fountain, Oban,
        # nobody has for six days (ADR 0047), so it
        # never idles past the auth server's window. No-op when not connected.
        {"29 4 * * *", Fountain.Workers.PlatformChatGPTKeepalive},
+       # 04:37 UTC daily: the same for users' grants (ADR 0060 stage 5). The
+       # sweep only pages ids and queues one chatgpt_refresh job per idle
+       # grant, spread over minutes to hours by how many are due; the jobs
+       # make the calls. Empty when nobody has linked a subscription.
+       {"37 4 * * *", Fountain.Workers.ChatGPTKeepaliveSweep},
        {"31 3 * * *", Fountain.Workers.BrokerReaper},
        # Every minute: the tick for user-defined team schedules. Cheap — one
        # indexed query, usually empty — and a minute is the cron grain the

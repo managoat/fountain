@@ -14,7 +14,8 @@ defmodule Fountain.Exports do
   ## What is included
 
   Agents, environments, vaults, conversations with their turns and log output,
-  and the account's own audit trail.
+  the ChatGPT subscriptions the account has linked with their sign-in
+  attempts, and the account's own audit trail.
 
   ## What is deliberately excluded
 
@@ -22,6 +23,16 @@ defmodule Fountain.Exports do
   the way in and stay that way on the way out — the export carries secret
   *names* only, never plaintext values and never ciphertext. This is stated in
   the UI, not just here.
+
+  **Anything a ChatGPT sign-in could be used with** (ADR 0060 stage 5). A
+  subscription is listed by what its owner sees on the card: its name, state,
+  plan, the email OpenAI reported, its times and the credential sets that
+  name it. Never a token or its ciphertext, the provider's account id, or
+  the row's fencing columns (`generation`, `lock_version`). A sign-in attempt
+  is listed by what it was for and how it ended; never its user code, the
+  auth server's device id, or either one's ciphertext. Both sections name
+  their keys one by one, so a field added to a context's view is not exported
+  by being added.
 
   ## Tenant scoping
 
@@ -53,6 +64,7 @@ defmodule Fountain.Exports do
   alias Fountain.Accounts.User
   alias Fountain.Agents
   alias Fountain.Audit
+  alias Fountain.ChatGPTAccounts
   alias Fountain.Conversations.{Conversation, LogEvent, Turn}
   alias Fountain.Environments
   alias Fountain.Exports.Export
@@ -307,13 +319,20 @@ defmodule Fountain.Exports do
         "secrets" =>
           "Secret values are deliberately excluded. They were write-only on " <>
             "the way in and stay that way on the way out; only secret names " <>
-            "are listed."
+            "are listed.",
+        "chatgpt_subscriptions" =>
+          "A linked ChatGPT subscription is listed by its name, state and " <>
+            "times. Its tokens, OpenAI's account id and a sign-in's device " <>
+            "code are deliberately excluded. Deleting the account deletes " <>
+            "Fountain's copy of a sign-in; it does not revoke it at OpenAI."
       },
       "account" => account_section(user),
       "agents" => agents_section(user_id),
       "environments" => environments_section(user_id),
       "vaults" => vaults_section(user_id),
       "conversations" => conversations_section(user_id),
+      "chatgpt_subscriptions" => chatgpt_subscriptions_section(user_id),
+      "chatgpt_link_attempts" => chatgpt_link_attempts_section(user_id),
       "audit_trail" => audit_section(user_id)
     }
   end
@@ -488,6 +507,51 @@ defmodule Fountain.Exports do
       "turn_id" => le.turn_id,
       "at" => le.inserted_at
     }
+  end
+
+  # The grant view carries `account_id`, `generation` and `lock_version` for
+  # the server's own use; none is named here. Both reads are the owner-scoped
+  # metadata reads: no decrypt, no refresh, nobody contacted.
+  defp chatgpt_subscriptions_section(user_id) do
+    user_id
+    |> ChatGPTAccounts.list_for_user()
+    |> Enum.map(fn grant ->
+      %{
+        "id" => grant.grant_id,
+        "name" => grant.name,
+        "status" => grant.status,
+        "plan_type" => grant.plan_type,
+        "account_email" => grant.account_email,
+        "last_refreshed_at" => grant.last_refreshed_at,
+        "revoked_reason" => grant.revoked_reason,
+        "exhausted_until" => grant.exhausted_until,
+        "named_by_sets" =>
+          Fountain.InferenceCredentials.set_names_for_grant(grant.grant_id, user_id),
+        "created_at" => grant.inserted_at,
+        "updated_at" => grant.updated_at
+      }
+    end)
+  end
+
+  # `list_all_attempts_for_user/1` decrypts nothing, so there is no user code
+  # in these views to leave out; the keys are named anyway.
+  defp chatgpt_link_attempts_section(user_id) do
+    user_id
+    |> ChatGPTAccounts.list_all_attempts_for_user()
+    |> Enum.map(fn attempt ->
+      %{
+        "id" => attempt.id,
+        "kind" => Atom.to_string(attempt.kind),
+        "name" => attempt.name,
+        "grant_id" => attempt.grant_id,
+        "state" => attempt.state,
+        "failure_reason" => attempt.failure && attempt.failure.reason,
+        "result_grant_id" => attempt.result_grant_id,
+        "expires_at" => attempt.expires_at,
+        "created_at" => attempt.inserted_at,
+        "updated_at" => attempt.updated_at
+      }
+    end)
   end
 
   defp audit_section(user_id) do

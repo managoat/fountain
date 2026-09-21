@@ -1,0 +1,69 @@
+### Upgrade notes
+
+- **A new daily job and a new Oban queue, no operator action** (#2462).
+  `Fountain.Workers.ChatGPTKeepaliveSweep` runs at 04:37 UTC on the
+  `maintenance` queue. It reads ids only, and queues one job on the new
+  `chatgpt_refresh` queue for every linked ChatGPT subscription nobody has
+  renewed for six days. Each of those jobs makes one call to
+  `https://auth.openai.com/oauth/token`, and they are spread over a window
+  sized from how many are due: five seconds a subscription, no shorter than
+  five minutes, no longer than six hours. The queue runs two at a time per
+  replica, below the four renewals a replica allows at once, so a running
+  conversation's renewal is never crowded out. It is idle wherever nobody
+  has linked a subscription, and the deployment's own grant keeps its 04:29
+  job. A renewal the auth server answers with 429, or with a 403 whose body
+  is not a JSON object (an HTML page, nothing), is counted as a sign that it
+  is throttling this server's address; a 403 with a JSON body is that
+  account's own failure. When that has happened for two different accounts
+  inside ten minutes (the deployment's own grant counts as one), that
+  replica's keepalive jobs pause for fifteen minutes. One account cannot
+  cause the pause, however often it is refused. While it lasts, one job per
+  replica per fifteen minutes is let through as a probe, from among those
+  paused two hours or whose subscription is seven days unrenewed; a refused
+  job waits again and spends no attempt. Any renewal that succeeds, a
+  conversation's included, ends the pause at once. A conversation's own
+  renewal never pauses. A job stops for good 72 hours after its first run,
+  and the next sweep queues its subscription again. Whether OpenAI throttles
+  by address or by account, and what such a refusal looks like, has not been
+  measured. To observe it: `fountain_chatgpt_keepalive_sweep_due` is what
+  the last sweep found idle, `fountain_chatgpt_keepalive_grant_count` counts
+  the jobs by `result` (`ok`, `cancelled`, `snoozed`, `rate_limited`,
+  `error`, `discarded`), `fountain_chatgpt_refresh_rate_limited_count`
+  counts the refusals, and `fountain_chatgpt_refresh_breaker_opened_count`
+  and `fountain_chatgpt_refresh_breaker_closed_count` count the pauses and
+  the ones a success ended early. A job that fails its last attempt or is
+  stopped at 72 hours, and a sweep that stops part way, log at `error`
+  starting `chatgpt keepalive:`, at most one line a minute per replica for
+  jobs; `discarded` says how many. A subscription the auth server refused
+  for good shows as "Reconnect required" on its owner's card and as a
+  `chatgpt_grant.reconnect_required` audit event. The six days are
+  provisional on ADR 0047's measurement 5.
+
+### Added
+
+- **An idle ChatGPT subscription is kept alive** (#2462). A subscription its
+  owner has not used for six days is renewed by a daily job, so it no longer
+  lapses at OpenAI's idle window. One subscription's failure touches no
+  other, including another of the same account's: a refresh token OpenAI
+  refuses marks that one subscription "Reconnect required" and the rest are
+  renewed as usual. Linking stays behind the `chatgpt_subscriptions` flag.
+
+- **An account export lists ChatGPT subscriptions and sign-ins** (#2462).
+  Two new sections, `chatgpt_subscriptions` and `chatgpt_link_attempts`,
+  carry what the owner sees on the card: a subscription's name, state, plan,
+  the email OpenAI reported, its times and the credential sets that name it,
+  and what each sign-in of the last week was for and how it ended. Tokens,
+  ciphertext, OpenAI's account id, a sign-in's user code and device id are
+  never exported. The document's `version` is unchanged: the sections are
+  additions.
+
+### Changed
+
+- **Deleting an account counts the ChatGPT subscriptions it removes, and the
+  confirmation email says what it could not do** (#2462). The subscriptions,
+  their sign-ins and their broker sessions already went with the account;
+  `account.deleted` now records `chatgpt_grants_removed`. Fountain deletes
+  its copy of each sign-in and has no way to revoke one at OpenAI, so for an
+  account that had linked any, the email says so and tells the person to
+  sign the device out in their ChatGPT account. Jobs still queued for a
+  deleted account's subscriptions end without calling OpenAI.

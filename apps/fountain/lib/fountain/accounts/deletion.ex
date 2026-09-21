@@ -117,6 +117,12 @@ defmodule Fountain.Accounts.Deletion do
   end
 
   defp delete_user_row(user, sprites, opts) do
+    # Counted here because the delete below removes them by cascade, with
+    # their link attempts and broker sessions (ADR 0060 stage 5). Fountain's
+    # copy of each sign-in goes; nothing revokes one at OpenAI, which has no
+    # such endpoint in `PlatformChatGPT.OAuth`, and the email says so.
+    chatgpt_grants = Fountain.ChatGPTAccounts.count_for_user(user.id)
+
     Audit.record(%{
       user_id: user.id,
       action: "account.deleted",
@@ -128,7 +134,8 @@ defmodule Fountain.Accounts.Deletion do
       metadata: %{
         "email" => user.email,
         "user_id" => user.id,
-        "sprites_destroyed" => sprites
+        "sprites_destroyed" => sprites,
+        "chatgpt_grants_removed" => chatgpt_grants
       }
     })
 
@@ -158,7 +165,9 @@ defmodule Fountain.Accounts.Deletion do
         # whoever triggered the deletion. The job carries the address
         # itself; the row is already gone.
         if user.email_verified_at do
-          Fountain.Workers.AccountEmail.enqueue_deleted(user.email)
+          Fountain.Workers.AccountEmail.enqueue_deleted(user.email,
+            chatgpt_subscriptions: chatgpt_grants
+          )
         end
 
         {:ok, %{user_id: user.id, sprites_destroyed: sprites}}

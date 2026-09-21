@@ -27,6 +27,7 @@ Here is the scheduled work. All times are UTC.
 |---|---|---|
 | Each hour at :07 | The sandbox reaper. | Reconciles the sandbox rows against sprites.dev. It frees a row stuck mid-provision, expires an abandoned sandbox, destroys a sprite whose row is already terminal, and reports an untracked sprite. |
 | 04:23 daily | The retention pruner. | Deletes a row past its retention. Log events and Stripe events go after 90 days, audit events after 365, and usage events after 400. A revoked API key or a finished sandbox request goes after 30. |
+| 04:37 daily | The ChatGPT subscription keepalive. | Finds each linked ChatGPT subscription that nobody renewed for 6 days, and queues one renewal for each on the `chatgpt_refresh` queue. The renewals are spread over 5 minutes to 6 hours, by how many there are. With no linked subscription, it does nothing. |
 | 05:41 daily | The unverified-account pruner. | Deletes an account that never verified its email, after 30 days, through the full deletion path. That covers sprites and audit. |
 | Each 5 minutes | The sandbox queue drainer. | Replays work that waits for sandbox capacity, and expires a request past its wait bound. A freed sandbox slot drains the queue at once; this run is the backstop. |
 | Each 10 minutes | The credit pricer. | Burns each closed turn into the credit ledger, and sweeps each expired grant. |

@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "A user links several ChatGPT subscriptions, and a credential set names one"
-description: "Stages 1 to 4 of 5 are built (the table, the owner-scoped context and the per-owner source lock; a credential set naming a grant and resolution to it with no fallback; the transport and custody: a CODEX_HOME per grant and generation, broker sessions that carry which grant they may use, and a per-request check against the durable generation; then durable link attempts, /api/account/chatgpt-subscriptions, and the ChatGPT subscriptions card and the set picker in the console). Linking is behind a flag that is off everywhere; accounting and rollout are not built. Rebuilds ADR 0052's user surface with many grants per user instead of one: the grant table loses its one-row-per-user index for a named row, an inference credential set names a grant, and an agent selects a subscription the same way it selects an API key. No automatic failover between a user's subscriptions and no platform fallback when the named one is exhausted."
+description: "All five stages are built except stage 5's controlled run with two real subscriptions, and the ADR is still Proposed: accepting it is the maintainer's decision (the table, the owner-scoped context and the per-owner source lock; a credential set naming a grant and resolution to it with no fallback; the transport and custody: a CODEX_HOME per grant and generation, broker sessions that carry which grant they may use, and a per-request check against the durable generation; then durable link attempts, /api/account/chatgpt-subscriptions, and the ChatGPT subscriptions card and the set picker in the console; then exhaustion recorded for a user's grant when OpenAI confirms it with nothing substituted, which grant served a turn, a daily keepalive with one job per grant, and grants in the account export and deletion). Linking is behind a flag that is off everywhere, and a rollout checklist says what is owed before it is on for anyone. Rebuilds ADR 0052's user surface with many grants per user instead of one: the grant table loses its one-row-per-user index for a named row, an inference credential set names a grant, and an agent selects a subscription the same way it selects an API key. No automatic failover between a user's subscriptions and no platform fallback when the named one is exhausted."
 tags: [inference, codex, oauth, security, billing]
 status: draft
 adr: "0060"
@@ -11,9 +11,12 @@ date: 2026-09-20
 
 # 0060 — A user links several ChatGPT subscriptions, and a credential set names one
 
-**Status:** Proposed, 2026-09-20. **Stages 1 to 4 of the five below are
-built, stage 4 in two halves (4a the API, 4b the console); linking is off
-for every account.**
+**Status:** Proposed, 2026-09-20. **All five stages below are built, stages
+4 and 5 in two halves each, except the second sentence of stage 5: the
+controlled run with two real subscriptions has not been made. Linking is
+off for every account.** The status stays Proposed: accepting this ADR is
+the maintainer's decision, and the run and the rollout checklist
+(`contributing/chatgpt-subscriptions-rollout.md`) come first.
 Stage 1 is the table change, the owner-scoped context in
 `Fountain.ChatGPTAccounts` and the per-owner source lock. Stage 2 is
 selection: `inference_credentials.chatgpt_grant_id`,
@@ -31,9 +34,10 @@ picker on `/account/inference-credentials`, and the `/start` banner and the
 agent form saying when a named grant cannot serve.
 A new link is behind the `chatgpt_subscriptions` flag, which fails closed:
 it is off wherever nobody has turned it on, a deployment with no PostHog
-included, and nobody has. There is still no keepalive
-for a user's grant, no record of which grant served a turn and no export of
-a grant (stage 5). Resolution does run in production, for every
+included, and nobody has. Stage 5a records a user's grant as exhausted when
+OpenAI confirms it, with nothing substituted, and says which grant served a
+turn. Stage 5b is the daily keepalive, one job per grant, and grants in the
+account export and deletion. Resolution does run in production, for every
 conversation, and for a set that names no grant it resolves exactly what it
 did. **The deployment's own grant (0047) is not on the new path**: it still
 travels as a substitution rule and writes the shared `~/.codex/auth.json`,
@@ -42,17 +46,17 @@ exactly as before stage 3; moving it is a separate change (see
 the two broker gates named there are owed **before the flag is turned on
 for anyone**. What stage 1 left running is
 `ChatGPTAccounts.RefreshSupervisor`, a task supervisor and the refresh
-coordinator, which start idle on every node. Stage 5 is not
-started, and everything below that belongs to it is the design for work
-not yet done. The Context section describes `main` at `9122474f`, before
-stage 1.
+coordinator, which start idle on every node; since stage 5b they serve the
+keepalive's jobs as well as a turn's renewal. The Context section describes
+`main` at `9122474f`, before stage 1.
 
 What each stage built, and where it settled something this ADR left open or
 had wrong, is recorded under [Stage 1 as built](#stage-1-as-built),
 [Stage 2 as built](#stage-2-as-built),
 [Stage 3 as built](#stage-3-as-built),
-[Stage 4a as built](#stage-4a-as-built) and
-[Stage 4b as built](#stage-4b-as-built).
+[Stage 4a as built](#stage-4a-as-built),
+[Stage 4b as built](#stage-4b-as-built) and
+[Stage 5 as built](#stage-5-as-built).
 
 Rebuilds the user-facing half of
 [0052](0052-user-owned-chatgpt-grants.md) — its decisions 2, 4 and 5, which
@@ -442,9 +446,11 @@ platform grant and for **two grants of one user**, which is the new case.
    newer grant, redaction, page reload. (Page reload is the console's test;
    what it rests on, that an attempt is a row any reader can pick up, is
    4a's.)
-5. **Accounting and rollout.** `:own` origin per grant, the exhaustion path
-   of decision 4 with no fallback, deletion and export, keepalive fan-out
-   at the grant count. Then a real link of two subscriptions, a Codex turn
+5. **Accounting and rollout. Built, in two halves, except the controlled
+   run in its second sentence; see
+   [Stage 5 as built](#stage-5-as-built).** `:own` origin per grant, the
+   exhaustion path of decision 4 with no fallback, deletion and export,
+   keepalive fan-out at the grant count. Then a real link of two subscriptions, a Codex turn
    on each, a forced refresh between turns, restart, and disconnect, in a
    controlled environment, with pinned versions recorded.
 
@@ -1773,6 +1779,333 @@ and for a suspended owner on `/start`, and the form resolving again only
 when its inputs change (`chatgpt_grant_problem_live_test.exs`); and
 `named_grant_problem/4`, `grant_state/1`, `missing_for_model/3` and
 `has_any_credential?/1` (`grant_selection_test.exs`).
+
+## Stage 5 as built
+
+Built on 2026-09-21, in two halves: 5a is accounting (exhaustion for a
+user's grant, and which grant served a turn), 5b is the keepalive, export
+and deletion. **Item 5's second sentence is not done**: nobody has linked
+two real subscriptions and run the controlled sequence. That run, the
+checklist it belongs to and what is owed before the flag is on for anyone
+are in
+`contributing/chatgpt-subscriptions-rollout.md`,
+and its results go in [Measured](#measured) below. Linking is still off for
+every account. No migration in either half: the exhaustion columns were
+already on the shared table, and `turns.inference_source` already held the
+serving grant.
+
+### 5a: exhaustion, and which grant served a turn
+
+**Exhaustion is written for a user's grant, only when OpenAI confirms it.**
+A failed codex prompt whose error passes `UsageLimit.hint?/1`, on a
+`:grant` source, starts a background check under `Fountain.TaskSupervisor`
+scoped by the conversation's owner (`TurnMachine.ctx/2` gained
+`:user_id`). `ChatGPTAccounts.check_exhaustion_for_user/2` answers
+`:started | :ignored`; `confirm_exhausted_for_user/3` answers what
+`platform_confirm_exhausted/2` does, whose contract and tests are
+unchanged: internally `confirm_exhausted/4`, `grant_row/3`,
+`claim_usage_check/4` and `write_exhaustion/5` take an owner that is nil
+for the platform. The sandbox's report is a hint, as in 0047: the adapter
+runs in a tenant's sandbox. The row is read through the eligible-owner
+query by owner, grant id, generation and `active`; `usage_checked_at` is
+claimed with the platform's 300 s cooldown, per grant, under the owner's
+source lock; the token is decrypted with the tenant DEK and sent to
+`/wham/usage` with no lock or transaction held; a confirmed limit writes
+`usage_exhausted_at` and `usage_exhausted_until`, fenced the same way,
+under the tenant key and never the platform's. The tenant event
+`chatgpt_grant.exhausted` (actor `system:chatgpt_accounts`; the name,
+`until`, `confirmed_by: "wham/usage"`; no account id, no generation) and
+the `{:chatgpt_grants_changed, _}` broadcast happen after the write's
+transaction commits. Another owner, a replaced generation, a tombstone and
+a suspended owner are ignored with no call upstream. The reset is lazy: a
+passed `until` reads as nil and nothing clears the column.
+
+**What the owner sees.** The failing turn fails with codex's own message
+and is not retried. Every later launch and turn on that grant, a
+conversation already pinned to it included, is `chatgpt_grant_unusable`
+with `reason: exhausted` and `until`, on the 409 and on both stream stages.
+
+**Nothing is substituted**, which is decision 4 and needed no code: a
+`:grant` source never reaches `PlatformInference.grant_unless_exhausted/2`.
+It is proven by an acceptance test in which another grant of the same
+user, the set's own key, the default set, an environment and a vault
+`OPENAI_API_KEY`, a platform grant and `PLATFORM_OPENAI_API_KEY` are each
+present and shown usable by the value they would hand the runtime, before
+the limit is recorded and again after the refusals: the launch and the turn
+are refused all the same. A grant turn is stamped `"own"`, is not priced
+and never reaches the platform ceiling
+(`ee/test/fountain/credits_chatgpt_inference_test.exs`).
+
+**The broker stays unaware of exhaustion.** An exhausted grant is `active`
+with a good token, so `protected_credential/2` still authorizes it.
+Selection refuses it, and a turn in flight ends on OpenAI's own 429.
+
+**Which grant served a turn: a divergence from decision 6 and from stage
+2's note**, both of which say the grant "joins the usage stamp". It does
+not. The pricer and `Turn.inference_stamp_only?/1` read the `usage` map, so
+the serving grant stays where `source_stamp/2` already wrote it once per
+turn, in `turns.inference_source`, and is read from there. The turn JSON
+gains a read-only `inference` object, `{origin, scope, chatgpt_grant_id}`:
+null for a row with no source or an unknown scope, never `generation`,
+`identity` or `revision`, and the grant id only for a `:grant` source whose
+id is a UUID. The id goes on naming a grant after the grant is removed, so
+a reconnect, a repoint or a restart relabels no earlier turn. The export's
+turn entries carry the same object. The team summary's smaller turn shape
+carries none. New `Source.summary/1`, `Source.scopes/0`,
+`Source.origins/0`; the OpenAPI schema, the contract and the TypeScript
+and Swift types follow.
+
+**After review (5a).** A hint inside the cooldown is dropped before any
+lock or transaction, from the row already read; the locked conditional
+UPDATE stays the authority. The check uses the token on the row the claim
+returned, so a concurrent refresh cannot make it stale. A write that loses
+its fence is `:ignored`; a failed write transaction is
+`{:error, :usage_write_failed}`, logged with the grant id and the step.
+Both doors start their task through one function that answers `:ignored`
+if the supervisor refuses. `UsageLimit.request/1` rescues into
+`{:error, {:usage, :transport}}`, and the platform's log line goes through
+the same sanitiser (`UsageLimit.loggable_reason/1`). A failed or
+inconclusive check still spends the five-minute cooldown, so a plan that
+really is spent can fail turns with codex's message for up to five minutes
+before it is refused by name; the API page, the guide and the changelog
+say so. The console re-reads by one timer at the earliest reset it shows,
+because the lazy reset writes and broadcasts nothing. And the review found
+a real gap: a `ConversationServer` started without the prompt's wake door,
+a reattach after a restart for one, resolved the pinned source itself and
+for an exhausted grant published `tenant_credential_load_failed` with an
+inspected tuple. It now publishes `CodexChatGPT.refusal_stage/3`'s shape.
+The wake door refuses an exhausted grant before any server starts and
+leaves the conversation alone; **a direct server start still ends the
+conversation `failed`**, as it does for a disconnected grant, which may be
+too harsh for a state that passes. It is pinned in a test and is the
+maintainer's to change.
+
+### 5b: the keepalive, export and deletion
+
+**The keepalive closes the gap stage 1 recorded.**
+`Workers.ChatGPTKeepaliveSweep` runs at 04:37 UTC on `maintenance`. It
+pages `ChatGPTAccounts._unsafe_due_user_grants/2` in keyset pages of 100
+and queues one `Workers.ChatGPTGrantKeepalive` per grant on a new queue,
+`chatgpt_refresh`, which runs two per node, below the four renewals
+`RefreshCoordinator` admits, so a turn's renewal always has room. The scan
+is cross-tenant by design and says so in its prefix; it returns three ids
+a grant and fetches no ciphertext. Due is: active, `chatgpt`, holding a
+refresh token and an upstream account id, an eligible owner, and
+`last_refreshed_at` nil or at least `platform_keepalive_days/0` old. A
+tombstone, a revoked or expired grant, a suspended, unverified or
+principal owner's grant and the platform row are never selected. The
+answer is a hint: the job calls `refresh_for_user/3`, which reads the
+grant again by its owner, and a disconnect, reconnect, removal, suspension
+or deleted account between the two cancels the job with no call to the
+auth server. One job per grant keeps failures apart: `refresh_token_reused`
+on one grant marks that grant reconnect-required, through the fenced
+`mark_revoked/2` stage 1 built, and the same user's other grant is
+renewed. The six days remain provisional on 0047's measurement 5.
+
+**The rate toward `auth.openai.com`.** Jobs are scheduled at a random
+second of `min(6 h, max(300 s, due x 5 s))`, from a count the first page
+reads and the continuations carry, so about one request every five seconds
+up to 4,320 due grants; past that the cap lets the rate rise and the
+queue's two slots per node bound it. `:chatgpt_keepalive_spacing_ms` is
+the five seconds. Both workers have a bounded `backoff/1`, stage 4a's
+lesson.
+
+**Export and deletion.** The export gains `chatgpt_subscriptions` (id,
+name, status, plan, the email OpenAI reported, last renewal, the sanitized
+revoked reason, `exhausted_until`, the names of the sets that name it, the
+two times) and `chatgpt_link_attempts` (id, kind, name or grant id, state,
+failure reason, the grant it wrote, the three times), each key named one
+by one, from owner-scoped reads that decrypt nothing; its `version` stays
+1. The test renders the document and searches it for the fixture's real
+access and refresh tokens, user code, device id, provider account ids,
+generations and every ciphertext in six spellings. Deletion needed no
+write-path change: grants, attempts and broker sessions go by cascade and
+the set's deferred key makes the order irrelevant, proven under `SET
+CONSTRAINTS ALL IMMEDIATE` with another account's rows compared whole.
+`account.deleted` gains `chatgpt_grants_removed`, counted before the
+delete, tombstones included. Queued keepalive jobs for a deleted account
+cancel and its pollers finish, with no call to the auth server.
+**Fountain cannot revoke a sign-in at OpenAI**: `PlatformChatGPT.OAuth`
+has `refresh`, `device_start`, `device_poll` and `device_exchange`, and no
+revoke leg. For an account that had linked any subscription the
+account-deleted email says so and says to sign the device out in the
+ChatGPT account; the email job carries the count, a number, only when it
+is above zero.
+
+**Design calls beyond this ADR (5b).**
+
+1. **A per-node breaker, `ChatGPTAccounts.RefreshBreaker`.** Decision 5
+   asks for bounded volume and says nothing of what to do when the auth
+   server throttles Fountain's address, which stage 4a's review named as a
+   cross-tenant outage. Refusals that look like a throttled address, for
+   two different owners inside ten minutes, pause that node's keepalive
+   jobs for fifteen minutes (`:chatgpt_refresh_breaker_ms`). It is
+   half-open, one probe per node per fifteen minutes, and any renewal that
+   succeeds closes it. A turn's own renewal never waits.
+2. **`{:error, :rate_limited}`** is a new answer from a user grant's
+   refresh, where every provider error was `:refresh_failed`. It carries
+   no part of the response. On the turn path it falls through
+   `CodexChatGPT.renewal_refusal/2` like any transient error: the turn
+   runs on the token the grant has.
+3. **The platform grant's refusal counts as evidence**, as an owner of its
+   own, because it leaves from the same address. Nothing else changed for
+   it: its renewals never wait on the breaker.
+4. **Clocks in the job's `meta`**, never its args: the sweep's window, the
+   job's first run and when the breaker first held it. The args stay the
+   three ids.
+5. **A job is its grant's place in the queue, for three days.** While a
+   job is incomplete the next sweep's insert for its grant conflicts with
+   it, so it does not give up early; a grant no longer due is an `:ok` at
+   the job's next run. Seventy-two hours after its first run it is
+   cancelled whatever it is waiting on, because snoozes raise
+   `max_attempts` and nothing in Oban ends a job that only ever snoozes.
+6. **The deleted-account email is conditional**, and the count rides in
+   the email job's args.
+
+**After review (5b).** A review for security and correctness found one
+high finding and six lesser ones. All seven were verified against the code
+and none was wrong.
+
+- **One tenant could hold the breaker open.** As first built, any 429 or
+  non-terminal 403 on any one grant opened it, and the turn path could
+  trip it without limit, so an account whose grant is reliably refused, or
+  a scripted turn loop, could starve every other tenant's keepalive on a
+  node, against a thin margin: a first attempt can come 7 days 6 hours
+  after the last renewal, and the idle window is assumed to be 8 days.
+  Four bounds now. Only a 429, or a 403 whose body names no code `OAuth`
+  can read, is evidence; a 403 that names a code is that account's and is
+  `:refresh_failed`. The breaker opens only when two different owners were
+  refused inside ten minutes. A grant is heard once per window, which is
+  what bounds the turn path. And a job held two hours, or whose grant is
+  seven days idle, went ahead as a probe. (The second review found this
+  last bound, and the 403 rule, short of what this paragraph claimed; both
+  are as the next paragraph says.) The table holds hashes of the grant and
+  owner ids, for ten minutes.
+- **The herd when it clears.** Held jobs woke within two minutes of each
+  other. They now spread over the breaker's remaining time plus the
+  sweep's window.
+- **A job that fails its last attempt** logs once at `error`, the grant's
+  id and an atom. So does a sweep page that is abandoned, which takes its
+  continuation with it.
+- **The give-up clock** ran from the insert, up to six hours before the
+  first run, and a job that gave up while still due cost its grant a day.
+  It runs from the first run, and see call 5, which the second review
+  changed again.
+- **Tests added**: forged args (one owner's grant under another's id; the
+  platform row's id), a probe that is refused again, each bound. The test
+  in which A snoozes and B renews says in its comment what it does not
+  prove: `drain_queue` is serial and the timeout is handed back, so it
+  shows the jobs are independent, not the slots. A renewal that really
+  hangs holds one of two queue slots and one of four coordinator slots
+  until its deadline.
+- The breaker's fallback table, which would have died with a refresh
+  task, is gone.
+
+**After the second review (5b).** Nothing critical or high and nothing to
+revert; three medium findings in how the job and the breaker meet, all
+verified and none wrong.
+
+- **The two-hour cap did not bound anything.** It and the seven-day bypass
+  were looked at only when a job next ran, and the snooze could be six
+  hours. A held job now never sleeps past the moment it becomes due to
+  probe, by either clock.
+- **Under real throttling Fountain sent more requests, not fewer.** Every
+  held job probed at two hours, was refused, retried on its backoff with
+  the same stale stamp and burned its three attempts; grants seven days
+  idle did it from their first run. The breaker is now properly half-open:
+  `claim_probe/0` admits one probe per node per fifteen minutes, counted
+  from the claim, because a refused probe is evidence, extends the pause,
+  and would otherwise hand the next job a probe at once. The seven-day
+  bypass goes through the same door. A refusal that looks like a throttled
+  address is a snooze of at least fifteen minutes and never a failed
+  attempt, and it restarts the job's two hours.
+- **A success never closed it**, so two owners refused every ten minutes
+  held it open without end. `succeeded/0`, called where the auth server
+  answers any owner's refresh with tokens, the platform's and a turn's
+  included, closes it and clears what was heard, since the success refutes
+  it. A probe that succeeds therefore releases every held job at its next
+  wake.
+- Lesser: a job that runs with the breaker down forgets it was held, so a
+  later pause starts its two hours afresh. Only a 403 whose body is not a
+  JSON object is evidence (`OAuth` calls it `"unreadable"`); an object
+  with no readable code, `{"detail": …}` say, is `:refresh_failed`. No
+  breaker function can raise if its table's owner has just died, which
+  mattered because `observe/2` runs inside a turn's renewal. A held job
+  whose grant is revoked under the same generation cancels at once. The
+  discard line and the new three-day stop go through
+  `LogThrottle.error/2`, once a minute per node, and the counter's new
+  `discarded` says how many; a run that raises on its last attempt logs it
+  too. The breaker takes a test clock.
+
+**What is bounded now, exactly.** Under real throttling of the address: a
+node's keepalive sends one request per fifteen minutes, a job at most one
+in that time, and no attempt is spent on it. Under a breaker held open on
+false evidence, which takes two accounts that are each reliably refused as
+a throttled address is: one victim's job waits as long as the breaker
+stands, less whatever a success from any owner cuts it short by, and at
+most seventy-two hours. It is no longer promised a request of its own at
+two hours; that promise, made to every job, was the hammer. A turn's own
+renewal is never held.
+
+### Not built
+
+- **The controlled run** of item 5, and everything on the rollout
+  checklist.
+- **Whether `auth.openai.com` throttles by address or by account is
+  unmeasured.** 0047 measured a 401 `refresh_token_reused` and a 400
+  ciphertext-integrity answer and nothing else. So is what a throttled
+  refusal looks like: that it is a 429, or a 403 with no JSON object, is a
+  guess. The two-owner rule and the evidence rule are guesses with the
+  bounds stated above, not measurements: if the auth server throttles an
+  address with a JSON 403 the breaker never opens, and if it refuses one
+  account with an HTML 403 that counts as evidence it should not. The
+  runbook lists both as things to observe.
+- Revoking a sign-in upstream, on a disconnect or a deletion.
+- A cluster-wide breaker: each node learns of a throttle from its own
+  refused calls. Reading a 429's `Retry-After`. Holding a turn's renewal
+  back while the breaker stands.
+- Damping for a grant that fails every day without being refused for
+  good: it is queued again by each sweep, three calls a day, and shows
+  only as the throttled `error` line and the `discarded` count. No signal
+  reaches its owner.
+- A log line for a keepalive run, or a sweep page, that Oban kills at its
+  timeout or that exits: only a returned error and a raise are seen. Those
+  show in Oban's own telemetry.
+- One `breaker_opened` per opening: two processes that report in the same
+  instant may both open it and both be counted.
+- An index for the due scan. Catching, on the same day, a grant that
+  became due behind a running cursor.
+- Proactive usage polling (detection is only after a failed turn that
+  OpenAI confirms); an email or a webhook about a spent plan; failover
+  between a user's subscriptions. An exhausted active grant still counts
+  for `has_any_credential?/1`. The platform's `usage_checked_at` claim
+  still takes no Elixir lock; only the user's takes the tenant key.
+- Credential sets in the export beyond the names in `named_by_sets`.
+  Pruning of tombstones; attempts keep their week. The account page's
+  export sentence does not mention the two new sections.
+- Closing tunnels that are already open, a per-session rate cap, removal
+  of grant homes, a deployment-wide device-code bound, and a CLI or SDK
+  client, all as the earlier stages left them.
+
+### Measured
+
+Empty until the controlled run. One row per gate; the procedure, the
+versions to pin and the order are in the rollout document. Dates and pins
+for the idle lifetime go in 0047's table, measurement 5.
+
+| Gate | Pinned versions | Date | Result |
+|---|---|---|---|
+| The protected-path probe against the pinned client (`scripts/probe-codex-protected.py`; the capture fixture reviewed or replaced) | | | |
+| A turn on each of two linked subscriptions: hosts, routes, `injected` counts and any refused request, from `broker_requests` | | | |
+| A forced refresh of A, then a turn on A: generation unchanged, `lock_version` +1, B untouched | | | |
+| Reattach and `thread/resume` through the symlinked home: `sessions/` and `skills/` resolve; whether `config.toml` became a real file | | | |
+| A server restart, then a turn on each | | | |
+| Disconnect A in an open tunnel: the next request refused, B still serves | | | |
+| Exhaustion, real or a stubbed `/wham/usage`: the card and the refusal (optional) | | | |
+| The keepalive observed for seven days: no unexpected `reconnect_required` | | | |
+| What a throttled refresh looks like: its status, whether the body names a code, and whether it follows the address or the account | | | |
+| Gate A (a bearer in a response is scrubbed) and Gate B (a query carrying it is refused), on the released `managoat_broker` | | | |
+| The platform grant on the protected path, and its measurement (stage 3b, #2458) | | | |
 
 ## Consequences
 

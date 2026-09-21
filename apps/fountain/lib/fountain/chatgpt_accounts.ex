@@ -100,9 +100,10 @@ defmodule Fountain.ChatGPTAccounts do
   lock, and the broker reads it through the two functions above (ADR 0060
   stage 3). The console's card is
   `FountainWeb.InferenceCredentialsLive.SubscriptionsCard` (stage 4b), and a
-  new link is off wherever nobody turned the flag on. The keepalive schedule is stage 5:
-  until it exists an idle user grant lapses at the auth server's window,
-  which is one reason the flag stays off.
+  new link is off wherever nobody turned the flag on. A grant nobody uses is
+  renewed by the daily sweep (`Fountain.Workers.ChatGPTKeepaliveSweep`, stage
+  5), which pages `_unsafe_due_user_grants/2` and queues one
+  `refresh_for_user/3` per grant.
 
   ### The source lock, and one rule for whoever selects a grant
 
@@ -196,6 +197,7 @@ defmodule Fountain.ChatGPTAccounts do
     Cipher,
     Grant,
     LinkAttempts,
+    RefreshBreaker,
     RefreshCoordinator,
     RefreshLock
   }
@@ -262,6 +264,18 @@ defmodule Fountain.ChatGPTAccounts do
 
       :error ->
         []
+    end
+  end
+
+  @doc """
+  How many grants the user holds, tombstones included: what an account
+  deletion counts before its cascade removes them. Scoped by the owner.
+  """
+  @spec count_for_user(String.t()) :: non_neg_integer()
+  def count_for_user(user_id) when is_binary(user_id) do
+    case Ecto.UUID.cast(user_id) do
+      {:ok, owner} -> Repo.aggregate(from(a in Account, where: a.user_id == ^owner), :count)
+      :error -> 0
     end
   end
 
@@ -940,6 +954,53 @@ defmodule Fountain.ChatGPTAccounts do
     end
   end
 
+  @doc """
+  The keepalive sweep's scan (`Fountain.Workers.ChatGPTKeepaliveSweep`): one
+  keyset page of the users' grants nobody has renewed for
+  `platform_keepalive_days/0`, as the three ids `refresh_for_user/3` takes
+  and nothing else. No ciphertext is fetched and no key is loaded.
+
+  Across every tenant on purpose, which is the prefix: a background sweep
+  calls it, never a request. What it selects is what `user_account_state/1`
+  calls servable, with an eligible owner: active, `chatgpt`, holding a
+  refresh token. So a tombstone, a revoked or expired grant, a suspended or
+  unverified owner's grant and the platform row are never in it. The answer
+  is a hint all the same: the job asks again, scoped by the owner, when it
+  runs.
+  """
+  @spec _unsafe_due_user_grants(Ecto.UUID.t() | nil, pos_integer()) :: [
+          %{grant_id: Ecto.UUID.t(), user_id: Ecto.UUID.t(), generation: Ecto.UUID.t()}
+        ]
+  def _unsafe_due_user_grants(after_id \\ nil, limit \\ 100)
+      when (is_nil(after_id) or is_binary(after_id)) and limit in 1..100 do
+    query =
+      from(a in due_user_grants(),
+        order_by: [asc: a.id],
+        limit: ^limit,
+        select: %{grant_id: a.id, user_id: a.user_id, generation: a.generation}
+      )
+
+    query = if after_id, do: from(a in query, where: a.id > ^after_id), else: query
+    Repo.all(query)
+  end
+
+  @doc "How many grants `_unsafe_due_user_grants/2` would page through now: the sweep sizes its jitter from it."
+  @spec _unsafe_due_user_grant_count() :: non_neg_integer()
+  def _unsafe_due_user_grant_count, do: Repo.aggregate(due_user_grants(), :count)
+
+  defp due_user_grants do
+    cutoff = DateTime.add(now(), -platform_keepalive_days() * 86_400, :second)
+
+    from(a in Account,
+      where:
+        not is_nil(a.user_id) and a.status == "active" and a.kind == "chatgpt" and
+          not is_nil(a.refresh_token_ciphertext) and not is_nil(a.account_id) and
+          a.account_id != "",
+      where: is_nil(a.last_refreshed_at) or a.last_refreshed_at <= ^cutoff
+    )
+    |> with_eligible_owner()
+  end
+
   defp user_credential(account) do
     with :ok <- user_account_state(account) do
       if fresh?(account) do
@@ -1090,6 +1151,16 @@ defmodule Fountain.ChatGPTAccounts do
   """
   @spec list_recent_attempts_for_user(String.t()) :: [AttemptView.t()]
   def list_recent_attempts_for_user(user_id), do: LinkAttempts.list_recent(user_id)
+
+  @doc """
+  Every link attempt the account still has, oldest first, for the account
+  export (`Fountain.Exports`). Attempts are kept a week
+  (`purge_ended_attempts/0`). Scoped by the owner, and nothing is decrypted:
+  these views carry no user code and no verification page, even for an
+  attempt that is still open.
+  """
+  @spec list_all_attempts_for_user(String.t()) :: [AttemptView.t()]
+  def list_all_attempts_for_user(user_id), do: LinkAttempts.list_all(user_id)
 
   @doc """
   Cancel one pending attempt. Its secrets are dropped with the write, and a
@@ -2111,6 +2182,11 @@ defmodule Fountain.ChatGPTAccounts do
     with {:ok, refresh} <- Cipher.decrypt_token(current, :refresh_token) do
       case OAuth.refresh(refresh) do
         {:ok, %{access_token: access} = fresh} ->
+          # The auth server answered this address with tokens, for whichever
+          # owner: the keepalive's breaker closes, whatever becomes of the
+          # write below. ETS only, and it never raises.
+          RefreshBreaker.succeeded()
+
           # The rotated refresh token lands before the access token is
           # handed out: a crash between the two would otherwise leave the
           # row holding a refresh token the server has already retired.
@@ -2224,12 +2300,31 @@ defmodule Fountain.ChatGPTAccounts do
      }, code}
   end
 
-  defp refresh_error(%Account{user_id: nil}, reason) do
+  defp refresh_error(%Account{user_id: nil} = row, reason) do
     Logger.warning(
       "platform chatgpt: refresh failed, keeping the current token: " <> inspect(reason)
     )
 
+    # The deployment's grant leaves from the same address as every user's, so
+    # its refusal is one owner's evidence for the breaker. Nothing else here
+    # changes: the platform's renewals never wait on it.
+    if throttled?(reason), do: RefreshBreaker.observe(:platform, row.id)
     {:error, reason}
+  end
+
+  # The auth server turning Fountain's address away gets an atom of its own,
+  # still no part of the response, and is reported to the node's breaker,
+  # which the keepalive's jobs wait on once two owners have been refused
+  # (`RefreshBreaker`). A turn's own renewal is not held back by it.
+  defp refresh_error(%Account{} = row, {:token, _status, _code} = reason) do
+    :telemetry.execute([:fountain, :chatgpt, :refresh, :failure], %{count: 1}, %{scope: :user})
+
+    if throttled?(reason) do
+      RefreshBreaker.observe(row.user_id, row.id)
+      {:error, :rate_limited}
+    else
+      {:error, :refresh_failed}
+    end
   end
 
   defp refresh_error(%Account{}, _reason) do
@@ -2238,6 +2333,14 @@ defmodule Fountain.ChatGPTAccounts do
     :telemetry.execute([:fountain, :chatgpt, :refresh, :failure], %{count: 1}, %{scope: :user})
     {:error, :refresh_failed}
   end
+
+  # A 429, or a 403 whose body was not a JSON object at all (`OAuth` calls
+  # that `"unreadable"`): a proxy in front of the auth server, not the auth
+  # server's verdict on an account. A 403 with an object body, a code in it
+  # or not, is that account's, and must not pause anybody else's keepalive.
+  defp throttled?({:token, 429, _code}), do: true
+  defp throttled?({:token, 403, "unreadable"}), do: true
+  defp throttled?(_reason), do: false
 
   # A refresh that comes back as somebody else is not this grant's: between
   # reconnects the upstream account is pinned.

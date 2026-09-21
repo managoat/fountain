@@ -98,7 +98,7 @@ defmodule FountainWeb.ChatGPTSubscriptionsLiveTest do
       assert html =~ "ChatGPT subscriptions"
       assert html =~ "No subscription is linked yet."
       assert view |> element(@card <> "-count") |> render() =~ "0 of 5"
-      assert has_element?(view, "#chatgpt-connect")
+      assert has_element?(view, "#chatgpt-connect input[name='name'][aria-label]")
     end
 
     test "a name starts a sign-in, and the page shows the code, the page and the expiry",
@@ -132,6 +132,12 @@ defmodule FountainWeb.ChatGPTSubscriptionsLiveTest do
                "Name already names a ChatGPT subscription on this account."
 
       assert submit_connect(view, "   ") =~ "Name can&#39;t be blank."
+
+      # A control character is refused as a name, not met by the database:
+      # a crash here would put the page's assigns in a crash report.
+      assert submit_connect(view, "Wo" <> <<0>> <> "rk") =~ ~r/Name [^<]+\./
+      assert submit_connect(view, "Work\u202Egnp.exe") =~ ~r/Name [^<]+\./
+      assert Process.alive?(view.pid)
 
       stub_auth(%{"/api/accounts/deviceauth/usercode" => fn _ -> {503, %{}} end})
       assert submit_connect(view, "Personal") =~ "sign-in service did not answer"

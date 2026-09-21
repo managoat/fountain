@@ -551,7 +551,7 @@ defmodule FountainWeb.InferenceCredentialsLive.SubscriptionsCard do
         class="rounded-md border border-[var(--color-border)] p-4 space-y-3"
       >
         <div class="flex flex-wrap items-center gap-2">
-          <span class="text-sm font-medium">{grant.name}</span>
+          <span class="min-w-0 break-words text-sm font-medium">{grant.name}</span>
           <.state_chip state={grant.state} />
           <span :if={grant.account_email} class="text-xs text-[var(--color-text-secondary)]">
             {grant.account_email}<span :if={grant.plan_type}> ({grant.plan_type})</span>
@@ -619,7 +619,7 @@ defmodule FountainWeb.InferenceCredentialsLive.SubscriptionsCard do
         id={"chatgpt-attempt-#{attempt.id}"}
         class="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 space-y-2"
       >
-        <div class="font-medium">
+        <div class="min-w-0 break-words font-medium">
           {if attempt.kind == :reconnect, do: "Reconnecting", else: "Connecting"} {attempt_label(
             attempt,
             @subscriptions.grants
@@ -701,6 +701,7 @@ defmodule FountainWeb.InferenceCredentialsLive.SubscriptionsCard do
           type="text"
           name="name"
           placeholder="Name this subscription — “Work ChatGPT”"
+          aria-label="Name of the subscription to connect"
           maxlength="200"
           class="flex-1 min-w-[16rem] rounded-md border border-[var(--color-border)] bg-[var(--color-bg-2)] px-3 py-1.5 text-sm"
         />

@@ -29,3 +29,23 @@
   other, including another of the same account's: a refresh token OpenAI
   refuses marks that one subscription "Reconnect required" and the rest are
   renewed as usual. Linking stays behind the `chatgpt_subscriptions` flag.
+
+- **An account export lists ChatGPT subscriptions and sign-ins** (#2453).
+  Two new sections, `chatgpt_subscriptions` and `chatgpt_link_attempts`,
+  carry what the owner sees on the card: a subscription's name, state, plan,
+  the email OpenAI reported, its times and the credential sets that name it,
+  and what each sign-in of the last week was for and how it ended. Tokens,
+  ciphertext, OpenAI's account id, a sign-in's user code and device id are
+  never exported. The document's `version` is unchanged: the sections are
+  additions.
+
+### Changed
+
+- **Deleting an account counts the ChatGPT subscriptions it removes, and the
+  confirmation email says what it could not do** (#2453). The subscriptions,
+  their sign-ins and their broker sessions already went with the account;
+  `account.deleted` now records `chatgpt_grants_removed`. Fountain deletes
+  its copy of each sign-in and has no way to revoke one at OpenAI, so for an
+  account that had linked any, the email says so and tells the person to
+  sign the device out in their ChatGPT account. Jobs still queued for a
+  deleted account's subscriptions end without calling OpenAI.

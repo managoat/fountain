@@ -268,6 +268,18 @@ defmodule Fountain.ChatGPTAccounts do
   end
 
   @doc """
+  How many grants the user holds, tombstones included: what an account
+  deletion counts before its cascade removes them. Scoped by the owner.
+  """
+  @spec count_for_user(String.t()) :: non_neg_integer()
+  def count_for_user(user_id) when is_binary(user_id) do
+    case Ecto.UUID.cast(user_id) do
+      {:ok, owner} -> Repo.aggregate(from(a in Account, where: a.user_id == ^owner), :count)
+      :error -> 0
+    end
+  end
+
+  @doc """
   One grant, by its id and its owner. Another user's grant, the platform
   row and an id that is not one are all `{:error, :not_found}`. The same
   no-decrypt, no-I/O read as `list_for_user/1`, so it is safe under the
@@ -1139,6 +1151,16 @@ defmodule Fountain.ChatGPTAccounts do
   """
   @spec list_recent_attempts_for_user(String.t()) :: [AttemptView.t()]
   def list_recent_attempts_for_user(user_id), do: LinkAttempts.list_recent(user_id)
+
+  @doc """
+  Every link attempt the account still has, oldest first, for the account
+  export (`Fountain.Exports`). Attempts are kept a week
+  (`purge_ended_attempts/0`). Scoped by the owner, and nothing is decrypted:
+  these views carry no user code and no verification page, even for an
+  attempt that is still open.
+  """
+  @spec list_all_attempts_for_user(String.t()) :: [AttemptView.t()]
+  def list_all_attempts_for_user(user_id), do: LinkAttempts.list_all(user_id)
 
   @doc """
   Cancel one pending attempt. Its secrets are dropped with the write, and a

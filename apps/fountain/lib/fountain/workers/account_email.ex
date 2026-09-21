@@ -39,14 +39,32 @@ defmodule Fountain.Workers.AccountEmail do
   Enqueue the deletion confirmation for a raw address — call BEFORE the row
   delete commits is fine (the job only carries the string), but the caller
   must have already established the address was verified.
+
+  `chatgpt_subscriptions: n` is how many ChatGPT subscriptions the account
+  had linked, counted before the delete (ADR 0060 stage 5). It is a number
+  in the args and only when there were any, so the email can say that their
+  sign-ins were not revoked at OpenAI.
   """
-  def enqueue_deleted(email) when is_binary(email) do
-    %{email: email, kind: "deleted"} |> new() |> Oban.insert()
+  def enqueue_deleted(email, opts \\ []) when is_binary(email) do
+    args =
+      case Keyword.get(opts, :chatgpt_subscriptions, 0) do
+        count when is_integer(count) and count > 0 ->
+          %{email: email, kind: "deleted", chatgpt_subscriptions: count}
+
+        _ ->
+          %{email: email, kind: "deleted"}
+      end
+
+    args |> new() |> Oban.insert()
   end
 
   @impl Oban.Worker
-  def perform(%Oban.Job{args: %{"kind" => "deleted", "email" => email}}) do
-    deliver("deleted", email, fn -> UserEmails.deliver_account_deleted_email(email) end)
+  def perform(%Oban.Job{args: %{"kind" => "deleted", "email" => email} = args}) do
+    subscriptions = Map.get(args, "chatgpt_subscriptions", 0)
+
+    deliver("deleted", email, fn ->
+      UserEmails.deliver_account_deleted_email(email, chatgpt_subscriptions: subscriptions)
+    end)
   end
 
   def perform(%Oban.Job{args: %{"kind" => kind, "user_id" => user_id}})

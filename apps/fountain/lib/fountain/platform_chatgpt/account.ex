@@ -207,9 +207,18 @@ defmodule Fountain.PlatformChatGPT.Account do
 
   @doc """
   What a grant's name has to be, without the indexes that say it is free:
-  trimmed, present, at most 200 characters. A link attempt holds the name
-  for minutes before any grant row exists
+  trimmed, present, at most 200 characters, none of them invisible. A link
+  attempt holds the name for minutes before any grant row exists
   (`Fountain.ChatGPTAccounts.LinkAttempt`), and asks the same thing of it.
+
+  Characters are codepoints, which is what the column's `varchar(255)` and
+  the API's `maxLength` count: a hundred letters with three combining marks
+  each are a hundred graphemes and four hundred codepoints, and the database
+  would refuse them by raising, after a link had spent its device code. No
+  `\\p{C}`: a control (NUL among them, which no query will carry), a format
+  character such as a bidi override or a zero-width joiner, or an unassigned
+  one. The name is shown on a page, in error sentences and in audit
+  metadata, so it has to look like what it is.
   `cast/3` turns a blank name into a nil change on a row that has one, so
   the trim has to let nil through for `validate_required/2` to answer.
   """
@@ -217,7 +226,10 @@ defmodule Fountain.PlatformChatGPT.Account do
     changeset
     |> update_change(:name, &(&1 && String.trim(&1)))
     |> validate_required([:name])
-    |> validate_length(:name, min: 1, max: 200)
+    |> validate_length(:name, min: 1, max: 200, count: :codepoints)
+    |> validate_format(:name, ~r/\A\P{C}*\z/u,
+      message: "must not contain control or invisible characters"
+    )
   end
 
   # The unique error sits on the field a person can change, not on the

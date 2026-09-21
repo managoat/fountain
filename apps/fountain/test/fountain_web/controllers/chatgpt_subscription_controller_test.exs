@@ -185,6 +185,20 @@ defmodule FountainWeb.ChatGPTSubscriptionControllerTest do
       assert conn |> patch_json("#{@base}/#{grant.grant_id}", %{}) |> json_response(422)
     end
 
+    test "a name the column cannot hold, or one with a character nobody can see, is 422",
+         %{conn: conn, user: user} do
+      grant = link!(user, "Work", "acct-work")
+
+      for name <- [String.duplicate("e\u0301\u0302\u0303", 100), "Wo\0rk", "Work\u202Egnp"] do
+        assert %{"error" => "validation_failed", "errors" => %{"name" => [_]}} =
+                 conn
+                 |> patch_json("#{@base}/#{grant.grant_id}", %{"name" => name})
+                 |> json_response(422)
+      end
+
+      assert {:ok, %{name: "Work"}} = ChatGPTAccounts.get_for_user(grant.grant_id, user.id)
+    end
+
     test "an account that may no longer link is 403 chatgpt_owner_ineligible",
          %{conn: conn, user: user} do
       grant = link!(user, "Work", "acct-work")
@@ -384,7 +398,11 @@ defmodule FountainWeb.ChatGPTSubscriptionControllerTest do
       for body <- [
             %{},
             %{"name" => "Work", "grant_id" => Ecto.UUID.generate()},
-            %{"name" => "   "}
+            %{"name" => "   "},
+            # More codepoints than the column holds, in a hundred graphemes.
+            %{"name" => String.duplicate("e\u0301\u0302\u0303", 100)},
+            %{"name" => "Wo\0rk"},
+            %{"name" => "Work\u202Egnp"}
           ] do
         assert %{"error" => "validation_failed", "errors" => %{"name" => [_ | _]}} =
                  conn |> post_json(@base <> "/attempts", body) |> json_response(422)

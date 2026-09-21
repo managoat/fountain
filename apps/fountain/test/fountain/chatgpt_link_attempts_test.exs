@@ -110,6 +110,12 @@ defmodule Fountain.ChatGPTLinkAttemptsTest do
       for {name, message} <- [
             {"   ", "can't be blank"},
             {String.duplicate("n", 201), "should be at most 200 character(s)"},
+            # A hundred graphemes, four hundred codepoints: more than the column holds.
+            {String.duplicate("e\u0301\u0302\u0303", 100), "should be at most 200 character(s)"},
+            {"Wo\0rk", "must not contain control or invisible characters"},
+            {"Work\u202Egnp.exe", "must not contain control or invisible characters"},
+            {"Wo\u200Brk", "must not contain control or invisible characters"},
+            {"Wo\nrk", "must not contain control or invisible characters"},
             {"Work", "already names a ChatGPT subscription on this account"},
             {" Personal ", "already names a ChatGPT subscription on this account"}
           ] do

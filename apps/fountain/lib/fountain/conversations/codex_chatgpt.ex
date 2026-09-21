@@ -34,14 +34,26 @@ defmodule Fountain.Conversations.CodexChatGPT do
       (ADR 0052 decision 5). A conversation is pinned to one grant and
       generation for life, so its home never moves; a reconnect is a new
       generation, a new home and a new conversation.
-    * everything else codex keeps under `~/.codex` stays shared, through
-      symbolic links made when the home is prepared: `config.toml`,
-      `AGENTS.md`, `skills/`, and `sessions/`, so `thread/resume` finds a
-      rollout wherever the conversation that wrote it ran. Only `auth.json`
-      is per grant. Same unix user, so this prevents overwrite and
+    * what `~/.codex` holds **when the home is prepared** is shared, through
+      symbolic links: `config.toml` as Fountain wrote it, `AGENTS.md`,
+      `skills/`, and `sessions/`, so `thread/resume` finds a rollout
+      wherever the conversation that wrote it ran. `auth.json` is never
+      linked. Same unix user, so this prevents overwrite and
       mis-attribution, not reads: a peer that reads another grant's file
       gets a placeholder and an account id, and its own broker session still
       sends only its own grant's bearer and account.
+    * **the sharing is order-dependent, and nothing else is promised.** The
+      script links the entries that exist when it runs and skips a name the
+      home already has. Whatever codex first creates under its own
+      `CODEX_HOME` (its sqlite state, `history.jsonl`, a `config.toml` it
+      rewrites by atomic rename) is a real file private to that home and
+      shadows the shared name from then on. Two grant conversations on a
+      fresh machine get separate sqlite state; on a machine whose `~/.codex`
+      already holds it they share it through the link. For #1910 (codex's
+      sqlite state is not isolated per conversation on a shared sandbox)
+      that is neither reliably better nor worse: a home is per grant and
+      generation, not per conversation, and `CODEX_SQLITE_HOME`, which
+      #1910 prefers, is not set here.
     * the placeholder is the grant's own (`Reserved.placeholder/1`).
 
   **Not measured against a real client.** `managoat_runtimes` fixes codex's

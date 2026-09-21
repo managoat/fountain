@@ -809,11 +809,13 @@ nothing else. `Broker.split_inference/2` takes no custody of one, so the
 grant is never in the `brokered` map, a rule, a binding or a template. No
 conversation process ever holds the bearer: it exists only inside
 `Sessions.authorize/2`, for one request, as a `%Grant{}` whose `inspect`
-omits it. One consequence is accepted rather than fixed: the bearer is not
-in the redaction registry either, because it was never anywhere to
-register it from. An upstream that echoed `Authorization` back would put it
-in `log_events`; the only destination is the fixed Codex route, which does
-not.
+omits it. One consequence follows, and review of this stage made it a
+gate rather than an accepted risk (gate A under "Not built"): the bearer is
+the one brokered credential that is not in the conversation's redaction
+registry, because it was never anywhere to register it from. A response
+that echoed `Authorization` back would put it in `log_events` and on the
+SSE stream unredacted. The only destination is the fixed Codex route, which
+is not known to; "not known to" is not a control.
 
 **The sandbox.** `CodexChatGPT.managed_grant/2` says which sources are on
 this path. For one, `env/3` exports the placeholder and
@@ -823,13 +825,49 @@ callers already held and passed neither of, links everything in `~/.codex`
 except `auth.json` into that home with a constant script, and writes
 `auth.json` from `ChatGPTAccounts.sandbox_auth/1`, pinned by owner, id and
 generation. `platform_sandbox_auth/0` is no longer reachable from a user's
-source. The home is process env only (`Identity.disk_env/1`, by its value,
-so a tenant's own `CODEX_HOME` is where it was), a tenant `CODEX_HOME` is
-dropped beside it, and on a self-hosted runner the value goes through
-`Sandbox.host_path/2` because env values reach a runner verbatim. Same unix
-user, so this prevents overwrite and mis-attribution, not reads: a peer
-that reads another grant's file gets a placeholder and an account id, and
-its own session still sends only its own grant's bearer and account.
+source: review found one way it still was, a `:grant` source that pins
+nothing (no owner, or persisted without its grant id or generation), which
+fell through to the shared path; that is now `:invalid_codex_home`, and
+`env/3` exports nothing for it. The home is process env only
+(`Identity.disk_env/1`, by its value, so a tenant's own `CODEX_HOME` is
+where it was), a tenant `CODEX_HOME` is dropped beside it, and on a
+self-hosted runner the value goes through `Sandbox.host_path/2` because env
+values reach a runner verbatim. Same unix user, so this prevents overwrite
+and mis-attribution, not reads: a peer that reads another grant's file gets
+a placeholder and an account id, and its own session still sends only its
+own grant's bearer and account.
+
+**"Everything else stays shared" is order-dependent, and the first draft of
+this section did not say so.** The script links the entries `~/.codex` holds
+when it runs and skips any name the home already has. It cannot link what
+does not exist yet. Whatever codex first creates under its per-grant
+`CODEX_HOME` is therefore a real file private to that home, and shadows the
+shared name from then on. From codex's source and not observed, that is its
+sqlite state, `history.jsonl`, and a `config.toml` it rewrites by atomic
+rename, which replaces the link with a file. Two grant conversations on a
+fresh machine get separate sqlite state. On a machine whose `~/.codex`
+already holds it they share it through the link, as every codex conversation
+on a machine did before. What is reliably shared is what Fountain or an
+earlier run put in `~/.codex` before the home was first prepared, which is
+what the script's comment and the tests claim: `config.toml` as Fountain
+wrote it, `AGENTS.md`, `skills/`, `sessions/`. This is #1910's subject, the
+sqlite state runtime not being isolated per conversation on a shared
+sandbox, and this stage is neither reliably better nor worse for it: #1910
+names `CODEX_HOME` as the root that state lives under and prefers
+`CODEX_SQLITE_HOME` per conversation, which this stage does not set; a home
+here is per grant and generation, so two conversations on one sign-in still
+share whatever state the home holds, and two on different sign-ins may or
+may not, by the order above. #1910 stays open and unchanged by this.
+
+The script is constant text run on every provision and reattach. Review
+made it tolerate a peer preparing the same home at the same moment (the
+check and the `ln` are two steps; a link that exists once `ln` has run is
+what was wanted), refuse a home, or a directory of homes, that is itself a
+symbolic link (exit 3), and remove an `auth.json` that is a link before the
+write, leaving a regular one for the write to replace because a peer on the
+same sign-in may be reading it. Everything under `/home/sprite` is the
+agent's to write, so this narrows a same-user race and does not close it: a
+link planted between the script and the write wins.
 
 **The turn.** `TurnMachine.gate/2` ends in `CodexChatGPT.ensure_fresh/2`:
 for a grant inside its refresh margin, `refresh_for_user/3` by grant id and
@@ -843,6 +881,20 @@ including the reasons only the credential side can see (stage 2's item 4):
 use a grant. A renewal that failed for a reason that may pass lets the turn
 go ahead on the token it has (0047's limitation, kept). `Egress` renews
 nothing for a user's grant and compares no token for one.
+
+Two other places meet a grant that ended, and review made both say so in
+the same words. The issuance fence can refuse between a server resolving
+its source and minting its session (`{:broker, :session,
+:managed_grant_inactive}`); a wake published that `retryable: true` with an
+inspected tuple, as it does a broker outage, and a first provision
+published the tuple. Both now publish `chatgpt_grant_unusable` with the
+grant's reason, id and stage 2's sentence, `retryable: false`
+(`CodexChatGPT.refusal_stage/3`). The reason is read from the row first,
+because a disconnect is a new generation too and `ensure_fresh/2` alone
+calls every ended grant a changed source. And `prepare_sandbox/5`, whose
+pinned read finds nothing for a grant that was reconnected, answered
+`:reconnect_required` where `ensure_fresh/2` answers the same fact
+`:inference_source_changed`; it now answers that too.
 
 **The guard is gone.** `CodexChatGPT.transport_ready/1`, its four call
 sites and the 409 `chatgpt_grant_transport_unavailable` are deleted. The
@@ -877,7 +929,10 @@ Five things stage 3 settled or found:
 3. **`CODEX_HOME` is per source, and done from Fountain.** Per grant and
    generation, as decision 6 words it, not per conversation: two
    conversations on one sign-in share a home and write identical files, and
-   the directories are bounded by grants times reconnects.
+   the directories are bounded by grants times reconnects. Bounded is not
+   cleaned up: nothing removes `/home/sprite/.codex-grants/<grant>.<generation>`
+   after a disconnect, a reconnect or a removal. What it holds is links, a
+   placeholder and an account id, for the life of the machine.
    `managoat_runtimes` fixes codex's config root and neither it nor
    `managoat_acp` reads `CODEX_HOME`; 0052 decision 5 anticipated a library
    release here, and this ADR's authors cannot make one, so the home is a
@@ -909,6 +964,43 @@ Five things stage 3 settled or found:
    Codex sandbox requires the same resolved source. That stays true of every
    source an account can hold until stage 4, which regenerates the contract
    for `chatgpt_grant_id` and rewords it then.
+
+**After review.** Two reviews of this stage, one for security and one for
+correctness, found nothing of high severity. What they changed is in the
+paragraphs above where it belongs, and in one place here:
+
+- The per-request path had a read with no timeout, the tenant key's, under
+  a docstring and a sentence of this ADR that said every read had one. It
+  has one now, and the cost sentence below counts what is really read.
+- A grant that ended between the resolve and the broker session is a
+  named, permanent refusal on a wake and on a first provision, not a
+  retryable broker failure ("The turn").
+- A reconnected grant is `:inference_source_changed` at the home as at the
+  turn; a `:grant` source that pins nothing is refused and never reaches
+  the shared path; the link script survives a concurrent peer and a planted
+  link ("The sandbox").
+- `Reserved` held a secret's value to the rule for names, a case-insensitive
+  substring match, so a setup script or a JSON blob that mentions
+  `codex_chatgpt_access_token` was refused at the write and, for a row older
+  than the write's check, failed every provision on a grant. Names (keys,
+  every binding field, network patterns, the account id) keep that rule. A
+  value is refused only where it could stand for the credential: the
+  reserved name alone, a placeholder occurring anywhere in it, the
+  deployment's or any grant's, or a `{{ NAME }}` reference. That loosens
+  nothing the protected route depends on: what stops a tenant rule
+  injecting there is `ProtectedRule.prepare/4` over the effective rules,
+  which no value reaches, and a placeholder inside a value, the one thing a
+  `:substitute` rule would rewrite, is still refused.
+- The grant's revocation leaves expired sessions to the sweep; a failing
+  managed session logs once a minute instead of once per request; the
+  second migration takes a lock timeout like the first; the acceptance
+  test also reaches its machine by a first bind on a `pending` row, which
+  is how production sets `codex_peer_homes`.
+
+What review left is the rest of this section: two claims corrected rather
+than code changed (what "shared" means under a per-grant home, and that
+homes are bounded but never removed), two security gates that need a
+library release, a rate cap, and two lock orders.
 
 **Not built, and said so where it lives:**
 
@@ -949,6 +1041,66 @@ Five things stage 3 settled or found:
   of `authorize/2`'s reads has a five-second timeout, the key's included,
   which `Crypto.load_tenant_key/2` takes for this caller only. 0052's
   consequences accept the cost; it is worth watching once there is traffic.
+- **A per-session request rate cap.** Those reads come from the shared
+  `Repo` pool, each may hold a connection for up to five seconds, and the
+  sandbox decides how many requests there are. A prompt-injected agent in a
+  loop can therefore spend the pool's connections on its own egress. Review
+  bounded the reads and the log (a failing session writes each of its
+  warnings once a minute per node through `Fountain.LogThrottle`, not once
+  per request) and left the rate alone: a cap belongs at the proxy's
+  admission, per session, and nothing here builds one.
+- **Removing a grant's homes.** See item 3: the directories outlive the
+  sign-in they were for.
+- **A home that exists before the environment's own steps run.** Package
+  installs, clones and the `setup_script` run with the conversation's spawn
+  env, so with `CODEX_HOME` pointing at the grant's home, and
+  `FreshProvision` runs them before `prepare_runtime_sprite/7` creates it. A
+  script that ignores codex never notices. One that runs codex there makes
+  the home itself, with real files where the link script would have put
+  links, and by the order-dependence above the conversation then runs on
+  that `config.toml` and not on the one Fountain wrote with the agent's MCP
+  servers. Not fixed: preparing the home earlier puts it in front of a
+  checkpoint restore, and withholding the variable from those steps is a
+  decision about what a setup script is promised, which stage 4's
+  documentation should make.
+- **Two lock orders PostgreSQL would have to break.** Both rare, both
+  detected by the database and surfaced as one aborted transaction, neither
+  prevented. `revoke_grant/2`, inside the grant's transaction, and
+  `update_rules/4` both update a conversation's live sessions with a
+  multi-row statement; they share two rows only while a re-minted session
+  overlaps its predecessor, and then may lock them in opposite orders, and
+  the side that aborts can be `disconnect_for_user/3`, the kill switch.
+  Review took the expired rows out of `revoke_grant/2`, which removes the
+  same shape against `sweep_expired/0`; that is safe only because nothing
+  extends a session's `expires_at`, which was checked and is said where a
+  future write would break it. And an account deletion locks the user row
+  and cascades to the grant, while `Sessions.create/1` holds the grant `FOR
+  SHARE` and then needs `FOR KEY SHARE` on the user for the session's
+  foreign key. Taking the user's key share first would order them, and was
+  not done because no audit of every other path that locks a user row after
+  a grant row stands behind it.
+
+**Two security gates, not built, both before the console surface opens
+(stage 4's route, stage 5's gate), and both a `managoat_broker` release
+rather than Fountain code:**
+
+- **Gate A: the bearer in a response.** The grant's bearer is the one
+  brokered credential absent from the conversation's redaction registry (see
+  "The typed input"). If `chatgpt.com`, or an error page from whatever sits
+  in front of it, ever reflects the request's `Authorization`, the bearer
+  lands unredacted in `log_events` and on the SSE stream, where anything
+  that can read the conversation reads it. Only the proxy holds the bearer
+  at that moment, so the fix is there: scrub, or refuse, a protected
+  response that contains the bearer its request was sent with. Fountain
+  cannot do it: registering the bearer would mean a conversation process
+  holding it, which is what this stage exists to prevent.
+- **Gate B: the query string on the protected route.**
+  `Managoat.Broker.ProtectedRule` matches the path and forwards whatever
+  query string came with it, under the bearer. The pinned client sends none,
+  and `scripts/probe-codex-protected.py` asserts the exact target, so
+  nothing legitimate is lost by refusing one; an agent that can reach the
+  proxy can add one today. The gate is a library option to refuse a
+  non-empty query on a protected route, set by `ProtectedCompiler.policy/1`.
 
 What the tests hold, for the platform's grant and for a user's unless the
 case is about two of one user's: this stage's three acceptance tests
@@ -964,7 +1116,15 @@ sees them, on every host of the session; a forged account id and the other
 grant's placeholder; persisted bindings that name the managed key or a
 wildcard over its route; and the bearer absent from server state, the
 `brokered` map, `rules_ciphertext`, the redaction registry, log events and
-every `inspect`.
+every `inspect`. After review, also: the tenant key read under the
+request's timeout on both halves of `authorize/2`; a grant ended just
+before the mint, through a real server on a wake and on a first provision;
+the link script run for real against an `ln` that loses the race every
+time, one that fails outright, eight at once, a planted home, a planted
+directory of homes and a planted `auth.json`; secret values that mention
+the reserved name and values that stand for the credential, each through
+the write and through `compile/3`; twenty failing requests and one line of
+each warning; and the acceptance pair on a machine that starts `pending`.
 
 **For stages 4 and 5.** Disconnect, reconnect and removal already revoke
 broker authorization, because the revocation is inside
@@ -977,8 +1137,10 @@ caller of the same `refresh_for_user/3`. Exhaustion, when stage 5 writes it,
 should stay out of `protected_credential/2`: an exhausted grant is `active`
 and its token is good, so it is a selection fact, not an authorization one.
 Stage 4 owes the `owner_ineligible` reason a place in `Schemas.Error` beside
-the others, the `codex_inference_conflict` wording of item 5, and, before
-any of it is reachable, item 4's platform move and the two measurements.
+the others, the `codex_inference_conflict` wording of item 5, a sentence in
+the manual about what a `setup_script` sees of `CODEX_HOME`, and, before any
+of it is reachable, item 4's platform move, the two measurements and gates
+A and B.
 
 ## Consequences
 

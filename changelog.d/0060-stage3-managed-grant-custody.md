@@ -14,3 +14,14 @@
   (`/admin/inference`) is unchanged. Rolling `20260921021249` back deletes
   any broker session that carries a managed grant; its conversation mints a
   new one on its next turn.
+
+### Fixed
+
+- **A secret whose value mentions `CODEX_CHATGPT_ACCESS_TOKEN` can be saved**
+  (#2453). Environment and vault secrets refused any value that contained
+  the reserved name, in any case, so a setup script or a JSON blob that
+  mentions it failed with "is reserved for managed ChatGPT credentials". A
+  value is now refused only when it is the reserved name by itself, contains
+  one of the managed credential's placeholders, or contains a
+  `{{ CODEX_CHATGPT_ACCESS_TOKEN }}` reference. The name is still refused
+  as a secret's key and anywhere in a secret binding.

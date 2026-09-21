@@ -11,8 +11,10 @@ defmodule FountainWeb.InferenceCredentialSetsLiveTest do
   use FountainWeb.ConnCase, async: true
   use Mimic
 
+  import Fountain.ChatGPTFixtures, only: [user_tokens: 1]
   import Phoenix.LiveViewTest
 
+  alias Fountain.ChatGPTAccounts
   alias Fountain.Crypto
   alias Fountain.InferenceCredentials
 
@@ -231,6 +233,82 @@ defmodule FountainWeb.InferenceCredentialSetsLiveTest do
         |> render_submit(%{"name" => "Second subscription"})
 
       assert html =~ "already names a credential set"
+    end
+  end
+
+  # ADR 0060 decision 2, with linking off, which is what every deployment is
+  # and what this async module gets: the rollout flag is application env, so
+  # the picker with linking on is in `chatgpt_subscriptions_live_test.exs`.
+  describe "the set's ChatGPT subscription, with linking off" do
+    defp link!(user, name, account_id) do
+      {:ok, grant} = ChatGPTAccounts.connect_for_user(user.id, name, user_tokens(account_id))
+      grant
+    end
+
+    test "an account that holds no subscription sees no picker", %{conn: conn} do
+      {:ok, view, _html} = live(conn, @path)
+      refute has_element?(view, "#set-chatgpt-grant")
+    end
+
+    test "a set that names nothing is not offered one", %{conn: conn, user: user} do
+      link!(user, "Work", "acct-work")
+      {:ok, _set} = InferenceCredentials.create_set(user.id, "Default")
+
+      {:ok, view, _html} = live(conn, @path)
+      refute has_element?(view, "#set-chatgpt-grant")
+    end
+
+    test "a set that names one still shows it, is offered no other, and may clear it", %{
+      conn: conn,
+      user: user
+    } do
+      work = link!(user, "Work", "acct-work")
+      personal = link!(user, "Personal", "acct-personal")
+      {:ok, set} = InferenceCredentials.create_set(user.id, "Default")
+      {:ok, set} = InferenceCredentials.set_grant(set, work.grant_id)
+
+      {:ok, view, _html} = live(conn, @path)
+
+      assert has_element?(view, "#set-chatgpt-grant option[selected][value='#{work.grant_id}']")
+      assert has_element?(view, "#set-chatgpt-grant option[value='']", "None")
+      refute has_element?(view, "#set-chatgpt-grant option[value='#{personal.grant_id}']")
+
+      # Hidden is not refused: an event the page does not offer is.
+      assert render_submit(view, "set_grant", %{"grant_id" => personal.grant_id}) =~
+               "Naming another ChatGPT subscription is not available on this account."
+
+      assert Fountain.Repo.reload!(set).chatgpt_grant_id == work.grant_id
+
+      html =
+        view |> element("#set-chatgpt-grant-form") |> render_submit(%{"grant_id" => ""})
+
+      assert html =~ "Default names no ChatGPT subscription now."
+      assert is_nil(Fountain.Repo.reload!(set).chatgpt_grant_id)
+      # With nothing named and linking off there is nothing left to pick.
+      refute has_element?(view, "#set-chatgpt-grant option[value='#{work.grant_id}']")
+      {:ok, view, _html} = live(conn, @path)
+      refute has_element?(view, "#set-chatgpt-grant")
+    end
+
+    test "a named subscription that was disconnected is shown with its state", %{
+      conn: conn,
+      user: user
+    } do
+      work = link!(user, "Work", "acct-work")
+      {:ok, set} = InferenceCredentials.create_set(user.id, "Default")
+      {:ok, _} = InferenceCredentials.set_grant(set, work.grant_id)
+      :ok = ChatGPTAccounts.disconnect_for_user(work.grant_id, user.id)
+
+      {:ok, view, html} = live(conn, @path)
+
+      assert has_element?(
+               view,
+               "#set-chatgpt-grant option[selected][value='#{work.grant_id}']",
+               "Work (disconnected)"
+             )
+
+      assert html =~ "Work is disconnected"
+      assert html =~ "codex runs on this set are refused"
     end
   end
 end

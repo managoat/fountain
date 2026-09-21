@@ -557,6 +557,104 @@ defmodule FountainWeb.ChatGPTSubscriptionsLiveTest do
     end
   end
 
+  describe "a credential set picks a subscription" do
+    setup %{user: user} do
+      %{
+        work: link!(user, "Work", "acct-work"),
+        personal: link!(user, "Personal", "acct-personal")
+      }
+    end
+
+    defp pick(view, grant_id),
+      do: view |> element("#set-chatgpt-grant-form") |> render_submit(%{"grant_id" => grant_id})
+
+    test "an account with one set names a subscription in it, behind a confirm that says what ends",
+         %{conn: conn, user: user, work: work, personal: personal} do
+      {:ok, set} = InferenceCredentials.create_set(user.id, "Default")
+      {:ok, view, _html} = live(conn, @path)
+
+      # One set, so no set panel, and the picker is there all the same.
+      refute has_element?(view, "button[phx-click='select_set']")
+      assert has_element?(view, "#set-chatgpt-grant option[selected][value='']", "None")
+      assert has_element?(view, "#set-chatgpt-grant option[value='#{work.grant_id}']", "Work")
+
+      assert view |> element("#set-chatgpt-grant-form button") |> render() =~
+               "ends the codex conversations now running on that set"
+
+      assert pick(view, work.grant_id) =~ "Default now runs codex on Work."
+      assert Repo.reload!(set).chatgpt_grant_id == work.grant_id
+      assert has_element?(view, "#set-chatgpt-grant option[selected][value='#{work.grant_id}']")
+
+      assert pick(view, personal.grant_id) =~ "Default now runs codex on Personal."
+      assert pick(view, "") =~ "Default names no ChatGPT subscription now."
+      assert is_nil(Repo.reload!(set).chatgpt_grant_id)
+    end
+
+    test "an account with no set yet gets its default set by naming one",
+         %{conn: conn, user: user, work: work} do
+      assert InferenceCredentials.list_sets(user.id) == []
+      {:ok, view, _html} = live(conn, @path)
+
+      # Clearing what was never there makes nothing.
+      pick(view, "")
+      assert InferenceCredentials.list_sets(user.id) == []
+
+      assert pick(view, work.grant_id) =~ "Default now runs codex on Work."
+
+      assert [%{name: "Default", is_default: true, chatgpt_grant_id: named}] =
+               InferenceCredentials.list_sets(user.id)
+
+      assert named == work.grant_id
+    end
+
+    test "the picker is about the selected set", %{conn: conn, user: user, work: work} do
+      {:ok, default} = InferenceCredentials.create_set(user.id, "Default")
+      {:ok, second} = InferenceCredentials.create_set(user.id, "Second")
+      {:ok, view, _html} = live(conn, @path)
+
+      view |> element("button[phx-value-id='#{second.id}']") |> render_click()
+      assert pick(view, work.grant_id) =~ "Second now runs codex on Work."
+
+      assert Repo.reload!(second).chatgpt_grant_id == work.grant_id
+      assert is_nil(Repo.reload!(default).chatgpt_grant_id)
+    end
+
+    test "a disconnected subscription is offered only to the set that already names it",
+         %{conn: conn, user: user, work: work, personal: personal} do
+      {:ok, set} = InferenceCredentials.create_set(user.id, "Default")
+      {:ok, _} = InferenceCredentials.set_grant(set, work.grant_id)
+      {:ok, view, _html} = live(conn, @path)
+
+      :ok = ChatGPTAccounts.disconnect_for_user(work.grant_id, user.id)
+      :ok = ChatGPTAccounts.disconnect_for_user(personal.grant_id, user.id)
+      render(view)
+
+      assert has_element?(
+               view,
+               "#set-chatgpt-grant option[value='#{work.grant_id}']",
+               "Work (disconnected)"
+             )
+
+      refute has_element?(view, "#set-chatgpt-grant option[value='#{personal.grant_id}']")
+
+      assert render_submit(view, "set_grant", %{"grant_id" => personal.grant_id}) =~
+               "That subscription is disconnected; reconnect it before a set names it."
+    end
+
+    test "another account's subscription, and an id that is not one, are the same refusal",
+         %{conn: conn, user: user, other: other} do
+      theirs = link!(other, "Theirs", "acct-theirs")
+      {:ok, set} = InferenceCredentials.create_set(user.id, "Default")
+      {:ok, view, _html} = live(conn, @path)
+      refusal = "That subscription is not a ChatGPT subscription this account can name."
+
+      assert render_submit(view, "set_grant", %{"grant_id" => theirs.grant_id}) =~ refusal
+      assert render_submit(view, "set_grant", %{"grant_id" => "nope"}) =~ refusal
+      assert is_nil(Repo.reload!(set).chatgpt_grant_id)
+      assert Process.alive?(view.pid)
+    end
+  end
+
   describe "ownership" do
     test "another account's ids read as not there, change nothing, and the page lives on",
          %{conn: conn, user: user, other: other} do

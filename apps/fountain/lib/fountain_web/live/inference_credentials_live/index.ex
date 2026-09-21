@@ -12,6 +12,9 @@ defmodule FountainWeb.InferenceCredentialsLive.Index do
   always about the selected set, and an account that never makes a second one
   sees what it saw before: its default set, under the name it was given.
 
+  A fifth row names the ChatGPT subscription the selected set's codex runs
+  use (ADR 0060 decision 2), through `InferenceCredentials.set_grant/3`.
+
   Under the rows is the account's **ChatGPT subscriptions** card (ADR 0060
   decision 3), a component of its own, `SubscriptionsCard`. This page reads
   what the card shows, on mount and again whenever
@@ -53,6 +56,7 @@ defmodule FountainWeb.InferenceCredentialsLive.Index do
      |> assign(:providers, @providers)
      |> assign(:provider_messages, %{})
      |> assign(:set_message, nil)
+     |> assign(:grant_message, nil)
      |> assign(:attribution, FountainWeb.Audited.attribution(socket))
      |> load_subscriptions()
      |> load_sets()}
@@ -83,7 +87,7 @@ defmodule FountainWeb.InferenceCredentialsLive.Index do
 
   @impl true
   def handle_event(event, _params, %{assigns: %{invalid_set_selection: true}} = socket)
-      when event in ["rename_set", "make_default", "delete_set", "save", "clear"] do
+      when event in ["rename_set", "make_default", "delete_set", "set_grant", "save", "clear"] do
     {:noreply, unavailable_selection(socket)}
   end
 
@@ -97,6 +101,7 @@ defmodule FountainWeb.InferenceCredentialsLive.Index do
          socket
          |> assign(:provider_messages, %{})
          |> assign(:set_message, nil)
+         |> assign(:grant_message, nil)
          |> load_sets(id)}
     end
   end
@@ -181,6 +186,45 @@ defmodule FountainWeb.InferenceCredentialsLive.Index do
 
       {:error, _} ->
         {:noreply, assign(socket, :set_message, {:error, "Could not delete the set."})}
+    end
+  end
+
+  # The subscription the selected set's codex runs use, or "" for none. The
+  # id is the client's word: `set_grant/3` reads it scoped by the set's owner,
+  # and another account's grant is the same refusal as one that does not
+  # exist.
+  def handle_event("set_grant", %{"grant_id" => value}, socket) when is_binary(value) do
+    grant_id = if value == "", do: nil, else: value
+
+    with :ok <- may_name(socket, grant_id),
+         {:ok, set} <- set_to_name_in(socket, grant_id),
+         {:ok, set} <-
+           InferenceCredentials.set_grant(set, grant_id, FountainWeb.Audited.attribution(socket)) do
+      {:noreply,
+       socket
+       |> assign(:grant_message, {:info, grant_saved(socket, set)})
+       |> load_sets(set.id)}
+    else
+      :nothing_to_clear ->
+        {:noreply, assign(socket, :grant_message, nil)}
+
+      {:error, :not_found} ->
+        {:noreply, unavailable_selection(socket)}
+
+      {:error, :linking_off} ->
+        {:noreply,
+         assign(
+           socket,
+           :grant_message,
+           {:error, "Naming another ChatGPT subscription is not available on this account."}
+         )}
+
+      {:error, %Ecto.Changeset{errors: [{:chatgpt_grant_id, {message, _}} | _]}} ->
+        {:noreply, assign(socket, :grant_message, {:error, "That subscription #{message}."})}
+
+      {:error, _} ->
+        {:noreply,
+         assign(socket, :grant_message, {:error, "Could not change the set's subscription."})}
     end
   end
 
@@ -282,6 +326,62 @@ defmodule FountainWeb.InferenceCredentialsLive.Index do
     end
   end
 
+  # The rollout gates naming as it gates linking: with linking off a set keeps
+  # the subscription it names, and may stop naming it, and nothing else. Asked
+  # here as well as in the template, which only hides the options.
+  defp may_name(socket, grant_id) do
+    named = socket.assigns.set && socket.assigns.set.chatgpt_grant_id
+
+    if is_nil(grant_id) or grant_id == named or socket.assigns.subscriptions.linking?,
+      do: :ok,
+      else: {:error, :linking_off}
+  end
+
+  # An account that has never stored a key has no set to name a subscription
+  # in. It gets its default set here, as a first key would have given it.
+  defp set_to_name_in(%{assigns: %{set: %{} = set}}, _grant_id), do: {:ok, set}
+  defp set_to_name_in(%{assigns: %{set: nil}}, nil), do: :nothing_to_clear
+
+  defp set_to_name_in(%{assigns: %{set: nil}} = socket, _grant_id) do
+    InferenceCredentials.create_set(
+      socket.assigns.user_id,
+      InferenceCredentials.Credential.default_name(),
+      FountainWeb.Audited.attribution(socket)
+    )
+  end
+
+  defp grant_saved(_socket, %{chatgpt_grant_id: nil} = set),
+    do: "#{set.name} names no ChatGPT subscription now."
+
+  defp grant_saved(socket, set) do
+    case Enum.find(socket.assigns.subscriptions.grants, &(&1.id == set.chatgpt_grant_id)) do
+      %{name: name} -> "#{set.name} now runs codex on #{name}."
+      nil -> "#{set.name} now names that subscription."
+    end
+  end
+
+  # The picker's choices: the subscription the set names, whatever state it
+  # is in, and, where linking is on, every other one a set may name. A
+  # disconnected one may not be named (`set_grant/3`), so it is offered only
+  # to the set that already names it.
+  defp grant_options(set, subscriptions) do
+    named = set && set.chatgpt_grant_id
+
+    Enum.filter(subscriptions.grants, fn grant ->
+      grant.id == named or (subscriptions.linking? and grant.state != :disconnected)
+    end)
+  end
+
+  defp grant_option_label(%{state: :connected, name: name}), do: name
+  defp grant_option_label(%{name: name} = grant), do: "#{name} (#{grant_state_words(grant)})"
+
+  defp grant_state_words(%{state: :disconnected}), do: "disconnected"
+  defp grant_state_words(%{state: :exhausted}), do: "usage spent"
+  defp grant_state_words(%{state: _}), do: "reconnect required"
+
+  defp named_grant(set, subscriptions),
+    do: set && Enum.find(subscriptions.grants, &(&1.id == set.chatgpt_grant_id))
+
   # Into the selected set, or through `put_credential/5` when the account has
   # none yet -- that path creates the default set on a first write, which is
   # what an account visiting this page for the first time does.
@@ -326,6 +426,7 @@ defmodule FountainWeb.InferenceCredentialsLive.Index do
     |> assign(:invalid_set_selection, true)
     |> assign(:status, InferenceCredentials.status_for_set(nil))
     |> assign(:provider_messages, %{})
+    |> assign(:grant_message, nil)
     |> assign(
       :set_message,
       {:error, "That credential set is no longer available. Choose another set before saving."}
@@ -484,6 +585,69 @@ defmodule FountainWeb.InferenceCredentialsLive.Index do
         </form>
 
         <.provider_message message={Map.get(@provider_messages, provider)} />
+      </div>
+
+      <%!-- Which subscription the selected set's codex runs use (ADR 0060
+            decision 2). Not on the set panel above, which an account with one
+            set never sees: its default set names a subscription like any
+            other. It stays for the message of the write that emptied it. --%>
+      <div
+        :if={
+          !@invalid_set_selection and (grant_options(@set, @subscriptions) != [] or @grant_message)
+        }
+        id="set-chatgpt-grant"
+        class="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-1)] p-5 space-y-3"
+      >
+        <div>
+          <div class="flex items-center gap-2">
+            <h2 class="text-base font-medium">ChatGPT subscription</h2>
+            <.status_chip set?={is_binary(@set && @set.chatgpt_grant_id)} />
+          </div>
+          <p class="text-xs text-[var(--color-text-secondary)] mt-1">
+            For the codex runtime, instead of an OpenAI API key: agents on this set run codex on
+            the subscription named here, and on nothing else. If it is disconnected or spent the
+            run is refused; Fountain does not switch to another subscription or to a key.
+            Every other runtime keeps using the keys above.
+          </p>
+        </div>
+
+        <p
+          :if={
+            named_grant(@set, @subscriptions) && named_grant(@set, @subscriptions).state != :connected
+          }
+          class="text-xs text-amber-800"
+        >
+          {named_grant(@set, @subscriptions).name} is {grant_state_words(
+            named_grant(@set, @subscriptions)
+          )}:
+          codex runs on this set are refused until that changes, or until the set names another.
+        </p>
+
+        <form id="set-chatgpt-grant-form" phx-submit="set_grant" class="flex flex-wrap gap-2">
+          <select
+            name="grant_id"
+            aria-label="ChatGPT subscription"
+            class="flex-1 min-w-[16rem] rounded-md border border-[var(--color-border)] bg-[var(--color-bg-2)] px-3 py-1.5 text-sm"
+          >
+            <option value="" selected={is_nil(@set && @set.chatgpt_grant_id)}>None</option>
+            <option
+              :for={grant <- grant_options(@set, @subscriptions)}
+              value={grant.id}
+              selected={@set && @set.chatgpt_grant_id == grant.id}
+            >
+              {grant_option_label(grant)}
+            </option>
+          </select>
+          <.button
+            type="submit"
+            variant="secondary"
+            data-confirm="Changing the subscription a set names ends the codex conversations now running on that set: their next turn is refused and you start new ones. Conversations on other runtimes are not affected. Continue?"
+          >
+            Save
+          </.button>
+        </form>
+
+        <.provider_message message={@grant_message} />
       </div>
 
       <.live_component

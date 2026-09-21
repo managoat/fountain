@@ -50,7 +50,7 @@ reconnected mid-turn fails at the proxy on its next request with a 403,
 rather than running on until its next turn. The bearer is no longer
 registered for output redaction, because no conversation holds it to
 register; what stands in for that is a gate on the proxy (0060's gate A,
-built in `managoat_broker` 0.15.0 and adopted on 2026-09-21, #2453), which
+built in `managoat_broker` 0.15.0 and adopted on 2026-09-21, #2483), which
 refuses a response that repeats the bearer's exact bytes and recognises no
 transformation of them. And a tenant's own `CODEX_HOME`, in an environment or a
 vault, is dropped for a conversation on the grant, where it used to be

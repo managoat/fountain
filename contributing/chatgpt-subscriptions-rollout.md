@@ -37,7 +37,7 @@ you do not trust.
 - [x] **(b) A `managoat_broker` hex release with Gate A and Gate B**, the pin
   bumped in `apps/fountain/mix.exs`, and `ProtectedCompiler.policy/1` setting
   the option. Ticked 2026-09-21: `managoat_broker` 0.15.0
-  (managoat/managoat_broker#39), adopted by #2453. Gate A refuses (it does
+  (managoat/managoat_broker#39), adopted by #2483. Gate A refuses (it does
   not scrub) a protected response that contains the bearer its request was
   sent with, and refuses one that arrives compressed, having asked for
   `Accept-Encoding: identity`. Gate B refuses any query string on a

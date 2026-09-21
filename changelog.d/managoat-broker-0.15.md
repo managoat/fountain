@@ -1,7 +1,7 @@
 ### Security
 
 - **The egress broker refuses a response that repeats a ChatGPT account's
-  token** (#2453, ADR 0060 gate A, `managoat_broker` 0.15.0). A codex
+  token** (#2483, ADR 0060 gate A, `managoat_broker` 0.15.0). A codex
   conversation on the deployment's ChatGPT account, or on a linked ChatGPT
   subscription, never holds the account's access token: the broker adds it
   to the one request that carries it. That left one way for a sandbox to
@@ -22,7 +22,7 @@
   another connection. There is no setting that turns this off. Responses on
   every other route are relayed as before.
 
-- **A query string on that route is refused** (#2453, ADR 0060 gate B).
+- **A query string on that route is refused** (#2483, ADR 0060 gate B).
   `POST https://chatgpt.com/backend-api/codex/responses?<anything>` from a
   sandbox used to go out under the token, because only the path was matched.
   It is now a `403` with `protected_query` in the egress log, a bare `?`
@@ -32,7 +32,7 @@
 ### Changed
 
 - **Requests on that route go to `chatgpt.com` with `Accept-Encoding:
-  identity`, whatever the client sent** (#2453), because the broker cannot
+  identity`, whatever the client sent** (#2483), because the broker cannot
   search a compressed body for the token. A response that arrives in any
   other `Content-Encoding` anyway is refused unread with a `502` and
   `protected_response_encoded`. The Codex client Fountain pins (codex-acp

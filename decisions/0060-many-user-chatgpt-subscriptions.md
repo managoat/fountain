@@ -55,7 +55,7 @@ symlinked `CODEX_HOME` across a reattach and a `thread/resume` in a real
 sandbox, is not taken. It and a hosted turn through the protected path are
 still owed **before the flag is turned on for anyone**. The two broker
 gates stage 3 named are built: `managoat_broker` 0.15.0
-(managoat/managoat_broker#39), adopted on 2026-09-21 (#2453; "Stage 3 as
+(managoat/managoat_broker#39), adopted on 2026-09-21 (#2483; "Stage 3 as
 built", "Gates A and B as built"). What they have not had is a request to
 `chatgpt.com` through them, which the same hosted turn will be. What stage 1
 left running is
@@ -1043,7 +1043,7 @@ Five things stage 3 settled or found:
      platform grant too, and for it the exposure is not waiting on stage 4:
      it opens when this change deploys. The only destination is the one
      Codex route, which is not known to reflect `Authorization`. (Gate A
-     was built afterwards, in `managoat_broker` 0.15.0, adopted by #2453 on
+     was built afterwards, in `managoat_broker` 0.15.0, adopted by #2483 on
      2026-09-21: "Gates A and B as built". The deployment's account had
      been disconnected since 2026-09-16, so by then no request had gone
      through the path without it.)
@@ -1378,7 +1378,7 @@ deploy.
   non-empty query on a protected route, set by `ProtectedCompiler.policy/1`.
 
 **Gates A and B as built.** `managoat_broker` 0.15.0
-(managoat/managoat_broker#39, 2026-09-21), adopted by #2453 the same day.
+(managoat/managoat_broker#39, 2026-09-21), adopted by #2483 the same day.
 Both are on for every protected route with nothing to configure, and gate A
 has no option that turns it off. The issues were #2463 and #2464.
 
@@ -1755,7 +1755,7 @@ maintainer may reverse:
   against a real client, and broker gates A and B. (The move has since
   merged, as stage 3b, #2458, on 2026-09-21, without its own measurement.
   The probe's re-run was taken offline later that day, and the gates
-  arrived the same day in `managoat_broker` 0.15.0, adopted by #2453; the
+  arrived the same day in `managoat_broker` 0.15.0, adopted by #2483; the
   hosted turn and the symlinked-home measurement are still owed.)
 - **Stage 4b.** The **ChatGPT subscriptions** card and the set picker, whose
   confirm text says naming a grant ends the set's running codex
@@ -2497,8 +2497,8 @@ for the idle lifetime go in 0047's table, measurement 5.
 | Exhaustion, real or a stubbed `/wham/usage`: the card and the refusal (optional) | | | |
 | The keepalive observed for seven days: no unexpected `reconnect_required` | | | |
 | What a throttled refresh looks like: its status, whether the body names a code, and whether it follows the address or the account | | | |
-| Gate A (a protected response that repeats its bearer is refused, not scrubbed), on the released `managoat_broker` | `managoat_broker` 0.15.0 (#2453). No codex client, image or hosted instance was involved. | 2026-09-21, the suite only | **Built and tested against a local origin; not measured against `chatgpt.com`.** `broker/managed_grant_proxy_test.exs`: a reflecting origin gets the sandbox a fixed `502`, a reflecting streamed one a cut stream with none of the bearer in what arrived, a gzipped answer a `502`, and the origin was asked for `identity`. Whether `chatgpt.com` honours `Accept-Encoding: identity` on the Codex route is unmeasured; the hosted turn of #2479 shows it, as `protected_response_encoded` rows if it does not. |
-| Gate B (a query on the protected route is refused), on the released `managoat_broker` | `managoat_broker` 0.15.0 (#2453) | 2026-09-21, the suite only | **Built and tested.** `?x=1` and a bare `?` are `403 protected_query` with no session or grant row read and no origin hit. The recorded client sends no query (`capture.json`, asserted in `protected_compiler_test.exs`), so a hosted turn is not expected to meet it; a `protected_query` row on a real turn would be a finding. |
+| Gate A (a protected response that repeats its bearer is refused, not scrubbed), on the released `managoat_broker` | `managoat_broker` 0.15.0 (#2483). No codex client, image or hosted instance was involved. | 2026-09-21, the suite only | **Built and tested against a local origin; not measured against `chatgpt.com`.** `broker/managed_grant_proxy_test.exs`: a reflecting origin gets the sandbox a fixed `502`, a reflecting streamed one a cut stream with none of the bearer in what arrived, a gzipped answer a `502`, and the origin was asked for `identity`. Whether `chatgpt.com` honours `Accept-Encoding: identity` on the Codex route is unmeasured; the hosted turn of #2479 shows it, as `protected_response_encoded` rows if it does not. |
+| Gate B (a query on the protected route is refused), on the released `managoat_broker` | `managoat_broker` 0.15.0 (#2483) | 2026-09-21, the suite only | **Built and tested.** `?x=1` and a bare `?` are `403 protected_query` with no session or grant row read and no origin hit. The recorded client sends no query (`capture.json`, asserted in `protected_compiler_test.exs`), so a hosted turn is not expected to meet it; a `protected_query` row on a real turn would be a finding. |
 | The platform grant on the protected path (stage 3b, #2458, merged 2026-09-21 without this measurement): 0047's measurement 6 | codex-acp 1.10.0, codex-cli 0.153.4, under `managoat_runtimes` 0.4.5. No broker, image or hosted instance was involved. | 2026-09-21, the offline half only | **Offline half taken; hosted half not taken, and still owed.** The probe's output was byte-identical to the committed capture. The client reads `CODEX_HOME`. It asks `chatgpt.com` for ten routes besides the allowed one and completes both turns with all of them refused. No hosted turn: the deployment has had no account connected since 2026-09-16. The record is [0047](0047-codex-platform-chatgpt-account.md#measured), measurement 6. |
 
 ## Consequences

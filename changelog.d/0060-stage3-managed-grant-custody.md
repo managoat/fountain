@@ -7,11 +7,13 @@
   and when that was revoked. `20260921023458` adds
   `sandboxes.codex_peer_homes`, `false` on every existing row and set on a
   new codex sandbox the first time a conversation is bound to it. Both are
-  safe under a rolling upgrade, and every existing session and sandbox
-  behaves as it did. They belong to the broker path a user's own ChatGPT
-  subscription will run on (ADR 0060). No release lets a user link one yet,
-  so no session carries a grant, and the deployment's own ChatGPT account
-  (`/admin/inference`) is unchanged. Rolling `20260921021249` back deletes
+  safe under a rolling upgrade, and neither changes how an existing session
+  or sandbox behaves. They belong to the broker path a user's own ChatGPT
+  subscription will run on (ADR 0060), and that the deployment's own ChatGPT
+  account now runs on. That move is not additive: it deletes broker
+  sessions, fails codex turns on the account during a rolling upgrade, and
+  has notes of its own in this section. Linking a subscription is behind a
+  flag that is off for every account. Rolling `20260921021249` back deletes
   any broker session that carries a managed grant; its conversation mints a
   new one on its next turn.
 

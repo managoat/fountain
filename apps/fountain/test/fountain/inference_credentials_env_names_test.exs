@@ -52,6 +52,8 @@ defmodule Fountain.InferenceCredentialsEnvNamesTest do
 
     refute Map.has_key?(names, :codex_chatgpt_access_token)
     refute "CODEX_CHATGPT_ACCESS_TOKEN" in Map.values(names)
-    assert Map.has_key?(Broker.inference_keys(), "CODEX_CHATGPT_ACCESS_TOKEN")
+    # Nor is it a key the broker substitutes: a managed grant rides the
+    # protected path, as a session's authorization and never as a rule.
+    refute Map.has_key?(Broker.inference_keys(), "CODEX_CHATGPT_ACCESS_TOKEN")
   end
 end

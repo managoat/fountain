@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "A user links several ChatGPT subscriptions, and a credential set names one"
-description: "All five stages are built except stage 5's controlled run with two real subscriptions, and the ADR is still Proposed: accepting it is the maintainer's decision (the table, the owner-scoped context and the per-owner source lock; a credential set naming a grant and resolution to it with no fallback; the transport and custody: a CODEX_HOME per grant and generation, broker sessions that carry which grant they may use, and a per-request check against the durable generation; then durable link attempts, /api/account/chatgpt-subscriptions, and the ChatGPT subscriptions card and the set picker in the console; then exhaustion recorded for a user's grant when OpenAI confirms it with nothing substituted, which grant served a turn, a daily keepalive with one job per grant, and grants in the account export and deletion). Linking is behind a flag that is off everywhere, and a rollout checklist says what is owed before it is on for anyone. Rebuilds ADR 0052's user surface with many grants per user instead of one: the grant table loses its one-row-per-user index for a named row, an inference credential set names a grant, and an agent selects a subscription the same way it selects an API key. No automatic failover between a user's subscriptions and no platform fallback when the named one is exhausted."
+description: "All five stages are built except stage 5's controlled run with two real subscriptions, and the ADR is still Proposed: accepting it is the maintainer's decision (the table, the owner-scoped context and the per-owner source lock; a credential set naming a grant and resolution to it with no fallback; the transport and custody: a CODEX_HOME per grant and generation, broker sessions that carry which grant they may use, and a per-request check against the durable generation; then durable link attempts, /api/account/chatgpt-subscriptions, and the ChatGPT subscriptions card and the set picker in the console; then exhaustion recorded for a user's grant when OpenAI confirms it with nothing substituted, which grant served a turn, a daily keepalive with one job per grant, and grants in the account export and deletion). A change of its own after stage 3 (stage 3b, #2458) moves the deployment's grant (ADR 0047) onto that path and drains its legacy broker sessions; it merged on 2026-09-21 without the measurement against the image's codex client that gated it, by the maintainer's decision, and that measurement is still owed. Linking is behind a flag that is off everywhere, and a rollout checklist says what is owed before it is on for anyone. Rebuilds ADR 0052's user surface with many grants per user instead of one: the grant table loses its one-row-per-user index for a named row, an inference credential set names a grant, and an agent selects a subscription the same way it selects an API key. No automatic failover between a user's subscriptions and no platform fallback when the named one is exhausted."
 tags: [inference, codex, oauth, security, billing]
 status: draft
 adr: "0060"
@@ -39,12 +39,15 @@ OpenAI confirms it, with nothing substituted, and says which grant served a
 turn. Stage 5b is the daily keepalive, one job per grant, and grants in the
 account export and deletion. Resolution does run in production, for every
 conversation, and for a set that names no grant it resolves exactly what it
-did. **The deployment's own grant (0047) is not on the new path**: it still
-travels as a substitution rule and writes the shared `~/.codex/auth.json`,
-exactly as before stage 3; moving it is a separate change (see
-[Stage 3 as built](#stage-3-as-built)), and it, the two measurements and
-the two broker gates named there are owed **before the flag is turned on
-for anyone**. What stage 1 left running is
+did. **The deployment's own grant (0047) moved onto the new path in a
+change of its own (stage 3b, #2458)** (see
+[Stage 3 as built](#stage-3-as-built), item 4): that is the one part of
+this ADR that changes what a running deployment does, and **it merged on
+2026-09-21 without the measurement that gated it, which nobody has taken
+and which is still owed**
+([The platform move is gated on a measurement](#the-platform-move-is-gated-on-a-measurement)).
+The two measurements and the two broker gates named there are still owed
+**before the flag is turned on for anyone**. What stage 1 left running is
 `ChatGPTAccounts.RefreshSupervisor`, a task supervisor and the refresh
 coordinator, which start idle on every node; since stage 5b they serve the
 keepalive's jobs as well as a turn's renewal. The Context section describes
@@ -903,8 +906,9 @@ including the reasons only the credential side can see (stage 2's item 4):
 `:revoked` for a refresh token the auth server has just refused, and a new
 `:owner_ineligible`, with its own sentence, for an owner who may no longer
 use a grant. A renewal that failed for a reason that may pass lets the turn
-go ahead on the token it has (0047's limitation, kept). `Egress` renews
-nothing for a user's grant and compares no token for one.
+go ahead on the token it has (0047's limitation, kept). `Egress` renews no
+managed grant and compares no token (item 4 deleted the compare it kept for
+the platform grant).
 
 Two other places meet a grant that ended, and review made both say so in
 the same words. The issuance fence can refuse between a server resolving
@@ -961,33 +965,167 @@ Five things stage 3 settled or found:
    `managoat_acp` reads `CODEX_HOME`; 0052 decision 5 anticipated a library
    release here, and this ADR's authors cannot make one, so the home is a
    directory of symbolic links made from Fountain.
-4. **The deployment's grant is not moved onto this path here.** Every piece
-   above serves owner `:platform` and is tested for it: issuance, the
-   per-request check, every lifecycle write's revocation, 0052's adversarial
-   cases through the real proxy. But `managed_grant/2` names a user's
-   subscription only. Moving the platform grant changes a working feature
-   in ways nobody can re-measure from here: no WebSocket egress from a
-   codex conversation on it, `chatgpt.com` narrowed to one route whose
-   capture predates the current `managoat_runtimes` pin, a tenant binding
-   that matches the route failing the provision instead of being shadowed.
-   So `Broker.@inference` keeps its `CODEX_CHATGPT_ACCESS_TOKEN` entry, the
-   platform bearer is still a substitution rule in `rules_ciphertext` and
-   still reaches a custom binding's template map behind `Reserved`'s
-   write-time guards, and **`Egress.refresh_platform_chatgpt/3` still
-   recognises the platform grant by comparing token strings**, which 0052
-   decision 4 forbids. That compare now serves the platform grant only and
-   can never see a user's. 0052 decision 6's "apply these restrictions to
-   the existing platform path before enabling user grants" is therefore
-   **still owed**, and is a gate on stage 4's surface opening. The change
-   that pays it is one clause of `managed_grant/2`, the platform resolver
-   returning a placeholder, a drain of the legacy substitute sessions, and
-   the deletion of that compare; it is prepared as its own branch so it can
-   be reviewed, measured and reverted alone.
+4. **The deployment's grant moved onto this path in a change of its own.**
+   Stage 3 built every piece for owner `:platform` and tested it (issuance,
+   the per-request check, every lifecycle write's revocation, 0052's
+   adversarial cases through the real proxy) and left the platform grant's
+   production route alone, because moving it changes a working feature in
+   ways nobody could re-measure from where stage 3 was written. The move is
+   one reviewable, revertable change on top, and it is what pays 0052
+   decision 6's "apply these restrictions to the existing platform path
+   before enabling user grants":
+   - `CodexChatGPT.managed_grant/2` names the platform source too, so it
+     gets a `CODEX_HOME` of its own, a session that records the grant, and
+     the per-request check. `ChatGPTAccounts.platform_sandbox_auth/0`, the
+     deployment-wide lookup 0052 decision 5 said to eliminate, is deleted.
+   - `PlatformInference.credential_for/2` selects through
+     `ChatGPTAccounts.platform_selection/0` and hands out the grant's
+     placeholder. No conversation holds the platform bearer any more, and
+     `Broker.@inference` loses its `CODEX_CHATGPT_ACCESS_TOKEN` entry, so the
+     bearer is in no `brokered` map, no `rules_ciphertext` and no custom
+     binding's template map.
+   - `Egress.refresh_platform_chatgpt/3` and its token-string compare are
+     deleted. The turn's gate renews the platform grant
+     (`platform_ensure_fresh/0`, status only); a failed renewal or a revoked
+     grant still does not stop the turn there, as before: the proxy refuses
+     it, and the next validation sees the source change.
+   - `20260921025746` drains the legacy sessions: every session with no
+     grant recorded whose conversation is bound to the ChatGPT credential.
+     A turn in flight across the upgrade fails at its next request with a
+     407; every server start mints a managed session. The migration is the
+     fast path and runs once. The drain itself is continuous, in
+     `Sessions`: rules that name the reserved credential are served by
+     nothing, `lookup/1` answering `:error` (the proxy's 407) and
+     `authorize/2` `:denied`, and the row is deleted on the spot. No read
+     is added per request, since the rules are already decrypted where the
+     check runs.
+   - **A mixed fleet is a rollout constraint, and the drain narrows it
+     without closing it.** Any replica's proxy serves any sandbox, and the
+     two releases disagree in both directions. *Old session, new proxy:* a
+     replica on the previous release writes a substitute-rule session after
+     the migration, by minting one or, on a token rotation, by
+     `refresh_platform_chatgpt` rewriting the rules of every live session
+     of the conversation, a managed one included; a new proxy refuses and
+     deletes it, and an old proxy serves it in full, so 0052 decision 6 is
+     not paid until the last old replica is gone. *New session, old proxy:*
+     the old schema has no `managed_*` columns, so the session is ordinary
+     there, `chatgpt.com` gets the placeholder as its bearer and answers
+     401, and HTTP-only is not enforced; nothing leaks, because the session
+     holds no bearer, and the turn fails. *No recovery on an old replica:*
+     its `refresh_before_turn/1` re-mints only on a changed secret or a
+     session near its expiry, never after a 407, and what it mints is
+     legacy again. So codex turns on the deployment's account fail
+     intermittently for the length of the roll; the notes say to roll
+     quickly or stop the world. A conversation server on *this* release
+     whose managed session an old replica overwrote has the same gap, until
+     its session nears expiry or the server restarts. Asking the store
+     whether the session still exists before each turn would close it for a
+     read per turn; it was not built, for a window that ends with the roll.
+   - **The platform bearer is no longer registered for output redaction.**
+     It used to be in `brokered`, which `Redaction` registers on every
+     provision and before every turn. Now no conversation holds it, so
+     there is nothing to register it from, exactly as for a user's grant
+     ("The typed input"). Gate A, the proxy scrubbing or refusing a
+     protected response that reflects the bearer, therefore covers the
+     platform grant too, and for it the exposure is not waiting on stage 4:
+     it opens when this change deploys. The only destination is the one
+     Codex route, which is not known to reflect `Authorization`.
+   - **A tenant's `CODEX_HOME` is dropped on a platform-grant
+     conversation.** `own_home?/1` is true for the platform source now, so
+     `SpriteEnv` drops a `CODEX_HOME` from the environment's variables, its
+     secrets and the vault, silently, as it does beside a user's grant. It
+     used to pass through. It has to go: the list is concatenated and the
+     last entry of a name wins at the spawn, so a tenant's value would
+     point codex away from the home the grant's `auth.json` is in.
+   - **A key beside the grant refuses the provision.** `prepare_sandbox/5`
+     used to answer `:skip` for the platform grant with an `OPENAI_API_KEY`
+     in the spawn env, and the library's login ran on the key. The grant's
+     `CODEX_HOME` and its HTTP-only session do not skip with it, so it is
+     `:codex_grant_key_conflict` now, as for a user's. The resolver is
+     believed never to hand out both.
+   - **Observable, and in the changelog:** no WebSocket or other upgrade
+     through the broker from a codex conversation on the account, to any
+     host (`http_only` is per session); `chatgpt.com` reachable on the one
+     route only; a tenant binding or wildcard that matches it fails the
+     provision instead of being shadowed; every egress request of such a
+     conversation costs an indexed read and an AES open; an admin disconnect
+     or reconnect takes effect on the next request, not the next turn.
+   - **Deliberately not changed:** the platform grant stays under the
+     machine's one-source binding (`outside_machine_binding?/1` is a user's
+     subscription only), although it has a home of its own and no longer
+     needs it. What a persistent home does across the account's usage limit
+     and its reset is published behaviour (0047 decision 6 as amended by
+     #2362); lifting the binding would change it, and is a decision of its
+     own.
+   - **Not measured, and merged all the same.** The route list against the
+     client the image installs today, and a real turn through the protected
+     path. For the platform grant that is a feature in production, so the
+     move was written not to merge before it. It did, on 2026-09-21, by
+     the maintainer's decision, and the measurement is still owed: see
+     [The platform move is gated on a measurement](#the-platform-move-is-gated-on-a-measurement).
 5. **The published wording of `codex_inference_conflict` was left alone.**
    `Schemas`, the fallback message and `docs/configuration.md` say a shared
    Codex sandbox requires the same resolved source. That stays true of every
    source an account can hold until stage 4, which regenerates the contract
    for `chatgpt_grant_id` and rewords it then.
+
+### The platform move is gated on a measurement
+
+**2026-09-21: the move merged without the measurement.** The gate below was
+not passed. The maintainer chose, on 2026-09-21, to merge and deploy stage
+3b (#2458) without running `scripts/probe-codex-protected.py` against the
+image's client and without a real hosted turn on the deployment's account.
+Nothing below was measured before the merge, and nothing here should be
+read as saying it was. The measurement is still owed: it is 0047's
+measurement 6, the last row of this ADR's [Measured](#measured) table and
+item (c) of `contributing/chatgpt-subscriptions-rollout.md`, and the first
+production codex turn on the deployment's account after the deploy is, in
+effect, the hosted turn. What to watch for is under "What failure looks
+like" below: platform-codex turns failing from their first request with a
+403 from the broker on a `chatgpt.com` route, or with codex finding no auth
+file, while the #2362 fallback stays silent because the grant still reads
+`active`. **The rollback** is to revert the squash commit of #2458 and
+deploy the revert. The migration has nothing to undo, and every
+conversation server mints a legacy session again when it starts on the
+reverted release, so the next turn runs. Until a revert is out, disconnecting the account at
+`/admin/inference` sends codex conversations to `PLATFORM_OPENAI_API_KEY`
+where one is set. The rest of this section is as it was written before the
+merge, and its "do not merge" is what was decided against.
+
+**Do not merge or deploy item 4's change until
+`scripts/probe-codex-protected.py` has been run against the codex-acp and
+codex CLI the sandbox image installs, and one real hosted codex turn on the
+deployment's account has succeeded through the protected path. Record the
+result in [0047](0047-codex-platform-chatgpt-account.md), under Measured.**
+Nobody who wrote or reviewed the change could take it: it needs the
+deployment's ChatGPT account and a sandbox built from the production image.
+
+Why this one is a gate and the rest of the stage's unmeasured list is not:
+everything else on this path is reachable by no user until stage 4. The
+platform grant has run production turns since 2026-09-08, and item 4 moves
+every one of them onto a path whose two assumptions were read from the
+client's source and not observed:
+
+- *That `POST /backend-api/codex/responses` is the only thing the client
+  needs from `chatgpt.com`.* The capture in `test/fixtures/codex_protected`
+  predates the current `managoat_runtimes` pin. And 0047's own measurement 2
+  counted 40 requests to `chatgpt.com` in one turn, one of them answered
+  204, on the path where every route on that host was served; it did not
+  record their targets, and a streamed Responses call answers 200. On the
+  protected path every other route is a 403 at the proxy. Whether the
+  client shrugs that off or fails the turn is what the hosted turn shows.
+- *That codex-acp and the codex CLI honour `CODEX_HOME`.* If they do not,
+  they read `~/.codex/auth.json`, which no grant writes any more.
+
+**What failure looks like.** Every codex turn on the deployment's account
+fails, from its first request: a 403 from the broker on a `chatgpt.com`
+route in `/admin/broker`'s denied table, or codex reporting that it is not
+signed in. **The #2362 fallback to the platform API key does not fire**,
+because the grant is `active` and not exhausted, so new conversations keep
+being selected onto it. The way out is to disconnect the account at
+`/admin/inference`, which sends codex conversations to
+`PLATFORM_OPENAI_API_KEY` where one is set, or to revert the change, whose
+migration has nothing to undo.
 
 **After review.** Two reviews of this stage, one for security and one for
 correctness, found nothing of high severity. What they changed is in the
@@ -1026,15 +1164,71 @@ than code changed (what "shared" means under a per-grant home, and that
 homes are bounded but never removed), two security gates that need a
 library release, a rate cap, and two lock orders.
 
+**After review of the platform move.** Item 4's change was reviewed on its
+own, on 2026-09-21, after it was rebased onto the reviewed stage 3. One
+finding is a gate and not code; the rest changed the code or the text, and
+are in item 4 where they belong:
+
+- **The move is unmeasured, and that is a gate on the merge**
+  ([above](#the-platform-move-is-gated-on-a-measurement)). Review could
+  not take the measurement either. What it added is the failure mode, that
+  the #2362 fallback stays silent because the grant is still `active`, and
+  a second look at 0047's measurement 2, which saw a 204 from `chatgpt.com`
+  on a path where the one route the policy allows answers 200.
+- **The drain ran once, and the release that ran it still served what it
+  drained.** `lookup/1` had no check for a session with no managed pin whose
+  rules carry the bearer, and the change's own test looked one up on the
+  new code and got the credential back. On a rolling deploy an old replica
+  writes such a session after the migration, by a mint or by the rotation
+  rewrite, which the first draft of item 4 said could not happen ("never
+  renewed"). The drain is continuous now, by the strict rule for names over
+  rules already decrypted; a secret's value is not looked at, so stage 3's
+  loosening for values stands. It reaches a managed session an old replica
+  overwrote too, which the review had not asked for and the same predicate
+  gave.
+- **The rebase found one thing review had not.** Stage 3's review added
+  `refusal_stage/3`, which reads a fenced mint's reason from the grant's row
+  for a user's grant only. With the platform grant a managed grant, an
+  admin's disconnect between the resolve and the mint reached it with an
+  owner it had no clause for. It answers `nil` for the platform, and the
+  caller reports the reason as it always has.
+- **Three parts of one spawn disagreed about a key beside the platform
+  grant:** `prepare_sandbox/5` skipped, `env/3` exported the home and the
+  session stayed the grant's. Believed unreachable, since the resolver
+  reads the environment's and the vault's keys before it reaches the
+  platform. It is a named refusal now.
+- `ChatGPTAccounts.platform_credential/1` had no caller left and still
+  returned the token under a doc that said what it was for. Deleted; its
+  tests moved to `platform_selection/0`. `platform_access_token/0` is still
+  public and still returns the token, because `platform_ensure_fresh/0` and
+  the refresh suite are built on it; narrowing it is not part of this.
+- A test that said it drove `refresh_before_turn/1` on the grant passed
+  `broker: nil` and returned at the first clause. It carries a live session
+  across a real rotation now. The test beside it asserts the two things its
+  comment claimed.
+- The upgrade notes name both directions of a mixed fleet and the missing
+  recovery on an old replica, and recommend a quick roll or a stop; the
+  stage 3 fragment no longer says nothing changes for an existing session
+  in the release that deletes some; 0047, 0052 and this ADR agree on what
+  the move is called and what it changed, including two changes the first
+  draft did not list, the tenant `CODEX_HOME` that is dropped and the bearer
+  that is no longer redacted.
+
+Not built by that review: recovery for a conversation on this release whose
+managed session an old replica overwrote (item 4), and anything for gates A
+and B, which are the library's.
+
 **Not built, and said so where it lives:**
 
 - Closing tunnels that are already open on other nodes, and revoking the
   token upstream (0052 decision 5, "evict ... close affected tunnels").
   Correctness does not wait on either: nothing is cached per tunnel, and
   the next request in an open tunnel is refused.
-- The legacy drain (0052 decision 5, "no old socket is grandfathered").
-  There is nothing to drain for a user's grant, which has never had a
-  session of the old kind. It belongs to the platform move in item 4.
+- Draining *upgraded connections* (0052 decision 5, "legacy managed-grant
+  sessions and upgraded connections on every serving node"). The sessions
+  are drained (item 4); a WebSocket a sandbox opened through a legacy
+  session before the upgrade lives in a proxy process and dies with its
+  node on the roll, which is assumed and not enforced.
 - API-key peer isolation on a shared machine (item 2).
 - **Any measurement against a real client.** That codex-acp and the codex
   CLI honour `CODEX_HOME`, resume a session through a linked `sessions/`,
@@ -1106,7 +1300,16 @@ library release, a rate cap, and two lock orders.
 
 **Two security gates, not built, both before the console surface opens
 (stage 4's route, stage 5's gate), and both a `managoat_broker` release
-rather than Fountain code:**
+rather than Fountain code.** Since item 4's move they cover the
+deployment's grant as well, which is not waiting on any console surface:
+for it both are open from the day the move deploys. Against that, the move
+closes more than they open: before it the same bearer sat in a stored rule,
+reachable from a header template, on every `chatgpt.com` path and over a
+WebSocket. Whether to deploy the move ahead of the library release was
+left as a call for whoever passed the merge gate above. The maintainer made
+it on 2026-09-21 with the merge: the move deploys ahead of the library
+release, so gates A and B are open for the deployment's grant from that
+deploy.
 
 - **Gate A: the bearer in a response.** The grant's bearer is the one
   brokered credential absent from the conversation's redaction registry (see
@@ -1149,6 +1352,15 @@ directory of homes and a planted `auth.json`; secret values that mention
 the reserved name and values that stand for the credential, each through
 the write and through `compile/3`; twenty failing requests and one line of
 each warning; and the acceptance pair on a machine that starts `pending`.
+After the review of the platform move: a legacy session minted after the
+migration, refused at the lookup and removed, with one log line for three
+lookups and no token in it; the same for a `custom` rule's brokered map; a
+managed session whose rules an old replica rewrote, denied per request and
+removed; an ordinary session whose secret's value mentions the reserved
+name, served; a key beside the platform grant, refused with the sandbox
+untouched; a fenced mint of the platform grant, reported and not a crash;
+and the per-turn refresh of a platform-grant conversation across a real
+rotation, with no rewrite, no re-mint and no token in its state.
 
 **For stages 4 and 5.** Disconnect, reconnect and removal already revoke
 broker authorization, because the revocation is inside
@@ -1163,8 +1375,7 @@ and its token is good, so it is a selection fact, not an authorization one.
 Stage 4 owes the `owner_ineligible` reason a place in `Schemas.Error` beside
 the others, the `codex_inference_conflict` wording of item 5, a sentence in
 the manual about what a `setup_script` sees of `CODEX_HOME`, and, before any
-of it is reachable, item 4's platform move, the two measurements and gates
-A and B.
+of it is reachable, the two measurements and gates A and B.
 
 ## Stage 4a as built
 
@@ -1428,7 +1639,9 @@ maintainer may reverse:
 
 - **Before the flag is on for anyone** (stage 3's list, unchanged): the
   platform grant's move onto the protected path, the two measurements
-  against a real client, and broker gates A and B.
+  against a real client, and broker gates A and B. (The move has since
+  merged, as stage 3b, #2458, on 2026-09-21, without its own measurement;
+  the measurements and the gates are still owed.)
 - **Stage 4b.** The **ChatGPT subscriptions** card and the set picker, whose
   confirm text says naming a grant ends the set's running codex
   conversations; page reload; whether a set that names a grant counts for
@@ -2105,7 +2318,7 @@ for the idle lifetime go in 0047's table, measurement 5.
 | The keepalive observed for seven days: no unexpected `reconnect_required` | | | |
 | What a throttled refresh looks like: its status, whether the body names a code, and whether it follows the address or the account | | | |
 | Gate A (a bearer in a response is scrubbed) and Gate B (a query carrying it is refused), on the released `managoat_broker` | | | |
-| The platform grant on the protected path, and its measurement (stage 3b, #2458) | | | |
+| The platform grant on the protected path (stage 3b, #2458, merged 2026-09-21 without this measurement): 0047's measurement 6 | | | |
 
 ## Consequences
 
@@ -2129,10 +2342,10 @@ discovered at the next turn is a bad experience, just a legible one.
 That was already true of the column; it is now true of the row count.
 
 The custody surface of 0052 decision 6 does not get easier with more grants.
-Stage 3 built it and put a user's grant on it; the deployment's own grant
-is still on the older path, and 0052's requirement that it move first is
-still owed before the `chatgpt_subscriptions` flag is turned on for any
-account ([Stage 3 as built](#stage-3-as-built), item 4;
+Stage 3 built it and put a user's grant on it, and the deployment's own
+grant followed in a change of its own (stage 3b, #2458), as 0052 required
+before any user can link a subscription
+([Stage 3 as built](#stage-3-as-built), item 4;
 [Stage 4a as built](#stage-4a-as-built)).
 
 ## Alternatives considered

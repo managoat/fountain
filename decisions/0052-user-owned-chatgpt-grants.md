@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Users link a ChatGPT subscription and Fountain manages the grant"
-description: "Proposed; linking a grant is behind a flag that is off for every account. ADR 0060 stage 4 built decision 2's attempts, its API and its card; stages 1 to 3 built the owner-scoped lifecycle, selection, and the revocation-fenced broker authorization and protected destination for a user's grant; the platform grant is not yet on that path. Tenant-owned ChatGPT grants use tenant encryption, coordinated refresh, revocation-fenced broker authorization, protected provider destinations, and no automatic paid fallback."
+description: "Proposed; linking a grant is behind a flag that is off for every account. ADR 0060 stage 4 built decision 2's attempts, its API and its card; stages 1 to 3 built the owner-scoped lifecycle, selection, and the revocation-fenced broker authorization and protected destination, for a user's grant and then for the platform grant. Tenant-owned ChatGPT grants use tenant encryption, coordinated refresh, revocation-fenced broker authorization, protected provider destinations, and no automatic paid fallback."
 tags: [inference, codex, oauth, security, billing]
 status: draft
 adr: "0052"
@@ -58,15 +58,18 @@ replacement and revocation mark the grant's sessions in their own
 transaction; the session is HTTP only; `ProtectedCompiler` is back, taking
 no bearer; and each grant and generation has a `CODEX_HOME` of its own. The
 adversarial cases in the implementation sequence below run for the
-platform's grant and for a user's. **Two parts are still owed.** The
-deployment's own grant is not moved onto that path, so decision 6's "apply
-these restrictions to the existing platform path before enabling user
-grants" and decision 5's legacy drain are open, and
-`Egress.refresh_platform_chatgpt/3` still compares token strings for that
-one grant. And decision 5's "evict cached credentials and close affected
-tunnels across serving nodes" and upstream revocation are not built;
-nothing is cached per tunnel, so the next request in an open tunnel is
-refused regardless. Nothing has been measured against a real client. See
+platform's grant and for a user's. The deployment's own grant then moved
+onto that path in a change of its own, which is decision 6's "apply these
+restrictions to the existing platform path before enabling user grants":
+its bearer left the `brokered` map and the stored rules, the legacy
+sessions are drained by a migration and then by the session store whenever
+it meets one, and `Egress` no longer compares token
+strings. **Still owed:** decision 5's "evict cached credentials and close
+affected tunnels across serving nodes", the drain of *upgraded connections*
+(they die with their node on the roll, which is assumed and not enforced)
+and upstream revocation. Nothing is cached per tunnel, so the next request
+in an open tunnel is refused regardless. Nothing has been measured against
+a real client. See
 0060, "Stage 3 as built".
 
 **0060 stage 4a (2026-09-21) builds the API half of decision 2**, per grant:
@@ -76,8 +79,9 @@ honours the auth server's interval with backoff, a completion that rechecks
 the owner, cancellation, expiry and the grant's generation before it stores
 anything, and the same operations under `/api/account`. The card on
 `/account/inference-credentials` was not part of it (see 4b below). Linking is behind a rollout
-flag that is off for every account, and the two parts above are owed before
-it is turned on. Two things decision 2 asks for are still open: account
+flag that is off for every account, and what is listed as still owed above,
+with the measurements against a real client, is owed before it is turned
+on. Two things decision 2 asks for are still open: account
 deletion "cancels" pending attempts only in that they are deleted with the
 account, and tokens an attempt does not store are not revoked upstream. See
 0060, "Stage 4a as built".
@@ -113,7 +117,9 @@ The existing implementation provides most of the transport:
   platform key for the null-owner row, the owner's DEK otherwise
   (#2011–#2015). The `PlatformChatGPT` facade that read only
   `user_id IS NULL` is gone (#2112). `CodexChatGPT.prepare_sandbox/3` and
-  `Egress.refresh_platform_chatgpt/2` fetch the platform (null-owner) row.
+  `Egress.refresh_platform_chatgpt/2` fetched the platform (null-owner) row
+  when this was written. 0060 has since deleted the second, and the first
+  reads a grant pinned by owner, id and generation.
 - `PlatformChatGPT.Refresher` serializes on one node. Across nodes, before
   #2013, its compare-and-swap prevented stale writes but did not prevent
   duplicate refresh requests reaching OpenAI, and terminal-error writes

@@ -16,12 +16,18 @@ you do not trust.
 
 ## The rollout checklist
 
-- [ ] **(a) The platform grant is on the protected path, and
-  `Egress`'s token comparison is deleted.** Stage 3b, #2458. That PR is a
-  draft on purpose: it carries its own gate, a run of
+- [x] **(a) The platform grant is on the protected path, and
+  `Egress`'s token comparison is deleted.** Stage 3b, #2458, merged
+  2026-09-21. It is the only piece of the stack that changes what a running
+  deployment does. It carried a gate of its own, a run of
   `scripts/probe-codex-protected.py` against the image's client and one real
-  hosted turn, recorded in ADR 0047, before it may merge. It is the only
-  piece of the stack that changes what a running deployment does.
+  hosted turn, recorded in ADR 0047, before it might merge. **That gate was
+  not passed: the maintainer chose to merge without the measurement**, and
+  it is still owed, under (c) and as ADR 0047's measurement 6. If
+  platform-codex turns fail with a 403 from the broker or with no auth file
+  (the #2362 fallback stays silent, because the grant still reads
+  `active`), revert the squash commit of #2458; ADR 0060, "The platform move
+  is gated on a measurement", has the rest.
 - [ ] **(b) A `managoat_broker` hex release with Gate A and Gate B**, the pin
   bumped in `apps/fountain/mix.exs`, and `ProtectedCompiler.policy/1` setting
   the option. Gate A scrubs or refuses a protected response that contains the
@@ -29,7 +35,8 @@ you do not trust.
   a protected route. Both are library code, not Fountain's (ADR 0060, "Stage
   3 as built"). Neither exists yet.
 - [ ] **(c) Both real-client measurements pass**: the protected-path probe
-  against the pinned client, and a symlinked `CODEX_HOME` across a reattach
+  against the pinned client (which is also the measurement stage 3b merged
+  without, and covers the deployment's account as well as a user's), and a symlinked `CODEX_HOME` across a reattach
   and a `thread/resume`. Steps 1 and 5 of the runbook.
 - [ ] **(d) ADR 0047's measurement 5 is recorded**, the day-9 reading (due
   2026-09-17, still "Pending") and the day-30 reading (2026-10-08), and the
@@ -132,6 +139,6 @@ before the pause. Either reading belongs in the ADR.
 **Where results go.** One row per gate in ADR 0060's
 ["Measured" table](../decisions/0060-many-user-chatgpt-subscriptions.md#measured),
 with the pins and the date. The idle-lifetime readings and their pins go in
-ADR 0047's measurement table, row 5. The 3b measurement goes where #2458
-says, in ADR 0047. A gate that fails is recorded as failed, with what was
+ADR 0047's measurement table, row 5. The 3b measurement, which was not
+taken before #2458 merged, goes in ADR 0047's table too, row 6. A gate that fails is recorded as failed, with what was
 seen; it is not left blank.

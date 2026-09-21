@@ -50,6 +50,22 @@ defmodule Fountain.PlatformChatGPTTest do
 
   defp row, do: Repo.one!(Account)
 
+  # What the sandbox file is built from, pinned to the deployment's grant as a
+  # conversation selected onto it would pin it. `:none` with no grant.
+  defp platform_sandbox_auth do
+    case Repo.one(Account) do
+      nil ->
+        :none
+
+      row ->
+        ChatGPTAccounts.sandbox_auth(%{
+          owner: :platform,
+          grant_id: row.id,
+          generation: row.generation
+        })
+    end
+  end
+
   # The grant is selected only on a brokered deployment, a deployment fact
   # (`Fountain.Broker.configured?/0`); these set it the way the egress tests do.
   defp broker_on do
@@ -163,28 +179,35 @@ defmodule Fountain.PlatformChatGPTTest do
   describe "platform_access_token/0" do
     test "not connected, then served from the row without a refresh while fresh" do
       assert ChatGPTAccounts.platform_access_token() == {:error, :not_connected}
-      assert ChatGPTAccounts.platform_credential() == :none
+      assert ChatGPTAccounts.platform_selection() == :none
 
       access = access_token(3_600)
       connect!(%{access_token: access})
       assert ChatGPTAccounts.platform_access_token() == {:ok, access}
-      assert ChatGPTAccounts.platform_credential() == {:ok, access}
     end
 
-    test "credential(refresh: false) answers from the row and never dials out" do
+    test "selection answers from the row and never dials out" do
       broker_on()
       stale = access_token(60)
       connect!(%{access_token: stale})
-      # No stub for /oauth/token: a refresh here would raise.
-      assert ChatGPTAccounts.platform_credential(refresh: false) == {:ok, stale}
       user = insert_verified_user()
 
-      assert {:ok, %Source{scope: :platform}, %{codex_chatgpt_access_token: ^stale}} =
+      # Selection hands out which grant, as its placeholder, never the token.
+      placeholder = ChatGPTAccounts.Reserved.placeholder(row().id)
+
+      assert ChatGPTAccounts.platform_selection() ==
+               {:ok, %{grant_id: row().id, generation: row().generation}}
+
+      assert {:ok, %Source{scope: :platform}, %{codex_chatgpt_access_token: ^placeholder}} =
                InferenceCredentials.resolve(user.id, "openai/gpt-5.5-codex", "codex", [])
+
+      # No stub for /oauth/token until here: a refresh above would have
+      # raised, and the token inside its margin is still the one stored.
+      assert decrypt!(row().access_token_ciphertext) == stale
 
       stub_refusal()
       assert ChatGPTAccounts.platform_access_token() == {:error, :revoked}
-      assert ChatGPTAccounts.platform_credential(refresh: false) == :none
+      assert ChatGPTAccounts.platform_selection() == :none
     end
 
     test "refreshes within the margin, persists the rotated refresh token, then serves the new one" do
@@ -212,7 +235,7 @@ defmodule Fountain.PlatformChatGPTTest do
 
       assert ChatGPTAccounts.platform_access_token() == {:error, :revoked}
       assert %Account{status: "revoked", revoked_reason: "refresh_token_reused"} = row()
-      assert ChatGPTAccounts.platform_credential() == :none
+      assert ChatGPTAccounts.platform_selection() == :none
       refute ChatGPTAccounts.platform_active?()
 
       assert %{status: "revoked", revoked_reason: "refresh_token_reused"} =
@@ -230,7 +253,7 @@ defmodule Fountain.PlatformChatGPTTest do
       # The sandbox file's claims are still served: the file holds a
       # placeholder, and a revoke landing mid-provision must not fail the
       # spawn whose token the broker already took.
-      assert {:ok, %{account_id: "acct_platform_1"}} = ChatGPTAccounts.platform_sandbox_auth()
+      assert {:ok, %{account_id: "acct_platform_1"}} = platform_sandbox_auth()
     end
 
     test "a bare invalid_grant is terminal too" do
@@ -290,7 +313,7 @@ defmodule Fountain.PlatformChatGPTTest do
       assert expired.metadata["actor"] == "system:platform_chatgpt"
       assert ChatGPTAccounts.platform_access_token() == {:error, :expired}
       assert length(events("admin.platform_chatgpt.expired")) == 1
-      assert ChatGPTAccounts.platform_credential() == :none
+      assert ChatGPTAccounts.platform_selection() == :none
     end
 
     test "a JWT-shaped token supplies its own account id and expiry" do
@@ -314,14 +337,14 @@ defmodule Fountain.PlatformChatGPTTest do
                )
 
       refute ChatGPTAccounts.platform_active?()
-      assert ChatGPTAccounts.platform_sandbox_auth() == :none
+      assert platform_sandbox_auth() == :none
 
       assert {:ok, _} =
                ChatGPTAccounts.platform_connect_workspace_token("wst_opaque", nil,
                  account_id: " acct_x "
                )
 
-      assert {:ok, %{account_id: "acct_x"}} = ChatGPTAccounts.platform_sandbox_auth()
+      assert {:ok, %{account_id: "acct_x"}} = platform_sandbox_auth()
     end
 
     test "refuses a blank, a whitespace-bearing, or an oversized value" do
@@ -353,13 +376,13 @@ defmodule Fountain.PlatformChatGPTTest do
     end
   end
 
-  describe "platform_sandbox_auth/0" do
+  describe "sandbox_auth/1 for the deployment's grant" do
     test "is the real account id and an unsigned id_token with the three claims and no email" do
-      assert ChatGPTAccounts.platform_sandbox_auth() == :none
+      assert platform_sandbox_auth() == :none
       connect!()
 
       assert {:ok, %{account_id: "acct_platform_1", id_token: id_token}} =
-               ChatGPTAccounts.platform_sandbox_auth()
+               platform_sandbox_auth()
 
       assert [header, payload, signature] = String.split(id_token, ".")
       assert signature != ""
@@ -446,17 +469,23 @@ defmodule Fountain.PlatformChatGPTTest do
     test "a codex agent with no tenant key takes the grant, at :platform", %{user: user, dek: dek} do
       broker_on()
       access = access_token()
-      connect!(%{access_token: access})
+      grant = connect!(%{access_token: access})
+      placeholder = ChatGPTAccounts.Reserved.placeholder(grant.id)
 
-      assert {:ok, %Source{scope: :platform, kind: :codex_chatgpt_access_token},
-              %{codex_chatgpt_access_token: ^access}} =
+      # What the runtime is handed is the grant's placeholder: the bearer
+      # never enters a conversation (ADR 0052 decision 6).
+      assert {:ok, %Source{scope: :platform, kind: :codex_chatgpt_access_token} = source, creds} =
                resolve(user, "openai/gpt-5.5-codex", "codex")
+
+      assert creds == %{codex_chatgpt_access_token: placeholder}
+      refute inspect(creds) =~ access
+      assert Source.grant_ref(source) == {:platform, grant.id, grant.generation}
 
       # The tenant's other credentials survive the merge.
       {:ok, _} = InferenceCredentials.put_credential(user.id, dek, :anthropic_api_key, "sk-ant")
 
       assert {:ok, %Source{scope: :platform},
-              %{anthropic_api_key: "sk-ant", codex_chatgpt_access_token: ^access}} =
+              %{anthropic_api_key: "sk-ant", codex_chatgpt_access_token: ^placeholder}} =
                resolve(user, "openai/gpt-5.5-codex", "codex")
     end
 
@@ -539,55 +568,121 @@ defmodule Fountain.PlatformChatGPTTest do
   end
 
   describe "the broker and the per-turn re-read (decisions 4 and 5)" do
-    test "split_inference/2 brokers the grant to chatgpt.com with an unprefixed placeholder" do
-      {creds, brokered, implicit} =
-        Broker.split_inference(%{codex_chatgpt_access_token: "at_real"})
+    test "split_inference/2 takes no custody of the grant: it is not an inference key at all" do
+      grant = connect!()
+      placeholder = ChatGPTAccounts.Reserved.placeholder(grant.id)
 
-      assert creds == %{codex_chatgpt_access_token: "__codex_chatgpt_access_token__"}
-      assert brokered == %{"CODEX_CHATGPT_ACCESS_TOKEN" => "at_real"}
+      assert {creds, brokered, implicit} =
+               Broker.split_inference(%{
+                 codex_chatgpt_access_token: placeholder,
+                 anthropic_api_key: "sk-ant"
+               })
 
-      assert [%{host: "chatgpt.com"}] = implicit["CODEX_CHATGPT_ACCESS_TOKEN"]
-      assert Managoat.Broker.Injector.valid_placeholder?("__codex_chatgpt_access_token__")
-      assert Broker.inference_keys()["CODEX_CHATGPT_ACCESS_TOKEN"] == :codex_chatgpt_access_token
+      assert creds.codex_chatgpt_access_token == placeholder
+      assert brokered == %{"ANTHROPIC_API_KEY" => "sk-ant"}
+      assert Map.keys(implicit) == ["ANTHROPIC_API_KEY"]
+      refute Map.has_key?(Broker.inference_keys(), "CODEX_CHATGPT_ACCESS_TOKEN")
     end
 
-    test "refresh_platform_chatgpt/2 swaps a rotated token into both copies and says so" do
+    # ADR 0047 decision 5 as it now stands: rotation reaches a running
+    # conversation through the grant row, not through a rewrite of its rules,
+    # and nothing compares a token to decide which conversation is on the grant.
+    test "the turn's gate renews the grant by itself, and hands nothing back" do
+      broker_on()
       old = access_token(60)
       connect!(%{access_token: old})
       new_access = access_token(7_200, %{"n" => 2})
       stub_refresh(%{access_token: new_access})
+      user = insert_verified_user()
 
-      creds = %{codex_chatgpt_access_token: old, anthropic_api_key: "sk-ant"}
-      brokered = %{"CODEX_CHATGPT_ACCESS_TOKEN" => old, "ANTHROPIC_API_KEY" => "sk-ant"}
+      {:ok, source, _} =
+        InferenceCredentials.resolve(user.id, "openai/gpt-5.5-codex", "codex", [])
 
-      assert {creds, brokered, true} = Egress.refresh_platform_chatgpt(creds, brokered)
-      assert creds.codex_chatgpt_access_token == new_access
-      assert brokered["CODEX_CHATGPT_ACCESS_TOKEN"] == new_access
-      assert brokered["ANTHROPIC_API_KEY"] == "sk-ant"
+      assert :ok = Fountain.Conversations.CodexChatGPT.ensure_fresh(user.id, source)
+      assert decrypt!(row().access_token_ciphertext) == new_access
 
-      # Unchanged the second time: the row is fresh now.
-      assert {^creds, ^brokered, false} = Egress.refresh_platform_chatgpt(creds, brokered)
+      # Fresh now: a second exchange would be refused as a reused refresh token.
+      assert :ok = Fountain.Conversations.CodexChatGPT.ensure_fresh(user.id, source)
+      assert decrypt!(row().access_token_ciphertext) == new_access
     end
 
-    test "refresh_platform_chatgpt/2 leaves a conversation not on the grant, or on a tenant's own value, alone" do
+    test "a renewal that fails, or a grant gone revoked, does not stop the turn at the gate" do
+      broker_on()
       connect!(%{access_token: access_token(60)})
-      stub_refresh()
+      user = insert_verified_user()
 
-      assert {%{}, %{}, false} = Egress.refresh_platform_chatgpt(%{}, %{})
+      {:ok, source, _} =
+        InferenceCredentials.resolve(user.id, "openai/gpt-5.5-codex", "codex", [])
 
-      creds = %{codex_chatgpt_access_token: "at_old"}
-      brokered = %{"CODEX_CHATGPT_ACCESS_TOKEN" => "tenant-owns-this-name"}
-      assert {^creds, ^brokered, false} = Egress.refresh_platform_chatgpt(creds, brokered)
+      assert :ok = InferenceCredentials.validate_source(user.id, source)
+
+      stub_refusal()
+      assert :ok = Fountain.Conversations.CodexChatGPT.ensure_fresh(user.id, source)
+      assert %Account{status: "revoked"} = row()
+
+      # The proxy refuses it, by name: no credential for a revoked grant.
+      ref = Fountain.Conversations.CodexChatGPT.managed_grant(source, user.id)
+      assert {:error, :denied} = ChatGPTAccounts.protected_credential(ref, "acct_platform_1")
+
+      # And the next validation sees the change.
+      assert {:error, :inference_source_changed} =
+               InferenceCredentials.validate_source(user.id, source)
     end
 
-    test "refresh_platform_chatgpt/2 keeps the old token when the grant is gone" do
+    test "refresh_before_turn/1 leaves a conversation on the grant alone across a rotation" do
+      broker_on()
       old = access_token(60)
       connect!(%{access_token: old})
-      stub_refusal()
+      user = insert_verified_user()
 
-      creds = %{codex_chatgpt_access_token: old}
-      brokered = %{"CODEX_CHATGPT_ACCESS_TOKEN" => old}
-      assert {^creds, ^brokered, false} = Egress.refresh_platform_chatgpt(creds, brokered)
+      {:ok, source, creds} =
+        InferenceCredentials.resolve(user.id, "openai/gpt-5.5-codex", "codex", [])
+
+      {:ok, dek} = Crypto.load_tenant_key(user.id)
+
+      session = %{
+        vault: "c-test",
+        token: "fb_live",
+        expires_at: DateTime.add(DateTime.utc_now(), 3600)
+      }
+
+      state = %{
+        conversation_id: Ecto.UUID.generate(),
+        user_id: user.id,
+        tenant_key: dek,
+        broker: session,
+        brokered: %{},
+        tenant_keys: [],
+        connection_keys: [],
+        secret_sources: nil,
+        broker_bindings: %{},
+        inference_credentials: creds,
+        inference_source: source,
+        inference_model: "openai/gpt-5.5-codex",
+        broker_network: :unrestricted,
+        sprite_env: []
+      }
+
+      # The rotation the previous release answered by rewriting the rules.
+      new_access = access_token(7_200, %{"n" => 2})
+      stub_refresh(%{access_token: new_access})
+      assert :ok = ChatGPTAccounts.platform_ensure_fresh()
+      assert decrypt!(row().access_token_ciphertext) == new_access
+
+      stub(Broker, :refresh, fn _, _, _, _ -> flunk("a rotated grant rewrites no rule") end)
+      stub(Broker, :prepare, fn _, _, _, _ -> flunk("a rotated grant mints no session") end)
+
+      assert {next, false} = Egress.refresh_before_turn(state)
+      assert next.broker == session
+      assert next.brokered == %{}
+      assert next.inference_credentials == creds
+
+      for token <- [old, new_access] do
+        refute inspect(next, limit: :infinity, printable_limit: :infinity) =~ token
+      end
+
+      refute function_exported?(Egress, :refresh_platform_chatgpt, 2)
+      refute function_exported?(Egress, :refresh_platform_chatgpt, 3)
     end
   end
 end

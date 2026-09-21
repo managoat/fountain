@@ -392,18 +392,28 @@ defmodule Fountain.Conversations.SpriteEnvTest do
       assert RedactionCarry.empty?(carry)
     end
 
-    # The same through `Broker.split_inference/2`, which places the credential
-    # the runtime exports. `CODEX_CHATGPT_ACCESS_TOKEN` has no vendor prefix,
-    # so its placeholder begins with `_` too.
-    test "a brokered inference credential registers the grant, and not its placeholder" do
+    # A managed ChatGPT grant is the case with no credential to register at
+    # all: its bearer never enters a conversation, and what the runtime
+    # exports is the grant's placeholder, which has no vendor prefix and so
+    # begins with `_` too.
+    test "a managed ChatGPT grant registers nothing: not a bearer it never had, not its placeholder" do
       conv_id = Ecto.UUID.generate()
       on_exit(fn -> Redaction.delete(conv_id) end)
+      grant_id = Ecto.UUID.generate()
+      placeholder = Fountain.ChatGPTAccounts.Reserved.placeholder(grant_id)
+
+      source = %Fountain.InferenceCredentials.Source{
+        scope: :platform,
+        kind: :codex_chatgpt_access_token,
+        identity: "platform:chatgpt:" <> grant_id,
+        revision: Ecto.UUID.generate()
+      }
 
       {env_credentials, brokered, _implicit} =
-        Broker.split_inference(%{codex_chatgpt_access_token: "eyJ_the_real_chatgpt_grant"})
+        Broker.split_inference(%{codex_chatgpt_access_token: placeholder})
 
-      placeholder = Broker.placeholder(Fountain.Conversations.CodexChatGPT.env_key())
       assert env_credentials == %{codex_chatgpt_access_token: placeholder}
+      assert brokered == %{}
 
       sprite_env =
         SpriteEnv.build(nil, nil, %{},
@@ -412,12 +422,12 @@ defmodule Fountain.Conversations.SpriteEnvTest do
           callback_token: nil,
           conversation_id: conv_id,
           sandbox_id: nil,
-          broker_credentials: brokered
+          broker_credentials: brokered,
+          inference_source: source
         )
 
       assert {Fountain.Conversations.CodexChatGPT.env_key(), placeholder} in sprite_env
       registered = Redaction.lookup(conv_id)
-      assert "eyJ_the_real_chatgpt_grant" in registered
       refute placeholder in registered
 
       assert {[{"stdout", "ordinary_code_"}], carry} =

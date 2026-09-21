@@ -62,6 +62,11 @@ defmodule Fountain.PlatformChatGPT.UsageLimit do
   Ask the ChatGPT backend for the account's Codex usage.
   `{:limited, until}`, `:not_limited`, or `{:error, reason}` when the
   answer could not be had or read; only the first is a limit.
+
+  The bearer is an argument of every frame below this one, so nothing raised
+  or exited under the request leaves here: it becomes
+  `{:error, {:usage, :transport}}`, and the exception, whose stacktrace could
+  carry the header list into a crash report, is neither logged nor re-raised.
   """
   @spec fetch(String.t(), String.t() | nil, DateTime.t()) ::
           {:limited, DateTime.t()} | :not_limited | {:error, term()}
@@ -74,6 +79,14 @@ defmodule Fountain.PlatformChatGPT.UsageLimit do
         {"user-agent", "codex-cli"}
       ] ++ if(is_binary(account_id), do: [{"chatgpt-account-id", account_id}], else: [])
 
+    case request(headers) do
+      {:ok, %Req.Response{status: 200, body: %{} = body}} -> limited(body, now)
+      {:ok, %Req.Response{status: status}} -> {:error, {:usage, status}}
+      {:error, reason} -> {:error, {:usage, reason}}
+    end
+  end
+
+  defp request(headers) do
     [
       url: base_url() <> "/wham/usage",
       headers: headers,
@@ -84,11 +97,10 @@ defmodule Fountain.PlatformChatGPT.UsageLimit do
     |> Keyword.merge(Application.get_env(:fountain, :platform_chatgpt_req_options, []))
     |> Req.new()
     |> Req.get()
-    |> case do
-      {:ok, %Req.Response{status: 200, body: %{} = body}} -> limited(body, now)
-      {:ok, %Req.Response{status: status}} -> {:error, {:usage, status}}
-      {:error, reason} -> {:error, {:usage, reason}}
-    end
+  rescue
+    _ -> {:error, :transport}
+  catch
+    _kind, _value -> {:error, :transport}
   end
 
   @doc "Read a `/wham/usage` body. See the moduledoc."

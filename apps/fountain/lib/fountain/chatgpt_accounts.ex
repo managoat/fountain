@@ -1453,12 +1453,7 @@ defmodule Fountain.ChatGPTAccounts do
   def platform_check_exhaustion(source) do
     case grant_fence(source) do
       {:ok, _id, _generation} ->
-        {:ok, _pid} =
-          Task.Supervisor.start_child(Fountain.TaskSupervisor, fn ->
-            platform_confirm_exhausted(source)
-          end)
-
-        :started
+        start_usage_check(fn -> platform_confirm_exhausted(source) end)
 
       :error ->
         :ignored
@@ -1521,12 +1516,7 @@ defmodule Fountain.ChatGPTAccounts do
   def check_exhaustion_for_user(source, user_id) do
     case user_grant_fence(source, user_id) do
       {:ok, _owner, _id, _generation} ->
-        {:ok, _pid} =
-          Task.Supervisor.start_child(Fountain.TaskSupervisor, fn ->
-            confirm_exhausted_for_user(source, user_id)
-          end)
-
-        :started
+        start_usage_check(fn -> confirm_exhausted_for_user(source, user_id) end)
 
       :error ->
         :ignored
@@ -1568,6 +1558,16 @@ defmodule Fountain.ChatGPTAccounts do
     end
   end
 
+  # The caller is a ConversationServer finishing a failed turn, and a hint is
+  # only a hint: a supervisor that cannot take the task (a restart, a child
+  # limit) drops the check and never the caller.
+  defp start_usage_check(fun) do
+    case Task.Supervisor.start_child(Fountain.TaskSupervisor, fun) do
+      {:ok, _pid} -> :started
+      _ -> :ignored
+    end
+  end
+
   # `owner` is nil for the deployment's grant and the owning user's id for
   # theirs; every query below is scoped by it.
   defp confirm_exhausted(owner, id, generation, now) do
@@ -1599,7 +1599,7 @@ defmodule Fountain.ChatGPTAccounts do
   defp log_inconclusive(%Account{user_id: nil}, reason) do
     Logger.warning(
       "platform chatgpt: usage check was inconclusive; recording nothing: " <>
-        inspect(reason)
+        inspect(inconclusive(reason))
     )
   end
 
@@ -1611,9 +1611,13 @@ defmodule Fountain.ChatGPTAccounts do
     )
   end
 
+  # Total: a reason this does not know is `:other`, and never raises inside
+  # a log line or prints what it was given.
+  @spec inconclusive(term()) :: {:usage, integer() | :transport} | atom()
   defp inconclusive({:usage, status}) when is_integer(status), do: {:usage, status}
   defp inconclusive({:usage, _}), do: {:usage, :transport}
   defp inconclusive(reason) when is_atom(reason), do: reason
+  defp inconclusive(_reason), do: :other
 
   defp grant_fence(%Source{
          scope: :platform,

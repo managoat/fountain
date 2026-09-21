@@ -262,6 +262,28 @@ defmodule Fountain.ChatGPTUserExhaustionTest do
       assert_received :usage_checked
     end
 
+    test "a request that raises is a transport failure, and the token is in no log line" do
+      user = insert_verified_user()
+      access = access_token()
+      grant = user_grant!(user.id, %{access_token: access})
+
+      Req.Test.stub(Fountain.PlatformChatGPT.OAuth, fn conn ->
+        raise "boom " <> inspect(conn.req_headers)
+      end)
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          assert {:error, {:usage, :transport}} =
+                   ChatGPTAccounts.confirm_exhausted_for_user(source(grant), user.id, @now)
+        end)
+
+      assert log =~ "chatgpt grant #{grant.id}: usage check was inconclusive"
+      assert log =~ "{:usage, :transport}"
+      refute log =~ access
+      refute log =~ "boom"
+      assert %Account{usage_exhausted_until: nil} = Repo.get!(Account, grant.id)
+    end
+
     test "concurrent hints make one call" do
       user = insert_verified_user()
       grant = user_grant!(user.id)

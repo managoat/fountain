@@ -147,6 +147,18 @@ defmodule Fountain.Conversations.CodexChatGPTTest do
                CodexChatGPT.prepare_sandbox(@handle, "codex", env, ctx.source, nil)
     end
 
+    test "refusal_stage/3 leaves the deployment's fenced mint to the caller's own words", ctx do
+      # The issuance fence refuses the deployment's grant as it does a user's
+      # (an admin disconnected it between the resolve and the mint). It has no
+      # sentence of stage 2's, so the caller reports the reason as it always
+      # has; what it must not do is fall through the user's clauses.
+      Fountain.ChatGPTAccounts.platform_disconnect()
+      fenced = {:broker, :session, :managed_grant_inactive}
+
+      assert CodexChatGPT.refusal_stage(fenced, nil, ctx.source) == nil
+      assert CodexChatGPT.refusal_stage(fenced, insert_verified_user().id, ctx.source) == nil
+    end
+
     test "Provisioning.prepare_runtime_sprite/7 takes the grant path before the library's login",
          ctx do
       # The library's `prepare_sandbox/3` would spawn `codex login`; on the

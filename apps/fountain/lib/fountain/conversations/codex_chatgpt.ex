@@ -343,11 +343,16 @@ defmodule Fountain.Conversations.CodexChatGPT do
   reconnected; `ensure_fresh/2` says the same) and
   `{:error, {:chatgpt_grant_unusable, _}}` otherwise; the deployment's is
   `{:error, :platform_chatgpt_not_connected}`. Never another grant's
-  account. An `OPENAI_API_KEY` beside a user's grant is an error:
-  `SpriteEnv.build/4` strips one for such a source, and a key that got
-  through would be the silent switch ADR 0060 decision 4 forbids. Beside the
-  deployment's it wins, as it always has and as it does in `CodexTransport`,
-  and the answer is `:skip`.
+  account. An `OPENAI_API_KEY` beside a grant is
+  `{:error, :codex_grant_key_conflict}`. `SpriteEnv.build/4` strips one for
+  a user's source, and a key that got through would be the silent switch ADR
+  0060 decision 4 forbids. Beside the deployment's grant the key used to win
+  and the answer was `:skip`. It cannot any more: by then `env/3` has
+  exported a `CODEX_HOME` that a skip would never create, and the broker
+  session is the grant's HTTP-only one (`Egress.session_opts/1`), so the
+  library's `codex login` would run against a home that is not there. The
+  resolver is believed never to hand out both, and if it does the provision
+  says so rather than half-running on each.
 
   A `:grant` source with no owner, grant id or generation to pin is
   `{:error, :invalid_codex_home}`; it is never treated as any other source.
@@ -378,7 +383,7 @@ defmodule Fountain.Conversations.CodexChatGPT do
 
   defp prepare_home(handle, sprite_env, ref) do
     with {:ok, home} <- home(ref),
-         :ok <- no_api_key(sprite_env, ref),
+         :ok <- no_api_key(sprite_env),
          {:ok, auth} <- ChatGPTAccounts.sandbox_auth(ref),
          :ok <- link_home(handle, home) do
       body = auth_json(Reserved.placeholder(ref.grant_id), auth)
@@ -389,22 +394,15 @@ defmodule Fountain.Conversations.CodexChatGPT do
       end
     else
       :error -> {:error, :invalid_codex_home}
-      :skip -> :skip
       :none -> {:error, gone(ref)}
       {:error, _} = error -> error
     end
   end
 
-  defp no_api_key(sprite_env, ref) do
-    case {List.keyfind(sprite_env, "OPENAI_API_KEY", 0), ref.owner} do
-      {{_, value}, :platform} when is_binary(value) and value != "" ->
-        :skip
-
-      {{_, value}, _user} when is_binary(value) and value != "" ->
-        {:error, :codex_grant_key_conflict}
-
-      _ ->
-        :ok
+  defp no_api_key(sprite_env) do
+    case List.keyfind(sprite_env, "OPENAI_API_KEY", 0) do
+      {_, value} when is_binary(value) and value != "" -> {:error, :codex_grant_key_conflict}
+      _ -> :ok
     end
   end
 

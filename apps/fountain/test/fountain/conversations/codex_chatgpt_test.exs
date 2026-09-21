@@ -2,9 +2,9 @@ defmodule Fountain.Conversations.CodexChatGPTTest do
   @moduledoc """
   How a grant reaches a codex sandbox: the env entry and the `auth.json`
   Fountain writes instead of running `codex login`. The deployment's grant
-  (ADR 0047 decision 4) keeps the shared `~/.codex`; a user's subscription
-  gets a `CODEX_HOME` of its own per grant and generation (ADR 0060 decision
-  6). `async: false` for the one platform row.
+  (ADR 0047 decision 4) and a user's subscription each get a `CODEX_HOME` of
+  their own per grant and generation (ADR 0060 decision 6). `async: false`
+  for the one platform row.
   """
 
   use Fountain.DataCase, async: false
@@ -56,21 +56,30 @@ defmodule Fountain.Conversations.CodexChatGPTTest do
       refute CodexChatGPT.outside_machine_binding?(ctx.source)
     end
 
-    test "prepare_sandbox/5 is :skip for another runtime, another source, or a key beside the grant",
-         ctx do
+    test "prepare_sandbox/5 is :skip for another runtime or another source", ctx do
       env = CodexChatGPT.env(Managoat.Runtimes.Codex, %{}, ctx.source)
       assert CodexChatGPT.prepare_sandbox(@handle, "claude", env, ctx.source, nil) == :skip
       assert prepare("codex", [{"OPENAI_API_KEY", "sk-x"}]) == :skip
       assert prepare("codex", [{"CODEX_CHATGPT_ACCESS_TOKEN", @placeholder}]) == :skip
+    end
 
-      # A key beside the deployment's grant wins, as it does in the transport.
-      assert CodexChatGPT.prepare_sandbox(
-               @handle,
-               "codex",
-               env ++ [{"OPENAI_API_KEY", "sk-from-vault"}],
-               ctx.source,
-               nil
-             ) == :skip
+    test "prepare_sandbox/5 refuses a key beside the grant, and touches no sandbox", ctx do
+      # `:skip` here once meant the key wins. The spawn would still carry the
+      # grant's `CODEX_HOME`, which a skip never creates, and its broker
+      # session would still be the grant's HTTP-only one.
+      reject(&Managoat.Sandbox.exec/4)
+      reject(&Managoat.Sandbox.write_file/4)
+      env = CodexChatGPT.env(Managoat.Runtimes.Codex, %{}, ctx.source)
+      assert {"CODEX_HOME", _} = List.keyfind(env, "CODEX_HOME", 0)
+
+      assert {:error, :codex_grant_key_conflict} =
+               CodexChatGPT.prepare_sandbox(
+                 @handle,
+                 "codex",
+                 env ++ [{"OPENAI_API_KEY", "sk-from-vault"}],
+                 ctx.source,
+                 nil
+               )
     end
 
     test "prepare_sandbox/5 writes the chatgptAuthTokens file into the grant's own home",

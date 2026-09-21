@@ -1,7 +1,39 @@
 defmodule Fountain.ChatGPTAccounts do
   @moduledoc """
-  The deployment's ChatGPT grant for codex (ADR 0047): storage, refresh and
-  the admin mutations.
+  ChatGPT grant storage for both owners a grant can have: the deployment
+  (ADR 0047) and a user, who may hold several (ADRs 0052, 0060).
+
+  Token encryption follows the row's ownership, which never changes: the
+  null-owner row keeps the deployed platform format, an owned row uses its
+  owner's DEK (`Fountain.ChatGPTAccounts.Cipher`), so no blob decrypts under
+  the wrong owner's key or in the wrong column.
+
+  ## The two prefixes
+
+  `platform_*` is the deployment's grant: every one of those functions
+  queries `where: is_nil(a.user_id)` and cannot reach a user's row, the way
+  `Fountain.PlatformInference` is deployment-scoped. `*_for_user` takes a
+  grant id **and** its owner, and the first query is scoped by both; a `nil`
+  owner raises rather than meaning "the platform". Neither is `_unsafe_`:
+  nothing here reads across tenants, so there is no ownership for a call
+  site to establish.
+
+  ## User grants
+
+  `credential_for_user/4` and `refresh_for_user/3` read and renew one grant,
+  pinned by id, owner and generation. Neither falls through to another of
+  the user's grants or to the platform row. Near-expiry reads renew through
+  bounded per-grant workers (`Fountain.ChatGPTAccounts.RefreshCoordinator`)
+  and the PostgreSQL refresh lock, using only the owner's encryption key.
+  Callers re-read their pinned grant after renewal; the coordinator holds no
+  tokens.
+
+  **Nothing in production calls these yet, and nothing links a grant.**
+  Linking, selection by a credential set, the broker path and the keepalive
+  schedule are later stages of ADR 0060. No account API exposes the
+  credential read.
+
+  ## Platform grant
 
   An admin signs the Fountain **server** in to ChatGPT once, by pasting the
   `auth.json` a laptop's `codex login` wrote or by the device-code flow
@@ -12,17 +44,6 @@ defmodule Fountain.ChatGPTAccounts do
   `chatgptAuthTokens` mode with a placeholder where the bearer goes
   (`Fountain.Conversations.CodexChatGPT`), and the broker substitutes the
   current access token on `chatgpt.com` (`Fountain.Broker`).
-
-  Every function here is `platform_*` and queries `where: is_nil(a.user_id)`,
-  the way `Fountain.PlatformInference` is deployment-scoped. None is
-  `_unsafe_`: nothing reads across tenants, so there is no ownership for a
-  call site to establish. The table keeps its `user_id` column and its
-  owned-row uniqueness from ADR 0052, whose tenant-owner half was designed
-  and partly built and then deleted (#2176 decision 1, #2188): no row has
-  ever had an owner, and nothing here can read or write one. Token
-  encryption still follows the row's ownership
-  (`Fountain.ChatGPTAccounts.Cipher`), so an owned row could never decrypt
-  under the platform key by accident.
 
     * `platform_access_token/0` -- the current access token, refreshed when
       it is within `platform_refresh_margin_seconds/0` of its expiry,
@@ -70,13 +91,125 @@ defmodule Fountain.ChatGPTAccounts do
 
   require Logger
 
+  alias Fountain.Accounts.User
   alias Fountain.Audit
-  alias Fountain.ChatGPTAccounts.{Cipher, RefreshLock}
+  alias Fountain.ChatGPTAccounts.{Cipher, Grant, RefreshCoordinator, RefreshLock}
   alias Fountain.InferenceCredentials.Source
   alias Fountain.PlatformChatGPT.{Account, OAuth, Refresher, Tokens, UsageLimit}
   alias Fountain.Repo
 
   @system_actor "system:platform_chatgpt"
+  @user_system_actor "system:chatgpt_accounts"
+
+  # ── a user's grants ──────────────────────────────────────────────────────
+
+  @doc """
+  Internal server credential read for an explicitly selected user grant.
+
+  The owner and the grant id scope the first query. The returned bearer and
+  provider metadata come from one row version. A near-expiry grant renews
+  through the bounded user coordinator, then the caller reads that same
+  generation again. With `refresh: false`, near-expiry grants return
+  `:refresh_required`. Neither path falls back to a different grant, to the
+  platform grant or to paid inference. Only verified, claimed, non-suspended
+  owners can obtain or renew a credential.
+  """
+  @spec credential_for_user(Ecto.UUID.t(), String.t(), Ecto.UUID.t(), keyword()) ::
+          {:ok, Grant.t()} | {:error, atom()}
+  def credential_for_user(grant_id, user_id, generation, opts \\ [])
+      when is_binary(grant_id) and is_binary(user_id) and is_binary(generation) do
+    with {:ok, account} <- pinned_user_grant(grant_id, user_id, generation) do
+      case {user_credential(account), Keyword.get(opts, :refresh, true)} do
+        {{:error, :refresh_required}, true} ->
+          with :ok <- refresh_for_user(grant_id, user_id, generation) do
+            credential_for_user(grant_id, user_id, generation, refresh: false)
+          end
+
+        {result, _} ->
+          result
+      end
+    end
+  end
+
+  @doc "Internal renewal admission; returns only status, never a bearer."
+  @spec refresh_for_user(Ecto.UUID.t(), String.t(), Ecto.UUID.t()) :: :ok | {:error, atom()}
+  def refresh_for_user(grant_id, user_id, generation)
+      when is_binary(grant_id) and is_binary(user_id) and is_binary(generation) do
+    with {:ok, account} <- pinned_user_grant(grant_id, user_id, generation),
+         :ok <- user_account_state(account) do
+      RefreshCoordinator.run(grant_id, user_id, generation)
+    end
+  end
+
+  @doc false
+  def refresh_serialized_for_user(grant_id, user_id, generation)
+      when is_binary(grant_id) and is_binary(user_id) and is_binary(generation) do
+    with {:ok, observed} <- pinned_user_grant(grant_id, user_id, generation),
+         :ok <- user_account_state(observed) do
+      grant_id
+      |> RefreshLock.run(fn -> refresh_user_locked(observed) end)
+      |> finish_refresh()
+    end
+  end
+
+  defp refresh_user_locked(observed) do
+    with {:ok, current} <- pinned_user_grant(observed.id, observed.user_id, observed.generation),
+         :ok <- user_account_state(current) do
+      cond do
+        current.lock_version != observed.lock_version -> :ok
+        fresh?(current) and not stale_for_keepalive?(current) -> :ok
+        true -> do_refresh(current)
+      end
+    end
+  end
+
+  defp user_credential(account) do
+    with :ok <- user_account_state(account) do
+      if fresh?(account) do
+        with {:ok, access_token} <- Cipher.decrypt_token(account, :access_token) do
+          {:ok, Grant.new(account, access_token)}
+        end
+      else
+        {:error, :refresh_required}
+      end
+    end
+  end
+
+  defp user_account_state(%Account{status: "revoked"}), do: {:error, :revoked}
+  defp user_account_state(%Account{status: "expired"}), do: {:error, :expired}
+
+  defp user_account_state(%Account{
+         status: "active",
+         kind: "chatgpt",
+         account_id: id,
+         refresh_token_ciphertext: cipher
+       })
+       when is_binary(id) and id != "" and is_binary(cipher) and byte_size(cipher) > 0,
+       do: :ok
+
+  defp user_account_state(_), do: {:error, :invalid_grant}
+
+  defp pinned_user_grant(grant_id, user_id, generation) do
+    case Repo.one(user_grant_query(grant_id, user_id)) do
+      nil -> {:error, :not_connected}
+      %Account{generation: ^generation} = account -> {:ok, account}
+      %Account{} -> {:error, :stale_grant}
+    end
+  end
+
+  defp user_grant_query(grant_id, user_id) when is_binary(user_id) do
+    Account
+    |> from(where: [user_id: ^user_id, id: ^grant_id])
+    |> with_eligible_owner()
+  end
+
+  defp with_eligible_owner(query) do
+    from(a in query,
+      join: u in User,
+      on: u.id == a.user_id,
+      where: not u.principal and not is_nil(u.email_verified_at) and is_nil(u.suspended_at)
+    )
+  end
 
   # ── reads ────────────────────────────────────────────────────────────────
 
@@ -653,6 +786,22 @@ defmodule Fountain.ChatGPTAccounts do
     {:error, :revoked}
   end
 
+  # After `RefreshLock.run/2` has returned, so outside its transaction. A
+  # tenant event: the grant's id and name, never the provider's account id or
+  # response.
+  defp finish_refresh({:user_revoked, grant, code}) do
+    Audit.record(%{
+      user_id: grant.user_id,
+      actor: @user_system_actor,
+      action: "chatgpt_grant.reconnect_required",
+      resource_type: "chatgpt_grant",
+      resource_id: grant.grant_id,
+      metadata: %{"name" => grant.name, "generation" => grant.generation, "reason" => code}
+    })
+
+    {:error, :revoked}
+  end
+
   defp finish_refresh(result), do: result
 
   defp do_refresh(current) do
@@ -662,22 +811,19 @@ defmodule Fountain.ChatGPTAccounts do
           # The rotated refresh token lands before the access token is
           # handed out: a crash between the two would otherwise leave the
           # row holding a refresh token the server has already retired.
-          with {:ok, attrs} <- refresh_attrs(current, fresh) do
+          with :ok <- validate_refresh_identity(current, fresh),
+               {:ok, attrs} <- refresh_attrs(current, fresh) do
             swap_in(current, attrs, access)
           end
 
         {:error, {:terminal, code}} ->
           case mark_revoked(current, code) do
-            :ok -> {:revoked, current.account_id, code}
+            :ok -> revoked_result(current, code)
             :stale -> current_result(current)
           end
 
         {:error, reason} ->
-          Logger.warning(
-            "platform chatgpt: refresh failed, keeping the current token: " <> inspect(reason)
-          )
-
-          {:error, reason}
+          refresh_error(current, reason)
       end
     end
   end
@@ -695,28 +841,40 @@ defmodule Fountain.ChatGPTAccounts do
       end)
 
     case n do
-      1 -> {:ok, access}
+      1 -> refreshed_result(current, access)
       0 -> current_result(current)
     end
   end
 
+  # The user base joins the eligible owner, so a late refresh for an owner
+  # suspended in the meantime writes nothing.
   defp current_query(row) do
-    from(a in Account,
+    query =
+      if is_nil(row.user_id),
+        do: from(a in Account, where: is_nil(a.user_id)),
+        else: user_grant_query(row.id, row.user_id)
+
+    from(a in query,
       where:
-        is_nil(a.user_id) and a.id == ^row.id and a.generation == ^row.generation and
+        a.id == ^row.id and a.generation == ^row.generation and
           a.lock_version == ^row.lock_version and a.status == "active"
     )
   end
 
   defp current_result(previous) do
-    case platform_row() do
+    row =
+      if is_nil(previous.user_id),
+        do: platform_row(),
+        else: Repo.one(user_grant_query(previous.id, previous.user_id))
+
+    case row do
       nil ->
         {:error, :not_connected}
 
       %Account{id: id, generation: generation} = current
       when id == previous.id and generation == previous.generation ->
         case current.status do
-          "active" -> Cipher.decrypt_token(current, :access_token)
+          "active" -> current_active_result(current)
           "revoked" -> {:error, :revoked}
           "expired" -> {:error, :expired}
           other -> {:error, {:unknown_status, other}}
@@ -724,6 +882,68 @@ defmodule Fountain.ChatGPTAccounts do
 
       %Account{} ->
         {:error, :stale_grant}
+    end
+  end
+
+  # A user refresh never returns a bearer: its caller re-reads the pinned
+  # grant, and the coordinator between them holds no token.
+  defp current_active_result(%Account{user_id: nil} = account),
+    do: Cipher.decrypt_token(account, :access_token)
+
+  defp current_active_result(account), do: user_account_state(account)
+
+  defp refreshed_result(%Account{user_id: nil}, access), do: {:ok, access}
+  defp refreshed_result(%Account{}, _access), do: :ok
+
+  defp revoked_result(%Account{user_id: nil} = account, code),
+    do: {:revoked, account.account_id, code}
+
+  defp revoked_result(account, code) do
+    {:user_revoked,
+     %{
+       user_id: account.user_id,
+       grant_id: account.id,
+       name: account.name,
+       generation: account.generation
+     }, code}
+  end
+
+  defp refresh_error(%Account{user_id: nil}, reason) do
+    Logger.warning(
+      "platform chatgpt: refresh failed, keeping the current token: " <> inspect(reason)
+    )
+
+    {:error, reason}
+  end
+
+  defp refresh_error(%Account{}, _reason) do
+    # Provider bodies can echo tokens. Neither queue replies nor logs carry
+    # that response; callers get a stable retryable error instead.
+    :telemetry.execute([:fountain, :chatgpt, :refresh, :failure], %{count: 1}, %{scope: :user})
+    {:error, :refresh_failed}
+  end
+
+  # A refresh that comes back as somebody else is not this grant's: between
+  # reconnects the upstream account is pinned.
+  defp validate_refresh_identity(%Account{user_id: nil}, _fresh), do: :ok
+  defp validate_refresh_identity(_account, %{id_token: nil}), do: :ok
+
+  defp validate_refresh_identity(account, fresh) do
+    case fresh[:id_token] && Tokens.claims(fresh[:id_token]) do
+      nil ->
+        :ok
+
+      {:ok, claims} ->
+        same_user =
+          is_nil(account.id_claims["user_id"]) or
+            claims["user_id"] == account.id_claims["user_id"]
+
+        if claims["account_id"] == account.account_id and same_user,
+          do: :ok,
+          else: {:error, :account_mismatch}
+
+      _ ->
+        {:error, :account_mismatch}
     end
   end
 

@@ -64,6 +64,41 @@ defmodule Fountain.ChatGPTFixtures do
   end
 
   @doc """
+  A user's grant, inserted straight through the schema. A user may hold
+  several (ADR 0060), so the name and the upstream account id are unique per
+  call unless `opts` names them; the stored claims follow the account id.
+  """
+  def user_grant!(user_id, opts \\ %{}) do
+    alias Fountain.ChatGPTAccounts.Cipher
+    alias Fountain.PlatformChatGPT.{Account, Tokens}
+
+    unique = System.unique_integer([:positive])
+    access = Map.get(opts, :access_token, access_token(60))
+    account_id = Map.get(opts, :account_id, "acct-user-#{unique}")
+
+    {:ok, encrypted} =
+      Cipher.encrypt_user_tokens(user_id, %{
+        access_token: access,
+        refresh_token: Map.get(opts, :refresh_token, "rt_user")
+      })
+
+    attrs =
+      Map.merge(encrypted, %{
+        kind: "chatgpt",
+        account_id: account_id,
+        plan_type: "pro",
+        id_claims: %{"account_id" => account_id, "user_id" => "user_1", "plan_type" => "pro"},
+        access_expires_at: Tokens.expires_at(access),
+        last_refreshed_at:
+          Map.get(opts, :last_refreshed_at, DateTime.utc_now() |> DateTime.truncate(:second))
+      })
+
+    %Account{user_id: user_id, name: Map.get(opts, :name, "grant-#{unique}")}
+    |> Account.connect_changeset(attrs)
+    |> Fountain.Repo.insert!()
+  end
+
+  @doc """
   Stub `auth.openai.com`. `handlers` maps a request path to a function of
   the decoded JSON body returning `{status, body}`; a path with no handler
   fails the test, so a call nobody expected is visible.

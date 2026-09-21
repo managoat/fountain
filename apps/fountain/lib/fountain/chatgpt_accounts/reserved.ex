@@ -23,7 +23,8 @@ defmodule Fountain.ChatGPTAccounts.Reserved do
     end)
   end
 
-  @doc "Whether configuration contains the reserved name or its placeholder."
+  @doc "Whether configuration contains a reserved name, placeholder or typed grant."
+  def conflict?(%Fountain.ChatGPTAccounts.Grant{}), do: true
   def conflict?(%_{} = value), do: value |> Map.from_struct() |> conflict?()
 
   def conflict?(value) when is_map(value),

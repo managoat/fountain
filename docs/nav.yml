@@ -132,6 +132,7 @@ nav:
       - A team chat, end to end: build/team-chat.md
       - What each piece does: build/pieces.md
       - Start before sign-in: build/anonymous-visitors.md
+      - Run on a user's ChatGPT subscription: build/chatgpt-subscriptions.md
   - Plug into Fountain:
       - Overview: integrations/clients.md
       - fountain acp (reference): integrations/acp.md

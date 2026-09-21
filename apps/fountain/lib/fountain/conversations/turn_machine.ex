@@ -907,10 +907,14 @@ defmodule Fountain.Conversations.TurnMachine do
   against the rate card.
 
   Platform turns are stamped from the credential source selected for the
-  turn, including a ChatGPT grant without any platform API key. A later
-  configuration change cannot erase the source that served the turn.
-  Tenant-owned turns retain their legacy shape when no platform API key is
-  configured.
+  turn, including the deployment's ChatGPT grant (scope `:platform`) without
+  any platform API key. A later configuration change cannot erase the source
+  that served the turn. Tenant-owned turns retain their legacy shape when no
+  platform API key is configured.
+
+  A user's own named ChatGPT grant (scope `:grant`, ADR 0060) is a tenant
+  source and is stamped `"own"`. Which grant served the turn is not recorded
+  yet: decision 6 asks for it, and it arrives with exhaustion in stage 5.
 
   The `"model"` key is deliberately absent on an `"own"` turn: nothing prices
   it, so recording it would put a configuration detail in a column that
@@ -924,7 +928,8 @@ defmodule Fountain.Conversations.TurnMachine do
         |> Map.put("inference", "platform")
         |> put_model(:platform, Map.get(ctx, :model))
 
-      %Source{scope: scope} when scope in [:credential, :tenant_secret, :none, :missing] ->
+      %Source{scope: scope}
+      when scope in [:credential, :tenant_secret, :grant, :none, :missing] ->
         if Fountain.PlatformInference.enabled?(),
           do: Map.put(usage, "inference", "own"),
           else: usage

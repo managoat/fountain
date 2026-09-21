@@ -329,6 +329,23 @@ defmodule Fountain.Conversations.ConversationServerPlatformInferenceTest do
       assert TurnMachine.with_inference(nil, ctx) == nil
     end
 
+    # ADR 0060: a user's own subscription is theirs, so it is "own" like any
+    # other tenant source and carries no "model", which is what the pricer
+    # prices. Left out of the list it carried no "inference" key at all, which
+    # no later reader could tell from a row written before #1388.
+    test "a turn on a user's named ChatGPT grant is stamped own" do
+      source = %{
+        Source.grant()
+        | kind: :codex_chatgpt_access_token,
+          grant_id: Ecto.UUID.generate()
+      }
+
+      ctx = %{inference: source, model: "openai/gpt-5.3-codex"}
+
+      assert TurnMachine.with_inference(%{"input" => 5}, ctx) ==
+               %{"input" => 5, "inference" => "own"}
+    end
+
     test "with no platform key configured the usage map is untouched" do
       Application.delete_env(:fountain, :platform_anthropic_api_key)
 

@@ -237,6 +237,11 @@ defmodule FountainWeb.InferenceCredentialsLive.Index do
     end
   end
 
+  # A `set_grant` without the select's one string: not this page's form.
+  def handle_event("set_grant", _params, socket) do
+    {:noreply, assign(socket, :grant_message, {:error, "That request was not understood."})}
+  end
+
   def handle_event("save", %{"provider" => provider_str, "value" => value}, socket) do
     provider = String.to_existing_atom(provider_str)
     value = String.trim(value || "")

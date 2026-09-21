@@ -677,6 +677,12 @@ defmodule FountainWeb.ChatGPTSubscriptionsLiveTest do
 
       assert render_submit(view, "set_grant", %{"grant_id" => theirs.grant_id}) =~ refusal
       assert render_submit(view, "set_grant", %{"grant_id" => "nope"}) =~ refusal
+
+      # A select's value is one string. Anything else is not this page's form.
+      for params <- [%{"grant_id" => %{"a" => "b"}}, %{"grant_id" => ["x"]}, %{}] do
+        assert render_submit(view, "set_grant", params) =~ "That request was not understood."
+      end
+
       assert is_nil(Repo.reload!(set).chatgpt_grant_id)
       assert Process.alive?(view.pid)
     end

@@ -45,11 +45,12 @@ defmodule Fountain.ChatGPTAccounts do
       their pinned grant after renewal; the coordinator holds no tokens.
 
   **No user can reach any of these yet.** There is no route, no page and no
-  job, so no user holds a grant. What production code calls is
-  `get_for_user/2`, from the credential-set half of ADR 0060 stage 2:
-  `InferenceCredentials.set_grant/3` and the resolver, which turns a set
-  that names a grant into a `:grant` source or an error naming the grant,
-  and `remove_for_user/3` asks the sets before it deletes. The broker path,
+  job, so no user holds a grant. The one call production code makes is the
+  resolver's `get_for_user/2`, for every set that names a grant, of which
+  there are none: it turns such a set into a `:grant` source or an error
+  naming the grant. `InferenceCredentials.set_grant/3` reads through the
+  same function and has no production caller either (ADR 0060 stage 4 adds
+  it), and `remove_for_user/3` asks the sets before it deletes. The broker path,
   the account surface and the keepalive schedule are stages 3 to 5. Until
   the keepalive exists an idle user grant would lapse at the auth server's
   window, which is one reason linking is not reachable.

@@ -159,10 +159,12 @@ defmodule FountainWeb.FallbackController do
 
   # ADR 0060 stage 2 only: a named subscription resolves, and the transport
   # that carries it into a sandbox is stage 3. Nothing can reach this before
-  # a user can link a subscription, which is stage 4.
+  # a user can link a subscription, which is stage 4. 409 and not 503: the
+  # SDKs document 503 as "the same call will work shortly", and this one
+  # will not until a deploy; what the caller can change is the set.
   def call(conn, {:error, :chatgpt_grant_transport_unavailable}) do
     conn
-    |> put_status(:service_unavailable)
+    |> put_status(:conflict)
     |> json(%{
       error: "chatgpt_grant_transport_unavailable",
       message:

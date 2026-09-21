@@ -160,11 +160,14 @@ defmodule FountainWeb.FallbackControllerTest do
     assert %{"reason" => "not_found", "grant" => nil, "until" => nil} = body
   end
 
-  test "a named grant with no transport yet is a 503 that says what to select", %{conn: conn} do
+  # Not a 503: that tells a client the same call will work shortly, and this
+  # one will not until the deployment changes. What the caller can change is
+  # the set, which is a conflict with the state of something they own.
+  test "a named grant with no transport yet is a 409 that says what to select", %{conn: conn} do
     body =
       conn
       |> FountainWeb.FallbackController.call({:error, :chatgpt_grant_transport_unavailable})
-      |> json_response(503)
+      |> json_response(409)
 
     assert body["error"] == "chatgpt_grant_transport_unavailable"
     assert body["message"] =~ "select a set that does not name one"

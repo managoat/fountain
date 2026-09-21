@@ -7,7 +7,7 @@ defmodule FountainWeb.InferenceCredentialsLive.SubscriptionsCard do
   and whatever names it, and keeps serving on the credential it has until the
   new one commits.
 
-  The card holds nothing a reload would lose. `load/1` reads the grants, the
+  The card holds nothing a reload would lose. `load/2` reads the grants, the
   open sign-ins and the ones that ended in the past half hour from
   `Fountain.ChatGPTAccounts`; the page calls it on mount and again on every
   `{:chatgpt_grants_changed, _}`, so a sign-in begun in another tab, finished
@@ -17,7 +17,7 @@ defmodule FountainWeb.InferenceCredentialsLive.SubscriptionsCard do
   that was not, a socket that dropped while its owner was approving the code
   in another app included.
 
-  What reaches the assigns is `load/1`'s projection and never a context view
+  What reaches the assigns is `load/2`'s projection and never a context view
   whole: a subscription is its id, name, state, plan, email and times, and an
   open sign-in is its id, what it is for, its user code, its page and its
   expiry, and an ended one is its id, what it was for, how it ended and the

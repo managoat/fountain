@@ -1534,25 +1534,32 @@ turned on. With the flag off and no grant held, the page is what it was.
 
 **The card.** `FountainWeb.InferenceCredentialsLive.SubscriptionsCard`, a
 LiveComponent under the provider rows of `/account/inference-credentials`:
-one row per grant with its state (Connected, Reconnect required, Usage
-spent, Disconnected), the owner's ChatGPT email and plan, Rename, Reconnect,
+one row per grant with its state (Connected, Reconnect required, Cannot
+serve here, Usage spent, Disconnected), the owner's ChatGPT email and plan, Rename, Reconnect,
 Disconnect and Remove; the count against the ceiling; and a Connect form
 that takes a name and starts an attempt. An open attempt shows its user
 code, the page to type it on, when it expires, Copy and Cancel, and one
 sentence this ADR did not ask for and a device-code flow needs: approve a
 code only if you started it yourself, because whoever's code you approve
 gets the use of your plan. The page subscribes to `ChatGPTAccounts.topic/1`
-and, on `{:chatgpt_grants_changed, _}`, calls `SubscriptionsCard.load/1`
+and, on `{:chatgpt_grants_changed, _}`, calls `SubscriptionsCard.load/2`
 again; every event handler writes through the context and lets that
 message redraw the card, so a second tab, an API call and the job all
-arrive the same way. **Page reload** is therefore a `mount`: the test opens
+arrive the same way. Since the review every handler also sends the page
+that message itself, because a write that changes nothing broadcasts
+nothing. **Page reload** is therefore a `mount`: the test opens
 a second LiveView on a pending attempt, sees the same code, runs the job,
 and watches both pages turn to Connected without a reload.
 
-**What is assigned.** `load/1` is the one place the page reads
+**What is assigned.** `load/2` is the one place the page reads
 `ChatGPTAccounts`, and it projects key by key: a grant is its id, name,
 display state, plan, email, last renewal and `exhausted_until`; an attempt
-is its id, kind, name or grant id, user code, verification link and expiry.
+is its id, kind, name or grant id, user code, verification link, expiry and
+whether the auth server has stopped answering; an ended attempt is its id,
+kind, name or grant id, state, the grant it wrote, and its failure's reason
+and conflicting grant's name. Attempts are read only for the connected
+mount: the render before it is the body of a `GET` with no `no-store`, and
+carries no code.
 `generation`, `lock_version`, `account_id` and the claims are in the
 context's grant view and are not in an assign, so no template can print
 them; the redaction test reads the rendered page in three states and
@@ -1567,7 +1574,8 @@ nothing is `raw/1`.
 mounted for and treats an id in an event as the client's word. Another
 account's grant or attempt id is the context's `:not_found` and reads "no
 longer on this account"; an event with no id, a non-string id or an unknown
-name gets a plain sentence from a catch-all clause, and the LiveView stays
+name gets a plain sentence from a catch-all clause, on the card and, since
+the review, on the picker's `set_grant` too, and the LiveView stays
 up. Every refusal `ChatGPTAccounts` documents has a sentence, and a term
 the card does not know gets a generic one, never `inspect/1`.
 
@@ -1576,12 +1584,12 @@ deployment brokers, whatever the flag says. The button goes while an
 attempt is open on the grant, its confirm text says a completed reconnect
 ends conversations pinned to the old sign-in (stage 2, item 2), and the
 test reads the old bearer through `credential_for_user/4` while the attempt
-is pending and the new one, under the new generation, after. When an
-attempt the page was showing stops being pending, the card reads it with
-`get_attempt_for_user/2` and says how it ended: connected, reconnected,
-expired, or the failure in words. `stale_grant` is "approved too late ...
-left exactly as it is"; `account_already_linked` names the grant to
-reconnect instead.
+is pending and the new one, under the new generation, after. How an
+attempt ended is said from `list_recent_attempts_for_user/1` (see "After
+review"): connected, reconnected, expired, or the failure in words.
+`stale_grant` is "was discarded ... left exactly as it is", which is true
+of a late completion and of the sign-in a disconnect ended;
+`account_already_linked` names the grant to reconnect instead.
 
 **The picker.** A fifth row beside the four providers, about the selected
 set, with a select of the owner's grants and None, submitted through
@@ -1597,7 +1605,8 @@ attempt open. With the flag off Connect is absent and the context refuses a
 crafted `connect`; the picker lists only the grant the set already names,
 with None, and the handler refuses any other id; Rename, Reconnect,
 Disconnect, Remove and Cancel stay. With no broker the card says these
-cannot serve or be reconnected, and Reconnect is absent.
+cannot serve or be reconnected, Reconnect is absent, and each grant that
+would otherwise read Connected reads Cannot serve here.
 
 **What stage 2 left for this one.** `/start` shows a second banner, the
 sentence of `grant_unusable_message/1`, for a `{:chatgpt_grant_unusable,
@@ -1627,20 +1636,97 @@ maintainer may reverse:
    disconnected, revoked or expired. Both are account-level questions and
    cannot ask "for a codex agent only"; the per-agent questions are the
    banner's and the form's, which do.
-4. **The card's display state restates `Resolver.grant_state/1`**, less the
-   broker, because that function is private to resolution and the card must
-   not resolve per row. A state resolution learns and the card has not
-   reads "Reconnect required".
-5. **How an attempt ended is shown only to a page that saw it pending.**
-   4a has no read of recently ended attempts, so after a reload a failed
-   sign-in leaves no trace on the card, and the guide says so. A list of an
-   owner's recently ended attempts, if 4a's review adds one, belongs in
-   `load/1`, which would then seed the card's notices on mount.
+4. **The card's display state is the resolver's.** As first built it
+   restated `Resolver.grant_state/1` less the broker, and said Connected
+   where a run is refused. The function is now public behind
+   `InferenceCredentials.grant_state/1`, unchanged, and the card maps its
+   answer: it reads the view it is handed and nothing else, so the card
+   still does not resolve per row. A state resolution learns and the card
+   has not reads "Reconnect required".
+5. **How an attempt ended is read from its row, for half an hour.** As
+   first built it was shown only to a page that saw the attempt pending.
+   4a's review added `list_recent_attempts_for_user/1`; `load/2` projects
+   it and the notices are computed from it, three at most, so a page
+   mounted afterwards says the same sentence. Starting another sign-in
+   dismisses them for that page, not for the next mount.
 6. **No new JavaScript.** Copy is the existing `CopyToClipboard` hook, and
    the expiry is a clock time, not a countdown. A code whose time passes
    stays on an open page until the job's next run writes the expiry and
-   broadcasts, at most one poll interval later; no write admits it
-   meanwhile.
+   broadcasts. That is one poll interval later, or up to 60 seconds when
+   the job has backed off from an auth server that was not answering; no
+   write admits it meanwhile.
+
+**After review.** Two reviews, of security and of correctness, found
+nothing critical or high. The branch was first rebased onto stage 4a as
+reviewed, which is where the ended-attempts read, the start limit,
+`auth_unreachable`, `linking_disabled` and a disconnect that ends the open
+sign-in come from. What they found, and what was done:
+
+- An account with no set got its Default made before `set_grant/3` was
+  asked, and a refusal left the page with no set: every later save made
+  Default again and met its unique name. The picker reads the default set
+  first, asks `check_grant/2` before it makes one, and reads the sets again
+  after every refusal.
+- The picker's handler had no catch-all, so a `set_grant` without a string
+  crashed the sender's LiveView, and a crash report prints assigns. It has
+  one.
+- A failed sign-in left no trace after the socket reconnected, which is
+  what happens when a phone's owner leaves for the browser to approve the
+  code. Item 5 above.
+- A LiveView event never meets a plug, so the console's starts were bounded
+  only by the three that may be open. The console shares the context's
+  limit of ten an hour (4a, item 8) and its refusal has a sentence, with
+  the wait in minutes.
+- A pending code was in the HTML of the `GET`, without the `no-store` the
+  API puts on it. Attempts are read for the connected mount only.
+- The agent form ran `named_grant_problem/4`, a resolution under the
+  owner's source lock, on every `phx-change` and in both mounts. It runs in
+  the connected mount and when the model, the runtime, the set or the
+  environment is not what it was.
+- The chip said Connected with no broker, and nothing said that an owner
+  who may not use a grant is refused at the turn. Item 4 above; the card
+  and the picker say the second, and `named_grant_problem/4` answers
+  `owner_ineligible` in the turn's terms, for the form and for `/start`.
+- A write that changed nothing broadcast nothing, so a stale page could say
+  "Disconnected Work." beside a Connected row. Every handler asks for a
+  re-read.
+- With linking off, removing the last grant unmounted the card with its
+  "Removed Work.". A page that has shown the card keeps it until reload.
+- The picker's gate read a `linking?` cached at mount. It asks
+  `linking_enabled_for?/1` in the handler, and compares ids as UUIDs.
+- Saving what a set already names showed the confirm and then "now runs
+  codex on". The handler reads the set's row and says nothing was changed.
+- A changeset error on `grant_id` read "Name already has a sign-in in
+  progress."; a message outlived later changes; a cancel of an overdue
+  attempt said so twice; `/start` said "until then" of a reason with no
+  time; the Connect input had no label and a long name overflowed. Fixed.
+- Disconnect and Remove now end the grant's open sign-in (4a), so the
+  Disconnect confirm says so where one is open, the Reconnect confirms say
+  what would discard the new sign-in, and `stale_grant` and
+  `grant_not_found` no longer say the code was approved.
+- The guide's state table presented Usage spent as working. Nothing writes
+  exhaustion for a user's grant until stage 5: the guide and feature status
+  now say a spent plan is not detected, stays Connected and fails the turn
+  with OpenAI's error.
+
+Two things the reviews raised that are left as they are, and said here:
+
+- **`has_any_credential?/1` counts any `active` named grant** (item 3),
+  one that cannot be renewed, a deployment with no broker and an ineligible
+  owner included, so the dashboard's checklist skips the credential step
+  for an account whose codex runs are refused. It is not a dead end: the
+  `/start` banner and the agent form say why. The account-level question
+  stays a status read.
+- **A pending attempt's user code is in the LiveView's assigns** while the
+  attempt is open, so a crash of that process would print it, and the
+  owner's ChatGPT email, in a crash report. The two known ways to crash it
+  are closed (the picker's catch-all above, and 4a's refusal of control
+  characters in a name, which the card's test now sends), and
+  `AttemptView` already keeps the code out of `inspect/1`; the projection
+  is a plain map and does not.
+
+The guide moved in the nav from "Connect a service", which is about OAuth
+connections and their flag, to the Catalog beside the codex runtime page.
 
 **The manual.** `docs/guides/chatgpt-subscriptions.md`, in the nav, with
 the in-development note, the approval warning, the state table, and the
@@ -1654,8 +1740,9 @@ the secrets page no longer says per-source Codex homes are unbuilt.
 
 - **Before the flag is on for anyone**: unchanged from stage 3 and 4a.
 - **Stage 5.** Unchanged: the keepalive fan-out, exhaustion written for a
-  user's grant (the card already renders it as Usage spent), which grant
-  served a turn, and deletion and export. When the keepalive exists the
+  user's grant (the card already renders it as Usage spent, and until it
+  is written never does: a spent plan reads Connected and its turn fails
+  upstream), which grant served a turn, and deletion and export. When the keepalive exists the
   card's "Last renewed" is where an idle grant's health shows.
 - **Not built, and nobody's yet.** Revoking a token upstream on Disconnect
   (the card says to sign the device out at ChatGPT), and a CLI for any of
@@ -1671,13 +1758,21 @@ every handler with the other account's rows compared whole; redaction; the
 flag off with and without grants; reconnect keeping the old credential,
 cancelled, over a disconnected grant, late, already linked, cross-owner,
 flag off and broker off; the picker on one set, no set, a second set, a
-disconnected grant and a foreign id
-(`chatgpt_subscriptions_live_test.exs`), and with linking off
+disconnected grant and a foreign id; and since the review, the start limit
+in words, a remount saying how a sign-in ended, no code in the `GET`'s
+body, a disconnect and a removal ending the open sign-in, an auth server
+that stops answering, a no-op event on a stale page, a message that goes,
+the card kept after the last removal with linking off, a refused first
+save with no set, a set made in another tab, a no-op save, the flag turned
+off under an open page, malformed `set_grant` events, control characters in
+a name, and the chip and the picker with no broker and for a suspended
+owner (`chatgpt_subscriptions_live_test.exs`), and with linking off
 (`inference_credential_sets_live_test.exs`); the banner and the form for a
 usable, a disconnected and an unbrokered grant
-(`chatgpt_grant_problem_live_test.exs`); and `named_grant_problem/4`,
-`missing_for_model/3` and `has_any_credential?/1`
-(`grant_selection_test.exs`).
+and for a suspended owner on `/start`, and the form resolving again only
+when its inputs change (`chatgpt_grant_problem_live_test.exs`); and
+`named_grant_problem/4`, `grant_state/1`, `missing_for_model/3` and
+`has_any_credential?/1` (`grant_selection_test.exs`).
 
 ## Consequences
 

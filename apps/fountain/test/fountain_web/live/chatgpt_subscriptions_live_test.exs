@@ -376,6 +376,187 @@ defmodule FountainWeb.ChatGPTSubscriptionsLiveTest do
     end
   end
 
+  describe "reconnecting one subscription" do
+    setup %{user: user} do
+      %{grant: link!(user, "Work", "acct-work")}
+    end
+
+    defp reconnect(view, grant),
+      do:
+        view |> element("#chatgpt-grant-#{grant.grant_id} button", "Reconnect") |> render_click()
+
+    defp bearer(grant, user) do
+      case ChatGPTAccounts.credential_for_user(grant.grant_id, user.id, grant.generation,
+             refresh: false
+           ) do
+        {:ok, %{access_token: token}} -> token
+        {:error, reason} -> reason
+      end
+    end
+
+    test "the old credential serves until the new one commits, and then the new one does",
+         %{conn: conn, user: user, grant: grant} do
+      old = bearer(grant, user)
+      assert is_binary(old)
+      new = stub_sign_in("acct-work", access_token(3_600, %{"n" => "reconnected"}))
+
+      {:ok, view, _html} = live(conn, @path)
+      reconnect(view, grant)
+      html = render(view)
+
+      assert [%{id: attempt_id, kind: :reconnect, grant_id: grant_id}] = pending(user)
+      assert grant_id == grant.grant_id
+      assert html =~ "Reconnecting Work"
+      assert html =~ "keeps serving on the sign-in it has"
+      assert view |> element("#chatgpt-code-#{attempt_id}") |> render() =~ @user_code
+
+      # One sign-in per subscription: the button is gone while one is open.
+      refute has_element?(view, "#chatgpt-grant-#{grant.grant_id} button", "Reconnect")
+
+      # Minutes pass here. The subscription is still connected, on the
+      # credential it had, under the generation its conversations are pinned to.
+      assert view |> element("#chatgpt-grant-#{grant.grant_id}") |> render() =~ "Connected"
+      assert bearer(grant, user) == old
+
+      approve!(attempt_id, user)
+      html = render(view)
+
+      assert html =~ "Work is reconnected."
+      assert html =~ "start new ones"
+
+      assert {:ok, %{grant_id: ^grant_id, name: "Work", status: "active"} = after_reconnect} =
+               ChatGPTAccounts.get_for_user(grant_id, user.id)
+
+      # The same row under a new generation: the old pin reads nothing, the
+      # new one reads the new credential.
+      assert after_reconnect.generation != grant.generation
+      assert bearer(grant, user) == :stale_grant
+      assert bearer(after_reconnect, user) == new
+      assert [_only_one] = ChatGPTAccounts.list_for_user(user.id)
+    end
+
+    test "cancelling a reconnect leaves the subscription as it was",
+         %{conn: conn, user: user, grant: grant} do
+      stub_sign_in("acct-work")
+      old = bearer(grant, user)
+
+      {:ok, view, _html} = live(conn, @path)
+      reconnect(view, grant)
+      [%{id: attempt_id}] = pending(user)
+
+      view |> element("#chatgpt-attempt-#{attempt_id} button", "Cancel") |> render_click()
+
+      assert has_element?(view, "#chatgpt-grant-#{grant.grant_id} button", "Reconnect")
+      assert bearer(grant, user) == old
+    end
+
+    test "a disconnected subscription comes back under its id, and its sets still name it",
+         %{conn: conn, user: user, grant: grant} do
+      {:ok, set} = InferenceCredentials.create_set(user.id, "Default")
+      {:ok, _} = InferenceCredentials.set_grant(set, grant.grant_id)
+      :ok = ChatGPTAccounts.disconnect_for_user(grant.grant_id, user.id)
+      stub_sign_in("acct-work")
+
+      {:ok, view, _html} = live(conn, @path)
+      reconnect(view, grant)
+      [%{id: attempt_id}] = pending(user)
+      approve!(attempt_id, user)
+
+      assert view |> element("#chatgpt-grant-#{grant.grant_id}") |> render() =~ "Connected"
+      assert {:ok, %{status: "active"}} = ChatGPTAccounts.get_for_user(grant.grant_id, user.id)
+      assert Repo.reload!(set).chatgpt_grant_id == grant.grant_id
+    end
+
+    test "a completion that arrives after a newer sign-in is discarded, and the page says so",
+         %{conn: conn, user: user, grant: grant} do
+      stub_sign_in("acct-work", access_token(3_600, %{"n" => "late"}))
+
+      {:ok, view, _html} = live(conn, @path)
+      reconnect(view, grant)
+      [%{id: attempt_id}] = pending(user)
+
+      # A newer sign-in lands first, from outside this page.
+      newer = user_tokens("acct-work", access: access_token(3_600, %{"n" => "newer"}))
+      {:ok, newest} = ChatGPTAccounts.reconnect_for_user(grant.grant_id, user.id, newer)
+
+      approve!(attempt_id, user)
+      html = render(view)
+
+      assert html =~ "The sign-in for Work was approved too late"
+      assert html =~ "Work was left exactly as it is"
+      refute html =~ "stale_grant"
+      refute html =~ @user_code
+
+      # The credential that is there is the newer one, untouched.
+      assert bearer(newest, user) == newer.access_token
+
+      assert {:ok, %{generation: generation}} =
+               ChatGPTAccounts.get_for_user(grant.grant_id, user.id)
+
+      assert generation == newest.generation
+    end
+
+    test "an upstream account that is already linked names the subscription to reconnect",
+         %{conn: conn, user: user} do
+      personal = link!(user, "Personal", "acct-personal")
+      # The browser was signed in to the Work account when the code was approved.
+      stub_sign_in("acct-work")
+
+      {:ok, view, _html} = live(conn, @path)
+      reconnect(view, personal)
+      [%{id: attempt_id}] = pending(user)
+      approve!(attempt_id, user)
+      html = render(view)
+
+      assert html =~ "approved the code for Personal is already linked here as Work"
+      assert html =~ "Reconnect Work instead"
+      refute html =~ "account_already_linked"
+      refute html =~ "acct-work"
+
+      # The same for a new link.
+      submit_connect(view, "Third")
+      [%{id: attempt_id}] = pending(user)
+      approve!(attempt_id, user)
+
+      assert render(view) =~ "approved the code for Third is already linked here as Work"
+      assert length(ChatGPTAccounts.list_for_user(user.id)) == 2
+    end
+
+    test "another account's subscription cannot be reconnected from here",
+         %{conn: conn, other: other} do
+      theirs = link!(other, "Theirs", "acct-theirs")
+      {:ok, view, _html} = live(conn, @path)
+
+      assert hostile(view, "reconnect", %{"id" => theirs.grant_id}) =~
+               "That subscription is no longer on this account."
+
+      assert pending(other) == []
+    end
+
+    test "with linking off it still reconnects; with no broker it cannot, and says why",
+         %{conn: conn, user: user, grant: grant} do
+      stub_sign_in("acct-work")
+      chatgpt_subscriptions_flag(false)
+
+      {:ok, view, _html} = live(conn, @path)
+      reconnect(view, grant)
+      assert [%{kind: :reconnect, id: attempt_id}] = pending(user)
+      {:ok, _} = ChatGPTAccounts.cancel_attempt_for_user(attempt_id, user.id)
+
+      disable_broker()
+      {:ok, view, html} = live(conn, @path)
+
+      assert html =~ "does not run the egress broker"
+      refute has_element?(view, "#chatgpt-grant-#{grant.grant_id} button", "Reconnect")
+      assert has_element?(view, "#chatgpt-grant-#{grant.grant_id} button", "Disconnect")
+
+      assert hostile(view, "reconnect", %{"id" => grant.grant_id}) =~
+               "cannot be reconnected here"
+
+      assert pending(user) == []
+    end
+  end
+
   describe "ownership" do
     test "another account's ids read as not there, change nothing, and the page lives on",
          %{conn: conn, user: user, other: other} do

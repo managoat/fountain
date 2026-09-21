@@ -2,7 +2,10 @@ defmodule FountainWeb.InferenceCredentialsLive.SubscriptionsCard do
   @moduledoc """
   The **ChatGPT subscriptions** card on `/account/inference-credentials` (ADR
   0060 decision 3): the account's linked subscriptions, one row each, and the
-  device-code sign-in that links another.
+  device-code sign-in that links another or reconnects one. A reconnect is a
+  second sign-in over the same row: the subscription keeps its id, its name
+  and whatever names it, and keeps serving on the credential it has until the
+  new one commits.
 
   The card holds nothing a reload would lose. `load/1` reads the grants and
   the open sign-ins from `Fountain.ChatGPTAccounts`; the page calls it on
@@ -51,6 +54,10 @@ defmodule FountainWeb.InferenceCredentialsLive.SubscriptionsCard do
       count: length(grants),
       limit: ChatGPTAccounts.grant_ceiling(),
       linking?: linking?,
+      # A reconnect asks for the broker and not for the flag (stage 4a, "The
+      # gate"): with no broker a grant can serve nothing, so there is nothing
+      # a new sign-in would bring back.
+      reconnect?: Fountain.Broker.configured?(),
       visible?: linking? or grants != [] or attempts != []
     }
   end
@@ -141,6 +148,13 @@ defmodule FountainWeb.InferenceCredentialsLive.SubscriptionsCard do
     label = attempt_label(attempt, assigns.subscriptions.grants)
 
     case ChatGPTAccounts.get_attempt_for_user(attempt.id, assigns.user_id) do
+      {:ok, %{state: "completed", kind: :reconnect}} ->
+        [
+          {:info,
+           "#{label} is reconnected. Conversations that were running on its old sign-in " <>
+             "have ended; start new ones."}
+        ]
+
       {:ok, %{state: "completed"}} ->
         [{:info, "#{label} is connected."}]
 
@@ -161,8 +175,26 @@ defmodule FountainWeb.InferenceCredentialsLive.SubscriptionsCard do
 
   # One sentence per `LinkAttempt.failure_reasons/0`, and a plain one for a
   # reason a later stage adds before it adds the sentence.
+  defp failure_text(%{reason: "account_already_linked", grant: grant}, label)
+       when is_binary(grant),
+       do:
+         "The ChatGPT account that approved the code for #{label} is already linked here as " <>
+           "#{grant}, and one account is linked once. Nothing was changed. Reconnect #{grant} " <>
+           "instead, or sign in to ChatGPT with the other account before approving a new code."
+
   defp failure_text(%{reason: reason}, label) do
     case reason do
+      # A completion that arrived after the subscription had moved on: a newer
+      # sign-in, a disconnect, anything that changed its generation.
+      "stale_grant" ->
+        "The sign-in for #{label} was approved too late: the subscription had changed since " <>
+          "it began (a newer sign-in, or a disconnect). It was discarded and #{label} was left " <>
+          "exactly as it is. Reconnect again if it still needs it."
+
+      "account_already_linked" ->
+        "The ChatGPT account that approved the code for #{label} is already linked to this " <>
+          "account under another name. Nothing was changed; reconnect that subscription instead."
+
       "grant_limit_reached" ->
         "The sign-in for #{label} was approved, but this account already holds as many " <>
           "subscriptions as it may. Nothing was linked; remove a disconnected one and start again."
@@ -219,6 +251,17 @@ defmodule FountainWeb.InferenceCredentialsLive.SubscriptionsCard do
          ) do
       {:ok, _attempt} -> {:noreply, socket |> assign(:notices, []) |> message(nil)}
       {:error, reason} -> {:noreply, message(socket, {:error, error_text(reason, :sign_in)})}
+    end
+  end
+
+  def handle_event("reconnect", %{"id" => id}, socket) when is_binary(id) do
+    case ChatGPTAccounts.start_attempt_for_user(
+           socket.assigns.user_id,
+           %{grant_id: id},
+           socket.assigns.attribution
+         ) do
+      {:ok, _attempt} -> {:noreply, socket |> assign(:notices, []) |> message(nil)}
+      {:error, reason} -> {:noreply, message(socket, {:error, error_text(reason, :reconnect)})}
     end
   end
 
@@ -290,6 +333,11 @@ defmodule FountainWeb.InferenceCredentialsLive.SubscriptionsCard do
   # and a plain sentence for one it does not: never the term itself.
   defp error_text(:not_found, :sign_in), do: "That sign-in is no longer open."
   defp error_text(:not_found, _name), do: "That subscription is no longer on this account."
+
+  defp error_text(:subscriptions_not_enabled, :reconnect),
+    do:
+      "This deployment does not run the egress broker a ChatGPT subscription needs, so one " <>
+        "cannot be reconnected here."
 
   defp error_text(:subscriptions_not_enabled, _subject),
     do: "Linking a ChatGPT subscription is not available on this account."
@@ -422,6 +470,18 @@ defmodule FountainWeb.InferenceCredentialsLive.SubscriptionsCard do
           </form>
 
           <.button
+            :if={@subscriptions.reconnect? and not reconnecting?(grant, @subscriptions.attempts)}
+            type="button"
+            phx-click="reconnect"
+            phx-value-id={grant.id}
+            phx-target={@myself}
+            data-confirm={reconnect_confirm(grant)}
+            variant="secondary"
+          >
+            Reconnect
+          </.button>
+
+          <.button
             :if={grant.state != :disconnected}
             type="button"
             phx-click="disconnect"
@@ -453,7 +513,14 @@ defmodule FountainWeb.InferenceCredentialsLive.SubscriptionsCard do
         class="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 space-y-2"
       >
         <div class="font-medium">
-          Connecting {attempt_label(attempt, @subscriptions.grants)}
+          {if attempt.kind == :reconnect, do: "Reconnecting", else: "Connecting"} {attempt_label(
+            attempt,
+            @subscriptions.grants
+          )}
+        </div>
+        <div :if={attempt.kind == :reconnect} class="text-xs">
+          Nothing changes until the new sign-in is approved: a subscription that is connected
+          keeps serving on the sign-in it has.
         </div>
         <div :if={attempt.user_code}>
           <span :if={attempt.verification_link}>
@@ -539,7 +606,15 @@ defmodule FountainWeb.InferenceCredentialsLive.SubscriptionsCard do
 
       <p :if={!@subscriptions.linking?} class="text-xs text-[var(--color-text-secondary)]">
         Linking another subscription is not available on this account. The ones above can
-        still be renamed, disconnected and removed.
+        still be renamed, {if @subscriptions.reconnect?, do: "reconnected, "}disconnected and removed.
+      </p>
+
+      <p
+        :if={!@subscriptions.reconnect? and @subscriptions.grants != []}
+        class="text-xs text-[var(--color-text-secondary)]"
+      >
+        This deployment does not run the egress broker a subscription needs, so these cannot
+        serve a run or be reconnected here.
       </p>
 
       <p
@@ -557,6 +632,18 @@ defmodule FountainWeb.InferenceCredentialsLive.SubscriptionsCard do
   end
 
   defp verification_page, do: @verification_page
+
+  defp reconnecting?(grant, attempts), do: Enum.any?(attempts, &(&1.grant_id == grant.id))
+
+  # A reconnect is a new generation, and a conversation is pinned to the one
+  # it started on (ADR 0052 decision 5): say so before, not after.
+  defp reconnect_confirm(%{state: :connected, name: name}),
+    do:
+      "Sign in to #{name} again? It keeps working on its current sign-in until the new one " <>
+        "is approved. Once it is, conversations running on the old sign-in end; start new ones."
+
+  defp reconnect_confirm(%{name: name}),
+    do: "Sign in to #{name} again? It keeps its name, and the credential sets that name it."
 
   attr :state, :atom, required: true
 

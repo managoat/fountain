@@ -16,7 +16,9 @@ nothing a user can reach is.** What exists is the table change, the
 owner-scoped context in `Fountain.ChatGPTAccounts` and the per-owner source
 lock, with their tests. No production code calls any of it: there is no
 route, no page, no job, no selection by a credential set, no broker path, no
-keepalive for a user's grant and no environment variable. Stages 2 to 5 are
+keepalive for a user's grant and no environment variable. The one thing
+that runs is `ChatGPTAccounts.RefreshSupervisor`, a task supervisor and the
+refresh coordinator, which now start idle on every node. Stages 2 to 5 are
 not started, and everything below that belongs to them is the design for
 work not yet done. The Context section describes `main` at `9122474f`,
 before stage 1.
@@ -30,8 +32,10 @@ Rebuilds the user-facing half of
 were never built — and **replaces 0052's one-linked-account-per-user model
 with many**. Completes [0053](0053-inference-credential-sets.md) decision 3,
 which reserved this: "a set may name a grant only once 0052 decision 4
-lands." Inherits, unchanged, 0052's decisions 1 (ownership and encryption),
-3 (one refresh owner per grant) and 6 (managed grant destinations cannot be
+lands." Inherits 0052's decision 1 (ownership and encryption) with one
+change, the grant id added to a user grant's AAD
+([as built](#stage-1-as-built), item 3), and, unchanged, its decisions 3
+(one refresh owner per grant) and 6 (managed grant destinations cannot be
 overridden by tenant bindings), and 0047's platform grant.
 
 Amends [0047](0047-codex-platform-chatgpt-account.md) decision 6 as amended
@@ -90,12 +94,12 @@ What the codebase has today, verified against `main` at `9122474f`:
   (#2198, the workers, sweep, coordinator and supervisor) and `4563e3df`
   (#2199, the reads, the typed `Grant` and `ProtectedCompiler`), together
   about 715 lib and 1,447 test lines, and **no column or index was
-  dropped**. An earlier draft of this ADR said #2362 (`231773be`) had since
-  rewritten `do_refresh`, `current_result`, `current_query` and `swap_in`.
-  It had not: `git diff 4563e3df 9122474f` over `chatgpt_accounts.ex`
-  touches the moduledoc, the new exhaustion block, one `platform_status`
-  field and the `exhausted_until/2` helper, and none of those four
-  functions. Restoring their owner branches is #2199's hunks reversed. What
+  dropped**. #2362 (`231773be`) did not rewrite `do_refresh`,
+  `current_result`, `current_query` or `swap_in`: `git diff 4563e3df
+  9122474f` over `chatgpt_accounts.ex` touches the moduledoc, the new
+  exhaustion block, one `platform_status` field and the `exhausted_until/2`
+  helper, and none of those four functions. Restoring their owner branches
+  is #2199's hunks reversed. What
   needs care is the other direction: #2362's additions are scoped to the
   NULL-owner row and stay that way (decision 4 treats a user grant's
   exhaustion differently, in stage 5). The whole-file deletions and the
@@ -268,12 +272,12 @@ before expiry and before a turn.
 survives. But every grant *write* also takes
 `InferenceCredentials.lock_platform_source/0`, a single deployment-wide
 advisory key `hashtextextended('inference:platform', 0)`
-(`inference_credentials.ex:612`), from `store/3`, `platform_disconnect/1`,
-`swap_in/3`, `mark_revoked/2`, `mark_expired/1` and `write_exhaustion/4`.
-Worse, `lock_source/1` (`inference_credentials.ex:604`) takes that same key
-**shared** before every `resolve/4`. With one platform grant that is a
-non-event. With many user grants it serializes every grant's refresh against
-every user's credential resolution, deployment-wide.
+(`inference_credentials.ex:612` at `9122474f`), from `store/3`,
+`platform_disconnect/1`, `swap_in/3`, `mark_revoked/2`, `mark_expired/1`
+and `write_exhaustion/4`. Worse, `lock_source/1` (`:604` there) takes that
+same key **shared** before every `resolve/4`. With one platform grant that
+is a non-event. With many user grants it serializes every grant's refresh
+against every user's credential resolution, deployment-wide.
 
 Key that lock by owner — the platform row keeps `'inference:platform'`, a
 user grant takes a per-user or per-grant key — so one user's reconnect
@@ -439,9 +443,32 @@ the refresh try-lock is never waited on. A user's row never sets
 `updated_by_user_id`, which keeps one account's deletion from writing
 another account's grant row under that account's key.
 
-One rule follows for stage 2, and it is in the `ChatGPTAccounts` moduledoc:
-never renew a grant while holding `lock_source/1` for its owner. Inside the
-lock, read with `refresh: false`.
+Two rules follow for later stages, and both are in the `ChatGPTAccounts`
+moduledoc. Never renew a grant while holding `lock_source/1` for its owner;
+inside the lock, read with `refresh: false`. And any new writer of an owned
+grant row takes the owner's key in Elixir before it locks the row: the
+trigger alone takes the row first and the key second, the reverse of the
+context's order, and the two can deadlock on one row.
+
+**What a caller can rely on.** `reconnect_for_user/4` takes
+`:expected_generation` and answers `:stale_grant` to a sign-in that
+finishes after a newer one (decision 3's "completion rechecks ...
+generation"); it is compared under the row lock. A rename asks what a link
+asks of the owner, so a suspended, unverified or principal account gets
+`:ineligible_owner`; listing, reading, disconnecting and removing stay open
+to it. A grant or owner id that is not a UUID is refused like one that names
+nothing, never raised, and the coordinator's job and the refresh lock are
+keyed by the loaded row's ids, so another spelling of an id is not another
+exchange. The row's ciphertexts, stored claims and account email are
+`redact: true` and do not print from a struct or a changeset.
+
+One risk is recorded rather than removed. A user grant's fenced token write
+runs in a transaction nested in the refresh lock's. If that transaction
+answers `{:error, _}` after OpenAI has rotated the refresh token, the
+rotated token is lost and the grant will need a reconnect; the context logs
+it by grant and owner id and returns `:refresh_unavailable` instead of
+crashing on the match. The platform grant has the same window and its
+behaviour there is unchanged.
 
 Four things stage 1 settled that this ADR left open:
 

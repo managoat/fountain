@@ -59,6 +59,14 @@ defmodule Fountain.ChatGPTAccounts do
   is platform key, then tenant key, then a row lock; the refresh try-lock is
   never waited on.
 
+  **Any writer of an owned grant row takes the owner's source key in Elixir
+  before it locks the row.** The trigger is not enough on its own: it is
+  `BEFORE ROW`, and PostgreSQL locks the target row before it fires one, so
+  an `update_all`, a `FOR UPDATE` or a delete that leaves the key to the
+  trigger takes row then key. Every function here takes key then row, and
+  the two orders deadlock against each other on one row. `user_write/2` and
+  `with_grant_source_lock/2` are the two ways in; use one.
+
   **Never call `credential_for_user/4` with `refresh: true` (the default),
   or `refresh_for_user/3`, while holding `InferenceCredentials.lock_source/1`
   for that user.** The caller would hold the tenant key and wait on the
@@ -637,8 +645,7 @@ defmodule Fountain.ChatGPTAccounts do
   # one of those did not come from the paths that write this column, and the
   # tenant page is the wrong place to find out what it was. Allowlisted
   # against `OAuth.terminal_codes/0` rather than a second copy of the list,
-  # because the copy this replaced was already missing
-  # `invalid_refresh_token_ciphertext_integrity`.
+  # which would drift from it.
   defp safe_reason(nil), do: nil
 
   defp safe_reason(reason) do

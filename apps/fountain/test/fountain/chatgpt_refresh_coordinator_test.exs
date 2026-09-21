@@ -39,7 +39,7 @@ defmodule Fountain.ChatGPTRefreshCoordinatorTest do
     }
   end
 
-  # The clause #2380's guardrail requires, which the coordinator predates.
+  # The catch-all `genserver_catch_all_guardrail_test.exs` requires.
   test "an unexpected message is logged by its shape and does not stop the coordinator", ctx do
     log =
       ExUnit.CaptureLog.capture_log(fn ->

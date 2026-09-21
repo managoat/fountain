@@ -240,7 +240,6 @@ defmodule Fountain.ChatGPTGrantSourceLockTest do
         ids = Enum.map(users, & &1.id)
         Repo.delete_all(from e in Fountain.Audit.Event, where: e.user_id in ^ids)
         Repo.delete_all(from u in User, where: u.id in ^ids)
-        Repo.delete_all(from e in Fountain.Audit.Event, where: e.resource_id in ^ids)
       end
     end)
   end

@@ -505,8 +505,8 @@ defmodule Fountain.ChatGPTAccountsTest do
   defp read(grant, owner),
     do: ChatGPTAccounts.credential_for_user(grant.id, owner.id, grant.generation)
 
-  # Nothing in the application writes an owned row yet; this is the shape one
-  # has, inserted straight through the schema. The name is unique per call
+  # An owned row inserted straight through the schema, so these tests hold
+  # without `connect_for_user/4`'s checks in the way. The name is unique per call
   # because `(user_id, name)` is; pass `:account_id` for a user's second row.
   defp owned_row(owner, overrides \\ %{}, access \\ "user-access-token") do
     id = Ecto.UUID.generate()

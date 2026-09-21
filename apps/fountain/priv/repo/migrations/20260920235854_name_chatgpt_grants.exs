@@ -8,9 +8,10 @@ defmodule Fountain.Repo.Migrations.NameChatgptGrants do
   # `platform_chatgpt_account_platform_row` is untouched: the deployment
   # still has exactly one grant, and it keeps a NULL name.
   #
-  # `(id, user_id)` is unique by construction; the index exists so a table
-  # that names a grant can reference the id and its owner together, and the
-  # database refuses a cross-owner reference.
+  # `(id, user_id)` is unique by construction. The index is for ADR 0060
+  # stage 2: a credential set that names a grant references the id and its
+  # owner together, so the database refuses a cross-owner reference. That
+  # reference is not built, and nothing uses the index until it is.
   #
   # No backfill. `20260912020000` refused to run with an owned row and no
   # released writer has created one since. Should one exist, the check

@@ -13,9 +13,11 @@ defmodule Fountain.PlatformChatGPT.Account do
   `account_id` is unique per owner too
   (`platform_chatgpt_account_user_id_account_id_index`): one subscription
   linked twice would be two refresh chains OpenAI cannot tell apart.
-  `platform_chatgpt_account_id_user_id_index` is there to be referenced: a
-  row naming a grant names its owner with it. The platform row's name is NULL, and `chatgpt_grant_name_follows_owner` holds
-  both halves of that in the database.
+  `platform_chatgpt_account_id_user_id_index` is there for ADR 0060 stage
+  2's reference from a credential set to a grant together with its owner;
+  that reference is not built and nothing uses the index yet. The platform
+  row's name is NULL, and `chatgpt_grant_name_follows_owner` holds both
+  halves of that in the database.
 
   `kind` says what the row holds: `"chatgpt"` is a ChatGPT sign-in with a
   rotating refresh token managed server-side by `Fountain.ChatGPTAccounts`;
@@ -45,14 +47,14 @@ defmodule Fountain.PlatformChatGPT.Account do
   keeps it. `disconnect_changeset/1` ends one: it drops both tokens and the
   stored claims, advances `generation` and `lock_version` so an in-flight
   refresh's fenced write finds nothing, and keeps the name and the account.
-  `rename_changeset/2` changes the name and nothing else: not `generation`, because a label is not a credential
-  change, and not `lock_version`, because an in-flight refresh is fenced on
-  it and losing that fence would discard a refresh token OpenAI has already
-  rotated. Refresh, revocation and expiry are fenced `update_all` statements
-  in `Fountain.ChatGPTAccounts`, conditioned on the generation and version
-  the caller read. A changeset for one of them would write on the primary
-  key alone and so would skip the fence, which is why the three that used to
-  exist were removed rather than left unused.
+  `rename_changeset/2` changes the name and nothing else: not `generation`,
+  because a label is not a credential change, and not `lock_version`,
+  because an in-flight refresh is fenced on it and losing that fence would
+  discard a refresh token OpenAI has already rotated. Refresh, revocation
+  and expiry are fenced `update_all` statements in
+  `Fountain.ChatGPTAccounts`, conditioned on the generation and version the
+  caller read. There is no changeset for any of them: one would write on the
+  primary key alone and so would skip the fence.
 
   `usage_exhausted_at` and `usage_exhausted_until` record that OpenAI
   confirmed the account ran out of Codex usage, and the reset time it gave
@@ -141,7 +143,8 @@ defmodule Fountain.PlatformChatGPT.Account do
   @doc """
   A user's first link of one subscription: `connect_changeset/2` plus the
   name, on a struct that already carries its owner. The name is cast here
-  only; a reconnect goes through `connect_changeset/2` and keeps it.
+  and in `rename_changeset/2` only; a reconnect goes through
+  `user_reconnect_changeset/2` and keeps it.
   """
   def user_connect_changeset(%__MODULE__{user_id: user_id} = account, attrs)
       when is_binary(user_id) do

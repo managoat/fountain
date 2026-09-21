@@ -517,6 +517,46 @@ defmodule Fountain.InferenceCredentials.GrantSelectionTest do
       assert problem.("nope", "codex") == nil
     end
 
+    test "named_grant_problem/4 says what the turn would of an owner who may not use a grant",
+         ctx do
+      grant = user_grant!(ctx.user.id, %{name: "Work"})
+      set = set_naming(ctx.user, "Set", grant)
+      grant_id = grant.id
+
+      ctx.user
+      |> Ecto.Changeset.change(suspended_at: DateTime.utc_now() |> DateTime.truncate(:second))
+      |> Fountain.Repo.update!()
+
+      # Resolution reads the row's metadata, which stays open to them.
+      assert {:ok, %{scope: :grant}, _} =
+               InferenceCredentials.resolve(ctx.user.id, @codex_model, "codex",
+                 credential_set_id: set.id
+               )
+
+      assert %{reason: :owner_ineligible, name: "Work", grant_id: ^grant_id} =
+               detail =
+               InferenceCredentials.named_grant_problem(ctx.user.id, @codex_model, "codex",
+                 credential_set_id: set.id
+               )
+
+      assert InferenceCredentials.grant_unusable_message(detail) =~ "verified account"
+    end
+
+    test "grant_state/1 is the reading resolution makes", ctx do
+      grant = user_grant!(ctx.user.id, %{name: "Work"})
+      view = fn -> elem(ChatGPTAccounts.get_for_user(grant.id, ctx.user.id), 1) end
+
+      assert InferenceCredentials.grant_state(view.()) == :ok
+      assert InferenceCredentials.grant_state(nil) == {:not_found, nil}
+
+      Application.delete_env(:fountain, :broker_listen_port)
+      assert InferenceCredentials.grant_state(view.()) == {:broker_required, nil}
+
+      # The grant's own state before the deployment's.
+      :ok = ChatGPTAccounts.disconnect_for_user(grant.id, ctx.user.id)
+      assert InferenceCredentials.grant_state(view.()) == {:disconnected, nil}
+    end
+
     test "a set that names a connected subscription has connected a provider", ctx do
       other = insert_active_user()
       grant = user_grant!(ctx.user.id)

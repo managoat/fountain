@@ -759,21 +759,59 @@ defmodule Fountain.InferenceCredentials do
 
   def named_grant_problem(user_id, model, "codex", opts) when is_binary(user_id) do
     with %Credential{chatgpt_grant_id: id} when is_binary(id) <-
-           set_for(user_id, Keyword.get(opts, :credential_set_id)),
-         {:error, {:chatgpt_grant_unusable, %{} = detail}} <-
-           resolve(
+           set_for(user_id, Keyword.get(opts, :credential_set_id)) do
+      case resolve(
              user_id,
              model,
              "codex",
              Keyword.take(opts, [:credential_set_id, :environment_id, :vault_id])
            ) do
-      detail
+        {:error, {:chatgpt_grant_unusable, %{} = detail}} -> detail
+        {:ok, %Source{scope: :grant} = source, _creds} -> owner_problem(user_id, source)
+        _ -> nil
+      end
     else
       _ -> nil
     end
   end
 
   def named_grant_problem(user_id, _model, _runtime, _opts) when is_binary(user_id), do: nil
+
+  # Resolution reads the grant's row, which stays open to an owner who may no
+  # longer use it; the turn is what refuses them (`CodexChatGPT.ensure_fresh/2`).
+  # Said here in the turn's own terms, so the form is not silent about a run
+  # that cannot start.
+  defp owner_problem(user_id, %Source{grant_id: grant_id}) do
+    case Fountain.ChatGPTAccounts.eligible_owner(user_id) do
+      :ok ->
+        nil
+
+      {:error, :ineligible_owner} ->
+        name =
+          case Fountain.ChatGPTAccounts.get_for_user(grant_id, user_id) do
+            {:ok, grant} -> grant.name
+            {:error, :not_found} -> nil
+          end
+
+        %{grant_id: grant_id, name: name, reason: :owner_ineligible, until: nil}
+    end
+  end
+
+  @doc """
+  Whether a grant's view (`Fountain.ChatGPTAccounts.list_for_user/1`) could
+  serve a codex run, from the row's metadata and the deployment's broker
+  alone: `:ok`, or `{reason, until}` with a reason of `t:grant_unusable/0`
+  and, for `:exhausted`, the reset. `nil` is a grant the owner does not hold.
+
+  It is the reading `resolve/4` makes, exposed so that whoever shows a
+  grant's state (the console's card and picker, ADR 0060 stage 4b) cannot
+  call Connected what a run would be refused for. It reads nothing, and says
+  nothing of the owner: whether the account may use a grant at all is asked
+  at the turn, and `named_grant_problem/4` asks it for the agent form.
+  """
+  @spec grant_state(Fountain.ChatGPTAccounts.grant_view() | nil) ::
+          :ok | {atom(), DateTime.t() | nil}
+  defdelegate grant_state(view), to: Fountain.InferenceCredentials.Resolver
 
   @typedoc """
   Why the ChatGPT subscription a set names cannot serve a codex run, in a

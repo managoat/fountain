@@ -82,6 +82,9 @@ defmodule FountainWeb.InferenceCredentialsLive.SubscriptionsCard do
       # gate"): with no broker a grant can serve nothing, so there is nothing
       # a new sign-in would bring back.
       reconnect?: Fountain.Broker.configured?(),
+      # Not a grant's state, and no run is served without it: a suspended or
+      # unverified account, or a principal, is refused at the turn.
+      owner_eligible?: ChatGPTAccounts.eligible_owner(user_id) == :ok,
       visible?: linking? or grants != [] or attempts != []
     }
   end
@@ -100,17 +103,13 @@ defmodule FountainWeb.InferenceCredentialsLive.SubscriptionsCard do
     }
   end
 
-  # What resolution would say of the grant (`Resolver.grant_state/1`), less
-  # the deployment's broker, which is not the subscription's state.
+  # What resolution says of the grant, and not a second reading of it
+  # (`InferenceCredentials.grant_state/1`): the chip never says Connected
+  # where a run would be refused, a deployment with no broker included.
   defp grant_state(view) do
-    cond do
-      view.status == "disconnected" -> :disconnected
-      view.status == "revoked" -> :revoked
-      view.status == "expired" -> :expired
-      view.status != "active" or not view.refreshable -> :reconnect_required
-      view.account_id in [nil, ""] -> :reconnect_required
-      match?(%DateTime{}, view.exhausted_until) -> :exhausted
-      true -> :connected
+    case Fountain.InferenceCredentials.grant_state(view) do
+      :ok -> :connected
+      {reason, _until} -> reason
     end
   end
 
@@ -724,6 +723,15 @@ defmodule FountainWeb.InferenceCredentialsLive.SubscriptionsCard do
       </p>
 
       <p
+        :if={!@subscriptions.owner_eligible? and @subscriptions.grants != []}
+        id={"#{@id}-owner-ineligible"}
+        class="text-xs text-amber-800"
+      >
+        This account cannot run on a subscription right now: that takes a verified account that
+        is not suspended. Runs that name one are refused, whatever its state reads above.
+      </p>
+
+      <p
         :if={!@subscriptions.reconnect? and @subscriptions.grants != []}
         class="text-xs text-[var(--color-text-secondary)]"
       >
@@ -794,6 +802,7 @@ defmodule FountainWeb.InferenceCredentialsLive.SubscriptionsCard do
   defp state_label(:connected), do: "Connected"
   defp state_label(:disconnected), do: "Disconnected"
   defp state_label(:exhausted), do: "Usage spent"
+  defp state_label(:broker_required), do: "Cannot serve here"
   defp state_label(_needs_sign_in), do: "Reconnect required"
 
   defp state_text(%{state: :connected} = grant) do
@@ -812,6 +821,11 @@ defmodule FountainWeb.InferenceCredentialsLive.SubscriptionsCard do
     do:
       "Fountain holds no sign-in for this subscription. Credential sets that name it fail by " <>
         "name until it is connected again."
+
+  defp state_text(%{state: :broker_required}),
+    do:
+      "Fountain holds this sign-in, and this deployment does not run the egress broker a " <>
+        "subscription needs. Runs that name it are refused."
 
   defp state_text(%{state: :revoked}),
     do: "OpenAI no longer accepts this sign-in. Runs that name it are refused."

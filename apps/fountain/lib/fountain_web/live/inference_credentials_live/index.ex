@@ -457,6 +457,7 @@ defmodule FountainWeb.InferenceCredentialsLive.Index do
 
   defp grant_state_words(%{state: :disconnected}), do: "disconnected"
   defp grant_state_words(%{state: :exhausted}), do: "usage spent"
+  defp grant_state_words(%{state: :broker_required}), do: "unable to serve on this deployment"
   defp grant_state_words(%{state: _}), do: "reconnect required"
 
   defp named_grant(set, subscriptions),
@@ -701,6 +702,14 @@ defmodule FountainWeb.InferenceCredentialsLive.Index do
             named_grant(@set, @subscriptions)
           )}:
           codex runs on this set are refused until that changes, or until the set names another.
+        </p>
+
+        <p
+          :if={named_grant(@set, @subscriptions) && !@subscriptions.owner_eligible?}
+          class="text-xs text-amber-800"
+        >
+          This account cannot run on a subscription right now: that takes a verified account
+          that is not suspended. Codex runs on this set are refused until then.
         </p>
 
         <form id="set-chatgpt-grant-form" phx-submit="set_grant" class="flex flex-wrap gap-2">

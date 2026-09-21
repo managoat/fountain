@@ -702,6 +702,12 @@ defmodule FountainWeb.ChatGPTSubscriptionsLiveTest do
       {:ok, view, html} = live(conn, @path)
 
       assert html =~ "does not run the egress broker"
+
+      # The chip is what a run would meet, not Connected.
+      row = view |> element("#chatgpt-grant-#{grant.grant_id}") |> render()
+      assert row =~ "Cannot serve here"
+      refute row =~ "Connected"
+
       refute has_element?(view, "#chatgpt-grant-#{grant.grant_id} button", "Reconnect")
       assert has_element?(view, "#chatgpt-grant-#{grant.grant_id} button", "Disconnect")
 
@@ -823,6 +829,37 @@ defmodule FountainWeb.ChatGPTSubscriptionsLiveTest do
 
       assert Repo.reload!(second).chatgpt_grant_id == work.grant_id
       assert is_nil(Repo.reload!(default).chatgpt_grant_id)
+    end
+
+    test "the picker warns where a run would be refused: no broker, and an owner who may not",
+         %{conn: conn, user: user, work: work} do
+      {:ok, set} = InferenceCredentials.create_set(user.id, "Default")
+      {:ok, _} = InferenceCredentials.set_grant(set, work.grant_id)
+
+      {:ok, view, _html} = live(conn, @path)
+      refute view |> element("#set-chatgpt-grant") |> render() =~ "are refused until"
+      refute has_element?(view, @card <> "-owner-ineligible")
+
+      # Suspended since the page was mounted: the next read says so.
+      Repo.update_all(from(u in Fountain.Accounts.User, where: u.id == ^user.id),
+        set: [suspended_at: DateTime.utc_now() |> DateTime.truncate(:second)]
+      )
+
+      send(view.pid, {:chatgpt_grants_changed, user.id})
+      assert has_element?(view, @card <> "-owner-ineligible")
+
+      assert view |> element("#set-chatgpt-grant") |> render() =~
+               "This account cannot run on a subscription right now"
+
+      Repo.update_all(from(u in Fountain.Accounts.User, where: u.id == ^user.id),
+        set: [suspended_at: nil]
+      )
+
+      disable_broker()
+      send(view.pid, {:chatgpt_grants_changed, user.id})
+
+      assert view |> element("#set-chatgpt-grant") |> render() =~
+               "Work is unable to serve on this deployment"
     end
 
     test "a disconnected subscription is offered only to the set that already names it",

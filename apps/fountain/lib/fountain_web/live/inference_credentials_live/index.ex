@@ -64,12 +64,15 @@ defmodule FountainWeb.InferenceCredentialsLive.Index do
 
   # A sign-in's code is read only once the socket is up: the render before
   # that is a cacheable HTTP response (`SubscriptionsCard.load/2`).
+  #
+  # Once this page has shown the card it keeps it: with linking off, removing
+  # the last subscription or cancelling the last sign-in would otherwise take
+  # the card away together with the sentence that says it worked.
   defp load_subscriptions(socket) do
-    assign(
-      socket,
-      :subscriptions,
-      SubscriptionsCard.load(socket.assigns.user_id, live?: connected?(socket))
-    )
+    loaded = SubscriptionsCard.load(socket.assigns.user_id, live?: connected?(socket))
+    shown? = match?(%{subscriptions: %{visible?: true}}, socket.assigns)
+
+    assign(socket, :subscriptions, %{loaded | visible?: loaded.visible? or shown?})
   end
 
   # The sets, and which one the provider rows are about. Re-read after every

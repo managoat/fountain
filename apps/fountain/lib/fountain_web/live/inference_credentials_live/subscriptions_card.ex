@@ -156,14 +156,30 @@ defmodule FountainWeb.InferenceCredentialsLive.SubscriptionsCard do
 
   @impl true
   def update(assigns, socket) do
+    previous = socket.assigns[:subscriptions]
+
     socket =
       socket
       |> assign(assigns)
       |> assign_new(:message, fn -> nil end)
+      |> assign_new(:message_reads, fn -> 0 end)
       |> assign_new(:dismissed, fn -> MapSet.new() end)
+      |> age_message(previous)
 
     {:ok,
      assign(socket, :notices, notices(socket.assigns.subscriptions, socket.assigns.dismissed))}
+  end
+
+  # An event's message is about the read that follows it. The next read that
+  # shows something else is about something else, another tab's write say,
+  # and the message goes: "Disconnected Work." does not stay beside a Work
+  # that was reconnected since.
+  defp age_message(socket, previous) do
+    cond do
+      is_nil(previous) or previous == socket.assigns.subscriptions -> socket
+      socket.assigns.message_reads >= 1 -> message(socket, nil)
+      true -> assign(socket, :message_reads, 1)
+    end
   end
 
   # How the account's recent sign-ins ended, newest first, read from their
@@ -285,42 +301,60 @@ defmodule FountainWeb.InferenceCredentialsLive.SubscriptionsCard do
 
   # ── events ───────────────────────────────────────────────────────────────
 
+  # Every event ends by asking the page to read again. A write that changed
+  # something has broadcast already, but one that found nothing to change has
+  # not (disconnecting what is disconnected, cancelling what is cancelled,
+  # renaming to the same name), and a page that missed a broadcast would go on
+  # showing "Disconnected Work." beside a row that reads Connected.
   @impl true
-  def handle_event("connect", %{"name" => name}, socket) when is_binary(name) do
+  def handle_event(event, params, socket) do
+    socket = handle(event, params, socket)
+    send(self(), {:chatgpt_grants_changed, socket.assigns.user_id})
+    {:noreply, socket}
+  end
+
+  defp handle("connect", %{"name" => name}, socket) when is_binary(name) do
     case ChatGPTAccounts.start_attempt_for_user(
            socket.assigns.user_id,
            %{name: String.trim(name)},
            socket.assigns.attribution
          ) do
-      {:ok, _attempt} -> {:noreply, socket |> dismiss_notices() |> message(nil)}
-      {:error, reason} -> {:noreply, message(socket, {:error, error_text(reason, :sign_in)})}
+      {:ok, _attempt} -> socket |> dismiss_notices() |> message(nil)
+      {:error, reason} -> message(socket, {:error, error_text(reason, :sign_in)})
     end
   end
 
-  def handle_event("reconnect", %{"id" => id}, socket) when is_binary(id) do
+  defp handle("reconnect", %{"id" => id}, socket) when is_binary(id) do
     case ChatGPTAccounts.start_attempt_for_user(
            socket.assigns.user_id,
            %{grant_id: id},
            socket.assigns.attribution
          ) do
-      {:ok, _attempt} -> {:noreply, socket |> dismiss_notices() |> message(nil)}
-      {:error, reason} -> {:noreply, message(socket, {:error, error_text(reason, :reconnect)})}
+      {:ok, _attempt} -> socket |> dismiss_notices() |> message(nil)
+      {:error, reason} -> message(socket, {:error, error_text(reason, :reconnect)})
     end
   end
 
-  def handle_event("cancel_attempt", %{"id" => id}, socket) when is_binary(id) do
+  defp handle("cancel_attempt", %{"id" => id}, socket) when is_binary(id) do
     case ChatGPTAccounts.cancel_attempt_for_user(
            id,
            socket.assigns.user_id,
            socket.assigns.attribution
          ) do
-      {:ok, _attempt} -> {:noreply, message(socket, {:info, "Sign-in cancelled."})}
-      {:error, reason} -> {:noreply, message(socket, {:error, error_text(reason, :sign_in)})}
+      {:ok, _attempt} ->
+        message(socket, {:info, "Sign-in cancelled."})
+
+      # It ran out first. The read that follows says so, from its row, once.
+      {:error, {:link_attempt_not_pending, %{state: "expired"}}} ->
+        message(socket, nil)
+
+      {:error, reason} ->
+        message(socket, {:error, error_text(reason, :sign_in)})
     end
   end
 
-  def handle_event("rename", %{"grant_id" => id, "name" => name}, socket)
-      when is_binary(id) and is_binary(name) do
+  defp handle("rename", %{"grant_id" => id, "name" => name}, socket)
+       when is_binary(id) and is_binary(name) do
     case ChatGPTAccounts.rename_for_user(
            id,
            socket.assigns.user_id,
@@ -328,14 +362,14 @@ defmodule FountainWeb.InferenceCredentialsLive.SubscriptionsCard do
            socket.assigns.attribution
          ) do
       {:ok, grant} ->
-        {:noreply, message(socket, {:info, "Renamed to #{grant.name}."})}
+        message(socket, {:info, "Renamed to #{grant.name}."})
 
       {:error, reason} ->
-        {:noreply, message(socket, {:error, error_text(reason, name_of(socket, id))})}
+        message(socket, {:error, error_text(reason, name_of(socket, id))})
     end
   end
 
-  def handle_event("disconnect", %{"id" => id}, socket) when is_binary(id) do
+  defp handle("disconnect", %{"id" => id}, socket) when is_binary(id) do
     name = name_of(socket, id)
 
     case ChatGPTAccounts.disconnect_for_user(
@@ -343,25 +377,26 @@ defmodule FountainWeb.InferenceCredentialsLive.SubscriptionsCard do
            socket.assigns.user_id,
            socket.assigns.attribution
          ) do
-      :ok -> {:noreply, message(socket, {:info, "Disconnected #{name}."})}
-      {:error, reason} -> {:noreply, message(socket, {:error, error_text(reason, name)})}
+      :ok -> message(socket, {:info, "Disconnected #{name}."})
+      {:error, reason} -> message(socket, {:error, error_text(reason, name)})
     end
   end
 
-  def handle_event("remove", %{"id" => id}, socket) when is_binary(id) do
+  defp handle("remove", %{"id" => id}, socket) when is_binary(id) do
     name = name_of(socket, id)
 
     case ChatGPTAccounts.remove_for_user(id, socket.assigns.user_id, socket.assigns.attribution) do
-      :ok -> {:noreply, message(socket, {:info, "Removed #{name}."})}
-      {:error, reason} -> {:noreply, message(socket, {:error, error_text(reason, name)})}
+      :ok -> message(socket, {:info, "Removed #{name}."})
+      {:error, reason} -> message(socket, {:error, error_text(reason, name)})
     end
   end
 
   # An event this card does not send, or one without the id it names.
-  def handle_event(_event, _params, socket),
-    do: {:noreply, message(socket, {:error, "That request was not understood."})}
+  defp handle(_event, _params, socket),
+    do: message(socket, {:error, "That request was not understood."})
 
-  defp message(socket, message), do: assign(socket, :message, message)
+  defp message(socket, message),
+    do: socket |> assign(:message, message) |> assign(:message_reads, 0)
 
   # Starting again is the answer to what the notices said: they go, for this
   # page. A later mount reads them from their rows again, for half an hour.
@@ -438,8 +473,12 @@ defmodule FountainWeb.InferenceCredentialsLive.SubscriptionsCard do
       "#{name} is still named by #{sets(names)}. Point #{them(names)} at another " <>
         "subscription, or at none, and remove it then."
 
-  defp error_text(%Ecto.Changeset{errors: [{_field, {text, opts}} | _]}, _subject),
+  defp error_text(%Ecto.Changeset{errors: [{:name, {text, opts}} | _]}, _subject),
     do: "Name #{interpolate(text, opts)}."
+
+  # The one open sign-in a subscription may have, lost to another tab's.
+  defp error_text(%Ecto.Changeset{errors: [{:grant_id, _} | _]}, _subject),
+    do: "A sign-in is already open for that subscription. Finish or cancel it first."
 
   defp error_text(_reason, _subject), do: "That did not work, and nothing was changed."
 
@@ -677,8 +716,10 @@ defmodule FountainWeb.InferenceCredentialsLive.SubscriptionsCard do
       </p>
 
       <p :if={!@subscriptions.linking?} class="text-xs text-[var(--color-text-secondary)]">
-        Linking another subscription is not available on this account. The ones above can
-        still be renamed, {if @subscriptions.reconnect?, do: "reconnected, "}disconnected and removed.
+        Linking another subscription is not available on this account.
+        <span :if={@subscriptions.grants != []}>
+          The ones above can still be renamed, {if @subscriptions.reconnect?, do: "reconnected, "}disconnected and removed.
+        </span>
       </p>
 
       <p

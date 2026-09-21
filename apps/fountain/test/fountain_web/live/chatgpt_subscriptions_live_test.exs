@@ -379,6 +379,49 @@ defmodule FountainWeb.ChatGPTSubscriptionsLiveTest do
       assert ChatGPTAccounts.list_for_user(user.id) == []
     end
 
+    test "an event that changes nothing still leaves the page showing what is true",
+         %{conn: conn, user: user, grant: grant} do
+      {:ok, view, _html} = live(conn, @path)
+      row = "#chatgpt-grant-#{grant.grant_id}"
+
+      # The page missed a broadcast: the row was renamed underneath it.
+      Repo.update_all(from(a in Account, where: a.id == ^grant.grant_id),
+        set: [name: "Renamed elsewhere"]
+      )
+
+      assert view |> element(row) |> render() =~ "Name of Work"
+
+      # Renaming it to the name it has writes nothing and broadcasts nothing.
+      hostile(view, "rename", %{"grant_id" => grant.grant_id, "name" => "Renamed elsewhere"})
+
+      assert render(view) =~ "Renamed to Renamed elsewhere."
+      assert view |> element(row) |> render() =~ "Name of Renamed elsewhere"
+
+      assert {:ok, %{name: "Renamed elsewhere"}} =
+               ChatGPTAccounts.get_for_user(grant.grant_id, user.id)
+    end
+
+    test "a message goes once the page shows a later change", %{
+      conn: conn,
+      user: user,
+      grant: grant
+    } do
+      {:ok, view, _html} = live(conn, @path)
+
+      view
+      |> element("#chatgpt-grant-#{grant.grant_id} form")
+      |> render_submit(%{"name" => "Renamed"})
+
+      assert render(view) =~ "Renamed to Renamed."
+
+      # Something else happens to the account, from somewhere else.
+      link!(user, "Another", "acct-another")
+      html = render(view)
+
+      assert html =~ "Another"
+      refute html =~ "Renamed to Renamed."
+    end
+
     test "Remove is refused while credential sets name it, and the page names them",
          %{conn: conn, user: user, grant: grant} do
       {:ok, a} = InferenceCredentials.create_set(user.id, "Default")
@@ -920,6 +963,16 @@ defmodule FountainWeb.ChatGPTSubscriptionsLiveTest do
 
       view |> element(row <> " button", "Remove") |> render_click()
       assert ChatGPTAccounts.list_for_user(user.id) == []
+
+      # The last one is gone and linking is off, and the page still says what
+      # it did. A reload is what takes the card away.
+      html = render(view)
+      assert html =~ "Removed Still mine."
+      assert html =~ "No subscription is linked yet."
+      refute html =~ "The ones above can still be"
+
+      {:ok, reloaded, _html} = live(conn, @path)
+      refute has_element?(reloaded, @card)
     end
 
     test "a sign-in that was already open can still be cancelled", %{conn: conn, user: user} do
@@ -931,6 +984,7 @@ defmodule FountainWeb.ChatGPTSubscriptionsLiveTest do
 
       view |> element("#chatgpt-attempt-#{attempt.id} button", "Cancel") |> render_click()
       assert %LinkAttempt{state: "cancelled"} = Repo.get!(LinkAttempt, attempt.id)
+      assert render(view) =~ "Sign-in cancelled."
     end
   end
 end

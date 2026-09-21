@@ -1614,7 +1614,6 @@ defmodule Fountain.ChatGPTAccounts do
   defp inconclusive({:usage, status}) when is_integer(status), do: {:usage, status}
   defp inconclusive({:usage, _}), do: {:usage, :transport}
   defp inconclusive(reason) when is_atom(reason), do: reason
-  defp inconclusive(_), do: :error
 
   defp grant_fence(%Source{
          scope: :platform,

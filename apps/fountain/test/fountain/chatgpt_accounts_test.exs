@@ -272,6 +272,32 @@ defmodule Fountain.ChatGPTAccountsTest do
     end
   end
 
+  # `fountain_lock_inference_source()` refuses it, whatever wrote the UPDATE
+  # (ADR 0052 decision 1: no transfer of a grant between users or scopes).
+  test "the database refuses to change a grant's owner" do
+    owner = insert_verified_user()
+    other = insert_verified_user()
+    grant = owned_row(owner)
+    platform = %Account{} |> Account.connect_changeset(platform_attrs()) |> Repo.insert!()
+
+    for {row, user_id} <- [{grant, other.id}, {grant, nil}, {platform, owner.id}] do
+      error =
+        assert_raise Postgrex.Error, fn ->
+          # A savepoint: the refused update must not abort the test's transaction.
+          Repo.transaction(fn ->
+            Repo.update_all(from(a in Account, where: a.id == ^row.id),
+              set: [user_id: user_id, name: user_id && "moved"]
+            )
+          end)
+        end
+
+      assert error.postgres.message == "a ChatGPT grant never changes its owner"
+    end
+
+    assert Repo.get!(Account, grant.id) == grant
+    assert Repo.get!(Account, platform.id) == platform
+  end
+
   defp platform_attrs do
     %{
       kind: "chatgpt",

@@ -690,7 +690,7 @@ defmodule Fountain.ChatGPTAccounts do
     sets = attrs |> Map.put(:updated_at, now()) |> Enum.to_list()
 
     {n, _} =
-      Fountain.InferenceCredentials.with_platform_source_lock(fn ->
+      with_grant_source_lock(current, fn ->
         current_query(current) |> Repo.update_all(set: sets, inc: [lock_version: 1])
       end)
 
@@ -755,7 +755,7 @@ defmodule Fountain.ChatGPTAccounts do
 
   defp mark_revoked(row, code) do
     {count, _} =
-      Fountain.InferenceCredentials.with_platform_source_lock(fn ->
+      with_grant_source_lock(row, fn ->
         current_query(row)
         |> Repo.update_all(
           set: [status: "revoked", revoked_reason: code, updated_at: now()],
@@ -789,7 +789,11 @@ defmodule Fountain.ChatGPTAccounts do
   # still routed through `current_result/1` rather than assumed away, because
   # reporting `:expired` for a grant that is now active is the same class of
   # wrong answer the fence exists to prevent.
-  defp mark_expired(row) do
+  #
+  # Platform only, which the head says: only a static workspace token expires
+  # this way, a user's grant is never one, and an owned row must not be able
+  # to produce an `admin.*` event.
+  defp mark_expired(%Account{user_id: nil} = row) do
     {count, _} =
       Fountain.InferenceCredentials.with_platform_source_lock(fn ->
         current_query(row)
@@ -810,6 +814,17 @@ defmodule Fountain.ChatGPTAccounts do
   end
 
   # ── helpers ──────────────────────────────────────────────────────────────
+
+  # The source lock a fenced write takes follows the row's owner (ADR 0060
+  # decision 5), as `fountain_lock_inference_source()` does for the same row:
+  # the deployment's grant takes the platform key, a user's takes that user's
+  # and never the platform's, so one user's refresh cannot park another
+  # user's turn admission.
+  defp with_grant_source_lock(%Account{user_id: nil}, fun),
+    do: Fountain.InferenceCredentials.with_platform_source_lock(fun)
+
+  defp with_grant_source_lock(%Account{user_id: user_id}, fun) when is_binary(user_id),
+    do: Fountain.InferenceCredentials.with_tenant_source_lock(user_id, fun)
 
   defp exhausted_until(%Account{usage_exhausted_until: %DateTime{} = until}, now) do
     if DateTime.compare(until, now) == :gt, do: until, else: nil

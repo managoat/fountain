@@ -307,7 +307,9 @@ defmodule Fountain.Conversations.FreshProvision do
              runtime,
              state.runtime_module,
              agent,
-             sprite_env
+             sprite_env,
+             state.inference_source,
+             state.user_id
            ) do
       {:ok,
        %{

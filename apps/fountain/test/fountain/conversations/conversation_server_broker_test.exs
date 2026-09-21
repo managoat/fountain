@@ -195,7 +195,9 @@ defmodule Fountain.Conversations.ConversationServerBrokerTest do
                                                                               _r,
                                                                               _m,
                                                                               _a,
-                                                                              _e ->
+                                                                              _e,
+                                                                              _source,
+                                                                              _user ->
           send(test, {:wake_paused, self()})
           receive do: (:resume_wake -> :ok)
         end)
@@ -640,7 +642,9 @@ defmodule Fountain.Conversations.ConversationServerBrokerTest do
                                                                               _r,
                                                                               _m,
                                                                               _a,
-                                                                              _e ->
+                                                                              _e,
+                                                                              _source,
+                                                                              _user ->
           send(test, {:provision_paused, self()})
           receive do: (:resume_provision -> :ok)
         end)

@@ -932,19 +932,46 @@ defmodule Fountain.ChatGPTAccounts do
 
   def protected_credential(_ref, _identity), do: {:error, :denied}
 
+  @doc """
+  What one grant's sandbox `auth.json` carries beside the placeholder: the
+  real account id (not a secret; codex sends it in a header in the clear) and
+  an unsigned `id_token` built from the stored claims. Pinned by owner, id
+  and generation, like every other read through a `t:grant_ref/0`, so the
+  file a conversation gets is its own grant's at the sign-in it resolved, or
+  nothing: `:none` when that sign-in is gone (reconnected, disconnected,
+  removed), when the owner may no longer use a grant, or when the row names
+  no account. Never another grant's and never a deployment-wide lookup (ADR
+  0052 decision 5). The row's `status` is not asked: the file holds a
+  placeholder, and whether the grant may serve is the broker's question on
+  every request.
+  """
+  @spec sandbox_auth(grant_ref()) ::
+          {:ok, %{account_id: String.t(), id_token: String.t()}} | :none
+  def sandbox_auth(%{owner: _, grant_id: _, generation: _} = ref) do
+    with {:ok, query} <- pinned_grant_query(ref),
+         %Account{account_id: account_id, id_claims: claims}
+         when is_binary(account_id) and account_id != "" <- Repo.one(query) do
+      {:ok, %{account_id: account_id, id_token: Tokens.synthesize_id_token(claims)}}
+    else
+      _ -> :none
+    end
+  end
+
   # The platform's grant may be a static workspace token; a user's is always
   # a refreshable sign-in, as for every other read of one.
   defp servable(%Account{user_id: nil}), do: :ok
   defp servable(%Account{} = account), do: user_account_state(account)
 
-  defp active_grant_query(%{owner: owner, grant_id: grant_id, generation: generation}) do
+  defp active_grant_query(ref) do
+    with {:ok, pinned} <- pinned_grant_query(ref),
+         do: {:ok, from(a in pinned, where: a.status == "active")}
+  end
+
+  defp pinned_grant_query(%{owner: owner, grant_id: grant_id, generation: generation}) do
     with {:ok, id} <- Ecto.UUID.cast(grant_id),
          {:ok, generation} <- Ecto.UUID.cast(generation),
          {:ok, owned} <- owner_query(owner, id) do
-      {:ok,
-       from(a in owned,
-         where: a.id == ^id and a.generation == ^generation and a.status == "active"
-       )}
+      {:ok, from(a in owned, where: a.id == ^id and a.generation == ^generation)}
     end
   end
 

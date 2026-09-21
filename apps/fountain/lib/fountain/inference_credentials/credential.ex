@@ -111,15 +111,12 @@ defmodule Fountain.InferenceCredentials.Credential do
   @doc false
   # Apart from `changeset/2` on purpose: `:chatgpt_grant_id` is not in the
   # general cast list, so no caller that writes a credential or a name can
-  # carry a grant along without the ownership check `set_grant/3` makes. The
-  # constraint is the backstop for a grant that vanishes between that check
-  # and the write; both hold the owner's source lock, so it should not fire.
-  def grant_changeset(credential, grant_id) when is_binary(grant_id) or is_nil(grant_id) do
-    credential
-    |> change(chatgpt_grant_id: grant_id)
-    |> foreign_key_constraint(:chatgpt_grant_id,
-      name: :inference_credentials_chatgpt_grant_id_fkey,
-      message: @grant_message
-    )
-  end
+  # carry a grant along without the ownership check `set_grant/3` makes.
+  #
+  # No `foreign_key_constraint/3`: the key is deferred (see its migration), so
+  # a violation raises at COMMIT and never reaches a changeset. It is the
+  # backstop for a grant that vanishes between that check and the write;
+  # both hold the owner's source lock, so it should not fire.
+  def grant_changeset(credential, grant_id) when is_binary(grant_id) or is_nil(grant_id),
+    do: change(credential, chatgpt_grant_id: grant_id)
 end

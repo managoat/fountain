@@ -200,28 +200,65 @@ defmodule Fountain.InferenceCredentialSetGrantTest do
   end
 
   describe "the database holds the same rule" do
+    @fkey "inference_credentials_chatgpt_grant_id_fkey"
+
+    # The key is DEFERRABLE INITIALLY DEFERRED (see the migration for why), so
+    # it is checked at COMMIT, and a sandboxed test never commits. `SET
+    # CONSTRAINTS ... IMMEDIATE` runs every pending check of it now, which is
+    # the check COMMIT would have made: what these prove is what the key
+    # refuses, exactly as before it was deferred.
+    defp check_now, do: Repo.query!("SET CONSTRAINTS #{@fkey} IMMEDIATE")
+
     test "a set cannot be pointed at another owner's grant behind the changeset", ctx do
       foreign = user_grant!(ctx.other.id)
 
-      assert_raise Postgrex.Error, ~r/inference_credentials_chatgpt_grant_id_fkey/, fn ->
+      assert_raise Postgrex.Error, ~r/#{@fkey}/, fn ->
         Repo.transaction(fn ->
           Repo.update_all(from(c in Credential, where: c.id == ^ctx.set.id),
             set: [chatgpt_grant_id: foreign.id]
           )
+
+          check_now()
         end)
       end
+
+      assert is_nil(stored(ctx.set).chatgpt_grant_id)
     end
 
     test "a set cannot be pointed at the deployment's grant", ctx do
       platform = connect!()
 
-      assert_raise Postgrex.Error, ~r/inference_credentials_chatgpt_grant_id_fkey/, fn ->
+      assert_raise Postgrex.Error, ~r/#{@fkey}/, fn ->
         Repo.transaction(fn ->
           Repo.update_all(from(c in Credential, where: c.id == ^ctx.set.id),
             set: [chatgpt_grant_id: platform.id]
           )
+
+          check_now()
         end)
       end
+    end
+
+    test "a grant cannot be deleted from under a set that names it", ctx do
+      grant = user_grant!(ctx.user.id)
+      {:ok, _} = InferenceCredentials.set_grant(ctx.set, grant.id)
+
+      assert_raise Postgrex.Error, ~r/#{@fkey}/, fn ->
+        Repo.transaction(fn ->
+          Repo.delete_all(from(a in Account, where: a.id == ^grant.id))
+          check_now()
+        end)
+      end
+
+      assert Repo.get(Account, grant.id)
+    end
+
+    test "the key is deferred, which is what makes account deletion order-independent" do
+      assert %{rows: [[true, true, "a"]]} =
+               Repo.query!(
+                 "SELECT condeferrable, condeferred, confdeltype::text FROM pg_constraint WHERE conname = $1",
+                 [@fkey]
+               )
     end
 
     test "deleting the account takes its sets and its grants together", ctx do
@@ -230,10 +267,33 @@ defmodule Fountain.InferenceCredentialSetGrantTest do
       keeps = user_grant!(ctx.other.id)
 
       Repo.delete!(ctx.user)
+      # What COMMIT would check: nothing is left naming a grant that is gone.
+      check_now()
 
       refute Repo.get(Credential, ctx.set.id)
       refute Repo.get(Account, grant.id)
       assert Repo.get(Account, keeps.id)
+    end
+
+    # `DELETE FROM users` cascades to the sets and to the grants through two
+    # RI triggers that PostgreSQL fires in trigger-name order, which is OID
+    # order and nothing this repository chooses: a dump and restore can flip
+    # it. Checked immediately, the grants going first fails the whole account
+    # deletion on this key. This is that order, made on purpose.
+    test "the grants going before the sets, the order a restore could produce, is fine", ctx do
+      grant = user_grant!(ctx.user.id)
+      {:ok, _} = InferenceCredentials.set_grant(ctx.set, grant.id)
+
+      assert {:ok, :done} =
+               Repo.transaction(fn ->
+                 Repo.delete_all(from(a in Account, where: a.user_id == ^ctx.user.id))
+                 Repo.delete_all(from(c in Credential, where: c.user_id == ^ctx.user.id))
+                 check_now()
+                 :done
+               end)
+
+      refute Repo.get(Credential, ctx.set.id)
+      refute Repo.get(Account, grant.id)
     end
   end
 

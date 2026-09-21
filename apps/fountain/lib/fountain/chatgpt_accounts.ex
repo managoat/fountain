@@ -436,8 +436,9 @@ defmodule Fountain.ChatGPTAccounts do
   nilified, turn each into a set with no grant whose next codex run resolves
   to something the user never chose (ADR 0060 decision 4). The check and the
   delete cannot interleave with a set being pointed at the grant: both hold
-  the owner's source lock. A changeset is the database refusing the delete
-  all the same, which that lock should make unreachable.
+  the owner's source lock. This check is the guard, not the sets' foreign
+  key: that key is deferred, so it would refuse at COMMIT by raising, which
+  the lock should make unreachable.
   """
   @spec remove_for_user(Ecto.UUID.t(), String.t(), keyword()) ::
           :ok
@@ -466,13 +467,7 @@ defmodule Fountain.ChatGPTAccounts do
   defp delete_unnamed(%Account{} = account) do
     case Fountain.InferenceCredentials.set_names_for_grant(account.id, account.user_id) do
       [] ->
-        account
-        |> Ecto.Changeset.change()
-        |> Ecto.Changeset.foreign_key_constraint(:id,
-          name: :inference_credentials_chatgpt_grant_id_fkey,
-          message: "is named by a credential set"
-        )
-        |> Repo.delete()
+        Repo.delete(account)
 
       names ->
         {:error, {:named_by_sets, names}}

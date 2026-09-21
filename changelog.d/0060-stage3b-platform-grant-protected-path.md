@@ -17,8 +17,8 @@
 
 ### Upgrade notes
 
-- **Release gate, half passed: no hosted codex turn has run on this change
-  yet** (#2458, #2479). It was written not to merge or deploy until
+- **Release gate, passed except for a reattached turn** (#2458, #2479). It
+  was written not to merge or deploy until
   `scripts/probe-codex-protected.py` had been run against the codex-acp and
   Codex CLI the sandbox image installs and one real hosted codex turn on the
   deployment's account had succeeded, with the result recorded in ADR 0047.
@@ -28,9 +28,14 @@
   reads `CODEX_HOME`, and it completes its turns with every `chatgpt.com`
   route but the allowed one refused. That run was offline, against a local
   origin and a local proxy, not against `chatgpt.com` through the broker.
-  The hosted turn is still owed. On the hosted instance the account has
-  been disconnected since 2026-09-16, so the new path has carried no
-  request there. The path is used only while an account is connected at
+  On the hosted instance the account was reconnected that evening, and a
+  first and a second codex turn on it both completed through the broker:
+  every model call was allowed on the one route and answered 200, and
+  nothing failed. One client version, one model, one sandbox provider
+  (sprites). **Still owed: a reattached turn**, a prompt to a conversation
+  whose sandbox has parked, which resumes through the account's own
+  `CODEX_HOME`; it has not been observed. The path is used only while an
+  account is connected at
   `/admin/inference`. If the first codex turns after you connect one fail
   with a 403 from the broker, or with codex finding no auth file, the
   fallback to `PLATFORM_OPENAI_API_KEY` does not happen, because the account
@@ -38,14 +43,18 @@
   `/admin/inference` is the quick way out; the rollback is to revert this
   change, whose migration has nothing to undo, after which a conversation
   mints a session of the old kind when its server next starts. Remove this
-  note when the hosted turn is recorded.
+  note when the reattached turn is recorded.
 
 - **Expect refused `chatgpt.com` requests at `/admin/broker` on every codex
   turn on the account** (#2479). The Codex client asks `chatgpt.com` for
   plugin lists, an MCP surface, a model list, telemetry and a settings read
   as well as the one allowed route. In an offline run on codex-acp 1.10.0
-  and Codex CLI 0.153.4 that was ten routes, about 29 requests over two
-  turns. The broker refuses them, and the turn completes without them. They
+  and Codex CLI 0.153.4 that was ten routes. Most of the refusals come once,
+  when a sandbox starts: on the hosted instance on 2026-09-21 a new
+  sandbox's first turn showed 24 `GET` and 12 `POST` refusals, about twenty
+  of them in a burst before the first model call, and its second turn 6
+  `GET` and 4 `POST`. The page shows a method and a count, never a path. The
+  broker refuses them, and the turn completes without them. They
   are harmless. A failed turn is not.
 
 - **A codex conversation on the deployment's ChatGPT account cannot open a

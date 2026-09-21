@@ -24,12 +24,12 @@ you do not trust.
   hosted turn, recorded in ADR 0047, before it might merge. **That gate was
   not passed: the maintainer chose to merge without the measurement.** The
   probe was run later that day, 2026-09-21, against codex-acp 1.10.0 and
-  codex-cli 0.153.4, and passed (ADR 0047, measurement 6). **The hosted
-  turn is still owed**, under (c) and in #2479. It cannot run until the
-  maintainer reconnects the deployment's ChatGPT account at
-  `/admin/inference`: the account has been disconnected since 2026-09-16,
-  so nothing has used the protected path in production, and the failure
-  below cannot happen until it is reconnected. If platform-codex turns then
+  codex-cli 0.153.4, and passed (ADR 0047, measurement 6). The maintainer
+  reconnected the deployment's ChatGPT account that evening, at 22:31 UTC,
+  the first time anything used the protected path in production, and **a
+  hosted first and second turn both completed on it** (#2479; ADR 0047,
+  "Measurement 6, the hosted half"). **The reattached turn is still owed**,
+  under (c) and in #2479. If platform-codex turns
   fail with a 403 from the broker or with no auth file (the #2362 fallback
   stays silent, because the grant still reads `active`), revert the squash
   commit of #2458; ADR 0060, "The platform move is gated on a measurement",
@@ -43,19 +43,23 @@ you do not trust.
   `Accept-Encoding: identity`. Gate B refuses any query string on a
   protected route, a bare `?` included. Both are library code, not
   Fountain's; ADR 0060, "Gates A and B as built", says what gate A does not
-  recognise. **Unmeasured, and part of (c):** whether `chatgpt.com` honours
-  `identity` on the Codex route. The recorded client sends no
-  `accept-encoding` and its turns completed (ADR 0047, measurement 2), so
-  the route answers that uncompressed and is expected to answer `identity`
-  the same way; the hosted turn (#2479) shows it.
+  recognise. **Measured on 2026-09-21 (#2479):** `chatgpt.com` honours
+  `identity` on the Codex route, for codex-acp 1.10.0 and codex-cli 0.153.4.
+  Two hosted turns on the deployment's account went out through 0.15.0's
+  proxy, every model call was answered 200, and no
+  `protected_response_encoded` row appeared. No `credential_reflected` or
+  `protected_query` row appeared either, which tests neither gate's
+  refusal: nothing on those turns should have set one off.
 - [ ] **(c) Both real-client measurements pass**: the protected-path probe
   against the pinned client (which is also the measurement stage 3b merged
   without, and covers the deployment's account as well as a user's), and a symlinked `CODEX_HOME` across a reattach
   and a `thread/resume`. Steps 1 and 5 of the runbook. The probe was run
   offline on 2026-09-21 against codex-acp 1.10.0 and codex-cli 0.153.4 and
-  passed. Not ticked: the hosted turn on the deployment's account that stage
-  3b also owed waits on the account being reconnected (#2479), and the
-  symlinked home has not been tried.
+  passed. The hosted first and second turn on the deployment's account that
+  stage 3b also owed were taken on 2026-09-21 and both completed (#2479).
+  Not ticked: the reattached turn on that account is still owed (#2479; it
+  waits on the conversation's sandbox parking), and the symlinked home has
+  not been tried.
 - [ ] **(d) ADR 0047's measurement 5 is recorded**, the day-9 reading (due
   2026-09-17, still "Pending") and the day-30 reading (2026-10-08), and the
   keepalive interval is confirmed or changed from them. Six days is the
@@ -107,15 +111,24 @@ nothing.
 3. **A turn on each agent.** From `broker_requests`, record the hosts, the
    routes, the `injected` counts and any refused request. A refused request
    that codex needed is a finding; so is a host nobody expected. **Refused
-   requests to `chatgpt.com` are expected on every codex turn.** Offline, on
+   requests to `chatgpt.com` are expected on every codex turn: a startup
+   burst of about twenty refusals per sandbox, then about six `GET` and four
+   `POST` per turn.** That is what production showed on 2026-09-21, on
+   1.10.0 and 0.153.4 (24 `GET` and 12 `POST` on a new sandbox's first turn,
+   19 of them before the first model call, and 6 and 4 on its second; ADR
+   0047,
+   ["Measurement 6, the hosted half"](../decisions/0047-codex-platform-chatgpt-account.md#measurement-6-the-hosted-half)).
+   The client asks for its ambient routes when a session starts in a
+   sandbox, not on each turn. Offline, on
    1.10.0 and 0.153.4, the client asked for ten ambient routes besides the
    allowed one, about 29 requests over two turns, GET and POST, and
    completed both turns with all of them refused (ADR 0047,
    ["Measurement 6, the offline half"](../decisions/0047-codex-platform-chatgpt-account.md#measurement-6-the-offline-half)).
    Compare `/admin/broker`'s denied rows for `chatgpt.com` against that
-   table. The request log stores no path, so the comparison is by method and
-   count. Only a failed turn, or refusals that do not fit the table, is
-   news; to name a new route, record the client's egress as #2479 did.
+   shape. The request log stores no path, so the comparison is by method and
+   count only. Only a failed turn, or refusals that do not fit the shape, is
+   news; to name a new route, record the client's egress as the first run
+   of #2479 did (#2480 tracks folding that into the probe).
    **Three endings at `/admin/broker` are news whenever they appear**, on
    this run or after it, all on `chatgpt.com` rows:
    - `502 protected_response_encoded`, under Failed: the origin answered
@@ -194,5 +207,6 @@ before the pause. Either reading belongs in the ADR.
 with the pins and the date. The idle-lifetime readings and their pins go in
 ADR 0047's measurement table, row 5. The 3b measurement, which was not
 taken before #2458 merged, goes in ADR 0047's table too, row 6; its offline
-half is there, and the hosted turn of #2479 goes beside it. A gate that fails is recorded as failed, with what was
+half and the hosted first and second turn of #2479 are there, and the
+reattached turn goes beside them when it is taken. A gate that fails is recorded as failed, with what was
 seen; it is not left blank.

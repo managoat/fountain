@@ -401,6 +401,34 @@ defmodule Fountain.Workers.ChatGPTGrantKeepaliveTest do
       assert RefreshBreaker.open?()
     end
 
+    test "a token response cut short keeps its status, and no part of it is logged" do
+      platform = connect!()
+      platform |> change(last_refreshed_at: @long_ago) |> Repo.update!()
+      account = idle_grant(insert_verified_user(), "rt_a")
+      cut_short = ~s({"access_token":"at_SECRET_cut","refresh_token":"rt_SECRET_cu)
+
+      for {status, evidence?} <- [{200, false}, {429, true}] do
+        RefreshBreaker.reset()
+        stub_raw(status, "application/json", cut_short)
+
+        log =
+          capture_log(fn ->
+            assert {:error, {:token, ^status, "unreadable"}} =
+                     ChatGPTAccounts.platform_keepalive()
+
+            assert :ok = perform_job(Fountain.Workers.PlatformChatGPTKeepalive, %{})
+            perform_job(Worker, args(account))
+          end)
+
+        assert log =~ "refresh failed, keeping the current token: status #{status}"
+        assert log =~ "keepalive could not refresh: status #{status}"
+        refute log =~ "SECRET"
+        refute log =~ "access_token"
+        assert RefreshBreaker.heard?(platform.id) == evidence?
+        assert RefreshBreaker.heard?(account.id) == evidence?
+      end
+    end
+
     test "a grant is heard once per window, and an owner counts once" do
       clock(5_000_000)
       owner = Ecto.UUID.generate()

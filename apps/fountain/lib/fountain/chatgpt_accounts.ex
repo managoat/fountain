@@ -2302,7 +2302,7 @@ defmodule Fountain.ChatGPTAccounts do
 
   defp refresh_error(%Account{user_id: nil} = row, reason) do
     Logger.warning(
-      "platform chatgpt: refresh failed, keeping the current token: " <> inspect(reason)
+      "platform chatgpt: refresh failed, keeping the current token: " <> failure_shape(reason)
     )
 
     # The deployment's grant leaves from the same address as every user's, so
@@ -2333,6 +2333,17 @@ defmodule Fountain.ChatGPTAccounts do
     :telemetry.execute([:fountain, :chatgpt, :refresh, :failure], %{count: 1}, %{scope: :user})
     {:error, :refresh_failed}
   end
+
+  @doc false
+  # What a log line may say of a failed platform refresh: a status, or an
+  # atom this code chose. Never `inspect(reason)`: a transport or decode
+  # error is a struct that may carry a URL or the response's bytes, and a
+  # token response's bytes are tokens.
+  def failure_shape({:token, status, _code}) when is_integer(status), do: "status #{status}"
+  def failure_shape({:terminal, code}) when is_binary(code), do: "terminal #{code}"
+  def failure_shape({:token, _transport}), do: "unreachable"
+  def failure_shape(reason) when is_atom(reason), do: Atom.to_string(reason)
+  def failure_shape(_other), do: "failed"
 
   # A 429, or a 403 whose body was not a JSON object at all (`OAuth` calls
   # that `"unreadable"`): a proxy in front of the auth server, not the auth

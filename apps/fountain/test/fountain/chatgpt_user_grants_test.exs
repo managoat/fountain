@@ -2,7 +2,9 @@ defmodule Fountain.ChatGPTUserGrantsTest do
   # ADR 0060 stage 1: a user links several ChatGPT subscriptions. Every test
   # starts with the deployment's own grant connected and ends by proving it
   # is exactly as it was: nothing a user does to their grants touches it.
-  use Fountain.DataCase, async: true
+  # `async: false`: connecting the platform row holds 'inference:platform'
+  # exclusive for the whole test.
+  use Fountain.DataCase, async: false
   use Mimic
 
   import Fountain.ChatGPTFixtures

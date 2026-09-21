@@ -3,8 +3,9 @@ defmodule Fountain.ChatGPTAccountsTest do
   # tests hold four things: an owned row is invisible to every platform read
   # and mutation, its tokens never decrypt under the platform key (`Cipher`'s
   # owner dispatch), a user's credential read reaches exactly the grant it
-  # names, and the table's naming rules.
-  use Fountain.DataCase, async: true
+  # names, and the table's naming rules. `async: false`: several insert the
+  # platform row, which holds 'inference:platform' exclusive for the whole test.
+  use Fountain.DataCase, async: false
   use Mimic
 
   import ExUnit.CaptureLog
@@ -190,7 +191,7 @@ defmodule Fountain.ChatGPTAccountsTest do
     owner = insert_verified_user()
     grant = owned_row(owner, %{access_token_ciphertext: Crypto.encrypt_platform("platform")})
 
-    # Async tests can log platform warnings during this capture; check only this owner's lines.
+    # Only this owner's lines: the capture is not the place to depend on what else logs.
     tenant_log =
       capture_log(fn -> assert {:error, :undecryptable} = read(grant, owner) end)
       |> String.split("\n")

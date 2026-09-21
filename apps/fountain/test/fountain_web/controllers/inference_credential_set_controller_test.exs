@@ -356,6 +356,21 @@ defmodule FountainWeb.InferenceCredentialSetControllerTest do
       assert grant_events(user) == []
     end
 
+    test "a subscription that cannot be named refuses the whole request, the rename included",
+         %{conn: conn, set: set} do
+      name = set.name
+
+      assert %{"errors" => %{"chatgpt_grant_id" => [_]}} =
+               conn
+               |> patch_json(path(set), %{
+                 "name" => "renamed all the same",
+                 "chatgpt_grant_id" => Ecto.UUID.generate()
+               })
+               |> json_response(422)
+
+      assert %{name: ^name, chatgpt_grant_id: nil} = Fountain.Repo.reload!(set)
+    end
+
     test "another account's set is a 404, whatever it is asked to name",
          %{conn: conn, grant: grant} do
       other = insert_verified_user()

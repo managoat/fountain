@@ -105,6 +105,9 @@ defmodule FountainWeb.InferenceCredentialSetController do
 
     with %{} = set <- InferenceCredentials.get_set(id, user.id) || {:error, :not_found},
          :ok <- refuse_undefaulting(params),
+         # Named last, because naming ends conversations; asked first, so a
+         # grant that cannot be named does not leave the rename behind.
+         :ok <- grant_nameable(set, params),
          {:ok, set} <- maybe_rename(set, params, conn),
          {:ok, set} <- maybe_promote(set, params, conn),
          {:ok, set} <- maybe_name_grant(set, params, conn) do
@@ -178,6 +181,12 @@ defmodule FountainWeb.InferenceCredentialSetController do
        do: InferenceCredentials.set_grant(set, grant_id, Audited.attribution(conn))
 
   defp maybe_name_grant(set, _params, _conn), do: {:ok, set}
+
+  defp grant_nameable(set, %{"chatgpt_grant_id" => grant_id})
+       when is_binary(grant_id) or is_nil(grant_id),
+       do: InferenceCredentials.check_grant(set, grant_id)
+
+  defp grant_nameable(_set, _params), do: :ok
 
   # The caller's own subscriptions, by id, for the view's `chatgpt_grant`.
   defp grants(user), do: Map.new(ChatGPTAccounts.list_for_user(user.id), &{&1.grant_id, &1})

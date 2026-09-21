@@ -256,6 +256,25 @@ defmodule Fountain.InferenceCredentials do
     end
   end
 
+  @doc """
+  Whether `set_grant/3` would refuse `grant_id` for this set, asked without
+  writing: the changeset it would answer, or `:ok`. For a caller with other
+  writes to make first (`PATCH /api/account/inference-credential-sets/:id`
+  renames and promotes before it names), so a grant that cannot be named
+  refuses the request before any of it is stored. `set_grant/3` asks again
+  under the owner's lock, which is the answer that counts.
+  """
+  @spec check_grant(Credential.t(), Ecto.UUID.t() | nil) :: :ok | {:error, Ecto.Changeset.t()}
+  def check_grant(%Credential{} = set, grant_id) when is_binary(grant_id) or is_nil(grant_id) do
+    with :changes <- unchanged(set, grant_id),
+         {:ok, _grant} <- nameable_grant(set, grant_id) do
+      :ok
+    else
+      {:unchanged, _set} -> :ok
+      {:error, _changeset} = error -> error
+    end
+  end
+
   # Before the grant is read: what the set already names needs no permission
   # to go on being named. The id is compared as a UUID, not as the caller
   # spelled it.

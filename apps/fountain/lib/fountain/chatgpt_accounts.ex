@@ -178,10 +178,16 @@ defmodule Fountain.ChatGPTAccounts do
   def list_for_user(user_id) when is_binary(user_id) do
     now = DateTime.utc_now()
 
-    from(a in Account, where: a.user_id == ^user_id, order_by: [asc: a.name, asc: a.id])
-    |> select_view()
-    |> Repo.all()
-    |> Enum.map(&view(&1, now))
+    case Ecto.UUID.cast(user_id) do
+      {:ok, owner} ->
+        from(a in Account, where: a.user_id == ^owner, order_by: [asc: a.name, asc: a.id])
+        |> select_view()
+        |> Repo.all()
+        |> Enum.map(&view(&1, now))
+
+      :error ->
+        []
+    end
   end
 
   @doc """
@@ -245,7 +251,7 @@ defmodule Fountain.ChatGPTAccounts do
 
     with {:ok, claims} <- user_claims(tokens),
          {:ok, account} <-
-           user_write(user_id, fn ->
+           user_write(user_id, :ineligible_owner, fn ->
              with :ok <- eligible_owner(user_id),
                   :ok <- account_unlinked(user_id, claims["account_id"], id),
                   :ok <- under_ceiling(user_id),
@@ -425,15 +431,25 @@ defmodule Fountain.ChatGPTAccounts do
   # Every write to a user's grants: one transaction under that user's source
   # lock, taken before any row lock, rolled back on a refusal. The platform
   # key is never taken here (`InferenceCredentials.lock_tenant_source/1`).
-  defp user_write(user_id, fun) when is_binary(user_id) and is_function(fun, 0) do
-    Repo.transaction(fn ->
-      Fountain.InferenceCredentials.lock_tenant_source(user_id)
+  #
+  # An owner id that is not a UUID owns nothing, so it is refused with
+  # `malformed` before the lock or any query is asked to cast it.
+  defp user_write(user_id, malformed \\ :not_found, fun)
+       when is_binary(user_id) and is_function(fun, 0) do
+    case Ecto.UUID.cast(user_id) do
+      {:ok, _} ->
+        Repo.transaction(fn ->
+          Fountain.InferenceCredentials.lock_tenant_source(user_id)
 
-      case fun.() do
-        {:ok, result} -> result
-        {:error, reason} -> Repo.rollback(reason)
-      end
-    end)
+          case fun.() do
+            {:ok, result} -> result
+            {:error, reason} -> Repo.rollback(reason)
+          end
+        end)
+
+      :error ->
+        {:error, malformed}
+    end
   end
 
   # After the transaction has returned, never inside it. A tenant event: the
@@ -524,9 +540,9 @@ defmodule Fountain.ChatGPTAccounts do
   # Both halves of the scope, and no join: these reads and writes stay open
   # to an owner who may no longer link or use a grant.
   defp owned_query(grant_id, user_id) do
-    case Ecto.UUID.cast(grant_id) do
-      {:ok, id} -> {:ok, from(a in Account, where: a.user_id == ^user_id and a.id == ^id)}
-      :error -> :error
+    with {:ok, id} <- Ecto.UUID.cast(grant_id),
+         {:ok, owner} <- Ecto.UUID.cast(user_id) do
+      {:ok, from(a in Account, where: a.user_id == ^owner and a.id == ^id)}
     end
   end
 
@@ -641,7 +657,8 @@ defmodule Fountain.ChatGPTAccounts do
   generation again. With `refresh: false`, near-expiry grants return
   `:refresh_required`. Neither path falls back to a different grant, to the
   platform grant or to paid inference. Only verified, claimed, non-suspended
-  owners can obtain or renew a credential.
+  owners can obtain or renew a credential. A grant or owner id that is not a
+  UUID is `:not_connected`, like one that names nothing.
   """
   @spec credential_for_user(Ecto.UUID.t(), String.t(), Ecto.UUID.t(), keyword()) ::
           {:ok, Grant.t()} | {:error, atom()}
@@ -666,7 +683,9 @@ defmodule Fountain.ChatGPTAccounts do
       when is_binary(grant_id) and is_binary(user_id) and is_binary(generation) do
     with {:ok, account} <- pinned_user_grant(grant_id, user_id, generation),
          :ok <- user_account_state(account) do
-      RefreshCoordinator.run(grant_id, user_id, generation)
+      # The row's ids, not the caller's spelling of them: they key the
+      # coordinator's job and, in the worker, the refresh lock.
+      RefreshCoordinator.run(account.id, account.user_id, account.generation)
     end
   end
 
@@ -675,7 +694,7 @@ defmodule Fountain.ChatGPTAccounts do
       when is_binary(grant_id) and is_binary(user_id) and is_binary(generation) do
     with {:ok, observed} <- pinned_user_grant(grant_id, user_id, generation),
          :ok <- user_account_state(observed) do
-      grant_id
+      observed.id
       |> RefreshLock.run(fn -> refresh_user_locked(observed) end)
       |> finish_refresh()
     end
@@ -719,11 +738,16 @@ defmodule Fountain.ChatGPTAccounts do
 
   defp user_account_state(_), do: {:error, :invalid_grant}
 
+  # An id that is not a UUID names no grant and no owner. It is refused
+  # here, where every credential read and renewal starts, rather than raised
+  # by the query that would have had to cast it.
   defp pinned_user_grant(grant_id, user_id, generation) do
-    case Repo.one(user_grant_query(grant_id, user_id)) do
-      nil -> {:error, :not_connected}
-      %Account{generation: ^generation} = account -> {:ok, account}
-      %Account{} -> {:error, :stale_grant}
+    with {:ok, grant_id} <- Ecto.UUID.cast(grant_id),
+         {:ok, user_id} <- Ecto.UUID.cast(user_id),
+         %Account{} = account <- Repo.one(user_grant_query(grant_id, user_id)) do
+      if account.generation == generation, do: {:ok, account}, else: {:error, :stale_grant}
+    else
+      _ -> {:error, :not_connected}
     end
   end
 

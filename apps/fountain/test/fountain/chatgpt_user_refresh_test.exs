@@ -123,6 +123,48 @@ defmodule Fountain.ChatGPTUserRefreshTest do
     refute_received {:upstream, _}
   end
 
+  # The coordinator's job and the refresh lock are keyed by the grant id. A
+  # second spelling of one id must not become a second exchange: that would
+  # rotate the refresh token twice and keep only one of the results.
+  test "another spelling of the same ids joins the same exchange" do
+    account = user_grant!(insert_verified_user().id)
+    owner = self()
+    access = access_token(7_200)
+
+    stub_auth(%{
+      "/oauth/token" => fn _ ->
+        send(owner, {:upstream, self()})
+        receive do: (:release -> :ok)
+        {200, %{"access_token" => access, "refresh_token" => "rt_rotated"}}
+      end
+    })
+
+    spellings = [
+      {account.id, account.user_id},
+      {String.upcase(account.id), String.upcase(account.user_id)}
+    ]
+
+    callers =
+      for {grant_id, user_id} <- spellings do
+        Task.async(fn ->
+          ChatGPTAccounts.credential_for_user(grant_id, user_id, account.generation)
+        end)
+      end
+
+    assert_receive {:upstream, worker}, 2_000
+    await_waiters(2)
+    assert map_size(:sys.get_state(RefreshCoordinator).jobs) == 1
+    send(worker, :release)
+
+    for caller <- callers do
+      assert {:ok, %Grant{access_token: ^access, source: source}} = Task.await(caller)
+      assert source.grant_id == account.id
+      assert source.lock_version == account.lock_version + 1
+    end
+
+    refute_received {:upstream, _}
+  end
+
   test "another owner, the platform row and a stale generation cannot initiate refresh" do
     user = insert_verified_user()
     other = insert_verified_user()

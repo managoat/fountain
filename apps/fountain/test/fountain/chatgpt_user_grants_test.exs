@@ -404,8 +404,54 @@ defmodule Fountain.ChatGPTUserGrantsTest do
 
         assert {:error, :not_found} =
                  ChatGPTAccounts.reconnect_for_user(id, ctx.user.id, tokens("acct-mine"))
+
+        # The credential half refuses the same ids, in its own word.
+        assert {:error, :not_connected} =
+                 ChatGPTAccounts.credential_for_user(id, ctx.user.id, platform.generation)
+
+        assert {:error, :not_connected} =
+                 ChatGPTAccounts.refresh_for_user(id, ctx.user.id, platform.generation)
+
+        assert {:error, :not_connected} =
+                 ChatGPTAccounts.refresh_serialized_for_user(
+                   id,
+                   ctx.user.id,
+                   platform.generation
+                 )
       end
 
+      assert_platform_untouched(ctx)
+    end
+
+    test "an owner id that is not one owns nothing, and is refused rather than raised", ctx do
+      assert {:ok, work} = link(ctx.user, "Work", "acct-work")
+      row = Repo.get!(Account, work.grant_id)
+      id = work.grant_id
+
+      for owner <- ["not-a-uuid", "../" <> ctx.user.id, ""] do
+        assert ChatGPTAccounts.list_for_user(owner) == []
+        assert {:error, :not_found} = ChatGPTAccounts.get_for_user(id, owner)
+        assert {:error, :ineligible_owner} = link(%{id: owner}, "Mine", "acct-mine")
+
+        assert {:error, :not_found} =
+                 ChatGPTAccounts.reconnect_for_user(id, owner, tokens("acct-mine"))
+
+        assert {:error, :not_found} = ChatGPTAccounts.rename_for_user(id, owner, "Mine")
+        assert {:error, :not_found} = ChatGPTAccounts.disconnect_for_user(id, owner)
+        assert {:error, :not_found} = ChatGPTAccounts.remove_for_user(id, owner)
+
+        assert {:error, :not_connected} =
+                 ChatGPTAccounts.credential_for_user(id, owner, work.generation)
+
+        assert {:error, :not_connected} =
+                 ChatGPTAccounts.refresh_for_user(id, owner, work.generation)
+
+        assert {:error, :not_connected} =
+                 ChatGPTAccounts.refresh_serialized_for_user(id, owner, work.generation)
+      end
+
+      assert Repo.get!(Account, id) == row
+      assert [%{action: "chatgpt_grant.connected"}] = grant_events(ctx.user)
       assert_platform_untouched(ctx)
     end
   end

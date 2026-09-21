@@ -40,10 +40,12 @@ defmodule Fountain.Workers.ChatGPTGrantKeepalive do
   it, so `backoff/1` is bounded (ADR 0060, "Stage 4a as built", after
   review). And a job gives way to the next day's sweep rather than snoozing
   without end: `@give_up_seconds` after its **first run**, which is also in
-  `meta`, it is cancelled, and the sweep queues the grant again if it is
-  still due. From the first run and not from the insert: a job is scheduled
-  up to six hours out, and one that sat behind a paused queue for a day has
-  not tried anything yet and must not give up on sight.
+  `meta`, it is cancelled, unless its grant is still due. From the first run
+  and not from the insert: a job is scheduled up to six hours out, and one
+  that sat behind a paused queue for a day has not tried anything yet. And
+  not while the grant is due: the next sweep's insert for that grant
+  conflicts with this job for as long as it is incomplete, so giving up
+  would leave the grant unqueued for a day, which the margin does not have.
 
   A job that fails its last attempt says so once, at `error`, with the
   grant's id and the atom: a grant that fails every day without being
@@ -94,7 +96,8 @@ defmodule Fountain.Workers.ChatGPTGrantKeepalive do
       job = remember(job, "first_run_at", now)
 
       cond do
-        now - job.meta["first_run_at"] > @give_up_seconds ->
+        now - job.meta["first_run_at"] > @give_up_seconds and
+            not still_due?(grant_id, user_id, generation, now) ->
           finish(job, grant_id, :gave_up, {:cancel, :gave_up})
 
         RefreshBreaker.open?() ->
@@ -136,6 +139,20 @@ defmodule Fountain.Workers.ChatGPTGrantKeepalive do
 
       {:error, :not_found} ->
         finish(job, grant_id, :not_connected, {:cancel, :not_connected})
+    end
+  end
+
+  # Past the give-up clock. While this job is incomplete the next sweep's
+  # insert for the grant is a conflict with it, so a job that gave up while
+  # its grant was still due would leave the grant unqueued for a day. It
+  # carries on instead; it gives way only when there is nothing left to do.
+  defp still_due?(grant_id, user_id, generation, now) do
+    case ChatGPTAccounts.get_for_user(grant_id, user_id) do
+      {:ok, %{generation: ^generation, status: "active"} = grant} ->
+        idle_days(grant, now) >= ChatGPTAccounts.platform_keepalive_days()
+
+      _ ->
+        false
     end
   end
 

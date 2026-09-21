@@ -525,20 +525,30 @@ defmodule Fountain.Workers.ChatGPTGrantKeepaliveTest do
       refute log =~ "rt_SECRET_echo"
     end
 
-    test "gives way twenty hours after its first run, not after it was queued" do
+    test "gives way twenty hours after its first run, not after it was queued, and not while its grant is due" do
       account = idle_grant(insert_verified_user(), "rt_a")
       stub_token(%{"rt_a" => renewed(account, "rt_a2")})
       now = System.os_time(:second)
 
       ran_long_ago = %{"first_run_at" => now - 21 * 3_600}
-      assert {:cancel, :gave_up} = perform_job(Worker, args(account), meta: ran_long_ago)
+
+      # Somebody renewed it meanwhile: nothing is left to do, and it goes.
+      fresh = idle_grant(insert_verified_user(), "rt_fresh", days_ago(1))
+      assert {:cancel, :gave_up} = perform_job(Worker, args(fresh), meta: ran_long_ago)
       refute_received {:token_call, _}
+
+      # Still due: the next sweep's insert would conflict with this job, so
+      # giving up would skip the grant for a day. It carries on.
+      assert :ok = perform_job(Worker, args(account), meta: ran_long_ago)
+      assert_received {:token_call, "rt_a"}
+      stub_token(%{"rt_a2" => renewed(account, "rt_a3")})
+      account = account |> row() |> change(last_refreshed_at: @long_ago) |> Repo.update!()
 
       # Queued two days ago behind a paused queue and never run: it has tried
       # nothing yet, so it renews the grant instead of giving up on sight.
       old = DateTime.add(DateTime.utc_now(), -2 * 86_400, :second)
       assert :ok = perform_job(Worker, args(account), inserted_at: old)
-      assert_received {:token_call, "rt_a"}
+      assert_received {:token_call, "rt_a2"}
     end
   end
 

@@ -211,20 +211,29 @@ defmodule FountainWeb.InferenceCredentialsLive.Index do
       {:error, :not_found} ->
         {:noreply, unavailable_selection(socket)}
 
+      # Every refusal below reads the sets again: the account's first set may
+      # have been made a moment ago, here or in another tab, and the next
+      # save has to be about it.
       {:error, :linking_off} ->
         {:noreply,
-         assign(
-           socket,
+         socket
+         |> load_sets()
+         |> assign(
            :grant_message,
            {:error, "Naming another ChatGPT subscription is not available on this account."}
          )}
 
       {:error, %Ecto.Changeset{errors: [{:chatgpt_grant_id, {message, _}} | _]}} ->
-        {:noreply, assign(socket, :grant_message, {:error, "That subscription #{message}."})}
+        {:noreply,
+         socket
+         |> load_sets()
+         |> assign(:grant_message, {:error, "That subscription #{message}."})}
 
       {:error, _} ->
         {:noreply,
-         assign(socket, :grant_message, {:error, "Could not change the set's subscription."})}
+         socket
+         |> load_sets()
+         |> assign(:grant_message, {:error, "Could not change the set's subscription."})}
     end
   end
 
@@ -338,16 +347,31 @@ defmodule FountainWeb.InferenceCredentialsLive.Index do
   end
 
   # An account that has never stored a key has no set to name a subscription
-  # in. It gets its default set here, as a first key would have given it.
+  # in. It gets its default set here, as a first key would have given it. The
+  # page's nil is not the account's: another tab may have made the set since,
+  # so it is read first. And the grant is asked about before a set is made for
+  # it, so a subscription that cannot be named leaves no empty Default behind.
   defp set_to_name_in(%{assigns: %{set: %{} = set}}, _grant_id), do: {:ok, set}
   defp set_to_name_in(%{assigns: %{set: nil}}, nil), do: :nothing_to_clear
 
-  defp set_to_name_in(%{assigns: %{set: nil}} = socket, _grant_id) do
-    InferenceCredentials.create_set(
-      socket.assigns.user_id,
-      InferenceCredentials.Credential.default_name(),
-      FountainWeb.Audited.attribution(socket)
-    )
+  defp set_to_name_in(%{assigns: %{set: nil, user_id: user_id}} = socket, grant_id) do
+    case InferenceCredentials.get_for_user(user_id) do
+      %InferenceCredentials.Credential{} = set ->
+        {:ok, set}
+
+      nil ->
+        with :ok <-
+               InferenceCredentials.check_grant(
+                 %InferenceCredentials.Credential{user_id: user_id},
+                 grant_id
+               ) do
+          InferenceCredentials.create_set(
+            user_id,
+            InferenceCredentials.Credential.default_name(),
+            FountainWeb.Audited.attribution(socket)
+          )
+        end
+    end
   end
 
   defp grant_saved(_socket, %{chatgpt_grant_id: nil} = set),

@@ -607,6 +607,33 @@ defmodule FountainWeb.ChatGPTSubscriptionsLiveTest do
       assert named == work.grant_id
     end
 
+    test "a refused first save leaves no set behind, and the next save still works",
+         %{conn: conn, user: user, work: work, personal: personal} do
+      {:ok, view, _html} = live(conn, @path)
+
+      assert pick(view, "nope") =~
+               "That subscription is not a ChatGPT subscription this account can name."
+
+      assert InferenceCredentials.list_sets(user.id) == []
+      assert pick(view, work.grant_id) =~ "Default now runs codex on Work."
+
+      assert [%{name: "Default", chatgpt_grant_id: named}] =
+               InferenceCredentials.list_sets(user.id)
+
+      assert named == work.grant_id
+      assert pick(view, personal.grant_id) =~ "Default now runs codex on Personal."
+    end
+
+    test "a first set made in another tab is the one a stale page names in",
+         %{conn: conn, user: user, work: work} do
+      {:ok, view, _html} = live(conn, @path)
+      {:ok, set} = InferenceCredentials.create_set(user.id, "Default")
+
+      assert pick(view, work.grant_id) =~ "Default now runs codex on Work."
+      assert [%{id: id, chatgpt_grant_id: named}] = InferenceCredentials.list_sets(user.id)
+      assert {id, named} == {set.id, work.grant_id}
+    end
+
     test "the picker is about the selected set", %{conn: conn, user: user, work: work} do
       {:ok, default} = InferenceCredentials.create_set(user.id, "Default")
       {:ok, second} = InferenceCredentials.create_set(user.id, "Second")

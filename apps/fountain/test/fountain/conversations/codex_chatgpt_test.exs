@@ -270,6 +270,54 @@ defmodule Fountain.Conversations.CodexChatGPTTest do
                CodexChatGPT.prepare_sandbox(@handle, "codex", env, source, user.id)
     end
 
+    # What a provision or a wake publishes when the broker's fence minted no
+    # session. Through two real servers in `codex_grant_peers_test.exs`; here,
+    # the reasons only the row and the credential read can tell apart.
+    test "refusal_stage/3 names why the fence refused, and answers nil for any other reason",
+         %{user: user, grant: grant, source: source} do
+      fenced = {:broker, :session, :managed_grant_inactive}
+      grant_id = grant.id
+
+      for other <- [{:broker, :session, :timeout}, :enospc, fenced] do
+        assert CodexChatGPT.refusal_stage(other, user.id, nil) == nil
+      end
+
+      assert CodexChatGPT.refusal_stage({:broker, :session, :timeout}, user.id, source) == nil
+
+      # The row is what was resolved and its owner may no longer use it.
+      Repo.update_all(from(u in Fountain.Accounts.User, where: u.id == ^user.id),
+        set: [suspended_at: DateTime.utc_now()]
+      )
+
+      assert %{
+               reason: "chatgpt_grant_unusable",
+               grant_reason: "owner_ineligible",
+               grant_id: ^grant_id,
+               retryable: false
+             } = CodexChatGPT.refusal_stage(fenced, user.id, source)
+
+      Repo.update_all(from(u in Fountain.Accounts.User, where: u.id == ^user.id),
+        set: [suspended_at: nil]
+      )
+
+      Repo.update_all(from(a in Fountain.PlatformChatGPT.Account, where: a.id == ^grant_id),
+        set: [status: "revoked"]
+      )
+
+      assert %{grant_reason: "revoked", retryable: false, message: message} =
+               CodexChatGPT.refusal_stage(fenced, user.id, source)
+
+      assert message =~ "Personal"
+
+      # Nobody else's conversation learns anything of it, its name included.
+      stranger = insert_verified_user()
+
+      assert %{grant_reason: "not_found", retryable: false, message: message} =
+               CodexChatGPT.refusal_stage(fenced, stranger.id, source)
+
+      refute message =~ "Personal"
+    end
+
     # The shared path ends in the deployment's account file. A user's source
     # that pins nothing must not reach it, connected platform grant or not.
     test "a :grant source that pins nothing is refused, and never takes the shared path",

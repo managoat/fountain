@@ -163,6 +163,65 @@ defmodule Fountain.Conversations.CodexChatGPT do
     :ok
   end
 
+  @doc """
+  What a provision or a wake publishes when the reason it failed is the
+  grant's, and `nil` for every other reason, which the caller reports as it
+  always has.
+
+  `{:broker, :session, :managed_grant_inactive}` is the issuance fence
+  refusing to mint a session (`Sessions.create/1`): since this server
+  resolved its source the grant was disconnected, reconnected or removed, or
+  its owner may no longer use one. A broker failure is otherwise transient
+  and published `retryable: true`; this one never passes on a retry. Which
+  of those it was is read from the grant's row, and from `ensure_fresh/2`
+  when the row is still what was resolved, so the stream says what the
+  turn's refusal says (`TurnMachine`): stage 2's tagged reason and sentence,
+  or `inference_source_changed` for a reconnect. The same shape for the
+  tagged refusal `prepare_sandbox/5` gives.
+  """
+  @spec refusal_stage(term(), String.t() | nil, Source.t() | nil) :: map() | nil
+  def refusal_stage({:broker, :session, :managed_grant_inactive}, user_id, source) do
+    with %{} = ref <- managed_grant(source, user_id) do
+      case fenced(ref, source) do
+        :inference_source_changed -> %{reason: "inference_source_changed", retryable: false}
+        refusal -> refusal_stage(refusal, user_id, source)
+      end
+    end
+  end
+
+  def refusal_stage({:chatgpt_grant_unusable, %{reason: reason} = detail}, _user_id, _source) do
+    %{
+      reason: "chatgpt_grant_unusable",
+      grant_reason: Atom.to_string(reason),
+      grant_id: detail[:grant_id],
+      message: Fountain.InferenceCredentials.grant_unusable_message(detail),
+      retryable: false
+    }
+  end
+
+  def refusal_stage(_reason, _user_id, _source), do: nil
+
+  # Why the fence refused, from the row first: a disconnect is a new
+  # generation too, so asking `ensure_fresh/2` first would call every ended
+  # grant a changed source. A row that is still what this conversation
+  # resolved was refused for its owner or for naming no account, and the
+  # credential read tells those apart.
+  defp fenced(%{owner: {:user, user_id}, grant_id: grant_id, generation: generation} = ref, source) do
+    case ChatGPTAccounts.get_for_user(grant_id, user_id) do
+      {:ok, %{status: "active", generation: ^generation}} ->
+        case ensure_fresh(user_id, source) do
+          {:error, refusal} -> refusal
+          :ok -> unusable(ref, :reconnect_required)
+        end
+
+      {:ok, %{status: status}} = found when status in ["revoked", "expired"] ->
+        unusable(ref, String.to_existing_atom(status), found)
+
+      found ->
+        gone(ref, found)
+    end
+  end
+
   @doc "Whether a source's codex peer keeps its `auth.json` in a home of its own."
   @spec own_home?(Source.t() | nil) :: boolean()
   def own_home?(%Source{scope: :grant} = source),
@@ -389,8 +448,11 @@ defmodule Fountain.Conversations.CodexChatGPT do
   # fact: the grant is fine and this conversation's source is not it.
   # Anything else is named, like every other refusal of a user's grant, and
   # never answered with a different account.
-  defp gone(%{owner: {:user, user_id}, grant_id: grant_id, generation: generation} = ref) do
-    case ChatGPTAccounts.get_for_user(grant_id, user_id) do
+  defp gone(%{owner: {:user, user_id}, grant_id: grant_id} = ref),
+    do: gone(ref, ChatGPTAccounts.get_for_user(grant_id, user_id))
+
+  defp gone(%{generation: generation} = ref, found) do
+    case found do
       {:ok, %{status: "active", generation: current}} when current != generation ->
         :inference_source_changed
 

@@ -379,6 +379,104 @@ defmodule Fountain.Conversations.CodexGrantPeersTest do
     assert Map.new(Keyword.fetch!(opts, :env))["CODEX_HOME"] == home(work.grant)
   end
 
+  # The fence at issuance refuses between this server resolving its source and
+  # minting its session. A broker failure is otherwise transient; this one is
+  # the grant's, permanent, and said in the words the turn's refusal uses.
+  describe "a grant that ended between the resolve and the broker session" do
+    # The grant's lifecycle write lands just before the mint, every time.
+    defp before_the_mint(conv, fun) do
+      stub(Fountain.Broker, :prepare, fn conv_id, brokered, bindings, opts ->
+        if conv_id == conv.id, do: fun.()
+        Mimic.call_original(Fountain.Broker, :prepare, [conv_id, brokered, bindings, opts])
+      end)
+    end
+
+    defp failed_stage(conv, stage) do
+      conv.id
+      |> Conversations._unsafe_list_log_events()
+      |> Enum.find(&(&1.kind == "stage" and &1.stage == stage and &1.state == "failed"))
+      |> Map.fetch!(:data)
+      |> Jason.decode!()
+    end
+
+    test "a wake says which grant and why, and is not retryable", %{user: user} = ctx do
+      record_sandbox()
+      [personal, work] = ctx.peers
+
+      before_the_mint(personal.conv, fn ->
+        :ok = ChatGPTAccounts.disconnect_for_user(personal.grant.id, user.id)
+      end)
+
+      {_pid, ref, _} = start_server(personal.conv, runtime: Managoat.Runtimes.Codex)
+      assert_stopped(ref)
+
+      assert %{
+               "reason" => "chatgpt_grant_unusable",
+               "grant_reason" => "disconnected",
+               "grant_id" => grant_id,
+               "message" => message,
+               "retryable" => false,
+               "node" => _
+             } = failed_stage(personal.conv, "reattach")
+
+      assert grant_id == personal.grant.id
+      assert message =~ "Personal"
+      refute message =~ "managed_grant_inactive"
+
+      # A reconnect is a new sign-in: the grant is fine, this source is not it.
+      before_the_mint(work.conv, fn ->
+        {:ok, _} =
+          ChatGPTAccounts.reconnect_for_user(work.grant.id, user.id, %{
+            access_token: access_token(),
+            refresh_token: "rt_again",
+            id_token: id_token(%{account_id: work.grant.account_id})
+          })
+      end)
+
+      {_pid, ref, _} = start_server(work.conv, runtime: Managoat.Runtimes.Codex)
+      assert_stopped(ref)
+
+      assert %{"reason" => "inference_source_changed", "retryable" => false} =
+               failed_stage(work.conv, "reattach")
+
+      # Nothing about the machine: its row is as it was, for the next wake.
+      assert Repo.reload!(ctx.sandbox).status == "ready"
+      assert Repo.aggregate(Session, :count) == 0
+    end
+
+    test "a first provision says the same", %{user: user} = ctx do
+      record_sandbox()
+      [personal, _work] = ctx.peers
+      pending = insert_sandbox(user_id: user.id, agent_id: personal.conv.agent_id)
+
+      conv =
+        insert_conversation(
+          user_id: user.id,
+          agent: Fountain.Agents._unsafe_get_agent!(personal.conv.agent_id),
+          sandbox: pending,
+          runtime: "codex",
+          inference_credential_id: personal.conv.inference_credential_id
+        )
+
+      before_the_mint(conv, fn ->
+        :ok = ChatGPTAccounts.disconnect_for_user(personal.grant.id, user.id)
+      end)
+
+      {_pid, ref, _} = start_server(conv, runtime: Managoat.Runtimes.Codex)
+      assert_stopped(ref)
+
+      assert %{
+               "reason" => "chatgpt_grant_unusable",
+               "grant_reason" => "disconnected",
+               "retryable" => false,
+               "message" => message
+             } = failed_stage(conv, "provision")
+
+      assert message =~ "Personal"
+      assert Repo.reload!(conv).status == "failed"
+    end
+  end
+
   test "a session re-minted for a grant disconnected since is refused: no fresh session for it",
        %{user: user} = ctx do
     record_sandbox()

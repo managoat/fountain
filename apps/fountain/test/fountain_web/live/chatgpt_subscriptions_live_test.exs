@@ -506,7 +506,7 @@ defmodule FountainWeb.ChatGPTSubscriptionsLiveTest do
       approve!(attempt_id, user)
       html = render(view)
 
-      assert html =~ "The sign-in for Work was approved too late"
+      assert html =~ "The sign-in for Work was discarded"
       assert html =~ "Work was left exactly as it is"
       refute html =~ "stale_grant"
       refute html =~ @user_code
@@ -518,6 +518,63 @@ defmodule FountainWeb.ChatGPTSubscriptionsLiveTest do
                ChatGPTAccounts.get_for_user(grant.grant_id, user.id)
 
       assert generation == newest.generation
+    end
+
+    test "Disconnect ends the open sign-in with it, and the page says so; so does Remove",
+         %{conn: conn, user: user, grant: grant} do
+      stub_sign_in("acct-work")
+      {:ok, view, _html} = live(conn, @path)
+      row = "#chatgpt-grant-#{grant.grant_id}"
+
+      refute view |> element(row <> " button", "Disconnect") |> render() =~ "is discarded"
+      reconnect(view, grant)
+      [%{id: attempt_id}] = pending(user)
+
+      assert view |> element(row <> " button", "Disconnect") |> render() =~
+               "The sign-in that is open for it is discarded"
+
+      view |> element(row <> " button", "Disconnect") |> render_click()
+      html = render(view)
+
+      refute has_element?(view, "#chatgpt-attempt-#{attempt_id}")
+      refute html =~ "Reconnecting Work"
+      refute html =~ @user_code
+      assert html =~ "The sign-in for Work was discarded"
+      assert pending(user) == []
+
+      # The code is approved after all: nothing comes back.
+      approve!(attempt_id, user)
+
+      assert {:ok, %{status: "disconnected"}} =
+               ChatGPTAccounts.get_for_user(grant.grant_id, user.id)
+
+      refute render(view) =~ "is reconnected"
+
+      # The same for a removal, of a sign-in begun on the disconnected row.
+      reconnect(view, grant)
+      [%{id: second}] = pending(user)
+      view |> element(row <> " button", "Remove") |> render_click()
+      html = render(view)
+
+      refute has_element?(view, "#chatgpt-attempt-#{second}")
+      assert html =~ "The sign-in for that subscription was discarded, because that subscription"
+      refute html =~ "grant_not_found"
+    end
+
+    test "an auth server that stops answering is said on the open sign-in",
+         %{conn: conn, user: user} do
+      attempt = start_attempt!(user, %{name: "Patience"})
+      {:ok, view, html} = live(conn, @path)
+      refute html =~ "is not answering at the moment"
+
+      stub_auth(%{"/api/accounts/deviceauth/token" => fn _ -> {503, %{}} end})
+
+      assert {:snooze, _seconds} =
+               perform_job(Worker, %{"attempt_id" => attempt.id, "user_id" => user.id})
+
+      html = render(view)
+      assert html =~ "is not answering at the moment"
+      assert view |> element("#chatgpt-code-#{attempt.id}") |> render() =~ attempt.user_code
     end
 
     test "an upstream account that is already linked names the subscription to reconnect",

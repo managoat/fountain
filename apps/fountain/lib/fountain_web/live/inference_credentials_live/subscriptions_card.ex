@@ -108,6 +108,7 @@ defmodule FountainWeb.InferenceCredentialsLive.SubscriptionsCard do
       grant_id: view.grant_id,
       user_code: view.user_code,
       verification_link: verification_link(view.verification_url),
+      auth_unreachable: view.auth_unreachable == true,
       expires_at: view.expires_at
     }
   end
@@ -206,12 +207,13 @@ defmodule FountainWeb.InferenceCredentialsLive.SubscriptionsCard do
 
   defp failure_text(%{reason: reason}, label) do
     case reason do
-      # A completion that arrived after the subscription had moved on: a newer
-      # sign-in, a disconnect, anything that changed its generation.
+      # The subscription moved on while the sign-in was open: a newer sign-in
+      # changed its generation and the completion found that, or a disconnect
+      # ended the sign-in itself, approved or not (stage 4a, after review).
       "stale_grant" ->
-        "The sign-in for #{label} was approved too late: the subscription had changed since " <>
-          "it began (a newer sign-in, or a disconnect). It was discarded and #{label} was left " <>
-          "exactly as it is. Reconnect again if it still needs it."
+        "The sign-in for #{label} was discarded: the subscription changed after it began (a " <>
+          "newer sign-in, or a disconnect), so an approval of its code counts for nothing. " <>
+          "#{label} was left exactly as it is. Reconnect again if it still needs it."
 
       "account_already_linked" ->
         "The ChatGPT account that approved the code for #{label} is already linked to this " <>
@@ -221,8 +223,9 @@ defmodule FountainWeb.InferenceCredentialsLive.SubscriptionsCard do
         "The sign-in for #{label} was approved, but this account already holds as many " <>
           "subscriptions as it may. Nothing was linked; remove a disconnected one and start again."
 
+      # Removing a subscription ends its open sign-in, approved or not.
       "grant_not_found" ->
-        "The sign-in for #{label} was approved, but that subscription had been removed. " <>
+        "The sign-in for #{label} was discarded, because that subscription was removed. " <>
           "Nothing was linked."
 
       "name_taken" ->
@@ -232,6 +235,10 @@ defmodule FountainWeb.InferenceCredentialsLive.SubscriptionsCard do
       "owner_ineligible" ->
         "The sign-in for #{label} was approved, but this account may not link a subscription " <>
           "right now: that takes a verified account that is not suspended. Nothing was linked."
+
+      "linking_disabled" ->
+        "The sign-in for #{label} was approved, but linking a ChatGPT subscription is no " <>
+          "longer available on this account. Nothing was linked."
 
       "tenant_key_unavailable" ->
         "The sign-in for #{label} could not be stored: this account's encryption key did not " <>
@@ -530,7 +537,7 @@ defmodule FountainWeb.InferenceCredentialsLive.SubscriptionsCard do
             phx-click="disconnect"
             phx-value-id={grant.id}
             phx-target={@myself}
-            data-confirm={"Disconnect #{grant.name}? Fountain forgets its sign-in at once and every conversation running on it stops. Credential sets that name it keep naming it and fail by name until it is reconnected."}
+            data-confirm={disconnect_confirm(grant, @subscriptions.attempts)}
             variant="secondary"
           >
             Disconnect
@@ -585,6 +592,10 @@ defmodule FountainWeb.InferenceCredentialsLive.SubscriptionsCard do
         </div>
         <div :if={!attempt.user_code}>
           The code for this sign-in could not be read. Cancel it and start again.
+        </div>
+        <div :if={attempt.auth_unreachable} class="text-xs font-medium">
+          ChatGPT's sign-in service is not answering at the moment. The sign-in is still open
+          and Fountain keeps asking, less often; an approval may take up to a minute to show.
         </div>
         <div class="text-xs">
           Approve a code only if you started it yourself, on this page: whoever's code you
@@ -680,13 +691,28 @@ defmodule FountainWeb.InferenceCredentialsLive.SubscriptionsCard do
 
   # A reconnect is a new generation, and a conversation is pinned to the one
   # it started on (ADR 0052 decision 5): say so before, not after.
+  # A disconnect ends the subscription's open sign-in with it (stage 4a, after
+  # review): a code approved afterwards links nothing.
+  defp disconnect_confirm(grant, attempts) do
+    "Disconnect #{grant.name}? Fountain forgets its sign-in at once and every conversation " <>
+      "running on it stops. " <>
+      if(reconnecting?(grant, attempts),
+        do: "The sign-in that is open for it is discarded, approved or not. ",
+        else: ""
+      ) <>
+      "Credential sets that name it keep naming it and fail by name until it is reconnected."
+  end
+
   defp reconnect_confirm(%{state: :connected, name: name}),
     do:
       "Sign in to #{name} again? It keeps working on its current sign-in until the new one " <>
-        "is approved. Once it is, conversations running on the old sign-in end; start new ones."
+        "is approved. Once it is, conversations running on the old sign-in end; start new ones. " <>
+        "Disconnecting or removing #{name} meanwhile discards the new sign-in."
 
   defp reconnect_confirm(%{name: name}),
-    do: "Sign in to #{name} again? It keeps its name, and the credential sets that name it."
+    do:
+      "Sign in to #{name} again? It keeps its name, and the credential sets that name it. " <>
+        "Disconnecting or removing #{name} meanwhile discards the new sign-in."
 
   attr :state, :atom, required: true
 

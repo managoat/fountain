@@ -1190,11 +1190,11 @@ context's `user_write`: the owner's source key, then the attempt's row, and
 for a completion then the grant's row, which is the stage-1 order with one
 row in front.
 
-- *Start.* The admission (an eligible owner, fewer than three open
-  attempts across all of the account's grants, and for a link a well-formed
-  name that no grant or open attempt of the owner holds and room under the
-  ceiling; for a reconnect a grant of the owner's with no attempt open) runs
-  twice, each time in its own transaction: before `OAuth.device_start/0`, so
+- *Start.* The admission (an eligible owner whose encryption key loads,
+  fewer than three open attempts across all of the account's grants, and
+  for a link a well-formed name that no grant or open attempt of the owner
+  holds and room under the ceiling; for a reconnect a grant of the owner's
+  with no attempt open) runs twice, each time in its own transaction: before `OAuth.device_start/0`, so
   a refused request costs the auth server nothing, and again in the
   transaction that inserts the row and its job. The auth server is never
   called inside a transaction or under a lock. The rollout flag, whose

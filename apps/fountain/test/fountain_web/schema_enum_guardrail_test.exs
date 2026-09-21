@@ -50,6 +50,11 @@ defmodule FountainWeb.SchemaEnumGuardrailTest do
     {FountainWeb.Schemas.CatalogResponse, "data.sandbox_api_access.[]"} =>
       {Conversation, :sandbox_api_access_modes},
     {FountainWeb.Schemas.Connection, "status"} => {Fountain.Connections.Connection, :statuses},
+    # Which source served a turn (ADR 0060 decision 6), from the stored source.
+    {FountainWeb.Schemas.Turn, "inference.scope"} =>
+      {Fountain.InferenceCredentials.Source, :scopes},
+    {FountainWeb.Schemas.Turn, "inference.origin"} =>
+      {Fountain.InferenceCredentials.Source, :origins},
     # A user's ChatGPT subscriptions and their sign-ins (ADR 0060 stage 4). A
     # subscription is a row of the grant table, whose statuses the platform's
     # row shares; `disconnected` is reachable by a user's row only.

@@ -50,6 +50,16 @@ defmodule Fountain.InferenceCredentials.Source do
   # Absent from a stored map unless set. See the moduledoc.
   @optional ~w(grant_id generation)
 
+  @scopes [:credential, :tenant_secret, :grant, :platform, :none, :missing]
+
+  @doc "Every scope a source can have; the API's `inference.scope` enum is this list."
+  @spec scopes() :: [atom()]
+  def scopes, do: @scopes
+
+  @doc "The two values of `origin/1`."
+  @spec origins() :: [String.t()]
+  def origins, do: ~w(own platform)
+
   def credential, do: %__MODULE__{scope: :credential}
   def tenant_secret, do: %__MODULE__{scope: :tenant_secret}
   def grant, do: %__MODULE__{scope: :grant}
@@ -111,8 +121,7 @@ defmodule Fountain.InferenceCredentials.Source do
 
   def load(%{} = source) do
     %__MODULE__{
-      scope:
-        decode(source["scope"], [:credential, :tenant_secret, :grant, :platform, :none, :missing]),
+      scope: decode(source["scope"], @scopes),
       kind:
         decode(source["kind"], [
           :anthropic_api_key,

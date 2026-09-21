@@ -118,6 +118,58 @@ defmodule FountainWeb.FallbackControllerTest do
     end
   end
 
+  # ADR 0060 decision 4: the refusal names the subscription and says nothing
+  # was used in its place.
+  test "an unusable named ChatGPT grant is a 409 that names it and carries no secret", %{
+    conn: conn
+  } do
+    until = ~U[2026-09-21 12:00:00Z]
+
+    detail = %{
+      grant_id: "6e5d4c3b-2a19-4f8e-9d7c-6b5a4f3e2d1c",
+      name: "Work",
+      reason: :exhausted,
+      until: until
+    }
+
+    body =
+      conn
+      |> FountainWeb.FallbackController.call({:error, {:chatgpt_grant_unusable, detail}})
+      |> json_response(409)
+
+    assert body == %{
+             "error" => "chatgpt_grant_unusable",
+             "reason" => "exhausted",
+             "grant_id" => detail.grant_id,
+             "grant" => "Work",
+             "until" => "2026-09-21T12:00:00Z",
+             "message" => Fountain.InferenceCredentials.grant_unusable_message(detail)
+           }
+
+    assert body["message"] =~ ~s("Work")
+    assert body["message"] =~ "2026-09-21T12:00:00Z"
+    assert body["message"] =~ "does not switch"
+
+    not_found = %{grant_id: detail.grant_id, name: nil, reason: :not_found, until: nil}
+
+    body =
+      conn
+      |> FountainWeb.FallbackController.call({:error, {:chatgpt_grant_unusable, not_found}})
+      |> json_response(409)
+
+    assert %{"reason" => "not_found", "grant" => nil, "until" => nil} = body
+  end
+
+  test "a named grant with no transport yet is a 503 that says what to select", %{conn: conn} do
+    body =
+      conn
+      |> FountainWeb.FallbackController.call({:error, :chatgpt_grant_transport_unavailable})
+      |> json_response(503)
+
+    assert body["error"] == "chatgpt_grant_transport_unavailable"
+    assert body["message"] =~ "select a set that does not name one"
+  end
+
   # #2362: a persistent home keeps its Codex source when the platform ChatGPT
   # account's usage limit starts or resets, so both refusals name the way to a
   # sandbox that is not bound to the old source.

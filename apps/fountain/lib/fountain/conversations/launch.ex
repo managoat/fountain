@@ -697,7 +697,10 @@ defmodule Fountain.Conversations.Launch do
              environment_id: env_id,
              vault_id: vault_id
            ),
-         :ok <- Fountain.PlatformInference.gate_source(source) do
+         :ok <- Fountain.PlatformInference.gate_source(source),
+         # ADR 0060 stage 2 only: a user's grant resolves, and nothing carries
+         # it into a sandbox until stage 3.
+         :ok <- Fountain.Conversations.CodexChatGPT.transport_ready(source) do
       {:ok, source}
     end
   end

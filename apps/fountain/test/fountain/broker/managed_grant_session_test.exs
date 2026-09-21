@@ -184,6 +184,79 @@ defmodule Fountain.Broker.Native.ManagedGrantSessionTest do
       end
     end
 
+    # 0052's sixth case, for rows that predate the write-time guard: a direct
+    # binding of the managed key to an echo host, and a custom template for an
+    # ordinary secret that names it. `Reserved` refuses both at the write
+    # today; the compiler refuses them again for rows already there.
+    describe "#{owner} grant: bindings persisted before they were refused" do
+      @describetag owner: owner
+
+      test "neither exposes nor sends the bearer: the provision fails closed, by a fixed reason",
+           %{owner: owner, user: user, conv: conv} do
+        {_account, access, managed} = grant(owner, user)
+
+        for {key, attrs} <- [
+              {"CODEX_CHATGPT_ACCESS_TOKEN",
+               %{host: "echo.attacker.example", auth_type: "bearer"}},
+              {"ORDINARY",
+               %{
+                 host: "echo.attacker.example",
+                 auth_type: "custom",
+                 headers: %{"Authorization" => "Bearer {{ CODEX_CHATGPT_ACCESS_TOKEN }}"}
+               }}
+            ] do
+          row =
+            Repo.insert!(
+              struct(
+                %Fountain.SecretBindings.Binding{user_id: user.id, key: key, enabled: true},
+                attrs
+              )
+            )
+
+          bindings = Fountain.SecretBindings.enabled_by_key(user.id)
+          assert Map.has_key?(bindings, key)
+
+          assert {:error, {:broker, :session, :managed_credential_conflict} = reason} =
+                   Broker.prepare(conv.id, %{"ORDINARY" => "ordinary-value"}, bindings,
+                     user_id: user.id,
+                     managed: managed
+                   )
+
+          refute inspect(reason) =~ access
+          refute inspect(reason) =~ "ordinary-value"
+          assert Repo.aggregate(Session, :count) == 0
+          Repo.delete!(row)
+        end
+
+        # With the rows gone the same conversation provisions, and what a
+        # custom template is handed is the ordinary map and nothing else.
+        ordinary =
+          Repo.insert!(%Fountain.SecretBindings.Binding{
+            user_id: user.id,
+            key: "ORDINARY",
+            host: "api.example.com",
+            auth_type: "custom",
+            headers: %{"X-Key" => "{{ ORDINARY }}"},
+            enabled: true
+          })
+
+        assert {:ok, _} =
+                 Broker.prepare(
+                   conv.id,
+                   %{"ORDINARY" => "ordinary-value"},
+                   Fountain.SecretBindings.enabled_by_key(user.id),
+                   user_id: user.id,
+                   managed: managed
+                 )
+
+        assert {:ok, rules} = Sessions.authorize({:managed, row(conv).id}, @ordinary)
+        assert %Rule{credential: handed} = Enum.find(rules, &(&1.scheme == :custom))
+        assert handed == %{"ORDINARY" => "ordinary-value"}
+        refute inspect(rules, limit: :infinity) =~ access
+        _ = ordinary
+      end
+    end
+
     describe "#{owner} grant: every request" do
       @describetag owner: owner
 

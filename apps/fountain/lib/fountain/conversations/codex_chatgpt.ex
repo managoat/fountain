@@ -64,6 +64,8 @@ defmodule Fountain.Conversations.CodexChatGPT do
   alias Fountain.InferenceCredentials.Source
   alias Managoat.Runtimes.Layout
 
+  require Logger
+
   @env_key "CODEX_CHATGPT_ACCESS_TOKEN"
   @home_key "CODEX_HOME"
   @credential :codex_chatgpt_access_token
@@ -75,37 +77,6 @@ defmodule Fountain.Conversations.CodexChatGPT do
 
   @doc "The variable that points codex at a grant's own home."
   def home_key, do: @home_key
-
-  @doc """
-  Whether this module can carry a resolved source into a sandbox: `:ok` for
-  everything but a `:grant` source, a user's own subscription that their
-  credential set names (ADR 0060 decision 2).
-
-  **Temporary, and ADR 0060 stage 3 deletes it.** Selection of a user's
-  grant is built and its transport is not. `prepare_sandbox/3` below writes
-  the *platform* grant's account id and `id_token` whatever the source is,
-  so a user's bearer would travel beside the deployment's account; the
-  broker holds one `CODEX_CHATGPT_ACCESS_TOKEN` entry per conversation; and
-  `Egress` renews only the platform grant. Until those follow the named
-  grant, a `:grant` source is refused here at three doors: launch admission,
-  `InferenceBinding.reserve/2`, and every turn (`TurnMachine.gate/2`, and
-  turn admission's locked check in
-  `Conversations._unsafe_create_turn_on_sandbox/4`). The first two keep a
-  conversation from being bound to one; the turn's is for a source that was
-  persisted some other way, which a wake reusing a live machine would
-  otherwise run without binding again. No user can hold a grant before
-  stage 4, so this refuses nothing anyone can do today; it keeps each stage
-  safe on its own.
-
-  `nil` is a conversation admitted before sources were stored, and is ready.
-  """
-  @spec transport_ready(Fountain.InferenceCredentials.Source.t() | nil) ::
-          :ok | {:error, :chatgpt_grant_transport_unavailable}
-  def transport_ready(%Fountain.InferenceCredentials.Source{scope: :grant}),
-    do: {:error, :chatgpt_grant_transport_unavailable}
-
-  def transport_ready(%Fountain.InferenceCredentials.Source{}), do: :ok
-  def transport_ready(nil), do: :ok
 
   @doc """
   The managed grant a resolved source runs on when that grant has a home and
@@ -130,6 +101,68 @@ defmodule Fountain.Conversations.CodexChatGPT do
 
   def managed_grant(_source, _user_id), do: nil
 
+  @doc """
+  Renew the grant a turn is about to run on, if it needs it, **by grant id
+  and generation** and never by comparing tokens: a conversation holds no
+  token to compare (ADR 0052 decision 4). `:ok` for every source that is not
+  a managed grant.
+
+  A fresh grant costs one metadata read. One inside its refresh margin is
+  renewed through the owner's coordinator
+  (`ChatGPTAccounts.ensure_fresh_for_user/3`); nothing is handed back,
+  because rotation reaches the proxy through the grant row, which
+  `Sessions.authorize/2` reads on every request. No broker rule is rewritten
+  and the sandbox file never changes.
+
+  A grant that cannot serve is `{:error, {:chatgpt_grant_unusable, _}}`, the
+  same tagged refusal resolution gives, including every reason only the
+  credential read can see: an owner who may no longer use a grant
+  (`:owner_ineligible`), a refresh token the auth server has just refused
+  (`:revoked`). A grant reconnected since the conversation began is
+  `:inference_source_changed`, which is what it is. Never another
+  credential. A renewal that failed for a reason that may pass (the
+  provider was unreachable, another node holds the refresh) lets the turn
+  go ahead on the token it has: if that has lapsed the turn fails at the
+  proxy with the provider's own answer (ADR 0047's limitation, kept).
+
+  **Must not be called while holding `InferenceCredentials.lock_source/1`.**
+  """
+  @spec ensure_fresh(String.t(), Source.t() | nil) ::
+          :ok | {:error, {:chatgpt_grant_unusable, map()} | :inference_source_changed}
+  def ensure_fresh(user_id, source) do
+    case managed_grant(source, user_id) do
+      %{owner: {:user, owner}, grant_id: grant_id, generation: generation} = ref ->
+        case ChatGPTAccounts.ensure_fresh_for_user(grant_id, owner, generation) do
+          :ok -> :ok
+          {:error, reason} -> renewal_refusal(ref, reason)
+        end
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp renewal_refusal(_ref, :stale_grant), do: {:error, :inference_source_changed}
+
+  defp renewal_refusal(ref, reason) when reason in [:disconnected, :revoked, :expired],
+    do: {:error, unusable(ref, reason)}
+
+  defp renewal_refusal(ref, :invalid_grant), do: {:error, unusable(ref, :reconnect_required)}
+
+  # The row is there for its owner's metadata read and not for the credential
+  # read: the owner is suspended, unverified or a principal. Gone altogether
+  # is `:not_found`.
+  defp renewal_refusal(ref, :not_connected), do: {:error, unusable(ref, :owner_ineligible)}
+
+  defp renewal_refusal(%{grant_id: grant_id}, reason) do
+    Logger.warning(
+      "chatgpt grant #{grant_id}: renewal before a turn did not complete (#{inspect(reason)}); " <>
+        "the turn runs on the token the grant has"
+    )
+
+    :ok
+  end
+
   @doc "Whether a source's codex peer keeps its `auth.json` in a home of its own."
   @spec own_home?(Source.t() | nil) :: boolean()
   def own_home?(%Source{scope: :grant} = source),
@@ -142,7 +175,11 @@ defmodule Fountain.Conversations.CodexChatGPT do
   `/home/sprite/.codex-grants/<grant id>.<generation>`. Both are UUIDs and
   are checked to be, because they become a path: `:error` otherwise.
   """
-  @spec home(ChatGPTAccounts.grant_ref()) :: {:ok, String.t()} | :error
+  @spec home(%{
+          required(:grant_id) => String.t(),
+          required(:generation) => String.t(),
+          optional(atom()) => term()
+        }) :: {:ok, String.t()} | :error
   def home(%{grant_id: grant_id, generation: generation}) do
     with {:ok, grant_id} <- Ecto.UUID.cast(grant_id),
          {:ok, generation} <- Ecto.UUID.cast(generation) do
@@ -312,18 +349,18 @@ defmodule Fountain.Conversations.CodexChatGPT do
   # disconnected or removed since this conversation resolved it. Named, like
   # every other refusal of a user's grant, and never answered with a
   # different account.
-  defp unusable(%{owner: {:user, user_id}, grant_id: grant_id}) do
+  defp unusable(ref, reason \\ :reconnect_required)
+
+  defp unusable(%{owner: {:user, user_id}, grant_id: grant_id}, reason) do
     {name, reason} =
       case ChatGPTAccounts.get_for_user(grant_id, user_id) do
         {:ok, %{name: name, status: "disconnected"}} -> {name, :disconnected}
-        {:ok, %{name: name}} -> {name, :reconnect_required}
+        {:ok, %{name: name}} -> {name, reason}
         {:error, :not_found} -> {nil, :not_found}
       end
 
     {:chatgpt_grant_unusable, %{grant_id: grant_id, name: name, reason: reason, until: nil}}
   end
-
-  defp unusable(%{owner: :platform}), do: :platform_chatgpt_not_connected
 
   @doc "The `auth.json` body: `chatgptAuthTokens`, the bearer value, the real account id, the synthesised id_token."
   @spec auth_json(String.t(), %{account_id: String.t(), id_token: String.t()}) :: String.t()

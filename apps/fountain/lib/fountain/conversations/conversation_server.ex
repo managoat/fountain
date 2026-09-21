@@ -821,10 +821,7 @@ defmodule Fountain.Conversations.ConversationServer do
 
     state = %{state | brokered: brokered, broker_bindings: bindings, env_credentials: env_creds}
 
-    case Egress.reprepare(state.conversation_id, brokered, bindings, state.sprite_env,
-           network: state.broker_network,
-           user_id: state.user_id
-         ) do
+    case Egress.reprepare(state) do
       {:ok, session, sprite_env} ->
         %{state | broker: session, sprite_env: sprite_env}
 

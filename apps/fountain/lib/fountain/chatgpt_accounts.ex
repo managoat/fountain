@@ -58,10 +58,13 @@ defmodule Fountain.ChatGPTAccounts do
   there are none: it turns such a set into a `:grant` source or an error
   naming the grant. `InferenceCredentials.set_grant/3` reads through the
   same function and has no production caller either (ADR 0060 stage 4 adds
-  it), and `remove_for_user/3` asks the sets before it deletes. The broker path,
-  the account surface and the keepalive schedule are stages 3 to 5. Until
-  the keepalive exists an idle user grant would lapse at the auth server's
-  window, which is one reason linking is not reachable.
+  it), and `remove_for_user/3` asks the sets before it deletes. A conversation
+  that resolved to a grant runs on it: `ensure_fresh_for_user/3` renews it
+  before each turn, outside the source lock, and the broker reads it through
+  the two functions below (ADR 0060 stage 3). The account surface and the
+  keepalive schedule are stages 4 and 5. Until the keepalive exists an idle
+  user grant would lapse at the auth server's window, which is one reason
+  linking is not reachable.
 
   ### The source lock, and one rule for whoever selects a grant
 
@@ -754,6 +757,24 @@ defmodule Fountain.ChatGPTAccounts do
       # The row's ids, not the caller's spelling of them: they key the
       # coordinator's job and, in the worker, the refresh lock.
       RefreshCoordinator.run(account.id, account.user_id, account.generation)
+    end
+  end
+
+  @doc """
+  The renewal a turn asks for before it runs (ADR 0052 decision 3, "refresh
+  both before expiry and before a turn"): `:ok` from the row alone when the
+  pinned grant is active and outside its refresh margin, else
+  `refresh_for_user/3`. Status only, never a bearer, and the same refusals as
+  the credential read. Like `refresh_for_user/3` it must not run under
+  `InferenceCredentials.lock_source/1`.
+  """
+  @spec ensure_fresh_for_user(Ecto.UUID.t(), String.t(), Ecto.UUID.t()) ::
+          :ok | {:error, atom()}
+  def ensure_fresh_for_user(grant_id, user_id, generation)
+      when is_binary(grant_id) and is_binary(user_id) and is_binary(generation) do
+    with {:ok, account} <- pinned_user_grant(grant_id, user_id, generation),
+         :ok <- user_account_state(account) do
+      if fresh?(account), do: :ok, else: refresh_for_user(grant_id, user_id, generation)
     end
   end
 

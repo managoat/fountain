@@ -119,7 +119,16 @@ defmodule Fountain.Conversations.Egress do
 
   @doc """
   Re-read the deployment's ChatGPT access token for a conversation that runs
-  on it (ADR 0047 decision 5). Only when the credentials carry the grant and
+  on it (ADR 0047 decision 5). **The deployment's grant only, and only until
+  it moves onto the protected path**: it recognises "this conversation runs
+  on the grant" by comparing the token the broker holds with the one the
+  conversation holds, which ADR 0052 decision 4 forbids and which could not
+  tell two grants apart. A user's subscription never comes through here. Its
+  conversation holds no token, its `brokered` map has no entry for the name,
+  and it is renewed by grant id and generation at the turn's gate
+  (`CodexChatGPT.ensure_fresh/2`), with no rule rewritten.
+
+  Only when the credentials carry the grant and
   the broker still holds that same value — a tenant's own secret of the
   name, or a grant already dropped, is left alone. A rotated token replaces
   both copies and the caller rewrites the live session's rules; a refresh
@@ -362,6 +371,18 @@ defmodule Fountain.Conversations.Egress do
     end
   end
 
+  @doc "`reprepare/5` over the server's state, with `session_opts/1`."
+  @spec reprepare(map()) :: {:ok, map(), [{String.t(), String.t()}]} | {:error, term()}
+  def reprepare(state) do
+    reprepare(
+      state.conversation_id,
+      state.brokered,
+      state.broker_bindings,
+      state.sprite_env,
+      session_opts(state)
+    )
+  end
+
   @doc """
   Rewrite the rules of the conversation's live sessions in place
   (`Fountain.Broker.refresh/4`), keeping the token the sandbox and the idle
@@ -418,14 +439,7 @@ defmodule Fountain.Conversations.Egress do
     rewritten? = changed? and rewrite_rules(state) == :ok
 
     if (changed? and not rewritten?) or Broker.expiring?(session) do
-      case reprepare(
-             state.conversation_id,
-             state.brokered,
-             state.broker_bindings,
-             state.sprite_env,
-             network: state.broker_network,
-             user_id: state.user_id
-           ) do
+      case reprepare(state) do
         {:ok, fresh, sprite_env} ->
           {%{state | broker: fresh, sprite_env: sprite_env}, fresh.token != session.token}
 
@@ -502,9 +516,11 @@ defmodule Fountain.Conversations.Egress do
   end
 
   defp rewrite_rules(state) do
-    case refresh_rules(state.conversation_id, state.brokered, state.broker_bindings,
-           network: state.broker_network,
-           user_id: state.user_id
+    case refresh_rules(
+           state.conversation_id,
+           state.brokered,
+           state.broker_bindings,
+           session_opts(state)
          ) do
       :ok ->
         :ok
@@ -518,12 +534,40 @@ defmodule Fountain.Conversations.Egress do
     end
   end
 
+  @doc """
+  What every mint and every rewrite of this conversation's broker session is
+  given: the network shape, the tenant, and `managed:`, the managed ChatGPT
+  grant the conversation's source is pinned to, if it is on one
+  (`CodexChatGPT.managed_grant/2`). Derived from the source each time and
+  held nowhere: the server's state carries which grant, never its bearer.
+
+  Passing it on **every** issuance path is the point (ADR 0052 decision 5,
+  "every broker issuance path, including reprepare and reattach"): a session
+  re-minted because the old one is expiring goes through the same fence on
+  the grant row, so a grant disconnected since the conversation began gets no
+  fresh session.
+  """
+  @spec session_opts(map()) :: keyword()
+  def session_opts(state) do
+    [
+      network: state.broker_network,
+      user_id: state.user_id,
+      managed:
+        Fountain.Conversations.CodexChatGPT.managed_grant(
+          Map.get(state, :inference_source),
+          state.user_id
+        )
+    ]
+  end
+
   @doc "Keep the minted proxy session in server state; unbrokered state is unchanged."
   def prepare_state(state) do
     if brokered?() do
-      case prepare(state.conversation_id, state.brokered, state.broker_bindings,
-             network: state.broker_network,
-             user_id: state.user_id
+      case prepare(
+             state.conversation_id,
+             state.brokered,
+             state.broker_bindings,
+             session_opts(state)
            ) do
         {:ok, session} -> {:ok, %{state | broker: session}}
         {:error, _} = error -> error

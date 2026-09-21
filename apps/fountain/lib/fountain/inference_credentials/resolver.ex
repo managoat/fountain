@@ -122,9 +122,10 @@ defmodule Fountain.InferenceCredentials.Resolver do
   # or the vault does not outrank the grant, the set's own key is not a
   # fallback, another of the user's grants is not, and the platform is not.
   # The key is dropped from what the runtime is handed so codex cannot log in
-  # with it beside the grant. No bearer is put there: a grant's token never
-  # travels in the credentials map (ADR 0052 decision 6). Matched on the
-  # runtime alone: see `named_grant/4`.
+  # with it beside the grant. No bearer is put there, only the grant's
+  # placeholder: a grant's token never travels in the credentials map, and so
+  # never reaches the `brokered` map, a rule or a template (ADR 0052 decision
+  # 6). Matched on the runtime alone: see `named_grant/4`.
   defp select(%Inputs{runtime: "codex", grant: {:named, id, view}, own: own}) do
     case grant_state(view) do
       :ok ->
@@ -135,7 +136,13 @@ defmodule Fountain.InferenceCredentials.Resolver do
             generation: view.generation
         }
 
-        {:ok, source, drop_competitors(own, "openai")}
+        # What the runtime is handed where a credential would be: the
+        # grant's placeholder, which is what its `auth.json` names. It says a
+        # grant is in play (`CodexChatGPT.peer_auth/2`) and is not a secret.
+        placeholder = Fountain.ChatGPTAccounts.Reserved.placeholder(view.grant_id)
+
+        {:ok, source,
+         own |> drop_competitors("openai") |> Map.put(:codex_chatgpt_access_token, placeholder)}
 
       {reason, until} ->
         {:error,

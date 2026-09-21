@@ -68,6 +68,25 @@ defmodule Fountain.Broker do
   mangled: a space or a control character in a target, a CR or LF in a
   header value.
 
+  ## A managed ChatGPT grant
+
+  A conversation that runs codex on a user's ChatGPT subscription (ADR 0060)
+  does not get there through any of the above. The grant's bearer is not a
+  secret in the `brokered` map, is in no rule, and cannot be named by a
+  binding or a template (`Fountain.ChatGPTAccounts.Reserved`): the session
+  records *which* grant it may use, at which generation, and the proxy asks
+  for the bearer on every request to the one Codex backend route
+  (`Fountain.Broker.Native.Sessions`, "A session that may use a managed
+  ChatGPT grant"; ADR 0052 decisions 5 and 6). `prepare/4` and `refresh/4`
+  take it as `managed:`, and `revoke_grant/2` is what the grant's own
+  lifecycle calls. Such a session is HTTP only: no WebSocket or other
+  upgrade, to any host.
+
+  The deployment's own grant (ADR 0047) still travels the older way, as the
+  `CODEX_CHATGPT_ACCESS_TOKEN` entry of `@inference` below. The protected
+  path serves it too, and nothing in production selects it for that grant
+  yet.
+
   ## The network policy (gate 2)
 
   The sandbox's own policy is always the floor, `allow: [broker]`. What the
@@ -316,7 +335,9 @@ defmodule Fountain.Broker do
   Split the runtime's inference credentials (gate 3): the map handed to
   `default_env/2` gets placeholders, the broker gets the values under the
   env var names, and each gets an implicit `substitute` binding to its
-  provider's host. A tenant's own binding for the same name wins.
+  provider's host. A tenant's own binding for the same name wins. A managed
+  ChatGPT grant on the protected path is left exactly as it came (see "A
+  managed ChatGPT grant" in the moduledoc).
   """
   @spec split_inference(map(), bindings()) :: {map(), %{String.t() => String.t()}, bindings()}
   def split_inference(credentials, bindings \\ %{}) when is_map(credentials) do
@@ -324,18 +345,28 @@ defmodule Fountain.Broker do
                                                         {creds, brokered, implicit} ->
       case Map.get(creds, cred) do
         value when is_binary(value) and value != "" ->
-          implicit =
-            if Map.has_key?(bindings, key),
-              do: implicit,
-              else: Map.put(implicit, key, Enum.map(hosts, &implicit_binding(key, &1)))
+          if managed_placeholder?(value) do
+            {creds, brokered, implicit}
+          else
+            implicit =
+              if Map.has_key?(bindings, key),
+                do: implicit,
+                else: Map.put(implicit, key, Enum.map(hosts, &implicit_binding(key, &1)))
 
-          {Map.put(creds, cred, placeholder(key)), Map.put(brokered, key, value), implicit}
+            {Map.put(creds, cred, placeholder(key)), Map.put(brokered, key, value), implicit}
+          end
 
         _ ->
           {creds, brokered, implicit}
       end
     end)
   end
+
+  # A grant on the protected path arrives as its placeholder: there is no
+  # value here to take custody of, and no substitution rule may name it. It
+  # stays out of `brokered` and gets no implicit binding; the session carries
+  # the grant as `managed:` instead.
+  defp managed_placeholder?(value), do: Fountain.ChatGPTAccounts.Reserved.placeholder?(value)
 
   defp implicit_binding(key, host) do
     %Fountain.SecretBindings.Binding{
@@ -605,8 +636,8 @@ defmodule Fountain.Broker do
   native backend needs to reach the tenant's key and looks up from the
   conversation when the caller has not got it to hand, and `managed:`, the
   managed ChatGPT grant the conversation runs on, if any
-  (`t:Fountain.ChatGPTAccounts.grant_ref/0`; see
-  `Fountain.Broker.Native.Sessions`). Issuance for a grant that is no longer active at that generation
+  (`t:Fountain.ChatGPTAccounts.grant_ref/0`; see "A managed ChatGPT grant"
+  above). Issuance for a grant that is no longer active at that generation
   is refused.
   """
   @spec prepare(String.t(), %{String.t() => String.t()}, bindings(), keyword()) ::

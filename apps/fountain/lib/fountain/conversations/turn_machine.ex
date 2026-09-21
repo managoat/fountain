@@ -1099,13 +1099,16 @@ defmodule Fountain.Conversations.TurnMachine do
   @spec gate(String.t(), Source.t() | nil) :: :ok | {:error, term()}
   def gate(user_id, inference \\ nil) do
     with :ok <- validate_inference(user_id, inference),
-         # ADR 0060 stage 2 only, and stage 3 deletes it with the function.
-         # Binding refuses a `:grant` source (`InferenceBinding.reserve/2`),
-         # but a wake that reuses a live machine starts a server on the
-         # persisted source without binding again, so the turn asks too.
-         :ok <- Fountain.Conversations.CodexChatGPT.transport_ready(inference),
          :ok <- Fountain.Accounts.check_not_suspended(user_id),
-         :ok <- Fountain.Billing.check_spend(user_id) do
+         :ok <- Fountain.Billing.check_spend(user_id),
+         # Last, so an account that may not run is told that and costs no
+         # provider call; and after the validation, never inside it: that ran
+         # under the owner's source lock, and renewing a grant there is the
+         # deadlock `Fountain.ChatGPTAccounts` documents. A user's
+         # subscription is renewed here, by id and generation, before the
+         # turn that would otherwise outlive its token; one that cannot serve
+         # refuses the turn by name.
+         :ok <- Fountain.Conversations.CodexChatGPT.ensure_fresh(user_id, inference) do
       if Source.platform?(inference),
         do: Fountain.PlatformInference.check_ceiling(),
         else: :ok

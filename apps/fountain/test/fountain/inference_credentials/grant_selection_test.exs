@@ -18,6 +18,7 @@ defmodule Fountain.InferenceCredentials.GrantSelectionTest do
   import Fountain.ChatGPTFixtures
 
   alias Fountain.ChatGPTAccounts
+  alias Fountain.ChatGPTAccounts.Reserved
   alias Fountain.Conversations.InferenceResolution
   alias Fountain.Crypto
   alias Fountain.Environments
@@ -123,9 +124,12 @@ defmodule Fountain.InferenceCredentials.GrantSelectionTest do
         assert :ok = Fountain.PlatformInference.gate_source(source)
       end
 
-      # No bearer travels in the credentials map, and no key beside the grant.
-      assert creds_a == %{}
-      assert creds_b == %{}
+      # No bearer travels in the credentials map, and no key beside the grant:
+      # what stands there is each grant's own placeholder (stage 3), which is
+      # what its `auth.json` names and is not a secret.
+      assert creds_a == %{codex_chatgpt_access_token: Reserved.placeholder(work.id)}
+      assert creds_b == %{codex_chatgpt_access_token: Reserved.placeholder(personal.id)}
+      refute creds_a == creds_b
 
       assert Source.grant_ref(a) == {:user, work.id, work.generation}
       assert :ok = InferenceCredentials.validate_source(ctx.user.id, a)
@@ -272,7 +276,7 @@ defmodule Fountain.InferenceCredentials.GrantSelectionTest do
         InferenceCredentials.grant_unusable_message(%{
           grant_id: "g",
           name: "Work",
-          reason: :owner_ineligible,
+          reason: :a_reason_not_taught_yet,
           until: nil
         })
 
@@ -377,8 +381,12 @@ defmodule Fountain.InferenceCredentials.GrantSelectionTest do
         InferenceCredentials.put_credential_in(set, ctx.dek, :anthropic_api_key, "sk-ant")
 
       assert {:ok, %Source{scope: :grant}, creds} = resolve(ctx.user, set)
-      # The competing OpenAI input is gone; unrelated credentials stay.
-      assert creds == %{anthropic_api_key: "sk-ant"}
+      # The competing OpenAI input is gone; unrelated credentials stay, beside
+      # the grant's placeholder.
+      assert creds == %{
+               anthropic_api_key: "sk-ant",
+               codex_chatgpt_access_token: Reserved.placeholder(grant.id)
+             }
 
       assert {:ok, %Source{scope: :credential, kind: :openai_api_key} = source,
               %{openai_api_key: "sk-own"}} =

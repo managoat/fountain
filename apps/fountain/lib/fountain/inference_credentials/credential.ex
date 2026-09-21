@@ -21,6 +21,13 @@ defmodule Fountain.InferenceCredentials.Credential do
 
   Each ciphertext is encrypted with the user's per-tenant DEK
   (see `Fountain.Crypto`). The schema does not store plaintext.
+
+  A set may also name one of its owner's ChatGPT subscriptions,
+  `chatgpt_grant_id` (ADR 0060 decision 2). That is a reference and never a
+  token: the grant lives in its own row with its own lifecycle
+  (`Fountain.ChatGPTAccounts`), and the set only says which one serves a
+  codex run. It sits beside `openai_api_key` rather than in place of it: the
+  grant serves codex, the key serves every other OpenAI consumer.
   """
 
   use Ecto.Schema
@@ -44,6 +51,12 @@ defmodule Fountain.InferenceCredentials.Credential do
     field :claude_code_oauth_token_ciphertext, :binary
     field :openai_api_key_ciphertext, :binary
     field :gemini_api_key_ciphertext, :binary
+
+    # A grant of the same owner, which the composite foreign key holds in the
+    # database. No association: core reads a grant only through
+    # `Fountain.ChatGPTAccounts`, scoped by its owner. Written only by
+    # `InferenceCredentials.set_grant/3`.
+    field :chatgpt_grant_id, :binary_id
 
     belongs_to :user, Fountain.Accounts.User
 
@@ -83,5 +96,30 @@ defmodule Fountain.InferenceCredentials.Credential do
       message: "an account has exactly one default credential set"
     )
     |> foreign_key_constraint(:user_id)
+  end
+
+  @grant_message "is not a ChatGPT subscription this account can name"
+
+  @doc """
+  What a set is told when the grant it was asked to name is not one its
+  owner may name. One message for another account's grant, a missing one and
+  an id that is not one, so an id cannot be probed.
+  """
+  @spec grant_message() :: String.t()
+  def grant_message, do: @grant_message
+
+  @doc false
+  # Apart from `changeset/2` on purpose: `:chatgpt_grant_id` is not in the
+  # general cast list, so no caller that writes a credential or a name can
+  # carry a grant along without the ownership check `set_grant/3` makes. The
+  # constraint is the backstop for a grant that vanishes between that check
+  # and the write; both hold the owner's source lock, so it should not fire.
+  def grant_changeset(credential, grant_id) when is_binary(grant_id) or is_nil(grant_id) do
+    credential
+    |> change(chatgpt_grant_id: grant_id)
+    |> foreign_key_constraint(:chatgpt_grant_id,
+      name: :inference_credentials_chatgpt_grant_id_fkey,
+      message: @grant_message
+    )
   end
 end

@@ -423,19 +423,30 @@ defmodule Fountain.ChatGPTAccounts do
   Delete a disconnected grant's row, which frees its slot under the ceiling
   and lets its upstream account be linked afresh. A grant that still holds
   a credential is `{:error, :still_connected}`: disconnect it first, so
-  removal never drops a live refresh token as a side effect. A changeset is
-  the database refusing the delete; nothing declares a constraint that
-  would produce one yet.
+  removal never drops a live refresh token as a side effect.
+
+  A grant that credential sets still name is `{:error, {:named_by_sets,
+  names}}`, the sets' names in order: point them elsewhere first. Removing
+  it from under them would either fail on their foreign key or, had that
+  nilified, turn each into a set with no grant whose next codex run resolves
+  to something the user never chose (ADR 0060 decision 4). The check and the
+  delete cannot interleave with a set being pointed at the grant: both hold
+  the owner's source lock. A changeset is the database refusing the delete
+  all the same, which that lock should make unreachable.
   """
   @spec remove_for_user(Ecto.UUID.t(), String.t(), keyword()) ::
-          :ok | {:error, :not_found | :still_connected | Ecto.Changeset.t()}
+          :ok
+          | {:error,
+             :not_found
+             | :still_connected
+             | {:named_by_sets, [String.t()]}
+             | Ecto.Changeset.t()}
   def remove_for_user(grant_id, user_id, opts \\ [])
       when is_binary(grant_id) and is_binary(user_id) do
     result =
       user_write(user_id, fn ->
         case locked_user_grant(grant_id, user_id) do
-          # ADR 0060 stage 2 adds the refusal for a grant a credential set names.
-          {:ok, %Account{status: "disconnected"} = account} -> Repo.delete(account)
+          {:ok, %Account{status: "disconnected"} = account} -> delete_unnamed(account)
           {:ok, %Account{}} -> {:error, :still_connected}
           {:error, _} = error -> error
         end
@@ -444,6 +455,22 @@ defmodule Fountain.ChatGPTAccounts do
     with {:ok, account} <- result do
       audit_grant(account, "chatgpt_grant.removed", opts, %{"name" => account.name})
       :ok
+    end
+  end
+
+  defp delete_unnamed(%Account{} = account) do
+    case Fountain.InferenceCredentials.set_names_for_grant(account.id, account.user_id) do
+      [] ->
+        account
+        |> Ecto.Changeset.change()
+        |> Ecto.Changeset.foreign_key_constraint(:id,
+          name: :inference_credentials_chatgpt_grant_id_fkey,
+          message: "is named by a credential set"
+        )
+        |> Repo.delete()
+
+      names ->
+        {:error, {:named_by_sets, names}}
     end
   end
 

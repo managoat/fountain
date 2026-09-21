@@ -186,6 +186,122 @@ defmodule Fountain.InferenceCredentials do
   end
 
   @doc """
+  Name the ChatGPT subscription a set's codex runs use, or with `nil` stop
+  naming one (ADR 0060 decision 2). **Nothing in production calls this yet**:
+  the account surface that lets a user hold a grant, and point a set at one,
+  is ADR 0060 stage 4.
+
+  A reference and never a token. The grant is read through
+  `Fountain.ChatGPTAccounts.get_for_user/2`, scoped by the set's owner, under
+  that owner's source lock, which every write to the owner's grants also
+  takes. Another account's grant, the deployment's, a missing one and an id
+  that is not one are all the same changeset error on `:chatgpt_grant_id`
+  (`Credential.grant_message/0`), so an id cannot be probed; the composite
+  foreign key holds the same rule in the database. A disconnected grant is
+  refused too: it holds no credential, and the set would fail every codex
+  run until it was reconnected. A grant that is revoked or expired may be
+  named; that is a state a named grant reaches anyway, and resolution
+  reports it by name.
+
+  The set's `revision` does not move: a grant source's identity is the grant
+  itself, so repointing already reads as a different source to a
+  conversation bound to the old one, and one bound to the set's API key has
+  lost nothing.
+
+  Naming the grant the set already names is a no-op that records nothing.
+  Otherwise audited, after the transaction, as
+  `inference_credential_set.chatgpt_grant_changed` with both grant ids and
+  the new grant's name.
+  """
+  @spec set_grant(Credential.t(), Ecto.UUID.t() | nil, keyword()) ::
+          {:ok, Credential.t()} | {:error, :not_found | Ecto.Changeset.t()}
+  def set_grant(%Credential{} = set, grant_id, opts \\ [])
+      when is_binary(grant_id) or is_nil(grant_id) do
+    result =
+      with_source_lock(set.user_id, fn ->
+        with %Credential{} = current <- get_set(set.id, set.user_id),
+             {:ok, grant} <- nameable_grant(current, grant_id) do
+          write_grant(current, grant)
+        else
+          nil -> {:error, :not_found}
+          {:error, _} = error -> error
+        end
+      end)
+
+    case result do
+      {:unchanged, current} ->
+        {:ok, current}
+
+      {:changed, updated, was, grant} ->
+        audited_set(
+          {:ok, updated},
+          "inference_credential_set.chatgpt_grant_changed",
+          Keyword.put(opts, :metadata, %{
+            "was" => was,
+            "now" => updated.chatgpt_grant_id,
+            "grant" => grant && grant.name
+          })
+        )
+
+      error ->
+        error
+    end
+  end
+
+  defp nameable_grant(_set, nil), do: {:ok, nil}
+
+  defp nameable_grant(set, grant_id) do
+    case Fountain.ChatGPTAccounts.get_for_user(grant_id, set.user_id) do
+      {:ok, %{status: "disconnected"}} ->
+        {:error, grant_error(set, "is disconnected; reconnect it before a set names it")}
+
+      {:ok, grant} ->
+        {:ok, grant}
+
+      {:error, :not_found} ->
+        {:error, grant_error(set, Credential.grant_message())}
+    end
+  end
+
+  defp grant_error(set, message) do
+    set |> Ecto.Changeset.change() |> Ecto.Changeset.add_error(:chatgpt_grant_id, message)
+  end
+
+  # The view's id, not the caller's spelling of it.
+  defp write_grant(%Credential{chatgpt_grant_id: id} = current, %{grant_id: id}),
+    do: {:unchanged, current}
+
+  defp write_grant(%Credential{chatgpt_grant_id: nil} = current, nil), do: {:unchanged, current}
+
+  defp write_grant(current, grant) do
+    case current |> Credential.grant_changeset(grant && grant.grant_id) |> Repo.update() do
+      {:ok, updated} -> {:changed, updated, current.chatgpt_grant_id, grant}
+      error -> error
+    end
+  end
+
+  @doc """
+  The names of the owner's sets that name `grant_id`, in order; `[]` for a
+  grant no set names. Scoped by the owner. What
+  `Fountain.ChatGPTAccounts.remove_for_user/3` asks before it deletes a row
+  the sets' foreign key would refuse to lose.
+  """
+  @spec set_names_for_grant(Ecto.UUID.t(), binary()) :: [String.t()]
+  def set_names_for_grant(grant_id, user_id) when is_binary(grant_id) and is_binary(user_id) do
+    with {:ok, grant} <- Ecto.UUID.cast(grant_id),
+         {:ok, owner} <- Ecto.UUID.cast(user_id) do
+      Repo.all(
+        from c in Credential,
+          where: c.user_id == ^owner and c.chatgpt_grant_id == ^grant,
+          order_by: [asc: c.name],
+          select: c.name
+      )
+    else
+      :error -> []
+    end
+  end
+
+  @doc """
   Returns a map `%{provider => plaintext}` of every credential the user has
   set, decrypted with the supplied tenant DEK. Missing providers are absent
   from the map.

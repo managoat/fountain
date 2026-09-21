@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Users link a ChatGPT subscription and Fountain manages the grant"
-description: "Proposed; no user can link a grant yet. ADR 0060 stages 1 to 3 built the owner-scoped lifecycle, selection, and the revocation-fenced broker authorization and protected destination for a user's grant; the platform grant is not yet on that path. Tenant-owned ChatGPT grants use tenant encryption, coordinated refresh, revocation-fenced broker authorization, protected provider destinations, and no automatic paid fallback."
+description: "Proposed; linking a grant is behind a flag that is off for every account. ADR 0060 stage 4a built decision 2's attempts and its API, not its card; stages 1 to 3 built the owner-scoped lifecycle, selection, and the revocation-fenced broker authorization and protected destination for a user's grant; the platform grant is not yet on that path. Tenant-owned ChatGPT grants use tenant encryption, coordinated refresh, revocation-fenced broker authorization, protected provider destinations, and no automatic paid fallback."
 tags: [inference, codex, oauth, security, billing]
 status: draft
 adr: "0052"
@@ -68,6 +68,19 @@ tunnels across serving nodes" and upstream revocation are not built;
 nothing is cached per tunnel, so the next request in an open tunnel is
 refused regardless. Nothing has been measured against a real client. See
 0060, "Stage 3 as built".
+
+**0060 stage 4a (2026-09-21) builds the API half of decision 2**, per grant:
+durable, owner-bound, single-use link attempts with an opaque id and
+encrypted exchange secrets, a job that carries ids and never tokens and
+honours the auth server's interval with backoff, a completion that rechecks
+the owner, cancellation, expiry and the grant's generation before it stores
+anything, and the same operations under `/api/account`. The card on
+`/account/inference-credentials` is not built. Linking is behind a rollout
+flag that is off for every account, and the two parts above are owed before
+it is turned on. Two things decision 2 asks for are still open: account
+deletion "cancels" pending attempts only in that they are deleted with the
+account, and tokens an attempt does not store are not revoked upstream. See
+0060, "Stage 4a as built".
 
 Extends [0047](0047-codex-platform-chatgpt-account.md),
 [0008](0008-byo-inference-credentials.md), and

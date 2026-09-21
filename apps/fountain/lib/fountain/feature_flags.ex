@@ -38,7 +38,11 @@ defmodule Fountain.FeatureFlags do
 
   @flags %{
     # Provider registration and credential bindings have their own rollout.
-    connections: "connections"
+    connections: "connections",
+    # Linking a new ChatGPT subscription (ADR 0060 stage 4). Deliberately not
+    # in `@on_without_posthog`: it is off wherever nobody has turned it on,
+    # a self-host included, until the ADR's gates pass.
+    chatgpt_subscriptions: "chatgpt_subscriptions"
   }
 
   # The flags that read **on** where there is no PostHog to ask.

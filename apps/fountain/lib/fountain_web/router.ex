@@ -499,6 +499,20 @@ defmodule FountainWeb.Router do
     delete "/inference-credential-sets/:id/credentials/:provider",
            InferenceCredentialController,
            :delete_in_set
+
+    # ChatGPT subscriptions a credential set may name, and the device-code
+    # sign-ins that link them (ADR 0060 decision 3). The same gate again: a
+    # sandbox's token can neither start a link nor read a user code. The
+    # attempts come first so `attempts` is never read as a subscription's id.
+    post "/chatgpt-subscriptions/attempts", ChatGPTSubscriptionController, :create_attempt
+    get "/chatgpt-subscriptions/attempts", ChatGPTSubscriptionController, :index_attempts
+    get "/chatgpt-subscriptions/attempts/:id", ChatGPTSubscriptionController, :show_attempt
+    delete "/chatgpt-subscriptions/attempts/:id", ChatGPTSubscriptionController, :cancel_attempt
+
+    get "/chatgpt-subscriptions", ChatGPTSubscriptionController, :index
+    patch "/chatgpt-subscriptions/:id", ChatGPTSubscriptionController, :update
+    post "/chatgpt-subscriptions/:id/disconnect", ChatGPTSubscriptionController, :disconnect
+    delete "/chatgpt-subscriptions/:id", ChatGPTSubscriptionController, :delete
   end
 
   # The team's SSE stream (#810). Declared before the JSON team routes so

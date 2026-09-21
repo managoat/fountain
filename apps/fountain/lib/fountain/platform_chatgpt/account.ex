@@ -76,7 +76,7 @@ defmodule Fountain.PlatformChatGPT.Account do
 
   There is no plaintext column. The application writers are
   `Fountain.ChatGPTAccounts`'s admin mutations and refresh path, and its
-  `*_for_user` writes, which nothing in production calls yet (ADR 0060).
+  `*_for_user` writes (ADR 0060).
   """
 
   use Ecto.Schema
@@ -205,15 +205,38 @@ defmodule Fountain.PlatformChatGPT.Account do
     |> name_rules()
   end
 
-  # The unique error sits on the field a person can change, not on the
-  # index's leading `user_id`. `cast/3` turns a blank name into a nil
-  # change on a row that has one, so the trim has to let nil through for
-  # `validate_required/2` to answer.
-  defp name_rules(changeset) do
+  @doc """
+  What a grant's name has to be, without the indexes that say it is free:
+  trimmed, present, at most 200 characters, none of them invisible. A link
+  attempt holds the name for minutes before any grant row exists
+  (`Fountain.ChatGPTAccounts.LinkAttempt`), and asks the same thing of it.
+
+  Characters are codepoints, which is what the column's `varchar(255)` and
+  the API's `maxLength` count: a hundred letters with three combining marks
+  each are a hundred graphemes and four hundred codepoints, and the database
+  would refuse them by raising, after a link had spent its device code. No
+  `\\p{C}`: a control (NUL among them, which no query will carry), a format
+  character such as a bidi override or a zero-width joiner, or an unassigned
+  one. The name is shown on a page, in error sentences and in audit
+  metadata, so it has to look like what it is.
+  `cast/3` turns a blank name into a nil change on a row that has one, so
+  the trim has to let nil through for `validate_required/2` to answer.
+  """
+  def name_format(changeset) do
     changeset
     |> update_change(:name, &(&1 && String.trim(&1)))
     |> validate_required([:name])
-    |> validate_length(:name, min: 1, max: 200)
+    |> validate_length(:name, min: 1, max: 200, count: :codepoints)
+    |> validate_format(:name, ~r/\A\P{C}*\z/u,
+      message: "must not contain control or invisible characters"
+    )
+  end
+
+  # The unique error sits on the field a person can change, not on the
+  # index's leading `user_id`.
+  defp name_rules(changeset) do
+    changeset
+    |> name_format()
     |> unique_constraint(:name,
       name: :platform_chatgpt_account_user_id_name_index,
       message: "already names a ChatGPT subscription on this account"

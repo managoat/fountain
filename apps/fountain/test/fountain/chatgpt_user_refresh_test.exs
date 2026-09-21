@@ -234,11 +234,7 @@ defmodule Fountain.ChatGPTUserRefreshTest do
     assert event.actor == "system:chatgpt_accounts"
     assert event.resource_id == account.id
 
-    assert event.metadata == %{
-             "name" => account.name,
-             "reason" => "invalid_grant",
-             "generation" => account.generation
-           }
+    assert event.metadata == %{"name" => account.name, "reason" => "invalid_grant"}
 
     refute Repo.exists?(
              from(e in AdminEvent, where: e.event_type == "admin.platform_chatgpt.revoked")

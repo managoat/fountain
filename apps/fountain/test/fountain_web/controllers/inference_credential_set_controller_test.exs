@@ -9,6 +9,8 @@ defmodule FountainWeb.InferenceCredentialSetControllerTest do
 
   use FountainWeb.ConnCase, async: true
 
+  import Ecto.Query, only: [from: 2]
+
   alias Fountain.Crypto
   alias Fountain.InferenceCredentials
 
@@ -224,6 +226,173 @@ defmodule FountainWeb.InferenceCredentialSetControllerTest do
           :allowed_environment_ids
         ] do
       refute Map.has_key?(FountainWeb.Schemas.Environment.schema().properties, field)
+    end
+  end
+
+  # ADR 0060 decision 2, over the API. A user's grant takes only its owner's
+  # source key, so this module stays async.
+  describe "PATCH chatgpt_grant_id" do
+    import Fountain.ChatGPTFixtures
+
+    setup %{user: user} do
+      {:ok, set} = InferenceCredentials.create_set(user.id, "codex")
+      grant = user_grant!(user.id, %{name: "Work"})
+      %{set: set, grant: grant}
+    end
+
+    defp path(set), do: "/api/account/inference-credential-sets/#{set.id}"
+
+    defp grant_events(user) do
+      Fountain.Repo.all(
+        from e in Fountain.Audit.Event,
+          where:
+            e.user_id == ^user.id and
+              e.action == "inference_credential_set.chatgpt_grant_changed",
+          order_by: [asc: e.inserted_at, asc: e.id]
+      )
+    end
+
+    test "a set reports no subscription until it names one", %{conn: conn, set: set} do
+      body = conn |> get("/api/account/inference-credential-sets") |> json_response(200)
+      listed = Enum.find(body["data"], &(&1["id"] == set.id))
+
+      assert %{"chatgpt_grant_id" => nil, "chatgpt_grant" => nil} = listed
+    end
+
+    test "names a subscription, reports its name and status, and is attributed to the API",
+         %{conn: conn, user: user, set: set, grant: grant} do
+      body =
+        conn |> patch_json(path(set), %{"chatgpt_grant_id" => grant.id}) |> json_response(200)
+
+      assert body["data"]["chatgpt_grant_id"] == grant.id
+
+      assert body["data"]["chatgpt_grant"] == %{
+               "id" => grant.id,
+               "name" => "Work",
+               "status" => "active"
+             }
+
+      assert Fountain.Repo.reload!(set).chatgpt_grant_id == grant.id
+
+      assert [%{actor: "api", metadata: %{"was" => nil, "grant" => "Work"} = metadata}] =
+               grant_events(user)
+
+      assert metadata["now"] == grant.id
+
+      # The list says the same, and nothing about the credential.
+      listed = conn |> get("/api/account/inference-credential-sets") |> json_response(200)
+
+      assert %{"chatgpt_grant" => %{"status" => "active"}} =
+               Enum.find(listed["data"], &(&1["id"] == set.id))
+
+      for secret <- ["rt_user", "acct-user", "generation", "ciphertext", "account_id"],
+          do: refute(inspect(listed) =~ secret)
+    end
+
+    test "null stops naming one, and an absent key leaves it alone",
+         %{conn: conn, user: user, set: set, grant: grant} do
+      {:ok, _} = InferenceCredentials.set_grant(set, grant.id)
+
+      renamed = conn |> patch_json(path(set), %{"name" => "codex 2"}) |> json_response(200)
+      assert renamed["data"]["chatgpt_grant_id"] == grant.id
+
+      cleared = conn |> patch_json(path(set), %{"chatgpt_grant_id" => nil}) |> json_response(200)
+      assert %{"chatgpt_grant_id" => nil, "chatgpt_grant" => nil} = cleared["data"]
+      assert Fountain.Repo.reload!(set).chatgpt_grant_id == nil
+
+      assert [%{metadata: %{"now" => nil}}] = Enum.take(grant_events(user), -1)
+    end
+
+    test "sending back the id a set already names changes and records nothing, even once " <>
+           "that subscription is disconnected",
+         %{conn: conn, user: user, set: set, grant: grant} do
+      {:ok, _} = InferenceCredentials.set_grant(set, grant.id)
+      :ok = Fountain.ChatGPTAccounts.disconnect_for_user(grant.id, user.id)
+      events = grant_events(user)
+
+      body =
+        conn
+        |> patch_json(path(set), %{"name" => "still codex", "chatgpt_grant_id" => grant.id})
+        |> json_response(200)
+
+      assert body["data"]["chatgpt_grant"] == %{
+               "id" => grant.id,
+               "name" => "Work",
+               "status" => "disconnected"
+             }
+
+      assert grant_events(user) == events
+    end
+
+    test "another account's subscription, a missing one and a disconnected one are 422, and " <>
+           "the first two read the same",
+         %{conn: conn, user: user, set: set} do
+      other = insert_verified_user()
+      theirs = user_grant!(other.id)
+      gone = user_grant!(user.id, %{name: "Gone"})
+      :ok = Fountain.ChatGPTAccounts.disconnect_for_user(gone.id, user.id)
+
+      cross =
+        conn |> patch_json(path(set), %{"chatgpt_grant_id" => theirs.id}) |> json_response(422)
+
+      missing =
+        conn
+        |> patch_json(path(set), %{"chatgpt_grant_id" => Ecto.UUID.generate()})
+        |> json_response(422)
+
+      assert %{"error" => "validation_failed", "errors" => %{"chatgpt_grant_id" => [_]}} = cross
+      assert cross == missing
+
+      assert %{"errors" => %{"chatgpt_grant_id" => [message]}} =
+               conn
+               |> patch_json(path(set), %{"chatgpt_grant_id" => gone.id})
+               |> json_response(422)
+
+      assert message =~ "disconnected"
+
+      assert conn |> patch_json(path(set), %{"chatgpt_grant_id" => "nope"}) |> json_response(422)
+
+      assert Fountain.Repo.reload!(set).chatgpt_grant_id == nil
+      assert grant_events(user) == []
+    end
+
+    test "a subscription that cannot be named refuses the whole request, the rename included",
+         %{conn: conn, set: set} do
+      name = set.name
+
+      assert %{"errors" => %{"chatgpt_grant_id" => [_]}} =
+               conn
+               |> patch_json(path(set), %{
+                 "name" => "renamed all the same",
+                 "chatgpt_grant_id" => Ecto.UUID.generate()
+               })
+               |> json_response(422)
+
+      assert %{name: ^name, chatgpt_grant_id: nil} = Fountain.Repo.reload!(set)
+    end
+
+    test "another account's set is a 404, whatever it is asked to name",
+         %{conn: conn, grant: grant} do
+      other = insert_verified_user()
+      {:ok, theirs} = InferenceCredentials.create_set(other.id, "theirs")
+
+      assert conn
+             |> patch_json(path(theirs), %{"chatgpt_grant_id" => grant.id})
+             |> json_response(404)
+
+      assert Fountain.Repo.reload!(theirs).chatgpt_grant_id == nil
+    end
+
+    test "a sprite-scoped key cannot point a set at a subscription",
+         %{user: user, set: set, grant: grant} do
+      {_rec, raw} = insert_sprite_api_key(user)
+
+      assert build_conn()
+             |> authed_with_key(raw)
+             |> patch_json(path(set), %{"chatgpt_grant_id" => grant.id})
+             |> json_response(403)
+
+      assert Fountain.Repo.reload!(set).chatgpt_grant_id == nil
     end
   end
 

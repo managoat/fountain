@@ -135,7 +135,7 @@ defmodule Fountain.PlatformChatGPT.OAuth do
            }}
           | {:error, term()}
   def device_start do
-    case post("/api/accounts/deviceauth/usercode", %{client_id: @client_id}) do
+    case post("/api/accounts/deviceauth/usercode", %{client_id: @client_id}, bounded()) do
       {:ok, %{status: 200, body: %{"user_code" => code, "device_auth_id" => id} = body}} ->
         {:ok,
          %{
@@ -163,10 +163,11 @@ defmodule Fountain.PlatformChatGPT.OAuth do
           | :pending
           | {:error, term()}
   def device_poll(device_auth_id, user_code) do
-    case post("/api/accounts/deviceauth/token", %{
-           device_auth_id: device_auth_id,
-           user_code: user_code
-         }) do
+    case post(
+           "/api/accounts/deviceauth/token",
+           %{device_auth_id: device_auth_id, user_code: user_code},
+           bounded()
+         ) do
       {:ok, %{status: 200, body: %{"authorization_code" => code} = body}} ->
         {:ok, %{authorization_code: code, code_verifier: Map.get(body, "code_verifier", "")}}
 
@@ -185,13 +186,17 @@ defmodule Fountain.PlatformChatGPT.OAuth do
   @spec device_exchange(%{authorization_code: String.t(), code_verifier: String.t()}) ::
           {:ok, tokens()} | {:error, term()}
   def device_exchange(%{authorization_code: code, code_verifier: verifier}) do
-    post("/oauth/token", %{
-      client_id: @client_id,
-      grant_type: "authorization_code",
-      code: code,
-      code_verifier: verifier,
-      redirect_uri: @device_redirect_uri
-    })
+    post(
+      "/oauth/token",
+      %{
+        client_id: @client_id,
+        grant_type: "authorization_code",
+        code: code,
+        code_verifier: verifier,
+        redirect_uri: @device_redirect_uri
+      },
+      bounded()
+    )
     |> token_response()
   end
 
@@ -207,6 +212,11 @@ defmodule Fountain.PlatformChatGPT.OAuth do
      }}
   end
 
+  # The two clauses below keep this total, on purpose: a response that is not
+  # the shape above falls through to them and is reduced to a status and a
+  # code. Were one missing, the `FunctionClauseError` would carry the whole
+  # response, tokens included, and Oban stores a job's blamed exception in
+  # `oban_jobs.errors` (ADR 0060, "Stage 4a as built").
   defp token_response({:ok, %{status: status, body: body}}) do
     case error_code(body) do
       code when code in @terminal -> {:error, {:terminal, code}}
@@ -222,7 +232,14 @@ defmodule Fountain.PlatformChatGPT.OAuth do
   defp error_code(%{"error" => %{"type" => code}}) when is_binary(code), do: code
   defp error_code(_body), do: "unknown"
 
-  defp post(path, json, opts \\ []) do
+  # The device flow's legs take the refresh's limits. Nothing holds a database
+  # checkout across them, but a user's sign-in is polled from a queue every
+  # account shares (`chatgpt`), and `post/3`'s own default sets no connect
+  # timeout at all: an auth server that stops answering would otherwise hold a
+  # slot for as long as the socket liked.
+  defp bounded, do: [finch: refresh_finch_options()]
+
+  defp post(path, json, opts) do
     [
       url: base_url() <> path,
       json: json,
@@ -246,8 +263,21 @@ defmodule Fountain.PlatformChatGPT.OAuth do
   end
 
   # Never zero: a server that says 0 would have the poll spin. Codex's own
-  # floor is positive too.
-  defp interval(n) when is_integer(n) and n >= 1, do: n
+  # floor is positive too. Never more than a minute either, which is where
+  # Codex stops backing off: a code lives fifteen, and an answer of an hour
+  # would poll it once after it had died. A string of digits is taken for
+  # what it says rather than silently replaced by the default.
+  @max_interval 60
+
+  defp interval(n) when is_integer(n) and n >= 1, do: min(n, @max_interval)
+
+  defp interval(n) when is_binary(n) do
+    case Integer.parse(n) do
+      {seconds, ""} -> interval(seconds)
+      _ -> 5
+    end
+  end
+
   defp interval(_), do: 5
 
   defp present(value) when is_binary(value) and value != "", do: value

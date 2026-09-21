@@ -50,6 +50,19 @@ defmodule FountainWeb.SchemaEnumGuardrailTest do
     {FountainWeb.Schemas.CatalogResponse, "data.sandbox_api_access.[]"} =>
       {Conversation, :sandbox_api_access_modes},
     {FountainWeb.Schemas.Connection, "status"} => {Fountain.Connections.Connection, :statuses},
+    # A user's ChatGPT subscriptions and their sign-ins (ADR 0060 stage 4). A
+    # subscription is a row of the grant table, whose statuses the platform's
+    # row shares; `disconnected` is reachable by a user's row only.
+    {FountainWeb.Schemas.ChatGPTSubscription, "status"} =>
+      {Fountain.PlatformChatGPT.Account, :statuses},
+    {FountainWeb.Schemas.InferenceCredentialSet, "chatgpt_grant.status"} =>
+      {Fountain.PlatformChatGPT.Account, :statuses},
+    {FountainWeb.Schemas.ChatGPTLinkAttempt, "state"} =>
+      {Fountain.ChatGPTAccounts.LinkAttempt, :states},
+    {FountainWeb.Schemas.ChatGPTLinkAttempt, "failure.reason"} =>
+      {Fountain.ChatGPTAccounts.LinkAttempt, :failure_reasons},
+    {FountainWeb.Schemas.ChatGPTLinkAttempt, "kind"} =>
+      {Fountain.ChatGPTAccounts.AttemptView, :kinds},
     # Claimable principals (ADR 0044). Three schemas restate the same list,
     # which is exactly the drift this test exists for.
     {FountainWeb.Schemas.ClaimableUser, "status"} =>

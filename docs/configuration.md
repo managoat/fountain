@@ -154,6 +154,7 @@ at a dead end, with no error to see. Read [Email](guides/operate/email.md).
 | `CREDIT_OPENING_CENTS` | `500` | No. | The credit a new account starts with, in cents. |
 | `CREDIT_OPENING_DAYS` | `14` | No. | How many days the opening credit lasts. |
 | `BUZZ_IDENTITY_CEILING` | `10` | No. | The most hosted Buzz agents one account may run at once. Each one is a permanent process on the Fountain pods. |
+| `CHATGPT_GRANT_CEILING` | `5` | No. | The most ChatGPT subscriptions one account may link. A disconnected subscription keeps its place until the account removes it. A link beyond it gets `409 chatgpt_grant_limit_reached`. A lower value refuses new links only, and `0` refuses each new link. |
 | `CREDIT_TURN_HOUR_CENTS` | `25` | No. | What a tenant pays for one hour of turn time, in whole cents, from their prepaid balance. |
 | `CREDIT_PACKS_CENTS` | `1000,2500,10000` | No. | The credit packs a tenant can buy, in cents, as a list. |
 
@@ -288,6 +289,13 @@ credential. Start the conversation with `sandbox_mode: ephemeral`, or reset
 the persistent home with `DELETE /api/sandboxes/{id}`. The next persistent
 conversation then builds a new home. A reset replaces the home's disk. See
 [Sandboxes](api.md#sandboxes).
+
+These effects belong to the deployment's account and key, which share one
+Codex sign-in file on a sandbox. A ChatGPT subscription that a tenant links
+and a credential set names is different. Codex keeps that sign-in in a home
+of its own, so it shares a sandbox with each other source and gets no
+`409 codex_inference_conflict`. A sandbox that was first bound before Fountain
+prepared such homes keeps the old rule for each source.
 
 A personal subscription is one account for every tenant on the deployment.
 That pattern is behind reported account bans, and it is an operator's own
@@ -455,6 +463,13 @@ A flag over a feature that shipped is the exception. The `connections` flag
 reads on where you set no `POSTHOG_PROJECT_API_KEY`. A deployment with no flag
 service keeps the feature, and an upgrade does not take it away. Where you
 configure PostHog, the answer from PostHog decides.
+
+The `chatgpt_subscriptions` flag is the other kind. It holds the door that
+links a new ChatGPT subscription to an account, and that feature is not
+released. The flag reads off everywhere that nobody turned it on, and a
+deployment with no PostHog is one such place. It needs the credential broker
+too. An account that loses the flag keeps each subscription it linked. The API
+still lists, renames, reconnects, disconnects and removes them.
 
 | Variable | Default | Required | Effect |
 |---|---|---|---|

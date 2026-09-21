@@ -1418,6 +1418,7 @@ public struct AdminEvent: Sendable, Decodable, Hashable, Identifiable {
 
 public struct AuthMe: Sendable, Decodable, Hashable, Identifiable {
   public var brokered: Bool?
+  public var chatgptSubscriptionsEnabled: Bool?
   public var comped: Bool?
   public var connectionsEnabled: Bool?
   public var connectionsManageable: Bool?
@@ -1430,6 +1431,7 @@ public struct AuthMe: Sendable, Decodable, Hashable, Identifiable {
 
   enum CodingKeys: String, CodingKey {
     case brokered = "brokered"
+    case chatgptSubscriptionsEnabled = "chatgpt_subscriptions_enabled"
     case comped = "comped"
     case connectionsEnabled = "connections_enabled"
     case connectionsManageable = "connections_manageable"
@@ -1514,20 +1516,36 @@ public struct SearchResponse: Sendable, Decodable, Hashable {
 
 public struct APIErrorPayload: Sendable, Decodable, Hashable {
   public var activeSandboxes: Int?
+  public var attemptID: String?
+  public var count: Int?
   public var error: String?
   public var errors: JSONValue?
+  public var grant: String?
+  public var grantID: String?
   public var limit: Int?
   public var message: String?
   public var reason: String?
+  public var retryAfterSeconds: Int?
+  public var sets: [String]?
+  public var state: String?
+  public var until: Date?
   public var upgradeURL: String?
 
   enum CodingKeys: String, CodingKey {
     case activeSandboxes = "active_sandboxes"
+    case attemptID = "attempt_id"
+    case count = "count"
     case error = "error"
     case errors = "errors"
+    case grant = "grant"
+    case grantID = "grant_id"
     case limit = "limit"
     case message = "message"
     case reason = "reason"
+    case retryAfterSeconds = "retry_after_seconds"
+    case sets = "sets"
+    case state = "state"
+    case until = "until"
     case upgradeURL = "upgrade_url"
   }
 }

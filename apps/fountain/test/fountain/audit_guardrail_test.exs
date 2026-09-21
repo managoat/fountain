@@ -97,15 +97,27 @@ defmodule Fountain.AuditGuardrailTest do
     {"credential set delete", &__MODULE__.do_set_delete/1, "inference_credential_set.deleted"},
     {"credential set default", &__MODULE__.do_set_default/1,
      "inference_credential_set.default_changed"},
-    # ADR 0060 stage 2. No surface calls it yet, like the grant writes below.
+    # ADR 0060 stage 2, reached through the credential-set API's PATCH.
     {"credential set names a chatgpt grant", &__MODULE__.do_set_grant/1,
      "inference_credential_set.chatgpt_grant_changed"},
-    # A user's ChatGPT grants (ADR 0060 stage 1). No surface calls these yet;
-    # the entries are here so the first one that does inherits the events.
+    # A user's ChatGPT grants (ADR 0060 stage 1), reached through
+    # `/api/account/chatgpt-subscriptions` and the link attempt's worker.
     {"chatgpt grant link", &__MODULE__.do_grant_link/1, "chatgpt_grant.connected"},
     {"chatgpt grant rename", &__MODULE__.do_grant_rename/1, "chatgpt_grant.renamed"},
     {"chatgpt grant disconnect", &__MODULE__.do_grant_disconnect/1, "chatgpt_grant.disconnected"},
     {"chatgpt grant remove", &__MODULE__.do_grant_remove/1, "chatgpt_grant.removed"},
+    # The sign-in that links or reconnects one (ADR 0060 stage 4). A completion
+    # is the grant's own `connected`; the attempt's other three ends are its own.
+    {"chatgpt link attempt start", &__MODULE__.do_attempt_start/1,
+     "chatgpt_link_attempt.started"},
+    {"chatgpt link attempt cancel", &__MODULE__.do_attempt_cancel/1,
+     "chatgpt_link_attempt.cancelled"},
+    {"chatgpt link attempt completion", &__MODULE__.do_attempt_complete/1,
+     "chatgpt_grant.connected"},
+    {"chatgpt link attempt failure", &__MODULE__.do_attempt_fail/1,
+     "chatgpt_link_attempt.failed"},
+    {"chatgpt link attempt expiry", &__MODULE__.do_attempt_expire/1,
+     "chatgpt_link_attempt.expired"},
     {"conversation delete", &__MODULE__.do_conv_delete/1, "conversation.deleted"},
     # The lifecycle verbs (#2209). These were recorded by a private GenServer
     # client function until the client halves moved to
@@ -319,6 +331,9 @@ defmodule Fountain.AuditGuardrailTest do
           {Fountain.ChatGPTAccounts, :rename_for_user, 4},
           {Fountain.ChatGPTAccounts, :disconnect_for_user, 3},
           {Fountain.ChatGPTAccounts, :remove_for_user, 3},
+          {Fountain.ChatGPTAccounts, :start_attempt_for_user, 3},
+          {Fountain.ChatGPTAccounts, :cancel_attempt_for_user, 3},
+          {Fountain.ChatGPTAccounts, :complete_attempt_for_user, 4},
           {Launch, :start_conversation, 2},
           {Lifecycle, :fence_sandbox_for_teardown, 2},
           {Fountain.Accounts.Deletion, :destroy_sprites, 2},
@@ -564,6 +579,56 @@ defmodule Fountain.AuditGuardrailTest do
   def do_grant_remove(user) do
     grant = do_grant_disconnect(user)
     :ok = Fountain.ChatGPTAccounts.remove_for_user(grant.grant_id, user.id)
+  end
+
+  # A reconnect of a grant put there through the schema: it needs the broker
+  # and not the rollout flag, the broker is stubbed for this process alone, and
+  # the fixture leaves no `chatgpt_grant.connected` of its own.
+  def do_attempt_start(user) do
+    stub(Fountain.Broker, :configured?, fn -> true end)
+    grant = Fountain.ChatGPTFixtures.user_grant!(user.id)
+
+    {:ok, attempt} =
+      Fountain.ChatGPTAccounts.start_attempt_for_user(user.id, %{grant_id: grant.id},
+        device_start: Fountain.ChatGPTFixtures.device_start(self())
+      )
+
+    {grant, attempt}
+  end
+
+  def do_attempt_cancel(user) do
+    {_grant, attempt} = do_attempt_start(user)
+    {:ok, _} = Fountain.ChatGPTAccounts.cancel_attempt_for_user(attempt.id, user.id)
+  end
+
+  def do_attempt_complete(user) do
+    {grant, attempt} = do_attempt_start(user)
+    tokens = Fountain.ChatGPTFixtures.user_tokens(grant.account_id)
+
+    {:ok, %{state: "completed"}} =
+      Fountain.ChatGPTAccounts.complete_attempt_for_user(attempt.id, user.id, tokens)
+  end
+
+  def do_attempt_fail(user) do
+    {grant, attempt} = do_attempt_start(user)
+    tokens = Fountain.ChatGPTFixtures.user_tokens(grant.account_id)
+    # A newer sign-in lands first. A disconnect would end the attempt itself.
+    {:ok, _newer} = Fountain.ChatGPTAccounts.reconnect_for_user(grant.id, user.id, tokens)
+
+    {:error, :stale_grant} =
+      Fountain.ChatGPTAccounts.complete_attempt_for_user(attempt.id, user.id, tokens)
+  end
+
+  def do_attempt_expire(user) do
+    {_grant, attempt} = do_attempt_start(user)
+    past = DateTime.utc_now() |> DateTime.add(-1, :second) |> DateTime.truncate(:second)
+
+    Fountain.Repo.update_all(
+      Ecto.Query.where(Fountain.ChatGPTAccounts.LinkAttempt, id: ^attempt.id),
+      set: [expires_at: past]
+    )
+
+    :done = Fountain.ChatGPTAccounts.poll_attempt_for_user(attempt.id, user.id)
   end
 
   def do_set_create(user) do

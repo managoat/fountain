@@ -52,19 +52,48 @@ defmodule Fountain.ChatGPTAccounts do
   `Fountain.Broker.Native.Sessions.authorize/2` (ADR 0052 decision 5). They
   are the only way a grant's bearer reaches the proxy.
 
-  **No user can reach any of these yet.** There is no route, no page and no
-  job, so no user holds a grant. The one call production code makes is the
-  resolver's `get_for_user/2`, for every set that names a grant, of which
-  there are none: it turns such a set into a `:grant` source or an error
-  naming the grant. `InferenceCredentials.set_grant/3` reads through the
-  same function and has no production caller either (ADR 0060 stage 4 adds
-  it), and `remove_for_user/3` asks the sets before it deletes. A conversation
-  that resolved to a grant runs on it: `ensure_fresh_for_user/3` renews it
-  before each turn, outside the source lock, and the broker reads it through
-  the two functions below (ADR 0060 stage 3). The account surface and the
-  keepalive schedule are stages 4 and 5. Until the keepalive exists an idle
-  user grant would lapse at the auth server's window, which is one reason
-  linking is not reachable.
+  ## Link attempts
+
+  A user's grant is linked, and reconnected, by a device-code sign-in that
+  takes a person minutes, so it is a durable row of its own
+  (`Fountain.ChatGPTAccounts.LinkAttempt`) and no process holds any of it
+  (ADR 0060 decision 3, stage 4). The bodies are in
+  `Fountain.ChatGPTAccounts.LinkAttempts`; this module is the interface.
+
+    * `start_attempt_for_user/3`, `get_attempt_for_user/2`,
+      `list_pending_attempts_for_user/1`, `cancel_attempt_for_user/3` -- what
+      the owner does. A view (`Fountain.ChatGPTAccounts.AttemptView`) carries
+      the user code while the attempt is pending and nothing else that is
+      secret.
+    * `poll_attempt_for_user/3`, `complete_attempt_for_user/4` -- what
+      `Fountain.Workers.ChatGPTLinkAttempt` does: ask the auth server once,
+      outside any lock, and on approval store the grant and end the attempt
+      in one transaction, fenced against a cancel, the attempt's expiry and a
+      newer generation of the grant.
+    * `linking_enabled_for?/1` -- the gate on a **new** link, and on nothing
+      else: the broker and the `chatgpt_subscriptions` flag, which fails
+      closed.
+    * `topic/1`, `subscribe/1` -- `{:chatgpt_grants_changed, user_id}` after
+      every committed write to a user's grants or attempts.
+
+  An attempt's writes take the owner's source key and then the attempt's
+  row, and a completion then takes the grant's: the order below with one
+  more row in front.
+
+  **What reaches these.** `/api/account/chatgpt-subscriptions`
+  (`FountainWeb.ChatGPTSubscriptionController`) lists, renames, disconnects
+  and removes grants and starts, reads and cancels attempts; the attempt's
+  worker links and reconnects; the resolver's `get_for_user/2` turns a set
+  that names a grant into a `:grant` source or an error naming the grant,
+  and `InferenceCredentials.set_grant/3`, behind the credential-set API,
+  reads through the same function. A conversation that resolved to a grant
+  runs on it:
+  `ensure_fresh_for_user/3` renews it before each turn, outside the source
+  lock, and the broker reads it through the two functions above (ADR 0060
+  stage 3). There is no console page yet (stage 4b), and a new link is off
+  wherever nobody turned the flag on. The keepalive schedule is stage 5:
+  until it exists an idle user grant lapses at the auth server's window,
+  which is one reason the flag stays off.
 
   ### The source lock, and one rule for whoever selects a grant
 
@@ -152,7 +181,16 @@ defmodule Fountain.ChatGPTAccounts do
 
   alias Fountain.Accounts.User
   alias Fountain.Audit
-  alias Fountain.ChatGPTAccounts.{Cipher, Grant, RefreshCoordinator, RefreshLock}
+
+  alias Fountain.ChatGPTAccounts.{
+    AttemptView,
+    Cipher,
+    Grant,
+    LinkAttempts,
+    RefreshCoordinator,
+    RefreshLock
+  }
+
   alias Fountain.InferenceCredentials.Source
   alias Fountain.PlatformChatGPT.{Account, OAuth, Refresher, Tokens, UsageLimit}
   alias Fountain.Repo
@@ -236,16 +274,18 @@ defmodule Fountain.ChatGPTAccounts do
 
   @doc """
   How many grants one account may hold: `config :fountain,
-  :chatgpt_grant_ceiling`, five unless set. It stops a runaway client; it
-  does not price anything. Lowering it below what an account already holds
-  refuses new links only.
+  :chatgpt_grant_ceiling`, which is `CHATGPT_GRANT_CEILING`, five unless set.
+  It stops a runaway client; it does not price anything. Lowering it below
+  what an account already holds refuses new links only, and zero refuses
+  every one.
   """
-  @spec grant_ceiling() :: pos_integer()
+  @spec grant_ceiling() :: non_neg_integer()
   def grant_ceiling, do: Application.get_env(:fountain, :chatgpt_grant_ceiling, 5)
 
   @doc """
   Link one more subscription to `user_id` under `name`, from a token set the
-  caller obtained for them. **Nothing in production calls this yet.**
+  caller obtained for them. Its production caller is
+  `complete_attempt_for_user/4`.
 
   Refused, with nothing written and nothing audited:
 
@@ -267,8 +307,14 @@ defmodule Fountain.ChatGPTAccounts do
   user: both run under that user's source lock, which the table's trigger
   also takes for any other writer of the user's rows.
 
-  `opts`: `:actor` (default `"self"`), `:request_ip`, and `:method` (default
-  `"device_code"`), all for the `chatgpt_grant.connected` event.
+  `opts`: `:actor` (default `"self"`), `:request_ip`, `:method` (default
+  `"device_code"`) and `:attempt_id` (the link attempt whose completion this
+  is, if one), all for the `chatgpt_grant.connected` event. `:within` is
+  `complete_attempt_for_user/4`'s and nobody else's: a function handed the
+  write, run inside this transaction under the owner's lock and before any
+  row is read, which is how a link attempt's row is locked, checked and
+  marked in the transaction that stores the grant. `reconnect_for_user/4`
+  takes it too.
   """
   @spec connect_for_user(String.t(), String.t(), OAuth.tokens(), keyword()) ::
           {:ok, grant_view()} | {:error, term()}
@@ -280,16 +326,19 @@ defmodule Fountain.ChatGPTAccounts do
     with {:ok, claims} <- user_claims(tokens),
          {:ok, account} <-
            user_write(user_id, :ineligible_owner, fn ->
-             with :ok <- eligible_owner(user_id),
-                  :ok <- account_unlinked(user_id, claims["account_id"], id),
-                  :ok <- under_ceiling(user_id),
-                  {:ok, attrs} <- user_attrs(user_id, id, tokens, claims) do
-               %Account{id: id, user_id: user_id}
-               |> Account.user_connect_changeset(Map.put(attrs, :name, name))
-               |> Repo.insert()
-             end
+             within(opts, fn ->
+               with :ok <- eligible_owner(user_id),
+                    :ok <- account_unlinked(user_id, claims["account_id"], id),
+                    :ok <- under_ceiling(user_id),
+                    {:ok, attrs} <- user_attrs(user_id, id, tokens, claims) do
+                 %Account{id: id, user_id: user_id}
+                 |> Account.user_connect_changeset(Map.put(attrs, :name, name))
+                 |> Repo.insert()
+               end
+             end)
            end) do
       audit_grant(account, "chatgpt_grant.connected", opts, connected_metadata(account, opts))
+      broadcast_changed(user_id)
       {:ok, view(account, DateTime.utc_now())}
     end
   end
@@ -326,18 +375,21 @@ defmodule Fountain.ChatGPTAccounts do
     with {:ok, claims} <- user_claims(tokens),
          {:ok, account} <-
            user_write(user_id, fn ->
-             with :ok <- eligible_owner(user_id),
-                  {:ok, current} <- locked_user_grant(grant_id, user_id),
-                  :ok <- expected_generation(current, opts[:expected_generation]),
-                  :ok <- account_unlinked(user_id, claims["account_id"], current.id),
-                  {:ok, attrs} <- user_attrs(user_id, current.id, tokens, claims),
-                  {:ok, account} <-
-                    current |> Account.user_reconnect_changeset(attrs) |> Repo.update() do
-               {:ok, revoke_broker(account)}
-             end
+             within(opts, fn ->
+               with :ok <- eligible_owner(user_id),
+                    {:ok, current} <- locked_user_grant(grant_id, user_id),
+                    :ok <- expected_generation(current, opts[:expected_generation]),
+                    :ok <- account_unlinked(user_id, claims["account_id"], current.id),
+                    {:ok, attrs} <- user_attrs(user_id, current.id, tokens, claims),
+                    {:ok, account} <-
+                      current |> Account.user_reconnect_changeset(attrs) |> Repo.update() do
+                 {:ok, revoke_broker(account)}
+               end
+             end)
            end) do
       metadata = account |> connected_metadata(opts) |> Map.put("reconnect", true)
       audit_grant(account, "chatgpt_grant.connected", opts, metadata)
+      broadcast_changed(user_id)
       {:ok, view(account, DateTime.utc_now())}
     end
   end
@@ -376,6 +428,7 @@ defmodule Fountain.ChatGPTAccounts do
           "previous_name" => previous
         })
 
+        broadcast_changed(user_id)
         {:ok, view(account, DateTime.utc_now())}
 
       {:error, _} = error ->
@@ -404,6 +457,12 @@ defmodule Fountain.ChatGPTAccounts do
   finish. Already-open tunnels are not closed, and the token is not revoked
   upstream.
 
+  A sign-in open on the grant ends with it, in the same transaction, as
+  `failed` with `stale_grant`, which is what its completion would have been
+  told: it began against the credential this retires. Its
+  `chatgpt_link_attempt.failed` carries this call's attribution. The next
+  reconnect is then not refused as already open.
+
   `:ok` for a grant already disconnected, with no second event. The
   platform grant is not like this: `platform_disconnect/1` deletes its row.
 
@@ -418,13 +477,18 @@ defmodule Fountain.ChatGPTAccounts do
       when is_binary(grant_id) and is_binary(user_id) do
     result =
       user_write(user_id, fn ->
+        # Before the grant's row, which is the order a completion takes them in.
+        open = LinkAttempts.lock_open_for_grant(user_id, grant_id)
+
         case locked_user_grant(grant_id, user_id) do
+          # A sign-in open on a tombstone began after it and may bring it back.
           {:ok, %Account{status: "disconnected"}} ->
             {:ok, :already}
 
           {:ok, account} ->
             with {:ok, tombstone} <- account |> Account.disconnect_changeset() |> Repo.update() do
-              {:ok, {account.generation, revoke_broker(tombstone)}}
+              ended = LinkAttempts.end_locked(open, "stale_grant")
+              {:ok, {revoke_broker(tombstone), ended}}
             end
 
           {:error, _} = error ->
@@ -436,13 +500,11 @@ defmodule Fountain.ChatGPTAccounts do
       {:ok, :already} ->
         :ok
 
-      # The generation on the event is the one that was retired.
-      {:ok, {retired, account}} ->
-        audit_grant(account, "chatgpt_grant.disconnected", opts, %{
-          "name" => account.name,
-          "generation" => retired
-        })
+      {:ok, {account, ended}} ->
+        LinkAttempts.announce_ended(ended, opts)
+        audit_grant(account, "chatgpt_grant.disconnected", opts, %{"name" => account.name})
 
+        broadcast_changed(user_id)
         :ok
 
       {:error, _} = error ->
@@ -465,6 +527,9 @@ defmodule Fountain.ChatGPTAccounts do
   the owner's source lock. This check is the guard, not the sets' foreign
   key: that key is deferred, so it would refuse at COMMIT by raising, which
   the lock should make unreachable.
+
+  A sign-in open on the tombstone ends with it, as `failed` with
+  `grant_not_found`.
   """
   @spec remove_for_user(Ecto.UUID.t(), String.t(), keyword()) ::
           :ok
@@ -477,15 +542,25 @@ defmodule Fountain.ChatGPTAccounts do
       when is_binary(grant_id) and is_binary(user_id) do
     result =
       user_write(user_id, fn ->
+        open = LinkAttempts.lock_open_for_grant(user_id, grant_id)
+
         case locked_user_grant(grant_id, user_id) do
-          {:ok, %Account{status: "disconnected"} = account} -> delete_unnamed(account)
-          {:ok, %Account{}} -> {:error, :still_connected}
-          {:error, _} = error -> error
+          {:ok, %Account{status: "disconnected"} = account} ->
+            with {:ok, deleted} <- delete_unnamed(account),
+                 do: {:ok, {deleted, LinkAttempts.end_locked(open, "grant_not_found")}}
+
+          {:ok, %Account{}} ->
+            {:error, :still_connected}
+
+          {:error, _} = error ->
+            error
         end
       end)
 
-    with {:ok, account} <- result do
+    with {:ok, {account, ended}} <- result do
+      LinkAttempts.announce_ended(ended, opts)
       audit_grant(account, "chatgpt_grant.removed", opts, %{"name" => account.name})
+      broadcast_changed(user_id)
       :ok
     end
   end
@@ -518,14 +593,52 @@ defmodule Fountain.ChatGPTAccounts do
     account
   end
 
+  # `connect_for_user/4`'s and `reconnect_for_user/4`'s `:within`: the write,
+  # handed to whoever has more to do in its transaction. Already under the
+  # owner's key, and nothing has been read or locked yet, so what the wrapper
+  # locks first comes before the grant's row in the order.
+  defp within(opts, write) when is_function(write, 0) do
+    case Keyword.get(opts, :within) do
+      nil -> write.()
+      wrap when is_function(wrap, 1) -> wrap.(write)
+    end
+  end
+
+  @doc """
+  The PubSub topic on which `{:chatgpt_grants_changed, user_id}` is sent
+  after every committed write to one of that user's grants or link attempts:
+  a link, a reconnect, a rename, a disconnect, a removal, a revocation found
+  by a refresh, an attempt starting or ending, and a pending attempt's
+  `:auth_unreachable` changing. The message carries nothing else; a
+  subscriber reads `list_for_user/1`, `list_pending_attempts_for_user/1` and
+  `list_recent_attempts_for_user/1` again.
+  """
+  @spec topic(String.t()) :: String.t()
+  def topic(user_id) when is_binary(user_id), do: "chatgpt_grants:#{user_id}"
+
+  @doc "Subscribe the calling process to `topic/1`."
+  @spec subscribe(String.t()) :: :ok | {:error, term()}
+  def subscribe(user_id) when is_binary(user_id),
+    do: Phoenix.PubSub.subscribe(Fountain.PubSub, topic(user_id))
+
+  # After the transaction has returned, like the audit event beside it.
+  @doc false
+  def broadcast_changed(user_id) when is_binary(user_id) do
+    Phoenix.PubSub.broadcast(Fountain.PubSub, topic(user_id), {:chatgpt_grants_changed, user_id})
+  end
+
   # Every write to a user's grants: one transaction under that user's source
   # lock, taken before any row lock, rolled back on a refusal. The platform
   # key is never taken here (`InferenceCredentials.lock_tenant_source/1`).
   #
   # An owner id that is not a UUID owns nothing, so it is refused with
   # `malformed` before the lock or any query is asked to cast it.
-  defp user_write(user_id, malformed \\ :not_found, fun)
-       when is_binary(user_id) and is_function(fun, 0) do
+  #
+  # Public for `Fountain.ChatGPTAccounts.LinkAttempts`, whose rows are this
+  # owner's too and take the same key before any row. Not an interface.
+  @doc false
+  def user_write(user_id, malformed \\ :not_found, fun)
+      when is_binary(user_id) and is_function(fun, 0) do
     case Ecto.UUID.cast(user_id) do
       {:ok, _} ->
         Repo.transaction(fn ->
@@ -545,7 +658,9 @@ defmodule Fountain.ChatGPTAccounts do
   # After the transaction has returned, never inside it. A tenant event: the
   # grant's id and name and the caller's attribution. No account email, no
   # provider account id, no claim and nothing the provider said, because a
-  # tenant event's metadata travels further than an admin event's.
+  # tenant event's metadata travels further than an admin event's: `GET
+  # /api/audit` hands it to any key of the account, a sandbox's included. So
+  # no `generation` either, which is a fencing value and in no API body.
   defp audit_grant(%Account{} = account, action, opts, metadata) do
     Audit.record(%{
       user_id: account.user_id,
@@ -558,13 +673,20 @@ defmodule Fountain.ChatGPTAccounts do
     })
   end
 
+  # `"attempt_id"` when a link attempt's completion made the write: the job's
+  # actor is the system's and it has no address, so this is what ties the
+  # event to the `chatgpt_link_attempt.started` that says who began it.
   defp connected_metadata(account, opts) do
-    %{
+    metadata = %{
       "name" => account.name,
-      "generation" => account.generation,
       "method" => Keyword.get(opts, :method, "device_code"),
       "plan" => account.plan_type
     }
+
+    case Keyword.get(opts, :attempt_id) do
+      nil -> metadata
+      attempt_id -> Map.put(metadata, "attempt_id", attempt_id)
+    end
   end
 
   # Every writer of a user's rows holds that user's source key, the trigger
@@ -589,7 +711,10 @@ defmodule Fountain.ChatGPTAccounts do
   defp expected_generation(%Account{generation: generation}, generation), do: :ok
   defp expected_generation(%Account{}, _other), do: {:error, :stale_grant}
 
-  defp under_ceiling(user_id) do
+  # Asked under the owner's source lock, or the count means nothing. Public,
+  # like `eligible_owner/1`, for the link attempt's admission.
+  @doc false
+  def under_ceiling(user_id) do
     count = Repo.aggregate(from(a in Account, where: a.user_id == ^user_id), :count)
     limit = grant_ceiling()
 
@@ -598,7 +723,8 @@ defmodule Fountain.ChatGPTAccounts do
       else: {:error, {:grant_limit_reached, %{count: count, limit: limit}}}
   end
 
-  defp eligible_owner(user_id) do
+  @doc false
+  def eligible_owner(user_id) do
     eligible =
       from(u in User, as: :owner, where: u.id == ^user_id, where: ^eligible_owner_filter())
 
@@ -867,6 +993,189 @@ defmodule Fountain.ChatGPTAccounts do
       not u.principal and not is_nil(u.email_verified_at) and is_nil(u.suspended_at)
     )
   end
+
+  # ── a user's link attempts ───────────────────────────────────────────────
+
+  @doc """
+  Whether this account may link a **new** subscription: the deployment
+  brokers egress, without which a grant resolves `:broker_required` and
+  could serve nothing, and the `chatgpt_subscriptions` rollout flag is on for
+  them. The flag fails closed (`Fountain.FeatureFlags`): it is off wherever
+  nobody has turned it on.
+
+  It gates that one door. Listing, renaming, reconnecting, disconnecting and
+  removing the grants an account already holds never ask it, so turning
+  linking off strands nothing (ADR 0060, "Implementation sequence").
+  """
+  @spec linking_enabled_for?(String.t()) :: boolean()
+  def linking_enabled_for?(user_id) when is_binary(user_id) do
+    Fountain.Broker.configured?() and
+      Fountain.FeatureFlags.enabled?(:chatgpt_subscriptions, user_id)
+  end
+
+  @doc """
+  Begin a device-code sign-in for `user_id` (ADR 0060 decision 3). `target`
+  is `%{name: name}` for a new subscription, or `%{grant_id: id}` to
+  reconnect one grant, whose current generation the server pins on the
+  attempt so a completion that arrives after a newer sign-in is refused. The
+  answer carries the user code and the page to type it on.
+
+  Refused, with nothing written, nothing audited and, except for the last,
+  the auth server not asked:
+
+    * `:subscriptions_not_enabled` -- `linking_enabled_for?/1` is false for a
+      new link, or the deployment has no broker for a reconnect.
+    * `:ineligible_owner` -- not a verified, claimed, unsuspended account.
+    * `{:link_attempts_rate_limited, %{limit: _, retry_after: _}}` -- the
+      account began ten sign-ins in the last hour, whatever became of them
+      and whoever asked: counted from the rows, under the owner's key.
+      `retry_after` is seconds.
+    * `{:link_attempts_exceeded, %{count: _, limit: _}}` -- three sign-ins
+      are open already, across all of the account's grants.
+    * a changeset -- the name is blank, too long, or already names one of
+      this user's grants or open attempts.
+    * `{:grant_limit_reached, %{count: _, limit: _}}` -- at
+      `grant_ceiling/0`. Asked again when the attempt completes.
+    * `:not_found` -- the grant to reconnect is not this user's.
+    * `{:link_attempt_pending, %{attempt_id: _}}` -- that grant already has
+      a sign-in open: read or cancel that one.
+    * `:tenant_key_unavailable` -- the owner's encryption key would not load.
+    * `:auth_unreachable` -- the auth server gave no device code.
+
+  The admission runs twice, each time under the owner's source lock: before
+  the auth server is asked, and again in the transaction that inserts the
+  row. The auth server is never called inside a transaction.
+
+  `opts`: `:actor` (default `"self"`) and `:request_ip` for the
+  `chatgpt_link_attempt.started` event, and `:device_start`, a zero-arity
+  function in place of `OAuth.device_start/0`.
+  """
+  @spec start_attempt_for_user(String.t(), map(), keyword()) ::
+          {:ok, AttemptView.t()} | {:error, term()}
+  def start_attempt_for_user(user_id, target, opts \\ []),
+    do: LinkAttempts.start(user_id, target, opts)
+
+  @doc """
+  One attempt, by its id and its owner: the read a page reload and an API
+  poll both make. Another user's attempt and an id that is not one are
+  `{:error, :not_found}`. A pending attempt past its time reads `"expired"`
+  and shows no code, whether or not anything has written that yet.
+  """
+  @spec get_attempt_for_user(Ecto.UUID.t(), String.t()) ::
+          {:ok, AttemptView.t()} | {:error, :not_found}
+  def get_attempt_for_user(attempt_id, user_id), do: LinkAttempts.get(attempt_id, user_id)
+
+  @doc "The user's open, unexpired attempts, oldest first; `[]` when there is none."
+  @spec list_pending_attempts_for_user(String.t()) :: [AttemptView.t()]
+  def list_pending_attempts_for_user(user_id), do: LinkAttempts.list_pending(user_id)
+
+  @doc """
+  The user's attempts that ended in the last half hour, newest first, ten at
+  most; `[]` when there is none. `list_pending_attempts_for_user/1` drops an
+  attempt the moment it ends, so this is where a page that was reloaded, or
+  that was not open when the job finished, reads **why** a sign-in failed:
+  `failure.reason`, and for `account_already_linked` the grant to reconnect
+  instead. A pending row that ran out of time is here as `"expired"` whether
+  or not anything has written that yet. No view here carries a code.
+  """
+  @spec list_recent_attempts_for_user(String.t()) :: [AttemptView.t()]
+  def list_recent_attempts_for_user(user_id), do: LinkAttempts.list_recent(user_id)
+
+  @doc """
+  Cancel one pending attempt. Its secrets are dropped with the write, and a
+  completion that arrives afterwards finds no pending row and stores
+  nothing: the two take the same locks in the same order, the owner's key
+  and then the attempt's row, so exactly one of them ends the attempt.
+
+  `{:ok, view}` for an attempt already cancelled, with no second event.
+  `{:error, {:link_attempt_not_pending, %{state: _}}}` for one that has
+  completed, failed or run out of time; a pending row found past its time is
+  written `expired` and answered the same way.
+
+  A cancel that loses to the exchange by a moment changes nothing: the grant
+  is linked and the attempt reads `completed`. One that wins after the
+  exchange has returned discards tokens the auth server has already issued;
+  they are not revoked upstream (ADR 0060, "Stage 4a as built").
+  """
+  @spec cancel_attempt_for_user(Ecto.UUID.t(), String.t(), keyword()) ::
+          {:ok, AttemptView.t()}
+          | {:error, :not_found | {:link_attempt_not_pending, map()} | Ecto.Changeset.t()}
+  def cancel_attempt_for_user(attempt_id, user_id, opts \\ []),
+    do: LinkAttempts.cancel(attempt_id, user_id, opts)
+
+  @doc """
+  Finish one attempt with the token set its sign-in produced: link the new
+  subscription, or reconnect the grant, and mark the attempt `completed`, in
+  one transaction. The caller has done the exchange, outside any lock;
+  nothing here contacts anybody.
+
+  It is `connect_for_user/4` or `reconnect_for_user/4` with the attempt's
+  row locked first, under the owner's key, and required to be pending and in
+  time (ADR 0052 decision 2, "completion rechecks owner eligibility,
+  cancellation, expiry, and grant generation before storing anything"). A
+  reconnect carries the generation the attempt was pinned to. So:
+
+    * a second completion of the same attempt is `{:ok, view}` of the
+      completed attempt and writes nothing: one grant, one event.
+    * one that arrives after a cancel, or after the attempt ran out of time,
+      is `{:error, {:link_attempt_not_pending, %{state: _}}}` and stores no
+      grant. Cancel takes the same two locks in the same order, so exactly
+      one of the two ends the attempt.
+    * one that arrives after a newer sign-in, a disconnect or anything else
+      that moved the grant's generation is `{:error, :stale_grant}`: the
+      credential that is there stays, untouched.
+    * a **new** link whose account may no longer link
+      (`linking_enabled_for?/1`, asked before the transaction because it may
+      be an HTTP call) is `{:error, :subscriptions_not_enabled}` and the
+      attempt fails as `linking_disabled`. A reconnect is not asked.
+    * every other refusal is the write's own (`{:account_already_linked, _}`,
+      `{:grant_limit_reached, _}`, `:ineligible_owner`, `:not_found` for a
+      grant removed since, a changeset for a name taken since, ...).
+
+  A refusal rolls the transaction back. The attempt is then written `failed`
+  with one of `LinkAttempt.failure_reasons/0`, and
+  `chatgpt_link_attempt.failed` recorded, in a transaction of its own
+  afterwards; the tokens are dropped and are not revoked upstream. A
+  completion is `chatgpt_grant.connected`, from the write itself.
+
+  `opts`: `:actor` and `:request_ip`, for either event.
+  """
+  @spec complete_attempt_for_user(Ecto.UUID.t(), String.t(), OAuth.tokens(), keyword()) ::
+          {:ok, AttemptView.t()} | {:error, term()}
+  def complete_attempt_for_user(attempt_id, user_id, tokens, opts \\ []),
+    do: LinkAttempts.complete(attempt_id, user_id, tokens, opts)
+
+  @doc """
+  One step of an attempt's sign-in, for `Fountain.Workers.ChatGPTLinkAttempt`:
+  ask the auth server once whether the code has been approved, and if it has,
+  exchange it and `complete_attempt_for_user/4`. `:done` when the attempt
+  needs nothing more, whatever way it ended; `{:again, seconds}` when it is
+  still pending, which is the auth server's own interval, doubled per
+  consecutive unanswered poll up to a minute.
+
+  The auth server is asked only for a pending attempt in time, and with no
+  transaction open and no lock held. One past its time is written `expired`
+  and one that is gone, cancelled or finished is left alone, each without a
+  request. A refusal from the auth server ends the attempt as
+  `authorization_failed` or `exchange_failed`; an unreachable or rate-limited
+  one is asked again later. The device id, the user code, the authorization
+  code and the tokens live only in this call: none is logged, returned or
+  stored anywhere but the attempt's and the grant's ciphertext.
+
+  `opts`: `:device_poll` and `:device_exchange`, in place of `OAuth`'s.
+  """
+  @spec poll_attempt_for_user(Ecto.UUID.t(), String.t(), keyword()) ::
+          :done | {:again, pos_integer()}
+  def poll_attempt_for_user(attempt_id, user_id, opts \\ []),
+    do: LinkAttempts.poll(attempt_id, user_id, opts)
+
+  @doc """
+  Delete attempts nothing will read again: ended a week ago, or a week past
+  their time and never ended. For `Fountain.Workers.RetentionPruner`; a
+  system sweep across owners that returns a count and no row.
+  """
+  @spec purge_ended_attempts() :: non_neg_integer()
+  def purge_ended_attempts, do: LinkAttempts.purge()
 
   # ── broker authorization ─────────────────────────────────────────────────
 
@@ -1595,9 +1904,10 @@ defmodule Fountain.ChatGPTAccounts do
       action: "chatgpt_grant.reconnect_required",
       resource_type: "chatgpt_grant",
       resource_id: grant.grant_id,
-      metadata: %{"name" => grant.name, "generation" => grant.generation, "reason" => code}
+      metadata: %{"name" => grant.name, "reason" => code}
     })
 
+    broadcast_changed(grant.user_id)
     {:error, :revoked}
   end
 

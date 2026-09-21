@@ -187,9 +187,10 @@ defmodule Fountain.InferenceCredentials do
 
   @doc """
   Name the ChatGPT subscription a set's codex runs use, or with `nil` stop
-  naming one (ADR 0060 decision 2). **Nothing in production calls this yet**:
-  the account surface that lets a user hold a grant, and point a set at one,
-  is ADR 0060 stage 4.
+  naming one (ADR 0060 decision 2). Its caller is `PATCH
+  /api/account/inference-credential-sets/:id`, which fetches the set scoped
+  by the caller first: this function takes its tenant from the struct it is
+  handed.
 
   A reference and never a token. The grant is read through
   `Fountain.ChatGPTAccounts.get_for_user/2`, scoped by the set's owner, under
@@ -252,6 +253,25 @@ defmodule Fountain.InferenceCredentials do
 
       error ->
         error
+    end
+  end
+
+  @doc """
+  Whether `set_grant/3` would refuse `grant_id` for this set, asked without
+  writing: the changeset it would answer, or `:ok`. For a caller with other
+  writes to make first (`PATCH /api/account/inference-credential-sets/:id`
+  renames and promotes before it names), so a grant that cannot be named
+  refuses the request before any of it is stored. `set_grant/3` asks again
+  under the owner's lock, which is the answer that counts.
+  """
+  @spec check_grant(Credential.t(), Ecto.UUID.t() | nil) :: :ok | {:error, Ecto.Changeset.t()}
+  def check_grant(%Credential{} = set, grant_id) when is_binary(grant_id) or is_nil(grant_id) do
+    with :changes <- unchanged(set, grant_id),
+         {:ok, _grant} <- nameable_grant(set, grant_id) do
+      :ok
+    else
+      {:unchanged, _set} -> :ok
+      {:error, _changeset} = error -> error
     end
   end
 

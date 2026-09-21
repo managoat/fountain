@@ -763,7 +763,10 @@ defmodule FountainWeb.Schemas do
               "bound across wakes; replacing or deleting the source returns 409 " <>
               "inference_source_changed. Not part of sandbox identity, but a shared " <>
               "Codex sandbox requires the same resolved source and revision (409 " <>
-              "codex_inference_conflict otherwise)."
+              "codex_inference_conflict otherwise). The exception is a set that names " <>
+              "a ChatGPT subscription: Codex keeps that sign-in in a home of its own, " <>
+              "so it shares a sandbox with any other source, unless the sandbox was " <>
+              "first bound before Fountain prepared such homes."
         },
         sandbox_api_access: %Schema{
           type: :string,
@@ -2664,10 +2667,44 @@ defmodule FountainWeb.Schemas do
           },
           description: "The credentials this set holds, by name. Never the values."
         },
+        chatgpt_grant_id: %Schema{
+          type: :string,
+          format: :uuid,
+          nullable: true,
+          description:
+            "The ChatGPT subscription this set's codex runs use, or null. A named " <>
+              "subscription is used or the run fails with 409 `chatgpt_grant_unusable`: " <>
+              "nothing falls back to the set's `openai_api_key`, to another " <>
+              "subscription or to the platform. Every other OpenAI consumer still " <>
+              "needs the key."
+        },
+        chatgpt_grant: %Schema{
+          type: :object,
+          nullable: true,
+          description:
+            "The named subscription's name and status, so a set that will fail says so " <>
+              "here. Read-only; the whole subscription is at " <>
+              "`/api/account/chatgpt-subscriptions`.",
+          properties: %{
+            id: %Schema{type: :string, format: :uuid},
+            name: %Schema{type: :string},
+            status: %Schema{type: :string, enum: Fountain.PlatformChatGPT.Account.statuses()}
+          },
+          required: [:id, :name, :status]
+        },
         inserted_at: %Schema{type: :string, format: :"date-time"},
         updated_at: %Schema{type: :string, format: :"date-time"}
       },
-      required: [:id, :name, :is_default, :providers, :inserted_at, :updated_at]
+      required: [
+        :id,
+        :name,
+        :is_default,
+        :providers,
+        :chatgpt_grant_id,
+        :chatgpt_grant,
+        :inserted_at,
+        :updated_at
+      ]
     })
   end
 
@@ -2701,13 +2738,254 @@ defmodule FountainWeb.Schemas do
     OpenApiSpex.schema(%{
       title: "InferenceCredentialSetUpdateRequest",
       description:
-        "Rename a set, make it the default, or both. Omitting a field leaves " <>
-          "it alone. `is_default: false` is refused: a set stops being the " <>
-          "default when another becomes it, never on its own.",
+        "Rename a set, make it the default, name a ChatGPT subscription, or any " <>
+          "of them. Omitting a field leaves it alone. `is_default: false` is " <>
+          "refused: a set stops being the default when another becomes it, never " <>
+          "on its own.",
       type: :object,
       properties: %{
         name: %Schema{type: :string, minLength: 1, maxLength: 200},
-        is_default: %Schema{type: :boolean}
+        is_default: %Schema{type: :boolean},
+        chatgpt_grant_id: %Schema{
+          type: :string,
+          format: :uuid,
+          nullable: true,
+          description:
+            "One of the account's ChatGPT subscriptions, or null to stop naming one. " <>
+              "Naming one ends the set's running codex conversations."
+        }
+      }
+    })
+  end
+
+  defmodule ChatGPTSubscription do
+    @moduledoc false
+    require OpenApiSpex
+
+    OpenApiSpex.schema(%{
+      title: "ChatGPTSubscription",
+      description:
+        "One ChatGPT subscription linked to the account, for the codex runtime. " <>
+          "Fountain holds and renews its tokens; none is ever returned, and neither " <>
+          "is the provider's account id. A credential set names one by `id`.",
+      type: :object,
+      properties: %{
+        id: %Schema{type: :string, format: :uuid},
+        name: %Schema{type: :string, description: "Unique within the account."},
+        status: %Schema{
+          type: :string,
+          enum: Fountain.PlatformChatGPT.Account.statuses(),
+          description:
+            "`active` serves runs. `revoked`: the auth server refused the refresh " <>
+              "token; reconnect it. `disconnected`: the account disconnected it; the " <>
+              "row holds no token, still counts against the limit, and can be " <>
+              "reconnected or removed. A set that names a subscription that is not " <>
+              "`active` fails its codex runs by name; nothing is substituted."
+        },
+        plan_type: %Schema{type: :string, nullable: true},
+        account_email: %Schema{
+          type: :string,
+          nullable: true,
+          description: "The ChatGPT account's email, shown to its owner and nobody else."
+        },
+        refreshable: %Schema{
+          type: :boolean,
+          description: "Whether a refresh token is stored. False once disconnected."
+        },
+        access_expires_at: %Schema{type: :string, format: :"date-time", nullable: true},
+        last_refreshed_at: %Schema{type: :string, format: :"date-time", nullable: true},
+        revoked_reason: %Schema{
+          type: :string,
+          nullable: true,
+          description: "The auth server's reason code when `status` is `revoked`."
+        },
+        exhausted_until: %Schema{
+          type: :string,
+          format: :"date-time",
+          nullable: true,
+          description:
+            "When the subscription's Codex usage resets, while that is in the future. " <>
+              "Nothing records one for an account's subscription yet."
+        },
+        inserted_at: %Schema{type: :string, format: :"date-time"},
+        updated_at: %Schema{type: :string, format: :"date-time"}
+      },
+      required: [
+        :id,
+        :name,
+        :status,
+        :plan_type,
+        :account_email,
+        :refreshable,
+        :access_expires_at,
+        :last_refreshed_at,
+        :revoked_reason,
+        :exhausted_until,
+        :inserted_at,
+        :updated_at
+      ]
+    })
+  end
+
+  item_response(ChatGPTSubscriptionResponse, of: ChatGPTSubscription)
+
+  defmodule ChatGPTSubscriptionListResponse do
+    @moduledoc false
+    require OpenApiSpex
+
+    OpenApiSpex.schema(%{
+      title: "ChatGPTSubscriptionListResponse",
+      description: "Every subscription the account holds, by name. Not paginated: it is capped.",
+      type: :object,
+      properties: %{
+        data: %Schema{type: :array, items: ChatGPTSubscription},
+        count: %Schema{
+          type: :integer,
+          description: "How many the account holds. A disconnected one counts until removed."
+        },
+        limit: %Schema{type: :integer, description: "How many it may hold."},
+        linking_enabled: %Schema{
+          type: :boolean,
+          description:
+            "Whether this account may link a new subscription now. False leaves " <>
+              "every other operation here working."
+        }
+      },
+      required: [:data, :count, :limit, :linking_enabled]
+    })
+  end
+
+  defmodule ChatGPTSubscriptionUpdateRequest do
+    @moduledoc false
+    require OpenApiSpex
+
+    OpenApiSpex.schema(%{
+      title: "ChatGPTSubscriptionUpdateRequest",
+      description: "A new name. A name is a label: renaming changes no credential.",
+      type: :object,
+      properties: %{name: %Schema{type: :string, minLength: 1, maxLength: 200}},
+      required: [:name]
+    })
+  end
+
+  defmodule ChatGPTLinkAttempt do
+    @moduledoc false
+    require OpenApiSpex
+
+    OpenApiSpex.schema(%{
+      title: "ChatGPTLinkAttempt",
+      description:
+        "One device-code sign-in, for a new subscription or to reconnect one. " <>
+          "Show `user_code` and `verification_url` to the person, then read the " <>
+          "attempt again every `poll_interval` seconds until `state` leaves " <>
+          "`pending`. The server does the polling of ChatGPT; reading this costs " <>
+          "nothing upstream.",
+      type: :object,
+      properties: %{
+        id: %Schema{type: :string, format: :uuid},
+        kind: %Schema{
+          type: :string,
+          enum: Enum.map(Fountain.ChatGPTAccounts.AttemptView.kinds(), &Atom.to_string/1)
+        },
+        name: %Schema{
+          type: :string,
+          nullable: true,
+          description: "The name a new subscription will take. Null for a reconnect."
+        },
+        grant_id: %Schema{
+          type: :string,
+          format: :uuid,
+          nullable: true,
+          description: "The subscription being reconnected. Null for a new link."
+        },
+        state: %Schema{
+          type: :string,
+          enum: Fountain.ChatGPTAccounts.LinkAttempt.states(),
+          description: "`pending`, then exactly one of the other four, which are final."
+        },
+        user_code: %Schema{
+          type: :string,
+          nullable: true,
+          description: "The code to type at `verification_url`. Null once the attempt ends."
+        },
+        verification_url: %Schema{type: :string, nullable: true},
+        poll_interval: %Schema{
+          type: :integer,
+          description: "Seconds to wait between reads of this attempt."
+        },
+        auth_unreachable: %Schema{
+          type: :boolean,
+          description:
+            "True while a pending attempt's last poll of ChatGPT's sign-in service went " <>
+              "unanswered. The attempt is still open and Fountain asks again, less often."
+        },
+        expires_at: %Schema{type: :string, format: :"date-time"},
+        result_grant_id: %Schema{
+          type: :string,
+          format: :uuid,
+          nullable: true,
+          description: "The subscription a completed attempt linked or reconnected."
+        },
+        failure: %Schema{
+          type: :object,
+          nullable: true,
+          description: "Why a `failed` attempt failed. Null otherwise.",
+          properties: %{
+            reason: %Schema{
+              type: :string,
+              enum: Fountain.ChatGPTAccounts.LinkAttempt.failure_reasons(),
+              description:
+                "`stale_grant`: the subscription was reconnected or disconnected after " <>
+                  "this attempt began, and what is there now was left alone. " <>
+                  "`account_already_linked`: the account holds this ChatGPT account " <>
+                  "already, as `grant`; reconnect that one instead. " <>
+                  "`linking_disabled`: linking was turned off for the account while " <>
+                  "this new link was open."
+            },
+            grant_id: %Schema{type: :string, format: :uuid, nullable: true},
+            grant: %Schema{type: :string, nullable: true}
+          },
+          required: [:reason, :grant_id, :grant]
+        },
+        inserted_at: %Schema{type: :string, format: :"date-time"},
+        updated_at: %Schema{type: :string, format: :"date-time"}
+      },
+      required: [
+        :id,
+        :kind,
+        :name,
+        :grant_id,
+        :state,
+        :user_code,
+        :verification_url,
+        :poll_interval,
+        :auth_unreachable,
+        :expires_at,
+        :result_grant_id,
+        :failure,
+        :inserted_at,
+        :updated_at
+      ]
+    })
+  end
+
+  item_response(ChatGPTLinkAttemptResponse, of: ChatGPTLinkAttempt)
+
+  list_response(ChatGPTLinkAttemptListResponse, of: ChatGPTLinkAttempt)
+
+  defmodule ChatGPTLinkAttemptCreateRequest do
+    @moduledoc false
+    require OpenApiSpex
+
+    OpenApiSpex.schema(%{
+      title: "ChatGPTLinkAttemptCreateRequest",
+      description:
+        "Exactly one of the two: `name` links a new subscription under that name, " <>
+          "`grant_id` reconnects the one it names.",
+      type: :object,
+      properties: %{
+        name: %Schema{type: :string, minLength: 1, maxLength: 200},
+        grant_id: %Schema{type: :string, format: :uuid}
       }
     })
   end
@@ -3501,7 +3779,10 @@ defmodule FountainWeb.Schemas do
               "code (`api_key_invalid`, `api_key_expired`, `insufficient_scope`). " <>
               "On `broker_unavailable`, `sandbox_not_resettable` and " <>
               "`credential_set_is_default`, `error` is the code and this narrows " <>
-              "it (`econnrefused`, `timeout`, `is_default`, ...)."
+              "it (`econnrefused`, `timeout`, `is_default`, ...). On " <>
+              "`chatgpt_grant_unusable` it says why the named subscription cannot " <>
+              "serve: `disconnected`, `revoked`, `expired`, `reconnect_required`, " <>
+              "`exhausted`, `not_found`, `broker_required` or `owner_ineligible`."
         },
         errors: %Schema{
           type: :object,
@@ -3521,7 +3802,63 @@ defmodule FountainWeb.Schemas do
         },
         limit: %Schema{
           type: :integer,
-          description: "The account's concurrent-sandbox cap, on `sandbox_quota_exceeded` (429)."
+          description:
+            "The account's concurrent-sandbox cap, on `sandbox_quota_exceeded` (429); " <>
+              "how many ChatGPT subscriptions it may hold, on " <>
+              "`chatgpt_grant_limit_reached` (409); how many sign-ins it may have open, " <>
+              "on `chatgpt_link_attempts_exceeded` (409); how many it may start in an " <>
+              "hour, on `chatgpt_link_attempts_rate_limited` (429)."
+        },
+        retry_after_seconds: %Schema{
+          type: :integer,
+          description:
+            "Seconds until another sign-in may be started, on " <>
+              "`chatgpt_link_attempts_rate_limited` (429); the `Retry-After` header " <>
+              "says the same."
+        },
+        count: %Schema{
+          type: :integer,
+          description:
+            "How many the account has against `limit`, on `chatgpt_grant_limit_reached` " <>
+              "and `chatgpt_link_attempts_exceeded` (409)."
+        },
+        grant_id: %Schema{
+          type: :string,
+          format: :uuid,
+          description:
+            "The ChatGPT subscription the refusal is about, on `chatgpt_grant_unusable` (409)."
+        },
+        grant: %Schema{
+          type: :string,
+          nullable: true,
+          description: "That subscription's name, on `chatgpt_grant_unusable` (409)."
+        },
+        until: %Schema{
+          type: :string,
+          format: :"date-time",
+          nullable: true,
+          description:
+            "When the subscription's Codex usage resets, on `chatgpt_grant_unusable` " <>
+              "with `reason: \"exhausted\"`; null otherwise."
+        },
+        attempt_id: %Schema{
+          type: :string,
+          format: :uuid,
+          description:
+            "The sign-in already open on that subscription, on " <>
+              "`chatgpt_link_attempt_pending` (409): read or cancel that one."
+        },
+        state: %Schema{
+          type: :string,
+          description:
+            "What the attempt had already become, on `chatgpt_link_attempt_not_pending` (409)."
+        },
+        sets: %Schema{
+          type: :array,
+          items: %Schema{type: :string},
+          description:
+            "The credential sets that still name the subscription, by name, on " <>
+              "`chatgpt_grant_named_by_sets` (409): point them elsewhere first."
         }
       },
       required: [:error]
@@ -3720,6 +4057,12 @@ defmodule FountainWeb.Schemas do
           description:
             "Whether this account may add connections, providers, or credential bindings. " <>
               "Use connections_manageable to show existing credentials and their removal controls."
+        },
+        chatgpt_subscriptions_enabled: %Schema{
+          type: :boolean,
+          description:
+            "Whether this account may link a new ChatGPT subscription. Listing, renaming, " <>
+              "reconnecting, disconnecting and removing the ones it holds never depend on it."
         },
         connections_manageable: %Schema{
           type: :boolean,

@@ -4,8 +4,10 @@ defmodule FountainWeb.InferenceCredentialSetController do
 
   An account holds one or more, exactly one of them the default, and an agent
   or a launch may name another. This is the whole surface: create, rename,
-  promote to default, delete, and write or clear one provider's credential
-  inside a named set.
+  promote to default, delete, write or clear one provider's credential
+  inside a named set, and name the ChatGPT subscription its codex runs use
+  (ADR 0060 decision 2; the subscriptions themselves are
+  `FountainWeb.ChatGPTSubscriptionController`).
 
   `FountainWeb.InferenceCredentialController` is the same write against the
   account's default set, and stays: it is the older, shorter path, every
@@ -23,6 +25,7 @@ defmodule FountainWeb.InferenceCredentialSetController do
   use FountainWeb, :controller
   use OpenApiSpex.ControllerSpecs
 
+  alias Fountain.ChatGPTAccounts
   alias Fountain.InferenceCredentials
   alias FountainWeb.{Audited, Schemas}
 
@@ -44,8 +47,9 @@ defmodule FountainWeb.InferenceCredentialSetController do
   )
 
   def index(conn, _params) do
-    sets = InferenceCredentials.list_sets(conn.assigns.current_user.id)
-    render(conn, :index, sets: sets)
+    user = conn.assigns.current_user
+    sets = InferenceCredentials.list_sets(user.id)
+    render(conn, :index, sets: sets, grants: grants(user))
   end
 
   operation(:create,
@@ -69,16 +73,23 @@ defmodule FountainWeb.InferenceCredentialSetController do
            InferenceCredentials.create_set(user.id, params["name"], Audited.attribution(conn)) do
       conn
       |> put_status(:created)
-      |> render(:show, set: set)
+      |> render(:show, set: set, grants: grants(user))
     end
   end
 
   operation(:update,
-    summary: "Rename an inference credential set, or make it the default",
+    summary:
+      "Rename an inference credential set, make it the default, or name a ChatGPT subscription",
     description:
       "Omitting a field leaves it alone. `is_default: false` is refused: a set " <>
         "stops being the default when another becomes it, never on its own, " <>
-        "because an account with no default has nothing to read a credential from.",
+        "because an account with no default has nothing to read a credential from. " <>
+        "`chatgpt_grant_id` names one of the account's ChatGPT subscriptions for the " <>
+        "set's codex runs, and `null` stops naming one. Naming one ends the set's " <>
+        "running codex conversations with `inference_source_changed`: their source is " <>
+        "now the subscription. An id that is not one of the account's subscriptions, " <>
+        "and a disconnected one, are 422; sending the id the set already names changes " <>
+        "nothing.",
     parameters: [id: [in: :path, type: :string, required: true]],
     request_body: {"Changes", "application/json", Schemas.InferenceCredentialSetUpdateRequest},
     responses: [
@@ -94,9 +105,13 @@ defmodule FountainWeb.InferenceCredentialSetController do
 
     with %{} = set <- InferenceCredentials.get_set(id, user.id) || {:error, :not_found},
          :ok <- refuse_undefaulting(params),
+         # Named last, because naming ends conversations; asked first, so a
+         # grant that cannot be named does not leave the rename behind.
+         :ok <- grant_nameable(set, params),
          {:ok, set} <- maybe_rename(set, params, conn),
-         {:ok, set} <- maybe_promote(set, params, conn) do
-      render(conn, :show, set: set)
+         {:ok, set} <- maybe_promote(set, params, conn),
+         {:ok, set} <- maybe_name_grant(set, params, conn) do
+      render(conn, :show, set: set, grants: grants(user))
     end
   end
 
@@ -156,4 +171,23 @@ defmodule FountainWeb.InferenceCredentialSetController do
     do: InferenceCredentials.set_default(set, Audited.attribution(conn))
 
   defp maybe_promote(set, _params, _conn), do: {:ok, set}
+
+  # The key's presence is the request: `null` stops naming a subscription,
+  # and an absent key leaves the set as it is. `set` came from the scoped
+  # `get_set/2` in `update/2`; `set_grant/3` takes its tenant from that
+  # struct, and reads the grant scoped by the same owner.
+  defp maybe_name_grant(set, %{"chatgpt_grant_id" => grant_id}, conn)
+       when is_binary(grant_id) or is_nil(grant_id),
+       do: InferenceCredentials.set_grant(set, grant_id, Audited.attribution(conn))
+
+  defp maybe_name_grant(set, _params, _conn), do: {:ok, set}
+
+  defp grant_nameable(set, %{"chatgpt_grant_id" => grant_id})
+       when is_binary(grant_id) or is_nil(grant_id),
+       do: InferenceCredentials.check_grant(set, grant_id)
+
+  defp grant_nameable(_set, _params), do: :ok
+
+  # The caller's own subscriptions, by id, for the view's `chatgpt_grant`.
+  defp grants(user), do: Map.new(ChatGPTAccounts.list_for_user(user.id), &{&1.grant_id, &1})
 end

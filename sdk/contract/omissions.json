@@ -31,7 +31,7 @@
     },
     {
       "operations": ["* /api/account/*", "DELETE /api/account"],
-      "reason": "Account self-service: billing, credit checkout, data exports, inference credentials, onboarding. The console owns all of it and none of it is part of running an agent."
+      "reason": "Account self-service: billing, credit checkout, data exports, inference credentials, ChatGPT subscriptions and their sign-in attempts, onboarding. The console owns all of it and none of it is part of running an agent."
     },
     {
       "operations": ["* /api/webhooks*"],

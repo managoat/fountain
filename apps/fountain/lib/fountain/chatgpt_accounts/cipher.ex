@@ -3,6 +3,7 @@ defmodule Fountain.ChatGPTAccounts.Cipher do
 
   require Logger
 
+  alias Fountain.ChatGPTAccounts.LinkAttempt
   alias Fountain.Crypto
   alias Fountain.PlatformChatGPT.Account
 
@@ -134,6 +135,67 @@ defmodule Fountain.ChatGPTAccounts.Cipher do
 
     {:error, :undecryptable}
   end
+
+  # ── link attempts ────────────────────────────────────────────────────────
+
+  @doc """
+  The two things the auth server hands back when a device-code sign-in
+  begins, for the attempt `attempt_id` of `user_id`. Under the owner's DEK,
+  with an AAD of their own naming the owner, the attempt and the field: a
+  blob copied into another attempt, another field or a grant's token column
+  does not open. The caller chooses the id before the row exists, as for a
+  grant.
+  """
+  @spec encrypt_attempt_secrets(String.t(), Ecto.UUID.t(), map()) ::
+          {:ok, map()} | {:error, atom()}
+  def encrypt_attempt_secrets(user_id, attempt_id, %{device_auth_id: id, user_code: code})
+      when is_binary(user_id) and is_binary(attempt_id) and is_binary(id) and is_binary(code) do
+    with {:ok, dek} <- Crypto.load_tenant_key(user_id) do
+      {:ok,
+       %{
+         device_auth_ciphertext:
+           Crypto.encrypt(id, dek, attempt_aad(user_id, attempt_id, :device_auth_id)),
+         user_code_ciphertext:
+           Crypto.encrypt(code, dek, attempt_aad(user_id, attempt_id, :user_code))
+       }}
+    end
+  end
+
+  @doc """
+  One of a pending attempt's secrets. `:no_secret` for an attempt that has
+  ended, which holds neither.
+  """
+  @spec decrypt_attempt_secret(LinkAttempt.t(), :device_auth_id | :user_code) ::
+          {:ok, String.t()} | {:error, atom()}
+  def decrypt_attempt_secret(%LinkAttempt{id: id, user_id: user_id} = attempt, field)
+      when field in [:device_auth_id, :user_code] and is_binary(id) and is_binary(user_id) do
+    case attempt_ciphertext(attempt, field) do
+      nil ->
+        {:error, :no_secret}
+
+      blob ->
+        with {:ok, dek} <- Crypto.load_tenant_key(user_id) do
+          case Crypto.decrypt(blob, dek, attempt_aad(user_id, id, field)) do
+            {:ok, value} ->
+              {:ok, value}
+
+            :error ->
+              Logger.warning(
+                "chatgpt link attempt #{id} of #{user_id}: the stored #{field} does not " <>
+                  "decrypt under the tenant key"
+              )
+
+              {:error, :undecryptable}
+          end
+        end
+    end
+  end
+
+  defp attempt_ciphertext(attempt, :device_auth_id), do: attempt.device_auth_ciphertext
+  defp attempt_ciphertext(attempt, :user_code), do: attempt.user_code_ciphertext
+
+  defp attempt_aad(user_id, attempt_id, field),
+    do: "fountain.chatgpt_link_attempt:#{user_id}:#{attempt_id}:#{field}"
 
   defp warn(false, _key, message), do: Logger.warning(message)
   defp warn(true, key, message), do: Fountain.LogThrottle.warning(key, message)

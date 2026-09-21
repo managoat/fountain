@@ -157,7 +157,8 @@ by its ID for a week.
 
 ## An idle subscription stays signed in
 
-OpenAI ends a sign-in that nobody renews for about 8 days. Fountain renews
+OpenAI is assumed to end a sign-in that nobody renews for about 8 days.
+Fountain has not measured that time. Fountain renews
 each subscription before each turn that needs it. It also renews a
 subscription that nobody used: each day at 04:37 UTC, Fountain looks for
 subscriptions that were last renewed 6 days ago or more, and renews each one.
@@ -171,8 +172,7 @@ are renewed as usual. Click **Reconnect** for that one.
 
 Fountain does not renew a disconnected subscription, a subscription in
 **Reconnect required**, or the subscription of an account that is suspended.
-The 6 days are provisional: Fountain has not yet measured how long OpenAI
-keeps an idle sign-in.
+The 6 days are provisional, because the 8 days are an assumption.
 
 ## Export and account deletion
 

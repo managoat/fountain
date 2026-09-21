@@ -12,24 +12,31 @@
   conversation's renewal is never crowded out. It is idle wherever nobody
   has linked a subscription, and the deployment's own grant keeps its 04:29
   job. A renewal the auth server answers with 429, or with a 403 whose body
-  names no error code, is counted as a sign that it is throttling this
-  server's address. When that has happened for two different accounts inside
-  ten minutes (the deployment's own grant counts as one), that replica's
-  keepalive jobs pause for fifteen minutes. One account cannot cause the
-  pause, however often it is refused, and a 403 that names a code is that
-  account's own failure. A paused job does not wait without limit: after two
-  hours, or once its subscription is seven days unrenewed, it tries anyway. A
-  conversation's own renewal never pauses. Whether OpenAI throttles by
-  address or by account has not been measured. To observe it:
-  `fountain_chatgpt_keepalive_sweep_due` is what the last sweep found idle,
-  `fountain_chatgpt_keepalive_grant_count` counts the jobs by `result` (`ok`,
-  `cancelled`, `snoozed`, `rate_limited`, `error`),
-  `fountain_chatgpt_refresh_rate_limited_count` counts the refusals, and
-  `fountain_chatgpt_refresh_breaker_opened_count` counts the pauses. A job
-  that fails its last attempt, and a sweep that stops part way, each log one
-  line at `error` that starts `chatgpt keepalive:`. A subscription the auth
-  server refused for good shows as "Reconnect required" on its owner's card
-  and as a `chatgpt_grant.reconnect_required` audit event. The six days are
+  is not a JSON object (an HTML page, nothing), is counted as a sign that it
+  is throttling this server's address; a 403 with a JSON body is that
+  account's own failure. When that has happened for two different accounts
+  inside ten minutes (the deployment's own grant counts as one), that
+  replica's keepalive jobs pause for fifteen minutes. One account cannot
+  cause the pause, however often it is refused. While it lasts, one job per
+  replica per fifteen minutes is let through as a probe, from among those
+  paused two hours or whose subscription is seven days unrenewed; a refused
+  job waits again and spends no attempt. Any renewal that succeeds, a
+  conversation's included, ends the pause at once. A conversation's own
+  renewal never pauses. A job stops for good 72 hours after its first run,
+  and the next sweep queues its subscription again. Whether OpenAI throttles
+  by address or by account, and what such a refusal looks like, has not been
+  measured. To observe it: `fountain_chatgpt_keepalive_sweep_due` is what
+  the last sweep found idle, `fountain_chatgpt_keepalive_grant_count` counts
+  the jobs by `result` (`ok`, `cancelled`, `snoozed`, `rate_limited`,
+  `error`, `discarded`), `fountain_chatgpt_refresh_rate_limited_count`
+  counts the refusals, and `fountain_chatgpt_refresh_breaker_opened_count`
+  and `fountain_chatgpt_refresh_breaker_closed_count` count the pauses and
+  the ones a success ended early. A job that fails its last attempt or is
+  stopped at 72 hours, and a sweep that stops part way, log at `error`
+  starting `chatgpt keepalive:`, at most one line a minute per replica for
+  jobs; `discarded` says how many. A subscription the auth server refused
+  for good shows as "Reconnect required" on its owner's card and as a
+  `chatgpt_grant.reconnect_required` audit event. The six days are
   provisional on ADR 0047's measurement 5.
 
 ### Added

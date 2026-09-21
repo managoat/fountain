@@ -1937,9 +1937,11 @@ is above zero.
 1. **A per-node breaker, `ChatGPTAccounts.RefreshBreaker`.** Decision 5
    asks for bounded volume and says nothing of what to do when the auth
    server throttles Fountain's address, which stage 4a's review named as a
-   cross-tenant outage. A refusal that looks like a throttled address
-   pauses that node's keepalive jobs for fifteen minutes
-   (`:chatgpt_refresh_breaker_ms`). A turn's own renewal never waits.
+   cross-tenant outage. Refusals that look like a throttled address, for
+   two different owners inside ten minutes, pause that node's keepalive
+   jobs for fifteen minutes (`:chatgpt_refresh_breaker_ms`). It is
+   half-open, one probe per node per fifteen minutes, and any renewal that
+   succeeds closes it. A turn's own renewal never waits.
 2. **`{:error, :rate_limited}`** is a new answer from a user grant's
    refresh, where every provider error was `:refresh_failed`. It carries
    no part of the response. On the turn path it falls through
@@ -1951,10 +1953,12 @@ is above zero.
 4. **Clocks in the job's `meta`**, never its args: the sweep's window, the
    job's first run and when the breaker first held it. The args stay the
    three ids.
-5. **A job does not give up while its grant is due.** Twenty hours after
-   its first run a job that has nothing left to do is cancelled. One whose
-   grant is still due carries on, because the next sweep's insert
-   conflicts with it while it is incomplete.
+5. **A job is its grant's place in the queue, for three days.** While a
+   job is incomplete the next sweep's insert for its grant conflicts with
+   it, so it does not give up early; a grant no longer due is an `:ok` at
+   the job's next run. Seventy-two hours after its first run it is
+   cancelled whatever it is waiting on, because snoozes raise
+   `max_attempts` and nothing in Oban ends a job that only ever snoozes.
 6. **The deleted-account email is conditional**, and the count rides in
    the email job's args.
 
@@ -1972,10 +1976,11 @@ and none was wrong.
   can read, is evidence; a 403 that names a code is that account's and is
   `:refresh_failed`. The breaker opens only when two different owners were
   refused inside ten minutes. A grant is heard once per window, which is
-  what bounds the turn path. And the job caps its own wait: held two
-  hours, or its grant seven days idle, it goes ahead as a probe, and a
-  refused probe is an ordinary failed attempt. The table holds hashes of
-  the grant and owner ids, for ten minutes.
+  what bounds the turn path. And a job held two hours, or whose grant is
+  seven days idle, went ahead as a probe. (The second review found this
+  last bound, and the 403 rule, short of what this paragraph claimed; both
+  are as the next paragraph says.) The table holds hashes of the grant and
+  owner ids, for ten minutes.
 - **The herd when it clears.** Held jobs woke within two minutes of each
   other. They now spread over the breaker's remaining time plus the
   sweep's window.
@@ -1984,7 +1989,8 @@ and none was wrong.
   continuation with it.
 - **The give-up clock** ran from the insert, up to six hours before the
   first run, and a job that gave up while still due cost its grant a day.
-  It runs from the first run, and see call 5.
+  It runs from the first run, and see call 5, which the second review
+  changed again.
 - **Tests added**: forged args (one owner's grant under another's id; the
   platform row's id), a probe that is refused again, each bound. The test
   in which A snoozes and B renews says in its comment what it does not
@@ -1995,22 +2001,78 @@ and none was wrong.
 - The breaker's fallback table, which would have died with a refresh
   task, is gone.
 
+**After the second review (5b).** Nothing critical or high and nothing to
+revert; three medium findings in how the job and the breaker meet, all
+verified and none wrong.
+
+- **The two-hour cap did not bound anything.** It and the seven-day bypass
+  were looked at only when a job next ran, and the snooze could be six
+  hours. A held job now never sleeps past the moment it becomes due to
+  probe, by either clock.
+- **Under real throttling Fountain sent more requests, not fewer.** Every
+  held job probed at two hours, was refused, retried on its backoff with
+  the same stale stamp and burned its three attempts; grants seven days
+  idle did it from their first run. The breaker is now properly half-open:
+  `claim_probe/0` admits one probe per node per fifteen minutes, counted
+  from the claim, because a refused probe is evidence, extends the pause,
+  and would otherwise hand the next job a probe at once. The seven-day
+  bypass goes through the same door. A refusal that looks like a throttled
+  address is a snooze of at least fifteen minutes and never a failed
+  attempt, and it restarts the job's two hours.
+- **A success never closed it**, so two owners refused every ten minutes
+  held it open without end. `succeeded/0`, called where the auth server
+  answers any owner's refresh with tokens, the platform's and a turn's
+  included, closes it and clears what was heard, since the success refutes
+  it. A probe that succeeds therefore releases every held job at its next
+  wake.
+- Lesser: a job that runs with the breaker down forgets it was held, so a
+  later pause starts its two hours afresh. Only a 403 whose body is not a
+  JSON object is evidence (`OAuth` calls it `"unreadable"`); an object
+  with no readable code, `{"detail": …}` say, is `:refresh_failed`. No
+  breaker function can raise if its table's owner has just died, which
+  mattered because `observe/2` runs inside a turn's renewal. A held job
+  whose grant is revoked under the same generation cancels at once. The
+  discard line and the new three-day stop go through
+  `LogThrottle.error/2`, once a minute per node, and the counter's new
+  `discarded` says how many; a run that raises on its last attempt logs it
+  too. The breaker takes a test clock.
+
+**What is bounded now, exactly.** Under real throttling of the address: a
+node's keepalive sends one request per fifteen minutes, a job at most one
+in that time, and no attempt is spent on it. Under a breaker held open on
+false evidence, which takes two accounts that are each reliably refused as
+a throttled address is: one victim's job waits as long as the breaker
+stands, less whatever a success from any owner cuts it short by, and at
+most seventy-two hours. It is no longer promised a request of its own at
+two hours; that promise, made to every job, was the hammer. A turn's own
+renewal is never held.
+
 ### Not built
 
 - **The controlled run** of item 5, and everything on the rollout
   checklist.
 - **Whether `auth.openai.com` throttles by address or by account is
   unmeasured.** 0047 measured a 401 `refresh_token_reused` and a 400
-  ciphertext-integrity answer and nothing else. The breaker's two-owner
-  rule is a guess made safe in both directions, not a measurement. The
-  runbook lists it as something to observe.
+  ciphertext-integrity answer and nothing else. So is what a throttled
+  refusal looks like: that it is a 429, or a 403 with no JSON object, is a
+  guess. The two-owner rule and the evidence rule are guesses with the
+  bounds stated above, not measurements: if the auth server throttles an
+  address with a JSON 403 the breaker never opens, and if it refuses one
+  account with an HTML 403 that counts as evidence it should not. The
+  runbook lists both as things to observe.
 - Revoking a sign-in upstream, on a disconnect or a deletion.
 - A cluster-wide breaker: each node learns of a throttle from its own
   refused calls. Reading a 429's `Retry-After`. Holding a turn's renewal
   back while the breaker stands.
 - Damping for a grant that fails every day without being refused for
   good: it is queued again by each sweep, three calls a day, and shows
-  only as the `error` line and a counter. No signal reaches its owner.
+  only as the throttled `error` line and the `discarded` count. No signal
+  reaches its owner.
+- A log line for a keepalive run, or a sweep page, that Oban kills at its
+  timeout or that exits: only a returned error and a raise are seen. Those
+  show in Oban's own telemetry.
+- One `breaker_opened` per opening: two processes that report in the same
+  instant may both open it and both be counted.
 - An index for the due scan. Catching, on the same day, a grant that
   became due behind a running cursor.
 - Proactive usage polling (detection is only after a failed turn that

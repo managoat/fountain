@@ -39,8 +39,9 @@ you do not trust.
 - [ ] **(e) The keepalive has been observed for 7 days with zero unexpected
   `reconnect_required`.** Watch `fountain_chatgpt_keepalive_sweep_due`,
   `fountain_chatgpt_keepalive_grant_count` by `result`,
-  `fountain_chatgpt_refresh_rate_limited_count` and
-  `fountain_chatgpt_refresh_breaker_opened_count`, the
+  `fountain_chatgpt_refresh_rate_limited_count`,
+  `fountain_chatgpt_refresh_breaker_opened_count` and
+  `fountain_chatgpt_refresh_breaker_closed_count`, the
   `chatgpt_grant.reconnect_required` audit events, and any `error` line that
   starts `chatgpt keepalive:`.
 - [ ] **(f) The PostHog release**: staff, then 5%, then everyone.
@@ -77,9 +78,20 @@ nothing.
 3. **A turn on each agent.** From `broker_requests`, record the hosts, the
    routes, the `injected` counts and any refused request. A refused request
    that codex needed is a finding; so is a host nobody expected.
-4. **Force a refresh of A**: set its `access_expires_at` inside the refresh
-   margin, then run a turn on A. A's `generation` is unchanged, its
-   `lock_version` is one higher, and B's row is untouched.
+4. **Force a refresh of A.** Nothing in the product does this, so it is a
+   SQL UPDATE, **on the STAGING database only, never production**: put A's
+   `access_expires_at` inside the fifteen-minute refresh margin, then run a
+   turn on A.
+
+   ```sql
+   -- staging only
+   UPDATE platform_chatgpt_account
+      SET access_expires_at = now() + interval '5 minutes'
+    WHERE id = '<A''s grant id>' AND user_id = '<your user id>';
+   ```
+
+   A's `generation` is unchanged, its `lock_version` is one higher, and B's
+   row is untouched.
 5. **Reattach, and `thread/resume` through the symlinked home.** Do
    `sessions/` and `skills/` resolve? Did `config.toml` become a real file
    (an atomic-rename writer replacing the link)? If the symlinked home does
@@ -93,17 +105,29 @@ nothing.
    turn to "Usage spent" and the next launch be refused with `until`.
 
 **Observe, while you are there: how the auth server throttles.** Whether
-`auth.openai.com` throttles by address or by account is unmeasured, and the
-keepalive's breaker (`ChatGPTAccounts.RefreshBreaker`) is built on a guess:
-it treats a 429, or a 403 whose body names no code, as evidence of a
-throttled address, and opens only when two different owners were refused
-inside ten minutes. Do not provoke a throttle on purpose against an address
-production shares. If one happens, record its status, whether the body named
-a code, whether B was refused while A was, and whether
-`fountain_chatgpt_refresh_breaker_opened_count` moved. If throttling turns
-out to follow the account, the two-owner rule is what keeps one account from
-pausing everyone; if it follows the address, the rule costs one extra
-refused call before the pause. Either reading belongs in the ADR.
+`auth.openai.com` throttles by address or by account is unmeasured, and so
+is what a refusal looks like. The keepalive's breaker
+(`ChatGPTAccounts.RefreshBreaker`) is built on guesses about both:
+
+- It takes a 429, or a 403 whose body is **not a JSON object** (an HTML
+  page, nothing, a bare string), as evidence of a throttled address. A 403
+  with a JSON object body, a code in it or not, it takes as that account's
+  own failure. If the auth server throttles an address with a JSON 403, the
+  breaker never opens for it; if it refuses one account with an HTML 403,
+  that refusal counts as evidence it should not.
+- It opens only when two different owners were refused inside ten minutes,
+  lets one probe through per node per fifteen minutes, and closes on any
+  renewal that succeeds.
+
+Do not provoke a throttle on purpose against an address production shares.
+If one happens, record: the status; the content type and whether the body
+was a JSON object, and if so its keys (never its values); whether B was
+refused while A was; and whether
+`fountain_chatgpt_refresh_breaker_opened_count` and
+`fountain_chatgpt_refresh_breaker_closed_count` moved. If throttling follows
+the account, the two-owner rule is what keeps one account from pausing
+everyone; if it follows the address, the rule costs one extra refused call
+before the pause. Either reading belongs in the ADR.
 
 **Where results go.** One row per gate in ADR 0060's
 ["Measured" table](../decisions/0060-many-user-chatgpt-subscriptions.md#measured),

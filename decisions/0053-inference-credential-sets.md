@@ -43,9 +43,11 @@ by decision 6 remain unbuilt for every source but one: since
 user's ChatGPT subscription keeps its `auth.json` in a `CODEX_HOME` of its
 own per grant and generation, and on a machine first bound under that code
 (`sandboxes.codex_peer_homes`) such a source is outside the binding: it is
-compatible with every peer and is not recorded. API keys, tenant secrets
-and the platform's grant still share `~/.codex/auth.json` and keep the
-binding as it was, as does every machine bound before the column existed.
+compatible with every peer and is not recorded. API keys and tenant
+secrets still share `~/.codex/auth.json` and keep the binding as it was, as
+does every machine bound before the column existed. The platform's grant
+has a home of its own as well, and is deliberately kept under the binding:
+what a home does across that account's usage limit is published behaviour.
 This guard restricts admission while mutable auth state remains shared.
 
 Plain `env_vars` sources currently use the environment's whole-map revision,
@@ -59,8 +61,8 @@ The managed execution and user-linking work in ADR 0052 was not completed
 by this stack. [0060](0060-many-user-chatgpt-subscriptions.md) has since
 built user subscription selection (stage 2) and, for a user's grant, durable
 broker authorization and the issuance and update fences (stage 3). Still
-unbuilt: linking itself, the legacy connection drain and protected
-activation for the platform's grant, and acceptance across
+unbuilt: linking itself, the drain of upgraded connections, and acceptance
+across
 link/turn/refresh/restart/disconnect against a real client.
 The requirements and release checks below still apply. A successful source
 review or test run does not establish rollout, cleanup of a deployed fleet,

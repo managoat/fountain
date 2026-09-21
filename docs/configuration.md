@@ -247,6 +247,16 @@ sandbox holds a placeholder, and the egress broker puts the real token into
 the request to `chatgpt.com`. Each connect and disconnect leaves an
 `admin.platform_chatgpt` event on the admin activity page.
 
+The broker asks Fountain for the token on every request, and only for the
+one route Codex uses, `POST https://chatgpt.com/backend-api/codex/responses`.
+So a disconnect or a reconnect takes effect on the next request, including
+in a conversation that is mid-turn. A secret binding or a custom header
+template cannot send the token anywhere else. If a binding of yours matches
+that route, a codex conversation on the account fails to provision until you
+remove it. A codex conversation on the account cannot open a WebSocket, or
+any other protocol upgrade, through the broker to any host. Plain HTTP
+requests and streamed responses work as before.
+
 A ChatGPT account has Codex usage limits. When a codex turn on the account
 fails because the account is at its limit, that turn fails. Fountain does
 not retry it. The error comes from the sandbox, and a tenant can change what

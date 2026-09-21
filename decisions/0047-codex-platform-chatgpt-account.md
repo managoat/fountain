@@ -30,14 +30,25 @@ sandbox's `usageLimitExceeded` only prompts the server to ask OpenAI; the
 exhaustion is recorded only when OpenAI confirms it. The failing turn is not
 retried.
 
-**[0060](0060-many-user-chatgpt-subscriptions.md) stage 3 (2026-09-20)
-adds a second way a ChatGPT grant reaches a codex sandbox, for a user's own
-subscription**: a `CODEX_HOME` per grant and generation, and a broker
-session that records which grant it may use and asks for the bearer on
-every request, where decisions 4 and 5 below describe a shared
-`~/.codex/auth.json`, a substitution rule and a rewrite of that rule on
-rotation. Decisions 4 and 5 still describe the deployment's grant exactly:
-it is not on the new path, and nothing here changed for it.
+**Amended 2026-09-20 by [0060](0060-many-user-chatgpt-subscriptions.md)
+stage 3, which moves this grant onto the protected broker path
+[0052](0052-user-owned-chatgpt-grants.md) decisions 5 and 6 require.**
+Decisions 4 and 5 below are kept as the record of what was built and
+measured on 2026-09-08; four things in them no longer hold. The
+`@inference` entry for `CODEX_CHATGPT_ACCESS_TOKEN` is gone: the bearer is
+not a brokered value, and a conversation never holds it. `auth.json` is
+written to a `CODEX_HOME` of the grant's own
+(`/home/sprite/.codex-grants/<grant id>.<generation>`, with the rest of
+`~/.codex` linked into it), not to the shared `~/.codex/auth.json`, and its
+placeholder is per grant. Rotation does not go through
+`Egress.refresh_before_turn/1` and `Broker.refresh/4` (decision 5): the
+turn's gate renews the grant and the proxy reads the grant row on every
+request, so nothing is rewritten. And a turn whose grant was disconnected or
+reconnected mid-turn fails at the proxy on its next request with a 403,
+rather than running on until its next turn. The transport, the ACP peer's
+`:none` auth and the selection rule of decision 6 are unchanged, including
+what a persistent home does across the account's usage limit. **None of the
+measurements below was repeated on the new path.**
 
 **[0060](0060-many-user-chatgpt-subscriptions.md) stage 5 (2026-09-21)
 amends decision 6 as amended by #2362, for a user's own subscription

@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Users link a ChatGPT subscription and Fountain manages the grant"
-description: "Proposed; linking a grant is behind a flag that is off for every account. ADR 0060 stage 4 built decision 2's attempts, its API and its card; stages 1 to 3 built the owner-scoped lifecycle, selection, and the revocation-fenced broker authorization and protected destination for a user's grant; the platform grant is not yet on that path. Tenant-owned ChatGPT grants use tenant encryption, coordinated refresh, revocation-fenced broker authorization, protected provider destinations, and no automatic paid fallback."
+description: "Proposed; linking a grant is behind a flag that is off for every account. ADR 0060 stage 4 built decision 2's attempts, its API and its card; stages 1 to 3 built the owner-scoped lifecycle, selection, and the revocation-fenced broker authorization and protected destination, for a user's grant and then for the platform grant. Tenant-owned ChatGPT grants use tenant encryption, coordinated refresh, revocation-fenced broker authorization, protected provider destinations, and no automatic paid fallback."
 tags: [inference, codex, oauth, security, billing]
 status: draft
 adr: "0052"
@@ -58,15 +58,17 @@ replacement and revocation mark the grant's sessions in their own
 transaction; the session is HTTP only; `ProtectedCompiler` is back, taking
 no bearer; and each grant and generation has a `CODEX_HOME` of its own. The
 adversarial cases in the implementation sequence below run for the
-platform's grant and for a user's. **Two parts are still owed.** The
-deployment's own grant is not moved onto that path, so decision 6's "apply
-these restrictions to the existing platform path before enabling user
-grants" and decision 5's legacy drain are open, and
-`Egress.refresh_platform_chatgpt/3` still compares token strings for that
-one grant. And decision 5's "evict cached credentials and close affected
-tunnels across serving nodes" and upstream revocation are not built;
-nothing is cached per tunnel, so the next request in an open tunnel is
-refused regardless. Nothing has been measured against a real client. See
+platform's grant and for a user's. The deployment's own grant then moved
+onto that path in a change of its own, which is decision 6's "apply these
+restrictions to the existing platform path before enabling user grants":
+its bearer left the `brokered` map and the stored rules, the legacy
+sessions are drained by a migration, and `Egress` no longer compares token
+strings. **Still owed:** decision 5's "evict cached credentials and close
+affected tunnels across serving nodes", the drain of *upgraded connections*
+(they die with their node on the roll, which is assumed and not enforced)
+and upstream revocation. Nothing is cached per tunnel, so the next request
+in an open tunnel is refused regardless. Nothing has been measured against
+a real client. See
 0060, "Stage 3 as built".
 
 **0060 stage 4a (2026-09-21) builds the API half of decision 2**, per grant:

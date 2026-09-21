@@ -73,13 +73,13 @@ nav:
   - Connect a service:
       - Connect a service with your own OAuth app: guides/connect/own-oauth-app.md
       - Connect a remote MCP server: guides/connect/remote-mcp-server.md
-      - Run Codex on a ChatGPT subscription: guides/chatgpt-subscriptions.md
   - Configuration reference: configuration.md
   - Catalog:
       - Overview: catalog/index.md
       - Runtimes: catalog/runtimes/index.md
       - Run Claude Code as an API: catalog/runtimes/claude.md
       - Run Codex as an API: catalog/runtimes/codex.md
+      - Run Codex on a ChatGPT subscription: guides/chatgpt-subscriptions.md
       - Run OpenCode as an API: catalog/runtimes/opencode.md
       - Run Gemini CLI as an API: catalog/runtimes/gemini.md
       - Skills: catalog/skills/index.md

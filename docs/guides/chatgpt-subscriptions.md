@@ -43,7 +43,12 @@ you remove it.
 The code is good for 15 minutes. You can reload the page or close it: the
 sign-in is stored on the server, and the page shows the same code when you
 come back. **Cancel** ends a sign-in. An account can have three sign-ins open
-at a time.
+at a time, and can start ten in an hour. The API and the console share both
+limits. When you reach the second one, the card says how long to wait.
+
+If ChatGPT's sign-in service stops answering, the sign-in stays open and the
+card says so. Fountain asks again less often, so an approval can take up to a
+minute to show.
 
 Device-code sign-in must be on in the security settings of the ChatGPT
 account. If ChatGPT refuses the code, the card says so.
@@ -90,7 +95,18 @@ another subscription, to the set's OpenAI key or to platform inference.
 | **Connected** | It runs. | Nothing. |
 | **Reconnect required** | `409 chatgpt_grant_unusable` with the subscription's name. | Click **Reconnect**, then start a new conversation. |
 | **Disconnected** | The same refusal. | Click **Reconnect**, or point the set at another subscription. |
-| **Usage spent** | The same refusal, with the reset time. | Wait for the reset, or point the set at another subscription. |
+| **Cannot serve here** | The same refusal. The deployment does not run the credential broker. | Ask the operator. **Reconnect** does not help. |
+| **Usage spent** | The same refusal, with the reset time. **Not built yet:** see below. | Wait for the reset, or point the set at another subscription. |
+
+**Fountain does not yet detect a spent plan.** Nothing records that a
+subscription has used its Codex allowance, so the card never shows **Usage
+spent** today. A subscription that has spent its allowance stays
+**Connected**, and the turn fails with the error that OpenAI returns.
+Fountain still does not switch to another subscription or to a key. See
+[feature status](../reference/feature-status.md).
+
+An account that is suspended cannot run on a subscription, whatever state the
+card shows. The card and the **ChatGPT subscription** row say so.
 
 The `/start` page and the agent form show the same sentence before you launch
 anything.
@@ -104,27 +120,32 @@ anything.
   end. Start new ones.
 - **Rename** changes the label and nothing else.
 - **Disconnect** makes Fountain forget the sign-in at once. No later request
-  from a sandbox can use it, and conversations that ran on it stop. Sets that
+  from a sandbox can use it, and conversations that ran on it stop. A sign-in
+  that is open for it is discarded, approved or not. Sets that
   named it still name it, and their codex runs are refused by name until you
   reconnect it. Fountain does not revoke the token at OpenAI. To do that, sign
   the device out in your ChatGPT account.
-- **Remove** deletes a disconnected subscription and frees its place. If
+- **Remove** deletes a disconnected subscription and frees its place. A
+  sign-in that is open for it is discarded. If
   credential sets still name it, the card lists them. Point each at another
   subscription or at **None** first.
 
 Two sign-in results need an action from you:
 
-- **"Approved too late".** The subscription changed while the sign-in was
-  open, for example because a newer sign-in finished first or you
-  disconnected it. Fountain discarded the late one and left the subscription
+- **"Was discarded".** The subscription changed while the sign-in was
+  open, because a newer sign-in finished first or you disconnected it.
+  Fountain discarded the sign-in, approved or not, and left the subscription
   as it was. Reconnect again if it still needs a sign-in.
 - **"Already linked here as …".** The ChatGPT account that approved the code
   is one that another of your subscriptions holds. One ChatGPT account is
   linked once. Reconnect the subscription that the message names. Or sign in
   to ChatGPT with the other account in your browser, and start again.
 
-After a page reload the card no longer shows why an earlier sign-in ended.
-The [API](../api.md#chatgpt-subscriptions) reads an ended sign-in by its ID.
+The card shows how a sign-in ended for 30 minutes, also after a page reload
+and on a page that was not open when it ended. It shows the three most recent
+results. When you start another sign-in, the page stops showing them until you
+reload it. The [API](../api.md#chatgpt-subscriptions) reads an ended sign-in
+by its ID for a week.
 
 ## When linking is off
 

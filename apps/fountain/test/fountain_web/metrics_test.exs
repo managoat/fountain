@@ -192,6 +192,14 @@ defmodule FountainWeb.MetricsTest do
         # ChatGPTAccounts.RefreshLock.attempt/4, when another refresher owns
         # the grant lock — exercised by ChatGPTRefreshCoordinationTest.
         [:fountain, :chatgpt, :refresh_lock, :contention],
+        # The keepalive for users' grants (ADR 0060 stage 5):
+        # Workers.ChatGPTKeepaliveSweep's first page, Workers.ChatGPTGrantKeepalive
+        # at each job's end, and ChatGPTAccounts.RefreshBreaker.trip/1 -- exercised
+        # by workers/chatgpt_keepalive_sweep_test.exs and
+        # workers/chatgpt_grant_keepalive_test.exs.
+        [:fountain, :chatgpt, :keepalive, :sweep],
+        [:fountain, :chatgpt, :keepalive, :grant],
+        [:fountain, :chatgpt, :refresh, :rate_limited],
         # Billing.record_usage/5 swallow path (#503) — exercised by
         # Fountain.UsageMeteringTest's dropped-usage telemetry test
         [:fountain, :usage, :dropped],

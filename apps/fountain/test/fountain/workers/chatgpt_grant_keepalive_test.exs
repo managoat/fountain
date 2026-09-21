@@ -56,6 +56,24 @@ defmodule Fountain.Workers.ChatGPTGrantKeepaliveTest do
     job
   end
 
+  # `[:fountain, :chatgpt | suffix]` events reach the test whole, so it can
+  # say what their metadata is and is not.
+  defp watch_telemetry(suffixes) do
+    test_pid = self()
+    handler = "keepalive-#{System.unique_integer([:positive])}"
+
+    :telemetry.attach_many(
+      handler,
+      Enum.map(suffixes, &([:fountain, :chatgpt] ++ &1)),
+      fn [:fountain, :chatgpt | suffix], measurements, metadata, _ ->
+        send(test_pid, {:telemetry, suffix, measurements, metadata})
+      end,
+      nil
+    )
+
+    on_exit(fn -> :telemetry.detach(handler) end)
+  end
+
   defp state(job), do: Repo.get!(Oban.Job, job.id).state
   defp row(account), do: Repo.get!(Account, account.id)
 
@@ -209,18 +227,28 @@ defmodule Fountain.Workers.ChatGPTGrantKeepaliveTest do
       })
 
       refute RefreshBreaker.open?()
+      watch_telemetry([[:keepalive, :grant], [:refresh, :rate_limited]])
 
       log =
         capture_log(fn -> assert {:error, :rate_limited} = perform_job(Worker, args(a)) end)
 
       assert_received {:token_call, "rt_a"}
       assert RefreshBreaker.open?()
+      assert_received {:telemetry, [:refresh, :rate_limited], %{count: 1}, %{}}
+
+      assert_received {:telemetry, [:keepalive, :grant], %{count: 1},
+                       %{result: :rate_limited, reason: :rate_limited}}
+
       refute log =~ "rt_SECRET_echo"
       assert row(a) == a
       assert reconnect_events(user) == []
 
       # B is another user's, and is not asked about while the breaker stands.
       assert {:snooze, seconds} = perform_job(Worker, args(b))
+
+      assert_received {:telemetry, [:keepalive, :grant], %{count: 1},
+                       %{result: :snoozed, reason: :breaker_open}}
+
       assert seconds >= RefreshBreaker.remaining_seconds()
       assert seconds <= 15 * 60 + 120
       refute_received {:token_call, _}

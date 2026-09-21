@@ -130,9 +130,12 @@ defmodule FountainWeb.Telemetry do
       ),
       # The keepalive for users' ChatGPT grants (ADR 0060 stage 5). `due` is
       # what the daily sweep found idle; `grant` counts each job's end by
-      # result (ok, cancelled, snoozed, rate_limited, error). A rate_limited
-      # count, or the breaker's own counter below, is `auth.openai.com`
-      # throttling this server's address, which is every tenant's problem.
+      # result (ok, cancelled, snoozed, rate_limited, error). `rate_limited`
+      # counts every refusal that looks like a throttled address (a 429, or a
+      # 403 naming no code), whoever's grant it was; `breaker_opened` counts
+      # the times two owners' refusals inside ten minutes paused this node's
+      # keepalive, which is `auth.openai.com` throttling this server's
+      # address and every tenant's problem.
       last_value("fountain.chatgpt.keepalive.sweep.due",
         event_name: [:fountain, :chatgpt, :keepalive, :sweep],
         measurement: :due,
@@ -145,7 +148,13 @@ defmodule FountainWeb.Telemetry do
       ),
       counter("fountain.chatgpt.refresh.rate_limited.count",
         event_name: [:fountain, :chatgpt, :refresh, :rate_limited],
-        description: "Times the auth server turned a user grant's refresh away (429 or 403)"
+        description:
+          "Refreshes the auth server refused as a throttled address (429, or a 403 naming no code)"
+      ),
+      counter("fountain.chatgpt.refresh.breaker_opened.count",
+        event_name: [:fountain, :chatgpt, :refresh, :breaker_opened],
+        description:
+          "Times this node paused the ChatGPT keepalive after two owners were throttled"
       ),
       # Any non-zero value here means billing data is being lost (#503) —
       # record_usage/5 swallows failures by contract, so this counter is the

@@ -2295,23 +2295,31 @@ defmodule Fountain.ChatGPTAccounts do
      }, code}
   end
 
-  defp refresh_error(%Account{user_id: nil}, reason) do
+  defp refresh_error(%Account{user_id: nil} = row, reason) do
     Logger.warning(
       "platform chatgpt: refresh failed, keeping the current token: " <> inspect(reason)
     )
 
+    # The deployment's grant leaves from the same address as every user's, so
+    # its refusal is one owner's evidence for the breaker. Nothing else here
+    # changes: the platform's renewals never wait on it.
+    if throttled?(reason), do: RefreshBreaker.observe(:platform, row.id)
     {:error, reason}
   end
 
-  # The auth server turning Fountain's address away (429, or a 403 that names
-  # no terminal code) is every tenant's problem at once, so it gets an atom
-  # of its own, still no part of the response, and stands the node's breaker
-  # up: the keepalive's jobs wait while it does (`RefreshBreaker`). A turn's
-  # own renewal is not held back by it.
-  defp refresh_error(%Account{}, {:token, status, _code}) when status in [429, 403] do
+  # The auth server turning Fountain's address away gets an atom of its own,
+  # still no part of the response, and is reported to the node's breaker,
+  # which the keepalive's jobs wait on once two owners have been refused
+  # (`RefreshBreaker`). A turn's own renewal is not held back by it.
+  defp refresh_error(%Account{} = row, {:token, _status, _code} = reason) do
     :telemetry.execute([:fountain, :chatgpt, :refresh, :failure], %{count: 1}, %{scope: :user})
-    RefreshBreaker.trip()
-    {:error, :rate_limited}
+
+    if throttled?(reason) do
+      RefreshBreaker.observe(row.user_id, row.id)
+      {:error, :rate_limited}
+    else
+      {:error, :refresh_failed}
+    end
   end
 
   defp refresh_error(%Account{}, _reason) do
@@ -2320,6 +2328,14 @@ defmodule Fountain.ChatGPTAccounts do
     :telemetry.execute([:fountain, :chatgpt, :refresh, :failure], %{count: 1}, %{scope: :user})
     {:error, :refresh_failed}
   end
+
+  # A 429, or a 403 whose body named no code `OAuth` could read, which is a
+  # proxy in front of the auth server and not the auth server's verdict on an
+  # account. A 403 that names a code (a deactivated or restricted account) is
+  # that account's, and must not pause anybody else's keepalive.
+  defp throttled?({:token, 429, _code}), do: true
+  defp throttled?({:token, 403, "unknown"}), do: true
+  defp throttled?(_reason), do: false
 
   # A refresh that comes back as somebody else is not this grant's: between
   # reconnects the upstream account is pinned.

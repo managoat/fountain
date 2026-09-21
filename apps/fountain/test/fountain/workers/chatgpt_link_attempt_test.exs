@@ -78,6 +78,19 @@ defmodule Fountain.Workers.ChatGPTLinkAttemptTest do
     )
   end
 
+  describe "a run that raised" do
+    test "is retried in seconds however often the job has snoozed" do
+      for attempt <- [1, 9, 60, 180] do
+        job = %Oban.Job{attempt: attempt, max_attempts: attempt + 4}
+        assert Worker.backoff(job) == 10
+      end
+
+      # Every retry the job has fits inside one attempt's time many times over.
+      assert 10 * Worker.__opts__()[:max_attempts] <
+               div(ChatGPTAccounts.LinkAttempts.ttl_seconds(), 4)
+    end
+  end
+
   describe "the job" do
     test "is inserted with the attempt, one interval out, and carries two ids and no secret",
          %{user: user} do

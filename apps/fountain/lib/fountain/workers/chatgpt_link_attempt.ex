@@ -19,17 +19,29 @@ defmodule Fountain.Workers.ChatGPTLinkAttempt do
   keep snoozing. A snooze does not spend one of `max_attempts`; those are for
   a run that raised.
 
+  A snooze does raise the job's `attempt`, though, and Oban's default backoff
+  grows with it: after a few minutes of snoozing, one exception would put the
+  retry past the attempt's fifteen minutes, and after an hour's worth, days
+  out. So `backoff/1` is a constant. A run that raises is asked again in ten
+  seconds however long the job has been polling, ten times, and the row's
+  own `expires_at` is what stops it.
+
   Unique per attempt while a job for it is incomplete, so a retried insert
   cannot start a second poller against one device code.
   """
 
   use Oban.Worker,
     queue: :chatgpt,
-    max_attempts: 5,
+    max_attempts: 10,
     unique: [keys: [:attempt_id], period: :infinity, states: :incomplete]
 
   alias Fountain.ChatGPTAccounts
   alias Fountain.ChatGPTAccounts.LinkAttempt
+
+  @retry_seconds 10
+
+  @impl Oban.Worker
+  def backoff(%Oban.Job{}), do: @retry_seconds
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: %{"attempt_id" => attempt_id, "user_id" => user_id}}) do

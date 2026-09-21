@@ -234,6 +234,66 @@ defmodule Fountain.InferenceCredentials.GrantSelectionTest do
       assert exhausted =~ "until " <> DateTime.to_iso8601(until)
     end
 
+    # A conversation is pinned to the grant and generation it started on, so
+    # reconnecting or repointing never revives it (see "a reconnect is a new
+    # generation" below). The remedy has to end in a new conversation.
+    test "every remedy that changes the source says to start a new conversation" do
+      for reason <- [:disconnected, :revoked, :expired, :reconnect_required, :not_found] do
+        message =
+          InferenceCredentials.grant_unusable_message(%{
+            grant_id: "g",
+            name: "Work",
+            reason: reason,
+            until: nil
+          })
+
+        assert message =~ "start a new conversation", "#{reason}: #{message}"
+        assert message =~ "does not switch"
+      end
+
+      # Waiting out an exhaustion keeps the same grant and generation; only
+      # the repoint needs a new conversation, and the sentence keeps them apart.
+      exhausted =
+        InferenceCredentials.grant_unusable_message(%{
+          grant_id: "g",
+          name: "Work",
+          reason: :exhausted,
+          until: nil
+        })
+
+      assert exhausted =~ "Wait for the reset, or point this credential set at another"
+      assert exhausted =~ "start a new conversation"
+    end
+
+    # It is called while a refusal is being rendered. A reason a later stage
+    # adds before it adds the sentence must not turn a 409 into a 500.
+    test "a reason the message does not know still gets a sentence" do
+      message =
+        InferenceCredentials.grant_unusable_message(%{
+          grant_id: "g",
+          name: "Work",
+          reason: :owner_ineligible,
+          until: nil
+        })
+
+      assert message =~ ~s(ChatGPT subscription "Work" cannot serve this run)
+      assert message =~ "does not switch"
+
+      assert InferenceCredentials.grant_unusable_message(%{reason: :something_else}) =~
+               "cannot serve this run"
+    end
+
+    test "the log gets the grant id and the reason, not the name the tenant chose" do
+      detail = %{grant_id: "g-1", name: "jo@example.com's plan", reason: :revoked, until: nil}
+
+      logged = InferenceCredentials.loggable_reason({:chatgpt_grant_unusable, detail})
+      assert logged == {:chatgpt_grant_unusable, %{grant_id: "g-1", reason: :revoked, until: nil}}
+      refute inspect(logged) =~ "example.com"
+
+      assert InferenceCredentials.loggable_reason(:inference_source_changed) ==
+               :inference_source_changed
+    end
+
     test "an exhaustion whose reset has passed no longer refuses", ctx do
       grant = user_grant!(ctx.user.id)
       set = set_naming(ctx.user, "Set", grant)

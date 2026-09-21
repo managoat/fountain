@@ -707,34 +707,68 @@ defmodule Fountain.InferenceCredentials do
 
   @no_fallback "Fountain does not switch to another subscription, an API key or platform inference for you."
 
+  # A conversation is pinned to the grant and generation it started on (ADR
+  # 0052 decision 5). Reconnecting is a new generation and repointing the set
+  # is a different grant, so either one ends every conversation that was
+  # running on this one: its next turn is `:inference_source_changed`. So the
+  # remedy ends in a new conversation rather than implying this one resumes,
+  # which is also the right thing to say to a launch that was refused.
+  @then_new "and start a new conversation"
+
   @doc """
   What to tell the owner about a `t:grant_unusable/0`: which subscription,
   what is wrong with it, what to do, and that nothing was substituted.
+
+  Total on purpose. It is called while rendering a refusal (the 409, the
+  turn stream, a schedule's `last_error`), so a reason this does not know,
+  which a later stage may add before it adds the sentence, gets a plain
+  one and never raises.
   """
-  @spec grant_unusable_message(grant_unusable()) :: String.t()
+  @spec grant_unusable_message(grant_unusable() | map()) :: String.t()
   def grant_unusable_message(%{reason: :not_found}),
     do:
       "This credential set names a ChatGPT subscription that is not on this account. " <>
-        "Point the set at one of yours. " <> @no_fallback
+        "Point the set at one of yours #{@then_new}. " <> @no_fallback
 
   def grant_unusable_message(%{reason: :broker_required}),
     do:
       "This credential set names a ChatGPT subscription, and this deployment does not run " <>
         "the egress broker a subscription needs. " <> @no_fallback
 
-  def grant_unusable_message(%{reason: reason, name: name} = detail) do
+  # The one state a pinned conversation outlives: the row is the same grant
+  # and generation once the reset passes.
+  def grant_unusable_message(%{reason: :exhausted} = detail),
+    do:
+      "ChatGPT subscription #{inspect(detail[:name])} has used its Codex allowance" <>
+        "#{until(detail)}. Wait for the reset, or point this credential set at another " <>
+        "subscription and start a new conversation. " <> @no_fallback
+
+  def grant_unusable_message(%{reason: reason} = detail) do
     problem =
       case reason do
-        :disconnected -> "is disconnected. Reconnect it"
-        :revoked -> "is no longer accepted by OpenAI. Reconnect it"
-        :expired -> "has expired. Reconnect it"
-        :reconnect_required -> "can no longer be renewed. Reconnect it"
-        :exhausted -> "has used its Codex allowance#{until(detail)}. Wait for the reset"
+        :disconnected -> "is disconnected"
+        :revoked -> "is no longer accepted by OpenAI"
+        :expired -> "has expired"
+        :reconnect_required -> "can no longer be renewed"
+        _ -> "cannot serve this run"
       end
 
-    "ChatGPT subscription #{inspect(name)} #{problem}, or point this credential set at " <>
-      "another subscription. " <> @no_fallback
+    "ChatGPT subscription #{inspect(detail[:name])} #{problem}. Reconnect it, or point this " <>
+      "credential set at another subscription, #{@then_new}. " <> @no_fallback
   end
+
+  @doc """
+  A resolution refusal as it may be written to the application log. A
+  `t:grant_unusable/0` carries the name the tenant chose for the
+  subscription, which is free text and theirs; the log gets the grant id,
+  the reason and the reset time, which say the same thing to an operator.
+  Every other reason is returned as it is.
+  """
+  @spec loggable_reason(term()) :: term()
+  def loggable_reason({:chatgpt_grant_unusable, %{} = detail}),
+    do: {:chatgpt_grant_unusable, Map.take(detail, [:grant_id, :reason, :until])}
+
+  def loggable_reason(reason), do: reason
 
   defp until(%{until: %DateTime{} = at}),
     do: " until " <> (at |> DateTime.truncate(:second) |> DateTime.to_iso8601())

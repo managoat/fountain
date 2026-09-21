@@ -495,7 +495,7 @@ defmodule Fountain.Conversations.ConversationServer do
 
       {:error, reason} ->
         Logger.error(
-          "ConversationServer could not load tenant credentials for conv #{conv.id} (user #{conv.user_id}): #{inspect(reason)}"
+          "ConversationServer could not load tenant credentials for conv #{conv.id} (user #{conv.user_id}): #{inspect(Fountain.InferenceCredentials.loggable_reason(reason))}"
         )
 
         # Through the owner (ADR 0058 stage 7b), which re-reads the status this
@@ -1003,7 +1003,8 @@ defmodule Fountain.Conversations.ConversationServer do
           # A cast has no caller to reply to. Preserve existing work and its
           # connection when this queued prompt cannot be admitted.
           Logger.info(
-            "conv #{state.conversation_id}: dropping initial prompt (#{inspect(reason)})"
+            "conv #{state.conversation_id}: dropping initial prompt " <>
+              "(#{inspect(Fountain.InferenceCredentials.loggable_reason(reason))})"
           )
 
           {:noreply, state}
@@ -1654,7 +1655,11 @@ defmodule Fountain.Conversations.ConversationServer do
   end
 
   defp log_initial_refusal(state, reason) do
-    Logger.info("conv #{state.conversation_id}: initial turn refused (#{inspect(reason)})")
+    Logger.info(
+      "conv #{state.conversation_id}: initial turn refused " <>
+        "(#{inspect(Fountain.InferenceCredentials.loggable_reason(reason))})"
+    )
+
     state
   end
 

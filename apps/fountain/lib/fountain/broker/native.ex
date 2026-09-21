@@ -125,6 +125,8 @@ defmodule Fountain.Broker.Native do
       RequestLog.record(row(meta, measurements, session, conv))
     end
 
+    if Map.get(meta, :error) == :credential_reflected, do: reflected(conv, meta)
+
     :ok
   rescue
     error ->
@@ -134,6 +136,23 @@ defmodule Fountain.Broker.Native do
     kind, reason ->
       Logger.warning("broker: request log handler skipped a row: #{inspect({kind, reason})}")
       :ok
+  end
+
+  # The origin's answer to a protected request repeated the bearer it was sent
+  # with, and the proxy cut it (managoat_broker 0.15.0). Every other ending is
+  # a row and an info line; this one is an origin, or something in front of
+  # it, handing a subscription's token towards a sandbox, so it is said at
+  # `error`. By conversation, host and rule: the event holds neither the
+  # bearer nor the bytes that matched, and the path is already redacted. Once
+  # a minute per conversation, because a sandbox that finds an echoing route
+  # chooses how often this happens.
+  defp reflected(conv, meta) do
+    Fountain.LogThrottle.error(
+      {:broker_credential_reflected, conv},
+      "broker: the response to #{meta.method} #{meta.host} under rule #{meta.rule} " <>
+        "repeated the credential it was sent with, for conv #{conv || "?"}; the response " <>
+        "was cut and the sandbox did not get the credential"
+    )
   end
 
   # `credential_keys` names the environment variables whose values the proxy

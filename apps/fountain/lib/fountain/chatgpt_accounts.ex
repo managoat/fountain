@@ -52,19 +52,47 @@ defmodule Fountain.ChatGPTAccounts do
   `Fountain.Broker.Native.Sessions.authorize/2` (ADR 0052 decision 5). They
   are the only way a grant's bearer reaches the proxy.
 
-  **No user can reach any of these yet.** There is no route, no page and no
-  job, so no user holds a grant. The one call production code makes is the
-  resolver's `get_for_user/2`, for every set that names a grant, of which
-  there are none: it turns such a set into a `:grant` source or an error
-  naming the grant. `InferenceCredentials.set_grant/3` reads through the
-  same function and has no production caller either (ADR 0060 stage 4 adds
-  it), and `remove_for_user/3` asks the sets before it deletes. A conversation
-  that resolved to a grant runs on it: `ensure_fresh_for_user/3` renews it
-  before each turn, outside the source lock, and the broker reads it through
-  the two functions below (ADR 0060 stage 3). The account surface and the
-  keepalive schedule are stages 4 and 5. Until the keepalive exists an idle
-  user grant would lapse at the auth server's window, which is one reason
-  linking is not reachable.
+  ## Link attempts
+
+  A user's grant is linked, and reconnected, by a device-code sign-in that
+  takes a person minutes, so it is a durable row of its own
+  (`Fountain.ChatGPTAccounts.LinkAttempt`) and no process holds any of it
+  (ADR 0060 decision 3, stage 4). The bodies are in
+  `Fountain.ChatGPTAccounts.LinkAttempts`; this module is the interface.
+
+    * `start_attempt_for_user/3`, `get_attempt_for_user/2`,
+      `list_pending_attempts_for_user/1`, `cancel_attempt_for_user/3` -- what
+      the owner does. A view (`Fountain.ChatGPTAccounts.AttemptView`) carries
+      the user code while the attempt is pending and nothing else that is
+      secret.
+    * `poll_attempt_for_user/3`, `complete_attempt_for_user/4` -- what
+      `Fountain.Workers.ChatGPTLinkAttempt` does: ask the auth server once,
+      outside any lock, and on approval store the grant and end the attempt
+      in one transaction, fenced against a cancel, the attempt's expiry and a
+      newer generation of the grant.
+    * `linking_enabled_for?/1` -- the gate on a **new** link, and on nothing
+      else: the broker and the `chatgpt_subscriptions` flag, which fails
+      closed.
+    * `topic/1`, `subscribe/1` -- `{:chatgpt_grants_changed, user_id}` after
+      every committed write to a user's grants or attempts.
+
+  An attempt's writes take the owner's source key and then the attempt's
+  row, and a completion then takes the grant's: the order below with one
+  more row in front.
+
+  **What reaches these.** `/api/account/chatgpt-subscriptions`
+  (`FountainWeb.ChatGPTSubscriptionController`) lists, renames, disconnects
+  and removes grants and starts, reads and cancels attempts; the attempt's
+  worker links and reconnects; the resolver's `get_for_user/2` turns a set
+  that names a grant into a `:grant` source or an error naming the grant,
+  and `InferenceCredentials.set_grant/3` reads through the same function. A
+  conversation that resolved to a grant runs on it:
+  `ensure_fresh_for_user/3` renews it before each turn, outside the source
+  lock, and the broker reads it through the two functions above (ADR 0060
+  stage 3). There is no console page yet (stage 4b), and a new link is off
+  wherever nobody turned the flag on. The keepalive schedule is stage 5:
+  until it exists an idle user grant lapses at the auth server's window,
+  which is one reason the flag stays off.
 
   ### The source lock, and one rule for whoever selects a grant
 
@@ -255,7 +283,8 @@ defmodule Fountain.ChatGPTAccounts do
 
   @doc """
   Link one more subscription to `user_id` under `name`, from a token set the
-  caller obtained for them. **Nothing in production calls this yet.**
+  caller obtained for them. Its production caller is
+  `complete_attempt_for_user/4`.
 
   Refused, with nothing written and nothing audited:
 

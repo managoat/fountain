@@ -157,6 +157,130 @@ defmodule FountainWeb.FallbackController do
     })
   end
 
+  # ── ChatGPT subscriptions and their sign-ins (ADR 0060 stage 4) ──────────
+  #
+  # `FountainWeb.ChatGPTSubscriptionController` tags the context's bare atoms
+  # as `{:chatgpt_subscription, atom}`: `:still_connected` and
+  # `:ineligible_owner` say too little to be matched here on their own. The
+  # rule is the one above: a bad state of something the caller owns is a 409.
+  # Names the tenant chose, ids and counts; never a code, a token or an email.
+
+  # The Connections precedent (#1693): a feature this account does not have
+  # is a 404, and only the door that adds one answers it.
+  def call(conn, {:error, {:chatgpt_subscription, :subscriptions_not_enabled}}) do
+    conn
+    |> put_status(:not_found)
+    |> json(%{
+      error: "chatgpt_subscriptions_not_enabled",
+      message:
+        "linking a ChatGPT subscription is not enabled for this account; subscriptions it " <>
+          "already holds can still be listed, renamed, disconnected and removed"
+    })
+  end
+
+  def call(conn, {:error, {:chatgpt_subscription, :ineligible_owner}}) do
+    conn
+    |> put_status(:forbidden)
+    |> json(%{
+      error: "chatgpt_owner_ineligible",
+      message:
+        "only a verified account that is not suspended and is not a principal may link, " <>
+          "reconnect or rename a ChatGPT subscription"
+    })
+  end
+
+  def call(conn, {:error, {:chatgpt_subscription, :still_connected}}) do
+    conn
+    |> put_status(:conflict)
+    |> json(%{
+      error: "chatgpt_grant_still_connected",
+      message: "disconnect the subscription before removing it"
+    })
+  end
+
+  def call(conn, {:error, {:chatgpt_subscription, :invalid_target}}) do
+    conn
+    |> put_status(:unprocessable_entity)
+    |> json(%{
+      error: "validation_failed",
+      errors: %{name: ["give a name for a new subscription, or a grant_id to reconnect one"]}
+    })
+  end
+
+  def call(conn, {:error, {:chatgpt_subscription, :tenant_key_unavailable}}) do
+    conn
+    |> put_status(:service_unavailable)
+    |> json(%{
+      error: "chatgpt_tenant_key_unavailable",
+      message: "the account's encryption key could not be loaded; nothing was started"
+    })
+  end
+
+  def call(conn, {:error, {:chatgpt_subscription, :auth_unreachable}}) do
+    conn
+    |> put_status(:bad_gateway)
+    |> json(%{
+      error: "chatgpt_auth_unreachable",
+      message: "ChatGPT's sign-in service gave no device code; nothing was started, try again"
+    })
+  end
+
+  def call(conn, {:error, {:grant_limit_reached, %{count: count, limit: limit}}}) do
+    conn
+    |> put_status(:conflict)
+    |> json(%{
+      error: "chatgpt_grant_limit_reached",
+      count: count,
+      limit: limit,
+      message:
+        "this account holds #{count} of #{limit} ChatGPT subscriptions; a disconnected one " <>
+          "counts until it is removed"
+    })
+  end
+
+  def call(conn, {:error, {:named_by_sets, names}}) when is_list(names) do
+    conn
+    |> put_status(:conflict)
+    |> json(%{
+      error: "chatgpt_grant_named_by_sets",
+      sets: names,
+      message:
+        "credential sets still name this subscription: #{Enum.join(names, ", ")}; point " <>
+          "them elsewhere first"
+    })
+  end
+
+  def call(conn, {:error, {:link_attempt_pending, %{attempt_id: attempt_id}}}) do
+    conn
+    |> put_status(:conflict)
+    |> json(%{
+      error: "chatgpt_link_attempt_pending",
+      attempt_id: attempt_id,
+      message: "a sign-in is already open for this subscription; read or cancel that one"
+    })
+  end
+
+  def call(conn, {:error, {:link_attempts_exceeded, %{count: count, limit: limit}}}) do
+    conn
+    |> put_status(:conflict)
+    |> json(%{
+      error: "chatgpt_link_attempts_exceeded",
+      count: count,
+      limit: limit,
+      message: "this account has #{count} sign-ins open; finish or cancel one first"
+    })
+  end
+
+  def call(conn, {:error, {:link_attempt_not_pending, %{state: state}}}) do
+    conn
+    |> put_status(:conflict)
+    |> json(%{
+      error: "chatgpt_link_attempt_not_pending",
+      state: state,
+      message: "the sign-in is already #{state}"
+    })
+  end
+
   def call(conn, {:error, :inference_credential_unusable}) do
     conn
     |> put_status(:unprocessable_entity)

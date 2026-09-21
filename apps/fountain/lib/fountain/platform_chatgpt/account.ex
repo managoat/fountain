@@ -76,7 +76,7 @@ defmodule Fountain.PlatformChatGPT.Account do
 
   There is no plaintext column. The application writers are
   `Fountain.ChatGPTAccounts`'s admin mutations and refresh path, and its
-  `*_for_user` writes, which nothing in production calls yet (ADR 0060).
+  `*_for_user` writes (ADR 0060).
   """
 
   use Ecto.Schema

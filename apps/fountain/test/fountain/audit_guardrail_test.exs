@@ -100,8 +100,8 @@ defmodule Fountain.AuditGuardrailTest do
     # ADR 0060 stage 2. No surface calls it yet, like the grant writes below.
     {"credential set names a chatgpt grant", &__MODULE__.do_set_grant/1,
      "inference_credential_set.chatgpt_grant_changed"},
-    # A user's ChatGPT grants (ADR 0060 stage 1). No surface calls these yet;
-    # the entries are here so the first one that does inherits the events.
+    # A user's ChatGPT grants (ADR 0060 stage 1), reached through
+    # `/api/account/chatgpt-subscriptions` and the link attempt's worker.
     {"chatgpt grant link", &__MODULE__.do_grant_link/1, "chatgpt_grant.connected"},
     {"chatgpt grant rename", &__MODULE__.do_grant_rename/1, "chatgpt_grant.renamed"},
     {"chatgpt grant disconnect", &__MODULE__.do_grant_disconnect/1, "chatgpt_grant.disconnected"},

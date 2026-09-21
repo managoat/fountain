@@ -948,7 +948,7 @@ defmodule Fountain.ChatGPTAccounts do
     with {:ok, query} <- active_grant_query(ref),
          %Account{account_id: ^identity} = account <- Repo.one(query, @request_read),
          :ok <- servable(account) do
-      case Cipher.decrypt_token(account, :access_token, @request_read) do
+      case Cipher.decrypt_token(account, :access_token, read: @request_read, throttle_log: true) do
         {:ok, access_token} -> {:ok, Grant.new(account, access_token)}
         {:error, _} -> {:error, :unavailable}
       end

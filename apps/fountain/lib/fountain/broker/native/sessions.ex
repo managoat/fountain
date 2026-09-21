@@ -275,8 +275,14 @@ defmodule Fountain.Broker.Native.Sessions do
 
   # By session id and cause only. Never the request, and never an exception's
   # message: a database error can quote the statement and its parameters.
+  # Once a minute per session and cause, because the sandbox chooses how many
+  # requests fail this way and must not choose the log's volume with them.
   defp unavailable(session_id, cause) do
-    Logger.warning("broker: authorization for session #{session_id} is unavailable: #{cause}")
+    Fountain.LogThrottle.warning(
+      {:broker_authorization, session_id, cause},
+      "broker: authorization for session #{session_id} is unavailable: #{cause}"
+    )
+
     {:error, :unavailable}
   end
 

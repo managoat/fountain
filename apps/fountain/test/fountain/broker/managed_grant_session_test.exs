@@ -413,6 +413,32 @@ defmodule Fountain.Broker.Native.ManagedGrantSessionTest do
         end
       end
 
+      # The sandbox chooses how many requests there are. It must not choose
+      # how many lines the log gets with them.
+      test "a token that will not open is refused every time and logged once",
+           %{owner: owner, user: user, conv: conv} do
+        {account, _access, managed} = grant(owner, user)
+        {:ok, _} = prepare(conv, user, managed)
+        id = row(conv).id
+        Fountain.LogThrottle.reset()
+
+        Repo.update_all(from(a in Account, where: a.id == ^account.id),
+          set: [access_token_ciphertext: :crypto.strong_rand_bytes(64)]
+        )
+
+        log =
+          ExUnit.CaptureLog.capture_log(fn ->
+            for _ <- 1..20 do
+              assert {:error, :unavailable} = Sessions.authorize({:managed, id}, @protected)
+            end
+          end)
+
+        assert length(String.split(log, "does not decrypt")) == 2
+        assert length(String.split(log, "authorization for session #{id} is unavailable")) == 2
+        # And the ordinary half of the session is untouched by any of it.
+        assert {:ok, [_ | _]} = Sessions.authorize({:managed, id}, @ordinary)
+      end
+
       test "a store that cannot answer is unavailable, never a cached success",
            %{owner: owner, user: user, conv: conv} do
         {_account, _access, managed} = grant(owner, user)

@@ -520,6 +520,69 @@ defmodule Fountain.Conversations.CodexGrantPeersTest do
     end
   end
 
+  # ADR 0060 decision 4 through the server's own start, which is what a
+  # reattach after a restart is: no wake door has looked at the source first.
+  # The conversation is pinned to a grant at its usage limit while the user's
+  # other subscription, in the same sandbox, is usable.
+  test "a server reattaching a conversation pinned to a spent grant is refused with the reset, and nothing is substituted",
+       %{user: user} = ctx do
+    record_sandbox()
+    [personal, work] = ctx.peers
+    until = DateTime.utc_now() |> DateTime.add(3_600) |> DateTime.truncate(:second)
+
+    # Pinned, as a conversation that has run a turn is.
+    {:ok, %Source{scope: :grant} = source, _} =
+      InferenceCredentials.resolve(user.id, "openai/gpt-5.5-codex", "codex",
+        credential_set_id: personal.conv.inference_credential_id
+      )
+
+    pinned = Source.dump(source)
+    personal.conv |> Ecto.Changeset.change(inference_source: pinned) |> Repo.update!()
+
+    Repo.update_all(
+      from(a in Fountain.PlatformChatGPT.Account, where: a.id == ^personal.grant.id),
+      set: [usage_exhausted_until: until]
+    )
+
+    assert {:ok, %Source{scope: :grant}, _} =
+             InferenceCredentials.resolve(user.id, "openai/gpt-5.5-codex", "codex",
+               credential_set_id: work.conv.inference_credential_id
+             )
+
+    {_pid, ref, _} = start_server(personal.conv, runtime: Managoat.Runtimes.Codex)
+    assert_stopped(ref)
+
+    failed =
+      personal.conv.id
+      |> Conversations._unsafe_list_log_events()
+      |> Enum.find(&(&1.kind == "stage" and &1.state == "failed"))
+
+    assert %{
+             "reason" => "chatgpt_grant_unusable",
+             "grant_reason" => "exhausted",
+             "grant_id" => grant_id,
+             "until" => reset,
+             "message" => message,
+             "retryable" => false
+           } = Jason.decode!(failed.data)
+
+    assert grant_id == personal.grant.id
+    assert reset == DateTime.to_iso8601(until)
+    assert message =~ "Personal"
+
+    # Nothing ran in its place: no runtime, no broker session, no source
+    # written over the conversation's, and the machine is as it was.
+    refute_received {:spawned, _, _, _}
+    assert Repo.aggregate(Session, :count) == 0
+    assert Repo.reload!(personal.conv).inference_source == pinned
+    assert Repo.reload!(ctx.sandbox).status == "ready"
+
+    # This door is terminal for the conversation, as it is for a grant that
+    # was disconnected: the prompt door (`Wake.wake_conversation/3`) refuses
+    # before any server starts and leaves the row alone.
+    assert Repo.reload!(personal.conv).status == "failed"
+  end
+
   test "a session re-minted for a grant disconnected since is refused: no fresh session for it",
        %{user: user} = ctx do
     record_sandbox()

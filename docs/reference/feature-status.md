@@ -19,9 +19,8 @@ instance until you force its flag on. We do not say that it works end to
 end, because we have not shown that it does.
 
 On 2026-09-21 we turned ChatGPT subscriptions on for every account on the
-hosted platform. We did that early. Every user of the hosted platform then
-was the maintainer or a friend of the maintainer, and the parts that we have
-not tested fail in a way that you can recover from. When we turned it on, a
+hosted platform. We did that early, because the parts that we have not
+tested fail in a way that you can recover from. When we turned it on, a
 user's subscription had not done these things against the real service:
 
 - A sign-in with a code at `auth.openai.com`, and the job that waits for the

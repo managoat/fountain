@@ -384,6 +384,24 @@ defmodule Fountain.ChatGPTUserExhaustionTest do
       assert %Account{usage_exhausted_until: nil} = Repo.get!(Account, grant.id)
     end
 
+    test "the reason a log line may say is total, and is never what it was given" do
+      alias Fountain.PlatformChatGPT.UsageLimit
+
+      assert UsageLimit.loggable_reason({:usage, 401}) == {:usage, 401}
+      assert UsageLimit.loggable_reason(:unexpected_usage_body) == :unexpected_usage_body
+
+      for transport <- [
+            %Req.TransportError{reason: :econnrefused},
+            {:headers, [{"authorization", "Bearer sk"}]}
+          ] do
+        assert UsageLimit.loggable_reason({:usage, transport}) == {:usage, :transport}
+      end
+
+      for unknown <- [{:other, "Bearer sk"}, "Bearer sk", %{token: "sk"}, 7] do
+        assert UsageLimit.loggable_reason(unknown) == :other
+      end
+    end
+
     test "concurrent hints make one call" do
       user = insert_verified_user()
       grant = user_grant!(user.id)

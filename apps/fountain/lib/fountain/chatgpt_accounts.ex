@@ -1604,7 +1604,7 @@ defmodule Fountain.ChatGPTAccounts do
   defp log_inconclusive(%Account{user_id: nil}, reason) do
     Logger.warning(
       "platform chatgpt: usage check was inconclusive; recording nothing: " <>
-        inspect(inconclusive(reason))
+        inspect(UsageLimit.loggable_reason(reason))
     )
   end
 
@@ -1612,17 +1612,9 @@ defmodule Fountain.ChatGPTAccounts do
   defp log_inconclusive(%Account{id: id}, reason) do
     Logger.warning(
       "chatgpt grant #{id}: usage check was inconclusive; recording nothing: " <>
-        inspect(inconclusive(reason))
+        inspect(UsageLimit.loggable_reason(reason))
     )
   end
-
-  # Total: a reason this does not know is `:other`, and never raises inside
-  # a log line or prints what it was given.
-  @spec inconclusive(term()) :: {:usage, integer() | :transport} | atom()
-  defp inconclusive({:usage, status}) when is_integer(status), do: {:usage, status}
-  defp inconclusive({:usage, _}), do: {:usage, :transport}
-  defp inconclusive(reason) when is_atom(reason), do: reason
-  defp inconclusive(_reason), do: :other
 
   defp grant_fence(%Source{
          scope: :platform,

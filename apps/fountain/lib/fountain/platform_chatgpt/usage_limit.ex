@@ -103,6 +103,18 @@ defmodule Fountain.PlatformChatGPT.UsageLimit do
     _kind, _value -> {:error, :transport}
   end
 
+  @doc """
+  What a log line may say of `fetch/3`'s `{:error, reason}`: a status or an
+  atom, never what the transport said. Total, so a reason this does not know
+  is `:other` and no log line raises. Public so that it is checked as
+  written and not against today's callers, whose reasons are fewer.
+  """
+  @spec loggable_reason(term()) :: {:usage, integer() | :transport} | atom()
+  def loggable_reason({:usage, status}) when is_integer(status), do: {:usage, status}
+  def loggable_reason({:usage, _}), do: {:usage, :transport}
+  def loggable_reason(reason) when is_atom(reason), do: reason
+  def loggable_reason(_reason), do: :other
+
   @doc "Read a `/wham/usage` body. See the moduledoc."
   @spec limited(map(), DateTime.t()) :: {:limited, DateTime.t()} | :not_limited | {:error, term()}
   def limited(%{"rate_limit" => %{} = rate_limit} = body, now) do

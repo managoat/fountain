@@ -71,7 +71,8 @@ defmodule Fountain.ChatGPTAccounts.Reserved do
   @doc false
   def validate_value(changeset, field) do
     if value_conflict?(Ecto.Changeset.get_field(changeset, field)),
-      do: Ecto.Changeset.add_error(changeset, field, "is reserved for managed ChatGPT credentials"),
+      do:
+        Ecto.Changeset.add_error(changeset, field, "is reserved for managed ChatGPT credentials"),
       else: changeset
   end
 

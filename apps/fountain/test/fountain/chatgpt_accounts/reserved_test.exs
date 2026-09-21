@@ -126,7 +126,10 @@ defmodule Fountain.ChatGPTAccounts.ReservedTest do
             ~s({"Authorization": "Bearer sk-#{Reserved.placeholder()}"}),
             "{{ CODEX_CHATGPT_ACCESS_TOKEN }}",
             "Bearer {{CODEX_CHATGPT_ACCESS_TOKEN}}",
-            %Fountain.ChatGPTAccounts.Grant{access_token: "bearer", source: %{account_id: "acct"}},
+            %Fountain.ChatGPTAccounts.Grant{
+              access_token: "bearer",
+              source: %{account_id: "acct"}
+            },
             {:nested, grant}
           ] do
         assert Reserved.value_conflict?(value)

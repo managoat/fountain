@@ -343,7 +343,11 @@ defmodule Fountain.Conversations.CodexChatGPTTest do
       # And what it exports is nothing: not the entry the shared path keys on.
       creds = %{codex_chatgpt_access_token: @placeholder}
 
-      for bad <- [%{source | grant_id: nil}, %{source | generation: nil}, %{source | grant_id: "x"}] do
+      for bad <- [
+            %{source | grant_id: nil},
+            %{source | generation: nil},
+            %{source | grant_id: "x"}
+          ] do
         assert CodexChatGPT.env(Managoat.Runtimes.Codex, creds, bad) == []
       end
     end

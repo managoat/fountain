@@ -218,8 +218,8 @@ defmodule Fountain.Conversations.CodexChatGPT do
   # grant a changed source. A row that is still what this conversation
   # resolved was refused for its owner or for naming no account, and the
   # credential read tells those apart.
-  defp fenced(%{owner: {:user, user_id}, grant_id: grant_id, generation: generation} = ref, source) do
-    case ChatGPTAccounts.get_for_user(grant_id, user_id) do
+  defp fenced(%{owner: {:user, user_id}, generation: generation} = ref, source) do
+    case ChatGPTAccounts.get_for_user(ref.grant_id, user_id) do
       {:ok, %{status: "active", generation: ^generation}} ->
         case ensure_fresh(user_id, source) do
           {:error, refusal} -> refusal

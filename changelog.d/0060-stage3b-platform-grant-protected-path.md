@@ -50,6 +50,13 @@
   is written; a row that predates that check now fails the provision with
   `managed_credential_conflict`. Remove the binding.
 
+- **A `CODEX_HOME` of your own is ignored in a codex conversation on the
+  deployment's ChatGPT account** (#2453). Fountain sets `CODEX_HOME` for such
+  a conversation, to the directory that holds the account's `auth.json`, and
+  drops one named in the environment's variables, its secrets or a vault,
+  without an error. It used to be passed through. Conversations on an API
+  key keep theirs.
+
 - **Migration `20260921025746` deletes the broker sessions of codex
   conversations on the account** (#2453), because they hold the token as a
   rule. A turn on the account that is in flight across the upgrade fails at

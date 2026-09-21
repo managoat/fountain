@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "A user links several ChatGPT subscriptions, and a credential set names one"
-description: "All five stages are built except stage 5's controlled run with two real subscriptions, and the ADR is still Proposed: accepting it is the maintainer's decision (the table, the owner-scoped context and the per-owner source lock; a credential set naming a grant and resolution to it with no fallback; the transport and custody: a CODEX_HOME per grant and generation, broker sessions that carry which grant they may use, and a per-request check against the durable generation; then durable link attempts, /api/account/chatgpt-subscriptions, and the ChatGPT subscriptions card and the set picker in the console; then exhaustion recorded for a user's grant when OpenAI confirms it with nothing substituted, which grant served a turn, a daily keepalive with one job per grant, and grants in the account export and deletion). Linking is behind a flag that is off everywhere, and a rollout checklist says what is owed before it is on for anyone. Rebuilds ADR 0052's user surface with many grants per user instead of one: the grant table loses its one-row-per-user index for a named row, an inference credential set names a grant, and an agent selects a subscription the same way it selects an API key. No automatic failover between a user's subscriptions and no platform fallback when the named one is exhausted."
+description: "All five stages are built except stage 5's controlled run with two real subscriptions, and the ADR is still Proposed: accepting it is the maintainer's decision (the table, the owner-scoped context and the per-owner source lock; a credential set naming a grant and resolution to it with no fallback; the transport and custody: a CODEX_HOME per grant and generation, broker sessions that carry which grant they may use, and a per-request check against the durable generation; then durable link attempts, /api/account/chatgpt-subscriptions, and the ChatGPT subscriptions card and the set picker in the console; then exhaustion recorded for a user's grant when OpenAI confirms it with nothing substituted, which grant served a turn, a daily keepalive with one job per grant, and grants in the account export and deletion). A change of its own after stage 3 (stage 3b, #2458) moves the deployment's grant (ADR 0047) onto that path and drains its legacy broker sessions; it is gated on a measurement against the image's codex client that has not been taken. Linking is behind a flag that is off everywhere, and a rollout checklist says what is owed before it is on for anyone. Rebuilds ADR 0052's user surface with many grants per user instead of one: the grant table loses its one-row-per-user index for a named row, an inference credential set names a grant, and an agent selects a subscription the same way it selects an API key. No automatic failover between a user's subscriptions and no platform fallback when the named one is exhausted."
 tags: [inference, codex, oauth, security, billing]
 status: draft
 adr: "0060"
@@ -1020,6 +1020,28 @@ Five things stage 3 settled or found:
      its session nears expiry or the server restarts. Asking the store
      whether the session still exists before each turn would close it for a
      read per turn; it was not built, for a window that ends with the roll.
+   - **The platform bearer is no longer registered for output redaction.**
+     It used to be in `brokered`, which `Redaction` registers on every
+     provision and before every turn. Now no conversation holds it, so
+     there is nothing to register it from, exactly as for a user's grant
+     ("The typed input"). Gate A, the proxy scrubbing or refusing a
+     protected response that reflects the bearer, therefore covers the
+     platform grant too, and for it the exposure is not waiting on stage 4:
+     it opens when this change deploys. The only destination is the one
+     Codex route, which is not known to reflect `Authorization`.
+   - **A tenant's `CODEX_HOME` is dropped on a platform-grant
+     conversation.** `own_home?/1` is true for the platform source now, so
+     `SpriteEnv` drops a `CODEX_HOME` from the environment's variables, its
+     secrets and the vault, silently, as it does beside a user's grant. It
+     used to pass through. It has to go: the list is concatenated and the
+     last entry of a name wins at the spawn, so a tenant's value would
+     point codex away from the home the grant's `auth.json` is in.
+   - **A key beside the grant refuses the provision.** `prepare_sandbox/5`
+     used to answer `:skip` for the platform grant with an `OPENAI_API_KEY`
+     in the spawn env, and the library's login ran on the key. The grant's
+     `CODEX_HOME` and its HTTP-only session do not skip with it, so it is
+     `:codex_grant_key_conflict` now, as for a user's. The resolver is
+     believed never to hand out both.
    - **Observable, and in the changelog:** no WebSocket or other upgrade
      through the broker from a codex conversation on the account, to any
      host (`http_only` is per session); `chatgpt.com` reachable on the one
@@ -1201,7 +1223,14 @@ library release, a rate cap, and two lock orders.
 
 **Two security gates, not built, both before the console surface opens
 (stage 4's route, stage 5's gate), and both a `managoat_broker` release
-rather than Fountain code:**
+rather than Fountain code.** Since item 4's move they cover the
+deployment's grant as well, which is not waiting on any console surface:
+for it both are open from the day the move deploys. Against that, the move
+closes more than they open: before it the same bearer sat in a stored rule,
+reachable from a header template, on every `chatgpt.com` path and over a
+WebSocket. Whether to deploy the move ahead of the library release is a
+call for whoever passes the merge gate above, and this ADR does not make
+it.
 
 - **Gate A: the bearer in a response.** The grant's bearer is the one
   brokered credential absent from the conversation's redaction registry (see

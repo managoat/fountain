@@ -62,7 +62,8 @@ platform's grant and for a user's. The deployment's own grant then moved
 onto that path in a change of its own, which is decision 6's "apply these
 restrictions to the existing platform path before enabling user grants":
 its bearer left the `brokered` map and the stored rules, the legacy
-sessions are drained by a migration, and `Egress` no longer compares token
+sessions are drained by a migration and then by the session store whenever
+it meets one, and `Egress` no longer compares token
 strings. **Still owed:** decision 5's "evict cached credentials and close
 affected tunnels across serving nodes", the drain of *upgraded connections*
 (they die with their node on the roll, which is assumed and not enforced)
@@ -115,7 +116,9 @@ The existing implementation provides most of the transport:
   platform key for the null-owner row, the owner's DEK otherwise
   (#2011–#2015). The `PlatformChatGPT` facade that read only
   `user_id IS NULL` is gone (#2112). `CodexChatGPT.prepare_sandbox/3` and
-  `Egress.refresh_platform_chatgpt/2` fetch the platform (null-owner) row.
+  `Egress.refresh_platform_chatgpt/2` fetched the platform (null-owner) row
+  when this was written. 0060 has since deleted the second, and the first
+  reads a grant pinned by owner, id and generation.
 - `PlatformChatGPT.Refresher` serializes on one node. Across nodes, before
   #2013, its compare-and-swap prevented stale writes but did not prevent
   duplicate refresh requests reaching OpenAI, and terminal-error writes

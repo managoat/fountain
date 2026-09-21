@@ -21,7 +21,8 @@ schedule that keeps an idle subscription's sign-in alive, the record of which
 subscription served a turn, and two protections at the credential broker for
 a response or a request that carries the subscription's token. The flag holds
 only the door that links a new subscription. An account that holds one can
-always list, rename, reconnect, disconnect and remove it.
+always list, rename, disconnect and remove it. It can reconnect it on a
+deployment that has the credential broker.
 
 **Alpha.** The feature works end to end, and we have not yet decided its final
 shape. Its API and its tools can change between releases without an upgrade

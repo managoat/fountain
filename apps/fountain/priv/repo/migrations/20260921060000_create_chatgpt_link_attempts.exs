@@ -27,9 +27,13 @@ defmodule Fountain.Repo.Migrations.CreateChatgptLinkAttempts do
   # `chatgpt_link_attempts_open_reconnect` is one open reconnect per grant.
   # The context refuses the second by id before the index can; the index is
   # the backstop.
-  def change do
+  #
+  # `up` and `down`, not `change`: a reversed `change` runs its statements
+  # last to first, so the `lock_timeout` would be set after the drop it is
+  # there for.
+  def up do
     # The reference takes a lock on `users`; do not queue behind a long one.
-    execute("SET LOCAL lock_timeout = '5s'", "SET LOCAL lock_timeout = '5s'")
+    execute("SET LOCAL lock_timeout = '5s'")
 
     create table(:chatgpt_link_attempts, primary_key: false) do
       add :id, :binary_id, primary_key: true
@@ -87,5 +91,10 @@ defmodule Fountain.Repo.Migrations.CreateChatgptLinkAttempts do
     create constraint(:chatgpt_link_attempts, :chatgpt_link_attempt_poll_interval,
              check: "poll_interval >= 1"
            )
+  end
+
+  def down do
+    execute("SET LOCAL lock_timeout = '5s'")
+    drop table(:chatgpt_link_attempts)
   end
 end

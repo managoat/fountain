@@ -44,6 +44,25 @@ defmodule Fountain.PlatformChatGPT.OAuthTest do
     assert elapsed < Application.get_env(:fountain, :connections_timeout_ms, 15_000)
   end
 
+  # `post/3` decodes by hand and keeps what it cannot decode as the binary it
+  # was, so these are every shape a failure body reaches `error_code/1` in.
+  test "a body that is not a JSON object is unreadable, and an object with no code is unknown" do
+    for body <- ["", "<html>Access denied</html>", ~s({"error":"rate_lim), "blocked", nil, 42, []] do
+      assert OAuth.error_code(body) == "unreadable"
+    end
+
+    for body <- [%{}, %{"detail" => "no"}, %{"error" => 1}, %{"error" => %{"message" => "no"}}] do
+      assert OAuth.error_code(body) == "unknown"
+    end
+
+    assert OAuth.error_code(%{"error" => "rate_limited"}) == "rate_limited"
+
+    assert OAuth.error_code(%{"error" => %{"code" => "refresh_token_reused"}}) ==
+             "refresh_token_reused"
+
+    assert OAuth.error_code(%{"error" => %{"type" => "invalid_request"}}) == "invalid_request"
+  end
+
   defp restore_env(key, {:ok, value}), do: Application.put_env(:fountain, key, value)
   defp restore_env(key, :error), do: Application.delete_env(:fountain, key)
 end

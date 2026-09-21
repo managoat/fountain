@@ -465,6 +465,12 @@ defmodule Fountain.ChatGPTAccounts.LinkAttempts do
       else: failed(attempt, failure)
   end
 
+  # A success whose body could not be read was cut short on the way: a
+  # transport failure that happens to have a status (`OAuth.post/3` keeps it).
+  defp retryable?({_leg, status, unread})
+       when status in 200..299 and unread in [nil, "unreadable"],
+       do: true
+
   defp retryable?({_leg, status, _body}) when is_integer(status),
     do: status in [408, 425, 429] or status >= 500
 

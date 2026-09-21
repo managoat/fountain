@@ -354,6 +354,13 @@ defmodule Fountain.Workers.ChatGPTGrantKeepaliveTest do
           {"a 403 that is an HTML page", 403, "text/html",
            "<html><body>Access denied</body></html>", true},
           {"a 403 with no body", 403, "text/plain", "", true},
+          # Labelled JSON and not JSON: the status still says what it was.
+          {"a 429 labelled JSON with no body", 429, "application/json", "", true},
+          {"a 429 whose JSON is cut short", 429, "application/json", ~s({"error":"rate_lim),
+           true},
+          {"a 403 labelled JSON with no body", 403, "application/json", "", true},
+          {"a 403 whose JSON is cut short", 403, "application/json", ~s({"error":{"code":"acc),
+           true},
           {"a 403 whose JSON object names a code", 403, "application/json",
            ~s({"error":{"code":"account_deactivated"}}), false},
           {"a 403 whose JSON object names none", 403, "application/json",

@@ -453,6 +453,8 @@ defmodule FountainWeb.ChatGPTSubscriptionControllerTest do
 
       assert %{"error" => "chatgpt_tenant_key_unavailable"} =
                conn |> post_json(@base <> "/attempts", %{"name" => "Work"}) |> json_response(503)
+
+      refute_received :device_start
     end
 
     test "the eleventh in an hour from one key is 429", %{conn: conn} do

@@ -74,8 +74,19 @@ defmodule Fountain.ChatGPTAccounts.LinkAttempts do
 
   defp admit(user_id, target, now) do
     with :ok <- ChatGPTAccounts.eligible_owner(user_id),
+         :ok <- key_loads(user_id),
          :ok <- under_pending_limit(user_id, now) do
       admit_target(user_id, target, now)
+    end
+  end
+
+  # The code the auth server hands back has to be encrypted to be kept, so an
+  # account whose key will not load is told before the auth server is asked.
+  # Not the key's own reason: `:not_found` here would read as "no such grant".
+  defp key_loads(user_id) do
+    case Fountain.Crypto.load_tenant_key(user_id) do
+      {:ok, _dek} -> :ok
+      {:error, _} -> {:error, :tenant_key_unavailable}
     end
   end
 
@@ -137,22 +148,23 @@ defmodule Fountain.ChatGPTAccounts.LinkAttempts do
     end
   end
 
-  # What the auth server said is logged without its body (`OAuth` keeps only
-  # the error's shape) and is not the caller's to read.
+  # What the auth server said is logged as a status at most (`shape/1`) and is
+  # not the caller's to read.
   defp device_code(device_start) do
     case device_start.() do
       {:ok, %{user_code: code, device_auth_id: id, interval: _, verification_url: _} = started}
       when is_binary(code) and is_binary(id) ->
         {:ok, started}
 
-      other ->
-        Logger.warning("chatgpt link attempt: no device code: #{inspect(failure_shape(other))}")
+      {:error, reason} ->
+        Logger.warning("chatgpt link attempt: no device code: #{shape(reason)}")
+        {:error, :auth_unreachable}
+
+      _unexpected ->
+        Logger.warning("chatgpt link attempt: no device code: unexpected answer")
         {:error, :auth_unreachable}
     end
   end
-
-  defp failure_shape({:error, reason}), do: reason
-  defp failure_shape(_answer), do: :unexpected_answer
 
   defp insert(user_id, target, started, now) do
     # The row's id comes first: the secrets are encrypted to it (`Cipher`).
@@ -182,7 +194,6 @@ defmodule Fountain.ChatGPTAccounts.LinkAttempts do
     end
   end
 
-  # Not the key's own reason: `:not_found` here would read as "no such grant".
   defp encrypt(user_id, id, started) do
     case Cipher.encrypt_attempt_secrets(user_id, id, started) do
       {:ok, secrets} -> {:ok, secrets}

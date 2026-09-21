@@ -48,17 +48,25 @@ defmodule Fountain.Conversations.CodexChatGPT do
   so a user's bearer would travel beside the deployment's account; the
   broker holds one `CODEX_CHATGPT_ACCESS_TOKEN` entry per conversation; and
   `Egress` renews only the platform grant. Until those follow the named
-  grant, admission and `InferenceBinding.reserve/2` refuse a `:grant` source
-  here, so no conversation is ever bound to one and nothing downstream has
-  to handle it. No user can hold a grant before stage 4, so this refuses
-  nothing anyone can do today; it keeps each stage safe on its own.
+  grant, a `:grant` source is refused here at three doors: launch admission,
+  `InferenceBinding.reserve/2`, and every turn (`TurnMachine.gate/2`, and
+  turn admission's locked check in
+  `Conversations._unsafe_create_turn_on_sandbox/4`). The first two keep a
+  conversation from being bound to one; the turn's is for a source that was
+  persisted some other way, which a wake reusing a live machine would
+  otherwise run without binding again. No user can hold a grant before
+  stage 4, so this refuses nothing anyone can do today; it keeps each stage
+  safe on its own.
+
+  `nil` is a conversation admitted before sources were stored, and is ready.
   """
-  @spec transport_ready(Fountain.InferenceCredentials.Source.t()) ::
+  @spec transport_ready(Fountain.InferenceCredentials.Source.t() | nil) ::
           :ok | {:error, :chatgpt_grant_transport_unavailable}
   def transport_ready(%Fountain.InferenceCredentials.Source{scope: :grant}),
     do: {:error, :chatgpt_grant_transport_unavailable}
 
   def transport_ready(%Fountain.InferenceCredentials.Source{}), do: :ok
+  def transport_ready(nil), do: :ok
 
   @doc """
   The spawn env entry for the grant: `[{"CODEX_CHATGPT_ACCESS_TOKEN", value}]`

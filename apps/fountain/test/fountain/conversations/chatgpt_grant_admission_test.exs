@@ -148,6 +148,51 @@ defmodule Fountain.Conversations.ChatGPTGrantAdmissionTest do
     assert is_nil(Repo.reload!(sandbox).codex_inference_source)
   end
 
+  # Binding is not the only way a source reaches a turn: a wake that reuses a
+  # live machine starts a server on whatever the row holds. Nothing in lib/
+  # persists a grant source without `reserve/2` today, so the row is written
+  # here by hand, as a stage-3 or stage-5 path that forgot to bind would.
+  test "a grant source persisted some other way is refused at the turn, by both doors", ctx do
+    {:ok, %Source{scope: :grant} = source, _} =
+      InferenceCredentials.resolve(ctx.user.id, ctx.agent.model, "codex",
+        credential_set_id: ctx.set.id
+      )
+
+    sandbox = insert_sandbox(user_id: ctx.user.id, agent_id: ctx.agent.id, status: "ready")
+
+    conv =
+      insert_conversation(
+        user_id: ctx.user.id,
+        agent: ctx.agent,
+        sandbox_id: sandbox.id,
+        runtime: "codex"
+      )
+
+    conv
+    |> Ecto.Changeset.change(inference_source: Source.dump(source))
+    |> Repo.update!()
+
+    # The source itself still validates: only the transport refuses it.
+    assert :ok = InferenceCredentials.validate_source(ctx.user.id, source)
+
+    assert {:error, :chatgpt_grant_transport_unavailable} =
+             Fountain.Conversations.TurnMachine.gate(ctx.user.id, source)
+
+    assert {:error, :chatgpt_grant_transport_unavailable} =
+             Fountain.Conversations._unsafe_create_turn_on_sandbox(
+               %{
+                 conversation_id: conv.id,
+                 turn_number: 1,
+                 prompt: "hi",
+                 status: "running",
+                 started_at: DateTime.utc_now() |> DateTime.truncate(:second)
+               },
+               sandbox.id
+             )
+
+    assert Fountain.Conversations._unsafe_list_turns(conv.id) == []
+  end
+
   test "transport_ready/1 refuses only a grant source" do
     assert {:error, :chatgpt_grant_transport_unavailable} =
              CodexChatGPT.transport_ready(Source.grant())
@@ -161,5 +206,8 @@ defmodule Fountain.Conversations.ChatGPTGrantAdmissionTest do
         ] do
       assert :ok = CodexChatGPT.transport_ready(source)
     end
+
+    # A conversation admitted before sources were stored.
+    assert :ok = CodexChatGPT.transport_ready(nil)
   end
 end

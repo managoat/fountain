@@ -58,13 +58,30 @@ client/broker/provider run is still required before activation.
 broker session that may use a managed grant carries the policy compiled here,
 its issuance is fenced on the grant row, and `Sessions.authorize/2` resolves
 the bearer per request. None of that changes what this fixture is: a record of
-one client version's request shape. The capture predates the current
-`managoat_runtimes` pin (it was taken against the 0.4.1 pin named above; the
-lock file has since moved to 0.4.5), so **re-run the probe against the adapter
-and CLI the deployed image installs, and refresh `capture.json`, before any
-grant is served through the protected path in production.** The first such
-grant is the deployment's own (ADR 0047), which ADR 0060's platform move puts
-on this path; that move is gated on this re-run and on one hosted turn (ADR
-0060, "The platform move is gated on a measurement"). A new required
-header shows up here as a failing replay test; a new required *route* does not,
-and would be a 403 at the proxy.
+one client version's request shape. The capture was taken against the
+`managoat_runtimes` 0.4.1 pin named above, and the lock file has since moved
+to 0.4.5, so this file asked for the probe to be re-run against the adapter
+and CLI the deployed image installs, and `capture.json` refreshed, before any
+grant was served through the protected path in production. **It was re-run on
+2026-09-21, against codex-acp 1.10.0 and Codex CLI 0.153.4, and its output was
+byte-identical to the committed `capture.json`**, so nothing was refreshed
+(#2479; ADR 0047, measurement 6). The pin's move was a non-event for this
+fixture: `managoat_runtimes` 0.4.5 still pins the adapter at 1.10.0, and
+0.153.4 was the newest CLI that `^0.153.3` admits, so that pair is what a
+provision resolved that day. Re-run it when either version moves.
+
+The first grant on this path is the deployment's own (ADR 0047), which ADR
+0060's platform move puts there. That move was gated on this re-run and on one
+hosted turn, and merged on 2026-09-21 before either. The hosted turn is still
+owed (ADR 0060, "The platform move is gated on a measurement").
+
+**What this fixture cannot see.** A new required header shows up here as a
+failing replay test. A new required *route* does not: the probe records only
+the provider origin it redirects the Responses call to, and a route the client
+needed would be a 403 at the proxy that no test here notices. That exposure
+returns with every CLI bump. What would see it is a run with the client's
+whole egress recorded, like the one in #2479, which sent it through a local
+proxy that refused every `chatgpt.com` route. On 1.10.0 and 0.153.4 the client
+asked `chatgpt.com` for ten routes besides the allowed one and completed both
+turns without any of them. ADR 0047, "Measurement 6, the offline half", lists
+them.

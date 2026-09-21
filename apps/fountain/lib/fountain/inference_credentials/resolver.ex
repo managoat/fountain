@@ -10,8 +10,12 @@ defmodule Fountain.InferenceCredentials.Resolver do
     # What selection runs on once the rows are loaded and decrypted: the
     # model's provider, the runtime, the set's own values by kind, and the
     # tenant's overrides, normalized to `kind => {value, identity, revision}`.
-    @enforce_keys [:provider, :runtime, :own, :overrides]
-    defstruct [:provider, :runtime, :own, :overrides]
+    # `grant` is the ChatGPT subscription the set names (ADR 0060 decision 2):
+    # `:none`, or `{:named, id, view}` where the view is
+    # `ChatGPTAccounts.get_for_user/2`'s and is `nil` when the owner holds no
+    # such grant.
+    @enforce_keys [:provider, :runtime, :own, :overrides, :grant]
+    defstruct [:provider, :runtime, :own, :overrides, :grant]
   end
 
   def resolve(user_id, model, runtime, opts) do
@@ -35,7 +39,14 @@ defmodule Fountain.InferenceCredentials.Resolver do
            {:ok, own} <- InferenceCredentials.decrypted_for_set(set, dek),
            {:ok, overrides} <- overrides(user_id, dek, opts, provider),
            {:ok, source, creds} <-
-             select(%Inputs{provider: provider, runtime: runtime, own: own, overrides: overrides}),
+             select(%Inputs{
+               provider: provider,
+               runtime: runtime,
+               own: own,
+               overrides: overrides,
+               grant: named_grant(set, provider, user_id)
+             })
+             |> pinned_elsewhere(expected),
            :ok <-
              usable(if(expected, do: nil, else: Keyword.get(opts, :credential_set_id)), source),
            source <- bind(source, set, creds, dek),
@@ -52,6 +63,34 @@ defmodule Fountain.InferenceCredentials.Resolver do
     end)
   end
 
+  # The grant a set names, read only for a model a subscription can serve, so
+  # every other resolution costs nothing more than it did. Scoped by the
+  # owner a second time, after the changeset and the foreign key: a row that
+  # somehow names a grant its owner does not hold is `{:named, id, nil}`, and
+  # that resolves to an error, never to another credential. Metadata only, as
+  # everything under the source lock must be: no decrypt, no provider I/O,
+  # and no renewal (`Fountain.ChatGPTAccounts`, "The source lock").
+  defp named_grant(%{chatgpt_grant_id: id}, "openai", user_id) when is_binary(id) do
+    case Fountain.ChatGPTAccounts.get_for_user(id, user_id) do
+      {:ok, view} -> {:named, id, view}
+      {:error, :not_found} -> {:named, id, nil}
+    end
+  end
+
+  defp named_grant(_set, _provider, _user_id), do: :none
+
+  # A conversation pinned to something else (the set's API key, or another
+  # grant the set named then) has not lost a subscription; its source
+  # changed, and that is what it is told.
+  defp pinned_elsewhere({:error, {:chatgpt_grant_unusable, %{grant_id: id}}} = error, expected)
+       when is_map(expected) do
+    if expected["scope"] == "grant" and expected["grant_id"] == id,
+      do: error,
+      else: {:error, :inference_source_changed}
+  end
+
+  defp pinned_elsewhere(result, _expected), do: result
+
   defp require_set(nil, _), do: :ok
   defp require_set(_, nil), do: {:error, :inference_credential_not_found}
   defp require_set(_, _), do: :ok
@@ -66,6 +105,41 @@ defmodule Fountain.InferenceCredentials.Resolver do
   def matches(expected, source) do
     if expected == Source.dump(source), do: :ok, else: {:error, :inference_source_changed}
   end
+
+  # A codex run on a set that names a subscription runs on that subscription
+  # or does not run (ADR 0060 decision 4, 0053 decision 5 rule 2). This comes
+  # before the overrides on purpose: an `OPENAI_API_KEY` in the environment
+  # or the vault does not outrank the grant, the set's own key is not a
+  # fallback, another of the user's grants is not, and the platform is not.
+  # The key is dropped from what the runtime is handed so codex cannot log in
+  # with it beside the grant. No bearer is put there: a grant's token never
+  # travels in the credentials map (ADR 0052 decision 6).
+  defp select(%Inputs{provider: "openai", runtime: "codex", grant: {:named, id, view}, own: own}) do
+    case grant_state(view) do
+      :ok ->
+        source = %{
+          Source.grant()
+          | kind: :codex_chatgpt_access_token,
+            grant_id: view.grant_id,
+            generation: view.generation
+        }
+
+        {:ok, source, drop_competitors(own, "openai")}
+
+      {reason, until} ->
+        {:error,
+         {:chatgpt_grant_unusable,
+          %{grant_id: id, name: view && view.name, reason: reason, until: until}}}
+    end
+  end
+
+  # Every other OpenAI consumer needs a key, and the grant is not one (ADR
+  # 0060 decision 2). With a key, from the set or an override, the ordinary
+  # selection below serves it. With none the answer is `:missing` and never
+  # the platform's key: the account chose its own OpenAI source for this set.
+  defp select(%Inputs{provider: "openai", grant: {:named, _, _}, own: own, overrides: overrides})
+       when not is_map_key(own, :openai_api_key) and not is_map_key(overrides, :openai_api_key),
+       do: {:ok, Source.missing(), own}
 
   # Overrides win over the set's value for the same kind; the runtime's kind
   # precedence picks. An empty selected value, or a tenant value for the
@@ -100,6 +174,27 @@ defmodule Fountain.InferenceCredentials.Resolver do
 
       true ->
         platform(provider, runtime, own)
+    end
+  end
+
+  # From the row's metadata alone. A token inside its refresh margin, or past
+  # it, is usable here as the platform grant's is: renewing is the turn's
+  # business, outside this lock. Exhaustion is read but never yet written for
+  # a user's grant (ADR 0060 stage 5).
+  defp grant_state(nil), do: {:not_found, nil}
+
+  defp grant_state(view) do
+    cond do
+      # The same rule as the platform grant's (`PlatformInference.credential_for/2`):
+      # with no broker the token would land in the sandbox in the clear.
+      not Fountain.Broker.configured?() -> {:broker_required, nil}
+      view.status == "disconnected" -> {:disconnected, nil}
+      view.status == "revoked" -> {:revoked, nil}
+      view.status == "expired" -> {:expired, nil}
+      view.status != "active" or view.kind != "chatgpt" -> {:reconnect_required, nil}
+      not view.refreshable or view.account_id in [nil, ""] -> {:reconnect_required, nil}
+      match?(%DateTime{}, view.exhausted_until) -> {:exhausted, view.exhausted_until}
+      true -> :ok
     end
   end
 
@@ -196,6 +291,7 @@ defmodule Fountain.InferenceCredentials.Resolver do
         :credential -> {"credential:#{set.id}:#{source.kind}", set.revision}
         :tenant_secret -> {source.identity, source.revision}
         :platform -> PlatformInference.reference(source.kind, creds, dek)
+        :grant -> {"chatgpt_grant:" <> source.grant_id, source.generation}
         scope -> {Atom.to_string(scope), "1"}
       end
 

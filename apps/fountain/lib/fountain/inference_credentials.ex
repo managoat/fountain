@@ -634,6 +634,14 @@ defmodule Fountain.InferenceCredentials do
   set, which is the only set that existed when every caller of this was
   written. A missing or foreign explicit set reports every credential absent;
   it never reports credentials from the account default or another tenant.
+
+  `opts` may also name the `:runtime`. A set that names a ChatGPT
+  subscription is missing nothing for a codex run on a brokered deployment,
+  and is still missing `openai_api_key` for every other OpenAI consumer (ADR
+  0060 decision 2), which is how a set with a grant and no key says so when
+  it is selected rather than at the turn. Only that the set names a grant is
+  asked, never the grant's state: a status read does not decrypt or renew
+  (ADR 0052 decision 4), and an unusable grant is resolution's to report.
   """
   @spec missing_for_model(binary(), String.t() | nil, keyword()) ::
           nil | {String.t(), [atom()]}
@@ -645,19 +653,86 @@ defmodule Fountain.InferenceCredentials do
         nil
 
       accepted ->
-        status = status_for(user_id, Keyword.get(opts, :credential_set_id))
-        if Enum.any?(accepted, &Map.get(status, &1, false)), do: nil, else: {provider, accepted}
+        set = set_for(user_id, Keyword.get(opts, :credential_set_id))
+        status = status_for_set(set)
+
+        if Enum.any?(accepted, &Map.get(status, &1, false)) or
+             grant_serves?(set, provider, Keyword.get(opts, :runtime)),
+           do: nil,
+           else: {provider, accepted}
     end
   end
 
-  defp status_for(user_id, nil), do: status_for_user(user_id)
+  defp set_for(user_id, nil), do: get_for_user(user_id)
+  defp set_for(user_id, set_id), do: get_set(set_id, user_id)
 
-  defp status_for(user_id, set_id) do
-    case get_set(set_id, user_id) do
-      nil -> status_for_set(nil)
-      set -> status_for_set(set)
-    end
+  defp grant_serves?(%Credential{chatgpt_grant_id: id}, "openai", "codex") when is_binary(id),
+    do: Fountain.Broker.configured?()
+
+  defp grant_serves?(_set, _provider, _runtime), do: false
+
+  @typedoc """
+  Why the ChatGPT subscription a set names cannot serve a codex run, in a
+  shape that is safe to inspect, log and return: ids, the name the tenant
+  chose, an atom and a time, never a token or anything the provider said.
+
+  `:reason` is `:disconnected`, `:revoked`, `:expired`, `:reconnect_required`
+  (active, but holding nothing that can be renewed), `:exhausted` (with
+  `:until`, the reset the provider gave), `:not_found` (the owner holds no
+  such grant; `:name` is nil) or `:broker_required` (this deployment runs no
+  egress broker, so the token would reach the sandbox in the clear).
+  `:grant_id` is what the set names. `grant_unusable_message/1` is the
+  sentence.
+  """
+  @type grant_unusable :: %{
+          grant_id: Ecto.UUID.t(),
+          name: String.t() | nil,
+          reason:
+            :disconnected
+            | :revoked
+            | :expired
+            | :reconnect_required
+            | :exhausted
+            | :not_found
+            | :broker_required,
+          until: DateTime.t() | nil
+        }
+
+  @no_fallback "Fountain does not switch to another subscription, an API key or platform inference for you."
+
+  @doc """
+  What to tell the owner about a `t:grant_unusable/0`: which subscription,
+  what is wrong with it, what to do, and that nothing was substituted.
+  """
+  @spec grant_unusable_message(grant_unusable()) :: String.t()
+  def grant_unusable_message(%{reason: :not_found}),
+    do:
+      "This credential set names a ChatGPT subscription that is not on this account. " <>
+        "Point the set at one of yours. " <> @no_fallback
+
+  def grant_unusable_message(%{reason: :broker_required}),
+    do:
+      "This credential set names a ChatGPT subscription, and this deployment does not run " <>
+        "the egress broker a subscription needs. " <> @no_fallback
+
+  def grant_unusable_message(%{reason: reason, name: name} = detail) do
+    problem =
+      case reason do
+        :disconnected -> "is disconnected. Reconnect it"
+        :revoked -> "is no longer accepted by OpenAI. Reconnect it"
+        :expired -> "has expired. Reconnect it"
+        :reconnect_required -> "can no longer be renewed. Reconnect it"
+        :exhausted -> "has used its Codex allowance#{until(detail)}. Wait for the reset"
+      end
+
+    "ChatGPT subscription #{inspect(name)} #{problem}, or point this credential set at " <>
+      "another subscription. " <> @no_fallback
   end
+
+  defp until(%{until: %DateTime{} = at}),
+    do: " until " <> (at |> DateTime.truncate(:second) |> DateTime.to_iso8601())
+
+  defp until(_), do: ""
 
   @doc """
   Resolve the credential a conversation on `model` and `runtime` runs on: the
@@ -677,26 +752,41 @@ defmodule Fountain.InferenceCredentials do
      then the vault's secrets (`:environment_id`, `:vault_id`), normalized by
      credential kind; two aliases that disagree inside one layer are
      `:inference_credential_conflict`; the vault wins over the environment.
-  4. **Select.** An override wins over the set's value for the same kind;
+  4. **Named subscription.** When the set names a ChatGPT grant
+     (`set_grant/3`, ADR 0060 decision 2) and the model is OpenAI's: a codex
+     run resolves to that grant, a `:grant` source carrying its `grant_id`
+     and `generation` and no bearer, ahead of every override and with the
+     OpenAI key dropped from what the runtime is handed. A grant that cannot
+     serve is `{:chatgpt_grant_unusable, detail}` (`t:grant_unusable/0`) and
+     nothing else is tried: not another of the user's grants, not the set's
+     own key, not an environment or vault key, not the platform. Any other
+     runtime needs a key, and with none anywhere is `Source.missing/0`,
+     never the platform's key. The grant is read by owner and id, metadata
+     only.
+  5. **Select.** An override wins over the set's value for the same kind;
      the runtime's kind precedence picks (Claude prefers OAuth, OpenCode's
      Anthropic path accepts only an API key). An empty selected value, or a
      tenant value for the provider that the runtime cannot use, is
      `:inference_credential_unusable`.
-  5. **Platform policy**, only when no tenant source was selected:
+  6. **Platform policy**, only when no tenant source was selected:
      `Fountain.PlatformInference.credential_for/2`. Nothing anywhere is
      `Source.missing/0`, never an error: the sandbox still provisions, with
      nothing to call. Under an explicit `:credential_set_id`, `:missing` and
      `:platform` are refused as unusable rather than substituted.
-  6. **Bind** the source's identity and revision per scope, then stamp the
+  7. **Bind** the source's identity and revision per scope, then stamp the
      model, runtime, environment and vault.
-  7. **Compare** the dumped source with `:expected_source`; a difference is
-     `:inference_source_changed`.
+  8. **Compare** the dumped source with `:expected_source`; a difference is
+     `:inference_source_changed`. So is an unusable grant under an expected
+     source that is not that grant: a conversation pinned to the set's API
+     key has not lost a subscription, its source changed. A reconnect of
+     the named grant is a new generation, and so a changed source.
 
   `opts` accepts exactly `:credential_set_id`, `:environment_id`, `:vault_id`
   and `:expected_source`; anything else raises.
   """
   @spec resolve(binary(), String.t() | nil, String.t() | nil, keyword()) ::
-          {:ok, Source.t(), %{atom() => String.t()}} | {:error, atom()}
+          {:ok, Source.t(), %{atom() => String.t()}}
+          | {:error, atom() | {:chatgpt_grant_unusable, grant_unusable()}}
   def resolve(user_id, model, runtime, opts \\ []),
     do: Fountain.InferenceCredentials.Resolver.resolve(user_id, model, runtime, opts)
 
@@ -781,6 +871,11 @@ defmodule Fountain.InferenceCredentials do
 
     case resolve(user_id, source.model, source.runtime, opts) do
       {:ok, _, _} -> :ok
+      # Not flattened: "your source changed" tells the owner of a revoked or
+      # disconnected subscription nothing they can act on, and this runs
+      # before every turn (ADR 0060 decision 4). The resolver answers this
+      # only for the grant the source is pinned to.
+      {:error, {:chatgpt_grant_unusable, _} = reason} -> {:error, reason}
       {:error, _} -> {:error, :inference_source_changed}
     end
   end

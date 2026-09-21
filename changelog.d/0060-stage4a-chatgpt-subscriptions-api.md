@@ -4,8 +4,8 @@
   creates `chatgpt_link_attempts`, one row per ChatGPT sign-in an account
   has begun. It is empty until somebody links a subscription, its rows are
   deleted with their account, and rolling it back drops it. A new Oban
-  queue, `chatgpt`, polls the sign-ins; it needs no configuration and is
-  idle while there are none.
+  queue, `chatgpt`, polls the sign-ins ten at a time; it needs no
+  configuration and is idle while there are none.
 
 - **`chatgpt_subscriptions` is a new feature flag, and it is off** (#2453).
   It holds the one door that links a new ChatGPT subscription to an account.
@@ -23,8 +23,11 @@
   and remove the ChatGPT subscriptions an account has linked for the `codex`
   runtime, and start, list, read and cancel the device-code sign-in that
   links or reconnects one. A full-scope key is required, another account's
-  id is a 404, and no route returns or refreshes a token. `GET
-  /api/auth/me` reports the gate as `chatgpt_subscriptions_enabled`. See
+  id is a 404, and no route returns or refreshes a token. An account may
+  start ten sign-ins an hour, counted in the database across its API keys:
+  the eleventh is `429 chatgpt_link_attempts_rate_limited` with
+  `Retry-After`. `GET /api/auth/me` reports the gate as
+  `chatgpt_subscriptions_enabled`. See
   https://managoat.com/docs/api#chatgpt-subscriptions.
 
 - **A credential set names a ChatGPT subscription over the API** (#2453).
@@ -42,8 +45,8 @@
 
 - **The `Error` schema declares what `409 chatgpt_grant_unusable` already
   rendered** (#2453): `grant_id`, `grant`, `until`, and the values of
-  `reason`. It also gains `count`, `attempt_id`, `state` and `sets` for the
-  new refusals. The OpenAPI contract and the generated TypeScript and Swift
+  `reason`. It also gains `count`, `attempt_id`, `state`, `sets` and
+  `retry_after_seconds` for the new refusals. The OpenAPI contract and the generated TypeScript and Swift
   models are regenerated; no SDK's handwritten surface changed.
 
 - **`409 codex_inference_conflict` says who is exempt** (#2453). A credential

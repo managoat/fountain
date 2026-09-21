@@ -1191,19 +1191,23 @@ for a completion then the grant's row, which is the stage-1 order with one
 row in front.
 
 - *Start.* The admission (an eligible owner whose encryption key loads,
-  fewer than three open attempts across all of the account's grants, and
+  fewer than ten attempts begun in the last hour in any state, fewer than
+  three open across all of the account's grants, and
   for a link a well-formed name that no grant or open attempt of the owner
   holds and room under the ceiling; for a reconnect a grant of the owner's
   with no attempt open) runs twice, each time in its own transaction: before `OAuth.device_start/0`, so
   a refused request costs the auth server nothing, and again in the
-  transaction that inserts the row and its job. The auth server is never
-  called inside a transaction or under a lock. The rollout flag, whose
-  lookup may be an HTTP call, is asked before either.
+  transaction that inserts the row and its job. Each reads the clock for
+  itself, because the auth server may take seconds in between, and sweeps
+  the account's overdue rows in its own transaction first. The auth server
+  is never called inside a transaction or under a lock. The rollout flag,
+  whose lookup may be an HTTP call, is asked before either.
 - *Expiry is lazy.* A pending row past `expires_at` reads `expired`, shows
   no code and is admitted by no write, whether or not anything has written
   that. Whoever meets one writes it: the job's next run, a cancel, a
-  completion, and a start, which sweeps the account's overdue rows first so
-  one cannot hold a grant's only open reconnect. Correctness never waits for
+  completion, a disconnect or removal of its grant, and a start, which
+  sweeps the account's overdue rows first so one cannot hold a grant's only
+  open reconnect. Correctness never waits for
   a sweep.
 - *Complete.* `connect_for_user/4` and `reconnect_for_user/4` take a new
   `:within` option: a function handed the write, run in its transaction
@@ -1213,13 +1217,24 @@ row in front.
   the attempt `completed` with the grant's id, in one transaction. So the
   owner's eligibility, the ceiling, the upstream account, the name and the
   generation are all asked again by the write that stores the grant, and
-  none of that is a second implementation. A refusal rolls back; the
+  none of that is a second implementation. Whether the account may still
+  link is asked again too, for a new link only and before the transaction,
+  because that answer may be an HTTP call: a link open when linking is
+  turned off fails as `linking_disabled`, and the poll asks before it
+  spends the exchange. A refusal rolls back; the
   attempt is then written `failed`, and `chatgpt_link_attempt.failed`
   recorded, in a transaction of its own afterwards. A replay reads the
   completed attempt and writes nothing.
 - *Cancel* takes the same two locks in the same order, so exactly one of a
   cancel and a completion ends an attempt. Both interleavings are tested
   with really contending connections.
+- *A grant that ends takes its open attempt with it.* `disconnect_for_user/3`
+  and `remove_for_user/3` lock the grant's pending attempt before the
+  grant's row, which is the order above, and end it in their transaction as
+  `failed` with `stale_grant` or `grant_not_found`: what its completion
+  would have been told. Its event carries the caller's attribution. A grant
+  already disconnected leaves its attempt alone; that one began after the
+  tombstone and is how it comes back.
 
 **The driver.** `Fountain.Workers.ChatGPTLinkAttempt`, on a new `chatgpt`
 queue (10), is inserted in the transaction that inserts the attempt,
@@ -1227,8 +1242,14 @@ scheduled one poll interval out, unique per attempt while incomplete. Its
 args are the attempt's id and its owner's. Each run is
 `poll_attempt_for_user/3`: one `device_poll`, outside any lock; on approval,
 `device_exchange` and the completion; otherwise a snooze for the auth
-server's interval, doubled per consecutive unanswered poll up to a minute
-(`poll_failures`). A 4xx from the auth server ends the attempt as
+server's interval, which is kept between a second and a minute, doubled
+per consecutive unanswered poll up to a minute (`poll_failures`). The three
+device-flow calls take the refresh's Finch limits, eighteen seconds at the
+worst. A run that raises is retried in a constant ten seconds, ten times:
+Oban's default backoff grows with `attempt`, which every snooze raises, and
+would soon have put one retry past the attempt's fifteen minutes. A reader
+of a pending attempt in time puts its job back if no incomplete one names
+it (`ensure_enqueued/1`). A 4xx from the auth server ends the attempt as
 `authorization_failed` or `exchange_failed`; a 408, 425, 429, 5xx or
 transport error is asked again. An attempt that is gone, ended or past its
 time costs no request. The device id, the user code, the authorization code
@@ -1268,9 +1289,9 @@ follow stage 2's rule, a bad state of something the caller owns is a 409:
 `chatgpt_link_attempts_exceeded`, `chatgpt_link_attempt_not_pending`; 404
 `chatgpt_subscriptions_not_enabled` (the Connections precedent); 403
 `chatgpt_owner_ineligible`; 502 `chatgpt_auth_unreachable`; 503
-`chatgpt_tenant_key_unavailable`. Starting an attempt is also limited to ten
-an hour per API key, per node. `account_already_linked` and `stale_grant`
-are not HTTP errors: they happen in the job, minutes after the request, and
+`chatgpt_tenant_key_unavailable`; 429 `chatgpt_link_attempts_rate_limited`
+with `Retry-After`. `account_already_linked`, `stale_grant` and
+`linking_disabled` are not HTTP errors: they happen in the job, minutes after the request, and
 are the attempt's `failure`.
 
 **What stage 2 left for this one.** `PATCH
@@ -1287,12 +1308,20 @@ the operations sit under the existing `* /api/account/*` omission, so no
 SDK's handwritten surface or version moved. `CHATGPT_GRANT_CEILING` is the
 environment variable stage 1 withheld.
 
-**For 4b.** Every committed write to a user's grants or attempts, a
-revocation found by a refresh included, broadcasts
-`{:chatgpt_grants_changed, user_id}` on `ChatGPTAccounts.topic/1`; the
-message carries nothing, and a subscriber reads `list_for_user/1` and
-`list_pending_attempts_for_user/1` again. A page reload is a `mount` that
-renders a pending attempt's code from that read. The context takes
+**For 4b.** Every committed write that changes what a user's grants or
+attempts read as, a revocation found by a refresh included, broadcasts
+`{:chatgpt_grants_changed, user_id}` on `ChatGPTAccounts.topic/1`. The one
+write that does not is a poll's `poll_failures` count moving between two
+values above zero, which changes nothing anybody is shown; it broadcasts
+when the auth server stops answering and when it answers again, which is
+when `AttemptView`'s `auth_unreachable` changes. The message carries
+nothing, and a subscriber reads `list_for_user/1`,
+`list_pending_attempts_for_user/1` and `list_recent_attempts_for_user/1`
+again. The last is the attempts that ended in the past half hour, newest
+first and ten at most: the pending list drops an attempt the moment it
+ends, so it is where a page reads why a sign-in failed and which grant to
+reconnect instead. A page reload is a `mount` that renders a pending
+attempt's code from that read. The context takes
 `Audited.attribution(socket)` as it takes a conn's.
 
 Nine things stage 4a settled that this ADR left open. Each is a call a
@@ -1306,25 +1335,35 @@ maintainer may reverse:
    would store a rotating credential that can serve no run.
 3. **The owner's ChatGPT email is in the API body**, to the owner only, and
    in no audit event, log line or job.
-4. **`generation` is not in any body.** The server pins it when an attempt
-   begins. One consequence: with one open reconnect per grant, two sign-ins
-   racing on one grant cannot be produced through this surface at all. The
-   fence is what a disconnect, a removal, or any writer outside it meets,
-   and "a late completion cannot undo Disconnect" is tested through it.
+4. **`generation` is not in any body**, and since the review not in a
+   tenant audit event either. The server pins it when an attempt begins. One consequence: with one open reconnect per grant, two sign-ins
+   racing on one grant cannot be produced through this surface at all. A
+   disconnect and a removal end the open attempt themselves, so the fence
+   is what a writer outside the context meets, and "a late completion
+   cannot undo Disconnect" is tested both ways.
 5. **A fourth attempt event, `chatgpt_link_attempt.expired`**, beside
    `started`, `cancelled` and `failed`, recorded by whoever writes the
    expiry, as `system:chatgpt_link_attempt`. A completion is the grant's own
-   `chatgpt_grant.connected`, with that actor when the job did it.
+   `chatgpt_grant.connected`, with that actor when the job did it and the
+   attempt's id in its metadata, which is what ties it to the `started`
+   event that says who began the sign-in.
 6. **An open link attempt holds its name, not a place under the ceiling.**
    The ceiling is asked when the attempt begins and again when it
    completes, so an account at four of five with two attempts open links
    one and fails the other as `grant_limit_reached`.
-7. **A principal, an unverified and a suspended account get 403** on
-   starting an attempt and on a rename, from the context's
-   `eligible_owner/1`, and keep list, disconnect, remove and cancel.
-8. **Rate limiting is two things**: three open attempts per account, held
-   in the database, and ten starts an hour per API key in the per-node ETS
-   limiter. The second is an abuse control, not a quota.
+7. **The context refuses a principal, an unverified and a suspended
+   account** a start and a rename (`eligible_owner/1`), and leaves them
+   list, disconnect, remove and cancel. That is what a LiveView meets. Over
+   HTTP only the principal gets that far, as 403 `chatgpt_owner_ineligible`
+   to a `principal: true` user holding a full key: `TenantAPIAuth` answers
+   a suspended account 401 and an unverified one 403 `email_unverified` on
+   every route before any controller runs. So a suspended owner cannot
+   clear stored refresh tokens over the API; that is an operator's act.
+8. **Rate limiting is two things, both in the database and both per
+   account**: three open attempts, and ten begun in an hour in any state,
+   counted from the rows under the owner's key. The second is what bounds
+   a start that is cancelled and started again, whichever API key, node or
+   caller asks.
 9. **Attempts are pruned after a week**, by `RetentionPruner`, on fixed
    terms like expired exports rather than a configurable window.
 
@@ -1339,8 +1378,36 @@ maintainer may reverse:
   unreachable after the exchange, the job's retry polls a device code the
   auth server has already redeemed; the attempt ends `authorization_failed`
   or expires, and the user starts again. Nothing is half-written.
-- **The per-key rate limit is per node** and resets on deploy, like every
-  use of that limiter.
+- **There is no deployment-wide bound on device codes.** Ten an hour is per
+  account, and accounts are free to make where registration is open. Every
+  device code and every grant's refresh, the platform's included, go to one
+  host, so enough accounts could have that host throttle the deployment. A
+  global ceiling was not built: counted without a lock it is approximate,
+  and any number small enough to matter is one a few accounts could use up
+  to deny everyone else a sign-in. Linking is behind the flag; a reconnect
+  is not.
+- **A job orphaned in `executing` loses the sign-in.** A node killed
+  mid-run leaves its job `executing`, which is incomplete, so a reader does
+  not replace it, and `Oban.Plugins.Lifeline` rescues it after thirty
+  minutes, which is after the attempt's fifteen. The attempt reads
+  `expired` and the user starts again. A job that was discarded or deleted
+  is put back by the next read.
+- **The fifteen minutes are fixed.** The device-start answer this code has
+  seen carries a code, an id and an interval and no lifetime, so a code the
+  auth server ends sooner is polled until the auth server refuses it.
+- **A 429's `Retry-After` is not read.** A rate-limited poll backs off as an
+  unanswered one does, to the same minute a `Retry-After` would be capped
+  at.
+- **A purged pending row has no ending event.** `purge/0` deletes a pending
+  row a week past its time that nothing ever wrote `expired`; its `started`
+  event is then the only one it has.
+- **Oban keeps what a crash carried.** A job's blamed exception is stored in
+  `oban_jobs.errors`, arguments included. That the poller cannot put a
+  device code or a token there rests on the functions its secrets pass
+  through staying total: `OAuth.device_poll/2` and `token_response/1`,
+  `Tokens.decode_payload/1`, and `LinkAttempts.device_code/1` for the
+  start. Each has a fallback clause that names no value, and a comment
+  saying why it must stay.
 - **An idle user grant still lapses** at the auth server's window (stage
   1's gap): the keepalive is stage 5, and is one more reason the flag is
   off.
@@ -1371,6 +1438,56 @@ maintainer may reverse:
 - **No CLI and no SDK client** wires any of this; the `/api/account`
   omission stands.
 
+**The trust model, stated.** An OAuth client's token is an API key of
+`full` scope (`Fountain.OAuth.Host`), so a third-party app a user has
+authorized reaches this whole surface, the user code included. That is the
+existing model for every account-level route, not a new one. Device-code
+phishing is inherent to the flow: a victim who types an attacker's code at
+ChatGPT's page links their subscription to the attacker's Fountain account.
+What the server controls it does: `verification_url` is built from
+configuration and never from a response, and a code is shown only to the
+account that started it. `docs/api.md` tells an integrator to show the code
+only to the user who started the sign-in and to say "only enter a code you
+started yourself". A reconnect of a disconnected tombstone may sign in a
+**different** upstream account than the grant held, so with linking off a
+user who holds a tombstone can still, in effect, link a new subscription
+into it. That is the "one door" as decided, and it is unchanged.
+
+**After review.** Two reviews, of security and of correctness, found
+nothing critical or high. What they found, and what was done:
+
+- The start limit was a plug keyed per API key per node, and the console
+  would have bypassed it. It is now the admission's, per account, counted
+  from the rows (item 8). The plug is gone.
+- The poller had Oban's default backoff, which a snoozing job outgrows; its
+  queue was sized by one account's pending limit; its calls had no connect
+  timeout. Constant backoff, ten slots, the refresh's limits.
+- A lost job left an attempt pending with nothing polling it. Its readers
+  put it back. The orphaned-`executing` case is a known limitation.
+- A name was counted in graphemes against a column that counts codepoints,
+  so a name of combining marks was a 500 after a device code had been
+  spent, and a NUL was a 500 at the first query. Names are counted in
+  codepoints and carry no `\p{C}` character, in `Account.name_format/1`,
+  for a link and a rename alike.
+- The controller's tag took unmapped atoms out of the fallback's safety
+  net. A final tagged clause hands them back to it.
+- A disconnect or removal left the grant's open attempt pending, and the
+  next reconnect was a 409 until it was cancelled. They end it now.
+- One `now` spanned the auth server's answer. Each admission reads its own.
+- Any interval was kept. It is clamped to a minute.
+- `generation` was in three tenant audit events, contradicting item 4.
+  Nothing read it, so it is dropped, and a completion's event gains
+  `attempt_id`.
+- A new link in flight completed after linking was turned off. It fails as
+  `linking_disabled`.
+- A credential set's `PATCH` with a grant that could not be named stored
+  the rename and then answered 422. The grant is asked first
+  (`InferenceCredentials.check_grant/2`).
+- The migration set its lock timeout after the drop on a rollback. It is
+  `up` and `down` now.
+- Item 7 and the broadcast sentence said more than the code did, and are
+  corrected above.
+
 What the tests hold: the row's checks, its cascade, its ciphertext bound to
 owner, attempt and field, and nothing secret from `inspect` of the row, a
 changeset or a view (`chatgpt_accounts/link_attempt_test.exs`); ownership,
@@ -1392,7 +1509,16 @@ carrying a token, the device id, a claim, the provider's account id or a
 fencing column, and the flag off closing one door
 (`chatgpt_subscription_controller_test.exs`,
 `inference_credential_set_controller_test.exs`). The audit guardrail covers
-the attempt's five ends.
+the attempt's five ends. Since the review they also hold: the eleventh
+start in an hour refused with no device code spent, from a second API key
+and for a reconnect alike; a constant backoff at any `attempt`; a lost job
+put back once and an orphaned one left alone; a device-flow call against a
+socket that never answers ending inside the refresh's ceiling
+(`platform_chatgpt/oauth_test.exs`); names the column cannot hold or nobody
+can see as 422 with no device code spent; a disconnect and a removal ending
+the open attempt, and the fence against a tombstone written outside the
+context; linking turned off under an open link; and the recent list, its
+ownership and its half hour.
 
 ## Consequences
 

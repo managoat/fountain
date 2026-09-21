@@ -37,6 +37,10 @@ defmodule Fountain.PlatformChatGPT.Tokens do
     end
   end
 
+  # Kept total on purpose. A `FunctionClauseError` carries its arguments, and
+  # Oban stores a job's blamed exception in `oban_jobs.errors`: without this
+  # clause a token that is not a binary would be written there by
+  # `Fountain.Workers.ChatGPTLinkAttempt` (ADR 0060, "Stage 4a as built").
   def decode_payload(_jwt), do: :error
 
   @doc """

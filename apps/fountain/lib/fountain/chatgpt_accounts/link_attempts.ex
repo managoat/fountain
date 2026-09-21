@@ -215,6 +215,9 @@ defmodule Fountain.ChatGPTAccounts.LinkAttempts do
         Logger.warning("chatgpt link attempt: no device code: #{shape(reason)}")
         {:error, :auth_unreachable}
 
+      # Kept, and never bound: an answer of another shape may still carry a
+      # code, and a clause error or a `MatchError` would carry the answer into
+      # a crash report.
       _unexpected ->
         Logger.warning("chatgpt link attempt: no device code: unexpected answer")
         {:error, :auth_unreachable}

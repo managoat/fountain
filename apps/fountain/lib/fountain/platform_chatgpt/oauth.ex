@@ -212,6 +212,11 @@ defmodule Fountain.PlatformChatGPT.OAuth do
      }}
   end
 
+  # The two clauses below keep this total, on purpose: a response that is not
+  # the shape above falls through to them and is reduced to a status and a
+  # code. Were one missing, the `FunctionClauseError` would carry the whole
+  # response, tokens included, and Oban stores a job's blamed exception in
+  # `oban_jobs.errors` (ADR 0060, "Stage 4a as built").
   defp token_response({:ok, %{status: status, body: body}}) do
     case error_code(body) do
       code when code in @terminal -> {:error, {:terminal, code}}

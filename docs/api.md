@@ -192,6 +192,11 @@ poll; the attempt stays open and Fountain asks again. A
 `failure` also names the subscription that holds the ChatGPT account, which is
 the one to reconnect.
 
+Show the `user_code` only to the person who started the sign-in. Tell them to
+enter a code only if they started it themselves: a person who enters the code
+of someone else links their subscription to that other account. Take the page
+from `verification_url` and from nowhere else.
+
 A reconnect keeps the old credential in use until the new sign-in is stored.
 A sign-in that finishes after a newer one, or after a disconnect, fails with
 `stale_grant` and changes nothing. A sign-in that finishes after a cancel

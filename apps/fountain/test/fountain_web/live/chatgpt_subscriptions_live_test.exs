@@ -862,6 +862,88 @@ defmodule FountainWeb.ChatGPTSubscriptionsLiveTest do
                "Work is unable to serve on this deployment"
     end
 
+    # ADR 0060 decision 4, reachable since stage 5a: the limit OpenAI confirms
+    # is broadcast, and the reset is only the clock passing.
+    test "a confirmed usage limit flips an open page to Usage spent with the reset, and the reset flips it back",
+         %{conn: conn, user: user, work: work, personal: personal} do
+      {:ok, set} = InferenceCredentials.create_set(user.id, "Default")
+      {:ok, _} = InferenceCredentials.set_grant(set, work.grant_id)
+      {:ok, view, _html} = live(conn, @path)
+
+      assert view |> element("#chatgpt-grant-#{work.grant_id}") |> render() =~ "Connected"
+      assert :sys.get_state(view.pid).socket.assigns.reset_reread == nil
+
+      row = Repo.get!(Account, work.grant_id)
+      reset = ~U[2099-09-20 11:40:00Z]
+
+      stub_auth(%{
+        "/backend-api/wham/usage" => fn _ ->
+          {200,
+           %{
+             "rate_limit" => %{
+               "allowed" => false,
+               "primary_window" => %{
+                 "used_percent" => 100,
+                 "reset_at" => DateTime.to_unix(reset)
+               }
+             }
+           }}
+        end
+      })
+
+      source = %{
+        Fountain.InferenceCredentials.Source.grant()
+        | kind: :codex_chatgpt_access_token,
+          grant_id: row.id,
+          generation: row.generation
+      }
+
+      # 2099 is past the eight days a reset is trusted for; the row has the cap.
+      assert :recorded = ChatGPTAccounts.confirm_exhausted_for_user(source, user.id)
+      %Account{usage_exhausted_until: until} = Repo.get!(Account, row.id)
+      stamp = Calendar.strftime(until, "%Y-%m-%d %H:%M UTC")
+
+      # No reload and no event from this page: the broadcast alone.
+      card = view |> element("#chatgpt-grant-#{work.grant_id}") |> render()
+      assert card =~ "Usage spent"
+      refute card =~ "Connected"
+      assert card =~ "has used its Codex allowance until #{stamp}"
+      assert card =~ "nothing else is used in its place"
+      assert view |> element("#chatgpt-grant-#{personal.grant_id}") |> render() =~ "Connected"
+
+      # The picker says the same of the set that names it, and the refusal a
+      # run would get says the same time.
+      picker = view |> element("#set-chatgpt-grant") |> render()
+      assert picker =~ "Work is usage spent until #{stamp}"
+      assert picker =~ "Work (usage spent until #{stamp})"
+
+      assert {:error, {:chatgpt_grant_unusable, %{reason: :exhausted} = detail}} =
+               InferenceCredentials.resolve(user.id, "openai/gpt-5.5-codex", "codex",
+                 credential_set_id: set.id
+               )
+
+      assert InferenceCredentials.grant_unusable_message(detail) =~
+               "has used its Codex allowance until #{DateTime.to_iso8601(until)}"
+
+      # The reset writes nothing and broadcasts nothing, so the page holds a
+      # timer for it; what the timer sends is this message.
+      assert is_reference(:sys.get_state(view.pid).socket.assigns.reset_reread)
+
+      Repo.update_all(from(a in Account, where: a.id == ^row.id),
+        set: [usage_exhausted_until: ~U[2020-01-01 00:00:00Z]]
+      )
+
+      assert view |> element("#chatgpt-grant-#{work.grant_id}") |> render() =~ "Usage spent"
+      send(view.pid, {:chatgpt_grants_changed, user.id})
+      assert view |> element("#chatgpt-grant-#{work.grant_id}") |> render() =~ "Connected"
+      refute view |> element("#set-chatgpt-grant") |> render() =~ "usage spent"
+      assert :sys.get_state(view.pid).socket.assigns.reset_reread == nil
+
+      # A fresh mount reads the clock too.
+      {:ok, fresh, _html} = live(conn, @path)
+      assert fresh |> element("#chatgpt-grant-#{work.grant_id}") |> render() =~ "Connected"
+    end
+
     test "a disconnected subscription is offered only to the set that already names it",
          %{conn: conn, user: user, work: work, personal: personal} do
       {:ok, set} = InferenceCredentials.create_set(user.id, "Default")

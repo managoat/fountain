@@ -72,7 +72,32 @@ defmodule FountainWeb.InferenceCredentialsLive.Index do
     loaded = SubscriptionsCard.load(socket.assigns.user_id, live?: connected?(socket))
     shown? = match?(%{subscriptions: %{visible?: true}}, socket.assigns)
 
-    assign(socket, :subscriptions, %{loaded | visible?: loaded.visible? or shown?})
+    socket
+    |> assign(:subscriptions, %{loaded | visible?: loaded.visible? or shown?})
+    |> reread_at_reset(loaded.grants)
+  end
+
+  # A usage limit ends by the clock: nothing is written when the reset
+  # passes, so nothing is broadcast, and an open page would say "Usage spent"
+  # until something else made it read again. It reads again itself, just
+  # after the earliest reset it is showing. One timer at a time.
+  defp reread_at_reset(socket, grants) do
+    if timer = socket.assigns[:reset_reread], do: Process.cancel_timer(timer)
+
+    resets = for %{state: :exhausted, exhausted_until: %DateTime{} = at} <- grants, do: at
+
+    timer =
+      if connected?(socket) and resets != [] do
+        wait = DateTime.diff(Enum.min(resets, DateTime), DateTime.utc_now(), :millisecond)
+
+        Process.send_after(
+          self(),
+          {:chatgpt_grants_changed, socket.assigns.user_id},
+          max(wait, 0) + 1_000
+        )
+      end
+
+    assign(socket, :reset_reread, timer)
   end
 
   # The sets, and which one the provider rows are about. Re-read after every
@@ -456,6 +481,10 @@ defmodule FountainWeb.InferenceCredentialsLive.Index do
   defp grant_option_label(%{name: name} = grant), do: "#{name} (#{grant_state_words(grant)})"
 
   defp grant_state_words(%{state: :disconnected}), do: "disconnected"
+
+  defp grant_state_words(%{state: :exhausted, exhausted_until: %DateTime{} = until}),
+    do: "usage spent until " <> Calendar.strftime(until, "%Y-%m-%d %H:%M UTC")
+
   defp grant_state_words(%{state: :exhausted}), do: "usage spent"
   defp grant_state_words(%{state: :broker_required}), do: "unable to serve on this deployment"
   defp grant_state_words(%{state: _}), do: "reconnect required"

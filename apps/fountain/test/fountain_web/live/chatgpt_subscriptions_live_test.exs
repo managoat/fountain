@@ -740,9 +740,33 @@ defmodule FountainWeb.ChatGPTSubscriptionsLiveTest do
       assert Repo.reload!(set).chatgpt_grant_id == work.grant_id
       assert has_element?(view, "#set-chatgpt-grant option[selected][value='#{work.grant_id}']")
 
+      # Saving what it names already is said to be nothing, in either spelling.
+      assert pick(view, work.grant_id) =~
+               "Default already runs codex on Work. Nothing was changed."
+
+      assert pick(view, String.upcase(work.grant_id)) =~ "Nothing was changed."
+
       assert pick(view, personal.grant_id) =~ "Default now runs codex on Personal."
       assert pick(view, "") =~ "Default names no ChatGPT subscription now."
+      assert pick(view, "") =~ "Default already names no ChatGPT subscription."
       assert is_nil(Repo.reload!(set).chatgpt_grant_id)
+    end
+
+    test "with linking turned off under an open page, a set keeps its subscription and names no other",
+         %{conn: conn, user: user, work: work, personal: personal} do
+      {:ok, set} = InferenceCredentials.create_set(user.id, "Default")
+      {:ok, _} = InferenceCredentials.set_grant(set, work.grant_id)
+      {:ok, view, _html} = live(conn, @path)
+
+      # The page still believes linking is on, and still offers Personal.
+      chatgpt_subscriptions_flag(false)
+      assert has_element?(view, "#set-chatgpt-grant option[value='#{personal.grant_id}']")
+
+      assert pick(view, personal.grant_id) =~
+               "Naming another ChatGPT subscription is not available on this account."
+
+      assert Repo.reload!(set).chatgpt_grant_id == work.grant_id
+      assert pick(view, "") =~ "Default names no ChatGPT subscription now."
     end
 
     test "an account with no set yet gets its default set by naming one",

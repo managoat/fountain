@@ -206,7 +206,8 @@ defmodule FountainWeb.InferenceCredentialsLive.Index do
   def handle_event("set_grant", %{"grant_id" => value}, socket) when is_binary(value) do
     grant_id = if value == "", do: nil, else: value
 
-    with :ok <- may_name(socket, grant_id),
+    with :changes <- unchanged(socket, grant_id),
+         :ok <- may_name(socket, grant_id),
          {:ok, set} <- set_to_name_in(socket, grant_id),
          {:ok, set} <-
            InferenceCredentials.set_grant(set, grant_id, FountainWeb.Audited.attribution(socket)) do
@@ -217,6 +218,14 @@ defmodule FountainWeb.InferenceCredentialsLive.Index do
     else
       :nothing_to_clear ->
         {:noreply, assign(socket, :grant_message, nil)}
+
+      # Saving what the set already names: `set_grant/3` would write nothing,
+      # and no conversation ends, so the page does not say one did.
+      :unchanged ->
+        {:noreply,
+         socket
+         |> load_sets()
+         |> then(&assign(&1, :grant_message, {:info, grant_unchanged(&1, &1.assigns.set)}))}
 
       {:error, :not_found} ->
         {:noreply, unavailable_selection(socket)}
@@ -352,14 +361,36 @@ defmodule FountainWeb.InferenceCredentialsLive.Index do
 
   # The rollout gates naming as it gates linking: with linking off a set keeps
   # the subscription it names, and may stop naming it, and nothing else. Asked
-  # here as well as in the template, which only hides the options.
+  # here as well as in the template, which only hides the options, and asked
+  # of the flag now: what the page read at mount may be an hour old.
   defp may_name(socket, grant_id) do
-    named = socket.assigns.set && socket.assigns.set.chatgpt_grant_id
-
-    if is_nil(grant_id) or grant_id == named or socket.assigns.subscriptions.linking?,
-      do: :ok,
-      else: {:error, :linking_off}
+    if is_nil(grant_id) or names?(socket.assigns.set, grant_id) or
+         Fountain.ChatGPTAccounts.linking_enabled_for?(socket.assigns.user_id),
+       do: :ok,
+       else: {:error, :linking_off}
   end
+
+  # Asked of the set's row and not of the page's copy, which another tab may
+  # have outdated: "nothing was changed" has to be true.
+  defp unchanged(%{assigns: %{set: %{} = set, user_id: user_id}}, grant_id) do
+    case InferenceCredentials.get_set(set.id, user_id) do
+      %{} = current ->
+        if names?(current, grant_id) or (is_nil(grant_id) and is_nil(current.chatgpt_grant_id)),
+          do: :unchanged,
+          else: :changes
+
+      nil ->
+        :changes
+    end
+  end
+
+  defp unchanged(_socket, _grant_id), do: :changes
+
+  # Compared as UUIDs, as `set_grant/3` does, not as the client spelled it.
+  defp names?(%{chatgpt_grant_id: named}, grant_id) when is_binary(named) and is_binary(grant_id),
+    do: Ecto.UUID.cast(grant_id) == {:ok, named}
+
+  defp names?(_set, _grant_id), do: false
 
   # An account that has never stored a key has no set to name a subscription
   # in. It gets its default set here, as a first key would have given it. The
@@ -386,6 +417,16 @@ defmodule FountainWeb.InferenceCredentialsLive.Index do
             FountainWeb.Audited.attribution(socket)
           )
         end
+    end
+  end
+
+  defp grant_unchanged(_socket, %{chatgpt_grant_id: nil} = set),
+    do: "#{set.name} already names no ChatGPT subscription. Nothing was changed."
+
+  defp grant_unchanged(socket, set) do
+    case Enum.find(socket.assigns.subscriptions.grants, &(&1.id == set.chatgpt_grant_id)) do
+      %{name: name} -> "#{set.name} already runs codex on #{name}. Nothing was changed."
+      nil -> "#{set.name} already names that subscription. Nothing was changed."
     end
   end
 
@@ -680,7 +721,7 @@ defmodule FountainWeb.InferenceCredentialsLive.Index do
           <.button
             type="submit"
             variant="secondary"
-            data-confirm="Changing the subscription a set names ends the codex conversations now running on that set: their next turn is refused and you start new ones. Conversations on other runtimes are not affected. Continue?"
+            data-confirm="Changing the subscription a set names ends the codex conversations now running on that set: their next turn is refused and you start new ones. Conversations on other runtimes are not affected. Saving the one it already names changes nothing. Continue?"
           >
             Save
           </.button>

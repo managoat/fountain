@@ -177,7 +177,9 @@ limit only when OpenAI confirms it. After that, the subscription shows
 `until`, and the `admission_refused` stage event carries the same `until`. The
 rule above still applies: nothing else is used in its place. The subscription
 is usable again when the time passes. Fountain does not check usage before a
-turn fails.
+turn fails. It asks OpenAI at most one time in 5 minutes for each
+subscription. If that request fails, the subscription stays usable and the
+next request can be up to 5 minutes later.
 
 These routes require a full-scope account key. The ID of another account is
 `404`.

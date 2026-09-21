@@ -140,8 +140,9 @@ defmodule Fountain.ChatGPTAccounts do
   on every refresh, and the one place it lives is the one place that is
   refreshed. A sandbox never sees it. What a sandbox gets is `auth.json` in
   `chatgptAuthTokens` mode with a placeholder where the bearer goes
-  (`Fountain.Conversations.CodexChatGPT`), and the broker substitutes the
-  current access token on `chatgpt.com` (`Fountain.Broker`).
+  (`Fountain.Conversations.CodexChatGPT`), and the broker supplies the
+  current access token on the one Codex backend route, asked for on every
+  request (`Fountain.Broker.Native.Sessions`).
 
     * `platform_access_token/0` -- the current access token, refreshed when
       it is within `platform_refresh_margin_seconds/0` of its expiry,
@@ -151,11 +152,13 @@ defmodule Fountain.ChatGPTAccounts do
       token is handed out. A terminal refusal marks the row `revoked` with
       the server's reason code; a workspace token past its expiry marks it
       `expired`.
-    * `platform_credential/1` -- `{:ok, token}` or `:none`, for
-      `Fountain.PlatformInference.credential_for/2`, which takes the grant for a
-      codex agent whose tenant has no OpenAI key of their own.
-    * `platform_sandbox_auth/0` -- the account id and the synthesised
-      `id_token` the sandbox file carries; never the real one.
+    * `platform_selection/0`, `platform_ensure_fresh/0` -- which grant a
+      codex conversation is selected onto
+      (`Fountain.PlatformInference.credential_for/2`, for a codex agent
+      whose tenant has no OpenAI key of their own), and its renewal before a
+      turn. Neither returns a token, and nothing a conversation calls does.
+      The sandbox file's account id and synthesised `id_token` come from
+      `sandbox_auth/1`, pinned to the selected sign-in.
     * `platform_connect_from_auth_json/2`,
       `platform_connect_from_tokens/3`,
       `platform_connect_workspace_token/3`, `platform_disconnect/1` -- the
@@ -1407,35 +1410,6 @@ defmodule Fountain.ChatGPTAccounts do
   def platform_active?, do: match?(%Account{status: "active"}, platform_row())
 
   @doc """
-  The grant as `Fountain.PlatformInference.credential_for/2` wants it:
-  `{:ok, access_token}` when it is active and refreshable, else `:none`.
-
-  `refresh: false` answers from the row alone, refreshing nothing: for a
-  caller that only asks whether a grant is there (a page render), not for
-  one about to hand the token to a sandbox.
-  """
-  @spec platform_credential(keyword()) :: {:ok, String.t()} | :none
-  def platform_credential(opts \\ []) do
-    if Keyword.get(opts, :refresh, true) do
-      case platform_access_token() do
-        {:ok, token} -> {:ok, token}
-        _ -> :none
-      end
-    else
-      case platform_row() do
-        %Account{status: "active"} = row ->
-          case Cipher.decrypt_token(row, :access_token) do
-            {:ok, token} -> {:ok, token}
-            _ -> :none
-          end
-
-        _ ->
-          :none
-      end
-    end
-  end
-
-  @doc """
   A valid access token, refreshing when within the margin of expiry.
   `{:error, :not_connected}`, `{:error, :revoked}` or `{:error, :expired}`
   when there is nothing to hand out; a transient refresh failure comes
@@ -1474,22 +1448,34 @@ defmodule Fountain.ChatGPTAccounts do
   end
 
   @doc """
-  What the sandbox's `auth.json` carries beside the placeholder: the real
-  account id (not a secret; it goes in a header codex sends in the clear)
-  and an unsigned `id_token` built from the stored claims. Whatever the
-  row's status: the file holds a placeholder, and the token that matters is
-  the one the broker already took at selection. Only a row that is gone, or
-  one with no account id, is `:none`.
+  The deployment's grant as `Fountain.PlatformInference.credential_for/2`
+  selects it: `{:ok, %{grant_id: _, generation: _}}` when it is active and
+  its access token still opens under the deployment's key, else `:none`.
+  From the row alone: no refresh, no provider I/O, and **no token leaves
+  this function**. Selection needs to know which grant, never its bearer,
+  which reaches the proxy only through `protected_credential/2`.
   """
-  @spec platform_sandbox_auth() ::
-          {:ok, %{account_id: String.t(), id_token: String.t()}} | :none
-  def platform_sandbox_auth do
-    case platform_row() do
-      %Account{account_id: account_id, id_claims: claims} when is_binary(account_id) ->
-        {:ok, %{account_id: account_id, id_token: Tokens.synthesize_id_token(claims)}}
+  @spec platform_selection() ::
+          {:ok, %{grant_id: Ecto.UUID.t(), generation: Ecto.UUID.t()}} | :none
+  def platform_selection do
+    with %Account{status: "active"} = row <- platform_row(),
+         {:ok, _token} <- Cipher.decrypt_token(row, :access_token) do
+      {:ok, %{grant_id: row.id, generation: row.generation}}
+    else
+      _ -> :none
+    end
+  end
 
-      _ ->
-        :none
+  @doc """
+  Renew the deployment's grant before a turn if it is within its refresh
+  margin: `platform_access_token/0` with the token dropped, because the
+  caller is a conversation and a conversation holds no bearer. Status only.
+  """
+  @spec platform_ensure_fresh() :: :ok | {:error, term()}
+  def platform_ensure_fresh do
+    case platform_access_token() do
+      {:ok, _token} -> :ok
+      {:error, _} = error -> error
     end
   end
 
@@ -1995,8 +1981,10 @@ defmodule Fountain.ChatGPTAccounts do
   end
 
   @doc """
-  Forget the grant. Running conversations keep the session they hold until
-  their next turn's re-read; new codex conversations fall through to the
+  Forget the grant. It stops serving at once: the same transaction revokes
+  every broker session issued for it, and the proxy reads the row on every
+  request, so a running conversation's next request to the Codex backend is
+  refused, mid-turn included. New codex conversations fall through to the
   platform `OPENAI_API_KEY`, or to no credential. `:ok` either way; the
   event is recorded only when a row was there.
   """

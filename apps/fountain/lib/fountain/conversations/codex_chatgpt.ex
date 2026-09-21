@@ -19,11 +19,11 @@ defmodule Fountain.Conversations.CodexChatGPT do
 
   The file names a placeholder, so it is worthless off the box.
 
-  ## A grant with a home of its own
+  ## A home per grant and generation
 
-  `managed_grant/2` says which sources have one. For such a source
-  everything comes from the resolved source, by owner, grant id and
-  generation, and nothing from a deployment-wide lookup:
+  Every grant has one, the deployment's and a user's alike
+  (`managed_grant/2`). Everything comes from the resolved source, by owner,
+  grant id and generation, and nothing from a deployment-wide lookup:
 
     * the file is `<home>/auth.json` under a `CODEX_HOME` of the grant's own,
       `/home/sprite/.codex-grants/<grant id>.<generation>` (`home/1`), and
@@ -56,19 +56,21 @@ defmodule Fountain.Conversations.CodexChatGPT do
       #1910 prefers, is not set here.
     * the placeholder is the grant's own (`Reserved.placeholder/1`).
 
-  **Not measured against a real client.** `managoat_runtimes` fixes codex's
-  config root (`Managoat.Runtimes.Layout`) and neither it nor `managoat_acp`
-  reads `CODEX_HOME`; the symlinked home is Fountain's way round that without
-  a library release. That codex-acp and the codex CLI honour `CODEX_HOME`,
+  **Not measured against a real client, and the deployment's grant is on
+  this path too.** `managoat_runtimes` fixes codex's config root
+  (`Managoat.Runtimes.Layout`) and neither it nor `managoat_acp` reads
+  `CODEX_HOME`; the symlinked home is Fountain's way round that without a
+  library release. That codex-acp and the codex CLI honour `CODEX_HOME`,
   resume a session through a linked `sessions/`, and find skills through a
-  linked `skills/` is asserted from their source, not observed. It has to be
-  measured in a real sandbox before a user can link a subscription.
+  linked `skills/` is asserted from their source, not observed. The
+  deployment's grant has run production turns since 2026-09-08 (ADR 0047),
+  so for it this is a gate on the merge and not only on a later stage: ADR
+  0060, "The platform move is gated on a measurement", says what to run and
+  what a failure looks like. The same has to be measured before a user can
+  link a subscription.
 
-  Every other source keeps the shared `~/.codex/auth.json`, the deployment's
-  grant included: a persistent sandbox shared by a conversation on the
-  API-key path and one on the deployment's grant holds whichever file was
-  written last; the API-key provider reads its key from the env and is
-  unaffected, the grant's provider reads the file.
+  An API-key source keeps the shared `~/.codex/auth.json`, which the
+  library's `codex login` writes; no grant writes there any more.
   """
 
   alias Fountain.ChatGPTAccounts
@@ -96,15 +98,18 @@ defmodule Fountain.Conversations.CodexChatGPT do
   `nil` for every other source. `user_id` is the conversation's owner, which
   a `:grant` source does not repeat.
 
-  A user's subscription (`scope: :grant`) always is one. The deployment's
-  grant is not yet: it still travels as a substitution rule and writes the
-  shared `~/.codex/auth.json`, and this is the one clause that would move it.
+  A user's subscription (`scope: :grant`) and the deployment's grant (the
+  `:platform` source of kind `:codex_chatgpt_access_token`) both are: ADR
+  0052 decision 6 covers "both user and platform grants".
   """
   @spec managed_grant(Source.t() | nil, String.t() | nil) :: ChatGPTAccounts.grant_ref() | nil
-  def managed_grant(%Source{scope: :grant} = source, user_id) when is_binary(user_id) do
+  def managed_grant(%Source{} = source, user_id) do
     case Source.grant_ref(source) do
-      {:user, grant_id, generation} ->
+      {:user, grant_id, generation} when is_binary(user_id) ->
         %{owner: {:user, user_id}, grant_id: grant_id, generation: generation}
+
+      {:platform, grant_id, generation} ->
+        %{owner: :platform, grant_id: grant_id, generation: generation}
 
       _ ->
         nil
@@ -149,7 +154,17 @@ defmodule Fountain.Conversations.CodexChatGPT do
           {:error, reason} -> renewal_refusal(ref, reason)
         end
 
-      _ ->
+      # The deployment's grant, as it has always been renewed before a turn
+      # (ADR 0047 decision 5), less the token: a renewal that fails, or a
+      # grant gone revoked, does not stop the turn here. The proxy refuses
+      # it with the reason, and the next turn's validation sees the source
+      # change. There is one platform grant, so there is no id to pass; the
+      # generation is checked where it matters, on every request.
+      %{owner: :platform} ->
+        _ = ChatGPTAccounts.platform_ensure_fresh()
+        :ok
+
+      nil ->
         :ok
     end
   end
@@ -235,12 +250,29 @@ defmodule Fountain.Conversations.CodexChatGPT do
     end
   end
 
+  # The deployment's grant has no sentence of stage 2's, so the caller
+  # reports the fence as it reports any other reason. The next turn's
+  # validation sees the source change.
+  defp fenced(%{owner: :platform}, _source), do: :platform_chatgpt_not_connected
+
   @doc "Whether a source's codex peer keeps its `auth.json` in a home of its own."
   @spec own_home?(Source.t() | nil) :: boolean()
-  def own_home?(%Source{scope: :grant} = source),
-    do: match?({:user, _, _}, Source.grant_ref(source))
+  def own_home?(source), do: Source.grant_ref(source) != nil
 
-  def own_home?(_source), do: false
+  @doc """
+  Whether a source is outside the machine's one-source Codex binding
+  (`Fountain.Machines.Binding.bind_inference/2`): a user's subscription.
+
+  The deployment's grant has a home of its own too and could be, but is
+  deliberately left under the binding. What a persistent home does when the
+  platform account hits its usage limit and when that resets is published
+  behaviour (ADR 0047 decision 6 as amended by #2362,
+  `docs/configuration.md`): the home keeps the source it started on.
+  Lifting the binding for it would change that, and is a decision of its
+  own.
+  """
+  @spec outside_machine_binding?(Source.t() | nil) :: boolean()
+  def outside_machine_binding?(source), do: match?({:user, _, _}, Source.grant_ref(source))
 
   @doc """
   The `CODEX_HOME` of one sign-in of one grant:
@@ -267,31 +299,20 @@ defmodule Fountain.Conversations.CodexChatGPT do
   @doc """
   The spawn env entries for a grant, for the codex runtime only.
 
-  On a source with a home of its own (`managed_grant/2`):
-  `CODEX_CHATGPT_ACCESS_TOKEN`, the grant's own placeholder, and `CODEX_HOME`.
-  Both come from the source, whatever the credentials map holds. On any other
-  source, `CODEX_CHATGPT_ACCESS_TOKEN` when the credentials carry it
-  (brokered, the placeholder `Fountain.Broker.split_inference/2` put there).
+  On a grant (`managed_grant/2`): `CODEX_CHATGPT_ACCESS_TOKEN`, the grant's
+  own placeholder, and `CODEX_HOME`. Both come from the source, whatever the
+  credentials map holds. On any other source, nothing.
 
   A `:grant` source that names no grant and generation, or names ones that
-  make no path, exports nothing, and `prepare_sandbox/5` refuses the spawn.
-  It never falls through to the other sources' entry: that one is followed
-  by the deployment's account file in the shared home.
+  make no path, exports nothing too, and `prepare_sandbox/5` refuses the
+  spawn rather than leave it to the library's `codex login`.
   """
   @spec env(module() | nil, map(), Source.t() | nil) :: [{String.t(), String.t()}]
-  def env(Managoat.Runtimes.Codex, credentials, %Source{scope: :grant} = source)
-      when is_map(credentials) do
-    with {:user, grant_id, generation} <- Source.grant_ref(source),
+  def env(Managoat.Runtimes.Codex, credentials, source) when is_map(credentials) do
+    with {_owner, grant_id, generation} <- Source.grant_ref(source),
          {:ok, home} <- home(%{grant_id: grant_id, generation: generation}) do
       [{@env_key, Reserved.placeholder(grant_id)}, {@home_key, home}]
     else
-      _ -> []
-    end
-  end
-
-  def env(Managoat.Runtimes.Codex, credentials, _source) when is_map(credentials) do
-    case Map.get(credentials, @credential) do
-      value when is_binary(value) and value != "" -> [{@env_key, value}]
       _ -> []
     end
   end
@@ -319,25 +340,30 @@ defmodule Fountain.Conversations.CodexChatGPT do
   @doc """
   Write the sandbox's `auth.json` when this codex spawn runs on a grant.
 
-  For a source with a home of its own (`managed_grant/2`): prepare that home,
-  link the shared configuration into it, and write its `auth.json` from a
-  read of the grant pinned by owner, id and generation
-  (`ChatGPTAccounts.sandbox_auth/1`). A grant that is no longer at that
-  generation is `{:error, :inference_source_changed}` when it is active at
-  another (it was reconnected; `ensure_fresh/2` says the same) and
-  `{:error, {:chatgpt_grant_unusable, _}}` otherwise, never another grant's
-  account and never the deployment's. An `OPENAI_API_KEY` beside it
-  is an error too: `SpriteEnv.build/4` strips one for such a source, and a
-  key that got through would be the silent switch ADR 0060 decision 4
-  forbids.
+  For a grant (`managed_grant/2`): prepare its home, link the shared
+  configuration into it, and write its `auth.json` from a read of the grant
+  pinned by owner, id and generation (`ChatGPTAccounts.sandbox_auth/1`). A
+  user's grant that is no longer at that generation is
+  `{:error, :inference_source_changed}` when it is active at another (it was
+  reconnected; `ensure_fresh/2` says the same) and
+  `{:error, {:chatgpt_grant_unusable, _}}` otherwise; the deployment's is
+  `{:error, :platform_chatgpt_not_connected}`. Never another grant's
+  account. An `OPENAI_API_KEY` beside a grant is
+  `{:error, :codex_grant_key_conflict}`. `SpriteEnv.build/4` strips one for
+  a user's source, and a key that got through would be the silent switch ADR
+  0060 decision 4 forbids. Beside the deployment's grant the key used to win
+  and the answer was `:skip`. It cannot any more: by then `env/3` has
+  exported a `CODEX_HOME` that a skip would never create, and the broker
+  session is the grant's HTTP-only one (`Egress.session_opts/1`), so the
+  library's `codex login` would run against a home that is not there. The
+  resolver is believed never to hand out both, and if it does the provision
+  says so rather than half-running on each.
 
   A `:grant` source with no owner, grant id or generation to pin is
   `{:error, :invalid_codex_home}`; it is never treated as any other source.
 
-  For any other source: `:skip` when the spawn does not carry the
-  deployment's grant, or when an `OPENAI_API_KEY` sits beside it (the
-  library's `prepare_sandbox/3` then runs as today); `:ok` or
-  `{:error, reason}` when it does.
+  `:skip` for every other source and runtime: the library's
+  `prepare_sandbox/3` then runs as today.
   """
   @spec prepare_sandbox(
           Managoat.Sandbox.Handle.t(),
@@ -349,35 +375,16 @@ defmodule Fountain.Conversations.CodexChatGPT do
   def prepare_sandbox(handle, @runtime, sprite_env, source, user_id) do
     case {managed_grant(source, user_id), source} do
       # A user's source that pins nothing: no owner, or a persisted source
-      # without its grant id or generation. Refused here, because the shared
-      # path below writes the deployment's account, and a user's source must
-      # never reach it.
+      # without its grant id or generation. Refused here, because `:skip`
+      # hands the spawn to the library's `codex login`, and a user's source
+      # must never reach a credential it did not name.
       {nil, %Source{scope: :grant}} -> {:error, :invalid_codex_home}
-      {nil, _} -> prepare_shared(handle, sprite_env)
+      {nil, _} -> :skip
       {ref, _} -> prepare_home(handle, sprite_env, ref)
     end
   end
 
   def prepare_sandbox(_handle, _runtime, _sprite_env, _source, _user_id), do: :skip
-
-  defp prepare_shared(handle, sprite_env) do
-    # A key beside the grant wins, as it does in `CodexTransport`: the
-    # tenant's environment or vault may name `OPENAI_API_KEY` without
-    # holding an inference credential, and that spawn runs on the key
-    # through the library's login, not on this file.
-    case {List.keyfind(sprite_env, @env_key, 0), List.keyfind(sprite_env, "OPENAI_API_KEY", 0)} do
-      {{@env_key, value}, key}
-      when is_binary(value) and value != "" and
-             (is_nil(key) or elem(key, 1) in [nil, ""]) ->
-        case ChatGPTAccounts.platform_sandbox_auth() do
-          {:ok, auth} -> write(handle, Layout.config_root(@runtime), auth_json(value, auth))
-          :none -> {:error, :platform_chatgpt_not_connected}
-        end
-
-      _ ->
-        :skip
-    end
-  end
 
   defp prepare_home(handle, sprite_env, ref) do
     with {:ok, home} <- home(ref),
@@ -461,6 +468,10 @@ defmodule Fountain.Conversations.CodexChatGPT do
   # fact: the grant is fine and this conversation's source is not it.
   # Anything else is named, like every other refusal of a user's grant, and
   # never answered with a different account.
+  #
+  # The deployment's grant has one answer, the one it has always had.
+  defp gone(%{owner: :platform}), do: :platform_chatgpt_not_connected
+
   defp gone(%{owner: {:user, user_id}, grant_id: grant_id} = ref),
     do: gone(ref, ChatGPTAccounts.get_for_user(grant_id, user_id))
 
@@ -501,20 +512,5 @@ defmodule Fountain.Conversations.CodexChatGPT do
       },
       "last_refresh" => DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
     })
-  end
-
-  @doc "Where the shared file goes: `~/.codex/auth.json`, under the runtime's layout."
-  @spec auth_path() :: String.t()
-  def auth_path, do: Path.join(Layout.config_root(@runtime), "auth.json")
-
-  defp write(handle, dir, body) do
-    with {:ok, _out, 0} <- Managoat.Sandbox.exec(handle, "mkdir", ["-p", dir], []),
-         :ok <-
-           Managoat.Sandbox.write_file(handle, Path.join(dir, "auth.json"), body, mode: 0o600) do
-      :ok
-    else
-      {:ok, out, code} -> {:error, {:codex_auth_mkdir, code, out}}
-      {:error, reason} -> {:error, {:codex_auth_write, reason}}
-    end
   end
 end

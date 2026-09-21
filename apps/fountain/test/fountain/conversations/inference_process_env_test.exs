@@ -49,10 +49,12 @@ defmodule Fountain.Conversations.InferenceProcessEnvTest do
     end
   end
 
-  test "the managed broker placeholder reaches Codex's process environment only" do
+  # Only a source that is a managed grant exports the name at all: see "a
+  # managed ChatGPT grant" below. The credentials map alone does not.
+  test "the managed name is never exported from the credentials map alone" do
     placeholder = Fountain.Broker.placeholder("CODEX_CHATGPT_ACCESS_TOKEN")
     sprite_env = build(nil, nil, %{}, Codex, %{codex_chatgpt_access_token: placeholder})
-    assert {"CODEX_CHATGPT_ACCESS_TOKEN", placeholder} in sprite_env
+    refute List.keymember?(sprite_env, "CODEX_CHATGPT_ACCESS_TOKEN", 0)
     assert_disk_excludes_auth(sprite_env)
   end
 

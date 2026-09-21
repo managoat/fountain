@@ -70,8 +70,9 @@ defmodule Fountain.Broker do
 
   ## A managed ChatGPT grant
 
-  A conversation that runs codex on a user's ChatGPT subscription (ADR 0060)
-  does not get there through any of the above. The grant's bearer is not a
+  A conversation that runs codex on a ChatGPT grant, the deployment's (ADR
+  0047) or a user's own subscription (ADR 0060), does not get there through
+  any of the above. The grant's bearer is not a
   secret in the `brokered` map, is in no rule, and cannot be named by a
   binding or a template (`Fountain.ChatGPTAccounts.Reserved`): the session
   records *which* grant it may use, at which generation, and the proxy asks
@@ -81,11 +82,6 @@ defmodule Fountain.Broker do
   take it as `managed:`, and `revoke_grant/2` is what the grant's own
   lifecycle calls. Such a session is HTTP only: no WebSocket or other
   upgrade, to any host.
-
-  The deployment's own grant (ADR 0047) still travels the older way, as the
-  `CODEX_CHATGPT_ACCESS_TOKEN` entry of `@inference` below. The protected
-  path serves it too, and nothing in production selects it for that grant
-  yet.
 
   ## The network policy (gate 2)
 
@@ -315,16 +311,7 @@ defmodule Fountain.Broker do
     "CLAUDE_CODE_OAUTH_TOKEN" => %{cred: :claude_code_oauth_token, hosts: ["api.anthropic.com"]},
     "ANTHROPIC_API_KEY" => %{cred: :anthropic_api_key, hosts: ["api.anthropic.com"]},
     "OPENAI_API_KEY" => %{cred: :openai_api_key, hosts: ["api.openai.com"]},
-    "GEMINI_API_KEY" => %{cred: :gemini_api_key, hosts: ["generativelanguage.googleapis.com"]},
-    # The deployment's ChatGPT grant for the codex runtime (ADR 0047): the
-    # access token, which the sandbox holds only as this placeholder in its
-    # `auth.json`, substituted into the bearer on the Codex backend. No
-    # vendor prefix: codex never inspects the shape of an externally managed
-    # token.
-    "CODEX_CHATGPT_ACCESS_TOKEN" => %{
-      cred: :codex_chatgpt_access_token,
-      hosts: ["chatgpt.com"]
-    }
+    "GEMINI_API_KEY" => %{cred: :gemini_api_key, hosts: ["generativelanguage.googleapis.com"]}
   }
 
   @doc "The env var names that carry inference credentials, and the credential each comes from."
@@ -336,8 +323,9 @@ defmodule Fountain.Broker do
   `default_env/2` gets placeholders, the broker gets the values under the
   env var names, and each gets an implicit `substitute` binding to its
   provider's host. A tenant's own binding for the same name wins. A managed
-  ChatGPT grant on the protected path is left exactly as it came (see "A
-  managed ChatGPT grant" in the moduledoc).
+  ChatGPT grant is not one of these: `:codex_chatgpt_access_token` holds a
+  placeholder already, has no entry in the table, and passes through
+  untouched (see "A managed ChatGPT grant" in the moduledoc).
   """
   @spec split_inference(map(), bindings()) :: {map(), %{String.t() => String.t()}, bindings()}
   def split_inference(credentials, bindings \\ %{}) when is_map(credentials) do
@@ -345,28 +333,18 @@ defmodule Fountain.Broker do
                                                         {creds, brokered, implicit} ->
       case Map.get(creds, cred) do
         value when is_binary(value) and value != "" ->
-          if managed_placeholder?(value) do
-            {creds, brokered, implicit}
-          else
-            implicit =
-              if Map.has_key?(bindings, key),
-                do: implicit,
-                else: Map.put(implicit, key, Enum.map(hosts, &implicit_binding(key, &1)))
+          implicit =
+            if Map.has_key?(bindings, key),
+              do: implicit,
+              else: Map.put(implicit, key, Enum.map(hosts, &implicit_binding(key, &1)))
 
-            {Map.put(creds, cred, placeholder(key)), Map.put(brokered, key, value), implicit}
-          end
+          {Map.put(creds, cred, placeholder(key)), Map.put(brokered, key, value), implicit}
 
         _ ->
           {creds, brokered, implicit}
       end
     end)
   end
-
-  # A grant on the protected path arrives as its placeholder: there is no
-  # value here to take custody of, and no substitution rule may name it. It
-  # stays out of `brokered` and gets no implicit binding; the session carries
-  # the grant as `managed:` instead.
-  defp managed_placeholder?(value), do: Fountain.ChatGPTAccounts.Reserved.placeholder?(value)
 
   defp implicit_binding(key, host) do
     %Fountain.SecretBindings.Binding{

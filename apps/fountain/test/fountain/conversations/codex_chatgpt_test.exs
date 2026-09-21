@@ -2,9 +2,9 @@ defmodule Fountain.Conversations.CodexChatGPTTest do
   @moduledoc """
   How a grant reaches a codex sandbox: the env entry and the `auth.json`
   Fountain writes instead of running `codex login`. The deployment's grant
-  (ADR 0047 decision 4) keeps the shared `~/.codex`; a user's subscription
-  gets a `CODEX_HOME` of its own per grant and generation (ADR 0060 decision
-  6). `async: false` for the one platform row.
+  (ADR 0047 decision 4) and a user's subscription each get a `CODEX_HOME` of
+  their own per grant and generation (ADR 0060 decision 6). `async: false`
+  for the one platform row.
   """
 
   use Fountain.DataCase, async: false
@@ -21,113 +21,164 @@ defmodule Fountain.Conversations.CodexChatGPTTest do
   @handle %Handle{provider: :fake, name: "sbx"}
   @placeholder "__codex_chatgpt_access_token__"
 
-  test "env/3 exports the grant for codex only, and only when present" do
+  test "env/3 exports a grant for codex only, and only from a source that is one" do
     creds = %{codex_chatgpt_access_token: @placeholder, openai_api_key: nil}
 
-    # The deployment's grant, and every source that is not a grant at all,
-    # says nothing about a home: codex keeps the shared `~/.codex`.
-    for source <- [nil, platform_source()] do
-      assert CodexChatGPT.env(Managoat.Runtimes.Codex, creds, source) ==
-               [{"CODEX_CHATGPT_ACCESS_TOKEN", @placeholder}]
-
-      assert CodexChatGPT.env(Managoat.Runtimes.Codex, %{}, source) == []
-
-      assert CodexChatGPT.env(Managoat.Runtimes.Codex, %{codex_chatgpt_access_token: ""}, source) ==
-               []
-
-      assert CodexChatGPT.env(Managoat.Runtimes.OpenCode, creds, source) == []
-      assert CodexChatGPT.env(nil, creds, source) == []
+    # The credentials map alone exports nothing: the source is the authority.
+    for source <- [nil, Source.credential(), Source.platform()] do
+      assert CodexChatGPT.env(Managoat.Runtimes.Codex, creds, source) == []
     end
+
+    assert CodexChatGPT.env(Managoat.Runtimes.OpenCode, creds, platform_source()) == []
+    assert CodexChatGPT.env(nil, creds, platform_source()) == []
   end
 
-  test "prepare_sandbox/5 is :skip for another runtime or a spawn without the grant" do
-    assert prepare("claude", [{"CODEX_CHATGPT_ACCESS_TOKEN", "x"}]) == :skip
-    assert prepare("codex", [{"OPENAI_API_KEY", "sk-x"}]) == :skip
-    assert prepare("codex", [{"CODEX_CHATGPT_ACCESS_TOKEN", ""}]) == :skip
+  describe "the deployment's grant: a CODEX_HOME of its own too" do
+    setup do
+      grant = connect!()
+      {:ok, grant: grant, source: platform_source(grant)}
+    end
 
-    # A key beside the grant wins, as it does in the transport: the tenant's
-    # environment may name OPENAI_API_KEY without holding a credential row.
-    assert prepare("codex", [
-             {"CODEX_CHATGPT_ACCESS_TOKEN", @placeholder},
-             {"OPENAI_API_KEY", "sk-from-vault"}
-           ]) == :skip
-  end
+    test "env/3 exports its placeholder and home, from the source", %{grant: grant} = ctx do
+      assert CodexChatGPT.env(Managoat.Runtimes.Codex, %{}, ctx.source) == [
+               {"CODEX_CHATGPT_ACCESS_TOKEN", Reserved.placeholder(grant.id)},
+               {"CODEX_HOME", "/home/sprite/.codex-grants/#{grant.id}.#{grant.generation}"}
+             ]
 
-  test "prepare_sandbox/5 writes the chatgptAuthTokens file with the placeholder and the synthesised id_token" do
-    connect!()
-    test_pid = self()
+      assert CodexChatGPT.managed_grant(ctx.source, nil) == %{
+               owner: :platform,
+               grant_id: grant.id,
+               generation: grant.generation
+             }
 
-    expect(Managoat.Sandbox, :exec, fn @handle, "mkdir", ["-p", "/home/sprite/.codex"], _ ->
-      {:ok, "", 0}
-    end)
+      assert CodexChatGPT.own_home?(ctx.source)
+      # It stays under the machine's one-source binding (ADR 0047 decision 6).
+      refute CodexChatGPT.outside_machine_binding?(ctx.source)
+    end
 
-    expect(Managoat.Sandbox, :write_file, fn @handle, path, body, opts ->
-      send(test_pid, {:written, path, body, opts})
-      :ok
-    end)
+    test "prepare_sandbox/5 is :skip for another runtime or another source", ctx do
+      env = CodexChatGPT.env(Managoat.Runtimes.Codex, %{}, ctx.source)
+      assert CodexChatGPT.prepare_sandbox(@handle, "claude", env, ctx.source, nil) == :skip
+      assert prepare("codex", [{"OPENAI_API_KEY", "sk-x"}]) == :skip
+      assert prepare("codex", [{"CODEX_CHATGPT_ACCESS_TOKEN", @placeholder}]) == :skip
+    end
 
-    assert :ok =
-             prepare("codex", [
-               {"HOME", "/home/sprite"},
-               {"CODEX_CHATGPT_ACCESS_TOKEN", @placeholder}
-             ])
+    test "prepare_sandbox/5 refuses a key beside the grant, and touches no sandbox", ctx do
+      # `:skip` here once meant the key wins. The spawn would still carry the
+      # grant's `CODEX_HOME`, which a skip never creates, and its broker
+      # session would still be the grant's HTTP-only one.
+      reject(&Managoat.Sandbox.exec/4)
+      reject(&Managoat.Sandbox.write_file/4)
+      env = CodexChatGPT.env(Managoat.Runtimes.Codex, %{}, ctx.source)
+      assert {"CODEX_HOME", _} = List.keyfind(env, "CODEX_HOME", 0)
 
-    assert_receive {:written, "/home/sprite/.codex/auth.json", body, opts}
-    assert opts[:mode] == 0o600
+      assert {:error, :codex_grant_key_conflict} =
+               CodexChatGPT.prepare_sandbox(
+                 @handle,
+                 "codex",
+                 env ++ [{"OPENAI_API_KEY", "sk-from-vault"}],
+                 ctx.source,
+                 nil
+               )
+    end
 
-    assert %{
-             "auth_mode" => "chatgptAuthTokens",
-             "tokens" => %{
-               "access_token" => @placeholder,
-               "refresh_token" => "",
-               "account_id" => "acct_platform_1",
-               "id_token" => id_token
-             },
-             "last_refresh" => last_refresh
-           } = Jason.decode!(body)
+    test "prepare_sandbox/5 writes the chatgptAuthTokens file into the grant's own home",
+         %{grant: grant} = ctx do
+      test_pid = self()
+      home = "/home/sprite/.codex-grants/#{grant.id}.#{grant.generation}"
 
-    assert {:ok, %{"account_id" => "acct_platform_1", "email" => nil}} =
-             Fountain.PlatformChatGPT.Tokens.claims(id_token)
+      expect(Managoat.Sandbox, :exec, fn @handle, "sh", ["-c", _, "sh", shared, ^home], _ ->
+        assert shared == "/home/sprite/.codex"
+        {:ok, "", 0}
+      end)
 
-    assert {:ok, _, _} = DateTime.from_iso8601(last_refresh)
-    # Nothing but the placeholder stands where a token would.
-    refute body =~ "rt_original"
-  end
+      expect(Managoat.Sandbox, :write_file, fn @handle, path, body, opts ->
+        send(test_pid, {:written, path, body, opts})
+        :ok
+      end)
 
-  test "prepare_sandbox/5 reports a sandbox that refuses the write, and a grant that is gone" do
-    connect!()
+      env = [
+        {"HOME", "/home/sprite"} | CodexChatGPT.env(Managoat.Runtimes.Codex, %{}, ctx.source)
+      ]
 
-    expect(Managoat.Sandbox, :exec, fn _, "mkdir", _, _ -> {:ok, "read-only", 1} end)
+      assert :ok = CodexChatGPT.prepare_sandbox(@handle, "codex", env, ctx.source, nil)
 
-    assert {:error, {:codex_auth_mkdir, 1, "read-only"}} =
-             prepare("codex", [{"CODEX_CHATGPT_ACCESS_TOKEN", "p"}])
+      assert_receive {:written, path, body, opts}
+      assert path == home <> "/auth.json"
+      assert opts[:mode] == 0o600
+      placeholder = Reserved.placeholder(grant.id)
 
-    Fountain.ChatGPTAccounts.platform_disconnect()
+      assert %{
+               "auth_mode" => "chatgptAuthTokens",
+               "tokens" => %{
+                 "access_token" => ^placeholder,
+                 "refresh_token" => "",
+                 "account_id" => "acct_platform_1",
+                 "id_token" => id_token
+               },
+               "last_refresh" => last_refresh
+             } = Jason.decode!(body)
 
-    assert {:error, :platform_chatgpt_not_connected} =
-             prepare("codex", [{"CODEX_CHATGPT_ACCESS_TOKEN", "p"}])
-  end
+      assert {:ok, %{"account_id" => "acct_platform_1", "email" => nil}} =
+               Fountain.PlatformChatGPT.Tokens.claims(id_token)
 
-  test "Provisioning.prepare_runtime_sprite/7 takes the grant path before the library's login" do
-    connect!()
+      assert {:ok, _, _} = DateTime.from_iso8601(last_refresh)
+      # Nothing but the placeholder stands where a token would.
+      refute body =~ "rt_original"
+    end
 
-    # The library's `prepare_sandbox/3` would spawn `codex login`; on the
-    # grant path it is never reached, so a spawn is a failure here.
-    reject(&Managoat.Sandbox.spawn/4)
-    stub(Fountain.RuntimeDispatch, :install, fn _, "codex", _ -> :ok end)
-    expect(Managoat.Sandbox, :exec, fn _, "mkdir", _, _ -> {:ok, "", 0} end)
-    expect(Managoat.Sandbox, :write_file, fn _, _, _, _ -> :ok end)
+    test "prepare_sandbox/5 reports a sandbox that refuses, and a grant that is gone", ctx do
+      env = CodexChatGPT.env(Managoat.Runtimes.Codex, %{}, ctx.source)
+      expect(Managoat.Sandbox, :exec, fn _, "sh", _, _ -> {:ok, "read-only", 1} end)
 
-    assert :ok =
-             Provisioning.prepare_runtime_sprite(
-               @handle,
-               "codex",
-               Managoat.Runtimes.Codex,
-               %{name: "a"},
-               [{"CODEX_CHATGPT_ACCESS_TOKEN", @placeholder}],
-               platform_source(),
-               nil
-             )
+      assert {:error, {:codex_home_prepare, 1, "read-only"}} =
+               CodexChatGPT.prepare_sandbox(@handle, "codex", env, ctx.source, nil)
+
+      Fountain.ChatGPTAccounts.platform_disconnect()
+
+      assert {:error, :platform_chatgpt_not_connected} =
+               CodexChatGPT.prepare_sandbox(@handle, "codex", env, ctx.source, nil)
+
+      # A reconnect is a new generation: the old pin finds nothing, and is
+      # never answered from the new sign-in.
+      connect!(%{account_id: "acct_other", id_token: id_token(%{account_id: "acct_other"})})
+
+      assert {:error, :platform_chatgpt_not_connected} =
+               CodexChatGPT.prepare_sandbox(@handle, "codex", env, ctx.source, nil)
+    end
+
+    test "refusal_stage/3 leaves the deployment's fenced mint to the caller's own words", ctx do
+      # The issuance fence refuses the deployment's grant as it does a user's
+      # (an admin disconnected it between the resolve and the mint). It has no
+      # sentence of stage 2's, so the caller reports the reason as it always
+      # has; what it must not do is fall through the user's clauses.
+      Fountain.ChatGPTAccounts.platform_disconnect()
+      fenced = {:broker, :session, :managed_grant_inactive}
+
+      assert CodexChatGPT.refusal_stage(fenced, nil, ctx.source) == nil
+      assert CodexChatGPT.refusal_stage(fenced, insert_verified_user().id, ctx.source) == nil
+    end
+
+    test "Provisioning.prepare_runtime_sprite/7 takes the grant path before the library's login",
+         ctx do
+      # The library's `prepare_sandbox/3` would spawn `codex login`; on the
+      # grant path it is never reached, so a spawn is a failure here.
+      reject(&Managoat.Sandbox.spawn/4)
+      stub(Fountain.RuntimeDispatch, :install, fn _, "codex", _ -> :ok end)
+      expect(Managoat.Sandbox, :exec, fn _, "sh", _, _ -> {:ok, "", 0} end)
+      expect(Managoat.Sandbox, :write_file, fn _, _, _, _ -> :ok end)
+
+      assert :ok =
+               Provisioning.prepare_runtime_sprite(
+                 @handle,
+                 "codex",
+                 Managoat.Runtimes.Codex,
+                 %{name: "a"},
+                 CodexChatGPT.env(Managoat.Runtimes.Codex, %{}, ctx.source),
+                 ctx.source,
+                 nil
+               )
+    end
   end
 
   describe "a user's subscription: a CODEX_HOME per grant and generation" do
@@ -583,12 +634,12 @@ defmodule Fountain.Conversations.CodexChatGPTTest do
     }
   end
 
-  defp platform_source do
+  defp platform_source(grant \\ %{id: Ecto.UUID.generate(), generation: Ecto.UUID.generate()}) do
     %{
       Source.platform()
       | kind: :codex_chatgpt_access_token,
-        identity: "platform:chatgpt:" <> Ecto.UUID.generate(),
-        revision: Ecto.UUID.generate()
+        identity: "platform:chatgpt:" <> grant.id,
+        revision: grant.generation
     }
   end
 end

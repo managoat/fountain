@@ -196,14 +196,17 @@ defmodule Fountain.InferenceCredentials.Resolver do
 
   defp grant_state(view) do
     cond do
-      # The same rule as the platform grant's (`PlatformInference.credential_for/2`):
-      # with no broker the token would land in the sandbox in the clear.
-      not Fountain.Broker.configured?() -> {:broker_required, nil}
       view.status == "disconnected" -> {:disconnected, nil}
       view.status == "revoked" -> {:revoked, nil}
       view.status == "expired" -> {:expired, nil}
       view.status != "active" or view.kind != "chatgpt" -> {:reconnect_required, nil}
       not view.refreshable or view.account_id in [nil, ""] -> {:reconnect_required, nil}
+      # The same rule as the platform grant's (`PlatformInference.credential_for/2`):
+      # with no broker the token would land in the sandbox in the clear. After
+      # the grant's own state, so a disconnected grant is never reported as a
+      # deployment's missing broker, and before exhaustion, which waiting out
+      # would not help here.
+      not Fountain.Broker.configured?() -> {:broker_required, nil}
       match?(%DateTime{}, view.exhausted_until) -> {:exhausted, view.exhausted_until}
       true -> :ok
     end

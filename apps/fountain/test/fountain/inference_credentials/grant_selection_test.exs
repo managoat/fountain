@@ -320,6 +320,16 @@ defmodule Fountain.InferenceCredentials.GrantSelectionTest do
                resolve(ctx.user, set)
     end
 
+    test "with no broker a disconnected grant still says disconnected", ctx do
+      grant = user_grant!(ctx.user.id, %{name: "Work"})
+      set = set_naming(ctx.user, "Set", grant)
+      :ok = ChatGPTAccounts.disconnect_for_user(grant.id, ctx.user.id)
+      Application.delete_env(:fountain, :broker_listen_port)
+
+      assert {:error, {:chatgpt_grant_unusable, %{reason: :disconnected, name: "Work"}}} =
+               resolve(ctx.user, set)
+    end
+
     test "a set that names a grant its owner does not hold resolves to an error", ctx do
       # The changeset and the foreign key both refuse this row, so it is
       # written with the key's check off: the resolver's own owner-scoped

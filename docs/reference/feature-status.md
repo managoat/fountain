@@ -20,10 +20,12 @@ until it is. For ChatGPT subscriptions, the console and the
 credential set can name one. Each turn records which subscription served it.
 Fountain detects a subscription that has spent its plan's Codex allowance
 after a turn fails on it, and refuses the subscription until the reset time.
-These parts are not built: the schedule that keeps an idle subscription's
-sign-in alive, a check of the usage before a turn fails, an email or a
-webhook about a spent plan, and two protections at the credential broker for
-a response or a request that carries the subscription's token. The flag holds
+A daily job renews a subscription that nobody used for 6 days, so that its
+sign-in does not end. An account export lists the subscriptions, and an
+account deletion removes them. These parts are not built: a check of the usage
+before a turn fails, an email or a webhook about a spent plan, a way to revoke
+a sign-in at OpenAI, and two protections at the credential broker for a
+response or a request that carries the subscription's token. The flag holds
 only the door that links a new subscription. An account that holds one can
 always list, rename, disconnect and remove it, and keeps the **ChatGPT
 subscriptions** card in the console. It can reconnect it on a deployment that

@@ -1,6 +1,6 @@
 ### Upgrade notes
 
-- **A new daily job and a new Oban queue, no operator action** (#2453).
+- **A new daily job and a new Oban queue, no operator action** (#2462).
   `Fountain.Workers.ChatGPTKeepaliveSweep` runs at 04:37 UTC on the
   `maintenance` queue. It reads ids only, and queues one job on the new
   `chatgpt_refresh` queue for every linked ChatGPT subscription nobody has
@@ -41,14 +41,14 @@
 
 ### Added
 
-- **An idle ChatGPT subscription is kept alive** (#2453). A subscription its
+- **An idle ChatGPT subscription is kept alive** (#2462). A subscription its
   owner has not used for six days is renewed by a daily job, so it no longer
   lapses at OpenAI's idle window. One subscription's failure touches no
   other, including another of the same account's: a refresh token OpenAI
   refuses marks that one subscription "Reconnect required" and the rest are
   renewed as usual. Linking stays behind the `chatgpt_subscriptions` flag.
 
-- **An account export lists ChatGPT subscriptions and sign-ins** (#2453).
+- **An account export lists ChatGPT subscriptions and sign-ins** (#2462).
   Two new sections, `chatgpt_subscriptions` and `chatgpt_link_attempts`,
   carry what the owner sees on the card: a subscription's name, state, plan,
   the email OpenAI reported, its times and the credential sets that name it,
@@ -60,7 +60,7 @@
 ### Changed
 
 - **Deleting an account counts the ChatGPT subscriptions it removes, and the
-  confirmation email says what it could not do** (#2453). The subscriptions,
+  confirmation email says what it could not do** (#2462). The subscriptions,
   their sign-ins and their broker sessions already went with the account;
   `account.deleted` now records `chatgpt_grants_removed`. Fountain deletes
   its copy of each sign-in and has no way to revoke one at OpenAI, so for an

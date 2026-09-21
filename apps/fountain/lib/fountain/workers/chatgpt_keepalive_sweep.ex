@@ -34,6 +34,8 @@ defmodule Fountain.Workers.ChatGPTKeepaliveSweep do
     max_attempts: 3,
     unique: [period: :infinity, fields: [:worker, :args], states: :incomplete]
 
+  require Logger
+
   alias Fountain.ChatGPTAccounts
   alias Fountain.Repo
   alias Fountain.Workers.ChatGPTGrantKeepalive
@@ -48,7 +50,7 @@ defmodule Fountain.Workers.ChatGPTKeepaliveSweep do
   def backoff(%Oban.Job{attempt: attempt}), do: min(600, 30 * max(attempt, 1))
 
   @impl Oban.Worker
-  def perform(%Oban.Job{args: args}) do
+  def perform(%Oban.Job{args: args} = job) do
     with {:ok, cursor, due} <- page(args) do
       # ownership: none is claimed. A system sweep across every tenant, which
       # reads ids only; each job re-reads its grant scoped by the owner.
@@ -56,10 +58,30 @@ defmodule Fountain.Workers.ChatGPTKeepaliveSweep do
 
       case Repo.transaction(fn -> enqueue_page(grants, due) end) do
         {:ok, :ok} -> :ok
-        {:error, _} -> {:error, :enqueue_failed}
+        {:error, _} -> abandoned(job, {:error, :enqueue_failed})
       end
     end
+  rescue
+    error ->
+      abandoned(job, :raised)
+      reraise error, __STACKTRACE__
   end
+
+  # A page that fails its last attempt takes its continuation with it: the
+  # grants after the cursor wait for tomorrow's sweep, a day inside the
+  # margin. Nothing else says so, so this does, once. The cursor is a grant's
+  # id and no more.
+  defp abandoned(%Oban.Job{attempt: attempt, max_attempts: max, args: args}, result)
+       when is_integer(attempt) and is_integer(max) and attempt >= max do
+    Logger.error(
+      "chatgpt keepalive: the sweep stopped after #{inspect(args["after_id"])}; " <>
+        "grants past it are not queued until the next daily sweep"
+    )
+
+    result
+  end
+
+  defp abandoned(_job, result), do: result
 
   @doc """
   The seconds a sweep of `due` grants spreads its jobs over:
@@ -79,8 +101,13 @@ defmodule Fountain.Workers.ChatGPTKeepaliveSweep do
     window = window_seconds(due)
 
     for grant <- grants do
+      # The window rides in `meta`, never the args: a job the breaker holds
+      # spreads its wake-up over it again.
       grant
-      |> ChatGPTGrantKeepalive.new(schedule_in: :rand.uniform(window))
+      |> ChatGPTGrantKeepalive.new(
+        schedule_in: :rand.uniform(window),
+        meta: %{"window" => window}
+      )
       |> insert!()
     end
 

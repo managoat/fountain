@@ -5,6 +5,7 @@ defmodule Fountain.Workers.ChatGPTKeepaliveSweepTest do
   use Fountain.DataCase, async: false
   use Mimic
 
+  import ExUnit.CaptureLog
   import Fountain.ChatGPTFixtures
 
   alias Fountain.Accounts.{User, UserDataKey}
@@ -130,6 +131,44 @@ defmodule Fountain.Workers.ChatGPTKeepaliveSweepTest do
     end
   end
 
+  describe "a page that fails its last attempt" do
+    test "says at error where the sweep stopped, and only then" do
+      for _ <- 1..2, do: due_grant!()
+      stub(Oban, :insert, fn changeset -> {:ok, %{apply_changes(changeset) | id: nil}} end)
+      cursor = "00000000-0000-0000-0000-000000000000"
+      args = %{"after_id" => cursor, "due" => 2}
+
+      quiet =
+        capture_log(fn ->
+          assert {:error, :enqueue_failed} = perform_job(Sweep, args, attempt: 1, max_attempts: 3)
+        end)
+
+      refute quiet =~ "the sweep stopped"
+
+      log =
+        capture_log(fn ->
+          assert {:error, :enqueue_failed} = perform_job(Sweep, args, attempt: 3, max_attempts: 3)
+        end)
+
+      assert log =~ "[error]"
+      assert log =~ "the sweep stopped after \"#{cursor}\""
+    end
+
+    test "a page that raises says the same and still raises" do
+      due_grant!()
+      stub(Oban, :insert, fn _changeset -> raise "the database went away" end)
+
+      log =
+        capture_log(fn ->
+          assert_raise RuntimeError, fn ->
+            Sweep.perform(%Oban.Job{args: %{}, attempt: 3, max_attempts: 3})
+          end
+        end)
+
+      assert log =~ "the sweep stopped after nil"
+    end
+  end
+
   describe "the jitter" do
     test "the window is five seconds a grant, no shorter than five minutes, no longer than six hours" do
       assert Sweep.window_seconds(0) == 300
@@ -154,6 +193,10 @@ defmodule Fountain.Workers.ChatGPTKeepaliveSweepTest do
       for job <- jobs(ChatGPTGrantKeepalive) do
         wait = DateTime.diff(job.scheduled_at, before)
         assert wait >= 0 and wait <= 301
+        # The window rides in meta, for a job the breaker holds; the args
+        # are still the three ids.
+        assert job.meta == %{"window" => 300}
+        assert job.args |> Map.keys() |> Enum.sort() == ~w(generation grant_id user_id)
       end
     end
 

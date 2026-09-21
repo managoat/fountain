@@ -75,6 +75,11 @@ defmodule FountainWeb.TurnInferenceTest do
   # Resolve as a launch would, bind the conversation to it, run one turn and
   # end it.
   defp run_turn(ctx, prompt) do
+    {_source, turn} = open_turn(ctx, prompt)
+    turn |> Ecto.Changeset.change(status: "completed") |> Repo.update!()
+  end
+
+  defp open_turn(ctx, prompt) do
     {:ok, %Source{} = source, _} =
       InferenceCredentials.resolve(ctx.user.id, ctx.agent.model, "codex",
         credential_set_id: ctx.set.id
@@ -88,7 +93,7 @@ defmodule FountainWeb.TurnInferenceTest do
     {:ok, _conv, turn} =
       TurnMachine.open(ctx.conv.id, ctx.sandbox.id, prompt, ctx.agent, nil, source)
 
-    turn |> Ecto.Changeset.change(status: "completed") |> Repo.update!()
+    {source, turn}
   end
 
   defp turns(conn, ctx) do
@@ -214,5 +219,16 @@ defmodule FountainWeb.TurnInferenceTest do
 
     assert Source.summary(%{"scope" => "something_new"}) == nil
     assert Source.summary(nil) == nil
+
+    # `chatgpt_grant_id` is a grant's, and a UUID as the schema says, or null.
+    id = Ecto.UUID.generate()
+
+    assert %{chatgpt_grant_id: ^id} = Source.summary(%{"scope" => "grant", "grant_id" => id})
+    assert %{chatgpt_grant_id: nil} = Source.summary(%{"scope" => "grant", "grant_id" => "x"})
+    assert %{chatgpt_grant_id: nil} = Source.summary(%{"scope" => "grant", "grant_id" => 7})
+    assert %{chatgpt_grant_id: nil} = Source.summary(%{"scope" => "grant"})
+
+    assert %{chatgpt_grant_id: nil} =
+             Source.summary(%{"scope" => "credential", "grant_id" => id})
   end
 end

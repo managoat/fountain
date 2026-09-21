@@ -112,10 +112,20 @@ defmodule Fountain.InferenceCredentials.Source do
         %{
           origin: origin(source),
           scope: Atom.to_string(scope),
-          chatgpt_grant_id: if(scope == :grant, do: source.grant_id)
+          chatgpt_grant_id: if(scope == :grant, do: uuid(source.grant_id))
         }
     end
   end
+
+  # The schema says `format: uuid`: a stored value that is not one is not shown.
+  defp uuid(value) when is_binary(value) do
+    case Ecto.UUID.cast(value) do
+      {:ok, uuid} -> uuid
+      :error -> nil
+    end
+  end
+
+  defp uuid(_value), do: nil
 
   def load(nil), do: nil
 

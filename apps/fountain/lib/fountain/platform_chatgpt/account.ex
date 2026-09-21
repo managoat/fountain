@@ -1,28 +1,45 @@
 defmodule Fountain.PlatformChatGPT.Account do
   @moduledoc """
-  The deployment's ChatGPT grant (ADR 0047). The null-owner row uses
-  platform encryption; an owned row would use its owner's DEK through
-  `Fountain.ChatGPTAccounts.Cipher`, but none has ever existed: the
-  tenant-owner half of ADR 0052 that would have written one was deleted
-  (#2188), and `user_id` stays only as a column. Ownership is not cast by
-  lifecycle changesets and cannot be changed through this interface.
+  A ChatGPT grant: the deployment's (ADR 0047), or one of a user's (ADR
+  0060). The null-owner row uses platform encryption; an owned row uses its
+  owner's DEK through `Fountain.ChatGPTAccounts.Cipher`. Ownership is not
+  cast by any changeset here and cannot be changed through this interface.
   `id_claims` holds the non-secret claims codex reads from its `id_token`.
+
+  The table keeps its historical name (ADR 0052 decision 1). It holds at
+  most one null-owner row (`platform_chatgpt_account_platform_row`) and any
+  number of owned rows per user. An owned row has a `name`, unique per owner
+  (`platform_chatgpt_account_user_id_name_index`), and its upstream
+  `account_id` is unique per owner too
+  (`platform_chatgpt_account_user_id_account_id_index`): one subscription
+  linked twice would be two refresh chains OpenAI cannot tell apart.
+  `platform_chatgpt_account_id_user_id_index` is there to be referenced: a
+  row naming a grant names its owner with it. The platform row's name is NULL, and `chatgpt_grant_name_follows_owner` holds
+  both halves of that in the database. No application writer for an owned
+  row exists yet.
 
   `kind` says what the row holds: `"chatgpt"` is a ChatGPT sign-in with a
   rotating refresh token managed server-side by `Fountain.ChatGPTAccounts`;
   `"workspace_token"` is a static Business/Enterprise access token with no
-  refresh token, which lapses on its admin-set expiry.
+  refresh token, which lapses on its admin-set expiry. An owned row is
+  always `"chatgpt"`.
 
   Reconnect changes `generation`. Normal refresh retains the generation and
   increments `lock_version`, as do terminal lifecycle writes. These fields
   fence stale writes; broker authorization is not yet generation-aware.
 
-  `connect_changeset/2` is the only changeset here, because it is the only
-  write that starts a new lifecycle. Refresh, revocation and expiry are
-  fenced `update_all` statements in `Fountain.ChatGPTAccounts`, conditioned
-  on the generation and version the caller read. A changeset for one of them
-  would write on the primary key alone and so would skip the fence, which is
-  why the three that used to exist were removed rather than left unused.
+  `connect_changeset/2` starts a lifecycle: a fresh grant, or a reconnect
+  over an existing row. `user_connect_changeset/2` and
+  `user_reconnect_changeset/2` are the same write for an owned row, with the
+  rules only an owned row has; the first also takes the name, the second
+  keeps it. `rename_changeset/2` changes the name and nothing else: not `generation`, because a label is not a credential
+  change, and not `lock_version`, because an in-flight refresh is fenced on
+  it and losing that fence would discard a refresh token OpenAI has already
+  rotated. Refresh, revocation and expiry are fenced `update_all` statements
+  in `Fountain.ChatGPTAccounts`, conditioned on the generation and version
+  the caller read. A changeset for one of them would write on the primary
+  key alone and so would skip the fence, which is why the three that used to
+  exist were removed rather than left unused.
 
   `usage_exhausted_at` and `usage_exhausted_until` record that OpenAI
   confirmed the account ran out of Codex usage, and the reset time it gave
@@ -31,7 +48,7 @@ defmodule Fountain.PlatformChatGPT.Account do
   `Fountain.ChatGPTAccounts.platform_confirm_exhausted/2` with fenced
   `update_all`s like the other lifecycle writes, and never change `status`:
   the token is still good, and the grant is skipped for new selections only
-  until the reset passes.
+  until the reset passes. Nothing writes them for an owned row.
 
   There is no plaintext column. The application writers are the admin
   surface and the platform refresher.
@@ -49,6 +66,7 @@ defmodule Fountain.PlatformChatGPT.Account do
   @type t :: %__MODULE__{}
   schema "platform_chatgpt_account" do
     field :user_id, :binary_id
+    field :name, :string
     field :generation, Ecto.UUID, autogenerate: true
     field :lock_version, :integer, default: 1
     field :kind, :string
@@ -97,6 +115,73 @@ defmodule Fountain.PlatformChatGPT.Account do
     |> validate_required([:kind, :access_token_ciphertext, :last_refreshed_at])
     |> validate_inclusion(:kind, @kinds)
     |> unique_constraint(:user_id, name: :platform_chatgpt_account_platform_row)
+  end
+
+  @doc """
+  A user's first link of one subscription: `connect_changeset/2` plus the
+  name, on a struct that already carries its owner. The name is cast here
+  only; a reconnect goes through `connect_changeset/2` and keeps it.
+  """
+  def user_connect_changeset(%__MODULE__{user_id: user_id} = account, attrs)
+      when is_binary(user_id) do
+    account
+    |> connect_changeset(attrs)
+    |> cast(attrs, [:name])
+    |> name_rules()
+    |> owned_rules()
+  end
+
+  @doc """
+  A reconnect of one of a user's grants: `connect_changeset/2` over the
+  loaded row, so `generation` changes and `lock_version` advances, with the
+  name left as it is.
+  """
+  def user_reconnect_changeset(
+        %__MODULE__{user_id: user_id, __meta__: %{state: :loaded}} = account,
+        attrs
+      )
+      when is_binary(user_id) do
+    account
+    |> connect_changeset(attrs)
+    |> owned_rules()
+  end
+
+  @doc """
+  A new label for an owned grant. Touches neither `generation` nor
+  `lock_version` (see the moduledoc), and Ecto writes only the changed
+  columns, so it cannot clobber a concurrent token write either.
+  """
+  def rename_changeset(%__MODULE__{user_id: user_id} = account, attrs)
+      when is_binary(user_id) do
+    account
+    |> cast(attrs, [:name])
+    |> name_rules()
+  end
+
+  # The unique error sits on the field a person can change, not on the
+  # index's leading `user_id`.
+  defp name_rules(changeset) do
+    changeset
+    |> update_change(:name, &String.trim/1)
+    |> validate_required([:name])
+    |> validate_length(:name, min: 1, max: 200)
+    |> unique_constraint(:name,
+      name: :platform_chatgpt_account_user_id_name_index,
+      message: "already names a ChatGPT subscription on this account"
+    )
+    |> check_constraint(:name, name: :chatgpt_grant_name_follows_owner, message: "is required")
+  end
+
+  # An owned row is always a refreshable ChatGPT sign-in. A NULL
+  # `account_id` would slip the per-owner index, so one is required.
+  defp owned_rules(changeset) do
+    changeset
+    |> validate_required([:account_id, :refresh_token_ciphertext])
+    |> validate_inclusion(:kind, ["chatgpt"])
+    |> unique_constraint(:account_id,
+      name: :platform_chatgpt_account_user_id_account_id_index,
+      message: "is already linked to this account"
+    )
   end
 
   # Codex usage limits belong to the ChatGPT account, not to its token

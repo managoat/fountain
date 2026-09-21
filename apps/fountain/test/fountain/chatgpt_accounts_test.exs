@@ -1,8 +1,9 @@
 defmodule Fountain.ChatGPTAccountsTest do
-  # The `user_id` column outlived the tenant-owner half of ADR 0052 (#2188).
-  # These tests hold two things about it: an owned row, should one ever be
-  # written, is invisible to every platform read and mutation, and its
-  # tokens never decrypt under the platform key (`Cipher`'s owner dispatch).
+  # The `user_id` column outlived the tenant-owner half of ADR 0052 (#2188),
+  # and ADR 0060 gives an owned row a name and lets a user hold several.
+  # These tests hold three things: an owned row is invisible to every
+  # platform read and mutation, its tokens never decrypt under the platform
+  # key (`Cipher`'s owner dispatch), and the table's naming rules.
   use Fountain.DataCase, async: true
   use Mimic
 
@@ -24,6 +25,7 @@ defmodule Fountain.ChatGPTAccountsTest do
   test "platform reads and admin mutations never select an owned grant" do
     owner = insert_verified_user()
     grant = owned_row(owner)
+    second = owned_row(owner, %{account_id: "acct-second"})
 
     refute ChatGPTAccounts.platform_active?()
     assert ChatGPTAccounts.platform_status() == :not_connected
@@ -47,6 +49,7 @@ defmodule Fountain.ChatGPTAccountsTest do
     assert ChatGPTAccounts.platform_access_token() == {:ok, "wst_platform"}
     assert :ok = ChatGPTAccounts.platform_disconnect()
     assert Repo.get!(Account, grant.id) == grant
+    assert Repo.get!(Account, second.id) == second
   end
 
   test "tenant tokens use the tenant DEK and cannot be swapped between fields or owners" do
@@ -142,10 +145,159 @@ defmodule Fountain.ChatGPTAccountsTest do
       |> Repo.update!()
 
     assert changed.user_id == owner.id
+
+    reconnected =
+      changed
+      |> Account.user_reconnect_changeset(%{user_id: other.id, name: "Stolen"})
+      |> Repo.update!()
+
+    assert reconnected.user_id == owner.id
+    assert reconnected.name == grant.name
+    refute reconnected.generation == changed.generation
   end
 
-  # Nothing in the application writes an owned row; this is the shape one
-  # would have, inserted straight through the schema.
+  describe "an owned row is named, and a user may hold several (ADR 0060 decision 1)" do
+    test "two grants for one user, and the platform row beside them" do
+      owner = insert_verified_user()
+      first = owned_row(owner, %{name: "Personal"})
+      second = owned_row(owner, %{name: "Work", account_id: "acct-work"})
+
+      platform =
+        %Account{}
+        |> Account.connect_changeset(platform_attrs())
+        |> Repo.insert!()
+
+      assert first.user_id == second.user_id
+      refute first.id == second.id
+      assert platform.name == nil
+      assert Repo.get!(Account, platform.id) == platform
+    end
+
+    test "a name is unique per owner, not across owners" do
+      owner = insert_verified_user()
+      other = insert_verified_user()
+      owned_row(owner, %{name: "Work"})
+      owned_row(other, %{name: "Work"})
+
+      assert {:error, changeset} =
+               %Account{user_id: owner.id}
+               |> Account.user_connect_changeset(owned_attrs(owner, "acct-second", "  Work  "))
+               |> Repo.insert()
+
+      assert %{name: ["already names a ChatGPT subscription on this account"]} =
+               errors_on(changeset)
+    end
+
+    test "one upstream account is linked once per owner" do
+      owner = insert_verified_user()
+      other = insert_verified_user()
+      owned_row(owner, %{name: "Personal"})
+      owned_row(other, %{name: "Personal"})
+
+      assert {:error, changeset} =
+               %Account{user_id: owner.id}
+               |> Account.user_connect_changeset(owned_attrs(owner, "acct-user", "Again"))
+               |> Repo.insert()
+
+      assert %{account_id: ["is already linked to this account"]} = errors_on(changeset)
+    end
+
+    test "a first link needs a name, an account id, a refresh token and the chatgpt kind" do
+      owner = insert_verified_user()
+      attrs = owned_attrs(owner, "acct-user", "Personal")
+
+      for {broken, field} <- [
+            {%{attrs | name: "   "}, :name},
+            {%{attrs | name: String.duplicate("n", 201)}, :name},
+            {Map.delete(attrs, :name), :name},
+            {%{attrs | account_id: nil}, :account_id},
+            {%{attrs | refresh_token_ciphertext: nil}, :refresh_token_ciphertext},
+            {%{attrs | kind: "workspace_token"}, :kind}
+          ] do
+        changeset = Account.user_connect_changeset(%Account{user_id: owner.id}, broken)
+        refute changeset.valid?
+        assert Map.has_key?(errors_on(changeset), field)
+      end
+
+      assert_raise FunctionClauseError, fn ->
+        Account.user_connect_changeset(%Account{}, attrs)
+      end
+    end
+
+    test "the database refuses an owned row without a name and a platform row with one" do
+      owner = insert_verified_user()
+
+      for row <- [
+            %Account{user_id: owner.id},
+            %Account{user_id: owner.id, name: "  "},
+            %Account{name: "Platform"}
+          ] do
+        assert_raise Ecto.ConstraintError, ~r/chatgpt_grant_name_follows_owner/, fn ->
+          # A savepoint: the refused insert must not abort the test's transaction.
+          Repo.transaction(fn ->
+            Repo.insert!(%{row | kind: "chatgpt", access_token_ciphertext: "constraint-test"})
+          end)
+        end
+      end
+    end
+
+    test "a rename changes the label and neither the generation nor the version" do
+      owner = insert_verified_user()
+      other = insert_verified_user()
+      grant = owned_row(owner, %{name: "Personal"})
+
+      renamed =
+        grant
+        |> Account.rename_changeset(%{
+          name: " Work ",
+          user_id: other.id,
+          generation: Ecto.UUID.generate(),
+          lock_version: 9,
+          account_id: "acct-other",
+          status: "revoked"
+        })
+        |> Repo.update!()
+
+      assert renamed.name == "Work"
+
+      assert Repo.get!(Account, grant.id) == %{
+               grant
+               | name: "Work",
+                 updated_at: renamed.updated_at
+             }
+
+      assert_raise FunctionClauseError, fn ->
+        Account.rename_changeset(%Account{}, %{name: "Platform"})
+      end
+    end
+  end
+
+  defp platform_attrs do
+    %{
+      kind: "chatgpt",
+      access_token_ciphertext: Crypto.encrypt_platform("platform-access"),
+      last_refreshed_at: DateTime.utc_now() |> DateTime.truncate(:second)
+    }
+  end
+
+  defp owned_attrs(owner, account_id, name) do
+    {:ok, encrypted} =
+      Cipher.encrypt_user_tokens(owner.id, %{
+        access_token: "user-access-token",
+        refresh_token: "user-refresh-token"
+      })
+
+    Map.merge(encrypted, %{
+      name: name,
+      kind: "chatgpt",
+      account_id: account_id,
+      last_refreshed_at: DateTime.utc_now() |> DateTime.truncate(:second)
+    })
+  end
+
+  # Nothing in the application writes an owned row yet; this is the shape one
+  # has, inserted straight through the schema. The name is unique per call
+  # because `(user_id, name)` is; pass `:account_id` for a user's second row.
   defp owned_row(owner, overrides \\ %{}) do
     {:ok, encrypted} =
       Cipher.encrypt_user_tokens(owner.id, %{
@@ -163,7 +315,7 @@ defmodule Fountain.ChatGPTAccountsTest do
         last_refreshed_at: DateTime.utc_now() |> DateTime.truncate(:second)
       })
 
-    %Account{user_id: owner.id}
+    %Account{user_id: owner.id, name: "grant-#{System.unique_integer([:positive])}"}
     |> Account.connect_changeset(attrs)
     |> change(overrides)
     |> Repo.insert!()

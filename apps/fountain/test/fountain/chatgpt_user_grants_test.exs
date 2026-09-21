@@ -462,7 +462,8 @@ defmodule Fountain.ChatGPTUserGrantsTest do
           %{email_verified_at: nil},
           %{suspended_at: ~U[2026-09-01 00:00:00Z]}
         ] do
-      test "an owner with #{inspect(attrs)} cannot link or reconnect, and can still manage",
+      test "an owner with #{inspect(attrs)} cannot link, reconnect or rename, and can still " <>
+             "see, disconnect and remove",
            ctx do
         assert {:ok, work} = link(ctx.user, "Work", "acct-work")
         ctx.user |> change(unquote(Macro.escape(attrs))) |> Repo.update!()
@@ -474,13 +475,14 @@ defmodule Fountain.ChatGPTUserGrantsTest do
 
         assert {:error, :not_connected} = credential(work, ctx.user)
 
-        # Losing the right to link must not orphan what is already there.
-        assert [%{name: "Work"}] = ChatGPTAccounts.list_for_user(ctx.user.id)
-        assert {:ok, ^work} = ChatGPTAccounts.get_for_user(work.grant_id, ctx.user.id)
-
-        assert {:ok, %{name: "Old job"}} =
+        assert {:error, :ineligible_owner} =
                  ChatGPTAccounts.rename_for_user(work.grant_id, ctx.user.id, "Old job")
 
+        assert [%{action: "chatgpt_grant.connected"}] = grant_events(ctx.user)
+
+        # What is already there is not orphaned: it can be seen, and taken away.
+        assert [%{name: "Work"}] = ChatGPTAccounts.list_for_user(ctx.user.id)
+        assert {:ok, ^work} = ChatGPTAccounts.get_for_user(work.grant_id, ctx.user.id)
         assert :ok = ChatGPTAccounts.disconnect_for_user(work.grant_id, ctx.user.id)
         assert :ok = ChatGPTAccounts.remove_for_user(work.grant_id, ctx.user.id)
         assert_platform_untouched(ctx)

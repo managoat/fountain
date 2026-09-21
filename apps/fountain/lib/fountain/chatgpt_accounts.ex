@@ -319,14 +319,19 @@ defmodule Fountain.ChatGPTAccounts do
   `lock_version` are left alone, so a pin taken before the rename still
   reads and an in-flight refresh still lands. A name that does not change
   writes and records nothing.
+
+  It is a write all the same, so it asks what a link asks of the owner:
+  `:ineligible_owner` for an account that is suspended, unverified or a
+  principal. Seeing, disconnecting and removing a grant stay open to them.
   """
   @spec rename_for_user(Ecto.UUID.t(), String.t(), String.t(), keyword()) ::
-          {:ok, grant_view()} | {:error, :not_found | Ecto.Changeset.t()}
+          {:ok, grant_view()} | {:error, :not_found | :ineligible_owner | Ecto.Changeset.t()}
   def rename_for_user(grant_id, user_id, name, opts \\ [])
       when is_binary(grant_id) and is_binary(user_id) and is_binary(name) do
     result =
       user_write(user_id, fn ->
-        with {:ok, account} <- locked_user_grant(grant_id, user_id),
+        with :ok <- eligible_owner(user_id),
+             {:ok, account} <- locked_user_grant(grant_id, user_id),
              {:ok, renamed} <-
                account |> Account.rename_changeset(%{name: name}) |> Repo.update() do
           {:ok, {account.name, renamed}}
@@ -545,8 +550,9 @@ defmodule Fountain.ChatGPTAccounts do
     end
   end
 
-  # Both halves of the scope, and no join: these reads and writes stay open
-  # to an owner who may no longer link or use a grant.
+  # Both halves of the scope, and no join: the metadata reads, a disconnect
+  # and a removal stay open to an owner who may no longer link or use a
+  # grant. The writes that are not take `eligible_owner/1` first.
   defp owned_query(grant_id, user_id) do
     with {:ok, id} <- Ecto.UUID.cast(grant_id),
          {:ok, owner} <- Ecto.UUID.cast(user_id) do

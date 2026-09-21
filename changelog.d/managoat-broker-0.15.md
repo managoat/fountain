@@ -37,9 +37,11 @@
   other `Content-Encoding` anyway is refused unread with a `502` and
   `protected_response_encoded`. The Codex client Fountain pins (codex-acp
   1.10.0, Codex CLI 0.153.4) sends no `Accept-Encoding` and reads an
-  uncompressed stream, so nothing is expected to change for it. That
-  `chatgpt.com` honours `identity` on this route has not been measured
-  (#2479). If it does not, codex turns on a ChatGPT account fail and their
+  uncompressed stream, so nothing is expected to change for it. On the
+  hosted instance on 2026-09-21, `chatgpt.com` honoured `identity` on this
+  route for that client: two codex turns on the deployment's account
+  completed and no `protected_response_encoded` row appeared (#2479). If an
+  origin does not, codex turns on a ChatGPT account fail and their
   rows at `/admin/broker` read `502 protected_response_encoded`; turns on an
   API key are not affected. Disconnecting the account at `/admin/inference`
   moves the deployment's codex conversations back to

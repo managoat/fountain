@@ -41,7 +41,9 @@ The captured client sends no `accept-encoding`. Broker 0.15 sends `identity` on
 every protected request whatever the client asked for, and refuses a response in
 any other `Content-Encoding`, because it searches the response for the bearer.
 The probe runs against a local origin, so whether `chatgpt.com` honours
-`identity` on this route is not something this fixture measures.
+`identity` on this route is not something this fixture measures. Two hosted
+turns on 2026-09-21 measured it for this client, and it does (#2479; ADR 0047,
+"Measurement 6, the hosted half").
 
 Source audit for this exact CLI version:
 
@@ -79,8 +81,9 @@ provision resolved that day. Re-run it when either version moves.
 
 The first grant on this path is the deployment's own (ADR 0047), which ADR
 0060's platform move puts there. That move was gated on this re-run and on one
-hosted turn, and merged on 2026-09-21 before either. The hosted turn is still
-owed (ADR 0060, "The platform move is gated on a measurement").
+hosted turn, and merged on 2026-09-21 before either. A hosted first and second
+turn were taken that evening and both completed. The reattached turn is still
+owed (#2479; ADR 0060, "The platform move is gated on a measurement").
 
 **What this fixture cannot see.** A new required header shows up here as a
 failing replay test. A new required *route* does not: the probe records only

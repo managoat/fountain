@@ -37,9 +37,10 @@ id that belongs to another account is `404`.
 
 ### 1. Link: a device-code sign-in
 
-```http
-POST /api/account/chatgpt-subscriptions/attempts
-{"name": "Work"}
+```bash
+curl -X POST "$FOUNTAIN/api/account/chatgpt-subscriptions/attempts" \
+  -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
+  -d '{"name": "Work"}'
 ```
 
 The reply is an attempt: `id`, `state` `pending`, `user_code`,
@@ -47,8 +48,9 @@ The reply is an attempt: `id`, `state` `pending`, `user_code`,
 `user_code` and a link to `verification_url`, taken from the reply and from
 nowhere else. Then poll:
 
-```http
-GET /api/account/chatgpt-subscriptions/attempts/:id
+```bash
+curl "$FOUNTAIN/api/account/chatgpt-subscriptions/attempts/$ATTEMPT_ID" \
+  -H "Authorization: Bearer $KEY"
 ```
 
 every `poll_interval` seconds. Fountain polls ChatGPT; your read contacts
@@ -75,9 +77,10 @@ button.
 
 ### 2. Name it on a credential set
 
-```http
-PATCH /api/account/inference-credential-sets/:set_id
-{"chatgpt_grant_id": "<result_grant_id>"}
+```bash
+curl -X PATCH "$FOUNTAIN/api/account/inference-credential-sets/$SET_ID" \
+  -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
+  -d "{\"chatgpt_grant_id\": \"$RESULT_GRANT_ID\"}"
 ```
 
 The set now reports `chatgpt_grant` with the subscription's `name` and

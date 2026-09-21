@@ -205,15 +205,26 @@ defmodule Fountain.PlatformChatGPT.Account do
     |> name_rules()
   end
 
-  # The unique error sits on the field a person can change, not on the
-  # index's leading `user_id`. `cast/3` turns a blank name into a nil
-  # change on a row that has one, so the trim has to let nil through for
-  # `validate_required/2` to answer.
-  defp name_rules(changeset) do
+  @doc """
+  What a grant's name has to be, without the indexes that say it is free:
+  trimmed, present, at most 200 characters. A link attempt holds the name
+  for minutes before any grant row exists
+  (`Fountain.ChatGPTAccounts.LinkAttempt`), and asks the same thing of it.
+  `cast/3` turns a blank name into a nil change on a row that has one, so
+  the trim has to let nil through for `validate_required/2` to answer.
+  """
+  def name_format(changeset) do
     changeset
     |> update_change(:name, &(&1 && String.trim(&1)))
     |> validate_required([:name])
     |> validate_length(:name, min: 1, max: 200)
+  end
+
+  # The unique error sits on the field a person can change, not on the
+  # index's leading `user_id`.
+  defp name_rules(changeset) do
+    changeset
+    |> name_format()
     |> unique_constraint(:name,
       name: :platform_chatgpt_account_user_id_name_index,
       message: "already names a ChatGPT subscription on this account"

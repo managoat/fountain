@@ -1222,7 +1222,7 @@ row in front.
   with really contending connections.
 
 **The driver.** `Fountain.Workers.ChatGPTLinkAttempt`, on a new `chatgpt`
-queue (3), is inserted in the transaction that inserts the attempt,
+queue (10), is inserted in the transaction that inserts the attempt,
 scheduled one poll interval out, unique per attempt while incomplete. Its
 args are the attempt's id and its owner's. Each run is
 `poll_attempt_for_user/3`: one `device_poll`, outside any lock; on approval,

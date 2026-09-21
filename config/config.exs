@@ -21,11 +21,15 @@ config :fountain, Oban,
   # chatgpt carries the pollers of users' ChatGPT sign-ins (ADR 0060 stage 4):
   # one short HTTP call to the auth server every few seconds per open attempt,
   # for at most fifteen minutes. Its own queue so a burst of sign-ins never
-  # sits in front of a schedule or a webhook, and three because an account may
-  # have three attempts open and the call is bounded by the OAuth timeout.
+  # sits in front of a schedule or a webhook. Ten, because the queue serves
+  # every account at once and a run is one or two HTTP calls and a short
+  # write: it waits on the auth server, never on a CPU. Each call is bounded
+  # at eighteen seconds (`OAuth.refresh_timeout_ceiling_ms/0`), so an auth
+  # server that stops answering delays the other polls by seconds, and an
+  # account's own three open attempts cannot fill it.
   queues: [
     maintenance: 1,
-    chatgpt: 3,
+    chatgpt: 10,
     credits: 5,
     exports: 1,
     mailer: 5,

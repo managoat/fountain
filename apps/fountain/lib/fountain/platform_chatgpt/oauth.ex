@@ -135,7 +135,7 @@ defmodule Fountain.PlatformChatGPT.OAuth do
            }}
           | {:error, term()}
   def device_start do
-    case post("/api/accounts/deviceauth/usercode", %{client_id: @client_id}) do
+    case post("/api/accounts/deviceauth/usercode", %{client_id: @client_id}, bounded()) do
       {:ok, %{status: 200, body: %{"user_code" => code, "device_auth_id" => id} = body}} ->
         {:ok,
          %{
@@ -163,10 +163,11 @@ defmodule Fountain.PlatformChatGPT.OAuth do
           | :pending
           | {:error, term()}
   def device_poll(device_auth_id, user_code) do
-    case post("/api/accounts/deviceauth/token", %{
-           device_auth_id: device_auth_id,
-           user_code: user_code
-         }) do
+    case post(
+           "/api/accounts/deviceauth/token",
+           %{device_auth_id: device_auth_id, user_code: user_code},
+           bounded()
+         ) do
       {:ok, %{status: 200, body: %{"authorization_code" => code} = body}} ->
         {:ok, %{authorization_code: code, code_verifier: Map.get(body, "code_verifier", "")}}
 
@@ -185,13 +186,17 @@ defmodule Fountain.PlatformChatGPT.OAuth do
   @spec device_exchange(%{authorization_code: String.t(), code_verifier: String.t()}) ::
           {:ok, tokens()} | {:error, term()}
   def device_exchange(%{authorization_code: code, code_verifier: verifier}) do
-    post("/oauth/token", %{
-      client_id: @client_id,
-      grant_type: "authorization_code",
-      code: code,
-      code_verifier: verifier,
-      redirect_uri: @device_redirect_uri
-    })
+    post(
+      "/oauth/token",
+      %{
+        client_id: @client_id,
+        grant_type: "authorization_code",
+        code: code,
+        code_verifier: verifier,
+        redirect_uri: @device_redirect_uri
+      },
+      bounded()
+    )
     |> token_response()
   end
 
@@ -222,7 +227,14 @@ defmodule Fountain.PlatformChatGPT.OAuth do
   defp error_code(%{"error" => %{"type" => code}}) when is_binary(code), do: code
   defp error_code(_body), do: "unknown"
 
-  defp post(path, json, opts \\ []) do
+  # The device flow's legs take the refresh's limits. Nothing holds a database
+  # checkout across them, but a user's sign-in is polled from a queue every
+  # account shares (`chatgpt`), and `post/3`'s own default sets no connect
+  # timeout at all: an auth server that stops answering would otherwise hold a
+  # slot for as long as the socket liked.
+  defp bounded, do: [finch: refresh_finch_options()]
+
+  defp post(path, json, opts) do
     [
       url: base_url() <> path,
       json: json,

@@ -1141,6 +1141,60 @@ than code changed (what "shared" means under a per-grant home, and that
 homes are bounded but never removed), two security gates that need a
 library release, a rate cap, and two lock orders.
 
+**After review of the platform move.** Item 4's change was reviewed on its
+own, on 2026-09-21, after it was rebased onto the reviewed stage 3. One
+finding is a gate and not code; the rest changed the code or the text, and
+are in item 4 where they belong:
+
+- **The move is unmeasured, and that is a gate on the merge**
+  ([above](#the-platform-move-is-gated-on-a-measurement)). Review could
+  not take the measurement either. What it added is the failure mode, that
+  the #2362 fallback stays silent because the grant is still `active`, and
+  a second look at 0047's measurement 2, which saw a 204 from `chatgpt.com`
+  on a path where the one route the policy allows answers 200.
+- **The drain ran once, and the release that ran it still served what it
+  drained.** `lookup/1` had no check for a session with no managed pin whose
+  rules carry the bearer, and the change's own test looked one up on the
+  new code and got the credential back. On a rolling deploy an old replica
+  writes such a session after the migration, by a mint or by the rotation
+  rewrite, which the first draft of item 4 said could not happen ("never
+  renewed"). The drain is continuous now, by the strict rule for names over
+  rules already decrypted; a secret's value is not looked at, so stage 3's
+  loosening for values stands. It reaches a managed session an old replica
+  overwrote too, which the review had not asked for and the same predicate
+  gave.
+- **The rebase found one thing review had not.** Stage 3's review added
+  `refusal_stage/3`, which reads a fenced mint's reason from the grant's row
+  for a user's grant only. With the platform grant a managed grant, an
+  admin's disconnect between the resolve and the mint reached it with an
+  owner it had no clause for. It answers `nil` for the platform, and the
+  caller reports the reason as it always has.
+- **Three parts of one spawn disagreed about a key beside the platform
+  grant:** `prepare_sandbox/5` skipped, `env/3` exported the home and the
+  session stayed the grant's. Believed unreachable, since the resolver
+  reads the environment's and the vault's keys before it reaches the
+  platform. It is a named refusal now.
+- `ChatGPTAccounts.platform_credential/1` had no caller left and still
+  returned the token under a doc that said what it was for. Deleted; its
+  tests moved to `platform_selection/0`. `platform_access_token/0` is still
+  public and still returns the token, because `platform_ensure_fresh/0` and
+  the refresh suite are built on it; narrowing it is not part of this.
+- A test that said it drove `refresh_before_turn/1` on the grant passed
+  `broker: nil` and returned at the first clause. It carries a live session
+  across a real rotation now. The test beside it asserts the two things its
+  comment claimed.
+- The upgrade notes name both directions of a mixed fleet and the missing
+  recovery on an old replica, and recommend a quick roll or a stop; the
+  stage 3 fragment no longer says nothing changes for an existing session
+  in the release that deletes some; 0047, 0052 and this ADR agree on what
+  the move is called and what it changed, including two changes the first
+  draft did not list, the tenant `CODEX_HOME` that is dropped and the bearer
+  that is no longer redacted.
+
+Not built by that review: recovery for a conversation on this release whose
+managed session an old replica overwrote (item 4), and anything for gates A
+and B, which are the library's.
+
 **Not built, and said so where it lives:**
 
 - Closing tunnels that are already open on other nodes, and revoking the
@@ -1273,6 +1327,15 @@ directory of homes and a planted `auth.json`; secret values that mention
 the reserved name and values that stand for the credential, each through
 the write and through `compile/3`; twenty failing requests and one line of
 each warning; and the acceptance pair on a machine that starts `pending`.
+After the review of the platform move: a legacy session minted after the
+migration, refused at the lookup and removed, with one log line for three
+lookups and no token in it; the same for a `custom` rule's brokered map; a
+managed session whose rules an old replica rewrote, denied per request and
+removed; an ordinary session whose secret's value mentions the reserved
+name, served; a key beside the platform grant, refused with the sandbox
+untouched; a fenced mint of the platform grant, reported and not a crash;
+and the per-turn refresh of a platform-grant conversation across a real
+rotation, with no rewrite, no re-mint and no token in its state.
 
 **For stages 4 and 5.** Disconnect, reconnect and removal already revoke
 broker authorization, because the revocation is inside

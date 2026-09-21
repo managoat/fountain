@@ -145,6 +145,7 @@ defmodule Fountain.Accounts.DeletionSourceLockTest do
   defp seed_source(:personal_chatgpt, user) do
     Repo.insert!(%Account{
       user_id: user.id,
+      name: "deletion-lock-test",
       kind: "chatgpt",
       access_token_ciphertext: "deletion-lock-test"
     })

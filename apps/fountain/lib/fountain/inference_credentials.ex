@@ -602,8 +602,29 @@ defmodule Fountain.InferenceCredentials do
 
   def lock_source(user_id) do
     Repo.query!("SELECT pg_advisory_xact_lock_shared(hashtextextended('inference:platform', 0))")
+    lock_tenant_source(user_id)
+  end
 
-    Repo.query!("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", ["inference:" <> user_id])
+  @doc """
+  The tenant half of `lock_source/1` alone: what a write to something only
+  this user's resolution reads takes. A user's ChatGPT grant row is one (ADR
+  0060 decision 5), and `fountain_lock_inference_source()` takes the same key
+  for it. The platform key is deliberately not taken, not even shared:
+  PostgreSQL queues a new shared request behind a waiting exclusive one, so
+  one user's token refresh would stall behind an admin key write or an
+  account deletion, and they behind it.
+
+  A transaction holding this must not go on to ask for the platform key.
+  The order everywhere is platform, then tenant.
+
+  The key is built from the canonical spelling of the id, because the
+  trigger builds its own from `uuid::text`: another spelling would be
+  another lock. What is not a UUID raises, so no string can spell the
+  platform's key through here.
+  """
+  def lock_tenant_source(user_id) when is_binary(user_id) do
+    key = "inference:" <> Ecto.UUID.cast!(user_id)
+    Repo.query!("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [key])
 
     :ok
   end
@@ -616,6 +637,16 @@ defmodule Fountain.InferenceCredentials do
   def with_platform_source_lock(fun) do
     case Repo.transaction(fn ->
            lock_platform_source()
+           fun.()
+         end) do
+      {:ok, result} -> result
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  def with_tenant_source_lock(user_id, fun) when is_binary(user_id) and is_function(fun, 0) do
+    case Repo.transaction(fn ->
+           lock_tenant_source(user_id)
            fun.()
          end) do
       {:ok, result} -> result

@@ -30,6 +30,17 @@ merged (the workers went in #2198, the reads in the PR that closes #2188).
 The existing implementation described below was checked against `main` at
 `c5b0e86c` on 2026-09-11, before that stack landed.
 
+**[0060](0060-many-user-chatgpt-subscriptions.md) stage 1 (2026-09-20)
+brings part of that half back**, for many grants per user rather than one:
+`credential_for_user/4`, `refresh_for_user/3`, the grant struct, the user
+refresh coordinator and its supervisor. `status_for_user/1` does not come
+back; 0060's list replaces it. The two keepalive workers, the sweep and
+`ProtectedCompiler` are still gone. Nothing in production calls what came
+back, and decisions 2, 4 and 5 here are still unbuilt; 0060 replaces
+decision 4's one-link model and carries the rest forward. 0060 also binds
+a user grant's ciphertext to the grant id as well as the owner, which
+decision 1 here did not need at one grant per user.
+
 Extends [0047](0047-codex-platform-chatgpt-account.md),
 [0008](0008-byo-inference-credentials.md), and
 [0019](0019-egress-credential-brokerage.md). Preserves the distinction between

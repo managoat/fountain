@@ -132,10 +132,12 @@ defmodule Fountain.Accounts.Deletion do
       }
     })
 
-    # Cascading personal ChatGPT grants and nilifying platform-key attribution
-    # both invoke platform source triggers. Take exclusive platform before
-    # tenant so those triggers never upgrade shared while another reader waits
-    # on our tenant lock. Teardown and audit remain outside this transaction.
+    # Nilifying this user's attribution on the platform grant row and on
+    # platform inference keys invokes the platform source trigger. Take
+    # exclusive platform before tenant so that trigger never upgrades shared
+    # while another reader waits on our tenant lock. The cascade over the
+    # user's own ChatGPT grants takes the tenant key, already held (ADR 0060
+    # decision 5). Teardown and audit remain outside this transaction.
     result =
       Fountain.InferenceCredentials.with_platform_source_lock(fn ->
         Fountain.InferenceCredentials.lock_source(user.id)

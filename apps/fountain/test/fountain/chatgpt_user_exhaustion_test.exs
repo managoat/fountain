@@ -262,6 +262,106 @@ defmodule Fountain.ChatGPTUserExhaustionTest do
       assert_received :usage_checked
     end
 
+    test "a hint inside the cooldown takes no transaction and no owner's key" do
+      user = insert_verified_user()
+      grant = user_grant!(user.id)
+      stub_usage(not_limited_body())
+      counting_tenant_locks()
+
+      assert :not_limited =
+               ChatGPTAccounts.confirm_exhausted_for_user(source(grant), user.id, @now)
+
+      assert_received :usage_checked
+      assert_received :tenant_lock
+      assert %Account{usage_checked_at: @now} = Repo.get!(Account, grant.id)
+
+      for seconds <- [0, 1, ChatGPTAccounts.platform_usage_check_cooldown_seconds() - 1] do
+        assert :throttled =
+                 ChatGPTAccounts.confirm_exhausted_for_user(
+                   source(grant),
+                   user.id,
+                   DateTime.add(@now, seconds, :second)
+                 )
+      end
+
+      refute_received :tenant_lock
+      refute_received :usage_checked
+      assert %Account{usage_checked_at: @now} = Repo.get!(Account, grant.id)
+
+      # At the cooldown's edge the shortcut steps aside and the claim decides.
+      later = DateTime.add(@now, ChatGPTAccounts.platform_usage_check_cooldown_seconds(), :second)
+
+      assert :not_limited =
+               ChatGPTAccounts.confirm_exhausted_for_user(source(grant), user.id, later)
+
+      assert_received :tenant_lock
+      assert %Account{usage_checked_at: ^later} = Repo.get!(Account, grant.id)
+    end
+
+    test "the token sent is the one stored when the check was claimed" do
+      user = insert_verified_user()
+      grant = user_grant!(user.id, %{access_token: access_token()})
+      rotated = access_token(3_600, %{"n" => "rotated"})
+      test = self()
+
+      Req.Test.stub(Fountain.PlatformChatGPT.OAuth, fn conn ->
+        send(test, {:bearer, Plug.Conn.get_req_header(conn, "authorization")})
+        Req.Test.json(conn, not_limited_body())
+      end)
+
+      # A refresh between the first read and the claim: it rotates the token
+      # and keeps the generation. Here it lands once the owner's key is held.
+      on_tenant_lock(fn ->
+        {:ok, fields} =
+          Fountain.ChatGPTAccounts.Cipher.encrypt_refresh_tokens(grant, %{access_token: rotated})
+
+        Repo.update_all(from(a in Account, where: a.id == ^grant.id), set: Map.to_list(fields))
+      end)
+
+      assert :not_limited =
+               ChatGPTAccounts.confirm_exhausted_for_user(source(grant), user.id, @now)
+
+      bearer = "Bearer " <> rotated
+      assert_received {:bearer, [^bearer]}
+    end
+
+    test "a grant reconnected while OpenAI was asked is ignored, and nothing is written" do
+      user = insert_verified_user()
+      grant = user_grant!(user.id, %{account_id: "acct_one"})
+
+      stub_auth(%{
+        @usage_path => fn _ ->
+          {:ok, _} =
+            ChatGPTAccounts.reconnect_for_user(grant.id, user.id, user_tokens("acct_one"))
+
+          {200, limited_body(soon())}
+        end
+      })
+
+      assert :ignored = ChatGPTAccounts.confirm_exhausted_for_user(source(grant), user.id)
+      assert %Account{usage_exhausted_until: nil} = Repo.get!(Account, grant.id)
+      assert events(user) == []
+    end
+
+    test "the row already saying exactly that is unchanged, with no second event" do
+      user = insert_verified_user()
+      grant = user_grant!(user.id)
+      reset = soon()
+
+      stub_auth(%{
+        @usage_path => fn _ ->
+          Repo.update_all(from(a in Account, where: a.id == ^grant.id),
+            set: [usage_exhausted_until: reset]
+          )
+
+          {200, limited_body(reset)}
+        end
+      })
+
+      assert :unchanged = ChatGPTAccounts.confirm_exhausted_for_user(source(grant), user.id)
+      assert events(user) == []
+    end
+
     test "a request that raises is a transport failure, and the token is in no log line" do
       user = insert_verified_user()
       access = access_token()
@@ -445,6 +545,45 @@ defmodule Fountain.ChatGPTUserExhaustionTest do
       end)
     end
 
+    # `DataCase` gives every task above the one sandbox connection, so they
+    # run in series. Here two sessions really contend for the claim.
+    test "two checkers on connections of their own make one call" do
+      with_users(1, fn [owner] ->
+        grant = user_grant!(owner.id)
+        stub_usage(not_limited_body())
+
+        first =
+          paused_after_tenant_lock(fn ->
+            ChatGPTAccounts.confirm_exhausted_for_user(source(grant), owner.id, @now)
+          end)
+
+        try do
+          assert_receive {:locked, first_pid}, 5_000
+          assert first_pid == first.pid
+
+          # Neither has claimed yet, so the second reads an unchecked row and
+          # waits on the owner's key behind the first.
+          second =
+            independent(fn ->
+              ChatGPTAccounts.confirm_exhausted_for_user(source(grant), owner.id, @now)
+            end)
+
+          second_pid = second.pid
+          assert_receive {:backend, ^second_pid, backend}, 5_000
+          await_blocked(backend)
+
+          send(first.pid, :continue)
+          assert :not_limited = Task.await(first, 5_000)
+          assert :throttled = Task.await(second, 5_000)
+
+          assert_received :usage_checked
+          refute_received :usage_checked
+        after
+          Task.shutdown(first, :brutal_kill)
+        end
+      end)
+    end
+
     test "no lock is held while OpenAI is asked" do
       with_users(1, fn [owner] ->
         grant = user_grant!(owner.id)
@@ -490,6 +629,30 @@ defmodule Fountain.ChatGPTUserExhaustionTest do
   end
 
   defp resolve_default(user_id), do: InferenceCredentials.resolve(user_id, @model, "codex")
+
+  # Tells the test about each take of an owner's key by this process.
+  defp counting_tenant_locks do
+    test = self()
+    on_tenant_lock(fn -> send(test, :tenant_lock) end, :every)
+  end
+
+  # Runs `fun` in this process right after it takes an owner's key: once, or
+  # on `:every` take.
+  defp on_tenant_lock(fun, times \\ :once) do
+    handler_id = {__MODULE__, make_ref()}
+    Process.put(:on_tenant_lock, {fun, times})
+    :ok = :telemetry.attach(handler_id, [:fountain, :repo, :query], &__MODULE__.locked/4, nil)
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+  end
+
+  @doc false
+  def locked(_event, _measurements, metadata, _config) do
+    with @tenant_lock <- metadata.query,
+         {fun, times} <- Process.get(:on_tenant_lock) do
+      if times == :once, do: Process.delete(:on_tenant_lock)
+      fun.()
+    end
+  end
 
   defp paused_after_tenant_lock(fun) do
     handler_id = {__MODULE__, make_ref()}

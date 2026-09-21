@@ -1481,13 +1481,17 @@ defmodule Fountain.ChatGPTAccounts do
        `usage_checked_at` (grant id, generation, `active`, and no check in
        the last `platform_usage_check_cooldown_seconds/0`). That is both the
        in-flight bound and the cooldown, across nodes; a lost claim is
-       `:throttled`. No lock or transaction is held past that statement.
+       `:throttled`. No lock or transaction is held past that statement, and
+       a row already read as checked inside the cooldown is `:throttled`
+       before the statement is tried. The statement returns the row, and the
+       token sent is that row's.
     4. The HTTP call, outside any lock or transaction, as the refresher does.
     5. `{:limited, until}` writes `usage_exhausted_at` and
        `usage_exhausted_until`, fenced on the same grant id and generation,
        then records `admin.platform_chatgpt.exhausted` outside the write
        (account id, kind, `until`; never a token): `:recorded`. The row
-       already saying exactly that is `:unchanged`.
+       already saying exactly that is `:unchanged`; a grant reconnected or
+       disconnected since the claim is `:ignored`.
 
   `:not_limited` and `{:error, _}` record nothing.
   """
@@ -1573,9 +1577,10 @@ defmodule Fountain.ChatGPTAccounts do
   defp confirm_exhausted(owner, id, generation, now) do
     now = DateTime.truncate(now, :second)
 
-    with %Account{} = row <- grant_row(owner, id, generation),
-         nil <- exhausted_until(row, now),
-         :ok <- claim_usage_check(owner, id, generation, now),
+    with %Account{} = seen <- grant_row(owner, id, generation),
+         nil <- exhausted_until(seen, now),
+         :ok <- outside_cooldown(seen, now),
+         {:ok, row} <- claim_usage_check(owner, id, generation, now),
          {:ok, token} <- Cipher.decrypt_token(row, :access_token) do
       case UsageLimit.fetch(token, row.account_id, now) do
         {:limited, until} ->
@@ -1666,16 +1671,34 @@ defmodule Fountain.ChatGPTAccounts do
     )
   end
 
+  # The row already read says a check was claimed inside the cooldown: the
+  # hint is dropped here, before a transaction or the owner's key is taken. A
+  # sandbox chooses how often a turn fails, and each dropped hint would
+  # otherwise cost the owner's exclusive lock. Only a shortcut: the claim
+  # below is the authority, and a stale read here only reaches it.
+  defp outside_cooldown(%Account{usage_checked_at: %DateTime{} = at}, now) do
+    if DateTime.compare(at, usage_check_floor(now)) == :gt, do: :throttled, else: :ok
+  end
+
+  defp outside_cooldown(%Account{}, _now), do: :ok
+
+  defp usage_check_floor(now),
+    do: DateTime.add(now, -platform_usage_check_cooldown_seconds(), :second)
+
   # A user's claim takes the owner's key before the row, as every writer of
-  # an owned row does; the platform's is the one statement it always was.
+  # an owned row does; the platform's is the one statement it always was. The
+  # statement returns the row it claimed, so the token the check sends is the
+  # one stored at the claim and not one a refresh has since replaced (a
+  # refresh rotates the token and keeps the generation).
   defp claim_usage_check(owner, id, generation, now) do
-    since = DateTime.add(now, -platform_usage_check_cooldown_seconds(), :second)
+    since = usage_check_floor(now)
 
     claim = fn ->
       from(a in owned_grant_query(owner, id),
         where:
           a.generation == ^generation and a.status == "active" and
-            (is_nil(a.usage_checked_at) or a.usage_checked_at <= ^since)
+            (is_nil(a.usage_checked_at) or a.usage_checked_at <= ^since),
+        select: a
       )
       |> Repo.update_all(set: [usage_checked_at: now])
     end
@@ -1685,7 +1708,17 @@ defmodule Fountain.ChatGPTAccounts do
         do: claim.(),
         else: with_grant_source_lock(%Account{user_id: owner}, claim)
 
-    if match?({1, _}, claimed), do: :ok, else: :throttled
+    case claimed do
+      {1, [%Account{} = row]} ->
+        {:ok, row}
+
+      {:error, _} ->
+        log_usage_write_failed(id, :claim)
+        :throttled
+
+      _ ->
+        :throttled
+    end
   end
 
   defp write_exhaustion(owner, id, generation, until, now) do
@@ -1708,16 +1741,33 @@ defmodule Fountain.ChatGPTAccounts do
         |> Repo.update_all(
           set: [usage_exhausted_at: now, usage_exhausted_until: until, updated_at: now]
         )
+        |> case do
+          {1, [row]} -> {:written, row}
+          # Nothing matched: the row says exactly this already, or the fence
+          # went stale (a reconnect or a disconnect since the claim). Told
+          # apart under the same lock.
+          _ -> if grant_row(owner, id, generation), do: :unchanged, else: :ignored
+        end
       end)
 
     case written do
-      {1, [row]} ->
+      {:written, row} ->
         record_exhaustion(row, until)
         :recorded
 
-      _ ->
-        :unchanged
+      {:error, _} ->
+        log_usage_write_failed(id, :record)
+        {:error, :usage_write_failed}
+
+      answer ->
+        answer
     end
+  end
+
+  # The transaction itself failed. The grant's id and which write; never the
+  # reason, which is the database's and may quote a row.
+  defp log_usage_write_failed(id, step) do
+    Logger.warning("chatgpt grant #{id}: usage check could not #{step}; recording nothing")
   end
 
   defp record_exhaustion(%{user_id: nil} = row, until) do

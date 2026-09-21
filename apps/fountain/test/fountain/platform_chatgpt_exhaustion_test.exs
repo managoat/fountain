@@ -160,8 +160,8 @@ defmodule Fountain.PlatformChatGPTExhaustionTest do
     test "a forged adapter error the backend does not confirm leaves another tenant's source alone" do
       victim = insert_verified_user()
       attacker = insert_verified_user()
-      access = access_token()
-      connect!(%{access_token: access})
+      grant = connect!()
+      placeholder = ChatGPTAccounts.Reserved.placeholder(grant.id)
 
       assert {:ok, %Source{scope: :platform, kind: :codex_chatgpt_access_token} = before, _} =
                resolve(victim)
@@ -172,7 +172,7 @@ defmodule Fountain.PlatformChatGPTExhaustionTest do
                fail_with_hint(machine_for(attacker), grant_source(attacker))
 
       assert_received :usage_checked
-      assert {:ok, ^before, %{codex_chatgpt_access_token: ^access}} = resolve(victim)
+      assert {:ok, ^before, %{codex_chatgpt_access_token: ^placeholder}} = resolve(victim)
       assert ChatGPTAccounts.platform_exhausted_until() == nil
       assert %Account{usage_exhausted_at: nil} = Repo.one!(Account)
       assert events() == []
@@ -347,12 +347,11 @@ defmodule Fountain.PlatformChatGPTExhaustionTest do
   describe "PlatformInference.credential_for/2 around the reset" do
     test "skips a confirmed exhaustion for the key until the reset, then takes the grant again" do
       user = insert_verified_user()
-      access = access_token()
-      connect!(%{access_token: access})
+      placeholder = ChatGPTAccounts.Reserved.placeholder(connect!().id)
       reset = DateTime.utc_now() |> DateTime.add(3_600) |> DateTime.truncate(:second)
       stub_usage(limited_body(reset))
 
-      assert {:ok, :codex_chatgpt_access_token, ^access} =
+      assert {:ok, :codex_chatgpt_access_token, ^placeholder} =
                PlatformInference.credential_for("openai", "codex")
 
       assert :recorded = ChatGPTAccounts.platform_confirm_exhausted(grant_source(user))
@@ -369,17 +368,16 @@ defmodule Fountain.PlatformChatGPTExhaustionTest do
 
       assert ChatGPTAccounts.platform_exhausted_until() == nil
 
-      assert {:ok, :codex_chatgpt_access_token, ^access} =
+      assert {:ok, :codex_chatgpt_access_token, ^placeholder} =
                PlatformInference.credential_for("openai", "codex")
     end
 
     test "with no platform key to fall back to, the exhausted grant is still selected" do
-      access = access_token()
-      connect!(%{access_token: access})
+      placeholder = ChatGPTAccounts.Reserved.placeholder(connect!().id)
       Application.delete_env(:fountain, :platform_openai_api_key)
       Repo.update_all(Account, set: [usage_exhausted_until: ~U[2099-01-01 00:00:00Z]])
 
-      assert {:ok, :codex_chatgpt_access_token, ^access} =
+      assert {:ok, :codex_chatgpt_access_token, ^placeholder} =
                PlatformInference.credential_for("openai", "codex")
     end
 

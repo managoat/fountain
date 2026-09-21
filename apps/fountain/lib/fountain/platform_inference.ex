@@ -173,16 +173,27 @@ defmodule Fountain.PlatformInference do
   provider's own reset time rather than with no credential at all. The skip
   ends by itself when the reset passes.
 
-  Answered from the row alone, no provider I/O: a grant within its expiry
-  margin is served as it is, and `Fountain.Conversations.Egress` refreshes
-  it before the turn.
+  For the grant the value is its placeholder
+  (`Fountain.ChatGPTAccounts.Reserved.placeholder/1`), not its token: a
+  conversation never holds a managed grant's bearer. Answered from the row
+  alone, no provider I/O: a grant within its expiry margin is selected as it
+  is, and the turn's gate renews it (`CodexChatGPT.ensure_fresh/2`).
   """
   @spec credential_for(String.t() | nil, String.t() | nil) :: {:ok, atom(), String.t()} | :none
   def credential_for("openai" = provider, "codex") do
     if Fountain.Broker.configured?() do
-      case Fountain.ChatGPTAccounts.platform_credential(refresh: false) do
-        {:ok, token} -> grant_unless_exhausted(provider, token)
-        :none -> key_for(provider)
+      # Which grant, never its bearer: what the runtime is handed is the
+      # grant's placeholder, and the token reaches the proxy only through the
+      # broker's per-request read (ADR 0052 decision 6).
+      case Fountain.ChatGPTAccounts.platform_selection() do
+        {:ok, %{grant_id: grant_id}} ->
+          grant_unless_exhausted(
+            provider,
+            Fountain.ChatGPTAccounts.Reserved.placeholder(grant_id)
+          )
+
+        :none ->
+          key_for(provider)
       end
     else
       key_for(provider)
@@ -191,12 +202,12 @@ defmodule Fountain.PlatformInference do
 
   def credential_for(provider, _runtime), do: key_for(provider)
 
-  defp grant_unless_exhausted(provider, token) do
+  defp grant_unless_exhausted(provider, placeholder) do
     with %DateTime{} <- Fountain.ChatGPTAccounts.platform_exhausted_until(),
          {:ok, _kind, _key} = key <- key_for(provider) do
       key
     else
-      _ -> {:ok, :codex_chatgpt_access_token, token}
+      _ -> {:ok, :codex_chatgpt_access_token, placeholder}
     end
   end
 

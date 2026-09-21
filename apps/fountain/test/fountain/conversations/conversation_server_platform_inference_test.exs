@@ -258,8 +258,8 @@ defmodule Fountain.Conversations.ConversationServerPlatformInferenceTest do
       stub(Fountain.Broker, :preflight, fn -> :ok end)
       stub(Fountain.Broker, :ca_pem, fn -> {:ok, "PEM"} end)
 
-      stub(Fountain.Broker, :prepare, fn _c, brokered, bindings, _opts ->
-        send(test, {:prepared, brokered, bindings})
+      stub(Fountain.Broker, :prepare, fn _c, brokered, bindings, opts ->
+        send(test, {:prepared, brokered, bindings, opts})
         {:ok, @session}
       end)
 
@@ -271,15 +271,26 @@ defmodule Fountain.Conversations.ConversationServerPlatformInferenceTest do
       assert %Source{scope: :platform, kind: :codex_chatgpt_access_token} =
                state.inference_source
 
-      # The runtime's copy is the placeholder; the broker's copy is the token.
-      assert state.env_credentials.codex_chatgpt_access_token ==
-               "__codex_chatgpt_access_token__"
+      # The runtime's copy is the grant's placeholder, and the conversation
+      # holds no copy of the token at all (ADR 0052 decision 6).
+      grant = Fountain.Repo.one!(Fountain.PlatformChatGPT.Account)
+      placeholder = Fountain.ChatGPTAccounts.Reserved.placeholder(grant.id)
+      assert state.env_credentials.codex_chatgpt_access_token == placeholder
+      assert state.inference_credentials.codex_chatgpt_access_token == placeholder
+      refute inspect(state, limit: :infinity, printable_limit: :infinity) =~ access
 
-      assert_receive {:prepared, brokered, bindings}, 2_000
-      assert brokered["CODEX_CHATGPT_ACCESS_TOKEN"] == access
+      # The broker is told which grant the session may use, never its bearer:
+      # nothing in the ordinary map, and no substitution rule for the name.
+      assert_receive {:prepared, brokered, bindings, opts}, 2_000
+      refute Map.has_key?(brokered, "CODEX_CHATGPT_ACCESS_TOKEN")
+      refute Map.has_key?(bindings, "CODEX_CHATGPT_ACCESS_TOKEN")
+      refute inspect({brokered, bindings}, limit: :infinity) =~ access
 
-      assert [%{host: "chatgpt.com", auth_type: "substitute"}] =
-               bindings["CODEX_CHATGPT_ACCESS_TOKEN"]
+      assert opts[:managed] == %{
+               owner: :platform,
+               grant_id: grant.id,
+               generation: grant.generation
+             }
 
       # And the token never reaches the runner: not in the spawn env, under
       # any name.

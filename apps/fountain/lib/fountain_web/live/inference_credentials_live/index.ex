@@ -12,6 +12,11 @@ defmodule FountainWeb.InferenceCredentialsLive.Index do
   always about the selected set, and an account that never makes a second one
   sees what it saw before: its default set, under the name it was given.
 
+  Under the rows is the account's **ChatGPT subscriptions** card (ADR 0060
+  decision 3), a component of its own, `SubscriptionsCard`. This page reads
+  what the card shows, on mount and again whenever
+  `Fountain.ChatGPTAccounts` says the account's grants or sign-ins changed.
+
   Plaintext is never displayed after save.
   """
 
@@ -20,6 +25,7 @@ defmodule FountainWeb.InferenceCredentialsLive.Index do
   alias Fountain.Crypto
   alias Fountain.InferenceCredentials
   alias Fountain.InferenceCredentials.Validator
+  alias FountainWeb.InferenceCredentialsLive.SubscriptionsCard
 
   @providers [
     {:anthropic_api_key, "Anthropic API key", "ANTHROPIC_API_KEY",
@@ -36,6 +42,10 @@ defmodule FountainWeb.InferenceCredentialsLive.Index do
   def mount(_params, _session, socket) do
     user = socket.assigns.current_user
 
+    # The card's state is rows: a sign-in finished by its job, or anything
+    # done in another tab or over the API, arrives as this message.
+    if connected?(socket), do: Fountain.ChatGPTAccounts.subscribe(user.id)
+
     {:ok,
      socket
      |> assign(:page_title, "Inference credentials")
@@ -43,8 +53,13 @@ defmodule FountainWeb.InferenceCredentialsLive.Index do
      |> assign(:providers, @providers)
      |> assign(:provider_messages, %{})
      |> assign(:set_message, nil)
+     |> assign(:attribution, FountainWeb.Audited.attribution(socket))
+     |> load_subscriptions()
      |> load_sets()}
   end
+
+  defp load_subscriptions(socket),
+    do: assign(socket, :subscriptions, SubscriptionsCard.load(socket.assigns.user_id))
 
   # The sets, and which one the provider rows are about. Re-read after every
   # write rather than patched in place: `set_default/2` moves a flag on a row
@@ -244,6 +259,11 @@ defmodule FountainWeb.InferenceCredentialsLive.Index do
          )}
     end
   end
+
+  # The message carries nothing: read again, scoped by this page's owner.
+  @impl true
+  def handle_info({:chatgpt_grants_changed, _user_id}, socket),
+    do: {:noreply, load_subscriptions(socket)}
 
   defp persist_and_flash(socket, provider, value) do
     with {:ok, dek} <- load_dek(socket.assigns.user_id),
@@ -465,6 +485,15 @@ defmodule FountainWeb.InferenceCredentialsLive.Index do
 
         <.provider_message message={Map.get(@provider_messages, provider)} />
       </div>
+
+      <.live_component
+        :if={@subscriptions.visible?}
+        module={SubscriptionsCard}
+        id="chatgpt-subscriptions"
+        user_id={@user_id}
+        attribution={@attribution}
+        subscriptions={@subscriptions}
+      />
     </div>
     """
   end

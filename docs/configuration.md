@@ -255,7 +255,9 @@ template cannot send the token anywhere else. If a binding of yours matches
 that route, a codex conversation on the account fails to provision until you
 remove it. A codex conversation on the account cannot open a WebSocket, or
 any other protocol upgrade, through the broker to any host. Plain HTTP
-requests and streamed responses work as before.
+requests and streamed responses work as before. Fountain sets `CODEX_HOME`
+for such a conversation, and ignores a `CODEX_HOME` from its environment or
+vault.
 
 A ChatGPT account has Codex usage limits. When a codex turn on the account
 fails because the account is at its limit, that turn fails. Fountain does

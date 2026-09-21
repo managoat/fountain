@@ -1111,6 +1111,10 @@ defmodule Fountain.ChatGPTAccounts do
     * one that arrives after a newer sign-in, a disconnect or anything else
       that moved the grant's generation is `{:error, :stale_grant}`: the
       credential that is there stays, untouched.
+    * a **new** link whose account may no longer link
+      (`linking_enabled_for?/1`, asked before the transaction because it may
+      be an HTTP call) is `{:error, :subscriptions_not_enabled}` and the
+      attempt fails as `linking_disabled`. A reconnect is not asked.
     * every other refusal is the write's own (`{:account_already_linked, _}`,
       `{:grant_limit_reached, _}`, `:ineligible_owner`, `:not_found` for a
       grant removed since, a changeset for a name taken since, ...).

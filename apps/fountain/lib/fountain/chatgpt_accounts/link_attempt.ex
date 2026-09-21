@@ -47,6 +47,7 @@ defmodule Fountain.ChatGPTAccounts.LinkAttempt do
     grant_not_found
     name_taken
     owner_ineligible
+    linking_disabled
     tenant_key_unavailable
     invalid_sign_in
     authorization_failed

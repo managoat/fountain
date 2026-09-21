@@ -437,6 +437,46 @@ defmodule Fountain.ChatGPTLinkAttemptCompletionTest do
   # its own: the SQL sandbox's one transaction cannot show either. The idiom
   # is `broker/managed_grant_fence_test.exs`'s, and what is committed here is
   # deleted in `after`.
+  describe "linking turned off while a sign-in is open" do
+    setup do
+      %{user: insert_verified_user()}
+    end
+
+    test "a new link stores nothing and fails as linking_disabled", %{user: user} do
+      view = start!(user, %{name: "Work"})
+      chatgpt_subscriptions_flag(false)
+
+      assert {:error, :subscriptions_not_enabled} = complete(view, user, user_tokens("acct-work"))
+      assert grants(user) == []
+
+      assert {:ok, %{state: "failed", failure: %{reason: "linking_disabled"}}} =
+               ChatGPTAccounts.get_attempt_for_user(view.id, user.id)
+
+      assert %{metadata: %{"kind" => "link", "reason" => "linking_disabled"}} = failed_event(user)
+    end
+
+    test "a new link fails the same way on a deployment that lost its broker", %{user: user} do
+      view = start!(user, %{name: "Work"})
+      disable_broker()
+
+      assert {:error, :subscriptions_not_enabled} = complete(view, user, user_tokens("acct-work"))
+      assert grants(user) == []
+    end
+
+    test "a reconnect is not asked, and a replay of a link that landed still reads it",
+         %{user: user} do
+      grant = link!(user, "Work", "acct-work")
+      reconnect = start!(user, %{grant_id: grant.grant_id})
+      link = start!(user, %{name: "Personal"})
+      assert {:ok, done} = complete(link, user, user_tokens("acct-personal"))
+
+      chatgpt_subscriptions_flag(false)
+
+      assert {:ok, %{state: "completed"}} = complete(reconnect, user, user_tokens("acct-work"))
+      assert {:ok, ^done} = complete(link, user, user_tokens("acct-personal"))
+    end
+  end
+
   describe "a cancel racing a completion" do
     test "a completion holding the attempt's row wins: the grant is linked and the cancel " <>
            "is told so" do

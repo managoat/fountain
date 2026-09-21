@@ -384,13 +384,15 @@ defmodule Fountain.ChatGPTAccounts.LinkAttempts do
   defp exchange(attempt, approval, opts) do
     device_exchange = Keyword.get(opts, :device_exchange, &OAuth.device_exchange/1)
 
-    case device_exchange.(approval) do
-      {:ok, tokens} ->
-        complete(attempt.id, attempt.user_id, tokens, actor: @system_actor)
-        :done
-
-      {:error, reason} ->
-        unanswered(attempt, reason, "exchange_failed")
+    # Asked before the exchange as well as by the completion, so a link that
+    # will be refused for this does not have tokens issued to be dropped.
+    with :ok <- still_enabled(attempt),
+         {:ok, tokens} <- device_exchange.(approval) do
+      complete(attempt.id, attempt.user_id, tokens, actor: @system_actor)
+      :done
+    else
+      {:error, :subscriptions_not_enabled} -> failed(attempt, "linking_disabled")
+      {:error, reason} -> unanswered(attempt, reason, "exchange_failed")
     end
   end
 
@@ -469,11 +471,27 @@ defmodule Fountain.ChatGPTAccounts.LinkAttempts do
     # changes. Whether it may still complete is asked again under the lock.
     with {:ok, query} <- owned_query(attempt_id, user_id),
          %LinkAttempt{} = attempt <- Repo.one(query) do
-      attempt |> write_grant(tokens, fence(attempt, now), opts) |> completed(attempt, opts, now)
+      result =
+        with :ok <- still_enabled(attempt),
+             do: write_grant(attempt, tokens, fence(attempt, now), opts)
+
+      completed(result, attempt, opts, now)
     else
       _ -> {:error, :not_found}
     end
   end
+
+  # Linking may have been turned off in the minutes since a new link began,
+  # for this account or for the deployment. Everything else a completion asks
+  # again is asked by the write, in its transaction; this one is asked out
+  # here, as the start asks it, because the flag's answer may be an HTTP
+  # call. A reconnect asks nothing: it is how a grant that exists keeps
+  # working with linking off. Neither does a row that has ended, which is a
+  # replay's to read.
+  defp still_enabled(%LinkAttempt{state: "pending", grant_id: nil, user_id: user_id}),
+    do: enabled(user_id, {:link, nil})
+
+  defp still_enabled(%LinkAttempt{}), do: :ok
 
   # `connect_for_user/4`'s and `reconnect_for_user/4`'s `:within`. It runs in
   # their transaction, under the owner's key and before the grant's row is
@@ -563,6 +581,7 @@ defmodule Fountain.ChatGPTAccounts.LinkAttempts do
   defp failure_attrs({:grant_limit_reached, _}), do: %{failure_reason: "grant_limit_reached"}
   defp failure_attrs(:not_found), do: %{failure_reason: "grant_not_found"}
   defp failure_attrs(:ineligible_owner), do: %{failure_reason: "owner_ineligible"}
+  defp failure_attrs(:subscriptions_not_enabled), do: %{failure_reason: "linking_disabled"}
   defp failure_attrs(:tenant_key_unavailable), do: %{failure_reason: "tenant_key_unavailable"}
 
   defp failure_attrs(reason) when reason in [:no_refresh_token, :invalid_id_token],

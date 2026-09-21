@@ -205,7 +205,9 @@ with the open `attempt_id`, `409 chatgpt_grant_limit_reached` with `count` and
 The `chatgpt_subscriptions` flag and the credential broker hold one door: a
 sign-in for a new subscription gets `404 chatgpt_subscriptions_not_enabled`
 without them. `GET /api/auth/me` reports the door as
-`chatgpt_subscriptions_enabled`. A reconnect needs only the broker. Each other
+`chatgpt_subscriptions_enabled`. A sign-in for a new subscription that is open
+when the door closes fails with `linking_disabled`. A reconnect needs only the
+broker. Each other
 route stays open, so an account that loses the flag can still list, rename,
 reconnect, disconnect and remove its subscriptions.
 

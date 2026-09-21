@@ -318,6 +318,22 @@ defmodule Fountain.Workers.ChatGPTLinkAttemptTest do
     end
   end
 
+  describe "linking turned off while the code was out" do
+    test "an approved new link is not exchanged, and fails as linking_disabled", %{user: user} do
+      stub_legs(%{poll: &approved/1, exchange: tokens_for("acct-work", "unused")})
+      view = start!(user, %{name: "Work"})
+      chatgpt_subscriptions_flag(false)
+
+      assert :ok = run(view, user)
+      assert_received {:polled, _}
+      refute_received {:exchanged, _}
+      assert grants(user) == []
+
+      assert %LinkAttempt{state: "failed", failure_reason: "linking_disabled"} =
+               Repo.get!(LinkAttempt, view.id)
+    end
+  end
+
   describe "an auth server that does not answer" do
     test "is asked again later and less often, and the count clears when it answers",
          %{user: user} do

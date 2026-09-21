@@ -7,7 +7,8 @@ defmodule Fountain.ChatGPTAccounts.LinkAttempts do
   # Every write is `ChatGPTAccounts.user_write/2`: one transaction, the
   # owner's source key first and the attempt row after it, which is the
   # context's lock order with one more row in it. No write here touches a
-  # grant row. The auth server is never called inside a transaction: the two
+  # grant row; the two of the context's that end a grant come here for its
+  # open attempt (`lock_open_for_grant/2`). The auth server is never called inside a transaction: the two
   # admissions below run on either side of `device_start`.
 
   import Ecto.Query, only: [from: 2]
@@ -610,6 +611,49 @@ defmodule Fountain.ChatGPTAccounts.LinkAttempts do
     audit(attempt, "chatgpt_link_attempt.failed", opts, %{"reason" => attempt.failure_reason})
     ChatGPTAccounts.broadcast_changed(attempt.user_id)
   end
+
+  # ── a grant that ends under an open attempt ──────────────────────────────
+
+  # `disconnect_for_user/3` and `remove_for_user/3` end the grant's open
+  # reconnect with it. Left pending it could only ever end `stale_grant` or
+  # `grant_not_found`, and until it did it was the grant's one open sign-in:
+  # the reconnect the user asks for next was a 409.
+  #
+  # Two halves, because the first has to come before the grant's row is
+  # locked (the order is key, attempt, grant) and what the second writes
+  # depends on what that row says. Both run in the caller's transaction,
+  # under the owner's key. `announce_ended/2` is for after it has committed.
+  def lock_open_for_grant(user_id, grant_id) do
+    case Ecto.UUID.cast(grant_id) do
+      {:ok, id} ->
+        from(a in LinkAttempt,
+          where: a.user_id == ^user_id and a.grant_id == ^id and a.state == "pending",
+          lock: "FOR UPDATE"
+        )
+        |> Repo.all()
+
+      :error ->
+        []
+    end
+  end
+
+  def end_locked(attempts, reason) when is_list(attempts) and is_binary(reason) do
+    now = now()
+
+    Enum.flat_map(attempts, fn attempt ->
+      {state, attrs} =
+        if LinkAttempt.expired?(attempt, now),
+          do: {"expired", %{}},
+          else: {"failed", %{failure_reason: reason}}
+
+      case attempt |> LinkAttempt.finish_changeset(state, attrs) |> Repo.update() do
+        {:ok, ended} -> [ended]
+        {:error, _changeset} -> []
+      end
+    end)
+  end
+
+  def announce_ended(ended, opts) when is_list(ended), do: Enum.each(ended, &concluded(&1, opts))
 
   # ── expiry ───────────────────────────────────────────────────────────────
 

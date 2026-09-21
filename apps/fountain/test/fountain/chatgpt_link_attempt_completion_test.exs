@@ -331,29 +331,71 @@ defmodule Fountain.ChatGPTLinkAttemptCompletionTest do
              }
     end
 
-    test "a completion that arrives after a disconnect does not undo it",
+    test "a disconnect ends the open sign-in with it, and the next one is not in its way",
          %{user: user, grant: grant} do
       view = start!(user, %{grant_id: grant.grant_id})
-      assert :ok = ChatGPTAccounts.disconnect_for_user(grant.grant_id, user.id)
+
+      assert :ok =
+               ChatGPTAccounts.disconnect_for_user(grant.grant_id, user.id,
+                 actor: "api",
+                 request_ip: "203.0.113.9"
+               )
+
       tombstone = Repo.get!(Account, grant.grant_id)
 
-      assert {:error, :stale_grant} = complete(view, user, user_tokens("acct-work"))
+      assert {:ok, %{state: "failed", user_code: nil, failure: %{reason: "stale_grant"}}} =
+               ChatGPTAccounts.get_attempt_for_user(view.id, user.id)
 
-      assert %Account{status: "disconnected", access_token_ciphertext: nil} =
-               Repo.get!(Account, grant.grant_id)
+      assert %{actor: "api", request_ip: "203.0.113.9", metadata: %{"reason" => "stale_grant"}} =
+               failed_event(user)
+
+      # A completion that arrives afterwards does not undo the disconnect.
+      assert {:error, {:link_attempt_not_pending, %{state: "failed"}}} =
+               complete(view, user, user_tokens("acct-work"))
 
       assert Repo.get!(Account, grant.grant_id) == tombstone
 
-      # A sign-in begun after the disconnect is how it comes back.
+      # A sign-in begun after the disconnect is how it comes back, and nothing
+      # has to be cancelled first. Disconnecting again leaves that one alone.
       again = start!(user, %{grant_id: grant.grant_id})
+      assert :ok = ChatGPTAccounts.disconnect_for_user(grant.grant_id, user.id)
       assert {:ok, %{state: "completed"}} = complete(again, user, user_tokens("acct-work"))
       assert {:ok, %{status: "active"}} = ChatGPTAccounts.get_for_user(grant.grant_id, user.id)
     end
 
-    test "a grant removed under the attempt fails it by name", %{user: user, grant: grant} do
+    test "the fence alone holds against a disconnect that left the attempt open",
+         %{user: user, grant: grant} do
       view = start!(user, %{grant_id: grant.grant_id})
+
+      # A writer that is not the context's: the tombstone, and nothing else.
+      tombstone =
+        Account |> Repo.get!(grant.grant_id) |> Account.disconnect_changeset() |> Repo.update!()
+
+      assert {:error, :stale_grant} = complete(view, user, user_tokens("acct-work"))
+      assert Repo.get!(Account, grant.grant_id) == tombstone
+
+      assert {:ok, %{state: "failed", failure: %{reason: "stale_grant"}}} =
+               ChatGPTAccounts.get_attempt_for_user(view.id, user.id)
+    end
+
+    test "a removal ends the sign-in open on the tombstone", %{user: user, grant: grant} do
       assert :ok = ChatGPTAccounts.disconnect_for_user(grant.grant_id, user.id)
+      view = start!(user, %{grant_id: grant.grant_id})
       assert :ok = ChatGPTAccounts.remove_for_user(grant.grant_id, user.id)
+
+      assert {:ok, %{state: "failed", failure: %{reason: "grant_not_found"}}} =
+               ChatGPTAccounts.get_attempt_for_user(view.id, user.id)
+
+      assert {:error, {:link_attempt_not_pending, %{state: "failed"}}} =
+               complete(view, user, user_tokens("acct-work"))
+
+      assert grants(user) == []
+    end
+
+    test "a grant that is gone under an open attempt fails it by name",
+         %{user: user, grant: grant} do
+      view = start!(user, %{grant_id: grant.grant_id})
+      Account |> Repo.get!(grant.grant_id) |> Repo.delete!()
 
       assert {:error, :not_found} = complete(view, user, user_tokens("acct-work"))
       assert grants(user) == []

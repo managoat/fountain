@@ -456,6 +456,12 @@ defmodule Fountain.ChatGPTAccounts do
   finish. Already-open tunnels are not closed, and the token is not revoked
   upstream.
 
+  A sign-in open on the grant ends with it, in the same transaction, as
+  `failed` with `stale_grant`, which is what its completion would have been
+  told: it began against the credential this retires. Its
+  `chatgpt_link_attempt.failed` carries this call's attribution. The next
+  reconnect is then not refused as already open.
+
   `:ok` for a grant already disconnected, with no second event. The
   platform grant is not like this: `platform_disconnect/1` deletes its row.
 
@@ -470,13 +476,18 @@ defmodule Fountain.ChatGPTAccounts do
       when is_binary(grant_id) and is_binary(user_id) do
     result =
       user_write(user_id, fn ->
+        # Before the grant's row, which is the order a completion takes them in.
+        open = LinkAttempts.lock_open_for_grant(user_id, grant_id)
+
         case locked_user_grant(grant_id, user_id) do
+          # A sign-in open on a tombstone began after it and may bring it back.
           {:ok, %Account{status: "disconnected"}} ->
             {:ok, :already}
 
           {:ok, account} ->
             with {:ok, tombstone} <- account |> Account.disconnect_changeset() |> Repo.update() do
-              {:ok, {account.generation, revoke_broker(tombstone)}}
+              ended = LinkAttempts.end_locked(open, "stale_grant")
+              {:ok, {account.generation, revoke_broker(tombstone), ended}}
             end
 
           {:error, _} = error ->
@@ -489,7 +500,9 @@ defmodule Fountain.ChatGPTAccounts do
         :ok
 
       # The generation on the event is the one that was retired.
-      {:ok, {retired, account}} ->
+      {:ok, {retired, account, ended}} ->
+        LinkAttempts.announce_ended(ended, opts)
+
         audit_grant(account, "chatgpt_grant.disconnected", opts, %{
           "name" => account.name,
           "generation" => retired
@@ -518,6 +531,9 @@ defmodule Fountain.ChatGPTAccounts do
   the owner's source lock. This check is the guard, not the sets' foreign
   key: that key is deferred, so it would refuse at COMMIT by raising, which
   the lock should make unreachable.
+
+  A sign-in open on the tombstone ends with it, as `failed` with
+  `grant_not_found`.
   """
   @spec remove_for_user(Ecto.UUID.t(), String.t(), keyword()) ::
           :ok
@@ -530,14 +546,23 @@ defmodule Fountain.ChatGPTAccounts do
       when is_binary(grant_id) and is_binary(user_id) do
     result =
       user_write(user_id, fn ->
+        open = LinkAttempts.lock_open_for_grant(user_id, grant_id)
+
         case locked_user_grant(grant_id, user_id) do
-          {:ok, %Account{status: "disconnected"} = account} -> delete_unnamed(account)
-          {:ok, %Account{}} -> {:error, :still_connected}
-          {:error, _} = error -> error
+          {:ok, %Account{status: "disconnected"} = account} ->
+            with {:ok, deleted} <- delete_unnamed(account),
+                 do: {:ok, {deleted, LinkAttempts.end_locked(open, "grant_not_found")}}
+
+          {:ok, %Account{}} ->
+            {:error, :still_connected}
+
+          {:error, _} = error ->
+            error
         end
       end)
 
-    with {:ok, account} <- result do
+    with {:ok, {account, ended}} <- result do
+      LinkAttempts.announce_ended(ended, opts)
       audit_grant(account, "chatgpt_grant.removed", opts, %{"name" => account.name})
       broadcast_changed(user_id)
       :ok

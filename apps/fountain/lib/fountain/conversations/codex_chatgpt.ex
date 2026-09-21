@@ -243,8 +243,10 @@ defmodule Fountain.Conversations.CodexChatGPT do
   link the shared configuration into it, and write its `auth.json` from a
   read of the grant pinned by owner, id and generation
   (`ChatGPTAccounts.sandbox_auth/1`). A grant that is no longer at that
-  generation is `{:error, {:chatgpt_grant_unusable, _}}`, never another
-  grant's account and never the deployment's. An `OPENAI_API_KEY` beside it
+  generation is `{:error, :inference_source_changed}` when it is active at
+  another (it was reconnected; `ensure_fresh/2` says the same) and
+  `{:error, {:chatgpt_grant_unusable, _}}` otherwise, never another grant's
+  account and never the deployment's. An `OPENAI_API_KEY` beside it
   is an error too: `SpriteEnv.build/4` strips one for such a source, and a
   key that got through would be the silent switch ADR 0060 decision 4
   forbids.
@@ -302,7 +304,7 @@ defmodule Fountain.Conversations.CodexChatGPT do
       end
     else
       :error -> {:error, :invalid_codex_home}
-      :none -> {:error, unusable(ref)}
+      :none -> {:error, gone(ref)}
       {:error, _} = error -> error
     end
   end
@@ -346,14 +348,28 @@ defmodule Fountain.Conversations.CodexChatGPT do
   end
 
   # The pinned read found no such sign-in: the grant was reconnected,
-  # disconnected or removed since this conversation resolved it. Named, like
-  # every other refusal of a user's grant, and never answered with a
-  # different account.
-  defp unusable(ref, reason \\ :reconnect_required)
+  # disconnected or removed since this conversation resolved it. A grant that
+  # is active at another generation was reconnected, and that is
+  # `:inference_source_changed`, the answer `ensure_fresh/2` gives the same
+  # fact: the grant is fine and this conversation's source is not it.
+  # Anything else is named, like every other refusal of a user's grant, and
+  # never answered with a different account.
+  defp gone(%{owner: {:user, user_id}, grant_id: grant_id, generation: generation} = ref) do
+    case ChatGPTAccounts.get_for_user(grant_id, user_id) do
+      {:ok, %{status: "active", generation: current}} when current != generation ->
+        :inference_source_changed
 
-  defp unusable(%{owner: {:user, user_id}, grant_id: grant_id}, reason) do
+      found ->
+        unusable(ref, :reconnect_required, found)
+    end
+  end
+
+  defp unusable(%{owner: {:user, user_id}, grant_id: grant_id} = ref, reason),
+    do: unusable(ref, reason, ChatGPTAccounts.get_for_user(grant_id, user_id))
+
+  defp unusable(%{grant_id: grant_id}, reason, found) do
     {name, reason} =
-      case ChatGPTAccounts.get_for_user(grant_id, user_id) do
+      case found do
         {:ok, %{name: name, status: "disconnected"}} -> {name, :disconnected}
         {:ok, %{name: name}} -> {name, reason}
         {:error, :not_found} -> {nil, :not_found}

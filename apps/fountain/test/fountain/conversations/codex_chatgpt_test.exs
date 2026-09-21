@@ -235,7 +235,9 @@ defmodule Fountain.Conversations.CodexChatGPTTest do
       assert {:error, {:chatgpt_grant_unusable, %{grant_id: ^grant_id, reason: :not_found}}} =
                CodexChatGPT.prepare_sandbox(@handle, "codex", env, source, stranger.id)
 
-      # A reconnect is a new generation: the old conversation's pin finds nothing.
+      # A reconnect is a new generation: the old conversation's pin finds
+      # nothing. The grant is fine and this conversation's source is not it,
+      # which is the answer `ensure_fresh/2` gives the same fact.
       {:ok, _} =
         ChatGPTAccounts.reconnect_for_user(grant.id, user.id, %{
           access_token: access_token(),
@@ -243,10 +245,24 @@ defmodule Fountain.Conversations.CodexChatGPTTest do
           id_token: id_token(%{account_id: grant.account_id})
         })
 
+      assert {:error, :inference_source_changed} =
+               CodexChatGPT.prepare_sandbox(@handle, "codex", env, source, user.id)
+
+      assert {:error, :inference_source_changed} = CodexChatGPT.ensure_fresh(user.id, source)
+
+      # At another generation and not active: it is the grant that cannot serve.
+      Repo.update_all(from(a in Fountain.PlatformChatGPT.Account, where: a.id == ^grant_id),
+        set: [status: "revoked"]
+      )
+
       assert {:error,
               {:chatgpt_grant_unusable,
                %{grant_id: ^grant_id, name: "Personal", reason: :reconnect_required}}} =
                CodexChatGPT.prepare_sandbox(@handle, "codex", env, source, user.id)
+
+      Repo.update_all(from(a in Fountain.PlatformChatGPT.Account, where: a.id == ^grant_id),
+        set: [status: "active"]
+      )
 
       :ok = ChatGPTAccounts.disconnect_for_user(grant.id, user.id)
 

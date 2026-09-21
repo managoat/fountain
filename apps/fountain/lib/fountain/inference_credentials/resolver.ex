@@ -198,10 +198,12 @@ defmodule Fountain.InferenceCredentials.Resolver do
   # From the row's metadata alone. A token inside its refresh margin, or past
   # it, is usable here as the platform grant's is: renewing is the turn's
   # business, outside this lock. Exhaustion is read but never yet written for
-  # a user's grant (ADR 0060 stage 5).
-  defp grant_state(nil), do: {:not_found, nil}
+  # a user's grant (ADR 0060 stage 5). Public behind
+  # `InferenceCredentials.grant_state/1`, so that a page showing a grant's
+  # state shows this reading and not one of its own.
+  def grant_state(nil), do: {:not_found, nil}
 
-  defp grant_state(view) do
+  def grant_state(view) do
     cond do
       view.status == "disconnected" -> {:disconnected, nil}
       view.status == "revoked" -> {:revoked, nil}

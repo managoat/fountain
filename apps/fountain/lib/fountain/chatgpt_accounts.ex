@@ -90,8 +90,9 @@ defmodule Fountain.ChatGPTAccounts do
   runs on it:
   `ensure_fresh_for_user/3` renews it before each turn, outside the source
   lock, and the broker reads it through the two functions above (ADR 0060
-  stage 3). There is no console page yet (stage 4b), and a new link is off
-  wherever nobody turned the flag on. The keepalive schedule is stage 5:
+  stage 3). The console's card is
+  `FountainWeb.InferenceCredentialsLive.SubscriptionsCard` (stage 4b), and a
+  new link is off wherever nobody turned the flag on. The keepalive schedule is stage 5:
   until it exists an idle user grant lapses at the auth server's window,
   which is one reason the flag stays off.
 

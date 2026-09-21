@@ -10,19 +10,25 @@ describes one of these features.
 | Feature | Status | On the hosted platform | On your own instance |
 |---|---|---|---|
 | [Connections](../catalog/connections/index.md) | Alpha | Off by default. Behind the `connections` flag, separately from the credential broker. [Ask us](../api.md#support) to turn it on for your account. | Configure the credential broker and your provider apps, then add `connections` to `FEATURE_FLAGS_ON`. This also enables the credential bindings page. |
-| [ChatGPT subscriptions](../api.md#chatgpt-subscriptions) | In development | Off for every account. Behind the `chatgpt_subscriptions` flag, which we have turned on for nobody. | Off. The flag reads off on an instance with no PostHog too. `FEATURE_FLAGS_ON` can force it on where the credential broker is configured. Do not do that on an instance that serves people you do not trust: see below. |
+| [ChatGPT subscriptions](../guides/chatgpt-subscriptions.md) | In development | Off for every account. Behind the `chatgpt_subscriptions` flag, which we have turned on for nobody. | Off. The flag reads off on an instance with no PostHog too. `FEATURE_FLAGS_ON` can force it on where the credential broker is configured. Do not do that on an instance that serves people you do not trust: see below. |
 
 ## What each status means
 
 **In development.** The feature is not complete, and it is off everywhere
-until it is. For ChatGPT subscriptions, the API can link a subscription and a
-credential set can name one. These parts are not built: the console page, the
+until it is. For ChatGPT subscriptions, the console and the
+[API](../api.md#chatgpt-subscriptions) can link a subscription and a
+credential set can name one. These parts are not built: the
 schedule that keeps an idle subscription's sign-in alive, the record of which
-subscription served a turn, and two protections at the credential broker for
-a response or a request that carries the subscription's token. The flag holds
+subscription served a turn, the detection of a subscription that has spent
+its plan's Codex allowance, and two protections at the credential broker for
+a response or a request that carries the subscription's token. Until the
+detection is built, a spent subscription stays **Connected** on the card and
+its turns fail with the error that OpenAI returns. The flag holds
 only the door that links a new subscription. An account that holds one can
-always list, rename, disconnect and remove it. It can reconnect it on a
-deployment that has the credential broker.
+always list, rename, disconnect and remove it, and keeps the **ChatGPT
+subscriptions** card in the console. It can reconnect it on a deployment that
+has the credential broker. With the flag off, the console also does not offer
+a credential set a subscription that it does not name already.
 
 **Alpha.** The feature works end to end, and we have not yet decided its final
 shape. Its API and its tools can change between releases without an upgrade

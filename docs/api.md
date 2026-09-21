@@ -153,6 +153,9 @@ and the [generated reference](/api/docs) for response schemas and refusals.
     Linking a ChatGPT subscription is in development and off for every
     account. See [feature status](reference/feature-status.md).
 
+The console does the same on one page. See
+[Run Codex on a ChatGPT subscription](guides/chatgpt-subscriptions.md).
+
 An account can link ChatGPT subscriptions for the `codex` runtime, up to
 `CHATGPT_GRANT_CEILING`. Fountain holds and renews the tokens. No route
 returns a token or refreshes one. A credential set names a subscription with

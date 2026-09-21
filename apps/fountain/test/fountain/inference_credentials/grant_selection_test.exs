@@ -474,10 +474,111 @@ defmodule Fountain.InferenceCredentials.GrantSelectionTest do
       assert missing.(plain, "codex") == nil
       assert missing.(set, "opencode") == nil
 
-      # Unbrokered, the grant cannot serve; the prefixed model says the same.
+      # Unbrokered, the grant cannot serve, and a key would not either: codex
+      # on this set is the grant or a refusal (stage 4a, item 2). So no key is
+      # asked for, and what is wrong is `named_grant_problem/4`'s to say.
       Application.delete_env(:fountain, :broker_listen_port)
-      assert missing.(set, "codex") == {"openai", [:openai_api_key]}
+      assert missing.(set, "codex") == nil
       assert missing.(plain, "codex") == nil
+
+      assert %{reason: :broker_required} =
+               InferenceCredentials.named_grant_problem(ctx.user.id, "gpt-5", "codex",
+                 credential_set_id: set.id
+               )
+    end
+
+    test "named_grant_problem/4 is resolution's answer, for codex on a set that names a grant",
+         ctx do
+      grant = user_grant!(ctx.user.id, %{name: "Work"})
+      set = set_naming(ctx.user, "Set", grant)
+      {:ok, plain} = InferenceCredentials.create_set(ctx.user.id, "Plain")
+
+      problem = fn set_id, runtime ->
+        InferenceCredentials.named_grant_problem(ctx.user.id, @codex_model, runtime,
+          credential_set_id: set_id
+        )
+      end
+
+      assert problem.(set.id, "codex") == nil
+
+      :ok = ChatGPTAccounts.disconnect_for_user(grant.id, ctx.user.id)
+      grant_id = grant.id
+
+      assert %{reason: :disconnected, name: "Work", grant_id: ^grant_id} =
+               detail = problem.(set.id, "codex")
+
+      assert InferenceCredentials.grant_unusable_message(detail) =~ ~s("Work" is disconnected)
+
+      # Not a codex run, not a set that names one, not a set of this account.
+      assert problem.(set.id, "opencode") == nil
+      assert problem.(set.id, nil) == nil
+      assert problem.(plain.id, "codex") == nil
+      assert problem.(Ecto.UUID.generate(), "codex") == nil
+      assert problem.("nope", "codex") == nil
+    end
+
+    test "named_grant_problem/4 says what the turn would of an owner who may not use a grant",
+         ctx do
+      grant = user_grant!(ctx.user.id, %{name: "Work"})
+      set = set_naming(ctx.user, "Set", grant)
+      grant_id = grant.id
+
+      ctx.user
+      |> Ecto.Changeset.change(suspended_at: DateTime.utc_now() |> DateTime.truncate(:second))
+      |> Fountain.Repo.update!()
+
+      # Resolution reads the row's metadata, which stays open to them.
+      assert {:ok, %{scope: :grant}, _} =
+               InferenceCredentials.resolve(ctx.user.id, @codex_model, "codex",
+                 credential_set_id: set.id
+               )
+
+      assert %{reason: :owner_ineligible, name: "Work", grant_id: ^grant_id} =
+               detail =
+               InferenceCredentials.named_grant_problem(ctx.user.id, @codex_model, "codex",
+                 credential_set_id: set.id
+               )
+
+      assert InferenceCredentials.grant_unusable_message(detail) =~ "verified account"
+    end
+
+    test "grant_state/1 is the reading resolution makes", ctx do
+      grant = user_grant!(ctx.user.id, %{name: "Work"})
+      view = fn -> elem(ChatGPTAccounts.get_for_user(grant.id, ctx.user.id), 1) end
+
+      assert InferenceCredentials.grant_state(view.()) == :ok
+      assert InferenceCredentials.grant_state(nil) == {:not_found, nil}
+
+      Application.delete_env(:fountain, :broker_listen_port)
+      assert InferenceCredentials.grant_state(view.()) == {:broker_required, nil}
+
+      # The grant's own state before the deployment's.
+      :ok = ChatGPTAccounts.disconnect_for_user(grant.id, ctx.user.id)
+      assert InferenceCredentials.grant_state(view.()) == {:disconnected, nil}
+    end
+
+    test "a set that names a connected subscription has connected a provider", ctx do
+      other = insert_active_user()
+      grant = user_grant!(ctx.user.id)
+      _unnamed = user_grant!(other.id)
+      ids = [ctx.user.id, other.id]
+
+      # A subscription no set names serves no run, and does not count.
+      refute InferenceCredentials.has_any_credential?(ctx.user.id)
+      refute InferenceCredentials.has_any_credential?(other.id)
+      assert InferenceCredentials._unsafe_user_ids_with_credential(ids) == MapSet.new()
+
+      set_naming(ctx.user, "Set", grant)
+      assert InferenceCredentials.has_any_credential?(ctx.user.id)
+      refute InferenceCredentials.has_any_credential?(other.id)
+
+      assert InferenceCredentials._unsafe_user_ids_with_credential(ids) ==
+               MapSet.new([ctx.user.id])
+
+      # Disconnected, it holds nothing, and the checklist asks again.
+      :ok = ChatGPTAccounts.disconnect_for_user(grant.id, ctx.user.id)
+      refute InferenceCredentials.has_any_credential?(ctx.user.id)
+      assert InferenceCredentials._unsafe_user_ids_with_credential(ids) == MapSet.new()
     end
   end
 
@@ -504,11 +605,15 @@ defmodule Fountain.InferenceCredentials.GrantSelectionTest do
                ) == {"openai", [:openai_api_key]}
       end
 
-      # Unbrokered, the grant cannot serve codex either.
+      # Unbrokered, the grant cannot serve codex either, and a key is still
+      # not what is missing: resolution would refuse the run with one.
       Application.delete_env(:fountain, :broker_listen_port)
 
       assert InferenceCredentials.missing_for_model(ctx.user.id, @codex_model, runtime: "codex") ==
-               {"openai", [:openai_api_key]}
+               nil
+
+      assert %{reason: :broker_required} =
+               InferenceCredentials.named_grant_problem(ctx.user.id, @codex_model, "codex")
     end
 
     test "a set that names no grant asks for a key on codex as it always did", ctx do

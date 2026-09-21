@@ -54,10 +54,29 @@
   conversations on the account** (#2453), because they hold the token as a
   rule. A turn on the account that is in flight across the upgrade fails at
   its next request with a 407. Every conversation mints a new session when
-  its server starts on the new release, so the next turn runs. The migration
-  runs once, and a replica still on the previous release can write a session
-  of the old kind after it: by minting one, or, when the account's token
-  rotates, by rewriting the rules of a conversation's live sessions with the
-  new token. A replica on this release refuses such a session with a 407
-  and deletes it the first time a request presents it. A replica on the
-  previous release still serves it. Roll every replica.
+  its server starts on the new release, so the next turn runs.
+
+- **Expect codex turns on the deployment's account to fail until every
+  replica runs this release** (#2453). Roll quickly, or stop every replica
+  and start the new release. Any replica's broker can serve any sandbox, and
+  the two releases disagree about these sessions in both directions:
+  - *A session from the previous release, served by this one.* The
+    migration runs once. A replica still on the previous release can write
+    a session of the old kind after it, by minting one, or, when the
+    account's token rotates, by rewriting the rules of a conversation's live
+    sessions with the new token. A replica on this release refuses such a
+    session with a 407 and deletes it the first time a request presents it.
+    A replica on the previous release still serves it in full, WebSockets
+    and header templates included, so the exposure this release closes stays
+    open until the last old replica is gone.
+  - *A session from this release, served by the previous one.* The old
+    broker does not know the session records a grant. It treats it as an
+    ordinary session, forwards the sandbox's placeholder to `chatgpt.com` as
+    the bearer, and the provider answers 401. It does not enforce HTTP only
+    either. No token leaks, because the session holds none, and the turn
+    fails.
+  - *No recovery on an old replica.* A conversation whose server is still on
+    the previous release and whose session was deleted gets no working
+    session until that replica is rolled: the previous release replaces a
+    session only when a secret changes or the session is near its expiry,
+    not after a 407, and what it mints is a session of the old kind again.

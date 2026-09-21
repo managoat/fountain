@@ -991,10 +991,35 @@ Five things stage 3 settled or found:
    - `20260921025746` drains the legacy sessions: every session with no
      grant recorded whose conversation is bound to the ChatGPT credential.
      A turn in flight across the upgrade fails at its next request with a
-     407; every server start mints a managed session. **A mixed fleet is a
-     rollout constraint, not something the migration closes**: a replica on
-     the previous release can mint one more substitute-rule session, which
-     lives until its expiry and is never renewed.
+     407; every server start mints a managed session. The migration is the
+     fast path and runs once. The drain itself is continuous, in
+     `Sessions`: rules that name the reserved credential are served by
+     nothing, `lookup/1` answering `:error` (the proxy's 407) and
+     `authorize/2` `:denied`, and the row is deleted on the spot. No read
+     is added per request, since the rules are already decrypted where the
+     check runs.
+   - **A mixed fleet is a rollout constraint, and the drain narrows it
+     without closing it.** Any replica's proxy serves any sandbox, and the
+     two releases disagree in both directions. *Old session, new proxy:* a
+     replica on the previous release writes a substitute-rule session after
+     the migration, by minting one or, on a token rotation, by
+     `refresh_platform_chatgpt` rewriting the rules of every live session
+     of the conversation, a managed one included; a new proxy refuses and
+     deletes it, and an old proxy serves it in full, so 0052 decision 6 is
+     not paid until the last old replica is gone. *New session, old proxy:*
+     the old schema has no `managed_*` columns, so the session is ordinary
+     there, `chatgpt.com` gets the placeholder as its bearer and answers
+     401, and HTTP-only is not enforced; nothing leaks, because the session
+     holds no bearer, and the turn fails. *No recovery on an old replica:*
+     its `refresh_before_turn/1` re-mints only on a changed secret or a
+     session near its expiry, never after a 407, and what it mints is
+     legacy again. So codex turns on the deployment's account fail
+     intermittently for the length of the roll; the notes say to roll
+     quickly or stop the world. A conversation server on *this* release
+     whose managed session an old replica overwrote has the same gap, until
+     its session nears expiry or the server restarts. Asking the store
+     whether the session still exists before each turn would close it for a
+     read per turn; it was not built, for a window that ends with the roll.
    - **Observable, and in the changelog:** no WebSocket or other upgrade
      through the broker from a codex conversation on the account, to any
      host (`http_only` is per session); `chatgpt.com` reachable on the one

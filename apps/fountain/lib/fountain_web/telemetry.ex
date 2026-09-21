@@ -128,6 +128,25 @@ defmodule FountainWeb.Telemetry do
         event_name: [:fountain, :chatgpt, :refresh_lock, :contention],
         description: "Refreshers that found another node holding the grant lock"
       ),
+      # The keepalive for users' ChatGPT grants (ADR 0060 stage 5). `due` is
+      # what the daily sweep found idle; `grant` counts each job's end by
+      # result (ok, cancelled, snoozed, rate_limited, error). A rate_limited
+      # count, or the breaker's own counter below, is `auth.openai.com`
+      # throttling this server's address, which is every tenant's problem.
+      last_value("fountain.chatgpt.keepalive.sweep.due",
+        event_name: [:fountain, :chatgpt, :keepalive, :sweep],
+        measurement: :due,
+        description: "User ChatGPT grants the last keepalive sweep found due for renewal"
+      ),
+      counter("fountain.chatgpt.keepalive.grant.count",
+        event_name: [:fountain, :chatgpt, :keepalive, :grant],
+        tags: [:result],
+        description: "Keepalive jobs for user ChatGPT grants, by result"
+      ),
+      counter("fountain.chatgpt.refresh.rate_limited.count",
+        event_name: [:fountain, :chatgpt, :refresh, :rate_limited],
+        description: "Times the auth server turned a user grant's refresh away (429 or 403)"
+      ),
       # Any non-zero value here means billing data is being lost (#503) —
       # record_usage/5 swallows failures by contract, so this counter is the
       # only signal that distinguishes "no usage" from "metering broken".

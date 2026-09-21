@@ -995,6 +995,10 @@ defmodule Fountain.ChatGPTAccounts do
     * `:subscriptions_not_enabled` -- `linking_enabled_for?/1` is false for a
       new link, or the deployment has no broker for a reconnect.
     * `:ineligible_owner` -- not a verified, claimed, unsuspended account.
+    * `{:link_attempts_rate_limited, %{limit: _, retry_after: _}}` -- the
+      account began ten sign-ins in the last hour, whatever became of them
+      and whoever asked: counted from the rows, under the owner's key.
+      `retry_after` is seconds.
     * `{:link_attempts_exceeded, %{count: _, limit: _}}` -- three sign-ins
       are open already, across all of the account's grants.
     * a changeset -- the name is blank, too long, or already names one of

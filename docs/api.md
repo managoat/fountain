@@ -195,11 +195,12 @@ A sign-in that finishes after a newer one, or after a disconnect, fails with
 `stale_grant` and changes nothing. A sign-in that finishes after a cancel
 stores nothing.
 
-An account can have three sign-ins open, and one for each subscription. One
-API key can start ten in an hour. The refusals are
-`409 chatgpt_link_attempts_exceeded`, `409 chatgpt_link_attempt_pending` with
-the open `attempt_id`, `409 chatgpt_grant_limit_reached` with `count` and
-`limit`, and `429`.
+An account can have three sign-ins open, and one for each subscription. An
+account can start ten in an hour, and a cancelled sign-in counts. The refusals
+are `409 chatgpt_link_attempts_exceeded`, `409 chatgpt_link_attempt_pending`
+with the open `attempt_id`, `409 chatgpt_grant_limit_reached` with `count` and
+`limit`, and `429 chatgpt_link_attempts_rate_limited` with `Retry-After` and
+`retry_after_seconds`.
 
 The `chatgpt_subscriptions` flag and the credential broker hold one door: a
 sign-in for a new subscription gets `404 chatgpt_subscriptions_not_enabled`

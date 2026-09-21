@@ -3797,7 +3797,15 @@ defmodule FountainWeb.Schemas do
             "The account's concurrent-sandbox cap, on `sandbox_quota_exceeded` (429); " <>
               "how many ChatGPT subscriptions it may hold, on " <>
               "`chatgpt_grant_limit_reached` (409); how many sign-ins it may have open, " <>
-              "on `chatgpt_link_attempts_exceeded` (409)."
+              "on `chatgpt_link_attempts_exceeded` (409); how many it may start in an " <>
+              "hour, on `chatgpt_link_attempts_rate_limited` (429)."
+        },
+        retry_after_seconds: %Schema{
+          type: :integer,
+          description:
+            "Seconds until another sign-in may be started, on " <>
+              "`chatgpt_link_attempts_rate_limited` (429); the `Retry-After` header " <>
+              "says the same."
         },
         count: %Schema{
           type: :integer,

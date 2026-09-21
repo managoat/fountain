@@ -233,6 +233,56 @@ defmodule Fountain.ChatGPTLinkAttemptsTest do
     end
   end
 
+  describe "the hourly limit" do
+    defp churn(user, target, times) do
+      for _ <- 1..times do
+        assert {:ok, attempt} = start(user, target)
+        assert_received {:device_start, _}
+        assert {:ok, _} = ChatGPTAccounts.cancel_attempt_for_user(attempt.id, user.id)
+      end
+    end
+
+    test "starting and cancelling is refused at the eleventh, and the auth server is not asked",
+         %{user: user, other: other} do
+      churn(user, %{name: "Work"}, 10)
+
+      assert {:error, {:link_attempts_rate_limited, %{limit: 10, retry_after: seconds}}} =
+               start(user, %{name: "Work"})
+
+      assert seconds in 1..3600
+      refute_received {:device_start, _}
+      assert Repo.aggregate(LinkAttempt, :count) == 10
+      assert length(events(user)) == 20
+
+      # An account's count is its own.
+      assert {:ok, _} = start(other, %{name: "Work"})
+    end
+
+    test "a reconnect counts, and is refused like a link", %{user: user} do
+      grant = link!(user, "Work", "acct-work")
+      churn(user, %{grant_id: grant.grant_id}, 10)
+
+      assert {:error, {:link_attempts_rate_limited, _}} = start(user, %{grant_id: grant.grant_id})
+      assert {:error, {:link_attempts_rate_limited, _}} = start(user, %{name: "Personal"})
+      refute_received {:device_start, _}
+    end
+
+    test "a start more than an hour old no longer counts", %{user: user} do
+      churn(user, %{name: "Work"}, 10)
+
+      [oldest | _] =
+        Repo.all(from(a in LinkAttempt, order_by: [asc: a.inserted_at], select: a.id))
+
+      long_ago = DateTime.utc_now() |> DateTime.add(-3601, :second) |> DateTime.truncate(:second)
+
+      Repo.update_all(from(a in LinkAttempt, where: a.id == ^oldest),
+        set: [inserted_at: long_ago]
+      )
+
+      assert {:ok, _} = start(user, %{name: "Work"})
+    end
+  end
+
   describe "the ceiling" do
     setup do
       previous = Application.fetch_env!(:fountain, :chatgpt_grant_ceiling)

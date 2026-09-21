@@ -457,18 +457,33 @@ defmodule FountainWeb.ChatGPTSubscriptionControllerTest do
       refute_received :device_start
     end
 
-    test "the eleventh in an hour from one key is 429", %{conn: conn} do
+    test "the eleventh in an hour is 429 with when to come back, whichever key asks",
+         %{conn: conn, user: user} do
       stub_sign_in()
 
       for n <- 1..10 do
         %{"data" => %{"id" => id}} = start!(conn, %{"name" => "Grant #{n}"})
         assert conn |> delete("#{@base}/attempts/#{id}") |> json_response(200)
+        assert_received :device_start
       end
 
-      assert %{"error" => "rate_limited"} =
-               conn
-               |> post_json(@base <> "/attempts", %{"name" => "Eleventh"})
-               |> json_response(429)
+      {_rec, second_key} = insert_api_key(user)
+
+      for asking <- [conn, authed_with_key(build_conn(), second_key)] do
+        refused = post_json(asking, @base <> "/attempts", %{"name" => "Eleventh"})
+
+        assert %{
+                 "error" => "chatgpt_link_attempts_rate_limited",
+                 "limit" => 10,
+                 "retry_after_seconds" => seconds
+               } = json_response(refused, 429)
+
+        assert seconds in 1..3600
+        assert get_resp_header(refused, "retry-after") == [Integer.to_string(seconds)]
+      end
+
+      refute_received :device_start
+      assert Repo.aggregate(LinkAttempt, :count) == 10
     end
   end
 

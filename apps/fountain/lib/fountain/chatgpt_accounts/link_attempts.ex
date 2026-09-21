@@ -27,10 +27,21 @@ defmodule Fountain.ChatGPTAccounts.LinkAttempts do
   # Open sign-ins one account may have at once, across all of its grants.
   @pending_limit 3
 
+  # Sign-ins one account may begin in an hour, whatever became of them. The
+  # pending limit is no bound on a start that is cancelled and started again,
+  # and each one costs `auth.openai.com` a device code: the host every grant's
+  # refresh goes to, the platform's included. It is counted from the rows,
+  # under the owner's key, so it holds across API keys, nodes, deploys and
+  # callers that are not the API. `purge/0` keeps a row far longer than this.
+  @start_limit 10
+  @start_window_seconds 60 * 60
+
   @system_actor "system:chatgpt_link_attempt"
 
   def ttl_seconds, do: @ttl_seconds
   def pending_limit, do: @pending_limit
+  def start_limit, do: @start_limit
+  def start_window_seconds, do: @start_window_seconds
   def system_actor, do: @system_actor
 
   # ── start ────────────────────────────────────────────────────────────────
@@ -91,6 +102,7 @@ defmodule Fountain.ChatGPTAccounts.LinkAttempts do
 
   defp admit(user_id, target, now) do
     with :ok <- ChatGPTAccounts.eligible_owner(user_id),
+         :ok <- under_start_limit(user_id, now),
          :ok <- key_loads(user_id),
          :ok <- under_pending_limit(user_id, now) do
       admit_target(user_id, target, now)
@@ -120,6 +132,27 @@ defmodule Fountain.ChatGPTAccounts.LinkAttempts do
     with {:ok, grant} <- ChatGPTAccounts.get_for_user(grant_id, user_id),
          :ok <- no_open_reconnect(user_id, grant.grant_id, now) do
       {:ok, %{grant_id: grant.grant_id, expected_generation: grant.generation, label: grant.name}}
+    end
+  end
+
+  # Every row counts, ended ones too. `retry_after` is when the oldest of
+  # them leaves the window.
+  defp under_start_limit(user_id, now) do
+    since = DateTime.add(now, -@start_window_seconds, :second)
+
+    recent =
+      from(a in LinkAttempt,
+        where: a.user_id == ^user_id and a.inserted_at > ^since,
+        select: {count(a.id), min(a.inserted_at)}
+      )
+
+    case Repo.one(recent) do
+      {count, oldest} when count >= @start_limit ->
+        retry_after = max(DateTime.diff(oldest, since, :second), 1)
+        {:error, {:link_attempts_rate_limited, %{limit: @start_limit, retry_after: retry_after}}}
+
+      _under ->
+        :ok
     end
   end
 

@@ -271,6 +271,23 @@ defmodule FountainWeb.FallbackController do
     })
   end
 
+  # A rate, not a state: 429 with the hint `FountainWeb.Plugs.RateLimit`
+  # gives, in the header and in the body.
+  def call(
+        conn,
+        {:error, {:link_attempts_rate_limited, %{limit: limit, retry_after: retry_after}}}
+      ) do
+    conn
+    |> put_resp_header("retry-after", Integer.to_string(retry_after))
+    |> put_status(:too_many_requests)
+    |> json(%{
+      error: "chatgpt_link_attempts_rate_limited",
+      limit: limit,
+      retry_after_seconds: retry_after,
+      message: "this account has started #{limit} sign-ins in the last hour; try again later"
+    })
+  end
+
   def call(conn, {:error, {:link_attempt_not_pending, %{state: state}}}) do
     conn
     |> put_status(:conflict)

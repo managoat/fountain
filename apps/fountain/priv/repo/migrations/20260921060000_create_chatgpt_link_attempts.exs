@@ -53,6 +53,9 @@ defmodule Fountain.Repo.Migrations.CreateChatgptLinkAttempts do
 
     create index(:chatgpt_link_attempts, [:user_id, :state])
 
+    # The starts an account made in the last hour are counted on every start.
+    create index(:chatgpt_link_attempts, [:user_id, :inserted_at])
+
     create unique_index(:chatgpt_link_attempts, [:grant_id],
              where: "state = 'pending'",
              name: :chatgpt_link_attempts_open_reconnect

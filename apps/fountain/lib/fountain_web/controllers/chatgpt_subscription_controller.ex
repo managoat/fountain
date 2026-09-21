@@ -41,12 +41,6 @@ defmodule FountainWeb.ChatGPTSubscriptionController do
     replace_params: false,
     render_error: FountainWeb.Plugs.CastRenderError
 
-  # A sign-in costs the auth server a device code. The pending limit bounds
-  # how many are open; this bounds how fast one key can churn through them.
-  plug FountainWeb.Plugs.RateLimit,
-       [bucket: "chatgpt_link", max: 10, window_ms: 3_600_000, key: :api_key]
-       when action in [:create_attempt]
-
   plug :no_store when action in [:create_attempt, :index_attempts, :show_attempt, :cancel_attempt]
 
   tags(["ChatGPT subscriptions"])
@@ -159,7 +153,7 @@ defmodule FountainWeb.ChatGPTSubscriptionController do
       "`name` links a new subscription; `grant_id` reconnects one, which keeps the " <>
         "old credential serving until the new sign-in commits. The answer carries the " <>
         "code to type and the page to type it on. It expires in fifteen minutes. " <>
-        "Limited to ten an hour per API key and three open at once per account.",
+        "Limited to ten an hour and three open at once, per account.",
     request_body:
       {"What to sign in for", "application/json", Schemas.ChatGPTLinkAttemptCreateRequest},
     responses: [
@@ -173,7 +167,9 @@ defmodule FountainWeb.ChatGPTSubscriptionController do
         {"`chatgpt_grant_limit_reached`, `chatgpt_link_attempts_exceeded` or " <>
            "`chatgpt_link_attempt_pending`", "application/json", Schemas.Error},
       unprocessable_entity: {"Invalid or duplicate name", "application/json", Schemas.Error},
-      too_many_requests: {"Rate limited", "application/json", Schemas.Error},
+      too_many_requests:
+        {"`chatgpt_link_attempts_rate_limited`, with `Retry-After`", "application/json",
+         Schemas.Error},
       bad_gateway: {"`chatgpt_auth_unreachable`", "application/json", Schemas.Error},
       service_unavailable: {"`chatgpt_tenant_key_unavailable`", "application/json", Schemas.Error}
     ]

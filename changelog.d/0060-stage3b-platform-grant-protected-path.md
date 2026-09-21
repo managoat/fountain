@@ -18,7 +18,7 @@
 ### Upgrade notes
 
 - **Release gate, not yet passed: this change has not run against a real
-  codex client** (#2453). Do not merge or deploy it until
+  codex client** (#2458). Do not merge or deploy it until
   `scripts/probe-codex-protected.py` has been run against the codex-acp and
   Codex CLI the sandbox image installs and one real hosted codex turn on the
   deployment's account has succeeded, with the result recorded in ADR 0047.
@@ -30,41 +30,41 @@
   passed.
 
 - **A codex conversation on the deployment's ChatGPT account cannot open a
-  WebSocket through the broker any more, to any host** (#2453). The session
+  WebSocket through the broker any more, to any host** (#2458). The session
   is HTTP only, which is what stops a raw client in the sandbox from
   upgrading its way past the per-request check. Plain HTTP and streamed
   responses are unchanged. Codex itself is already configured without
   WebSockets on this path. Conversations on an API key are not affected.
 
 - **`chatgpt.com` is reachable from such a conversation on one route only**,
-  `POST /backend-api/codex/responses` (#2453). Anything else on that host is
+  `POST /backend-api/codex/responses` (#2458). Anything else on that host is
   refused with a 403. The route list was captured against codex-acp 1.10.0
   and Codex CLI 0.153.4. Re-run `scripts/probe-codex-protected.py` against
   the client your sandbox image installs before upgrading a deployment that
   relies on the account.
 
 - **A secret binding that matches that route now fails the provision**
-  (#2453) with `managed_destination_conflict`, where it used to be silently
+  (#2458) with `managed_destination_conflict`, where it used to be silently
   shadowed. Wildcards count: a binding for `*.com` matches. A binding or a
   secret that names `CODEX_CHATGPT_ACCESS_TOKEN` is already refused when it
   is written; a row that predates that check now fails the provision with
   `managed_credential_conflict`. Remove the binding.
 
 - **A `CODEX_HOME` of your own is ignored in a codex conversation on the
-  deployment's ChatGPT account** (#2453). Fountain sets `CODEX_HOME` for such
+  deployment's ChatGPT account** (#2458). Fountain sets `CODEX_HOME` for such
   a conversation, to the directory that holds the account's `auth.json`, and
   drops one named in the environment's variables, its secrets or a vault,
   without an error. It used to be passed through. Conversations on an API
   key keep theirs.
 
 - **Migration `20260921025746` deletes the broker sessions of codex
-  conversations on the account** (#2453), because they hold the token as a
+  conversations on the account** (#2458), because they hold the token as a
   rule. A turn on the account that is in flight across the upgrade fails at
   its next request with a 407. Every conversation mints a new session when
   its server starts on the new release, so the next turn runs.
 
 - **Expect codex turns on the deployment's account to fail until every
-  replica runs this release** (#2453). Roll quickly, or stop every replica
+  replica runs this release** (#2458). Roll quickly, or stop every replica
   and start the new release. Any replica's broker can serve any sandbox, and
   the two releases disagree about these sessions in both directions:
   - *A session from the previous release, served by this one.* The

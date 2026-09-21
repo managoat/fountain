@@ -336,18 +336,37 @@ defmodule Fountain.Conversations.CodexChatGPT do
   # interpolated. Idempotent: it runs on every provision and every reattach.
   # `sessions`, `skills` and `log` are made in the shared root first so that
   # what gets linked is the shared directory, whoever creates it first.
+  #
+  # Two conversations on one sign-in share a home and may prepare it at the
+  # same moment, so a link that is there by the time `ln` runs is what was
+  # wanted and not a failure; an `ln` that failed and left nothing still is.
+  #
+  # Everything under `/home/sprite` is writable by the agent, so the script
+  # does not trust what it finds: a home, or the directory of homes, that is
+  # a symbolic link is refused (exit 3) rather than prepared wherever it
+  # points, which could be another grant's home; and an `auth.json` that is a
+  # link is removed, so the write that follows lands in this home. A regular
+  # `auth.json` is left for that write to replace, because a peer on the
+  # same sign-in may be reading it. This narrows a same-user race and does
+  # not close it: a link planted between this script and the write wins.
   @link_script """
   set -eu
   shared=$1
   home=$2
+  if [ -L "$home" ] || [ -L "${home%/*}" ]; then
+    echo "refusing a codex home that is a symbolic link"
+    exit 3
+  fi
   mkdir -p "$shared/sessions" "$shared/skills" "$shared/log" "$home"
   chmod 700 "$home"
   for f in "$shared"/* "$shared"/.[!.]*; do
     [ -e "$f" ] || [ -L "$f" ] || continue
     n=${f##*/}
     [ "$n" = auth.json ] && continue
-    [ -e "$home/$n" ] || [ -L "$home/$n" ] || ln -s "$f" "$home/$n"
+    [ -e "$home/$n" ] || [ -L "$home/$n" ] || ln -s "$f" "$home/$n" 2>/dev/null ||
+      [ -e "$home/$n" ] || [ -L "$home/$n" ]
   done
+  if [ -L "$home/auth.json" ]; then rm -f "$home/auth.json"; fi
   """
 
   @doc false

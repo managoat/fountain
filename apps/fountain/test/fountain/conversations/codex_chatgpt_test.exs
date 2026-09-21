@@ -393,10 +393,7 @@ defmodule Fountain.Conversations.CodexChatGPTTest do
       homes = for name <- ["one", "two"], do: Path.join([tmp, ".codex-grants", name])
 
       for home <- homes, _ <- 1..2 do
-        assert {_, 0} =
-                 System.cmd("sh", ["-c", CodexChatGPT.link_script(), "sh", shared, home],
-                   stderr_to_stdout: true
-                 )
+        assert {_, 0} = link(shared, home)
       end
 
       for {home, body} <- Enum.zip(homes, ["one", "two"]) do
@@ -419,6 +416,102 @@ defmodule Fountain.Conversations.CodexChatGPTTest do
       assert File.read!(Path.join(two, "sessions/rollout.jsonl")) == "{}"
       assert File.read!(Path.join(shared, "auth.json")) == ~s({"shared":"platform"})
     end
+
+    # Two conversations on one sign-in share a home and may prepare it at
+    # once: the check and the `ln` are two steps, and the loser's `ln` meets
+    # a link the winner just made. The `ln` here is that loser, every time.
+    test "a link a peer made first is not a failure; an ln that made nothing still is" do
+      tmp = Fountain.TmpDir.mkdir!("codex-grant-race")
+      shared = Path.join(tmp, ".codex")
+      File.mkdir_p!(shared)
+      File.write!(Path.join(shared, "config.toml"), "model = \"gpt\"")
+      home = Path.join([tmp, ".codex-grants", "one"])
+
+      lost_the_race = with_ln(tmp, ~s("$real" "$@"\nexit 1))
+      assert {_, 0} = link(shared, home, lost_the_race)
+      assert File.lstat!(Path.join(home, "config.toml")).type == :symlink
+      assert File.lstat!(Path.join(home, "sessions")).type == :symlink
+
+      broken = with_ln(tmp, "exit 1")
+      other = Path.join([tmp, ".codex-grants", "two"])
+      assert {_, code} = link(shared, other, broken)
+      assert code != 0
+
+      # And really at once, against the real `ln`.
+      crowded = Path.join([tmp, ".codex-grants", "three"])
+      for n <- 1..50, do: File.write!(Path.join(shared, "file-#{n}"), "")
+
+      results =
+        1..8
+        |> Task.async_stream(fn _ -> link(shared, crowded) end, max_concurrency: 8)
+        |> Enum.map(fn {:ok, {_out, code}} -> code end)
+
+      assert results == List.duplicate(0, 8)
+      assert File.lstat!(Path.join(crowded, "file-50")).type == :symlink
+    end
+
+    # Everything under the sandbox's home is the agent's to write, so a home
+    # can be planted before Fountain prepares it.
+    test "a home that is a symbolic link is refused, and a planted auth.json link is removed" do
+      tmp = Fountain.TmpDir.mkdir!("codex-grant-planted")
+      shared = Path.join(tmp, ".codex")
+      File.mkdir_p!(shared)
+      File.write!(Path.join(shared, "config.toml"), "model = \"gpt\"")
+      root = Path.join(tmp, ".codex-grants")
+      File.mkdir_p!(root)
+
+      # Another grant's home, wearing this one's name.
+      victim = Path.join(root, "victim")
+      File.mkdir_p!(victim)
+      File.write!(Path.join(victim, "auth.json"), "victim's account")
+      home = Path.join(root, "mine")
+      File.ln_s!(victim, home)
+
+      assert {out, 3} = link(shared, home)
+      assert out =~ "symbolic link"
+      assert File.ls!(victim) == ["auth.json"]
+
+      # The directory of homes, moved somewhere else.
+      elsewhere = Path.join(tmp, "elsewhere")
+      File.mkdir_p!(elsewhere)
+      moved = Path.join(tmp, "moved-grants")
+      File.ln_s!(elsewhere, moved)
+      assert {_, 3} = link(shared, Path.join(moved, "mine"))
+      assert File.ls!(elsewhere) == []
+
+      # A real home whose auth.json points at the victim's: the link goes, so
+      # the write that follows lands here; what it pointed at is untouched.
+      File.rm!(home)
+      File.mkdir_p!(home)
+      File.ln_s!(Path.join(victim, "auth.json"), Path.join(home, "auth.json"))
+      assert {_, 0} = link(shared, home)
+      refute File.exists?(Path.join(home, "auth.json"))
+      assert {:error, :enoent} = File.lstat(Path.join(home, "auth.json"))
+      assert File.read!(Path.join(victim, "auth.json")) == "victim's account"
+
+      # A regular file is left for the write to replace: a peer may be reading it.
+      File.write!(Path.join(home, "auth.json"), "mine")
+      assert {_, 0} = link(shared, home)
+      assert File.read!(Path.join(home, "auth.json")) == "mine"
+    end
+  end
+
+  defp link(shared, home, opts \\ []) do
+    System.cmd(
+      "sh",
+      ["-c", CodexChatGPT.link_script(), "sh", shared, home],
+      [stderr_to_stdout: true] ++ opts
+    )
+  end
+
+  # An `ln` first on PATH that does what `body` says, given the real one.
+  defp with_ln(tmp, body) do
+    bin = Path.join(tmp, "bin")
+    File.mkdir_p!(bin)
+    real = System.find_executable("ln")
+    File.write!(Path.join(bin, "ln"), "#!/bin/sh\nreal=#{real}\n#{body}\n")
+    File.chmod!(Path.join(bin, "ln"), 0o755)
+    [env: [{"PATH", bin <> ":" <> System.get_env("PATH")}]]
   end
 
   defp prepare(runtime, sprite_env),

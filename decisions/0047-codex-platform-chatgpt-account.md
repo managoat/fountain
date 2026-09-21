@@ -39,6 +39,17 @@ every request, where decisions 4 and 5 below describe a shared
 rotation. Decisions 4 and 5 still describe the deployment's grant exactly:
 it is not on the new path, and nothing here changed for it.
 
+**[0060](0060-many-user-chatgpt-subscriptions.md) stage 5 (2026-09-21)
+amends decision 6 as amended by #2362, for a user's own subscription
+only**: a user's grant whose usage OpenAI confirms is spent is recorded the
+same way, by the same check, and is then refused by name until the reset
+time. It does not fall back to the platform API key or to anything else.
+The deployment's grant still does exactly what the amendment above says.
+Stage 5 also adds a daily keepalive for users' grants on the interval of
+decision 3, which stays provisional on measurement 5 below, and the
+deployment grant's throttled refresh now counts as one owner's evidence for
+that keepalive's breaker; its own renewals never wait on it.
+
 Amends [0038](0038-onboarding-first-reply.md) decision 3 (platform inference
 keys) with a second kind of platform credential, and
 [0019](0019-egress-credential-brokerage.md) gate 3 (brokered inference

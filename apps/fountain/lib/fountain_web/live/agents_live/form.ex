@@ -26,7 +26,14 @@ defmodule FountainWeb.AgentsLive.Form do
          runtime: agent.runtime
        )
      )
-     |> assign(:grant_problem, grant_problem(user_id, agent_to_form(agent), agent.environment_id))
+     |> assign(
+       :grant_problem,
+       # Asked once per page and not once per render of it: the answer is a
+       # resolution, under the owner's source lock (see `grant_problem/3`).
+       if(connected?(socket),
+         do: grant_problem(user_id, agent_to_form(agent), agent.environment_id)
+       )
+     )
      |> assign(:credential_message, nil)
      |> assign(:credential_sets, InferenceCredentials.list_sets(user_id))
      |> assign(:envs, envs)
@@ -250,6 +257,23 @@ defmodule FountainWeb.AgentsLive.Form do
     end
   end
 
+  # `named_grant_problem/4` is `resolve/4`: the owner's source lock, the tenant
+  # key, the set and every environment secret decrypted, and the same lock a
+  # turn of theirs is admitted under. Not on every keystroke: only when one of
+  # the four fields the answer depends on is not what it was.
+  @grant_problem_fields ~w(model runtime inference_credential_id environment_id)
+
+  defp grant_problem_after(socket, params) do
+    was = socket.assigns.form
+
+    if Enum.all?(@grant_problem_fields, &(blank_as_nil(was[&1]) == blank_as_nil(params[&1]))),
+      do: socket.assigns.grant_problem,
+      else: grant_problem(socket.assigns.user_id, params, params["environment_id"])
+  end
+
+  defp blank_as_nil(value) when value in [nil, ""], do: nil
+  defp blank_as_nil(value), do: value
+
   defp selected_credential_id(form) do
     case form["inference_credential_id"] do
       id when id in [nil, ""] -> nil
@@ -281,10 +305,7 @@ defmodule FountainWeb.AgentsLive.Form do
          else: nil
        )
      )
-     |> assign(
-       :grant_problem,
-       grant_problem(socket.assigns.user_id, params, params["environment_id"])
-     )}
+     |> assign(:grant_problem, grant_problem_after(socket, params))}
   end
 
   # The model needs a provider this account has no credential for: collect

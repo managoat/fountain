@@ -59,6 +59,19 @@ defmodule FountainWeb.ChatGPTGrantProblemLiveTest do
       refute html =~ "no inference credential yet"
     end
 
+    test "says so for an account that may not use a subscription, which the turn would refuse",
+         %{conn: conn, user: user} do
+      user
+      |> Ecto.Changeset.change(suspended_at: DateTime.utc_now() |> DateTime.truncate(:second))
+      |> Fountain.Repo.update!()
+
+      {:ok, view, _html} = live(conn, ~p"/start")
+      banner = view |> element("#start-grant-problem") |> render()
+
+      assert banner =~ "cannot be used by this account right now"
+      assert banner =~ "Until that changes, the request below is refused."
+    end
+
     test "says so on a deployment with no broker", %{conn: conn} do
       disable_broker()
       {:ok, view, _html} = live(conn, ~p"/start")
@@ -105,6 +118,32 @@ defmodule FountainWeb.ChatGPTGrantProblemLiveTest do
       |> render_change(%{"agent" => %{"runtime" => "codex", "model" => @codex_model}})
 
       assert has_element?(view, "#agent-grant-problem")
+    end
+
+    test "the answer is resolved again when what it depends on changes, not on every keystroke",
+         %{conn: conn, user: user, grant: grant, agent: agent} do
+      :ok = ChatGPTAccounts.disconnect_for_user(grant.grant_id, user.id)
+      {:ok, view, _html} = live(conn, ~p"/agents/#{agent.id}/edit")
+      assert has_element?(view, "#agent-grant-problem")
+
+      # The subscription comes back while the form is open. Typing a name is
+      # not a reason to resolve again, under the lock a turn is admitted under.
+      {:ok, _} =
+        ChatGPTAccounts.reconnect_for_user(grant.grant_id, user.id, user_tokens("acct-work"))
+
+      view |> element("#agent-form") |> render_change(%{"agent" => %{"name" => "Typing"}})
+      assert has_element?(view, "#agent-grant-problem")
+
+      # The runtime is: away and back asks again, and the answer is the new one.
+      view
+      |> element("#agent-form")
+      |> render_change(%{"agent" => %{"runtime" => "opencode", "model" => "openai/gpt-5"}})
+
+      view
+      |> element("#agent-form")
+      |> render_change(%{"agent" => %{"runtime" => "codex", "model" => @codex_model}})
+
+      refute has_element?(view, "#agent-grant-problem")
     end
 
     test "on a deployment with no broker it says that, and asks for no key", %{

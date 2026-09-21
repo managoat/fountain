@@ -150,6 +150,18 @@ defmodule FountainWeb.StartLive do
       {:error, {:chatgpt_grant_unusable, %{} = detail}} ->
         {:grant, InferenceCredentials.grant_unusable_message(detail)}
 
+      # A grant that resolves is still refused at the turn for an owner who
+      # may not use one, which resolution does not ask. A second, short
+      # resolution, and only for an agent that runs on a subscription.
+      {:ok, %InferenceCredentials.Source{scope: :grant}, _} ->
+        case InferenceCredentials.named_grant_problem(user_id, agent.model, agent.runtime,
+               credential_set_id: agent.inference_credential_id,
+               environment_id: agent.environment_id
+             ) do
+          nil -> nil
+          detail -> {:grant, InferenceCredentials.grant_unusable_message(detail)}
+        end
+
       # A tenant key that will not load, a set that is gone: bigger problems
       # than this banner, and not this page's to report.
       _ ->
@@ -266,7 +278,7 @@ defmodule FountainWeb.StartLive do
           Your agent's ChatGPT subscription cannot serve a run right now
         </p>
         <p class="mt-1 text-sm">
-          {@grant_problem} The request below would be refused until then.
+          {@grant_problem} Until that changes, the request below is refused.
         </p>
       </.link>
 

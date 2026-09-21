@@ -15,8 +15,7 @@ defmodule Fountain.PlatformChatGPT.Account do
   linked twice would be two refresh chains OpenAI cannot tell apart.
   `platform_chatgpt_account_id_user_id_index` is there to be referenced: a
   row naming a grant names its owner with it. The platform row's name is NULL, and `chatgpt_grant_name_follows_owner` holds
-  both halves of that in the database. No application writer for an owned
-  row exists yet.
+  both halves of that in the database.
 
   `kind` says what the row holds: `"chatgpt"` is a ChatGPT sign-in with a
   rotating refresh token managed server-side by `Fountain.ChatGPTAccounts`;
@@ -24,15 +23,29 @@ defmodule Fountain.PlatformChatGPT.Account do
   refresh token, which lapses on its admin-set expiry. An owned row is
   always `"chatgpt"`.
 
-  Reconnect changes `generation`. Normal refresh retains the generation and
-  increments `lock_version`, as do terminal lifecycle writes. These fields
-  fence stale writes; broker authorization is not yet generation-aware.
+  `status` is `"active"`, `"revoked"` (the auth server refused the refresh
+  token), `"expired"` (a workspace token lapsed) or, for an owned row only,
+  `"disconnected"`: the user disconnected it and the row is a tombstone. A
+  tombstone holds no token (`chatgpt_grant_tokens_follow_status` says so in
+  the database) and keeps its id, name and upstream `account_id`, so
+  whatever named the grant still names it and can say which subscription is
+  gone, and the same account comes back by reconnecting this row rather than
+  by a second link. It is deleted only by an explicit removal. The platform
+  grant has no tombstone: disconnecting it deletes the row.
+
+  Reconnect and disconnect change `generation`. Normal refresh retains the
+  generation and increments `lock_version`, as do terminal lifecycle writes.
+  These fields fence stale writes; broker authorization is not yet
+  generation-aware.
 
   `connect_changeset/2` starts a lifecycle: a fresh grant, or a reconnect
   over an existing row. `user_connect_changeset/2` and
   `user_reconnect_changeset/2` are the same write for an owned row, with the
   rules only an owned row has; the first also takes the name, the second
-  keeps it. `rename_changeset/2` changes the name and nothing else: not `generation`, because a label is not a credential
+  keeps it. `disconnect_changeset/1` ends one: it drops both tokens and the
+  stored claims, advances `generation` and `lock_version` so an in-flight
+  refresh's fenced write finds nothing, and keeps the name and the account.
+  `rename_changeset/2` changes the name and nothing else: not `generation`, because a label is not a credential
   change, and not `lock_version`, because an in-flight refresh is fenced on
   it and losing that fence would discard a refresh token OpenAI has already
   rotated. Refresh, revocation and expiry are fenced `update_all` statements
@@ -50,8 +63,9 @@ defmodule Fountain.PlatformChatGPT.Account do
   the token is still good, and the grant is skipped for new selections only
   until the reset passes. Nothing writes them for an owned row.
 
-  There is no plaintext column. The application writers are the admin
-  surface and the platform refresher.
+  There is no plaintext column. The application writers are
+  `Fountain.ChatGPTAccounts`'s admin mutations and refresh path, and its
+  `*_for_user` writes, which nothing in production calls yet (ADR 0060).
   """
 
   use Ecto.Schema
@@ -61,7 +75,7 @@ defmodule Fountain.PlatformChatGPT.Account do
   @foreign_key_type :binary_id
 
   @kinds ~w(chatgpt workspace_token)
-  @statuses ~w(active revoked expired)
+  @statuses ~w(active revoked expired disconnected)
 
   @type t :: %__MODULE__{}
   schema "platform_chatgpt_account" do
@@ -144,6 +158,27 @@ defmodule Fountain.PlatformChatGPT.Account do
     account
     |> connect_changeset(attrs)
     |> owned_rules()
+  end
+
+  @doc """
+  The tombstone of a user's grant. Under the row lock its caller holds, so
+  the optimistic lock is there to advance `lock_version`, not to detect a
+  race, as in `connect_changeset/2`.
+  """
+  def disconnect_changeset(%__MODULE__{user_id: user_id, __meta__: %{state: :loaded}} = account)
+      when is_binary(user_id) do
+    account
+    |> change(%{
+      status: "disconnected",
+      revoked_reason: nil,
+      access_token_ciphertext: nil,
+      refresh_token_ciphertext: nil,
+      id_claims: %{},
+      access_expires_at: nil,
+      generation: Ecto.UUID.generate()
+    })
+    |> optimistic_lock(:lock_version)
+    |> check_constraint(:status, name: :chatgpt_grant_tokens_follow_status)
   end
 
   @doc """

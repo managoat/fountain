@@ -152,7 +152,10 @@ defmodule Fountain.ChatGPTUserRefreshIsolationTest do
     end
   end
 
-  for mutation <- [:disconnect, :reconnect, :suspend], response <- [:success, :terminal] do
+  # `:delete` and `:raw_reconnect` go around the context on purpose: the
+  # fence holds whoever wrote the row.
+  for mutation <- [:disconnect, :reconnect, :delete, :raw_reconnect, :suspend],
+      response <- [:success, :terminal] do
     test "#{mutation} commits while an independent user #{response} response is pending", ctx do
       user = hd(ctx.users)
       account = user_grant!(user.id)
@@ -179,17 +182,13 @@ defmodule Fountain.ChatGPTUserRefreshIsolationTest do
         assert_receive :refreshing, 2_000
         mutate(unquote(mutation), user, account)
         send(holder.pid, :release)
-        expected = if unquote(mutation) == :reconnect, do: :stale_grant, else: :not_connected
+        # A disconnect keeps the row and advances its generation, like a reconnect.
+        expected =
+          if unquote(mutation) in [:delete, :suspend], do: :not_connected, else: :stale_grant
+
         assert {:error, ^expected} = Task.await(holder)
 
-        case Repo.get(Account, account.id) do
-          nil ->
-            :ok
-
-          current ->
-            assert current.status == "active"
-            assert current.refresh_token_ciphertext == account.refresh_token_ciphertext
-        end
+        assert_unwritten(unquote(mutation), account, Repo.get(Account, account.id))
 
         refute Repo.exists?(
                  from(e in Event,
@@ -228,9 +227,43 @@ defmodule Fountain.ChatGPTUserRefreshIsolationTest do
     assert Repo.get!(Account, account.id).status == "revoked"
   end
 
-  defp mutate(:disconnect, _user, account), do: Repo.delete!(account)
+  # What the late response must not have written, per mutation.
+  defp assert_unwritten(:delete, _account, nil), do: :ok
 
-  defp mutate(:reconnect, _user, account),
+  # The tombstone still holds no token.
+  defp assert_unwritten(:disconnect, account, current) do
+    assert current.status == "disconnected"
+    assert current.access_token_ciphertext == nil
+    assert current.refresh_token_ciphertext == nil
+    assert current.lock_version == account.lock_version + 1
+  end
+
+  defp assert_unwritten(:reconnect, account, current) do
+    assert current.status == "active"
+    assert current.lock_version == account.lock_version + 1
+    assert {:ok, "rt_reconnected"} = Cipher.decrypt_token(current, :refresh_token)
+  end
+
+  defp assert_unwritten(_mutation, account, current) do
+    assert current.status == "active"
+    assert current.refresh_token_ciphertext == account.refresh_token_ciphertext
+  end
+
+  defp mutate(:disconnect, user, account),
+    do: :ok = ChatGPTAccounts.disconnect_for_user(account.id, user.id)
+
+  defp mutate(:reconnect, user, account) do
+    {:ok, _} =
+      ChatGPTAccounts.reconnect_for_user(account.id, user.id, %{
+        access_token: access_token(7_200),
+        refresh_token: "rt_reconnected",
+        id_token: id_token(%{account_id: account.account_id})
+      })
+  end
+
+  defp mutate(:delete, _user, account), do: Repo.delete!(account)
+
+  defp mutate(:raw_reconnect, _user, account),
     do: account |> Account.connect_changeset(%{}) |> Repo.update!()
 
   defp mutate(:suspend, user, _account),

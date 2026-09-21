@@ -158,6 +158,11 @@ config :fountain,
   sandbox_queue_max_depth: 10,
   sandbox_queue_max_wait_seconds: 3600
 
+# How many ChatGPT subscriptions one account may link (ADR 0060 decision 1).
+# It stops a runaway client; it does not price anything. Nothing links one
+# yet, so there is no environment variable for it yet either.
+config :fountain, :chatgpt_grant_ceiling, 5
+
 # Prepaid credits (ADR 0030). Cents. `turn_hour_cents` is the customer price
 # of one hour of turn time. runtime.exs overrides from CREDIT_*.
 config :fountain, :credits,

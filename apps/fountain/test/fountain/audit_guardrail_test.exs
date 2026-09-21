@@ -97,6 +97,12 @@ defmodule Fountain.AuditGuardrailTest do
     {"credential set delete", &__MODULE__.do_set_delete/1, "inference_credential_set.deleted"},
     {"credential set default", &__MODULE__.do_set_default/1,
      "inference_credential_set.default_changed"},
+    # A user's ChatGPT grants (ADR 0060 stage 1). No surface calls these yet;
+    # the entries are here so the first one that does inherits the events.
+    {"chatgpt grant link", &__MODULE__.do_grant_link/1, "chatgpt_grant.connected"},
+    {"chatgpt grant rename", &__MODULE__.do_grant_rename/1, "chatgpt_grant.renamed"},
+    {"chatgpt grant disconnect", &__MODULE__.do_grant_disconnect/1, "chatgpt_grant.disconnected"},
+    {"chatgpt grant remove", &__MODULE__.do_grant_remove/1, "chatgpt_grant.removed"},
     {"conversation delete", &__MODULE__.do_conv_delete/1, "conversation.deleted"},
     # The lifecycle verbs (#2209). These were recorded by a private GenServer
     # client function until the client halves moved to
@@ -305,6 +311,11 @@ defmodule Fountain.AuditGuardrailTest do
           {Vaults, :update_vault, 3},
           {Vaults, :delete_vault, 2},
           {InferenceCredentials, :put_credential, 5},
+          {Fountain.ChatGPTAccounts, :connect_for_user, 4},
+          {Fountain.ChatGPTAccounts, :reconnect_for_user, 4},
+          {Fountain.ChatGPTAccounts, :rename_for_user, 4},
+          {Fountain.ChatGPTAccounts, :disconnect_for_user, 3},
+          {Fountain.ChatGPTAccounts, :remove_for_user, 3},
           {Launch, :start_conversation, 2},
           {Lifecycle, :fence_sandbox_for_teardown, 2},
           {Fountain.Accounts.Deletion, :destroy_sprites, 2},
@@ -523,6 +534,33 @@ defmodule Fountain.AuditGuardrailTest do
   def do_cred_clear(user) do
     {:ok, dek} = Fountain.Crypto.load_tenant_key(user.id)
     {:ok, _} = InferenceCredentials.put_credential(user.id, dek, :anthropic_api_key, nil)
+  end
+
+  def do_grant_link(user) do
+    {:ok, grant} =
+      Fountain.ChatGPTAccounts.connect_for_user(user.id, "guard", %{
+        access_token: Fountain.ChatGPTFixtures.access_token(),
+        refresh_token: "rt_guard",
+        id_token: Fountain.ChatGPTFixtures.id_token(%{account_id: "acct-guard"})
+      })
+
+    grant
+  end
+
+  def do_grant_rename(user) do
+    grant = do_grant_link(user)
+    {:ok, _} = Fountain.ChatGPTAccounts.rename_for_user(grant.grant_id, user.id, "guard-after")
+  end
+
+  def do_grant_disconnect(user) do
+    grant = do_grant_link(user)
+    :ok = Fountain.ChatGPTAccounts.disconnect_for_user(grant.grant_id, user.id)
+    grant
+  end
+
+  def do_grant_remove(user) do
+    grant = do_grant_disconnect(user)
+    :ok = Fountain.ChatGPTAccounts.remove_for_user(grant.grant_id, user.id)
   end
 
   def do_set_create(user) do

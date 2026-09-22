@@ -18,6 +18,14 @@ Two decisions, settled on #2290:
   branch is not itself a contribution, so this walks
   `git rev-list --no-merges base..head`.
 
+Dependabot's own commits are exempt, but only on a PR Dependabot opened.
+Dependabot writes the trailer only while the repository requires sign-off
+on web-based commits, and that setting is off, so every Dependabot PR
+failed this gate. A dependency bump from a bot is no one's contribution
+to certify. The PR's author comes from the GitHub event, which a pusher
+cannot set, so a human PR whose commits claim Dependabot's identity is
+still judged, as is a human commit pushed onto a Dependabot branch.
+
 "Presence" means a real trailer, not a string match on the whole message:
 this parses only the message's trailing trailer block with
 `git interpret-trailers --parse`, the same algorithm `git commit -s`
@@ -30,11 +38,11 @@ were caught in review of the first version of this script.
 
 Run from the repository root:
 
-    python3 scripts/ci/dco.py --base <base-sha> --head <head-sha>
+    python3 scripts/ci/dco.py --base <base-sha> --head <head-sha> [--pr-author <login>]
 
 `--base` and `--head` fall back to the `PR_BASE_SHA` and `HEAD` environment
-variables, so `workflow-checks` in `.github/workflows/ci.yml` passes them
-explicitly and nothing else needs to. Tested by scripts/ci/test_dco.py,
+variables, and `--pr-author` to `PR_AUTHOR`, so `workflow-checks` in
+`.github/workflows/ci.yml` passes them explicitly and nothing else needs to. Tested by scripts/ci/test_dco.py,
 which CI's `workflow-checks` job runs.
 """
 
@@ -44,6 +52,11 @@ import argparse
 import os
 import subprocess
 import sys
+
+# GitHub's identity for the Dependabot app, and the author email it commits
+# under. The numeric prefix is the app's user id, which does not change.
+DEPENDABOT_LOGIN = "dependabot[bot]"
+DEPENDABOT_EMAIL = "49699333+dependabot[bot]@users.noreply.github.com"
 
 
 def commits(root: str, base: str, head: str) -> list[str]:
@@ -65,6 +78,14 @@ def message(root: str, sha: str) -> str:
 def subject(root: str, sha: str) -> str:
     result = subprocess.run(
         ["git", "log", "-1", "--format=%s", sha],
+        cwd=root, capture_output=True, text=True, check=True,
+    )
+    return result.stdout.strip()
+
+
+def author_email(root: str, sha: str) -> str:
+    result = subprocess.run(
+        ["git", "log", "-1", "--format=%ae", sha],
         cwd=root, capture_output=True, text=True, check=True,
     )
     return result.stdout.strip()
@@ -93,9 +114,15 @@ def has_signoff(root: str, sha: str) -> bool:
     return False
 
 
-def unsigned_commits(root: str, base: str, head: str) -> tuple[list[str], list[str]]:
-    """Return (every non-merge commit, the ones missing a sign-off trailer)."""
-    shas = commits(root, base, head)
+def exempt(root: str, sha: str, pr_author: str | None) -> bool:
+    return pr_author == DEPENDABOT_LOGIN and author_email(root, sha) == DEPENDABOT_EMAIL
+
+
+def unsigned_commits(
+    root: str, base: str, head: str, pr_author: str | None = None
+) -> tuple[list[str], list[str]]:
+    """Return (every judged non-merge commit, the ones missing a sign-off trailer)."""
+    shas = [sha for sha in commits(root, base, head) if not exempt(root, sha, pr_author)]
     missing = [sha for sha in shas if not has_signoff(root, sha)]
     return shas, missing
 
@@ -107,12 +134,14 @@ def main(argv: list[str] | None = None) -> int:
                          help="the PR's base commit (default: $PR_BASE_SHA)")
     parser.add_argument("--head", default=os.environ.get("HEAD", "HEAD"),
                          help="the PR's head commit (default: $HEAD, else HEAD)")
+    parser.add_argument("--pr-author", default=os.environ.get("PR_AUTHOR"),
+                         help="the login that opened the PR (default: $PR_AUTHOR)")
     args = parser.parse_args(argv)
 
     if not args.base:
         parser.error("--base is required (or set PR_BASE_SHA)")
 
-    shas, missing = unsigned_commits(args.root, args.base, args.head)
+    shas, missing = unsigned_commits(args.root, args.base, args.head, args.pr_author)
     if missing:
         print(
             "commit(s) missing a Signed-off-by: trailer "

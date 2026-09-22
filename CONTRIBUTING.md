@@ -93,7 +93,8 @@ for `git commit`; use `-s`, or install a `commit-msg` hook.
 
 CI's `workflow-checks` job (`scripts/ci/dco.py`) refuses a PR with a commit
 missing the trailer. Fix it with `git commit --amend -s` for the last commit,
-or `git rebase --signoff <base>` for several.
+or `git rebase --signoff <base>` for several. Dependabot's own commits on a PR
+Dependabot opened are exempt; a commit you push onto that PR is not.
 
 ## Before you push
 

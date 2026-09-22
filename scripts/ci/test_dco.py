@@ -29,7 +29,7 @@ class Fixture(unittest.TestCase):
                               capture_output=True, text=True)
 
     def commit(self, name: str, text: str, *, signoff: bool, trailer: str | None = None,
-               cleanup: str | None = None):
+               cleanup: str | None = None, author: str | None = None):
         path = self.root / name
         path.write_text(text)
         self.git("add", "--", name)
@@ -41,15 +41,17 @@ class Fixture(unittest.TestCase):
         args = ["commit", "--quiet"]
         if cleanup:
             args.append(f"--cleanup={cleanup}")
+        if author:
+            args.append(f"--author={author}")
         args += ["-m", message]
         self.git(*args)
         return self.git("rev-parse", "HEAD").stdout.strip()
 
-    def run_script(self, base: str, head: str = "HEAD"):
-        return subprocess.run(
-            [sys.executable, str(SCRIPT), "--root", str(self.root), "--base", base, "--head", head],
-            capture_output=True, text=True,
-        )
+    def run_script(self, base: str, head: str = "HEAD", pr_author: str | None = None):
+        args = [sys.executable, str(SCRIPT), "--root", str(self.root), "--base", base, "--head", head]
+        if pr_author:
+            args += ["--pr-author", pr_author]
+        return subprocess.run(args, capture_output=True, text=True)
 
 
 class DcoTest(Fixture):
@@ -114,6 +116,33 @@ class DcoTest(Fixture):
         result = self.run_script(self.base)
         self.assertEqual(result.returncode, 1)
         self.assertIn(sha[:7], result.stderr)
+
+
+DEPENDABOT = "dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>"
+
+
+class DependabotTest(Fixture):
+    def test_dependabot_commit_on_a_dependabot_pr_is_exempt(self):
+        self.commit("a.txt", "a\n", signoff=False, author=DEPENDABOT)
+        result = self.run_script(self.base, pr_author="dependabot[bot]")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("0 commits judged", result.stdout)
+
+    def test_a_human_commit_on_a_dependabot_pr_is_still_judged(self):
+        self.commit("a.txt", "a\n", signoff=False, author=DEPENDABOT)
+        sha = self.commit("b.txt", "b\n", signoff=False)
+        result = self.run_script(self.base, pr_author="dependabot[bot]")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn(sha[:7], result.stderr)
+
+    def test_a_dependabot_author_on_a_human_pr_is_still_judged(self):
+        # The commit author is whatever the pusher typed; only the PR's
+        # author, from the GitHub event, grants the exemption.
+        sha = self.commit("a.txt", "a\n", signoff=False, author=DEPENDABOT)
+        for pr_author in (None, "someone"):
+            result = self.run_script(self.base, pr_author=pr_author)
+            self.assertEqual(result.returncode, 1, pr_author)
+            self.assertIn(sha[:7], result.stderr)
 
 
 if __name__ == "__main__":

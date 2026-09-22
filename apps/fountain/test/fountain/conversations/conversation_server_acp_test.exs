@@ -1275,6 +1275,169 @@ defmodule Fountain.Conversations.ConversationServerACPTest do
     end
   end
 
+  describe "Codex that cannot open its locked SQLite state (#1910)" do
+    setup do
+      user = insert_verified_user()
+      conv = insert_conversation(agent: acp_agent(user), user_id: user.id)
+      stub_happy_sprite()
+      _ = stub_acp_transport()
+      test = self()
+
+      Mimic.stub(Managoat.Sandbox.Sprites, :spawn, fn _h, cmd, args, _opts ->
+        command_ref = make_ref()
+        send(test, {:spawned_ref, command_ref, cmd, args})
+        {:ok, %Managoat.Sandbox.Command{provider: :sprites, ref: command_ref}}
+      end)
+
+      Mimic.stub(Managoat.Sandbox.Sprites, :stop_command, fn command ->
+        send(test, {:stopped, command.ref})
+        :ok
+      end)
+
+      {pid, _mon, :alive} = start_server(conv, initial_prompt: "first")
+      on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
+      assert_receive {:spawned_ref, first, "env", [_tag | adapter]}, 1_000
+      {:ok, conv: conv, pid: pid, first: first, adapter: adapter}
+    end
+
+    @locked "Codex process has exited with code 1:\nError: failed to initialize sqlite " <>
+              "state runtime under /home/sprite/.codex: failed to initialize state runtime " <>
+              "at /home/sprite/.codex"
+
+    defp fail_initialize(pid, ref, message) do
+      %{"id" => init_id, "method" => "initialize"} = next_write()
+      reply_error(pid, ref, init_id, %{"code" => 1001, "message" => message})
+    end
+
+    defp relaunches(conv_id) do
+      conv_id
+      |> Conversations._unsafe_list_log_events()
+      |> Enum.filter(&(&1.kind == "stage" and &1.stage == "session"))
+      |> Enum.map(&Jason.decode!(&1.data))
+      |> Enum.filter(&(&1["reason"] == "runtime_state_locked"))
+    end
+
+    test "the adapter is closed and launched again after a pause in the sandbox", %{
+      conv: conv,
+      pid: pid,
+      first: first,
+      adapter: adapter
+    } do
+      fail_initialize(pid, first, @locked)
+
+      assert_receive {:stopped, ^first}, 1_000
+      assert_receive {:spawned_ref, second, "env", [tag, "sh", "-c", script | rest]}, 1_000
+      assert tag == "FOUNTAIN_CONVERSATION_ID=#{conv.id}"
+      assert script == ~S(sleep "$1"; shift; exec "$@")
+      assert ["fountain-relaunch", seconds | ^adapter] = rest
+      assert String.to_integer(seconds) in 2..4
+
+      prompt_id = drive_to_prompt(pid, second)
+      reply(pid, second, prompt_id, %{"stopReason" => "end_turn"})
+
+      assert [%{status: "completed"}] = Conversations._unsafe_list_turns(conv.id)
+      # One turn, announced once and ended once.
+      assert turn_stage_states(conv.id) == ["started", "done"]
+      assert [%{"event" => "restarted", "attempt" => 1}] = relaunches(conv.id)
+    end
+
+    test "a stale report from the closed adapter does not touch the relaunched one", %{
+      pid: pid,
+      first: first
+    } do
+      fail_initialize(pid, first, @locked)
+      assert_receive {:spawned_ref, second, "env", _}, 1_000
+
+      send(pid, {:exit, %{ref: first}, 1})
+      _ = :sys.get_state(pid)
+
+      state = :sys.get_state(pid)
+      assert state.current_command_ref == second
+      refute is_nil(state.current_turn)
+    end
+
+    test "the fourth failure in a row fails the turn with the error", %{
+      conv: conv,
+      pid: pid,
+      first: first
+    } do
+      fail_initialize(pid, first, @locked)
+
+      last =
+        Enum.reduce(1..3, first, fn _, _previous ->
+          assert_receive {:spawned_ref, next, "env", [_, "sh" | _]}, 1_000
+          fail_initialize(pid, next, @locked)
+          next
+        end)
+
+      refute_receive {:spawned_ref, _, _, _}, 100
+      assert_receive {:stopped, ^last}, 1_000
+      assert [%{status: "failed"}] = Conversations._unsafe_list_turns(conv.id)
+      # Announced once and ended once, as a failed report always ends it.
+      assert turn_stage_states(conv.id) == ["started", "failed"]
+      assert Enum.map(relaunches(conv.id), & &1["attempt"]) == [1, 2, 3]
+      assert Conversations._unsafe_get_conversation!(conv.id).status == "idle"
+    end
+
+    test "another initialize error fails the turn as before", %{
+      conv: conv,
+      pid: pid,
+      first: first
+    } do
+      fail_initialize(pid, first, "Codex process has exited with code 1:\nError: boom")
+
+      refute_receive {:spawned_ref, _, _, _}, 100
+      assert [%{status: "failed"}] = Conversations._unsafe_list_turns(conv.id)
+      assert relaunches(conv.id) == []
+    end
+
+    test "a turn fenced before the relaunch fails as the report always did", %{
+      conv: conv,
+      pid: pid,
+      first: first
+    } do
+      stub(Fountain.Conversations, :_unsafe_set_turn_session, fn _turn, _id, _opts ->
+        {:ok, %{applied: false}}
+      end)
+
+      fail_initialize(pid, first, @locked)
+
+      refute_receive {:spawned_ref, _, _, _}, 100
+      assert [%{status: "failed"}] = Conversations._unsafe_list_turns(conv.id)
+      assert relaunches(conv.id) == []
+      assert is_nil(:sys.get_state(pid).current_turn)
+    end
+
+    test "a relaunch that cannot start fails the turn", %{conv: conv, pid: pid, first: first} do
+      Mimic.stub(Managoat.Sandbox.Sprites, :spawn, fn _h, _cmd, _args, _opts ->
+        {:error, {:unavailable, :gone}}
+      end)
+
+      fail_initialize(pid, first, @locked)
+
+      assert [%{status: "failed"}] = Conversations._unsafe_list_turns(conv.id)
+      # Announced once and ended once, as a failed report always ends it.
+      assert turn_stage_states(conv.id) == ["started", "failed"]
+      state = :sys.get_state(pid)
+      assert is_nil(state.current_turn)
+      assert is_nil(state.current_command_ref)
+    end
+
+    test "an interrupt during the pause stops the relaunched adapter", %{
+      conv: conv,
+      pid: pid,
+      first: first
+    } do
+      fail_initialize(pid, first, @locked)
+      assert_receive {:spawned_ref, second, "env", _}, 1_000
+
+      assert :ok = GenServer.call(pid, :interrupt)
+
+      assert_receive {:stopped, ^second}, 1_000
+      assert [%{status: "interrupted"}] = Conversations._unsafe_list_turns(conv.id)
+    end
+  end
+
   describe "org-disallowed oauth (#655)" do
     setup do
       user = insert_verified_user()

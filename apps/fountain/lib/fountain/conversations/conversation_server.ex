@@ -1172,10 +1172,10 @@ defmodule Fountain.Conversations.ConversationServer do
   end
 
   # Every other report is the turn state machine's (#1374): one call, then
-  # the effects it hands back, applied in order.
-  defp handle_execution_info({:acp, ref, payload}, %{current_command_ref: ref} = state) do
-    {:noreply, drive_turn(state, payload)}
-  end
+  # the effects it hands back, applied in order. Codex's locked SQLite state
+  # relaunches instead (#1910, `TurnLaunch.relaunch_contended/3`).
+  defp handle_execution_info({:acp, ref, payload}, %{current_command_ref: ref} = state),
+    do: {:noreply, TurnLaunch.relaunch_contended(state, payload, &drive_turn/2)}
 
   # A report from a superseded turn's peer. The turn it belonged to is already
   # over; acting on it would end the *current* one.

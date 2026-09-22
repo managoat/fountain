@@ -15,9 +15,11 @@ defmodule Fountain.Conversations.TurnLaunch do
   Nothing here is bounded-turn specific. `run_turn/6` decides whether a turn is
   bounded and which transport it gets; by the time this runs that is settled.
 
-  `relaunch_crashed/3` is the one exception, and says why at its definition: an
-  unbounded adapter that a native crash killed before it wrote a byte is
-  launched once more under the same turn (#2402).
+  `relaunch_crashed/3` and `relaunch_contended/3` are the exceptions, and say
+  why at their definitions: an unbounded adapter that a native crash killed
+  before it wrote a byte is launched once more under the same turn (#2402),
+  and one whose Codex could not open its SQLite state is launched again after
+  a pause (#1910).
   """
   require Logger
   require OpenTelemetry.Tracer
@@ -29,7 +31,15 @@ defmodule Fountain.Conversations.TurnLaunch do
   def run(state, conv, turn, prompt, agent, images, fail_before_start) do
     case TurnMachine.session_plan(turn, state.runtime_session_id) do
       {:ok, plan} ->
-        spec = %{conv: conv, agent: agent, prompt: prompt, images: images, relaunched?: false}
+        spec = %{
+          conv: conv,
+          agent: agent,
+          prompt: prompt,
+          images: images,
+          relaunched?: false,
+          contended: 0
+        }
+
         launch(state, turn, spec, fail_before_start, plan)
 
       {:error, _} ->
@@ -71,6 +81,7 @@ defmodule Fountain.Conversations.TurnLaunch do
     # Tag the detachable session with this conversation, on its own command
     # line, so a reattach after a deploy can tell it from another
     # conversation's process on the same machine (ADR 0023 gate 1).
+    {cmd, args} = delayed(cmd, args, Map.get(spec, :start_delay))
     {cmd, args} = Fountain.Conversations.Identity.tag_command(state.conversation_id, cmd, args)
 
     # Stamped before the spawn so the duration covers the round trip to
@@ -306,6 +317,142 @@ defmodule Fountain.Conversations.TurnLaunch do
     state = %{state | current_command: nil, current_command_ref: nil}
     {:noreply, launch(state, turn, spec, cannot_start, plan)}
   end
+
+  # The error Codex's app-server exits with, on `initialize`, when it cannot
+  # open its SQLite state (#1910). In production that was `database is locked`
+  # (SQLITE_BUSY): the app-server waits five seconds for the lock at startup,
+  # and a `CODEX_HOME` shared by every Codex conversation on the machine (or on
+  # one ChatGPT sign-in) can keep it busier than that during a burst of turns.
+  @state_runtime_failed "failed to initialize sqlite state runtime"
+
+  # Seconds each relaunch waits, before jitter of up to as much again. The
+  # production bursts on #1910 each lasted about a minute; the waits, plus a
+  # launch each, cover about that before the turn fails as it always did.
+  @contended_waits [2, 6, 15]
+
+  @doc """
+  Launch an unbounded turn's adapter again, after a pause, when Codex could
+  not open its SQLite state (#1910).
+
+  Codex keeps its state in SQLite under its home, which every Codex
+  conversation on the machine shares, or every one on the same ChatGPT
+  sign-in. A new app-server writes there before it answers `initialize`, and
+  gives up after five seconds of other processes holding the lock. The error
+  names no cause (Codex drops it); the evidence on #1910 is the processes
+  beside it logging `database is locked` in the same minutes. The fix is state
+  per conversation, which #1910 tracks. Until then a burst of turns passes in
+  about a minute, so the turn is launched again rather than failed.
+
+  It is safe for the reason #2402's relaunch is: the failure is the reply to
+  `initialize`, which the peer sends before anything else, so no session was
+  opened and no prompt was sent. The adapter is still running and is closed
+  first. The launch must be this turn's own fresh launch (`:launch` is set
+  only there), unbounded, and still on this actor's sandbox (the plan write
+  carries the binding, as for #2402). A bounded turn's command belongs to its
+  execution journal and is not relaunched.
+
+  The pause runs inside the sandbox, as a `sleep` in front of the adapter, so
+  this actor stays responsive: an interrupt stops the command as it would any
+  other, and a prompt meanwhile is refused as busy. The peer's `initialize`
+  waits in the adapter's stdin. At most three relaunches, then the turn fails
+  with the error it has now.
+
+  `drive` is the server's path for a peer report, `(state, payload) -> state`.
+  Every report goes through here; the ones that do not qualify, a refused
+  plan, and a relaunch that cannot start, all end through `drive` exactly as
+  the report always did.
+  """
+  def relaunch_contended(
+        %{
+          turn_execution: nil,
+          current_turn: %{} = turn,
+          turn_metrics: %{launch: %{contended: attempt} = launch}
+        } = state,
+        {:failed, {:acp_error, :initialize, %{} = error}} = payload,
+        drive
+      )
+      when attempt < length(@contended_waits) do
+    if state_runtime_failed?(error) do
+      {mode, id} = launch.plan
+
+      case TurnMachine.session_plan(turn, mode, id, state.sandbox_id) do
+        {:ok, plan} ->
+          relaunch_after_contention(state, turn, launch, plan, payload, drive)
+
+        {:error, reason} ->
+          Logger.info(
+            "conv #{state.conversation_id}: codex state was locked; " <>
+              "not relaunched (#{inspect(reason)})"
+          )
+
+          drive.(state, payload)
+      end
+    else
+      drive.(state, payload)
+    end
+  end
+
+  def relaunch_contended(state, payload, drive), do: drive.(state, payload)
+
+  # codex-acp 1.10.0 puts Codex's stderr in the message; `data.details` is
+  # where an adapter's detail goes otherwise, so either counts.
+  defp state_runtime_failed?(error) do
+    details = with %{"details" => details} <- error["data"], do: details
+
+    [error["message"], details]
+    |> Enum.any?(&(is_binary(&1) and String.contains?(&1, @state_runtime_failed)))
+  end
+
+  defp relaunch_after_contention(state, turn, launch, plan, payload, drive) do
+    attempt = launch.contended + 1
+    wait = Enum.at(@contended_waits, launch.contended)
+    wait = wait + :rand.uniform(wait + 1) - 1
+
+    Logger.warning(
+      "conv #{state.conversation_id}: codex could not open its sqlite state; " <>
+        "launching it again in #{wait}s (attempt #{attempt}, #1910)"
+    )
+
+    Output.publish_stage(state.conversation_id, "session", "done", %{
+      event: "restarted",
+      reason: "runtime_state_locked",
+      attempt: attempt,
+      turn_id: turn.id,
+      message:
+        "The agent's runtime could not open its local state, which other " <>
+          "conversations on this machine are using, before your prompt was sent. " <>
+          "It is being started again in #{wait} seconds."
+    })
+
+    TurnMachine.stamp_span(state.current_turn_span, %{"acp.state_locked_relaunches" => attempt})
+
+    state =
+      Connection.into_state(
+        state,
+        Connection.close(Connection.from_state(state), state.conversation_id, state.handle)
+      )
+
+    # A relaunch that cannot start ends the turn as the report would have.
+    cannot_start = fn state, _turn, reason ->
+      Logger.warning(
+        "conv #{state.conversation_id}: adapter relaunch did not start: #{inspect(reason)}"
+      )
+
+      drive.(state, payload)
+    end
+
+    spec = %{Map.delete(launch, :plan) | relaunched?: true, contended: attempt}
+    launch(state, turn, Map.put(spec, :start_delay, wait), cannot_start, plan)
+  end
+
+  # The pause in front of a relaunched adapter, as positional arguments to a
+  # fixed script: `exec` keeps the process the provider named its session for.
+  defp delayed(cmd, args, nil), do: {cmd, args}
+
+  defp delayed(cmd, args, seconds) when is_integer(seconds) and seconds > 0,
+    do:
+      {"sh",
+       ["-c", ~S(sleep "$1"; shift; exec "$@"), "fountain-relaunch", "#{seconds}", cmd | args]}
 
   # The SDK's own view of the allowance, from the frozen journal copy rather
   # than from current policy: an in-flight turn keeps what it was admitted

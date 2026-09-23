@@ -826,12 +826,25 @@ defmodule Fountain.Conversations.Provisioning do
         "git -c http.proxyAuthMethod=basic clone --depth 50 " <>
         "#{branch_arg(repo)}#{shell_quote(auth_url)} #{shell_quote(mount)}"
 
-    # Retried only when git never reached the remote: that clone wrote
-    # nothing (git removes the directory it made), so running it again is
-    # idempotent. Any other failure may have left a half-written directory.
-    # On Sprites, the first connection through a just-applied broker floor is
-    # sometimes refused outright, measured at about 2 in 5 after a package
-    # install; the next one lands.
+    # Retried only when nothing was written, so that `mount` is still exactly
+    # as this step found it. `Retry`'s moduledoc says never to wrap a git
+    # clone, and it is right about the case it means: a clone that started
+    # and failed partway leaves a half-written directory, and a second clone
+    # into it is not the same operation. That case is not retried. Two are:
+    #
+    # - The sprite refused the exec, so no command started (`never_started?/1`).
+    #   A freshly created sprite answers 503 ("service temporarily
+    #   unavailable, please retry", Retry-After: 1) for its first several
+    #   seconds; every other provisioning step already rode that out, and the
+    #   clone was the one that failed the conversation (#2491).
+    # - git ran but never reached the remote, so it wrote nothing (git
+    #   removes the directory it made). On Sprites, the first connection
+    #   through a just-applied broker floor is sometimes refused outright,
+    #   measured at about 2 in 5 after a package install; the next one lands.
+    #
+    # Everything else is final on the first attempt: `:timeout` above all,
+    # which can fire with a clone half-done, and which `Retry`'s default
+    # classifier would otherwise treat as transient.
     result =
       Retry.with_backoff(
         fn ->
@@ -854,7 +867,7 @@ defmodule Fountain.Conversations.Provisioning do
           end
         end,
         label: "git clone",
-        retriable?: &match?({:clone_connect, _}, &1)
+        retriable?: &clone_retriable?/1
       )
 
     case result do
@@ -862,6 +875,25 @@ defmodule Fountain.Conversations.Provisioning do
       other -> other
     end
   end
+
+  defp clone_retriable?({:clone_connect, _code}), do: true
+  defp clone_retriable?({:clone_unreachable, _url, reason}), do: never_started?(reason)
+  defp clone_retriable?(_reason), do: false
+
+  # Reasons that prove `Sandbox.exec` never started a command, so retrying it
+  # repeats nothing. Deliberately narrower than `Retry.transient?/1`, whose
+  # "unknown shapes are transient" default is the right call for an idempotent
+  # step and the wrong one for a clone.
+  defp never_started?({:unavailable, _detail}), do: true
+  defp never_started?({:rate_limited, _retry_after}), do: true
+
+  # The adapter's unclassified escape hatch (`{:provider, provider, term}`) —
+  # a status the sprite answered with rather than a classification, so read it
+  # directly: 429 and 5xx are the front door turning the request away.
+  defp never_started?({:provider, _provider, %{status: status}}) when is_integer(status),
+    do: status == 429 or status >= 500
+
+  defp never_started?(_reason), do: false
 
   # curl's words, through git, for a connection that never opened: to the
   # proxy, or to the host itself.

@@ -200,6 +200,80 @@ defmodule Fountain.Conversations.ProvisioningTest do
       assert_received {:script, script}
       assert script =~ "git -c http.proxyAuthMethod=basic clone --depth 50"
     end
+
+    # A sprite answers 503 ("service temporarily unavailable, please retry")
+    # for its first seconds. Every other provisioning step already rides that
+    # out; the clone did not, so one cold sprite failed the conversation.
+    test "a sprite that refuses the exec is retried — nothing ran, so nothing was half-written" do
+      conv = insert_conversation()
+      test = self()
+
+      env = %Fountain.Environments.Environment{
+        repositories: [%{"url" => "https://github.com/o/r", "mount_path" => "/workspace/r"}]
+      }
+
+      Mimic.stub(Managoat.Sandbox.Sprites, :exec, fn _h, _cmd, _args, _opts ->
+        send(test, :exec)
+
+        receive do
+          :already_refused -> {:ok, "", 0}
+        after
+          0 ->
+            send(self(), :already_refused)
+
+            {:error,
+             {:unavailable, {:http, 503, %{"error" => "service temporarily unavailable"}}}}
+        end
+      end)
+
+      assert :ok =
+               Provisioning.clone_repositories(sandbox_handle(), env, %{}, [], conv.id)
+
+      assert_received :exec
+      assert_received :exec, "the refused attempt is retried, not surfaced as a failure"
+    end
+
+    test "a clone that ran and failed is never retried — a half-written mount is not cloned over" do
+      conv = insert_conversation()
+      test = self()
+
+      env = %Fountain.Environments.Environment{
+        repositories: [%{"url" => "https://github.com/o/r", "mount_path" => "/workspace/r"}]
+      }
+
+      Mimic.stub(Managoat.Sandbox.Sprites, :exec, fn _h, _cmd, _args, _opts ->
+        send(test, :exec)
+        {:ok, "fatal: could not read Username", 128}
+      end)
+
+      assert {:error, {:clone, "https://github.com/o/r", 128}} =
+               Provisioning.clone_repositories(sandbox_handle(), env, %{}, [], conv.id)
+
+      assert_received :exec
+
+      refute_received :exec,
+                      "a command that ran is returned on the first attempt, exactly as before"
+    end
+
+    test "a timeout is not retried either — it can fire with the clone half-done" do
+      conv = insert_conversation()
+      test = self()
+
+      env = %Fountain.Environments.Environment{
+        repositories: [%{"url" => "https://github.com/o/r", "mount_path" => "/workspace/r"}]
+      }
+
+      Mimic.stub(Managoat.Sandbox.Sprites, :exec, fn _h, _cmd, _args, _opts ->
+        send(test, :exec)
+        {:error, :timeout}
+      end)
+
+      assert {:error, {:clone_unreachable, "https://github.com/o/r", :timeout}} =
+               Provisioning.clone_repositories(sandbox_handle(), env, %{}, [], conv.id)
+
+      assert_received :exec
+      refute_received :exec, "Retry's own default would have retried this; a clone must not"
+    end
   end
 
   describe "clone_repositories/5 when the connection never opens" do

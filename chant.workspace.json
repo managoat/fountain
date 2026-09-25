@@ -1,0 +1,168 @@
+{
+  "name": "fountain",
+  "schema": 1,
+  "minReader": "0.86.0",
+  "$comment": "Fountain's components as a chant workspace (https://intentius.io/chant/reference/workspace-declaration/). No member is a chant project, so each is kind other with the reason chant does not read it. The root keeps config/, rel/, scripts/, standards/, contributing/, changelog.d/ and .github/.",
+  "checks": {
+    "WSP009": "off"
+  },
+  "members": [
+    {
+      "name": "server",
+      "dir": "apps/fountain",
+      "kind": "other",
+      "because": "the Phoenix server (AGPL-3.0), built by mix from the umbrella root"
+    },
+    {
+      "name": "ee",
+      "dir": "ee",
+      "kind": "other",
+      "because": "credits, Stripe and the credit emails (Elastic 2.0), compiled into :fountain (ADR 0010, 0027)"
+    },
+    {
+      "name": "ext-buzz",
+      "dir": "apps/fountain_buzz",
+      "kind": "other",
+      "because": "a first-party extension OTP app (ADR 0043, 0054), with its Go CLI in cli/"
+    },
+    {
+      "name": "ext-support",
+      "dir": "apps/fountain_support",
+      "kind": "other",
+      "because": "a first-party extension OTP app (ADR 0043, 0054)"
+    },
+    {
+      "name": "ext-google",
+      "dir": "apps/fountain_google",
+      "kind": "other",
+      "because": "a first-party extension OTP app contributing a connection provider (ADR 0054)"
+    },
+    {
+      "name": "ext-microsoft",
+      "dir": "apps/fountain_microsoft",
+      "kind": "other",
+      "because": "a first-party extension OTP app contributing a connection provider (ADR 0054)"
+    },
+    {
+      "name": "ext-slack",
+      "dir": "apps/fountain_slack",
+      "kind": "other",
+      "because": "a first-party extension OTP app contributing a connection provider (ADR 0054)"
+    },
+    {
+      "name": "cli",
+      "dir": "cli",
+      "kind": "other",
+      "because": "the fountain Go CLI (Apache-2.0), its own Go module"
+    },
+    {
+      "name": "sdk-contract",
+      "dir": "sdk/contract",
+      "kind": "other",
+      "because": "the wire contract projected from the server's OpenAPI document, which every SDK is checked against; regenerating it boots the server, so its generator is not listed here"
+    },
+    {
+      "name": "sdk-conformance",
+      "dir": "sdk/conformance",
+      "kind": "other",
+      "because": "the scenario matrix the four SDKs are run against"
+    },
+    {
+      "name": "sdk-typescript",
+      "dir": "sdk/typescript",
+      "kind": "other",
+      "because": "the TypeScript SDK, published as @managoat/fountain-sdk; its generated openapi.ts needs dist/openapi.json, which only the server writes"
+    },
+    {
+      "name": "sdk-python",
+      "dir": "sdk/python",
+      "kind": "other",
+      "because": "the Python SDK"
+    },
+    {
+      "name": "sdk-elixir",
+      "dir": "sdk/elixir",
+      "kind": "other",
+      "because": "the Elixir SDK, its own mix project"
+    },
+    {
+      "name": "sdk-swift",
+      "dir": "sdk/swift",
+      "kind": "other",
+      "because": "the Swift SDK, built through Package.swift at the repo root (ADR 0041)",
+      "generated": [
+        {
+          "path": "Sources/FountainKit/Models/ConversationWire.generated.swift",
+          "generator": "python3 ../../scripts/sdk-contract/generate.py --target swift --skip-export",
+          "sources": [
+            "sdk/contract/contract.json",
+            "scripts/sdk-contract/generate.py",
+            "scripts/sdk-contract/generate-swift.py"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "deployed",
+      "dir": "deployed",
+      "kind": "other",
+      "because": "the verifier that drives a deployed instance, with its browser harness in browser/"
+    },
+    {
+      "name": "deploy",
+      "dir": "deploy",
+      "kind": "other",
+      "because": "Kubernetes manifests and Grafana dashboards for running Fountain"
+    },
+    {
+      "name": "images",
+      "dir": "images",
+      "kind": "other",
+      "because": "sandbox images for the Daytona and E2B providers"
+    },
+    {
+      "name": "integrations",
+      "dir": "integrations",
+      "kind": "other",
+      "because": "third-party agent integrations"
+    },
+    {
+      "name": "examples",
+      "dir": "examples",
+      "kind": "other",
+      "because": "example agents and the quickstart; none is a chant project, so they are not an example group"
+    },
+    {
+      "name": "templates",
+      "dir": "templates",
+      "kind": "other",
+      "because": "the managoat library template"
+    },
+    {
+      "name": "docs",
+      "dir": "docs",
+      "kind": "other",
+      "because": "the public manual, served at /docs"
+    },
+    {
+      "name": "decisions",
+      "dir": "decisions",
+      "kind": "other",
+      "because": "the ADRs, an OKF bundle",
+      "records": [
+        {
+          "kind": "adr.kind.mjs"
+        }
+      ],
+      "generated": [
+        {
+          "path": "index.md",
+          "generator": "../scripts/decisions-index.sh",
+          "sources": [
+            "scripts/decisions-index.sh"
+          ]
+        }
+      ]
+    }
+  ]
+}

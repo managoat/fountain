@@ -1,0 +1,57 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "urn:managoat:fountain:adr:1",
+  "title": "Fountain ADR frontmatter",
+  "description": "The OKF frontmatter decisions/0001-template.md prescribes, as chant reads it.",
+  "type": "object",
+  "required": [
+    "type",
+    "title",
+    "description",
+    "tags",
+    "status",
+    "adr",
+    "adr_status"
+  ],
+  "properties": {
+    "type": {
+      "const": "ADR"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "status": {
+      "enum": [
+        "draft",
+        "stable",
+        "deprecated"
+      ]
+    },
+    "adr": {
+      "type": "string",
+      "pattern": "^[0-9]{4}$"
+    },
+    "adr_status": {
+      "type": "string",
+      "pattern": "^(Proposed|Accepted|Partially accepted|Superseded|Superseded by [0-9]{4})$"
+    },
+    "constrains": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^(member|path):.+$"
+      }
+    }
+  }
+}

@@ -70,6 +70,7 @@ defmodule Fountain.Agents.ModelCatalogTest do
 
   test "known?/1 recognises catalog entries and nothing else" do
     assert ModelCatalog.known?("anthropic/claude-opus-5")
+    assert ModelCatalog.known?("anthropic/claude-opus-5-5")
     # Right provider, unlisted id — accepted by the changeset, just not listed.
     refute ModelCatalog.known?("anthropic/claude-opus-99")
     # Listed id under the wrong provider.

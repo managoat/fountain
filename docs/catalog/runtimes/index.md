@@ -110,7 +110,7 @@ The agent form offers these as suggestions. They are not an allowlist.
 
 | Provider | Suggested |
 |---|---|
-| `anthropic` | `claude-opus-5`, `claude-sonnet-5`, `claude-haiku-4-5` |
+| `anthropic` | `claude-fable-5-1`, `claude-opus-5-5`, `claude-opus-5`, `claude-sonnet-5`, `claude-haiku-4-5` |
 | `openai` | `gpt-6-astra`, `gpt-5.5` |
 | `google` | `gemini-3.1-pro-preview`, `gemini-3.7-flash` |
 

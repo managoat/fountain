@@ -301,6 +301,8 @@ defmodule Fountain.Conversations.ConversationServer do
       # rather than linked: a protocol bug must fail a turn, not take down a
       # server that is holding a sprite handle and a tenant's secrets.
       acp_peer: nil,
+      # The model env the peer's adapter was spawned with (`Connection.stale_reason/4`).
+      acp_model_env: nil,
       # Timer refusing an unanswered permission request (#940).
       permission_timer: nil,
       # The last `session/request_permission` the peer relayed, as
@@ -1708,13 +1710,9 @@ defmodule Fountain.Conversations.ConversationServer do
     # Before either path (#1736): a fresh spawn takes the env this rebuilds, an
     # idle peer holds its token, and one whose token was replaced is closed.
     {state, replaced?} = Egress.refresh_before_turn(state)
-    # A bounded turn already discarded its old connection before registration
-    # entered actor state. Refreshing credentials must not retire the NEW journal
-    # and accidentally route this turn through an unbounded spawn.
-    state =
-      if replaced? and is_nil(execution),
-        do: drop_connection(state, "broker_session_replaced"),
-        else: state
+
+    why = Connection.stale_reason(state, replaced?, conv, agent)
+    state = if why, do: drop_connection(state, why), else: state
 
     TurnMachine.store_images(turn, images)
 

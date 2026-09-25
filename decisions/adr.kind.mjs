@@ -5,6 +5,11 @@
 // The state is OKF's `status` (draft, stable, deprecated), not `adr_status`,
 // because "Superseded by NNNN" carries a number and a state is a fixed word.
 // The template, 0001, is not a decision and is left out.
+//
+// `constrains` lists what an ADR governs, as member:<name> or path:<path>
+// entries naming chant.workspace.json members or repo paths, so that
+// `chant workspace graph --intent <path>` can tell which decisions a change
+// falls under.
 export const recordKind = {
   name: "adr",
   location: { dir: ".", match: "^(?!0001-)[0-9]{4}-.+\\.md$" },
@@ -14,4 +19,5 @@ export const recordKind = {
   stateField: "status",
   states: ["draft", "stable", "deprecated"],
   closedStates: ["stable", "deprecated"],
+  constrains: { field: "constrains" },
 };

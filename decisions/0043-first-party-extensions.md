@@ -10,6 +10,7 @@ date: 2026-09-03
 generated: { by: claude-opus/5, at: 2026-09-04T00:00:00-04:00 }
 verified: { by: claude-opus/5, at: 2026-09-04T00:00:00-04:00 }
 stale_after: 2026-12-04
+constrains: [member:ext-buzz, member:ext-support, path:apps/fountain/lib/fountain/extension.ex]
 ---
 
 # 0043 — First-party extensions: Buzz becomes an OTP app installed at build time and enabled at runtime

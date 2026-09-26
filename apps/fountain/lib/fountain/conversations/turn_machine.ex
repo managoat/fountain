@@ -1406,6 +1406,7 @@ defmodule Fountain.Conversations.TurnMachine do
         cwd: Keyword.get(opts, :cwd) || "/home/sprite",
         images: Keyword.get(opts, :images, []),
         mcp_servers: Keyword.get(opts, :mcp_servers, []),
+        additional_directories: Keyword.get(opts, :additional_directories, []),
         model: Keyword.get(opts, :model),
         permission_policy: Keyword.get(opts, :permission_policy),
         # A codex spawn on the deployment's ChatGPT grant must not be

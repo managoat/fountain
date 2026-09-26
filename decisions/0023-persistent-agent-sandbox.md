@@ -1,13 +1,13 @@
 ---
 type: ADR
 title: "A persistent sandbox per agent, offered beside the sandbox-per-conversation model"
-description: "Built 2026-08-24 (#1057–#1068). Adds a second sandbox mode, chosen per launch and defaulted per agent, where one long-lived sandbox serves many conversations of an agent (the 'grokbot' shape), with turns running concurrently where the runtime allows (amended 2026-08-23); keeps the per-conversation mode as the default; names the seven places the code hard-codes 1:1 today. Amended 2026-09-11 (#1565): a home's identity key moves through one narrow door, the reapply action, which refuses any selection that would change the build inputs, the runtime, or a cotenant's configuration. Companion design note: #805."
+description: "Built 2026-08-24 (#1057–#1068). Adds a second sandbox mode, chosen per launch and defaulted per agent, where one long-lived sandbox serves many conversations of an agent (the 'grokbot' shape), with turns running concurrently where the runtime allows (amended 2026-08-23); keeps the per-conversation mode as the default; names the seven places the code hard-codes 1:1 today. Amended 2026-09-11 (#1565): a home's identity key moves through one narrow door, the reapply action, which refuses any selection that would change the build inputs, the runtime, or a cotenant's configuration. Amended 2026-09-26 (#2517, not built): an agent of another runtime may attach to a home by `sandbox_id`, on the same environment and vault. Companion design note: #805."
 tags: [sandbox, lifecycle, conversations, product]
 status: stable
 adr: "0023"
 adr_status: "Accepted"
 date: 2026-08-17
-generated: { by: human:jhgaylor, at: 2026-09-11T12:00:00-04:00 }
+generated: { by: anthropic/claude-opus-5-5, at: 2026-09-26T12:00:00Z }
 verified: { by: human:jhgaylor, at: 2026-09-11T12:00:00-04:00 }
 stale_after: 2027-02-01
 ---
@@ -44,6 +44,57 @@ the number to [0021](0021-oauth-for-first-party-apps.md) (OAuth for first-party
 apps), which was opened later the same day and merged first. Line references in
 the survey below were re-checked against `main` on the same date. Anything
 citing "ADR 0021" for a persistent sandbox — #793, #805 — means this file.
+
+**Amended 2026-09-26 — a second agent may attach if its runtime differs (#2517). Not built.**
+
+The maintainer chose to let one `claude` agent and one `codex` agent share a
+sandbox. This is narrower than the per-user sandbox rejected under
+**Alternatives considered**, and shape (a) of #2439. The home's identity key,
+its partial unique index and home lookup do not change. What changes is
+explicit attachment (`sandbox_id` on `POST /api/conversations`), which accepts
+a conversation of another agent when all of these hold:
+
+- **Same user, same environment, same vault.** Only the agent may differ, so
+  `/home/sprite/.env` has the same contents whichever conversation rewrote it:
+  since `Fountain.Conversations.Identity.disk_env/1` it holds environment and
+  vault values only, and each conversation already registers those for
+  redaction.
+- **A runtime no live conversation on the machine uses.** Different runtimes
+  keep their config in separate directories (`Managoat.Runtimes.Layout`:
+  `.claude/` and `.codex/`), so skills, instructions and runtime settings do
+  not overwrite each other. Two agents of the *same* runtime stay refused:
+  they would share one `CLAUDE.md`, one `.mcp.json` and one skills root, and
+  whichever woke last would set the persona for both (#2439, shape (b)).
+- **The guest joins the home without becoming part of it.** The sandbox's
+  `agent_id` and `runtime` remain the home's, so lookup, file browsing and the
+  reapply door are unchanged. A guest is never found by home lookup; it
+  reaches the machine only by `sandbox_id`.
+
+Three rules come with it:
+
+- **Redaction covers the machine** (#2513). Every process on the disk runs as
+  one user, so a runtime's credential file (codex's `~/.codex/auth.json`) and
+  its process environment can be read by the other agent. On a machine with
+  more than one runtime, each conversation also registers the inference
+  credentials of the cotenants on other runtimes, recomputed from the database
+  so that a cotenant with no live server is still covered. A machine with one
+  runtime registers exactly what it does today. Not covered: a cotenant's
+  per-conversation process tokens (the callback key and the broker session
+  token), readable through `/proc`. Sibling conversations of one agent
+  already have that exposure to each other, and it is tracked separately.
+- **Skills are recorded per runtime** (#2514). `applied_skills` has held one
+  list per machine. With two runtimes on a machine, each would reconcile the
+  other's list against its own skills root.
+- **Lifecycle follows the home's agent** (#2516). Deleting the home's agent
+  destroys the home as it does today, and the guest's conversations end with
+  their machine. Deleting the guest agent ends its own conversations and
+  leaves the home. The reapply door keeps refusing while another identity
+  shares the machine. A re-provision rebuilds from the home's agent, and each
+  guest conversation prepares its own runtime when it next wakes, through the
+  same reattach path every conversation takes.
+
+The consequence under **Consequences** that "two agents can never share a
+home" now holds only for agents of the same runtime.
 
 **Amended 2026-09-18 — runtime is part of a home's identity (#2379).**
 
@@ -490,7 +541,9 @@ to show something a conversation-centric view cannot.
   `sandbox_id`, children onto its home (shared disk, running at once) — the
   choice is the launch's, not the agent's. Two agents can never share a home
   (identity includes `agent_id`), so per-agent skill mounts at the
-  runtime-global skills path do not collide.
+  runtime-global skills path do not collide. **Amended 2026-09-26:** two
+  agents of *different* runtimes may, by explicit attach; their skills roots
+  are different paths. See the amendment at the top of this file.
 - **Steps 2 and 3 improve the ephemeral mode on their own** and should ship
   first as bug fixes; nothing else in this ADR is needed to justify them.
 - **Checkpointing becomes meaningful.** With a stable, named home the
@@ -523,7 +576,10 @@ to show something a conversation-centric view cannot.
 - **A shared sandbox per *user* (one machine for all agents).** Skill mounts,
   runtime configs and vault credentials from different agents would collide on
   one disk; the identity key would have to be the user and every credential
-  the user owns would sit on one machine. Rejected.
+  the user owns would sit on one machine. Rejected. The 2026-09-26
+  amendment does not reopen this: one guest agent of another runtime, on the
+  home's own environment and vault, adds no credential the home's disk did not
+  already hold beyond that runtime's inference credential.
 - **A new "Machine" primitive with its own CRUD.** Cleaner ownership story,
   but the sandbox row already is the machine; add a mode and an agent pointer
   first and promote only if the UI demands it.

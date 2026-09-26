@@ -4076,6 +4076,32 @@ defmodule Fountain.Conversations do
   # anyway — that is the invariant the peer relies on — but a caller who asked
   # to loosen a policy and silently got a tighter one would have no way to
   # tell, and the difference matters when the ask was a mistake.
+  # A per-conversation model override (ADR 0061), checked exactly as the
+  # agent's own model is (`Agent.check_model/2`) against the runtime the
+  # conversation runs. No allowlist on the agent: the agent's owner is the
+  # conversation's owner, so there is nobody for one to guard against yet.
+  #
+  # The `acp` runtime resolves no model, so an override there would be stored
+  # and never read. Refused, like a `runtime_command` on any other runtime.
+  # A door for `Fountain.Conversations.Launch` and `Reapply`; not part of the
+  # context's public surface.
+  @doc false
+  def resolve_model(nil, _agent), do: {:ok, nil}
+  def resolve_model("", _agent), do: {:ok, nil}
+
+  def resolve_model(model, %Agents.Agent{runtime: runtime}) when is_binary(model) do
+    with true <-
+           Fountain.RuntimeDispatch.model_required?(runtime) ||
+             {:error, "the #{runtime} runtime resolves no model"},
+         :ok <- Agents.Agent.check_model(runtime, model) do
+      {:ok, model}
+    else
+      {:error, message} -> {:error, {:model_invalid, message}}
+    end
+  end
+
+  def resolve_model(_model, _agent), do: {:error, {:model_invalid, "must be a string"}}
+
   # A door for `Fountain.Conversations.Reapply` (#2215); not part of the
   # context's public surface.
   @doc false

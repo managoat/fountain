@@ -585,6 +585,13 @@ class ClientTests(unittest.TestCase):
                 fake.state.requests[-1][3], {"agent_id": "a-1", "vault_id": None}
             )
 
+            conversation.reapply(model="anthropic/claude-sonnet-5")
+            self.assertEqual(
+                fake.state.requests[-1][3], {"model": "anthropic/claude-sonnet-5"}
+            )
+            conversation.reapply(model=None)
+            self.assertEqual(fake.state.requests[-1][3], {"model": None})
+
     def test_resolution_error_lists_available_names(self):
         with FakeFountain() as fake:
             run = Fountain(base_url=fake.base_url, api_key="fk_test").run(

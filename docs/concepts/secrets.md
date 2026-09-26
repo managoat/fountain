@@ -187,7 +187,8 @@ replaced with a different set or platform key. Start a new conversation with
 an eligible selection when the existing binding can no longer be used.
 
 An explicit configuration reapply can change the model, environment or vault
-while retaining the same credential identity and revision. The configuration
+while retaining the same credential identity and revision. The model is the
+conversation's own override when it has one, and otherwise its agent's. The configuration
 and binding update together; earlier turns keep their recorded sources.
 A reapply that would change the credential is refused before either changes.
 

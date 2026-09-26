@@ -64,6 +64,30 @@ defmodule FountainWeb.ConversationReapplyControllerTest do
     |> post_json("/api/conversations/#{(conv || ctx.conv).id}/reapply", body)
   end
 
+  test "200 changes the model and keeps the runtime session (ADR 0061)", ctx do
+    response =
+      ctx
+      |> reapply(%{"model" => "anthropic/claude-sonnet-5"})
+      |> json_response(200)
+      |> Map.fetch!("data")
+
+    assert response["model"] == "anthropic/claude-sonnet-5"
+    assert response["agent_id"] == ctx.agent.id
+    assert Fountain.Repo.reload!(ctx.conv).runtime_session_id == "old-session"
+
+    response = ctx |> reapply(%{"model" => nil}) |> json_response(200) |> Map.fetch!("data")
+    assert response["model"] == nil
+  end
+
+  test "422 model_invalid for a model the runtime cannot run, and nothing moves", ctx do
+    resp = ctx |> reapply(%{"model" => "gemini/gemini-3-pro"}) |> json_response(422)
+    assert resp["error"] == "model_invalid"
+    assert Fountain.Repo.reload!(ctx.conv).model == nil
+
+    assert Fountain.Repo.reload!(ctx.conv).configuration_revision ==
+             ctx.conv.configuration_revision
+  end
+
   test "200 keeps the thread and clears explicit nulls", ctx do
     response =
       ctx

@@ -10437,6 +10437,11 @@
           "required": false,
           "type": "string"
         },
+        "model": {
+          "nullable": true,
+          "required": false,
+          "type": "string"
+        },
         "parent_conversation_id": {
           "format": "uuid",
           "nullable": true,
@@ -10609,6 +10614,11 @@
           "required": false,
           "type": "object"
         },
+        "model": {
+          "nullable": true,
+          "required": false,
+          "type": "string"
+        },
         "permission_policy": {
           "allOf": [
             {
@@ -10702,6 +10712,11 @@
         },
         "environment_id": {
           "format": "uuid",
+          "nullable": true,
+          "required": false,
+          "type": "string"
+        },
+        "model": {
           "nullable": true,
           "required": false,
           "type": "string"

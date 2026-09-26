@@ -61,6 +61,11 @@ Fountain refuses a selection that needs a new disk, and the answer names the
 field that needs it. A different runtime needs one. A different set of
 packages, repositories or setup script needs one too.
 
+A Conversation runs its Agent's model unless it names one of its own. Name one
+when you create it, or change it later with a reapply. The next turn runs on
+the new model and continues the same runtime session. See
+[Change the model](../api.md#change-the-model).
+
 Log events stream in real time over
 `GET /api/conversations/:id/stream`. Add `?blocks=true` and the server parses
 ACP events into transcript blocks. Other streams remain available as raw

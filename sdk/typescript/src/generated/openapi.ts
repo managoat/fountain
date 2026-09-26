@@ -1461,8 +1461,10 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Reapply a conversation's Agent, Environment and Vault
-         * @description Applies a selection to the machine this conversation already runs on, so its files stay where the agent left them. Variables, the system prompt, skills and MCP configuration are rewritten, and the next prompt reads them. An omitted field keeps its current selection; null clears the Environment override or the Vault; an empty object reapplies what is already selected.
+         * Reapply a conversation's Agent, Environment, Vault and model
+         * @description Applies a selection to the machine this conversation already runs on, so its files stay where the agent left them. Variables, the system prompt, skills and MCP configuration are rewritten, and the next prompt reads them. An omitted field keeps its current selection; null clears the Environment override, the Vault or the model override; an empty object reapplies what is already selected.
+         *
+         *     `model` changes the model this conversation runs from its next turn (ADR 0061), continuing the same runtime session. It is refused with 422 `model_invalid` when the runtime cannot run it, and with 409 `inference_source_changed` when the conversation's credential does not serve it.
          *
          *     Refused with 409 `conversation_busy` while a turn runs, 409 `rebuild_required` when the selection would need the machine built again (the `field` says which one forced it), 503 while the machine is still being built, and 410 once the conversation has ended.
          */
@@ -3760,6 +3762,8 @@ export interface components {
              * @description Set by `POST /api/conversations/:id/read`. Null if never read.
              */
             last_read_at?: string | null;
+            /** @description This conversation's model override (ADR 0061), set at launch or by reapply; null means it runs the agent's model. Each turn's model_selection records the model that turn actually asked for. */
+            model?: string | null;
             /** Format: uuid */
             parent_conversation_id?: string | null;
             /** @description Permission requests that outlived a turn and are still waiting for an answer (#1635). Only GET /api/conversations/{id} can report one; every other response carrying this schema, including the list and the create response, sends an empty array rather than querying for it. */
@@ -3818,6 +3822,8 @@ export interface components {
             labels?: {
                 [key: string]: string;
             } | null;
+            /** @description Optional model to run instead of the agent's (ADR 0061), in canonical provider/model_id form, for this conversation only. Checked as the agent's own model is: a provider the runtime does not drive, or any model on the acp runtime, is 422 model_invalid. The model id itself is not checked against a catalog. Change it later with POST /api/conversations/{id}/reapply. Not part of the channel_id resume key: a request that resumes a conversation running a different model is 409 conversation_model_differs, before any prompt is sent; reapply the model, or set fresh: true. */
+            model?: string | null;
             /** @description Per-launch permission override (#939). Keys are matched against the tool card's title first and then ACP's kind (execute, edit, read, fetch, …); "default" covers the rest. Prefer a kind: claude titles a tool call with the command it is about to run, so a title matches one invocation only. Merged with the agent's own policy, taking the stricter of the two. It may only narrow: a policy that would loosen any tool is refused with 422 permission_policy_widens rather than silently clamped, and one the runtime never consults is refused with 422 permission_policy_unenforceable. If a queued request with a prompt and a nonempty policy resumes an existing channel, it fails with permission_policy_requires_fresh_conversation before sending the prompt. Set fresh: true to create a conversation for that policy. */
             permission_policy?: components["schemas"]["PermissionPolicy"] | null;
             /** @description Optional first turn prompt. A launch may open with no prompt at all, but a prompt that is present must carry words: blank and whitespace-only text is refused with 422 invalid_prompt, before the launch reserves a sandbox. */
@@ -3865,7 +3871,7 @@ export interface components {
         };
         /**
          * ConversationReapplyRequest
-         * @description A selection of Agent, Environment and Vault to apply to the machine an existing conversation already runs on. An omitted field keeps its current selection. An explicit null clears the Environment override or the Vault. An empty object reapplies the current selection.
+         * @description A selection of Agent, Environment, Vault and model to apply to the machine an existing conversation already runs on. An omitted field keeps its current selection. An explicit null clears the Environment override, the Vault or the model override. An empty object reapplies the current selection.
          */
         ConversationReapplyRequest: {
             /**
@@ -3878,6 +3884,8 @@ export interface components {
              * @description Environment override to use; null returns to the selected Agent's Environment.
              */
             environment_id?: string | null;
+            /** @description Model to run from the next turn (ADR 0061), in canonical provider/model_id form; null returns to the selected Agent's model. Checked against the selected Agent's runtime (422 model_invalid). The conversation keeps its credential: a model that credential does not serve is 409 inference_source_changed and nothing changes. The runtime session is kept, so the next turn continues it on the new model. */
+            model?: string | null;
             /**
              * Format: uuid
              * @description Vault to use; null detaches the current Vault.

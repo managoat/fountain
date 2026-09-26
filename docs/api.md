@@ -744,6 +744,48 @@ Fountain refuses the request with `409 conversation_busy` while a turn runs,
 with `503` while it still builds the machine, and with `410` after the
 conversation ends.
 
+### Change the model
+
+A conversation runs its agent's model unless it names one of its own. Name one
+at creation with `model`, or change it on a conversation that exists with a
+reapply. The value is in canonical `provider/model_id` form. It applies to this
+conversation only, and the agent keeps its own model.
+
+```bash
+curl --fail-with-body \
+  -H "Authorization: Bearer $FOUNTAIN_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"anthropic/claude-sonnet-5"}' \
+  "$FOUNTAIN_URL/api/conversations/$CONVERSATION_ID/reapply"
+```
+
+The next turn runs on the new model and continues the same runtime session, so
+the agent keeps its context. A `null` returns the conversation to its agent's
+model. A body that does not name `model` keeps the current one. The
+conversation object reports the override as `model`, and `null` means it
+follows the agent. Each turn records the model it asked for under
+`model_selection`.
+
+Fountain checks the model as it checks an agent's model. A provider that the
+runtime does not drive returns `422 model_invalid`. So does any model on the
+`acp` runtime, which resolves none. Fountain does not check the model id
+against a list, so a model released today works today.
+
+The conversation keeps its credential. A model that the same credential serves
+applies in place. A model that needs another credential, for example an
+`opencode` conversation that moves from an `anthropic/` model to an `openai/`
+one, returns `409 inference_source_changed`, and nothing changes.
+
+A conversation without a `model` follows its agent. After you edit the agent's
+model, its next turn returns `409 inference_source_changed` until you reapply
+it. A conversation with a `model` does not read the agent's model, so the edit
+does not reach it.
+
+The model is not part of a channel's resume key. A create request that resumes
+a conversation through `channel_id` and names another model returns
+`409 conversation_model_differs` before Fountain sends its prompt. Reapply the
+model, or set `fresh: true` to start a new conversation on it.
+
 ### Workers without Fountain API access
 
 Set `sandbox_api_access` to `none` when the host must retain Fountain API

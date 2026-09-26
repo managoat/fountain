@@ -1478,9 +1478,16 @@ defmodule Fountain.Conversations.TurnMachine do
 
   # Ownership is already established: this server exists for this conversation.
   # See the `_unsafe_` rules in CLAUDE.md — a GenServer holding the conversation
-  # is one of the legitimate callers.
+  # is one of the legitimate callers. The agent as this conversation runs it,
+  # its model overridden when the conversation has one (ADR 0061).
   @spec agent_for(Conversation.t()) :: map() | nil
-  def agent_for(conv), do: conv.agent_id && Agents._unsafe_get_agent(conv.agent_id)
+  def agent_for(conv),
+    do: conv.agent_id && Conversation.with_model(Agents._unsafe_get_agent(conv.agent_id), conv)
+
+  @doc "`agent_for/1` for a conversation whose agent has to exist: raises when it is gone."
+  @spec agent_for!(Conversation.t()) :: map()
+  def agent_for!(conv),
+    do: Conversation.with_model(Agents._unsafe_get_agent!(conv.agent_id), conv)
 
   @doc """
   A turn whose adapter failed to spawn ends `failed` with

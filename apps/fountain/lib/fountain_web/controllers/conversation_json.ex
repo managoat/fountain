@@ -62,6 +62,7 @@ defmodule FountainWeb.ConversationJSON do
       agent_version: agent_version_number(c),
       vault_id: c.vault_id,
       environment_id: c.environment_id,
+      model: c.model,
       sandbox_api_access: c.sandbox_api_access,
       permission_policy: c.permission_policy,
       runtime: c.runtime,

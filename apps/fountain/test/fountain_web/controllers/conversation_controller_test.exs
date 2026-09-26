@@ -2173,6 +2173,76 @@ defmodule FountainWeb.ConversationControllerTest do
     end
   end
 
+  # ADR 0061. A model is checked, not looked up: there is no allowlist and
+  # nothing to 404, so the shapes are the stored value and the two refusals.
+  describe "POST /api/conversations with model (ADR 0061)" do
+    setup %{user: user} do
+      stub_server_start(fn _s, _spec -> {:ok, spawn(fn -> :ok end)} end)
+      %{agent: insert_agent(user_id: user.id, runtime: "claude")}
+    end
+
+    defp create_on_model(conn, raw_key, body) do
+      conn
+      |> authed_with_key(raw_key)
+      |> post_json("/api/conversations", body)
+    end
+
+    test "runs and reports the named model", %{conn: conn, raw_key: raw_key, agent: agent} do
+      data =
+        conn
+        |> create_on_model(raw_key, %{
+          "agent_id" => agent.id,
+          "model" => "anthropic/claude-sonnet-5"
+        })
+        |> json_response(201)
+        |> Map.fetch!("data")
+
+      assert data["model"] == "anthropic/claude-sonnet-5"
+
+      data =
+        conn
+        |> create_on_model(raw_key, %{"agent_id" => agent.id})
+        |> json_response(201)
+        |> Map.fetch!("data")
+
+      assert data["model"] == nil
+    end
+
+    test "a model the runtime cannot run is a 422 model_invalid", %{
+      conn: conn,
+      raw_key: raw_key,
+      agent: agent
+    } do
+      resp =
+        conn
+        |> create_on_model(raw_key, %{"agent_id" => agent.id, "model" => "openai/gpt-5"})
+        |> json_response(422)
+
+      assert resp["error"] == "model_invalid"
+      assert resp["message"] =~ "anthropic/"
+    end
+
+    test "a channel resume on a different model is a 409 conversation_model_differs", %{
+      conn: conn,
+      raw_key: raw_key,
+      agent: agent
+    } do
+      body = %{"agent_id" => agent.id, "channel_id" => "chan-0061"}
+
+      conn
+      |> create_on_model(raw_key, Map.put(body, "model", "anthropic/claude-sonnet-5"))
+      |> json_response(201)
+
+      resp =
+        conn
+        |> create_on_model(raw_key, Map.put(body, "model", "anthropic/claude-fable-5-1"))
+        |> json_response(409)
+
+      assert resp["error"] == "conversation_model_differs"
+      assert resp["model"] == "anthropic/claude-sonnet-5"
+    end
+  end
+
   # ADR 0053 decision 3. The same three shapes as the environment override
   # above, because it is the same kind of override: the caller names something
   # of theirs, the agent's allowlist bounds it, and an id they do not own is a

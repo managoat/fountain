@@ -98,16 +98,16 @@ defmodule Fountain.Conversation do
   def tree(value), do: HTTP.data(value.http, "GET", "/api/conversations/#{value.id}/tree")
 
   @doc """
-  Reapply this conversation's agent, environment and vault in place.
+  Reapply this conversation's agent, environment, vault and model in place.
 
   The machine, the transcript and the files on disk all stay. An option that
   is not given keeps its current selection; `nil` clears the environment
-  override or the vault. Called with no options it reapplies what is already
-  selected.
+  override or the vault, or returns `:model` to the agent's. Called with no
+  options it reapplies what is already selected.
   """
   def reapply(value, opts \\ []) do
     body =
-      [:agent_id, :environment_id, :vault_id]
+      [:agent_id, :environment_id, :vault_id, :model]
       |> Enum.reduce(%{}, fn key, acc ->
         if Keyword.has_key?(opts, key),
           do: Map.put(acc, Atom.to_string(key), Keyword.get(opts, key)),

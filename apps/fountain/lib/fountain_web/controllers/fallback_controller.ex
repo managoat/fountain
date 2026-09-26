@@ -405,6 +405,30 @@ defmodule FountainWeb.FallbackController do
     })
   end
 
+  # A conversation's model override (ADR 0061) that the runtime cannot run,
+  # checked as an agent's model is. The message says which check failed.
+  def call(conn, {:error, {:model_invalid, message}}) do
+    conn
+    |> put_status(:unprocessable_entity)
+    |> json(%{error: "model_invalid", message: "model: #{message}"})
+  end
+
+  # A channel request naming a model the conversation it resumes does not run
+  # (ADR 0061 decision 5). Refused before the prompt goes out: resuming on the
+  # old model would take the field and ignore it.
+  def call(conn, {:error, {:conversation_model_differs, current}}) do
+    conn
+    |> put_status(:conflict)
+    |> json(%{
+      error: "conversation_model_differs",
+      message:
+        "the channel's conversation runs #{current || "its agent's model"}; change it " <>
+          "with POST /api/conversations/{id}/reapply, or pass fresh: true for a new " <>
+          "conversation on the requested model",
+      model: current
+    })
+  end
+
   # A sandbox's per-conversation token naming a conversation it was not minted
   # for (#1637). 403 rather than 404: the holder knows the conversation exists
   # — it belongs to the account the token authenticates as — and what is being

@@ -109,11 +109,15 @@ check the shipped expressions and their failure fixtures.
 | `FountainBrokerLogDropping` | The broker drops request-log rows. |
 | `FountainBrokerCaExpiring` | The broker root CA expires within 14 days. |
 
+### The broker admin page
+
 The admin page at `/admin/broker` shows recorded request traffic and current health. Health refreshes every 30 seconds. Traffic and session details refresh when you choose a window, or when you click Refresh data.
 
 The page lists the listener state, the live sessions, and the request counts by outcome for a window. It also lists the busiest hosts, the bindings the proxy attached a credential for, and the requests it refused or that failed.
 
 Denied holds every request the broker answered itself. Most of them are policy. One example is a `403` for a host outside the allowed list of a limited environment. A `502 credential_missing` is a different fault. The broker holds no usable credential for a rule, so it refuses the request instead of a send without one. A run of them points at one tenant secret that the broker cannot read. Failed holds the forwards that broke, and it leaves out the refusals, so no request appears under both.
+
+Sandboxes cutting streams lists the sandboxes whose streamed requests mostly end `client_closed`. A request counts as a stream when it ran for one second or more. A sandbox is listed when it has at least 10 streams in the window and at least half of them ended `client_closed`. On healthy machines less than 1% of streams end that way. A share this high is a machine that drops quiet connections, which Fountain cannot repair; see [A Sprites machine that drops quiet connections](../../concepts/sandboxes.md#a-sprites-machine-that-drops-quiet-connections). Ask the owner to reset a persistent sandbox with `fountain sandbox reset <id>`, or reap the sandbox from `/admin/sandboxes`. The list shows at most 20 sandboxes, most cut first.
 
 The live-session table shows a maximum of 50 rows. A conversation holds one session per provision and one per reattach, until each session expires. The page tells you when the true total is larger.
 

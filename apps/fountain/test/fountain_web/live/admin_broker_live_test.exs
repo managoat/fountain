@@ -132,6 +132,27 @@ defmodule FountainWeb.AdminBrokerLiveTest do
       assert html =~ "This deployment does not broker"
       assert html =~ "Nothing was denied in this window"
       assert html =~ "No sandbox holds a proxy token"
+      assert html =~ "No sandbox is cutting streams in this window"
+    end
+
+    # #2503: a machine that drops quiet connections cuts most streamed
+    # replies; the page names the sandbox, its owner and the reset.
+    test "a sandbox cutting most of its streams is listed with its owner", %{conn: conn} do
+      admin = insert_admin()
+      tenant = insert_active_user()
+      conv = insert_conversation(user_id: tenant.id, agent: insert_agent(user_id: tenant.id))
+
+      for _ <- 1..8, do: log!(tenant, conv, latency_ms: 5_000, error: "client_closed")
+      for _ <- 1..2, do: log!(tenant, conv, latency_ms: 5_000, status: 200)
+
+      {:ok, _lv, html} = conn |> login_user(admin) |> live(~p"/admin/broker")
+
+      refute html =~ "No sandbox is cutting streams"
+      assert html =~ String.slice(conv.sandbox_id, 0, 8)
+      assert html =~ "8 (80%)"
+      assert html =~ "fountain sandbox reset"
+      assert html =~ ~s(href="/admin/users/#{tenant.id}")
+      assert html =~ ~s(href="/admin/sandboxes")
     end
 
     test "shows the traffic split, the hosts, and links denied rows to their conversation", %{

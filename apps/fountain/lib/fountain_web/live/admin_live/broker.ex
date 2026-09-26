@@ -8,8 +8,9 @@ defmodule FountainWeb.AdminLive.Broker do
   internet being down. Its state was on Grafana and in the per-conversation
   egress endpoint and nowhere an operator could glance at. This page is the
   glance, from `Fountain.Broker.Native.Insights`: the health tiles first,
-  then the traffic over a window, then the two lists that call for action —
-  what was denied and what failed — and finally the live sessions.
+  then the traffic over a window, then the lists that call for action —
+  what was denied, what failed, and which sandboxes keep cutting streams —
+  and finally the live sessions.
 
   Nothing here decrypts a rule, shows a credential value or names a header.
   The credential column is the *names* of the variables the proxy attached,
@@ -325,13 +326,75 @@ defmodule FountainWeb.AdminLive.Broker do
         <h2 class="text-lg font-medium">Failed</h2>
         <p class="text-xs text-[var(--color-text-secondary)]">
           How forwarding ended when it did not complete. <code class="font-mono">client_closed</code>
-          is the sandbox hanging up first, usually a cancelled turn;
+          is the sandbox hanging up first, usually a cancelled turn (a run of them on one
+          sandbox is listed under Sandboxes cutting streams);
           <code class="font-mono">upstream_*</code>
           is the origin, and a run of them on one host
           is that host having a bad time, not the broker. A refusal is not in here — it never
           forwarded, so it is counted once, under Denied.
         </p>
         <.request_table rows={@overview.failed} empty="Nothing failed in this window." />
+      </section>
+
+      <section class="space-y-3" id="cut-sandboxes">
+        <h2 class="text-lg font-medium">Sandboxes cutting streams</h2>
+        <p class="text-xs text-[var(--color-text-secondary)]">
+          Sandboxes where at least half of the streamed requests (a second or longer, at least
+          ten in this window) ended <code class="font-mono">client_closed</code>. Healthy traffic
+          stays under 1%. A share like this is a machine that drops any connection left quiet
+          for about a second, so every model reply that pauses to think is cut.
+          Fountain cannot repair the machine; a reset replaces it. The owner resets a
+          persistent sandbox with <code class="font-mono">fountain sandbox reset &lt;id&gt;</code>
+          (<code class="font-mono">DELETE /api/sandboxes/:id</code>); an operator can reap
+          any sandbox from <.link navigate={~p"/admin/sandboxes"} class="underline">Sandboxes</.link>.
+        </p>
+        <div
+          :if={@overview.cut_sandboxes == []}
+          class="text-sm text-[var(--color-text-secondary)]"
+        >
+          No sandbox is cutting streams in this window.
+        </div>
+        <table
+          :if={@overview.cut_sandboxes != []}
+          class="w-full text-sm bg-[var(--color-bg-1)] rounded shadow border border-[var(--color-border)] font-mono"
+        >
+          <thead class="text-left text-[var(--color-text-secondary)] border-b border-[var(--color-border)] text-xs">
+            <tr>
+              <th class="px-4 py-2">Sandbox</th>
+              <th class="px-4 py-2">Machine</th>
+              <th class="px-4 py-2">Owner</th>
+              <th class="px-4 py-2 text-right">Streams</th>
+              <th class="px-4 py-2 text-right">Cut</th>
+              <th class="px-4 py-2 text-right">Conversations</th>
+              <th class="px-4 py-2">Last seen</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr
+              :for={s <- @overview.cut_sandboxes}
+              class="border-b border-[var(--color-border)] last:border-0"
+            >
+              <td class="px-4 py-1.5 text-xs" title={s.sandbox_id}>
+                {String.slice(s.sandbox_id, 0, 8)}
+                <span class="text-[var(--color-text-secondary)]">{s.mode} · {s.status}</span>
+              </td>
+              <td class="px-4 py-1.5 text-xs text-[var(--color-text-secondary)]">
+                {s.provider}:{s.machine_name}
+              </td>
+              <td class="px-4 py-1.5 text-xs">
+                <.owner user_id={s.user_id} email={s.email} />
+              </td>
+              <td class="px-4 py-1.5 text-xs text-right tabular-nums">{s.streams}</td>
+              <td class="px-4 py-1.5 text-xs text-right tabular-nums text-[var(--color-error-text)] font-medium">
+                {s.cut} ({round(s.share * 100)}%)
+              </td>
+              <td class="px-4 py-1.5 text-xs text-right tabular-nums">{s.conversations}</td>
+              <td class="px-4 py-1.5 text-xs text-[var(--color-text-secondary)] whitespace-nowrap">
+                {format_ts(s.last_seen_at)}
+              </td>
+            </tr>
+          </tbody>
+        </table>
       </section>
 
       <section class="space-y-3">

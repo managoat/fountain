@@ -54,6 +54,7 @@ defmodule Fountain.Broker.Native.InsightsTest do
     assert overview.failed == []
     assert overview.errors == []
     assert overview.live_sessions == []
+    assert overview.cut_sandboxes == []
     assert overview.window_hours == 24
     assert is_integer(overview.retention_hours)
   end
@@ -321,5 +322,88 @@ defmodule Fountain.Broker.Native.InsightsTest do
 
     assert Insights._unsafe_overview_admin(24).denied == []
     assert Insights._unsafe_overview_admin(24).window.requests == 0
+  end
+
+  # #2503: a Sprites machine that silently drops any connection idle for
+  # about a second cuts every streamed reply that pauses, and the broker logs
+  # each as `client_closed`. Healthy streams do that under 1% of the time.
+  describe "sandboxes cutting streams" do
+    defp streams!(user, conv, n, attrs) do
+      for _ <- 1..n//1, do: log!(user, conv, Keyword.merge([latency_ms: 4_000], attrs))
+    end
+
+    defp cut(), do: Insights._unsafe_overview_admin(24).cut_sandboxes
+
+    test "flags a sandbox whose streams mostly end client_closed", %{user: user, conv: conv} do
+      # A second conversation on the same sandbox counts toward it.
+      conv2 =
+        insert_conversation(
+          user_id: user.id,
+          agent: insert_agent(user_id: user.id),
+          sandbox: Repo.get!(Fountain.Conversations.Sandbox, conv.sandbox_id)
+        )
+
+      streams!(user, conv, 5, error: "client_closed")
+      streams!(user, conv2, 2, error: "client_closed", outcome: "injected", service: "openai")
+      streams!(user, conv, 3, status: 200)
+
+      # A healthy sandbox alongside it is not listed.
+      other_conv = insert_conversation(user_id: user.id, agent: insert_agent(user_id: user.id))
+      streams!(user, other_conv, 20, status: 200)
+
+      assert [row] = cut()
+      assert row.sandbox_id == conv.sandbox_id
+      assert row.user_id == user.id
+      assert row.email == user.email
+      assert row.streams == 10
+      assert row.cut == 7
+      assert row.conversations == 2
+      assert_in_delta row.share, 0.7, 0.001
+      assert row.provider == "sprites"
+      assert is_binary(row.machine_name)
+      assert %DateTime{} = row.last_seen_at
+    end
+
+    test "fewer than ten streams is not enough to flag", %{user: user, conv: conv} do
+      streams!(user, conv, 9, error: "client_closed")
+      assert cut() == []
+    end
+
+    test "a share under half is not flagged", %{user: user, conv: conv} do
+      streams!(user, conv, 9, error: "client_closed")
+      streams!(user, conv, 11, status: 200)
+      assert cut() == []
+
+      # Exactly half is.
+      streams!(user, conv, 2, error: "client_closed")
+      assert [%{streams: 22, cut: 11}] = cut()
+    end
+
+    test "short requests, refusals and other errors are not streams cut", %{
+      user: user,
+      conv: conv
+    } do
+      # Quick calls a cancelled turn hangs up on, or with no latency at all.
+      streams!(user, conv, 20, error: "client_closed", latency_ms: 999)
+      streams!(user, conv, 5, error: "client_closed", latency_ms: nil)
+      # Refusals never forwarded.
+      streams!(user, conv, 20, outcome: "denied", error: "credential_missing")
+      assert cut() == []
+
+      # Long streams that failed upstream are streams, but not cut ones.
+      streams!(user, conv, 6, error: "upstream_closed")
+      streams!(user, conv, 4, error: "client_closed")
+      assert cut() == []
+    end
+
+    test "only rows inside the window count", %{user: user, conv: conv} do
+      streams!(user, conv, 10, error: "client_closed", inserted_at: ago(30))
+      assert cut() == []
+      assert [%{cut: 10}] = Insights._unsafe_overview_admin(168).cut_sandboxes
+
+      # Recent healthy streams outweigh day-old cuts in the wider window only.
+      streams!(user, conv, 12, status: 200)
+      assert Insights._unsafe_overview_admin(168).cut_sandboxes == []
+    end
   end
 end

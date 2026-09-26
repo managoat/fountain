@@ -5,7 +5,7 @@ import Foundation
 #endif
 
 /// The independent Swift SDK version, checked against `sdk/swift/version.json`.
-public let fountainSDKVersion = "0.20.0"
+public let fountainSDKVersion = "0.21.0"
 
 public final class Fountain: @unchecked Sendable {
   public let configuration: FountainConfiguration

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.7.0
+
+### Added
+
+- `model=` on `Conversation.reapply`: run another model from the conversation's next turn, or pass `None` to return to its agent's model (#2511, ADR 0061).
+
 ## 0.6.0
 
 ### Added

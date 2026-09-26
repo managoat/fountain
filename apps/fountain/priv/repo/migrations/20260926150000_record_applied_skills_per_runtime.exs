@@ -24,7 +24,13 @@ defmodule Fountain.Repo.Migrations.RecordAppliedSkillsPerRuntime do
   # reconciliation, while no record falls back to the conversation's own
   # Agent version, which is what every disk older than the record already
   # does.
+  #
+  # The lock is ACCESS EXCLUSIVE and held through the backfill, and `sandboxes`
+  # is written by every provision, wake and reaper pass: give up after five
+  # seconds rather than queue all of them behind a long reader.
   def up do
+    execute("SET LOCAL lock_timeout = '5s'")
+
     alter table(:sandboxes) do
       add :applied_skills_by_runtime, :map
     end
@@ -58,6 +64,8 @@ defmodule Fountain.Repo.Migrations.RecordAppliedSkillsPerRuntime do
   # disk that never had a record. A row with no entry for its own runtime
   # keeps the list column as `up` left it.
   def down do
+    execute("SET LOCAL lock_timeout = '5s'")
+
     execute("""
     UPDATE sandboxes AS s
     SET applied_skills = ARRAY(

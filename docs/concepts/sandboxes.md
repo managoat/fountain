@@ -279,7 +279,10 @@ builds a new machine. A reset also deletes everything on the machine's disk,
 as described in [Two modes](#two-modes). On 2026-09-26 new machines did not
 have the fault.
 
-Fountain does not detect an affected machine and does not reset one by itself.
+Fountain does not reset an affected machine by itself. The operator of a
+Fountain deployment can see affected machines on the admin page
+`/admin/broker`, under Sandboxes cutting streams, as described in
+[Observability](../guides/operate/observability.md#the-broker-admin-page).
 
 ## Where to go next
 

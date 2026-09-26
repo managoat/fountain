@@ -24,11 +24,28 @@ defmodule Fountain.Broker.Native.Insights do
   alias Fountain.Accounts.User
   alias Fountain.Broker
   alias Fountain.Broker.Native.{Request, Session}
+  alias Fountain.Conversations.{Conversation, Sandbox}
   alias Fountain.Repo
 
   @default_window_hours 24
   @windows [1, 24, 168]
   @live_sessions_limit 50
+
+  # Sandboxes cutting streams (#2503). Some Sprites machines develop a fault
+  # that silently drops any outbound TCP connection idle for about a second,
+  # so every streamed reply that pauses dies mid-stream and the broker logs
+  # it `client_closed` after 1-20 s. Measured in prod: on healthy traffic
+  # (Anthropic streams) `client_closed` is under 1% of forwarded requests; on
+  # faulted Codex sandboxes it was about 65%, and 100% for hours. A share of
+  # half sits far from both, and ten streams keeps one cancelled turn on a
+  # quiet sandbox (a few cut rows out of a handful) from flagging it.
+  # `latency_ms` is the whole stream (see `Request`), so a second or more is
+  # a stream rather than a quick call a cancelled turn might also cut.
+  @forwarded_outcomes ["injected", "passthrough"]
+  @stream_min_latency_ms 1_000
+  @cut_min_streams 10
+  @cut_min_share 0.5
+  @cut_sandboxes_limit 20
 
   @doc "The windows the page offers, in hours."
   @spec windows() :: [pos_integer()]
@@ -52,6 +69,13 @@ defmodule Fountain.Broker.Native.Insights do
     * `:errors` — how forwarding failed, by reason, in the window. A refusal
       the broker made is not in here; it is counted under `:window.denied`
       and its `:no_credential` subset.
+    * `:cut_sandboxes` — sandboxes whose streamed requests the sandbox side
+      keeps hanging up on (#2503): at least #{@cut_min_streams} forwarded
+      requests of #{@stream_min_latency_ms} ms or more in the window, of
+      which at least #{round(@cut_min_share * 100)}% ended `client_closed`.
+      That is the signature of a machine dropping quiet connections, which
+      only a sandbox reset clears. Most cut first, at most
+      #{@cut_sandboxes_limit}.
     * `:live_sessions` — the sessions themselves, most recently minted first.
       A conversation can hold more than one (`Sessions.create/1` mints on
       every provision and reattach and releases only on expiry), so this is
@@ -74,6 +98,7 @@ defmodule Fountain.Broker.Native.Insights do
       denied: recent(since, :denied, 20),
       errors: error_counts(since),
       failed: recent(since, :failed, 10),
+      cut_sandboxes: cut_sandboxes(since, @cut_sandboxes_limit),
       live_sessions: live_sessions(@live_sessions_limit),
       # Taken with the list, not from `:sessions`: the health tick refreshes
       # that count every 30s and leaves the list alone, so comparing the two
@@ -279,6 +304,49 @@ defmodule Fountain.Broker.Native.Insights do
         order_by: [desc: count(r.id)],
         select: %{error: r.error, requests: count(r.id)}
     )
+  end
+
+  # Per sandbox rather than per conversation: the fault is the machine's, and
+  # a persistent sandbox carries several conversations that all see it. The
+  # owner is the sandbox's, which a deleted account nilifies (the row stays
+  # for billing) — the page shows that as deleted.
+  defp cut_sandboxes(since, limit) do
+    Repo.all(
+      from r in Request,
+        join: c in Conversation,
+        on: c.id == r.conversation_id,
+        join: s in Sandbox,
+        on: s.id == c.sandbox_id,
+        left_join: u in User,
+        on: u.id == s.user_id,
+        where:
+          r.inserted_at >= ^since and r.outcome in ^@forwarded_outcomes and
+            r.latency_ms >= ^@stream_min_latency_ms,
+        group_by: [s.id, u.id],
+        having:
+          count(r.id) >= ^@cut_min_streams and
+            count(fragment("CASE WHEN ? = 'client_closed' THEN 1 END", r.error)) >=
+              fragment("? * ?::float", count(r.id), ^@cut_min_share),
+        order_by: [
+          desc: count(fragment("CASE WHEN ? = 'client_closed' THEN 1 END", r.error)),
+          asc: s.id
+        ],
+        limit: ^limit,
+        select: %{
+          sandbox_id: s.id,
+          machine_name: s.machine_name,
+          provider: s.provider,
+          mode: s.mode,
+          status: s.status,
+          user_id: s.user_id,
+          email: u.email,
+          streams: count(r.id),
+          cut: count(fragment("CASE WHEN ? = 'client_closed' THEN 1 END", r.error)),
+          conversations: count(r.conversation_id, :distinct),
+          last_seen_at: max(r.inserted_at)
+        }
+    )
+    |> Enum.map(&Map.put(&1, :share, &1.cut / &1.streams))
   end
 
   # Nothing decrypted: the rules stay ciphertext under the tenant's DEK and

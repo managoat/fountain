@@ -124,6 +124,22 @@ card shows. The card and the **ChatGPT subscription** row say so.
 The `/start` page and the agent form show the same sentence before you launch
 anything.
 
+## A reply that stops partway
+
+If a codex reply stops partway with
+`stream disconnected before completion: Transport error: timeout` or
+`error decoding response body`, the sandbox's network can be the cause. It
+is not the subscription. Some Sprites machines drop a connection that is idle
+for about one second, and a model's reply pauses while the model reasons.
+Reset the sandbox: `fountain sandbox reset <id>`. The conversation stays. See
+[A Sprites machine that drops quiet connections](../concepts/sandboxes.md#a-sprites-machine-that-drops-quiet-connections).
+
+A subscription can reach only the routes a codex turn needs. Fountain
+refuses the rest, including analytics and the remote plugin catalog. On a
+subscription, Fountain turns both off in Codex, so Codex stops asking for
+them. Codex still asks for its model list after each reply, and Fountain
+still refuses that request. The turn continues.
+
 ## Reconnect, rename, disconnect, remove
 
 - **Reconnect** starts a second sign-in for the same subscription. The

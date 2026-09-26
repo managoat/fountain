@@ -206,12 +206,21 @@ to HTTP, which was about 300 seconds on every turn. Fountain
 carries across `OPENAI_BASE_URL`, the OpenAI-Organization and OpenAI-Project
 header mappings, and standalone web search. A conversation with no
 `OPENAI_API_KEY` keeps the built-in provider, which reads `~/.codex/auth.json`.
+A conversation on a
+[ChatGPT subscription](../../guides/chatgpt-subscriptions.md) gets the same
+treatment. Its provider points at the Codex backend and reads the
+subscription's sign-in.
 
-Fountain reads only the `CODEX_CONFIG` overlay when it does this. A
-`model_provider` that your setup script writes into `~/.codex/config.toml` is
-not read, and the overlay wins over the file. An agent that reached a gateway
-that way now reaches the endpoint above instead. To keep your own provider,
-name it in `CODEX_CONFIG`, which Fountain leaves alone.
+Fountain also sets `MODEL_PROVIDER` to that provider. The ACP adapter passes
+this variable to Codex when it resumes a conversation. Without it, a resumed
+conversation went back to the built-in provider and to the WebSocket wait.
+
+Fountain reads only the `CODEX_CONFIG` overlay and `MODEL_PROVIDER` when it
+does this. A `model_provider` that your setup script writes into
+`~/.codex/config.toml` is not read, and the overlay wins over the file. An
+agent that reached a gateway that way now reaches the endpoint above instead.
+To keep your own provider, name it in `CODEX_CONFIG` or in `MODEL_PROVIDER`.
+Fountain leaves both alone.
 
 The sandbox images do not pin the Codex CLI. The field that turns the
 transport off is `supports_websockets`, which Codex 0.153.3 accepts. A later

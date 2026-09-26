@@ -328,7 +328,7 @@ defmodule Fountain.Conversations.Termination do
   end
 
   @doc """
-  End every live conversation `agent_id` has as a guest on another agent's
+  End every live conversation `agent` has as a guest on another agent's
   machine — the other half of deleting the agent (ADR 0023, amended
   2026-09-26, #2516).
 
@@ -341,39 +341,63 @@ defmodule Fountain.Conversations.Termination do
   a home and a machine another conversation still holds: the machine is not
   this agent's to destroy.
 
-  Best-effort per conversation, as `destroy_home/2`'s terminations are: a
-  refusal is logged and the deletion goes on. Returns the number ended.
-  Refuses an enclosing database transaction.
+  Stops at the first conversation it could not end, as
+  `destroy_homes_for_agent/2` stops at the first home, so the agent is not
+  deleted out from under a guest still bound to a home. A conversation whose
+  row did reach `terminated` counts as ended even when the machine side of
+  its termination answered an error: that machine is the fence's and the
+  reaper's to settle, and the agent has nothing left on it. Returns the
+  number ended, or the error. Refuses an enclosing database transaction.
   """
-  def terminate_guest_conversations(agent_id, opts \\ []) when is_binary(agent_id) do
+  def terminate_guest_conversations(%{id: agent_id, user_id: user_id}, opts \\ [])
+      when is_binary(agent_id) and is_binary(user_id) do
     if Fountain.Repo.in_transaction?() do
       {:error, :provider_transaction_open}
     else
       # ownership: the caller fetched the agent tenant-scoped, and these are
-      # that agent's own conversations.
+      # that agent's own conversations, in its own tenant.
       from(c in Conversation,
         join: s in Sandbox,
         on: s.id == c.sandbox_id,
         where:
-          c.agent_id == ^agent_id and c.status not in ["terminated", "failed"] and
+          c.user_id == ^user_id and c.agent_id == ^agent_id and
+            c.status not in ["terminated", "failed"] and
             not is_nil(s.agent_id) and s.agent_id != ^agent_id,
         select: c.id
       )
       |> Fountain.Repo.all()
-      |> Enum.count(fn conv_id ->
-        case __MODULE__.terminate_conversation(conv_id, Keyword.take(opts, [:actor, :request_ip])) do
-          :ok ->
-            true
-
-          {:error, reason} ->
-            Logger.warning(
-              "guest conversation #{conv_id} of deleted agent #{agent_id} " <>
-                "was not terminated: #{inspect(reason)}"
-            )
-
-            false
+      |> Enum.reduce_while(0, fn conv_id, count ->
+        case end_guest(conv_id, opts) do
+          :ok -> {:cont, count + 1}
+          # Gone since the query above: nothing left to end.
+          {:error, :not_running} -> {:cont, count}
+          {:error, _} = error -> {:halt, error}
         end
       end)
+    end
+  end
+
+  defp end_guest(conv_id, opts) do
+    case __MODULE__.terminate_conversation(conv_id, Keyword.take(opts, [:actor, :request_ip])) do
+      :ok ->
+        :ok
+
+      {:error, reason} = error ->
+        # ownership: conv_id is one of the agent's own conversations above.
+        case Conversations._unsafe_get_conversation(conv_id) do
+          %Conversation{status: status} when status in ["terminated", "failed"] ->
+            Logger.warning(
+              "guest conversation #{conv_id} ended, but its machine answered " <>
+                "#{inspect(reason)}; the row stays for the reaper"
+            )
+
+            :ok
+
+          _live_or_gone ->
+            Logger.warning("guest conversation #{conv_id} was not terminated: #{inspect(reason)}")
+
+            error
+        end
     end
   end
 

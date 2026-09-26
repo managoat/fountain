@@ -320,7 +320,7 @@ defmodule Fountain.Agents do
     with count when is_integer(count) <-
            Termination.destroy_homes_for_agent(agent.id, opts),
          guests when is_integer(guests) <-
-           Termination.terminate_guest_conversations(agent.id, opts) do
+           Termination.terminate_guest_conversations(agent, opts) do
       delete_agent_row(agent, opts)
     end
   end

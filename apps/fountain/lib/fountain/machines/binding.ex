@@ -634,6 +634,9 @@ defmodule Fountain.Machines.Binding do
 
   Refused with `{:error, {:rebuild_required, :shared_sandbox}}` when the
   identity moves and a co-tenant still declares the old one; with
+  `{:error, {:rebuild_required, :runtime}}` when it moves at the request of a
+  conversation whose runtime is not the machine's — a guest on another
+  agent's home (#2516); with
   `{:error, :sandbox_unavailable}` on a terminal or missing row. A move onto
   a persistent home that already exists is the changeset's `:home` error, as
   it was through `Conversations.update_sandbox/2`.
@@ -693,6 +696,9 @@ defmodule Fountain.Machines.Binding do
       moves_identity?(current, attrs) and shared?(current, Keyword.get(opts, :conversation_id)) ->
         {:error, {:rebuild_required, :shared_sandbox}}
 
+      moves_identity?(current, attrs) and guest?(current, Keyword.get(opts, :conversation_id)) ->
+        {:error, {:rebuild_required, :runtime}}
+
       fingerprint_changed?(current, Keyword.get(opts, :expected_fingerprint)) ->
         {:error, {:rebuild_required, :environment}}
 
@@ -716,6 +722,25 @@ defmodule Fountain.Machines.Binding do
 
   defp shared?(%Sandbox{id: sandbox_id}, conv_id), do: held_by_other?(sandbox_id, conv_id)
 
+  # A guest (ADR 0023, amended 2026-09-26): a conversation of another runtime
+  # attached to this machine by `sandbox_id`. Its reapply names its own agent,
+  # so moving the identity would hand the home to it — relabelling a machine
+  # built for one runtime with an agent of another, which is the runtime
+  # change `Reapply.check/2` refuses for everyone else. Refused whether or not
+  # the home's own conversations are still here (#2516). The conversation's
+  # runtime, not its agent: a reapply has already written the selected agent
+  # to the row in the same transaction, and `check/2` has already refused a
+  # runtime change, so the runtime is still the one it attached with.
+  defp guest?(_current, nil), do: false
+  defp guest?(%Sandbox{runtime: nil}, _conv_id), do: false
+
+  defp guest?(%Sandbox{runtime: machine_runtime}, conv_id) do
+    case Repo.one(from c in Conversation, where: c.id == ^conv_id, select: c.runtime) do
+      nil -> false
+      runtime -> runtime != machine_runtime
+    end
+  end
+
   defp fingerprint_changed?(_current, nil), do: false
   defp fingerprint_changed?(%Sandbox{build_fingerprint: fp}, expected), do: fp != expected
 
@@ -727,10 +752,10 @@ defmodule Fountain.Machines.Binding do
 
   `InferenceBinding.compatible_machine/2` until stage 8b, unchanged in what it
   decides for a source that uses the shared `~/.codex/auth.json`: a machine
-  still being built takes any source, and so does one built for another
-  runtime that has never carried a Codex conversation (#2516); a built one
-  takes a source whose kind, identity and revision match its recorded
-  binding, and only if every Codex
+  still being built takes any source, and so does a built one whose
+  reservation stamped `codex_peer_homes` and that records no binding yet
+  (#2516); a built one takes a source whose kind, identity and revision
+  match its recorded binding, and only if every Codex
   co-tenant's does too. Legacy peers without a binding are incompatible. A
   source with a `CODEX_HOME` of its own is outside that rule on a machine
   with `codex_peer_homes` (the moduledoc, "The Codex auth binding"). Must be
@@ -778,15 +803,12 @@ defmodule Fountain.Machines.Binding do
       fresh? = sandbox.status in ["pending", "starting"]
 
       # Decided once, at the machine's very first Codex bind: nothing is
-      # recorded, nobody else is here, and the machine is still being built —
-      # or it was built for another runtime and has never carried a Codex
-      # conversation, so nothing has written its `~/.codex/auth.json` either: a
-      # codex guest on a claude home (ADR 0023, amended 2026-09-26), which
-      # after a re-provision binds on its first wake (#2516).
+      # recorded, nobody else is here, and the machine is still being built.
+      # A machine built by another runtime's conversation carries the flag
+      # from its reservation instead (`Provision.reserve/1`, #2516).
       peer_homes? =
         sandbox.codex_peer_homes or
-          (is_nil(sandbox.codex_inference_source) and peers == [] and
-             (fresh? or sandbox.runtime not in [nil, "codex"]))
+          (fresh? and is_nil(sandbox.codex_inference_source) and peers == [])
 
       cond do
         # A home of its own shares nothing: compatible with every peer, and

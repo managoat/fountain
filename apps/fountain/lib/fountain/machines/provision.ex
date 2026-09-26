@@ -411,10 +411,25 @@ defmodule Fountain.Machines.Provision do
   This is the insert, moved here from `Conversations.create_sandbox/1` in stage
   9b so that the owner's namespace is the only code that writes the
   `sandboxes` row. It runs inside the caller's transaction, as it always did.
+
+  `:builder_runtime` in `attrs` is the runtime of the conversation whose
+  provision will build the machine, which is not always the row's `runtime`:
+  a guest that wakes first on a dead home rebuilds it under the home's label
+  (ADR 0023, amended 2026-09-26, #2516). A machine a non-codex conversation
+  builds is reserved with `codex_peer_homes` set. That flag is what lets a
+  built machine with no recorded Codex binding take its first one
+  (`Binding.bind_inference/2`), and it is true of this machine: it is new, and
+  every Codex bind on a machine that carries the flag records itself, so
+  nothing recorded means no `~/.codex/auth.json` has been written. A codex
+  builder sets the flag at its own first bind, while the machine is still
+  building, as before. Machines reserved before this stay as they were: a
+  built one whose Codex auth file predates the record keeps the old rule.
   """
   @spec reserve(map()) :: {:ok, Sandbox.t()} | {:error, Ecto.Changeset.t()}
   def reserve(attrs) when is_map(attrs) do
-    %Sandbox{}
+    {builder, attrs} = Map.pop(attrs, :builder_runtime)
+
+    %Sandbox{codex_peer_homes: is_binary(builder) and builder != "codex"}
     |> Sandbox.changeset(attrs)
     |> Repo.insert()
   end

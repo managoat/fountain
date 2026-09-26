@@ -574,6 +574,7 @@ defmodule Fountain.Conversations.Wake do
     # `:already_terminal` arm, which is the same arm a reset home's co-tenants
     # have always come through.
     cotenants = split_cotenants(conv.sandbox_id, conv, agent)
+    label = replacement_label(old, conv, agent)
 
     with :ok <- retire_replaced_home(mode, conv.sandbox_id),
          :ok <- Fountain.Accounts.check_not_suspended(conv.user_id),
@@ -592,10 +593,11 @@ defmodule Fountain.Conversations.Wake do
              fn ->
                Fountain.Machines.Provision.reserve(%{
                  environment_id: conv.environment_id || agent.environment_id,
-                 agent_id: home_agent_id(old, conv),
+                 agent_id: label.agent_id,
                  vault_id: conv.vault_id,
                  mode: mode,
-                 runtime: home_runtime(old, conv),
+                 runtime: label.runtime,
+                 builder_runtime: conv.runtime,
                  machine_name: machine_name,
                  status: "pending",
                  provider: Atom.to_string(provider),
@@ -685,21 +687,29 @@ defmodule Fountain.Conversations.Wake do
   # conversations follow onto it. What goes on the disk for the guest's own
   # runtime (skills, instructions, adapter) is its provision's, and each
   # other conversation's runtime is prepared on its next wake
-  # (`Reattachment.prepare_source/5`). Anything else is the conversation's own.
-  defp home_agent_id(%Sandbox{mode: "persistent", agent_id: home}, %Conversation{agent_id: own})
-       when is_binary(home) and home != own,
-       do: home
-
-  defp home_agent_id(_old, conv), do: conv.agent_id
-
-  defp home_runtime(
-         %Sandbox{mode: "persistent", agent_id: home, runtime: runtime},
-         %Conversation{agent_id: own}
+  # (`Reattachment.prepare_source/5`).
+  #
+  # Only while the guest still declares the home's environment and vault — the
+  # attach rule, which a teammate rebinding can break afterwards. A guest that
+  # declares another rebuilds under its own identity, as any conversation
+  # does, and the home's conversations are stranded rather than following
+  # (`split_cotenants/3`). A legacy home with no recorded runtime is not
+  # relabelled either: there is no home's runtime to keep.
+  defp replacement_label(
+         %Sandbox{mode: "persistent", agent_id: home, runtime: runtime} = old,
+         %Conversation{agent_id: own} = conv,
+         agent
        )
-       when is_binary(home) and is_binary(runtime) and home != own,
-       do: runtime
+       when is_binary(home) and is_binary(runtime) and home != own do
+    if {old.environment_id, old.vault_id} ==
+         {conv.environment_id || agent.environment_id, conv.vault_id},
+       do: %{agent_id: home, runtime: runtime},
+       else: own_label(conv)
+  end
 
-  defp home_runtime(_old, conv), do: conv.runtime
+  defp replacement_label(_old, conv, _agent), do: own_label(conv)
+
+  defp own_label(conv), do: %{agent_id: conv.agent_id, runtime: conv.runtime}
 
   defp assert_resumable(%Conversation{status: s}) when s in ~w(terminated failed) do
     {:error, :gone}

@@ -121,6 +121,7 @@ defmodule Fountain.Conversations.Launch do
                vault_id: vault_id,
                mode: mode,
                runtime: agent.runtime,
+               builder_runtime: agent.runtime,
                machine_name: machine_name,
                status: "pending",
                provider: Atom.to_string(provider),

@@ -231,6 +231,56 @@ machines.
 That costs provision time. It buys you no registry, no build pipeline, and no
 garbage-collection problem.
 
+## A Sprites machine that drops quiet connections
+
+This is a known fault in the Sprites platform. Fountain cannot fix it or work
+around it.
+
+Some Sprites machines drop a network connection that is idle for about one
+second. A connection that moves data without a pause is not affected. The
+machine is not told the connection is gone, and neither is the other end.
+The program on the machine waits for data that never comes.
+
+We measured this on 2026-09-26 on a hosted Codex machine. We ran the same
+requests through the same credential broker session on that machine, on two
+other Sprites machines and on a computer outside Sprites.
+
+| Request | Affected machine | Other machines |
+|---|---|---|
+| A 20 MB download | Complete | Complete |
+| One byte every 0.3 seconds | Complete | Complete |
+| A reply that starts after 1 second | Nothing arrives | Complete |
+| One byte every 2 seconds | The first byte, then nothing | Complete |
+
+The affected machine got worse over three hours of use. Early on, about half
+of its model replies finished. By the end, none did. Nothing inside the
+machine differed from the healthy ones. The network settings were the same
+and it had no firewall. The drop happens outside the machine, in the Sprites
+network. We do not know what starts it. The affected machine had opened
+several thousand short connections through the broker when it failed. That
+may be related, but we have not shown it.
+
+**What you see.** A model streams its reply and pauses while it reasons. On
+an affected machine the stream stops at the first pause. Codex prints:
+
+```text
+stream disconnected before completion: Transport error: timeout
+stream disconnected before completion: Transport error: network error: error decoding response body
+```
+
+Codex retries five times, each after about 30 seconds, and then ends the turn.
+The reply stops partway. A later retry can repeat text from an earlier
+attempt. Other runtimes are also affected if their replies pause for a second
+or more.
+
+**What to do.** Reset the machine: `fountain sandbox reset <id>`, or
+`DELETE /api/sandboxes/:id`. The conversations stay, and the next prompt
+builds a new machine. A reset also deletes everything on the machine's disk,
+as described in [Two modes](#two-modes). On 2026-09-26 new machines did not
+have the fault.
+
+Fountain does not detect an affected machine and does not reset one by itself.
+
 ## Where to go next
 
 - [The sandbox contract](../integrations/sandbox-contract.md), the executable

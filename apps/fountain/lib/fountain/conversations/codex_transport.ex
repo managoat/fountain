@@ -57,6 +57,23 @@ defmodule Fountain.Conversations.CodexTransport do
   # consulted: it points at OpenAI-compatible gateways, which this is not.
   # What the id costs is the built-in-only routes (guardian, remote
   # compaction, the token budget), none of which a turn depends on.
+  #
+  # **Resume** (#2503). The overlay alone does not hold a resumed thread on
+  # this provider. codex-acp 1.10 sends `thread/resume` a typed
+  # `modelProvider`: its `MODEL_PROVIDER` launch variable, else the
+  # `model_provider` of the config *file*, else `"openai"`. The file never
+  # sees the overlay, so without the variable every resume asked for the
+  # built-in provider. The typed field outranks the overlay, and codex
+  # persists it on the thread. Every later turn on that thread then went back
+  # to the WebSocket. So the variable is exported whenever this provider is
+  # selected. An existing `MODEL_PROVIDER` counts as a selection, like the
+  # overlay's `model_provider`.
+  #
+  # **Refused traffic on the grant.** A managed grant's session refuses every
+  # `chatgpt.com` route but the protected ones, and each refusal closes its
+  # tunnel. Codex's analytics queue and remote plugin catalog asked for such
+  # routes several hundred times an hour, and none of them could succeed. On
+  # a grant spawn both are off, unless the overlay sets them itself.
   @provider_id "fountain_openai_http"
   @openai_base_url "https://api.openai.com/v1"
   @chatgpt_base_url "https://chatgpt.com/backend-api/codex"
@@ -64,7 +81,8 @@ defmodule Fountain.Conversations.CodexTransport do
 
   # The names this module reads and acts on. `CODEX_CONFIG` is already
   # collapsed by the rewrite, which rejects every entry and appends one.
-  @resolved_names ["OPENAI_API_KEY", "OPENAI_BASE_URL", @chatgpt_key]
+  @provider_env "MODEL_PROVIDER"
+  @resolved_names ["OPENAI_API_KEY", "OPENAI_BASE_URL", @chatgpt_key, @provider_env]
 
   def spawn_opts(%{broker: broker} = state, "codex", opts) when not is_nil(broker) do
     env = opts |> Keyword.get(:env, []) |> host_codex_home(Map.get(state, :handle))
@@ -91,10 +109,13 @@ defmodule Fountain.Conversations.CodexTransport do
         |> Map.put("features", Map.put(features, "respect_system_proxy", true))
         |> Map.delete("features.respect_system_proxy")
         |> select_http_provider(resolved)
+        |> quiet_grant(resolved)
 
       env =
-        Enum.reject(env, &match?({"CODEX_CONFIG", _}, &1)) ++
-          [{"CODEX_CONFIG", Jason.encode!(config)}]
+        env
+        |> Enum.reject(&match?({"CODEX_CONFIG", _}, &1))
+        |> pin_provider(config)
+        |> Kernel.++([{"CODEX_CONFIG", Jason.encode!(config)}])
 
       {:ok, Keyword.put(opts, :env, collapse(env, @resolved_names))}
     else
@@ -163,16 +184,57 @@ defmodule Fountain.Conversations.CodexTransport do
   end
 
   defp substitute?(config, env) do
-    Map.get(config, "model_provider", "openai") == "openai" and present?(env, "OPENAI_API_KEY")
+    selected(config, env) == "openai" and present?(env, "OPENAI_API_KEY")
   end
 
   # The grant shape: the built-in would be selected, the spawn carries the
   # grant and no API key. A key beside the grant is the tenant's own or the
   # platform's, and the resolver never hands both out — but if both were
   # present the key would win above, as it does everywhere else.
-  defp chatgpt?(config, env) do
-    Map.get(config, "model_provider", "openai") == "openai" and present?(env, @chatgpt_key) and
-      not present?(env, "OPENAI_API_KEY")
+  defp chatgpt?(config, env), do: selected(config, env) == "openai" and grant?(env)
+
+  defp grant?(env), do: present?(env, @chatgpt_key) and not present?(env, "OPENAI_API_KEY")
+
+  # What codex would run on: the overlay's selection, else the launch
+  # variable codex-acp passes as a typed override, else the built-in.
+  defp selected(config, env) do
+    cond do
+      is_binary(config["model_provider"]) -> config["model_provider"]
+      present?(env, @provider_env) -> env[@provider_env]
+      true -> "openai"
+    end
+  end
+
+  # One `MODEL_PROVIDER` naming this provider, so that `thread/resume`
+  # stays on it (see **Resume** above). Left alone when anything else is
+  # selected.
+  defp pin_provider(env, %{"model_provider" => @provider_id}) do
+    Enum.reject(env, &match?({@provider_env, _}, &1)) ++ [{@provider_env, @provider_id}]
+  end
+
+  defp pin_provider(env, _config), do: env
+
+  # Only defaults: a value the overlay sets, in either spelling, is kept.
+  defp quiet_grant(config, env) do
+    if grant?(env) do
+      config
+      |> put_default(["features", "remote_plugin"], false)
+      |> put_default(["analytics", "enabled"], false)
+    else
+      config
+    end
+  end
+
+  defp put_default(config, [table, key] = path, value) do
+    case Map.get(config, table, %{}) do
+      section when is_map(section) ->
+        if Map.has_key?(section, key) or Map.has_key?(config, Enum.join(path, ".")),
+          do: config,
+          else: Map.put(config, table, Map.put(section, key, value))
+
+      _ ->
+        config
+    end
   end
 
   defp present?(env, name) do

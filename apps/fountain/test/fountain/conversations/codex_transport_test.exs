@@ -3,6 +3,9 @@ defmodule Fountain.Conversations.CodexTransportTest do
 
   alias Fountain.Conversations.CodexTransport
 
+  # What a keyed spawn gains beside its own env.
+  @added ["CODEX_CONFIG", "MODEL_PROVIDER"]
+
   test "brokered Codex gets TLS proxy support without changing proxy credentials or spawn options" do
     opts = [
       env: [{"HTTPS_PROXY", "https://token:label@broker.example:443"}],
@@ -96,7 +99,83 @@ defmodule Fountain.Conversations.CodexTransportTest do
 
     assert {:ok, result} = CodexTransport.spawn_opts(%{broker: %{}}, "codex", env: env)
 
-    assert Enum.reject(result[:env], &match?({"CODEX_CONFIG", _}, &1)) == env
+    assert Enum.reject(result[:env], &match?({name, _} when name in @added, &1)) == env
+  end
+
+  # #2503. codex-acp 1.10 sends `thread/resume` a typed `modelProvider` taken
+  # from its `MODEL_PROVIDER` launch variable, falling back to the config
+  # file and then to "openai". The file never sees the overlay, so without the
+  # variable every resumed thread went back to the built-in provider and
+  # dialled the WebSocket again.
+  test "the selected provider is also the launch variable codex-acp resumes with" do
+    for env <- [
+          [key("sk-x")],
+          [{"CODEX_CHATGPT_ACCESS_TOKEN", "__codex_chatgpt_access_token__"}]
+        ] do
+      assert {:ok, result} = CodexTransport.spawn_opts(%{broker: %{}}, "codex", env: env)
+
+      assert config(result)["model_provider"] == "fountain_openai_http"
+
+      assert Enum.filter(result[:env], &match?({"MODEL_PROVIDER", _}, &1)) ==
+               [{"MODEL_PROVIDER", "fountain_openai_http"}]
+
+      # Applying the policy again changes nothing.
+      assert {:ok, ^result} = CodexTransport.spawn_opts(%{broker: %{}}, "codex", result)
+    end
+
+    # Nothing selected, nothing pinned: the built-in resumes as before.
+    assert {:ok, bare} = CodexTransport.spawn_opts(%{broker: %{}}, "codex", env: [])
+    refute List.keymember?(bare[:env], "MODEL_PROVIDER", 0)
+  end
+
+  # The variable is a selection codex-acp acts on, so it is read as one.
+  test "a MODEL_PROVIDER in the env selects a provider like the overlay does" do
+    gateway = [key("sk-x"), {"MODEL_PROVIDER", "litellm"}]
+    assert {:ok, kept} = CodexTransport.spawn_opts(%{broker: %{}}, "codex", env: gateway)
+
+    refute Map.has_key?(config(kept), "model_provider")
+    assert Enum.reject(kept[:env], &match?({"CODEX_CONFIG", _}, &1)) == gateway
+
+    # Naming the built-in is the built-in: substituted, and the one entry
+    # left names the replacement.
+    builtin = [{"MODEL_PROVIDER", "openai"}, key("sk-x")]
+    assert {:ok, moved} = CodexTransport.spawn_opts(%{broker: %{}}, "codex", env: builtin)
+
+    assert config(moved)["model_provider"] == "fountain_openai_http"
+
+    assert Enum.filter(moved[:env], &match?({"MODEL_PROVIDER", _}, &1)) ==
+             [{"MODEL_PROVIDER", "fountain_openai_http"}]
+  end
+
+  # #2503. A grant's session refuses every chatgpt.com route but the
+  # protected ones. Analytics and the remote plugin catalog asked for such
+  # routes hundreds of times an hour, each refusal costing a tunnel.
+  test "a grant spawn turns off analytics and the remote plugin catalog by default" do
+    grant = [{"CODEX_CHATGPT_ACCESS_TOKEN", "__codex_chatgpt_access_token__"}]
+    assert {:ok, result} = CodexTransport.spawn_opts(%{broker: %{}}, "codex", env: grant)
+
+    assert config(result)["features"]["remote_plugin"] == false
+    assert config(result)["analytics"] == %{"enabled" => false}
+
+    # What the overlay sets itself is kept, in either spelling.
+    for overlay <- [
+          %{"features" => %{"remote_plugin" => true}, "analytics" => %{"enabled" => true}},
+          %{"features.remote_plugin" => true, "analytics.enabled" => true}
+        ] do
+      env = grant ++ [{"CODEX_CONFIG", Jason.encode!(overlay)}]
+      assert {:ok, result} = CodexTransport.spawn_opts(%{broker: %{}}, "codex", env: env)
+      config = config(result)
+
+      refute config["features"]["remote_plugin"] == false
+      refute get_in(config, ["analytics", "enabled"]) == false
+    end
+
+    # Not a grant, nothing refused: codex's own defaults stand.
+    for env <- [[key("sk-x")], grant ++ [key("sk-x")], []] do
+      assert {:ok, result} = CodexTransport.spawn_opts(%{broker: %{}}, "codex", env: env)
+      refute Map.has_key?(config(result)["features"], "remote_plugin")
+      refute Map.has_key?(config(result), "analytics")
+    end
   end
 
   # The built-in provider reads OPENAI_BASE_URL, so an environment pointing

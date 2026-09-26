@@ -1,6 +1,6 @@
 ### Added
 
-- **A conversation can run a different model from its agent** (ADR 0061).
+- **A conversation can run a different model from its agent** (#2511, ADR 0061).
   Name one with `model` on `POST /api/conversations`, or change it on a
   running conversation with `POST /api/conversations/{id}/reapply`. The next
   turn runs on the new model and continues the same runtime session; `null`

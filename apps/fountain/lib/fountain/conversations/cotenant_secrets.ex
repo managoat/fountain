@@ -120,7 +120,11 @@ defmodule Fountain.Conversations.CotenantSecrets do
   subscribes. Every provision and reattach calls it, so the subscription is
   replaced rather than added to: one per server, however many times it wakes.
   """
-  @spec assembled(list(), %{conversation_id: String.t(), sandbox_id: String.t() | nil}) :: list()
+  @spec assembled(list(), %{
+          :conversation_id => String.t(),
+          :sandbox_id => String.t() | nil,
+          optional(atom()) => any()
+        }) :: list()
   def assembled(sprite_env, %{sandbox_id: nil}), do: sprite_env
 
   def assembled(sprite_env, %{conversation_id: conversation_id, sandbox_id: sandbox_id}) do

@@ -227,8 +227,14 @@ defmodule Fountain.Conversations.ProvisioningStepsTest do
     end
 
     test "an adapter runtime installs the adapter first, and its failure is the step's" do
+      # The claude adapter's install manifest (managoat_runtimes 0.5.1).
+      stub(Managoat.Sandbox, :write_file, fn _handle, path, _body ->
+        assert path =~ ".local/share/managoat/acp/claude-agent-acp@"
+        :ok
+      end)
+
       stub(Managoat.Sandbox, :exec, fn _handle, "bash", ["-lc", script], _opts ->
-        assert script =~ "npm install -g"
+        assert script =~ ".local/share/managoat/acp/claude-agent-acp@"
         {:ok, "", 0}
       end)
 

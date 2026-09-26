@@ -214,12 +214,13 @@ environments can stand in for its own, with `allowed_environment_ids`.
   `ask` policy through OpenClaw yet. An unanswered prompt blocks the tool for 5
   minutes, and Fountain then refuses it. Leave the default until somebody
   measures it.
-- **The model, and the thinking level, belong to the Fountain agent.**
+- **OpenClaw cannot choose the model, or the thinking level.**
   Fountain accepts and ignores OpenClaw's `--model`, the `model` and
-  `thinking` on `sessions_spawn`, and the `/acp` model controls. A Fountain
-  agent carries its model on the agent, and each conversation it runs shares
-  it. Change it there. OpenClaw's own docs say the same for any harness
-  without `session/set_model`.
+  `thinking` on `sessions_spawn`, and the `/acp` model controls. A
+  conversation runs its Fountain agent's model, or a model of its own that the
+  API sets ([Change the model](../api.md#change-the-model)). ACP has no way to
+  set it yet. OpenClaw's own docs say the same for any harness without
+  `session/set_model`.
 - **On OpenClaw ≤ 2026.7.1, with acpx 0.11, a one-shot spawn opens two
   conversations and uses one.** OpenClaw ensured the acpx session twice, once
   when it initialised the spawn and again when the turn ran. In `oneshot` mode

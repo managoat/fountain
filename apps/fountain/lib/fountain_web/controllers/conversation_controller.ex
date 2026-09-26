@@ -620,7 +620,7 @@ defmodule FountainWeb.ConversationController do
   # dropping the keys we know would park whatever else a caller sent in
   # `attrs` until the request expired.
   @queued_attr_keys ~w(prompt title vault_id environment_id inference_credential_id
-                       permission_policy sandbox_mode sandbox_api_access sprite_name
+                       permission_policy model sandbox_mode sandbox_api_access sprite_name
                        channel_id fresh parent_conversation_id labels
                        execution_limits client_request_id)
 
@@ -674,13 +674,17 @@ defmodule FountainWeb.ConversationController do
   end
 
   operation(:reapply,
-    summary: "Reapply a conversation's Agent, Environment and Vault",
+    summary: "Reapply a conversation's Agent, Environment, Vault and model",
     description:
       "Applies a selection to the machine this conversation already runs on, so its files " <>
         "stay where the agent left them. Variables, the system prompt, skills and MCP " <>
         "configuration are rewritten, and the next prompt reads them. An omitted field keeps " <>
-        "its current selection; null clears the Environment override or the Vault; an empty " <>
-        "object reapplies what is already selected.\n\n" <>
+        "its current selection; null clears the Environment override, the Vault or the " <>
+        "model override; an empty object reapplies what is already selected.\n\n" <>
+        "`model` changes the model this conversation runs from its next turn (ADR 0061), " <>
+        "continuing the same runtime session. It is refused with 422 `model_invalid` when " <>
+        "the runtime cannot run it, and with 409 `inference_source_changed` when the " <>
+        "conversation's credential does not serve it.\n\n" <>
         "Refused with 409 `conversation_busy` while a turn runs, 409 `rebuild_required` when " <>
         "the selection would need the machine built again (the `field` says which one forced " <>
         "it), 503 while the machine is still being built, and 410 once the conversation has " <>

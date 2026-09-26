@@ -466,6 +466,7 @@ defmodule Fountain.Exports do
         "agent_id" => conv.agent_id,
         "vault_id" => conv.vault_id,
         "environment_id" => conv.environment_id,
+        "model" => conv.model,
         "parent_conversation_id" => conv.parent_conversation_id,
         "created_at" => conv.inserted_at,
         "updated_at" => conv.updated_at,

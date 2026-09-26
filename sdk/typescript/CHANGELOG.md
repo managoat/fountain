@@ -11,6 +11,12 @@ server releases.
 
 ---
 
+## [6.2.0] - 2026-09-26
+
+### Added
+
+- `ReapplyOptions.model` on `resume(id).reapply`: run another model from the conversation's next turn, or pass `null` to return to its agent's model (#2511, ADR 0061). The generated types carry the conversation's `model` and the request fields.
+
 ## [6.1.0] - 2026-09-17
 
 ### Added

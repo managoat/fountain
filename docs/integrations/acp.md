@@ -57,7 +57,7 @@ version when that is lower. `agentInfo` is `fountain`, with the CLI's version.
 | `session/prompt` | Sends the turn, as text and images. It drops another block with a warning, and refuses a prompt where it can use nothing. It then streams the conversation's ACP output back as `session/update` notifications, until the turn ends. |
 | `session/cancel` | Interrupts the turn that runs. |
 | `session/load` | Reopens a conversation that this process did not start. It replays the stored `session/update` history **before** the response, as the spec demands. |
-| `session/set_model` | Not implemented. The model belongs to the Fountain agent. A change here would change each conversation on that agent. |
+| `session/set_model` | Not implemented. Change a conversation's model through the API instead ([Change the model](../api.md#change-the-model)). |
 | `session/request_permission` (agent → client) | Goes to your client when the policy for that tool is `ask` ([#708](https://github.com/managoat/fountain/issues/708)). It carries the agent's own options. Your answer goes back to the agent. See [Permission prompts](#permission-prompts). |
 
 Fountain advertises `loadSession: true`. On prompts it advertises

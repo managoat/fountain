@@ -81,6 +81,51 @@ func TestACPSendPromptClientRequestID(t *testing.T) {
 	}
 }
 
+// A reopened session reports the model its conversation runs: its own
+// override when it has one (ADR 0061), else its agent's.
+func TestACPConversationReportsItsModel(t *testing.T) {
+	const agentID = "8f14e45f-ceea-467a-9f3b-9c8d2a1e0b01"
+	for _, tc := range []struct {
+		name  string
+		model any
+		want  string
+	}{
+		{name: "override", model: "anthropic/claude-sonnet-5", want: "anthropic/claude-sonnet-5"},
+		{name: "follows the agent", model: nil, want: "anthropic/claude-opus-5"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				var data map[string]any
+				switch r.URL.Path {
+				case "/api/conversations/conv-1":
+					data = map[string]any{
+						"id": "conv-1", "runtime": "claude", "status": "idle", "acp": true,
+						"agent_id": agentID, "model": tc.model,
+					}
+				case "/api/agents/" + agentID:
+					data = map[string]any{
+						"id": agentID, "name": "coder", "runtime": "claude",
+						"model": "anthropic/claude-opus-5", "acp": true,
+					}
+				default:
+					t.Errorf("unexpected request: %s %s", r.Method, r.URL)
+				}
+				_ = json.NewEncoder(w).Encode(map[string]any{"data": data})
+			}))
+			defer server.Close()
+
+			ref, err := acpTestAPI(t, server.URL).Conversation(context.Background(), "conv-1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if ref.Model != tc.want {
+				t.Fatalf("model = %q, want %q", ref.Model, tc.want)
+			}
+		})
+	}
+}
+
 // The server closes an SSE connection after 60 seconds of quiet, so a turn
 // that thinks for longer than that WILL be disconnected mid-answer. `fountain
 // run` learned this the hard way (#398); an editor session inherits the fix

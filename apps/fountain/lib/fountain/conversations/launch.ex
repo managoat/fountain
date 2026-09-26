@@ -56,6 +56,8 @@ defmodule Fountain.Conversations.Launch do
                                 agent's own (#783); subject to `agent.allowed_environment_ids`
     - `permission_policy`     — optional per-tool permission override (#939); may only
                                 narrow the agent's own policy, never widen it
+    - `model`                 — optional model override (ADR 0061), checked as the agent's
+                                own model is; nil runs the agent's model
     - `sandbox_api_access`    — "owner" (default) or "none"; none requires a fresh ephemeral sandbox
     - `source`                — optional; one of "ui", "api", "agent" (default "api")
     - `parent_conversation_id` — optional; UUID of the conversation that spawned this one
@@ -94,12 +96,13 @@ defmodule Fountain.Conversations.Launch do
          :ok <- check_sandbox_api_name(api_access, attrs["sprite_name"]),
          {:ok, perm_policy} <-
            Conversations.resolve_permission_policy(attrs["permission_policy"], agent),
+         {:ok, model} <- Conversations.resolve_model(attrs["model"], agent),
          {:ok, parent_id} <-
            resolve_parent_id(attrs["parent_conversation_id"], user_id),
          :ok <- Fountain.Accounts.check_not_suspended(user_id),
          :ok <- Fountain.Billing.check_spend(user_id),
          {:ok, inference_source} <-
-           resolve_admission_inference(user_id, agent, env_id, vault_id, cred_set_id),
+           resolve_admission_inference(user_id, agent, env_id, vault_id, cred_set_id, model),
          # A persistent launch lands on the identity's home when there is one
          # (ADR 0023 gate 6): `{:home, sandbox}` leaves the `with` and attaches
          # below. Only when there is none does a machine get provisioned, and
@@ -140,6 +143,7 @@ defmodule Fountain.Conversations.Launch do
                title: attrs["title"],
                sandbox_api_access: api_access,
                permission_policy: perm_policy,
+               model: model,
                labels: attrs["labels"] || %{}
              },
              attrs["execution_limits"],
@@ -167,7 +171,8 @@ defmodule Fountain.Conversations.Launch do
           "agent_name" => agent.name,
           "source" => conv.source,
           "with_prompt" => is_binary(attrs["prompt"]) and attrs["prompt"] != "",
-          "parent_conversation_id" => parent_id
+          "parent_conversation_id" => parent_id,
+          "model" => model
         }
       })
 
@@ -393,12 +398,13 @@ defmodule Fountain.Conversations.Launch do
            ),
          {:ok, perm_policy} <-
            Conversations.resolve_permission_policy(attrs["permission_policy"], agent),
+         {:ok, model} <- Conversations.resolve_model(attrs["model"], agent),
          {:ok, parent_id} <-
            resolve_parent_id(attrs["parent_conversation_id"], user_id),
          :ok <- Fountain.Accounts.check_not_suspended(user_id),
          :ok <- Fountain.Billing.check_spend(user_id),
          {:ok, inference_source} <-
-           resolve_admission_inference(user_id, agent, env_id, vault_id, cred_set_id),
+           resolve_admission_inference(user_id, agent, env_id, vault_id, cred_set_id, model),
          %Sandbox{} = sandbox <-
            Conversations.get_sandbox(sandbox_id, user_id) || {:error, :sandbox_not_found},
          :ok <- check_sandbox_api_attach(sandbox, attrs["sandbox_api_access"]),
@@ -426,6 +432,7 @@ defmodule Fountain.Conversations.Launch do
                channel_id: attrs["channel_id"],
                title: attrs["title"],
                permission_policy: perm_policy,
+               model: model,
                labels: attrs["labels"] || %{}
              },
              Keyword.put(opts, :request, attrs["execution_limits"])
@@ -443,7 +450,8 @@ defmodule Fountain.Conversations.Launch do
           "source" => conv.source,
           "with_prompt" => is_binary(attrs["prompt"]) and attrs["prompt"] != "",
           "parent_conversation_id" => parent_id,
-          "sandbox_attached" => sandbox.id
+          "sandbox_attached" => sandbox.id,
+          "model" => model
         }
       })
 
@@ -690,12 +698,13 @@ defmodule Fountain.Conversations.Launch do
   #2175 moved the second caller in beside the first); not a request-facing
   entry point.
   """
-  def resolve_admission_inference(user_id, agent, env_id, vault_id, set_id) do
+  def resolve_admission_inference(user_id, agent, env_id, vault_id, set_id, model \\ nil) do
     with {:ok, source, _credentials} <-
            InferenceResolution.select(user_id, agent,
              credential_set_id: set_id,
              environment_id: env_id,
-             vault_id: vault_id
+             vault_id: vault_id,
+             model: model
            ),
          :ok <- Fountain.PlatformInference.gate_source(source) do
       {:ok, source}
@@ -831,6 +840,7 @@ defmodule Fountain.Conversations.Launch do
                  ),
                :ok <- Conversations._unsafe_check_saved_execution_allowance(current.id),
                :ok <- check_sandbox_api_resume(current, attrs["sandbox_api_access"]),
+               :ok <- check_model_resume(current, agent, attrs["model"]),
                {:ok, source} <- Conversations.resolve_saved_inference(current, agent),
                {:ok, current, audit} <-
                  Conversations.resume_labels(current, attrs["labels"], opts),
@@ -849,6 +859,21 @@ defmodule Fountain.Conversations.Launch do
   defp check_sandbox_api_resume(_conv, nil), do: :ok
   defp check_sandbox_api_resume(%Conversation{sandbox_api_access: access}, access), do: :ok
   defp check_sandbox_api_resume(_conv, _access), do: {:error, :invalid_sandbox_api_access}
+
+  # The model is not part of the channel's resume key (ADR 0061 decision 5),
+  # so a request can name one the conversation it resumes does not run.
+  # Refused rather than resumed on the old model, which would take the field
+  # and ignore it. Compared with the model the conversation runs, so naming
+  # its agent's model resumes one with no override. An omitted model resumes
+  # on whatever the conversation runs.
+  defp check_model_resume(_conv, _agent, model) when model in [nil, ""], do: :ok
+
+  defp check_model_resume(conv, agent, model) do
+    case InferenceResolution.model(conv, agent) do
+      ^model -> :ok
+      current -> {:error, {:conversation_model_differs, current}}
+    end
+  end
 
   # `true` or `"true"` — the ACP adapter sends a JSON boolean, a hand-built
   # request may send a string. Anything else is not a request.

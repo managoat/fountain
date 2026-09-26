@@ -218,14 +218,15 @@ struct FountainKitContractTests {
     let declared = Set(try #require(schema["properties"] as? [String: Any]).keys)
 
     let request = ConversationReapplyRequest(
-      agentID: "a-1", environment: .use("e-1"), vault: .use("v-1"))
+      agentID: "a-1", environment: .use("e-1"), vault: .use("v-1"),
+      model: .use("anthropic/claude-sonnet-5"))
     let body = try JSONEncoder().encode(request)
     let wire = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
     #expect(Set(wire.keys) == declared)
 
     // The same fields, cleared rather than set, still reach the wire — as JSON
     // null, which is what distinguishes "remove it" from "leave it alone".
-    let cleared = ConversationReapplyRequest(environment: .clear, vault: .clear)
+    let cleared = ConversationReapplyRequest(environment: .clear, vault: .clear, model: .clear)
     let clearedBody = try JSONEncoder().encode(cleared)
     let clearedWire = try #require(
       JSONSerialization.jsonObject(with: clearedBody) as? [String: Any])

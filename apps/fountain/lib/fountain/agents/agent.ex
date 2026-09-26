@@ -251,10 +251,7 @@ defmodule Fountain.Agents.Agent do
     |> validate_inclusion(:sandbox_mode, @sandbox_modes)
     |> validate_model_presence()
     |> validate_runtime_command()
-    |> validate_format(:model, ~r{^[a-z0-9_-]+/[a-z0-9._-]+$},
-      message: "must be in canonical provider/model_id form"
-    )
-    |> validate_model_provider()
+    |> validate_model()
     |> validate_sandbox_provider()
     |> validate_length(:name, min: 1, max: 200)
     |> Fountain.Changeset.validate_ids([
@@ -338,6 +335,30 @@ defmodule Fountain.Agents.Agent do
           "only the acp runtime launches a command; #{runtime || "this runtime"} resolves its own"
         )
     end
+  end
+
+  @doc """
+  `:ok` if `runtime` can run `model`, or `{:error, message}` saying why not.
+
+  The checks this changeset applies to an agent's model, for a model that is
+  not an agent's: a conversation's override (ADR 0061) meets exactly these.
+  """
+  @spec check_model(String.t() | nil, String.t()) :: :ok | {:error, String.t()}
+  def check_model(runtime, model) when is_binary(model) do
+    changeset = %__MODULE__{runtime: runtime} |> change(model: model) |> validate_model()
+
+    case Keyword.get(changeset.errors, :model) do
+      nil -> :ok
+      {message, _opts} -> {:error, message}
+    end
+  end
+
+  defp validate_model(changeset) do
+    changeset
+    |> validate_format(:model, ~r{^[a-z0-9_-]+/[a-z0-9._-]+$},
+      message: "must be in canonical provider/model_id form"
+    )
+    |> validate_model_provider()
   end
 
   # claude / codex / gemini each drive a single provider's CLI and take a

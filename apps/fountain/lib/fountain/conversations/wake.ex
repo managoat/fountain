@@ -365,7 +365,9 @@ defmodule Fountain.Conversations.Wake do
            ),
          # Ownership: conv.agent_id belongs to this established-owner conversation.
          %Agents.Agent{} = agent <-
-           (conv.agent_id && Agents._unsafe_get_agent(conv.agent_id)) || {:error, :no_agent},
+           (conv.agent_id &&
+              Conversation.with_model(Agents._unsafe_get_agent(conv.agent_id), conv)) ||
+             {:error, :no_agent},
          {:ok, runtime_module} <- Fountain.RuntimeDispatch.for_agent(conv) do
       case maybe_reuse_sandbox(conv) do
         {:reuse, sandbox_id, observed} ->

@@ -3,21 +3,15 @@
 Notable changes to the Fountain Swift SDK follow
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [0.20.0] - 2026-09-17
-
-### Changed
-
-- Release Fountain and FountainKit independently of the server. Install with
-  `.package(url: "https://github.com/managoat/fountain.git", revision: "sdk-swift-v0.20.0")`.
-  Historical server tags remain available; version-range installs continue to
-  select server snapshots, not independent Swift releases (#1414).
+## [0.21.0] - 2026-09-26
 
 ### Added
 
-- Carry `clientRequestID` on create, follow-up prompts and all channel-resume
-  paths in both products; this SDK release includes the merged #1406 work.
-
-## Unreleased
+- `model` on `Conversation.reapply` (Fountain) and on
+  `ConversationReapplyRequest` (FountainKit): run another model from the
+  conversation's next turn, or clear it to return to its agent's model (#2511,
+  ADR 0061). `Conversation` gains `model`, and `ConversationCreateRequest`
+  takes it.
 
 ### Changed
 
@@ -148,3 +142,18 @@ The response still exposes its original code and purchase URL.
   compiler version. The SSE iterator is safe under Swift 6 strict concurrency.
 - The Fountain release pipeline resolves and builds the tagged package from a
   clean consumer before it creates the GitHub Release.
+
+
+## [0.20.0] - 2026-09-17
+
+### Changed
+
+- Release Fountain and FountainKit independently of the server. Install with
+  `.package(url: "https://github.com/managoat/fountain.git", revision: "sdk-swift-v0.20.0")`.
+  Historical server tags remain available; version-range installs continue to
+  select server snapshots, not independent Swift releases (#1414).
+
+### Added
+
+- Carry `clientRequestID` on create, follow-up prompts and all channel-resume
+  paths in both products; this SDK release includes the merged #1406 work.

@@ -53,15 +53,23 @@ defmodule Fountain.Conversations.InferenceResolution do
   end
 
   @doc """
+  The model a conversation runs: its own override (ADR 0061), else its
+  agent's. Nil for a conversation with neither, which the `acp` runtime is.
+  """
+  @spec model(map(), map() | nil) :: String.t() | nil
+  def model(conv, agent), do: Map.get(conv, :model) || (agent && agent.model)
+
+  @doc """
   A new selection, for admission: the launch's set override (`:credential_set_id`,
   nil for the agent's set), its environment override (`:environment_id`,
-  nil for the agent's) and its vault (`:vault_id`).
+  nil for the agent's), its vault (`:vault_id`) and its model override
+  (`:model`, nil for the agent's).
   """
   @spec select(binary(), map(), keyword()) :: result()
   def select(user_id, agent, opts) do
-    opts = Keyword.validate!(opts, [:credential_set_id, :environment_id, :vault_id])
+    opts = Keyword.validate!(opts, [:credential_set_id, :environment_id, :vault_id, :model])
 
-    InferenceCredentials.resolve(user_id, agent.model, agent.runtime,
+    InferenceCredentials.resolve(user_id, model(%{model: opts[:model]}, agent), agent.runtime,
       credential_set_id:
         credential_set_id(%{inference_credential_id: opts[:credential_set_id]}, agent),
       environment_id: opts[:environment_id] || agent.environment_id,
@@ -72,22 +80,28 @@ defmodule Fountain.Conversations.InferenceResolution do
   @doc """
   A re-validation against a stored source, for wake, resume, provision and
   reapply: the conversation's `inference_source` is the expected source and
-  its `runtime` the runtime, the agent's model is the model, and
+  its `runtime` the runtime, `model/2` is the model, and
   `:environment_id` / `:vault_id` are the rows it runs against now. The set
   comes from the expected source; with none stored, from the conversation
   or its agent (`credential_set_id/2`).
 
   Reapply is the one caller that overrides `:expected_source` (the stored
-  source with the new configuration merged in) and `:runtime` (the agent's,
-  which the row takes only after the source is resolved).
+  source with the new configuration merged in), `:runtime` (the agent's,
+  which the row takes only after the source is resolved) and `:model` (the
+  selection's, for the same reason).
+
+  The conversation's override is read here, not by each caller, because a
+  caller that passed the agent's model for an overridden conversation would
+  read as `:inference_source_changed` on its next wake.
   """
   @spec revalidate(map(), map() | nil, keyword()) :: result()
   def revalidate(conv, agent, opts) do
-    opts = Keyword.validate!(opts, [:expected_source, :runtime, :environment_id, :vault_id])
+    opts =
+      Keyword.validate!(opts, [:expected_source, :runtime, :environment_id, :vault_id, :model])
 
     InferenceCredentials.resolve(
       conv.user_id,
-      agent && agent.model,
+      Keyword.get_lazy(opts, :model, fn -> model(conv, agent) end),
       Keyword.get(opts, :runtime, conv.runtime),
       expected_source: Keyword.get(opts, :expected_source, conv.inference_source),
       credential_set_id: credential_set_id(conv, agent),

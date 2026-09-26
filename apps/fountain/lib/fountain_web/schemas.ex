@@ -539,6 +539,14 @@ defmodule FountainWeb.Schemas do
           nullable: true,
           description: "Per-launch environment override; null means the agent's environment."
         },
+        model: %Schema{
+          type: :string,
+          nullable: true,
+          description:
+            "This conversation's model override (ADR 0061), set at launch or by reapply; " <>
+              "null means it runs the agent's model. Each turn's model_selection records " <>
+              "the model that turn actually asked for."
+        },
         runtime: %Schema{type: :string, enum: Fountain.Agents.Agent.packaged_runtimes()},
         acp: %Schema{
           type: :boolean,
@@ -790,6 +798,19 @@ defmodule FountainWeb.Schemas do
               "channel, it fails with permission_policy_requires_fresh_conversation before " <>
               "sending the prompt. Set fresh: true to create a conversation for that policy."
         },
+        model: %Schema{
+          type: :string,
+          nullable: true,
+          description:
+            "Optional model to run instead of the agent's (ADR 0061), in canonical " <>
+              "provider/model_id form, for this conversation only. Checked as the agent's " <>
+              "own model is: a provider the runtime does not drive, or any model on the acp " <>
+              "runtime, is 422 model_invalid. The model id itself is not checked against a " <>
+              "catalog. Change it later with POST /api/conversations/{id}/reapply. Not part " <>
+              "of the channel_id resume key: a request that resumes a conversation running " <>
+              "a different model is 409 conversation_model_differs, before any prompt is " <>
+              "sent; reapply the model, or set fresh: true."
+        },
         prompt: %Schema{
           type: :string,
           description:
@@ -974,10 +995,10 @@ defmodule FountainWeb.Schemas do
     OpenApiSpex.schema(%{
       title: "ConversationReapplyRequest",
       description:
-        "A selection of Agent, Environment and Vault to apply to the machine an existing " <>
-          "conversation already runs on. An omitted field keeps its current selection. An " <>
-          "explicit null clears the Environment override or the Vault. An empty object " <>
-          "reapplies the current selection.",
+        "A selection of Agent, Environment, Vault and model to apply to the machine an " <>
+          "existing conversation already runs on. An omitted field keeps its current " <>
+          "selection. An explicit null clears the Environment override, the Vault or the " <>
+          "model override. An empty object reapplies the current selection.",
       type: :object,
       properties: %{
         agent_id: %Schema{
@@ -997,6 +1018,17 @@ defmodule FountainWeb.Schemas do
           format: :uuid,
           nullable: true,
           description: "Vault to use; null detaches the current Vault."
+        },
+        model: %Schema{
+          type: :string,
+          nullable: true,
+          description:
+            "Model to run from the next turn (ADR 0061), in canonical provider/model_id " <>
+              "form; null returns to the selected Agent's model. Checked against the selected " <>
+              "Agent's runtime (422 model_invalid). The conversation keeps its credential: a " <>
+              "model that credential does not serve is 409 inference_source_changed and " <>
+              "nothing changes. The runtime session is kept, so the next turn continues it " <>
+              "on the new model."
         }
       }
     })

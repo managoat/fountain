@@ -23,6 +23,11 @@ export interface ReapplyOptions {
   environmentId?: string | null;
   /** Change the vault, pass null to clear it, or omit it to keep it. */
   vaultId?: string | null;
+  /**
+   * Run another model from the next turn (`provider/model_id`), pass null to
+   * return to the agent's model, or omit it to keep the current one.
+   */
+  model?: string | null;
 }
 
 /**
@@ -204,6 +209,7 @@ export class Conversation {
     if (options.agentId !== undefined) body.agent_id = options.agentId;
     if (options.environmentId !== undefined) body.environment_id = options.environmentId;
     if (options.vaultId !== undefined) body.vault_id = options.vaultId;
+    if (options.model !== undefined) body.model = options.model;
     return this.http.data("POST", `/api/conversations/${this.id}/reapply`, { body });
   }
 

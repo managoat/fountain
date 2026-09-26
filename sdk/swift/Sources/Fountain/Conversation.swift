@@ -99,18 +99,21 @@ public final class Conversation: @unchecked Sendable {
     try await http.data("GET", "/api/conversations/\(id)/tree")
   }
 
-  /// Reapply this conversation's agent, environment and vault in place. The
-  /// machine, the transcript and the files on disk all stay. Omit a value to
-  /// keep it; pass `.null` for the environment or the vault to clear it.
+  /// Reapply this conversation's agent, environment, vault and model in place.
+  /// The machine, the transcript and the files on disk all stay. Omit a value
+  /// to keep it; pass `.null` for the environment or the vault to clear it, or
+  /// for the model to return to the agent's.
   public func reapply(
     agentID: String? = nil,
     environmentID: JSONValue? = nil,
-    vaultID: JSONValue? = nil
+    vaultID: JSONValue? = nil,
+    model: JSONValue? = nil
   ) async throws -> JSONObject {
     var body: JSONObject = [:]
     if let agentID { body["agent_id"] = .string(agentID) }
     if let environmentID { body["environment_id"] = environmentID }
     if let vaultID { body["vault_id"] = vaultID }
+    if let model { body["model"] = model }
     return try await http.data("POST", "/api/conversations/\(id)/reapply", body: body)
   }
 

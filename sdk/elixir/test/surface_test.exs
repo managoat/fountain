@@ -85,6 +85,8 @@ defmodule Fountain.SurfaceTest do
     assert {:ok, %{"id" => "thread"}} =
              Conversation.reapply(conversation, agent_id: "a1", vault_id: nil)
 
+    assert {:ok, %{"id" => "thread"}} = Conversation.reapply(conversation, model: nil)
+
     assert :ok = Conversation.interrupt(conversation)
     assert :ok = Conversation.terminate(conversation)
     assert :ok = Conversation.delete(conversation)
@@ -124,6 +126,9 @@ defmodule Fountain.SurfaceTest do
 
     assert_receive {:seen, %{path: "/api/conversations/thread/reapply", body: select_body}}
     assert Jason.decode!(select_body) == %{"agent_id" => "a1", "vault_id" => nil}
+
+    assert_receive {:seen, %{path: "/api/conversations/thread/reapply", body: model_body}}
+    assert Jason.decode!(model_body) == %{"model" => nil}
   end
 
   test "root run sends all options and a fresh channel follows turn one" do

@@ -1,6 +1,7 @@
 defmodule Fountain.Conversations.Reapply do
   @moduledoc """
-  Re-selecting a conversation's Agent, Environment and Vault (#1565).
+  Re-selecting a conversation's Agent, Environment, Vault and model override
+  (#1565, ADR 0061).
 
   A reapply keeps the conversation, its id, its transcript **and its machine**.
   What it changes is what the machine is configured with, on the machine that
@@ -316,13 +317,15 @@ defmodule Fountain.Conversations.Reapply do
   end
 
   @doc """
-  Re-resolve the Agent, Environment and Vault for an existing conversation,
-  on the machine it is already running (#1565).
+  Re-resolve the Agent, Environment, Vault and model override for an
+  existing conversation, on the machine it is already running (#1565,
+  ADR 0061).
 
   `conv` must come from `get_conversation/2`; the lookups below are
   tenant-scoped to that owner. An omitted field keeps its current selection,
-  and an explicit nil clears the Environment override or the Vault. An empty
-  map is therefore a refresh of what is already selected.
+  and an explicit nil clears the Environment override, the Vault or the
+  model override. An empty map is therefore a refresh of what is already
+  selected.
 
   The sandbox is kept. Environment variables, the system prompt, skills and
   MCP servers are what a later link of this stack rewrites under it;
@@ -458,6 +461,7 @@ defmodule Fountain.Conversations.Reapply do
     agent_id = reapply_value(attrs, "agent_id", conv.agent_id)
     vault_selection = reapply_value(attrs, "vault_id", conv.vault_id)
     environment_selection = reapply_value(attrs, "environment_id", conv.environment_id)
+    model_selection = reapply_value(attrs, "model", conv.model)
 
     with :ok <- assert_reapplicable(conv),
          {:ok, agent_id} <- reapply_agent_id(agent_id),
@@ -470,10 +474,13 @@ defmodule Fountain.Conversations.Reapply do
            Conversations.resolve_environment_id(environment_selection, conv.user_id, agent),
          {:ok, _permission_policy} <-
            Conversations.resolve_permission_policy(conv.permission_policy, agent),
+         # Against the selected agent's runtime, so a kept override is checked
+         # again when the agent moves (ADR 0061 decision 3).
+         {:ok, model} <- Conversations.resolve_model(model_selection, agent),
          {:ok, expected_fingerprint} <-
            assert_applicable_in_place(conv, agent, environment_id, vault_id),
          {:ok, inference_source} <-
-           resolve_reapplied_inference(conv, agent, environment_id, vault_id),
+           resolve_reapplied_inference(conv, agent, environment_id, vault_id, model),
          {:ok, updated} <-
            write_reapplied_configuration(conv,
              agent_id: agent.id,
@@ -482,6 +489,7 @@ defmodule Fountain.Conversations.Reapply do
              vault_id: vault_id,
              environment_id: environment_id,
              runtime: agent.runtime,
+             model: model,
              inference_source: Source.dump(inference_source),
              configuration_revision: conv.configuration_revision + 1
            ),
@@ -497,14 +505,17 @@ defmodule Fountain.Conversations.Reapply do
   # Reapply may change configuration context while retaining the admitted
   # credential. Compare the proposed context with the same pinned source; a
   # different credential still requires a new conversation. Historical turns
-  # keep their original source snapshots.
-  defp resolve_reapplied_inference(%{inference_source: nil}, _agent, _env_id, _vault_id),
+  # keep their original source snapshots. The model is the selection's: the
+  # override being applied, else the selected agent's (ADR 0061 decision 4).
+  defp resolve_reapplied_inference(%{inference_source: nil}, _agent, _env_id, _vault_id, _model),
     do: {:ok, nil}
 
-  defp resolve_reapplied_inference(conv, agent, env_id, vault_id) do
+  defp resolve_reapplied_inference(conv, agent, env_id, vault_id, model) do
+    model = model || agent.model
+
     expected =
       Map.merge(conv.inference_source, %{
-        "model" => agent.model,
+        "model" => model,
         "runtime" => agent.runtime,
         "environment_id" => env_id || agent.environment_id,
         "vault_id" => vault_id
@@ -514,6 +525,7 @@ defmodule Fountain.Conversations.Reapply do
            InferenceResolution.revalidate(conv, agent,
              expected_source: expected,
              runtime: agent.runtime,
+             model: model,
              environment_id: env_id || agent.environment_id,
              vault_id: vault_id
            ),
@@ -644,10 +656,11 @@ defmodule Fountain.Conversations.Reapply do
     end
   end
 
-  # Names what moved, never a value: these are the conversation's own
-  # references to tenant resources, which is what "which selection" means.
+  # Names what moved, never a secret value: these are the conversation's own
+  # references to tenant resources, which is what "which selection" means,
+  # and the model override, which is a model id and not a credential.
   defp reapply_metadata(previous, current) do
-    fields = [:agent_id, :agent_version_id, :environment_id, :vault_id, :runtime]
+    fields = [:agent_id, :agent_version_id, :environment_id, :vault_id, :runtime, :model]
 
     changed =
       fields
@@ -667,7 +680,8 @@ defmodule Fountain.Conversations.Reapply do
       "agent_id" => conv.agent_id,
       "agent_version_id" => conv.agent_version_id,
       "environment_id" => conv.environment_id,
-      "vault_id" => conv.vault_id
+      "vault_id" => conv.vault_id,
+      "model" => conv.model
     }
   end
 end

@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.7.0] - 2026-09-26
+
+### Added
+
+- `:model` on `Fountain.Conversation.reapply/2`: run another model from the conversation's next turn, or pass `nil` to return to its agent's model (#2511, ADR 0061).
+
 ## [0.6.0] - 2026-09-17
 
 ### Added

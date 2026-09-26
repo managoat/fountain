@@ -397,6 +397,11 @@ func (f fountainAPI) Conversation(_ context.Context, convID string) (acp.Convers
 			f.log.Info("could not read the conversation's agent", "agent_id", agentID, "err", err)
 		}
 	}
+	// A conversation may run a model of its own (ADR 0061), which is then the
+	// one it runs whatever its agent says.
+	if model := output.ToString(resp.Data["model"]); model != "" {
+		ref.Model = model
+	}
 
 	return ref, nil
 }

@@ -13,7 +13,7 @@ defmodule Fountain.Conversations.ConversationServer do
   require Logger
   require OpenTelemetry.Tracer
 
-  alias Fountain.{Agents, Conversations, Environments, Vaults}
+  alias Fountain.{Conversations, Environments, Vaults}
 
   alias Fountain.Conversations.{BoundedTurn, CallbackKey, Connection, Conversation}
   alias Fountain.Conversations.{DetachedRequest, Egress, FreshProvision, Interruption}
@@ -400,7 +400,7 @@ defmodule Fountain.Conversations.ConversationServer do
     # Non-bang for the same reason as the rows above: a deleted agent must
     # not crash-loop the server. Provisioning proceeds without it, exactly
     # as for a conversation created with no agent.
-    agent = conv.agent_id && Agents._unsafe_get_agent(conv.agent_id)
+    agent = TurnMachine.agent_for(conv)
 
     if conv.agent_id && is_nil(agent) do
       Logger.warning("conv #{conv.id}: agent #{conv.agent_id} is gone; provisioning without it")
@@ -856,7 +856,7 @@ defmodule Fountain.Conversations.ConversationServer do
            :ok <- TurnMachine.gate(conv.user_id, state.inference_source),
            :ok <- TurnMachine.capacity_gate(state.sandbox_id, conv) do
         state = close_autonomous_turn(state, "superseded_by_prompt")
-        agent = if conv.agent_id, do: Agents._unsafe_get_agent!(conv.agent_id)
+        agent = if conv.agent_id, do: TurnMachine.agent_for!(conv)
 
         # A bounded turn can be refused by admission under its row locks
         # (ADR 0046), and a caller that asked for a turn has to hear that.
@@ -989,7 +989,7 @@ defmodule Fountain.Conversations.ConversationServer do
       with :ok <- Conversations._unsafe_check_saved_execution_allowance(conv.id),
            :ok <- TurnMachine.gate(conv.user_id, state.inference_source) do
         state = close_autonomous_turn(state, "superseded_by_prompt")
-        agent = if conv.agent_id, do: Agents._unsafe_get_agent!(conv.agent_id)
+        agent = if conv.agent_id, do: TurnMachine.agent_for!(conv)
 
         # Admission can refuse under its row locks after these preflights pass.
         # Unlike the `else` below, the connection is already dropped by here.

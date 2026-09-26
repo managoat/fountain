@@ -93,6 +93,10 @@ defmodule Fountain.Conversations.Conversation do
     # credential every sandbox of this conversation provisions with.
     belongs_to :inference_credential, Fountain.InferenceCredentials.Credential
     field :inference_source, :map
+    # Per-conversation model override (ADR 0061). nil follows the agent's
+    # model; set, it is the model every turn of this conversation runs. Set at
+    # launch or by reapply, and read through `with_model/2`.
+    field :model, :string
 
     # Which shape of the agent this conversation launched under — provenance,
     # like the snapshotted `runtime`. The live agent row still drives the
@@ -111,6 +115,19 @@ defmodule Fountain.Conversations.Conversation do
   end
 
   def statuses, do: @statuses
+
+  @doc """
+  The agent as this conversation runs it: its `model` replaced by the
+  conversation's override when there is one (ADR 0061).
+
+  Applied where a conversation loads its agent for the runtime path, so the
+  turn, the inference resolution and the runtime module all read one model.
+  Never persist the result: it is a view of the agent, not the agent.
+  """
+  @spec with_model(agent, map()) :: agent when agent: map() | nil
+  def with_model(nil, _conv), do: nil
+  def with_model(agent, %{model: model}) when is_binary(model), do: %{agent | model: model}
+  def with_model(agent, _conv), do: agent
   def sources, do: @sources
   def sandbox_api_access_modes, do: @sandbox_api_access_modes
 
@@ -144,6 +161,7 @@ defmodule Fountain.Conversations.Conversation do
       :inference_credential_id,
       :channel_id,
       :permission_policy,
+      :model,
       :labels
     ])
     |> validate_required([:runtime, :status, :sandbox_id, :user_id])

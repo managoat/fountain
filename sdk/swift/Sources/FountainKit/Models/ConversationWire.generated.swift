@@ -15,6 +15,7 @@ public struct Conversation: Sendable, Decodable, Hashable, Identifiable {
   public var labels: [String: String]?
   public var lastActiveAt: Date?
   public var lastReadAt: Date?
+  public var model: String?
   public var parentConversationID: String?
   public var pendingRequests: [PendingPermissionRequest]?
   public var permissionPolicyValues: [String: JSONValue]?
@@ -52,6 +53,7 @@ public struct Conversation: Sendable, Decodable, Hashable, Identifiable {
     case labels = "labels"
     case lastActiveAt = "last_active_at"
     case lastReadAt = "last_read_at"
+    case model = "model"
     case parentConversationID = "parent_conversation_id"
     case pendingRequests = "pending_requests"
     case permissionPolicyValues = "permission_policy"
@@ -146,6 +148,11 @@ public struct ConversationCreateRequest: Sendable, Encodable {
     get { _labels.value }
     set { _labels = newValue.map(ConversationInputField.value) ?? .omitted }
   }
+  private var _model: ConversationInputField<String> = .omitted
+  public var model: String? {
+    get { _model.value }
+    set { _model = newValue.map(ConversationInputField.value) ?? .omitted }
+  }
   private var _permissionPolicyValues: ConversationInputField<[String: JSONValue]> = .omitted
   public var permissionPolicyValues: [String: JSONValue]? {
     get { _permissionPolicyValues.value }
@@ -215,6 +222,7 @@ public struct ConversationCreateRequest: Sendable, Encodable {
     clientRequestID: String? = nil,
     inferenceCredentialID: String? = nil,
     labels: [String: String]? = nil,
+    model: String? = nil,
     queue: Bool? = nil
   ) {
     self.agentID = agentID
@@ -233,6 +241,7 @@ public struct ConversationCreateRequest: Sendable, Encodable {
     self.clientRequestID = clientRequestID
     self.inferenceCredentialID = inferenceCredentialID
     self.labels = labels
+    self.model = model
     self.queue = queue
   }
 
@@ -245,6 +254,7 @@ public struct ConversationCreateRequest: Sendable, Encodable {
     case images = "images"
     case inferenceCredentialID = "inference_credential_id"
     case labels = "labels"
+    case model = "model"
     case permissionPolicyValues = "permission_policy"
     case prompt = "prompt"
     case queue = "queue"
@@ -265,6 +275,7 @@ public struct ConversationCreateRequest: Sendable, Encodable {
     case images
     case inferenceCredentialID
     case labels
+    case model
     case permissionPolicyValues
     case queue
     case sandboxID
@@ -283,6 +294,7 @@ public struct ConversationCreateRequest: Sendable, Encodable {
     case .images: _images = .null
     case .inferenceCredentialID: _inferenceCredentialID = .null
     case .labels: _labels = .null
+    case .model: _model = .null
     case .permissionPolicyValues: _permissionPolicyValues = .null
     case .queue: _queue = .null
     case .sandboxID: _sandboxID = .null
@@ -302,6 +314,7 @@ public struct ConversationCreateRequest: Sendable, Encodable {
     try _images.encode(into: &container, forKey: .images)
     try _inferenceCredentialID.encode(into: &container, forKey: .inferenceCredentialID)
     try _labels.encode(into: &container, forKey: .labels)
+    try _model.encode(into: &container, forKey: .model)
     try _permissionPolicyValues.encode(into: &container, forKey: .permissionPolicyValues)
     try _prompt.encode(into: &container, forKey: .prompt)
     try _queue.encode(into: &container, forKey: .queue)

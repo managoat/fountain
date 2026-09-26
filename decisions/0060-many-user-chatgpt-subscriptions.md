@@ -1146,7 +1146,10 @@ a settings read), and both turns completed. None of that went to the real
 reattached turn on the deployment's account, which wait on the maintainer
 reconnecting it at `/admin/inference`. The maintainer decided the same day
 that none of the ten routes is allowed: the policy stays the one `POST`
-(0047, measurement 6).
+(0047, measurement 6). On 2026-09-26 the maintainer allowed one of them,
+`GET /backend-api/codex/models` with only `client_version`
+([#2503](https://github.com/managoat/fountain/issues/2503); 0047,
+measurement 6).
 
 **2026-09-21, 22:31 to 22:34 UTC: the path works on the real client, for a
 first and a second turn. The reattached turn is still owed**

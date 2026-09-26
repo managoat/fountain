@@ -585,7 +585,7 @@ there for contrast; the local provider origin served it, not the proxy.
 | 2 | POST | `/backend-api/codex/responses` | allowed, the one route |
 | 6 | POST | `/backend-api/ps/mcp` | denied |
 | 5 | GET | `/backend-api/ps/plugins/suggested/codex?scope=GLOBAL` | denied |
-| 4 | GET | `/backend-api/codex/models?client_version=0.153.4` | denied |
+| 4 | GET | `/backend-api/codex/models?client_version=0.153.4` | denied; allowed since 2026-09-26 (below) |
 | 3 | POST | `/backend-api/codex/analytics-events/events` | denied |
 | 3 | GET | `/backend-api/wham/settings/user` | denied |
 | 3 | GET | `/backend-api/codex/responses` | denied: the allowed path, with the wrong method |
@@ -720,6 +720,45 @@ requests either. Naming a route still needs a recorded-egress run
 ([#2480](https://github.com/managoat/fountain/issues/2480), where the raw
 captures of the offline runs are now kept). Per the decision of 2026-09-21
 none of the refused routes is to be allowed, and nothing here reopens it.
+The decision was changed for one route on 2026-09-26; see the next
+paragraph.
+
+**2026-09-26: the model list is allowed
+([#2503](https://github.com/managoat/fountain/issues/2503)).** The
+maintainer allowed `GET /backend-api/codex/models`. The only query parameter
+it takes is `client_version`, and a request with any other parameter is
+refused. The policy now has two routes, each with its own method and query
+rule (`routes`, `managoat_broker` 0.16.0). Before this change the refusal
+was more expensive than the table suggests:
+
+- Codex asks for the list after every response whose `x-models-etag`
+  differs from its cache. The request was refused, so the cache never
+  filled, and the request came back after every reply.
+- Each refusal closed its tunnel. One busy sandbox saw about 560 of these
+  requests an hour.
+- That sandbox's Sprites network was failing at the same time. It dropped
+  every connection that was idle for about a second. The manual's
+  sandboxes page describes that fault, under "A Sprites machine that drops
+  quiet connections".
+  All the Codex sandboxes with real traffic showed this fault, and no Claude
+  sandbox did.
+
+The route is a read, and the value of the one parameter is the client's own
+version. Two side effects:
+
+- The response is searched for the bearer, like every protected response.
+- On ChatGPT auth, Codex treats a list it fetched as its source of truth.
+  The models a conversation offers are now the backend's list for the
+  account, not the list compiled into the client.
+
+The other nine routes stay refused. The remote plugin catalog is turned off
+in the client instead
+([#2504](https://github.com/managoat/fountain/pull/2504)). Analytics could
+not be: Codex builds its analytics client from the process config, which the
+per-thread `CODEX_CONFIG` overlay does not reach. So its posts are still
+refused, several hundred an hour on a busy sandbox, and each carries a body,
+which closes its tunnel. Since 0.16.0 a
+refused request with no body leaves its tunnel open.
 
 **Still owed: the reattached turn.** The sandbox went idle at 22:33:28 UTC.
 The deployment's idle timeout is the default 60 minutes with no lifetime

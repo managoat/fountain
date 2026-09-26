@@ -6,11 +6,10 @@ defmodule Fountain.Broker.Native.ProtectedCompiler do
   Two halves, and neither ever holds a bearer:
 
     * `policy/1` -- the `Managoat.Broker.ProtectedRule` for one ChatGPT
-      account: the Codex backend's host and port, the one route and method
-      the pinned client uses, the account id the proxy sends as
-      `chatgpt-account-id`, the request headers that survive, and that a
-      query string on the route is refused. Nothing a tenant configures
-      reaches it.
+      account: the Codex backend's host and port, the two routes the pinned
+      client uses (each with its one method and its query policy), the
+      account id the proxy sends as `chatgpt-account-id`, and the request
+      headers that survive. Nothing a tenant configures reaches it.
     * `compile/3` -- the ordinary rules of a session that also carries a
       managed grant, from the same `brokered` map and bindings every other
       session is built from. Reserved names and placeholders in those inputs
@@ -39,7 +38,26 @@ defmodule Fountain.Broker.Native.ProtectedCompiler do
   alias Fountain.ChatGPTAccounts.Reserved
   alias Managoat.Broker.{ProtectedRule, Session}
 
-  @path "/backend-api/codex/responses"
+  # The two routes a turn uses (managoat_broker 0.16 `routes`).
+  #
+  #   * The Responses call: `POST`, and a query is refused. A query the
+  #     sandbox wrote would be a parameter nobody pinned, sent under the
+  #     bearer.
+  #   * The model list (#2503). Codex asks for it after every response whose
+  #     `x-models-etag` differs from its cache. Refused, the cache never
+  #     filled, so every reply cost one more refusal and one more tunnel:
+  #     about 560 an hour from one busy sandbox. It is a read, and the pinned
+  #     client sends exactly `?client_version=<its version>`, so the query
+  #     is admitted with that one parameter name and nothing else.
+  #
+  # Every other `chatgpt.com` route the client asks for (analytics, plugins,
+  # the remote-control socket) stays refused.
+  @responses "/backend-api/codex/responses"
+  @models "/backend-api/codex/models"
+  @routes [
+    %{path: @responses, methods: ["POST"], query: :refuse},
+    %{path: @models, methods: ["GET"], query: {:only, ["client_version"]}}
+  ]
 
   # `accept-encoding` is not here: the library sends `identity` on every
   # protected request whatever the client asked for, because it searches the
@@ -82,20 +100,19 @@ defmodule Fountain.Broker.Native.ProtectedCompiler do
       true ->
         rules = Native.rules_for(brokered, bindings, network)
 
-        # Prove the effective rules do not conflict, including wildcards and
-        # path patterns in older rows. The library repeats this at admission.
-        # The identity is not an input to that question.
-        case ProtectedRule.prepare(template(), %Session{rules: rules}, request(), []) do
-          {:ok, _headers} ->
-            {:ok,
-             %{
-               rules: rules,
-               http_only: true,
-               unmatched_host_policy: unmatched_host_policy(network)
-             }}
-
-          {:error, :protected_conflict} ->
-            {:error, :managed_destination_conflict}
+        # Prove the effective rules do not conflict with either route,
+        # including wildcards and path patterns in older rows. The library
+        # repeats this at admission. The identity is not an input to that
+        # question.
+        if Enum.all?(requests(), &prepared?(rules, &1)) do
+          {:ok,
+           %{
+             rules: rules,
+             http_only: true,
+             unmatched_host_policy: unmatched_host_policy(network)
+           }}
+        else
+          {:error, :managed_destination_conflict}
         end
     end
   rescue
@@ -135,21 +152,28 @@ defmodule Fountain.Broker.Native.ProtectedCompiler do
       name: rule_name(),
       host: host,
       port: port,
-      paths: [@path],
-      methods: ["POST"],
+      routes: @routes,
       identity: "unset",
       identity_header: "chatgpt-account-id",
-      allowed_headers: @headers,
-      # The library's default, written down so a later default cannot widen
-      # the route: the pinned client sends no query, and one the sandbox
-      # wrote would go out under the bearer.
-      query: :refuse
+      allowed_headers: @headers
     }
   end
 
-  defp request do
+  # One request each route admits, for the conflict check.
+  defp requests do
     {host, port} = backend()
-    %{scheme: :https, host: host, port: port, target: @path, method: "POST"}
+
+    [
+      %{scheme: :https, host: host, port: port, target: @responses, method: "POST"},
+      %{scheme: :https, host: host, port: port, target: @models, method: "GET"}
+    ]
+  end
+
+  defp prepared?(rules, request) do
+    match?(
+      {:ok, _headers},
+      ProtectedRule.prepare(template(), %Session{rules: rules}, request, [])
+    )
   end
 
   # `chatgpt.com:443`, always, in every environment but the test suite's: the

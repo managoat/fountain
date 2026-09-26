@@ -12,6 +12,7 @@ defmodule Fountain.Broker.Native.ProtectedCompilerTest do
   @token "synthetic-managed-bearer"
   @identity "account-fixture"
   @path "/backend-api/codex/responses"
+  @models "/backend-api/codex/models"
 
   # What `Sessions` assembles from the two halves: the ordinary rules, and the
   # policy for the account the fenced read of the grant row named.
@@ -247,17 +248,57 @@ defmodule Fountain.Broker.Native.ProtectedCompilerTest do
              )
   end
 
-  test "the policy is the fixed Codex backend route, whatever was compiled beside it" do
+  test "the policy is the fixed Codex backend routes, whatever was compiled beside it" do
     assert {:ok, policy} = ProtectedCompiler.policy(@identity)
     assert policy.name == ProtectedCompiler.rule_name()
     assert {policy.host, policy.port} == {"chatgpt.com", 443}
-    assert policy.paths == [@path]
-    assert policy.methods == ["POST"]
+
+    assert policy.routes == [
+             %{path: @path, methods: ["POST"], query: :refuse},
+             %{path: @models, methods: ["GET"], query: {:only, ["client_version"]}}
+           ]
+
+    # `routes` replaces the joint fields; the library refuses a policy that
+    # sets both.
+    assert policy.paths in [nil, []]
+    assert policy.methods in [nil, []]
+    assert policy.query == :refuse
     assert policy.identity_header == "chatgpt-account-id"
     refute "authorization" in policy.allowed_headers
     refute "cookie" in policy.allowed_headers
     refute "accept-encoding" in policy.allowed_headers
-    assert policy.query == :refuse
+  end
+
+  # #2503. Codex asks for the model list after every response whose
+  # `x-models-etag` it has not cached; refused, it never caches one.
+  test "the model list is a GET with only the client's version, and nothing else widens" do
+    assert {:ok, compiled} = compile(%{}, %{}, :unrestricted)
+    session = session(compiled)
+    models = &request(%{method: "GET", target: @models <> &1})
+
+    assert {:ok, _} = ProtectedRule.select(session, models.("?client_version=0.153.4"))
+    assert {:ok, _} = ProtectedRule.select(session, models.(""))
+
+    for query <- ["?client_version=1&x=1", "?x=1", "?client_version=1&client_version=2", "?"] do
+      assert {:error, :protected_query} = ProtectedRule.select(session, models.(query))
+    end
+
+    # Each route keeps its own method and query policy.
+    assert {:error, :protected_destination} =
+             ProtectedRule.select(session, request(%{target: @models}))
+
+    assert {:error, :protected_destination} =
+             ProtectedRule.select(session, request(%{method: "GET"}))
+
+    assert {:error, :protected_query} =
+             ProtectedRule.select(session, request(%{target: @path <> "?client_version=1"}))
+
+    # An ordinary rule aimed at the new route conflicts like one aimed at the
+    # old one.
+    bindings = %{"OTHER" => [binding("OTHER", "chatgpt.com" <> @models)]}
+
+    assert {:error, :managed_destination_conflict} =
+             ProtectedCompiler.compile(%{"OTHER" => "ordinary"}, bindings, :unrestricted)
   end
 
   # Nothing persists a policy: `Sessions.lookup/1` compiles it from the

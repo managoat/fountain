@@ -249,7 +249,7 @@ defmodule Fountain.Broker.Native.ManagedGrantProxyTest do
         assert Enum.all?(Rig.rows(rig, conv.id, 3), &(&1.error == "protocol_upgrade"))
       end
 
-      test "only the one route and method reach the backend with the bearer",
+      test "only the two routes and their methods reach the backend with the bearer",
            %{owner: owner, user: user, rig: rig} do
         {account, _access} = grant(owner, user, "routes")
         session = session!(conversation(user), user, account)
@@ -263,6 +263,47 @@ defmodule Fountain.Broker.Native.ManagedGrantProxyTest do
         end
 
         refute_receive {:origin_hit, _, _, _}, 100
+      end
+
+      # #2503. The model list is the second protected route: a GET whose one
+      # query parameter is the client's version. A refusal keeps the tunnel
+      # (managoat_broker 0.16), so the next request needs no new connection.
+      test "the model list gets the grant's bearer, and a refusal keeps the tunnel",
+           %{owner: owner, user: user, rig: rig} do
+        {account, access} = grant(owner, user, "models")
+        session = session!(conversation(user), user, account)
+        tls = Rig.tunnel(rig, session)
+
+        models = fn query ->
+          "GET /backend-api/codex/models#{query} HTTP/1.1\r\nHost: #{rig.origin_host}\r\n" <>
+            "Authorization: Bearer __placeholder__\r\n\r\n"
+        end
+
+        seen = tls |> Rig.exchange(models.("?client_version=0.153.4")) |> report()
+
+        assert seen["method"] == "GET"
+        assert seen["path"] == "/backend-api/codex/models"
+        assert seen["query"] == "client_version=0.153.4"
+        assert bearer?(seen, access)
+        assert seen["headers"]["chatgpt-account-id"] == account.account_id
+
+        for refused <- [
+              models.("?client_version=1&x=1"),
+              "GET /backend-api/me HTTP/1.1\r\nHost: #{rig.origin_host}\r\n\r\n"
+            ] do
+          assert %{status: 403} = Rig.exchange(tls, refused)
+        end
+
+        # The same tunnel still carries the Responses call, with the bearer.
+        assert bearer?(tls |> Rig.exchange(codex_request(rig)) |> report(), access)
+
+        assert %{status: 403} =
+                 rig
+                 |> Rig.tunnel(session)
+                 |> Rig.exchange(
+                   "POST /backend-api/codex/models HTTP/1.1\r\nHost: #{rig.origin_host}\r\n" <>
+                     "Content-Length: 0\r\n\r\n"
+                 )
       end
 
       # A redirect away from the backend, or any other host the agent dials,

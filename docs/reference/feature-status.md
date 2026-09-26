@@ -47,8 +47,8 @@ after a turn fails on it, and refuses the subscription until the reset time.
 A daily job renews a subscription that nobody used for 6 days, so that its
 sign-in does not end. An account export lists the subscriptions, and an
 account deletion removes them. The credential broker refuses a response that
-repeats the subscription's token, and refuses a request that adds a query
-string to the one route that carries the token. The broker finds only an exact
+repeats the subscription's token. It refuses a query string on the Responses
+route, and allows only `client_version` on the model list route. The broker finds only an exact
 copy of the token. It does not find an encoded copy or a partial copy. These
 parts are not built: a check of the usage before a turn fails, an email or a
 webhook about a spent plan, and a way to revoke a sign-in at OpenAI. The flag

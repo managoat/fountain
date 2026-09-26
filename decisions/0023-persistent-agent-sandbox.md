@@ -59,12 +59,16 @@ a conversation of another agent when all of these hold:
   since `Fountain.Conversations.Identity.disk_env/1` it holds environment and
   vault values only, and each conversation already registers those for
   redaction.
-- **A runtime no live conversation on the machine uses.** Different runtimes
-  keep their config in separate directories (`Managoat.Runtimes.Layout`:
-  `.claude/` and `.codex/`), so skills, instructions and runtime settings do
-  not overwrite each other. Two agents of the *same* runtime stay refused:
-  they would share one `CLAUDE.md`, one `.mcp.json` and one skills root, and
-  whichever woke last would set the persona for both (#2439, shape (b)).
+- **A runtime whose files no live conversation on the machine shares.** The
+  rule is about directories, not runtime names. Claude and codex keep their
+  config in separate directories (`Managoat.Runtimes.Layout`: `.claude/` and
+  `.codex/`), so skills, instructions and runtime settings do not overwrite
+  each other. The `acp` command runtime does not qualify beside claude: its
+  skills root is claude's (`Fountain.CommandRuntime.skills_root/0`). So the
+  check compares config and skills roots. Two agents of the *same* runtime
+  stay refused: they would share one `CLAUDE.md`, one `.mcp.json` and one
+  skills root, and whichever woke last would set the persona for both (#2439,
+  shape (b)).
 - **The guest joins the home without becoming part of it.** The sandbox's
   `agent_id` and `runtime` remain the home's, so lookup, file browsing and the
   reapply door are unchanged. A guest is never found by home lookup; it

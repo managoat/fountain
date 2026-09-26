@@ -462,7 +462,10 @@ defmodule Fountain.Conversations.TurnLaunch do
 
   # The environment's clones, which codex adds to its sandbox's writable roots
   # (#1684): without them a clone outside its cwd is read-only, and a worktree
-  # cut from it fails. Read the way `Egress.refresh_before_turn/1` reads it,
+  # cut from it fails. Each clone's `.git` goes too, as a root of its own:
+  # codex keeps `.git` read-only inside every writable root, so a branch or a
+  # commit still failed with the clone alone. A path that does not exist is
+  # ignored by codex. Read the way `Egress.refresh_before_turn/1` reads it,
   # tenant-scoped on the provisioned environment; a row that is gone gives
   # nothing. Mapped like `cwd`, since the adapter checks them in band.
   defp repository_directories(%{secret_sources: %{environment_id: env_id}} = state)
@@ -470,6 +473,7 @@ defmodule Fountain.Conversations.TurnLaunch do
     env_id
     |> Fountain.Environments.get_environment(state.user_id)
     |> Fountain.Environments.Environment.repository_mounts()
+    |> Enum.flat_map(&[&1, Path.join(&1, ".git")])
     |> Enum.map(&Managoat.Sandbox.host_path(state.handle, &1))
   end
 

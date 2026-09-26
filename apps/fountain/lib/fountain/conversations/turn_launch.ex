@@ -143,6 +143,7 @@ defmodule Fountain.Conversations.TurnLaunch do
                   callback_token: state.callback_token,
                   resolved: state.resolved_mcp_servers
                 ),
+              additional_directories: repository_directories(state),
               model: TurnMachine.acp_model(conv, agent),
               permission_policy: TurnMachine.effective_permission_policy(conv, agent),
               auth: CodexChatGPT.peer_auth(state.runtime_module, state.inference_credentials),
@@ -458,6 +459,21 @@ defmodule Fountain.Conversations.TurnLaunch do
     do:
       {"sh",
        ["-c", ~S(sleep "$1"; shift; exec "$@"), "fountain-relaunch", "#{seconds}", cmd | args]}
+
+  # The environment's clones, which codex adds to its sandbox's writable roots
+  # (#1684): without them a clone outside its cwd is read-only, and a worktree
+  # cut from it fails. Read the way `Egress.refresh_before_turn/1` reads it,
+  # tenant-scoped on the provisioned environment; a row that is gone gives
+  # nothing. Mapped like `cwd`, since the adapter checks them in band.
+  defp repository_directories(%{secret_sources: %{environment_id: env_id}} = state)
+       when is_binary(env_id) do
+    env_id
+    |> Fountain.Environments.get_environment(state.user_id)
+    |> Fountain.Environments.Environment.repository_mounts()
+    |> Enum.map(&Managoat.Sandbox.host_path(state.handle, &1))
+  end
+
+  defp repository_directories(_state), do: []
 
   # The SDK's own view of the allowance, from the frozen journal copy rather
   # than from current policy: an in-flight turn keeps what it was admitted

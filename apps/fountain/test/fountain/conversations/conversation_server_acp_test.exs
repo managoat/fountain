@@ -1734,6 +1734,56 @@ defmodule Fountain.Conversations.ConversationServerACPTest do
     end
   end
 
+  describe "the environment's repositories (#1684)" do
+    test "session/new names their mount paths as additional directories" do
+      # codex adds `additionalDirectories` to its sandbox's writable roots;
+      # without them a clone outside its cwd is read-only, and a worktree
+      # cut from it fails.
+      user = insert_verified_user()
+
+      env =
+        insert_env(
+          user_id: user.id,
+          repositories: [
+            %{"url" => "https://github.com/o/ravix", "mount_path" => "/workspace/ravix"},
+            %{"url" => "https://github.com/o/docs", "mount_path" => "/workspace/docs"}
+          ]
+        )
+
+      conv =
+        insert_conversation(
+          agent: insert_agent(user_id: user.id, runtime: "claude", environment_id: env.id),
+          user_id: user.id
+        )
+
+      {pid, ref} = start_acp_turn(conv)
+
+      %{"id" => init_id} = next_write()
+
+      caps = put_in(@caps, ["sessionCapabilities", "additionalDirectories"], %{})
+      reply(pid, ref, init_id, %{"agentCapabilities" => caps})
+
+      decoded = next_write()
+      assert decoded["method"] == "session/new"
+      assert decoded["params"]["additionalDirectories"] == ["/workspace/ravix", "/workspace/docs"]
+    end
+
+    test "an environment with no repositories sends none" do
+      user = insert_verified_user()
+      conv = insert_conversation(agent: acp_agent(user), user_id: user.id)
+      {pid, ref} = start_acp_turn(conv)
+
+      %{"id" => init_id} = next_write()
+
+      caps = put_in(@caps, ["sessionCapabilities", "additionalDirectories"], %{})
+      reply(pid, ref, init_id, %{"agentCapabilities" => caps})
+
+      decoded = next_write()
+      assert decoded["method"] == "session/new"
+      refute Map.has_key?(decoded["params"], "additionalDirectories")
+    end
+  end
+
   describe "a wake onto a fresh sandbox (#778)" do
     test "starts a new runtime session instead of resuming one the disk never saw" do
       # The conversation's previous sandbox is gone (ceiling destroy, failed

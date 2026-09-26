@@ -50,6 +50,20 @@ defmodule Fountain.Environments.Environment do
   end
 
   def warm_start_fields, do: @warm_start_fields
+
+  @doc """
+  Where this environment's repositories are cloned: each entry's `mount_path`,
+  in order. A runtime whose sandbox limits writes to its own working directory
+  is handed these as writable roots (#1684), since a clone the agent cannot
+  branch from or commit to is rarely what the environment's author meant.
+  """
+  @spec repository_mounts(t() | nil) :: [String.t()]
+  def repository_mounts(nil), do: []
+
+  def repository_mounts(%__MODULE__{repositories: repos}) do
+    for %{"mount_path" => mount} <- repos || [], is_binary(mount), uniq: true, do: mount
+  end
+
   def networking, do: @networking
 
   @doc false

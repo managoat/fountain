@@ -34,6 +34,26 @@ defmodule Fountain.Environments.EnvironmentTest do
     end
   end
 
+  describe "repository_mounts/1" do
+    test "is each repository's mount_path, in order, without repeats" do
+      env = %Environment{
+        repositories: [
+          %{"url" => "https://github.com/o/a", "mount_path" => "/workspace/a"},
+          %{"url" => "https://github.com/o/b", "mount_path" => "/workspace/b"},
+          %{"url" => "https://github.com/o/a2", "mount_path" => "/workspace/a"}
+        ]
+      }
+
+      assert Environment.repository_mounts(env) == ["/workspace/a", "/workspace/b"]
+    end
+
+    test "is empty with no environment or no repositories" do
+      assert Environment.repository_mounts(nil) == []
+      assert Environment.repository_mounts(%Environment{repositories: []}) == []
+      assert Environment.repository_mounts(%Environment{repositories: nil}) == []
+    end
+  end
+
   # ---------------------------------------------------------------------------
   # changeset/2 — basic validity
   # ---------------------------------------------------------------------------

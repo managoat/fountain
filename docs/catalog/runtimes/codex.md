@@ -102,24 +102,28 @@ remain in place. A change during a running turn applies to the next turn.
 
 Codex applies a sandbox policy of its own **inside** the Fountain sandbox. The
 pinned `codex-acp` adapter sends that policy with each session. By default a
-command can write to the workspace and to the temporary directories, and it
-cannot reach the network.
+command can write to the workspace, to the environment's repositories and to
+the temporary directories, and it cannot reach the network.
 
 | What the adapter sends | Default |
 |---|---|
 | The sandbox | `workspaceWrite` |
-| `writableRoots` | `[]` |
+| `writableRoots` | the environment's repository `mount_path`s |
 | `networkAccess` | `false` |
 | `excludeSlashTmp` | `false`, so `/tmp` is writable |
 | `excludeTmpdirEnvVar` | `false`, so `$TMPDIR` is writable |
 | The approval policy | `on-request` |
 | The approvals reviewer | `auto_review` |
 
-Inside that sandbox, two things a first turn often does are refused. A write
-outside the workspace and the temporary directories fails. That includes the
-`.git` of a clone that lives elsewhere, so a command that cuts a worktree from
-a shared clone cannot write its entry. And a network call fails, so
-`git fetch`, a package install and a `curl` the agent runs itself all fail.
+Fountain sends each repository's `mount_path` to the adapter as an ACP
+`additionalDirectories` entry, and the adapter adds it to `writableRoots`. The
+agent can therefore commit to a clone Fountain made for it, and cut a
+worktree from it, even though the clone lives outside the workspace.
+
+Inside that sandbox, other writes and all network calls are still refused. A
+write outside the workspace, the repositories and the temporary directories
+fails. And a network call fails, so `git fetch`, a package install and a
+`curl` the agent runs itself all fail.
 
 A refusal is not always the end. Because the approval policy is `on-request`,
 codex can ask to run a refused command outside the sandbox, or ask for network
@@ -166,13 +170,12 @@ Six things follow from that.
   policy you would set to `auto_allow`. The reverse does not hold: a policy of
   `auto_allow` does not remove the sandbox. It approves only the requests that
   codex sends to Fountain.
-- **It is all or nothing.** The value names a mode, not a list. There is no way
-  today to say "the workspace, plus this one root, plus the network". Neither
-  an Agent nor an Environment carries a writable-roots field, and Fountain
-  renders nothing into the adapter's policy on your behalf.
-  [#1684](https://github.com/managoat/fountain/issues/1684) tracks the general
-  version. The policy will live on the Environment when it is built, beside
-  the repositories and the network policy it belongs with.
+- **It is all or nothing.** The value names a mode, not a list. The
+  environment's repositories are already writable without it, but there is no
+  way to add network access on its own, or a writable directory that is not a
+  repository. The adapter has no per-session network setting short of full
+  access. [#1684](https://github.com/managoat/fountain/issues/1684) tracks the
+  rest.
 - **It does not widen Fountain's own egress.** An environment with
   `networking_type: limited`, and the credential broker where it is on, still
   decide which hosts a request reaches. Full access lets codex attempt the

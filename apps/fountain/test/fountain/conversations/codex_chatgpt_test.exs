@@ -553,6 +553,42 @@ defmodule Fountain.Conversations.CodexChatGPTTest do
       assert File.lstat!(Path.join(crowded, "file-50")).type == :symlink
     end
 
+    # #2503. Codex builds its analytics client once per app-server from
+    # `config.toml`, which the CODEX_CONFIG overlay does not reach. A home
+    # with none gets one that turns analytics off. One already there, the
+    # shared link included, is never touched.
+    test "a home with no config.toml gets analytics off; any existing one is left alone" do
+      tmp = Fountain.TmpDir.mkdir!("codex-grant-analytics")
+      shared = Path.join(tmp, ".codex")
+      File.mkdir_p!(shared)
+
+      home = Path.join([tmp, ".codex-grants", "fresh"])
+      assert {_, 0} = link(shared, home)
+      config = Path.join(home, "config.toml")
+      assert File.lstat!(config).type == :regular
+      assert File.read!(config) == "[analytics]\nenabled = false\n"
+
+      # Idempotent, and a later edit (codex rewrites the file) survives.
+      File.write!(config, "[analytics]\nenabled = true\n")
+      assert {_, 0} = link(shared, home)
+      assert File.read!(config) == "[analytics]\nenabled = true\n"
+
+      # A shared config.toml is linked as before, and not written through.
+      File.write!(Path.join(shared, "config.toml"), "model = \"gpt\"")
+      linked = Path.join([tmp, ".codex-grants", "linked"])
+      assert {_, 0} = link(shared, linked)
+      assert File.lstat!(Path.join(linked, "config.toml")).type == :symlink
+      assert File.read!(Path.join(shared, "config.toml")) == "model = \"gpt\""
+
+      # A dangling link planted where the file would go is not followed.
+      planted = Path.join([tmp, ".codex-grants", "planted"])
+      File.mkdir_p!(planted)
+      target = Path.join(tmp, "elsewhere.toml")
+      File.ln_s!(target, Path.join(planted, "config.toml"))
+      assert {_, 0} = link(Path.join(tmp, "empty-shared"), planted)
+      refute File.exists?(target)
+    end
+
     # Everything under the sandbox's home is the agent's to write, so a home
     # can be planted before Fountain prepares it.
     test "a home that is a symbolic link is refused, and a planted auth.json link is removed" do

@@ -428,6 +428,15 @@ defmodule Fountain.Conversations.CodexChatGPT do
   # `auth.json` is left for that write to replace, because a peer on the
   # same sign-in may be reading it. This narrows a same-user race and does
   # not close it: a link planted between this script and the write wins.
+  #
+  # Last, a home with no `config.toml` (neither its own nor a link to the
+  # shared one) gets one that turns Codex's analytics off (#2503). Codex
+  # builds its analytics client once per app-server from this file; the
+  # per-thread `CODEX_CONFIG` overlay does not reach it. The broker lets the
+  # posts through, and this only stops them from being sent at all. A file
+  # already there, whoever wrote it, is left alone, and so is its analytics
+  # setting. The write uses noclobber (`O_EXCL`), so it creates the file
+  # and never follows a link planted since the check.
   @link_script """
   set -eu
   shared=$1
@@ -446,6 +455,9 @@ defmodule Fountain.Conversations.CodexChatGPT do
       [ -e "$home/$n" ] || [ -L "$home/$n" ]
   done
   if [ -L "$home/auth.json" ]; then rm -f "$home/auth.json"; fi
+  if [ ! -e "$home/config.toml" ] && [ ! -L "$home/config.toml" ]; then
+    (set -C; printf '[analytics]\nenabled = false\n' > "$home/config.toml") 2>/dev/null || true
+  fi
   """
 
   @doc false

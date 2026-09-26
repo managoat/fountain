@@ -13,6 +13,7 @@ defmodule Fountain.Broker.Native.ProtectedCompilerTest do
   @identity "account-fixture"
   @path "/backend-api/codex/responses"
   @models "/backend-api/codex/models"
+  @analytics "/backend-api/codex/analytics-events/events"
 
   # What `Sessions` assembles from the two halves: the ordinary rules, and the
   # policy for the account the fenced read of the grant row named.
@@ -255,7 +256,8 @@ defmodule Fountain.Broker.Native.ProtectedCompilerTest do
 
     assert policy.routes == [
              %{path: @path, methods: ["POST"], query: :refuse},
-             %{path: @models, methods: ["GET"], query: {:only, ["client_version"]}}
+             %{path: @models, methods: ["GET"], query: {:only, ["client_version"]}},
+             %{path: @analytics, methods: ["POST"], query: :refuse}
            ]
 
     # `routes` replaces the joint fields; the library refuses a policy that
@@ -296,6 +298,31 @@ defmodule Fountain.Broker.Native.ProtectedCompilerTest do
     # An ordinary rule aimed at the new route conflicts like one aimed at the
     # old one.
     bindings = %{"OTHER" => [binding("OTHER", "chatgpt.com" <> @models)]}
+
+    assert {:error, :managed_destination_conflict} =
+             ProtectedCompiler.compile(%{"OTHER" => "ordinary"}, bindings, :unrestricted)
+  end
+
+  # #2503. Refused, each analytics post (it has a body) closed its tunnel.
+  test "analytics is a POST with no query, and conflicts like the other routes" do
+    assert {:ok, compiled} = compile(%{}, %{}, :unrestricted)
+    session = session(compiled)
+
+    assert {:ok, _} = ProtectedRule.select(session, request(%{target: @analytics}))
+
+    assert {:error, :protected_query} =
+             ProtectedRule.select(session, request(%{target: @analytics <> "?x=1"}))
+
+    assert {:error, :protected_destination} =
+             ProtectedRule.select(session, request(%{method: "GET", target: @analytics}))
+
+    # Only that exact path: its neighbours stay refused.
+    for path <- ["/backend-api/codex/analytics-events", @analytics <> "/more"] do
+      assert {:error, :protected_destination} =
+               ProtectedRule.select(session, request(%{target: path}))
+    end
+
+    bindings = %{"OTHER" => [binding("OTHER", "chatgpt.com" <> @analytics)]}
 
     assert {:error, :managed_destination_conflict} =
              ProtectedCompiler.compile(%{"OTHER" => "ordinary"}, bindings, :unrestricted)

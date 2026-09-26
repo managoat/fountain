@@ -249,7 +249,7 @@ defmodule Fountain.Broker.Native.ManagedGrantProxyTest do
         assert Enum.all?(Rig.rows(rig, conv.id, 3), &(&1.error == "protocol_upgrade"))
       end
 
-      test "only the two routes and their methods reach the backend with the bearer",
+      test "only the pinned routes and their methods reach the backend with the bearer",
            %{owner: owner, user: user, rig: rig} do
         {account, _access} = grant(owner, user, "routes")
         session = session!(conversation(user), user, account)
@@ -296,6 +296,23 @@ defmodule Fountain.Broker.Native.ManagedGrantProxyTest do
 
         # The same tunnel still carries the Responses call, with the bearer.
         assert bearer?(tls |> Rig.exchange(codex_request(rig)) |> report(), access)
+
+        # And analytics, a POST with a body (#2503).
+        body = ~s({"events":[]})
+
+        seen =
+          tls
+          |> Rig.exchange(
+            "POST /backend-api/codex/analytics-events/events HTTP/1.1\r\n" <>
+              "Host: #{rig.origin_host}\r\nContent-Type: application/json\r\n" <>
+              "Content-Length: #{byte_size(body)}\r\n\r\n" <> body
+          )
+          |> report()
+
+        assert seen["path"] == "/backend-api/codex/analytics-events/events"
+        assert seen["body"] == body
+        assert bearer?(seen, access)
+        :ssl.close(tls)
 
         assert %{status: 403} =
                  rig

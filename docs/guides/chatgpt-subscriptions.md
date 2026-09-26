@@ -134,13 +134,18 @@ for about one second, and a model's reply pauses while the model reasons.
 Reset the sandbox: `fountain sandbox reset <id>`. The conversation stays. See
 [A Sprites machine that drops quiet connections](../concepts/sandboxes.md#a-sprites-machine-that-drops-quiet-connections).
 
-A subscription can reach only the routes a codex turn needs: the Responses
-call and Codex's model list. Fountain refuses the rest, including analytics
-and the remote plugin catalog. On a subscription, Fountain turns off the
-remote plugin catalog in Codex, so Codex stops asking for it. Codex's
-analytics requests continue, and Fountain refuses each one. Because Codex can read its model list,
-the models it offers are the ones the backend lists for your subscription,
-not the list that ships with Codex.
+A subscription can reach only the routes Codex uses for a turn: the
+Responses call, Codex's model list and Codex's analytics. Fountain refuses
+the rest, including the remote plugin catalog. On a subscription:
+
+- **Plugins.** Fountain turns off Codex's remote plugin catalog, so Codex
+  stops asking for it.
+- **Analytics.** Fountain also turns Codex's analytics off (see
+  [Setup scripts and `CODEX_HOME`](#setup-scripts-and-codex_home)). If your
+  configuration turns analytics on, the broker lets the requests through.
+- **Models.** Because Codex can read its model list, the models it offers
+  are the ones the backend lists for your subscription, not the list that
+  ships with Codex.
 
 ## Reconnect, rename, disconnect, remove
 
@@ -235,6 +240,15 @@ made, without the MCP servers that Fountain writes for the agent. Do not
 write to `$CODEX_HOME` in a setup script for the same reason. Put Codex
 settings in the `CODEX_CONFIG` variable of the environment, which Fountain
 applies over the file.
+
+**Analytics is off by default.** When Fountain prepares the directory and it
+has no `config.toml`, Fountain writes one that turns Codex's analytics off:
+`[analytics] enabled = false`. `CODEX_CONFIG` cannot change this setting,
+because Codex reads it once when it starts and not per conversation. If a
+`~/.codex/config.toml` exists when Fountain prepares the directory, Fountain
+links it instead and writes nothing. That file's analytics setting then
+applies, and Codex sends analytics unless the file turns it off. Fountain
+never changes a `config.toml` that is already there.
 
 ## Related
 

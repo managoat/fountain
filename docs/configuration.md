@@ -262,12 +262,21 @@ requests and streamed responses work as before. Fountain sets `CODEX_HOME`
 for such a conversation, and ignores a `CODEX_HOME` from its environment or
 vault.
 
-Codex also asks `chatgpt.com` for plugin lists, an MCP surface, settings
-and telemetry. The broker refuses those requests, and `/admin/broker` lists
-them as denied. This is expected. Most of the refusals come once, when a
-sandbox starts, and each turn after that adds a few more. On a subscription
-Fountain turns off Codex's remote plugin catalog, so fewer of them arrive.
-Codex's analytics requests still arrive, and the broker refuses each one. A refused request that has no body leaves its connection open. We observed this in production on
+The broker also allows two more routes for such a conversation:
+
+- **The model list:** `GET https://chatgpt.com/backend-api/codex/models`,
+  with only the `client_version` query parameter.
+- **Analytics:** `POST https://chatgpt.com/backend-api/codex/analytics-events/events`.
+  Fountain turns Codex's analytics off by default in the conversation's
+  `CODEX_HOME`, so these requests arrive only if a `config.toml` turns
+  analytics on.
+
+Codex also asks `chatgpt.com` for plugin lists, an MCP surface and settings.
+The broker refuses those requests, and `/admin/broker` lists them as denied.
+This is expected. Most of the refusals come once, when a sandbox starts, and
+each turn after that adds a few more. On a subscription Fountain turns off
+Codex's remote plugin catalog, so fewer of them arrive. A refused request
+that has no body leaves its connection open. We observed this in production on
 2026-09-21 with codex-acp 1.10.0 and Codex CLI 0.153.4, and the turns
 completed without those requests.
 

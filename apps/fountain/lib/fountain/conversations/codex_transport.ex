@@ -77,7 +77,8 @@ defmodule Fountain.Conversations.CodexTransport do
   # client once per app-server from the process config (`config.toml`,
   # `-c`), which this per-thread overlay does not reach. Measured in
   # production on 2026-09-26 (#2503): with `analytics.enabled = false` in
-  # the overlay, the analytics posts continued.
+  # the overlay, the analytics posts continued. A grant home's `config.toml`
+  # turns it off instead (`CodexChatGPT`), and the broker allows the route.
   @provider_id "fountain_openai_http"
   @openai_base_url "https://api.openai.com/v1"
   @chatgpt_base_url "https://chatgpt.com/backend-api/codex"

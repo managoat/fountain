@@ -6,7 +6,7 @@ defmodule Fountain.Broker.Native.ProtectedCompiler do
   Two halves, and neither ever holds a bearer:
 
     * `policy/1` -- the `Managoat.Broker.ProtectedRule` for one ChatGPT
-      account: the Codex backend's host and port, the two routes the pinned
+      account: the Codex backend's host and port, the three routes the pinned
       client uses (each with its one method and its query policy), the
       account id the proxy sends as `chatgpt-account-id`, and the request
       headers that survive. Nothing a tenant configures reaches it.
@@ -38,7 +38,7 @@ defmodule Fountain.Broker.Native.ProtectedCompiler do
   alias Fountain.ChatGPTAccounts.Reserved
   alias Managoat.Broker.{ProtectedRule, Session}
 
-  # The two routes a turn uses (managoat_broker 0.16 `routes`).
+  # The routes the pinned client uses (managoat_broker 0.16 `routes`).
   #
   #   * The Responses call: `POST`, and a query is refused. A query the
   #     sandbox wrote would be a parameter nobody pinned, sent under the
@@ -50,13 +50,22 @@ defmodule Fountain.Broker.Native.ProtectedCompiler do
   #     client sends exactly `?client_version=<its version>`, so the query
   #     is admitted with that one parameter name and nothing else.
   #
-  # Every other `chatgpt.com` route the client asks for (analytics, plugins,
-  # the remote-control socket) stays refused.
+  #   * Analytics (#2503): `POST`, no query. Refused, each post carried a
+  #     body, so it closed its tunnel, several hundred times an hour. Codex's
+  #     own telemetry about the turns it ran, sent to the backend that served
+  #     them. A grant home also switches it off by default
+  #     (`CodexChatGPT`'s link script), so this route matters when a
+  #     `config.toml` turns it back on.
+  #
+  # Every other `chatgpt.com` route the client asks for (plugins, the MCP
+  # surface, settings, the remote-control socket) stays refused.
   @responses "/backend-api/codex/responses"
   @models "/backend-api/codex/models"
+  @analytics "/backend-api/codex/analytics-events/events"
   @routes [
     %{path: @responses, methods: ["POST"], query: :refuse},
-    %{path: @models, methods: ["GET"], query: {:only, ["client_version"]}}
+    %{path: @models, methods: ["GET"], query: {:only, ["client_version"]}},
+    %{path: @analytics, methods: ["POST"], query: :refuse}
   ]
 
   # `accept-encoding` is not here: the library sends `identity` on every
@@ -165,7 +174,8 @@ defmodule Fountain.Broker.Native.ProtectedCompiler do
 
     [
       %{scheme: :https, host: host, port: port, target: @responses, method: "POST"},
-      %{scheme: :https, host: host, port: port, target: @models, method: "GET"}
+      %{scheme: :https, host: host, port: port, target: @models, method: "GET"},
+      %{scheme: :https, host: host, port: port, target: @analytics, method: "POST"}
     ]
   end
 

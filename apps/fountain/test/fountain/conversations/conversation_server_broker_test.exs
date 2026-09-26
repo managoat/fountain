@@ -418,7 +418,7 @@ defmodule Fountain.Conversations.ConversationServerBrokerTest do
       # The CA, in the OS trust store — under the lock, and only if it
       # differs from what is already there (#1674).
       assert_receive {:wrote, "/tmp/agent-vault-ca.crt." <> _, "PEM"}, 2_000
-      assert_receive {:exec, ["-lc", "( trap 'rm -f -- " <> _]}, 2_000
+      assert_receive {:exec, ["-c", "( trap 'rm -f -- " <> _]}, 2_000
 
       # The clone sees the placeholder and the proxy, so git goes through the
       # broker and the broker rewrites the auth header.

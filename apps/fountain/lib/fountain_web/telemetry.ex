@@ -178,6 +178,18 @@ defmodule FountainWeb.Telemetry do
         reporter_options: [buckets: [1000, 5000, 10_000, 30_000, 60_000, 120_000]],
         description: "How long a fresh sandbox takes to provision"
       ),
+      # Which step a fresh provision spent its time in (2026-09-26): the named
+      # steps of `FreshProvision`'s pipeline and the provider create, one
+      # histogram tagged by step. `step` is a fixed set of names, so the
+      # tag's cardinality is bounded; conv_id rides the metadata, never a tag.
+      distribution("fountain.provision_step.stop.duration",
+        event_name: [:fountain, :provision_step, :stop],
+        measurement: :duration,
+        unit: {:native, :millisecond},
+        tags: [:step],
+        reporter_options: [buckets: [50, 100, 250, 500, 1000, 2500, 5000, 10_000, 30_000]],
+        description: "How long each named step of a fresh provision takes"
+      ),
       distribution("fountain.reattach.stop.duration",
         event_name: [:fountain, :reattach, :stop],
         measurement: :duration,

@@ -117,7 +117,7 @@ defmodule Fountain.Telemetry do
     # trendable — and metrics_test pins the pairing.
     spans =
       for stage <-
-            ~w(fresh_provision reattach setup_script packages network_policy clone_repositories rehydrate)a,
+            ~w(fresh_provision provision_step reattach setup_script packages network_policy clone_repositories rehydrate)a,
           phase <- ~w(start stop exception)a,
           do: @prefix ++ [stage, phase]
 

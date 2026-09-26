@@ -122,7 +122,8 @@ defmodule FountainWeb.MetricsTest do
             [:fountain, :network_policy, :stop, :duration],
             [:fountain, :clone_repositories, :stop, :duration],
             [:fountain, :checkpoint, :create, :stop, :duration],
-            [:fountain, :checkpoint, :restore, :stop, :duration]
+            [:fountain, :checkpoint, :restore, :stop, :duration],
+            [:fountain, :provision_step, :stop, :duration]
           ] do
         assert span in names,
                "#{Enum.join(span, ".")} is no longer exported — the span still " <>
@@ -145,6 +146,16 @@ defmodule FountainWeb.MetricsTest do
         assert metric.tags == [],
                "#{inspect(metric.name)} tags on #{inspect(metric.tags)}"
       end
+
+      # The per-step histogram is tagged by its step, a fixed set of names,
+      # and by nothing else.
+      step =
+        Enum.find(
+          AppTelemetry.prometheus_metrics(),
+          &(&1.event_name == [:fountain, :provision_step, :stop])
+        )
+
+      assert step.tags == [:step]
     end
 
     test "every subscribed fountain event has a live producer" do
@@ -165,6 +176,8 @@ defmodule FountainWeb.MetricsTest do
         [:fountain, :clone_repositories, :stop],
         [:fountain, :checkpoint, :create, :stop],
         [:fountain, :checkpoint, :restore, :stop],
+        # FreshProvision's named pipeline steps and Machines.Provision's create
+        [:fountain, :provision_step, :stop],
         # Rehydrator.sweep/0 wraps its post-boot sweep in this span; the
         # candidates/started numbers ride the stop event's METADATA (a
         # 2-tuple span return), which is why the metrics use measurement

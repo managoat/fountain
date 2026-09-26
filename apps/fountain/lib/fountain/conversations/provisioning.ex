@@ -412,6 +412,26 @@ defmodule Fountain.Conversations.Provisioning do
     end
   end
 
+  # Add one CA to a Debian trust store without rebuilding it: append it to the
+  # bundle, and link it by subject hash the way c_rehash would (the next free
+  # `.N`, or none if a link already names it). The link is best-effort; the
+  # bundle is what TLS clients read. `$1` is the CA, `$2` the bundle.
+  @add_to_trust_store ~S"""
+  cat "$1" >> "$2" &&
+  if h=$(openssl x509 -hash -noout -in "$1" 2>/dev/null); then
+    d=$(dirname "$2"); i=0
+    while [ "$i" -lt 10 ]; do
+      l="$d/$h.$i"
+      if [ -L "$l" ] && [ "$(readlink "$l")" = "$1" ]; then break; fi
+      if [ ! -e "$l" ] && [ ! -L "$l" ]; then ln -s "$1" "$l"; break; fi
+      i=$((i + 1))
+    done
+  fi
+  """
+
+  @doc false
+  def add_to_trust_store, do: @add_to_trust_store
+
   @doc """
   Put the broker's root CA in the sandbox's operating-system trust store,
   and let `sudo` keep the proxy variables.
@@ -556,14 +576,26 @@ defmodule Fountain.Conversations.Provisioning do
 
     # Written as the sandbox user where it may, then moved into the root-owned
     # trust directory the way `install_packages/4` reaches apt: through sudo.
+    #
+    # A sandbox that has never trusted the CA (every fresh provision) gets it
+    # added to the existing bundle and linked by hash, which is what
+    # `update-ca-certificates` would produce for it: ~50 ms against the
+    # 1.3–2.7 s that rebuilding all ~240 entries costs on a sprite (measured
+    # 2026-09-26; the image has no update.d hooks). Anything else — a changed
+    # CA, a bundle that no longer matches the marker — still rebuilds, which
+    # is what repairs a corrupted bundle and drops a replaced CA.
     install =
       "( trap #{shell_quote(cleanup)} EXIT; safe=0; " <>
         "if command -v flock >/dev/null 2>&1; then flock -w 120 9 || exit 75; safe=1; fi; " <>
         "{ cmp -s #{shell_quote(staging)} #{shell_quote(path)} && " <>
         "sha256sum -c --status #{shell_quote(marker)} 2>/dev/null; } || " <>
         "{ sudo rm -f -- #{shell_quote(marker)} && " <>
+        "if [ ! -e #{shell_quote(path)} ] && [ -s #{shell_quote(bundle)} ]; then " <>
         "sudo install -D -m 644 #{shell_quote(staging)} #{shell_quote(path)} && " <>
-        "sudo update-ca-certificates && " <>
+        "sudo sh -c #{shell_quote(@add_to_trust_store)} add #{shell_quote(path)} #{shell_quote(bundle)}; " <>
+        "else " <>
+        "sudo install -D -m 644 #{shell_quote(staging)} #{shell_quote(path)} && " <>
+        "sudo update-ca-certificates; fi && " <>
         ~s({ [ "$safe" = 1 ] && sudo sh -c ) <>
         shell_quote(stamp) <>
         " || true; }; } && " <>
@@ -577,7 +609,7 @@ defmodule Fountain.Conversations.Provisioning do
            Retry.with_backoff(fn -> Sandbox.write_file(handle, staging, pem, mode: 0o644) end,
              label: "broker CA write"
            ) do
-      case Sandbox.exec(handle, "bash", ["-lc", install],
+      case Sandbox.exec(handle, "bash", ["-c", install],
              stderr_to_stdout: true,
              timeout: 150_000
            ) do

@@ -209,7 +209,7 @@ defmodule Fountain.Conversations.ProvisioningTest do
     # another installer holds the lock — is the behavioural test below;
     # `install_broker_ca/2`'s docstring has why each of those matters on a
     # shared sandbox.
-    test "writes the CA where update-ca-certificates reads it, then runs it" do
+    test "writes the CA where update-ca-certificates reads it, adding or rebuilding" do
       conv = insert_conversation()
       test = self()
 
@@ -233,7 +233,9 @@ defmodule Fountain.Conversations.ProvisioningTest do
       assert String.starts_with?(staging, "/tmp/agent-vault-ca.crt.")
       refute staging == "/tmp/agent-vault-ca.crt"
 
-      assert_received {:exec, "bash", ["-lc", cmd]}
+      # A plain shell: nothing here needs a login profile, which costs a
+      # sprite ~0.1-0.2 s per exec.
+      assert_received {:exec, "bash", ["-c", cmd]}
       ca = "/usr/local/share/ca-certificates/agent-vault.crt"
       bundle = "/etc/ssl/certs/ca-certificates.crt"
       marker = ca <> ".trust-store-ready"
@@ -245,8 +247,12 @@ defmodule Fountain.Conversations.ProvisioningTest do
                  "{ cmp -s '#{staging}' '#{ca}' && " <>
                  "sha256sum -c --status '#{marker}' 2>/dev/null; } || " <>
                  "{ sudo rm -f -- '#{marker}' && " <>
+                 "if [ ! -e '#{ca}' ] && [ -s '#{bundle}' ]; then " <>
                  "sudo install -D -m 644 '#{staging}' '#{ca}' && " <>
-                 "sudo update-ca-certificates && " <>
+                 "sudo sh -c #{Provisioning.shell_quote(Provisioning.add_to_trust_store())} add '#{ca}' '#{bundle}'; " <>
+                 "else " <>
+                 "sudo install -D -m 644 '#{staging}' '#{ca}' && " <>
+                 "sudo update-ca-certificates; fi && " <>
                  "{ [ \"$safe\" = 1 ] && sudo sh -c " <>
                  "'sha256sum '\\''#{bundle}'\\'' > '\\''#{marker}'\\''' " <>
                  "|| true; }; } && " <>
@@ -276,7 +282,7 @@ defmodule Fountain.Conversations.ProvisioningTest do
         :ok
       end)
 
-      Mimic.stub(Managoat.Sandbox.Sprites, :exec, fn _h, "bash", ["-lc", cmd], _opts ->
+      Mimic.stub(Managoat.Sandbox.Sprites, :exec, fn _h, "bash", ["-c", cmd], _opts ->
         send(test, {:install_command, cmd})
         {:ok, "", 0}
       end)
@@ -342,30 +348,42 @@ defmodule Fountain.Conversations.ProvisioningTest do
         result
       end
 
+      # A fresh sandbox: the image's bundle, and no broker CA yet. The CA is
+      # added to the bundle without a rebuild.
+      File.write!(bundle, "system-roots\n")
       assert {_, 0} = run.()
       assert File.read!(ca) == pem
-      assert File.read!(bundle) == pem <> "system-roots\n"
+      assert File.read!(bundle) == "system-roots\n" <> pem
       assert File.exists?(marker)
-      assert File.read!(counter) == "rebuild\n"
+      refute File.exists?(counter)
 
       assert {_, 0} = run.()
-      assert File.read!(counter) == "rebuild\n"
+      refute File.exists?(counter)
 
+      # Anything but "never installed" rebuilds, which is what repairs.
       File.write!(bundle, "truncated bundle\n")
       assert {_, 0} = run.()
       assert File.read!(bundle) == pem <> "system-roots\n"
-      assert File.read!(counter) == String.duplicate("rebuild\n", 2)
+      assert File.read!(counter) == "rebuild\n"
 
       File.write!(bundle, "corrupted again\n")
       File.touch!(failure)
       assert {_, 3} = run.()
       refute File.exists?(marker)
-      assert File.read!(counter) == String.duplicate("rebuild\n", 3)
+      assert File.read!(counter) == String.duplicate("rebuild\n", 2)
 
       File.rm!(failure)
       assert {_, 0} = run.()
       assert File.read!(bundle) == pem <> "system-roots\n"
       assert File.exists?(marker)
+      assert File.read!(counter) == String.duplicate("rebuild\n", 3)
+
+      # A replaced CA rebuilds too, so the old one leaves the bundle rather
+      # than staying trusted beside the new one.
+      File.write!(ca, "OLD PEM\n")
+      assert {_, 0} = run.()
+      assert File.read!(ca) == pem
+      assert File.read!(bundle) == pem <> "system-roots\n"
       assert File.read!(counter) == String.duplicate("rebuild\n", 4)
 
       # Another installer holds the machine lock. Waiting it out and

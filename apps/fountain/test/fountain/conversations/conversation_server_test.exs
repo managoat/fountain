@@ -598,7 +598,27 @@ defmodule Fountain.Conversations.ConversationServerTest do
       # step cannot strand a conversation in `pending` forever.
       stub_happy_sprite()
 
-      Mimic.stub(Fountain.SandboxSkills, :mount, fn _s, _r, _sk ->
+      Mimic.stub(Fountain.SandboxSkills, :mount_fresh, fn _s, _r, _sk ->
+        raise "boom"
+      end)
+
+      {_pid, ref, _} = start_server(conv)
+      assert_stopped(ref)
+
+      assert Conversations._unsafe_get_sandbox!(sandbox.id).status == "failed"
+      assert Conversations._unsafe_get_conversation!(conv.id).status == "failed"
+    end
+
+    # The sandbox config steps run concurrently, each in its own process. An
+    # exception there must still reach the provision's rescue, not crash the
+    # server past it.
+    test "an exception in a concurrent config step is caught the same way", %{
+      conv: conv,
+      sandbox: sandbox
+    } do
+      stub_happy_sprite()
+
+      Mimic.stub(Fountain.Conversations.Provisioning, :write_env_file, fn _h, _env ->
         raise "boom"
       end)
 

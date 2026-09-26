@@ -257,70 +257,106 @@ defmodule Fountain.Conversations.FreshProvision do
   # row mid-provision — the machine's public URL — and writes it by
   # compare-and-set on that epoch, so a superseded attempt leaves no URL behind.
   defp pipeline(ctx, handle, epoch) do
+    %{state: state, skills: skills, runtime: runtime} = ctx
+    conv_id = state.conversation_id
+
+    # Skills are files the first turn reads, and nothing between here and
+    # there depends on them, so they are written alongside the rest and
+    # awaited at the end rather than first.
+    skills_task =
+      async_step(fn ->
+        step(conv_id, "skills", fn ->
+          Fountain.SandboxSkills.mount_fresh(handle, runtime, skills)
+        end)
+      end)
+
+    try do
+      result = run_pipeline(ctx, handle, epoch)
+      if match?({:ok, _}, result), do: await_step(skills_task)
+      result
+    after
+      Task.shutdown(skills_task, :brutal_kill)
+    end
+  end
+
+  # A step run beside the pipeline. `do_run/6` rescues any exception a step
+  # raises and fails the provision rather than stranding the conversation in
+  # `pending`; an exception inside a Task would reach this process as an exit
+  # instead, past that rescue. So the task catches it, and awaiting re-raises
+  # it here, with its own stacktrace.
+  defp async_step(fun) do
+    Task.async(fn ->
+      try do
+        {:ok, fun.()}
+      rescue
+        exception -> {:raised, exception, __STACKTRACE__}
+      end
+    end)
+  end
+
+  defp await_step(task) do
+    case Task.await(task, :infinity) do
+      {:ok, result} -> result
+      {:raised, exception, stacktrace} -> reraise exception, stacktrace
+    end
+  end
+
+  defp run_pipeline(ctx, handle, epoch) do
     %{state: state, conv: conv, sandbox: sandbox, agent: agent, env: env} = ctx
-    %{secrets: secrets, skills: skills, runtime: runtime} = ctx
+    %{secrets: secrets, runtime: runtime} = ctx
+    conv_id = state.conversation_id
 
-    Fountain.SandboxSkills.mount(handle, runtime, skills)
-
-    {state, conv} = ConversationServer.rotate_callback_api_key(state, conv)
+    {state, conv} =
+      step(conv_id, "callback_key", fn ->
+        ConversationServer.rotate_callback_api_key(state, conv)
+      end)
 
     # Looked up once, here, because it is stable for the sandbox's life and
     # the agent needs it in its environment before the first turn runs.
-    sandbox_url = Provisioning.record_sandbox_url(sandbox, handle, epoch)
+    sandbox_url =
+      step(conv_id, "sandbox_url", fn ->
+        Provisioning.record_sandbox_url(sandbox, handle, epoch)
+      end)
 
     # The broker session is minted before the env is built, because the
     # env carries it; the CA is installed before anything dials out,
     # because nothing dials out without it (ADR 0019 gate 1a).
     # Keep the result outside `with`: its else cannot see the minted state.
-    prepared = Egress.prepare_state(state)
+    prepared = step(conv_id, "broker_session", fn -> Egress.prepare_state(state) end)
 
     with {:ok, state} <- prepared,
          {:ok, ca_files} <- Egress.ca_files(state.broker, handle),
          sprite_env =
            ConversationServer.build_sprite_env(state, agent, env, secrets, sandbox_url, ca_files),
-         # A real step, not best effort: an agent whose MCP servers could
-         # not be written would otherwise run without them and report
-         # `provision/done`. The runtimes retry the write themselves.
          :ok <-
-           Provisioning.write_runtime_config(
-             handle,
-             state.runtime_module,
-             Egress.with_connection_servers(
-               agent,
-               state.user_id,
-               state.conversation_id,
-               state.callback_token
-             )
-           ),
-         _ = Provisioning.write_instructions(handle, runtime, agent),
-         # The file is the machine's; the conversation's identity travels as
-         # process env on every spawn (`Fountain.Conversations.Identity`).
-         :ok <-
-           Provisioning.write_env_file(
-             handle,
-             Fountain.Conversations.Identity.disk_env(sprite_env)
-           ),
-         :ok <- Egress.install_ca(state.broker, handle, state.conversation_id),
+           step(conv_id, "sandbox_config", fn ->
+             write_sandbox_config(handle, state, agent, runtime, sprite_env)
+           end),
          :ok <-
            run_provisioning_pipeline(
              handle,
              env,
              sprite_env,
              secrets,
-             state.conversation_id,
+             conv_id,
              Egress.brokered?()
            ),
-         :ok <- Fountain.Conversations.InferenceBinding.reserve(conv, state.inference_source),
          :ok <-
-           Provisioning.prepare_runtime_sprite(
-             handle,
-             runtime,
-             state.runtime_module,
-             agent,
-             sprite_env,
-             state.inference_source,
-             state.user_id
-           ) do
+           step(conv_id, "inference_reserve", fn ->
+             Fountain.Conversations.InferenceBinding.reserve(conv, state.inference_source)
+           end),
+         :ok <-
+           step(conv_id, "adapter", fn ->
+             Provisioning.prepare_runtime_sprite(
+               handle,
+               runtime,
+               state.runtime_module,
+               agent,
+               sprite_env,
+               state.inference_source,
+               state.user_id
+             )
+           end) do
       {:ok,
        %{
          conv: conv,
@@ -343,6 +379,57 @@ defmodule Fountain.Conversations.FreshProvision do
         # attempt is better than two that have to agree.
         {:error, reason, %{state: reached_state(prepared, state)}}
     end
+  end
+
+  # What the sandbox needs on disk before anything runs in it: the runtime's
+  # config, the agent's instructions, the env file and the broker CA. None
+  # reads another, so they go at once: they were ~2.8 s one after another on
+  # a sprite, most of it the CA install (measured 2026-09-26). Each answers as
+  # it did in sequence, and the first error in that order is the answer.
+  #
+  # - The runtime config is a real step, not best effort: an agent whose MCP
+  #   servers could not be written would otherwise run without them and report
+  #   `provision/done`. The runtimes retry the write themselves.
+  # - The env file is the machine's; the conversation's identity travels as
+  #   process env on every spawn (`Fountain.Conversations.Identity`).
+  # - The CA is installed before anything dials out, which the pipeline still
+  #   guarantees: every step after this one waits for it.
+  defp write_sandbox_config(handle, state, agent, runtime, sprite_env) do
+    [
+      fn ->
+        Provisioning.write_runtime_config(
+          handle,
+          state.runtime_module,
+          Egress.with_connection_servers(
+            agent,
+            state.user_id,
+            state.conversation_id,
+            state.callback_token
+          )
+        )
+      end,
+      fn ->
+        _ = Provisioning.write_instructions(handle, runtime, agent)
+        :ok
+      end,
+      fn ->
+        Provisioning.write_env_file(handle, Fountain.Conversations.Identity.disk_env(sprite_env))
+      end,
+      fn -> Egress.install_ca(state.broker, handle, state.conversation_id) end
+    ]
+    |> Enum.map(&async_step/1)
+    |> Enum.map(&await_step/1)
+    |> Enum.find(:ok, &(&1 != :ok))
+  end
+
+  # One named provisioning step as a span: the `fountain.provision_step`
+  # histogram, tagged by step, says which step a slow provision spent its time
+  # in. `step` and `conv_id` ride the stop event because `:telemetry.span`
+  # reports only what the work returns there.
+  defp step(conv_id, name, fun) do
+    Fountain.Telemetry.span([:provision_step], %{conv_id: conv_id, step: name}, fn ->
+      {fun.(), %{conv_id: conv_id, step: name}}
+    end)
   end
 
   # The state a failed pipeline stops with: the one carrying the broker session

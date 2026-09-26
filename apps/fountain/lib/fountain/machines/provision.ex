@@ -850,10 +850,17 @@ defmodule Fountain.Machines.Provision do
   # of a machine, made between the lease that makes it safe and the
   # compare-and-set that records it, which is the definition of an owner's work.
   defp create_at_provider(provider, %Sandbox{} = sandbox) do
-    Managoat.Sandbox.Retry.with_backoff(
-      fn -> Managoat.Sandbox.create(provider, sandbox.machine_name) end,
-      label: "sprite create #{sandbox.machine_name}"
-    )
+    meta = %{sandbox_id: sandbox.id, step: "create"}
+
+    Fountain.Telemetry.span([:provision_step], meta, fn ->
+      result =
+        Managoat.Sandbox.Retry.with_backoff(
+          fn -> Managoat.Sandbox.create(provider, sandbox.machine_name) end,
+          label: "sprite create #{sandbox.machine_name}"
+        )
+
+      {result, meta}
+    end)
   end
 
   # A sandbox left behind by an interrupted attempt cannot be finished in

@@ -198,6 +198,28 @@ defmodule Fountain.Conversations.MixedHomeLifecycleTest do
       assert reload(ctx.guest).agent_id == ctx.guest_agent.id
     end
 
+    test "a guest whose server exited mid-call is ended through the no-server path", ctx do
+      # `call_server/2` answers `:not_running` for a server that went between
+      # `whereis/1` and the call, with the conversation still live.
+      stub(Termination, :terminate_conversation, fn id, opts ->
+        Mimic.call_original(Termination, :terminate_conversation, [id, opts])
+      end)
+
+      expect(Termination, :terminate_conversation, fn _id, _opts -> {:error, :not_running} end)
+
+      assert {:ok, _} = Agents.delete_agent(ctx.guest_agent)
+      assert status(ctx.guest) == "terminated"
+      assert Repo.reload!(ctx.home).status == "ready"
+    end
+
+    test "a guest still live after the retry stops the deletion", ctx do
+      stub(Termination, :terminate_conversation, fn _id, _opts -> {:error, :not_running} end)
+
+      assert {:error, :not_running} = Agents.delete_agent(ctx.guest_agent)
+      assert Agents.get_agent(ctx.guest_agent.id, ctx.user.id)
+      assert status(ctx.guest) == "idle"
+    end
+
     test "a guest whose row ended though its machine answered an error does not", ctx do
       stub(Termination, :terminate_conversation, fn id, _opts ->
         {:ok, _} = Conversations.update_conversation(reload(%{id: id}), %{status: "terminated"})
@@ -235,8 +257,10 @@ defmodule Fountain.Conversations.MixedHomeLifecycleTest do
     test "a guest alone on the home still cannot take it over", ctx do
       {:ok, _} = Conversations.update_conversation(ctx.host, %{status: "terminated"})
 
-      assert {:error, {:rebuild_required, :runtime}} =
+      assert {:error, {:rebuild_required, :guest}} =
                Reapply.update_identity(ctx.guest, ctx.guest_agent, ctx.env.id, nil)
+
+      assert Reapply.explain(:guest) =~ "another agent's home"
 
       home = Repo.reload!(ctx.home)
       assert {home.agent_id, home.runtime} == {ctx.host_agent.id, "claude"}
@@ -387,7 +411,7 @@ defmodule Fountain.Conversations.MixedHomeLifecycleTest do
   end
 
   describe "the reservation's stamp" do
-    test "a machine a non-codex conversation builds carries it; a codex one does not" do
+    test "only a machine a claude conversation builds carries it" do
       user = insert_verified_user()
 
       reserve = fn builder ->
@@ -406,6 +430,9 @@ defmodule Fountain.Conversations.MixedHomeLifecycleTest do
 
       assert reserve.("claude")
       refute reserve.("codex")
+      # The command runtime can run `codex-acp` or `codex login` itself.
+      refute reserve.("acp")
+      refute reserve.("opencode")
       refute reserve.(nil)
     end
   end

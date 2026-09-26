@@ -147,6 +147,18 @@ defmodule Fountain.Machines.Binding do
   before the column existed keeps the old rule for every source, and the way
   forward on one is still an ephemeral sandbox or a reset of the home.
 
+  `codex_peer_homes` is set in one of two places. A codex conversation's
+  first bind sets it while the machine is still being built. A machine a
+  claude conversation builds carries it from its reservation
+  (`Fountain.Machines.Provision.reserve/1`, #2516), because nothing on it has
+  touched `~/.codex`. That is how a codex conversation of another agent
+  attached to a claude home (ADR 0023, amended 2026-09-26) makes the first
+  Codex bind on an already built machine, and how a codex home rebuilt by a
+  claude guest takes its host's bind again. On a flagged machine every bind
+  that uses the shared file records itself, so an empty record means the file
+  was never written. A built machine without the flag and without a record
+  keeps the old refusal, because its file may predate the record.
+
   ## Vocabulary
 
   Every answer here is a word the callers already handled on `main`:
@@ -634,7 +646,7 @@ defmodule Fountain.Machines.Binding do
 
   Refused with `{:error, {:rebuild_required, :shared_sandbox}}` when the
   identity moves and a co-tenant still declares the old one; with
-  `{:error, {:rebuild_required, :runtime}}` when it moves at the request of a
+  `{:error, {:rebuild_required, :guest}}` when it moves at the request of a
   conversation whose runtime is not the machine's — a guest on another
   agent's home (#2516); with
   `{:error, :sandbox_unavailable}` on a terminal or missing row. A move onto
@@ -697,7 +709,7 @@ defmodule Fountain.Machines.Binding do
         {:error, {:rebuild_required, :shared_sandbox}}
 
       moves_identity?(current, attrs) and guest?(current, Keyword.get(opts, :conversation_id)) ->
-        {:error, {:rebuild_required, :runtime}}
+        {:error, {:rebuild_required, :guest}}
 
       fingerprint_changed?(current, Keyword.get(opts, :expected_fingerprint)) ->
         {:error, {:rebuild_required, :environment}}
@@ -725,8 +737,7 @@ defmodule Fountain.Machines.Binding do
   # A guest (ADR 0023, amended 2026-09-26): a conversation of another runtime
   # attached to this machine by `sandbox_id`. Its reapply names its own agent,
   # so moving the identity would hand the home to it — relabelling a machine
-  # built for one runtime with an agent of another, which is the runtime
-  # change `Reapply.check/2` refuses for everyone else. Refused whether or not
+  # built for one runtime with an agent of another. Refused whether or not
   # the home's own conversations are still here (#2516). The conversation's
   # runtime, not its agent: a reapply has already written the selected agent
   # to the row in the same transaction, and `check/2` has already refused a

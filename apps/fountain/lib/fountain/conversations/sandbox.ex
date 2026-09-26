@@ -47,9 +47,13 @@ defmodule Fountain.Conversations.Sandbox do
 
   schema "sandboxes" do
     field :codex_inference_source, :map
-    # Set at the machine's first Codex bind and never again: every codex peer
-    # on it that runs on a managed ChatGPT grant keeps its `auth.json` in a
-    # `CODEX_HOME` of its own (`Fountain.Machines.Binding.bind_inference/2`).
+    # Set once, never cleared: at the reservation when a claude conversation
+    # builds the machine (`Fountain.Machines.Provision.reserve/1`, #2516), or
+    # else at its first Codex bind while it is still being built. Every codex
+    # peer on it that runs on a managed ChatGPT grant keeps its `auth.json` in
+    # a `CODEX_HOME` of its own, and every other Codex bind records itself, so
+    # an empty record means nothing has written the shared file
+    # (`Fountain.Machines.Binding.bind_inference/2`).
     field :codex_peer_homes, :boolean, default: false
     # Provider-scoped sandbox identity: the name Fountain mints
     # (`fountain-<tenant-prefix>-<hex>`) and uses as the primary external ref.

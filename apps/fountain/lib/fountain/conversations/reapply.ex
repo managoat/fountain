@@ -93,6 +93,7 @@ defmodule Fountain.Conversations.Reapply do
           | :environment
           | :missing_build_fingerprint
           | :shared_sandbox
+          | :guest
 
   @doc """
   The digest of the Environment fields that provisioning turns into disk
@@ -206,6 +207,11 @@ defmodule Fountain.Conversations.Reapply do
     do:
       "this machine has no recorded build fingerprint, so its original environment build " <>
         "inputs cannot be verified from the current environment"
+
+  def explain(:guest),
+    do:
+      "this machine is another agent's home, which this conversation joined with an " <>
+        "agent of another runtime, and a reapply cannot move the home to this conversation's agent"
 
   def explain(:shared_sandbox),
     do:

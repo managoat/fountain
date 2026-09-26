@@ -348,6 +348,45 @@ defmodule Fountain.TeamTest do
       assert Conversations._unsafe_get_sandbox!(home.id).status == "terminated"
     end
 
+    test "a guest teammate's rebinding leaves the home it sits on to its agent" do
+      # ADR 0023, amended 2026-09-26 (#2516): a teammate of another runtime
+      # attached to another agent's home. Its binding moving is not the
+      # home's identity moving.
+      user = insert_active_user()
+      env = insert_env(user_id: user.id)
+      other = insert_env(user_id: user.id)
+      host = insert_agent(user_id: user.id, environment_id: env.id, sandbox_mode: "persistent")
+
+      guest =
+        insert_agent(
+          user_id: user.id,
+          runtime: "codex",
+          model: "openai/gpt-5",
+          environment_id: env.id
+        )
+
+      home =
+        insert_sandbox(
+          user_id: user.id,
+          status: "ready",
+          mode: "persistent",
+          agent_id: host.id,
+          environment_id: env.id,
+          provider: "sprites"
+        )
+
+      insert_conversation(user_id: user.id, agent: host, sandbox: home, status: "idle")
+      insert_teammate_conv(user, guest, sandbox: home, environment_id: env.id)
+      reject(Managoat.Sandbox.Sprites, :destroy, 1)
+
+      assert {:ok, _, :updated} =
+               Team.update_teammate(user.id, guest.id, %{"environment_id" => other.id})
+
+      home = Conversations._unsafe_get_sandbox!(home.id)
+      assert home.status == "ready"
+      assert is_nil(home.transition)
+    end
+
     test "a rebinding is refused while a turn runs on that computer" do
       user = insert_active_user()
       env = insert_env(user_id: user.id)

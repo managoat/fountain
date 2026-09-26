@@ -415,7 +415,7 @@ defmodule Fountain.Machines.Provision do
   `:builder_runtime` in `attrs` is the runtime of the conversation whose
   provision will build the machine, which is not always the row's `runtime`:
   a guest that wakes first on a dead home rebuilds it under the home's label
-  (ADR 0023, amended 2026-09-26, #2516). A machine a non-codex conversation
+  (ADR 0023, amended 2026-09-26, #2516). A machine a claude conversation
   builds is reserved with `codex_peer_homes` set. That flag is what lets a
   built machine with no recorded Codex binding take its first one
   (`Binding.bind_inference/2`), and it is true of this machine: it is new, and
@@ -424,12 +424,20 @@ defmodule Fountain.Machines.Provision do
   builder sets the flag at its own first bind, while the machine is still
   building, as before. Machines reserved before this stay as they were: a
   built one whose Codex auth file predates the record keeps the old rule.
+
+  An allow-list, not "anything but codex": the stamp is a promise that the
+  builder left `~/.codex` alone, and only claude's layout is known to. The
+  `acp` command runtime can run `codex-acp` or `codex login` and write the
+  shared auth file without a record, and a runtime added later has made no
+  promise either.
   """
+  @leaves_codex_home_alone ~w(claude)
+
   @spec reserve(map()) :: {:ok, Sandbox.t()} | {:error, Ecto.Changeset.t()}
   def reserve(attrs) when is_map(attrs) do
     {builder, attrs} = Map.pop(attrs, :builder_runtime)
 
-    %Sandbox{codex_peer_homes: is_binary(builder) and builder != "codex"}
+    %Sandbox{codex_peer_homes: builder in @leaves_codex_home_alone}
     |> Sandbox.changeset(attrs)
     |> Repo.insert()
   end

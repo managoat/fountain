@@ -537,9 +537,16 @@ defmodule Fountain.Team do
 
   # The teammate's computer, when the new binding no longer names it. Nothing
   # moves for a name-only change, and nothing is orphaned by a rebinding that
-  # keeps the same pair.
-  defp homes_orphaned_by_rebinding(%Conversation{sandbox: %Sandbox{} = home}, identity) do
-    if home.mode == "persistent" and home.status not in ["terminated", "failed"] and
+  # keeps the same pair. Only the teammate's agent's own home: a teammate
+  # attached as a guest to another agent's home (ADR 0023, amended
+  # 2026-09-26) moves off it on its next wake, and the home stays its
+  # agent's (#2516).
+  defp homes_orphaned_by_rebinding(
+         %Conversation{agent_id: agent_id, sandbox: %Sandbox{} = home},
+         identity
+       ) do
+    if home.mode == "persistent" and home.agent_id == agent_id and
+         home.status not in ["terminated", "failed"] and
          {home.environment_id, home.vault_id} != identity do
       [home]
     else

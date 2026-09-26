@@ -367,37 +367,47 @@ defmodule Fountain.Conversations.Termination do
       )
       |> Fountain.Repo.all()
       |> Enum.reduce_while(0, fn conv_id, count ->
-        case end_guest(conv_id, opts) do
+        case end_guest(conv_id, opts, 1) do
           :ok -> {:cont, count + 1}
-          # Gone since the query above: nothing left to end.
-          {:error, :not_running} -> {:cont, count}
+          :gone -> {:cont, count}
           {:error, _} = error -> {:halt, error}
         end
       end)
     end
   end
 
-  defp end_guest(conv_id, opts) do
-    case __MODULE__.terminate_conversation(conv_id, Keyword.take(opts, [:actor, :request_ip])) do
-      :ok ->
+  # `:ok` when the row reached a terminal status, `:gone` when it no longer
+  # exists, and the error otherwise. Decided on the row rather than on the
+  # answer: `terminate_conversation/2` also says `:not_running` for a server
+  # that exited between `whereis/1` and the call (`call_server/2`), with the
+  # conversation still live. That one is tried once more, when the no-server
+  # path will take it.
+  defp end_guest(conv_id, opts, retries) do
+    result =
+      __MODULE__.terminate_conversation(conv_id, Keyword.take(opts, [:actor, :request_ip]))
+
+    # ownership: conv_id is one of the agent's own conversations, found above.
+    case {result, Conversations._unsafe_get_conversation(conv_id)} do
+      {_result, nil} ->
+        :gone
+
+      {:ok, _conv} ->
         :ok
 
-      {:error, reason} = error ->
-        # ownership: conv_id is one of the agent's own conversations above.
-        case Conversations._unsafe_get_conversation(conv_id) do
-          %Conversation{status: status} when status in ["terminated", "failed"] ->
-            Logger.warning(
-              "guest conversation #{conv_id} ended, but its machine answered " <>
-                "#{inspect(reason)}; the row stays for the reaper"
-            )
+      {{:error, reason}, %Conversation{status: status}} when status in ["terminated", "failed"] ->
+        Logger.warning(
+          "guest conversation #{conv_id} ended, but its machine answered " <>
+            "#{inspect(reason)}; the row stays for the reaper"
+        )
 
-            :ok
+        :ok
 
-          _live_or_gone ->
-            Logger.warning("guest conversation #{conv_id} was not terminated: #{inspect(reason)}")
+      {{:error, :not_running}, _live} when retries > 0 ->
+        end_guest(conv_id, opts, retries - 1)
 
-            error
-        end
+      {{:error, reason} = error, _live} ->
+        Logger.warning("guest conversation #{conv_id} was not terminated: #{inspect(reason)}")
+        error
     end
   end
 

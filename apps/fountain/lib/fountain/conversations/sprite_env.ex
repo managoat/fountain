@@ -235,6 +235,24 @@ defmodule Fountain.Conversations.SpriteEnv do
         do: value
   end
 
+  @doc """
+  Register what a sprite env rebuilt outside `build/4` exports, for a
+  conversation already running: the credentials it exports
+  (`exported_credentials/3`) and the brokered values.
+
+  `ConversationServer`'s answer to a refused Claude OAuth token (#655)
+  injects the API key, which was never in the sprite env before, so
+  `build/4` never registered it; without this the very value the fix
+  injects prints in plaintext into `log_events`. The credentials the env
+  exports, not the env whole (#2366); the refused OAuth token is still in
+  the sprite's `/home/sprite/.env`, and `Redaction.add/2` never forgets it.
+  """
+  @spec register_exported(String.t(), [{String.t(), String.t()}], map(), map()) :: :ok
+  def register_exported(conversation_id, sprite_env, env_credentials, brokered) do
+    creds = exported_credentials(sprite_env, env_credentials, brokered)
+    Fountain.Conversations.Redaction.add(conversation_id, creds ++ Map.values(brokered))
+  end
+
   # What each brokered inference credential carries in the sandbox, by
   # credential rather than by env name. `Broker.inference_keys/0` maps the
   # broker's key names to the credentials they hold, and `placeholder/1` is

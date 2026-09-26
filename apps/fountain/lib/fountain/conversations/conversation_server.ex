@@ -813,6 +813,7 @@ defmodule Fountain.Conversations.ConversationServer do
       broker_credentials: state.brokered,
       inference_source: Map.get(state, :inference_source)
     )
+    |> Fountain.Conversations.CotenantSecrets.assembled(state)
   end
 
   # The OAuth token was refused: forget it on both sides and, when brokered,
@@ -1155,13 +1156,8 @@ defmodule Fountain.Conversations.ConversationServer do
 
     switched? = fallback_env != state.sprite_env
 
-    # The API key was never in the sprite env before now, so `build_sprite_env`
-    # never registered it for redaction — do it here, or the very value this
-    # fix injects prints in plaintext into `log_events`. The credentials this
-    # env exports, not the env whole (#2366); the refused OAuth token is still
-    # in the sprite's `/home/sprite/.env`, and `add/2` never forgets it.
-    creds = SpriteEnv.exported_credentials(fallback_env, state.env_credentials, state.brokered)
-    Redaction.add(state.conversation_id, creds ++ Map.values(state.brokered))
+    %{conversation_id: id, env_credentials: creds, brokered: brokered} = state
+    SpriteEnv.register_exported(id, fallback_env, creds, brokered)
 
     state = %{
       state
@@ -1304,6 +1300,10 @@ defmodule Fountain.Conversations.ConversationServer do
   end
 
   # ── permissions, reclaim and redaction ────────────────────────────────────
+
+  # Another runtime's conversation is on this machine (#2513).
+  defp handle_execution_info({:cotenant_arrived, _sandbox_id, _from} = arrival, state),
+    do: {:noreply, Fountain.Conversations.CotenantSecrets.arrived(arrival, state)}
 
   defp handle_execution_info(:lifecycle_check, state) do
     Lifecycle.schedule_check()

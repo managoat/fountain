@@ -1176,6 +1176,10 @@ defmodule Fountain.Conversations.TurnMachine do
   it has nothing to spawn for. Refused here, before a turn row exists, for the
   same reason capacity is: there is no run to record, and the stage event says
   what happened.
+
+  An admitted turn on a mixed-runtime machine registers its co-tenants'
+  inference credentials for redaction before it runs
+  (`Fountain.Conversations.CotenantSecrets.register/2`, #2513).
   """
   @spec open(
           String.t(),
@@ -1204,10 +1208,20 @@ defmodule Fountain.Conversations.TurnMachine do
 
     with :ok <- matching_model(source, agent, conv.runtime) do
       if runnable?(conv, agent),
-        do: open_turn(conv, sandbox_id, prompt, revision, source, opts),
+        do: conv |> open_turn(sandbox_id, prompt, revision, source, opts) |> admitted(sandbox_id),
         else: refuse_no_command(conv)
     end
   end
+
+  # A co-tenant of another runtime may have arrived since the env was
+  # assembled, and its announcement is best effort (#2513). One empty query
+  # on a single-runtime machine.
+  defp admitted({:ok, conv, _turn} = opened, sandbox_id) do
+    Fountain.Conversations.CotenantSecrets.register(conv.id, sandbox_id)
+    opened
+  end
+
+  defp admitted(refused, _sandbox_id), do: refused
 
   defp matching_model(%Source{identity: identity} = source, agent, runtime)
        when is_binary(identity) do

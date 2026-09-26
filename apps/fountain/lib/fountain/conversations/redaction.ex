@@ -27,7 +27,10 @@ defmodule Fountain.Conversations.Redaction do
   vault values, the inference credential, the ChatGPT grant, the callback
   token, the brokered credentials and the broker session token.
   `Fountain.Conversations.SpriteEnv.build/4` classifies them, and a value
-  registered once is never forgotten (`add/2`).
+  registered once is never forgotten (`add/2`). On a machine that also carries
+  a conversation of another runtime, the co-tenants' inference credentials
+  are this conversation's secrets too, since they sit on the disk its agent
+  reads (`Fountain.Conversations.CotenantSecrets`, #2513).
 
   Fountain's own identifiers and configuration are left out — the
   conversation and sandbox ids, the base and sandbox URLs, the trace context,

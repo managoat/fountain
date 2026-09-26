@@ -492,9 +492,14 @@ defmodule Fountain.Conversations.ConversationServerBrokerTest do
       spawn_env = Keyword.fetch!(opts, :env)
       refute Enum.any?(spawn_env, fn {_, v} -> v == "sk-ant-oat01-realtoken" end)
 
-      assert Managoat.Runtimes.Claude.default_env(nil, %{
-               claude_code_oauth_token: "sk-ant-oat01-__claude_code_oauth_token__"
-             }) == [{"CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat01-__claude_code_oauth_token__"}]
+      # The credential entries only: the runtime also sets flags of its own.
+      env =
+        Managoat.Runtimes.Claude.default_env(nil, %{
+          claude_code_oauth_token: "sk-ant-oat01-__claude_code_oauth_token__"
+        })
+
+      assert Enum.filter(env, fn {k, _} -> k in ~w(ANTHROPIC_API_KEY CLAUDE_CODE_OAUTH_TOKEN) end) ==
+               [{"CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat01-__claude_code_oauth_token__"}]
     end
 
     test "a limited environment is brokered with its allowlist enforced at the broker", %{

@@ -18,6 +18,20 @@ defmodule Fountain.Conversations.CotenantSecrets do
 
   So on a mixed machine each conversation also registers the inference
   credential values of every co-tenant of another runtime (`register/2`).
+
+  A co-tenant here is **every conversation the machine has carried**, not
+  only the ones bound to it now (`Occupancy.other_runtime_ids/2`). The disk
+  keeps a runtime's files until the machine is destroyed or reset: a codex
+  guest that has ended leaves its `auth.json` behind, and the claude
+  conversation that wakes after it (its registry cleared when its server
+  stopped) can still print it. `Fountain.Machines.Binding` reads Codex peers
+  the same way for the same reason. So "mixed" is a fact about the machine's
+  history too, and a machine that has ever carried two runtimes stays mixed.
+  Co-tenants that resolve the same way (runtime, model, stored source, set,
+  environment, vault) are resolved once, so a home with many retired
+  conversations costs one resolution per distinct source, not per
+  conversation.
+
   They are recomputed from the database, not asked of the co-tenant's server
   (which may be on another node, or between wakes): the co-tenant's agent and
   its stored `inference_source`, re-validated against its environment and
@@ -71,11 +85,21 @@ defmodule Fountain.Conversations.CotenantSecrets do
     * **Values the co-tenant's environment and vault hold.** Not recomputed:
       the attach rule admits a conversation only with the machine's own
       environment and vault, so each already registers them itself.
+    * **Literal values in an agent's MCP configuration.** `Agent.mcp_servers`
+      is a free-form map (only `connection` entries are validated), so a
+      header token written literally, not as `${VAR}`, lands in `.mcp.json`
+      as it is. No conversation registers such a value today, the claude
+      conversation that owns the file included; a codex co-tenant is one
+      more reader of it.
+    * **An arrival heard mid-provision.** A server inside its own long
+      `handle_continue` provision handles the announcement only when that
+      ends, so its setup-script output logged in the meantime is not
+      scrubbed of the newly arrived co-tenant's credential.
   """
 
   require Logger
 
-  alias Fountain.Conversations.{Conversation, InferenceResolution, Redaction, TurnMachine}
+  alias Fountain.Conversations.{Conversation, InferenceResolution, Redaction}
   alias Fountain.Machines.Occupancy
   alias Fountain.Repo
 
@@ -159,28 +183,43 @@ defmodule Fountain.Conversations.CotenantSecrets do
         :single
 
       ids ->
-        values = ids |> load() |> Enum.flat_map(&credential_values/1)
+        values = ids |> sources() |> Enum.flat_map(&credential_values/1)
         Redaction.add(conversation_id, values)
         :mixed
     end
   end
 
+  # Each co-tenant with its agent, one per distinct credential source. A home
+  # that has carried many conversations of one agent resolves that agent's
+  # credential once, not once per conversation, however many have retired.
+  #
   # ownership: the ids come from `Occupancy.other_runtime_ids/2`, which keeps
   # only conversations of the caller's own owner.
-  defp load(ids), do: Repo.all(from c in Conversation, where: c.id in ^ids)
+  defp sources(ids) do
+    from(c in Conversation, where: c.id in ^ids, preload: :agent)
+    |> Repo.all()
+    |> Enum.map(fn conv -> {conv, Conversation.with_model(conv.agent, conv)} end)
+    |> Enum.uniq_by(fn {conv, agent} -> {conv.runtime, resolution(conv, agent)} end)
+  end
 
-  @doc false
-  # The values a co-tenant's inference resolution holds. Recomputed as its own
-  # provision computes them (`SpriteEnv.resolve_inference/4` without the
-  # reservation): its agent, its stored source, and the environment and
-  # vault it runs against.
-  def credential_values(%Conversation{} = conv) do
-    agent = TurnMachine.agent_for(conv)
-
-    opts = [
+  # Everything `resolve/2` hands the resolver besides the owner.
+  defp resolution(conv, agent) do
+    [
+      model: InferenceResolution.model(conv, agent),
+      expected_source: conv.inference_source,
+      credential_set_id: InferenceResolution.credential_set_id(conv, agent),
       environment_id: conv.environment_id || (agent && agent.environment_id),
       vault_id: conv.vault_id
     ]
+  end
+
+  # The values a co-tenant's inference resolution holds. Recomputed as its own
+  # provision computes them (`SpriteEnv.resolve_inference/4` without the
+  # reservation): its agent, its stored source, and the environment and
+  # vault it runs against. Decrypted values for any conversation it is
+  # handed, so private: the owner check is `other_runtime_ids/2`'s.
+  defp credential_values({conv, agent}) do
+    opts = Keyword.take(resolution(conv, agent), [:environment_id, :vault_id])
 
     case resolve(conv, agent, opts) do
       {:ok, _source, creds} ->

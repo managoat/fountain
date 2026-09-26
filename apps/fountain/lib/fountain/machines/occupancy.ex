@@ -94,9 +94,6 @@ defmodule Fountain.Machines.Occupancy do
             last_activity_at: :unloaded,
             activity: :unloaded
 
-  # What `bound` leaves out. Every reading of "bound" here goes through it.
-  @terminal ["terminated", "failed"]
-
   # ── constructors ──────────────────────────────────────────────────────────
 
   @doc """
@@ -380,16 +377,22 @@ defmodule Fountain.Machines.Occupancy do
   def any_live?(%__MODULE__{} = occupancy), do: live_ids(occupancy) != []
 
   @doc """
-  The co-tenants of `conv_id` on `sandbox_id` that run a **different runtime**
-  from it: bound conversations (the `bound` reading, so not `terminated` or
-  `failed`), of the same owner, whose `runtime` is not `conv_id`'s.
+  Every conversation `sandbox_id` has carried that runs a **different
+  runtime** from `conv_id`, of the same owner: **retired ones included**,
+  unlike `bound`.
+
+  This is a question about the disk rather than about who holds the
+  machine. A runtime's files outlive the conversation that wrote them: a
+  terminated codex conversation's `~/.codex/auth.json` stays until the
+  machine is destroyed or reset, which is why
+  `Fountain.Machines.Binding`'s Codex peer reading counts retired peers
+  too. What `Fountain.Conversations.CotenantSecrets` asks before it reads any
+  credential (#2513).
 
   One query, a self-join on `conv_id`'s own row, so the caller needs neither
   its runtime nor its owner in hand. Empty on every single-runtime machine,
   which is every machine until an attach admits a second runtime (#2515);
-  that empty answer is the whole cost the check adds there. What
-  `Fountain.Conversations.CotenantSecrets` asks before it reads any
-  credential (#2513).
+  that empty answer is the whole cost the check adds there.
   """
   @spec other_runtime_ids(String.t(), String.t()) :: [String.t()]
   def other_runtime_ids(sandbox_id, conv_id) when is_binary(sandbox_id) and is_binary(conv_id) do
@@ -398,14 +401,16 @@ defmodule Fountain.Machines.Occupancy do
         join: me in Conversation,
         on: me.id == ^conv_id,
         where:
-          c.sandbox_id == ^sandbox_id and c.id != me.id and c.status not in @terminal and
-            c.user_id == me.user_id and c.runtime != me.runtime,
+          c.sandbox_id == ^sandbox_id and c.id != me.id and c.user_id == me.user_id and
+            c.runtime != me.runtime,
         order_by: [asc: c.inserted_at, asc: c.id],
         select: c.id
     )
   end
 
   # ── internals ─────────────────────────────────────────────────────────────
+
+  @terminal ["terminated", "failed"]
 
   defp bound?(%{status: status}), do: bound_status?(status)
 

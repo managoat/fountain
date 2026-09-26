@@ -95,10 +95,14 @@ defmodule Fountain.Conversations.TurnLaunch do
         do: state.turn_metrics.started_mono,
         else: System.monotonic_time(:millisecond)
 
+    # What this turn's model needs in the adapter's own env, on top of the
+    # sandbox's. Recorded with the peer, so a reuse can tell it apart.
+    model_env = TurnMachine.model_env(state.runtime_module, conv, agent)
+
     try do
       spawn_opts =
         [
-          env: state.sprite_env,
+          env: state.sprite_env ++ model_env,
           owner: self(),
           # The peer writes protocol requests and permission answers over
           # this channel throughout the adapter's lifetime.
@@ -160,7 +164,8 @@ defmodule Fountain.Conversations.TurnLaunch do
                 |> Map.put(:launch, Map.put(spec, :plan, {mode, runtime_session_id})),
               stream_tracer: stream_tracer,
               acp_peer: peer,
-              acp_peer_mon: peer_mon
+              acp_peer_mon: peer_mon,
+              acp_model_env: model_env
           }
 
         {:error, reason} ->

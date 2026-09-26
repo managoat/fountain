@@ -98,6 +98,30 @@ defmodule Fountain.Credits.InferenceTest do
              }) == 50 + 625
     end
 
+    test "opus 5.5 is priced at its own rate, cache reads at 0.05x" do
+      # $4 / $20, cache read $0.20, 5m cache write $5.00: cheaper than the
+      # `anthropic/*` fallback it would otherwise take.
+      assert InferenceRates.cost_cents(%{
+               "model" => "anthropic/claude-opus-5-5",
+               "input" => 1_000_000,
+               "output" => 1_000_000,
+               "cache_read" => 1_000_000,
+               "cache_write" => 1_000_000
+             }) == 400 + 2_000 + 20 + 500
+    end
+
+    test "fable 5.1 is priced at its own rate, above the fallback" do
+      # $10 / $50, cache read $0.25, 5m cache write $12.50. Unlisted, it took
+      # the Opus fallback at half its cost.
+      assert InferenceRates.cost_cents(%{
+               "model" => "anthropic/claude-fable-5-1",
+               "input" => 1_000_000,
+               "output" => 1_000_000,
+               "cache_read" => 1_000_000,
+               "cache_write" => 1_000_000
+             }) == 1_000 + 5_000 + 25 + 1_250
+    end
+
     test "a fraction of a cent per million tokens survives the unit" do
       # OpenAI's cached input for gpt-5.3-codex is $0.175/MTok.
       assert InferenceRates.cost_cents(%{

@@ -70,60 +70,45 @@ defmodule Fountain.Agents.ModelCatalog do
   # ## And the claude adapter's accepted set is not fixed per version
   #
   # The claude adapter advertises whatever the Claude Code binary bundled in
-  # its SDK reports, and that binary has two lists: a built-in one (`opus`,
-  # `sonnet`, `haiku`) and an "additional models" list it fetches per org
-  # from Anthropic *after* a session has started, caching it in
-  # `~/.claude.json` for the next launch. Fable is only ever on the second
-  # list. So on a cold sandbox the first session refuses `claude-fable-5-1`
-  # on every adapter version, and a warm one accepts it — which is why #1669
-  # read as "the pinned adapter refuses it" on 2026-09-06 and as intermittent
-  # to users. `Managoat.Runtimes.Claude.prepare_sandbox/3` warms that cache
-  # at provisioning (managoat_runtimes 0.3.4), and Fable 5.1 additionally
-  # needs the CLI at 2.1.255 or later, which the 0.75.1 adapter pin bundles
-  # (managoat_runtimes 0.3.3).
+  # its SDK reports, and accepts only those rows at `session/set_config_option`
+  # (a full id resolves onto the alias row that serves it). That list moves
+  # with the adapter pin, not with the provider:
   #
-  # ## And the accepted set also varies by credential type
+  #   * Through CLI 2.1.257 (adapter 0.75.1) the org's "additional models",
+  #     Fable among them, arrived only after a first session had cached them,
+  #     and never on a Claude.ai OAuth token. A cold sandbox refused
+  #     `claude-fable-5-1` (#1669), and managoat_runtimes 0.3.4 warmed the
+  #     cache at provisioning. On an OAuth token that warm-up polled out 30s on
+  #     every provision and wake: from 2026-09-12 the median subscription-token
+  #     wake was 36s, against 6s on an API key.
+  #   * CLI 2.1.280 (adapter 0.81.2, managoat_runtimes 0.5.0) lists them on a
+  #     cold `session/new`, on an API key and on an OAuth token alike, so the
+  #     warm-up is gone and Fable now serves subscription-token tenants too.
+  #     The same CLI moved its `opus` alias to Opus 5.5 and dropped Opus 5, so
+  #     `claude-opus-5` is selectable only with `ANTHROPIC_DEFAULT_OPUS_MODEL`
+  #     pointing the alias back at it, one Opus per adapter process.
+  #     `TurnMachine.model_env/3` adds that to the adapter's spawn env, and an
+  #     idle adapter spawned for the other Opus is not reused.
   #
-  # The warm-up only populates on an API key. Measured in production on
-  # 2026-09-11, same commit and pods, a fresh sandbox each time, one variable
-  # changed:
-  #
-  #   * `ANTHROPIC_API_KEY` (a tenant's own, or the platform key a tenant with
-  #     no anthropic credential falls back to): the cache warms in a couple of
-  #     seconds and the turn selects `claude-fable-5-1[1m]`.
-  #   * `CLAUDE_CODE_OAUTH_TOKEN` (a Claude.ai subscription): the fetch never
-  #     populates `additionalModelOptionsCache`, the warm-up polls out its 30s
-  #     bound and logs "claude model list did not warm", and the turn fails at
-  #     `session/set_config_option` with "Invalid value for config option
-  #     model" — the #1669 refusal exactly.
-  #
-  # Egress is not the cause: `cachedGrowthBookFeatures` comes back from the
-  # server on the failing path, so the sandbox reached Anthropic and only the
-  # additional-models fetch came back empty. `Claude.default_env/2` prefers
-  # OAuth whenever it is set, so a tenant holding a subscription token always
-  # takes the failing path.
-  #
-  # **This entry is therefore knowingly suggested to accounts it cannot serve.**
-  # `@catalog` is one global list, so `GET /api/catalog` offers Fable to every
-  # account while only the API-key path resolves it. That is a deliberate
-  # choice, not an oversight: the id is live and correct for the platform-key
-  # majority, and it is listed rather than hidden from them. A Fable refusal
-  # reported by a tenant with their own Claude subscription is this, and is
-  # expected until the warm-up populates on that path.
-  #
-  # Check all three when this entry misbehaves: the provider, the adapter pin,
+  # Check all three when an entry misbehaves: the provider, the adapter pin,
   # and which credential the conversation ran on (the `broker` log event names
   # the keys).
   @catalog %{
     # `claude-fable-5-1`: added 2026-09-06 (#1659) from the published id with
     # no adapter check, removed 2026-09-07 (#1669) after two refused turns,
-    # re-added 2026-09-07 on the 0.75.1 adapter pin with the cache warm-up
-    # above, verified with a real turn ("Reply with the single word OK" →
-    # `stopReason: end_turn`, confirmed model `claude-fable-5-1[1m]`) — on an
-    # API-key credential. It is refused on the OAuth path, knowingly; see the
-    # credential-type note above `@catalog`. The 2026-09-06 refusals were the
-    # cold-cache case, not a version the provider does not serve. `claude-fable-5` is refused by 0.75.1 even
-    # warm — the org's additional list carries 5.1 only — and stays out.
+    # re-added 2026-09-07 on the 0.75.1 adapter pin with a cache warm-up.
+    # On the 0.81.2 pin it is verified on a cold sandbox with a real turn
+    # ("Reply with the single word OK" → `stopReason: end_turn`) on an API key
+    # and on an OAuth token (2026-09-25). `claude-fable-5` was refused by 0.75.1
+    # even warm (the org's additional list carries 5.1 only), is still refused
+    # on 0.81.2 (2026-09-25), and stays out.
+    #
+    # `claude-opus-5-5`: added 2026-09-25 with the 0.81.2 pin, where it is the
+    # CLI's `opus` alias; verified with a real turn that the API served
+    # `claude-opus-5-5` (the adapter's `usage_update` names the model).
+    # `claude-opus-5` stays for the agents that chose it: served through the
+    # `ANTHROPIC_DEFAULT_OPUS_MODEL` pin (see the note above `@catalog`),
+    # verified the same way.
     #
     # `claude-opus-4-8`, `claude-opus-4-7` and `claude-sonnet-4-6` were removed
     # on 2026-09-06. All three answer a real inference call — the 2026-08-22
@@ -133,6 +118,7 @@ defmodule Fountain.Agents.ModelCatalog do
     # above `@catalog`.
     "anthropic" => ~w(
       claude-fable-5-1
+      claude-opus-5-5
       claude-opus-5
       claude-sonnet-5
       claude-haiku-4-5

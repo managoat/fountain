@@ -273,6 +273,9 @@ defmodule Fountain.Conversations.ConversationServerRedactionTest do
     :current_command_ref,
     :acp_peer,
     :acp_peer_mon,
+    # Env pairs that select a model (`ANTHROPIC_DEFAULT_OPUS_MODEL=claude-opus-5`):
+    # model ids, never a credential.
+    :acp_model_env,
     :permission_timer,
     :autonomous_quiet,
     :current_turn_span,

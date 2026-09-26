@@ -89,6 +89,39 @@ defmodule Fountain.Conversations.Connection do
   # ── riding the open connection ────────────────────────────────────────────
 
   @doc """
+  Why the idle connection must close before this turn, or nil to keep it.
+  `state.turn_execution` is the turn's bounded execution, already set.
+
+  A bounded turn already discarded its old connection before registration
+  entered actor state, so it answers nil: refreshing credentials must not
+  retire the new journal and route the turn through an unbounded spawn.
+  Otherwise:
+
+    * `"broker_session_replaced"`: the idle peer holds the broker token that
+      `Egress.refresh_before_turn/1` just replaced (#1736).
+    * `"model_env_changed"`: the adapter keeps the env it was spawned with,
+      and on claude that env decides which Opus its `opus` alias serves
+      (`TurnMachine.model_env/3`), so a peer spawned for another answer would
+      refuse this turn's model. A peer reattached across a deploy has an
+      unknown spawn env (`acp_model_env: nil`), and is kept only by a runtime
+      that never varies it.
+  """
+  @spec stale_reason(map(), boolean(), Conversations.Conversation.t(), map() | nil) ::
+          String.t() | nil
+  def stale_reason(%{turn_execution: %{}}, _replaced?, _conv, _agent), do: nil
+  def stale_reason(_state, true, _conv, _agent), do: "broker_session_replaced"
+
+  def stale_reason(state, false, conv, agent) do
+    if model_env_matches?(state, conv, agent), do: nil, else: "model_env_changed"
+  end
+
+  defp model_env_matches?(%{acp_model_env: nil} = state, _conv, _agent),
+    do: not Managoat.Runtimes.implements?(state.runtime_module, :model_env, 1)
+
+  defp model_env_matches?(state, conv, agent),
+    do: state.acp_model_env == TurnMachine.model_env(state.runtime_module, conv, agent)
+
+  @doc """
   This turn rides the open connection: no spawn, no handshake.
 
   `Peer.prompt/4` reuses the session already open, so a background task keeps

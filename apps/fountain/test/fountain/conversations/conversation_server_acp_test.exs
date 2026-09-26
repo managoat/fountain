@@ -1606,6 +1606,101 @@ defmodule Fountain.Conversations.ConversationServerACPTest do
     end
   end
 
+  describe "the adapter's model env (managoat_runtimes model_env/1)" do
+    # claude-agent-acp 0.81.2 serves one Opus per process: its `opus` alias is
+    # Opus 5.5 unless `ANTHROPIC_DEFAULT_OPUS_MODEL` points it at Opus 5. So the
+    # pair goes on the adapter's spawn, and an idle adapter spawned without the
+    # answer the next turn needs is not reused.
+    @opus5_pair {"ANTHROPIC_DEFAULT_OPUS_MODEL", "claude-opus-5"}
+
+    defp claude_conv(model) do
+      user = insert_verified_user()
+      agent = insert_agent(user_id: user.id, runtime: "claude", model: model)
+      insert_conversation(agent: agent, user_id: user.id)
+    end
+
+    defp respawned_turn(pid, ref) do
+      %{"id" => init_id, "method" => "initialize"} = next_write()
+      reply(pid, ref, init_id, %{"agentCapabilities" => @caps})
+      %{"id" => resume_id, "method" => "session/resume"} = next_write()
+      reply(pid, ref, resume_id, %{"models" => %{}})
+      %{"id" => set_id, "method" => "session/set_model"} = next_write()
+      reply(pid, ref, set_id, %{})
+      %{"id" => prompt_id, "method" => "session/prompt"} = next_write()
+      reply(pid, ref, prompt_id, %{"stopReason" => "end_turn"})
+    end
+
+    test "an Opus 5 turn spawns the adapter with the opus alias pointed at it" do
+      conv = claude_conv("anthropic/claude-opus-5")
+      {pid, _ref} = start_acp_turn(conv, %{}, Managoat.Runtimes.Claude)
+
+      assert_receive {:spawned, "env", _args, opts}
+      assert @opus5_pair in opts[:env]
+      assert :sys.get_state(pid).acp_model_env == [@opus5_pair]
+    end
+
+    test "any other model's adapter carries no such pair" do
+      conv = claude_conv("anthropic/claude-opus-5-5")
+      {pid, _ref} = start_acp_turn(conv, %{}, Managoat.Runtimes.Claude)
+
+      assert_receive {:spawned, "env", _args, opts}
+      refute List.keymember?(opts[:env], "ANTHROPIC_DEFAULT_OPUS_MODEL", 0)
+      assert :sys.get_state(pid).acp_model_env == []
+    end
+
+    test "an idle adapter spawned for another answer is respawned, then reused" do
+      conv = claude_conv("anthropic/claude-opus-5")
+      {pid, ref} = start_acp_turn(conv, %{}, Managoat.Runtimes.Claude)
+      prompt_id = drive_to_prompt(pid, ref)
+      reply(pid, ref, prompt_id, %{"stopReason" => "end_turn"})
+      assert_receive {:spawned, _, _, _}
+
+      # As if spawned while the agent was on a model that needed nothing.
+      old_peer = :sys.get_state(pid).acp_peer
+      :sys.replace_state(pid, &%{&1 | acp_model_env: []})
+
+      assert :ok = GenServer.call(pid, {:send_prompt, "again", []})
+      assert_receive {:spawned, "env", _args, opts}
+      assert @opus5_pair in opts[:env]
+      refute :sys.get_state(pid).acp_peer == old_peer
+      respawned_turn(pid, ref)
+
+      # Now it matches, so the next turn rides the connection.
+      assert :ok = GenServer.call(pid, {:send_prompt, "third", []})
+      assert %{"method" => "session/set_model"} = next_write()
+      refute_received {:spawned, _, _, _}
+    end
+
+    test "a reattached claude adapter, whose spawn env is unknown, is respawned" do
+      conv = claude_conv("anthropic/claude-sonnet-5")
+      {pid, ref} = start_acp_turn(conv, %{}, Managoat.Runtimes.Claude)
+      prompt_id = drive_to_prompt(pid, ref)
+      reply(pid, ref, prompt_id, %{"stopReason" => "end_turn"})
+      assert_receive {:spawned, _, _, _}
+
+      :sys.replace_state(pid, &%{&1 | acp_model_env: nil})
+
+      assert :ok = GenServer.call(pid, {:send_prompt, "again", []})
+      assert_receive {:spawned, "env", _args, _opts}
+      respawned_turn(pid, ref)
+    end
+
+    test "a runtime without model_env reuses a reattached adapter as before" do
+      user = insert_verified_user()
+      conv = insert_conversation(agent: acp_agent(user), user_id: user.id)
+      {pid, ref} = start_acp_turn(conv)
+      prompt_id = drive_to_prompt(pid, ref)
+      reply(pid, ref, prompt_id, %{"stopReason" => "end_turn"})
+      assert_receive {:spawned, _, _, _}
+
+      :sys.replace_state(pid, &%{&1 | acp_model_env: nil})
+
+      assert :ok = GenServer.call(pid, {:send_prompt, "again", []})
+      assert %{"method" => "session/set_model"} = next_write()
+      refute_received {:spawned, _, _, _}
+    end
+  end
+
   describe "turn 2" do
     test "resumes by the persisted id rather than guessing" do
       # The hazard 0014 names: gemini's `--resume` and codex's `--last` re-enter

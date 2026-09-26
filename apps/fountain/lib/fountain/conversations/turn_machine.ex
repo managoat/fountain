@@ -1425,6 +1425,19 @@ defmodule Fountain.Conversations.TurnMachine do
   def acp_model(conv, agent),
     do: Fountain.RuntimeDispatch.acp_model(conv.runtime || agent.runtime, agent.model)
 
+  @doc """
+  The env the adapter process needs for the model `acp_model/2` pins, from
+  `Managoat.Runtimes.model_env/2`: on claude, `claude-opus-5` needs the CLI's
+  `opus` alias pointed at it; every other model needs nothing.
+
+  It belongs to the spawn, not the sandbox, so `TurnLaunch` adds it to the
+  adapter's env and records it with the peer, and `ConversationServer` does
+  not reuse an idle peer spawned with a different answer.
+  """
+  @spec model_env(module(), Conversation.t(), map() | nil) :: [{String.t(), String.t()}]
+  def model_env(runtime_module, conv, agent),
+    do: Managoat.Runtimes.model_env(runtime_module, acp_model(conv, agent))
+
   defp command_writer(command, opts) do
     case Keyword.get(opts, :execution_transport) do
       nil ->

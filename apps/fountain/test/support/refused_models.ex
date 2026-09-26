@@ -58,6 +58,11 @@ defmodule Fountain.RefusedModels do
   forever. Clear those by driving one real turn.
   """
 
+  # The four anthropic entries were re-checked on the claude-agent-acp 0.81.2
+  # pin on 2026-09-25 and are still refused. `claude-opus-5` is refused by
+  # that pin too unless the adapter is spawned with its `opus` alias pointed
+  # at it, which Fountain does (`TurnMachine.model_env/3`), so it is served
+  # rather than listed here.
   @refused %{
     # claude-agent-acp 0.66.0 — "Invalid value for config option model".
     # 289 refusals for claude-sonnet-4-6 alone, 2026-08-16..2026-09-06.

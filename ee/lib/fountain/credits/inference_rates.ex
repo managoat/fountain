@@ -60,12 +60,29 @@ defmodule Fountain.Credits.InferenceRates do
   # failure to prefer is over-charging a grant.
   #
   # Anthropic: platform.claude.com/docs/en/about-claude/pricing, read
-  # 2026-09-02. Cache reads are 0.1x base input and 5-minute cache writes
-  # 1.25x, which is the multiplier claude's adapter actually uses.
+  # 2026-09-02, and again 2026-09-25 for Opus 5.5 and Fable 5.1. Cache reads
+  # are 0.1x base input except where noted, and 5-minute cache writes 1.25x,
+  # which is the multiplier claude's adapter actually uses.
   @anthropic_opus %{input: 500_000, output: 2_500_000, cache_read: 50_000, cache_write: 625_000}
 
   @card %{
     # ── anthropic ──────────────────────────────────────────────────────────
+    # $10.00 / $50.00, cache read $0.25 (0.025x), 5m cache write $12.50.
+    # Above the `anthropic/*` fallback, so it has to be listed: unlisted, a
+    # Fable turn was priced at the Opus rate, half its cost.
+    "anthropic/claude-fable-5-1" => %{
+      input: 1_000_000,
+      output: 5_000_000,
+      cache_read: 25_000,
+      cache_write: 1_250_000
+    },
+    # $4.00 / $20.00, cache read $0.20 (0.05x), 5m cache write $5.00.
+    "anthropic/claude-opus-5-5" => %{
+      input: 400_000,
+      output: 2_000_000,
+      cache_read: 20_000,
+      cache_write: 500_000
+    },
     # $5.00 / $25.00, cache read $0.50, 5m cache write $6.25.
     "anthropic/claude-opus-5" => @anthropic_opus,
     "anthropic/claude-opus-4-8" => @anthropic_opus,

@@ -129,6 +129,9 @@ defmodule Fountain.Conversations.Reattachment do
       state
       | acp_peer: peer,
         acp_peer_mon: Process.monitor(peer),
+        # The env this process was spawned with belongs to a previous BEAM
+        # lifetime: unknown, so a claude turn after this one respawns.
+        acp_model_env: nil,
         runner_replay: runner_replay,
         stream_tracer: nil,
         replay_dedup: dedup

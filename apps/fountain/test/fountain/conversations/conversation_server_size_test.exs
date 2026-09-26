@@ -95,7 +95,7 @@ defmodule Fountain.Conversations.ConversationServerSizeTest do
   #
   # Stage 9 is where this number moves: the two fence columns and their
   # writers go with the flag.
-  @pin 2025
+  @pin 2023
 
   @server "apps/fountain/lib/fountain/conversations/conversation_server.ex"
 

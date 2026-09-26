@@ -79,9 +79,15 @@ defmodule Fountain.Conversations.Sandbox do
     # selection it is asked for would need the disk built again, rather than
     # assuming it would. See `Fountain.Conversations.Reapply` (#1565).
     field :build_fingerprint, :string
-    # The skill selection this machine was last reconciled to, so the next
-    # reconciliation knows which entries under the skills root are ours.
-    field :applied_skills, {:array, :map}
+    # The skill selection this machine was last reconciled to, per runtime,
+    # so the next reconciliation knows which entries under that runtime's
+    # skills root are ours: `%{"claude" => [...], "codex" => [...]}`. Keyed by
+    # runtime because each runtime has its own skills root and, since ADR 0023's
+    # 2026-09-26 amendment, two runtimes may share a machine (#2514). Read one
+    # runtime's entry with `applied_skills/2`; write it through
+    # `Fountain.Machines.Machine.retarget/3`, which merges it under the lock.
+    # (The list column `applied_skills` it replaced is no longer mapped.)
+    field :applied_skills_by_runtime, {:map, {:array, :map}}
     # The machine owner's lease and its in-flight state (ADR 0058).
     # `lease_epoch` is monotonic and never reused; `lease_node` and
     # `lease_until` say who holds the machine and until when; `transition` and
@@ -138,6 +144,18 @@ defmodule Fountain.Conversations.Sandbox do
   @doc "The sandbox modes (ADR 0023)."
   def modes, do: @modes
 
+  @doc """
+  The skills `runtime` last reconciled onto this machine, or `nil` when that
+  runtime has no record here. `nil` is "unknown", not "none": a caller falls
+  back to the conversation's Agent version (`Reapply.previous_skills/1`).
+  """
+  @spec applied_skills(t(), String.t()) :: [map()] | nil
+  def applied_skills(%__MODULE__{applied_skills_by_runtime: %{} = by_runtime}, runtime)
+      when is_binary(runtime),
+      do: Map.get(by_runtime, runtime)
+
+  def applied_skills(%__MODULE__{}, runtime) when is_binary(runtime), do: nil
+
   @doc "The in-flight states a machine's owner may stamp (ADR 0058)."
   def transitions, do: @transitions
 
@@ -153,7 +171,7 @@ defmodule Fountain.Conversations.Sandbox do
       :terminated_at,
       :last_resumed_at,
       :build_fingerprint,
-      :applied_skills,
+      :applied_skills_by_runtime,
       :environment_id,
       :agent_id,
       :vault_id,

@@ -24,7 +24,7 @@ defmodule Fountain.Conversations.ConversationServerBuildFingerprintTest do
     sandbox = Conversations._unsafe_get_sandbox!(conv.sandbox_id)
     assert sandbox.status == "ready"
     assert sandbox.build_fingerprint == Reapply.fingerprint(env)
-    assert sandbox.applied_skills == skills
+    assert sandbox.applied_skills_by_runtime == %{"gemini" => skills}
 
     GenServer.call(pid, {:terminate_conv, []}, 30_000)
   end
@@ -42,7 +42,7 @@ defmodule Fountain.Conversations.ConversationServerBuildFingerprintTest do
         environment_id: env.id,
         agent_id: agent.id,
         build_fingerprint: nil,
-        applied_skills: nil
+        applied_skills_by_runtime: nil
       )
 
     conv =
@@ -58,7 +58,7 @@ defmodule Fountain.Conversations.ConversationServerBuildFingerprintTest do
       {pid, _ref, :alive} = start_server(conv)
       current = Conversations._unsafe_get_sandbox!(sandbox.id)
       assert current.build_fingerprint == nil
-      assert current.applied_skills == []
+      assert current.applied_skills_by_runtime == %{"gemini" => []}
       assert current.id == sandbox.id
       GenServer.stop(pid, :normal)
     end
@@ -88,7 +88,7 @@ defmodule Fountain.Conversations.ConversationServerBuildFingerprintTest do
       {pid, _ref, :alive} = start_server(conv)
       current = Conversations._unsafe_get_sandbox!(sandbox.id)
       assert current.build_fingerprint == nil
-      assert current.applied_skills == nil
+      assert current.applied_skills_by_runtime == nil
       GenServer.stop(pid, :normal)
     end
   end
@@ -104,7 +104,7 @@ defmodule Fountain.Conversations.ConversationServerBuildFingerprintTest do
 
     sandbox = Conversations._unsafe_get_sandbox!(conv.sandbox_id)
     assert sandbox.build_fingerprint == Reapply.fingerprint(nil)
-    assert sandbox.applied_skills == []
+    assert sandbox.applied_skills_by_runtime == %{"gemini" => []}
 
     GenServer.call(pid, {:terminate_conv, []}, 30_000)
   end

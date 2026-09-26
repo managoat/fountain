@@ -226,7 +226,9 @@ defmodule Fountain.Conversations.Reapply do
   the disk now, which is what the skills reconciliation compares against; the
   newly selected skills only become the recorded set once they are actually
   installed. Older disks have no record, so the configuration the conversation
-  was launched with stands in.
+  was launched with stands in. Only the conversation's own runtime's entry is
+  carried: the record is per runtime (#2514), and another runtime's entry on
+  the same machine is not this conversation's to write.
 
   Through the machine's owner (ADR 0058 stage 8b): `Machine.retarget/3` is
   the one write of the identity, and it is where the co-tenant rule and the
@@ -245,16 +247,24 @@ defmodule Fountain.Conversations.Reapply do
   def update_identity(conv, agent, env_id, vault_id, opts) do
     # ownership: conv came from the tenant-scoped API fetch or its own server.
     sandbox = Conversations._unsafe_get_sandbox!(conv.sandbox_id)
-    previous = sandbox.applied_skills || previous_skills(conv)
+    runtime = skills_runtime(conv, agent)
+
+    identity = %{
+      agent_id: agent.id,
+      environment_id: env_id || agent.environment_id,
+      vault_id: vault_id
+    }
+
+    # Nothing to carry when neither record exists: the row keeps its absence.
+    attrs =
+      case Sandbox.applied_skills(sandbox, runtime) || previous_skills(conv) do
+        nil -> identity
+        previous -> Map.put(identity, :applied_skills, {runtime, previous})
+      end
 
     case Machine.retarget(
            sandbox.id,
-           %{
-             agent_id: agent.id,
-             environment_id: env_id || agent.environment_id,
-             vault_id: vault_id,
-             applied_skills: previous
-           },
+           attrs,
            conversation_id: conv.id,
            expected_fingerprint: Keyword.get(opts, :expected_fingerprint)
          ) do
@@ -289,6 +299,10 @@ defmodule Fountain.Conversations.Reapply do
   Reconcile the machine's skills with the conversation's current selection,
   then record what is now on it.
 
+  Both halves are the conversation's own runtime's: its skills root on the
+  disk, and its entry in `applied_skills_by_runtime`. Another runtime sharing
+  the machine keeps its root and its record (#2514).
+
   Run on every wake, not only after a live reapply: a sleeping conversation
   whose selection changed applies it when it next comes up, and a machine
   built before the manifest existed gets one on its first pass. The recorded
@@ -300,7 +314,7 @@ defmodule Fountain.Conversations.Reapply do
     # ownership: conv came from the tenant-scoped API fetch or its own server.
     sandbox = Conversations._unsafe_get_sandbox!(conv.sandbox_id)
     skills = (agent && agent.skills) || []
-    runtime = conv.runtime || (agent && agent.runtime) || "claude"
+    runtime = skills_runtime(conv, agent)
 
     # The record goes through the owner (ADR 0058 stage 8b); a skills-only
     # retarget moves no identity and so meets neither of its refusals.
@@ -309,12 +323,16 @@ defmodule Fountain.Conversations.Reapply do
              handle,
              runtime,
              skills,
-             sandbox.applied_skills || previous_skills(conv)
+             Sandbox.applied_skills(sandbox, runtime) || previous_skills(conv)
            ),
-         {:ok, _} <- Machine.retarget(sandbox.id, %{applied_skills: skills}) do
+         {:ok, _} <- Machine.retarget(sandbox.id, %{applied_skills: {runtime, skills}}) do
       :ok
     end
   end
+
+  # The runtime whose skills root, and whose record, a conversation's skills
+  # are: its own, which is validated-required and outlives its agent.
+  defp skills_runtime(conv, agent), do: conv.runtime || (agent && agent.runtime) || "claude"
 
   @doc """
   Re-resolve the Agent, Environment, Vault and model override for an

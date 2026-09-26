@@ -57,9 +57,11 @@ presence only. The task reads no skill content or provider metadata. It makes
 no provider request, wakes no sandbox and changes no row. Repeated calls
 return the same report while the database remains unchanged.
 
-`disk_skill_manifests` is always `unverified`. A non-null `applied_skills` value
-does not prove that a manifest still exists on disk. This report cannot certify
-that all live or dormant disks have completed a migration.
+`disk_skill_manifests` is always `unverified`. `applied_skills_recorded` is
+true when a skills record exists for at least one runtime on the sandbox. A
+recorded selection does not prove that a manifest still exists on disk. This
+report cannot certify that all live or dormant disks have completed a
+migration.
 
 A sandbox with no recorded build fingerprint refuses a configuration reapply
 with `409 rebuild_required` and `field: "environment"`. The message explains
@@ -146,7 +148,7 @@ If it is absent, establish the original runtime before inspecting the disk:
 
 ```elixir
 alias Fountain.Conversations
-alias Fountain.Conversations.Reapply
+alias Fountain.Conversations.{Reapply, Sandbox}
 alias Fountain.SandboxSkills
 conv = Conversations.get_conversation!("CONVERSATION_UUID", "OWNER_UUID")
 sandbox = Conversations._unsafe_get_sandbox!(conv.sandbox_id)
@@ -170,7 +172,8 @@ that shares the sandbox and prevent new prompts, reapply and reset operations.
 Then use the same console and handle:
 
 ```elixir
-previous = sandbox.applied_skills || Reapply.previous_skills(conv)
+previous =
+  Sandbox.applied_skills(sandbox, conv.runtime) || Reapply.previous_skills(conv)
 SandboxSkills.upgrade_manifest(handle, conv.runtime, previous)
 SandboxSkills.manifest_status(handle, conv.runtime)
 ```
@@ -182,7 +185,7 @@ that evidence or rebuild. Do not substitute the current Agent's skills.
 recover ownership for a pending install after all remote installers stop. It
 does not install or delete skills. That pending record carries its own provenance and needs no historical Agent
 version. Both operations are safe to retry while the disk remains quiesced.
-They change no build fingerprint or `applied_skills` database field.
+They change no build fingerprint or applied-skills database record.
 Resume through normal wake to reconcile the
 selected skills and record them after success.
 

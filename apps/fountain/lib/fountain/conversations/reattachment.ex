@@ -20,9 +20,10 @@ defmodule Fountain.Conversations.Reattachment do
       # `Machine.retarget/3`, which takes the machine's advisory lock, so a
       # reattach that meets contention on it answers `:sandbox_unavailable`
       # after the lock's 5 s timeout: the skills are on the disk, and the row's
-      # `applied_skills` stays as it was until a later reattach writes it. That
-      # is a record lagging the disk, not a failed reattach, and refusing the
-      # reattach over it would be the worse trade (round 1, protocol review).
+      # record for this runtime stays as it was until a later reattach writes
+      # it. That is a record lagging the disk, not a failed reattach, and
+      # refusing the reattach over it would be the worse trade (round 1,
+      # protocol review).
       _ = Fountain.Conversations.Reapply.mount_skills(handle, conv, agent)
       runtime = conv.runtime || (agent && agent.runtime) || "claude"
       Provisioning.write_instructions(handle, runtime, agent)

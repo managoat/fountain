@@ -2,7 +2,7 @@ defmodule Fountain.Conversations.ReapplyFingerprintTest do
   use Fountain.DataCase, async: true
 
   alias Fountain.Conversations
-  alias Fountain.Conversations.Reapply
+  alias Fountain.Conversations.{Reapply, Sandbox}
   alias Fountain.Environments
 
   describe "fingerprint/1" do
@@ -51,12 +51,13 @@ defmodule Fountain.Conversations.ReapplyFingerprintTest do
           status: "ready",
           environment_id: env.id,
           build_fingerprint: Reapply.fingerprint(env),
-          applied_skills: [%{"name" => "mine", "content" => "# m"}]
+          applied_skills_by_runtime: %{"claude" => [%{"name" => "mine", "content" => "# m"}]}
         )
 
       reread = Conversations._unsafe_get_sandbox!(sandbox.id)
       assert reread.build_fingerprint == Reapply.fingerprint(env)
-      assert reread.applied_skills == [%{"name" => "mine", "content" => "# m"}]
+      assert Sandbox.applied_skills(reread, "claude") == [%{"name" => "mine", "content" => "# m"}]
+      assert Sandbox.applied_skills(reread, "codex") == nil
     end
 
     test "a conversation starts at revision zero" do

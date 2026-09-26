@@ -3,8 +3,9 @@ defmodule Fountain.Conversations.SandboxMetadata do
   Operator inventory for the legacy sandbox metadata rollout (#2102).
 
   Database presence is evidence about recorded metadata, not about the disk.
-  In particular, `applied_skills` does not prove a managed skill manifest is
-  still present. This inventory does not inspect or wake provider machines.
+  In particular, `applied_skills_by_runtime` does not prove a managed skill
+  manifest is still present. `applied_skills_recorded` means a record exists
+  for at least one runtime. This inventory does not inspect or wake provider machines.
   """
 
   import Ecto.Query
@@ -27,7 +28,7 @@ defmodule Fountain.Conversations.SandboxMetadata do
             provider: s.provider,
             mode: s.mode,
             build_fingerprint_recorded: not is_nil(s.build_fingerprint),
-            applied_skills_recorded: not is_nil(s.applied_skills)
+            applied_skills_recorded: not is_nil(s.applied_skills_by_runtime)
           }
       )
 

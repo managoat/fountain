@@ -129,7 +129,11 @@ defmodule Fountain.Conversations.ConversationServerRefreshTest do
     {pid, _, :alive} = start_server(updated)
 
     assert_received :skills_reconciled
-    assert Conversations._unsafe_get_sandbox!(ctx.sandbox.id).applied_skills == skills
+
+    assert Conversations._unsafe_get_sandbox!(ctx.sandbox.id).applied_skills_by_runtime == %{
+             "claude" => skills
+           }
+
     assert :sys.get_state(pid).configuration_revision == updated.configuration_revision
     GenServer.stop(pid)
   end

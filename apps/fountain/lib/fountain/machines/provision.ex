@@ -280,8 +280,8 @@ defmodule Fountain.Machines.Provision do
       was starting therefore announces nothing at all, which is the invariant
       `conversation_server_provision_retirement_test.exs` pins.
     * `:ready_attrs` — extra columns to write in the same statement that makes
-      the row `ready`: `build_fingerprint` and `applied_skills`, the record of
-      what the disk was built from. Computed by the caller *before* the bracket,
+      the row `ready`: `build_fingerprint` and `applied_skills_by_runtime`,
+      the record of what the disk was built from. Computed by the caller *before* the bracket,
       because both are known from the environment and the agent rather than from
       anything the pipeline discovers, and written by compare-and-set so a
       superseded attempt leaves neither behind.
@@ -903,7 +903,8 @@ defmodule Fountain.Machines.Provision do
 
   # `ready`, the build record and the intent cleared, in one compare-and-set —
   # `main`'s `claim_sandbox(sandbox, %{status: "ready", build_fingerprint: …,
-  # applied_skills: …})`, with the epoch in front of it.
+  # applied_skills: …})`, with the epoch in front of it. (The skills record is
+  # `applied_skills_by_runtime` since #2514.)
   defp finalize(%Sandbox{} = sandbox, epoch, %{handle: handle, result: result} = attempt, opts) do
     attrs =
       opts

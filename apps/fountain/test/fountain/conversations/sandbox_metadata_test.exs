@@ -15,7 +15,7 @@ defmodule Fountain.Conversations.SandboxMetadataTest do
         user_id: first.id,
         status: "ready",
         build_fingerprint: "none",
-        applied_skills: [%{"content" => "private-skill-content"}],
+        applied_skills_by_runtime: %{"claude" => [%{"content" => "private-skill-content"}]},
         provider_meta: %{"token" => "private-provider-token"}
       )
 

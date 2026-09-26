@@ -187,7 +187,8 @@ defmodule Fountain.Machines.Lease do
   # a checkpoint id belonging to an operation that no longer owns the machine
   # would be read back by a reset as the state to roll to.
   #
-  # `build_fingerprint` and `applied_skills` joined them in stage 7b, for the
+  # `build_fingerprint` and `applied_skills` (per runtime since #2514, as
+  # `applied_skills_by_runtime`) joined them in stage 7b, for the
   # same reason and at the other end of the same argument. They are the record
   # of *what the disk was built from* — the environment digest a later reapply
   # compares against, and the skills the machine has mounted — and the provision
@@ -196,7 +197,7 @@ defmodule Fountain.Machines.Lease do
   # another owner threw away is exactly the reading
   # `Reapply.needs_rebuild?/2` would trust and be wrong about.
   @writable ~w(status transition transition_reason terminated_at last_resumed_at provider_meta
-               build_fingerprint applied_skills)a
+               build_fingerprint applied_skills_by_runtime)a
 
   # Where a sandbox stops. Kept in step with `@billable_terminal` in
   # `Fountain.Conversations`, whose `prevent_sandbox_revival/1` this mirrors.

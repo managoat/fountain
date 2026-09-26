@@ -413,7 +413,10 @@ defmodule Fountain.Conversations.ConversationReapplyTest do
 
       {:ok, _} = Agents.update_agent(ctx.agent, %{skills: []})
       assert {:ok, _} = Reapply.reapply_conversation(conv, %{})
-      assert Conversations._unsafe_get_sandbox!(ctx.sandbox.id).applied_skills == old
+
+      assert Conversations._unsafe_get_sandbox!(ctx.sandbox.id).applied_skills_by_runtime == %{
+               "claude" => old
+             }
     end
   end
 

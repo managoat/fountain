@@ -143,7 +143,8 @@ defmodule Fountain.Conversations.FreshProvision do
   # step of the pipeline, and the adapter it ends at, stay in this server
   # (ADR 0037, #1369).
   defp provision_machine(ctx) do
-    %{state: state, conv: conv, sandbox: sandbox, env: env, skills: skills} = ctx
+    %{state: state, conv: conv, sandbox: sandbox, env: env, skills: skills, runtime: runtime} =
+      ctx
 
     result =
       Machine.provision(
@@ -155,8 +156,12 @@ defmodule Fountain.Conversations.FreshProvision do
         # Known before the pipeline runs, both of them, because they describe
         # what the disk is *to be* built from rather than anything the build
         # discovers. Written by the finalize, in the statement that makes the
-        # row `ready`.
-        ready_attrs: [build_fingerprint: Reapply.fingerprint(env), applied_skills: skills],
+        # row `ready`. The skills record is keyed by the runtime they were
+        # mounted for (#2514); a new machine has no other runtime's to keep.
+        ready_attrs: [
+          build_fingerprint: Reapply.fingerprint(env),
+          applied_skills_by_runtime: %{runtime => skills}
+        ],
         # The lease is renewed for as long as this server's own ceiling on
         # provisioning allows, and no longer: past it the renewals stop, the
         # lease lapses, and `ProvisionWatchdog` is what retires the row.

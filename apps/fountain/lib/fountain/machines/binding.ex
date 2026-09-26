@@ -96,7 +96,8 @@ defmodule Fountain.Machines.Binding do
 
   `retarget/3` is the one write of the machine's binding identity — `agent_id`,
   `environment_id`, `vault_id` — and of `applied_skills`, the record of what
-  the disk carries. Two callers: `Reapply.update_identity/4` moves the identity
+  the disk carries. That record is per runtime (#2514): a write names one
+  runtime's entry and leaves every other runtime's as it is. Two callers: `Reapply.update_identity/4` moves the identity
   with the conversation it reconfigured (#1565), and `Reapply.mount_skills/3`
   records what the skills reconciliation just put on the disk. Refused, under
   the lock, on the two conditions ADR 0023's 2026-09-11 amendment names: a
@@ -622,7 +623,10 @@ defmodule Fountain.Machines.Binding do
   Move the machine's binding identity, or its skills record, to `attrs`.
 
   `attrs` names any of `agent_id`, `environment_id`, `vault_id` and
-  `applied_skills`; anything else is `{:error, {:invalid, field}}`. Options:
+  `applied_skills`; anything else is `{:error, {:invalid, field}}`.
+  `applied_skills` is `{runtime, skills}`: it replaces that runtime's entry in
+  `applied_skills_by_runtime`, read and merged under the lock, and no other
+  runtime's (#2514). Options:
 
     * `:expected_fingerprint` — the `build_fingerprint` the caller decided on;
       a row that carries another is `{:error, {:rebuild_required, :environment}}`.
@@ -655,10 +659,29 @@ defmodule Fountain.Machines.Binding do
 
   defp validate_retarget(attrs) do
     case Enum.find(Map.keys(attrs), &(&1 not in @retargetable)) do
-      nil -> :ok
+      nil -> validate_applied_skills(attrs)
       field -> {:error, {:invalid, field}}
     end
   end
+
+  defp validate_applied_skills(%{applied_skills: {runtime, skills}})
+       when is_binary(runtime) and is_list(skills),
+       do: :ok
+
+  defp validate_applied_skills(%{applied_skills: _}), do: {:error, {:invalid, :applied_skills}}
+  defp validate_applied_skills(_attrs), do: :ok
+
+  # One runtime's entry, merged into what the locked row holds, so a second
+  # runtime's reconciliation on the same machine cannot overwrite the first's.
+  defp merge_applied_skills(%Sandbox{} = current, %{applied_skills: {runtime, skills}} = attrs) do
+    by_runtime = Map.put(current.applied_skills_by_runtime || %{}, runtime, skills)
+
+    attrs
+    |> Map.delete(:applied_skills)
+    |> Map.put(:applied_skills_by_runtime, by_runtime)
+  end
+
+  defp merge_applied_skills(_current, attrs), do: attrs
 
   defp locked_retarget(sandbox_id, attrs, opts) do
     current = Repo.one(from s in Sandbox, where: s.id == ^sandbox_id, lock: "FOR UPDATE")
@@ -674,7 +697,7 @@ defmodule Fountain.Machines.Binding do
         {:error, {:rebuild_required, :environment}}
 
       true ->
-        current |> Sandbox.changeset(attrs) |> Repo.update()
+        current |> Sandbox.changeset(merge_applied_skills(current, attrs)) |> Repo.update()
     end
   end
 

@@ -854,12 +854,12 @@ defmodule Fountain.Machines.BindingTest do
       assert {:ok, %Sandbox{} = moved} =
                Machine.retarget(
                  ctx.sandbox.id,
-                 %{environment_id: other_env.id, applied_skills: [%{"name" => "x"}]},
+                 %{environment_id: other_env.id, applied_skills: {"claude", [%{"name" => "x"}]}},
                  conversation_id: ctx.conv.id
                )
 
       assert moved.environment_id == other_env.id
-      assert moved.applied_skills == [%{"name" => "x"}]
+      assert moved.applied_skills_by_runtime == %{"claude" => [%{"name" => "x"}]}
     end
 
     test "refuses to move the identity of a machine a co-tenant shares", ctx do
@@ -877,7 +877,7 @@ defmodule Fountain.Machines.BindingTest do
                  conversation_id: ctx.conv.id
                )
 
-      assert {:ok, _} = Machine.retarget(ctx.sandbox.id, %{applied_skills: []})
+      assert {:ok, _} = Machine.retarget(ctx.sandbox.id, %{applied_skills: {"claude", []}})
     end
 
     test "a build fingerprint that is not the one expected is refused under the lock", ctx do
@@ -903,19 +903,23 @@ defmodule Fountain.Machines.BindingTest do
       stamp(ctx, status: "terminated")
 
       assert {:error, :sandbox_unavailable} =
-               Machine.retarget(ctx.sandbox.id, %{applied_skills: []})
+               Machine.retarget(ctx.sandbox.id, %{applied_skills: {"claude", []}})
 
       assert {:error, :sandbox_unavailable} =
-               Machine.retarget(Ecto.UUID.generate(), %{applied_skills: []})
+               Machine.retarget(Ecto.UUID.generate(), %{applied_skills: {"claude", []}})
     end
 
     test "joins the caller's transaction, so a rollback takes the write with it", ctx do
       Repo.transaction(fn ->
-        assert {:ok, _} = Machine.retarget(ctx.sandbox.id, %{applied_skills: [%{"name" => "x"}]})
+        assert {:ok, _} =
+                 Machine.retarget(ctx.sandbox.id, %{
+                   applied_skills: {"claude", [%{"name" => "x"}]}
+                 })
+
         Repo.rollback(:undo)
       end)
 
-      assert Repo.reload!(ctx.sandbox).applied_skills == nil
+      assert Repo.reload!(ctx.sandbox).applied_skills_by_runtime == nil
     end
   end
 

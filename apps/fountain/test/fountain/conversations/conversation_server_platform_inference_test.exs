@@ -63,7 +63,9 @@ defmodule Fountain.Conversations.ConversationServerPlatformInferenceTest do
       assert state.env_credentials == %{anthropic_api_key: @platform_key}
       assert state.brokered == %{}
 
-      assert Managoat.Runtimes.Claude.default_env(nil, state.env_credentials) ==
+      # The credential entries only: the runtime also sets flags of its own
+      # (managoat_runtimes 0.5.3 adds CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC).
+      assert credential_env(Managoat.Runtimes.Claude.default_env(nil, state.env_credentials)) ==
                [{"ANTHROPIC_API_KEY", @platform_key}]
     end
 
@@ -563,4 +565,7 @@ defmodule Fountain.Conversations.ConversationServerPlatformInferenceTest do
     Mimic.stub(Managoat.Sandbox.Sprites, :stop_command, fn _c -> :ok end)
     ref
   end
+
+  defp credential_env(env),
+    do: Enum.filter(env, fn {k, _} -> k in ~w(ANTHROPIC_API_KEY CLAUDE_CODE_OAUTH_TOKEN) end)
 end

@@ -249,21 +249,25 @@ the request to `chatgpt.com`. Each connect and disconnect leaves an
 `admin.platform_chatgpt` event on the admin activity page.
 
 The broker asks Fountain for the token on every request, and only for the
-one route Codex uses, `POST https://chatgpt.com/backend-api/codex/responses`.
+two routes Codex uses: `POST https://chatgpt.com/backend-api/codex/responses`,
+and `GET https://chatgpt.com/backend-api/codex/models` with only the
+`client_version` query parameter.
 So a disconnect or a reconnect takes effect on the next request, including
 in a conversation that is mid-turn. A secret binding or a custom header
 template cannot send the token anywhere else. If a binding of yours matches
-that route, a codex conversation on the account fails to provision until you
+either route, a codex conversation on the account fails to provision until you
 remove it. A codex conversation on the account cannot open a WebSocket, or
 any other protocol upgrade, through the broker to any host. Plain HTTP
 requests and streamed responses work as before. Fountain sets `CODEX_HOME`
 for such a conversation, and ignores a `CODEX_HOME` from its environment or
 vault.
 
-Codex also asks `chatgpt.com` for plugin lists, a model list and telemetry.
-The broker refuses those requests, and `/admin/broker` lists them as denied.
-This is expected. Most of the refusals come once, when a sandbox starts, and
-each turn after that adds a few more. We observed this in production on
+Codex also asks `chatgpt.com` for plugin lists, an MCP surface, settings
+and telemetry. The broker refuses those requests, and `/admin/broker` lists
+them as denied. This is expected. Most of the refusals come once, when a
+sandbox starts, and each turn after that adds a few more. On a subscription
+Fountain turns off Codex's remote plugin catalog, so fewer of them arrive.
+Codex's analytics requests still arrive, and the broker refuses each one. A refused request that has no body leaves its connection open. We observed this in production on
 2026-09-21 with codex-acp 1.10.0 and Codex CLI 0.153.4, and the turns
 completed without those requests.
 

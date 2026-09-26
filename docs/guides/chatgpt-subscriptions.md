@@ -134,11 +134,13 @@ for about one second, and a model's reply pauses while the model reasons.
 Reset the sandbox: `fountain sandbox reset <id>`. The conversation stays. See
 [A Sprites machine that drops quiet connections](../concepts/sandboxes.md#a-sprites-machine-that-drops-quiet-connections).
 
-A subscription can reach only the routes a codex turn needs. Fountain
-refuses the rest, including analytics and the remote plugin catalog. On a
-subscription, Fountain turns both off in Codex, so Codex stops asking for
-them. Codex still asks for its model list after each reply, and Fountain
-still refuses that request. The turn continues.
+A subscription can reach only the routes a codex turn needs: the Responses
+call and Codex's model list. Fountain refuses the rest, including analytics
+and the remote plugin catalog. On a subscription, Fountain turns off the
+remote plugin catalog in Codex, so Codex stops asking for it. Codex's
+analytics requests continue, and Fountain refuses each one. Because Codex can read its model list,
+the models it offers are the ones the backend lists for your subscription,
+not the list that ships with Codex.
 
 ## Reconnect, rename, disconnect, remove
 

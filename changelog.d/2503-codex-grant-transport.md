@@ -13,9 +13,9 @@
 
 ### Changed
 
-- **Codex on a ChatGPT subscription no longer sends analytics or loads the
-  remote plugin catalog** (#2503). The credential broker refuses those routes
-  for a subscription, and Codex asked for them hundreds of times an hour.
-  Fountain now sets `analytics.enabled` and `features.remote_plugin` to
-  `false`, unless `CODEX_CONFIG` sets them. Local plugins still load.
+- **Codex on a ChatGPT subscription no longer loads the remote plugin
+  catalog** (#2503). The credential broker refuses those routes for a
+  subscription, and Codex asked for them hundreds of times an hour. Fountain
+  now sets `features.remote_plugin` to `false`, unless `CODEX_CONFIG` sets it.
+  Local plugins still load.
 

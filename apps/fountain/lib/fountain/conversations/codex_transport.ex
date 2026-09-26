@@ -70,10 +70,14 @@ defmodule Fountain.Conversations.CodexTransport do
   # overlay's `model_provider`.
   #
   # **Refused traffic on the grant.** A managed grant's session refuses every
-  # `chatgpt.com` route but the protected ones, and each refusal closes its
-  # tunnel. Codex's analytics queue and remote plugin catalog asked for such
-  # routes several hundred times an hour, and none of them could succeed. On
-  # a grant spawn both are off, unless the overlay sets them itself.
+  # `chatgpt.com` route but the protected ones. Codex's remote plugin
+  # catalog asked for such routes hundreds of times an hour, and none of
+  # them could succeed. On a grant spawn it is off, unless the overlay sets
+  # it. Analytics cannot be turned off here: codex builds its analytics
+  # client once per app-server from the process config (`config.toml`,
+  # `-c`), which this per-thread overlay does not reach. Measured in
+  # production on 2026-09-26 (#2503): with `analytics.enabled = false` in
+  # the overlay, the analytics posts continued.
   @provider_id "fountain_openai_http"
   @openai_base_url "https://api.openai.com/v1"
   @chatgpt_base_url "https://chatgpt.com/backend-api/codex"
@@ -217,9 +221,7 @@ defmodule Fountain.Conversations.CodexTransport do
   # Only defaults: a value the overlay sets, in either spelling, is kept.
   defp quiet_grant(config, env) do
     if grant?(env) do
-      config
-      |> put_default(["features", "remote_plugin"], false)
-      |> put_default(["analytics", "enabled"], false)
+      put_default(config, ["features", "remote_plugin"], false)
     else
       config
     end

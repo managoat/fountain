@@ -148,33 +148,31 @@ defmodule Fountain.Conversations.CodexTransportTest do
   end
 
   # #2503. A grant's session refuses every chatgpt.com route but the
-  # protected ones. Analytics and the remote plugin catalog asked for such
-  # routes hundreds of times an hour, each refusal costing a tunnel.
-  test "a grant spawn turns off analytics and the remote plugin catalog by default" do
+  # protected ones. The remote plugin catalog asked for such routes hundreds
+  # of times an hour. (Analytics is built from the process config, which the
+  # overlay does not reach, so it is not set here: see the module.)
+  test "a grant spawn turns off the remote plugin catalog by default" do
     grant = [{"CODEX_CHATGPT_ACCESS_TOKEN", "__codex_chatgpt_access_token__"}]
     assert {:ok, result} = CodexTransport.spawn_opts(%{broker: %{}}, "codex", env: grant)
 
     assert config(result)["features"]["remote_plugin"] == false
-    assert config(result)["analytics"] == %{"enabled" => false}
+    refute Map.has_key?(config(result), "analytics")
 
     # What the overlay sets itself is kept, in either spelling.
     for overlay <- [
-          %{"features" => %{"remote_plugin" => true}, "analytics" => %{"enabled" => true}},
-          %{"features.remote_plugin" => true, "analytics.enabled" => true}
+          %{"features" => %{"remote_plugin" => true}},
+          %{"features.remote_plugin" => true}
         ] do
       env = grant ++ [{"CODEX_CONFIG", Jason.encode!(overlay)}]
       assert {:ok, result} = CodexTransport.spawn_opts(%{broker: %{}}, "codex", env: env)
-      config = config(result)
 
-      refute config["features"]["remote_plugin"] == false
-      refute get_in(config, ["analytics", "enabled"]) == false
+      refute config(result)["features"]["remote_plugin"] == false
     end
 
     # Not a grant, nothing refused: codex's own defaults stand.
     for env <- [[key("sk-x")], grant ++ [key("sk-x")], []] do
       assert {:ok, result} = CodexTransport.spawn_opts(%{broker: %{}}, "codex", env: env)
       refute Map.has_key?(config(result)["features"], "remote_plugin")
-      refute Map.has_key?(config(result), "analytics")
     end
   end
 

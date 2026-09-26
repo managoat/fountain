@@ -202,6 +202,54 @@ defmodule Fountain.Conversations.ProvisioningTest do
     end
   end
 
+  describe "clone_repositories/5 when the connection never opens" do
+    @refused "Cloning into '/workspace/r'...\nfatal: unable to access " <>
+               "'https://github.com/o/r/': Failed to connect to github.com port 443 " <>
+               "via broker.example after 153 ms: Could not connect to server\n"
+
+    defp clone(env) do
+      Provisioning.clone_repositories(sandbox_handle(), env, %{}, [], insert_conversation().id)
+    end
+
+    @env %Fountain.Environments.Environment{
+      repositories: [%{"url" => "https://github.com/o/r", "mount_path" => "/workspace/r"}]
+    }
+
+    test "retries, since a clone that never connected wrote nothing" do
+      {:ok, calls} = Agent.start_link(fn -> 0 end)
+
+      Mimic.stub(Managoat.Sandbox.Sprites, :exec, fn _h, _cmd, _args, _opts ->
+        case Agent.get_and_update(calls, &{&1, &1 + 1}) do
+          0 -> {:ok, @refused, 128}
+          _ -> {:ok, "Cloning into '/workspace/r'...\n", 0}
+        end
+      end)
+
+      assert :ok = clone(@env)
+      assert Agent.get(calls, & &1) == 2
+    end
+
+    test "gives up after the retries with the error it always had" do
+      Mimic.stub(Managoat.Sandbox.Sprites, :exec, fn _h, _cmd, _args, _opts ->
+        {:ok, @refused, 128}
+      end)
+
+      assert {:error, {:clone, "https://github.com/o/r", 128}} = clone(@env)
+    end
+
+    test "does not retry a clone that reached the remote" do
+      {:ok, calls} = Agent.start_link(fn -> 0 end)
+
+      Mimic.stub(Managoat.Sandbox.Sprites, :exec, fn _h, _cmd, _args, _opts ->
+        Agent.update(calls, &(&1 + 1))
+        {:ok, "fatal: Authentication failed for 'https://github.com/o/r/'\n", 128}
+      end)
+
+      assert {:error, {:clone, "https://github.com/o/r", 128}} = clone(@env)
+      assert Agent.get(calls, & &1) == 1
+    end
+  end
+
   describe "install_broker_ca/2" do
     # Pins the absolute paths and the sandbox command wiring. What the
     # command *does* — rebuild once, skip on an unchanged bundle, repair a

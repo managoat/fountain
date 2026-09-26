@@ -826,20 +826,49 @@ defmodule Fountain.Conversations.Provisioning do
         "git -c http.proxyAuthMethod=basic clone --depth 50 " <>
         "#{branch_arg(repo)}#{shell_quote(auth_url)} #{shell_quote(mount)}"
 
-    # Not retried: a clone into a half-written directory is not idempotent.
-    case Sandbox.exec(handle, "bash", ["-lc", cmd],
-           env: sprite_env,
-           stderr_to_stdout: true,
-           timeout: 600_000
-         ) do
-      {:ok, output, code} ->
-        log_output(conv_id, "clone", scrub_token(output))
-        if code == 0, do: :ok, else: {:error, {:clone, url, code}}
+    # Retried only when git never reached the remote: that clone wrote
+    # nothing (git removes the directory it made), so running it again is
+    # idempotent. Any other failure may have left a half-written directory.
+    # On Sprites, the first connection through a just-applied broker floor is
+    # sometimes refused outright, measured at about 2 in 5 after a package
+    # install; the next one lands.
+    result =
+      Retry.with_backoff(
+        fn ->
+          case Sandbox.exec(handle, "bash", ["-lc", cmd],
+                 env: sprite_env,
+                 stderr_to_stdout: true,
+                 timeout: 600_000
+               ) do
+            {:ok, output, code} ->
+              log_output(conv_id, "clone", scrub_token(output))
 
-      {:error, reason} ->
-        {:error, {:clone_unreachable, url, reason}}
+              cond do
+                code == 0 -> :ok
+                never_connected?(output) -> {:error, {:clone_connect, code}}
+                true -> {:error, {:clone, url, code}}
+              end
+
+            {:error, reason} ->
+              {:error, {:clone_unreachable, url, reason}}
+          end
+        end,
+        label: "git clone",
+        retriable?: &match?({:clone_connect, _}, &1)
+      )
+
+    case result do
+      {:error, {:clone_connect, code}} -> {:error, {:clone, url, code}}
+      other -> other
     end
   end
+
+  # curl's words, through git, for a connection that never opened: to the
+  # proxy, or to the host itself.
+  @never_connected ["Could not connect to server", "Connection refused", "Could not resolve"]
+
+  defp never_connected?(output),
+    do: output =~ "unable to access" and String.contains?(output, @never_connected)
 
   # The sprite user can't read `/home/sprite/.config/git/ignore` (parent
   # dir's perms reject the access(2) check even though most writes go

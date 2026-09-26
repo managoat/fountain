@@ -92,6 +92,14 @@ defmodule Fountain.Conversations.Sandbox do
     # `Fountain.Machines.Machine.retarget/3`, which merges it under the lock.
     # (The list column `applied_skills` it replaced is no longer mapped.)
     field :applied_skills_by_runtime, {:map, {:array, :map}}
+    # What the machine keeps of a conversation whose row was deleted while
+    # the machine was live: one non-secret descriptor per distinct inference
+    # source (runtime, agent, model, stored source, credential set,
+    # environment, vault), written by the `record_departed_conversation`
+    # trigger. Its runtime's files are still on the disk, so the attach rule
+    # and the co-tenant redaction registry read these beside the rows
+    # (#2515). Never cast: the trigger is the only writer.
+    field :departed_conversations, {:array, :map}, default: []
     # The machine owner's lease and its in-flight state (ADR 0058).
     # `lease_epoch` is monotonic and never reused; `lease_node` and
     # `lease_until` say who holds the machine and until when; `transition` and

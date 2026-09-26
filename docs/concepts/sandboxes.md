@@ -60,37 +60,6 @@ now. Fountain refuses each change with `409 sandbox_mid_turn` while a
 conversation on that machine runs a turn. Let the turn end, or stop it, then
 send the request again.
 
-## A second agent on a machine
-
-A conversation you attach with `sandbox_id` usually belongs to the agent the
-machine was built for. A conversation of a different agent can also attach, as
-a guest, to that agent's persistent machine. A claude agent and a codex agent
-can then work on one disk. All of these must hold:
-
-- The launch names the machine's environment and vault.
-- The guest's runtime keeps its files apart from every other agent's runtime
-  on the machine. Claude keeps its settings and skills under `~/.claude`, and
-  codex keeps them under `~/.codex`, so each can be the other's guest. Two
-  agents of the same runtime would share one set of instructions and skills,
-  so Fountain refuses them. An `acp` agent runs a command whose files Fountain
-  cannot place, so it neither joins another agent's machine nor takes a guest.
-- The machine has a recorded runtime.
-
-Anything else answers `422 sandbox_identity_mismatch`. Conversations that
-ended still count, because their files stay on the disk until a reset.
-
-The machine stays its own agent's. Deleting that agent destroys the machine,
-and the guest's conversations end with it. Deleting the guest's agent ends
-only the guest's conversations. A guest cannot reapply its conversation. It
-answers `409 rebuild_required` with `field` set to `guest`. Each conversation
-registers the other runtime's inference credentials for redaction, so neither
-transcript shows the other's key.
-
-A claude machine created before guests were admitted cannot take a codex
-guest. Its codex credential file may already exist on the disk, so the attach
-answers `409 codex_inference_conflict`. Reset the machine, and the rebuilt one
-takes the guest.
-
 Only a `ready` or `suspended` machine resets. A machine in the `pending` or
 `starting` status answers `422 sandbox_not_resettable` with that status. It
 has no disk to replace yet.
@@ -156,6 +125,49 @@ checkpoints (Sprites) does it. The checkpoint belongs to that one machine.
 It can roll the machine back to its last park. It cannot rebuild a machine
 that the provider lost. `GET /api/sandboxes/:id` shows the checkpoint as
 `checkpoint`.
+
+## A second agent on a machine
+
+A conversation you attach with `sandbox_id` usually belongs to the agent the
+machine was built for. A conversation of a different agent can also attach, as
+a guest, to that agent's persistent machine. A claude agent and a codex agent
+can then work on one disk. All of these must hold:
+
+- The launch names the machine's environment and vault.
+- The guest's runtime keeps its files apart from every other agent's runtime
+  on the machine. Fountain compares the directory each runtime keeps its
+  settings, instructions and skills in: `~/.claude` for claude, `~/.codex`
+  for codex, and, because those two run with their home in `/tmp`,
+  `/tmp/.gemini` for gemini and `/tmp/.config/opencode` for opencode. Any two
+  different runtimes of these four can share a machine. Two agents of the
+  same runtime would share one set of instructions and skills, so Fountain
+  refuses them. An `acp` agent runs a command whose files Fountain cannot
+  place, so it neither joins another agent's machine nor takes a guest.
+- The machine has a recorded runtime.
+
+Anything else answers `422 sandbox_identity_mismatch`. Conversations that
+ended, and conversations you deleted, still count, because their files stay on
+the disk until a reset.
+
+A guest stays on the environment and vault it attached with, even if its agent
+later moves to another environment. If a guest's environment or vault changes
+anyway, such as when you rebind a teammate, the guest does not write its new
+values to the shared machine. Its next prompt, or a new conversation for the
+teammate, moves it to a machine of its own. The machine it leaves stays with
+its agent.
+
+The machine stays its own agent's. Deleting that agent destroys the machine,
+and the guest's conversations end with it. Deleting the guest's agent ends
+only the guest's conversations. A guest cannot reapply its conversation. It
+answers `409 rebuild_required`, with `field` set to `shared_sandbox` while
+another conversation is on the machine, and to `guest` once the guest is
+alone there. Each conversation registers the other runtime's inference
+credentials for redaction, so neither transcript shows the other's key.
+
+A claude machine created before guests were admitted cannot take a codex
+guest. Its codex credential file may already exist on the disk, so the attach
+answers `409 codex_inference_conflict`. Reset the machine, and the rebuilt one
+takes the guest.
 
 ## Why the lifecycle belongs to the conversations on it
 

@@ -1079,6 +1079,70 @@ defmodule Fountain.TeamTest do
       assert "team.conversation.rotated" in actions
     end
 
+    # A teammate of another runtime attached as a guest to another agent's
+    # home (ADR 0023, amended 2026-09-26, #2515).
+    defp guest_teammate_on_home do
+      user = insert_verified_user()
+      env = insert_env(user_id: user.id)
+      host = insert_agent(user_id: user.id, environment_id: env.id, runtime: "claude")
+
+      guest =
+        insert_agent(
+          user_id: user.id,
+          runtime: "codex",
+          model: "openai/gpt-5",
+          environment_id: env.id
+        )
+
+      home =
+        insert_sandbox(
+          user_id: user.id,
+          status: "ready",
+          mode: "persistent",
+          agent_id: host.id,
+          environment_id: env.id,
+          provider: "sprites"
+        )
+
+      host_conv =
+        insert_conversation(user_id: user.id, agent: host, sandbox: home, status: "idle")
+
+      prev = insert_teammate_conv(user, guest, sandbox: home, environment_id: env.id)
+      %{user: user, env: env, guest: guest, home: home, host_conv: host_conv, prev: prev}
+    end
+
+    test "a guest teammate rotates on the home it sits on, as the same agent" do
+      %{user: user, guest: guest, home: home, host_conv: host_conv} = guest_teammate_on_home()
+
+      assert {:ok, fresh} = Team.open_fresh_conversation(user.id, guest.id)
+      assert fresh.sandbox_id == home.id
+      assert fresh.agent_id == guest.id
+      assert fresh.runtime == "codex"
+
+      home = Repo.reload(home)
+      assert home.agent_id == host_conv.agent_id
+      assert home.runtime == "claude"
+      assert Repo.reload(host_conv).status == "idle"
+    end
+
+    test "a guest teammate rebound to another environment rotates onto a computer of its own" do
+      %{user: user, guest: guest, home: home, host_conv: host_conv} = guest_teammate_on_home()
+      other = insert_env(user_id: user.id)
+
+      assert {:ok, _, :updated} =
+               Team.update_teammate(user.id, guest.id, %{"environment_id" => other.id})
+
+      assert {:ok, fresh} = Team.open_fresh_conversation(user.id, guest.id)
+      refute fresh.sandbox_id == home.id
+      assert fresh.environment_id == other.id
+
+      # The home is its agent's, untouched, with its own conversation on it.
+      home = Repo.reload(home)
+      assert home.status == "ready"
+      assert is_nil(home.transition)
+      assert Repo.reload(host_conv).sandbox_id == home.id
+    end
+
     test "a conversation already past resuming is replaced the same way" do
       user = insert_verified_user()
       ada = insert_agent(user_id: user.id)

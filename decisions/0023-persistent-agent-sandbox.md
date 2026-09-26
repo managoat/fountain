@@ -101,13 +101,38 @@ The consequence under **Consequences** that "two agents can never share a
 home" now holds only for agents of the same runtime.
 
 As built (#2515, `Fountain.Machines.Binding.attachable/5`), the rule is
-stricter than the text above in four places. Every conversation another agent
+stricter than the text above in five places. Every conversation another agent
 has run on the machine counts, retired ones included, because its files stay on
-the disk until a reset. A runtime with no known config root refuses on either
-side, which rules out `acp` as guest and as host. Only a persistent home with
-a recorded runtime and a living agent takes a guest. And a claude home
-reserved before #2522 stamped `codex_peer_homes` refuses a codex guest with
-`codex_inference_conflict` until it is reset.
+the disk until a reset; a conversation deleted while its machine is live leaves
+a non-secret descriptor on the machine (`sandboxes.departed_conversations`,
+written by a trigger on every conversation delete), which the attach rule and
+the redaction registry read beside the rows. A runtime with no known config
+root refuses on either side, which rules out `acp` as guest and as host. Only a
+persistent home with a recorded runtime and a living agent takes a guest. A
+claude home reserved before #2522 stamped `codex_peer_homes` refuses a codex
+guest with `codex_inference_conflict` until it is reset. And the guest is held
+to the environment and vault it was admitted on: attaching pins its
+environment on its row, and a guest whose binding moves anyway (a teammate
+rebinding) never reattaches to the shared disk — its next wake or rotation
+moves it to an ephemeral machine of its own and leaves the home as it was.
+
+The rule is general over directories, so it admits every pair of distinct
+runtimes among claude (`/home/sprite/.claude`), codex (`/home/sprite/.codex`),
+gemini (`/tmp/.gemini`) and opencode (`/tmp/.config/opencode`), in either
+direction. Files outside those roots were checked against `Layout` and the
+runtime modules of `managoat_runtimes` 0.5.4: claude's `/home/sprite/.mcp.json`
+and `~/.claude.json`, codex's `/home/sprite/.codex-grants`, opencode's
+`/tmp/.local/share/opencode` and `/tmp/opencode-workspace`, gemini's
+`/tmp/gemini-workspace` are each one runtime's; the ACP adapters install
+under per-package directories in `/home/sprite/.local/share/managoat/acp` and
+`/home/sprite/.local/bin`; `/home/sprite/.env` is shared by design (same
+environment and vault). One location is shared by every runtime and not
+separated: skills.sh keeps its global state under `/home/sprite/.agents` (the
+`.skill-lock.json` Fountain reads for ownership recovery, and possibly the
+canonical copies its default install mode links from), because every GitHub
+skill install runs with the image's HOME. Two agents on one machine that select
+the same GitHub skill can therefore share its installed copy; inline skills are
+written into each runtime's own root and are not affected.
 
 **Amended 2026-09-18 — runtime is part of a home's identity (#2379).**
 

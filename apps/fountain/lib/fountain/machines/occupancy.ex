@@ -408,6 +408,55 @@ defmodule Fountain.Machines.Occupancy do
     )
   end
 
+  @doc """
+  The conversations of a **different runtime** from `conv_id` that
+  `sandbox_id` has carried and whose rows have since been deleted, rebuilt
+  from the descriptors the machine keeps of them
+  (`Sandbox.departed_conversations`, #2515) as unsaved `Conversation`
+  structs: `id`, `user_id`, `agent_id`, `runtime`, `model`,
+  `inference_source`, `inference_credential_id`, `environment_id` and
+  `vault_id`, nothing else.
+
+  `other_runtime_ids/2`'s other half. A deleted row takes its conversation
+  out of that query, but not its runtime's files off the disk, so a reader
+  asking who has been on the disk unions the two. Empty when `conv_id` is
+  not on `sandbox_id` or the machine is another owner's.
+  """
+  @spec departed_other_runtime(String.t(), String.t()) :: [Conversation.t()]
+  def departed_other_runtime(sandbox_id, conv_id)
+      when is_binary(sandbox_id) and is_binary(conv_id) do
+    Repo.one(
+      from s in Sandbox,
+        join: me in Conversation,
+        on: me.id == ^conv_id and me.user_id == s.user_id,
+        where: s.id == ^sandbox_id,
+        select: {s.user_id, s.departed_conversations, me.runtime}
+    )
+    |> case do
+      nil ->
+        []
+
+      {user_id, departed, runtime} ->
+        for d <- departed || [],
+            is_binary(d["runtime"]) and d["runtime"] != runtime,
+            do: departed_conversation(user_id, d)
+    end
+  end
+
+  defp departed_conversation(user_id, d) do
+    %Conversation{
+      id: d["conversation_id"],
+      user_id: user_id,
+      agent_id: d["agent_id"],
+      runtime: d["runtime"],
+      model: d["model"],
+      inference_source: d["inference_source"],
+      inference_credential_id: d["inference_credential_id"],
+      environment_id: d["environment_id"],
+      vault_id: d["vault_id"]
+    }
+  end
+
   # ── internals ─────────────────────────────────────────────────────────────
 
   @terminal ["terminated", "failed"]

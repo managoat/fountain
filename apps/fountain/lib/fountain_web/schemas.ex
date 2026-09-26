@@ -887,8 +887,9 @@ defmodule FountainWeb.Schemas do
               "apart from every other agent's runtime on the machine, such as a codex agent " <>
               "on a claude agent's home; two agents never share one runtime's files, and " <>
               "any other guest is 422 sandbox_identity_mismatch. The sandbox stays its own " <>
-              "agent's, and a guest's reapply is refused with 409 rebuild_required, field " <>
-              "guest. A claude home created before guests were admitted refuses a codex " <>
+              "agent's, and a guest's reapply is refused with 409 rebuild_required: field " <>
+              "shared_sandbox while another conversation is on the sandbox, field guest when " <>
+              "the guest is alone there. A claude home created before guests were admitted refuses a codex " <>
               "guest with 409 codex_inference_conflict until it is reset. The " <>
               "conversation opens idle on that machine; a prompt here wakes it. Several " <>
               "conversations then run on one disk at once, except on opencode and gemini, " <>

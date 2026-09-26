@@ -145,6 +145,31 @@ defmodule Fountain.Conversations.GuestAttachTest do
       assert {:ok, _} = attach(ctx, guest_agent, home)
     end
 
+    test "a guest is pinned to the environment it was admitted on", ctx do
+      host_agent = agent_of(ctx, "claude")
+      guest_agent = agent_of(ctx, "codex")
+      {home, host} = launched_home(ctx, host_agent)
+
+      assert {:ok, guest} = attach(ctx, guest_agent, home)
+      assert guest.environment_id == ctx.env.id
+      # A conversation of the home's own agent still follows its agent.
+      assert {:ok, same} = attach(ctx, host_agent, home)
+      assert is_nil(same.environment_id)
+      assert is_nil(host.environment_id)
+
+      # The guest's agent moves to another environment: the guest does not,
+      # so it neither leaves the home nor writes the other environment to it.
+      other_env = insert_env(user_id: ctx.user.id)
+
+      {:ok, guest_agent} =
+        Fountain.Agents.update_agent(guest_agent, %{"environment_id" => other_env.id})
+
+      guest = Conversations._unsafe_get_conversation!(guest.id)
+      assert guest.environment_id == ctx.env.id
+      refute Binding.guest_moved?(Repo.reload!(home), guest, guest_agent)
+      assert Repo.reload!(home).status == "ready"
+    end
+
     test "a claude guest on a codex home", ctx do
       host_agent = agent_of(ctx, "codex")
       guest_agent = agent_of(ctx, "claude")

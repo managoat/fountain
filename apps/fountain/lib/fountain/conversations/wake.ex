@@ -117,6 +117,27 @@ defmodule Fountain.Conversations.Wake do
     end
   end
 
+  # `maybe_reuse_sandbox/1`, unless the conversation is a guest whose binding
+  # no longer matches its machine (`Binding.guest_moved?/3`): `:move_off`.
+  # Only a live machine is left this way; a terminal one is `:create_new`
+  # already, and its replacement is `replacement_label/3`'s to decide.
+  defp reuse_verdict(%Conversation{sandbox_id: sandbox_id} = conv, agent)
+       when is_binary(sandbox_id) do
+    # ownership: conv was fetched tenant-scoped by the caller; this is its
+    # own machine.
+    case Conversations._unsafe_get_sandbox(sandbox_id) do
+      %Sandbox{status: status} = sandbox when status not in @terminal_statuses ->
+        if Fountain.Machines.Binding.guest_moved?(sandbox, conv, agent),
+          do: :move_off,
+          else: maybe_reuse_sandbox(conv)
+
+      _ ->
+        maybe_reuse_sandbox(conv)
+    end
+  end
+
+  defp reuse_verdict(conv, _agent), do: maybe_reuse_sandbox(conv)
+
   # The reuse verdict for a machine no owner is working on. Split out of
   # `maybe_reuse_sandbox/1` when the mid-operation check went in front of it,
   # so there is one place that check cannot be skipped.
@@ -369,7 +390,7 @@ defmodule Fountain.Conversations.Wake do
               Conversation.with_model(Agents._unsafe_get_agent(conv.agent_id), conv)) ||
              {:error, :no_agent},
          {:ok, runtime_module} <- Fountain.RuntimeDispatch.for_agent(conv) do
-      case maybe_reuse_sandbox(conv) do
+      case reuse_verdict(conv, agent) do
         {:reuse, sandbox_id, observed} ->
           # Reuse provisions nothing, so the fresh-path gates below never ran
           # here — a canceled or suspended user could restart a server against
@@ -484,6 +505,27 @@ defmodule Fountain.Conversations.Wake do
         # `:timeout` arm above.
         :create_new when purpose == :interrupt ->
           reconcile_dead_interrupt(conv)
+
+        # A guest whose environment or vault has moved off its machine's
+        # (#2515). An interrupt has nothing to provision for, as above.
+        :move_off when purpose == :interrupt ->
+          reconcile_dead_interrupt(conv)
+
+        # It leaves the shared machine rather than rewrite its disk: a fresh
+        # machine of its own, as if it had none. The machine it leaves is
+        # somebody else's home and stays as it is — not retired, its other
+        # conversations not moved — and the guest's binding there ends when
+        # its row names the new machine. Ephemeral, because a persistent one
+        # for the guest's new identity may already exist (one live home per
+        # identity), and a wake cannot attach to it.
+        :move_off ->
+          create_fresh_sandbox_and_start(
+            %{conv | sandbox_id: nil},
+            agent,
+            runtime_module,
+            initial_prompt,
+            images
+          )
 
         :create_new ->
           create_fresh_sandbox_and_start(conv, agent, runtime_module, initial_prompt, images)

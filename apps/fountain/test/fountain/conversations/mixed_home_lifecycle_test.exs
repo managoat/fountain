@@ -354,6 +354,135 @@ defmodule Fountain.Conversations.MixedHomeLifecycleTest do
     end
   end
 
+  describe "a guest whose binding left the home's environment or vault (#2515)" do
+    setup ctx do
+      # A teammate rebinding moved the guest's environment after it attached.
+      other_env = insert_env(user_id: ctx.user.id)
+      {:ok, _} = Conversations.update_conversation(ctx.guest, %{environment_id: other_env.id})
+      %{other_env: other_env}
+    end
+
+    test "a wake moves it to a machine of its own and leaves the live home alone", ctx do
+      stub_server_start(fn _sup, _spec -> {:ok, spawn(fn -> Process.sleep(:infinity) end)} end)
+      stub(ConversationServer, :queue_initial_prompt, fn _pid, _prompt, _images -> :ok end)
+      # Nothing is written to the home's disk.
+      reject(Managoat.Sandbox.Sprites, :write_file, 4)
+
+      assert {:ok, woken} = Wake.wake_conversation(ctx.guest.id, "hello")
+
+      moved = Conversations._unsafe_get_sandbox!(woken.sandbox_id)
+      refute moved.id == ctx.home.id
+      assert moved.mode == "ephemeral"
+      assert {moved.agent_id, moved.runtime} == {ctx.guest_agent.id, "codex"}
+      assert moved.environment_id == ctx.other_env.id
+
+      home = Repo.reload!(ctx.home)
+      assert home.status == "ready"
+      assert is_nil(home.transition)
+      assert reload(ctx.host).sandbox_id == ctx.home.id
+    end
+
+    test "a server that reaches a reattach anyway stops before it writes the disk", ctx do
+      # A claude guest on a codex home, so no Codex bind stands in the way.
+      mixed = mixed_home(ctx, {"codex", "claude"})
+
+      {:ok, _} =
+        Conversations.update_conversation(mixed.guest, %{environment_id: ctx.other_env.id})
+
+      reject(Managoat.Sandbox.Sprites, :write_file, 4)
+      reject(Provisioning, :write_env_file, 2)
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          {_pid, ref, _settled} = start_server(reload(mixed.guest))
+          assert assert_stopped(ref) == :normal
+        end)
+
+      assert log =~ "not reattaching to sandbox #{mixed.home.id}"
+      assert reload(mixed.guest).sandbox_id == mixed.home.id
+    end
+
+    test "one that still matches reattaches as before", ctx do
+      {:ok, _} =
+        Conversations.update_conversation(reload(ctx.guest), %{environment_id: ctx.env.id})
+
+      refute Fountain.Machines.Binding.guest_moved?(ctx.home, reload(ctx.guest), ctx.guest_agent)
+    end
+  end
+
+  describe "a deleted conversation of another runtime (#2515)" do
+    test "the home still redacts its credential and still refuses a second codex agent", ctx do
+      # The guest ran here with a stored source, then its row was deleted.
+      {:ok, _} =
+        Conversations.update_conversation(ctx.guest, %{
+          inference_source: Source.dump(source(ctx, "sk-deleted-guest"))
+        })
+
+      {:ok, _} = Conversations.delete_conversation(reload(ctx.guest))
+      assert is_nil(Conversations._unsafe_get_conversation(ctx.guest.id))
+
+      [descriptor] = Repo.reload!(ctx.home).departed_conversations
+      assert descriptor["runtime"] == "codex"
+      assert descriptor["agent_id"] == ctx.guest_agent.id
+      assert descriptor["environment_id"] == ctx.env.id
+      refute Jason.encode!(descriptor) =~ "sk-deleted-guest"
+
+      on_exit(fn -> Fountain.Conversations.Redaction.delete(ctx.host.id) end)
+      assert Fountain.Conversations.CotenantSecrets.register(ctx.host.id, ctx.home.id) == :mixed
+      assert "sk-deleted-guest" in Fountain.Conversations.Redaction.lookup(ctx.host.id)
+
+      other_codex = agent_of(ctx, "codex")
+
+      assert {:error, :sandbox_identity_mismatch} =
+               Fountain.Machines.Binding.attachable(
+                 Repo.reload!(ctx.home),
+                 other_codex,
+                 nil,
+                 ctx.env.id
+               )
+
+      # The agent that left the files may come back to them.
+      assert :ok =
+               Fountain.Machines.Binding.attachable(
+                 Repo.reload!(ctx.home),
+                 ctx.guest_agent,
+                 nil,
+                 ctx.env.id
+               )
+    end
+
+    test "a deleted host conversation is still redacted for the guest", ctx do
+      {:ok, _} = Conversations.delete_conversation(reload(ctx.host))
+      [descriptor] = Repo.reload!(ctx.home).departed_conversations
+      assert descriptor["runtime"] == "claude"
+      assert Fountain.Conversations.CotenantSecrets.register(ctx.guest.id, ctx.home.id) == :mixed
+      Fountain.Conversations.Redaction.delete(ctx.guest.id)
+    end
+
+    test "one descriptor per source, and none once the machine is gone", ctx do
+      second =
+        insert_conversation(user_id: ctx.user.id, agent: ctx.guest_agent, sandbox: ctx.home)
+
+      {:ok, _} = Conversations.delete_conversation(reload(ctx.guest))
+      {:ok, _} = Conversations.delete_conversation(reload(second))
+      assert [_one] = Repo.reload!(ctx.home).departed_conversations
+
+      {:ok, _} = update_sandbox(Repo.reload!(ctx.home), %{status: "terminated"})
+      {:ok, _} = Conversations.delete_conversation(reload(ctx.host))
+      assert [_still_one] = Repo.reload!(ctx.home).departed_conversations
+    end
+
+    test "deleting the machine or its owner cascades without the trigger getting in the way",
+         ctx do
+      Repo.delete!(Repo.reload!(ctx.home))
+      assert is_nil(Conversations._unsafe_get_conversation(ctx.guest.id))
+
+      other = mixed_home(ctx, {"claude", "codex"})
+      Repo.delete!(ctx.user)
+      assert is_nil(Conversations._unsafe_get_conversation(other.guest.id))
+    end
+  end
+
   describe "the Codex auth binding on a machine another runtime built" do
     # A built claude machine, as a claude conversation's reservation leaves it,
     # with a codex conversation on it.

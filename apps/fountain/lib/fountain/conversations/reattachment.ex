@@ -8,6 +8,34 @@ defmodule Fountain.Conversations.Reattachment do
   alias Fountain.Conversations.{Connection, Output, Pending, Provisioning, TurnMachine}
   alias Fountain.Machines.Machine
 
+  @doc """
+  Whether a server about to reattach `conv` to `sandbox` must not: a guest
+  whose environment or vault is no longer the machine's
+  (`Fountain.Machines.Binding.guest_moved?/3`, #2515). A reattach writes
+  `/home/sprite/.env` from the conversation's own environment and vault, and
+  on a shared machine that is a file the other conversations read without
+  redacting it. The server stops without touching the disk; the next wake
+  moves the guest to a machine of its own.
+  """
+  @spec guest_moved?(map(), map(), map() | nil) :: boolean()
+  def guest_moved?(conv, sandbox, agent) do
+    moved? = Fountain.Machines.Binding.guest_moved?(sandbox, conv, agent)
+
+    if moved? do
+      Logger.warning(
+        "conv #{conv.id}: not reattaching to sandbox #{sandbox.id}: its environment or vault " <>
+          "is no longer the machine's; the next wake moves it to a machine of its own"
+      )
+
+      Output.publish_stage(conv.id, "reattach", "failed", %{
+        reason: "guest_identity_moved",
+        retryable: true
+      })
+    end
+
+    moved?
+  end
+
   @doc false
   def prepare_source(handle, state, conv, agent, sprite_env) do
     with :ok <-

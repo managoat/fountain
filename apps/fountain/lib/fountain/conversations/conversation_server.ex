@@ -534,14 +534,14 @@ defmodule Fountain.Conversations.ConversationServer do
 
         case sandbox.status do
           s when s in ["ready", "suspended"] ->
-            # The sprite already exists at sprites.dev and was fully provisioned
-            # in a previous BEAM lifetime. Reattach instead of recreating.
-            # `suspended` normally becomes `ready` under the quota reservation
-            # in wake_conversation before this server starts; seeing it here
-            # means the reaper parked the row mid-wake. Reattaching is still
-            # right — the catch-all below would provision a second sprite over
-            # a live one — and do_reattach flips the row back to ready.
-            reattach(state, conv, sandbox, agent, env, secrets)
+            # Provisioned in a previous BEAM lifetime: reattach, never recreate.
+            # `suspended` here means the reaper parked the row mid-wake; the
+            # catch-all would provision a second sprite over a live one, and
+            # do_reattach flips the row back to ready. A guest whose binding
+            # left the machine stops instead (`Reattachment.guest_moved?/3`).
+            if Reattachment.guest_moved?(conv, sandbox, agent),
+              do: {:stop, :normal, state},
+              else: reattach(state, conv, sandbox, agent, env, secrets)
 
           s when s in ["pending", "starting"] ->
             FreshProvision.run(state, conv, sandbox, agent, env, secrets)

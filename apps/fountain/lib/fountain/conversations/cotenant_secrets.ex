@@ -28,6 +28,9 @@ defmodule Fountain.Conversations.CotenantSecrets do
   stopped) can still print it. `Fountain.Machines.Binding` reads Codex peers
   the same way for the same reason. So "mixed" is a fact about the machine's
   history too, and a machine that has ever carried two runtimes stays mixed.
+  That includes a co-tenant whose row has been deleted: the machine keeps a
+  descriptor of it (`Occupancy.departed_other_runtime/2`, #2515), and it is
+  resolved like a row.
   Co-tenants that resolve the same way (runtime, model, stored source, set,
   environment, vault) are resolved once, so a home with many retired
   conversations costs one resolution per distinct source, not per
@@ -183,14 +186,15 @@ defmodule Fountain.Conversations.CotenantSecrets do
 
   def register(conversation_id, sandbox_id)
       when is_binary(conversation_id) and is_binary(sandbox_id) do
-    case Occupancy.other_runtime_ids(sandbox_id, conversation_id) do
-      [] ->
-        :single
+    ids = Occupancy.other_runtime_ids(sandbox_id, conversation_id)
+    departed = Occupancy.departed_other_runtime(sandbox_id, conversation_id)
 
-      ids ->
-        values = ids |> sources() |> Enum.flat_map(&credential_values/1)
-        Redaction.add(conversation_id, values)
-        :mixed
+    if ids == [] and departed == [] do
+      :single
+    else
+      values = ids |> sources(departed) |> Enum.flat_map(&credential_values/1)
+      Redaction.add(conversation_id, values)
+      :mixed
     end
   end
 
@@ -198,14 +202,26 @@ defmodule Fountain.Conversations.CotenantSecrets do
   # that has carried many conversations of one agent resolves that agent's
   # credential once, not once per conversation, however many have retired.
   #
-  # ownership: the ids come from `Occupancy.other_runtime_ids/2`, which keeps
-  # only conversations of the caller's own owner.
-  defp sources(ids) do
-    from(c in Conversation, where: c.id in ^ids, preload: :agent)
-    |> Repo.all()
+  # A deleted co-tenant (`departed`, from the descriptor its machine kept,
+  # #2515) resolves the same way as a row: its agent, if it still has one, and
+  # its stored source.
+  #
+  # ownership: the ids come from `Occupancy.other_runtime_ids/2`, and the
+  # departed from `Occupancy.departed_other_runtime/2`, which keep only
+  # conversations of the caller's own owner; a departed one's agent is read
+  # in that owner's tenant.
+  defp sources(ids, departed) do
+    rows = Repo.all(from c in Conversation, where: c.id in ^ids, preload: :agent)
+
+    (rows ++ Enum.map(departed, &with_owned_agent/1))
     |> Enum.map(fn conv -> {conv, Conversation.with_model(conv.agent, conv)} end)
     |> Enum.uniq_by(fn {conv, agent} -> {conv.runtime, resolution(conv, agent)} end)
   end
+
+  defp with_owned_agent(%Conversation{agent_id: nil} = conv), do: %{conv | agent: nil}
+
+  defp with_owned_agent(%Conversation{agent_id: agent_id, user_id: user_id} = conv),
+    do: %{conv | agent: Repo.get_by(Fountain.Agents.Agent, id: agent_id, user_id: user_id)}
 
   # Everything `resolve/2` hands the resolver besides the owner.
   defp resolution(conv, agent) do

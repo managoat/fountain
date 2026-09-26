@@ -322,6 +322,8 @@ defmodule Fountain.Machines.Binding do
     # before the write, so an expired caller gains nothing.
     if expired?(Keyword.get(opts, :deadline), now), do: Repo.rollback(:attach_expired)
 
+    attrs = pin_guest_identity(attrs, sandbox)
+
     with {:ok, limits} <-
            Conversations.resolve_admission_limits(attrs.user_id, Keyword.get(opts, :request)),
          {:ok, conv} <- Conversations.insert_conversation_row(attrs),
@@ -333,6 +335,47 @@ defmodule Fountain.Machines.Binding do
       {:error, reason} -> Repo.rollback(reason)
     end
   end
+
+  # A guest (#2515) is pinned to the environment it was admitted on. With no
+  # override a conversation follows its agent's environment wherever that
+  # moves, and a guest that followed would carry another environment's values
+  # onto a disk it shares: its next reattach rewrites `/home/sprite/.env`, which
+  # the home's conversations read and do not redact. Pinned, a later change to
+  # the guest's agent leaves the guest where it was admitted; a teammate
+  # rebinding that does move it is caught by `guest_moved?/3` on its next wake.
+  # The vault is always explicit on the row.
+  defp pin_guest_identity(%{agent_id: agent_id} = attrs, %Sandbox{agent_id: home} = sandbox)
+       when is_binary(home) and agent_id != home,
+       do: Map.put(attrs, :environment_id, attrs[:environment_id] || sandbox.environment_id)
+
+  defp pin_guest_identity(attrs, _sandbox), do: attrs
+
+  @doc """
+  Whether `conv` is a guest on `sandbox` (a conversation of another agent,
+  ADR 0023, amended 2026-09-26) whose environment or vault is no longer the
+  machine's.
+
+  The attach rule admits a guest only on the machine's environment and vault,
+  but a guest's binding can move afterwards (a teammate rebinding). Such a
+  guest must not reattach to the machine: a reattach rewrites the shared
+  `/home/sprite/.env` from the guest's environment and vault, which the
+  machine's other conversations would read and do not redact. The wake moves
+  it to a machine of its own instead (`Wake`), and a server that reaches a
+  reattach anyway stops before writing (`Reattachment.guest_moved?/3`).
+  `agent` is the guest's, for an environment it inherits.
+  """
+  @spec guest_moved?(Sandbox.t() | nil, Conversation.t(), Agents.Agent.t() | nil) :: boolean()
+  def guest_moved?(
+        %Sandbox{agent_id: home} = sandbox,
+        %Conversation{agent_id: own} = conv,
+        agent
+      )
+      when is_binary(home) and home != own do
+    {sandbox.environment_id, sandbox.vault_id} !=
+      {conv.environment_id || (agent && agent.environment_id), conv.vault_id}
+  end
+
+  def guest_moved?(_sandbox, _conv, _agent), do: false
 
   # A conversation whose admission resolved no inference source — a teammate's
   # successor, which inherits the machine's binding on its first prompt —
@@ -444,7 +487,9 @@ defmodule Fountain.Machines.Binding do
   #     of the machine's runtime or of any runtime a conversation of another
   #     agent has run here. Retired conversations count: a runtime's files
   #     stay on the disk until it is destroyed or reset, as
-  #     `Occupancy.other_runtime_ids/2` counts them for redaction. The
+  #     `Occupancy.other_runtime_ids/2` counts them for redaction. So do
+  #     deleted ones, through the descriptor the machine keeps of each
+  #     (`Sandbox.departed_conversations`). The
   #     guest's own agent's earlier conversations on the same runtime do not:
   #     those are its files.
   #   * A runtime whose roots are not known refuses, on either side. The
@@ -459,7 +504,10 @@ defmodule Fountain.Machines.Binding do
        when is_binary(machine_runtime) and is_binary(sandbox.agent_id) do
     case runtime_roots(agent.runtime) do
       {:ok, guest_roots} ->
-        [machine_runtime | other_agents_runtimes(sandbox, agent)]
+        [
+          machine_runtime
+          | other_agents_runtimes(sandbox, agent) ++ departed_runtimes(sandbox, agent)
+        ]
         |> Enum.uniq()
         |> Enum.all?(fn runtime ->
           case runtime_roots(runtime) do
@@ -490,6 +538,16 @@ defmodule Fountain.Machines.Binding do
         distinct: true,
         select: c.runtime
     )
+  end
+
+  # The same question of the conversations whose rows were deleted while the
+  # machine was live: the descriptors it keeps of them (#2515). Read off the
+  # row `attach/3` holds locked, so a deletion that committed before the lock
+  # is here, as a row or as a descriptor.
+  defp departed_runtimes(%Sandbox{departed_conversations: departed}, agent) do
+    for d <- departed || [],
+        d["agent_id"] != agent.id or d["runtime"] != agent.runtime,
+        do: d["runtime"]
   end
 
   # Where a runtime keeps its files: its config root (`Layout.config_root/1`)

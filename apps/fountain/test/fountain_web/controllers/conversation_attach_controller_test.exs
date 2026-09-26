@@ -132,6 +132,72 @@ defmodule FountainWeb.ConversationAttachControllerTest do
              |> json_response(422)
   end
 
+  describe "a guest of another runtime (#2515)" do
+    setup ctx do
+      env = Repo.get!(Fountain.Environments.Environment, ctx.agent.environment_id)
+      {:ok, dek} = Fountain.Crypto.load_tenant_key(ctx.user.id)
+      {:ok, set} = Fountain.InferenceCredentials.create_set(ctx.user.id, "Codex")
+
+      {:ok, set} =
+        Fountain.InferenceCredentials.put_credential_in(set, dek, :openai_api_key, "sk-guest")
+
+      # A persistent claude home as a launch reserves it today, stamped for a
+      # first Codex bind.
+      {:ok, home} =
+        Fountain.Machines.Provision.reserve(%{
+          machine_name: "guest-home-#{System.unique_integer([:positive])}",
+          status: "ready",
+          provider: "sprites",
+          user_id: ctx.user.id,
+          agent_id: ctx.agent.id,
+          environment_id: env.id,
+          mode: "persistent",
+          runtime: "claude",
+          builder_runtime: "claude"
+        })
+
+      codex =
+        insert_agent(
+          user_id: ctx.user.id,
+          runtime: "codex",
+          model: "openai/gpt-5",
+          environment_id: env.id,
+          inference_credential_id: set.id
+        )
+
+      %{home: home, codex: codex}
+    end
+
+    test "attaches: 201, the sandbox still its own agent's", ctx do
+      data =
+        ctx
+        |> create(%{"agent_id" => ctx.codex.id, "sandbox_id" => ctx.home.id})
+        |> json_response(201)
+        |> Map.fetch!("data")
+
+      assert data["sandbox_id"] == ctx.home.id
+      assert data["agent_id"] == ctx.codex.id
+      assert data["sandbox"]["agent_id"] == ctx.agent.id
+    end
+
+    test "an agent of the same runtime is a 422 that says why", ctx do
+      claude =
+        insert_agent(
+          user_id: ctx.user.id,
+          runtime: "claude",
+          environment_id: ctx.agent.environment_id
+        )
+
+      body =
+        ctx
+        |> create(%{"agent_id" => claude.id, "sandbox_id" => ctx.home.id})
+        |> json_response(422)
+
+      assert body["error"] == "sandbox_identity_mismatch"
+      assert body["message"] =~ "never two agents of one runtime"
+    end
+  end
+
   test "sandbox_mode=persistent lands every launch of an identity on one home", ctx do
     stub_server_start(fn _s, _spec -> {:ok, spawn(fn -> :ok end)} end)
 

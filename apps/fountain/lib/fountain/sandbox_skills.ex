@@ -62,6 +62,53 @@ defmodule Fountain.SandboxSkills do
   end
 
   @doc """
+  `mount/3` for a machine this provision has just created.
+
+  A fresh machine has no manifest and nothing to remove, so reconciling it
+  only reads an absent manifest, `mkdir`s the root and rewrites the manifest
+  before each skill: 2 execs and 6 writes for the bundled skills, ~0.85 s on
+  a sprite (measured 2026-09-26). When every selected skill is inline, this
+  writes the manifest reconciliation would end with, then the skills, under
+  the same lock: no execs, one write per file. The manifest still goes
+  first, so a failure part-way leaves files it owns rather than files nobody
+  owns. A
+  remote skill names its own directories, which only a real reconcile
+  discovers, so any remote skill falls back to `mount/3`.
+
+  Only for a machine nothing else has written skills to: a reapply or a
+  reattach reconciles.
+  """
+  @spec mount_fresh(Managoat.Sandbox.Handle.t(), String.t() | module(), [map()] | nil) ::
+          :ok | {:error, term()}
+  def mount_fresh(handle, runtime, skills) when is_binary(runtime) do
+    case Fountain.RuntimeDispatch.for_agent(%{runtime: runtime, user_id: nil}) do
+      {:ok, module} ->
+        mount_fresh(handle, module, skills)
+
+      {:error, reason} ->
+        Logger.warning("skills not mounted for runtime #{runtime}: #{reason}")
+        {:error, reason}
+    end
+  end
+
+  def mount_fresh(handle, runtime_module, skills) when is_atom(runtime_module) do
+    selected = normalize(bundled() ++ (skills || []))
+
+    if Enum.all?(selected, &is_binary(&1["content"])) do
+      root = runtime_module.skills_root()
+
+      with_skill_lock(handle, root, fn ->
+        with :ok <-
+               write_manifest(handle, Path.join(root, @manifest_name), named_manifest(selected)) do
+          Managoat.Runtimes.Skills.install(handle, selected, runtime: runtime_module)
+        end
+      end)
+    else
+      mount(handle, runtime_module, skills)
+    end
+  end
+
+  @doc """
   Replace the Fountain-managed skills on a machine, leaving everything else
   under the skills root alone (#1565).
 

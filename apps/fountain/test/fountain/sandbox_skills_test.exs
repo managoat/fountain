@@ -127,6 +127,40 @@ defmodule Fountain.SandboxSkillsTest do
       %{root: root}
     end
 
+    test "mount_fresh/3 leaves an empty root exactly as mount/3 does, with no exec", %{
+      root: root
+    } do
+      skills = [%{"name" => "mine", "content" => "# m"}]
+      assert :ok = SandboxSkills.mount(@handle, DiskRuntime, skills)
+      reconciled = snapshot(root)
+
+      File.rm_rf!(root)
+      File.mkdir_p!(root)
+      reject(&Managoat.Sandbox.exec/4)
+
+      assert :ok = SandboxSkills.mount_fresh(@handle, DiskRuntime, skills)
+      assert snapshot(root) == reconciled
+      assert Map.has_key?(reconciled, ".fountain-managed-skills")
+    end
+
+    test "mount_fresh/3 reconciles when a skill is remote", %{root: root} do
+      test = self()
+
+      stub(Managoat.Sandbox, :exec, fn _, "bash", args, _ ->
+        send(test, :exec)
+        {output, code} = System.cmd("bash", args, stderr_to_stdout: true)
+        {:ok, output, code}
+      end)
+
+      assert :ok =
+               SandboxSkills.mount_fresh(@handle, DiskRuntime, [
+                 %{"source" => "owner/repo", "name" => "remote"}
+               ])
+
+      assert_received :exec
+      assert File.exists?(Path.join(root, "fountain/SKILL.md"))
+    end
+
     test "removes an obsolete inline skill while preserving unrelated files", %{root: root} do
       File.mkdir_p!(Path.join(root, "personal"))
       File.write!(Path.join(root, "personal/SKILL.md"), "My local skill")
@@ -363,5 +397,13 @@ defmodule Fountain.SandboxSkillsTest do
       assert :ok = SandboxSkills.mount(@handle, DiskRuntime, [])
       refute File.exists?(Path.join(root, "discovered"))
     end
+  end
+
+  defp snapshot(root) do
+    root
+    |> Path.join("**")
+    |> Path.wildcard(match_dot: true)
+    |> Enum.filter(&File.regular?/1)
+    |> Map.new(&{Path.relative_to(&1, root), File.read!(&1)})
   end
 end

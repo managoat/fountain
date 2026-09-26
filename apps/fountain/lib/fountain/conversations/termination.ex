@@ -327,6 +327,56 @@ defmodule Fountain.Conversations.Termination do
     end
   end
 
+  @doc """
+  End every live conversation `agent_id` has as a guest on another agent's
+  machine — the other half of deleting the agent (ADR 0023, amended
+  2026-09-26, #2516).
+
+  A guest is a conversation whose machine names a different agent: the
+  machine's `agent_id` and `runtime` stay the home's when an agent of another
+  runtime attaches. `destroy_homes_for_agent/2` finds machines by their own
+  `agent_id`, so it never sees these, and the agent's row going would only
+  nilify the conversation's pointer and leave it bound to the home. Each is
+  terminated through `terminate_conversation/2`, whose last-detach fence keeps
+  a home and a machine another conversation still holds: the machine is not
+  this agent's to destroy.
+
+  Best-effort per conversation, as `destroy_home/2`'s terminations are: a
+  refusal is logged and the deletion goes on. Returns the number ended.
+  Refuses an enclosing database transaction.
+  """
+  def terminate_guest_conversations(agent_id, opts \\ []) when is_binary(agent_id) do
+    if Fountain.Repo.in_transaction?() do
+      {:error, :provider_transaction_open}
+    else
+      # ownership: the caller fetched the agent tenant-scoped, and these are
+      # that agent's own conversations.
+      from(c in Conversation,
+        join: s in Sandbox,
+        on: s.id == c.sandbox_id,
+        where:
+          c.agent_id == ^agent_id and c.status not in ["terminated", "failed"] and
+            not is_nil(s.agent_id) and s.agent_id != ^agent_id,
+        select: c.id
+      )
+      |> Fountain.Repo.all()
+      |> Enum.count(fn conv_id ->
+        case __MODULE__.terminate_conversation(conv_id, Keyword.take(opts, [:actor, :request_ip])) do
+          :ok ->
+            true
+
+          {:error, reason} ->
+            Logger.warning(
+              "guest conversation #{conv_id} of deleted agent #{agent_id} " <>
+                "was not terminated: #{inspect(reason)}"
+            )
+
+            false
+        end
+      end)
+    end
+  end
+
   @doc false
   def destroy_home(%Sandbox{} = sandbox, opts \\ []) do
     if Fountain.Repo.in_transaction?() do

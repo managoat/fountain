@@ -727,8 +727,10 @@ defmodule Fountain.Machines.Binding do
 
   `InferenceBinding.compatible_machine/2` until stage 8b, unchanged in what it
   decides for a source that uses the shared `~/.codex/auth.json`: a machine
-  still being built takes any source; a built one takes a source whose kind,
-  identity and revision match its recorded binding, and only if every Codex
+  still being built takes any source, and so does one built for another
+  runtime that has never carried a Codex conversation (#2516); a built one
+  takes a source whose kind, identity and revision match its recorded
+  binding, and only if every Codex
   co-tenant's does too. Legacy peers without a binding are incompatible. A
   source with a `CODEX_HOME` of its own is outside that rule on a machine
   with `codex_peer_homes` (the moduledoc, "The Codex auth binding"). Must be
@@ -776,10 +778,15 @@ defmodule Fountain.Machines.Binding do
       fresh? = sandbox.status in ["pending", "starting"]
 
       # Decided once, at the machine's very first Codex bind: nothing is
-      # recorded, nobody else is here, and the machine is still being built.
+      # recorded, nobody else is here, and the machine is still being built —
+      # or it was built for another runtime and has never carried a Codex
+      # conversation, so nothing has written its `~/.codex/auth.json` either: a
+      # codex guest on a claude home (ADR 0023, amended 2026-09-26), which
+      # after a re-provision binds on its first wake (#2516).
       peer_homes? =
         sandbox.codex_peer_homes or
-          (fresh? and is_nil(sandbox.codex_inference_source) and peers == [])
+          (is_nil(sandbox.codex_inference_source) and peers == [] and
+             (fresh? or sandbox.runtime not in [nil, "codex"]))
 
       cond do
         # A home of its own shares nothing: compatible with every peer, and

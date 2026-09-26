@@ -313,8 +313,14 @@ defmodule Fountain.Agents do
     # (ADR 0023 step 5). Torn down before the row goes, while `agent_id` still
     # names it — deletion would nilify the pointer and orphan the sprite.
     # Ownership: `agent` came from the caller's scoped fetch.
+    #
+    # Then its conversations as a guest on another agent's home (ADR 0023,
+    # amended 2026-09-26): those end, and the home they sat on stays its
+    # agent's. Also while `agent_id` still names them.
     with count when is_integer(count) <-
-           Termination.destroy_homes_for_agent(agent.id, opts) do
+           Termination.destroy_homes_for_agent(agent.id, opts),
+         guests when is_integer(guests) <-
+           Termination.terminate_guest_conversations(agent.id, opts) do
       delete_agent_row(agent, opts)
     end
   end

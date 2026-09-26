@@ -592,10 +592,10 @@ defmodule Fountain.Conversations.Wake do
              fn ->
                Fountain.Machines.Provision.reserve(%{
                  environment_id: conv.environment_id || agent.environment_id,
-                 agent_id: conv.agent_id,
+                 agent_id: home_agent_id(old, conv),
                  vault_id: conv.vault_id,
                  mode: mode,
-                 runtime: conv.runtime,
+                 runtime: home_runtime(old, conv),
                  machine_name: machine_name,
                  status: "pending",
                  provider: Atom.to_string(provider),
@@ -677,6 +677,29 @@ defmodule Fountain.Conversations.Wake do
       end
     end
   end
+
+  # Whose machine the replacement is. A guest — a conversation of another
+  # agent attached to a home by `sandbox_id` (ADR 0023, amended 2026-09-26,
+  # #2516) — rebuilds the home it was on, not a home of its own: the row keeps
+  # the home's agent and runtime, so home lookup finds it and the home's
+  # conversations follow onto it. What goes on the disk for the guest's own
+  # runtime (skills, instructions, adapter) is its provision's, and each
+  # other conversation's runtime is prepared on its next wake
+  # (`Reattachment.prepare_source/5`). Anything else is the conversation's own.
+  defp home_agent_id(%Sandbox{mode: "persistent", agent_id: home}, %Conversation{agent_id: own})
+       when is_binary(home) and home != own,
+       do: home
+
+  defp home_agent_id(_old, conv), do: conv.agent_id
+
+  defp home_runtime(
+         %Sandbox{mode: "persistent", agent_id: home, runtime: runtime},
+         %Conversation{agent_id: own}
+       )
+       when is_binary(home) and is_binary(runtime) and home != own,
+       do: runtime
+
+  defp home_runtime(_old, conv), do: conv.runtime
 
   defp assert_resumable(%Conversation{status: s}) when s in ~w(terminated failed) do
     {:error, :gone}

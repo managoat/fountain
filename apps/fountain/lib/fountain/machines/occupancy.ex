@@ -391,8 +391,8 @@ defmodule Fountain.Machines.Occupancy do
 
   One query, a self-join on `conv_id`'s own row, so the caller needs neither
   its runtime nor its owner in hand. Empty on every single-runtime machine,
-  which is every machine until an attach admits a second runtime (#2515);
-  that empty answer is the whole cost the check adds there.
+  which is every machine no guest of another runtime has attached to
+  (#2515); that empty answer is the whole cost the check adds there.
   """
   @spec other_runtime_ids(String.t(), String.t()) :: [String.t()]
   def other_runtime_ids(sandbox_id, conv_id) when is_binary(sandbox_id) and is_binary(conv_id) do

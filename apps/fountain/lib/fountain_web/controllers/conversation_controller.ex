@@ -687,7 +687,8 @@ defmodule FountainWeb.ConversationController do
         "conversation's credential does not serve it.\n\n" <>
         "Refused with 409 `conversation_busy` while a turn runs, 409 `rebuild_required` when " <>
         "the selection would need the machine built again (the `field` says which one forced " <>
-        "it), 503 while the machine is still being built, and 410 once the conversation has " <>
+        "it; `guest` for a conversation attached to another agent's sandbox with `sandbox_id`), " <>
+        "503 while the machine is still being built, and 410 once the conversation has " <>
         "ended.",
     parameters: [conversation_id: [in: :path, type: :string, required: true]],
     request_body:

@@ -2,8 +2,8 @@ defmodule Fountain.Conversations.ConversationServerCotenantTest do
   # #2513 through a real server: a conversation on a mixed-runtime machine
   # registers its co-tenant's inference credential when it assembles its env,
   # and again when a co-tenant of another runtime announces itself on the
-  # machine's topic. The mixed machine is built directly (#2515 has not
-  # relaxed the attach rule yet).
+  # machine's topic. The mixed machine is built directly; the attach that
+  # makes one (#2515) is `guest_attach_test.exs`'s.
   use Fountain.ConversationServerCase
 
   alias Fountain.Conversations.{CotenantSecrets, InferenceResolution, Redaction}

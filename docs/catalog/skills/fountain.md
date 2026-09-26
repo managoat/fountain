@@ -45,7 +45,9 @@ then rebuild the whole spawn chain.
 `FOUNTAIN_SANDBOX_ID` is the id of the sandbox the agent runs on. Send it as
 `sandbox_id` on a `POST /api/conversations`. The child conversation then runs
 on that same machine, with the same disk, at the same time. That only works
-for a child of the same agent, environment and vault.
+for a child of the same environment and vault. The child's agent must be the
+same one, or an agent of a runtime whose files lie apart, such as a codex
+child on a claude agent's machine.
 
 Without it, each child gets a sandbox of its own. When the agent runs in
 persistent mode, the child gets that machine instead. To name the other mode

@@ -134,7 +134,10 @@ defmodule Fountain.Conversations.Sandbox do
     # (ADR 0023): env vars, packages, repos and setup scripts are written at
     # provision, so a machine built for one agent, environment and vault is
     # not a machine built for another. A conversation attaches only with the
-    # same three. Nilified when the agent or vault is deleted, like a
+    # same three, or as a guest: another agent of a runtime whose files lie
+    # apart, on the same environment and vault, which leaves these as they
+    # are (`Fountain.Machines.Binding.attachable/5`, #2515). Nilified when
+    # the agent or vault is deleted, like a
     # conversation's own pointers — the row outlives them as history.
     belongs_to :agent, Fountain.Agents.Agent
     belongs_to :vault, Fountain.Vaults.Vault

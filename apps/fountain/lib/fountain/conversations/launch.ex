@@ -116,7 +116,8 @@ defmodule Fountain.Conversations.Launch do
              %{
                environment_id: env_id || agent.environment_id,
                # The identity the disk is built from (ADR 0023); an attach
-               # later must name the same three.
+               # later must name the same three, or be a guest of another
+               # runtime on the same environment and vault (#2515).
                agent_id: agent.id,
                vault_id: vault_id,
                mode: mode,

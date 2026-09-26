@@ -4,9 +4,9 @@ defmodule Fountain.Conversations.MixedHomeLifecycleTest do
   one agent's home with a conversation of an agent of another runtime attached
   to it by `sandbox_id`. The row's `agent_id` and `runtime` stay the home's.
 
-  The attach that makes one is not built yet (#2515), so the machine is put
-  together here directly: a persistent home of the host agent, a conversation
-  of the host on it and one of the guest. The default is a claude home with a
+  The machine is put together here directly rather than through the attach
+  that makes one (#2515, `guest_attach_test.exs`): a persistent home of the
+  host agent, a conversation of the host on it and one of the guest. The default is a claude home with a
   codex guest; `mixed_home/2` builds the other way round.
   """
   use Fountain.ConversationServerCase

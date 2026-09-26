@@ -1,9 +1,9 @@
 defmodule Fountain.Conversations.CotenantSecretsTest do
   # #2513: a `claude` and a `codex` conversation on one machine read each
   # other's inference credential off the shared disk, so each registers the
-  # other's for redaction. The attach rule still refuses a second runtime
-  # (#2515), so the mixed machine is built directly: two bound conversations
-  # of different runtimes on one `sandboxes` row.
+  # other's for redaction. The mixed machine is built directly, two bound
+  # conversations of different runtimes on one `sandboxes` row; the attach
+  # that makes one (#2515) is `guest_attach_test.exs`'s.
   use Fountain.DataCase, async: true
   use Mimic
 

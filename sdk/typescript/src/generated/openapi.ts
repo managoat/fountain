@@ -1466,7 +1466,7 @@ export interface paths {
          *
          *     `model` changes the model this conversation runs from its next turn (ADR 0061), continuing the same runtime session. It is refused with 422 `model_invalid` when the runtime cannot run it, and with 409 `inference_source_changed` when the conversation's credential does not serve it.
          *
-         *     Refused with 409 `conversation_busy` while a turn runs, 409 `rebuild_required` when the selection would need the machine built again (the `field` says which one forced it), 503 while the machine is still being built, and 410 once the conversation has ended.
+         *     Refused with 409 `conversation_busy` while a turn runs, 409 `rebuild_required` when the selection would need the machine built again (the `field` says which one forced it; `guest` for a conversation attached to another agent's sandbox with `sandbox_id`), 503 while the machine is still being built, and 410 once the conversation has ended.
          */
         post: operations["FountainWeb.ConversationController.reapply"];
         delete?: never;
@@ -3837,7 +3837,7 @@ export interface components {
             sandbox_api_access?: "owner" | "none";
             /**
              * Format: uuid
-             * @description Attach the conversation to a sandbox you already have instead of provisioning one (ADR 0023). The sandbox must be yours (404 sandbox_not_found), ready or suspended (409 sandbox_not_attachable), and built for the same agent, environment and vault as this launch (422 sandbox_identity_mismatch; 422 sandbox_runtime_mismatch if the agent's runtime changed since). The conversation opens idle on that machine; a prompt here wakes it. Several conversations then run on one disk at once, except on opencode and gemini, where a second turn of the same runtime is refused with 409 sandbox_at_capacity while one runs.
+             * @description Attach the conversation to a sandbox you already have instead of provisioning one (ADR 0023). The sandbox must be yours (404 sandbox_not_found), ready or suspended (409 sandbox_not_attachable), and built from the same environment and vault as this launch (422 sandbox_identity_mismatch). It is normally the same agent's (422 sandbox_runtime_mismatch if the agent's runtime changed since). An agent other than the one the sandbox was built for may attach to that agent's persistent sandbox as a guest when its runtime keeps its files apart from every other agent's runtime on the machine, such as a codex agent on a claude agent's home; two agents never share one runtime's files, and any other guest is 422 sandbox_identity_mismatch. The sandbox stays its own agent's, and a guest's reapply is refused with 409 rebuild_required, field guest. A claude home created before guests were admitted refuses a codex guest with 409 codex_inference_conflict until it is reset. The conversation opens idle on that machine; a prompt here wakes it. Several conversations then run on one disk at once, except on opencode and gemini, where a second turn of the same runtime is refused with 409 sandbox_at_capacity while one runs.
              */
             sandbox_id?: string | null;
             /**
@@ -4581,7 +4581,7 @@ export interface components {
         Sandbox: {
             /**
              * Format: uuid
-             * @description The agent the machine was built for. With environment_id and vault_id it is the identity a conversation must match to attach (sandbox_id on create).
+             * @description The agent the machine was built for. With environment_id and vault_id it is the identity a conversation must match to attach (sandbox_id on create); an agent of another runtime may attach to a persistent machine as a guest, which leaves this field unchanged.
              */
             agent_id?: string | null;
             /** @description The checkpoint Fountain took of this home the last time it parked (ADR 0023). It is scoped to this machine: it can roll the machine back, not rebuild a machine that is gone. Null for an ephemeral sandbox, a provider without checkpoints, or a home that has not parked yet. */
@@ -4667,7 +4667,7 @@ export interface components {
         SandboxDetail: {
             /**
              * Format: uuid
-             * @description The agent the machine was built for. With environment_id and vault_id it is the identity a conversation must match to attach (sandbox_id on create).
+             * @description The agent the machine was built for. With environment_id and vault_id it is the identity a conversation must match to attach (sandbox_id on create); an agent of another runtime may attach to a persistent machine as a guest, which leaves this field unchanged.
              */
             agent_id?: string | null;
             /** @description The checkpoint Fountain took of this home the last time it parked (ADR 0023). It is scoped to this machine: it can roll the machine back, not rebuild a machine that is gone. Null for an ephemeral sandbox, a provider without checkpoints, or a home that has not parked yet. */

@@ -38,7 +38,9 @@ defmodule FountainWeb.Schemas do
           nullable: true,
           description:
             "The agent the machine was built for. With environment_id and vault_id it is " <>
-              "the identity a conversation must match to attach (sandbox_id on create)."
+              "the identity a conversation must match to attach (sandbox_id on create); an " <>
+              "agent of another runtime may attach to a persistent machine as a guest, which " <>
+              "leaves this field unchanged."
         },
         environment_id: %Schema{type: :string, format: :uuid, nullable: true},
         vault_id: %Schema{type: :string, format: :uuid, nullable: true},
@@ -877,9 +879,17 @@ defmodule FountainWeb.Schemas do
           description:
             "Attach the conversation to a sandbox you already have instead of provisioning " <>
               "one (ADR 0023). The sandbox must be yours (404 sandbox_not_found), ready or " <>
-              "suspended (409 sandbox_not_attachable), and built for the same agent, " <>
-              "environment and vault as this launch (422 sandbox_identity_mismatch; 422 " <>
-              "sandbox_runtime_mismatch if the agent's runtime changed since). The " <>
+              "suspended (409 sandbox_not_attachable), and built from the same environment " <>
+              "and vault as this launch (422 sandbox_identity_mismatch). It is normally the " <>
+              "same agent's (422 sandbox_runtime_mismatch if the agent's runtime changed " <>
+              "since). An agent other than the one the sandbox was built for may attach to " <>
+              "that agent's persistent sandbox as a guest when its runtime keeps its files " <>
+              "apart from every other agent's runtime on the machine, such as a codex agent " <>
+              "on a claude agent's home; two agents never share one runtime's files, and " <>
+              "any other guest is 422 sandbox_identity_mismatch. The sandbox stays its own " <>
+              "agent's, and a guest's reapply is refused with 409 rebuild_required, field " <>
+              "guest. A claude home created before guests were admitted refuses a codex " <>
+              "guest with 409 codex_inference_conflict until it is reset. The " <>
               "conversation opens idle on that machine; a prompt here wakes it. Several " <>
               "conversations then run on one disk at once, except on opencode and gemini, " <>
               "where a second turn of the same runtime is refused with 409 " <>

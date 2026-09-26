@@ -14,7 +14,8 @@ defmodule Fountain.Conversations.CotenantSecrets do
   its own. Without this, a `cat ~/.codex/auth.json` in the claude
   conversation would print a value registered only for the codex
   conversation, and `log_events` would store it in the clear. The attach rule
-  admits no second runtime yet (#2515), so this is dormant until it does.
+  admits a second runtime as a guest on a home (#2515), which is how a
+  machine becomes mixed.
 
   So on a mixed machine each conversation also registers the inference
   credential values of every co-tenant of another runtime (`register/2`).
@@ -59,8 +60,8 @@ defmodule Fountain.Conversations.CotenantSecrets do
       as small as it can be. A server subscribes before it reads, so an
       announcement it was not yet subscribed for is one its own read sees.
 
-  On a single-runtime machine — every machine until an attach admits a
-  second runtime (#2515) — each of those is one query
+  On a single-runtime machine — every machine no guest of another runtime
+  has attached to (#2515) — each of those is one query
   (`Fountain.Machines.Occupancy.other_runtime_ids/2`) that answers empty, no
   credential is read, nothing is registered and nothing is announced.
 

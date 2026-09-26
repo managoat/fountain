@@ -667,8 +667,11 @@ defmodule FountainWeb.FallbackController do
     |> json(%{
       error: "sandbox_identity_mismatch",
       message:
-        "the sandbox was built for a different agent, environment or vault; a conversation " <>
-          "attaches only with the same three"
+        "the sandbox was built from a different environment or vault, or for another agent " <>
+          "this conversation's agent cannot join; a conversation attaches with the same " <>
+          "environment and vault, and another agent only to a persistent sandbox whose " <>
+          "runtimes keep their files apart from its runtime's (a codex agent on a claude " <>
+          "agent's home, never two agents of one runtime)"
     })
   end
 

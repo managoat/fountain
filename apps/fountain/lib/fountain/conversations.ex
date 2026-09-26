@@ -1975,8 +1975,9 @@ defmodule Fountain.Conversations do
   the agent's environment when it has none. That is the pair a sandbox row
   carries and `_unsafe_find_home/5` looks a home up by.
 
-  Co-tenants normally share one identity, because attaching to a machine
-  requires the same agent, environment and vault. They can diverge afterwards:
+  Co-tenants normally share one environment and vault, because attaching to
+  a machine requires them (a guest of another runtime may differ only in its
+  agent, #2515). They can diverge afterwards:
   rebinding a teammate moves one conversation's environment or vault while its
   co-tenants keep theirs. A lifecycle decision taken for the whole machine has
   to read this rather than assume, or a replacement built for one identity is

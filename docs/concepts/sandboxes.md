@@ -164,6 +164,12 @@ another conversation is on the machine, and to `guest` once the guest is
 alone there. Each conversation registers the other runtime's inference
 credentials for redaction, so neither transcript shows the other's key.
 
+Skills you write inline are installed into each runtime's own directory.
+Skills from GitHub are different: every runtime on a machine installs them
+through skills.sh with the same home directory, so two agents that pick the
+same GitHub skill may share one installed copy. Reinstalling it at another
+version then changes it for both agents.
+
 A claude machine created before guests were admitted cannot take a codex
 guest. Its codex credential file may already exist on the disk, so the attach
 answers `409 codex_inference_conflict`. Reset the machine, and the rebuilt one

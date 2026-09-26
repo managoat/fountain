@@ -131,8 +131,10 @@ separated: skills.sh keeps its global state under `/home/sprite/.agents` (the
 `.skill-lock.json` Fountain reads for ownership recovery, and possibly the
 canonical copies its default install mode links from), because every GitHub
 skill install runs with the image's HOME. Two agents on one machine that select
-the same GitHub skill can therefore share its installed copy; inline skills are
-written into each runtime's own root and are not affected.
+the same GitHub skill can therefore share its installed copy, and a reinstall at another
+version changes it for both; inline skills are written into each runtime's own
+root and are not affected. The maintainer accepted this on 2026-09-26 and
+shipped it documented; separating skills.sh's state per runtime is #2523.
 
 **Amended 2026-09-18 — runtime is part of a home's identity (#2379).**
 

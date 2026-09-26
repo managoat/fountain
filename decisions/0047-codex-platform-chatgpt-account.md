@@ -751,14 +751,30 @@ version. Two side effects:
   The models a conversation offers are now the backend's list for the
   account, not the list compiled into the client.
 
-The other nine routes stay refused. The remote plugin catalog is turned off
-in the client instead
-([#2504](https://github.com/managoat/fountain/pull/2504)). Analytics could
-not be: Codex builds its analytics client from the process config, which the
-per-thread `CODEX_CONFIG` overlay does not reach. So its posts are still
-refused, several hundred an hour on a busy sandbox, and each carries a body,
-which closes its tunnel. Since 0.16.0 a
-refused request with no body leaves its tunnel open.
+The remote plugin catalog is turned off in the client instead of being
+allowed ([#2504](https://github.com/managoat/fountain/pull/2504)). Since
+0.16.0 a refused request with no body leaves its tunnel open.
+
+**Later on 2026-09-26: analytics is allowed, and off by default.** The
+maintainer asked for both, and each covers a gap in the other:
+
+- **Turning it off.** Codex builds its analytics client once per app-server
+  from the process config. The per-thread `CODEX_CONFIG` overlay does not
+  reach it; with `analytics.enabled = false` in the overlay, the posts
+  continued in production. So a grant home with no `config.toml` gets one
+  that turns analytics off (`CodexChatGPT`'s link script). A `config.toml`
+  already in the home, or the shared one that the home links to, is left
+  alone.
+- **Allowing it.** `POST /backend-api/codex/analytics-events/events`, with
+  no query, is a third protected route. A home whose `config.toml` turns
+  analytics on no longer pays a refusal for each post. Each post carries a
+  body, and a refused request with a body still closes its tunnel, so each
+  post used to cost one: several hundred an hour on a busy sandbox. The
+  body is Codex's telemetry about the turns it ran, sent to the backend that
+  served them. The response is searched for the bearer like every protected
+  response.
+
+The other eight routes stay refused.
 
 **Still owed: the reattached turn.** The sandbox went idle at 22:33:28 UTC.
 The deployment's idle timeout is the default 60 minutes with no lifetime

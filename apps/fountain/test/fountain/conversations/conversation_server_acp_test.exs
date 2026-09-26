@@ -1765,7 +1765,14 @@ defmodule Fountain.Conversations.ConversationServerACPTest do
 
       decoded = next_write()
       assert decoded["method"] == "session/new"
-      assert decoded["params"]["additionalDirectories"] == ["/workspace/ravix", "/workspace/docs"]
+      # Each `.git` as a root of its own: codex keeps it read-only inside a
+      # writable root, which is what refused the branch.
+      assert decoded["params"]["additionalDirectories"] == [
+               "/workspace/ravix",
+               "/workspace/ravix/.git",
+               "/workspace/docs",
+               "/workspace/docs/.git"
+             ]
     end
 
     test "an environment with no repositories sends none" do

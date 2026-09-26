@@ -108,17 +108,21 @@ the temporary directories, and it cannot reach the network.
 | What the adapter sends | Default |
 |---|---|
 | The sandbox | `workspaceWrite` |
-| `writableRoots` | the environment's repository `mount_path`s |
+| `writableRoots` | each repository's `mount_path`, and its `.git` |
 | `networkAccess` | `false` |
 | `excludeSlashTmp` | `false`, so `/tmp` is writable |
 | `excludeTmpdirEnvVar` | `false`, so `$TMPDIR` is writable |
 | The approval policy | `on-request` |
 | The approvals reviewer | `auto_review` |
 
-Fountain sends each repository's `mount_path` to the adapter as an ACP
-`additionalDirectories` entry, and the adapter adds it to `writableRoots`. The
-agent can therefore commit to a clone Fountain made for it, and cut a
-worktree from it, even though the clone lives outside the workspace.
+Fountain sends each repository's `mount_path`, and the `.git` inside it, to
+the adapter as ACP `additionalDirectories` entries, and the adapter adds them
+to `writableRoots`. The `.git` has to be named on its own because codex keeps
+`.git` read-only inside every writable root, so a branch or a commit fails
+with the clone alone. The agent can therefore commit to a clone Fountain made
+for it, and cut a worktree from it, even though the clone lives outside the
+workspace. That includes `.git/hooks` and `.git/config`, which the Fountain
+sandbox, and not codex's, contains.
 
 Inside that sandbox, other writes and all network calls are still refused. A
 write outside the workspace, the repositories and the temporary directories

@@ -274,13 +274,19 @@ defmodule Fountain.Conversations.GuestAttachTest do
                attach_as(ctx, guest_agent, home, %{}, [])
     end
 
-    test "a successor of the same agent on the same machine continues", ctx do
+    test "an ended predecessor of the same agent on the same machine is a successor", ctx do
       host_agent = agent_of(ctx, "claude")
       guest_agent = agent_of(ctx, "codex")
       {home, host} = launched_home(ctx, host_agent)
       assert {:ok, guest} = attach(ctx, guest_agent, home)
 
-      # Released first, as a rotation does: a terminal predecessor counts.
+      # Live, it is not: a successor beside it would be a second guest.
+      assert {:error, :guest_attach_requires_full_scope} =
+               Binding.attachable(Repo.reload!(home), guest_agent, nil, ctx.env.id, :db,
+                 successor_of: guest.id
+               )
+
+      # Released first, as a team rotation does.
       {:ok, _} = Conversations.update_conversation(guest, %{status: "terminated"})
 
       assert :ok =
@@ -289,54 +295,55 @@ defmodule Fountain.Conversations.GuestAttachTest do
                )
 
       # Not a conversation of another agent, of another machine, or no id.
-      {other_home, other_guest} = home_row(ctx, guest_agent)
+      {:ok, _} = Conversations.update_conversation(host, %{status: "terminated"})
+      {_other_home, other_guest} = home_row(ctx, guest_agent, %{status: "ready"})
+      {:ok, _} = Conversations.update_conversation(other_guest, %{status: "terminated"})
 
       for id <- [host.id, other_guest.id, Ecto.UUID.generate(), "not-a-uuid"] do
         assert {:error, :guest_attach_requires_full_scope} =
                  Binding.attachable(Repo.reload!(home), guest_agent, nil, ctx.env.id, :db,
-                   successor_of: id,
-                   rotate_from: id
+                   successor_of: id
                  )
       end
-
-      assert other_home.id != home.id
     end
 
-    test "a channel rotation of a guest keeps its machine without a full-scope caller", ctx do
+    # The review probe (#2525): a `fresh` channel rotation only unbinds its
+    # predecessor, which keeps running, so letting it through would let a
+    # sandbox token that knows a guest's channel stack live guests.
+    test "a channel rotation of a guest needs a full-scope caller", ctx do
       host_agent = agent_of(ctx, "claude")
       guest_agent = agent_of(ctx, "codex")
       {home, _host} = launched_home(ctx, host_agent)
       channel = %{"channel_id" => "chan-2525", "environment_id" => ctx.env.id}
-
       assert {:ok, guest} = attach(ctx, guest_agent, home, channel)
 
-      assert {:ok, fresh, :created} =
-               Launch.start_or_resume_conversation(
-                 Map.merge(channel, %{
-                   "agent_id" => guest_agent.id,
-                   "user_id" => ctx.user.id,
-                   "sandbox_id" => home.id,
-                   "fresh" => true
-                 }),
-                 []
+      rotation =
+        Map.merge(channel, %{
+          "agent_id" => guest_agent.id,
+          "user_id" => ctx.user.id,
+          "sandbox_id" => home.id,
+          "fresh" => true
+        })
+
+      for _ <- 1..3 do
+        assert {:error, :guest_attach_requires_full_scope} =
+                 Launch.start_or_resume_conversation(rotation, [])
+      end
+
+      # Nothing stacked, and the channel is still the guest's.
+      assert [guest.id] ==
+               Repo.all(
+                 from c in Fountain.Conversations.Conversation,
+                   where: c.sandbox_id == ^home.id and c.agent_id == ^guest_agent.id,
+                   select: c.id
                )
+
+      assert Conversations._unsafe_get_conversation!(guest.id).channel_id == "chan-2525"
+
+      assert {:ok, fresh, :created} =
+               Launch.start_or_resume_conversation(rotation, guest_ok: true)
 
       assert fresh.sandbox_id == home.id
-      assert fresh.id != guest.id
-
-      # A channel whose conversation is not on this machine is no successor.
-      {other_home, _} = home_row(ctx, agent_of(ctx, "claude"))
-
-      assert {:error, :guest_attach_requires_full_scope} =
-               Launch.start_or_resume_conversation(
-                 Map.merge(channel, %{
-                   "agent_id" => guest_agent.id,
-                   "user_id" => ctx.user.id,
-                   "sandbox_id" => other_home.id,
-                   "fresh" => true
-                 }),
-                 []
-               )
     end
   end
 
@@ -462,6 +469,34 @@ defmodule Fountain.Conversations.GuestAttachTest do
       assert {:error, :sandbox_identity_mismatch} = attach(ctx, agent_of(ctx, "claude"), home)
     end
 
+    test "a second agent of a runtime already on the machine, by that rule alone", ctx do
+      host_agent = agent_of(ctx, "claude")
+      first = agent_of(ctx, "codex")
+      {home, _host} = home_row(ctx, host_agent, %{codex_peer_homes: true})
+      insert_conversation(user_id: ctx.user.id, agent: first, sandbox: home, status: "idle")
+
+      # Every call gets roots of its own, so the directory rule finds no
+      # overlap anywhere: only one-agent-per-runtime is left to refuse.
+      stub(Managoat.Runtimes.Layout, :config_root, fn runtime ->
+        "/unique/#{runtime}/#{System.unique_integer([:positive])}"
+      end)
+
+      stub(Fountain.RuntimeDispatch, :for_agent, fn _agent ->
+        {:ok, __MODULE__.DistinctRoots}
+      end)
+
+      second = agent_of(ctx, "codex")
+
+      assert {:error, :sandbox_identity_mismatch} =
+               Binding.attachable(Repo.reload!(home), second, nil, ctx.env.id, :db,
+                 guest_ok: true
+               )
+
+      # The stubs admit what they should: the first codex agent is no second.
+      assert :ok =
+               Binding.attachable(Repo.reload!(home), first, nil, ctx.env.id, :db, guest_ok: true)
+    end
+
     test "the home's own agent on a runtime it has since changed", ctx do
       host_agent = agent_of(ctx, "claude")
       {home, _host} = home_row(ctx, host_agent)
@@ -470,5 +505,10 @@ defmodule Fountain.Conversations.GuestAttachTest do
       assert {:error, :sandbox_runtime_mismatch} =
                Binding.attachable(home, moved, nil, ctx.env.id)
     end
+  end
+
+  defmodule DistinctRoots do
+    @moduledoc false
+    def skills_root, do: "/unique/skills/#{System.unique_integer([:positive])}"
   end
 end

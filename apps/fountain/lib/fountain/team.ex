@@ -766,9 +766,14 @@ defmodule Fountain.Team do
       nil ->
         {:error, :not_found}
 
+      # `guest_ok: true` in this courtesy read only (#2525): the successor
+      # rule wants `prev` ended, which the release after this makes it, so
+      # asked now it would refuse every guest teammate. The decision is
+      # `open_on_sandbox/4`'s attach, under the lock, with `successor_of`
+      # and no `guest_ok`.
       agent ->
         Binding.attachable(prev.sandbox, agent, prev.vault_id, prev.environment_id, :db,
-          successor_of: prev.id
+          guest_ok: true
         )
     end
   end
@@ -813,9 +818,9 @@ defmodule Fountain.Team do
     #
     # `successor_of`: a teammate that is a guest on another agent's home keeps
     # it (#2525). It was admitted as a guest once; its successor is the same
-    # agent on the same machine, which the attach door checks off the rows
-    # under its lock, so this is no new pairing and needs no full-scope
-    # caller. It is the only guest attach this module makes: every other
+    # agent on the same machine, replacing a predecessor `release_previous/1`
+    # has already ended, which the attach door checks off the rows under its
+    # lock, so this is no new pairing and needs no full-scope caller. It is the only guest attach this module makes: every other
     # launch here names no `sandbox_id`.
     with {:ok, conv, _allowance} <-
            Machine.attach(

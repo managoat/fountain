@@ -100,7 +100,7 @@ Three rules come with it:
 The consequence under **Consequences** that "two agents can never share a
 home" now holds only for agents of the same runtime.
 
-As built (#2515, `Fountain.Machines.Binding.attachable/5`), the rule is
+As built (#2515, `Fountain.Machines.Binding.attachable/6`), the rule is
 stricter than the text above in five places. Every conversation another agent
 has run on the machine counts, retired ones included, because its files stay on
 the disk until a reset; a conversation deleted, or repointed at another
@@ -152,17 +152,23 @@ files the host's runtime loads (`CLAUDE.md`, `.claude/settings.local.json`,
   `RequireFullScope.full_scope?/1`; every other caller gets no guests by
   default. Refused: `403 guest_attach_requires_full_scope`, with the plug's
   `reason: "insufficient_scope"` and `required_scope: "full"`, and only after
-  the pair itself is admissible, so a `403` always means a full-scope key
-  would succeed. The one exception is a successor: a team rotation
-  (`successor_of:`) or a channel rotation (`rotate_from:`) naming a
-  conversation of the same agent already on the same machine, checked against
-  the row. A second conversation of an admitted guest is a new pairing.
-- **Only claude and codex.** The set of runtimes — the machine's, the
-  guest's, and every other agent's by the all-time reading above — must be
-  exactly `{claude, codex}`. The directory rule stays as defence in depth.
-  Gemini and opencode pairs, which the directory rule admitted, are refused
-  until the disjointness check is a test rather than the audit above (#2525,
-  item 3).
+  the pair itself is admissible, so a `403` always means the attach would
+  have passed the pairing checks. The one exception is a successor: a team
+  rotation (`successor_of:`) naming an **ended** conversation of the same
+  agent on the same machine, checked against the row; the rotation releases
+  its predecessor before it attaches. A channel rotation (`fresh` with
+  `channel_id`) is not one, because it only unbinds its predecessor, which
+  keeps running: from a sprite token it would stack live guests, so it needs a
+  full-scope key like any other guest attach. A second conversation of an
+  admitted guest is a new pairing too.
+- **Only claude and codex, one agent each.** The set of runtimes — the
+  machine's, the guest's, and every other agent's by the all-time reading
+  above — must be exactly `{claude, codex}`, and the guest's runtime must not
+  be one another agent has run on the machine (the pair alone would admit a
+  second codex agent beside a first). The directory rule still runs after
+  both. Gemini and opencode pairs, which the directory rule admitted, are
+  refused until the disjointness check is a test rather than the audit above
+  (#2525, item 3).
 
 **Amended 2026-09-18 — runtime is part of a home's identity (#2379).**
 

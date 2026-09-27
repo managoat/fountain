@@ -885,11 +885,11 @@ defmodule FountainWeb.Schemas do
               "since). An agent other than the one the sandbox was built for may attach to " <>
               "that agent's persistent sandbox as a guest only to make a claude and codex " <>
               "pair: a codex agent on a claude agent's home, or a claude agent on a codex " <>
-              "agent's, where no agent of any other runtime has run. Any other guest is 422 " <>
+              "agent's, where no other agent of either runtime has run. Any other guest is 422 " <>
               "sandbox_identity_mismatch. Attaching a guest needs a full-scope API key; a " <>
               "sandbox's own token, or any key below full scope, is refused with 403 " <>
-              "guest_attach_requires_full_scope (reason insufficient_scope), except for the " <>
-              "channel rotation of a guest already on the sandbox. The sandbox stays its own " <>
+              "guest_attach_requires_full_scope (reason insufficient_scope), a channel " <>
+              "rotation (fresh) of a guest included. The sandbox stays its own " <>
               "agent's, and a guest's reapply is refused with 409 rebuild_required: field " <>
               "shared_sandbox while another conversation is on the sandbox, field guest when " <>
               "the guest is alone there. A claude home created before guests were admitted refuses a codex " <>

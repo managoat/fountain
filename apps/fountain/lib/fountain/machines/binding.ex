@@ -218,12 +218,14 @@ defmodule Fountain.Machines.Binding do
 
   @terminal_statuses ~w(terminated failed)
 
-  # The runtimes a mixed machine may hold, and only together (#2525). The
-  # directory rule in `guest_admissible?/2` stays as defence in depth.
+  # The runtimes a mixed machine may hold, and only together (#2525): sorted,
+  # compared with the sorted set of runtimes a guest would leave on it. It
+  # names the pair and nothing more; one agent per runtime is its own rule in
+  # `guest_admissible?/2`, and the directory rule after both still decides.
   @guest_runtimes ~w(claude codex)
 
   # The attach options `attachable/6` reads.
-  @guest_opts [:guest_ok, :successor_of, :rotate_from]
+  @guest_opts [:guest_ok, :successor_of]
   @attachable_statuses ~w(ready suspended)
 
   # The columns a retarget may write, and nothing else. `status` and the
@@ -257,8 +259,8 @@ defmodule Fountain.Machines.Binding do
       (`FountainWeb.Plugs.RequireFullScope.full_scope?/1`); anything else,
       including every caller that does not mention it, is refused a guest.
     * `:successor_of` — the conversation this one succeeds on the same
-      machine (a team rotation). With `:rotate_from`, the one guest attach
-      that needs no `:guest_ok`: see `attachable/6`.
+      machine (a team rotation), already ended: the one guest attach that
+      needs no `:guest_ok`. See `attachable/6`.
 
   Both guest options are read by `attachable/6` under the lock.
 
@@ -438,11 +440,14 @@ defmodule Fountain.Machines.Binding do
   `opts`, which only a full-scope credential earns, so a sandbox's own
   `sprite` token cannot put another agent onto a home and plant files its
   host's runtime loads. Without it the answer is
-  `:guest_attach_requires_full_scope`. The one exception is a successor —
-  `:successor_of` (a team rotation) or `:rotate_from` (a channel rotation) —
-  naming a conversation of the **same** agent already on **this** machine:
-  that guest was admitted before, and its successor makes no new pairing.
-  Checked against the row, not the caller's word.
+  `:guest_attach_requires_full_scope`. The one exception is a successor:
+  `:successor_of` (a team rotation) naming a conversation of the **same**
+  agent on **this** machine that has **ended** — a team rotation releases its
+  predecessor before it attaches, so the guest is replaced, not multiplied.
+  Checked against the row, not the caller's word. A channel rotation
+  (`:rotate_from`) is no such successor: it only unbinds its predecessor,
+  which keeps running, so a sandbox token that knew a guest's channel could
+  stack live guests with it.
 
   `now` is the clock the lease is judged against; a caller holding the row
   under a lock passes the `statement_timestamp()` it read it with, and the
@@ -537,8 +542,12 @@ defmodule Fountain.Machines.Binding do
   #     `@guest_runtimes`. The directory rule would also admit gemini and
   #     opencode pairs; nothing tests that their files stay apart beyond a
   #     one-time audit, so they wait for #2525 item 3.
-  #   * Directories, not runtime names, as defence in depth. The guest's
-  #     config root and skills
+  #   * One agent per runtime. The pair above holds as well for a second
+  #     codex agent on a machine that already has one, so the guest's
+  #     runtime must not be one another agent has run here. Said by name
+  #     rather than left to the directory rule, which reaches the same
+  #     answer only because a runtime's roots overlap themselves.
+  #   * Directories, not runtime names. The guest's config root and skills
   #     root must not overlap (equal to, or inside, one another) either root
   #     of the machine's runtime or of any runtime a conversation of another
   #     agent has run here. Retired conversations count: a runtime's files
@@ -564,7 +573,8 @@ defmodule Fountain.Machines.Binding do
         | other_agents_runtimes(sandbox, agent) ++ departed_runtimes(sandbox, agent)
       ])
 
-    with true <- Enum.sort(Enum.uniq([agent.runtime | others])) == @guest_runtimes,
+    with false <- agent.runtime in others,
+         true <- Enum.sort(Enum.uniq([agent.runtime | others])) == @guest_runtimes,
          {:ok, guest_roots} <- runtime_roots(agent.runtime) do
       Enum.all?(others, fn runtime ->
         case runtime_roots(runtime) do
@@ -580,17 +590,15 @@ defmodule Fountain.Machines.Binding do
   defp guest_admissible?(_sandbox, _agent), do: false
 
   # Who may make the pairing (#2525): a full-scope caller, or the successor
-  # of a conversation of the same agent already on this machine — the guest
-  # was admitted then, and a rotation makes no new pairing. The successor is
-  # read on this connection, under the lock, off the row; a rotation releases
-  # its predecessor before it attaches, so a terminal row counts, and a
-  # deleted one (its descriptor alone) does not.
+  # of an ended conversation of the same agent on this machine — the guest
+  # was admitted then, and a team rotation, which releases its predecessor
+  # before it attaches, replaces it. Read on this connection, under the lock,
+  # off the row. A live predecessor does not count: a successor beside it
+  # would be a second guest. A deleted one (its descriptor alone) does not
+  # either.
   defp guest_permitted?(sandbox, agent, opts) do
     Keyword.get(opts, :guest_ok) == true or
-      Enum.any?(
-        Enum.uniq([Keyword.get(opts, :successor_of), Keyword.get(opts, :rotate_from)]),
-        &successor_on_machine?(sandbox, agent, &1)
-      )
+      successor_on_machine?(sandbox, agent, Keyword.get(opts, :successor_of))
   end
 
   defp successor_on_machine?(%Sandbox{id: sandbox_id, user_id: user_id}, agent, conv_id)
@@ -601,7 +609,7 @@ defmodule Fountain.Machines.Binding do
           from c in Conversation,
             where:
               c.id == ^id and c.sandbox_id == ^sandbox_id and c.user_id == ^user_id and
-                c.agent_id == ^agent.id
+                c.agent_id == ^agent.id and c.status in @terminal_statuses
         )
 
       :error ->

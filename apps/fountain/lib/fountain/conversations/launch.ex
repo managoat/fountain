@@ -429,7 +429,7 @@ defmodule Fountain.Conversations.Launch do
              vault_id,
              env_id,
              :db,
-             Keyword.take(opts, [:guest_ok, :successor_of, :rotate_from])
+             Keyword.take(opts, [:guest_ok, :successor_of])
            ),
          :ok <- check_attach_capacity(sandbox, agent, attrs["prompt"]),
          {:ok, conv, _allowance} <-

@@ -8,9 +8,10 @@
   `403 guest_attach_requires_full_scope` (`reason: "insufficient_scope"`). An
   agent could otherwise pair another agent with a machine with no person
   involved and leave files there that the machine's own agent loads. A guest
-  already on a machine keeps it through a team rotation or a `channel_id`
-  rotation. Guests are also limited to a claude agent and a codex agent
-  together; gemini and opencode pairs are now refused with
-  `422 sandbox_identity_mismatch`, as is a claude and codex pair on a machine
-  where an agent of another runtime has run. See
+  teammate keeps its machine through a team rotation; a `fresh` `channel_id`
+  rotation of a guest now needs a full-scope key too. Guests are also limited
+  to one claude agent and one codex agent together; gemini and opencode pairs
+  are now refused with `422 sandbox_identity_mismatch`, as is a guest on a
+  machine where an agent of another runtime, or another agent of its own
+  runtime, has run. See
   [a second agent on a machine](https://managoat.com/docs/concepts/sandboxes#a-second-agent-on-a-machine).

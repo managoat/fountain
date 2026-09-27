@@ -680,7 +680,7 @@ defmodule FountainWeb.FallbackController do
   # own `sprite` token, or a principal's. 403 with `RequireFullScope`'s shape,
   # `reason: "insufficient_scope"` and `required_scope: "full"`, because the
   # refusal is that plug's rule applied inside the attach door, and only ever
-  # given for an attach a full-scope key would have been admitted to.
+  # given for an attach that passed the pairing checks.
   def call(conn, {:error, :guest_attach_requires_full_scope}) do
     conn
     |> put_status(:forbidden)

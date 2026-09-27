@@ -136,8 +136,9 @@ can then work on one disk. All of these must hold:
 - The launch names the machine's environment and vault.
 - The machine and the guest make a claude and codex pair: a codex agent on a
   claude agent's machine, or a claude agent on a codex agent's. No agent of any
-  other runtime can have run there. Two agents of the same runtime would share
-  one set of instructions and skills, so Fountain refuses them. Gemini and
+  other runtime can have run there, and no other agent of the guest's runtime.
+  Two agents of the same runtime would share one set of instructions and
+  skills, so Fountain refuses them. Gemini and
   opencode agents don't take part, and an `acp` agent runs a command whose
   files Fountain can't place.
 - Fountain also checks that the two runtimes keep their settings,
@@ -153,12 +154,14 @@ can then work on one disk. All of these must hold:
 
 If any of the first four doesn't hold, the attach answers
 `422 sandbox_identity_mismatch`, whatever key made it. A `403` therefore means
-a full-scope key would have been admitted.
+the attach would have passed the pairing checks with a full-scope key.
 
-A guest the machine already has keeps its place when its conversation is
-replaced by a new one of the same agent: a team rotation, or a `channel_id`
-request with `fresh`. Any other request of a sandbox token that names another
-agent is refused, even one for a second conversation of a guest already there.
+A guest teammate keeps its machine when you start a new conversation for it:
+the team ends the old conversation and opens the new one in its place. Any
+other request of a sandbox token that names another agent is refused. That
+includes a second conversation of a guest already there, and a `channel_id`
+request with `fresh`, which leaves the old conversation running beside the
+new one.
 
 Every conversation that has attached keeps counting until the machine is
 reset, because its files stay on the disk. That includes conversations that

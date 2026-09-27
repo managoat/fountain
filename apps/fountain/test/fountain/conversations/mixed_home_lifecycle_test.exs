@@ -380,6 +380,17 @@ defmodule Fountain.Conversations.MixedHomeLifecycleTest do
       assert home.status == "ready"
       assert is_nil(home.transition)
       assert reload(ctx.host).sandbox_id == ctx.home.id
+
+      # Its codex files stay on the home, and so does the home's memory of
+      # them: the host still redacts its key, and another codex agent is
+      # still refused.
+      assert [%{"runtime" => "codex"}] = home.departed_conversations
+      on_exit(fn -> Fountain.Conversations.Redaction.delete(ctx.host.id) end)
+      assert Fountain.Conversations.CotenantSecrets.register(ctx.host.id, ctx.home.id) == :mixed
+      assert "sk-codex" in Fountain.Conversations.Redaction.lookup(ctx.host.id)
+
+      assert {:error, :sandbox_identity_mismatch} =
+               Fountain.Machines.Binding.attachable(home, agent_of(ctx, "codex"), nil, ctx.env.id)
     end
 
     test "a server that reaches a reattach anyway stops before it writes the disk", ctx do

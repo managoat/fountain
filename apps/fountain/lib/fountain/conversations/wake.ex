@@ -515,7 +515,9 @@ defmodule Fountain.Conversations.Wake do
         # machine of its own, as if it had none. The machine it leaves is
         # somebody else's home and stays as it is — not retired, its other
         # conversations not moved — and the guest's binding there ends when
-        # its row names the new machine. Ephemeral, because a persistent one
+        # its row names the new machine. Its files stay on the home, and the
+        # repoint leaves a descriptor there (`Sandbox.departed_conversations`)
+        # so the home keeps redacting its credential and refusing its runtime. Ephemeral, because a persistent one
         # for the guest's new identity may already exist (one live home per
         # identity), and a wake cannot attach to it.
         :move_off ->

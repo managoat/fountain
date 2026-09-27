@@ -11,8 +11,14 @@ defmodule Fountain.Repo.Migrations.RecordDepartedConversationsOnSandboxes do
   # conversation removes its row while the machine it ran on is kept, and with
   # it the machine's only memory of that runtime.
   #
-  # So a conversation row that is deleted while its machine is live leaves a
-  # descriptor on the machine: what re-resolving its inference credential
+  # A conversation row repointed at another machine leaves the same way: a
+  # guest whose environment or vault moved off its home is sent to a machine
+  # of its own (`Fountain.Conversations.Wake`), and its files stay on the home
+  # it left. The other repoint, a wake moving co-tenants off a dead machine,
+  # runs after that machine is terminal and records nothing.
+  #
+  # So a conversation row that is deleted, or repointed, while its machine is
+  # live leaves a descriptor on the machine: what re-resolving its inference credential
   # needs, and nothing secret — its runtime, agent, model, stored inference
   # source (a revision reference, never a value), credential set, and the
   # environment and vault it ran against. Readers union these with the rows.
@@ -21,8 +27,8 @@ defmodule Fountain.Repo.Migrations.RecordDepartedConversationsOnSandboxes do
   #
   # **A trigger, not the application.** A row is deleted from more than one
   # place (`Conversations.delete_conversation/2`, an attach whose first prompt
-  # was refused), and a descriptor a new path forgets is the disclosure. An
-  # AFTER trigger sees every one of them. A machine already terminal, or
+  # was refused) and repointed from more than one, and a descriptor a new path
+  # forgets is the disclosure. An AFTER trigger sees every one of them. A machine already terminal, or
   # deleted in the same statement (a cascade from the sandbox or the user),
   # matches no row and records nothing: that disk is gone.
   #
@@ -44,7 +50,10 @@ defmodule Fountain.Repo.Migrations.RecordDepartedConversationsOnSandboxes do
     CREATE FUNCTION fountain_record_departed_conversation() RETURNS trigger AS $$
     DECLARE descriptor jsonb;
     BEGIN
-      IF OLD.sandbox_id IS NULL THEN RETURN OLD; END IF;
+      IF OLD.sandbox_id IS NULL THEN RETURN NULL; END IF;
+      IF TG_OP = 'UPDATE' AND OLD.sandbox_id IS NOT DISTINCT FROM NEW.sandbox_id THEN
+        RETURN NULL;
+      END IF;
 
       SELECT jsonb_build_object(
                'conversation_id', OLD.id,
@@ -59,7 +68,7 @@ defmodule Fountain.Repo.Migrations.RecordDepartedConversationsOnSandboxes do
         FROM sandboxes AS s
        WHERE s.id = OLD.sandbox_id;
 
-      IF descriptor IS NULL THEN RETURN OLD; END IF;
+      IF descriptor IS NULL THEN RETURN NULL; END IF;
 
       UPDATE sandboxes AS s
          SET departed_conversations = s.departed_conversations || jsonb_build_array(descriptor)
@@ -69,13 +78,14 @@ defmodule Fountain.Repo.Migrations.RecordDepartedConversationsOnSandboxes do
            SELECT 1 FROM jsonb_array_elements(s.departed_conversations) AS e
             WHERE (e - 'conversation_id') = (descriptor - 'conversation_id'));
 
-      RETURN OLD;
+      RETURN NULL;
     END;
     $$ LANGUAGE plpgsql
     """)
 
     execute("""
-    CREATE TRIGGER record_departed_conversation AFTER DELETE ON conversations
+    CREATE TRIGGER record_departed_conversation
+    AFTER DELETE OR UPDATE OF sandbox_id ON conversations
     FOR EACH ROW EXECUTE FUNCTION fountain_record_departed_conversation()
     """)
   end

@@ -145,24 +145,29 @@ can then work on one disk. All of these must hold:
   place, so it neither joins another agent's machine nor takes a guest.
 - The machine has a recorded runtime.
 
-Anything else answers `422 sandbox_identity_mismatch`. Conversations that
-ended, and conversations you deleted, still count, because their files stay on
-the disk until a reset.
+Anything else answers `422 sandbox_identity_mismatch`. Every conversation
+that has attached keeps counting until the machine is reset, because its files
+stay on the disk. That includes conversations that ended, conversations you
+deleted, a conversation whose first prompt was refused, and a guest that moved
+to a machine of its own.
 
 A guest stays on the environment and vault it attached with, even if its agent
 later moves to another environment. If a guest's environment or vault changes
 anyway, such as when you rebind a teammate, the guest does not write its new
 values to the shared machine. Its next prompt, or a new conversation for the
 teammate, moves it to a machine of its own. The machine it leaves stays with
-its agent.
+its agent. The guest's working files stay on that machine, its runtime session
+starts fresh on the new one, and the new machine counts against your
+concurrency limit alongside the one it left.
 
 The machine stays its own agent's. Deleting that agent destroys the machine,
 and the guest's conversations end with it. Deleting the guest's agent ends
 only the guest's conversations. A guest cannot reapply its conversation. It
 answers `409 rebuild_required`, with `field` set to `shared_sandbox` while
 another conversation is on the machine, and to `guest` once the guest is
-alone there. Each conversation registers the other runtime's inference
-credentials for redaction, so neither transcript shows the other's key.
+alone there. Each conversation registers the inference credentials of every
+other runtime that has run on the machine, including a guest that has since
+moved or been deleted, so no transcript there shows another runtime's key.
 
 Skills you write inline are installed into each runtime's own directory.
 Skills from GitHub are different: every runtime on a machine installs them

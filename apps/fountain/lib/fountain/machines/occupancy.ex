@@ -410,7 +410,8 @@ defmodule Fountain.Machines.Occupancy do
 
   @doc """
   The conversations of a **different runtime** from `conv_id` that
-  `sandbox_id` has carried and whose rows have since been deleted, rebuilt
+  `sandbox_id` has carried and whose rows have since been deleted or moved
+  to another machine (a guest that left, `Fountain.Conversations.Wake`), rebuilt
   from the descriptors the machine keeps of them
   (`Sandbox.departed_conversations`, #2515) as unsaved `Conversation`
   structs: `id`, `user_id`, `agent_id`, `runtime`, `model`,

@@ -103,10 +103,11 @@ home" now holds only for agents of the same runtime.
 As built (#2515, `Fountain.Machines.Binding.attachable/5`), the rule is
 stricter than the text above in five places. Every conversation another agent
 has run on the machine counts, retired ones included, because its files stay on
-the disk until a reset; a conversation deleted while its machine is live leaves
-a non-secret descriptor on the machine (`sandboxes.departed_conversations`,
-written by a trigger on every conversation delete), which the attach rule and
-the redaction registry read beside the rows. A runtime with no known config
+the disk until a reset; a conversation deleted, or repointed at another
+machine, while its machine is live leaves a non-secret descriptor on the
+machine (`sandboxes.departed_conversations`, written by a trigger on every
+conversation delete and every change of `conversations.sandbox_id`), which the
+attach rule and the redaction registry read beside the rows. A runtime with no known config
 root refuses on either side, which rules out `acp` as guest and as host. Only a
 persistent home with a recorded runtime and a living agent takes a guest. A
 claude home reserved before #2522 stamped `codex_peer_homes` refuses a codex
@@ -114,7 +115,9 @@ guest with `codex_inference_conflict` until it is reset. And the guest is held
 to the environment and vault it was admitted on: attaching pins its
 environment on its row, and a guest whose binding moves anyway (a teammate
 rebinding) never reattaches to the shared disk — its next wake or rotation
-moves it to an ephemeral machine of its own and leaves the home as it was.
+moves it to a machine of its own (a wake builds an ephemeral one; a rotation
+starts the conversation in the agent's default mode) and leaves the home as it
+was, with the guest's files and its descriptor still on it.
 
 The rule is general over directories, so it admits every pair of distinct
 runtimes among claude (`/home/sprite/.claude`), codex (`/home/sprite/.codex`),

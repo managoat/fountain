@@ -79,6 +79,20 @@ defmodule FountainWeb.FallbackController do
     |> json(%{error: "vault_not_found"})
   end
 
+  # `Vaults.copy_vault/4` met a source secret it cannot write again (it no
+  # longer decrypts, or no longer passes the write-time checks) and rolled the
+  # whole copy back. The key names the row to fix; the value is never known here.
+  def call(conn, {:error, {:secret_not_copyable, key}}) when is_binary(key) do
+    conn
+    |> put_status(:unprocessable_entity)
+    |> json(%{
+      error: "secret_not_copyable",
+      message:
+        "The source vault's secret #{key} could not be copied; no vault was created. " <>
+          "Rewrite that secret in the source vault, then copy again."
+    })
+  end
+
   # The agent's allowed_vault_ids forbids attaching this (existing, same-
   # tenant) vault. Unlike :vault_not_found this is a policy denial, so a
   # distinct status + message tells the caller which knob to look at.

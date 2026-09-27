@@ -107,6 +107,42 @@ happens in the sandbox.
 **Not returnable.** Values are write-only. A list of a Vault returns keys and
 timestamps. No endpoint gives you a value back, not even to the owner.
 
+## Copy a vault
+
+Values are write-only, so a client cannot read one vault and write its
+secrets into another. Fountain copies them on the server instead:
+
+```bash
+curl --fail-with-body -X POST \
+  -H "Authorization: Bearer $FOUNTAIN_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"staging-creds-track-42"}' \
+  "$FOUNTAIN_URL/api/vaults/$SOURCE_VAULT_ID/copy"
+```
+
+The request takes the same body as creating a vault. `name` is required.
+`description` and `metadata` default to the source's. The response is the new
+vault, exactly as a create returns it, with status `201`. It never contains a
+value.
+
+Each secret is decrypted and encrypted again into the new vault, with its
+expiry date. The copy is a separate vault from then on. A later write to either
+vault does not reach the other.
+
+The copy is all or nothing. A name that is already taken returns `422` and
+creates nothing. So does a source secret that can no longer be written, for
+example one that no longer decrypts. That response names the key, so you can
+rewrite it in the source and copy again. You can copy only your own vaults.
+Another account's vault returns `404`, the same as a vault that does not exist.
+
+The audit trail records `vault.created` for the copy, with the source in
+`copied_from`, and one `vault.secret.write` for each key copied. It records keys
+and never values.
+
+Use a copy when every workstream needs the same shared secrets plus one or two
+of its own, such as a clone token. Copy the shared vault, then write the extra
+secrets into the copy.
+
 ## When to use something else
 
 Use an [Environment](environment.md) for what the whole team shares and what

@@ -78,6 +78,10 @@
     {
       "operations": ["PUT /api/agents/{id}", "PUT /api/environments/{id}", "PUT /api/vaults/{id}"],
       "reason": "PUT aliases of the PATCH routes, kept for clients that only speak PUT. The SDKs model the PATCH, and the two share a controller action."
+    },
+    {
+      "operations": ["POST /api/vaults/{id}/copy"],
+      "reason": "Server-side vault copy, added for a provisioning client (Ravix) that derives one vault per workstream from a template vault over plain HTTP. No SDK has a caller for it yet; the response is the existing Vault shape, so a client can adopt it without new models."
     }
   ]
 }

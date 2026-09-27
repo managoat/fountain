@@ -546,6 +546,10 @@ defmodule FountainWeb.Router do
       resources "/secrets", SecretController, only: [:index, :create, :delete]
     end
 
+    # A server-side copy: secret values are write-only over the API, so a
+    # client cannot build a vault holding another vault's secrets itself.
+    post "/vaults/:id/copy", VaultController, :copy
+
     resources "/vaults", VaultController, except: [:new, :edit] do
       patch "/secrets/:id", VaultSecretController, :update
       resources "/secrets", VaultSecretController, only: [:index, :create, :delete]

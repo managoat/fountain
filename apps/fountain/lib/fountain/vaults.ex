@@ -159,6 +159,112 @@ defmodule Fountain.Vaults do
     end
   end
 
+  @doc """
+  Create a new vault holding a copy of every secret in `source`.
+
+  `source` must come from the caller's tenant-scoped fetch (`get_vault/2`);
+  the copy is created for the same user. `attrs` takes `"name"` (required)
+  and optionally `"description"` and `"metadata"`, which otherwise default to
+  the source's. Each value is decrypted with `dek` and written back through
+  `VaultSecret.changeset/3`, so it is re-encrypted and validated exactly as an
+  ordinary write would be; each secret's advisory expiry comes with it.
+
+  Atomic: the vault row and every secret are written in one transaction, under
+  the same source lock `create_vault/2` and `upsert_secret/4` take, so a
+  concurrent write to the source is either wholly before or wholly after the
+  copy. A secret that cannot be copied (it no longer decrypts, or no longer
+  passes the write-time checks) rolls the whole copy back and returns
+  `{:error, {:secret_not_copyable, key}}`. The key is the only detail; no
+  value is ever returned, raised or logged.
+
+  Audits `vault.created` (with `copied_from` and `secret_count`) and one
+  `vault.secret.write` per copied key, after the transaction commits. See
+  `create_vault/2` for `opts`.
+  """
+  def copy_vault(%Vault{} = source, attrs, dek, opts \\ []) when is_binary(dek) do
+    attrs =
+      %{"description" => source.description, "metadata" => source.metadata}
+      |> Map.merge(Map.take(attrs, ["name", "description", "metadata"]))
+      |> Map.put("user_id", source.user_id)
+
+    changeset = Vault.changeset(%Vault{}, attrs)
+
+    if changeset.valid? do
+      InferenceCredentials.with_source_lock(source.user_id, fn ->
+        with {:ok, vault} <- Repo.insert(changeset),
+             {:ok, keys} <- copy_secrets(source, vault, dek) do
+          {:copied, vault, keys}
+        end
+      end)
+      |> case do
+        {:copied, vault, keys} ->
+          copy_metadata = %{"copied_from" => source.id}
+
+          audited(
+            {:ok, vault},
+            "vault.created",
+            merge_metadata(opts, Map.put(copy_metadata, "secret_count", length(keys)))
+          )
+
+          Enum.each(keys, fn key ->
+            audited_secret(
+              {:ok, nil},
+              vault,
+              key,
+              "vault.secret.write",
+              merge_metadata(opts, copy_metadata)
+            )
+          end)
+
+          {:ok, vault}
+
+        error ->
+          error
+      end
+    else
+      {:error, changeset}
+    end
+  end
+
+  # Runs inside `copy_vault/4`'s transaction; any `{:error, _}` rolls it back.
+  defp copy_secrets(%Vault{} = source, %Vault{} = target, dek) do
+    source
+    |> _unsafe_list_secrets()
+    |> Enum.reduce_while({:ok, []}, fn secret, {:ok, keys} ->
+      case copy_secret(secret, target, dek) do
+        :ok -> {:cont, {:ok, [secret.key | keys]}}
+        :error -> {:halt, {:error, {:secret_not_copyable, secret.key}}}
+      end
+    end)
+    |> case do
+      {:ok, keys} -> {:ok, Enum.reverse(keys)}
+      error -> error
+    end
+  end
+
+  defp copy_secret(%VaultSecret{} = secret, %Vault{} = target, dek) do
+    with {:ok, plain} <- VaultSecret.decrypt(secret, dek),
+         {:ok, _} <-
+           %VaultSecret{}
+           |> VaultSecret.changeset(
+             %{
+               "key" => secret.key,
+               "value" => plain,
+               "vault_id" => target.id,
+               "expires_at" => secret.expires_at
+             },
+             dek
+           )
+           # The advance notice already sent for this value and expiry is not
+           # owed again because the value now sits in a second vault.
+           |> Ecto.Changeset.put_change(:expiry_notified_at, secret.expiry_notified_at)
+           |> Repo.insert() do
+      :ok
+    else
+      _ -> :error
+    end
+  end
+
   # See the note in `Fountain.Agents.audited/3`: this runs outside any
   # enclosing transaction, because best-effort audit recording is only
   # best-effort outside one.

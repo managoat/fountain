@@ -177,4 +177,147 @@ defmodule FountainWeb.VaultControllerTest do
       assert json_response(conn, 401)
     end
   end
+
+  describe "POST /api/vaults/:id/copy" do
+    setup %{user: user} do
+      source = insert_vault(user_id: user.id, description: "project", metadata: %{"p" => "1"})
+      insert_vault_secret(source, key: "API_TOKEN", value: "copy-api-token-plaintext")
+      insert_vault_secret(source, key: "DB_PASSWORD", value: "copy-db-password-plaintext")
+      {:ok, source: source}
+    end
+
+    test "creates a copy and answers 201 in the create shape", %{
+      conn: conn,
+      user: user,
+      raw_key: raw_key,
+      source: source
+    } do
+      conn =
+        conn
+        |> authed_with_key(raw_key)
+        |> post_json("/api/vaults/#{source.id}/copy", %{name: "track-vault"})
+
+      body = json_response(conn, 201)
+      data = body["data"]
+      assert data["name"] == "track-vault"
+      assert data["id"] != source.id
+      assert data["description"] == "project"
+      assert data["metadata"] == %{"p" => "1"}
+      assert data["secret_count"] == 2
+
+      raw = conn.resp_body
+      refute raw =~ "copy-api-token-plaintext"
+      refute raw =~ "copy-db-password-plaintext"
+
+      # Usable where secrets are consumed, not merely listed.
+      copy = Fountain.Vaults.get_vault(data["id"], user.id)
+      {:ok, dek} = Fountain.Crypto.load_tenant_key(user.id)
+
+      assert Fountain.Conversations.SpriteEnv.merge_secrets(nil, copy, dek) == %{
+               "API_TOKEN" => "copy-api-token-plaintext",
+               "DB_PASSWORD" => "copy-db-password-plaintext"
+             }
+    end
+
+    test "the secret listing of the copy shows keys only", %{
+      conn: conn,
+      raw_key: raw_key,
+      source: source
+    } do
+      copy_conn =
+        conn
+        |> authed_with_key(raw_key)
+        |> post_json("/api/vaults/#{source.id}/copy", %{name: "track-vault-2"})
+
+      id = json_response(copy_conn, 201)["data"]["id"]
+
+      list_conn =
+        build_conn() |> authed_with_key(raw_key) |> get("/api/vaults/#{id}/secrets")
+
+      keys = json_response(list_conn, 200)["data"] |> Enum.map(& &1["key"]) |> Enum.sort()
+      assert keys == ["API_TOKEN", "DB_PASSWORD"]
+      refute list_conn.resp_body =~ "plaintext"
+    end
+
+    test "returns 404 for another account's vault and creates nothing", %{
+      conn: conn,
+      user: user,
+      raw_key: raw_key
+    } do
+      other_user = insert_verified_user()
+      other_vault = insert_vault(user_id: other_user.id)
+      insert_vault_secret(other_vault, key: "THEIRS", value: "not-yours")
+
+      conn =
+        conn
+        |> authed_with_key(raw_key)
+        |> post_json("/api/vaults/#{other_vault.id}/copy", %{name: "stolen"})
+
+      assert json_response(conn, 404)["error"] == "not_found"
+      assert Fountain.Vaults.get_vault_by_name("stolen", user.id) == nil
+      assert Fountain.Vaults.get_vault_by_name("stolen", other_user.id) == nil
+    end
+
+    test "returns 404 for a missing or malformed source id", %{conn: conn, raw_key: raw_key} do
+      for id <- [Ecto.UUID.generate(), "not-a-uuid"] do
+        conn =
+          conn
+          |> authed_with_key(raw_key)
+          |> post_json("/api/vaults/#{id}/copy", %{name: "orphan"})
+
+        assert json_response(conn, 404)["error"] == "not_found"
+      end
+    end
+
+    test "returns 422 when name is missing or taken", %{
+      conn: conn,
+      user: user,
+      raw_key: raw_key,
+      source: source
+    } do
+      missing =
+        conn |> authed_with_key(raw_key) |> post_json("/api/vaults/#{source.id}/copy", %{})
+
+      assert json_response(missing, 422)
+
+      taken =
+        build_conn()
+        |> authed_with_key(raw_key)
+        |> post_json("/api/vaults/#{source.id}/copy", %{name: source.name})
+
+      assert json_response(taken, 422)
+      assert length(Fountain.Vaults.list_vaults(user.id)) == 1
+    end
+
+    test "returns 422 naming the key when a secret cannot be copied", %{
+      conn: conn,
+      user: user,
+      raw_key: raw_key,
+      source: source
+    } do
+      import Ecto.Query
+
+      Fountain.Repo.update_all(
+        from(s in Fountain.Vaults.VaultSecret,
+          where: s.vault_id == ^source.id and s.key == "DB_PASSWORD"
+        ),
+        set: [value_ciphertext: :crypto.strong_rand_bytes(48)]
+      )
+
+      conn =
+        conn
+        |> authed_with_key(raw_key)
+        |> post_json("/api/vaults/#{source.id}/copy", %{name: "track-broken"})
+
+      body = json_response(conn, 422)
+      assert body["error"] == "secret_not_copyable"
+      assert body["message"] =~ "DB_PASSWORD"
+      assert Fountain.Vaults.get_vault_by_name("track-broken", user.id) == nil
+    end
+
+    test "returns 401 without authentication", %{conn: conn, source: source} do
+      conn = post_json(conn, "/api/vaults/#{source.id}/copy", %{name: "x"})
+      assert json_response(conn, 401)
+    end
+  end
 end

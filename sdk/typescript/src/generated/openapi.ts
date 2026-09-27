@@ -2399,6 +2399,26 @@ export interface paths {
         patch: operations["FountainWeb.VaultController.update (2)"];
         trace?: never;
     };
+    "/api/vaults/{id}/copy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Copy a vault
+         * @description Creates a new vault holding a copy of every secret in the source vault. Values are copied server-side and re-encrypted; no value is ever returned. `name` is required; `description` and `metadata` default to the source's. Atomic: on any failure no new vault exists. A source vault the caller does not own reads as not found.
+         */
+        post: operations["FountainWeb.VaultController.copy"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/vaults/{vault_id}/secrets": {
         parameters: {
             query?: never;
@@ -17430,6 +17450,88 @@ export interface operations {
         responses: {
             /** @description Vault */
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VaultResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No acceptable representation */
+            406: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NegotiationError"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    "FountainWeb.VaultController.copy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Source vault. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        /** @description New vault attributes */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["VaultRequest"];
+            };
+        };
+        responses: {
+            /** @description Vault */
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };

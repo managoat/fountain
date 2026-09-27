@@ -316,6 +316,10 @@ See [Vaults](concepts/vault.md) for precedence and reuse. Submit secret values
 through the write operations in the [generated reference](/api/docs); do not
 expect read operations to return them.
 
+To start a vault from another one's secrets, use `POST /api/vaults/:id/copy`.
+The server copies the values, so they never cross the API.
+See [Copy a vault](concepts/vault.md#copy-a-vault).
+
 ## Secret bindings
 
 Use broker bindings when a sandbox should reference a credential while the

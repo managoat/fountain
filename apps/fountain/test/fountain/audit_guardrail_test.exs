@@ -85,6 +85,7 @@ defmodule Fountain.AuditGuardrailTest do
     {"vault create", &__MODULE__.do_vault_create/1, "vault.created"},
     {"vault update", &__MODULE__.do_vault_update/1, "vault.updated"},
     {"vault delete", &__MODULE__.do_vault_delete/1, "vault.deleted"},
+    {"vault copy", &__MODULE__.do_vault_copy/1, "vault.created"},
     {"api key mint", &__MODULE__.do_key_create/1, "api_key.created"},
     {"api key revoke", &__MODULE__.do_key_revoke/1, "api_key.revoked"},
     {"owned principal credential renewal", &__MODULE__.do_principal_key_renewal/1,
@@ -327,6 +328,7 @@ defmodule Fountain.AuditGuardrailTest do
           {Vaults, :create_vault, 2},
           {Vaults, :update_vault, 3},
           {Vaults, :delete_vault, 2},
+          {Vaults, :copy_vault, 4},
           {InferenceCredentials, :put_credential, 5},
           {Fountain.ChatGPTAccounts, :connect_for_user, 4},
           {Fountain.ChatGPTAccounts, :reconnect_for_user, 4},
@@ -456,6 +458,14 @@ defmodule Fountain.AuditGuardrailTest do
 
   def do_vault_delete(user) do
     {:ok, _} = Vaults.delete_vault(insert_vault(user_id: user.id))
+  end
+
+  def do_vault_copy(user) do
+    source = insert_vault(user_id: user.id)
+    {:ok, dek} = Fountain.Crypto.load_tenant_key(user.id)
+
+    {:ok, _} =
+      Vaults.copy_vault(source, %{"name" => "copy-#{System.unique_integer([:positive])}"}, dek)
   end
 
   def do_binding_create(user) do

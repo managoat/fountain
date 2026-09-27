@@ -3,6 +3,7 @@ defmodule FountainWeb.VaultController do
   use FountainWeb, :controller
   use OpenApiSpex.ControllerSpecs
 
+  alias Fountain.Crypto
   alias Fountain.Vaults
   alias Fountain.Vaults.Vault
   alias FountainWeb.Audited
@@ -63,6 +64,43 @@ defmodule FountainWeb.VaultController do
       conn
       |> put_status(:created)
       |> render(:show, vault: Vaults.get_vault_with_counts(vault.id, user.id))
+    end
+  end
+
+  operation(:copy,
+    summary: "Copy a vault",
+    description:
+      "Creates a new vault holding a copy of every secret in the source vault. " <>
+        "Values are copied server-side and re-encrypted; no value is ever returned. " <>
+        "`name` is required; `description` and `metadata` default to the source's. " <>
+        "Atomic: on any failure no new vault exists. A source vault the caller does " <>
+        "not own reads as not found.",
+    parameters: [id: [in: :path, type: :string, required: true, description: "Source vault."]],
+    request_body: {"New vault attributes", "application/json", Schemas.VaultRequest},
+    responses: [
+      created: {"Vault", "application/json", Schemas.VaultResponse},
+      not_found: {"Not found", "application/json", Schemas.Error},
+      unprocessable_entity: {"Validation error", "application/json", Schemas.Error}
+    ]
+  )
+
+  def copy(conn, %{"id" => id} = params) do
+    user = conn.assigns.current_user
+
+    case Vaults.get_vault(id, user.id) do
+      nil ->
+        {:error, :not_found}
+
+      source ->
+        {:ok, dek} = Crypto.load_tenant_key(user.id)
+        attrs = Map.take(params, ["name", "description", "metadata"])
+
+        with {:ok, %Vault{} = vault} <-
+               Vaults.copy_vault(source, attrs, dek, Audited.attribution(conn)) do
+          conn
+          |> put_status(:created)
+          |> render(:show, vault: Vaults.get_vault_with_counts(vault.id, user.id))
+        end
     end
   end
 

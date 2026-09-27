@@ -19,6 +19,224 @@ defmodule Fountain.VaultsTest do
     end
   end
 
+  describe "copy_vault/4" do
+    import ExUnit.CaptureLog
+
+    alias Fountain.Conversations.SpriteEnv
+
+    defp copyable_source(user) do
+      vault =
+        insert_vault(
+          user_id: user.id,
+          description: "project secrets",
+          metadata: %{"project" => "p1"}
+        )
+
+      expires_at = DateTime.utc_now() |> DateTime.add(30, :day) |> DateTime.truncate(:second)
+      insert_vault_secret(vault, key: "API_TOKEN", value: "copy-me-token-value")
+
+      insert_vault_secret(vault,
+        key: "DATABASE_URL",
+        value: "postgres://copy-me-db-value",
+        expires_at: expires_at
+      )
+
+      {vault, expires_at}
+    end
+
+    test "creates a new vault with the same keys, re-encrypted, readable at spawn" do
+      user = insert_verified_user()
+      {source, expires_at} = copyable_source(user)
+      {:ok, dek} = Fountain.Crypto.load_tenant_key(user.id)
+
+      assert {:ok, copy} = Vaults.copy_vault(source, %{"name" => "track-1"}, dek)
+
+      assert copy.id != source.id
+      assert copy.user_id == user.id
+      assert copy.name == "track-1"
+      assert copy.description == "project secrets"
+      assert copy.metadata == %{"project" => "p1"}
+
+      # The read path a sandbox spawn takes, not the API.
+      assert SpriteEnv.merge_secrets(nil, copy, dek) == %{
+               "API_TOKEN" => "copy-me-token-value",
+               "DATABASE_URL" => "postgres://copy-me-db-value"
+             }
+
+      copied = Map.new(Vaults._unsafe_list_secrets(copy), &{&1.key, &1})
+      originals = Map.new(Vaults._unsafe_list_secrets(source), &{&1.key, &1})
+      assert Map.keys(copied) == Map.keys(originals)
+      assert copied["DATABASE_URL"].expires_at == expires_at
+      assert copied["API_TOKEN"].expires_at == nil
+
+      for {key, secret} <- copied do
+        # Written as a new row, encrypted afresh, not a shared ciphertext.
+        assert secret.id != originals[key].id
+        assert secret.value_ciphertext != originals[key].value_ciphertext
+      end
+    end
+
+    test "name, description and metadata may be overridden" do
+      user = insert_verified_user()
+      {source, _} = copyable_source(user)
+      {:ok, dek} = Fountain.Crypto.load_tenant_key(user.id)
+
+      assert {:ok, copy} =
+               Vaults.copy_vault(
+                 source,
+                 %{"name" => "track-2", "description" => "", "metadata" => %{"track" => "t2"}},
+                 dek
+               )
+
+      assert copy.description == ""
+      assert copy.metadata == %{"track" => "t2"}
+    end
+
+    test "the copy is independent of later writes to the source" do
+      user = insert_verified_user()
+      {source, _} = copyable_source(user)
+      {:ok, dek} = Fountain.Crypto.load_tenant_key(user.id)
+
+      {:ok, copy} = Vaults.copy_vault(source, %{"name" => "track-3"}, dek)
+      {:ok, _} = Vaults.upsert_secret(source, %{"key" => "API_TOKEN", "value" => "rotated"}, dek)
+
+      {:ok, _} =
+        Vaults.upsert_secret(copy, %{"key" => "CLONE_TOKEN", "value" => "track-only"}, dek)
+
+      assert Vaults.decrypted_env(copy, dek)["API_TOKEN"] == "copy-me-token-value"
+      refute Map.has_key?(Vaults.decrypted_env(source, dek), "CLONE_TOKEN")
+    end
+
+    test "an empty source vault copies to an empty vault" do
+      user = insert_verified_user()
+      source = insert_vault(user_id: user.id)
+      {:ok, dek} = Fountain.Crypto.load_tenant_key(user.id)
+
+      assert {:ok, copy} = Vaults.copy_vault(source, %{"name" => "empty-copy"}, dek)
+      assert Vaults._unsafe_list_secrets(copy) == []
+    end
+
+    test "audits the vault and each key, never a value" do
+      user = insert_verified_user()
+      {source, _} = copyable_source(user)
+      {:ok, dek} = Fountain.Crypto.load_tenant_key(user.id)
+
+      {:ok, copy} = Vaults.copy_vault(source, %{"name" => "track-4"}, dek, actor: "api")
+
+      events =
+        Repo.all(
+          from a in Fountain.Audit.Event,
+            where: a.user_id == ^user.id and a.resource_id == ^copy.id
+        )
+
+      created = Enum.find(events, &(&1.action == "vault.created"))
+      assert created.actor == "api"
+      assert created.metadata["copied_from"] == source.id
+      assert created.metadata["secret_count"] == 2
+
+      writes = Enum.filter(events, &(&1.action == "vault.secret.write"))
+
+      assert writes |> Enum.map(& &1.metadata["key"]) |> Enum.sort() == [
+               "API_TOKEN",
+               "DATABASE_URL"
+             ]
+
+      assert Enum.all?(writes, &(&1.metadata["copied_from"] == source.id))
+
+      trail = inspect(events)
+      refute trail =~ "copy-me-token-value"
+      refute trail =~ "copy-me-db-value"
+    end
+
+    test "logs no secret value, even at debug level" do
+      user = insert_verified_user()
+      {source, _} = copyable_source(user)
+      {:ok, dek} = Fountain.Crypto.load_tenant_key(user.id)
+
+      log =
+        capture_log([level: :debug], fn ->
+          Logger.put_process_level(self(), :debug)
+          assert {:ok, _} = Vaults.copy_vault(source, %{"name" => "track-5"}, dek)
+          Logger.delete_process_level(self())
+        end)
+
+      refute log =~ "copy-me-token-value"
+      refute log =~ "copy-me-db-value"
+    end
+
+    test "a name already taken is refused and nothing is written" do
+      user = insert_verified_user()
+      {source, _} = copyable_source(user)
+      {:ok, dek} = Fountain.Crypto.load_tenant_key(user.id)
+      before = Repo.aggregate(Fountain.Vaults.VaultSecret, :count)
+
+      assert {:error, %Ecto.Changeset{} = changeset} =
+               Vaults.copy_vault(source, %{"name" => source.name}, dek)
+
+      assert errors_on(changeset).name != []
+      assert length(Vaults.list_vaults(user.id)) == 1
+      assert Repo.aggregate(Fountain.Vaults.VaultSecret, :count) == before
+    end
+
+    test "a missing name is refused" do
+      user = insert_verified_user()
+      {source, _} = copyable_source(user)
+      {:ok, dek} = Fountain.Crypto.load_tenant_key(user.id)
+
+      assert {:error, %Ecto.Changeset{}} = Vaults.copy_vault(source, %{}, dek)
+      assert length(Vaults.list_vaults(user.id)) == 1
+    end
+
+    test "a secret that cannot be copied rolls the whole copy back" do
+      user = insert_verified_user()
+      {source, _} = copyable_source(user)
+      {:ok, dek} = Fountain.Crypto.load_tenant_key(user.id)
+
+      # DATABASE_URL sorts after API_TOKEN, so API_TOKEN has already been
+      # written into the new vault by the time the copy reaches this row.
+      {1, _} =
+        Repo.update_all(
+          from(s in Fountain.Vaults.VaultSecret,
+            where: s.vault_id == ^source.id and s.key == "DATABASE_URL"
+          ),
+          set: [value_ciphertext: :crypto.strong_rand_bytes(48)]
+        )
+
+      before = Repo.aggregate(Fountain.Vaults.VaultSecret, :count)
+
+      assert {:error, {:secret_not_copyable, "DATABASE_URL"}} =
+               Vaults.copy_vault(source, %{"name" => "track-6"}, dek)
+
+      assert Vaults.get_vault_by_name("track-6", user.id) == nil
+      assert Repo.aggregate(Fountain.Vaults.VaultSecret, :count) == before
+
+      refute Repo.exists?(
+               from a in Fountain.Audit.Event,
+                 where: a.user_id == ^user.id and a.action == "vault.created",
+                 where: fragment("?->>'copied_from' = ?", a.metadata, ^source.id)
+             )
+    end
+
+    test "a secret failing today's write checks rolls the whole copy back" do
+      user = insert_verified_user()
+      source = insert_vault(user_id: user.id)
+      {:ok, dek} = Fountain.Crypto.load_tenant_key(user.id)
+
+      # A row written before the reserved-key check existed.
+      Repo.insert!(%Fountain.Vaults.VaultSecret{
+        vault_id: source.id,
+        key: Fountain.ChatGPTAccounts.Reserved.key(),
+        value_ciphertext: Fountain.Crypto.encrypt("legacy", dek)
+      })
+
+      assert {:error, {:secret_not_copyable, key}} =
+               Vaults.copy_vault(source, %{"name" => "track-7"}, dek)
+
+      assert key == Fountain.ChatGPTAccounts.Reserved.key()
+      assert Vaults.get_vault_by_name("track-7", user.id) == nil
+    end
+  end
+
   describe "update_secret_metadata/4" do
     test "invalid metadata leaves the secret and audit trail unchanged" do
       user = insert_verified_user()

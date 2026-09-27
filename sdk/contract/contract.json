@@ -7148,6 +7148,57 @@
         }
       }
     },
+    "POST /api/vaults/{id}/copy": {
+      "operation_id": "FountainWeb.VaultController.copy",
+      "path_params": [
+        "id"
+      ],
+      "request_body": {
+        "content": {
+          "application/json": {
+            "ref": "VaultRequest"
+          }
+        },
+        "required": false
+      },
+      "responses": {
+        "201": {
+          "application/json": {
+            "ref": "VaultResponse"
+          }
+        },
+        "401": {
+          "application/json": {
+            "ref": "Error"
+          }
+        },
+        "403": {
+          "application/json": {
+            "ref": "Error"
+          }
+        },
+        "404": {
+          "application/json": {
+            "ref": "Error"
+          }
+        },
+        "406": {
+          "application/json": {
+            "ref": "NegotiationError"
+          }
+        },
+        "422": {
+          "application/json": {
+            "ref": "Error"
+          }
+        },
+        "429": {
+          "application/json": {
+            "ref": "Error"
+          }
+        }
+      }
+    },
     "POST /api/vaults/{vault_id}/secrets": {
       "operation_id": "FountainWeb.VaultSecretController.create",
       "path_params": [

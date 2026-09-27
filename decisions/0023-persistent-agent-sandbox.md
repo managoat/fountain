@@ -1,13 +1,13 @@
 ---
 type: ADR
 title: "A persistent sandbox per agent, offered beside the sandbox-per-conversation model"
-description: "Built 2026-08-24 (#1057–#1068). Adds a second sandbox mode, chosen per launch and defaulted per agent, where one long-lived sandbox serves many conversations of an agent (the 'grokbot' shape), with turns running concurrently where the runtime allows (amended 2026-08-23); keeps the per-conversation mode as the default; names the seven places the code hard-codes 1:1 today. Amended 2026-09-11 (#1565): a home's identity key moves through one narrow door, the reapply action, which refuses any selection that would change the build inputs, the runtime, or a cotenant's configuration. Amended 2026-09-26 (#2517, built by #2515 with #2520, #2521 and #2522): an agent of another runtime may attach to a home by `sandbox_id`, on the same environment and vault. Companion design note: #805."
+description: "Built 2026-08-24 (#1057–#1068). Adds a second sandbox mode, chosen per launch and defaulted per agent, where one long-lived sandbox serves many conversations of an agent (the 'grokbot' shape), with turns running concurrently where the runtime allows (amended 2026-08-23); keeps the per-conversation mode as the default; names the seven places the code hard-codes 1:1 today. Amended 2026-09-11 (#1565): a home's identity key moves through one narrow door, the reapply action, which refuses any selection that would change the build inputs, the runtime, or a cotenant's configuration. Amended 2026-09-26 (#2517, built by #2515 with #2520, #2521 and #2522): an agent of another runtime may attach to a home by `sandbox_id`, on the same environment and vault; narrowed 2026-09-27 (#2525) to a claude and codex pair attached with a full-scope key. Companion design note: #805."
 tags: [sandbox, lifecycle, conversations, product]
 status: stable
 adr: "0023"
 adr_status: "Accepted"
 date: 2026-08-17
-generated: { by: anthropic/claude-opus-5-5, at: 2026-09-26T12:00:00Z }
+generated: { by: anthropic/claude-opus-5-5, at: 2026-09-27T12:00:00Z }
 verified: { by: human:jhgaylor, at: 2026-09-11T12:00:00-04:00 }
 stale_after: 2027-02-01
 ---
@@ -119,8 +119,8 @@ moves it to a machine of its own (a wake builds an ephemeral one; a rotation
 starts the conversation in the agent's default mode) and leaves the home as it
 was, with the guest's files and its descriptor still on it.
 
-The rule is general over directories, so it admits every pair of distinct
-runtimes among claude (`/home/sprite/.claude`), codex (`/home/sprite/.codex`),
+Until 2026-09-27 (below), the rule was general over directories, so it
+admitted every pair of distinct runtimes among claude (`/home/sprite/.claude`), codex (`/home/sprite/.codex`),
 gemini (`/tmp/.gemini`) and opencode (`/tmp/.config/opencode`), in either
 direction. Files outside those roots were checked against `Layout` and the
 runtime modules of `managoat_runtimes` 0.5.4: claude's `/home/sprite/.mcp.json`
@@ -138,6 +138,31 @@ the same GitHub skill can therefore share its installed copy, and a reinstall at
 version changes it for both; inline skills are written into each runtime's own
 root and are not affected. The maintainer accepted this on 2026-09-26 and
 shipped it documented; separating skills.sh's state per runtime is #2523.
+
+**2026-09-27 — narrowed by maintainer decision after a red-team review
+(#2525).** The review found that a sandbox's own `sprite`-scoped
+`FOUNTAIN_TOKEN` could attach a conversation of another agent to any home of
+the account, making a mixed machine with no person involved, and then plant
+files the host's runtime loads (`CLAUDE.md`, `.claude/settings.local.json`,
+`AGENTS.md` in the shared home directory). Two rules now hold, both decided in
+`Binding.attachable/6` under the machine's lock:
+
+- **A new guest pairing needs a full-scope credential.** `attach/3` takes
+  `guest_ok:`, which only `POST /api/conversations` sets, from
+  `RequireFullScope.full_scope?/1`; every other caller gets no guests by
+  default. Refused: `403 guest_attach_requires_full_scope`, with the plug's
+  `reason: "insufficient_scope"` and `required_scope: "full"`, and only after
+  the pair itself is admissible, so a `403` always means a full-scope key
+  would succeed. The one exception is a successor: a team rotation
+  (`successor_of:`) or a channel rotation (`rotate_from:`) naming a
+  conversation of the same agent already on the same machine, checked against
+  the row. A second conversation of an admitted guest is a new pairing.
+- **Only claude and codex.** The set of runtimes — the machine's, the
+  guest's, and every other agent's by the all-time reading above — must be
+  exactly `{claude, codex}`. The directory rule stays as defence in depth.
+  Gemini and opencode pairs, which the directory rule admitted, are refused
+  until the disjointness check is a test rather than the audit above (#2525,
+  item 3).
 
 **Amended 2026-09-18 — runtime is part of a home's identity (#2379).**
 

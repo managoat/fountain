@@ -165,11 +165,14 @@ credentials per spawned conversation.
 
 `FOUNTAIN_SANDBOX_ID` is the sandbox you are running on. Pass it as
 `sandbox_id` and the child runs on this same machine — same disk, same
-checkouts, at the same time as you. Only a child of the same environment and
-vault can attach, and of the same agent, or of an agent whose runtime keeps its
-files apart from every other agent's here (a codex child on a claude agent's
-machine, never a second claude agent); anything else is refused with
-`sandbox_identity_mismatch`.
+checkouts, at the same time as you. Only a child of **your own agent**, with the
+same environment and vault, can attach this way; anything else is refused with
+`sandbox_identity_mismatch`. A child of a different agent (for example a codex
+agent beside a claude one) needs a full-scope key, which `FOUNTAIN_TOKEN` is
+not: from here it is refused with `403 guest_attach_requires_full_scope`. If
+the task needs another agent on this machine, ask the user to attach it; to
+delegate to another agent yourself, leave out `sandbox_id` and it gets a
+machine of its own.
 
 ```bash
 # Spawn a child onto this machine (shares /workspace with you):

@@ -30,7 +30,7 @@ defmodule Fountain.Machines.Binding do
   `attach/3` is `Launch.create_attached_conversation/3` as it was on `main`,
   moved here whole: one transaction under the per-sandbox advisory lock (4316)
   that locks the tenant's inference source, re-reads the agent and the
-  machine's row, decides `attachable/5` **under that lock** (#2307 constraint
+  machine's row, decides `attachable/6` **under that lock** (#2307 constraint
   1), inserts the conversation, reserves its inference and inserts its
   execution allowance. What stage 8b changes is who may call it and where it
   runs: `Fountain.Team.open_fresh_conversation/3` used to insert a bound row
@@ -163,7 +163,8 @@ defmodule Fountain.Machines.Binding do
 
   Every answer here is a word the callers already handled on `main`:
   `attach/3` answers the attach door's (`:sandbox_identity_mismatch`,
-  `:sandbox_runtime_mismatch`, `:sandbox_reset_pending`,
+  `:sandbox_runtime_mismatch`, `:guest_attach_requires_full_scope` (#2525),
+  `:sandbox_reset_pending`,
   `{:sandbox_not_attachable, status}`, `:sandbox_unavailable`, `:not_found`, a
   changeset, the inference and allowance refusals); `detach/2` the fence's and
   the release's; `retarget/3` the reapply's. New are `:machine_busy` (a live
@@ -216,6 +217,13 @@ defmodule Fountain.Machines.Binding do
   @poll_ms 250
 
   @terminal_statuses ~w(terminated failed)
+
+  # The runtimes a mixed machine may hold, and only together (#2525). The
+  # directory rule in `guest_admissible?/2` stays as defence in depth.
+  @guest_runtimes ~w(claude codex)
+
+  # The attach options `attachable/6` reads.
+  @guest_opts [:guest_ok, :successor_of, :rotate_from]
   @attachable_statuses ~w(ready suspended)
 
   # The columns a retarget may write, and nothing else. `status` and the
@@ -243,6 +251,16 @@ defmodule Fountain.Machines.Binding do
     * `:actor` / `:request_ip` — attribution for the allowance event.
     * `:deadline` — a `DateTime` on the database clock after which the caller
       is no longer waiting. Set by `Machine.attach/3` on the in-owner path.
+    * `:guest_ok` — `true` when the caller may make a **new** guest pairing:
+      a conversation of an agent other than the machine's (#2525). Only a
+      request authenticated with a full-scope key sets it
+      (`FountainWeb.Plugs.RequireFullScope.full_scope?/1`); anything else,
+      including every caller that does not mention it, is refused a guest.
+    * `:successor_of` — the conversation this one succeeds on the same
+      machine (a team rotation). With `:rotate_from`, the one guest attach
+      that needs no `:guest_ok`: see `attachable/6`.
+
+  Both guest options are read by `attachable/6` under the lock.
 
   Answers `{:ok, conversation, allowance}` after the commit, having fired the
   two effects every conversation insert owes: `Conversations.after_conversation_created/1`
@@ -313,7 +331,14 @@ defmodule Fountain.Machines.Binding do
           lock: "FOR NO KEY UPDATE"
       ) || Repo.rollback(:not_found)
 
-    case attachable(sandbox, agent, attrs.vault_id, attrs.environment_id, now) do
+    case attachable(
+           sandbox,
+           agent,
+           attrs.vault_id,
+           attrs.environment_id,
+           now,
+           Keyword.take(opts, @guest_opts)
+         ) do
       :ok -> :ok
       {:error, reason} -> Repo.rollback(reason)
     end
@@ -400,12 +425,24 @@ defmodule Fountain.Machines.Binding do
 
   The agent need not be the home's (ADR 0023, amended 2026-09-26, #2515): a
   conversation of another agent attaches as a guest when the machine is a
-  home with a recorded runtime and the guest's runtime keeps its config and
-  skills roots apart from those of every other agent's runtime on the disk
-  (a codex agent on a claude home, and the other way round). Anything else
-  of another agent is `:sandbox_identity_mismatch`; the machine's own agent
-  on a runtime it has since changed is `:sandbox_runtime_mismatch`. The
-  machine's `agent_id` and `runtime` stay the home's.
+  home with a recorded runtime, the runtimes on it — the home's, the guest's
+  and every other agent's that has run there — are exactly claude and codex
+  (#2525), and the guest's runtime keeps its config and skills roots apart
+  from those of every other agent's runtime on the disk. Anything else of
+  another agent is `:sandbox_identity_mismatch`; the machine's own agent on a
+  runtime it has since changed is `:sandbox_runtime_mismatch`. The machine's
+  `agent_id` and `runtime` stay the home's.
+
+  An admissible guest is then held to its caller (#2525, maintainer decision
+  after a red-team review): a **new** pairing needs `guest_ok: true` in
+  `opts`, which only a full-scope credential earns, so a sandbox's own
+  `sprite` token cannot put another agent onto a home and plant files its
+  host's runtime loads. Without it the answer is
+  `:guest_attach_requires_full_scope`. The one exception is a successor —
+  `:successor_of` (a team rotation) or `:rotate_from` (a channel rotation) —
+  naming a conversation of the **same** agent already on **this** machine:
+  that guest was admitted before, and its successor makes no new pairing.
+  Checked against the row, not the caller's word.
 
   `now` is the clock the lease is judged against; a caller holding the row
   under a lock passes the `statement_timestamp()` it read it with, and the
@@ -413,9 +450,15 @@ defmodule Fountain.Machines.Binding do
   before the lock is a courtesy to the person waiting; the one inside
   `attach/3` is the decision.
   """
-  @spec attachable(Sandbox.t(), Agents.Agent.t(), String.t() | nil, String.t() | nil, term()) ::
-          :ok | {:error, term()}
-  def attachable(sandbox, agent, vault_id, env_id, now \\ :db)
+  @spec attachable(
+          Sandbox.t(),
+          Agents.Agent.t(),
+          String.t() | nil,
+          String.t() | nil,
+          term(),
+          keyword()
+        ) :: :ok | {:error, term()}
+  def attachable(sandbox, agent, vault_id, env_id, now \\ :db, opts \\ [])
 
   # The fence, read off the `destroying` stamp (ADR 0058 stage 9a). Refused
   # whatever the lease says, and before the status clause:
@@ -430,15 +473,15 @@ defmodule Fountain.Machines.Binding do
   # answered `:sandbox_reset_pending` — a reset long since done. It answers
   # `{:sandbox_not_attachable, "terminated"}` now, the same as any other
   # terminated machine.
-  def attachable(%Sandbox{transition: "destroying", status: status}, _agent, _v, _e, _now)
+  def attachable(%Sandbox{transition: "destroying", status: status}, _agent, _v, _e, _now, _opts)
       when status in @attachable_statuses,
       do: {:error, :sandbox_reset_pending}
 
-  def attachable(%Sandbox{status: status}, _agent, _vault_id, _env_id, _now)
+  def attachable(%Sandbox{status: status}, _agent, _vault_id, _env_id, _now, _opts)
       when status not in @attachable_statuses,
       do: {:error, {:sandbox_not_attachable, status}}
 
-  def attachable(%Sandbox{} = sandbox, %Agents.Agent{} = agent, vault_id, env_id, now) do
+  def attachable(%Sandbox{} = sandbox, %Agents.Agent{} = agent, vault_id, env_id, now, opts) do
     cond do
       sandbox.vault_id != vault_id ->
         {:error, :sandbox_identity_mismatch}
@@ -451,6 +494,12 @@ defmodule Fountain.Machines.Binding do
       # query it makes is spent only on an otherwise matching identity.
       sandbox.agent_id != agent.id and not guest_admissible?(sandbox, agent) ->
         {:error, :sandbox_identity_mismatch}
+
+      # An admissible guest, and a caller that may not make the pairing
+      # (#2525). After admissibility, so `insufficient_scope` is only ever an
+      # answer a full-scope key would turn into a yes.
+      sandbox.agent_id != agent.id and not guest_permitted?(sandbox, agent, opts) ->
+        {:error, :guest_attach_requires_full_scope}
 
       # The disk was shaped by the runtime that first ran on it; an agent
       # whose runtime changed since gets a new machine, not this one. A
@@ -482,7 +531,14 @@ defmodule Fountain.Machines.Binding do
   #     ends guests with the home's agent and `Reapply` refuses them by the
   #     home's runtime; a per-conversation machine, a legacy machine with no
   #     runtime and an orphaned one have neither, so they take no guest.
-  #   * Directories, not runtime names. The guest's config root and skills
+  #   * Only claude and codex, together (#2525, maintainer decision after a
+  #     red-team review). The set of runtimes — the machine's, the guest's,
+  #     and every other agent's by the reading below — must be exactly
+  #     `@guest_runtimes`. The directory rule would also admit gemini and
+  #     opencode pairs; nothing tests that their files stay apart beyond a
+  #     one-time audit, so they wait for #2525 item 3.
+  #   * Directories, not runtime names, as defence in depth. The guest's
+  #     config root and skills
   #     root must not overlap (equal to, or inside, one another) either root
   #     of the machine's runtime or of any runtime a conversation of another
   #     agent has run here. Retired conversations count: a runtime's files
@@ -502,26 +558,58 @@ defmodule Fountain.Machines.Binding do
   # after this one's row is visible.
   defp guest_admissible?(%Sandbox{mode: "persistent", runtime: machine_runtime} = sandbox, agent)
        when is_binary(machine_runtime) and is_binary(sandbox.agent_id) do
-    case runtime_roots(agent.runtime) do
-      {:ok, guest_roots} ->
-        [
-          machine_runtime
-          | other_agents_runtimes(sandbox, agent) ++ departed_runtimes(sandbox, agent)
-        ]
-        |> Enum.uniq()
-        |> Enum.all?(fn runtime ->
-          case runtime_roots(runtime) do
-            {:ok, roots} -> not overlapping?(guest_roots, roots)
-            :unknown -> false
-          end
-        end)
+    others =
+      Enum.uniq([
+        machine_runtime
+        | other_agents_runtimes(sandbox, agent) ++ departed_runtimes(sandbox, agent)
+      ])
 
-      :unknown ->
-        false
+    with true <- Enum.sort(Enum.uniq([agent.runtime | others])) == @guest_runtimes,
+         {:ok, guest_roots} <- runtime_roots(agent.runtime) do
+      Enum.all?(others, fn runtime ->
+        case runtime_roots(runtime) do
+          {:ok, roots} -> not overlapping?(guest_roots, roots)
+          :unknown -> false
+        end
+      end)
+    else
+      _ -> false
     end
   end
 
   defp guest_admissible?(_sandbox, _agent), do: false
+
+  # Who may make the pairing (#2525): a full-scope caller, or the successor
+  # of a conversation of the same agent already on this machine — the guest
+  # was admitted then, and a rotation makes no new pairing. The successor is
+  # read on this connection, under the lock, off the row; a rotation releases
+  # its predecessor before it attaches, so a terminal row counts, and a
+  # deleted one (its descriptor alone) does not.
+  defp guest_permitted?(sandbox, agent, opts) do
+    Keyword.get(opts, :guest_ok) == true or
+      Enum.any?(
+        Enum.uniq([Keyword.get(opts, :successor_of), Keyword.get(opts, :rotate_from)]),
+        &successor_on_machine?(sandbox, agent, &1)
+      )
+  end
+
+  defp successor_on_machine?(%Sandbox{id: sandbox_id, user_id: user_id}, agent, conv_id)
+       when is_binary(conv_id) do
+    case Ecto.UUID.cast(conv_id) do
+      {:ok, id} ->
+        Repo.exists?(
+          from c in Conversation,
+            where:
+              c.id == ^id and c.sandbox_id == ^sandbox_id and c.user_id == ^user_id and
+                c.agent_id == ^agent.id
+        )
+
+      :error ->
+        false
+    end
+  end
+
+  defp successor_on_machine?(_sandbox, _agent, _conv_id), do: false
 
   # Every runtime a conversation of another agent has run on the machine,
   # retired ones included; nil for a row that recorded none, which

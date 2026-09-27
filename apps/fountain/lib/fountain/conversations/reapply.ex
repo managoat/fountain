@@ -53,7 +53,7 @@ defmodule Fountain.Conversations.Reapply do
   (`Managoat.Runtimes.Layout`), not per-conversation ones, so rewriting them
   rewrites them for every conversation on that machine. Sharing only happens
   on a persistent home or an explicit `sandbox_id` attach, and
-  `Fountain.Machines.Binding.attachable/5` already pins every conversation on a
+  `Fountain.Machines.Binding.attachable/6` already pins every conversation on a
   machine to one `(user, agent, environment, vault)`. A conversation that has
   the machine to itself can therefore be reconfigured freely; one that shares
   it may only be reapplied to the selection its cotenants already have, which
@@ -221,7 +221,7 @@ defmodule Fountain.Conversations.Reapply do
   @doc """
   Move the machine's binding identity to the selection just committed.
 
-  The identity is what `Fountain.Machines.Binding.attachable/5` matches a later
+  The identity is what `Fountain.Machines.Binding.attachable/6` matches a later
   attach against, so it has to follow the conversation rather than stay on
   the machine's original three. A persistent home is unique per identity, so
   a move onto one that already exists comes back as a changeset error on

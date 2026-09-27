@@ -575,7 +575,7 @@ defmodule Fountain.Machines.Destroy do
       #     decision at its own fence and hands this `nil` precisely so it is
       #     not reopened.
       #   * a co-tenant attaching in between — impossible, because the fence has
-      #     committed and `Binding.attachable/5` refuses a fenced machine.
+      #     committed and `Binding.attachable/6` refuses a fenced machine.
       #
       # So what the stamp removes is a second read, not a second decision.
       %Sandbox{transition: "destroying"} = interrupted ->

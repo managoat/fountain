@@ -452,13 +452,26 @@ defmodule Fountain.Conversations.MixedHomeLifecycleTest do
                  ctx.env.id
                )
 
-      # The agent that left the files may come back to them.
+      # The agent that left the files may come back to them, as a new pairing:
+      # a full-scope caller's (#2525). Its deleted row is no predecessor.
       assert :ok =
                Fountain.Machines.Binding.attachable(
                  Repo.reload!(ctx.home),
                  ctx.guest_agent,
                  nil,
-                 ctx.env.id
+                 ctx.env.id,
+                 :db,
+                 guest_ok: true
+               )
+
+      assert {:error, :guest_attach_requires_full_scope} =
+               Fountain.Machines.Binding.attachable(
+                 Repo.reload!(ctx.home),
+                 ctx.guest_agent,
+                 nil,
+                 ctx.env.id,
+                 :db,
+                 successor_of: ctx.guest.id
                )
     end
 

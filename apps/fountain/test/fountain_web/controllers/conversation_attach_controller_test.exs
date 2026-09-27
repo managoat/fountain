@@ -3,6 +3,8 @@ defmodule FountainWeb.ConversationAttachControllerTest do
   use FountainWeb.ConnCase, async: true
   use Mimic
 
+  import Ecto.Query, only: [from: 2]
+
   alias Fountain.{Conversations, Repo}
   alias Fountain.Conversations.{Conversation, ExecutionAllowance}
 
@@ -180,6 +182,49 @@ defmodule FountainWeb.ConversationAttachControllerTest do
       assert data["sandbox"]["agent_id"] == ctx.agent.id
     end
 
+    # The red-team finding (#2525): a sandbox's own token paired an agent of
+    # the other runtime with a home, with no person involved.
+    test "a sandbox token may not attach a guest: 403 insufficient_scope", ctx do
+      {_key, sprite_key} = insert_sprite_api_key(ctx.user)
+
+      body =
+        ctx.conn
+        |> authed_with_key(sprite_key)
+        |> post_json("/api/conversations", %{
+          "agent_id" => ctx.codex.id,
+          "sandbox_id" => ctx.home.id
+        })
+        |> json_response(403)
+
+      assert body["error"] == "guest_attach_requires_full_scope"
+      assert body["reason"] == "insufficient_scope"
+      assert body["required_scope"] == "full"
+
+      refute Repo.exists?(
+               from c in Conversation,
+                 where: c.sandbox_id == ^ctx.home.id and c.agent_id == ^ctx.codex.id
+             )
+
+      assert is_nil(Repo.reload!(ctx.home).codex_inference_source)
+    end
+
+    test "a sandbox token still attaches the home's own agent", ctx do
+      {_key, sprite_key} = insert_sprite_api_key(ctx.user)
+
+      data =
+        ctx.conn
+        |> authed_with_key(sprite_key)
+        |> post_json("/api/conversations", %{
+          "agent_id" => ctx.agent.id,
+          "sandbox_id" => ctx.home.id
+        })
+        |> json_response(201)
+        |> Map.fetch!("data")
+
+      assert data["sandbox_id"] == ctx.home.id
+      assert data["agent_id"] == ctx.agent.id
+    end
+
     test "an agent of the same runtime is a 422 that says why", ctx do
       claude =
         insert_agent(
@@ -321,8 +366,6 @@ defmodule FountainWeb.ConversationAttachControllerTest do
   end
 
   defp creation_events(user_id) do
-    import Ecto.Query
-
     Repo.all(
       from e in Fountain.Audit.Event,
         where:

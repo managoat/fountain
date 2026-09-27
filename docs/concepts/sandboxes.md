@@ -134,22 +134,36 @@ a guest, to that agent's persistent machine. A claude agent and a codex agent
 can then work on one disk. All of these must hold:
 
 - The launch names the machine's environment and vault.
-- The guest's runtime keeps its files apart from every other agent's runtime
-  on the machine. Fountain compares the directory each runtime keeps its
-  settings, instructions and skills in: `~/.claude` for claude, `~/.codex`
-  for codex, and, because those two run with their home in `/tmp`,
-  `/tmp/.gemini` for gemini and `/tmp/.config/opencode` for opencode. Any two
-  different runtimes of these four can share a machine. Two agents of the
-  same runtime would share one set of instructions and skills, so Fountain
-  refuses them. An `acp` agent runs a command whose files Fountain cannot
-  place, so it neither joins another agent's machine nor takes a guest.
+- The machine and the guest make a claude and codex pair: a codex agent on a
+  claude agent's machine, or a claude agent on a codex agent's. No agent of any
+  other runtime can have run there. Two agents of the same runtime would share
+  one set of instructions and skills, so Fountain refuses them. Gemini and
+  opencode agents don't take part, and an `acp` agent runs a command whose
+  files Fountain can't place.
+- Fountain also checks that the two runtimes keep their settings,
+  instructions and skills in separate directories: `~/.claude` for claude,
+  `~/.codex` for codex.
 - The machine has a recorded runtime.
+- The request is made with a full-scope API key, such as one you created
+  yourself. A sandbox's own token (`FOUNTAIN_TOKEN` inside a sandbox), or any
+  other key below full scope, gets `403 guest_attach_requires_full_scope`
+  with `reason: "insufficient_scope"`. Without this rule, an agent could put
+  another agent onto a machine without you, and leave files there that the
+  machine's own agent loads when it next starts.
 
-Anything else answers `422 sandbox_identity_mismatch`. Every conversation
-that has attached keeps counting until the machine is reset, because its files
-stay on the disk. That includes conversations that ended, conversations you
-deleted, a conversation whose first prompt was refused, and a guest that moved
-to a machine of its own.
+If any of the first four doesn't hold, the attach answers
+`422 sandbox_identity_mismatch`, whatever key made it. A `403` therefore means
+a full-scope key would have been admitted.
+
+A guest the machine already has keeps its place when its conversation is
+replaced by a new one of the same agent: a team rotation, or a `channel_id`
+request with `fresh`. Any other request of a sandbox token that names another
+agent is refused, even one for a second conversation of a guest already there.
+
+Every conversation that has attached keeps counting until the machine is
+reset, because its files stay on the disk. That includes conversations that
+ended, conversations you deleted, a conversation whose first prompt was
+refused, and a guest that moved to a machine of its own.
 
 A guest stays on the environment and vault it attached with, even if its agent
 later moves to another environment. If a guest's environment or vault changes

@@ -9,7 +9,7 @@ defmodule Fountain.Conversations.Launch do
   family — the reservation, the admission inference resolve and the one
   Horde `child_spec/3` builder every launch path now shares. Stage 7c moved
   the attach arm in behind it: `attach_conversation/3` and its two checks,
-  `Machines.Binding.attachable/5` and `check_attach_capacity/3`. `Conversations` still
+  `Machines.Binding.attachable/6` and `check_attach_capacity/3`. `Conversations` still
   keeps a delegate for every public name here, so no caller moves.
   """
 
@@ -63,6 +63,16 @@ defmodule Fountain.Conversations.Launch do
     - `parent_conversation_id` — optional; UUID of the conversation that spawned this one
     - `title`                 — optional display title (the team page names a teammate with it)
     - `labels`                — optional `key => value` strings (#1637); see `Conversations.Labels`
+
+  ## Options
+
+  Attribution (`:actor`, `:request_ip`, `:sandbox_key_id`), and `:guest_ok`:
+  `true` lets an attach by `sandbox_id` make a new guest pairing — a
+  conversation of another agent on that agent's home (#2525). Only a door that
+  knows its caller holds a full-scope credential sets it
+  (`FountainWeb.ConversationController.create/2`); left out, a guest is refused
+  with `:guest_attach_requires_full_scope`. `Fountain.Machines.Binding.attach/3`
+  documents the rest of the attach options.
   """
   def start_conversation(attrs, opts \\ [])
 
@@ -412,7 +422,15 @@ defmodule Fountain.Conversations.Launch do
          :ok <- check_sandbox_api_attach(sandbox, attrs["sandbox_api_access"]),
          # A courtesy to the person waiting; the decision is the owner's, under
          # its lock, inside `Machine.attach/3` (ADR 0058 stage 8b).
-         :ok <- Binding.attachable(sandbox, agent, vault_id, env_id),
+         :ok <-
+           Binding.attachable(
+             sandbox,
+             agent,
+             vault_id,
+             env_id,
+             :db,
+             Keyword.take(opts, [:guest_ok, :successor_of, :rotate_from])
+           ),
          :ok <- check_attach_capacity(sandbox, agent, attrs["prompt"]),
          {:ok, conv, _allowance} <-
            Machine.attach(

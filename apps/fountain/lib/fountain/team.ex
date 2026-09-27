@@ -763,8 +763,13 @@ defmodule Fountain.Team do
 
   defp door_open?(user_id, agent_id, %Conversation{} = prev, true) do
     case Agents.get_agent(agent_id, user_id) do
-      nil -> {:error, :not_found}
-      agent -> Binding.attachable(prev.sandbox, agent, prev.vault_id, prev.environment_id)
+      nil ->
+        {:error, :not_found}
+
+      agent ->
+        Binding.attachable(prev.sandbox, agent, prev.vault_id, prev.environment_id, :db,
+          successor_of: prev.id
+        )
     end
   end
 
@@ -805,8 +810,19 @@ defmodule Fountain.Team do
     # never made. A teammate whose agent has been deleted cannot be rotated
     # onto its computer any more (`:not_found`); its next prompt could not
     # have run without one either.
+    #
+    # `successor_of`: a teammate that is a guest on another agent's home keeps
+    # it (#2525). It was admitted as a guest once; its successor is the same
+    # agent on the same machine, which the attach door checks off the rows
+    # under its lock, so this is no new pairing and needs no full-scope
+    # caller. It is the only guest attach this module makes: every other
+    # launch here names no `sandbox_id`.
     with {:ok, conv, _allowance} <-
-           Machine.attach(prev.sandbox_id, attrs, Keyword.take(opts, [:actor, :request_ip])) do
+           Machine.attach(
+             prev.sandbox_id,
+             attrs,
+             [successor_of: prev.id] ++ Keyword.take(opts, [:actor, :request_ip])
+           ) do
       Audit.record(%{
         user_id: user_id,
         action: "conversation.created",

@@ -144,7 +144,7 @@ defmodule Fountain.Conversations.Sandbox do
     # not a machine built for another. A conversation attaches only with the
     # same three, or as a guest: another agent of a runtime whose files lie
     # apart, on the same environment and vault, which leaves these as they
-    # are (`Fountain.Machines.Binding.attachable/5`, #2515). Nilified when
+    # are (`Fountain.Machines.Binding.attachable/6`, #2515). Nilified when
     # the agent or vault is deleted, like a
     # conversation's own pointers — the row outlives them as history.
     belongs_to :agent, Fountain.Agents.Agent

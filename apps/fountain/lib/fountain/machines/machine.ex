@@ -385,7 +385,7 @@ defmodule Fountain.Machines.Machine do
 
   The readers that ask are the three that would otherwise start work on the
   machine underneath its owner: `Wake.maybe_reuse_sandbox/1`,
-  `Machines.Binding.attachable/5` and `Rehydrator`'s boot sweep. Each turns `true`
+  `Machines.Binding.attachable/6` and `Rehydrator`'s boot sweep. Each turns `true`
   into the refusal the system already has, `:sandbox_unavailable` — 503 with a
   `Retry-After: 30`, `NotReadyError` in all four SDKs, snoozed by the launch
   queue and the schedule runner. Thirty seconds is an honest number precisely

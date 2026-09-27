@@ -1114,6 +1114,8 @@ defmodule Fountain.TeamTest do
     test "a guest teammate rotates on the home it sits on, as the same agent" do
       %{user: user, guest: guest, home: home, host_conv: host_conv} = guest_teammate_on_home()
 
+      # No caller scope is passed: the successor of a guest already on the
+      # home makes no new pairing, which the attach door checks itself (#2525).
       assert {:ok, fresh} = Team.open_fresh_conversation(user.id, guest.id)
       assert fresh.sandbox_id == home.id
       assert fresh.agent_id == guest.id

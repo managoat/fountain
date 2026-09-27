@@ -669,9 +669,29 @@ defmodule FountainWeb.FallbackController do
       message:
         "the sandbox was built from a different environment or vault, or for another agent " <>
           "this conversation's agent cannot join; a conversation attaches with the same " <>
-          "environment and vault, and another agent only to a persistent sandbox whose " <>
-          "runtimes keep their files apart from its runtime's (a codex agent on a claude " <>
-          "agent's home, never two agents of one runtime)"
+          "environment and vault, and another agent only to a persistent sandbox where " <>
+          "it makes a claude and codex pair (a codex agent on a claude agent's home, or " <>
+          "the other way round; never two agents of one runtime, nor any other runtime)"
+    })
+  end
+
+  # A guest attach (a conversation of another agent onto a home by
+  # `sandbox_id`) made with a credential below full scope (#2525): a sandbox's
+  # own `sprite` token, or a principal's. 403 with `RequireFullScope`'s shape,
+  # `reason: "insufficient_scope"` and `required_scope: "full"`, because the
+  # refusal is that plug's rule applied inside the attach door, and only ever
+  # given for an attach a full-scope key would have been admitted to.
+  def call(conn, {:error, :guest_attach_requires_full_scope}) do
+    conn
+    |> put_status(:forbidden)
+    |> json(%{
+      error: "guest_attach_requires_full_scope",
+      reason: "insufficient_scope",
+      required_scope: "full",
+      message:
+        "attaching a conversation of another agent to this sandbox needs a full-scope " <>
+          "API key; a sandbox's own token may attach only conversations of the agent the " <>
+          "sandbox already runs"
     })
   end
 

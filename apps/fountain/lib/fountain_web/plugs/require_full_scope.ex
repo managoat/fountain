@@ -30,8 +30,8 @@ defmodule FountainWeb.Plugs.RequireFullScope do
 
   def init(opts), do: opts
 
-  def call(%{assigns: %{current_api_key: %ApiKey{} = key}} = conn, opts) do
-    if ApiKey.may_manage_keys?(key) do
+  def call(%{assigns: %{current_api_key: %ApiKey{}}} = conn, opts) do
+    if full_scope?(conn) do
       conn
     else
       refuse(conn, Keyword.get(opts, :error, @default_error))
@@ -43,6 +43,18 @@ defmodule FountainWeb.Plugs.RequireFullScope do
   def call(conn, _opts) do
     refuse(conn, "API key scope could not be determined")
   end
+
+  @doc """
+  Whether the request carries a full-scope key: this plug's rule, for a door
+  that admits every scope but decides one thing by it (a guest attach on
+  `POST /api/conversations`, #2525). `false` with no key, as the plug fails
+  closed.
+  """
+  @spec full_scope?(Plug.Conn.t()) :: boolean()
+  def full_scope?(%Plug.Conn{assigns: %{current_api_key: %ApiKey{} = key}}),
+    do: ApiKey.may_manage_keys?(key)
+
+  def full_scope?(%Plug.Conn{}), do: false
 
   defp refuse(conn, message) do
     conn

@@ -73,7 +73,7 @@ defmodule Fountain.Conversations.SpriteEnvTest do
       conv_id = "conv-#{System.unique_integer([:positive])}"
       on_exit(fn -> Redaction.delete(conv_id) end)
 
-      mine = "/home/sprite/.switchyard/ca/ca-bundle.crt"
+      mine = "/home/sprite/.ca/ca-bundle.crt"
       proxy = "http://av_sess_1:c-1@broker.example:443"
 
       env = %Environment{

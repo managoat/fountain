@@ -38,7 +38,7 @@ Read-only inventory of `managoat/demos` at
   and Salon pin TypeScript SDK 1.25.0.
 - Mission Control, Fountain Conversations and Paddock pass API-shaped input
   objects through local HTTP clients, with handwritten input-type subsets.
-- Fountain Team, Drydock, Switchyard and Paddock's proxy build inputs around
+- Fountain Team, Drydock and Paddock's proxy build inputs around
   app-owned project/channel/sandbox policies.
 - No SDK `fountain.run`, `client.run` or `sdk.run` call was found in that
   snapshot. Generic `.run` search hits also include database calls.

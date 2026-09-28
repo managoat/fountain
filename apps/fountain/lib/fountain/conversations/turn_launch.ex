@@ -26,24 +26,27 @@ defmodule Fountain.Conversations.TurnLaunch do
 
   alias Fountain.Conversations
   alias Fountain.Conversations.{CodexChatGPT, Connection, ExecutionLimits}
-  alias Fountain.Conversations.{McpServers, Output, TurnMachine}
+  alias Fountain.Conversations.{McpServers, Output, ReadOnly, TurnMachine}
 
   def run(state, conv, turn, prompt, agent, images, fail_before_start) do
-    case TurnMachine.session_plan(turn, state.runtime_session_id) do
-      {:ok, plan} ->
-        spec = %{
-          conv: conv,
-          agent: agent,
-          prompt: prompt,
-          images: images,
-          relaunched?: false,
-          contended: 0
-        }
+    # `TurnMachine.open/7` refuses a read-only prompt its runtime cannot
+    # enforce before the row exists; a turn row that says otherwise still
+    # never spawns writable (#2533).
+    with :ok <- ReadOnly.check(turn.read_only, conv.runtime),
+         {:ok, plan} <- TurnMachine.session_plan(turn, state.runtime_session_id) do
+      spec = %{
+        conv: conv,
+        agent: agent,
+        prompt: prompt,
+        images: images,
+        relaunched?: false,
+        contended: 0
+      }
 
-        launch(state, turn, spec, fail_before_start, plan)
-
-      {:error, _} ->
-        session_plan_refused(state, turn)
+      launch(state, turn, spec, fail_before_start, plan)
+    else
+      {:error, {:read_only_unsupported, _} = reason} -> fail_before_start.(state, turn, reason)
+      {:error, _} -> session_plan_refused(state, turn)
     end
   end
 
@@ -62,6 +65,11 @@ defmodule Fountain.Conversations.TurnLaunch do
     turn_number = turn.turn_number
 
     {cmd, args, cwd} = TurnMachine.command(conv, agent, state.handle)
+
+    # A read-only turn's adapter starts under the managed policy that denies
+    # writes (#2533); innermost, so the relaunch delay and the identity tag
+    # below wrap it like any adapter.
+    {cmd, args} = ReadOnly.command(turn, cmd, args)
 
     # A relaunch continues the turn the first launch announced and timed.
     unless relaunch?, do: publish_started(state, turn, turn_number, mode)
@@ -96,8 +104,9 @@ defmodule Fountain.Conversations.TurnLaunch do
         else: System.monotonic_time(:millisecond)
 
     # What this turn's model needs in the adapter's own env, on top of the
-    # sandbox's. Recorded with the peer, so a reuse can tell it apart.
-    model_env = TurnMachine.model_env(state.runtime_module, conv, agent)
+    # sandbox's, marked for a read-only turn. Recorded with the peer, so a
+    # reuse can tell it apart.
+    model_env = ReadOnly.spawn_env(TurnMachine.model_env(state.runtime_module, conv, agent), turn)
 
     try do
       spawn_opts =
@@ -145,7 +154,11 @@ defmodule Fountain.Conversations.TurnLaunch do
                 ),
               additional_directories: repository_directories(state),
               model: TurnMachine.acp_model(conv, agent),
-              permission_policy: TurnMachine.effective_permission_policy(conv, agent),
+              permission_policy:
+                ReadOnly.permission_policy(
+                  TurnMachine.effective_permission_policy(conv, agent),
+                  turn
+                ),
               auth: CodexChatGPT.peer_auth(state.runtime_module, state.inference_credentials),
               execution_transport: transport,
               execution_limits: bounded_sdk_limits(state, conv.runtime)
@@ -185,7 +198,7 @@ defmodule Fountain.Conversations.TurnLaunch do
       state.conversation_id,
       "turn",
       "started",
-      Conversations.Turn.correlate(turn, %{
+      Conversations.Turn.started_meta(turn, %{
         turn_id: turn.id,
         turn_number: turn_number,
         mode: Atom.to_string(mode)

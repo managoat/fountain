@@ -37,7 +37,7 @@ defmodule Fountain.Conversations.Blocks do
   | `:error` | `body` |
   | `:raw` | `body`, `summary` |
   | `:permission_request` | `request_id`, `name`, `summary`, `options` |
-  | `:prompt` | `body` (the prompt that opened the turn) |
+  | `:prompt` | `body` (the prompt that opened the turn); `read_only: true` when that prompt asked for a read-only turn (#2533) |
 
   A `tool_result` is paired to its `tool_use` on `tool_id`; that is the
   client's pass (`pair_tool_results` in the LiveView, the same in the SPA),

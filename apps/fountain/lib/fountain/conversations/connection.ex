@@ -26,7 +26,7 @@ defmodule Fountain.Conversations.Connection do
   require OpenTelemetry.Tracer
 
   alias Fountain.Conversations
-  alias Fountain.Conversations.{Output, Provisioning, TurnMachine}
+  alias Fountain.Conversations.{Output, Provisioning, ReadOnly, TurnMachine}
   alias Fountain.Machines.Machine
 
   @type t :: %__MODULE__{
@@ -105,21 +105,38 @@ defmodule Fountain.Conversations.Connection do
       refuse this turn's model. A peer reattached across a deploy has an
       unknown spawn env (`acp_model_env: nil`), and is kept only by a runtime
       that never varies it.
+    * `"read_only_changed"`: the peer's adapter was spawned read-only and this
+      turn is not, or the other way round (#2533). The mode is the adapter's
+      process policy (`ReadOnly`), so it can only change with a new process.
+      A reattached peer is never taken for a read-only turn.
   """
-  @spec stale_reason(map(), boolean(), Conversations.Conversation.t(), map() | nil) ::
-          String.t() | nil
-  def stale_reason(%{turn_execution: %{}}, _replaced?, _conv, _agent), do: nil
-  def stale_reason(_state, true, _conv, _agent), do: "broker_session_replaced"
+  @spec stale_reason(
+          map(),
+          boolean(),
+          Conversations.Conversation.t(),
+          map() | nil,
+          Conversations.Turn.t()
+        ) :: String.t() | nil
+  def stale_reason(%{turn_execution: %{}}, _replaced?, _conv, _agent, _turn), do: nil
+  def stale_reason(_state, true, _conv, _agent, _turn), do: "broker_session_replaced"
 
-  def stale_reason(state, false, conv, agent) do
-    if model_env_matches?(state, conv, agent), do: nil, else: "model_env_changed"
+  def stale_reason(%{acp_model_env: nil} = state, false, _conv, _agent, turn) do
+    cond do
+      turn.read_only -> "read_only_changed"
+      Managoat.Runtimes.implements?(state.runtime_module, :model_env, 1) -> "model_env_changed"
+      true -> nil
+    end
   end
 
-  defp model_env_matches?(%{acp_model_env: nil} = state, _conv, _agent),
-    do: not Managoat.Runtimes.implements?(state.runtime_module, :model_env, 1)
+  def stale_reason(state, false, conv, agent, turn) do
+    expected = ReadOnly.spawn_env(TurnMachine.model_env(state.runtime_module, conv, agent), turn)
 
-  defp model_env_matches?(state, conv, agent),
-    do: state.acp_model_env == TurnMachine.model_env(state.runtime_module, conv, agent)
+    cond do
+      state.acp_model_env == expected -> nil
+      ReadOnly.spawned_read_only?(state.acp_model_env) != turn.read_only -> "read_only_changed"
+      true -> "model_env_changed"
+    end
+  end
 
   @doc """
   This turn rides the open connection: no spawn, no handshake.
@@ -159,7 +176,7 @@ defmodule Fountain.Conversations.Connection do
           conversation_id,
           "turn",
           "started",
-          Conversations.Turn.correlate(turn, %{
+          Conversations.Turn.started_meta(turn, %{
             turn_id: turn.id,
             turn_number: turn.turn_number,
             mode: "continue",

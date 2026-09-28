@@ -231,7 +231,15 @@ defmodule FountainWeb.ConversationJSON do
         prompts
       )
       when is_map_key(prompts, turn_id) do
-    block = Fountain.Conversations.Blocks.to_json(%{kind: :prompt, body: prompts[turn_id]})
+    %{body: body, read_only: read_only} = prompts[turn_id]
+
+    # A read-only turn's prompt says so (#2533); any other keeps its shape.
+    block =
+      if read_only,
+        do: %{kind: :prompt, body: body, read_only: true},
+        else: %{kind: :prompt, body: body}
+
+    block = Fountain.Conversations.Blocks.to_json(block)
 
     Map.put(json, :blocks, [block])
   end
@@ -246,6 +254,8 @@ defmodule FountainWeb.ConversationJSON do
       status: t.status,
       # The caller's name for the prompt that opened the turn (#1406), or nil.
       client_request_id: t.client_request_id,
+      # The prompt asked for a read-only turn, which the runtime enforced (#2533).
+      read_only: t.read_only == true,
       # `user` or `autonomous` (#817); rows from before the column read as user.
       origin: t.origin || "user",
       # The turn ended with a permission request still open (#1635). The

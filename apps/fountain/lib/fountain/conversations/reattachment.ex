@@ -114,9 +114,13 @@ defmodule Fountain.Conversations.Reattachment do
         # fresh one — the adapter in the sprite is mid-turn and still asking.
         # Resolving from the agent here (rather than reading a policy frozen on
         # the conversation row) is what makes a tightening apply across a
-        # deploy.
+        # deploy. A read-only turn's clamp is reapplied from its row (#2533);
+        # the adapter it rejoins was spawned under the read-only policy.
         permission_policy:
-          TurnMachine.effective_permission_policy(conv, TurnMachine.agent_for(conv)),
+          Fountain.Conversations.ReadOnly.permission_policy(
+            TurnMachine.effective_permission_policy(conv, TurnMachine.agent_for(conv)),
+            running_turn
+          ),
         auth:
           Fountain.Conversations.CodexChatGPT.peer_auth(
             state.runtime_module,

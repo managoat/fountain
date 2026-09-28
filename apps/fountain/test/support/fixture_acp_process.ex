@@ -60,6 +60,74 @@ defmodule Fountain.FixtureAcpProcess do
   @spec fixture_path() :: String.t()
   def fixture_path, do: Path.expand(Path.join([__DIR__, "..", "fixtures", @fixture]))
 
+  @doc "Absolute path of a checked-in fixture file by name."
+  @spec fixture_path(String.t()) :: String.t()
+  def fixture_path(name), do: Path.expand(Path.join([__DIR__, "..", "fixtures", name]))
+
+  @doc """
+  Stub spawns to run **the argv the server spawned**, with the env it passed
+  plus `extra_env`, each spawn its own OS process (#2533).
+
+  `stub_spawn/0` runs the fixture whatever the server asked for; this runs what
+  it asked for, so the wrappers a launch puts in front of an adapter run for
+  real. The caller stubs the adapter command itself onto a fixture. Every
+  spawn is reported to `observer` as `{:spawned, cmd, args, env}`.
+  """
+  @spec stub_spawn_argv(pid(), [{String.t(), String.t()}]) :: :ok
+  def stub_spawn_argv(observer, extra_env \\ []) do
+    {:ok, routes} = Agent.start(fn -> %{} end)
+
+    ExUnit.Callbacks.on_exit(fn ->
+      if Process.alive?(routes) do
+        routes |> Agent.get(&Map.values/1) |> Enum.each(&send(&1, :stop))
+        Agent.stop(routes)
+      end
+    end)
+
+    Mimic.stub(Managoat.Sandbox.Sprites, :spawn, fn _handle, cmd, args, opts ->
+      ref = make_ref()
+      env = Keyword.get(opts, :env, []) ++ extra_env
+      send(observer, {:spawned, cmd, args, env})
+      relay = spawn(fn -> run_argv(cmd, args, env, Keyword.fetch!(opts, :owner), ref) end)
+      Agent.update(routes, &Map.put(&1, ref, relay))
+      {:ok, %Managoat.Sandbox.Command{provider: :sprites, ref: ref}}
+    end)
+
+    Mimic.stub(Managoat.Sandbox.Sprites, :write_stdin, fn command, data ->
+      with relay when is_pid(relay) <- Agent.get(routes, &Map.get(&1, command.ref)),
+           do: send(relay, {:write, IO.iodata_to_binary(data)})
+
+      :ok
+    end)
+
+    Mimic.stub(Managoat.Sandbox.Sprites, :close_stdin, fn _command -> :ok end)
+
+    Mimic.stub(Managoat.Sandbox.Sprites, :stop_command, fn command ->
+      with relay when is_pid(relay) <- Agent.get(routes, &Map.get(&1, command.ref)),
+           do: send(relay, :stop)
+
+      :ok
+    end)
+
+    :ok
+  end
+
+  defp run_argv(cmd, args, env, owner, ref) do
+    executable = System.find_executable(cmd) || raise "#{cmd} is not on PATH"
+
+    port =
+      Port.open({:spawn_executable, executable}, [
+        :binary,
+        :exit_status,
+        :use_stdio,
+        {:line, 1_000_000},
+        {:args, args},
+        {:env, Enum.map(env, fn {k, v} -> {to_charlist(k), to_charlist(v)} end)}
+      ])
+
+    relay(port, owner, ref)
+  end
+
   # Unlinked, and it waits rather than opening the port eagerly: writes that
   # somehow arrive first stay in the mailbox until the loop reaches them.
   defp await_start(ref) do

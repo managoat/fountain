@@ -50,7 +50,7 @@ defmodule Fountain.Conversations.TurnMachine do
   require OpenTelemetry.Tracer
 
   alias Fountain.{Agents, Conversations}
-  alias Fountain.Conversations.{Conversation, Interruption, Labels}
+  alias Fountain.Conversations.{Conversation, Interruption, Labels, ReadOnly}
   alias Fountain.InferenceCredentials.Source
   alias Fountain.Machines.Machine
   alias Fountain.PermissionPolicy
@@ -1052,6 +1052,7 @@ defmodule Fountain.Conversations.TurnMachine do
         "agent_id" => agent && agent.id,
         "user_id" => user_id,
         "prompt_length" => byte_size(turn.prompt),
+        "read_only" => turn.read_only == true,
         "image_count" => 0
       }
     })
@@ -1206,7 +1207,10 @@ defmodule Fountain.Conversations.TurnMachine do
       ) do
     conv = Conversations._unsafe_get_conversation!(conversation_id)
 
-    with :ok <- matching_model(source, agent, conv.runtime) do
+    # A read-only prompt on a runtime that cannot enforce it is refused before
+    # a turn row exists (#2533): run writable is the one outcome it must not have.
+    with :ok <- matching_model(source, agent, conv.runtime),
+         :ok <- ReadOnly.refuse_unsupported(conv, opts) do
       if runnable?(conv, agent),
         do: conv |> open_turn(sandbox_id, prompt, revision, source, opts) |> admitted(sandbox_id),
         else: refuse_no_command(conv)
@@ -1276,12 +1280,16 @@ defmodule Fountain.Conversations.TurnMachine do
         _ -> attrs
       end
 
+    # A read-only prompt (#2533) opens a read-only turn; every launch of it
+    # reads the row.
+    attrs = if opts[:read_only] == true, do: Map.put(attrs, :read_only, true), else: attrs
+
     # The owner admits the turn (ADR 0058 stage 8a): under the machine's lock
     # it re-reads the row, refuses a live lease or a fence, and counts capacity
     # for this conversation's runtime against that runtime's turns alone.
     case Machine.admit_turn(sandbox_id, attrs, revision: revision) do
       {:ok, turn} ->
-        {:ok, conv, turn}
+        ReadOnly.confirm_admitted(conv, turn, opts)
 
       # The server asked for a revision that is no longer current: a reapply
       # landed and this server has not read it. Not a refusal — the caller

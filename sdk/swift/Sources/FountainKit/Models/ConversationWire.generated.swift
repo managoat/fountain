@@ -85,6 +85,7 @@ public struct Turn: Sendable, Decodable, Hashable, Identifiable {
   public var modelSelection: TurnModelSelection?
   public var origin: TurnOrigin?
   public var prompt: String
+  public var readOnly: Bool?
   public var startedAt: Date?
   public var status: TurnStatus
   public var turnNumber: Int
@@ -103,6 +104,7 @@ public struct Turn: Sendable, Decodable, Hashable, Identifiable {
     case modelSelection = "model_selection"
     case origin = "origin"
     case prompt = "prompt"
+    case readOnly = "read_only"
     case startedAt = "started_at"
     case status = "status"
     case turnNumber = "turn_number"
@@ -168,6 +170,11 @@ public struct ConversationCreateRequest: Sendable, Encodable {
     get { _queue.value }
     set { _queue = newValue.map(ConversationInputField.value) ?? .omitted }
   }
+  private var _readOnly: ConversationInputField<Bool> = .omitted
+  public var readOnly: Bool? {
+    get { _readOnly.value }
+    set { _readOnly = newValue.map(ConversationInputField.value) ?? .omitted }
+  }
   private var _sandboxAPIAccess: ConversationInputField<SandboxAPIAccess> = .omitted
   public var sandboxAPIAccess: SandboxAPIAccess? {
     get { _sandboxAPIAccess.value }
@@ -223,7 +230,8 @@ public struct ConversationCreateRequest: Sendable, Encodable {
     inferenceCredentialID: String? = nil,
     labels: [String: String]? = nil,
     model: String? = nil,
-    queue: Bool? = nil
+    queue: Bool? = nil,
+    readOnly: Bool? = nil
   ) {
     self.agentID = agentID
     self.prompt = prompt
@@ -243,6 +251,7 @@ public struct ConversationCreateRequest: Sendable, Encodable {
     self.labels = labels
     self.model = model
     self.queue = queue
+    self.readOnly = readOnly
   }
 
   enum CodingKeys: String, CodingKey {
@@ -258,6 +267,7 @@ public struct ConversationCreateRequest: Sendable, Encodable {
     case permissionPolicyValues = "permission_policy"
     case prompt = "prompt"
     case queue = "queue"
+    case readOnly = "read_only"
     case sandboxAPIAccess = "sandbox_api_access"
     case sandboxID = "sandbox_id"
     case sandboxMode = "sandbox_mode"
@@ -278,6 +288,7 @@ public struct ConversationCreateRequest: Sendable, Encodable {
     case model
     case permissionPolicyValues
     case queue
+    case readOnly
     case sandboxID
     case sandboxMode
     case title
@@ -297,6 +308,7 @@ public struct ConversationCreateRequest: Sendable, Encodable {
     case .model: _model = .null
     case .permissionPolicyValues: _permissionPolicyValues = .null
     case .queue: _queue = .null
+    case .readOnly: _readOnly = .null
     case .sandboxID: _sandboxID = .null
     case .sandboxMode: _sandboxMode = .null
     case .title: _title = .null
@@ -318,6 +330,7 @@ public struct ConversationCreateRequest: Sendable, Encodable {
     try _permissionPolicyValues.encode(into: &container, forKey: .permissionPolicyValues)
     try _prompt.encode(into: &container, forKey: .prompt)
     try _queue.encode(into: &container, forKey: .queue)
+    try _readOnly.encode(into: &container, forKey: .readOnly)
     try _sandboxAPIAccess.encode(into: &container, forKey: .sandboxAPIAccess)
     try _sandboxID.encode(into: &container, forKey: .sandboxID)
     try _sandboxMode.encode(into: &container, forKey: .sandboxMode)

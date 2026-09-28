@@ -84,6 +84,11 @@ defmodule Fountain.Conversations.Turn do
     # turn order. nil when the caller sent none, and on every autonomous turn.
     # A correlation, not an idempotency key: it is not unique.
     field :client_request_id, :string
+    # The prompt that opened this turn asked for it to run without write
+    # access (#2533). Every launch of the turn reads it from here, which is
+    # what makes a relaunch, a restarted session and a reattach enforce it
+    # too: `Fountain.Conversations.ReadOnly`. False on every autonomous turn.
+    field :read_only, :boolean, default: false
     belongs_to :conversation, Conversation
     has_many :images, TurnImage, preload_order: [asc: :position]
     timestamps(type: :utc_datetime, updated_at: false)
@@ -119,6 +124,18 @@ defmodule Fountain.Conversations.Turn do
     do: Map.put(meta, :client_request_id, id)
 
   def correlate(%__MODULE__{}, meta), do: meta
+
+  @doc """
+  The turn's `turn` / `started` stage event data: `correlate/2`, plus
+  `read_only: true` on a read-only turn (#2533) so a client following the
+  stream can label it before it reads the row. A normal turn's event keeps
+  the shape it always had.
+  """
+  @spec started_meta(t(), map()) :: map()
+  def started_meta(%__MODULE__{read_only: true} = turn, meta),
+    do: turn |> correlate(meta) |> Map.put(:read_only, true)
+
+  def started_meta(%__MODULE__{} = turn, meta), do: correlate(turn, meta)
 
   # The two keys the turn-start inference stamp writes (#1685). Both are also
   # written by `TurnMachine.with_inference/2` at the end of a turn that
@@ -172,6 +189,7 @@ defmodule Fountain.Conversations.Turn do
       :model_selection,
       :reply_text,
       :origin,
+      :read_only,
       :conversation_id
     ])
     |> cast_client_request_id(attrs)

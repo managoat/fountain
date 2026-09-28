@@ -1404,6 +1404,9 @@ defmodule Fountain.Conversations do
   the `where`: it is what keeps a turn id from another tenant's conversation
   from resolving, independent of where the ids were collected.
 
+  Each value is the prompt as `body`, with the turn's `read_only` (#2533) beside
+  it so the block can say the turn ran read-only.
+
   An `autonomous` turn (#817) is left out here rather than in the caller, so
   the rows never leave PostgreSQL. Its prompt is a placeholder this server
   wrote for a cycle nobody asked for, and rendering that in the human's voice
@@ -1419,9 +1422,9 @@ defmodule Fountain.Conversations do
         where: t.id in ^turn_ids,
         where: is_nil(t.origin) or t.origin == "user",
         where: not is_nil(t.prompt) and t.prompt != "",
-        select: {t.id, t.prompt}
+        select: {t.id, t.prompt, t.read_only}
     )
-    |> Map.new()
+    |> Map.new(fn {id, prompt, read_only} -> {id, %{body: prompt, read_only: read_only}} end)
   end
 
   @doc """

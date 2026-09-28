@@ -419,6 +419,32 @@ defmodule FountainWeb.FallbackController do
     })
   end
 
+  # A read-only prompt (#2533) on a runtime with no way to enforce it. Refused
+  # rather than run: a read-only turn that could write is the one outcome the
+  # flag exists to rule out.
+  def call(conn, {:error, {:read_only_unsupported, runtime}}) do
+    conn
+    |> put_status(:unprocessable_entity)
+    |> json(%{
+      error: "read_only_unsupported",
+      message: Fountain.Conversations.ReadOnly.unsupported_message(runtime)
+    })
+  end
+
+  # The server that would run a read-only prompt is on a release that cannot
+  # enforce it, during a deploy (#2533). Nothing ran; sending again reaches a
+  # current one.
+  def call(conn, {:error, :read_only_unavailable}) do
+    conn
+    |> put_status(:service_unavailable)
+    |> json(%{
+      error: "read_only_unavailable",
+      message:
+        "the server that would run this read-only prompt cannot enforce read-only " <>
+          "turns yet (a deploy is in progress); nothing ran, send it again"
+    })
+  end
+
   # A conversation's model override (ADR 0061) that the runtime cannot run,
   # checked as an agent's model is. The message says which check failed.
   def call(conn, {:error, {:model_invalid, message}}) do

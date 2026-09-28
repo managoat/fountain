@@ -340,6 +340,27 @@ defmodule FountainWeb.ConversationControllerTest do
       assert ids == [nil, "salon-execution-42"]
     end
 
+    test "each turn says whether it ran read-only (#2533)", %{
+      conn: conn,
+      user: user,
+      raw_key: raw_key
+    } do
+      conv = insert_conversation(user_id: user.id)
+      insert_turn(conv, [])
+      insert_turn(conv, read_only: true)
+
+      flags =
+        conn
+        |> authed_with_key(raw_key)
+        |> get("/api/conversations/#{conv.id}/turns")
+        |> json_response(200)
+        |> Map.fetch!("data")
+        |> Enum.sort_by(& &1["turn_number"])
+        |> Enum.map(& &1["read_only"])
+
+      assert flags == [false, true]
+    end
+
     test "each turn says who opened it (#817)", %{conn: conn, user: user, raw_key: raw_key} do
       conv = insert_conversation(user_id: user.id)
       insert_turn(conv, [])
@@ -750,6 +771,51 @@ defmodule FountainWeb.ConversationControllerTest do
       assert %{started: 0, failed: 0, expired: 0} = Fountain.SandboxQueue.drain(user.id)
     end
 
+    test "a queued start keeps its read_only flag for the replay (#2533)", %{
+      conn: conn,
+      user: user,
+      raw_key: raw_key
+    } do
+      agent = insert_agent(user_id: user.id)
+      fill_cap(user)
+
+      conn
+      |> authed_with_key(raw_key)
+      |> post_json("/api/conversations", %{
+        "agent_id" => agent.id,
+        "prompt" => "what changed?",
+        "read_only" => true,
+        "queue" => true
+      })
+      |> json_response(202)
+
+      assert [request] = Fountain.SandboxQueue.list_queued(user.id)
+      assert request.attrs["read_only"] == true
+      assert Fountain.Conversations.PromptDelivery.from_request(request.attrs)[:read_only]
+    end
+
+    test "a read_only start on a runtime that cannot enforce it is refused, not queued", %{
+      conn: conn,
+      user: user,
+      raw_key: raw_key
+    } do
+      agent = insert_agent(user_id: user.id, runtime: "codex")
+
+      body =
+        conn
+        |> authed_with_key(raw_key)
+        |> post_json("/api/conversations", %{
+          "agent_id" => agent.id,
+          "prompt" => "what changed?",
+          "read_only" => true,
+          "queue" => true
+        })
+        |> json_response(422)
+
+      assert body["error"] == "read_only_unsupported"
+      assert Fountain.SandboxQueue.list_queued(user.id) == []
+    end
+
     test "the queued attrs carry only launch keys, never whatever else was sent", %{
       conn: conn,
       user: user,
@@ -1090,6 +1156,128 @@ defmodule FountainWeb.ConversationControllerTest do
       assert opts[:client_request_id] == "salon-execution-42"
       # Still the audit attribution it always was.
       assert opts[:actor]
+    end
+
+    test "read_only travels with the prompt and is echoed (#2533)", %{
+      conn: conn,
+      user: user,
+      raw_key: raw_key
+    } do
+      conv = insert_conversation(user_id: user.id)
+      test = self()
+
+      stub(ConversationServer, :send_prompt, fn _id, _prompt, _images, opts ->
+        send(test, {:prompt_opts, opts})
+        :ok
+      end)
+
+      body =
+        conn
+        |> authed_with_key(raw_key)
+        |> post_json("/api/conversations/#{conv.id}/prompts", %{
+          "prompt" => "why does this fail?",
+          "read_only" => true
+        })
+        |> json_response(200)
+
+      assert body == %{"status" => "queued", "client_request_id" => nil, "read_only" => true}
+      assert_received {:prompt_opts, opts}
+      assert opts[:read_only] == true
+    end
+
+    test "read_only false or null is a normal prompt (#2533)", %{
+      conn: conn,
+      user: user,
+      raw_key: raw_key
+    } do
+      conv = insert_conversation(user_id: user.id)
+      test = self()
+
+      stub(ConversationServer, :send_prompt, fn _id, _prompt, _images, opts ->
+        send(test, {:prompt_opts, opts})
+        :ok
+      end)
+
+      for value <- [false, nil] do
+        body =
+          conn
+          |> authed_with_key(raw_key)
+          |> post_json("/api/conversations/#{conv.id}/prompts", %{
+            "prompt" => "hello",
+            "read_only" => value
+          })
+          |> json_response(200)
+
+        assert body == %{"status" => "queued", "client_request_id" => nil}
+        assert_received {:prompt_opts, opts}
+        refute Keyword.has_key?(opts, :read_only)
+      end
+    end
+
+    test "a read_only prompt from the query string only is not read (#2533)", %{
+      conn: conn,
+      user: user,
+      raw_key: raw_key
+    } do
+      conv = insert_conversation(user_id: user.id)
+      test = self()
+
+      stub(ConversationServer, :send_prompt, fn _id, _prompt, _images, opts ->
+        send(test, {:prompt_opts, opts})
+        :ok
+      end)
+
+      conn
+      |> authed_with_key(raw_key)
+      |> post_json("/api/conversations/#{conv.id}/prompts?read_only=true", %{"prompt" => "hi"})
+      |> json_response(200)
+
+      assert_received {:prompt_opts, opts}
+      refute Keyword.has_key?(opts, :read_only)
+    end
+
+    test "a read_only prompt on a runtime that cannot enforce it is refused (#2533)", %{
+      conn: conn,
+      user: user,
+      raw_key: raw_key
+    } do
+      for runtime <- ["codex", "gemini", "opencode"] do
+        agent = insert_agent(user_id: user.id, runtime: runtime)
+        conv = insert_conversation(agent: agent, user_id: user.id)
+        reject(&ConversationServer.send_prompt/4)
+
+        body =
+          conn
+          |> authed_with_key(raw_key)
+          |> post_json("/api/conversations/#{conv.id}/prompts", %{
+            "prompt" => "why?",
+            "read_only" => true
+          })
+          |> json_response(422)
+
+        assert body["error"] == "read_only_unsupported"
+        assert body["message"] =~ runtime
+      end
+    end
+
+    test "a read_only prompt that reaches no enforcing server is a 503, not a writable turn",
+         %{conn: conn, user: user, raw_key: raw_key} do
+      conv = insert_conversation(user_id: user.id)
+
+      stub(ConversationServer, :send_prompt, fn _id, _prompt, _images, _opts ->
+        {:error, :read_only_unavailable}
+      end)
+
+      body =
+        conn
+        |> authed_with_key(raw_key)
+        |> post_json("/api/conversations/#{conv.id}/prompts", %{
+          "prompt" => "why?",
+          "read_only" => true
+        })
+        |> json_response(503)
+
+      assert body["error"] == "read_only_unavailable"
     end
 
     test "a prompt that names no request is answered with a null id (#1406)", %{

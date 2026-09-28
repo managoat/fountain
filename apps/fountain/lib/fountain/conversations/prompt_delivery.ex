@@ -30,13 +30,24 @@ defmodule Fountain.Conversations.PromptDelivery do
   The machine owner has the same window: an owner on the previous release
   inserts the turn from a changeset that does not cast `client_request_id`, so
   that turn opens without it.
+
+  ## `read_only` is never left behind
+
+  A prompt may also carry `read_only: true` (#2533). That is a permission, and
+  dropping it would run the prompt writable, so the rule above is inverted for
+  it: a node whose release cannot enforce it (`understands_read_only?/1`) is
+  not sent the prompt at all. The call answers
+  `{:error, :read_only_unavailable}`; the cast that follows a wake has nobody
+  to answer, so it is not sent, and the stream says the prompt did not run. A
+  machine owner on the previous release is caught after admission instead,
+  by `Fountain.Conversations.ReadOnly.confirm_admitted/3`.
   """
 
   require Logger
 
-  alias Fountain.Conversations.{ConversationServer, Turn}
+  alias Fountain.Conversations.{ConversationServer, Output, ReadOnly, Turn}
 
-  @carried [:client_request_id]
+  @carried [:client_request_id, :read_only]
 
   @type travelling :: keyword()
   @type wake_prompt :: nil | String.t() | {String.t(), travelling()}
@@ -54,13 +65,15 @@ defmodule Fountain.Conversations.PromptDelivery do
   """
   @spec travelling(keyword()) :: travelling()
   def travelling(opts) when is_list(opts) do
-    for {key, value} <- opts, key in @carried, carriable?(value), do: {key, value}
+    for {key, value} <- opts, key in @carried, carriable?(key, value), do: {key, value}
   end
 
-  defp carriable?(value) when is_binary(value),
+  defp carriable?(:client_request_id, value) when is_binary(value),
     do: String.length(value) in 1..Turn.client_request_id_max() and not Turn.has_nul?(value)
 
-  defp carriable?(_value), do: false
+  # Only `true` travels: a normal prompt keeps the message shape it had.
+  defp carriable?(:read_only, value), do: value == true
+  defp carriable?(_key, _value), do: false
 
   @doc """
   Whether the server on `node` matches the four-element messages. It does when
@@ -77,12 +90,26 @@ defmodule Fountain.Conversations.PromptDelivery do
   end
 
   @doc """
+  Whether the server on `node` enforces a read-only turn: its release has
+  `Fountain.Conversations.ReadOnly`, which shipped with the clauses that do.
+  Any failure to find out reads as no.
+  """
+  @spec understands_read_only?(node()) :: boolean()
+  def understands_read_only?(node) when node == node(), do: true
+
+  def understands_read_only?(node) do
+    :erpc.call(node, Code, :ensure_loaded?, [ReadOnly], 2_000) == true
+  catch
+    _kind, _reason -> false
+  end
+
+  @doc """
   What a launch request asks to travel with its first prompt. `attrs` is the
   string-keyed map `Launch` takes, from the API or replayed from the queue.
   """
   @spec from_request(map()) :: travelling()
   def from_request(attrs) when is_map(attrs) do
-    travelling(client_request_id: attrs["client_request_id"])
+    travelling(client_request_id: attrs["client_request_id"], read_only: attrs["read_only"])
   end
 
   @doc """
@@ -107,6 +134,56 @@ defmodule Fountain.Conversations.PromptDelivery do
   end
 
   @doc """
+  Whether a prompt carrying `opts` may go to `pid` at all: `:ok`, or
+  `{:error, :read_only_unavailable}` when it asks for a read-only turn and the
+  server's release cannot enforce one. See the moduledoc.
+  """
+  @spec permitted(pid(), keyword(), (node() -> boolean())) ::
+          :ok | {:error, :read_only_unavailable}
+  def permitted(pid, opts, understands_read_only? \\ &understands_read_only?/1) do
+    if Keyword.get(travelling(opts), :read_only) != true or understands_read_only?.(node(pid)),
+      do: :ok,
+      else: {:error, :read_only_unavailable}
+  end
+
+  @doc """
+  Cast a woken or launched conversation's first prompt to `pid`, unless it
+  asks for a read-only turn that server cannot enforce. Then nothing is sent:
+  the prompt is not run, the stream says so, and the log names the node, never
+  the prompt.
+  """
+  @spec send_cast(pid(), String.t(), list(), keyword()) :: :ok
+  def send_cast(pid, prompt, images, opts) do
+    case permitted(pid, opts) do
+      :ok ->
+        GenServer.cast(pid, cast(pid, prompt, images, opts))
+
+      {:error, :read_only_unavailable} ->
+        Logger.warning(
+          "read-only prompt for a server on #{node(pid)}, which predates read-only turns " <>
+            "(#2533): not delivered"
+        )
+
+        refuse_cast(pid)
+    end
+  end
+
+  defp refuse_cast(pid) do
+    case Horde.Registry.keys(Fountain.ConversationRegistry, pid) do
+      [conversation_id | _] when is_binary(conversation_id) ->
+        Output.publish_stage(conversation_id, "turn", "failed", %{
+          reason: "read_only_unavailable",
+          message:
+            "This prompt asked to run read-only and reached a server that cannot " <>
+              "enforce that during a deploy. It did not run. Send it again."
+        })
+
+      _ ->
+        :ok
+    end
+  end
+
+  @doc """
   Deliver to a live server, with the caller's uncertain-delivery classification.
 
   A timeout or distribution loss can follow acceptance of the prompt. The
@@ -117,7 +194,9 @@ defmodule Fountain.Conversations.PromptDelivery do
   """
   def deliver(pid, prompt, images, opts) do
     uncertain_error = Keyword.get(opts, :uncertain_error, :provisioning)
-    ConversationServer.call_server(pid, call(pid, prompt, images, opts), uncertain_error)
+
+    with :ok <- permitted(pid, opts),
+         do: ConversationServer.call_server(pid, call(pid, prompt, images, opts), uncertain_error)
   end
 
   @doc "The cast that delivers a prompt to the server `pid` once it has provisioned."

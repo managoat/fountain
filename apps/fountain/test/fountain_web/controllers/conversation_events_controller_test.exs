@@ -190,6 +190,23 @@ defmodule FountainWeb.ConversationEventsControllerTest do
       assert blocks[second_start.id] == [%{"kind" => "prompt", "body" => "second"}]
     end
 
+    test "a read-only turn's prompt block says so, and only that one (#2533)", %{
+      conn: conn,
+      key: key,
+      conv: conv
+    } do
+      {_normal, normal_start} = turn_with_start(conv, %{prompt: "fix it"})
+      {_asked, asked_start} = turn_with_start(conv, %{prompt: "why?", read_only: true})
+
+      blocks = blocks_by_id(conn, key, conv, "?blocks=true&prompts=true")
+
+      assert blocks[normal_start.id] == [%{"kind" => "prompt", "body" => "fix it"}]
+
+      assert blocks[asked_start.id] == [
+               %{"kind" => "prompt", "body" => "why?", "read_only" => true}
+             ]
+    end
+
     test "a stage event that is not a turn start stays empty", %{
       conn: conn,
       key: key,

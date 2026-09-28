@@ -9294,6 +9294,10 @@
           "required": false,
           "type": "string"
         },
+        "read_only": {
+          "required": false,
+          "type": "boolean"
+        },
         "request_id": {
           "nullable": true,
           "required": false,
@@ -10704,6 +10708,11 @@
           "required": false,
           "type": "boolean"
         },
+        "read_only": {
+          "nullable": true,
+          "required": false,
+          "type": "boolean"
+        },
         "sandbox_api_access": {
           "enum": [
             "none",
@@ -12083,6 +12092,11 @@
         "prompt": {
           "required": true,
           "type": "string"
+        },
+        "read_only": {
+          "nullable": true,
+          "required": false,
+          "type": "boolean"
         }
       },
       "type": "object"
@@ -12093,6 +12107,10 @@
           "nullable": true,
           "required": false,
           "type": "string"
+        },
+        "read_only": {
+          "required": false,
+          "type": "boolean"
         },
         "status": {
           "required": true,
@@ -13973,6 +13991,10 @@
         "prompt": {
           "required": true,
           "type": "string"
+        },
+        "read_only": {
+          "required": false,
+          "type": "boolean"
         },
         "started_at": {
           "format": "date-time",

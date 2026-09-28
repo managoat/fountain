@@ -28,6 +28,7 @@ defmodule Fountain.Conversations.Launch do
     ExecutionAllowance,
     InferenceBinding,
     PromptDelivery,
+    ReadOnly,
     Sandbox
   }
 
@@ -47,6 +48,9 @@ defmodule Fountain.Conversations.Launch do
     - `prompt`                — optional first prompt (sends turn 1 immediately)
     - `client_request_id`     — optional; the caller's name for that prompt, carried to the
                                 turn it opens (#1406). Ignored without a `prompt`
+    - `read_only`             — optional; `true` runs the turn that prompt opens without
+                                write access (#2533), refused when the agent's runtime cannot
+                                enforce it. Ignored without a `prompt`
     - `sprite_name`           — optional suffix for the sandbox name, which is always
                                 "fountain-<short-user-id>-<suffix>"; defaults to a random
                                 suffix. Refused with `sandbox_api_access: "none"`, and on
@@ -106,6 +110,7 @@ defmodule Fountain.Conversations.Launch do
          :ok <- check_sandbox_api_name(api_access, attrs["sprite_name"]),
          {:ok, perm_policy} <-
            Conversations.resolve_permission_policy(attrs["permission_policy"], agent),
+         :ok <- ReadOnly.check(read_only_prompt?(attrs), agent.runtime),
          {:ok, model} <- Conversations.resolve_model(attrs["model"], agent),
          {:ok, parent_id} <-
            resolve_parent_id(attrs["parent_conversation_id"], user_id),
@@ -410,6 +415,7 @@ defmodule Fountain.Conversations.Launch do
            ),
          {:ok, perm_policy} <-
            Conversations.resolve_permission_policy(attrs["permission_policy"], agent),
+         :ok <- ReadOnly.check(read_only_prompt?(attrs), agent.runtime),
          {:ok, model} <- Conversations.resolve_model(attrs["model"], agent),
          {:ok, parent_id} <-
            resolve_parent_id(attrs["parent_conversation_id"], user_id),
@@ -486,6 +492,13 @@ defmodule Fountain.Conversations.Launch do
   defp reserve_inference(conv) do
     InferenceBinding.reserve(conv, Source.load(conv.inference_source))
   end
+
+  # A read-only first prompt is checked against the runtime before anything is
+  # reserved (#2533); without a prompt the flag has nothing to apply to.
+  defp read_only_prompt?(%{"prompt" => prompt, "read_only" => true}),
+    do: is_binary(prompt) and prompt != ""
+
+  defp read_only_prompt?(_attrs), do: false
 
   defp deliver_attach_prompt(conv, attrs, opts) do
     prompt = attrs["prompt"]

@@ -8,7 +8,7 @@ defmodule FountainWeb.ConversationController do
   alias Fountain.Billing
   alias Fountain.Conversations
   alias Fountain.Conversations.{ConversationServer, Interruption, Launch, LogEvent}
-  alias Fountain.Conversations.{Reapply, Termination}
+  alias Fountain.Conversations.{ReadOnly, Reapply, Termination}
   alias FountainWeb.Audited
   alias FountainWeb.LabelFilter
   alias FountainWeb.Plugs.RequireFullScope
@@ -669,6 +669,8 @@ defmodule FountainWeb.ConversationController do
       # this door's `params` also carries and the request schema never sees.
       # The prompts route reads it the same way; see `client_request_id/1`.
       |> Map.put("client_request_id", client_request_id(conn))
+      # The same, for a read-only first prompt (#2533).
+      |> Map.put("read_only", read_only(conn))
 
     # `SandboxKey.opts/1` rides along because a `channel_id` resume lands on an
     # *existing* conversation and merges this request's labels into it (#1637);
@@ -715,7 +717,7 @@ defmodule FountainWeb.ConversationController do
   @queued_attr_keys ~w(prompt title vault_id environment_id inference_credential_id
                        permission_policy model sandbox_mode sandbox_api_access sprite_name
                        channel_id fresh parent_conversation_id labels
-                       execution_limits client_request_id)
+                       execution_limits client_request_id read_only)
 
   # Queueing is opt-in (ADR 0042 decision 2). A caller that did not ask keeps
   # the immediate 429 or 503 its client already handles.
@@ -941,7 +943,9 @@ defmodule FountainWeb.ConversationController do
     description:
       "Queues a new turn. If the ConversationServer has been GC'd (e.g. across a " <>
         "BEAM restart) a fresh sprite is provisioned and the runtime resumes via its " <>
-        "session id.",
+        "session id. `read_only: true` runs the turn without write access, enforced by " <>
+        "the runtime; a runtime that cannot enforce it is refused with 422 " <>
+        "`read_only_unsupported`.",
     parameters: [conversation_id: [in: :path, type: :string, required: true]],
     request_body: {"Prompt", "application/json", Schemas.PromptRequest},
     responses: [
@@ -976,6 +980,14 @@ defmodule FountainWeb.ConversationController do
     end
   end
 
+  # `read_only` (#2533), from the body the cast approved, like the id below.
+  defp read_only(%{private: %{open_api_spex: %{body_params: body}}}), do: read_only_from(body)
+  defp read_only(_conn), do: false
+
+  defp read_only_from(%{read_only: value}), do: value == true
+  defp read_only_from(%{"read_only" => value}), do: value == true
+  defp read_only_from(_body), do: false
+
   # `replace_params: false` leaves `params` as Plug built it: the path, the
   # query string and the body in one map. The request schema validates the
   # *body*, so a value that only ever appeared in the query string was never
@@ -996,33 +1008,46 @@ defmodule FountainWeb.ConversationController do
   defp from_body(_body), do: nil
 
   defp do_prompt(conn, id, prompt, user, images, client_request_id) do
+    read_only = read_only(conn)
+
     case Conversations.get_conversation(id, user.id) do
       nil ->
         {:error, :not_found}
 
-      _ ->
-        # The id rides in the opts to the turn the prompt opens (#1406),
-        # whichever road delivers it; see `Conversations.PromptDelivery`.
+      conv ->
+        # The id and the read-only flag ride in the opts to the turn the
+        # prompt opens (#1406, #2533), whichever road delivers them; see
+        # `Conversations.PromptDelivery`. A runtime that cannot enforce a
+        # read-only turn is refused here, before anything is sent.
         opts = Audited.attribution(conn, client_request_id: client_request_id)
+        opts = if read_only, do: Keyword.put(opts, :read_only, true), else: opts
 
-        case ConversationServer.send_prompt(id, prompt, images, opts) do
-          :ok ->
-            json(conn, %{status: "queued", client_request_id: client_request_id})
-
-          {:error, :not_running} ->
-            {:error, :not_found}
-
-          {:error, :busy} ->
-            {:error, "conversation_busy"}
-
-          # Everything else renders via the FallbackController. This case has
-          # had error shapes threaded through it by hand four times (#212's
-          # 402, then :gone / :no_agent / changeset in #332), and each one it
-          # was missing was a CaseClauseError 500. The fallback owns the
-          # error → status mapping; new shapes land there, not here.
-          {:error, _} = err ->
-            err
+        with :ok <- ReadOnly.check(read_only, conv.runtime) do
+          prompt_delivered(conn, id, prompt, images, opts, client_request_id, read_only)
         end
+    end
+  end
+
+  defp prompt_delivered(conn, id, prompt, images, opts, client_request_id, read_only) do
+    case ConversationServer.send_prompt(id, prompt, images, opts) do
+      :ok ->
+        body = %{status: "queued", client_request_id: client_request_id}
+        # Only a read-only prompt's answer says so (#2533): every other keeps its shape.
+        json(conn, if(read_only, do: Map.put(body, :read_only, true), else: body))
+
+      {:error, :not_running} ->
+        {:error, :not_found}
+
+      {:error, :busy} ->
+        {:error, "conversation_busy"}
+
+      # Everything else renders via the FallbackController. This case has
+      # had error shapes threaded through it by hand four times (#212's
+      # 402, then :gone / :no_agent / changeset in #332), and each one it
+      # was missing was a CaseClauseError 500. The fallback owns the
+      # error → status mapping; new shapes land there, not here.
+      {:error, _} = err ->
+        err
     end
   end
 

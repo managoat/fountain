@@ -165,7 +165,7 @@ defmodule Fountain.Conversations.ConversationServer do
   which can take minutes, and no caller is waiting on the turn to finish.
   """
   def queue_initial_prompt(pid, prompt, images \\ [], opts \\ []) when is_pid(pid) do
-    GenServer.cast(pid, PromptDelivery.cast(pid, prompt, images, opts))
+    PromptDelivery.send_cast(pid, prompt, images, opts)
   end
 
   @doc """
@@ -1711,7 +1711,7 @@ defmodule Fountain.Conversations.ConversationServer do
     # idle peer holds its token, and one whose token was replaced is closed.
     {state, replaced?} = Egress.refresh_before_turn(state)
 
-    why = Connection.stale_reason(state, replaced?, conv, agent)
+    why = Connection.stale_reason(state, replaced?, conv, agent, turn)
     state = if why, do: drop_connection(state, why), else: state
 
     TurnMachine.store_images(turn, images)

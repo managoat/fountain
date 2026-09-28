@@ -1422,7 +1422,7 @@ export interface paths {
         put?: never;
         /**
          * Send another prompt
-         * @description Queues a new turn. If the ConversationServer has been GC'd (e.g. across a BEAM restart) a fresh sprite is provisioned and the runtime resumes via its session id.
+         * @description Queues a new turn. If the ConversationServer has been GC'd (e.g. across a BEAM restart) a fresh sprite is provisioned and the runtime resumes via its session id. `read_only: true` runs the turn without write access, enforced by the runtime; a runtime that cannot enforce it is refused with 422 `read_only_unsupported`.
          */
         post: operations["FountainWeb.ConversationController.prompt"];
         delete?: never;
@@ -3232,6 +3232,8 @@ export interface components {
                 [key: string]: unknown;
             }[] | null;
             raw?: string | null;
+            /** @description prompt only, and only when true: the prompt asked for a read-only turn (`read_only` on the prompt request), which ran without write access. */
+            read_only?: boolean;
             /** @description permission_request only: the id to answer with. */
             request_id?: string | null;
             summary?: string | null;
@@ -3850,6 +3852,8 @@ export interface components {
             prompt?: string;
             /** @description When a fresh start reaches the tenant or the fleet concurrency ceiling, wait in the bounded sandbox queue and return 202 with a SandboxRequest instead of 429 or 503 (ADR 0042). Starts carrying images or an explicit sandbox_id are never queued, and a full queue keeps the immediate error. */
             queue?: boolean | null;
+            /** @description Run the turn the first prompt opens without write access. Ignored when the request carries no `prompt`, and, like `client_request_id`, not applied by an immediate `channel_id` resume: send it with the prompt on the prompts route. The turn resumes the conversation's own runtime session, so the agent answers from the whole conversation, but it cannot change the checkout: the runtime enforces it, and a write the agent attempts fails inside the runtime while the turn still completes with an answer. Supported on the claude runtime; any other runtime refuses the prompt with 422 `read_only_unsupported` rather than run it writable. The turn carries `read_only: true`, as do its `started` stage event and its `prompt` block. */
+            read_only?: boolean | null;
             /**
              * @description none omits the sandbox Fountain credential on provision and every wake. Requires a fresh ephemeral sandbox; unavailable on attach or policy-changing channel resume.
              * @enum {string}
@@ -4530,11 +4534,15 @@ export interface components {
             /** @description Optional images to attach to this prompt. */
             images?: components["schemas"]["ImageInput"][] | null;
             prompt: string;
+            /** @description Run the turn this prompt opens without write access. The turn resumes the conversation's own runtime session, so the agent answers from the whole conversation, but it cannot change the checkout: the runtime enforces it, and a write the agent attempts fails inside the runtime while the turn still completes with an answer. Supported on the claude runtime; any other runtime refuses the prompt with 422 `read_only_unsupported` rather than run it writable. The turn carries `read_only: true`, as do its `started` stage event and its `prompt` block. */
+            read_only?: boolean | null;
         };
         /** PromptResponse */
         PromptResponse: {
             /** @description The `client_request_id` the request carried, or null when it carried none. The response cannot name the turn: a conversation that has to be woken is answered before its turn exists. Find the turn by this value instead. */
             client_request_id?: string | null;
+            /** @description Present, and true, when the prompt was queued as a read-only turn (#2533). Absent for every other prompt. */
+            read_only?: boolean;
             /** @example queued */
             status: string;
         };
@@ -5355,6 +5363,8 @@ export interface components {
              */
             origin?: "user" | "autonomous";
             prompt: string;
+            /** @description The prompt that opened this turn asked for it to run without write access (#2533). The runtime enforced it: a write the agent attempted was refused inside the runtime. False on every other turn. */
+            read_only?: boolean;
             /** Format: date-time */
             started_at?: string | null;
             /** @enum {string} */

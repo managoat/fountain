@@ -731,6 +731,29 @@ defmodule FountainWeb.Schemas do
     end
   end
 
+  defmodule ReadOnlyFlag do
+    @moduledoc false
+
+    # One definition for every door that takes a prompt (#2533).
+
+    @shared "The turn resumes the conversation's own runtime session, so the agent " <>
+              "answers from the whole conversation, but it cannot change the checkout: the " <>
+              "runtime enforces it, and a write the agent attempts fails inside the " <>
+              "runtime while the turn still completes with an answer. Supported on the " <>
+              "claude runtime; any other runtime refuses the prompt with 422 " <>
+              "`read_only_unsupported` rather than run it writable. The turn carries " <>
+              "`read_only: true`, as do its `started` stage event and its `prompt` block."
+
+    def request(lead \\ "Run the turn this prompt opens without write access. ") do
+      %Schema{
+        type: :boolean,
+        # Null is "not read-only", as it is for `images` beside it.
+        nullable: true,
+        description: lead <> @shared
+      }
+    end
+  end
+
   defmodule ConversationCreateRequest do
     @moduledoc false
     require OpenApiSpex
@@ -826,6 +849,12 @@ defmodule FountainWeb.Schemas do
               "`prompt`. An immediate `channel_id` resume does not deliver the prompt; " <>
               "send the value with it on the prompts route. If a queued start resumes " <>
               "a channel bound while it waited, the queue delivers the prompt and value. "
+          ),
+        read_only:
+          ReadOnlyFlag.request(
+            "Run the turn the first prompt opens without write access. Ignored when the " <>
+              "request carries no `prompt`, and, like `client_request_id`, not applied by an " <>
+              "immediate `channel_id` resume: send it with the prompt on the prompts route. "
           ),
         title: %Schema{
           type: :string,
@@ -1063,7 +1092,8 @@ defmodule FountainWeb.Schemas do
           description: "Optional images to attach to this prompt.",
           nullable: true
         },
-        client_request_id: ClientRequestId.request()
+        client_request_id: ClientRequestId.request(),
+        read_only: ReadOnlyFlag.request()
       },
       required: [:prompt]
     })
@@ -1085,6 +1115,12 @@ defmodule FountainWeb.Schemas do
             "The `client_request_id` the request carried, or null when it carried none. " <>
               "The response cannot name the turn: a conversation that has to be woken is " <>
               "answered before its turn exists. Find the turn by this value instead."
+        },
+        read_only: %Schema{
+          type: :boolean,
+          description:
+            "Present, and true, when the prompt was queued as a read-only turn (#2533). " <>
+              "Absent for every other prompt."
         }
       },
       # `client_request_id` is always rendered and deliberately not required: a
@@ -1161,6 +1197,13 @@ defmodule FountainWeb.Schemas do
             "Who opened the turn: `user` for a prompt somebody sent, `autonomous` " <>
               "for a turn the server opened for a background cycle the agent ran " <>
               "after its prompt was answered (#817)."
+        },
+        read_only: %Schema{
+          type: :boolean,
+          description:
+            "The prompt that opened this turn asked for it to run without write access " <>
+              "(#2533). The runtime enforced it: a write the agent attempted was refused " <>
+              "inside the runtime. False on every other turn."
         },
         waiting: %Schema{
           type: :boolean,
@@ -1946,6 +1989,12 @@ defmodule FountainWeb.Schemas do
           type: :string,
           nullable: true,
           description: "permission_request only: the id to answer with."
+        },
+        read_only: %Schema{
+          type: :boolean,
+          description:
+            "prompt only, and only when true: the prompt asked for a read-only turn " <>
+              "(`read_only` on the prompt request), which ran without write access."
         },
         options: %Schema{
           type: :array,

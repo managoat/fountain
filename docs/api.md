@@ -600,6 +600,74 @@ The CLI takes `--client-request-id` on `fountain run` and `fountain conv prompt`
 The ACP bridge takes `_meta.clientRequestId` on each `session/prompt`; see
 [ACP prompt metadata](integrations/acp.md#_meta-extensions-on-sessionprompt).
 
+### Ask without write access
+
+Send `read_only: true` with a prompt to run its turn without write access.
+
+```json
+{"prompt": "Why does the deploy step fail?", "read_only": true}
+```
+
+The turn runs in the same conversation and resumes the same runtime session.
+So the agent answers from everything the conversation already holds. It can
+read files, search and answer. It cannot change the checkout. The runtime
+enforces this, not the prompt: Fountain adds no words to your prompt. When the
+agent tries to write, the runtime refuses the tool, the agent sees the refusal
+as the tool's result, and the turn still completes with an answer.
+
+Only the `claude` runtime can enforce a read-only turn. On any other runtime,
+Fountain refuses the prompt with `422` and the error `read_only_unsupported`.
+It does not run the prompt with write access. Codex cannot do it through the
+pinned `codex-acp` adapter: that adapter chooses the sandbox policy for every
+turn from its own modes, and none of them is read-only.
+
+On `claude`, a read-only turn always starts its own runtime process. That
+process starts under a managed Claude Code policy with these rules:
+
+- It denies the tools that write: `Bash`, `Edit`, `MultiEdit`, `NotebookEdit`
+  and `Write`.
+- It ignores every allow rule that earlier turns stored in the checkout, so
+  each other tool that is not read-only must ask first.
+- It turns off the bypass and auto permission modes.
+
+Fountain answers each such request itself. It allows the `read`, `search`,
+`think` and `fetch` tool kinds, and it refuses all other kinds. It never
+allows a tool that the conversation's own
+[permission policy](concepts/permissions.md) refuses.
+
+The next prompt without `read_only` starts a writable runtime process again.
+Turns before and after a read-only turn run as they always do. Two read-only
+turns in a row can share one read-only process. Each new runtime process costs
+a session resume, so a read-only turn starts a little slower than a normal
+one. Claude Code's background tasks from the earlier turn stop when its
+process stops.
+
+The turn keeps the flag. `GET /api/conversations/{id}/turns` shows
+`read_only: true`. The turn's `turn` stage event with the `started` state
+carries `read_only: true`, and so does its `prompt` block when you ask for
+`blocks=true&prompts=true`. The response to the prompt repeats `read_only:
+true`. For a normal prompt, the events, the block and the response keep the
+shape they had. Fountain applies the flag again each time it starts the turn's
+runtime process: after a crash at startup, after a restarted session, and
+after a deploy reattaches the turn.
+
+`POST /api/conversations` takes the same field for its first prompt, with the
+same `422` on a runtime that cannot enforce it. A start that waits in the queue
+keeps the flag until it starts. Like `client_request_id`, an immediate
+`channel_id` resume does not deliver the prompt. Send the prompt to that
+conversation on the prompts route, with `read_only`.
+
+A deployment runs two releases for some minutes. Fountain never sends a
+read-only prompt to a server of the older release. On the prompts route that
+answers `503` with `read_only_unavailable`, and nothing runs. A prompt that
+waited for its machine to wake cannot get that answer. It is not run, and its
+stream gets a `turn` stage event with the `failed` state and `reason:
+"read_only_unavailable"`. Send the prompt again.
+
+A read-only turn guards this conversation's agent. It does not lock the
+machine. Another conversation on the same sandbox can still write while the
+read-only turn runs.
+
 ### Wait for capacity
 
 A start can reach the tenant sandbox cap or the fleet ceiling. Fountain then

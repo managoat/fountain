@@ -1354,7 +1354,7 @@ export interface paths {
         };
         /**
          * List a conversation's log events
-         * @description The read-model behind the SSE stream. Same rows, same fields, as JSON — fetching or archiving a conversation's output no longer requires an SSE parser. Oldest first, cursor-paginated: pass the previous page's `meta.next_cursor` as `after`. SSE remains the tail/follow mechanism.
+         * @description The read-model behind the SSE stream. Same rows, same fields, as JSON — fetching or archiving a conversation's output no longer requires an SSE parser. Oldest first, cursor-paginated: pass the previous page's `meta.next_cursor` as `after`. SSE remains the tail/follow mechanism. With `order=desc` the page is the newest events instead, newest first, and `meta.next_cursor` is the page's oldest id, to pass as `before` for the page older than it; add `whole_turns=true` so no page ends inside a turn. `page.newest_cursor` of the first such page is where an SSE follow resumes (`Last-Event-ID`).
          */
         get: operations["FountainWeb.ConversationController.events"];
         put?: never;
@@ -4338,10 +4338,25 @@ export interface components {
         LogEventListResponse: {
             data: components["schemas"]["LogEvent"][];
             meta: {
+                /** @description More matching events exist past this page: newer ones for `asc`, older ones for `desc`. */
                 has_more: boolean;
                 limit: number;
-                /** @description Pass as `after` to fetch the next page. null when the page is empty. */
+                /** @description The page's last event id: pass as `after` (`asc`) or `before` (`desc`) to fetch the next page. null when the page is empty. */
                 next_cursor?: number | null;
+            };
+            /** @description The window this page covers (#2531). */
+            page?: {
+                /** @description The largest event id on the page; on the first `order=desc` page, the `Last-Event-ID` an SSE follow resumes from. null when the page is empty. */
+                newest_cursor: number | null;
+                /** @description The smallest event id on the page. null when the page is empty. */
+                oldest_cursor: number | null;
+                /**
+                 * @description The order of `data`, as requested.
+                 * @enum {string}
+                 */
+                order: "asc" | "desc";
+                /** @description `whole_turns=true` reached its ceiling inside a turn: the page's oldest turn continues on the next page. Always false otherwise. */
+                turn_split: boolean;
             };
         };
         /**
@@ -11980,7 +11995,13 @@ export interface operations {
                 streams?: string;
                 /** @description Return events with an id greater than this. Defaults to 0. */
                 after?: number;
-                /** @description Page size, 1..1000. Defaults to 100. */
+                /** @description Return events with an id less than this: the previous `order=desc` page's `meta.next_cursor`. Applies in either order; omitted means no upper bound. */
+                before?: number;
+                /** @description `asc` (the default) pages forward from `after`, oldest first. `desc` pages backward from `before` (or from the newest event), and `data` is newest first. */
+                order?: "asc" | "desc";
+                /** @description With `order=desc`, never end a page inside a turn: when the `limit`th event belongs to a turn that began earlier, the page extends past `limit` to that turn's first event, keeping any events interleaved with it, so a client renders complete turns and `before=<meta.next_cursor>` returns only earlier ones. At most 5000 events: a turn larger than that is cut there, with `page.turn_split: true`, and continues on the next page. Turn-less events (the setup before turn 1) page by `limit` alone. Refused with 422 without `order=desc`. Defaults to false. */
+                whole_turns?: boolean;
+                /** @description Page size, 1..1000. Defaults to 100. `whole_turns=true` can return more. */
                 limit?: number;
                 /** @description Add `blocks` to each event: its `data` parsed server-side into the structured blocks a transcript renders (text, thinking, tool_use, tool_result, init, result, error, raw) — the same parse the web UI uses, so no client re-implements a runtime's dialect. Defaults to false. */
                 blocks?: boolean;

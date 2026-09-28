@@ -478,6 +478,44 @@ event cursor so a reconnect can resume after the last event processed.
 Request structured blocks to render ACP output. Historical vendor stdout
 formats are no longer parsed; those events remain available as raw data.
 
+### Open a thread at its newest turns
+
+`GET /api/conversations/{id}/events` pages forward from `after` by default.
+A long conversation holds thousands of events, and a client that shows only
+the newest turns does not need to read all of them first. Ask for the newest
+page instead:
+
+```bash
+curl --fail-with-body \
+  -H "Authorization: Bearer $FOUNTAIN_API_KEY" \
+  "$FOUNTAIN_URL/api/conversations/$ID/events?order=desc&limit=200&whole_turns=true&blocks=true&prompts=true"
+```
+
+With `order=desc`, `data` is newest first. `meta.next_cursor` is the oldest
+event ID on the page. Pass it as `before` to get the page before it.
+`meta.has_more` says that older events exist. `page.newest_cursor` is the
+newest event ID on the page. Pass the first page's value as `Last-Event-ID`
+to follow the conversation over SSE from there.
+
+`whole_turns=true` keeps a turn on one page. When the event at `limit` belongs
+to a turn that started earlier, the page extends to that turn's first event.
+The page keeps every event in that range, including events of another turn and
+events with no turn. A page can therefore hold more events than `limit`. The
+next page with `before` starts below the oldest event, so it returns earlier
+turns only. Events with no turn, such as the setup before turn 1, page by
+`limit` alone.
+
+A page holds at most 5,000 events. A turn that is larger than that is cut
+there, and `page.turn_split` is `true`. The rest of the turn is on the next
+page. `whole_turns` requires `order=desc`, and Fountain answers `422` without
+it.
+
+Event IDs are global to the server, so the IDs in one conversation have gaps.
+Use the cursors that a page returns, and do not compute one from an ID.
+`streams`, `blocks` and `prompts` work the same in the two directions. Every
+page has a `page` object with `order`, `oldest_cursor`, `newest_cursor` and
+`turn_split`. Forward pages also accept `before` as an upper bound.
+
 ### Find the turn your prompt opened
 
 `POST /api/conversations/{id}/prompts` answers before the turn exists. A

@@ -2362,6 +2362,10 @@
           "required": false,
           "type": "integer"
         },
+        "before": {
+          "required": false,
+          "type": "integer"
+        },
         "blocks": {
           "required": false,
           "type": "boolean"
@@ -2370,6 +2374,14 @@
           "required": false,
           "type": "integer"
         },
+        "order": {
+          "enum": [
+            "asc",
+            "desc"
+          ],
+          "required": false,
+          "type": "string"
+        },
         "prompts": {
           "required": false,
           "type": "boolean"
@@ -2377,6 +2389,10 @@
         "streams": {
           "required": false,
           "type": "string"
+        },
+        "whole_turns": {
+          "required": false,
+          "type": "boolean"
         }
       },
       "responses": {
@@ -11685,6 +11701,34 @@
             }
           },
           "required": true,
+          "type": "object"
+        },
+        "page": {
+          "properties": {
+            "newest_cursor": {
+              "nullable": true,
+              "required": true,
+              "type": "integer"
+            },
+            "oldest_cursor": {
+              "nullable": true,
+              "required": true,
+              "type": "integer"
+            },
+            "order": {
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "required": true,
+              "type": "string"
+            },
+            "turn_split": {
+              "required": true,
+              "type": "boolean"
+            }
+          },
+          "required": false,
           "type": "object"
         }
       },

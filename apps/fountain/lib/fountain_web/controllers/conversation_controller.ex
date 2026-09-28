@@ -381,6 +381,8 @@ defmodule FountainWeb.ConversationController do
 
   @default_event_limit 100
   @max_event_limit 1000
+  # The most events one `whole_turns=true` page can hold, whatever `limit` is.
+  @max_whole_turn_events 5000
 
   operation(:events,
     summary: "List a conversation's log events",
@@ -388,7 +390,12 @@ defmodule FountainWeb.ConversationController do
       "The read-model behind the SSE stream. Same rows, same fields, as JSON — " <>
         "fetching or archiving a conversation's output no longer requires an SSE " <>
         "parser. Oldest first, cursor-paginated: pass the previous page's " <>
-        "`meta.next_cursor` as `after`. SSE remains the tail/follow mechanism.",
+        "`meta.next_cursor` as `after`. SSE remains the tail/follow mechanism. " <>
+        "With `order=desc` the page is the newest events instead, newest first, " <>
+        "and `meta.next_cursor` is the page's oldest id, to pass as `before` for " <>
+        "the page older than it; add `whole_turns=true` so no page ends inside a " <>
+        "turn. `page.newest_cursor` of the first such page is where an SSE follow " <>
+        "resumes (`Last-Event-ID`).",
     parameters: [
       conversation_id: [in: :path, type: :string, required: true],
       streams: [
@@ -405,11 +412,43 @@ defmodule FountainWeb.ConversationController do
         required: false,
         description: "Return events with an id greater than this. Defaults to 0."
       ],
+      before: [
+        in: :query,
+        type: :integer,
+        required: false,
+        description:
+          "Return events with an id less than this: the previous `order=desc` page's " <>
+            "`meta.next_cursor`. Applies in either order; omitted means no upper bound."
+      ],
+      order: [
+        in: :query,
+        schema: %OpenApiSpex.Schema{type: :string, enum: ["asc", "desc"]},
+        required: false,
+        description:
+          "`asc` (the default) pages forward from `after`, oldest first. `desc` pages " <>
+            "backward from `before` (or from the newest event), and `data` is newest first."
+      ],
+      whole_turns: [
+        in: :query,
+        type: :boolean,
+        required: false,
+        description:
+          "With `order=desc`, never end a page inside a turn: when the `limit`th event " <>
+            "belongs to a turn that began earlier, the page extends past `limit` to that " <>
+            "turn's first event, keeping any events interleaved with it, so a client " <>
+            "renders complete turns and `before=<meta.next_cursor>` returns only earlier " <>
+            "ones. At most #{@max_whole_turn_events} events: a turn larger than that " <>
+            "is cut there, with `page.turn_split: true`, and continues on the next page. " <>
+            "Turn-less events (the setup before turn 1) page by `limit` alone. Refused " <>
+            "with 422 without `order=desc`. Defaults to false."
+      ],
       limit: [
         in: :query,
         type: :integer,
         required: false,
-        description: "Page size, 1..#{@max_event_limit}. Defaults to #{@default_event_limit}."
+        description:
+          "Page size, 1..#{@max_event_limit}. Defaults to #{@default_event_limit}. " <>
+            "`whole_turns=true` can return more."
       ],
       blocks: [
         in: :query,
@@ -453,28 +492,65 @@ defmodule FountainWeb.ConversationController do
 
       _conv ->
         limit = parse_limit(params["limit"])
-        after_id = parse_after(params["after"])
-        streams = parse_streams_param(params["streams"])
         blocks? = parse_bool_param(params["blocks"], false)
         prompts? = parse_bool_param(params["prompts"], false)
 
-        # Ownership: established by the scoped get_conversation above.
-        # One extra row decides has_more without a second count query.
-        events =
-          Conversations._unsafe_list_log_events(id, after_id,
-            streams: streams,
-            limit: limit + 1
-          )
-
-        {page, has_more?} = split_page(events, limit)
-
-        render(conn, :events,
-          events: page,
-          has_more: has_more?,
+        opts = [
           limit: limit,
-          blocks?: blocks?,
-          prompts: turn_prompts(id, page, blocks? and prompts?)
+          after: parse_after(params["after"]),
+          before: parse_before(params["before"]),
+          streams: parse_streams_param(params["streams"]),
+          whole_turns: parse_bool_param(params["whole_turns"], false)
+        ]
+
+        # Ownership: established by the scoped get_conversation above.
+        case event_page(id, params["order"] || "asc", opts) do
+          {:ok, page, order} ->
+            render(conn, :events,
+              events: page.events,
+              has_more: page.has_more,
+              turn_split: page.turn_split,
+              order: order,
+              limit: limit,
+              blocks?: blocks?,
+              prompts: turn_prompts(id, page.events, blocks? and prompts?)
+            )
+
+          {:error, message} ->
+            conn
+            |> put_status(:unprocessable_entity)
+            |> json(%{error: "invalid_parameters", message: message})
+        end
+    end
+  end
+
+  # ownership: only called from events/2, after its scoped get_conversation.
+  defp event_page(conversation_id, "desc", opts) do
+    page =
+      Conversations._unsafe_list_log_events_backward(
+        conversation_id,
+        Keyword.put(opts, :max_events, @max_whole_turn_events)
+      )
+
+    {:ok, page, :desc}
+  end
+
+  defp event_page(conversation_id, "asc", opts) do
+    if opts[:whole_turns] do
+      {:error, "whole_turns requires order=desc."}
+    else
+      # Forward paging exactly as it has always been. One extra row decides
+      # has_more without a second count query.
+      # ownership: only called from events/2, after its scoped get_conversation.
+      events =
+        Conversations._unsafe_list_log_events(conversation_id, opts[:after],
+          streams: opts[:streams],
+          before: opts[:before],
+          limit: opts[:limit] + 1
         )
+
+      {page, has_more?} = split_page(events, opts[:limit])
+      {:ok, %{events: page, has_more: has_more?, turn_split: false}, :asc}
     end
   end
 
@@ -528,6 +604,12 @@ defmodule FountainWeb.ConversationController do
   defp parse_after(n) when is_integer(n) and n > 0, do: n
   defp parse_after(n) when is_integer(n), do: 0
   defp parse_after(s) when is_binary(s), do: s |> parse_last_event_id() |> max(0)
+
+  # nil is no upper bound; an id at or below zero bounds everything out.
+  defp parse_before(nil), do: nil
+  defp parse_before(""), do: nil
+  defp parse_before(n) when is_integer(n), do: n
+  defp parse_before(s) when is_binary(s), do: parse_last_event_id(s)
 
   operation(:create,
     summary: "Start a conversation",

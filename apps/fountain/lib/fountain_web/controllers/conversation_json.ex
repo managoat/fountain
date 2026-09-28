@@ -26,16 +26,25 @@ defmodule FountainWeb.ConversationJSON do
     blocks? = Map.get(assigns, :blocks?, false)
     # `turn_id => prompt` when `?prompts=true` asked for them, `%{}` otherwise.
     prompts = Map.get(assigns, :prompts, %{})
+    order = Map.get(assigns, :order, :asc)
+    ids = Enum.map(events, & &1.id)
 
     %{
       data: Enum.map(events, &(&1 |> log_event_data() |> put_blocks(&1, blocks?, prompts))),
       meta: %{
         limit: limit,
         has_more: has_more?,
-        # The id to pass back as `after`. nil on an empty page — there is
-        # nothing to resume from, and echoing the request's cursor would
-        # invite a client to loop on it.
-        next_cursor: events |> List.last() |> event_id()
+        # The id to pass back as `after` (asc) or `before` (desc): the page's
+        # last row either way. nil on an empty page — there is nothing to
+        # resume from, and echoing the request's cursor would invite a client
+        # to loop on it.
+        next_cursor: List.last(ids)
+      },
+      page: %{
+        order: Atom.to_string(order),
+        oldest_cursor: Enum.min(ids, fn -> nil end),
+        newest_cursor: Enum.max(ids, fn -> nil end),
+        turn_split: Map.get(assigns, :turn_split, false)
       }
     }
   end
@@ -228,9 +237,6 @@ defmodule FountainWeb.ConversationJSON do
   end
 
   def put_blocks(json, _event, true, _prompts), do: Map.put(json, :blocks, [])
-
-  defp event_id(%LogEvent{id: id}), do: id
-  defp event_id(nil), do: nil
 
   defp turn_data(%Turn{} = t) do
     %{

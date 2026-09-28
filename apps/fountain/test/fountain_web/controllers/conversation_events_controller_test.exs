@@ -475,6 +475,261 @@ defmodule FountainWeb.ConversationEventsControllerTest do
     end
   end
 
+  describe "order=desc (#2531)" do
+    defp page_ids(body), do: Enum.map(body["data"], & &1["id"])
+
+    defp turn_events(conv, n, overrides \\ %{}) do
+      turn = insert_turn(conv, overrides)
+
+      start =
+        insert_log_event(conv,
+          kind: "stage",
+          stream: "",
+          stage: "turn",
+          state: "started",
+          turn_id: turn.id,
+          data: Jason.encode!(%{turn_id: turn.id})
+        )
+
+      rest = for i <- 2..n//1, do: insert_log_event(conv, turn_id: turn.id, data: "line #{i}")
+      {turn, [start | rest]}
+    end
+
+    test "pages backward newest first with oldest, newest and next cursors", %{
+      conn: conn,
+      key: key,
+      conv: conv
+    } do
+      ids = for(i <- 1..5, do: insert_log_event(conv, data: "line #{i}")) |> Enum.map(& &1.id)
+
+      first = conn |> get_events(key, conv, "?order=desc&limit=2") |> json_response(200)
+      assert page_ids(first) == [Enum.at(ids, 4), Enum.at(ids, 3)]
+
+      assert %{"has_more" => true, "next_cursor" => next} = first["meta"]
+
+      assert %{
+               "order" => "desc",
+               "oldest_cursor" => ^next,
+               "newest_cursor" => newest,
+               "turn_split" => false
+             } = first["page"]
+
+      assert next == Enum.at(ids, 3)
+      # The SSE follow starts from the newest event of the first page.
+      assert newest == List.last(ids)
+
+      second =
+        conn |> get_events(key, conv, "?order=desc&limit=2&before=#{next}") |> json_response(200)
+
+      assert page_ids(second) == [Enum.at(ids, 2), Enum.at(ids, 1)]
+
+      last =
+        conn
+        |> get_events(key, conv, "?order=desc&limit=2&before=#{second["meta"]["next_cursor"]}")
+        |> json_response(200)
+
+      assert page_ids(last) == [hd(ids)]
+      refute last["meta"]["has_more"]
+    end
+
+    test "whole_turns returns complete newest turns, then earlier ones", %{
+      conn: conn,
+      key: key,
+      conv: conv
+    } do
+      setup_event = insert_log_event(conv, kind: "stage", stream: "", stage: "provision")
+      {_a, a_events} = turn_events(conv, 4)
+      {_b, b_events} = turn_events(conv, 3)
+
+      newest =
+        conn
+        |> get_events(key, conv, "?order=desc&limit=2&whole_turns=true")
+        |> json_response(200)
+
+      # Past limit, down to turn B's first event.
+      assert page_ids(newest) == b_events |> Enum.map(& &1.id) |> Enum.reverse()
+      assert newest["meta"]["limit"] == 2
+      assert newest["meta"]["has_more"]
+
+      older =
+        conn
+        |> get_events(
+          key,
+          conv,
+          "?order=desc&limit=2&whole_turns=true&before=#{newest["meta"]["next_cursor"]}"
+        )
+        |> json_response(200)
+
+      assert page_ids(older) == a_events |> Enum.map(& &1.id) |> Enum.reverse()
+
+      rest =
+        conn
+        |> get_events(
+          key,
+          conv,
+          "?order=desc&limit=2&whole_turns=true&before=#{older["meta"]["next_cursor"]}"
+        )
+        |> json_response(200)
+
+      assert page_ids(rest) == [setup_event.id]
+      refute rest["meta"]["has_more"]
+    end
+
+    test "prompts and blocks render on a backward page", %{conn: conn, key: key, conv: conv} do
+      {_a, [a_start | _]} = turn_events(conv, 3, %{prompt: "first question"})
+      {_b, [b_start | _]} = turn_events(conv, 3, %{prompt: "second question"})
+
+      body =
+        conn
+        |> get_events(key, conv, "?order=desc&limit=1&whole_turns=true&blocks=true&prompts=true")
+        |> json_response(200)
+
+      blocks = Map.new(body["data"], &{&1["id"], &1["blocks"]})
+      assert blocks[b_start.id] == [%{"kind" => "prompt", "body" => "second question"}]
+      refute Map.has_key?(blocks, a_start.id)
+
+      older =
+        conn
+        |> get_events(
+          key,
+          conv,
+          "?order=desc&limit=1&whole_turns=true&blocks=true&prompts=true" <>
+            "&before=#{body["meta"]["next_cursor"]}"
+        )
+        |> json_response(200)
+
+      assert Map.new(older["data"], &{&1["id"], &1["blocks"]})[a_start.id] ==
+               [%{"kind" => "prompt", "body" => "first question"}]
+    end
+
+    test "the stream filter applies to backward pages", %{conn: conn, key: key, conv: conv} do
+      a = insert_log_event(conv, stream: "stdout", data: "a")
+      insert_log_event(conv, stream: "stderr", data: "noise")
+      b = insert_log_event(conv, stream: "stdout", data: "b")
+
+      body =
+        conn |> get_events(key, conv, "?order=desc&streams=stdout&limit=2") |> json_response(200)
+
+      assert page_ids(body) == [b.id, a.id]
+      refute body["meta"]["has_more"]
+    end
+
+    test "whole_turns without order=desc is refused", %{conn: conn, key: key, conv: conv} do
+      assert %{"error" => "invalid_parameters"} =
+               conn |> get_events(key, conv, "?whole_turns=true") |> json_response(422)
+    end
+
+    test "an unknown order is refused by the spec", %{conn: conn, key: key, conv: conv} do
+      conn |> get_events(key, conv, "?order=newest") |> json_response(422)
+    end
+
+    test "another tenant's conversation is 404 backward too", %{conn: conn, key: key} do
+      other_conv = insert_conversation(user_id: insert_verified_user().id)
+      insert_log_event(other_conv, data: "secret output")
+
+      conn =
+        conn
+        |> authed_with_key(key)
+        |> get("/api/conversations/#{other_conv.id}/events?order=desc&whole_turns=true")
+
+      assert json_response(conn, 404)
+      refute conn.resp_body =~ "secret output"
+    end
+
+    test "forward paging is unchanged, and reports its order", %{conn: conn, key: key, conv: conv} do
+      ids = for(i <- 1..3, do: insert_log_event(conv, data: "line #{i}")) |> Enum.map(& &1.id)
+
+      body = conn |> get_events(key, conv, "?limit=2") |> json_response(200)
+      assert page_ids(body) == Enum.take(ids, 2)
+
+      assert %{"has_more" => true, "next_cursor" => next} = body["meta"]
+
+      assert %{
+               "order" => "asc",
+               "oldest_cursor" => oldest,
+               "newest_cursor" => ^next,
+               "turn_split" => false
+             } = body["page"]
+
+      assert next == Enum.at(ids, 1)
+      assert oldest == hd(ids)
+    end
+
+    test "before bounds a forward page from above", %{conn: conn, key: key, conv: conv} do
+      ids = for(i <- 1..4, do: insert_log_event(conv, data: "line #{i}")) |> Enum.map(& &1.id)
+
+      body =
+        conn
+        |> get_events(key, conv, "?after=#{hd(ids)}&before=#{List.last(ids)}")
+        |> json_response(200)
+
+      assert page_ids(body) == Enum.slice(ids, 1, 2)
+      refute body["meta"]["has_more"]
+    end
+
+    test "a 7,000-event conversation opens at its newest complete turns in one request", %{
+      conn: conn,
+      key: key,
+      conv: conv
+    } do
+      now = DateTime.utc_now()
+      turns = for _ <- 1..70, do: insert_turn(conv)
+
+      rows =
+        for turn <- turns, i <- 1..100 do
+          %{
+            conversation_id: conv.id,
+            turn_id: turn.id,
+            kind: if(i == 1, do: "stage", else: "output"),
+            stream: if(i == 1, do: "", else: "stdout"),
+            stage: if(i == 1, do: "turn", else: ""),
+            state: if(i == 1, do: "started", else: ""),
+            data: "line #{i}",
+            inserted_at: now
+          }
+        end
+
+      for chunk <- Enum.chunk_every(rows, 1000),
+          do: Fountain.Repo.insert_all(Fountain.Conversations.LogEvent, chunk)
+
+      {micros, body} =
+        :timer.tc(fn ->
+          conn
+          |> get_events(
+            key,
+            conv,
+            "?order=desc&limit=150&whole_turns=true&blocks=true&prompts=true"
+          )
+          |> json_response(200)
+        end)
+
+      # Two complete turns, each opening on its prompt-bearing start event.
+      assert length(body["data"]) == 200
+      starts = Enum.filter(body["data"], &(&1["stage"] == "turn"))
+      assert Enum.map(starts, & &1["turn_id"]) == [Enum.at(turns, -1).id, Enum.at(turns, -2).id]
+      assert Enum.all?(starts, &match?([%{"kind" => "prompt"}], &1["blocks"]))
+
+      # The earlier turns follow without re-reading the loaded tail.
+      older =
+        conn
+        |> get_events(
+          key,
+          conv,
+          "?order=desc&limit=150&whole_turns=true&before=#{body["meta"]["next_cursor"]}"
+        )
+        |> json_response(200)
+
+      assert List.first(older["data"])["id"] < body["page"]["oldest_cursor"]
+      assert length(older["data"]) == 200
+
+      if System.get_env("FOUNTAIN_BENCH"),
+        do:
+          IO.puts(
+            "\n7,000 events over HTTP, newest complete turns: 1 request, #{div(micros, 1000)} ms"
+          )
+    end
+  end
+
   describe "tenant scoping" do
     test "another tenant's conversation is 404, not 403", %{conn: conn, key: key} do
       other = insert_verified_user()

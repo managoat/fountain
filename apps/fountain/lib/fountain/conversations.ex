@@ -2756,6 +2756,7 @@ defmodule Fountain.Conversations do
   Options:
 
     * `:streams` — allow-list of `"stdout"` / `"stderr"` / `"stage"`
+    * `:before` — only events with an id below this; `nil` for no bound
     * `:limit` — cap the number of rows returned. A log feed is unbounded
       in principle (a chatty agent writes tens of thousands of rows), so
       the JSON read-model paginates rather than materialising all of it.
@@ -2767,9 +2768,141 @@ defmodule Fountain.Conversations do
         order_by: [asc: e.id]
 
     base
+    |> apply_before(Keyword.get(opts, :before))
     |> apply_streams_filter(Keyword.get(opts, :streams))
     |> apply_limit(Keyword.get(opts, :limit))
     |> Repo.all()
+  end
+
+  @doc """
+  One page of a conversation's log events, newest first (#2531).
+
+  The backward half of `_unsafe_list_log_events/3`, for a client that opens a
+  long conversation at its newest turns instead of draining it from the start.
+  Returns `%{events: events, has_more: boolean, turn_split: boolean}`, with
+  `events` in descending id order and `has_more` saying whether matching
+  events older than the page exist.
+
+  Options:
+
+    * `:limit` (required) — the page size.
+    * `:before` — only events with an id below this. `nil` starts at the newest.
+    * `:after` — only events with an id above this. Defaults to `0`.
+    * `:streams` — the same allow-list as `_unsafe_list_log_events/3`.
+    * `:whole_turns` — never end the page inside a turn. When the `limit`th
+      event belongs to a turn whose first event is older, the page extends
+      down to that first event, taking every matching event in the range,
+      including other turns' and turn-less events interleaved with it; a turn
+      those bring in extends it again. A page's turns are therefore complete
+      below the `:before` cursor, and a follow-up `before: <oldest id>` never
+      returns an event of one of them.
+    * `:max_events` — the ceiling on a whole-turn page, 5,000 by default. A
+      turn too large for it is cut at the ceiling, the page is flagged
+      `turn_split: true`, and the rest of the turn is on the next page.
+
+  Cursors are ids read from rows: IDs are global and sparse, so nothing here
+  counts back from an id. The `(conversation_id, id)` index is read backwards
+  for the page and the range; the `(turn_id, id)` index answers each turn's
+  first event.
+  """
+  def _unsafe_list_log_events_backward(conversation_id, opts) do
+    limit = Keyword.fetch!(opts, :limit)
+
+    query =
+      from(e in LogEvent,
+        where: e.conversation_id == ^conversation_id and e.id > ^Keyword.get(opts, :after, 0),
+        order_by: [desc: e.id]
+      )
+      |> apply_before(Keyword.get(opts, :before))
+      |> apply_streams_filter(Keyword.get(opts, :streams))
+
+    # One extra row decides has_more without a count.
+    rows = query |> apply_limit(limit + 1) |> Repo.all()
+
+    case Enum.split(rows, limit) do
+      {page, []} ->
+        %{events: page, has_more: false, turn_split: false}
+
+      {page, _older} ->
+        if Keyword.get(opts, :whole_turns, false) do
+          max_events = Keyword.get(opts, :max_events, 5000)
+          complete_turns(query, conversation_id, page, List.last(page).id, max_events)
+        else
+          %{events: page, has_more: true, turn_split: false}
+        end
+    end
+  end
+
+  defp apply_before(query, nil), do: query
+  defp apply_before(query, before) when is_integer(before), do: where(query, [e], e.id < ^before)
+
+  # `floor` is the lowest id the page covers: every matching event with an id
+  # from `floor` up to the page's cursor is already in `page`. Only turns that
+  # entered the page since the last pass can start below it.
+  defp complete_turns(query, conversation_id, page, floor, max_events),
+    do: complete_turns(query, conversation_id, page, floor, max_events, turn_ids(page))
+
+  defp complete_turns(query, conversation_id, page, floor, max_events, new_turn_ids) do
+    case first_turn_event_id(conversation_id, new_turn_ids) do
+      start when is_integer(start) and start < floor ->
+        room = max_events - length(page)
+
+        extra =
+          query
+          |> where([e], e.id >= ^start and e.id < ^floor)
+          |> apply_limit(room + 1)
+          |> Repo.all()
+
+        if length(extra) > room do
+          # The ceiling: the rows past it are still there, so this is a split.
+          %{events: page ++ Enum.take(extra, room), has_more: true, turn_split: true}
+        else
+          complete_turns(
+            query,
+            conversation_id,
+            page ++ extra,
+            start,
+            max_events,
+            turn_ids(extra)
+          )
+        end
+
+      _ ->
+        %{events: page, has_more: older_events?(query, floor), turn_split: false}
+    end
+  end
+
+  defp turn_ids(events) do
+    for %LogEvent{turn_id: turn_id} <- events, turn_id != nil, uniq: true, do: turn_id
+  end
+
+  # The id of the earliest first event among these turns, or nil. One probe of
+  # the `(turn_id, id)` index per turn rather than a `min` over the
+  # conversation, which the planner may answer by walking the conversation's
+  # index from its first row.
+  defp first_turn_event_id(_conversation_id, []), do: nil
+
+  defp first_turn_event_id(conversation_id, turn_ids) do
+    %{rows: [[first]]} =
+      Repo.query!(
+        """
+        SELECT min(first.id)
+        FROM unnest($1::uuid[]) AS t(id)
+        CROSS JOIN LATERAL (
+          SELECT e.id FROM log_events e
+          WHERE e.turn_id = t.id AND e.conversation_id = $2
+          ORDER BY e.id
+          LIMIT 1
+        ) AS first
+        """,
+        [Enum.map(turn_ids, &Ecto.UUID.dump!/1), Ecto.UUID.dump!(conversation_id)]
+      )
+
+    first
+  end
+
+  defp older_events?(query, floor) do
+    query |> where([e], e.id < ^floor) |> exclude(:order_by) |> Repo.exists?()
   end
 
   @doc "The newest durable event cursor across this user's conversations, or zero."

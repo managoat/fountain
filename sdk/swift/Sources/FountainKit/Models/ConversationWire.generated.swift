@@ -1512,10 +1512,12 @@ public struct AuditEventListResponse: Sendable, Decodable, Hashable {
 public struct LogEventListResponse: Sendable, Decodable, Hashable {
   public var data: [LogEvent]
   public var meta: PageMeta
+  public var page: LogEventListResponsePage?
 
   enum CodingKeys: String, CodingKey {
     case data = "data"
     case meta = "meta"
+    case page = "page"
   }
 }
 
@@ -1850,6 +1852,20 @@ public struct PageMeta: Sendable, Decodable, Hashable {
     case hasMore = "has_more"
     case limit = "limit"
     case nextCursor = "next_cursor"
+  }
+}
+
+public struct LogEventListResponsePage: Sendable, Decodable, Hashable {
+  public var newestCursor: Int?
+  public var oldestCursor: Int?
+  public var order: String
+  public var turnSplit: Bool
+
+  enum CodingKeys: String, CodingKey {
+    case newestCursor = "newest_cursor"
+    case oldestCursor = "oldest_cursor"
+    case order = "order"
+    case turnSplit = "turn_split"
   }
 }
 

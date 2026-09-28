@@ -2100,14 +2100,54 @@ defmodule FountainWeb.Schemas do
           type: :object,
           properties: %{
             limit: %Schema{type: :integer},
-            has_more: %Schema{type: :boolean},
+            has_more: %Schema{
+              type: :boolean,
+              description:
+                "More matching events exist past this page: newer ones for `asc`, older " <>
+                  "ones for `desc`."
+            },
             next_cursor: %Schema{
               type: :integer,
               nullable: true,
-              description: "Pass as `after` to fetch the next page. null when the page is empty."
+              description:
+                "The page's last event id: pass as `after` (`asc`) or `before` (`desc`) " <>
+                  "to fetch the next page. null when the page is empty."
             }
           },
           required: [:limit, :has_more]
+        },
+        # Beside `meta` rather than in it: `meta` is the cursor envelope the
+        # audit list shares, and the Swift SDK publishes the two as one
+        # `PageMeta` type (#2300), so a field here would retype that.
+        page: %Schema{
+          type: :object,
+          description: "The window this page covers (#2531).",
+          properties: %{
+            order: %Schema{
+              type: :string,
+              enum: ["asc", "desc"],
+              description: "The order of `data`, as requested."
+            },
+            oldest_cursor: %Schema{
+              type: :integer,
+              nullable: true,
+              description: "The smallest event id on the page. null when the page is empty."
+            },
+            newest_cursor: %Schema{
+              type: :integer,
+              nullable: true,
+              description:
+                "The largest event id on the page; on the first `order=desc` page, the " <>
+                  "`Last-Event-ID` an SSE follow resumes from. null when the page is empty."
+            },
+            turn_split: %Schema{
+              type: :boolean,
+              description:
+                "`whole_turns=true` reached its ceiling inside a turn: the page's oldest " <>
+                  "turn continues on the next page. Always false otherwise."
+            }
+          },
+          required: [:order, :oldest_cursor, :newest_cursor, :turn_split]
         }
       },
       required: [:data, :meta]

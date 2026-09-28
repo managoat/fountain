@@ -184,6 +184,8 @@ defmodule FountainWeb.SchemaEnumGuardrailTest do
   # Enums with no domain list behind them. Each entry needs a reason: the
   # point of the list is that adding to it is a deliberate act.
   @api_local %{
+    {FountainWeb.Schemas.LogEventListResponse, "page.order"} =>
+      "Echo of the events read's `order` query parameter (#2531); a paging direction, not domain state",
     {FountainWeb.Schemas.Block, "body.[].status"} =>
       "ACP PlanEntryStatus wire vocabulary; no Fountain domain list or upstream enum accessor",
     {FountainWeb.Schemas.UsageAccounting, "completeness"} =>

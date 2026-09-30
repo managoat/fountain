@@ -97,6 +97,12 @@ defmodule Fountain.Conversations.Conversation do
     # model; set, it is the model every turn of this conversation runs. Set at
     # launch or by reapply, and read through `with_model/2`.
     field :model, :string
+    # ACP session config options (ADR 0062), over the agent's: a key here
+    # replaces the agent's value. Set at launch or by reapply.
+    field :session_config, :map, default: %{}
+    # The option list the adapter advertised before the latest prompt, as it
+    # sent it. Written by the turn machine; nil until a turn reports one.
+    field :session_config_options, {:array, :map}
 
     # Which shape of the agent this conversation launched under — provenance,
     # like the snapshotted `runtime`. The live agent row still drives the
@@ -162,6 +168,7 @@ defmodule Fountain.Conversations.Conversation do
       :channel_id,
       :permission_policy,
       :model,
+      :session_config,
       :labels
     ])
     |> validate_required([:runtime, :status, :sandbox_id, :user_id])
@@ -178,6 +185,7 @@ defmodule Fountain.Conversations.Conversation do
     ])
     |> validate_length(:channel_id, max: 255)
     |> validate_length(:title, max: 120)
+    |> Fountain.Agents.SessionConfig.validate(:session_config)
     |> mark_user_title()
     |> validate_inclusion(:status, @statuses)
     |> validate_inclusion(:source, @sources)

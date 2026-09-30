@@ -34,6 +34,7 @@ defmodule FountainWeb.AgentJSON do
       inference_credential_id: a.inference_credential_id,
       allowed_inference_credential_ids: a.allowed_inference_credential_ids,
       permission_policy: a.permission_policy,
+      session_config: a.session_config,
       conversation_count: a.conversation_count,
       avatar_media_type: a.avatar_media_type,
       inserted_at: a.inserted_at,

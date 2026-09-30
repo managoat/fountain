@@ -50,6 +50,7 @@ defmodule Fountain.Conversations.TurnMachine do
   require OpenTelemetry.Tracer
 
   alias Fountain.{Agents, Conversations}
+  alias Fountain.Agents.SessionConfig
   alias Fountain.Conversations.{Conversation, Interruption, Labels}
   alias Fountain.InferenceCredentials.Source
   alias Fountain.Machines.Machine
@@ -331,6 +332,88 @@ defmodule Fountain.Conversations.TurnMachine do
     {turn,
      [
        {:finish, "failed", %{"error" => message, "acp.model_selection_failed" => true},
+        %{reason: message}},
+       {:drop_connection, "failed"}
+     ]}
+  end
+
+  # ADR 0062: a requested session config option the adapter took, with the
+  # value it confirmed. On the turn (what metering will read, #2538) and on
+  # the stream, as the `model` stage is.
+  def handle(%__MODULE__{} = turn, {:config_selected, id, requested, confirmed}, _ctx) do
+    turn =
+      record_config_selection(turn, fn selection ->
+        Map.update(selection, "applied", %{id => confirmed}, &Map.put(&1, id, confirmed))
+      end)
+
+    publish_stage(turn.conversation_id, "config", "done", %{
+      turn_id: turn.row && turn.row.id,
+      outcome: "applied",
+      id: id,
+      requested: requested,
+      confirmed: confirmed
+    })
+
+    {turn, []}
+  end
+
+  # An id the adapter does not advertise for this model. Not a failure:
+  # options legitimately vary by model, and the request stays on the
+  # conversation for a model that offers it.
+  def handle(%__MODULE__{} = turn, {:config_skipped, id, requested}, _ctx) do
+    turn =
+      record_config_selection(turn, fn selection ->
+        Map.update(selection, "skipped", [id], &(&1 ++ [id]))
+      end)
+
+    # `done`, because a stage's state is one of a fixed few; the outcome says
+    # which kind of done.
+    publish_stage(turn.conversation_id, "config", "done", %{
+      turn_id: turn.row && turn.row.id,
+      outcome: "skipped",
+      id: id,
+      requested: requested,
+      reason: "not advertised by the runtime for this model"
+    })
+
+    {turn, []}
+  end
+
+  # What the adapter offers, after the model and the options were applied.
+  # On the conversation, where a client reads it before choosing the next
+  # turn's options.
+  def handle(%__MODULE__{} = turn, {:config_options, options}, _ctx) do
+    Conversations._unsafe_put_session_config_options(turn.conversation_id, options)
+    {turn, []}
+  end
+
+  # The adapter refused a value for an option it advertises. Its sentence is
+  # the check, as for the model (#724): the turn fails before the prompt.
+  def handle(
+        %__MODULE__{} = turn,
+        {:failed, {:config_selection_failed, id, requested, detail}},
+        _ctx
+      ) do
+    message =
+      "Could not set #{id} to #{inspect(requested)}: #{detail}. No prompt was sent. " <>
+        "Choose a value from the conversation's session_config_options, or remove #{id} " <>
+        "from session_config."
+
+    turn =
+      record_config_selection(turn, fn selection ->
+        Map.merge(selection, %{"status" => "failed", "failed_id" => id, "error" => message})
+      end)
+
+    publish_stage(turn.conversation_id, "config", "failed", %{
+      turn_id: turn.row && turn.row.id,
+      id: id,
+      requested: requested,
+      detail: detail
+    })
+
+    {turn,
+     [
+       {:finish, "failed", %{"error" => message, "acp.config_selection_failed" => true},
         %{reason: message}},
        {:drop_connection, "failed"}
      ]}
@@ -967,6 +1050,14 @@ defmodule Fountain.Conversations.TurnMachine do
   # `extra` is whatever else belongs in the same write — the inference stamp,
   # and nothing else so far. One update, so a turn cannot carry the stamp
   # without the selection that earned it.
+  defp record_config_selection(%__MODULE__{row: nil} = turn, _fun), do: turn
+
+  defp record_config_selection(turn, fun) do
+    selection = fun.(turn.row.config_selection || %{})
+    {:ok, row} = Conversations._unsafe_update_turn(turn.row, %{config_selection: selection})
+    %{turn | row: row}
+  end
+
   defp record_model_selection(%__MODULE__{row: nil} = turn, _selection, _extra), do: turn
 
   defp record_model_selection(turn, selection, extra) do
@@ -1208,7 +1299,10 @@ defmodule Fountain.Conversations.TurnMachine do
 
     with :ok <- matching_model(source, agent, conv.runtime) do
       if runnable?(conv, agent),
-        do: conv |> open_turn(sandbox_id, prompt, revision, source, opts) |> admitted(sandbox_id),
+        do:
+          conv
+          |> open_turn(sandbox_id, prompt, revision, source, Keyword.put(opts, :agent, agent))
+          |> admitted(sandbox_id),
         else: refuse_no_command(conv)
     end
   end
@@ -1274,6 +1368,16 @@ defmodule Fountain.Conversations.TurnMachine do
       case opts[:client_request_id] do
         id when is_binary(id) -> Map.put(attrs, :client_request_id, id)
         _ -> attrs
+      end
+
+    # The session config options this turn asks for (ADR 0062): the agent's,
+    # the conversation's over them, the prompt's over both. Fixed here, on
+    # the row, so both connection paths send the same request and a client
+    # can label the turn with it.
+    attrs =
+      case SessionConfig.effective(opts[:agent], conv, opts[:session_config]) do
+        requested when map_size(requested) == 0 -> attrs
+        requested -> Map.put(attrs, :config_selection, %{"requested" => requested})
       end
 
     # The owner admits the turn (ADR 0058 stage 8a): under the machine's lock
@@ -1422,6 +1526,7 @@ defmodule Fountain.Conversations.TurnMachine do
         mcp_servers: Keyword.get(opts, :mcp_servers, []),
         additional_directories: Keyword.get(opts, :additional_directories, []),
         model: Keyword.get(opts, :model),
+        config: Keyword.get(opts, :config, %{}),
         permission_policy: Keyword.get(opts, :permission_policy),
         # A codex spawn on the deployment's ChatGPT grant must not be
         # authenticated with codex-acp's api-key method (ADR 0047); see
@@ -1432,6 +1537,16 @@ defmodule Fountain.Conversations.TurnMachine do
 
     {peer, Process.monitor(peer)}
   end
+
+  @doc """
+  The session config options the peer applies before this turn's prompt
+  (ADR 0062): what the turn recorded as requested when it opened.
+  """
+  @spec acp_session_config(Conversations.Turn.t() | nil) :: map()
+  def acp_session_config(%{config_selection: %{"requested" => requested}}) when is_map(requested),
+    do: requested
+
+  def acp_session_config(_turn), do: %{}
 
   @doc "The ACP model id to pin for this turn: the agent's model in the runtime's dialect, or nil without an agent."
   @spec acp_model(Conversation.t(), map() | nil) :: String.t() | nil

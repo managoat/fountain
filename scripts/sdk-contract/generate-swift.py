@@ -504,7 +504,10 @@ class Generator:
         self.encodable = set(self.input_roots)
 
     def reference(self, owner, ref):
-        if ref == "PermissionPolicy":
+        # Maps whose keys are the caller's or the adapter's own: a policy's
+        # tool keys, and ACP session config option ids and option objects
+        # passed through as the adapter sent them (ADR 0062).
+        if ref in ("PermissionPolicy", "SessionConfig", "SessionConfigOption"):
             return "[String: JSONValue]"
         if ref == "UsageTotal":
             ref = "TurnUsage"

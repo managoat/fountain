@@ -67,6 +67,10 @@ defmodule Fountain.Agents.Agent do
     # auto_allow — what every agent does today. A launch may supply its own,
     # but only to narrow this one; see Managoat.ACP.Permissions.
     field :permission_policy, :map, default: %{}
+    # ACP session config options every conversation of this agent requests
+    # (ADR 0062): reasoning effort, fast mode. Option id to value; the shape
+    # is checked, the ids and values are the adapter's (`SessionConfig`).
+    field :session_config, :map, default: %{}
     field :avatar_media_type, :string
     field :conversation_count, :integer, virtual: true, default: 0
     belongs_to :user, User
@@ -237,6 +241,7 @@ defmodule Fountain.Agents.Agent do
       :allowed_environment_ids,
       :allowed_inference_credential_ids,
       :permission_policy,
+      :session_config,
       :user_id,
       :environment_id,
       :inference_credential_id
@@ -266,6 +271,8 @@ defmodule Fountain.Agents.Agent do
     |> validate_mcp_servers()
     |> null_permission_policy_clears()
     |> validate_permission_policy()
+    |> null_session_config_clears()
+    |> Fountain.Agents.SessionConfig.validate(:session_config)
     |> unique_constraint(:name, name: :agents_user_id_name_index)
     |> foreign_key_constraint(:environment_id)
     |> foreign_key_constraint(:inference_credential_id)
@@ -439,6 +446,15 @@ defmodule Fountain.Agents.Agent do
   # client is typed to send it; the column is NOT NULL with `{}` as its
   # default, so without this a null passed the cast and the changeset and
   # surfaced as a 500 from PostgreSQL rather than as an empty policy (#1899).
+  # The column is non-null with an empty-map default, so an explicit null in a
+  # request clears the options rather than failing the insert.
+  defp null_session_config_clears(changeset) do
+    case fetch_change(changeset, :session_config) do
+      {:ok, nil} -> put_change(changeset, :session_config, %{})
+      _ -> changeset
+    end
+  end
+
   defp null_permission_policy_clears(changeset) do
     case fetch_change(changeset, :permission_policy) do
       {:ok, nil} -> put_change(changeset, :permission_policy, %{})

@@ -3,6 +3,18 @@
 Notable changes to the Fountain Swift SDK follow
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.22.0] - 2026-09-30
+
+### Added
+
+- `sessionConfig` on `ConversationReapplyRequest` (FountainKit), a
+  three-state `ConversationSessionConfigUpdate`: set the conversation's ACP
+  session config options (reasoning effort, fast mode), or clear them to
+  return to its agent's options (#2537, ADR 0062).
+- `Conversation` gains `sessionConfig` and `sessionConfigOptions`,
+  `ConversationCreateRequest` takes `sessionConfig`, and `Turn` gains
+  `configSelection`.
+
 ## [0.21.0] - 2026-09-26
 
 ### Added

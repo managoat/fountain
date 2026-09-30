@@ -74,6 +74,8 @@ defmodule FountainWeb.ConversationJSON do
       model: c.model,
       sandbox_api_access: c.sandbox_api_access,
       permission_policy: c.permission_policy,
+      session_config: c.session_config,
+      session_config_options: c.session_config_options,
       runtime: c.runtime,
       # Derived, never stored — the same signal as on an agent (#702). A
       # protocol client asks before reopening a conversation, because a
@@ -263,6 +265,7 @@ defmodule FountainWeb.ConversationJSON do
       # The end-of-turn figure as the runtime reported it (#827); null when
       # it reported none or the turn predates the column.
       model_selection: t.model_selection,
+      config_selection: t.config_selection,
       usage: turn_usage(t.usage),
       # Which inference source served the turn (ADR 0060 decision 6), written
       # once at turn start; null on a row from before it was kept.

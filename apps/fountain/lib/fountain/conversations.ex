@@ -957,6 +957,22 @@ defmodule Fountain.Conversations do
     end
   end
 
+  @doc """
+  Record the session config options the adapter advertised before a turn's
+  prompt (ADR 0062). Written by the conversation's own turn machine, and
+  only when the list changed, so a steady conversation writes nothing.
+  """
+  def _unsafe_put_session_config_options(conversation_id, options) when is_list(options) do
+    from(c in Conversation,
+      where: c.id == ^conversation_id,
+      where:
+        fragment("? IS DISTINCT FROM ?", c.session_config_options, type(^options, {:array, :map}))
+    )
+    |> Repo.update_all(set: [session_config_options: options])
+
+    :ok
+  end
+
   @doc "Idle only the latest ended turn's still-running parent."
   def _unsafe_idle_after_turn(%Turn{} = turn),
     do: write_turn_parent(turn, :idle, %{status: "idle"})
@@ -4235,6 +4251,17 @@ defmodule Fountain.Conversations do
   end
 
   def resolve_model(_model, _agent), do: {:error, {:model_invalid, "must be a string"}}
+
+  # A conversation's session config (ADR 0062), checked for shape only: which
+  # ids and values exist is the adapter's to say, per model. Stored as given;
+  # nil is the empty request. A door for `Launch` and `Reapply`.
+  @doc false
+  def resolve_session_config(config) do
+    case Agents.SessionConfig.check(config) do
+      :ok -> {:ok, config || %{}}
+      {:error, message} -> {:error, {:session_config_invalid, message}}
+    end
+  end
 
   # A door for `Fountain.Conversations.Reapply` (#2215); not part of the
   # context's public surface.

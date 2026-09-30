@@ -66,6 +66,11 @@ when you create it, or change it later with a reapply. The next turn runs on
 the new model and continues the same runtime session. See
 [Change the model](../api.md#change-the-model).
 
+Reasoning effort, fast mode and the runtime's other session options are
+requested the same way, with `session_config`. They can also be sent on a
+single prompt for that turn alone. See
+[Set reasoning effort and fast mode](../api.md#set-reasoning-effort-and-fast-mode).
+
 Log events stream in real time over
 `GET /api/conversations/:id/stream`. Add `?blocks=true` and the server parses
 ACP events into transcript blocks. Other streams remain available as raw

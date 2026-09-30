@@ -54,6 +54,7 @@ defmodule Fountain.Webhooks.Events do
     {"turn", ~w(started done failed interrupted)},
     {"request", ~w(started done)},
     {"model", ~w(done failed)},
+    {"config", ~w(done failed)},
     {"session", ~w(done)},
     {"sandbox", ~w(done)},
     {"configuration", ~w(done failed)},

@@ -30,13 +30,19 @@ defmodule Fountain.Conversations.PromptDelivery do
   The machine owner has the same window: an owner on the previous release
   inserts the turn from a changeset that does not cast `client_request_id`, so
   that turn opens without it.
+
+  A prompt's `session_config` (ADR 0062) travels the same way. A server on a
+  release that has this module but predates it matches the four-element
+  message and ignores the key, so during that rollout the turn runs on the
+  conversation's options instead of the prompt's.
   """
 
   require Logger
 
+  alias Fountain.Agents.SessionConfig
   alias Fountain.Conversations.{ConversationServer, Turn}
 
-  @carried [:client_request_id]
+  @carried [:client_request_id, :session_config]
 
   @type travelling :: keyword()
   @type wake_prompt :: nil | String.t() | {String.t(), travelling()}
@@ -54,13 +60,17 @@ defmodule Fountain.Conversations.PromptDelivery do
   """
   @spec travelling(keyword()) :: travelling()
   def travelling(opts) when is_list(opts) do
-    for {key, value} <- opts, key in @carried, carriable?(value), do: {key, value}
+    for {key, value} <- opts, key in @carried, carriable?(key, value), do: {key, value}
   end
 
-  defp carriable?(value) when is_binary(value),
+  defp carriable?(:client_request_id, value) when is_binary(value),
     do: String.length(value) in 1..Turn.client_request_id_max() and not Turn.has_nul?(value)
 
-  defp carriable?(_value), do: false
+  # An empty map asks for nothing, so it does not change the message's shape.
+  defp carriable?(:session_config, value) when is_map(value) and map_size(value) > 0,
+    do: SessionConfig.check(value) == :ok
+
+  defp carriable?(_key, _value), do: false
 
   @doc """
   Whether the server on `node` matches the four-element messages. It does when

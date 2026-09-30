@@ -73,6 +73,11 @@ defmodule Fountain.Conversations.Turn do
     field :inference_source, :map
     # ACP selection evidence, distinct from the agent's saved configuration.
     field :model_selection, :map
+    # The turn's ACP session config options (ADR 0062): "requested" (agent,
+    # then conversation, then prompt), "applied" (id to the value the adapter
+    # confirmed), "skipped" (ids it did not advertise), and "status"/"error"
+    # when it refused one. nil when the turn requested none.
+    field :config_selection, :map
     # The assistant's text for the turn — its events' `text` blocks, joined —
     # materialised by `Conversations._unsafe_update_turn/2` when the turn
     # ends, for `Fountain.Search` (#826). nil while the turn runs and on
@@ -170,6 +175,7 @@ defmodule Fountain.Conversations.Turn do
       :permission_deadline,
       :usage,
       :model_selection,
+      :config_selection,
       :reply_text,
       :origin,
       :conversation_id

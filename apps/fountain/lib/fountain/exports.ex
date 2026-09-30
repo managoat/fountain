@@ -370,6 +370,7 @@ defmodule Fountain.Exports do
         "allowed_vault_ids" => agent.allowed_vault_ids,
         "allowed_environment_ids" => agent.allowed_environment_ids,
         "environment_id" => agent.environment_id,
+        "session_config" => agent.session_config,
         "created_at" => agent.inserted_at,
         "updated_at" => agent.updated_at,
         # Config history is tenant data holding full values (unlike the audit
@@ -467,6 +468,7 @@ defmodule Fountain.Exports do
         "vault_id" => conv.vault_id,
         "environment_id" => conv.environment_id,
         "model" => conv.model,
+        "session_config" => conv.session_config,
         "parent_conversation_id" => conv.parent_conversation_id,
         "created_at" => conv.inserted_at,
         "updated_at" => conv.updated_at,
@@ -486,7 +488,8 @@ defmodule Fountain.Exports do
       "ended_at" => turn.ended_at,
       # The API's `inference` object: whose credential served the turn, and
       # which ChatGPT subscription when it was one. Never a fencing value.
-      "inference" => inference_entry(turn.inference_source)
+      "inference" => inference_entry(turn.inference_source),
+      "config_selection" => turn.config_selection
     }
   end
 

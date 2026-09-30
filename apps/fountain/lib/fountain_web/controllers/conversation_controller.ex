@@ -713,7 +713,8 @@ defmodule FountainWeb.ConversationController do
   # dropping the keys we know would park whatever else a caller sent in
   # `attrs` until the request expired.
   @queued_attr_keys ~w(prompt title vault_id environment_id inference_credential_id
-                       permission_policy model sandbox_mode sandbox_api_access sprite_name
+                       permission_policy model session_config sandbox_mode sandbox_api_access
+                       sprite_name
                        channel_id fresh parent_conversation_id labels
                        execution_limits client_request_id)
 
@@ -971,10 +972,29 @@ defmodule FountainWeb.ConversationController do
   def prompt(conn, %{"conversation_id" => id, "prompt" => prompt} = params) do
     user = conn.assigns.current_user
 
-    with {:ok, images} <- decode_images(params["images"]) do
-      do_prompt(conn, id, prompt, user, images, client_request_id(conn))
+    with {:ok, images} <- decode_images(params["images"]),
+         {:ok, session_config} <- prompt_session_config(conn) do
+      do_prompt(conn, id, prompt, user, images, client_request_id(conn), session_config)
     end
   end
+
+  # The turn's own session config options (ADR 0062), from the cast body for
+  # the reason `client_request_id/1` gives. Shape only, as everywhere else.
+  defp prompt_session_config(%{private: %{open_api_spex: %{body_params: body}}}) do
+    config =
+      case body do
+        %{session_config: config} -> config
+        %{"session_config" => config} -> config
+        _ -> nil
+      end
+
+    case Fountain.Agents.SessionConfig.check(config) do
+      :ok -> {:ok, config}
+      {:error, message} -> {:error, {:session_config_invalid, message}}
+    end
+  end
+
+  defp prompt_session_config(_conn), do: {:ok, nil}
 
   # `replace_params: false` leaves `params` as Plug built it: the path, the
   # query string and the body in one map. The request schema validates the
@@ -995,15 +1015,20 @@ defmodule FountainWeb.ConversationController do
   defp from_body(%{"client_request_id" => id}), do: id
   defp from_body(_body), do: nil
 
-  defp do_prompt(conn, id, prompt, user, images, client_request_id) do
+  defp do_prompt(conn, id, prompt, user, images, client_request_id, session_config) do
     case Conversations.get_conversation(id, user.id) do
       nil ->
         {:error, :not_found}
 
       _ ->
-        # The id rides in the opts to the turn the prompt opens (#1406),
-        # whichever road delivers it; see `Conversations.PromptDelivery`.
-        opts = Audited.attribution(conn, client_request_id: client_request_id)
+        # The id and the turn's session config ride in the opts to the turn
+        # the prompt opens (#1406, ADR 0062), whichever road delivers it; see
+        # `Conversations.PromptDelivery`.
+        opts =
+          Audited.attribution(conn,
+            client_request_id: client_request_id,
+            session_config: session_config
+          )
 
         case ConversationServer.send_prompt(id, prompt, images, opts) do
           :ok ->

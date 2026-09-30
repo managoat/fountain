@@ -427,6 +427,28 @@ defmodule FountainWeb.FallbackController do
     |> json(%{error: "model_invalid", message: "model: #{message}"})
   end
 
+  # ADR 0062: only the shape of a session config is checked here; the adapter
+  # decides which ids and values exist.
+  def call(conn, {:error, {:session_config_invalid, message}}) do
+    conn
+    |> put_status(:unprocessable_entity)
+    |> json(%{error: "session_config_invalid", message: "session_config #{message}"})
+  end
+
+  # A channel request naming session config options the conversation it
+  # resumes does not request (ADR 0062), refused like a differing model.
+  def call(conn, {:error, {:conversation_session_config_differs, current}}) do
+    conn
+    |> put_status(:conflict)
+    |> json(%{
+      error: "conversation_session_config_differs",
+      message:
+        "the channel's conversation requests session_config #{Jason.encode!(current)}; " <>
+          "change it with POST /api/conversations/{id}/reapply, send session_config on " <>
+          "the prompt for one turn, or pass fresh: true for a new conversation"
+    })
+  end
+
   # A channel request naming a model the conversation it resumes does not run
   # (ADR 0061 decision 5). Refused before the prompt goes out: resuming on the
   # old model would take the field and ignore it.

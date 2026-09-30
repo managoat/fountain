@@ -150,7 +150,12 @@ defmodule Fountain.Conversations.Connection do
 
     started_mono = System.monotonic_time(:millisecond)
 
-    case Managoat.ACP.Peer.prompt(conn.peer, prompt, images, model: model) do
+    # Every turn names its options, an empty map included: omitting them would
+    # keep the previous turn's, and a prompt's `session_config` is that turn's
+    # alone (ADR 0062).
+    opts = [model: model, config: TurnMachine.acp_session_config(turn)]
+
+    case Managoat.ACP.Peer.prompt(conn.peer, prompt, images, opts) do
       :ok ->
         # Announce only an accepted reuse. On refusal the fresh launch owns
         # this same row's start (#1924). The actor processes queued peer

@@ -145,6 +145,7 @@ defmodule Fountain.Conversations.TurnLaunch do
                 ),
               additional_directories: repository_directories(state),
               model: TurnMachine.acp_model(conv, agent),
+              config: TurnMachine.acp_session_config(turn),
               permission_policy: TurnMachine.effective_permission_policy(conv, agent),
               auth: CodexChatGPT.peer_auth(state.runtime_module, state.inference_credentials),
               execution_transport: transport,

@@ -33,7 +33,7 @@ defmodule Fountain.RuntimeConfigTest do
       System.put_env(previous)
 
       for k <-
-            ~w(PUBLIC_URL PHX_HOST FOUNTAIN_DOMAIN RENDER_EXTERNAL_URL FLY_APP_NAME RESEND_API_KEY SMTP_HOST EMAIL_DELIVERY),
+            ~w(PUBLIC_URL PHX_HOST FOUNTAIN_DOMAIN FLY_APP_NAME RESEND_API_KEY SMTP_HOST EMAIL_DELIVERY),
           not Map.has_key?(previous, k),
           do: System.delete_env(k)
     end)
@@ -43,7 +43,7 @@ defmodule Fountain.RuntimeConfigTest do
 
   defp read_prod_config(env) do
     for k <-
-          ~w(PUBLIC_URL PHX_HOST FOUNTAIN_DOMAIN RENDER_EXTERNAL_URL FLY_APP_NAME SMTP_HOST EMAIL_DELIVERY),
+          ~w(PUBLIC_URL PHX_HOST FOUNTAIN_DOMAIN FLY_APP_NAME SMTP_HOST EMAIL_DELIVERY),
         do: System.delete_env(k)
 
     System.put_env(env)
@@ -82,38 +82,25 @@ defmodule Fountain.RuntimeConfigTest do
     assert cfg[:phx_host] == "new.example.com"
   end
 
-  test "FOUNTAIN_DOMAIN does not shadow the platform URL fallbacks", %{base: base} do
-    for {platform_env, public_url, host} <- [
-          {%{"RENDER_EXTERNAL_URL" => "https://fountain-ab12.onrender.com"},
-           "https://fountain-ab12.onrender.com", "fountain-ab12.onrender.com"},
-          {%{"FLY_APP_NAME" => "fountain-ab12"}, "https://fountain-ab12.fly.dev",
-           "fountain-ab12.fly.dev"}
-        ] do
-      cfg =
-        base
-        |> Map.merge(platform_env)
-        |> Map.put("FOUNTAIN_DOMAIN", "old.example.com")
-        |> read_prod_config()
+  test "FOUNTAIN_DOMAIN does not shadow the platform URL fallback", %{base: base} do
+    cfg =
+      base
+      |> Map.merge(%{"FLY_APP_NAME" => "fountain-ab12", "FOUNTAIN_DOMAIN" => "old.example.com"})
+      |> read_prod_config()
 
-      assert cfg[:public_url] == public_url
-      assert cfg[:phx_host] == host
-    end
+    assert cfg[:public_url] == "https://fountain-ab12.fly.dev"
+    assert cfg[:phx_host] == "fountain-ab12.fly.dev"
   end
 
-  describe "RENDER_EXTERNAL_URL" do
-    # Render injects it into every web service. It is in the fallback chain so
-    # that render.yaml has something to boot on: PUBLIC_URL is required in
-    # prod, and on Render the hostname does not exist until the first deploy
-    # has already happened, so a blueprint that asked for it up front could
-    # never complete its own first deploy.
+  describe "FLY_APP_NAME" do
+    # Fly injects it into every machine. It is in the fallback chain because
+    # fly.toml ships with an app name `fly launch` replaces, so a PUBLIC_URL
+    # written into the file would name the wrong app.
     test "stands in for an unset PUBLIC_URL", %{base: base} do
-      cfg =
-        read_prod_config(
-          Map.put(base, "RENDER_EXTERNAL_URL", "https://fountain-ab12.onrender.com")
-        )
+      cfg = read_prod_config(Map.put(base, "FLY_APP_NAME", "fountain-ab12"))
 
-      assert cfg[:public_url] == "https://fountain-ab12.onrender.com"
-      assert cfg[:phx_host] == "fountain-ab12.onrender.com"
+      assert cfg[:public_url] == "https://fountain-ab12.fly.dev"
+      assert cfg[:phx_host] == "fountain-ab12.fly.dev"
     end
 
     test "loses to an operator's own PUBLIC_URL", %{base: base} do
@@ -123,7 +110,7 @@ defmodule Fountain.RuntimeConfigTest do
         base
         |> Map.merge(%{
           "PUBLIC_URL" => "https://fountain.example.com",
-          "RENDER_EXTERNAL_URL" => "https://fountain-ab12.onrender.com"
+          "FLY_APP_NAME" => "fountain-ab12"
         })
         |> read_prod_config()
 
@@ -131,26 +118,22 @@ defmodule Fountain.RuntimeConfigTest do
     end
 
     test "a blank PUBLIC_URL falls through to it rather than winning", %{base: base} do
-      # "" is truthy in Elixir, so the `||` chain this replaced would have
-      # taken the empty string and raised. Every `${VAR:-}` and every
-      # dashboard field left blank delivers exactly this shape.
+      # "" is truthy in Elixir, so an `||` chain would have taken the empty
+      # string and raised. Every `${VAR:-}` and every dashboard field left
+      # blank delivers exactly this shape.
       cfg =
         base
-        |> Map.merge(%{
-          "PUBLIC_URL" => "",
-          "RENDER_EXTERNAL_URL" => "https://fountain-ab12.onrender.com"
-        })
+        |> Map.merge(%{"PUBLIC_URL" => "", "FLY_APP_NAME" => "fountain-ab12"})
         |> read_prod_config()
 
-      assert cfg[:public_url] == "https://fountain-ab12.onrender.com"
+      assert cfg[:public_url] == "https://fountain-ab12.fly.dev"
     end
 
     test "a blank one still raises rather than passing the check", %{base: base} do
-      for k <-
-            ~w(PUBLIC_URL PHX_HOST FOUNTAIN_DOMAIN RENDER_EXTERNAL_URL FLY_APP_NAME SMTP_HOST EMAIL_DELIVERY),
+      for k <- ~w(PUBLIC_URL PHX_HOST FOUNTAIN_DOMAIN FLY_APP_NAME SMTP_HOST EMAIL_DELIVERY),
           do: System.delete_env(k)
 
-      System.put_env(Map.put(base, "RENDER_EXTERNAL_URL", ""))
+      System.put_env(Map.put(base, "FLY_APP_NAME", ""))
 
       assert_raise RuntimeError, ~r/PUBLIC_URL/, fn ->
         Config.Reader.read!(@runtime_exs, env: :prod)
@@ -187,7 +170,7 @@ defmodule Fountain.RuntimeConfigTest do
     # links in every verification email and every sprite's FOUNTAIN_BASE_URL.
     test "prod refuses to boot without PUBLIC_URL or a platform fallback", %{base: base} do
       for k <-
-            ~w(PUBLIC_URL PHX_HOST FOUNTAIN_DOMAIN RENDER_EXTERNAL_URL FLY_APP_NAME SMTP_HOST EMAIL_DELIVERY),
+            ~w(PUBLIC_URL PHX_HOST FOUNTAIN_DOMAIN FLY_APP_NAME SMTP_HOST EMAIL_DELIVERY),
           do: System.delete_env(k)
 
       System.put_env(base)
@@ -206,7 +189,7 @@ defmodule Fountain.RuntimeConfigTest do
     test "a blank PUBLIC_URL counts as unset", %{base: base} do
       # Compose-style `${VAR:-}` interpolation delivers "", not absence.
       for k <-
-            ~w(PUBLIC_URL PHX_HOST FOUNTAIN_DOMAIN RENDER_EXTERNAL_URL FLY_APP_NAME SMTP_HOST EMAIL_DELIVERY),
+            ~w(PUBLIC_URL PHX_HOST FOUNTAIN_DOMAIN FLY_APP_NAME SMTP_HOST EMAIL_DELIVERY),
           do: System.delete_env(k)
 
       System.put_env(Map.put(base, "PUBLIC_URL", ""))
@@ -218,7 +201,7 @@ defmodule Fountain.RuntimeConfigTest do
 
     test "dev keeps the localhost default", %{base: base} do
       for k <-
-            ~w(PUBLIC_URL PHX_HOST FOUNTAIN_DOMAIN RENDER_EXTERNAL_URL FLY_APP_NAME SMTP_HOST EMAIL_DELIVERY),
+            ~w(PUBLIC_URL PHX_HOST FOUNTAIN_DOMAIN FLY_APP_NAME SMTP_HOST EMAIL_DELIVERY),
           do: System.delete_env(k)
 
       System.put_env(base)

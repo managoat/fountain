@@ -87,11 +87,10 @@ primary_region = "iad"
   # exporter retries per span and floods the logs.
   OTEL_TRACES_EXPORTER = "none"
 
-  # PUBLIC_URL is deliberately absent, and unlike Render this is not a
-  # chicken-and-egg problem — `<app>.fly.dev` is known the moment you pick the
-  # name. It is absent because this file ships with a name you are about to
-  # change, and a stale base URL is silently wrong rather than broken: it
-  # builds the links in verification emails and every sandbox reads it as
+  # PUBLIC_URL is deliberately absent. `<app>.fly.dev` is known the moment you
+  # pick the name, but this file ships with a name you are about to change,
+  # and a stale base URL is silently wrong rather than broken: it builds the
+  # links in verification emails and every sandbox reads it as
   # FOUNTAIN_BASE_URL. config/runtime.exs derives https://$FLY_APP_NAME.fly.dev
   # instead. Set PUBLIC_URL here when you add a custom domain, and it wins.
 

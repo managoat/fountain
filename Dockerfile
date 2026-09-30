@@ -185,8 +185,7 @@ FROM native-assets-${BUNDLE_EXTENSIONS} AS native-assets
 FROM debian:trixie-slim AS runtime
 
 # Git SHA of the source commit, surfaced in-app under the sidebar email
-# popup so we can confirm at-a-glance which build is running (and that
-# we're on home-cloud vs Render). Wired up by the build workflow; falls
+# popup so we can confirm at-a-glance which build is running. Wired up by the build workflow; falls
 # back to "dev" for local `docker build` invocations.
 ARG BUILD_SHA=dev
 

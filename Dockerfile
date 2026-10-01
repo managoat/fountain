@@ -95,6 +95,11 @@ COPY ee ./ee
 COPY docs ./docs
 COPY CHANGELOG.md ./
 COPY sdk/typescript/examples ./sdk/typescript/examples
+# rel/ is what `mix release` adds to the stock release: env.sh.eex, which
+# names the node for a Fly cluster, and the overlays (bin/server,
+# bin/migrate). Mix reads both from rel/ when it is there and skips them
+# without a word when it is not, so this line is the whole difference.
+COPY rel ./rel
 
 # Lumis downloads a language's tree-sitter parser on first use and caches it
 # under its own priv/. The deployment runs read-only (deployment.yaml sets

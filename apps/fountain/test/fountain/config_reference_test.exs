@@ -75,7 +75,11 @@ defmodule Fountain.ConfigReferenceTest do
   # exactly the rot this test exists to catch.
   @read_elsewhere %{
     # The OTel SDK reads its own standard variables directly.
-    "OTEL_TRACES_EXPORTER" => "read by the OTel Erlang SDK"
+    "OTEL_TRACES_EXPORTER" => "read by the OTel Erlang SDK",
+    # The release's own scripts: bin/fountain_server and rel/env.sh.eex, which
+    # names the node on Fly before the VM starts (fly_cluster_test.exs).
+    "RELEASE_COOKIE" => "read by bin/fountain_server and rel/env.sh.eex",
+    "FLY_PRIVATE_IP" => "read by rel/env.sh.eex"
   }
 
   test "every variable documented in configuration.md is actually read by code" do
@@ -393,17 +397,17 @@ defmodule Fountain.ConfigReferenceTest do
            """
   end
 
-  test "fly.toml pins one machine that never parks" do
+  test "fly.toml never parks a machine and replaces one at a time" do
     # These four lines are the entire reason this file exists rather than a
     # paragraph in a guide, so they get a guard rather than a comment.
     #
     # Fly's defaults stop an idle machine and start it again on a request, and
     # a parked machine is an instance that quietly stops reaping sandboxes and
-    # stops pricing turns — every scheduler runs inside this process. A second
-    # machine is worse: Fountain clusters over Erlang distribution and nothing
-    # on Fly discovers peers, so two machines are two schedulers racing over
-    # the same sandboxes. `canary` and `bluegreen` both create that second
-    # machine for the length of a deploy.
+    # stops pricing turns — every scheduler runs inside this process. Several
+    # machines are one Erlang cluster only once RELEASE_COOKIE is set
+    # (rel/env.sh.eex); until then a second machine is two schedulers racing
+    # over the same sandboxes, and `canary` and `bluegreen` both create that
+    # second machine for the length of a deploy. `rolling` is right either way.
     fly = File.read!(Path.join(@repo_root, "fly.toml"))
 
     for {pattern, why} <- [
@@ -411,7 +415,8 @@ defmodule Fountain.ConfigReferenceTest do
           {~r/^\s*auto_start_machines = false$/m,
            "a machine Fly starts on demand is a parked one"},
           {~r/^\s*min_machines_running = 1$/m, "the instance has to stay up between requests"},
-          {~r/^\s*strategy = "rolling"$/m, "canary and bluegreen run two machines at once"}
+          {~r/^\s*strategy = "rolling"$/m,
+           "canary and bluegreen start a new machine beside the old one"}
         ] do
       assert Regex.match?(pattern, fly),
              "fly.toml no longer matches #{inspect(pattern)} — #{why}"

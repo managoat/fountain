@@ -439,8 +439,10 @@ You need this for more than one replica, and for nothing else. Read
 
 | Variable | Default | Required | Effect |
 |---|---|---|---|
-| `CLUSTER_DNS_QUERY` | — | Multi-replica. | The DNS name that Fountain polls to discover a peer. In Kubernetes that is a headless service. Empty or unset, the cluster is off. |
+| `CLUSTER_DNS_QUERY` | `<app>.internal` on Fly with `RELEASE_COOKIE` set, otherwise unset. | Multi-replica. | The DNS name that Fountain polls to discover a peer. In Kubernetes that is a headless service. On Fly the release sets it for you, from `FLY_APP_NAME`. Empty or unset, the cluster is off, and an empty value turns it off on Fly too. On Fly, a value without `RELEASE_COOKIE` **refuses to boot**. |
+| `RELEASE_COOKIE` | A random value baked into each image. | Multi-replica. | The shared secret that lets two nodes connect. Use the same value on every node, and keep it secret, because a node that holds it can run code on every other. Each image build bakes its own cookie, so without this variable the old and the new nodes of a rolling deploy never connect. On Fly, setting it turns the cluster on. Generate it with `openssl rand -hex 32`. |
 | `RELEASE_NAME` | Set by the release. | — | The node basename that peer discovery uses. It must match what each node registered as. The release sets it, so override it only when you know why. |
+| `FLY_PRIVATE_IP` | — | — | Fly sets this on each machine to its private IPv6 address. With `RELEASE_COOKIE` set, the release names the node `fountain_server@<FLY_PRIVATE_IP>` and runs distribution over IPv6. An explicit `RELEASE_NODE` has precedence. |
 
 ## Observability
 

@@ -717,6 +717,14 @@ end
 # Inference credentials are per-user (BYO, ADR 0008) and live in the
 # inference_credentials table — no platform-level env vars for them.
 
+# Erlang clustering (docs/architecture.md#clustering): poll one DNS name and
+# connect to `<RELEASE_NAME>@<address>` for every address it returns. In
+# Kubernetes the manifest sets the query to a headless service. On Fly,
+# rel/env.sh.eex sets it to `<app>.internal` when RELEASE_COOKIE is set, and
+# names the node after the machine's 6PN address; that name answers with AAAA
+# records only, and DNSPoll's default resolver asks for A and AAAA both. Unset
+# or "", there is no topology, and the rehydrator sweeps without waiting for
+# peers.
 cluster_topologies =
   case System.get_env("CLUSTER_DNS_QUERY") do
     nil ->

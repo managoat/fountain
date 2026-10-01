@@ -49,9 +49,8 @@ Some popular hosts fail one of these, and they fail it quietly.
   table above. An instance looks healthy and stops its own background work.
 - **Vercel, Netlify and Cloudflare Workers.** Each one runs a function per
   request. Fountain needs a process that outlives the request.
-- **Render.** A web service receives traffic on one port. The credential
-  broker (ADR 0019) listens on a second port that each sandbox dials, and
-  the broker is becoming mandatory.
+- **Render.** Fountain does not run there with the credential broker
+  (ADR 0019) turned on.
 
 Any host that runs one container, keeps it awake and offers a Postgres works.
 Four have a guide below.

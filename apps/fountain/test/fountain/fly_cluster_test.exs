@@ -24,7 +24,7 @@ defmodule Fountain.FlyClusterTest do
     script =
       EEx.eval_file(@env_sh, assigns: [release: %{name: :fountain_server}])
 
-    path = Path.join(System.tmp_dir!(), "env-#{System.unique_integer([:positive])}.sh")
+    path = Fountain.TmpDir.path("env") <> ".sh"
     File.write!(path, script)
     on_exit(fn -> File.rm(path) end)
 

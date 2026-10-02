@@ -1091,6 +1091,27 @@ defmodule FountainWeb.Schemas do
     })
   end
 
+  defmodule ConversationWakeResponse do
+    @moduledoc false
+    require OpenApiSpex
+
+    OpenApiSpex.schema(%{
+      title: "ConversationWakeResponse",
+      type: :object,
+      properties: %{
+        status: %Schema{
+          type: :string,
+          enum: ["awake", "waking"],
+          description:
+            "`awake` when the conversation's server was already running and nothing was " <>
+              "done; `waking` when this request started one. Its reattach or provision " <>
+              "stages follow on the event stream."
+        }
+      },
+      required: [:status]
+    })
+  end
+
   defmodule ConversationReapplyRequest do
     @moduledoc false
     require OpenApiSpex

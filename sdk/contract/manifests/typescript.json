@@ -69,6 +69,7 @@
     "POST /api/conversations/{conversation_id}/reapply",
     "POST /api/conversations/{conversation_id}/requests/{request_id}",
     "POST /api/conversations/{conversation_id}/terminate",
+    "POST /api/conversations/{conversation_id}/wake",
     "POST /api/environments",
     "POST /api/environments/{environment_id}/secrets",
     "POST /api/team",
@@ -103,6 +104,7 @@
     "ConversationListResponse": { "required": ["data"] },
     "ConversationResponse": { "required": ["data"] },
     "ConversationTreeNode": {},
+    "ConversationWakeResponse": { "required": ["status"] },
     "Environment": { "required": ["id", "name"] },
     "EnvironmentRequest": {},
     "EnvironmentUpdate": {},
@@ -150,6 +152,7 @@
       "exhaustive": true
     },
     "Conversation.status": ["failed", "idle", "pending", "running", "terminated"],
+    "ConversationWakeResponse.status": ["awake", "waking"],
     "LogEvent.kind": { "values": ["output", "stage"], "exhaustive": true },
     "LogEvent.state": ["done", "failed", "interrupted", "started"],
     "Turn.status": ["completed", "failed", "interrupted", "pending", "running"]

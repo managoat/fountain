@@ -281,6 +281,14 @@ Terminate a conversation
 fountain conv terminate <id>
 ```
 
+## `fountain conv wake`
+
+Bring the sandbox up without sending a prompt
+
+```
+fountain conv wake <id>
+```
+
 ## `fountain env list`
 
 List environments

@@ -1600,6 +1600,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/conversations/{conversation_id}/wake": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Wake a conversation without a prompt
+         * @description Brings the conversation's sandbox and server up without opening a turn, so the next prompt does not wait for them. A suspended sandbox is resumed; one that is gone is replaced with a fresh one, as a prompt would do. Answers once the server has started; its reattach or provision continues and reports on the event stream. A woken conversation is parked again after the usual idle period.
+         *
+         *     `awake` means the server was already running and nothing was done. Refused as a prompt's wake is: 402 without credits, 410 once the conversation has ended, 409 `sandbox_reset_pending` while its machine is being reset, and 503 while the machine or fleet is unavailable.
+         */
+        post: operations["FountainWeb.ConversationController.wake"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/conversations/{id}": {
         parameters: {
             query?: never;
@@ -3952,6 +3974,14 @@ export interface components {
         /** ConversationTreeResponse */
         ConversationTreeResponse: {
             data: components["schemas"]["ConversationTreeNode"][];
+        };
+        /** ConversationWakeResponse */
+        ConversationWakeResponse: {
+            /**
+             * @description `awake` when the conversation's server was already running and nothing was done; `waking` when this request started one. Its reattach or provision stages follow on the event stream.
+             * @enum {string}
+             */
+            status: "awake" | "waking";
         };
         /**
          * CreditsCheckoutRequest
@@ -13038,6 +13068,109 @@ export interface operations {
             };
             /** @description Too Many Requests */
             429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    "FountainWeb.ConversationController.wake": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Awake or waking */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConversationWakeResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Insufficient credits */
+            402: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No acceptable representation */
+            406: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NegotiationError"];
+                };
+            };
+            /** @description Sandbox is being reset or deleted */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Conversation is terminal */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Sandbox or fleet unavailable */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

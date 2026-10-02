@@ -8,7 +8,7 @@ defmodule FountainWeb.ConversationController do
   alias Fountain.Billing
   alias Fountain.Conversations
   alias Fountain.Conversations.{ConversationServer, Interruption, Launch, LogEvent}
-  alias Fountain.Conversations.{Reapply, Termination}
+  alias Fountain.Conversations.{Reapply, Termination, Wake}
   alias FountainWeb.Audited
   alias FountainWeb.LabelFilter
   alias FountainWeb.Plugs.RequireFullScope
@@ -815,6 +815,44 @@ defmodule FountainWeb.ConversationController do
         with {:ok, updated} <-
                Reapply.reapply_conversation(conv, params, Audited.attribution(conn)) do
           render(conn, :show, conversation: updated)
+        end
+    end
+  end
+
+  operation(:wake,
+    summary: "Wake a conversation without a prompt",
+    description:
+      "Brings the conversation's sandbox and server up without opening a turn, so the " <>
+        "next prompt does not wait for them. A suspended sandbox is resumed; one that is " <>
+        "gone is replaced with a fresh one, as a prompt would do. Answers once the server " <>
+        "has started; its reattach or provision continues and reports on the event " <>
+        "stream. A woken conversation is parked again after the usual idle period.\n\n" <>
+        "`awake` means the server was already running and nothing was done. Refused as a " <>
+        "prompt's wake is: 402 without credits, 410 once the conversation has ended, 409 " <>
+        "`sandbox_reset_pending` while its machine is being reset, and 503 while the " <>
+        "machine or fleet is unavailable.",
+    parameters: [conversation_id: [in: :path, type: :string, required: true]],
+    responses: [
+      ok: {"Awake or waking", "application/json", Schemas.ConversationWakeResponse},
+      payment_required: {"Insufficient credits", "application/json", Schemas.Error},
+      not_found: {"Not found", "application/json", Schemas.Error},
+      conflict: {"Sandbox is being reset or deleted", "application/json", Schemas.Error},
+      gone: {"Conversation is terminal", "application/json", Schemas.Error},
+      service_unavailable: {"Sandbox or fleet unavailable", "application/json", Schemas.Error}
+    ]
+  )
+
+  def wake(conn, %{"conversation_id" => id}) do
+    user = conn.assigns.current_user
+
+    case Conversations.get_conversation(id, user.id) do
+      nil ->
+        {:error, :not_found}
+
+      _ ->
+        # Ownership was established by the scoped fetch above.
+        with {:ok, status} <- Wake.wake_without_prompt(id, Audited.attribution(conn)) do
+          json(conn, %{status: Atom.to_string(status)})
         end
     end
   end

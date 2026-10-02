@@ -165,6 +165,7 @@ fountain conv list [--json]
 fountain conv show <id>
 fountain conv stream <id>
 fountain conv prompt <id> -p "next instruction" [-i screenshot.png]
+fountain conv wake <id>
 fountain conv interrupt <id>
 fountain conv terminate <id>
 fountain conv delete <id>

@@ -56,6 +56,12 @@ func init() {
 		},
 		promptCmd,
 		&cobra.Command{
+			Use:   "wake <id>",
+			Short: "Bring the sandbox up without sending a prompt",
+			Args:  cobra.ExactArgs(1),
+			RunE:  func(cmd *cobra.Command, args []string) error { return convWake(args[0]) },
+		},
+		&cobra.Command{
 			Use:   "interrupt <id>",
 			Short: "Interrupt the running turn",
 			Args:  cobra.ExactArgs(1),
@@ -233,6 +239,22 @@ func guessMediaType(path string) string {
 	default:
 		return "image/png"
 	}
+}
+
+func convWake(id string) error {
+	c := activeClient()
+	var out struct {
+		Status string `json:"status"`
+	}
+	if err := c.Post("/conversations/"+id+"/wake", map[string]any{}, &out); err != nil {
+		Fatal(err.Error())
+	}
+	if out.Status == "awake" {
+		fmt.Printf("%s is already awake\n", id)
+	} else {
+		fmt.Printf("waking %s\n", id)
+	}
+	return nil
 }
 
 func convInterrupt(id string) error {

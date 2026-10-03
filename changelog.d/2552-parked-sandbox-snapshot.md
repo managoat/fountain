@@ -1,6 +1,6 @@
 ### Added
 
-- **A parked sandbox's files can be read without waking it** (ADR 0063). A
+- **A parked sandbox's files can be read without waking it** (#2552, ADR 0063). A
   park now snapshots the git work trees under the agent's working directory,
   and `GET /api/sandboxes/:id/files`, `/file`, `/diff` and `/git-status`
   answer a suspended sandbox from that snapshot, with `snapshot_at` giving

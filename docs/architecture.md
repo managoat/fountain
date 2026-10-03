@@ -182,7 +182,9 @@ a state of `started`, `done`, `failed` or `interrupted`.
     the same split to whatever a crashed server left behind.
 7. **`terminate`.** An explicit `POST .../terminate` marks the conversation
    `terminated`. That is one of the two terminal states, next to `failed`.
-   It destroys an ephemeral sprite that no other conversation holds. A
+   It destroys an ephemeral sprite that no other conversation holds, after
+   the response: the sandbox is marked for teardown first and takes no new
+   work, and a destroy that does not finish is completed within five minutes. A
    shared machine, or a persistent home, stays for the conversations that
    remain on it. `DELETE /api/sandboxes/:id` resets a persistent home. Read
    the [Sandboxes section](api.md#sandboxes) of the API reference.

@@ -1421,11 +1421,7 @@ defmodule Fountain.Conversations.ConversationServer do
     state = drop_connection(state, "terminated")
     opts = Keyword.put(opts, :terminating_conversation_id, nil)
 
-    case Termination._unsafe_destroy_machine(state.sandbox_id, opts) do
-      {:ok, _outcome} -> :ok
-      {:error, reason} -> Logger.warning("conv #{state.conversation_id}: #{inspect(reason)}")
-    end
-
+    Termination.destroy_after_terminate(state.sandbox_id, opts)
     Egress.release(state.conversation_id)
     finish_termination(state, %{})
   end

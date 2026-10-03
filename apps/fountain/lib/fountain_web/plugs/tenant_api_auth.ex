@@ -41,9 +41,14 @@ defmodule FountainWeb.Plugs.TenantAPIAuth do
       # process and nothing ever awaited it, so a pool blip stamping a column
       # nothing reads on the hot path could kill a request that had already
       # authenticated — and, under the SQL Sandbox, the test that made it.
-      Task.Supervisor.start_child(Fountain.TaskSupervisor, fn ->
-        Accounts.touch_api_key(raw_key)
-      end)
+      #
+      # Only when the stamp is due (#2563): a key read as stamped within the
+      # last minute needs neither the task nor the query.
+      if Accounts.api_key_touch_due?(api_key) do
+        Task.Supervisor.start_child(Fountain.TaskSupervisor, fn ->
+          Accounts.touch_api_key(raw_key)
+        end)
+      end
 
       # The key's display prefix on every log line of the request. Never the
       # key: the prefix is what the console shows next to the key's name, so

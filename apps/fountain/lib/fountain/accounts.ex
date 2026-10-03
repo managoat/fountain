@@ -15,7 +15,7 @@ defmodule Fountain.Accounts do
   - `create_api_key/2` — issue a new API key (returns the plaintext once)
   - `revoke_api_key/2` — permanently invalidate a key
   - `get_user_by_api_key/1` — authenticate a raw API key string
-  - `touch_api_key/1` — update last_used_at (best-effort, off the request)
+  - `touch_api_key/1` — update last_used_at at most once a minute (best-effort, off the request)
   - `upsert_oauth_user/3` — find-or-create user from OAuth callback
   """
 
@@ -849,6 +849,19 @@ defmodule Fountain.Accounts do
     end
   end
 
+  @api_key_touch_interval_s 60
+
+  @doc """
+  Whether `key`'s `last_used_at` is old enough that `touch_api_key/1` would
+  write it. Lets the caller skip the task and the query for a key it has just
+  read as freshly stamped.
+  """
+  @spec api_key_touch_due?(ApiKey.t()) :: boolean()
+  def api_key_touch_due?(%ApiKey{last_used_at: nil}), do: true
+
+  def api_key_touch_due?(%ApiKey{last_used_at: at}),
+    do: DateTime.diff(DateTime.utc_now(), at) >= @api_key_touch_interval_s
+
   @doc """
   Update `last_used_at` for the API key matching `raw_key`.
 
@@ -858,14 +871,24 @@ defmodule Fountain.Accounts do
   reason: a failed stamp on a column nothing reads on the hot path is a log
   line, never the reason an already-authenticated request fails (#1040).
 
+  The stamp is at most a minute old rather than exact (#2563). Every
+  authenticated request used to write the key's row, and a client sending
+  requests in parallel on one key queued them on its row lock, up to 2.7 s
+  each while holding a pool connection. A key stamped within the last minute
+  is left alone, so a burst writes once.
+
   Always returns `:ok`.
   """
   @spec touch_api_key(String.t()) :: :ok
   def touch_api_key(raw_key) when is_binary(raw_key) do
     key_hash = hash_key(raw_key)
     now = DateTime.utc_now() |> DateTime.truncate(:second)
+    stale = DateTime.add(now, -@api_key_touch_interval_s)
 
-    from(k in ApiKey, where: k.key_hash == ^key_hash)
+    from(k in ApiKey,
+      where: k.key_hash == ^key_hash,
+      where: is_nil(k.last_used_at) or k.last_used_at < ^stale
+    )
     |> Repo.update_all(set: [last_used_at: now])
 
     :ok

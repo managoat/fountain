@@ -289,6 +289,47 @@ defmodule Fountain.SandboxFiles.SnapshotsTest do
       refute Repo.get_by(Snapshot, sandbox_id: ctx.sandbox.id)
     end
 
+    test "stops taking repositories once the survey's total is spent, each one whole", ctx do
+      other = Path.join(ctx.home, "work/other")
+      File.mkdir_p!(other)
+      git!(other, ["init", "-q"])
+      File.write!(Path.join(other, "b.txt"), "bee\n")
+
+      assert {:ok, _} = Snapshots.capture(ctx.sandbox, enabled: true, max_survey_bytes: 1)
+      assert [repo] = Snapshots.parked(park!(ctx.sandbox)).repos
+      assert repo.root in [@track, @home <> "/work/other"]
+      assert repo.status_all != ""
+
+      Repo.update_all(from(s in Sandbox, where: s.id == ^ctx.sandbox.id), set: [status: "ready"])
+      assert {:ok, _} = Snapshots.capture(ctx.sandbox, enabled: true)
+      assert length(Snapshots.parked(park!(ctx.sandbox)).repos) == 2
+    end
+
+    test "each capture is a span with its outcome, for what it costs a park", ctx do
+      ref = make_ref()
+      test_pid = self()
+
+      :telemetry.attach(
+        "snapshot-span-#{inspect(ref)}",
+        [:fountain, :sandbox_snapshot, :stop],
+        fn _event, %{duration: duration}, meta, _ ->
+          send(test_pid, {ref, duration, meta})
+        end,
+        nil
+      )
+
+      on_exit(fn -> :telemetry.detach("snapshot-span-#{inspect(ref)}") end)
+
+      assert {:ok, _} = Snapshots.capture(ctx.sandbox, enabled: true)
+      sandbox_id = ctx.sandbox.id
+      assert_receive {^ref, duration, %{outcome: :ok, sandbox_id: ^sandbox_id}}
+      assert is_integer(duration)
+
+      stub(Managoat.Sandbox, :exec, fn _handle, _command, _args, _opts -> {:error, :closed} end)
+      capture_log(fn -> Snapshots.capture(ctx.sandbox, enabled: true) end)
+      assert_receive {^ref, _duration, %{outcome: :error, sandbox_id: ^sandbox_id}}
+    end
+
     test "a machine that stops for good drops its snapshot", ctx do
       assert {:ok, _} = Snapshots.capture(ctx.sandbox, enabled: true)
       terminated = %{ctx.sandbox | status: "terminated"}

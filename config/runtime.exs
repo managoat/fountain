@@ -661,6 +661,14 @@ config :fountain, :checkpoint_creation_enabled, checkpoint_creation_enabled
 config :managoat_sandbox, Managoat.Sandbox.Sprites,
   checkpoint_creation_enabled: checkpoint_creation_enabled
 
+# The files snapshot a park takes (ADR 0063). On by default; `false` stops
+# parks taking one without a deploy, and a parked sandbox's files then read
+# as not ready, as before. Skipped in :test, where config/test.exs pins it.
+if config_env() != :test do
+  config :fountain, Fountain.SandboxFiles.Snapshots,
+    enabled: System.get_env("SANDBOX_SNAPSHOTS_ENABLED", "true") != "false"
+end
+
 # Webhooks (#700). On by default; a deployment with no outbound HTTP egress
 # can switch dispatch off entirely. WEBHOOK_ALLOW_HTTP relaxes the https-only
 # rule on endpoint URLs, which is for a self-hosted instance calling a

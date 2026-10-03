@@ -54,6 +54,7 @@ defmodule Fountain.Machines.MachineBoundsTest do
   alias Fountain.Machines.Reads
   alias Fountain.Machines.Renewal
   alias Fountain.Machines.Resume
+  alias Fountain.SandboxFiles.Snapshots
 
   # The ceiling `ConversationServer.call_server/2` reads. Duplicated rather than
   # imported because the point is to pin the relationship to *that* number, and
@@ -101,6 +102,13 @@ defmodule Fountain.Machines.MachineBoundsTest do
 
     assert Park.busy_wait_ms() == Destroy.busy_wait_ms(),
            "the two protocols make a caller wait different amounts for the same condition"
+
+    assert Snapshots.budget_ms() == 30_000
+
+    assert Snapshots.budget_ms() <= div(Machine.park_timeout_ms(), 2),
+           "the files snapshot shares the park's ceiling with the checkpoint, the read " <>
+             "drain and the suspend; a capture that spends most of it makes a completed " <>
+             "park read as a refused one"
 
     assert Park.lease_ttl_ms() > Destroy.lease_ttl_ms(),
            "a park holds the machine for a checkpoint and a suspend, which is longer than " <>

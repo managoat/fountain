@@ -6,3 +6,4 @@
   answer a suspended sandbox from that snapshot, with `snapshot_at` giving
   when it was taken. Reads the snapshot does not cover (ignored files, files
   over 256 KiB, diffs against a ref) still return `409 sandbox_not_ready`.
+  `SANDBOX_SNAPSHOTS_ENABLED=false` turns the snapshot off.

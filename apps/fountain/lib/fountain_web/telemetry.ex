@@ -190,6 +190,17 @@ defmodule FountainWeb.Telemetry do
         reporter_options: [buckets: [50, 100, 250, 500, 1000, 2500, 5000, 10_000, 30_000]],
         description: "How long each named step of a fresh provision takes"
       ),
+      # What a park spends on the files snapshot before its suspend (ADR
+      # 0063), which is also what a wake arriving mid-park waits behind.
+      # `outcome` is `ok` or `error`.
+      distribution("fountain.sandbox_snapshot.stop.duration",
+        event_name: [:fountain, :sandbox_snapshot, :stop],
+        measurement: :duration,
+        unit: {:native, :millisecond},
+        tags: [:outcome],
+        reporter_options: [buckets: [250, 500, 1000, 2500, 5000, 10_000, 20_000, 30_000]],
+        description: "How long a park's sandbox files snapshot takes"
+      ),
       distribution("fountain.reattach.stop.duration",
         event_name: [:fountain, :reattach, :stop],
         measurement: :duration,

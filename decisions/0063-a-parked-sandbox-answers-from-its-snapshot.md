@@ -68,9 +68,13 @@ What the code already offers:
 3. **Bounded, in size and in time.** 16 repositories, 20,000 paths, 1,500
    directories; files up to 256 KiB each (the files API's default read), at
    most 2,000 of them and 4 MiB in all; diffs and statuses up to the 1 MiB
-   cap the status read already has. Two fixed scripts with thirty seconds
-   between them, well inside the minute the park's caller waits
-   (`Machine.park_timeout_ms/0`).
+   cap the status read already has, and no further repository once 8 MiB of
+   them (in base64) has been sent, so one `exec` never carries the 64 MiB the
+   per-repository caps would allow. Two fixed scripts with thirty seconds
+   between them, at most half the minute the park's caller waits
+   (`Machine.park_timeout_ms/0`, pinned in `machine_bounds_test.exs`).
+   `SANDBOX_SNAPSHOTS_ENABLED=false` stops parks taking one without a
+   deploy.
 
 4. **Redacted when taken, encrypted at rest.** Content, diffs, statuses and
    names are redacted with the values a live server has registered as well as
@@ -108,7 +112,10 @@ What the code already offers:
   and can offer to wake the machine for anything the picture does not hold.
 - Every park pays for two more `exec` calls before its suspend. On Sprites the
   suspend is a no-op and the machine scales to zero by itself, so this is
-  time on a machine that is idle anyway.
+  time on a machine that is idle anyway. It is not idle time for a person:
+  a wake is refused while a park holds the machine, so a prompt sent
+  mid-park waits behind the capture too. `fountain.sandbox_snapshot.stop.duration`
+  measures it, tagged by outcome.
 - Storage grows with parked sandboxes: one row each, at most about 4 MiB of
   file content before compression plus the manifest.
 - `snapshot_at` is a new optional field on four responses. A client that

@@ -36,7 +36,7 @@ defmodule Fountain.SandboxFiles.Snapshots do
   16 repositories, 20,000 paths and 1,500 directories surveyed; files up to
   256 KiB each (the files API's default read), at most 2,000 of them and
   4 MiB in all; diffs and statuses up to the files API's own 1 MiB status
-  cap. Two scripts in thirty seconds between them, inside the park's renewed
+  cap each, and no further repository once 8 MiB of them has been sent. Two scripts in thirty seconds between them, inside the park's renewed
   lease and well inside the minute its caller waits for the whole park.
 
   ## What it is not
@@ -78,6 +78,11 @@ defmodule Fountain.SandboxFiles.Snapshots do
   @max_file_bytes 262_144
   @max_files 2_000
   @max_content_bytes 4_194_304
+  # The base64 the survey may send for every repository's diff and statuses
+  # together. Each is capped at 1 MiB on its own, so sixteen repositories
+  # could otherwise put 64 MiB through one exec; the survey stops taking
+  # repositories once this is spent, and the one that spent it is whole.
+  @max_survey_bytes 8_388_608
   # The bytes of paths handed to the collect script. Linux bounds a command
   # line at a couple of MiB including the environment; this stays well clear.
   @max_arg_bytes 524_288
@@ -133,23 +138,35 @@ defmodule Fountain.SandboxFiles.Snapshots do
   not taking snapshots, or `{:error, reason}` once the previous snapshot has
   been removed. Never raises.
 
-  `enabled: true` takes one whatever the configuration says, for a test.
+  `enabled: true` takes one whatever the configuration says, and
+  `max_survey_bytes:` lowers the survey's total, for a test.
+
+  Each capture is a `[:fountain, :sandbox_snapshot]` span tagged with its
+  `outcome`, because it is time a park spends before its suspend and a wake
+  waits behind (ADR 0063).
   """
   @spec capture(Sandbox.t(), keyword()) :: {:ok, Snapshot.t()} | :skipped | {:error, term()}
   def capture(%Sandbox{} = sandbox, opts \\ []) do
     if Keyword.get_lazy(opts, :enabled, &enabled?/0) do
-      taken_at = DateTime.utc_now()
-
-      case take(sandbox) do
-        {:ok, manifest, contents} ->
-          store(sandbox, taken_at, manifest, contents)
-
-        {:error, reason} = error ->
-          forget(sandbox, reason)
-          error
-      end
+      Fountain.Telemetry.span([:sandbox_snapshot], %{sandbox_id: sandbox.id}, fn ->
+        result = take_and_store(sandbox, opts)
+        {result, %{outcome: outcome(result), sandbox_id: sandbox.id}}
+      end)
     else
       :skipped
+    end
+  end
+
+  defp take_and_store(sandbox, opts) do
+    taken_at = DateTime.utc_now()
+
+    case take(sandbox, opts) do
+      {:ok, manifest, contents} ->
+        store(sandbox, taken_at, manifest, contents)
+
+      {:error, reason} = error ->
+        forget(sandbox, reason)
+        error
     end
   rescue
     error ->
@@ -157,6 +174,9 @@ defmodule Fountain.SandboxFiles.Snapshots do
       forget(sandbox, reason)
       {:error, :capture_raised}
   end
+
+  defp outcome({:ok, _snapshot}), do: :ok
+  defp outcome(_error), do: :error
 
   defp forget(%Sandbox{} = sandbox, reason) do
     Logger.warning(
@@ -167,7 +187,7 @@ defmodule Fountain.SandboxFiles.Snapshots do
     delete(sandbox.id)
   end
 
-  defp take(%Sandbox{} = sandbox) do
+  defp take(%Sandbox{} = sandbox, opts) do
     handle =
       Managoat.Sandbox.build_handle(
         Conversations.sandbox_provider_atom(sandbox),
@@ -187,7 +207,8 @@ defmodule Fountain.SandboxFiles.Snapshots do
                root,
                Integer.to_string(@max_repos),
                Integer.to_string(@max_paths),
-               Integer.to_string(SandboxFiles.max_status_bytes() + 1)
+               Integer.to_string(SandboxFiles.max_status_bytes() + 1),
+               Integer.to_string(Keyword.get(opts, :max_survey_bytes, @max_survey_bytes))
              ] ++ roots
            ),
          {:ok, repos} <- parse_survey(output, root) do
@@ -349,6 +370,11 @@ defmodule Fountain.SandboxFiles.Snapshots do
   # that hold other people's repositories (a package cache, a dependency
   # tree), not the agent's.
   #
+  # Each repository's diff and statuses count against `max_total`, in base64,
+  # and once it is spent no further repository is taken. A repository is in
+  # the picture whole or not at all, so a later one reads as not ready rather
+  # than as a repository with nothing changed.
+  #
   # `GIT_OPTIONAL_LOCKS=0` for the reason the status script gives: a plain
   # status refreshes the index, and the read that observes the work must not
   # take `index.lock` from under it. The machine is idle here, but a hook or a
@@ -359,7 +385,8 @@ defmodule Fountain.SandboxFiles.Snapshots do
     max_repos=$2
     max_paths=$3
     git_bytes=$4
-    shift 4
+    max_total=$5
+    shift 5
     [ -e "$root" ] || exit 3
     [ -d "$root" ] || exit 4
     physical=$(cd -- "$root" 2>/dev/null && pwd -P && printf '.') || exit 5
@@ -371,34 +398,34 @@ defmodule Fountain.SandboxFiles.Snapshots do
       cd -- "$physical" || exit 5
       export GIT_OPTIONAL_LOCKS=0 GIT_TERMINAL_PROMPT=0
       repos=0
+      total=0
       while IFS= read -r -d '' g; do
         [ "$repos" -ge "$max_repos" ] && break
+        [ "$total" -ge "$max_total" ] && break
         d=${g%/.git}
         rel=${d#.}
         rel=${rel#/}
-        (
-          cd -- "$d" 2>/dev/null || exit 1
-          here=$(pwd -P && printf '.') || exit 1
-          here=${here%$'\n.'}
-          top=$(git rev-parse --show-toplevel 2>/dev/null && printf '.') || exit 1
-          top=${top%$'\n.'}
-          [ "$top" = "$here" ] || exit 1
-          branch=$(git symbolic-ref --quiet --short HEAD 2>/dev/null)
-          printf 'R\0%s\0%s\0' "$rel" "$branch"
-          printf 'D\0'
-          git --no-pager diff --no-color --no-ext-diff 2>/dev/null | head -c "$git_bytes" | base64
-          printf '\0S\0'
-          git --no-pager status --porcelain=v1 -z --untracked-files=all 2>/dev/null | head -c "$git_bytes" | base64
-          printf '\0N\0'
-          git --no-pager status --porcelain=v1 -z --untracked-files=normal 2>/dev/null | head -c "$git_bytes" | base64
-          printf '\0'
-          n=0
-          while IFS= read -r -d '' f; do
-            n=$((n + 1))
-            [ "$n" -gt "$max_paths" ] && break
-            printf 'F\0%s\0' "$f"
-          done < <(git ls-files -z -co --exclude-standard 2>/dev/null)
-        ) && repos=$((repos + 1))
+        cd -- "$physical" || exit 5
+        cd -- "$d" 2>/dev/null || continue
+        here=$(pwd -P && printf '.') || continue
+        here=${here%$'\n.'}
+        top=$(git rev-parse --show-toplevel 2>/dev/null && printf '.') || continue
+        top=${top%$'\n.'}
+        [ "$top" = "$here" ] || continue
+        branch=$(git symbolic-ref --quiet --short HEAD 2>/dev/null)
+        diff=$(git --no-pager diff --no-color --no-ext-diff 2>/dev/null | head -c "$git_bytes" | base64)
+        all=$(git --no-pager status --porcelain=v1 -z --untracked-files=all 2>/dev/null | head -c "$git_bytes" | base64)
+        normal=$(git --no-pager status --porcelain=v1 -z --untracked-files=normal 2>/dev/null | head -c "$git_bytes" | base64)
+        total=$((total + ${#diff} + ${#all} + ${#normal}))
+        printf 'R\0%s\0%s\0' "$rel" "$branch"
+        printf 'D\0%s\0S\0%s\0N\0%s\0' "$diff" "$all" "$normal"
+        n=0
+        while IFS= read -r -d '' f; do
+          n=$((n + 1))
+          [ "$n" -gt "$max_paths" ] && break
+          printf 'F\0%s\0' "$f"
+        done < <(git ls-files -z -co --exclude-standard 2>/dev/null)
+        repos=$((repos + 1))
       done < <(
         find . -maxdepth 5 \
           \( -name node_modules -o -name .cache -o -name .npm -o -name .cargo -o -name .rustup \

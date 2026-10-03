@@ -110,7 +110,8 @@ audit, and because it respawns the adapter.
    adapters expose a mode option (claude's `mode`, codex's `mode` and
    `collaboration_mode`), so a per-turn read-only switch can travel through
    a prompt's `session_config`. Whether that is enough to enforce read-only
-   is #2533's decision.
+   is #2533's decision. Measured: it is not. [ADR 0064](0064-read-only-turns.md)
+   proposes the enforcement.
 
 ## Implementation status
 

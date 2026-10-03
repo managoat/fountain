@@ -5,7 +5,7 @@ defmodule Fountain.Conversations.Reattachment do
 
   alias Fountain.Conversations
   alias Fountain.Conversations.ActorStatus
-  alias Fountain.Conversations.{Connection, Output, Pending, Provisioning, TurnMachine}
+  alias Fountain.Conversations.{Connection, Egress, Output, Pending, Provisioning, TurnMachine}
   alias Fountain.Machines.Machine
 
   @doc """
@@ -39,10 +39,9 @@ defmodule Fountain.Conversations.Reattachment do
   @doc false
   def prepare_source(handle, state, conv, agent, sprite_env) do
     with :ok <-
-           Provisioning.write_env_file(
-             handle,
-             Fountain.Conversations.Identity.disk_env(sprite_env)
-           ) do
+           step(state, "reattach_config", fn ->
+             write_config(handle, state, agent, conv, sprite_env)
+           end) do
       # Deliberately unchecked, and the reattach carries on either way. Since
       # ADR 0058 stage 8b the skills record is written through
       # `Machine.retarget/3`, which takes the machine's advisory lock, so a
@@ -52,22 +51,109 @@ defmodule Fountain.Conversations.Reattachment do
       # it. That is a record lagging the disk, not a failed reattach, and
       # refusing the reattach over it would be the worse trade (round 1,
       # protocol review).
-      _ = Fountain.Conversations.Reapply.mount_skills(handle, conv, agent)
-      runtime = conv.runtime || (agent && agent.runtime) || "claude"
-      Provisioning.write_instructions(handle, runtime, agent)
+      _ =
+        step(state, "reattach_skills", fn ->
+          Fountain.Conversations.Reapply.mount_skills(handle, conv, agent)
+        end)
 
       with :ok <- Fountain.Conversations.InferenceBinding.reserve(conv, state.inference_source) do
-        Provisioning.prepare_runtime_sprite(
-          handle,
-          runtime,
-          state.runtime_module,
-          agent,
-          sprite_env,
-          state.inference_source,
-          state.user_id
-        )
+        step(state, "reattach_adapter", fn ->
+          Provisioning.prepare_runtime_sprite(
+            handle,
+            runtime(conv, agent),
+            state.runtime_module,
+            agent,
+            sprite_env,
+            state.inference_source,
+            state.user_id
+          )
+        end)
       end
     end
+  end
+
+  # What a reattach rewrites on the disk: the runtime's config, the agent's
+  # instructions, the env file and the broker CA. None reads another, so they
+  # go at once, as `FreshProvision`'s config step has since #2499; one after
+  # another they were most of a reattach's own time (#2562). Only the env file
+  # decides the answer, as before:
+  #
+  # - The runtime config rewrite keeps `.mcp.json` current with the agent's
+  #   resolved servers after the callback token rotated (#2152). Best effort:
+  #   the turn's own failure says more than a refused wake would.
+  # - The CA is an idempotent rewrite on a machine that has it, and installs
+  #   it on one provisioned before its tenant was brokered. Best effort for the
+  #   same reason. It finishes before anything after this step dials out.
+  # - The env file is required.
+  defp write_config(handle, state, agent, conv, sprite_env) do
+    [
+      fn ->
+        Provisioning.write_runtime_config(
+          handle,
+          state.runtime_module,
+          Egress.with_connection_servers(
+            agent,
+            state.user_id,
+            state.conversation_id,
+            state.callback_token
+          )
+        )
+        |> best_effort("runtime config write on wake")
+      end,
+      fn -> Provisioning.write_instructions(handle, runtime(conv, agent), agent) end,
+      fn ->
+        Egress.install_ca(state.broker, handle, state.conversation_id)
+        |> best_effort("broker CA install on wake")
+      end
+    ]
+    |> Enum.map(&async_step/1)
+    |> then(fn tasks ->
+      env_file =
+        Provisioning.write_env_file(handle, Fountain.Conversations.Identity.disk_env(sprite_env))
+
+      Enum.each(tasks, &await_step/1)
+      env_file
+    end)
+  end
+
+  # As `FreshProvision`'s: an exception in a task would reach the server as a
+  # link exit, past the handling a raise in the server itself gets, so the
+  # task catches it and awaiting re-raises it here with its own stacktrace.
+  defp async_step(fun) do
+    Task.async(fn ->
+      try do
+        {:ok, fun.()}
+      rescue
+        exception -> {:raised, exception, __STACKTRACE__}
+      end
+    end)
+  end
+
+  defp await_step(task) do
+    case Task.await(task, :infinity) do
+      {:ok, result} -> result
+      {:raised, exception, stacktrace} -> reraise exception, stacktrace
+    end
+  end
+
+  defp best_effort(:ok, _what), do: :ok
+
+  defp best_effort({:error, reason}, what) do
+    Logger.warning("#{what}: #{inspect(reason)}")
+    :ok
+  end
+
+  defp runtime(conv, agent), do: conv.runtime || (agent && agent.runtime) || "claude"
+
+  # A reattach step on the `fountain.provision_step` histogram, under a
+  # `reattach_` name, so a slow wake says which step it spent its time in the
+  # way a slow provision does.
+  defp step(state, name, fun) do
+    conv_id = state.conversation_id
+
+    Fountain.Telemetry.span([:provision_step], %{conv_id: conv_id, step: name}, fn ->
+      {fun.(), %{conv_id: conv_id, step: name}}
+    end)
   end
 
   @doc """

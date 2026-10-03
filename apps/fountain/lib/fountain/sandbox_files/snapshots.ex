@@ -694,9 +694,12 @@ defmodule Fountain.SandboxFiles.Snapshots do
   defp seal(term, dek),
     do: term |> :erlang.term_to_binary(compressed: 6) |> Crypto.encrypt(dek, @aad)
 
+  # Authenticated decryption under the tenant's key already says these bytes
+  # are ones `seal/2` wrote, but the decode still refuses anything executable
+  # and any atom that does not exist: a stored term is data, never code.
   defp open(ciphertext, dek) do
     case Crypto.decrypt(ciphertext, dek, @aad) do
-      {:ok, binary} -> {:ok, :erlang.binary_to_term(binary, [:safe])}
+      {:ok, binary} -> {:ok, Plug.Crypto.non_executable_binary_to_term(binary, [:safe])}
       :error -> :error
     end
   end

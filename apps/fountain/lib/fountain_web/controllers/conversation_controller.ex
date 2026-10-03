@@ -978,9 +978,12 @@ defmodule FountainWeb.ConversationController do
   operation(:prompt,
     summary: "Send another prompt",
     description:
-      "Queues a new turn. If the ConversationServer has been GC'd (e.g. across a " <>
-        "BEAM restart) a fresh sprite is provisioned and the runtime resumes via its " <>
-        "session id.",
+      "Queues a new turn. A conversation whose sandbox is parked or gone is woken " <>
+        "behind the response: it answers `queued` once the credit, account, agent and " <>
+        "capacity checks pass, and a wake that then fails is reported on the event " <>
+        "stream as a `wake` `failed` stage, with its `reason` and whether a retry can " <>
+        "succeed. A sandbox that is gone is replaced, and the runtime resumes via its " <>
+        "session id where its disk survives.",
     parameters: [conversation_id: [in: :path, type: :string, required: true]],
     request_body: {"Prompt", "application/json", Schemas.PromptRequest},
     responses: [
@@ -1062,10 +1065,15 @@ defmodule FountainWeb.ConversationController do
         # The id and the turn's session config ride in the opts to the turn
         # the prompt opens (#1406, ADR 0062), whichever road delivers it; see
         # `Conversations.PromptDelivery`.
+        #
+        # A parked conversation is woken behind the response (#2561): the
+        # wake's refusals that need no provider still answer here, and the
+        # rest arrive on the event stream as a `wake` `failed` stage.
         opts =
           Audited.attribution(conn,
             client_request_id: client_request_id,
-            session_config: session_config
+            session_config: session_config,
+            wake: :background
           )
 
         case ConversationServer.send_prompt(id, prompt, images, opts) do

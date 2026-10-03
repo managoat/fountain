@@ -50,6 +50,7 @@ defmodule Fountain.Webhooks.Events do
     {"checkpoint_restore", ~w(started done failed)},
     {"checkpoint", ~w(done failed)},
     {"reattach", ~w(started done failed interrupted)},
+    {"wake", ~w(failed)},
     {"connection", ~w(started done)},
     {"turn", ~w(started done failed interrupted)},
     {"request", ~w(started done)},

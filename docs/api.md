@@ -523,6 +523,13 @@ conversation with no machine must wake first, and the turn opens after that.
 So the response cannot give you a turn ID. Give Fountain your own name for the
 prompt instead.
 
+The wake runs after the response. The request still refuses what needs no
+sandbox to decide: no credit, a suspended account, a missing agent, a sandbox
+being reset, or no room for one more sandbox. A wake that fails later is a
+`wake` stage event with the `failed` state. Its `reason` says why, and
+`retryable` says whether sending the prompt again can succeed. No turn opens
+for that prompt.
+
 ```json
 {"prompt": "Run the approved plan.", "client_request_id": "plan-7-step-3"}
 ```

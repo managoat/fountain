@@ -101,12 +101,7 @@ defmodule Fountain.Conversations.ConversationServer do
           # `images` travels the wake road too, or the woken turn opens
           # without them while this still answers :ok (#2373; see `Wake`). The
           # correlation rides with the prompt, in the shape `Wake` takes.
-          case Wake.wake_conversation(conv_id, PromptDelivery.for_wake(prompt, opts), images) do
-            {:ok, _conv} -> :ok
-            {:error, :gone} -> {:error, :gone}
-            {:error, :not_found} -> {:error, :not_running}
-            {:error, _} = err -> err
-          end
+          Wake.for_prompt(conv_id, PromptDelivery.for_wake(prompt, opts), images, opts)
 
         pid ->
           PromptDelivery.deliver(pid, prompt, images, opts)

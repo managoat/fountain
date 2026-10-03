@@ -407,27 +407,7 @@ defmodule Fountain.Conversations.Wake do
   # `images` defaults for the interrupt door, which carries no prompt for them
   # to belong to; the prompt door always passes what the request decoded.
   def wake_conversation_for(conv_id, initial_prompt, purpose, images \\ []) do
-    # Ownership is established by callers before reaching this internal wake
-    # path. The agent fetched below is the conversation's own agent_id,
-    # same tenant by construction.
-    with :ok <- Conversations.require_provider_commit_boundary(),
-         %Conversation{} = conv <-
-           Conversations._unsafe_get_conversation(conv_id) || {:error, :not_found},
-         :ok <- assert_resumable(conv),
-         # Preflight only: no database lock spans provider I/O. Turn admission
-         # checks again under its transaction. Cancellation must remain
-         # reachable. ownership: conv fetched above is already tenant-scoped.
-         :ok <-
-           if(purpose == :interrupt,
-             do: :ok,
-             else: Conversations._unsafe_check_saved_execution_allowance(conv.id)
-           ),
-         # Ownership: conv.agent_id belongs to this established-owner conversation.
-         %Agents.Agent{} = agent <-
-           (conv.agent_id &&
-              Conversation.with_model(Agents._unsafe_get_agent(conv.agent_id), conv)) ||
-             {:error, :no_agent},
-         {:ok, runtime_module} <- Fountain.RuntimeDispatch.for_agent(conv) do
+    with {:ok, conv, agent, runtime_module} <- preflight(conv_id, purpose) do
       case reuse_verdict(conv, agent) do
         {:reuse, sandbox_id, observed} ->
           # Reuse provisions nothing, so the fresh-path gates below never ran
@@ -573,11 +553,165 @@ defmodule Fountain.Conversations.Wake do
         {:error, _} = err ->
           err
       end
+    end
+  end
+
+  # What every wake checks before it touches a provider: the row, its status,
+  # the saved allowance, the agent and the runtime. Database reads only.
+  #
+  # Ownership is established by callers before reaching this internal wake
+  # path. The agent fetched below is the conversation's own agent_id, same
+  # tenant by construction.
+  defp preflight(conv_id, purpose) do
+    with :ok <- Conversations.require_provider_commit_boundary(),
+         %Conversation{} = conv <-
+           Conversations._unsafe_get_conversation(conv_id) || {:error, :not_found},
+         :ok <- assert_resumable(conv),
+         # Preflight only: no database lock spans provider I/O. Turn admission
+         # checks again under its transaction. Cancellation must remain
+         # reachable. ownership: conv fetched above is already tenant-scoped.
+         :ok <-
+           if(purpose == :interrupt,
+             do: :ok,
+             else: Conversations._unsafe_check_saved_execution_allowance(conv.id)
+           ),
+         # Ownership: conv.agent_id belongs to this established-owner conversation.
+         %Agents.Agent{} = agent <-
+           (conv.agent_id &&
+              Conversation.with_model(Agents._unsafe_get_agent(conv.agent_id), conv)) ||
+             {:error, :no_agent},
+         {:ok, runtime_module} <- Fountain.RuntimeDispatch.for_agent(conv) do
+      {:ok, conv, agent, runtime_module}
     else
       nil -> {:error, :not_found}
       {:error, _} = err -> err
     end
   end
+
+  @doc """
+  `ConversationServer.send_prompt/4`'s road for a conversation with no server.
+
+  `wake: :background` in `opts` (#2561) is the API's: answer once
+  `admit_prompt_wake/1` has run, and wake behind the response, with a failure
+  reported on the event stream. Every other caller waits for the wake, because
+  it acts on the refusal: the sandbox queue retries a full fleet, a launch
+  reports it.
+  """
+  @spec for_prompt(binary(), PromptDelivery.wake_prompt(), list(), keyword()) ::
+          :ok | {:error, term()}
+  def for_prompt(conv_id, wake_prompt, images, opts) do
+    result =
+      if Keyword.get(opts, :wake) == :background do
+        with :ok <- admit_prompt_wake(conv_id),
+             do: wake_in_background(conv_id, wake_prompt, images)
+      else
+        # Remote, so it stays the seam callers' tests stub.
+        with {:ok, _conv} <- __MODULE__.wake_conversation(conv_id, wake_prompt, images),
+             do: :ok
+      end
+
+    case result do
+      {:error, :not_found} -> {:error, :not_running}
+      other -> other
+    end
+  end
+
+  @doc """
+  The refusals a prompt's wake still owes its caller in the response, run
+  without a provider round trip (#2561): the conversation's status, its saved
+  allowance, the agent, the account's suspension, its credit, the saved
+  inference source, a machine being reset, and, when the wake would add a
+  machine, room under the tenant's cap and the fleet ceiling.
+
+  The capacity check is advisory: nothing is reserved here, and the wake
+  itself reserves under the locks as before. A slot taken in between is the
+  wake's refusal, reported on the event stream like any other.
+
+  A door like `wake_conversation/3`: the caller has established tenant
+  ownership of `conv_id`.
+  """
+  @spec admit_prompt_wake(binary()) :: :ok | {:error, term()}
+  def admit_prompt_wake(conv_id) when is_binary(conv_id) do
+    with {:ok, conv, agent, _runtime_module} <- preflight(conv_id, :work),
+         :ok <- Fountain.Accounts.check_not_suspended(conv.user_id),
+         :ok <- Fountain.Billing.check_spend(conv.user_id),
+         :ok <- check_saved_inference(conv, agent) do
+      check_machine(conv)
+    end
+  end
+
+  # A machine on its way out is refused as `maybe_reuse_sandbox/1` refuses it.
+  # A `ready` machine with no server adds no compute when it is reused; every
+  # other wake adds a machine to the count, from parked or from nothing.
+  defp check_machine(%Conversation{sandbox_id: sandbox_id, user_id: user_id}) do
+    # ownership: the conversation's own machine.
+    case sandbox_id && Conversations._unsafe_get_sandbox(sandbox_id) do
+      %Sandbox{transition: "destroying", status: status} when status not in @terminal_statuses ->
+        {:error, :sandbox_reset_pending}
+
+      %Sandbox{status: "ready"} ->
+        :ok
+
+      _ ->
+        opts = if sandbox_id, do: [exclude: sandbox_id], else: []
+
+        with :ok <- Fountain.Quotas.check_fleet_ceiling(opts) do
+          Fountain.Quotas.check_sandbox_quota(user_id, opts)
+        end
+    end
+  end
+
+  @doc """
+  Wake a conversation for a prompt behind the request that carried it
+  (#2561). The caller has run `admit_prompt_wake/1` and answered; this runs
+  the wake in a task under `Fountain.TaskSupervisor`, and a wake that fails
+  publishes a `wake` `failed` stage with its reason, which is how the caller
+  learns the prompt did not run.
+
+  The wake is the same `wake_conversation/3` a synchronous caller gets, so
+  concurrent wakes of one conversation still resolve to one server, and a
+  prompt that loses the race is handed to the winner.
+
+  A door like `wake_conversation/3`: the caller has established tenant
+  ownership of `conv_id`.
+  """
+  @spec wake_in_background(binary(), PromptDelivery.wake_prompt(), list()) :: :ok
+  def wake_in_background(conv_id, initial_prompt, images) when is_binary(conv_id) do
+    {:ok, _pid} =
+      Task.Supervisor.start_child(Fountain.TaskSupervisor, fn ->
+        case __MODULE__.wake_conversation(conv_id, initial_prompt, images) do
+          {:ok, _conv} -> :ok
+          {:error, reason} -> report_failed_wake(conv_id, reason)
+        end
+      end)
+
+    :ok
+  end
+
+  defp report_failed_wake(conv_id, reason) do
+    Logger.warning("conv #{conv_id}: background wake for a prompt failed: #{inspect(reason)}")
+
+    Conversations.publish_stage(conv_id, "wake", "failed", %{
+      reason: failed_wake_reason(reason),
+      retryable: retryable_wake_failure?(reason)
+    })
+  end
+
+  defp failed_wake_reason(reason) when is_atom(reason), do: Atom.to_string(reason)
+  defp failed_wake_reason({reason, _detail}) when is_atom(reason), do: Atom.to_string(reason)
+  defp failed_wake_reason(reason), do: inspect(reason)
+
+  # The ones a retry of the same prompt can succeed on without the caller
+  # changing anything: the provider or the fleet was busy.
+  @retryable_wake_failures ~w(sandbox_unavailable sprite_probe_failed runner_offline fleet_full resume_failed machine_busy)a
+
+  defp retryable_wake_failure?(reason) when is_atom(reason),
+    do: reason in @retryable_wake_failures
+
+  defp retryable_wake_failure?({reason, _detail}) when is_atom(reason),
+    do: reason in @retryable_wake_failures or reason == :sandbox_quota_exceeded
+
+  defp retryable_wake_failure?(_reason), do: false
 
   defp check_saved_inference(conv, agent) do
     with {:ok, _source} <- Conversations.resolve_saved_inference(conv, agent), do: :ok

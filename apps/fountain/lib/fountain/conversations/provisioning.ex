@@ -979,6 +979,23 @@ defmodule Fountain.Conversations.Provisioning do
       nil
   end
 
+  # The setup step ends when the user's script exits, not when the exec's
+  # output pipe closes (#2558). A process the script leaves running — a dev
+  # server, a keepalive loop, a `sleep` it killed the parent of — inherits that
+  # pipe, and an exec collects output until EOF: a provision waited up to 30 s
+  # on a lingering `sleep 30`, and a server started with `&` held it until the
+  # setup timeout failed it. So the script writes to a private file instead,
+  # which is read back once it exits; anything still running keeps the
+  # unlinked file, not the step. stdin is closed for the same reason.
+  @setup_wrapper ~S"""
+  out=$(mktemp) || exit 1
+  bash -lc "$1" >"$out" 2>&1 </dev/null
+  rc=$?
+  cat "$out"
+  rm -f "$out"
+  exit "$rc"
+  """
+
   def run_setup_script(_handle, nil, _sprite_env, _conv_id), do: :ok
   def run_setup_script(_handle, %{setup_script: ""}, _sprite_env, _conv_id), do: :ok
 
@@ -989,7 +1006,10 @@ defmodule Fountain.Conversations.Provisioning do
       fn ->
         publish_stage(conv_id, "setup", "started")
 
-        case Managoat.Sandbox.exec(handle, "bash", ["-lc", script],
+        case Managoat.Sandbox.exec(
+               handle,
+               "bash",
+               ["-c", @setup_wrapper, "fountain-setup", script],
                env: sprite_env,
                stderr_to_stdout: true,
                timeout: Map.get(environment, :setup_timeout_seconds, 120) * 1000

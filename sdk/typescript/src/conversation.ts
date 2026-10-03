@@ -213,6 +213,19 @@ export class Conversation {
     return this.http.data("POST", `/api/conversations/${this.id}/reapply`, { body });
   }
 
+  /**
+   * Bring the sandbox up without a prompt, so the next `send` does not wait
+   * for it. `"awake"` means it was already running; `"waking"` means this call
+   * started it, and its reattach or provision continues on the event stream.
+   */
+  async wake(): Promise<"awake" | "waking"> {
+    const body = await this.http.request<{ status: "awake" | "waking" }>(
+      "POST",
+      `/api/conversations/${this.id}/wake`,
+    );
+    return body.status;
+  }
+
   /** Ask the agent to stop the turn it is on. The sandbox stays up. */
   async interrupt(): Promise<void> {
     await this.http.request("POST", `/api/conversations/${this.id}/interrupt`);

@@ -16,6 +16,12 @@
 #   openssl rand -base64 48 | tr -d '\n'                    # SECRET_KEY_BASE
 #   openssl rand 32 | base64 | tr '+/' '-_' | tr -d '=\n'   # MASTER_SECRETS_KEY
 #
+# Set RELEASE_COOKIE with the others, before the first deploy. The first
+# deploy starts two machines, and the cookie makes them one cluster (see
+# [http_service]):
+#
+#   fly secrets set RELEASE_COOKIE=$(openssl rand -hex 32)
+#
 # The full list of what you can set afterwards is docs/configuration.md, and
 # docs/guides/operate/fly.md is the guide this file belongs to.
 
@@ -41,11 +47,15 @@ primary_region = "iad"
 # `[deploy] release_command`: a release machine would run the same migrations
 # a few seconds earlier, against the same database, for no gain.
 [deploy]
-  # Rolling, and not the two strategies that read as safer. `canary` and
-  # `bluegreen` both bring a second machine up before taking the first one
-  # down, and for those seconds two schedulers hold the same sandboxes (see
-  # the machine count below). Rolling stops a machine, replaces it, and waits
-  # for the health check, so one instance stays one instance across a deploy.
+  # Rolling: stop a machine, replace it, wait for its health check, then the
+  # next. On one machine, and on several without RELEASE_COOKIE, that is the
+  # only safe strategy: `canary` and `bluegreen` bring a new machine up
+  # beside the old one, and two machines that never clustered are two
+  # schedulers holding the same sandboxes. On a cluster it is still the right
+  # one. The machines left running keep serving and stay clustered, and each
+  # replaced machine rejoins under the same name, because a machine keeps its
+  # private address across an update. The owner of each sandbox carries a
+  # lease in the database that survives the restart (ADR 0058).
   strategy = "rolling"
 
 [env]
@@ -87,11 +97,10 @@ primary_region = "iad"
   # exporter retries per span and floods the logs.
   OTEL_TRACES_EXPORTER = "none"
 
-  # PUBLIC_URL is deliberately absent, and unlike Render this is not a
-  # chicken-and-egg problem — `<app>.fly.dev` is known the moment you pick the
-  # name. It is absent because this file ships with a name you are about to
-  # change, and a stale base URL is silently wrong rather than broken: it
-  # builds the links in verification emails and every sandbox reads it as
+  # PUBLIC_URL is deliberately absent. `<app>.fly.dev` is known the moment you
+  # pick the name, but this file ships with a name you are about to change,
+  # and a stale base URL is silently wrong rather than broken: it builds the
+  # links in verification emails and every sandbox reads it as
   # FOUNTAIN_BASE_URL. config/runtime.exs derives https://$FLY_APP_NAME.fly.dev
   # instead. Set PUBLIC_URL here when you add a custom domain, and it wins.
 
@@ -104,10 +113,18 @@ primary_region = "iad"
   internal_port = 8080
   force_https = true
 
-  # One machine, on purpose. Fountain clusters over Erlang distribution and
-  # nothing here discovers peers, so a second machine is not a second node —
-  # it is a split brain, with two schedulers racing over the same sandboxes.
-  # Scale the VM below, not the count, and do not run `fly scale count`.
+  # The first `fly deploy` starts two machines, Fly's default for an app with
+  # a service, and `fly scale count` sets any other number. More than one has
+  # to be one Erlang cluster, or a second machine is a split brain: two
+  # schedulers racing over the same sandboxes, and streams that break for a
+  # viewer on the other machine. The cluster turns on with one secret, which
+  # must be the same on every machine and must not be in this file:
+  #
+  #   fly secrets set RELEASE_COOKIE=$(openssl rand -hex 32)
+  #
+  # With the cookie set, rel/env.sh.eex names each node after the machine's
+  # private address and finds its peers under `<app>.internal`. Set it before
+  # the first deploy, or run one machine with `fly deploy --ha=false`.
   #
   # These two lines are the whole reason this file exists. Fly's defaults stop
   # an idle machine and start it again on a request, which is right for a web

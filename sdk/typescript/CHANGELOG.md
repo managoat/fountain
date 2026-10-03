@@ -11,6 +11,27 @@ server releases.
 
 ---
 
+## [6.4.0] - 2026-10-02
+
+### Added
+
+- `Conversation.wake()` brings a conversation's sandbox up without a prompt
+  (#2551), so the next `send` does not wait for it. It resolves to `"awake"`
+  when the sandbox was already up and `"waking"` when this call started it.
+
+## [6.3.0] - 2026-09-30
+
+### Added
+
+- The generated types carry ACP session config options (#2537, ADR 0062):
+  - `session_config` on agents, conversations, `ConversationCreateRequest`,
+    `ConversationReapplyRequest` and `PromptRequest`;
+  - the conversation's `session_config_options`;
+  - the turn's `config_selection`.
+
+  Pass `session_config` through `runRequest` or a raw request body, for
+  example `{ effort: "high", fast: true }`.
+
 ## [6.2.0] - 2026-09-26
 
 ### Added

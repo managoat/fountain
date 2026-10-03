@@ -304,4 +304,18 @@ describe("vault expiry metadata", () => {
       labels: { env: "prod", drift: null },
     });
   });
+
+  test("wake posts to the conversation and returns its status", async () => {
+    const requests: { url: string; init?: RequestInit }[] = [];
+    const fountain = new Fountain({
+      baseUrl: "https://fountain.test", apiKey: "fk_test",
+      fetch: async (url, init) => {
+        requests.push({ url, init });
+        return Response.json({ status: "waking" });
+      },
+    });
+    assert.equal(await fountain.resume("c1").wake(), "waking");
+    assert.equal(requests[0]!.init?.method, "POST");
+    assert.equal(new URL(requests[0]!.url).pathname, "/api/conversations/c1/wake");
+  });
 });

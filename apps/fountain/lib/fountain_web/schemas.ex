@@ -479,6 +479,71 @@ defmodule FountainWeb.Schemas do
     })
   end
 
+  defmodule SessionConfig do
+    @moduledoc false
+    require OpenApiSpex
+
+    OpenApiSpex.schema(%{
+      title: "SessionConfig",
+      description:
+        "ACP session config options to request (ADR 0062): a map of the adapter's option " <>
+          "id to a value, a string or a boolean. The ids and values are the adapter's own " <>
+          "and are not checked against a list: claude-agent-acp offers `effort` and `fast`, " <>
+          "codex-acp `reasoning_effort` and `fast-mode`, and which exist depends on the " <>
+          "model. They are applied after the model and before each prompt. An id the " <>
+          "adapter does not advertise is skipped, and a `config` stage event reports it " <>
+          "(`done`, outcome `skipped`). " <>
+          "A value it refuses fails the turn. `model` is refused here; use the model field. " <>
+          "`session_config_options` on the conversation lists what the adapter offers.",
+      type: :object,
+      # Nullable on the schema itself for the reason `PermissionPolicy` gives.
+      nullable: true,
+      maxProperties: Fountain.Agents.SessionConfig.max_options(),
+      # anyOf, not oneOf: a string that reads as a boolean ("true") would match
+      # both branches under the caster, and oneOf refuses a double match.
+      additionalProperties: %Schema{
+        anyOf: [
+          %Schema{
+            type: :string,
+            minLength: 1,
+            maxLength: Fountain.Agents.SessionConfig.max_value_length()
+          },
+          %Schema{type: :boolean}
+        ]
+      },
+      example: %{"effort" => "high", "fast" => true}
+    })
+  end
+
+  defmodule SessionConfigOption do
+    @moduledoc false
+    require OpenApiSpex
+
+    OpenApiSpex.schema(%{
+      title: "SessionConfigOption",
+      description:
+        "One config option as the adapter advertised it (ACP `SessionConfigOption`), " <>
+          "passed through unchanged. `category` is `thought_level` for reasoning effort " <>
+          "and `model_config` for fast mode on the pinned adapters. `options` lists a " <>
+          "select's values, possibly in groups. `currentValue` is the value in force.",
+      type: :object,
+      additionalProperties: true,
+      properties: %{
+        id: %Schema{type: :string},
+        name: %Schema{type: :string},
+        description: %Schema{type: :string, nullable: true},
+        category: %Schema{type: :string, nullable: true},
+        type: %Schema{type: :string, description: "`select` or `boolean`."},
+        currentValue: %Schema{anyOf: [%Schema{type: :string}, %Schema{type: :boolean}]},
+        options: %Schema{
+          type: :array,
+          items: %Schema{type: :object, additionalProperties: true}
+        }
+      },
+      required: [:id]
+    })
+  end
+
   defmodule Conversation do
     @moduledoc false
     require OpenApiSpex
@@ -540,6 +605,22 @@ defmodule FountainWeb.Schemas do
           format: :uuid,
           nullable: true,
           description: "Per-launch environment override; null means the agent's environment."
+        },
+        session_config: %Schema{
+          allOf: [SessionConfig],
+          description:
+            "This conversation's ACP session config options (ADR 0062), over its agent's: " <>
+              "a key here replaces the agent's value for that key. Set at launch or by " <>
+              "reapply. {} follows the agent."
+        },
+        session_config_options: %Schema{
+          type: :array,
+          nullable: true,
+          items: SessionConfigOption,
+          description:
+            "The config options the adapter advertised before the latest prompt, after " <>
+              "the model and the requested options were applied: what the current model " <>
+              "offers and what is in force. Null until a turn reports them."
         },
         model: %Schema{
           type: :string,
@@ -800,6 +881,14 @@ defmodule FountainWeb.Schemas do
               "channel, it fails with permission_policy_requires_fresh_conversation before " <>
               "sending the prompt. Set fresh: true to create a conversation for that policy."
         },
+        session_config: %Schema{
+          allOf: [SessionConfig],
+          description:
+            "ACP session config options for this conversation (ADR 0062), over the " <>
+              ~s|agent's, such as {"reasoning_effort": "high"}. Applied after the model | <>
+              "on every turn. The ids and values are the adapter's own; one it does not " <>
+              "advertise is skipped, and a value it refuses fails the turn."
+        },
         model: %Schema{
           type: :string,
           nullable: true,
@@ -1002,6 +1091,27 @@ defmodule FountainWeb.Schemas do
     })
   end
 
+  defmodule ConversationWakeResponse do
+    @moduledoc false
+    require OpenApiSpex
+
+    OpenApiSpex.schema(%{
+      title: "ConversationWakeResponse",
+      type: :object,
+      properties: %{
+        status: %Schema{
+          type: :string,
+          enum: ["awake", "waking"],
+          description:
+            "`awake` when the conversation's server was already running and nothing was " <>
+              "done; `waking` when this request started one. Its reattach or provision " <>
+              "stages follow on the event stream."
+        }
+      },
+      required: [:status]
+    })
+  end
+
   defmodule ConversationReapplyRequest do
     @moduledoc false
     require OpenApiSpex
@@ -1009,10 +1119,11 @@ defmodule FountainWeb.Schemas do
     OpenApiSpex.schema(%{
       title: "ConversationReapplyRequest",
       description:
-        "A selection of Agent, Environment, Vault and model to apply to the machine an " <>
-          "existing conversation already runs on. An omitted field keeps its current " <>
-          "selection. An explicit null clears the Environment override, the Vault or the " <>
-          "model override. An empty object reapplies the current selection.",
+        "A selection of Agent, Environment, Vault, model and session config to apply to " <>
+          "the machine an existing conversation already runs on. An omitted field keeps " <>
+          "its current selection. An explicit null clears the Environment override, the " <>
+          "Vault, the model override or the session config. An empty object reapplies the " <>
+          "current selection.",
       type: :object,
       properties: %{
         agent_id: %Schema{
@@ -1032,6 +1143,14 @@ defmodule FountainWeb.Schemas do
           format: :uuid,
           nullable: true,
           description: "Vault to use; null detaches the current Vault."
+        },
+        session_config: %Schema{
+          allOf: [SessionConfig],
+          description:
+            "ACP session config options to request from the next turn (ADR 0062), " <>
+              "replacing the conversation's current ones; null or {} returns to the " <>
+              "Agent's. Only the shape is checked here. The adapter decides which ids and " <>
+              "values exist."
         },
         model: %Schema{
           type: :string,
@@ -1063,7 +1182,15 @@ defmodule FountainWeb.Schemas do
           description: "Optional images to attach to this prompt.",
           nullable: true
         },
-        client_request_id: ClientRequestId.request()
+        client_request_id: ClientRequestId.request(),
+        session_config: %Schema{
+          allOf: [SessionConfig],
+          description:
+            "ACP session config options for this turn only (ADR 0062), over the " <>
+              ~s|conversation's and the agent's, such as {"effort": "high", "fast": true}. | <>
+              "The next turn goes back to the conversation's. The turn's config_selection " <>
+              "records what was requested, applied and skipped."
+        }
       },
       required: [:prompt]
     })
@@ -1182,6 +1309,17 @@ defmodule FountainWeb.Schemas do
         image_count: %Schema{
           type: :integer,
           description: "Number of images attached to this turn."
+        },
+        config_selection: %Schema{
+          type: :object,
+          nullable: true,
+          additionalProperties: true,
+          description:
+            "The ACP session config options of this turn (ADR 0062). `requested` is what " <>
+              "the turn asked for (agent, then conversation, then prompt). `applied` maps " <>
+              "each id the adapter took to the value it confirmed. `skipped` lists ids the " <>
+              "adapter did not advertise. On a refusal, `status` is `failed` with `error`. " <>
+              "Null on a turn that requested none."
         },
         model_selection: %Schema{
           type: :object,
@@ -1314,6 +1452,14 @@ defmodule FountainWeb.Schemas do
               "may name the other with sandbox_mode on POST /api/conversations."
         },
         environment_id: %Schema{type: :string, format: :uuid, nullable: true},
+        session_config: %Schema{
+          allOf: [SessionConfig],
+          description:
+            "ACP session config options every conversation of this agent requests " <>
+              ~s|(ADR 0062), such as {"effort": "high"}. A conversation's own | <>
+              "session_config overrides these keys, and a prompt's overrides both for " <>
+              "that turn. Null or {} requests none."
+        },
         permission_policy: %Schema{
           allOf: [PermissionPolicy],
           nullable: true,
@@ -1521,6 +1667,14 @@ defmodule FountainWeb.Schemas do
               "stricter than auto_allow with 422 permission_policy_unenforceable."
         },
         environment_id: %Schema{type: :string, format: :uuid, nullable: true},
+        session_config: %Schema{
+          allOf: [SessionConfig],
+          description:
+            "ACP session config options every conversation of this agent requests " <>
+              ~s|(ADR 0062), such as {"effort": "high"}. A conversation's own | <>
+              "session_config overrides these keys, and a prompt's overrides both for " <>
+              "that turn. Null or {} requests none."
+        },
         skills: %Schema{
           type: :array,
           description:

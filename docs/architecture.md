@@ -36,9 +36,12 @@ Here is the scheduled work. All times are UTC.
 ### Clustering
 
 One replica needs none of this. With more than one, the replicas must form an
-Erlang cluster, and `CLUSTER_DNS_QUERY` must point at a headless service.
+Erlang cluster, and `CLUSTER_DNS_QUERY` must name every replica. In
+Kubernetes that is a headless service.
 [Run more than one replica](guides/operate/kubernetes.md#run-more-than-one-replica)
-lists the env that wires it. Two things depend on it.
+lists the env that wires it. On Fly, `RELEASE_COOKIE` wires it, as
+[Run more than one machine](guides/operate/fly.md#run-more-than-one-machine)
+describes. Two things depend on it.
 
 - The conversation registry places each conversation server on exactly one
   node, and finds it from any node.

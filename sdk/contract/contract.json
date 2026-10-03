@@ -6569,6 +6569,64 @@
         }
       }
     },
+    "POST /api/conversations/{conversation_id}/wake": {
+      "operation_id": "FountainWeb.ConversationController.wake",
+      "path_params": [
+        "conversation_id"
+      ],
+      "responses": {
+        "200": {
+          "application/json": {
+            "ref": "ConversationWakeResponse"
+          }
+        },
+        "401": {
+          "application/json": {
+            "ref": "Error"
+          }
+        },
+        "402": {
+          "application/json": {
+            "ref": "Error"
+          }
+        },
+        "403": {
+          "application/json": {
+            "ref": "Error"
+          }
+        },
+        "404": {
+          "application/json": {
+            "ref": "Error"
+          }
+        },
+        "406": {
+          "application/json": {
+            "ref": "NegotiationError"
+          }
+        },
+        "409": {
+          "application/json": {
+            "ref": "Error"
+          }
+        },
+        "410": {
+          "application/json": {
+            "ref": "Error"
+          }
+        },
+        "429": {
+          "application/json": {
+            "ref": "Error"
+          }
+        },
+        "503": {
+          "application/json": {
+            "ref": "Error"
+          }
+        }
+      }
+    },
     "POST /api/environments": {
       "operation_id": "FountainWeb.EnvironmentController.create",
       "path_params": [],
@@ -8341,6 +8399,14 @@
           "required": false,
           "type": "string"
         },
+        "session_config": {
+          "allOf": [
+            {
+              "ref": "SessionConfig"
+            }
+          ],
+          "required": false
+        },
         "skills": {
           "items": {
             "properties": {
@@ -8498,6 +8564,14 @@
           "required": false,
           "type": "string"
         },
+        "session_config": {
+          "allOf": [
+            {
+              "ref": "SessionConfig"
+            }
+          ],
+          "required": false
+        },
         "skills": {
           "items": {
             "properties": {
@@ -8646,6 +8720,14 @@
           "nullable": true,
           "required": false,
           "type": "string"
+        },
+        "session_config": {
+          "allOf": [
+            {
+              "ref": "SessionConfig"
+            }
+          ],
+          "required": false
         },
         "skills": {
           "items": {
@@ -10580,6 +10662,22 @@
           "required": false,
           "type": "string"
         },
+        "session_config": {
+          "allOf": [
+            {
+              "ref": "SessionConfig"
+            }
+          ],
+          "required": false
+        },
+        "session_config_options": {
+          "items": {
+            "ref": "SessionConfigOption"
+          },
+          "nullable": true,
+          "required": false,
+          "type": "array"
+        },
         "source": {
           "enum": [
             "agent",
@@ -10727,6 +10825,14 @@
           "required": false,
           "type": "string"
         },
+        "session_config": {
+          "allOf": [
+            {
+              "ref": "SessionConfig"
+            }
+          ],
+          "required": false
+        },
         "sprite_name": {
           "required": false,
           "type": "string"
@@ -10787,6 +10893,14 @@
           "nullable": true,
           "required": false,
           "type": "string"
+        },
+        "session_config": {
+          "allOf": [
+            {
+              "ref": "SessionConfig"
+            }
+          ],
+          "required": false
         },
         "vault_id": {
           "format": "uuid",
@@ -10860,6 +10974,19 @@
           },
           "required": true,
           "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "ConversationWakeResponse": {
+      "properties": {
+        "status": {
+          "enum": [
+            "awake",
+            "waking"
+          ],
+          "required": true,
+          "type": "string"
         }
       },
       "type": "object"
@@ -12083,6 +12210,14 @@
         "prompt": {
           "required": true,
           "type": "string"
+        },
+        "session_config": {
+          "allOf": [
+            {
+              "ref": "SessionConfig"
+            }
+          ],
+          "required": false
         }
       },
       "type": "object"
@@ -13203,6 +13338,67 @@
       },
       "type": "object"
     },
+    "SessionConfig": {
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "boolean"
+          }
+        ]
+      },
+      "nullable": true,
+      "type": "object"
+    },
+    "SessionConfigOption": {
+      "additionalProperties": true,
+      "properties": {
+        "category": {
+          "nullable": true,
+          "required": false,
+          "type": "string"
+        },
+        "currentValue": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "boolean"
+            }
+          ],
+          "required": false
+        },
+        "description": {
+          "nullable": true,
+          "required": false,
+          "type": "string"
+        },
+        "id": {
+          "required": true,
+          "type": "string"
+        },
+        "name": {
+          "required": false,
+          "type": "string"
+        },
+        "options": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "required": false,
+          "type": "array"
+        },
+        "type": {
+          "required": false,
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
     "StreamLogEvent": {
       "properties": {
         "agent_id": {
@@ -13860,6 +14056,12 @@
           "nullable": true,
           "required": false,
           "type": "string"
+        },
+        "config_selection": {
+          "additionalProperties": true,
+          "nullable": true,
+          "required": false,
+          "type": "object"
         },
         "ended_at": {
           "format": "date-time",

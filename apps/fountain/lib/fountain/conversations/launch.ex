@@ -58,6 +58,8 @@ defmodule Fountain.Conversations.Launch do
                                 narrow the agent's own policy, never widen it
     - `model`                 — optional model override (ADR 0061), checked as the agent's
                                 own model is; nil runs the agent's model
+    - `session_config`        — optional ACP session config options (ADR 0062), over the
+                                agent's; only the shape is checked
     - `sandbox_api_access`    — "owner" (default) or "none"; none requires a fresh ephemeral sandbox
     - `source`                — optional; one of "ui", "api", "agent" (default "api")
     - `parent_conversation_id` — optional; UUID of the conversation that spawned this one
@@ -107,6 +109,7 @@ defmodule Fountain.Conversations.Launch do
          {:ok, perm_policy} <-
            Conversations.resolve_permission_policy(attrs["permission_policy"], agent),
          {:ok, model} <- Conversations.resolve_model(attrs["model"], agent),
+         {:ok, session_config} <- Conversations.resolve_session_config(attrs["session_config"]),
          {:ok, parent_id} <-
            resolve_parent_id(attrs["parent_conversation_id"], user_id),
          :ok <- Fountain.Accounts.check_not_suspended(user_id),
@@ -156,6 +159,7 @@ defmodule Fountain.Conversations.Launch do
                sandbox_api_access: api_access,
                permission_policy: perm_policy,
                model: model,
+               session_config: session_config,
                labels: attrs["labels"] || %{}
              },
              attrs["execution_limits"],
@@ -184,7 +188,8 @@ defmodule Fountain.Conversations.Launch do
           "source" => conv.source,
           "with_prompt" => is_binary(attrs["prompt"]) and attrs["prompt"] != "",
           "parent_conversation_id" => parent_id,
-          "model" => model
+          "model" => model,
+          "session_config" => session_config
         }
       })
 
@@ -411,6 +416,7 @@ defmodule Fountain.Conversations.Launch do
          {:ok, perm_policy} <-
            Conversations.resolve_permission_policy(attrs["permission_policy"], agent),
          {:ok, model} <- Conversations.resolve_model(attrs["model"], agent),
+         {:ok, session_config} <- Conversations.resolve_session_config(attrs["session_config"]),
          {:ok, parent_id} <-
            resolve_parent_id(attrs["parent_conversation_id"], user_id),
          :ok <- Fountain.Accounts.check_not_suspended(user_id),
@@ -453,6 +459,7 @@ defmodule Fountain.Conversations.Launch do
                title: attrs["title"],
                permission_policy: perm_policy,
                model: model,
+               session_config: session_config,
                labels: attrs["labels"] || %{}
              },
              Keyword.put(opts, :request, attrs["execution_limits"])
@@ -471,7 +478,8 @@ defmodule Fountain.Conversations.Launch do
           "with_prompt" => is_binary(attrs["prompt"]) and attrs["prompt"] != "",
           "parent_conversation_id" => parent_id,
           "sandbox_attached" => sandbox.id,
-          "model" => model
+          "model" => model,
+          "session_config" => session_config
         }
       })
 
@@ -861,6 +869,7 @@ defmodule Fountain.Conversations.Launch do
                :ok <- Conversations._unsafe_check_saved_execution_allowance(current.id),
                :ok <- check_sandbox_api_resume(current, attrs["sandbox_api_access"]),
                :ok <- check_model_resume(current, agent, attrs["model"]),
+               :ok <- check_session_config_resume(current, attrs["session_config"]),
                {:ok, source} <- Conversations.resolve_saved_inference(current, agent),
                {:ok, current, audit} <-
                  Conversations.resume_labels(current, attrs["labels"], opts),
@@ -894,6 +903,16 @@ defmodule Fountain.Conversations.Launch do
       current -> {:error, {:conversation_model_differs, current}}
     end
   end
+
+  # The same rule for session config options (ADR 0062): not part of the resume
+  # key, so a channel request naming ones the conversation does not request
+  # is refused rather than resumed without them. The caller reapplies them, or
+  # sends them on the prompt for one turn.
+  defp check_session_config_resume(_conv, config) when config in [nil, %{}], do: :ok
+  defp check_session_config_resume(%Conversation{session_config: config}, config), do: :ok
+
+  defp check_session_config_resume(conv, _config),
+    do: {:error, {:conversation_session_config_differs, conv.session_config}}
 
   # `true` or `"true"` — the ACP adapter sends a JSON boolean, a hand-built
   # request may send a string. Anything else is not a request.

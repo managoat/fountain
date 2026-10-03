@@ -434,6 +434,7 @@ defmodule Fountain.Agents do
     :allowed_environment_ids,
     :allowed_inference_credential_ids,
     :permission_policy,
+    :session_config,
     :environment_id,
     :inference_credential_id
   ]

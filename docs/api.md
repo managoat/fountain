@@ -828,6 +828,68 @@ a conversation through `channel_id` and names another model returns
 `409 conversation_model_differs` before Fountain sends its prompt. Reapply the
 model, or set `fresh: true` to start a new conversation on it.
 
+### Set reasoning effort and fast mode
+
+Runtimes that speak ACP offer session config options beyond the model. The two
+that clients ask for are reasoning effort and fast mode:
+
+| Runtime | Effort | Fast mode |
+|---|---|---|
+| `claude` | `effort` | `fast` |
+| `codex` | `reasoning_effort` | `fast-mode` |
+
+Request them with `session_config`, a map of option id to a string or a
+boolean. It can go in three places, and each one overrides the one before it,
+key by key:
+
+1. On the agent: every conversation of the agent requests it.
+2. On the conversation, at creation or with a reapply: the conversation
+   requests it on every turn. A reapply without `session_config` keeps the
+   current value. `null` returns the conversation to its agent's options.
+3. On a prompt: that turn requests it, and the next turn goes back to the
+   conversation's options.
+
+```bash
+curl --fail-with-body   -H "Authorization: Bearer $FOUNTAIN_API_KEY"   -H "Content-Type: application/json"   -d '{"prompt":"Review the migration plan.","session_config":{"effort":"high","fast":true}}'   "$FOUNTAIN_URL/api/conversations/$CONVERSATION_ID/prompts"
+```
+
+Before each prompt, after the model, Fountain applies the options through ACP
+`session/set_config_option`:
+
+- An option already in force isn't sent again.
+- An option the runtime doesn't offer for the current model is skipped, and
+  the turn continues. Claude offers `effort` only on models that support it.
+- A value the runtime refuses fails the turn before the prompt is sent, with
+  the runtime's own message.
+
+Fountain checks only the shape of `session_config`: at most 16 options, ids of
+letters, digits and `._:-`, and values that are a string or a boolean. A
+malformed map returns `422 session_config_invalid`. `model` is refused, so use
+the `model` field for it. Fountain doesn't check ids or values against a list,
+because they differ by runtime and by model.
+
+To see what the current model offers, read the conversation's
+`session_config_options`: the options the runtime advertised before the latest
+prompt, each with its `id`, `category`, `type`, `options` and `currentValue`.
+It's `null` until a turn has run. Each turn records its options under
+`config_selection`:
+
+- `requested`: the merged request;
+- `applied`: each id mapped to the value the runtime confirmed;
+- `skipped`: the ids the runtime didn't offer;
+- `status` and `error`: set when the runtime refused a value.
+
+Each option also emits a `config` stage event on the conversation's stream:
+`done` with `outcome` set to `applied` or `skipped`, or `failed`.
+
+A create request that resumes a conversation through `channel_id` and names a
+different `session_config` returns `409 conversation_session_config_differs`.
+Reapply the options, send them on the prompt, or set `fresh: true`.
+
+Credits don't yet price fast mode separately. A turn that runs on the platform
+inference key with fast mode on is charged at the model's standard rate
+([#2538](https://github.com/managoat/fountain/issues/2538)).
+
 ### Workers without Fountain API access
 
 Set `sandbox_api_access` to `none` when the host must retain Fountain API

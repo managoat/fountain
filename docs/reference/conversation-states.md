@@ -42,8 +42,15 @@ supports.
 |---|---|---|---|
 | Suspend | Idle for `SANDBOX_IDLE_TIMEOUT_MINUTES`, 60 by default. | None. It stays `idle`. | Kept. The disk survives. |
 | Wake | The next prompt. | `idle` to `running`. | Kept. |
+| Wake without a prompt | `POST /api/conversations/{id}/wake`, or `fountain conv wake <id>`. | None. It stays `idle`. | Kept. |
 | Destroy on ceiling | It ran for `SANDBOX_MAX_LIFETIME_HOURS`. Off by default, so this never happens unless you set it. | None. It stays resumable. | Lost for an ephemeral sandbox. Fountain parks a persistent home, which keeps it. |
 | Destroy on idle | It went idle on a provider with no `:suspend` capability. | None. | Lost. |
+
+Wake a conversation ahead of its next prompt when that prompt should not wait
+for the sandbox: open it in an app, then send. The response is `awake` when
+the sandbox was already up and `waking` when the request started it. A
+sandbox that is gone is replaced, as a prompt would replace it, and a woken
+conversation is suspended again after the same idle period.
 
 You set both bounds for each instance. A `0` turns either one off, and the
 ceiling starts off. Read the [configuration reference](../configuration.md).

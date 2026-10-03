@@ -49,9 +49,11 @@ Some popular hosts fail one of these, and they fail it quietly.
   table above. An instance looks healthy and stops its own background work.
 - **Vercel, Netlify and Cloudflare Workers.** Each one runs a function per
   request. Fountain needs a process that outlives the request.
+- **Render.** Fountain does not run there with the credential broker
+  (ADR 0019) turned on.
 
 Any host that runs one container, keeps it awake and offers a Postgres works.
-Five have a guide below.
+Four have a guide below.
 
 ## The guides
 
@@ -60,7 +62,6 @@ Five have a guide below.
 - [Deploy an instance](guides/operate/deploy.md)
 - [Put it on the internet](guides/operate/put-it-on-the-internet.md)
 - [Connect a database](guides/operate/database.md)
-- [Deploy on Render](guides/operate/render.md)
 - [Deploy on Fly.io](guides/operate/fly.md)
 - [Deploy on Coolify](guides/operate/coolify.md)
 - [Deploy on Kubernetes](guides/operate/kubernetes.md)

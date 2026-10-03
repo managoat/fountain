@@ -128,6 +128,7 @@ defmodule Fountain.AuditGuardrailTest do
     # context and out of any caller.
     {"conversation prompt", &__MODULE__.do_conv_prompt/1, "conversation.prompted"},
     {"conversation interrupt", &__MODULE__.do_conv_interrupt/1, "conversation.interrupted"},
+    {"conversation wake without a prompt", &__MODULE__.do_conv_wake/1, "conversation.woken"},
     {"conversation terminate", &__MODULE__.do_conv_terminate/1, "conversation.terminated"},
     {"conversation release", &__MODULE__.do_conv_release/1, "conversation.released"},
     {"conversation configuration reapply", &__MODULE__.do_conv_reapply/1,
@@ -706,6 +707,21 @@ defmodule Fountain.AuditGuardrailTest do
     conv = insert_conversation(user_id: user.id, agent: insert_agent(user_id: user.id))
     stub(Wake, :wake_conversation, fn _id, _prompt, _images -> {:ok, conv} end)
     :ok = ConversationServer.send_prompt(conv.id, "hello", [], actor: "ui")
+  end
+
+  def do_conv_wake(user) do
+    sandbox = insert_sandbox(user_id: user.id, machine_name: "sprite-woken")
+    {:ok, sandbox} = update_sandbox(sandbox, %{status: "ready"})
+    agent = insert_agent(user_id: user.id)
+    conv = insert_conversation(user_id: user.id, agent: agent, sandbox_id: sandbox.id)
+
+    stub(Managoat.Sandbox.Sprites, :get, fn _handle ->
+      {:ok, %{status: :running, raw: %{name: "sprite-woken"}}}
+    end)
+
+    server = spawn(fn -> Process.sleep(:infinity) end)
+    stub_server_start(fn _supervisor, _child_spec -> {:ok, server} end)
+    {:ok, :waking} = Fountain.Conversations.Wake.wake_without_prompt(conv.id, actor: "ui")
   end
 
   def do_conv_interrupt(user) do

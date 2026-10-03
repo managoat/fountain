@@ -399,7 +399,7 @@ Our request schemas are reused for POST and PUT today, so PUT requires the full 
 
 ## "I just deployed and the rate limiter keeps blocking me"
 
-ETS table state survives redeploys-without-restart on Render's infrastructure but resets on cold start. If you're hitting limits immediately post-deploy, that's a real load issue, not a rollover artifact.
+ETS table state resets whenever the node restarts, which every redeploy does. If you're hitting limits immediately post-deploy, that's a real load issue, not a rollover artifact.
 
 ## Adding a new node (clustering)
 

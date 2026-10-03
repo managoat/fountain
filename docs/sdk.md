@@ -311,7 +311,8 @@ const second = await fountain.resume(first.conversationId).send("Fix the worst t
 The second turn costs one prompt. The sandbox is the same machine. The
 checkout is where the first turn left it, and the agent's session still holds
 what it learned. A [suspended](reference/conversation-states.md) sandbox wakes
-for it.
+for it. To pay for that wake before the prompt is ready, call
+`fountain.resume(id).wake()` when the conversation opens.
 
 ## Labels
 

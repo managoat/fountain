@@ -359,6 +359,44 @@ defmodule Fountain.Conversations.Wake do
     wake_conversation_for(conv_id, initial_prompt, :work, images)
   end
 
+  @doc """
+  Bring a conversation's sandbox and server up without opening a turn, so the
+  next prompt does not pay for the wake.
+
+  `{:ok, :awake}` is a conversation whose server is already running: a parked
+  conversation has none, so there is nothing to do. `{:ok, :waking}` is one this
+  call started a server for, on its own sandbox resumed from suspension or on a
+  fresh one when that sandbox is gone, exactly as a prompt would have. The
+  server's reattach or provision is still running when this returns; its stages
+  arrive on the conversation's event stream.
+
+  The same gates as a prompt's wake apply, since a woken machine is billed
+  compute whether or not a prompt follows. Only a wake that started a server is
+  audited, as `conversation.woken`.
+
+  A door like `wake_conversation/3`: the caller has established tenant
+  ownership of `conv_id`.
+  """
+  @spec wake_without_prompt(binary(), keyword()) :: {:ok, :awake | :waking} | {:error, term()}
+  def wake_without_prompt(conv_id, opts \\ []) when is_binary(conv_id) do
+    case ConversationServer.whereis(conv_id) do
+      pid when is_pid(pid) ->
+        {:ok, :awake}
+
+      nil ->
+        result = wake_conversation_for(conv_id, nil, :work)
+        Termination.audit_lifecycle(conv_id, "conversation.woken", ok(result), opts)
+
+        case result do
+          {:ok, _conv} -> {:ok, :waking}
+          {:error, _} = err -> err
+        end
+    end
+  end
+
+  defp ok({:ok, _}), do: :ok
+  defp ok(other), do: other
+
   # Not a request-facing entry point. `wake_conversation/3` above is the door
   # for a fresh prompt, and `Conversations.wake_for_interrupt/1` (still in
   # `Conversations` until stage 4, #2213) is the door for an interrupt; both

@@ -4,7 +4,7 @@ name: Release bump
 #
 # 1. "Run workflow" (Actions tab → "Release bump"; defaults to `patch`)
 #    bumps the version in both mix.exs files,
-#    and the six self-host image pins, rolls the changelog.d/ fragments into
+#    and the five self-host image pins, rolls the changelog.d/ fragments into
 #    CHANGELOG.md, and opens the PR from a `release/vX.Y.Z` branch. CI runs
 #    on it like any other PR; the compose boot check knows the pinned image
 #    does not exist yet and skips, and the changelog guard knows the release
@@ -153,7 +153,7 @@ jobs:
           # (#478). Bump them in the release commit so the tag's own tree
           # pins the tag. ReleasePinTest keeps this list and the files in
           # lockstep between releases.
-          pins='docker-compose.yml .env.compose.example render.yaml fly.toml deploy/k8s/kustomization.yaml deploy/k8s/deployment.yaml'
+          pins='docker-compose.yml .env.compose.example fly.toml deploy/k8s/kustomization.yaml deploy/k8s/deployment.yaml'
           for f in ${pins}; do
             sed -i "s/${current}/${next}/g" "$f"
             # sed exits 0 whether or not it matched; a pin that no longer
@@ -176,7 +176,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git checkout -b "${BRANCH}"
           git add mix.exs apps/fountain/mix.exs \
-            docker-compose.yml .env.compose.example render.yaml fly.toml \
+            docker-compose.yml .env.compose.example fly.toml \
             deploy/k8s/kustomization.yaml deploy/k8s/deployment.yaml \
             CHANGELOG.md changelog.d
           # No [skip ci]: the PR is meant to run CI, and a main push whose

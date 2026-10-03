@@ -49,7 +49,6 @@ nav:
       - Deploy an instance: guides/operate/deploy.md
       - Put it on the internet: guides/operate/put-it-on-the-internet.md
       - Connect a database: guides/operate/database.md
-      - Deploy on Render: guides/operate/render.md
       - Deploy on Fly.io: guides/operate/fly.md
       - Deploy on Coolify: guides/operate/coolify.md
       - Deploy on Kubernetes: guides/operate/kubernetes.md

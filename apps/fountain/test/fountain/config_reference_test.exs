@@ -56,9 +56,9 @@ defmodule Fountain.ConfigReferenceTest do
              #{Enum.join(undocumented, ", ")}
 
            Add a row for each, in backticks. A variable the platform injects
-           rather than an operator sets still gets a row: RENDER_EXTERNAL_URL
-           and FLY_APP_NAME are both read here, both invisible from a
-           dashboard, and both worth a line that says who sets them. The
+           rather than an operator sets still gets a row: FLY_APP_NAME is read
+           here, invisible from a dashboard, and worth a line that says who
+           sets it. The
            exemption list they used to sit on is gone.
            """
   end
@@ -75,7 +75,11 @@ defmodule Fountain.ConfigReferenceTest do
   # exactly the rot this test exists to catch.
   @read_elsewhere %{
     # The OTel SDK reads its own standard variables directly.
-    "OTEL_TRACES_EXPORTER" => "read by the OTel Erlang SDK"
+    "OTEL_TRACES_EXPORTER" => "read by the OTel Erlang SDK",
+    # The release's own scripts: bin/fountain_server and rel/env.sh.eex, which
+    # names the node on Fly before the VM starts (fly_cluster_test.exs).
+    "RELEASE_COOKIE" => "read by bin/fountain_server and rel/env.sh.eex",
+    "FLY_PRIVATE_IP" => "read by rel/env.sh.eex"
   }
 
   test "every variable documented in configuration.md is actually read by code" do
@@ -257,88 +261,13 @@ defmodule Fountain.ConfigReferenceTest do
            """
   end
 
-  # Keys render.yaml sets that Render consumes rather than the release: the
-  # port it asks the service to bind is read by the app too, so this stays
-  # empty until something is genuinely Render-only.
-  @render_only ~w()
-
-  test "every env var render.yaml sets is one the app reads" do
-    # render.yaml is the second self-host deploy surface, and it drifts the
-    # same way compose did: a key set here that the app never reads is a knob
-    # wired to nothing, and an operator has no way to tell from the outside.
-    source = env_source()
-    blueprint = File.read!(Path.join(@repo_root, "render.yaml"))
-
-    keys =
-      Regex.scan(~r/^\s*- key: ([A-Z][A-Z0-9_]*)\s*$/m, blueprint, capture: :all_but_first)
-      |> List.flatten()
-      |> Enum.uniq()
-
-    assert length(keys) > 5,
-           "extracted only #{length(keys)} keys from render.yaml — its layout changed"
-
-    unread =
-      Enum.reject(keys, fn var ->
-        String.contains?(source, ~s("#{var}")) or var in @render_only or
-          Map.has_key?(@read_elsewhere, var)
-      end)
-
-    assert unread == [],
-           """
-           render.yaml sets env vars that the app never reads:
-
-             #{Enum.join(unread, ", ")}
-
-           Remove the key, or add it to @render_only/@read_elsewhere with a reason.
-           """
-  end
-
-  test "render.yaml supplies everything a prod boot refuses to start without" do
-    # The compose guards all run "declared, therefore real". None of them runs
-    # the other direction — that a deploy surface actually carries the values
-    # runtime.exs raises over. Compose gets away with it because a reader
-    # follows a guide that says which lines to append; a blueprint is applied
-    # whole, in a dashboard, and a missing key is a crash loop on a service
-    # somebody has no shell on.
-    #
-    # PUBLIC_URL is the one exception, and it is the reason RENDER_EXTERNAL_URL
-    # is in the fallback chain: the hostname does not exist until the first
-    # deploy has happened.
-    blueprint = File.read!(Path.join(@repo_root, "render.yaml"))
-
-    required = ~w(SECRET_KEY_BASE MASTER_SECRETS_KEY DATABASE_URL)
-
-    missing =
-      Enum.reject(required, fn var ->
-        Regex.match?(~r/^\s*- key: #{var}\s*$/m, blueprint)
-      end)
-
-    assert missing == [],
-           """
-           render.yaml does not set variables config/runtime.exs raises without:
-
-             #{Enum.join(missing, ", ")}
-
-           A blueprint missing one of these deploys a service that crash-loops.
-           """
-
-    refute Regex.match?(~r/^\s*- key: PUBLIC_URL\s*$/m, blueprint),
-           """
-           render.yaml sets PUBLIC_URL. It cannot know the hostname before the
-           first deploy, so an operator either leaves it blank — and a blank
-           value is set, not absent, which takes the RENDER_EXTERNAL_URL
-           fallback in config/runtime.exs out of reach — or guesses. Leave it
-           to the fallback and to the dashboard.
-           """
-  end
-
   # Keys fly.toml sets that Fly consumes rather than the release: the port it
   # asks the machine to bind is read by the app too, so this stays empty until
   # something is genuinely Fly-only.
   @fly_only ~w()
 
   test "every env var fly.toml sets is one the app reads" do
-    # Third self-host deploy surface, same rot as the first two: a key set
+    # Second self-host deploy surface, same rot as compose: a key set
     # here that the app never reads is a knob wired to nothing, and an
     # operator has no way to tell from the outside.
     source = env_source()
@@ -371,8 +300,7 @@ defmodule Fountain.ConfigReferenceTest do
   end
 
   test "fly.toml keeps the secrets out of the repository" do
-    # The Render blueprint asks for these three in a dashboard (`sync: false`).
-    # Fly has no such marker: a value written in [env] is a value committed to
+    # Fly has no dashboard-only marker for a value: a value written in [env] is a value committed to
     # a git repository, and `fly secrets set` is the only right home for them.
     # The guide says so; this makes the file itself say so.
     fly = env_block(File.read!(Path.join(@repo_root, "fly.toml")))
@@ -393,17 +321,17 @@ defmodule Fountain.ConfigReferenceTest do
            """
   end
 
-  test "fly.toml pins one machine that never parks" do
+  test "fly.toml never parks a machine and replaces one at a time" do
     # These four lines are the entire reason this file exists rather than a
     # paragraph in a guide, so they get a guard rather than a comment.
     #
     # Fly's defaults stop an idle machine and start it again on a request, and
     # a parked machine is an instance that quietly stops reaping sandboxes and
-    # stops pricing turns — every scheduler runs inside this process. A second
-    # machine is worse: Fountain clusters over Erlang distribution and nothing
-    # on Fly discovers peers, so two machines are two schedulers racing over
-    # the same sandboxes. `canary` and `bluegreen` both create that second
-    # machine for the length of a deploy.
+    # stops pricing turns — every scheduler runs inside this process. Several
+    # machines are one Erlang cluster only once RELEASE_COOKIE is set
+    # (rel/env.sh.eex); until then a second machine is two schedulers racing
+    # over the same sandboxes, and `canary` and `bluegreen` both create that
+    # second machine for the length of a deploy. `rolling` is right either way.
     fly = File.read!(Path.join(@repo_root, "fly.toml"))
 
     for {pattern, why} <- [
@@ -411,7 +339,8 @@ defmodule Fountain.ConfigReferenceTest do
           {~r/^\s*auto_start_machines = false$/m,
            "a machine Fly starts on demand is a parked one"},
           {~r/^\s*min_machines_running = 1$/m, "the instance has to stay up between requests"},
-          {~r/^\s*strategy = "rolling"$/m, "canary and bluegreen run two machines at once"}
+          {~r/^\s*strategy = "rolling"$/m,
+           "canary and bluegreen start a new machine beside the old one"}
         ] do
       assert Regex.match?(pattern, fly),
              "fly.toml no longer matches #{inspect(pattern)} — #{why}"

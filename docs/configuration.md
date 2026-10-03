@@ -23,10 +23,9 @@ message.
 | `DATABASE_URL` | — | prod | The Postgres connection string. Boot fails without it. |
 | `SECRET_KEY_BASE` | — | prod, to serve | Signs and encrypts the session cookies and the tokens. Generate one with `openssl rand -base64 48`. |
 | `MASTER_SECRETS_KEY` | — | prod | Wraps each tenant's data-encryption key. Read [the secrets model](architecture.md#the-secrets-model). It is 32 bytes, url-safe base64, with no pad character: `openssl rand 32 \| base64 \| tr '+/' '-_' \| tr -d '='`. **Lose it and you lose each stored secret.** Boot refuses a malformed value. |
-| `PUBLIC_URL` | — | prod | The base URL that the outside world sees, with the scheme. A prod instance requires this variable or a platform fallback from `RENDER_EXTERNAL_URL` or `FLY_APP_NAME`. The old `http://localhost:4000` fallback quietly put localhost links in each verification email. This variable builds each link that leaves the app, which is the verification and reset emails and `llms.txt`. Fountain passes it to each sandbox as `FOUNTAIN_BASE_URL`. An `https://` value also starts the HTTPS redirect, HSTS and the secure cookie flag, and Fountain derives all three from the scheme. |
+| `PUBLIC_URL` | — | prod | The base URL that the outside world sees, with the scheme. A prod instance requires this variable or the platform fallback from `FLY_APP_NAME`. The old `http://localhost:4000` fallback quietly put localhost links in each verification email. This variable builds each link that leaves the app, which is the verification and reset emails and `llms.txt`. Fountain passes it to each sandbox as `FOUNTAIN_BASE_URL`. An `https://` value also starts the HTTPS redirect, HSTS and the secure cookie flag, and Fountain derives all three from the scheme. |
 | `PHX_HOST` | The host of `PUBLIC_URL`. | — | The bare host for the endpoint URL and for the LiveView origin check. Set it only when it differs from the host in `PUBLIC_URL`. |
-| `RENDER_EXTERNAL_URL` | — | — | Render sets this on each web service. Fountain reads it as a fallback for `PUBLIC_URL`, before `FLY_APP_NAME`. The first deploy from `render.yaml` needs it, because the hostname does not exist before that deploy. An explicit `PUBLIC_URL` has precedence. Set `PUBLIC_URL` when you add a custom domain. |
-| `FLY_APP_NAME` | — | — | Fly sets this on each machine. Fountain builds `https://<app>.fly.dev` from it, and reads that as the last fallback for `PUBLIC_URL`. A deploy from `fly.toml` needs it, because that file ships with an app name that `fly launch` replaces. An explicit `PUBLIC_URL` has precedence. Set `PUBLIC_URL` when you add a custom domain. |
+| `FLY_APP_NAME` | — | — | Fly sets this on each machine. Fountain builds `https://<app>.fly.dev` from it, and reads that as the fallback for `PUBLIC_URL`. A deploy from `fly.toml` needs it, because that file ships with an app name that `fly launch` replaces. An explicit `PUBLIC_URL` has precedence. Set `PUBLIC_URL` when you add a custom domain. |
 | `PHX_SERVER` | `true` in the shipped image. | — | A `1`, `true` or `yes` starts the web listener. A release task runs with `PHX_SERVER=false … eval '…'`. That boots the app, and binds no port. |
 | `PORT` | `4000` | — | The HTTP port to listen on. |
 
@@ -439,8 +438,10 @@ You need this for more than one replica, and for nothing else. Read
 
 | Variable | Default | Required | Effect |
 |---|---|---|---|
-| `CLUSTER_DNS_QUERY` | — | Multi-replica. | The DNS name that Fountain polls to discover a peer. In Kubernetes that is a headless service. Empty or unset, the cluster is off. |
+| `CLUSTER_DNS_QUERY` | `<app>.internal` on Fly with `RELEASE_COOKIE` set, otherwise unset. | Multi-replica. | The DNS name that Fountain polls to discover a peer. In Kubernetes that is a headless service. On Fly the release sets it for you, from `FLY_APP_NAME`. Empty or unset, the cluster is off, and an empty value turns it off on Fly too. On Fly, a value without `RELEASE_COOKIE` **refuses to boot**. |
+| `RELEASE_COOKIE` | A random value baked into each image. | Multi-replica. | The shared secret that lets two nodes connect. Use the same value on every node, and keep it secret, because a node that holds it can run code on every other. Each image build bakes its own cookie, so without this variable the old and the new nodes of a rolling deploy never connect. On Fly, setting it turns the cluster on. Generate it with `openssl rand -hex 32`. |
 | `RELEASE_NAME` | Set by the release. | — | The node basename that peer discovery uses. It must match what each node registered as. The release sets it, so override it only when you know why. |
+| `FLY_PRIVATE_IP` | — | — | Fly sets this on each machine to its private IPv6 address. With `RELEASE_COOKIE` set, the release names the node `fountain_server@<FLY_PRIVATE_IP>` and runs distribution over IPv6. An explicit `RELEASE_NODE` has precedence. |
 
 ## Observability
 

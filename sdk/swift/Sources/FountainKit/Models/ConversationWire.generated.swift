@@ -24,6 +24,8 @@ public struct Conversation: Sendable, Decodable, Hashable, Identifiable {
   public var sandbox: Sandbox?
   public var sandboxAPIAccess: SandboxAPIAccess?
   public var sandboxID: String?
+  public var sessionConfig: [String: JSONValue]?
+  public var sessionConfigOptions: [[String: JSONValue]]?
   public var source: ConversationSource?
   public var status: ConversationStatus
   public var title: String?
@@ -62,6 +64,8 @@ public struct Conversation: Sendable, Decodable, Hashable, Identifiable {
     case sandbox = "sandbox"
     case sandboxAPIAccess = "sandbox_api_access"
     case sandboxID = "sandbox_id"
+    case sessionConfig = "session_config"
+    case sessionConfigOptions = "session_config_options"
     case source = "source"
     case status = "status"
     case title = "title"
@@ -75,6 +79,7 @@ public struct Conversation: Sendable, Decodable, Hashable, Identifiable {
 
 public struct Turn: Sendable, Decodable, Hashable, Identifiable {
   public var clientRequestID: String?
+  public var configSelection: [String: JSONValue]?
   public var endedAt: Date?
   public var exitCode: Int?
   public var id: String
@@ -93,6 +98,7 @@ public struct Turn: Sendable, Decodable, Hashable, Identifiable {
 
   enum CodingKeys: String, CodingKey {
     case clientRequestID = "client_request_id"
+    case configSelection = "config_selection"
     case endedAt = "ended_at"
     case exitCode = "exit_code"
     case id = "id"
@@ -183,6 +189,11 @@ public struct ConversationCreateRequest: Sendable, Encodable {
     get { _sandboxMode.value }
     set { _sandboxMode = newValue.map(ConversationInputField.value) ?? .omitted }
   }
+  private var _sessionConfig: ConversationInputField<[String: JSONValue]> = .omitted
+  public var sessionConfig: [String: JSONValue]? {
+    get { _sessionConfig.value }
+    set { _sessionConfig = newValue.map(ConversationInputField.value) ?? .omitted }
+  }
   private var _spriteName: ConversationInputField<String> = .omitted
   public var spriteName: String? {
     get { _spriteName.value }
@@ -223,7 +234,8 @@ public struct ConversationCreateRequest: Sendable, Encodable {
     inferenceCredentialID: String? = nil,
     labels: [String: String]? = nil,
     model: String? = nil,
-    queue: Bool? = nil
+    queue: Bool? = nil,
+    sessionConfig: [String: JSONValue]? = nil
   ) {
     self.agentID = agentID
     self.prompt = prompt
@@ -243,6 +255,7 @@ public struct ConversationCreateRequest: Sendable, Encodable {
     self.labels = labels
     self.model = model
     self.queue = queue
+    self.sessionConfig = sessionConfig
   }
 
   enum CodingKeys: String, CodingKey {
@@ -261,6 +274,7 @@ public struct ConversationCreateRequest: Sendable, Encodable {
     case sandboxAPIAccess = "sandbox_api_access"
     case sandboxID = "sandbox_id"
     case sandboxMode = "sandbox_mode"
+    case sessionConfig = "session_config"
     case spriteName = "sprite_name"
     case title = "title"
     case vaultID = "vault_id"
@@ -321,6 +335,7 @@ public struct ConversationCreateRequest: Sendable, Encodable {
     try _sandboxAPIAccess.encode(into: &container, forKey: .sandboxAPIAccess)
     try _sandboxID.encode(into: &container, forKey: .sandboxID)
     try _sandboxMode.encode(into: &container, forKey: .sandboxMode)
+    try _sessionConfig.encode(into: &container, forKey: .sessionConfig)
     try _spriteName.encode(into: &container, forKey: .spriteName)
     try _title.encode(into: &container, forKey: .title)
     try _vaultID.encode(into: &container, forKey: .vaultID)
@@ -472,6 +487,7 @@ public struct Agent: Sendable, Decodable, Hashable, Identifiable {
   public var runtimeCommand: String?
   public var sandboxMode: SandboxMode?
   public var sandboxProvider: SandboxProvider?
+  public var sessionConfig: [String: JSONValue]?
   public var skills: [Skill]?
   public var system: String?
   public var updatedAt: Date?
@@ -503,6 +519,7 @@ public struct Agent: Sendable, Decodable, Hashable, Identifiable {
     case runtimeCommand = "runtime_command"
     case sandboxMode = "sandbox_mode"
     case sandboxProvider = "sandbox_provider"
+    case sessionConfig = "session_config"
     case skills = "skills"
     case system = "system"
     case updatedAt = "updated_at"
@@ -601,6 +618,11 @@ public struct AgentInput: Sendable, Encodable {
     get { _sandboxProvider.value }
     set { _sandboxProvider = newValue.map(ConversationInputField.value) ?? .omitted }
   }
+  private var _sessionConfig: ConversationInputField<[String: JSONValue]> = .omitted
+  public var sessionConfig: [String: JSONValue]? {
+    get { _sessionConfig.value }
+    set { _sessionConfig = newValue.map(ConversationInputField.value) ?? .omitted }
+  }
   private var _skills: ConversationInputField<[Skill]> = .omitted
   public var skills: [Skill]? {
     get { _skills.value }
@@ -635,7 +657,8 @@ public struct AgentInput: Sendable, Encodable {
     allowedVaultIDs: [String]? = nil,
     allowedEnvironmentIDs: [String]? = nil,
     allowedInferenceCredentialIDs: [String]? = nil,
-    inferenceCredentialID: String? = nil
+    inferenceCredentialID: String? = nil,
+    sessionConfig: [String: JSONValue]? = nil
   ) {
     self.name = name
     self.description = description
@@ -654,6 +677,7 @@ public struct AgentInput: Sendable, Encodable {
     self.allowedEnvironmentIDs = allowedEnvironmentIDs
     self.allowedInferenceCredentialIDs = allowedInferenceCredentialIDs
     self.inferenceCredentialID = inferenceCredentialID
+    self.sessionConfig = sessionConfig
   }
 
   enum CodingKeys: String, CodingKey {
@@ -672,6 +696,7 @@ public struct AgentInput: Sendable, Encodable {
     case runtimeCommand = "runtime_command"
     case sandboxMode = "sandbox_mode"
     case sandboxProvider = "sandbox_provider"
+    case sessionConfig = "session_config"
     case skills = "skills"
     case system = "system"
   }
@@ -722,6 +747,7 @@ public struct AgentInput: Sendable, Encodable {
     try _runtimeCommand.encode(into: &container, forKey: .runtimeCommand)
     try _sandboxMode.encode(into: &container, forKey: .sandboxMode)
     try _sandboxProvider.encode(into: &container, forKey: .sandboxProvider)
+    try _sessionConfig.encode(into: &container, forKey: .sessionConfig)
     try _skills.encode(into: &container, forKey: .skills)
     try _system.encode(into: &container, forKey: .system)
   }

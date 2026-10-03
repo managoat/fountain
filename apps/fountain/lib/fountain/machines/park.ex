@@ -44,6 +44,9 @@ defmodule Fountain.Machines.Park do
      keeps billing. Its `provider_meta` write goes through `Lease.cas_update/3`
      under this park's epoch — it is the owner's write, made during the owner's
      own transition.
+     Then the **snapshot** the files API answers from while the machine is
+     parked (`Fountain.SandboxFiles.Snapshots.capture/1`, ADR 0063), on the
+     same terms: outside every lock, inside the transition, best effort.
   6. **Suspend at the provider**, outside every transaction and every lock.
      An error — or a raise, which is the same outcome by 5a's rule — clears the
      transition, releases the lease and answers `{:error, :suspend_failed}`.
@@ -157,6 +160,7 @@ defmodule Fountain.Machines.Park do
   alias Fountain.Machines.Reads
   alias Fountain.Machines.Renewal
   alias Fountain.Repo
+  alias Fountain.SandboxFiles.Snapshots
 
   require Logger
 
@@ -647,6 +651,11 @@ defmodule Fountain.Machines.Park do
            # since no read is admitted while this lease is live.
            :ok = Reads.drain(sandbox.id, Keyword.take(opts, [:read_window_ms]))
            _ = checkpoint(sandbox, epoch)
+           # The picture the files API answers from while the machine sleeps
+           # (ADR 0063): taken now because nothing can be working on the
+           # machine under this stamp and it is still up. Best effort, and
+           # rescued inside, for the reason the checkpoint above is.
+           _ = Snapshots.capture(sandbox)
            suspend_at_provider(sandbox)
          end) do
       # The provider's answer is discarded on this arm and that is right here:

@@ -44,7 +44,17 @@ defmodule FountainWeb.SandboxFilesController do
         "the content stopped short."
   ]
 
-  @not_ready {"Sandbox is not ready", "application/json", Schemas.Error}
+  @not_ready {"Sandbox is not ready, and a parked one's snapshot cannot answer this read",
+              "application/json", Schemas.Error}
+
+  # Said once and appended to each operation's description, because the four
+  # behave the same way when the machine is asleep.
+  @parked " A parked (`suspended`) sandbox is not woken: it answers from the snapshot its " <>
+            "park took, with `snapshot_at` saying when, wherever that snapshot holds the " <>
+            "answer — the git repositories under the working directory, their files up to " <>
+            "256 KiB, their listings, and the default diff and status (ADR 0063). Anything " <>
+            "else on a parked sandbox, or a parked sandbox with no snapshot, is " <>
+            "`409 sandbox_not_ready`."
   @unreachable {"Sandbox provider unreachable, or the sandbox is being parked or destroyed " <>
                   "(`sandbox_unavailable`, with `Retry-After`)", "application/json",
                 Schemas.Error}
@@ -53,10 +63,8 @@ defmodule FountainWeb.SandboxFilesController do
     summary: "List a directory on a sandbox",
     description:
       "The entries of one directory, directories first then by name. Without `path`, " <>
-        "the agent's working directory. Only a `ready` sandbox answers " <>
-        "(`409 sandbox_not_ready`): a parked one is not woken for a read. A sandbox " <>
-        "being parked or destroyed is `503 sandbox_unavailable`; retry after the " <>
-        "`Retry-After`. Full scope.",
+        "the agent's working directory. A sandbox being parked or destroyed is " <>
+        "`503 sandbox_unavailable`; retry after the `Retry-After`. Full scope." <> @parked,
     parameters: [sandbox_id: [in: :path, type: :string, required: true], path: @path_param],
     responses: [
       ok: {"Directory listing", "application/json", Schemas.SandboxListingResponse},
@@ -83,7 +91,7 @@ defmodule FountainWeb.SandboxFilesController do
         "when it is valid UTF-8 (`encoding: utf-8`) and base64 otherwise " <>
         "(`encoding: base64`). `size` is the whole file; `truncated` says whether `content` " <>
         "is short of it, which happens when the file is longer than `max_bytes` and also " <>
-        "when redaction grows what was read past that cap. Full scope.",
+        "when redaction grows what was read past that cap. Full scope." <> @parked,
     parameters: [
       sandbox_id: [in: :path, type: :string, required: true],
       path: Keyword.put(@path_param, :required, true),
@@ -116,7 +124,8 @@ defmodule FountainWeb.SandboxFilesController do
         "directory), redacted like a file read. `staged=true` compares the index " <>
         "(`--cached`); `ref` compares against a commit, branch or tag " <>
         "(`422 invalid_ref` for a malformed one, `404 ref_not_found` for an unknown one). " <>
-        "A directory outside any repository is `422 not_a_repository`. Full scope.",
+        "A directory outside any repository is `422 not_a_repository`. Full scope." <>
+        @parked,
     parameters: [
       sandbox_id: [in: :path, type: :string, required: true],
       path: @path_param,
@@ -170,7 +179,8 @@ defmodule FountainWeb.SandboxFilesController do
         "read separately, so a file staged and then edited again reports a state in both; " <>
         "an untracked file reads `untracked` in both. `renamed_from` is set only where " <>
         "that side is a rename or a copy. `branch` is null on a detached HEAD. " <>
-        "A directory outside any repository is `422 not_a_repository`. Full scope.",
+        "A directory outside any repository is `422 not_a_repository`. Full scope." <>
+        @parked,
     parameters: [
       sandbox_id: [in: :path, type: :string, required: true],
       path: @path_param,

@@ -48,6 +48,9 @@ config :fountain, :owner_adopts_callers, true
 config :fountain, :execution_deadline_worker_enabled, false
 config :fountain, :checkpoint_creation_enabled, false
 config :managoat_sandbox, Managoat.Sandbox.Sprites, checkpoint_creation_enabled: false
+# A park's snapshot of the disk (ADR 0063) runs two scripts on the machine;
+# the suites that want one turn it on, and the rest park without it.
+config :fountain, Fountain.SandboxFiles.Snapshots, enabled: false
 
 # Skip the Ueberauth plug so tests can set :ueberauth_auth/:ueberauth_failure
 # directly without triggering a real OAuth network round-trip.

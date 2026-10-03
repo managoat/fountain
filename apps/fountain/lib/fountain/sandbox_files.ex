@@ -57,6 +57,7 @@ defmodule Fountain.SandboxFiles do
   alias Fountain.Environments
   alias Fountain.Machines.Reads
   alias Fountain.Repo
+  alias Fountain.SandboxFiles.Snapshots
   alias Fountain.Vaults
 
   @home "/home/sprite"
@@ -220,10 +221,14 @@ defmodule Fountain.SandboxFiles do
   @spec list(Sandbox.t(), String.t() | nil) ::
           {:ok, %{path: String.t(), entries: [entry()], truncated: boolean()}} | {:error, error()}
   def list(%Sandbox{} = sandbox, path) do
+    parked_or(sandbox, fn -> list_live(sandbox, path) end, &list_parked(sandbox, &1, path))
+  end
+
+  defp list_live(sandbox, path) do
     with :ok <- ready?(sandbox),
          {:ok, absolute} <- resolve_path(sandbox, path),
-         {:ok, output} <- run(sandbox, list_script(), [absolute] ++ path_roots(sandbox)) do
-      entries = parse_entries(output)
+         {:ok, output} <- run(sandbox, list_script(), [absolute] ++ path_args(sandbox)) do
+      entries = entries_of(output)
       values = secret_values(sandbox)
 
       {:ok,
@@ -263,6 +268,14 @@ defmodule Fountain.SandboxFiles do
   def read(%Sandbox{} = sandbox, path, opts \\ []) do
     max_bytes = opts |> Keyword.get(:max_bytes) |> clamp_max_bytes()
 
+    parked_or(
+      sandbox,
+      fn -> read_live(sandbox, path, max_bytes) end,
+      &read_parked(sandbox, &1, path, max_bytes)
+    )
+  end
+
+  defp read_live(sandbox, path, max_bytes) do
     with :ok <- ready?(sandbox),
          {:ok, absolute} <- resolve_path(sandbox, path),
          values = secret_values(sandbox),
@@ -272,7 +285,7 @@ defmodule Fountain.SandboxFiles do
            run(
              sandbox,
              read_script(),
-             [Integer.to_string(max_bytes + overlap(values)), absolute] ++ path_roots(sandbox)
+             [Integer.to_string(max_bytes + overlap(values)), absolute] ++ path_args(sandbox)
            ),
          {:ok, size, bytes} <- parse_read(output) do
       {bytes, capped?} = redact_to_cap(values, bytes, max_bytes)
@@ -311,6 +324,14 @@ defmodule Fountain.SandboxFiles do
     staged = Keyword.get(opts, :staged, false) == true
     ref = Keyword.get(opts, :ref)
 
+    parked_or(
+      sandbox,
+      fn -> diff_live(sandbox, path, max_bytes, staged, ref) end,
+      &diff_parked(sandbox, &1, path, max_bytes, staged, ref)
+    )
+  end
+
+  defp diff_live(sandbox, path, max_bytes, staged, ref) do
     with :ok <- ready?(sandbox),
          {:ok, ref} <- validate_ref(ref),
          {:ok, absolute} <- resolve_path(sandbox, path),
@@ -327,7 +348,7 @@ defmodule Fountain.SandboxFiles do
                Integer.to_string(max_bytes + 1 + overlap(values)),
                ref || "",
                if(staged, do: "1", else: "0")
-             ] ++ path_roots(sandbox)
+             ] ++ path_args(sandbox)
            ),
          {:ok, root, bytes} <- parse_diff(output) do
       {text, capped?} = redact_to_cap(values, bytes, max_bytes)
@@ -375,6 +396,14 @@ defmodule Fountain.SandboxFiles do
   def status(%Sandbox{} = sandbox, path, opts \\ []) do
     untracked = untracked_mode(Keyword.get(opts, :untracked))
 
+    parked_or(
+      sandbox,
+      fn -> status_live(sandbox, path, untracked) end,
+      &status_parked(sandbox, &1, path, untracked)
+    )
+  end
+
+  defp status_live(sandbox, path, untracked) do
     with :ok <- ready?(sandbox),
          {:ok, absolute} <- resolve_path(sandbox, path),
          # One byte past the cap, like `diff/3`: it tells a stream that was
@@ -384,7 +413,7 @@ defmodule Fountain.SandboxFiles do
              sandbox,
              status_script(),
              [absolute, Integer.to_string(@max_status_bytes + 1), untracked] ++
-               path_roots(sandbox)
+               path_args(sandbox)
            ),
          {:ok, root, branch, body} <- parse_status(output) do
       {records, cut?} = status_records(body)
@@ -402,6 +431,209 @@ defmodule Fountain.SandboxFiles do
        }}
     end
   end
+
+  # ── a parked sandbox, from its snapshot ───────────────────────────────
+
+  # The live read first, always: it is the one that decides, on the row under
+  # the machine's lock, whether the machine is up. Only its `suspended`
+  # refusal turns to the snapshot (ADR 0063), and only an answer the snapshot
+  # can actually give replaces that refusal. `:miss` is the snapshot saying it
+  # does not know — an ignored directory, a file past a bound, a diff against
+  # a ref — and the caller hears what it always heard.
+  defp parked_or(%Sandbox{} = sandbox, live, from_snapshot) do
+    case live.() do
+      {:error, {:sandbox_not_ready, "suspended"}} = refused ->
+        with %{} = snapshot <- Snapshots.parked(sandbox),
+             {:ok, answer} <- from_snapshot.(snapshot) do
+          {:ok, Map.put(answer, :snapshot_at, snapshot.taken_at)}
+        else
+          {:error, _} = error -> error
+          _ -> refused
+        end
+
+      answer ->
+        answer
+    end
+  end
+
+  # Path confinement is the same function the live reads use, so a path the
+  # live read would refuse as outside the sandbox is refused here as well.
+  defp list_parked(sandbox, snapshot, path) do
+    with {:ok, absolute} <- resolve_path(sandbox, path) do
+      case snapshot.dirs do
+        %{^absolute => %{entries: entries, truncated: truncated}} ->
+          values = secret_values(sandbox)
+
+          {:ok,
+           %{
+             path: to_text(redact_with(values, absolute)),
+             entries:
+               Enum.map(entries, fn entry ->
+                 %{entry | name: to_text(redact_with(values, entry.name))}
+               end),
+             truncated: truncated
+           }}
+
+        _ ->
+          if Map.has_key?(snapshot.files, absolute), do: {:error, :not_a_directory}, else: :miss
+      end
+    end
+  end
+
+  defp read_parked(sandbox, snapshot, path, max_bytes) do
+    with {:ok, absolute} <- resolve_path(sandbox, path) do
+      cond do
+        Map.has_key?(snapshot.dirs, absolute) ->
+          {:error, :is_a_directory}
+
+        Map.has_key?(snapshot.files, absolute) ->
+          with {:ok, bytes} <- Snapshots.content(snapshot, absolute) do
+            size = Map.fetch!(snapshot.files, absolute)
+            {bytes, capped?} = redact_to_cap(secret_values(sandbox), bytes, max_bytes)
+            {encoding, content} = encode(bytes)
+
+            {:ok,
+             %{
+               path: absolute,
+               size: size,
+               truncated: size > max_bytes or capped?,
+               encoding: encoding,
+               content: content
+             }}
+          else
+            _ -> :miss
+          end
+
+        absent?(snapshot, absolute) ->
+          {:error, :path_not_found}
+
+        true ->
+          :miss
+      end
+    end
+  end
+
+  # Not there, as far as the picture can say: its directory was listed whole
+  # and holds no such name. Anything less is not knowing — and a name that
+  # was redacted when the picture was taken could be the one asked for.
+  defp absent?(snapshot, absolute) do
+    case Map.fetch(snapshot.dirs, Path.dirname(absolute)) do
+      {:ok, %{entries: entries, truncated: false}} ->
+        name = Path.basename(absolute)
+        placeholder = Redaction.placeholder()
+
+        not Enum.any?(entries, &(&1.name == name or String.contains?(&1.name, placeholder)))
+
+      _ ->
+        false
+    end
+  end
+
+  # Only the default diff was taken: the working tree against the index.
+  defp diff_parked(_sandbox, _snapshot, _path, _max_bytes, staged, ref)
+       when staged or (is_binary(ref) and ref != ""),
+       do: :miss
+
+  defp diff_parked(sandbox, snapshot, path, max_bytes, _staged, _ref) do
+    with {:ok, absolute} <- resolve_path(sandbox, path),
+         {:ok, repo} <- repository_of(snapshot, absolute) do
+      values = secret_values(sandbox)
+      cap = max_status_bytes()
+      stored = binary_part(repo.diff, 0, min(byte_size(repo.diff), cap))
+      {text, capped?} = redact_to_cap(values, stored, max_bytes)
+
+      {:ok,
+       %{
+         path: absolute,
+         repo_root: to_text(redact_with(values, repo.root)),
+         staged: false,
+         ref: nil,
+         diff: to_text(text),
+         truncated: byte_size(repo.diff) > min(max_bytes, cap) or capped?
+       }}
+    end
+  end
+
+  defp status_parked(sandbox, snapshot, path, untracked) do
+    with {:ok, absolute} <- resolve_path(sandbox, path),
+         {:ok, repo} <- repository_of(snapshot, absolute) do
+      body = if untracked == "normal", do: repo.status_normal, else: repo.status_all
+      {records, cut?} = status_records(body)
+
+      changes =
+        records
+        |> parse_changes()
+        |> Enum.reject(&(untracked == "no" and &1.index == "untracked"))
+
+      values = secret_values(sandbox)
+
+      {:ok,
+       %{
+         path: absolute,
+         repo_root: to_text(redact_with(values, repo.root)),
+         branch: repo.branch && to_text(redact_with(values, repo.branch)),
+         untracked: untracked,
+         entries: changes |> Enum.take(@max_entries) |> Enum.map(&redact_change(values, &1)),
+         truncated: cut? or length(changes) > @max_entries
+       }}
+    end
+  end
+
+  # The innermost repository holding a directory the picture listed, as
+  # `rev-parse --show-toplevel` would have found it. A file is not a
+  # directory, as the live scripts say; anything else is not knowing.
+  defp repository_of(snapshot, absolute) do
+    cond do
+      Map.has_key?(snapshot.files, absolute) ->
+        {:error, :not_a_directory}
+
+      not Map.has_key?(snapshot.dirs, absolute) ->
+        :miss
+
+      true ->
+        snapshot.repos
+        |> Enum.filter(&under?(absolute, &1.root))
+        |> Enum.max_by(&byte_size(&1.root), fn -> nil end)
+        |> case do
+          nil -> :miss
+          repo -> {:ok, repo}
+        end
+    end
+  end
+
+  # ── what the snapshot shares with the live reads ──────────────────────
+
+  @doc false
+  @spec max_entries() :: pos_integer()
+  def max_entries, do: @max_entries
+
+  @doc false
+  @spec max_status_bytes() :: pos_integer()
+  def max_status_bytes, do: @max_status_bytes
+
+  @doc false
+  @spec path_roots(Sandbox.t()) :: [String.t()]
+  def path_roots(%Sandbox{} = sandbox), do: path_args(sandbox)
+
+  @doc false
+  @spec physical_root_script() :: String.t()
+  def physical_root_script, do: physical_roots()
+
+  @doc false
+  @spec redaction_values(Sandbox.t()) :: [binary()]
+  def redaction_values(%Sandbox{} = sandbox), do: secret_values(sandbox)
+
+  @doc false
+  @spec redact_bytes([binary()], binary()) :: binary()
+  def redact_bytes(values, bytes), do: redact_with(values, bytes)
+
+  @doc false
+  @spec parse_entries(binary()) :: [entry()]
+  def parse_entries(output), do: entries_of(output)
+
+  @doc false
+  @spec status_changes(binary()) :: [change()]
+  def status_changes(body), do: body |> status_records() |> elem(0) |> parse_changes()
 
   # ── guards ─────────────────────────────────────────────────────────────
 
@@ -499,7 +731,7 @@ defmodule Fountain.SandboxFiles do
 
   # Pair each mapped host root with its sandbox spelling. The tag keeps
   # run/3 from mapping that spelling too; both remain literal argv values.
-  defp path_roots(sandbox),
+  defp path_args(sandbox),
     do: Enum.flat_map(roots(sandbox), &[&1, "sandbox:" <> &1])
 
   defp map_path(handle, "/" <> _ = path), do: Managoat.Sandbox.host_path(handle, path)
@@ -539,7 +771,7 @@ defmodule Fountain.SandboxFiles do
     physical=${physical%$'\n.'}
     outside=9
     """ <>
-      physical_root_script() <>
+      physical_roots() <>
       ~S"""
       shopt -s dotglob nullglob
       for f in *; do
@@ -566,7 +798,7 @@ defmodule Fountain.SandboxFiles do
     physical=${physical%$'\n.'}
     outside=9
     """ <>
-      physical_root_script() <>
+      physical_roots() <>
       ~S"""
       p=$physical
       [ -d "$p" ] && exit 4
@@ -588,7 +820,7 @@ defmodule Fountain.SandboxFiles do
     physical=${physical%$'\n.'}
     outside=6
     """ <>
-      physical_root_script() <>
+      physical_roots() <>
       ~S"""
       root=$confined_path
       """
@@ -597,7 +829,7 @@ defmodule Fountain.SandboxFiles do
   # All operations compare physical paths to physical roots in the provider's
   # execution namespace. The sentinel preserves trailing newlines that command
   # substitution would otherwise trim. Git also needs the sandbox spelling.
-  defp physical_root_script do
+  defp physical_roots do
     ~S"""
     inside=
     while [ "$#" -ge 2 ]; do
@@ -726,7 +958,7 @@ defmodule Fountain.SandboxFiles do
 
   # ── parsing ────────────────────────────────────────────────────────────
 
-  defp parse_entries(output) do
+  defp entries_of(output) do
     output
     |> String.split(<<0>>, trim: true)
     |> Enum.flat_map(fn record ->

@@ -162,6 +162,8 @@ defmodule Fountain.Conversations do
   # a provider bill is reconciled against. `maybe_poke_sandbox_queue/2` is what
   # turns a freed quota slot into a drain (ADR 0042 decision 5): without it a
   # tenant at their cap waits for the five-minute cron instead of a second.
+  # A third, smaller one rides along: a machine that has stopped for good drops
+  # the snapshot its last park took (ADR 0063).
   #
   # A door for `Fountain.Machines` (ADR 0058); not part of the context's public
   # surface, like the two it calls.
@@ -171,8 +173,17 @@ defmodule Fountain.Conversations do
       when is_binary(previous_status) do
     record_sandbox_usage(previous_status, written)
     maybe_poke_sandbox_queue(previous_status, written)
+    forget_snapshot(written)
     :ok
   end
+
+  # A machine that has stopped for good has no disk left to describe, so the
+  # picture its last park took goes with it (ADR 0063). The row itself may stay
+  # for the record; the snapshot is only ever read while it is `suspended`.
+  defp forget_snapshot(%Sandbox{status: status, id: id}) when status in ~w(terminated failed),
+    do: Fountain.SandboxFiles.Snapshots.delete(id)
+
+  defp forget_snapshot(_sandbox), do: :ok
 
   # What a caller may contribute to a sandbox name — the part after this
   # tenant's prefix. See `mint_machine_name/3`. Deliberately narrow: the value

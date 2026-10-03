@@ -113,7 +113,10 @@ What the codebase already says about that request:
 6. **Never a wake.** Only a `ready` sandbox answers; a `suspended` one is
    `409 sandbox_not_ready` and stays parked. A read that resumed a sandbox
    would cost provider time outside any turn, with nothing in 0031 to
-   charge it to; a prompt is the door that wakes, and it is gated.
+   charge it to; a prompt is the door that wakes, and it is gated. Since
+   [0063](0063-a-parked-sandbox-answers-from-its-snapshot.md), a parked
+   sandbox answers from the snapshot its park took, where that snapshot holds
+   the answer; it is still never woken.
 
 7. **Over `exec`, not a new callback.** The scripts run through
    `Managoat.Sandbox.exec/4`, which every adapter already implements, with

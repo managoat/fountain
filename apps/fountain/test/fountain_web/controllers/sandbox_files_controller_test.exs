@@ -113,6 +113,59 @@ defmodule FountainWeb.SandboxFilesControllerTest do
                |> json_response(409)
     end
 
+    test "a parked sandbox answers from its park's snapshot, still without a wake", ctx do
+      home = Fountain.TmpDir.mkdir!("sandbox-files-controller-snapshot")
+      repo = Path.join(home, "work")
+      File.mkdir_p!(repo)
+      git_env = [{"GIT_CONFIG_GLOBAL", "/dev/null"}, {"GIT_CONFIG_SYSTEM", "/dev/null"}]
+      {_, 0} = System.cmd("git", ["init", "-q"], cd: repo, env: git_env)
+      File.write!(Path.join(repo, "notes.md"), "kept\n")
+
+      stub(Managoat.Sandbox, :host_path, fn _h, path ->
+        String.replace_prefix(path, @home, home)
+      end)
+
+      stub(Managoat.Sandbox, :exec, fn _h, command, [flag, script | rest], _opts ->
+        {out, code} =
+          System.cmd(command, [flag, "exec 2>/dev/null\n" <> script | rest], env: git_env)
+
+        {:ok, out, code}
+      end)
+
+      {:ok, _} = Fountain.SandboxFiles.Snapshots.capture(ctx.sandbox, enabled: true)
+
+      ctx.sandbox |> Ecto.Changeset.change(status: "suspended") |> Fountain.Repo.update!()
+
+      reject(&Managoat.Sandbox.exec/4)
+
+      data =
+        ctx.conn
+        |> authed_with_key(ctx.raw_key)
+        |> get("/api/sandboxes/#{ctx.sandbox.id}/files", path: "work")
+        |> json_response(200)
+        |> Map.fetch!("data")
+
+      assert %{"path" => "/home/sprite/work", "snapshot_at" => at} = data
+      assert {:ok, _, _} = DateTime.from_iso8601(at)
+
+      assert %{"type" => "file", "size" => 5} =
+               Enum.find(data["entries"], &(&1["name"] == "notes.md"))
+
+      assert %{"content" => "kept\n", "snapshot_at" => ^at} =
+               ctx.conn
+               |> authed_with_key(ctx.raw_key)
+               |> get("/api/sandboxes/#{ctx.sandbox.id}/file", path: "work/notes.md")
+               |> json_response(200)
+               |> Map.fetch!("data")
+
+      # What the snapshot did not take is refused as a parked sandbox always was.
+      assert %{"error" => "sandbox_not_ready", "status" => "suspended"} =
+               ctx.conn
+               |> authed_with_key(ctx.raw_key)
+               |> get("/api/sandboxes/#{ctx.sandbox.id}/files", path: ".config")
+               |> json_response(409)
+    end
+
     test "a missing directory is 404 and a file is 422", ctx do
       exec_returns("", 3)
 

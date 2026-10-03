@@ -12748,6 +12748,12 @@
           "required": true,
           "type": "string"
         },
+        "snapshot_at": {
+          "format": "date-time",
+          "nullable": true,
+          "required": false,
+          "type": "string"
+        },
         "staged": {
           "required": true,
           "type": "boolean"
@@ -12814,6 +12820,12 @@
           "required": true,
           "type": "integer"
         },
+        "snapshot_at": {
+          "format": "date-time",
+          "nullable": true,
+          "required": false,
+          "type": "string"
+        },
         "truncated": {
           "required": true,
           "type": "boolean"
@@ -12853,6 +12865,12 @@
         },
         "path": {
           "required": true,
+          "type": "string"
+        },
+        "snapshot_at": {
+          "format": "date-time",
+          "nullable": true,
+          "required": false,
           "type": "string"
         },
         "truncated": {
@@ -12982,6 +13000,12 @@
         },
         "repo_root": {
           "required": true,
+          "type": "string"
+        },
+        "snapshot_at": {
+          "format": "date-time",
+          "nullable": true,
+          "required": false,
           "type": "string"
         },
         "truncated": {

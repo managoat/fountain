@@ -1988,7 +1988,7 @@ export interface paths {
         };
         /**
          * git diff on a sandbox
-         * @description `git diff` of the repository containing `path` (default: the agent's working directory), redacted like a file read. `staged=true` compares the index (`--cached`); `ref` compares against a commit, branch or tag (`422 invalid_ref` for a malformed one, `404 ref_not_found` for an unknown one). A directory outside any repository is `422 not_a_repository`. Full scope.
+         * @description `git diff` of the repository containing `path` (default: the agent's working directory), redacted like a file read. `staged=true` compares the index (`--cached`); `ref` compares against a commit, branch or tag (`422 invalid_ref` for a malformed one, `404 ref_not_found` for an unknown one). A directory outside any repository is `422 not_a_repository`. Full scope. A parked (`suspended`) sandbox is not woken: it answers from the snapshot its park took, with `snapshot_at` saying when, wherever that snapshot holds the answer — the git repositories under the working directory, their files up to 256 KiB, their listings, and the default diff and status (ADR 0063). Anything else on a parked sandbox, or a parked sandbox with no snapshot, is `409 sandbox_not_ready`.
          */
         get: operations["FountainWeb.SandboxFilesController.diff"];
         put?: never;
@@ -2008,7 +2008,7 @@ export interface paths {
         };
         /**
          * Read a file on a sandbox
-         * @description The bytes of one file, redacted: every value of the sandbox's environment and vault is replaced with `[REDACTED]`, as in the transcript. `content` is the text when it is valid UTF-8 (`encoding: utf-8`) and base64 otherwise (`encoding: base64`). `size` is the whole file; `truncated` says whether `content` is short of it, which happens when the file is longer than `max_bytes` and also when redaction grows what was read past that cap. Full scope.
+         * @description The bytes of one file, redacted: every value of the sandbox's environment and vault is replaced with `[REDACTED]`, as in the transcript. `content` is the text when it is valid UTF-8 (`encoding: utf-8`) and base64 otherwise (`encoding: base64`). `size` is the whole file; `truncated` says whether `content` is short of it, which happens when the file is longer than `max_bytes` and also when redaction grows what was read past that cap. Full scope. A parked (`suspended`) sandbox is not woken: it answers from the snapshot its park took, with `snapshot_at` saying when, wherever that snapshot holds the answer — the git repositories under the working directory, their files up to 256 KiB, their listings, and the default diff and status (ADR 0063). Anything else on a parked sandbox, or a parked sandbox with no snapshot, is `409 sandbox_not_ready`.
          */
         get: operations["FountainWeb.SandboxFilesController.show"];
         put?: never;
@@ -2028,7 +2028,7 @@ export interface paths {
         };
         /**
          * List a directory on a sandbox
-         * @description The entries of one directory, directories first then by name. Without `path`, the agent's working directory. Only a `ready` sandbox answers (`409 sandbox_not_ready`): a parked one is not woken for a read. A sandbox being parked or destroyed is `503 sandbox_unavailable`; retry after the `Retry-After`. Full scope.
+         * @description The entries of one directory, directories first then by name. Without `path`, the agent's working directory. A sandbox being parked or destroyed is `503 sandbox_unavailable`; retry after the `Retry-After`. Full scope. A parked (`suspended`) sandbox is not woken: it answers from the snapshot its park took, with `snapshot_at` saying when, wherever that snapshot holds the answer — the git repositories under the working directory, their files up to 256 KiB, their listings, and the default diff and status (ADR 0063). Anything else on a parked sandbox, or a parked sandbox with no snapshot, is `409 sandbox_not_ready`.
          */
         get: operations["FountainWeb.SandboxFilesController.index"];
         put?: never;
@@ -2048,7 +2048,7 @@ export interface paths {
         };
         /**
          * git status on a sandbox
-         * @description `git status` of the repository containing `path` (default: the agent's working directory), one entry per changed path. This is the view that shows a file the agent created and never staged: `/diff` compares tracked content, so an untracked file is invisible to it whatever flags it is given. Entries cover the whole repository whatever `path` names inside it, and each entry's `path` is relative to `repo_root`. `index` and `worktree` are git's two porcelain columns read separately, so a file staged and then edited again reports a state in both; an untracked file reads `untracked` in both. `renamed_from` is set only where that side is a rename or a copy. `branch` is null on a detached HEAD. A directory outside any repository is `422 not_a_repository`. Full scope.
+         * @description `git status` of the repository containing `path` (default: the agent's working directory), one entry per changed path. This is the view that shows a file the agent created and never staged: `/diff` compares tracked content, so an untracked file is invisible to it whatever flags it is given. Entries cover the whole repository whatever `path` names inside it, and each entry's `path` is relative to `repo_root`. `index` and `worktree` are git's two porcelain columns read separately, so a file staged and then edited again reports a state in both; an untracked file reads `untracked` in both. `renamed_from` is set only where that side is a rename or a copy. `branch` is null on a detached HEAD. A directory outside any repository is `422 not_a_repository`. Full scope. A parked (`suspended`) sandbox is not woken: it answers from the snapshot its park took, with `snapshot_at` saying when, wherever that snapshot holds the answer — the git repositories under the working directory, their files up to 256 KiB, their listings, and the default diff and status (ADR 0063). Anything else on a parked sandbox, or a parked sandbox with no snapshot, is `409 sandbox_not_ready`.
          */
         get: operations["FountainWeb.SandboxFilesController.git_status"];
         put?: never;
@@ -4809,6 +4809,11 @@ export interface components {
             ref?: string | null;
             /** @description The repository's top-level directory. */
             repo_root: string;
+            /**
+             * Format: date-time
+             * @description Present when the sandbox is parked and this answer comes from the snapshot its park took (ADR 0063): the disk as of this instant, not now. Absent on a live read.
+             */
+            snapshot_at?: string | null;
             /** @description True when the index was diffed (`--cached`). */
             staged: boolean;
             /** @description True when `diff` is not the whole diff: either it is longer than `max_bytes`, or redaction grew what was read past it. False means `diff` is everything. */
@@ -4844,6 +4849,11 @@ export interface components {
             path: string;
             /** @description The whole file, in bytes. */
             size: number;
+            /**
+             * Format: date-time
+             * @description Present when the sandbox is parked and this answer comes from the snapshot its park took (ADR 0063): the disk as of this instant, not now. Absent on a live read.
+             */
+            snapshot_at?: string | null;
             /** @description True when `content` is not the whole file: either the file is longer than `max_bytes`, or redaction grew what was read past it. False means `content` is everything. */
             truncated: boolean;
         };
@@ -4863,6 +4873,11 @@ export interface components {
             entries: components["schemas"]["SandboxEntry"][];
             /** @description The directory listed, absolute. */
             path: string;
+            /**
+             * Format: date-time
+             * @description Present when the sandbox is parked and this answer comes from the snapshot its park took (ADR 0063): the disk as of this instant, not now. Absent on a live read.
+             */
+            snapshot_at?: string | null;
             /** @description True when the directory holds more entries than were returned. */
             truncated: boolean;
         };
@@ -4919,6 +4934,11 @@ export interface components {
             path: string;
             /** @description The repository's top-level directory. */
             repo_root: string;
+            /**
+             * Format: date-time
+             * @description Present when the sandbox is parked and this answer comes from the snapshot its park took (ADR 0063): the disk as of this instant, not now. Absent on a live read.
+             */
+            snapshot_at?: string | null;
             /** @description True when the repository holds more changes than were returned. */
             truncated: boolean;
             /**
@@ -15143,7 +15163,7 @@ export interface operations {
                     "application/json": components["schemas"]["NegotiationError"];
                 };
             };
-            /** @description Sandbox is not ready */
+            /** @description Sandbox is not ready, and a parked one's snapshot cannot answer this read */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -15242,7 +15262,7 @@ export interface operations {
                     "application/json": components["schemas"]["NegotiationError"];
                 };
             };
-            /** @description Sandbox is not ready */
+            /** @description Sandbox is not ready, and a parked one's snapshot cannot answer this read */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -15339,7 +15359,7 @@ export interface operations {
                     "application/json": components["schemas"]["NegotiationError"];
                 };
             };
-            /** @description Sandbox is not ready */
+            /** @description Sandbox is not ready, and a parked one's snapshot cannot answer this read */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -15438,7 +15458,7 @@ export interface operations {
                     "application/json": components["schemas"]["NegotiationError"];
                 };
             };
-            /** @description Sandbox is not ready */
+            /** @description Sandbox is not ready, and a parked one's snapshot cannot answer this read */
             409: {
                 headers: {
                     [name: string]: unknown;

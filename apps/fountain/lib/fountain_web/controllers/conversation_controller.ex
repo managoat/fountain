@@ -1092,8 +1092,10 @@ defmodule FountainWeb.ConversationController do
   operation(:terminate,
     summary: "Terminate a conversation",
     description:
-      "Tears down the sprite and marks the conversation `terminated`. Idempotent " <>
-        "for already-dead conversations.",
+      "Marks the conversation `terminated` and answers. Its sandbox, unless another " <>
+        "conversation still holds it or it is a persistent home, is then destroyed at " <>
+        "the provider; it accepts no new work from the moment the request is " <>
+        "answered. Idempotent for already-dead conversations.",
     parameters: [conversation_id: [in: :path, type: :string, required: true]],
     responses: [
       service_unavailable: {"Sandbox or fleet unavailable", "application/json", Schemas.Error},
@@ -1110,7 +1112,12 @@ defmodule FountainWeb.ConversationController do
         {:error, :not_found}
 
       _ ->
-        case Termination.terminate_conversation(id, Audited.attribution(conn)) do
+        # The machine is destroyed behind the response (#2561); the fence
+        # that decides it commits first.
+        case Termination.terminate_conversation(
+               id,
+               Audited.attribution(conn, destroy: :background)
+             ) do
           :ok -> send_resp(conn, :no_content, "")
           {:error, :not_running} -> {:error, :not_found}
           # :provisioning and future shapes render via the FallbackController.

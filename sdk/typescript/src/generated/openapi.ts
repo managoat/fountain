@@ -1534,7 +1534,7 @@ export interface paths {
         put?: never;
         /**
          * Terminate a conversation
-         * @description Tears down the sprite and marks the conversation `terminated`. Idempotent for already-dead conversations.
+         * @description Marks the conversation `terminated` and answers. Its sandbox, unless another conversation still holds it or it is a persistent home, is then destroyed at the provider; it accepts no new work from the moment the request is answered. Idempotent for already-dead conversations.
          */
         post: operations["FountainWeb.ConversationController.terminate"];
         delete?: never;

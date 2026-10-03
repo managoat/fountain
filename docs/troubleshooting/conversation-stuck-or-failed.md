@@ -14,6 +14,12 @@ environment's own configuration. A package that does not exist, a repository
 the token cannot reach, or a setup script that exits non-zero. Fix the
 environment, then prompt again.
 
+**`wake` failed.** A prompt to a parked conversation is accepted before its
+sandbox is woken, so the response is `queued` even when the wake then fails.
+The event names the reason. When `retryable` is true, the provider or the fleet
+was busy, and sending the prompt again can succeed. Otherwise fix the reason
+first, such as credit, the account or the agent.
+
 **`provision` failed outright.** Fountain could not create the sandbox. The
 provider is unhealthy, the token is invalid, or the user is at their quota for
 concurrent sandboxes. Read [Sandbox errors](sandbox-errors.md).

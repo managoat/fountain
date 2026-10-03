@@ -68,6 +68,7 @@ counter uses the same pair as its tags.
 | `checkpoint` | `done` `failed` | Fountain checkpoints a persistent home's disk before parking it. One event per conversation holding that sandbox. A `failed` here means the sandbox parked without a checkpoint. |
 | `connection` | `started` `done` | An accepted runner turn waits for its socket to reconnect. The outcome records recovery, interruption or failure. |
 | `reattach` | `started` `done` `failed` `interrupted` | The server reconnects to a sandbox after a restart. |
+| `wake` | `failed` | A prompt sent to a parked conversation was accepted, but waking its sandbox failed, so the prompt did not run. The data names the `reason` and whether sending it again can succeed (`retryable`). |
 | `turn` | `started` `done` `failed` `interrupted` | One prompt and its reply. |
 | `request` | `started` `done` | The agent asked permission for a tool. It got an answer, or the request expired. |
 | `model` | `done`, `failed` | The runtime confirmed the selected model, or selection or provider access failed. |

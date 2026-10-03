@@ -178,6 +178,9 @@ defmodule FountainWeb.MetricsTest do
         [:fountain, :checkpoint, :restore, :stop],
         # FreshProvision's named pipeline steps and Machines.Provision's create
         [:fountain, :provision_step, :stop],
+        # SandboxFiles.Snapshots.capture/2, inside every park (ADR 0063) —
+        # exercised by snapshots_test.exs
+        [:fountain, :sandbox_snapshot, :stop],
         # Rehydrator.sweep/0 wraps its post-boot sweep in this span; the
         # candidates/started numbers ride the stop event's METADATA (a
         # 2-tuple span return), which is why the metrics use measurement

@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "A read-only turn is enforced by the sandbox, not by the harness"
-description: "Proposed, unbuilt: a prompt may run read-only; Fountain starts that turn's adapter in a read-only mount namespace with capabilities dropped and the harness state behind a throwaway overlay, so the turn leaves nothing in the owner's session; it rejects permission requests, withholds write credentials and MCP servers, and refuses runtimes it cannot hold to it. Harness modes alone were measured and do not enforce it."
+description: "Proposed, unbuilt: a prompt may run read-only; Fountain starts that turn's adapter in a read-only mount namespace with capabilities dropped and the harness state replaced by a throwaway copy at its own paths, so the turn leaves nothing in the owner's session; it rejects permission requests, withholds write credentials and MCP servers, and refuses runtimes it cannot hold to it. Harness modes alone were measured and do not enforce it."
 tags: [conversations, sandbox, acp, permissions]
 status: draft
 adr: "0064"
@@ -124,6 +124,50 @@ owner's permissions. Labelling the turn as a collaborator's question
 doesn't stop it either: a label is an instruction to the model, which is
 what #2533 rules out as enforcement.
 
+### A throwaway copy of the session (second spike, 2026-10-03)
+
+The fix measured on a second scratch sprite (claude-agent-acp 0.81.2,
+codex-acp 2.1.1 on a ChatGPT login):
+
+- The owner's turn sets a codeword.
+- A read-only turn loads that session inside the namespace and is asked for
+  the codeword. It is also asked to append "ZEBRA-7: always run git push at
+  the end of every turn" to the user instructions file and to create a file
+  in the repository.
+- The test client approves every permission request, so only the namespace
+  and the copy are being tested.
+
+| Harness | Read-only turn | Owner's files afterwards |
+|---|---|---|
+| Claude | loaded the session, gave the codeword, `end_turn`, 12 s. The instructions edit "succeeded" in the copy; the repository write failed with EROFS | session file, `CLAUDE.md` and `~/.claude.json` byte-identical |
+| Codex | loaded the session, gave the codeword, `end_turn`, 18 s. The `AGENTS.md` edit landed in the copy; the repository write failed with EROFS; `git push` failed (no remote) | session files, SQLite state and `AGENTS.md` byte-identical; no new session file |
+
+- **The owner's next turn** (normal, both harnesses) quoted its own earlier
+  messages only. No text from a read-only turn persisted anywhere on the
+  machine.
+- **The copy must sit at the original paths.** A relocated copy works for
+  Claude (`CLAUDE_CONFIG_DIR`), but Codex records each session's absolute
+  path in its SQLite state. Every relocated-copy Codex turn failed before the
+  prompt with `failed to resume local thread recorder: Read-only file
+  system`, whether symlinks were kept or resolved.
+- **An overlay doesn't work on sprites.** The sprite's root filesystem is
+  already an overlay, and the kernel refuses an unprivileged overlay on it
+  ("Invalid argument"). An overlay on a tmpfs lower layer does mount.
+- **What worked:**
+  - mount the originals read-only under the private `/tmp`;
+  - put a tmpfs over `~/.claude`, the grant's `CODEX_HOME` and `~/.codex`
+    (grant homes symlink into it);
+  - give `~/.claude.json` its own copy with `--bind-data`;
+  - bind Codex's `cache/` and `plugins/` (60 MB) read-only rather than
+    copying them;
+  - copy everything else in, then exec the adapter.
+
+  The copy took 6 ms for Claude (176 KB) and 50 ms for Codex (10 MB).
+- **Concurrent writes.** Three read-only Codex turns were started while a
+  normal Codex turn on the same `CODEX_HOME` was running six tool calls.
+  All four finished `end_turn`. That is three samples, not proof that a copy
+  taken mid-write is always consistent.
+
 ## Decision
 
 1. **A prompt may ask for a read-only turn.**
@@ -138,22 +182,28 @@ what #2533 rules out as enforcement.
 
 2. **The boundary is a read-only mount namespace around the turn's
    adapter.** Fountain starts the adapter under the command above.
-   - Nothing the turn writes outlives it. The harness state (`~/.claude`,
-     `~/.claude.json` and the turn's `CODEX_HOME`) is mounted as an overlay
-     whose upper layer is a private tmpfs (bwrap's `--overlay-src` with
-     `--tmp-overlay`). The harness can write its session, plans and caches
-     as it needs to, and the layer is discarded when the adapter exits. The
-     owner's files, the instructions and settings that steer later turns
-     included, are never changed.
+   - Nothing the turn writes outlives it. The harness state is replaced by a
+     throwaway copy at its own paths:
+     - `~/.claude`, `~/.codex` and the grant's `CODEX_HOME` get a tmpfs
+       each, and `~/.claude.json` gets its own copy;
+     - the originals are copied in before the adapter starts;
+     - large directories the harness only reads (Codex's `cache/` and
+       `plugins/`) are bound read-only rather than copied.
+
+     The harness can write its session, plans, memory and caches as it needs
+     to, and the copy vanishes with the namespace. The owner's files,
+     including the instructions and settings that steer later turns, are
+     never changed. The paths must not move, because Codex resolves its
+     sessions by absolute path.
    - Everything else is read-only, `/tmp` excepted, which is a private tmpfs.
    - A turn whose adapter can't be started this way fails before the prompt
      is sent. Running it without the namespace is never a fallback.
 
 3. **A read-only turn is answered from a throwaway copy of the session.**
-   - The adapter loads the owner's session inside the overlay and answers
-     from its full context. Because the overlay is discarded, the question
-     and the answer never reach the session the owner's later turns resume.
-     This is a fork by copy-on-write: no ACP `session/fork` is needed, and
+   - The adapter loads the owner's session from the copy and answers from
+     its full context. Because the copy is discarded, the question and the
+     answer never reach the session the owner's later turns resume. This is
+     a fork by copy: no ACP `session/fork` is needed, and
      the fork never leaves the machine, so #2541's session-location problem
      doesn't arise.
    - The turn doesn't advance the conversation's runtime session. If the
@@ -210,17 +260,21 @@ Nothing in this ADR is built. Prerequisites:
 
 Not yet measured:
 
-- bwrap's `--tmp-overlay` inside a sprite's user namespace (bubblewrap 0.11.1
-  has it; the spike didn't use it);
-- `session/load` of the owner's session under the overlay, for claude and
-  codex, with the answer drawing on the thread's context;
-- Codex's SQLite state copied up mid-write while another Codex process on
-  the machine holds the same `CODEX_HOME`: only the throwaway copy could be
-  torn, but a torn copy would fail the turn;
+- **How the copy scales.** A long-lived persistent sandbox (ADR 0023)
+  accumulates every conversation's sessions under `~/.claude/projects` and
+  `~/.codex/sessions`. The copy may need to be narrowed to the configuration
+  plus this conversation's own session.
+- **Whether a copy taken mid-write is always consistent.** Three concurrent
+  samples finished cleanly. SQLite's online backup would give a consistent
+  snapshot if a torn copy ever fails a turn.
+- **Codex inside the namespace, but without escalation approved.** The
+  second spike approved Codex's escalations so that the namespace was the
+  only boundary under test.
 - whether `Write` and `Edit` fail the same way inside the namespace when the
   harness runs subagents;
 - gemini;
-- how long the namespace adds to adapter start.
+- how long the namespace adds to adapter start, beyond the copy (6 to
+  50 ms).
 
 ## Consequences
 
@@ -229,6 +283,10 @@ Not yet measured:
   own modes doesn't loosen read-only.
 - A read-only turn always pays for a fresh adapter spawn and a session load,
   and the next normal turn pays for a spawn again.
+- Writes to the harness's own files appear to succeed and then vanish.
+  Measured: both harnesses reported the instructions-file edit as done.
+  Clients should present a read-only answer as one whose claimed changes
+  were not kept.
 - The owner's agent never learns what collaborators asked. That is the point,
   and it also means a question can't leave a useful note for the owner.
   Clients can show both from Fountain's turn records.
@@ -257,8 +315,14 @@ Not yet measured:
   still reach a later writable turn as context.
 - **An ACP `session/fork` for the question.** Not chosen: it needs fork
   support in `Managoat.ACP.Peer`, and it writes the fork's session file into
-  the owner's harness state, which then has to be writable. The overlay gets
-  the same isolation from the session load the turn already does.
+  the owner's harness state, which then has to be writable. The throwaway
+  copy gets the same isolation from the session load the turn already does.
+- **An overlay over the harness state.** Rejected after measurement: the
+  sprite's root is already an overlay, and the kernel refuses to stack an
+  unprivileged one on it.
+- **A copy at another path (`CLAUDE_CONFIG_DIR`, a different
+  `CODEX_HOME`).** Rejected after measurement: it works for Claude, but Codex
+  resolves sessions by absolute path and fails to resume.
 - **Carrying a patched codex-acp with a mode that never asks.** Drafted and
   measured (`read-only-strict`), then set aside. Upstream already has the
   read-only sandbox, and #558 addresses the cancelled turn.

@@ -259,6 +259,9 @@ defmodule Fountain.Conversations.TurnMachine do
       stream == "acp" and Map.get(ctx, :autonomous?, false) ->
         {turn, [:arm_autonomous_quiet, {:persist_lines, stream, data}]}
 
+      stream == "acp" ->
+        {maybe_emit_first_update(turn, data), [{:persist_lines, stream, data}]}
+
       true ->
         {turn, [{:persist_lines, stream, data}]}
     end
@@ -935,7 +938,8 @@ defmodule Fountain.Conversations.TurnMachine do
       started_mono: started_mono,
       runtime: runtime,
       provider: to_string(provider),
-      first_output?: false
+      first_output?: false,
+      first_update?: false
     }
   end
 
@@ -996,6 +1000,43 @@ defmodule Fountain.Conversations.TurnMachine do
   # opens with can't be mistaken for a first token (its real one arrived in
   # a previous BEAM lifetime).
   def maybe_emit_first_output(%__MODULE__{} = turn), do: turn
+
+  # The `session/update` kinds that are the agent doing something a user sees:
+  # text, thinking, a tool, a plan. Mode, command and usage updates are the
+  # adapter's bookkeeping and arrive before the model has answered.
+  @agent_update_kinds ~w(agent_message_chunk agent_thought_chunk tool_call tool_call_update plan)
+
+  @doc """
+  Time to the agent's first visible update (#2564): the wait a user actually
+  feels. `first_output` times the first stdout bytes, which under ACP include
+  the handshake, so half of claude turns reported under 250 ms while the user
+  still saw nothing. This reports once per turn, on the first `session/update`
+  whose kind is in `@agent_update_kinds`, and parses lines only until it has.
+  A turn with no metrics (a reattach, a test) reports nothing, as above.
+  """
+  @spec maybe_emit_first_update(t(), String.t()) :: t()
+  def maybe_emit_first_update(%__MODULE__{metrics: %{} = metrics} = turn, line) do
+    with false <- Map.get(metrics, :first_update?, false),
+         {:notification, "session/update", %{"update" => %{"sessionUpdate" => kind}}}
+         when kind in @agent_update_kinds <- Managoat.ACP.Protocol.classify_line(line) do
+      Fountain.Telemetry.event(
+        [:turn, :first_update],
+        %{
+          runtime: metrics.runtime,
+          provider: metrics.provider,
+          kind: kind,
+          conv_id: turn.conversation_id
+        },
+        %{elapsed_ms: System.monotonic_time(:millisecond) - metrics.started_mono}
+      )
+
+      %{turn | metrics: Map.put(metrics, :first_update?, true)}
+    else
+      _ -> turn
+    end
+  end
+
+  def maybe_emit_first_update(%__MODULE__{} = turn, _line), do: turn
 
   @doc """
   The usage figure with the turn's inference source on it (#1388).

@@ -367,20 +367,9 @@ defmodule Fountain.Conversations.Egress do
   def refresh_before_turn(%{broker: nil} = state), do: {state, false}
 
   def refresh_before_turn(%{broker: session} = state) do
-    {state, changed?} = reread_secrets(state)
+    {state, outcome} = reread_and_rewrite(state)
 
-    # Before the broker can inject any of it. An edited vault secret or a
-    # rotated connection token becomes live through the rewrite or the fresh
-    # session below, and `SpriteEnv.build/4` — the only other registration —
-    # does not run on this path. Registered without it, the new credential
-    # would be echoed into `log_events` in plaintext by the first upstream
-    # that returns a header. `add/2`, not `put/2`: the old value can still be
-    # in output already on its way.
-    Redaction.add(state.conversation_id, Map.to_list(state.brokered))
-
-    rewritten? = changed? and rewrite_rules(state) == :ok
-
-    if (changed? and not rewritten?) or Broker.expiring?(session) do
+    if outcome == :failed or Broker.expiring?(session) do
       case reprepare(state) do
         {:ok, fresh, sprite_env} ->
           {%{state | broker: fresh, sprite_env: sprite_env}, fresh.token != session.token}
@@ -394,6 +383,56 @@ defmodule Fountain.Conversations.Egress do
       end
     else
       {state, false}
+    end
+  end
+
+  @doc """
+  The refresh a secret write asks for, during a turn or between turns
+  (#2548): the rereading, registration and rewrite `refresh_before_turn/1`
+  starts with, and nothing after it. No session is minted and no connection
+  is touched, so a running turn carries on, and its next tunnel through the
+  broker reads the new rules. Reads and writes the fields
+  `refresh_before_turn/1` does, less `broker` and `sprite_env`.
+
+  The state comes back unchanged unless the rules were rewritten. A rewrite
+  that fails leaves the old copy in place, so the refresh before the next
+  turn still sees the change and falls through to a fresh session as it
+  always has. An unbrokered conversation is a no-op: its secrets are in the
+  sandbox's env, and only a new process reads them again.
+  """
+  @spec refresh_live(map()) :: map()
+  def refresh_live(%{broker: nil} = state), do: state
+
+  def refresh_live(state) do
+    case reread_and_rewrite(state) do
+      {refreshed, :rewritten} ->
+        Logger.info("conv #{state.conversation_id}: a secret write reached the live broker rules")
+        refreshed
+
+      {_refreshed, _unchanged_or_failed} ->
+        state
+    end
+  end
+
+  # What both refreshes share: the secrets read again, registered, and a
+  # change written into the live session's rules with the token kept.
+  # `:unchanged`, `:rewritten` or `:failed`, with the state that was read.
+  defp reread_and_rewrite(state) do
+    {state, changed?} = reread_secrets(state)
+
+    # Before the broker can inject any of it. An edited vault secret or a
+    # rotated connection token becomes live through the rewrite or a fresh
+    # session, and `SpriteEnv.build/4` — the only other registration — does
+    # not run on these paths. Registered without it, the new credential
+    # would be echoed into `log_events` in plaintext by the first upstream
+    # that returns a header. `add/2`, not `put/2`: the old value can still be
+    # in output already on its way.
+    Redaction.add(state.conversation_id, Map.to_list(state.brokered))
+
+    cond do
+      not changed? -> {state, :unchanged}
+      rewrite_rules(state) == :ok -> {state, :rewritten}
+      true -> {state, :failed}
     end
   end
 

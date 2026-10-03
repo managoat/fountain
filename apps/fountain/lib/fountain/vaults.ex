@@ -8,6 +8,7 @@ defmodule Fountain.Vaults do
   import Ecto.Query, only: [from: 2]
 
   alias Fountain.Audit
+  alias Fountain.Conversations.LiveSecrets
   alias Fountain.InferenceCredentials
   alias Fountain.Repo
   alias Fountain.Vaults.{Vault, VaultSecret}
@@ -309,6 +310,7 @@ defmodule Fountain.Vaults do
       end
     end)
     |> audited_secret(vault, key, "vault.secret.write", opts)
+    |> secrets_changed(vault)
   end
 
   @doc """
@@ -342,6 +344,7 @@ defmodule Fountain.Vaults do
   def delete_secret(%Vault{} = vault, %VaultSecret{} = secret, opts \\ []) do
     InferenceCredentials.with_source_lock(vault.user_id, fn -> Repo.delete(secret) end)
     |> audited_secret(vault, secret.key, "vault.secret.delete", opts)
+    |> secrets_changed(vault)
   end
 
   # See the note on `Fountain.Environments.audited_secret/5`: the vault is the
@@ -361,6 +364,15 @@ defmodule Fountain.Vaults do
   end
 
   defp audited_secret(other, _vault, _key, _action, _opts), do: other
+
+  # After the commit, so a server that reads the rows again sees this write:
+  # the live conversations on this vault rewrite their broker rules (#2548).
+  defp secrets_changed({:ok, _} = ok, %Vault{} = vault) do
+    LiveSecrets.secrets_changed(:vault, vault.id, vault.user_id)
+    ok
+  end
+
+  defp secrets_changed(other, _vault), do: other
 
   @doc """
   Returns a flat map `%{"KEY" => "plaintext"}` of all decrypted secrets

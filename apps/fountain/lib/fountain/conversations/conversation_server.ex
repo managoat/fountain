@@ -1023,6 +1023,11 @@ defmodule Fountain.Conversations.ConversationServer do
     )
   end
 
+  # A vault or environment secret was written (#2548). Taken mid-turn as well:
+  # it only rewrites the live session's rules, so the turn, the connection and
+  # the token stay as they are. See `Egress.refresh_live/1`.
+  def handle_cast(:refresh_secrets, state), do: {:noreply, Egress.refresh_live(state)}
+
   # Catch-all for the same reason as the handle_call one above (#315).
   def handle_cast(msg, state) do
     Logger.warning("conv #{state.conversation_id}: unexpected cast #{inspect(msg)}")

@@ -83,9 +83,10 @@ The Vault wins. The Environment sets `DATABASE_URL`, the attached Vault sets
 `DATABASE_URL` too, and the process sees the Vault's value.
 
 The merge happens once, at spawn. An edit to a Vault does not reach a sandbox
-that already runs. A brokered secret is the exception. Fountain reads the
-Vault again before each turn and gives the broker the new value, so a rotated
-token works on the next turn. [Secrets](secrets.md) has the detail.
+that already runs. A brokered secret is the exception. When you write it,
+Fountain gives the broker the new value for each running conversation on the
+Vault, even during a turn, so a rotated token works on the turn's next
+connection. [Secrets](secrets.md) has the detail.
 
 A key that only the Environment sets survives untouched. A Vault is a patch,
 and not a replacement.

@@ -307,14 +307,18 @@ catalog response; the [Catalog](catalog/index.md) explains shipped resources.
 An environment supplies the packages, repositories, scripts, network policy,
 and baseline secrets a machine needs. See [Environments](concepts/environment.md).
 The [generated reference](/api/docs) defines the editable configuration and
-secret operations. Changes can affect persistent machines built from it.
+secret operations. Changes can affect persistent machines built from it. A
+secret write reaches running conversations the way a vault secret write does.
 
 ## Vaults
 
 A vault supplies secret overrides without a duplicate environment.
 See [Vaults](concepts/vault.md) for precedence and reuse. Submit secret values
 through the write operations in the [generated reference](/api/docs); do not
-expect read operations to return them.
+expect read operations to return them. On a brokered deployment, a write or
+delete reaches running conversations on the vault during their current turn,
+at the sandbox's next connection through the broker. See
+[Secrets](concepts/secrets.md#hop-3-environment-and-vault-merge).
 
 To start a vault from another one's secrets, use `POST /api/vaults/:id/copy`.
 The server copies the values, so they never cross the API.

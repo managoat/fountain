@@ -393,7 +393,7 @@ defmodule Fountain.Conversations.Provisioning do
           publish_stage(conv_id, "network", "started", %{type: "broker", hosts: 1})
 
           case Retry.with_backoff(
-                 fn -> Sandbox.apply_network_policy(handle, %NetworkPolicy{allow: [host]}) end,
+                 fn -> policy_attempt(handle, %NetworkPolicy{allow: [host]}) end,
                  label: "broker network floor"
                ) do
             :ok ->
@@ -721,7 +721,7 @@ defmodule Fountain.Conversations.Provisioning do
         publish_stage(conv_id, "network", "started", %{type: "limited", hosts: length(hosts)})
 
         case Retry.with_backoff(
-               fn -> Sandbox.apply_network_policy(handle, %NetworkPolicy{allow: hosts}) end,
+               fn -> policy_attempt(handle, %NetworkPolicy{allow: hosts}) end,
                label: "network policy"
              ) do
           :ok ->
@@ -737,6 +737,32 @@ defmodule Fountain.Conversations.Provisioning do
   end
 
   def apply_network_policy(_handle, _env, _conv_id), do: :ok
+
+  # One network policy request, in a process of its own (#2559). On a sprite
+  # that is waking, Sprites answers the policy POST only once the machine is
+  # up, which in production has been 20–35 s; Req gives up at 30 s, and the
+  # 204 that arrives after that is a message to whichever process made the
+  # request. The retry's request ran in the same process and took the stale
+  # `{:status, ref, 204}` for its own response, a `CaseClauseError`. A task
+  # per attempt keeps a late answer away from the next one: it arrives at a
+  # process that has already exited and is dropped.
+  defp policy_attempt(handle, policy) do
+    Task.Supervisor.async_nolink(Fountain.TaskSupervisor, fn ->
+      Sandbox.apply_network_policy(handle, policy)
+    end)
+    |> Task.yield(:infinity)
+    |> case do
+      {:ok, result} ->
+        result
+
+      # Raised in the task: raised here, so `Retry` treats it as it always has.
+      {:exit, {exception, stacktrace}} when is_exception(exception) ->
+        reraise exception, stacktrace
+
+      {:exit, reason} ->
+        {:error, {:policy_request_crashed, reason}}
+    end
+  end
 
   # ── git clone ─────────────────────────────────────────────────────────────
 

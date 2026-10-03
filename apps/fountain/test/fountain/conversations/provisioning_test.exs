@@ -170,6 +170,49 @@ defmodule Fountain.Conversations.ProvisioningTest do
     end
   end
 
+  describe "a network policy request that answers late (#2559)" do
+    # Production, 2026-10-03: attempt 1 timed out at Req's 30 s while the
+    # sprite woke, its 204 arrived 4.5 s later as a message to the requesting
+    # process, and attempt 2, in that same process, read it as its own
+    # response and raised `CaseClauseError {:status, ref, 204}`. Each attempt
+    # now runs in a process of its own, so the late answer is dropped.
+    test "a late answer to one attempt never reaches the next" do
+      conv = insert_conversation()
+      test = self()
+      stub(Fountain.Broker, :proxy_host, fn -> "broker.example" end)
+      attempts = :counters.new(1, [])
+
+      Mimic.stub(Managoat.Sandbox.Sprites, :apply_network_policy, fn _handle, _policy ->
+        send(test, {:attempt, self()})
+        :counters.add(attempts, 1, 1)
+
+        receive do
+          {:status, _ref, _status} = stale -> raise CaseClauseError, term: stale
+        after
+          50 ->
+            if :counters.get(attempts, 1) > 1 do
+              :ok
+            else
+              # The first attempt: time out, and have its answer arrive after.
+              Process.send_after(self(), {:status, make_ref(), 204}, 10)
+              {:error, {:unavailable, %Req.TransportError{reason: :timeout}}}
+            end
+        end
+      end)
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          assert :ok = Provisioning.apply_broker_floor(sandbox_handle(), conv.id)
+        end)
+
+      assert_received {:attempt, first}
+      assert_received {:attempt, second}
+      refute first == second
+      refute_received {:attempt, _}
+      refute log =~ "CaseClauseError"
+    end
+  end
+
   describe "clone_repositories/5" do
     test "clones with basic proxy auth, so the CONNECT carries the credential first time" do
       # The other half of the #1485 fix. This one must hold even if

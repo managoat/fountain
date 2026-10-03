@@ -11,6 +11,15 @@ server releases.
 
 ---
 
+## [6.5.0] - 2026-10-02
+
+### Added
+
+- The generated types carry `snapshot_at` on `SandboxListing`, `SandboxFile`,
+  `SandboxDiff` and `SandboxStatus` (#2552, ADR 0063). It is set when the
+  sandbox is parked and the read was answered from the snapshot its park
+  took, and absent on a live read.
+
 ## [6.4.0] - 2026-10-02
 
 ### Added

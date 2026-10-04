@@ -816,31 +816,6 @@ defmodule Fountain.Conversations.ConversationServer do
     |> Fountain.Conversations.CotenantSecrets.assembled(state)
   end
 
-  # The OAuth token was refused: forget it on both sides and, when brokered,
-  # re-prepare the vault so the API key is what the substitution carries.
-  # Best effort — a broker error here leaves the turn to fail at the proxy,
-  # which names the cause, rather than silently injecting a plaintext key.
-  defp broker_switch_to_api_key(%{broker: nil} = state), do: state
-
-  defp broker_switch_to_api_key(state) do
-    {env_creds, brokered, bindings} =
-      Egress.drop_oauth_token(state.inference_credentials, state.brokered, state.broker_bindings)
-
-    state = %{state | brokered: brokered, broker_bindings: bindings, env_credentials: env_creds}
-
-    case Egress.reprepare(state) do
-      {:ok, session, sprite_env} ->
-        %{state | broker: session, sprite_env: sprite_env}
-
-      {:error, reason} ->
-        Logger.warning(
-          "conv #{state.conversation_id}: broker re-prepare after OAuth refusal failed: #{inspect(reason)}"
-        )
-
-        state
-    end
-  end
-
   @impl true
   def handle_call({:send_prompt, prompt, images}, from, state),
     do: handle_call({:send_prompt, prompt, images, []}, from, state)
@@ -1023,9 +998,8 @@ defmodule Fountain.Conversations.ConversationServer do
     )
   end
 
-  # A vault or environment secret was written (#2548). Taken mid-turn as well:
-  # it only rewrites the live session's rules, so the turn, the connection and
-  # the token stay as they are. See `Egress.refresh_live/1`.
+  # A vault or environment secret was written (#2548): `Egress.refresh_live/1`,
+  # mid-turn too. It rewrites rules only; the turn and the token stay.
   def handle_cast(:refresh_secrets, state), do: {:noreply, Egress.refresh_live(state)}
 
   # Catch-all for the same reason as the handle_call one above (#315).
@@ -1154,7 +1128,7 @@ defmodule Fountain.Conversations.ConversationServer do
     # On a brokered conversation the API key is a placeholder in the env and
     # the value moves to the broker; the vault is re-prepared so its
     # substitution now carries the key instead of the refused OAuth token.
-    state = broker_switch_to_api_key(state)
+    state = Egress.switch_to_api_key(state)
 
     fallback_env =
       Managoat.Runtimes.Claude.fall_back_to_api_key(state.sprite_env, state.env_credentials)

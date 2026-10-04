@@ -95,7 +95,14 @@ defmodule Fountain.Conversations.ConversationServerSizeTest do
   #
   # Stage 9 is where this number moves: the two fence columns and their
   # writers go with the flag.
-  @pin 2023
+  #
+  # 2023 → 2012. #2548 added a cast clause (a secret write reaches the live
+  # broker rules mid-turn) to a file with no headroom, and paid for it by
+  # moving the OAuth switch — `broker_switch_to_api_key/1`, a wrapper over two
+  # `Egress` calls — into `Egress.switch_to_api_key/1`, beside the other
+  # functions that take the server's state. The file is 2002 lines on this
+  # branch, so this is that plus ten. Nothing is stacked below this PR.
+  @pin 2012
 
   @server "apps/fountain/lib/fountain/conversations/conversation_server.ex"
 

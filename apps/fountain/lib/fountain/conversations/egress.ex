@@ -8,11 +8,12 @@ defmodule Fountain.Conversations.Egress do
   never a backend) and `Fountain.Connections`. Functions over rows and
   values, not over server state (#1369): `ConversationServer` keeps the
   fields the session, its placeholders and its bindings live in, unpacks
-  them for each call and applies what comes back. Two places that change
-  more than one field at once (mint, the OAuth switch) are the server's
-  short wrappers over `prepare/4` and `drop_oauth_token/3`. The third, the
-  refresh before a turn, reads seven fields and writes four since #1736, so
-  `refresh_before_turn/1` takes the state and names them.
+  them for each call and applies what comes back. The mint, which changes
+  more than one field at once, is the server's short wrapper over
+  `prepare/4`. The refresh before a turn reads seven fields and writes four
+  since #1736, so `refresh_before_turn/1` takes the state and names them;
+  `refresh_live/1` (#2548) and the OAuth switch, `switch_to_api_key/1`, do
+  the same.
 
   The split rules, in order, as the server applies them at provision:
   `bindings/1`, `add_connection_secrets/4`, `split_brokered/2`,
@@ -281,6 +282,37 @@ defmodule Fountain.Conversations.Egress do
       bindings |> Map.delete("CLAUDE_CODE_OAUTH_TOKEN") |> Map.merge(implicit)
 
     {env_creds, brokered, bindings}
+  end
+
+  @doc """
+  `drop_oauth_token/3` then `reprepare/1`, over the server's state: the
+  OAuth token was refused, so the vault is re-prepared with the API key as
+  what the substitution carries. Writes `brokered`, `broker_bindings`,
+  `env_credentials`, `broker` and `sprite_env`. Best effort — a broker
+  error leaves the turn to fail at the proxy, which names the cause, rather
+  than silently injecting a plaintext key. An unbrokered state comes back
+  unchanged.
+  """
+  @spec switch_to_api_key(map()) :: map()
+  def switch_to_api_key(%{broker: nil} = state), do: state
+
+  def switch_to_api_key(state) do
+    {env_creds, brokered, bindings} =
+      drop_oauth_token(state.inference_credentials, state.brokered, state.broker_bindings)
+
+    state = %{state | brokered: brokered, broker_bindings: bindings, env_credentials: env_creds}
+
+    case reprepare(state) do
+      {:ok, session, sprite_env} ->
+        %{state | broker: session, sprite_env: sprite_env}
+
+      {:error, reason} ->
+        Logger.warning(
+          "conv #{state.conversation_id}: broker re-prepare after OAuth refusal failed: #{inspect(reason)}"
+        )
+
+        state
+    end
   end
 
   @doc """

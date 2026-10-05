@@ -112,7 +112,10 @@ defmodule Fountain.Conversations.Reattachment do
     |> then(fn tasks ->
       env_file =
         step(state, "reattach_config_env", fn ->
-          Provisioning.write_env_file(handle, Fountain.Conversations.Identity.disk_env(sprite_env))
+          Provisioning.write_env_file(
+            handle,
+            Fountain.Conversations.Identity.disk_env(sprite_env)
+          )
         end)
 
       Enum.each(tasks, &await_step/1)
@@ -122,15 +125,15 @@ defmodule Fountain.Conversations.Reattachment do
 
   defp write_runtime_config(handle, state, agent) do
     Provisioning.write_runtime_config(
-          handle,
-          state.runtime_module,
-          Egress.with_connection_servers(
-            agent,
-            state.user_id,
-            state.conversation_id,
-            state.callback_token
-          )
-        )
+      handle,
+      state.runtime_module,
+      Egress.with_connection_servers(
+        agent,
+        state.user_id,
+        state.conversation_id,
+        state.callback_token
+      )
+    )
     |> best_effort("runtime config write on wake")
   end
 

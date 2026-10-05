@@ -81,6 +81,41 @@ defmodule Fountain.Conversations.ConversationServerTest do
       GenServer.stop(pid)
     end
 
+    # #2577: the registry says a server is setting up while it provisions,
+    # so the API queues a prompt instead of waiting on a call it cannot
+    # answer, and stops saying so once it can.
+    test "says it is setting up while it provisions, and not after", %{conv: conv} do
+      handle = stub_happy_sprite()
+      test_pid = self()
+
+      Mimic.stub(Managoat.Sandbox.Sprites, :create, fn _name, _opts ->
+        send(test_pid, {:mid_setup, Fountain.Conversations.ServerPhase.setting_up?(conv.id)})
+        {:ok, handle}
+      end)
+
+      # Registered by name, as production registers it; `start_server/2`
+      # keeps its servers out of Horde.
+      args = [
+        conversation_id: conv.id,
+        sandbox_id: conv.sandbox_id,
+        runtime_module: Managoat.Runtimes.Testing.FakeRuntime
+      ]
+
+      pid =
+        start_supervised!(%{
+          id: make_ref(),
+          start:
+            {GenServer, :start_link,
+             [ConversationServer, args, [name: ConversationServer.via(conv.id)]]},
+          restart: :temporary
+        })
+
+      assert_receive {:mid_setup, true}, 5_000
+      _ = :sys.get_state(pid, 10_000)
+      refute Fountain.Conversations.ServerPhase.setting_up?(conv.id)
+      GenServer.stop(pid)
+    end
+
     test "asks the runtime to write its config and prepare the sprite", %{conv: conv} do
       stub_happy_sprite()
 

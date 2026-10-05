@@ -690,6 +690,21 @@ defmodule Fountain.Conversations.Wake do
 
   defp report_failed_wake(conv_id, reason) do
     Logger.warning("conv #{conv_id}: background wake for a prompt failed: #{inspect(reason)}")
+    report_unrun_prompt(conv_id, reason)
+  end
+
+  @doc """
+  Tell the conversation's stream that a prompt its caller was answered
+  `queued` for did not run: its wake failed, or the server it was queued
+  behind dropped it (a turn was already running) or refused it at admission
+  (#2577). The `wake` `failed` stage, with the reason and whether sending the
+  prompt again can succeed.
+  """
+  @spec report_unrun_prompt(binary(), term()) :: term()
+  def report_unrun_prompt(conv_id, reason) do
+    # The stream is the tenant's, but a refusal can carry a credential's
+    # detail; the same redaction the log line gets.
+    reason = Fountain.InferenceCredentials.loggable_reason(reason)
 
     Conversations.publish_stage(conv_id, "wake", "failed", %{
       reason: failed_wake_reason(reason),
@@ -703,7 +718,7 @@ defmodule Fountain.Conversations.Wake do
 
   # The ones a retry of the same prompt can succeed on without the caller
   # changing anything: the provider or the fleet was busy.
-  @retryable_wake_failures ~w(sandbox_unavailable sprite_probe_failed runner_offline fleet_full resume_failed machine_busy)a
+  @retryable_wake_failures ~w(sandbox_unavailable sprite_probe_failed runner_offline fleet_full resume_failed machine_busy conversation_busy)a
 
   defp retryable_wake_failure?(reason) when is_atom(reason),
     do: reason in @retryable_wake_failures

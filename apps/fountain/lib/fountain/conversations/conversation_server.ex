@@ -18,7 +18,7 @@ defmodule Fountain.Conversations.ConversationServer do
   alias Fountain.Conversations.{BoundedTurn, CallbackKey, Connection, Conversation}
   alias Fountain.Conversations.{DetachedRequest, Egress, FreshProvision, Interruption}
   alias Fountain.Conversations.{Lifecycle, MachineEvents, McpServers, Output, Pending}
-  alias Fountain.Conversations.{PromptDelivery, ProvisionWatchdog, Reattachment}
+  alias Fountain.Conversations.{PromptDelivery, ProvisionWatchdog, Reattachment, ServerPhase}
   alias Fountain.Conversations.{Redaction, SpriteEnv, Termination, TurnLaunch, TurnMachine, Wake}
   alias Fountain.Machines.Machine
 
@@ -96,15 +96,15 @@ defmodule Fountain.Conversations.ConversationServer do
   """
   def send_prompt(conv_id, prompt, images \\ [], opts \\ []) do
     result =
-      case whereis(conv_id) do
-        nil ->
+      case Horde.Registry.lookup(Fountain.ConversationRegistry, conv_id) do
+        [] ->
           # `images` travels the wake road too, or the woken turn opens
           # without them while this still answers :ok (#2373; see `Wake`). The
           # correlation rides with the prompt, in the shape `Wake` takes.
           Wake.for_prompt(conv_id, PromptDelivery.for_wake(prompt, opts), images, opts)
 
-        pid ->
-          PromptDelivery.deliver(pid, prompt, images, opts)
+        [{pid, phase}] ->
+          deliver_or_queue(conv_id, {pid, phase}, prompt, images, opts)
       end
 
     # Size and image count, never the text. A prompt is the tenant's content —
@@ -116,6 +116,19 @@ defmodule Fountain.Conversations.ConversationServer do
     })
 
     result
+  end
+
+  # A server setting up its machine cannot answer a call until it is done, so
+  # the API's prompt (`wake: :background`) is queued behind the setup and
+  # answered `queued` once the refusals that need no provider have run, as a
+  # prompt to a parked conversation is (#2577). Everyone else calls.
+  defp deliver_or_queue(conv_id, {pid, phase}, prompt, images, opts) do
+    if Keyword.get(opts, :wake) == :background and phase == ServerPhase.setting_up_value() do
+      with :ok <- Wake.admit_prompt_wake(conv_id),
+           do: PromptDelivery.queue(pid, prompt, images, PromptDelivery.travelling(opts))
+    else
+      PromptDelivery.deliver(pid, prompt, images, opts)
+    end
   end
 
   # Public entry points contain common GenServer.call exits here (#412).
@@ -363,7 +376,15 @@ defmodule Fountain.Conversations.ConversationServer do
     end
   end
 
+  # Calls wait while this runs, so the registry says so (`ServerPhase`).
   def handle_continue(:provision, state) do
+    ServerPhase.setting_up(state.conversation_id)
+    result = provision(state)
+    ServerPhase.ready(state.conversation_id)
+    result
+  end
+
+  defp provision(state) do
     conv = Conversations._unsafe_get_conversation(state.conversation_id)
     sandbox = state.sandbox_id && Conversations._unsafe_get_sandbox(state.sandbox_id)
 
@@ -922,6 +943,8 @@ defmodule Fountain.Conversations.ConversationServer do
       Logger.warning(
         "conv #{state.conversation_id}: initial prompt arrived while a turn was running; dropping it"
       )
+
+      Wake.report_unrun_prompt(state.conversation_id, :conversation_busy)
 
       {:noreply, state}
     else
@@ -1593,6 +1616,7 @@ defmodule Fountain.Conversations.ConversationServer do
 
   defp log_initial_refusal(state, reason) do
     TurnMachine.log_refusal(state.conversation_id, "initial turn refused", reason)
+    Wake.report_unrun_prompt(state.conversation_id, reason)
 
     state
   end

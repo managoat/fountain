@@ -527,7 +527,8 @@ conversation with no machine must wake first, and the turn opens after that.
 So the response cannot give you a turn ID. Give Fountain your own name for the
 prompt instead.
 
-The wake runs after the response. The request still refuses what needs no
+The wake runs after the response, and so does the wait for a sandbox that is
+still being set up or reattached. The request still refuses what needs no
 sandbox to decide: no credit, a suspended account, a missing agent, a sandbox
 being reset, or no room for one more sandbox. A wake that fails later is a
 `wake` stage event with the `failed` state. Its `reason` says why, and
@@ -558,7 +559,8 @@ at a time, so one prompt opens the turn. The turn carries the value of that
 client. Turn order cannot tell you that. When the conversation has a machine
 that is awake, Fountain answers `conversation_busy` to the other client. When
 the conversation must wake first, Fountain answers `queued` to the two clients.
-It then drops the prompt that arrives second, and the stream does not say so.
+It then drops the prompt that arrives second, and says so on the stream with a
+`wake` stage event in the `failed` state and the reason `conversation_busy`.
 
 The value is a string of 1 to 200 characters. It cannot contain a null
 character; Fountain answers `422` for one that does. Send it in the request

@@ -273,6 +273,29 @@ shellcheck scripts/ci/*.sh
 elixir scripts/ci/timing-formatter-test.exs
 ```
 
+## Sandbox providers
+
+Merge CI runs no sandbox provider; three checks outside it do, each against
+the production account.
+
+- `sandbox-images.yml` rebuilds the E2B template (`fountain`) and the Daytona
+  snapshot weekly, on changes under `images/` and on dispatch. The E2B job
+  uses repository secret `E2B_API_KEY`, prod's key, set 2026-10-05 (#2481).
+  The first run rebuilt the template that day. Its smoke step failed on an
+  argument bug, which is now fixed; the same smoke passed by hand against the
+  rebuilt template. `DAYTONA_API_KEY` is not set, so the Daytona job still
+  fails.
+- The adapter's live suite, `test/live/` in
+  [managoat_sandbox](https://github.com/managoat/managoat_sandbox), runs daily
+  against real E2B with the same template (`live.yml`, its own
+  `E2B_API_KEY`). It covers pause and resume, attach replay, files and egress,
+  which the stubbed tests cannot.
+- The deployed suite's matrix (`deployed/README.md`) declares four E2B cells
+  for production in `SUITE_MATRIX_JSON` on the `deployed-production`
+  environment: claude and codex, ephemeral and persistent. It runs on
+  dispatch only (`matrix-scheduled`), and each run needs an environment
+  reviewer's approval. `DEPLOYED_MATRIX_ENABLED` is unset, so no schedule.
+
 ## Portable alert rules
 
 The `Alert rules` workflow runs `scripts/test-alerts.py` with Prometheus

@@ -90,10 +90,15 @@ in_guest="export SMOKE_EXPECT_USER=${user}; echo ${smoke_b64} | base64 -d | bash
 
 # envd accepts the connection before it is ready to run anything, and PR #693
 # is the record of what that race costs. Retry the first exec only.
+#
+# `--` ends the CLI's own options; without it `-lc` is parsed as one and every
+# attempt fails with "unknown option '-lc'" (#2481's first real run). stdin is
+# closed because the CLI forwards a non-TTY stdin to the command and waits for
+# its EOF.
 attempt=1
 output=""
 while :; do
-  if output="$(npx --yes "$CLI" sandbox exec --user "$user" "$sandbox_id" bash -lc "$in_guest" 2>&1)"; then
+  if output="$(npx --yes "$CLI" sandbox exec --user "$user" "$sandbox_id" -- bash -lc "$in_guest" < /dev/null 2>&1)"; then
     break
   fi
   if [ "$attempt" -ge 6 ]; then

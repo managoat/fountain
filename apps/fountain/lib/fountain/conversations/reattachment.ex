@@ -85,10 +85,43 @@ defmodule Fountain.Conversations.Reattachment do
   #   it on one provisioned before its tenant was brokered. Best effort for the
   #   same reason. It finishes before anything after this step dials out.
   # - The env file is required.
+  #
+  # Each write is its own `reattach_config_*` span too: the step's p50 was
+  # 1.85 s on 2026-10-05 for four writes at once, and its one span cannot say
+  # which of them that is.
   defp write_config(handle, state, agent, conv, sprite_env) do
     [
       fn ->
-        Provisioning.write_runtime_config(
+        step(state, "reattach_config_runtime", fn ->
+          write_runtime_config(handle, state, agent)
+        end)
+      end,
+      fn ->
+        step(state, "reattach_config_instructions", fn ->
+          Provisioning.write_instructions(handle, runtime(conv, agent), agent)
+        end)
+      end,
+      fn ->
+        step(state, "reattach_config_ca", fn ->
+          Egress.install_ca(state.broker, handle, state.conversation_id)
+          |> best_effort("broker CA install on wake")
+        end)
+      end
+    ]
+    |> Enum.map(&async_step/1)
+    |> then(fn tasks ->
+      env_file =
+        step(state, "reattach_config_env", fn ->
+          Provisioning.write_env_file(handle, Fountain.Conversations.Identity.disk_env(sprite_env))
+        end)
+
+      Enum.each(tasks, &await_step/1)
+      env_file
+    end)
+  end
+
+  defp write_runtime_config(handle, state, agent) do
+    Provisioning.write_runtime_config(
           handle,
           state.runtime_module,
           Egress.with_connection_servers(
@@ -98,22 +131,7 @@ defmodule Fountain.Conversations.Reattachment do
             state.callback_token
           )
         )
-        |> best_effort("runtime config write on wake")
-      end,
-      fn -> Provisioning.write_instructions(handle, runtime(conv, agent), agent) end,
-      fn ->
-        Egress.install_ca(state.broker, handle, state.conversation_id)
-        |> best_effort("broker CA install on wake")
-      end
-    ]
-    |> Enum.map(&async_step/1)
-    |> then(fn tasks ->
-      env_file =
-        Provisioning.write_env_file(handle, Fountain.Conversations.Identity.disk_env(sprite_env))
-
-      Enum.each(tasks, &await_step/1)
-      env_file
-    end)
+    |> best_effort("runtime config write on wake")
   end
 
   # As `FreshProvision`'s: an exception in a task would reach the server as a

@@ -76,7 +76,7 @@ Use `$${VAR}` only when the MCP server (or some downstream process the runtime s
 | runtime | CLI | model format | auth |
 | --- | --- | --- | --- |
 | claude | `claude` | `anthropic/claude-sonnet-5` | `CLAUDE_CODE_OAUTH_TOKEN` (preferred) or `ANTHROPIC_API_KEY` |
-| codex | `codex` | `openai/gpt-6-astra` | `OPENAI_API_KEY` (consumed via `codex login --with-api-key` at provision time) |
+| codex | `codex` | `openai/gpt-6-astra` | `OPENAI_API_KEY` (written to `~/.codex/auth.json` at provision time) |
 | gemini | `gemini` | `google/gemini-3.1-pro-preview` | `GEMINI_API_KEY` |
 | opencode | `opencode` | `provider/model` (anthropic / openai / google) | per provider |
 

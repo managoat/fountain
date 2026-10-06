@@ -48,9 +48,11 @@ supports.
 
 Wake a conversation ahead of its next prompt when that prompt should not wait
 for the sandbox: open it in an app, then send. The response is `awake` when
-the sandbox was already up and `waking` when the request started it. A
-sandbox that is gone is replaced, as a prompt would replace it, and a woken
-conversation is suspended again after the same idle period.
+the sandbox was already up and `waking` when the request started it. The
+wake runs after the response, so a wake that fails shows up on the event
+stream as a `wake` stage in the `failed` state. A sandbox that is gone is
+replaced, as a prompt would replace it, and a woken conversation is suspended
+again after the same idle period.
 
 You set both bounds for each instance. A `0` turns either one off, and the
 ceiling starts off. Read the [configuration reference](../configuration.md).

@@ -365,14 +365,18 @@ defmodule Fountain.Conversations.Wake do
 
   `{:ok, :awake}` is a conversation whose server is already running: a parked
   conversation has none, so there is nothing to do. `{:ok, :waking}` is one this
-  call started a server for, on its own sandbox resumed from suspension or on a
-  fresh one when that sandbox is gone, exactly as a prompt would have. The
-  server's reattach or provision is still running when this returns; its stages
-  arrive on the conversation's event stream.
+  call is waking: on its own sandbox resumed from suspension, or on a fresh one
+  when that sandbox is gone, exactly as a prompt would.
+
+  The wake runs behind the answer (#2584), as a prompt's does since #2561. The
+  refusals that need no provider (`admit_prompt_wake/1`: the conversation, its
+  agent, the account, credit, a reset fence, room for a machine) still answer
+  the call; anything after that is a `wake` `failed` stage on the
+  conversation's event stream, with the reattach or provision stages before it.
 
   The same gates as a prompt's wake apply, since a woken machine is billed
   compute whether or not a prompt follows. Only a wake that started a server is
-  audited, as `conversation.woken`.
+  audited, as `conversation.woken`, when it finishes.
 
   A door like `wake_conversation/3`: the caller has established tenant
   ownership of `conv_id`.
@@ -384,12 +388,16 @@ defmodule Fountain.Conversations.Wake do
         {:ok, :awake}
 
       nil ->
-        result = wake_conversation_for(conv_id, nil, :work)
-        Termination.audit_lifecycle(conv_id, "conversation.woken", ok(result), opts)
+        with :ok <- admit_prompt_wake(conv_id) do
+          {:ok, _pid} =
+            Task.Supervisor.start_child(Fountain.TaskSupervisor, fn ->
+              result = __MODULE__.wake_conversation_for(conv_id, nil, :work)
+              Termination.audit_lifecycle(conv_id, "conversation.woken", ok(result), opts)
 
-        case result do
-          {:ok, _conv} -> {:ok, :waking}
-          {:error, _} = err -> err
+              with {:error, reason} <- result, do: report_failed_wake(conv_id, reason)
+            end)
+
+          {:ok, :waking}
         end
     end
   end
@@ -689,7 +697,7 @@ defmodule Fountain.Conversations.Wake do
   end
 
   defp report_failed_wake(conv_id, reason) do
-    Logger.warning("conv #{conv_id}: background wake for a prompt failed: #{inspect(reason)}")
+    Logger.warning("conv #{conv_id}: background wake failed: #{inspect(reason)}")
     report_unrun_prompt(conv_id, reason)
   end
 

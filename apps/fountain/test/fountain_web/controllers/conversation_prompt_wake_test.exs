@@ -68,7 +68,7 @@ defmodule FountainWeb.ConversationPromptWakeTest do
 
     assert [%{state: "failed", data: data}] = wake_stages(ctx.conv.id)
     assert Jason.decode!(data) == %{"reason" => "sprite_probe_failed", "retryable" => true}
-    assert log =~ "background wake for a prompt failed"
+    assert log =~ "background wake failed"
   end
 
   test "a refusal that needs no provider still answers the request", ctx do

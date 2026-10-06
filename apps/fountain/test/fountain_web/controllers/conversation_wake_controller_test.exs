@@ -52,15 +52,30 @@ defmodule FountainWeb.ConversationWakeControllerTest do
       :ok
     end
 
+    # The wake runs behind the answer (#2584), so the start and the audit
+    # are waited for rather than expected on return.
     test "200 waking starts a server on its sandbox and opens no turn", ctx do
       assert %{"status" => "waking"} = ctx |> wake() |> json_response(200)
-      assert_received :server_started
+      assert_receive :server_started, 2_000
       assert Fountain.Repo.all(Fountain.Conversations.Turn) == []
 
-      assert [event] = woken_events(ctx.user.id)
+      assert [event] = eventually(fn -> woken_events(ctx.user.id) end)
       assert event.resource_id == ctx.conv.id
       assert event.actor == "api"
     end
+  end
+
+  test "a refusal that needs no provider still answers the call, and nothing is woken", ctx do
+    {:ok, _} =
+      ctx.conv.sandbox_id
+      |> Fountain.Conversations._unsafe_get_sandbox()
+      |> Ecto.Changeset.change(transition: "destroying")
+      |> Fountain.Repo.update()
+
+    stub_server_start(fn _supervisor, _child_spec -> flunk("woke a machine being reset") end)
+
+    assert ctx |> wake() |> json_response(409)
+    assert woken_events(ctx.user.id) == []
   end
 
   test "200 awake does nothing for a conversation whose server is running", ctx do
@@ -83,5 +98,16 @@ defmodule FountainWeb.ConversationWakeControllerTest do
     conv = insert_conversation(user_id: other.id, agent: insert_agent(user_id: other.id))
 
     assert ctx |> wake(conv) |> json_response(404)
+  end
+
+  defp eventually(fun, tries \\ 50) do
+    case fun.() do
+      [] when tries > 0 ->
+        Process.sleep(20)
+        eventually(fun, tries - 1)
+
+      result ->
+        result
+    end
   end
 end

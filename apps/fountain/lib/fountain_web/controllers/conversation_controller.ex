@@ -824,13 +824,14 @@ defmodule FountainWeb.ConversationController do
     description:
       "Brings the conversation's sandbox and server up without opening a turn, so the " <>
         "next prompt does not wait for them. A suspended sandbox is resumed; one that is " <>
-        "gone is replaced with a fresh one, as a prompt would do. Answers once the server " <>
-        "has started; its reattach or provision continues and reports on the event " <>
-        "stream. A woken conversation is parked again after the usual idle period.\n\n" <>
+        "gone is replaced with a fresh one, as a prompt would do. Answers `waking` once the " <>
+        "checks that need no sandbox pass, and wakes behind the response: the reattach or " <>
+        "provision reports on the event stream, and a wake that fails is a `wake` `failed` " <>
+        "stage there. A woken conversation is parked again after the usual idle period.\n\n" <>
         "`awake` means the server was already running and nothing was done. Refused as a " <>
         "prompt's wake is: 402 without credits, 410 once the conversation has ended, 409 " <>
         "`sandbox_reset_pending` while its machine is being reset, and 503 while the " <>
-        "machine or fleet is unavailable.",
+        "fleet is full. Anything the sandbox itself refuses arrives on the event stream.",
     parameters: [conversation_id: [in: :path, type: :string, required: true]],
     responses: [
       ok: {"Awake or waking", "application/json", Schemas.ConversationWakeResponse},

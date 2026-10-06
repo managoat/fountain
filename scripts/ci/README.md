@@ -275,8 +275,7 @@ elixir scripts/ci/timing-formatter-test.exs
 
 ## Sandbox providers
 
-Merge CI runs no sandbox provider; three checks outside it do, each against
-the production account.
+Merge CI runs no sandbox provider; three checks outside it do.
 
 - `sandbox-images.yml` rebuilds the E2B template (`fountain`) and the Daytona
   snapshot weekly, on changes under `images/` and on dispatch. The E2B job
@@ -285,11 +284,16 @@ the production account.
   argument bug, which is now fixed; the same smoke passed by hand against the
   rebuilt template. `DAYTONA_API_KEY` is not set, so the Daytona job still
   fails.
-- The adapter's live suite, `test/live/` in
-  [managoat_sandbox](https://github.com/managoat/managoat_sandbox), runs daily
-  against real E2B with the same template (`live.yml`, its own
-  `E2B_API_KEY`). It covers pause and resume, attach replay, files and egress,
-  which the stubbed tests cannot.
+- The adapters' live suites, `test/live/` in
+  [managoat_sandbox](https://github.com/managoat/managoat_sandbox), run daily
+  in its `live.yml`:
+  - E2B uses its own `E2B_API_KEY` and production's template. It covers pause
+    and resume, attach replay, files and egress.
+  - Sprites uses `SPRITES_TOKEN`, a token scoped to the `msb-live-` prefix. It
+    covers a fresh sprite's first exec, cold wakes, the public URL,
+    checkpoints and egress.
+
+  Neither can be checked by the stubbed tests.
 - The deployed suite's matrix (`deployed/README.md`) declares four E2B cells
   for production in `SUITE_MATRIX_JSON` on the `deployed-production`
   environment: claude and codex, ephemeral and persistent. It runs on

@@ -720,8 +720,30 @@ defmodule Fountain.AuditGuardrailTest do
     end)
 
     server = spawn(fn -> Process.sleep(:infinity) end)
-    stub_server_start(fn _supervisor, _child_spec -> {:ok, server} end)
+    test_pid = self()
+
+    stub_server_start(fn _supervisor, _child_spec ->
+      send(test_pid, :server_started)
+      {:ok, server}
+    end)
+
     {:ok, :waking} = Fountain.Conversations.Wake.wake_without_prompt(conv.id, actor: "ui")
+
+    # The wake, and its audit, run behind the answer (#2584): wait for the
+    # server to start, then for the audit the same task writes after it.
+    assert_receive :server_started, 2_000
+    await_audit(user.id, "conversation.woken")
+  end
+
+  defp await_audit(user_id, action, tries \\ 50) do
+    actions = user_id |> Audit.list_recent_for_user(200) |> Enum.map(& &1.action)
+
+    if action in actions or tries == 0 do
+      :ok
+    else
+      Process.sleep(20)
+      await_audit(user_id, action, tries - 1)
+    end
   end
 
   def do_conv_interrupt(user) do

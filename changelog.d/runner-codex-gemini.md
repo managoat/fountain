@@ -13,4 +13,6 @@
 
 - Sprites refuses checkpoint calls unless checkpoint creation is enabled,
   which matches the capability it advertises (managoat_sandbox 0.5.4).
-  Fountain already checks that capability first, so nothing changes in use.
+  Fountain creates checkpoints only with that same setting on, and a refused
+  environment restore provisions cold and clears the stale id, as a failed
+  restore already did, so nothing changes in use.

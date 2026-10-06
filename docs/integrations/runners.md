@@ -92,7 +92,7 @@ needs at provision:
 | Runtime | On a runner |
 |---|---|
 | claude | The pinned ACP adapter, which carries Claude Code. |
-| codex | The pinned ACP adapter. Fountain writes the API key to `~/.codex/auth.json`, so no `codex` binary is needed. |
+| codex | The pinned ACP adapter. Fountain writes the credential (the API key, or the broker's placeholder for it) to `~/.codex/auth.json`, so no `codex` binary is needed. |
 | gemini | `@google/gemini-cli`, pinned, when `gemini` is not already on `PATH`. |
 | opencode | `opencode-ai` through `bun`, when `opencode` is not already on `PATH`. |
 

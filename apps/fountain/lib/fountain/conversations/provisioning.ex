@@ -1102,7 +1102,7 @@ defmodule Fountain.Conversations.Provisioning do
   The runtime's own sandbox preparation, after its ACP adapter is in place.
   `source` and `user_id` are the conversation's resolved inference source and
   its owner: a codex spawn on a ChatGPT grant gets its `auth.json` from
-  Fountain, from that source, not from the library's `codex login` (ADR 0047
+  Fountain, from that source, not from the library's own `auth.json` (ADR 0047
   decision 4, ADR 0052 decision 5).
   """
   def prepare_runtime_sprite(handle, runtime, runtime_module, agent, sprite_env, source, user_id) do

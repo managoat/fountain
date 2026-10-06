@@ -10,7 +10,7 @@ defmodule Fountain.Conversations.CotenantSecrets do
   once a `claude` and a `codex` conversation share a disk. Every process there
   runs as one unix user, and each runtime's inference credential lives where
   the other can read it: codex's API key in `~/.codex/auth.json` (written by
-  `codex login --with-api-key`) and in its process environment, claude's in
+  the runtime library at provision) and in its process environment, claude's in
   its own. Without this, a `cat ~/.codex/auth.json` in the claude
   conversation would print a value registered only for the codex
   conversation, and `log_events` would store it in the clear. The attach rule

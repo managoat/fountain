@@ -4,7 +4,7 @@ defmodule Fountain.Conversations.CodexChatGPT do
   decision 4) or one of a user's (ADR 0060 decision 6).
 
   `Managoat.Runtimes.Codex` knows one credential, `OPENAI_API_KEY`, which
-  its `prepare_sandbox/3` pipes into `codex login --with-api-key`. A grant
+  its `prepare_sandbox/3` writes into `~/.codex/auth.json`. A grant
   is a different shape: an access token codex must not try to refresh, and
   an account id it sends beside the bearer. Rather than teach the library a
   second login (a release and a pin bump), Fountain writes the file itself:
@@ -70,7 +70,7 @@ defmodule Fountain.Conversations.CodexChatGPT do
   link a subscription.
 
   An API-key source keeps the shared `~/.codex/auth.json`, which the
-  library's `codex login` writes; no grant writes there any more.
+  library's `prepare_sandbox/3` writes; no grant writes there any more.
   """
 
   alias Fountain.ChatGPTAccounts
@@ -305,7 +305,7 @@ defmodule Fountain.Conversations.CodexChatGPT do
 
   A `:grant` source that names no grant and generation, or names ones that
   make no path, exports nothing too, and `prepare_sandbox/5` refuses the
-  spawn rather than leave it to the library's `codex login`.
+  spawn rather than leave it to the library's `auth.json` write.
   """
   @spec env(module() | nil, map(), Source.t() | nil) :: [{String.t(), String.t()}]
   def env(Managoat.Runtimes.Codex, credentials, source) when is_map(credentials) do
@@ -355,7 +355,7 @@ defmodule Fountain.Conversations.CodexChatGPT do
   and the answer was `:skip`. It cannot any more: by then `env/3` has
   exported a `CODEX_HOME` that a skip would never create, and the broker
   session is the grant's HTTP-only one (`Egress.session_opts/1`), so the
-  library's `codex login` would run against a home that is not there. The
+  library's `auth.json` would land in a home that is not there. The
   resolver is believed never to hand out both, and if it does the provision
   says so rather than half-running on each.
 
@@ -376,7 +376,7 @@ defmodule Fountain.Conversations.CodexChatGPT do
     case {managed_grant(source, user_id), source} do
       # A user's source that pins nothing: no owner, or a persisted source
       # without its grant id or generation. Refused here, because `:skip`
-      # hands the spawn to the library's `codex login`, and a user's source
+      # hands the spawn to the library's `auth.json` write, and a user's source
       # must never reach a credential it did not name.
       {nil, %Source{scope: :grant}} -> {:error, :invalid_codex_home}
       {nil, _} -> :skip

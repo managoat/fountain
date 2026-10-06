@@ -25,7 +25,7 @@ DAYTONA_SNAPSHOT=fountain          # a snapshot built from images/daytona/ (unse
 | Suspend | An explicit stop. It keeps the disk, and archives a long park. |
 | Capabilities advertised | `:suspend`, `:network_policy`, `:attach` |
 | Self-hostable | Yes, through `DAYTONA_API_URL`. |
-| Needs first | A snapshot built from `images/daytona/`. The stock image has no agent CLIs. |
+| Needs first | An organization on Tier 3 or higher, and a snapshot built from `images/daytona/`. The stock image has no agent CLIs. |
 
 ## Snapshot
 
@@ -74,9 +74,12 @@ builds is not visible to the instance.
 - **The size of the domain allowlist.** Daytona caps `domainAllowList` at
   about 20 entries. The API rejects a `limited` environment with a longer
   allowlist.
-- **Org tiers.** A lower tier restricts egress by default, and can ignore an
-  override. Check the organization's network settings when a `limited`
-  environment behaves in a way you did not expect.
+- **Org tiers.** Daytona needs Tier 3 or higher. Fountain sets the network
+  policy of every sandbox it provisions, and Daytona refuses that on Tier 1 and
+  Tier 2: the API answers 400 "Network access is restricted and cannot be
+  overridden at the sandbox level". So every conversation on a lower tier fails
+  at the `network` stage, a few seconds after it starts. See
+  [Daytona's network limits](https://www.daytona.io/docs/en/network-limits/).
 - **Reaper.** Reconciliation lists the sandboxes Fountain labelled, and no
   others. It never touches another sandbox in the organization.
 

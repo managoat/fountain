@@ -289,7 +289,8 @@ Merge CI runs no sandbox provider; three checks outside it do.
   in its `live.yml`:
   - E2B uses its own `E2B_API_KEY` and production's template. It covers pause
     and resume, attach replay, files and egress.
-  - Sprites uses `SPRITES_TOKEN`, a token scoped to the `msb-live-` prefix. It
+  - Sprites uses `SPRITES_TOKEN`, an organization token for production's org
+    (Sprites tokens cannot be scoped to a name prefix). It
     covers a fresh sprite's first exec, cold wakes, the public URL,
     checkpoints and egress.
 

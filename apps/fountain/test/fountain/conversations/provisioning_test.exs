@@ -371,7 +371,7 @@ defmodule Fountain.Conversations.ProvisioningTest do
                  "if command -v flock >/dev/null 2>&1; then flock -w 120 9 || exit 75; safe=1; fi; " <>
                  "{ { staged_key=$(openssl x509 -noout -pubkey -in '#{staging}' 2>/dev/null) && " <>
                  "installed_key=$(openssl x509 -noout -pubkey -in '#{ca}' 2>/dev/null) && " <>
-                 "[ -n \"$staged_key\" ] && [ \"$staged_key\" = \"$installed_key\" ]; } && " <>
+                 ~s([ -n "$staged_key" ] && [ "$staged_key" = "$installed_key" ]; } && ) <>
                  "sha256sum -c --status '#{marker}' 2>/dev/null; } || " <>
                  "{ sudo rm -f -- '#{marker}' && " <>
                  "if [ ! -e '#{ca}' ] && [ -s '#{bundle}' ]; then " <>

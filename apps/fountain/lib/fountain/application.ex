@@ -129,7 +129,7 @@ defmodule Fountain.Application do
          [
            name: Fountain.MachineSupervisor,
            strategy: :one_for_one,
-           distribution_strategy: Horde.UniformDistribution,
+           distribution_strategy: Fountain.Drain.Distribution,
            members: :auto,
            # Sized in stage 7a, for the reason the pair below was sized
            # (#2348's review said to do it "when the owner starts doing
@@ -156,7 +156,7 @@ defmodule Fountain.Application do
          [
            name: Fountain.ConversationSupervisor,
            strategy: :one_for_one,
-           distribution_strategy: Horde.UniformDistribution,
+           distribution_strategy: Fountain.Drain.Distribution,
            members: :auto,
            # Explicit, and sized to the fleet: the default (3 restarts in
            # 5s) is a budget SHARED by every ConversationServer on the
@@ -176,9 +176,15 @@ defmodule Fountain.Application do
         # runner id (Fountain.Runners.Host), so `Managoat.Runner.Adapter`
         # on any node can reach it.
         {Horde.Registry, [name: Fountain.RunnerRegistry, keys: :unique, members: :auto]},
-        # Last, and it has to stay last: it starts only once everything it can
-        # reach is up, and it stops before any of that goes away.
-        FountainWeb.Endpoint
+        # Last but one, and it has to stay there: it starts only once
+        # everything it can reach is up, and it stops before any of that goes
+        # away.
+        FountainWeb.Endpoint,
+        # Last, so it stops first: on SIGTERM it marks this node draining
+        # before the endpoint begins its long drain, and Horde stops placing
+        # conversations and machine owners here (`Fountain.Drain`). It reaches
+        # nothing the endpoint needs.
+        Fountain.Drain
       ]
   end
 

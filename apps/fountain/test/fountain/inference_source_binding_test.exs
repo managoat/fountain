@@ -129,6 +129,31 @@ defmodule Fountain.InferenceSourceBindingTest do
              InferenceCredentials.validate_source(user.id, source)
   end
 
+  test "saving the value a set already holds keeps its binding", %{user: user, dek: dek} do
+    {:ok, set} =
+      InferenceCredentials.put_credential(user.id, dek, :claude_code_oauth_token, "token")
+
+    {:ok, source, _} =
+      InferenceCredentials.resolve(user.id, "anthropic/claude-sonnet-5", "claude")
+
+    {:ok, again} =
+      InferenceCredentials.put_credential_in(set, dek, :claude_code_oauth_token, "token")
+
+    assert again.revision == source.revision
+    assert again.claude_code_oauth_token_ciphertext == set.claude_code_oauth_token_ciphertext
+    assert :ok = InferenceCredentials.validate_source(user.id, source)
+
+    {:ok, _} =
+      InferenceCredentials.put_credential(user.id, dek, :claude_code_oauth_token, "token")
+
+    assert :ok = InferenceCredentials.validate_source(user.id, source)
+
+    {:ok, replaced} =
+      InferenceCredentials.put_credential_in(set, dek, :claude_code_oauth_token, "other")
+
+    refute replaced.revision == source.revision
+  end
+
   test "default switches preserve the original set while deletion refuses fallback", %{
     user: user,
     dek: dek

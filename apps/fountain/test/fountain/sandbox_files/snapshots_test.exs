@@ -72,6 +72,10 @@ defmodule Fountain.SandboxFiles.SnapshotsTest do
       String.replace_prefix(path, @home, home)
     end)
 
+    stub(Managoat.Sandbox, :write_file, fn _handle, path, data, _opts ->
+      File.write!(path, data)
+    end)
+
     stub(Managoat.Sandbox, :exec, fn _handle, command, args, _opts ->
       [flag, script | rest] = args
 
@@ -303,6 +307,38 @@ defmodule Fountain.SandboxFiles.SnapshotsTest do
       Repo.update_all(from(s in Sandbox, where: s.id == ^ctx.sandbox.id), set: [status: "ready"])
       assert {:ok, _} = Snapshots.capture(ctx.sandbox, enabled: true)
       assert length(Snapshots.parked(park!(ctx.sandbox)).repos) == 2
+    end
+
+    test "thousands of changed files never reach the command line", ctx do
+      many = Path.join(ctx.home, "work/track/many")
+      File.mkdir_p!(many)
+
+      for i <- 1..1_500,
+          do: File.write!(Path.join(many, "a-rather-long-file-name-#{i}.txt"), "#{i}\n")
+
+      test_pid = self()
+
+      stub(Managoat.Sandbox, :exec, fn _handle, command, [flag, script | rest] = args, _opts ->
+        send(test_pid, {:command_bytes, args |> Enum.map(&byte_size/1) |> Enum.sum()})
+
+        {output, code} =
+          System.cmd(command, [flag, "exec 2>/dev/null\n" <> script | rest], env: git_env())
+
+        {:ok, output, code}
+      end)
+
+      assert {:ok, %Snapshot{}} = Snapshots.capture(ctx.sandbox, enabled: true)
+
+      # Sprites carries the command in its exec URL, which answered 414 for a
+      # collect of this size when the paths were arguments.
+      sizes = for {:command_bytes, bytes} <- Process.info(self(), :messages) |> elem(1), do: bytes
+      assert length(sizes) == 2
+      assert Enum.all?(sizes, &(&1 < 16_384))
+
+      assert Path.wildcard(Path.join(ctx.home, ".fountain-snapshot-*"), match_dot: true) == []
+
+      parked = Snapshots.parked(park!(ctx.sandbox))
+      assert (@track <> "/many/a-rather-long-file-name-1500.txt") in Map.keys(parked.files)
     end
 
     test "each capture is a span with its outcome, for what it costs a park", ctx do

@@ -42,6 +42,10 @@ defmodule Fountain.Machines.ParkSnapshotTest do
       String.replace_prefix(path, @home, home)
     end)
 
+    stub(Managoat.Sandbox, :write_file, fn _handle, path, data, _opts ->
+      File.write!(path, data)
+    end)
+
     stub(Managoat.Sandbox, :exec, fn _handle, command, [flag, script | rest], _opts ->
       {output, code} =
         System.cmd(command, [flag, "exec 2>/dev/null\n" <> script | rest], env: git_env())

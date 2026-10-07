@@ -78,6 +78,17 @@ defmodule Fountain.SandboxFiles.Snapshots do
   @max_file_bytes 262_144
   @max_files 2_000
   @max_content_bytes 4_194_304
+
+  # Where `exec/4` leaves a script's arguments, and how the script takes them
+  # back. `mapfile -d ''` needs bash 4.4, which every image has.
+  @home "/home/sprite"
+  @read_args ~S"""
+  args_file=$1
+  mapfile -d '' -t snapshot_args < "$args_file" || exit 6
+  rm -f -- "$args_file"
+  set -- "${snapshot_args[@]}"
+  unset args_file snapshot_args
+  """
   # The base64 the survey may send for every repository's diff and statuses
   # together. Each is capped at 1 MiB on its own, so sixteen repositories
   # could otherwise put 64 MiB through one exec; the survey stops taking
@@ -232,17 +243,34 @@ defmodule Fountain.SandboxFiles.Snapshots do
     end
   end
 
-  # `bash -c SCRIPT NAME ARGS…`, every absolute path through `host_path/2` for
-  # the runner, exactly as `SandboxFiles` runs its own scripts.
+  # `bash -c SCRIPT NAME ARGS_FILE`, every absolute path through `host_path/2`
+  # for the runner, as `SandboxFiles` runs its own scripts. The arguments go
+  # through a file, NUL-separated, never the command line: Sprites carries a
+  # command in its exec URL, and the collect's thousands of paths answered
+  # 414 there, failing most parks' snapshots. The script reads the file back
+  # into its positional parameters and removes it before anything else.
   defp exec(handle, timeout, script, args) do
     args = Enum.map(args, &map_path(handle, &1))
+    args_file = map_path(handle, "#{@home}/.fountain-snapshot-#{Ecto.UUID.generate()}")
 
-    case Managoat.Sandbox.exec(handle, "bash", ["-c", script, "fountain-snapshot" | args],
-           timeout: timeout
-         ) do
-      {:ok, output, 0} -> {:ok, output}
-      {:ok, output, code} -> {:error, {:exit, code, String.slice(output, 0, 200)}}
-      {:error, reason} -> {:error, {:exec, reason}}
+    with :ok <- write_args(handle, args_file, args) do
+      case Managoat.Sandbox.exec(
+             handle,
+             "bash",
+             ["-c", @read_args <> script, "fountain-snapshot", args_file],
+             timeout: timeout
+           ) do
+        {:ok, output, 0} -> {:ok, output}
+        {:ok, output, code} -> {:error, {:exit, code, String.slice(output, 0, 200)}}
+        {:error, reason} -> {:error, {:exec, reason}}
+      end
+    end
+  end
+
+  defp write_args(handle, path, args) do
+    case Managoat.Sandbox.write_file(handle, path, Enum.map(args, &[&1, 0]), mode: 0o600) do
+      :ok -> :ok
+      {:error, reason} -> {:error, {:write_args, reason}}
     end
   end
 

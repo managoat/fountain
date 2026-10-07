@@ -352,7 +352,8 @@ defmodule Fountain.Conversations.ProvisioningTest do
       assert :ok = Provisioning.install_broker_ca(sandbox_handle(), conv.id)
 
       # The staging file is per invocation, so several conversations writing
-      # it at once cannot change each other's input to `cmp` and `install`.
+      # it at once cannot change each other's input to the comparison and
+      # `install`.
       assert_received {:wrote, staging, "PEM", [mode: 0o644]}
       assert String.starts_with?(staging, "/tmp/agent-vault-ca.crt.")
       refute staging == "/tmp/agent-vault-ca.crt"
@@ -368,7 +369,9 @@ defmodule Fountain.Conversations.ProvisioningTest do
                "( trap 'rm -f -- '\\''#{staging}'\\''' EXIT; " <>
                  "safe=0; " <>
                  "if command -v flock >/dev/null 2>&1; then flock -w 120 9 || exit 75; safe=1; fi; " <>
-                 "{ cmp -s '#{staging}' '#{ca}' && " <>
+                 "{ { staged_key=$(openssl x509 -noout -pubkey -in '#{staging}' 2>/dev/null) && " <>
+                 "installed_key=$(openssl x509 -noout -pubkey -in '#{ca}' 2>/dev/null) && " <>
+                 "[ -n \"$staged_key\" ] && [ \"$staged_key\" = \"$installed_key\" ]; } && " <>
                  "sha256sum -c --status '#{marker}' 2>/dev/null; } || " <>
                  "{ sudo rm -f -- '#{marker}' && " <>
                  "if [ ! -e '#{ca}' ] && [ -s '#{bundle}' ]; then " <>
@@ -399,7 +402,9 @@ defmodule Fountain.Conversations.ProvisioningTest do
       conv = insert_conversation()
       test = self()
 
-      stub(Fountain.Broker, :ca_pem, fn -> {:ok, "PEM\n"} end)
+      # A real broker CA: the comparison is by public key, which needs one.
+      seed = :crypto.strong_rand_bytes(32)
+      stub(Fountain.Broker, :ca_pem, fn -> {:ok, Managoat.Broker.CA.pem(seed)} end)
 
       Mimic.stub(Managoat.Sandbox.Sprites, :write_file, fn _h, path, data, _opts ->
         send(test, {:staged, path, data})
@@ -458,9 +463,9 @@ defmodule Fountain.Conversations.ProvisioningTest do
         File.chmod!(path, 0o755)
       end
 
-      run = fn ->
+      run_with = fn staged ->
         # The EXIT trap consumes the staging file on every invocation.
-        File.write!(tmp_dir <> staging, pem)
+        File.write!(tmp_dir <> staging, staged)
 
         result =
           System.cmd("bash", ["-c", cmd],
@@ -471,6 +476,8 @@ defmodule Fountain.Conversations.ProvisioningTest do
         refute File.exists?(tmp_dir <> staging)
         result
       end
+
+      run = fn -> run_with.(pem) end
 
       # A fresh sandbox: the image's bundle, and no broker CA yet. The CA is
       # added to the bundle without a rebuild.
@@ -483,6 +490,16 @@ defmodule Fountain.Conversations.ProvisioningTest do
 
       assert {_, 0} = run.()
       refute File.exists?(counter)
+
+      # The same CA derived again: every byte of its PEM differs, because
+      # ECDSA signing is randomised, but its key does not, and it is the same
+      # trust anchor. Compared byte for byte, this rebuilt the trust store on
+      # every wake (1.5-2.3 s, 2026-10-07).
+      rederived = Managoat.Broker.CA.pem(seed)
+      refute rederived == pem
+      assert {_, 0} = run_with.(rederived)
+      refute File.exists?(counter)
+      assert File.read!(ca) == pem
 
       # Anything but "never installed" rebuilds, which is what repairs.
       File.write!(bundle, "truncated bundle\n")
@@ -504,7 +521,7 @@ defmodule Fountain.Conversations.ProvisioningTest do
 
       # A replaced CA rebuilds too, so the old one leaves the bundle rather
       # than staying trusted beside the new one.
-      File.write!(ca, "OLD PEM\n")
+      File.write!(ca, Managoat.Broker.CA.pem(:crypto.strong_rand_bytes(32)))
       assert {_, 0} = run.()
       assert File.read!(ca) == pem
       assert File.read!(bundle) == pem <> "system-roots\n"

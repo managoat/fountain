@@ -587,7 +587,7 @@ defmodule Fountain.Conversations.Provisioning do
     install =
       "( trap #{shell_quote(cleanup)} EXIT; safe=0; " <>
         "if command -v flock >/dev/null 2>&1; then flock -w 120 9 || exit 75; safe=1; fi; " <>
-        "{ cmp -s #{shell_quote(staging)} #{shell_quote(path)} && " <>
+        "{ #{same_ca_key(staging, path)} && " <>
         "sha256sum -c --status #{shell_quote(marker)} 2>/dev/null; } || " <>
         "{ sudo rm -f -- #{shell_quote(marker)} && " <>
         "if [ ! -e #{shell_quote(path)} ] && [ -s #{shell_quote(bundle)} ]; then " <>
@@ -635,6 +635,21 @@ defmodule Fountain.Conversations.Provisioning do
         publish_stage(conv_id, "broker", "failed", %{reason: inspect(reason)})
         err
     end
+  end
+
+  # Whether the CA at `installed` is the one at `staged`, compared the way a
+  # TLS client matches a trust anchor: by public key. The bytes cannot be
+  # compared. `Managoat.Broker.CA` derives the key, subject, serial and
+  # validity from the seed, but ECDSA signing is randomised, so every
+  # derivation is a different PEM. Compared with `cmp`, the installed CA never
+  # matched the one about to be written, and every provision and every wake
+  # rebuilt the whole system trust store: ~1.5–2.3 s of each wake, measured on
+  # 2026-10-07. An empty key (no `openssl`, or a file that does not parse) is
+  # never a match, so a machine without `openssl` rebuilds as before.
+  defp same_ca_key(staged, installed) do
+    "{ staged_key=$(openssl x509 -noout -pubkey -in #{shell_quote(staged)} 2>/dev/null) && " <>
+      "installed_key=$(openssl x509 -noout -pubkey -in #{shell_quote(installed)} 2>/dev/null) && " <>
+      ~s([ -n "$staged_key" ] && [ "$staged_key" = "$installed_key" ]; })
   end
 
   # Global, so it covers the agent's own `git push`/`fetch` inside the sandbox

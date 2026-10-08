@@ -24,7 +24,19 @@ type Config struct {
 	Name    string // unique per account
 	Root    string // sandbox root on this machine
 	Version string // reported to Fountain
+
+	// Keepalive. Zero means the defaults below; tests shorten them.
+	PingEvery   time.Duration
+	PingTimeout time.Duration
 }
+
+// A host that suspends (a sprite between requests, a laptop lid) leaves the
+// socket half-open: Read never returns, and Fountain has long since marked
+// the runner offline. An unanswered ping closes the socket so Run reconnects.
+const (
+	defaultPingEvery   = 10 * time.Second
+	defaultPingTimeout = 5 * time.Second
+)
 
 // Permanent is returned by Run when reconnecting cannot help: a rejected
 // credential, runners disabled on the instance, a bad name.
@@ -158,6 +170,9 @@ func serve(ctx context.Context, cfg Config, d *Daemon, log Logger) error {
 
 	log.Info("runner: connected", "name", cfg.Name, "url", cfg.BaseURL, "root", cfg.Root)
 	emitter := &wsEmitter{conn: conn, ctx: ctx, log: log}
+	pingCtx, stopPing := context.WithCancel(ctx)
+	defer stopPing()
+	go keepAlive(pingCtx, conn, cfg, log)
 
 	for {
 		_, data, err := conn.Read(ctx)
@@ -179,6 +194,37 @@ func serve(ctx context.Context, cfg Config, d *Daemon, log Logger) error {
 			continue
 		}
 		go dispatch(d, req, emitter, log)
+	}
+}
+
+// keepAlive pings until ctx ends, and closes the socket when a ping goes
+// unanswered. Pongs arrive through serve's Read loop.
+func keepAlive(ctx context.Context, conn *websocket.Conn, cfg Config, log Logger) {
+	every, timeout := cfg.PingEvery, cfg.PingTimeout
+	if every <= 0 {
+		every = defaultPingEvery
+	}
+	if timeout <= 0 {
+		timeout = defaultPingTimeout
+	}
+	tick := time.NewTicker(every)
+	defer tick.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+		}
+		pingCtx, cancel := context.WithTimeout(ctx, timeout)
+		err := conn.Ping(pingCtx)
+		cancel()
+		if err != nil {
+			if ctx.Err() == nil {
+				log.Warn("runner: ping unanswered; reconnecting", "err", err)
+				conn.CloseNow()
+			}
+			return
+		}
 	}
 }
 

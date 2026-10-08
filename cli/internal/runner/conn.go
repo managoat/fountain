@@ -91,11 +91,13 @@ func backoff(attempt int) time.Duration {
 	if attempt < 1 {
 		attempt = 1
 	}
-	d := time.Second << uint(attempt-1)
-	if d > 30*time.Second {
-		d = 30 * time.Second
+	// From attempt 6 the delay is capped anyway. Shifting further overflows
+	// int64 and, from attempt 65, gives 0: a runner that stays disconnected
+	// would then redial in a tight loop.
+	if attempt > 5 {
+		return 30 * time.Second
 	}
-	return d
+	return time.Second << uint(attempt-1)
 }
 
 // SocketURL is the WebSocket URL for a base URL and runner identity.

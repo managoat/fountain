@@ -4,15 +4,17 @@ defmodule Fountain.Conversations.Provisioning do
   runtime CLI is spawned. Each step publishes its own stage events so the
   UI/SSE clients can show progress.
 
-  Order in `ConversationServer.handle_continue(:provision)`:
-    1. mount skills (inline writes + skills.sh github installs — github
-       installs need network and run before the policy lockdown)
-    2. `install_packages/4` (apt/npm — needs unrestricted network; must
-       run before the policy lockdown so apt can reach package repos)
-    3. `apply_network_policy/3` (sandbox API call — fast)
-    4. `clone_repositories/4` (git clone — slow)
-    5. user's `setup_script` (whatever they supplied)
-    6. write runtime-specific config (e.g. claude `~/.claude.json`)
+  Order in `FreshProvision.run_provisioning_pipeline/6`, after the sandbox
+  config (runtime config, instructions, env file, broker CA and sudoers) is
+  on the disk:
+    1. `apply_network_policy/3` or `apply_broker_floor/2` (sandbox API call —
+       fast). First, so that nothing the tenant chose runs on the open
+       network: apt and npm reach their mirrors through the proxy, which the
+       CA and the sudoers `env_keep` already installed make possible.
+    2. `install_packages/4` (apt/npm, through the proxy)
+    3. `clone_repositories/4` (git clone — slow)
+    4. user's `setup_script` (whatever they supplied)
+  Skills are written beside the pipeline and awaited at its end.
 
   Each step is a no-op when the corresponding field is empty, so legacy
   environments with bare config (just a name) provision instantly.

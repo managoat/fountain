@@ -454,20 +454,29 @@ defmodule Fountain.Conversations.FreshProvision do
   # carries no policy. Skipping it turned a `limited` environment into an
   # unrestricted one, silently, and reported `provision/done`. It costs one
   # fast API call, so the warm start pays nothing for it.
+  #
+  # On the cold arm it is the *first* step, before the packages (#2597). The
+  # package commands run under the conversation's full process env, broker
+  # session token included, and apt and npm hooks are code the tenant chose
+  # rather than wrote; with the floor not yet applied they ran on the
+  # provider's open network. The ordering the old comment defended ("apt
+  # needs unrestricted network") predates the broker: `write_sandbox_config`
+  # has already installed the CA and the sudoers `env_keep` by now, which is
+  # what lets `sudo apt-get` reach a mirror through the proxy at all.
   defp run_provisioning_pipeline(handle, env, sprite_env, secrets, conv_id, brokered?) do
     case Checkpoints.attempt_warm_start(handle, env, conv_id) do
       :warm_started ->
         Egress.apply_policy(handle, env, conv_id, brokered?)
 
       :cold ->
-        with :ok <-
+        with :ok <- Egress.apply_policy(handle, env, conv_id, brokered?),
+             :ok <-
                Fountain.Conversations.Provisioning.install_packages(
                  handle,
                  env,
                  sprite_env,
                  conv_id
                ),
-             :ok <- Egress.apply_policy(handle, env, conv_id, brokered?),
              :ok <-
                Fountain.Conversations.Provisioning.clone_repositories(
                  handle,

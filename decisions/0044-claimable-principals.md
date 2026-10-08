@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Claimable principals: an anonymous computer that survives registration"
-description: "A trusted application opens a short-lived users row as a claimable principal; claiming attaches a registered account as its owner, so the principal id — and every sandbox, agent and conversation keyed to it — never changes."
+description: "A trusted application opens a short-lived users row as a claimable principal; claiming attaches a registered account as its owner, so the principal id — and every sandbox, agent and conversation keyed to it — never changes. Amended 2026-10-07 by ADR 0066 (Proposed, unbuilt): an application claiming its own principal is the intended way to keep one for a customer who never registers, and a principal may hold a ChatGPT subscription its owner links."
 tags: [api, security, billing, sandbox, accounts]
 status: stable
 adr: "0044"
@@ -14,6 +14,14 @@ verified: { by: human:jhgaylor, at: 2026-09-04T00:00:00-04:00 }
 # 0044 — Claimable principals: an anonymous computer that survives registration
 
 **Status:** Accepted. Built in #1551.
+
+**Amended 2026-10-07 by [0066](0066-an-application-keeps-a-principal.md)
+(Proposed, unbuilt):** an application claiming the principal it opened is the
+intended path for a customer who will never register, to be documented and
+tested rather than left to the eligibility check's silence; and a principal
+may hold a ChatGPT subscription that its current owner links on the
+customer's behalf, which decision 2's scope rule and 0060's owner predicate
+currently refuse.
 
 ## Context
 

@@ -3,9 +3,9 @@ type: ADR
 title: "AGPL-3.0 for the server, Apache-2.0 for the clients, Elastic 2.0 for ee/"
 description: "Fountain relicenses from MIT before the commercial launch: AGPL-3.0-or-later on apps/fountain so a hosted fork owes its changes back, Apache-2.0 on cli/ and sdk/ so integrators carry no obligation, Elastic License 2.0 on ee/. Contributions come in under Apache-2.0 and go out under the directory's license, with a DCO and no CLA document (same-day addendum; #997)."
 tags: [licensing, ee, community]
-status: stable
+status: deprecated
 adr: "0027"
-adr_status: "Accepted"
+adr_status: "Superseded by 0068"
 date: 2026-08-22
 generated: { by: human:jhgaylor, at: 2026-08-22T22:30:00-04:00 }
 verified: { by: human:jhgaylor, at: 2026-08-22T22:30:00-04:00 }
@@ -13,7 +13,10 @@ verified: { by: human:jhgaylor, at: 2026-08-22T22:30:00-04:00 }
 
 # 0027 — AGPL-3.0 for the server, Apache-2.0 for the clients, Elastic 2.0 for `ee/`
 
-**Status:** Accepted. Everything described here is built in the PR that adds
+**Status:** Superseded by [0068](0068-relicense-the-server-under-apache.md)
+(2026-10-12): the server is Apache-2.0 now that Fountain is not sold as a
+hosted service. See the addendum at the end. Everything below is history.
+Accepted 2026-08-22. Everything described here is built in the PR that adds
 this ADR. `LICENSE` is the AGPL text, `cli/LICENSE` and
 `sdk/typescript/LICENSE` are Apache-2.0, `ee/LICENSE` is the Elastic License
 2.0, and `NOTICE` and `CONTRIBUTING.md` exist. This ADR supersedes the closing
@@ -226,3 +229,19 @@ actually deters people, and that stating the asymmetry plainly is a better
 answer than pretending to a symmetry the project did not want to keep. If that
 bet is wrong, the fix is to drop the inbound term and revert to
 inbound=outbound, which costs nothing except the option itself.
+
+## Addendum — 2026-10-12: superseded by 0068
+
+Fountain is no longer sold as a hosted service. The AGPL was here to stop one
+thing: a competing host improving Fountain in private. With no hosted product
+to compete with, that reason is gone, and the policy bans that the AGPL
+triggers now cost the self-hosters Fountain is built for.
+[0068](0068-relicense-the-server-under-apache.md) relicenses `apps/fountain`,
+the first-party extensions, `config` and `priv` under Apache-2.0, the licence
+`cli/` and `sdk/` already use. The inbound Apache-2.0 term from the addendum
+above is what makes that possible without a CLA. 0068 still asks each outside
+contributor before it takes effect.
+
+`ee/` is not relicensed. A separate change deletes it, along with the billing
+it held. Releases made under this ADR stay under the AGPL for anyone who has
+them. This ADR is kept as the record of why the AGPL was chosen.

@@ -83,14 +83,9 @@ When something is wrong, start from
 
 ## Licence
 
-The Fountain server uses the GNU AGPL v3.0 or later. You can run your own
-instance. You can run it commercially.
-
-The AGPL adds one obligation. Assume that you change the server, and that you
-offer the changed server to other people over a network. You must then offer
-those people the source of your changed version. A private instance for your
-own company does not trigger this obligation. You do not offer a service to
-third parties in that case.
+The Fountain server uses the Apache License 2.0. You can run your own
+instance. You can run it commercially, change it, and keep your changes
+private. If you redistribute the server, keep its licence and `NOTICE` file.
 
 
 The `cli/` directory and the TypeScript SDK use the

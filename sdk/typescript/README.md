@@ -437,10 +437,9 @@ published surface deliberately without releasing, label the PR
 
 ## License
 
-[Apache-2.0](LICENSE). Fountain is not licensed as a single unit: the server is
-AGPL-3.0-or-later, and the clients — this SDK and the CLI — are Apache-2.0 on
-purpose. Talking to the API, or shipping this SDK inside a proprietary
-application, puts no licence obligation on your code.
+[Apache-2.0](LICENSE), like the server and the CLI. Talking to the API, or
+shipping this SDK inside a proprietary application, puts no licence
+obligation on your code beyond keeping the licence and notice.
 
 ## Credit removal (7.0.0)
 

@@ -44,37 +44,29 @@ in its own linked issue before converting the broader record.
 
 ## Licensing of contributions
 
-Fountain is not licensed as a single unit. **The license that applies to your
-contribution is the license of the directory you are editing**, and each one
-carries its own LICENSE file:
+**You contribute under the Apache License 2.0**, and Fountain distributes
+your work under the Apache License 2.0. Every first-party directory carries an
+Apache-2.0 LICENSE file, except `ee/`:
 
 | Directory | License |
 |---|---|
-| `apps/fountain`, `config`, `priv` | GNU AGPL v3.0 or later |
+| `apps/fountain`, `config`, `priv` | Apache License 2.0 |
 
 | `cli/`, `sdk/` (every client) | Apache License 2.0 |
 
-**You contribute under the Apache License 2.0, whichever directory you are
-editing.** Fountain then distributes your work under the license governing that
-directory, from the table above. There is no separate document to sign and no
-CLA bot. Opening a pull request is the grant.
+`ee/` is being removed. Until then, a contribution to it is still made under
+Apache-2.0 and distributed under the Elastic License 2.0.
 
-You keep the copyright in your work. This is a license, not an assignment, and
-Apache-2.0 does not restrict you, so you keep the full right to reuse your own
-contribution anywhere else, including in proprietary code of your own.
+There is no separate document to sign and no CLA bot. Opening a pull request is
+the grant. You keep the copyright in your work. This is a license, not an
+assignment, so you keep the full right to reuse your own contribution
+anywhere else, including in proprietary code of your own.
 
-The asymmetry, stated plainly so nobody is surprised later: Apache-2.0 permits
-relicensing, so Fountain's maintainer can distribute your contribution under
-the AGPL, or under a commercial license sold to a
-company whose policy forbids the AGPL. You cannot do the same with anyone
-else's contribution. That is the same asymmetry a CLA creates, with less
-ceremony, and it exists for one reason: without it, the option to sell a
-commercial exception closes permanently the first time an outside pull request
-is merged. If that trade is not one you want to make, say so on the pull
-request. It is a reasonable thing to object to.
-
-For `cli/` and `sdk/` this changes nothing at all, since inbound and outbound
-are both Apache-2.0 there.
+The server was AGPL-3.0-or-later until
+[ADR 0068](decisions/0068-relicense-the-server-under-apache.md). Inbound and
+outbound are now the same licence, so the old asymmetry, where the maintainer
+could relicense a contribution and a contributor could not, no longer has
+anything to apply to.
 
 ## Sign your commits (DCO)
 

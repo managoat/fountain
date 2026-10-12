@@ -8,8 +8,11 @@ Licensing
 This repository is not licensed as a single unit. Each directory below carries
 its own LICENSE file, and that file governs.
 
-  apps/fountain, config, priv    GNU Affero General Public License v3.0
-  (the Fountain server)          or later  ...................  LICENSE
+  apps/fountain, config, priv    Apache License 2.0 ........... LICENSE
+  (the Fountain server)
+
+  apps/fountain_*/               Apache License 2.0 ........... apps/<app>/LICENSE
+  (the first-party extensions)
 
 
   cli/                           Apache License 2.0 ........... cli/LICENSE
@@ -20,12 +23,10 @@ its own LICENSE file, and that file governs.
   when there is one; each carries its own LICENSE and graduates to a
   managoat/managoat_<name> repository. All nine extracted so far have.)
 
-The client surfaces are deliberately permissive. Building something on top of
-the Fountain API, or shipping a client inside a proprietary product, carries
-no copyleft obligation. Apache License 2.0 license and notice terms still apply
-when you redistribute a client. Running a modified Fountain server and
-offering it over a network does: AGPL section 13 requires that you offer your
-users the source of your modified version.
+Everything outside ee/ is under the Apache License 2.0. Running, modifying,
+hosting or redistributing the server, or shipping a client inside a
+proprietary product, carries no copyleft obligation. The Apache License 2.0
+license and notice terms apply when you redistribute any of it.
 
 The first-party single-page apps live in the managoat/demos repository and
 are licensed under the MIT License there.
@@ -38,14 +39,18 @@ Relicensing history
 ================================================================================
 
 Fountain was released under the MIT License from the first public commit
-(2026-05-10) through release v0.12.0 (2026-08-17). Those releases remain
-available under the MIT License to anyone who obtained them, and that grant is
-irrevocable. The AGPL and Elastic License terms apply to the source from the
-relicensing commit onward.
+(2026-05-10) through release v0.12.0 (2026-08-17). From the relicensing commit
+of 2026-08-22 (decisions/0027) the server was licensed under the GNU Affero
+General Public License v3.0 or later. From the relicensing commit of
+decisions/0068 the server is licensed under the Apache License 2.0.
 
-Every line in this repository is the copyright of Jake Gaylor. No third-party
-contribution has been merged. The MIT License also permits sublicensing under
-other terms, so the relicensing would be permitted even if one had been.
+Each earlier grant is irrevocable. Anyone who obtained a release under the MIT
+License, or under the AGPL, keeps it under those terms.
+
+Contributions from outside the project have been accepted under the Apache
+License 2.0 since 2026-08-22 (CONTRIBUTING.md), which permits distribution
+under the Apache License 2.0. Every outside contributor to the server was
+also asked for, and gave, consent to the move from the AGPL (decisions/0068).
 
 The MIT terms are reproduced below as the record of what the v0.12.0 and
 earlier releases were distributed under. Anyone holding one of those releases
@@ -93,7 +98,7 @@ The dependency set is MIT, Apache 2.0, BSD and ISC, with two exceptions worth
 naming.
 
   open_api_spex   Mozilla Public License 2.0. File-level copyleft, compatible
-                  with the AGPL. Fountain does not modify its files.
+                  with the Apache License 2.0. Fountain does not modify its files.
 
   muzak           CC-BY-NC-ND-4.0. A mutation-testing tool declared
                   `only: :test`. It is not linked into the product and is not

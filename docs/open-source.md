@@ -14,16 +14,14 @@ hosted service. This page says what is open and where each thing lives.
 
 | Part | Licence | What it means for you |
 |---|---|---|
-| The server (`apps/fountain`) | [AGPL-3.0-or-later](https://github.com/managoat/fountain/blob/main/LICENSE) | Run it, change it, host it. If you host a changed version, your users have a right to your source. |
+| The server (`apps/fountain`) | [Apache-2.0](https://github.com/managoat/fountain/blob/main/LICENSE) | Run it, change it, host it, ship it in a closed product. Keep the required license and notices when you redistribute it. |
 | `cli/` and `sdk/typescript` | [Apache-2.0](https://github.com/managoat/fountain/blob/main/cli/LICENSE) | Build on the API or ship a client in a closed product. Keep the required license and notices when you redistribute it. |
 
-The client parts are permissive on purpose. A connection to Fountain must
-never put a licence obligation on your application.
+The server and the clients use the same licence. A connection to Fountain, or
+a changed server that you host, puts no copyleft obligation on you.
 
-The copyleft has one target. A company that improves Fountain and runs it as a
-service owes those improvements to everyone else who runs it. The licence does
-not stop a commercial host, in competition with Managoat or not. It stops a
-private one.
+Earlier releases of the server used the AGPL-3.0-or-later. Those releases stay
+under the AGPL for anyone who has them.
 
 The
 [NOTICE](https://github.com/managoat/fountain/blob/main/NOTICE) file

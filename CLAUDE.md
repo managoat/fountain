@@ -58,7 +58,7 @@ Run every mix command through the pinned toolchain (activate mise, or
 ## Repo layout
 
 ```
-apps/fountain/             the server (AGPL-3.0): lib/fountain/ contexts, lib/fountain_web/ Phoenix
+apps/fountain/             the server (Apache-2.0): lib/fountain/ contexts, lib/fountain_web/ Phoenix
   test/support/            DataCase, ConnCase, factory.ex
 cli/                       the Go CLI module (Apache-2.0); test it from its own directory
 sdk/                       the TypeScript client, against one OpenAPI contract (CONTRIBUTING.md)

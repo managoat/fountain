@@ -237,21 +237,19 @@ See [`CLAUDE.md`](CLAUDE.md) for architecture, test patterns, the tenant isolati
 
 ## Licence
 
-Fountain is not licensed as a single unit. The short version:
+Fountain is licensed under the [Apache License 2.0](LICENSE), with one
+exception that is on its way out:
 
 | What | Licence | What it means for you |
 |---|---|---|
-| The server (`apps/fountain`) | [AGPL-3.0-or-later](LICENSE) | Run it, modify it, host it. If you host a modified version, your users are entitled to your source |
+| The server (`apps/fountain`) | [Apache-2.0](LICENSE) | Run it, modify it, host it, ship it inside your own product. Keep the licence and notice when you redistribute it |
 | [`cli/`](cli/), [`sdk/typescript`](sdk/typescript) | [Apache-2.0](cli/LICENSE) | Build on the API or ship a client in a proprietary product; follow the Apache license and notice terms when you redistribute it |
 
-The client surfaces are permissive on purpose. Integrating with Fountain
-should never put a licence obligation on your application, and an AGPL SDK
-would do exactly that.
-
-The copyleft is aimed at one thing: a company that improves Fountain and runs
-it as a service owes those improvements back to everyone else running it. It
-does not stop anyone hosting Fountain commercially, including in competition
-with the hosted product. It stops them doing it in private.
+Earlier releases of the server were AGPL-3.0-or-later. The copyleft was there
+to stop a competing host improving Fountain in private. Fountain is a
+self-hosted application now, not a hosted service, so the server moved to
+Apache-2.0. Releases made under the AGPL stay under it for anyone who has
+them.
 
 Fountain is a self-hosted application and is not sold as a hosted service.
 [managoat.com](https://managoat.com) is the maintainer's own instance of this
@@ -261,5 +259,5 @@ code. The long form, and where everything lives, is
 See [`NOTICE`](NOTICE) for third-party attribution,
 [`CONTRIBUTING.md`](CONTRIBUTING.md) for how the licences apply to
 contributions, and
-[`decisions/0027-agpl-relicensing.md`](decisions/0027-agpl-relicensing.md) for
-the reasoning.
+[`decisions/0068-relicense-the-server-under-apache.md`](decisions/0068-relicense-the-server-under-apache.md)
+for the reasoning.

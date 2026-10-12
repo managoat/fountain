@@ -527,7 +527,7 @@ jobs:
             desc "CLI for Fountain — HTTP/JSON client, SSE consumer, and secret-store helper"
             homepage "https://github.com/managoat/fountain"
             version "${VERSION}"
-            license "MIT"
+            license "Apache-2.0"
 
             on_macos do
               on_arm do

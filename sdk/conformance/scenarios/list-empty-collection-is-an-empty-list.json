@@ -2,7 +2,7 @@
   "name": "list-empty-collection-is-an-empty-list",
   "title": "An empty collection is an empty list, never null",
   "contract": "pagination",
-  "why": "A caller iterating the result of `list` must not have to null-check it, in any of the four languages.",
+  "why": "A caller iterating the result of `list` must not have to null-check it, in any language.",
   "client": {
     "api_key": "conformance-key"
   },

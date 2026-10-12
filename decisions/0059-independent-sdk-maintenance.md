@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Independent SDK maintenance and source releases"
-description: "Keep native SDK manifests and independent releases, enforce ownership and support metadata, and publish Swift with revision-pinned source tags."
+description: "Keep native SDK manifests and independent releases, enforce ownership and support metadata, and publish Swift with revision-pinned source tags. Amended 2026-10-12: TypeScript is the one maintained SDK; the Python, Elixir and Swift SDKs, their CI jobs and publishers were removed, and their published releases stay up unmaintained."
 tags: [sdk, distribution]
 status: stable
 adr: "0059"
@@ -10,6 +10,10 @@ date: 2026-09-17
 ---
 
 # 0059 — Independent SDK maintenance and source releases
+
+**Status:** Accepted 2026-09-17; amended 2026-10-12 to one SDK. See the
+addendum at the end: the text above it describes four SDKs, of which only
+TypeScript remains.
 
 ## Context
 
@@ -70,3 +74,37 @@ This change adds the catalog, ownership and gates, standardizes future registry
 tags, and introduces Swift's independent publisher and consumer checks. The first
 `sdk-swift-v0.20.0` release is not published until the implementation merges and
 its publisher succeeds. Historical tags are unchanged.
+
+## Addendum — 2026-10-12: TypeScript is the one SDK
+
+Fountain stopped being sold as a hosted service on 2026-10-12 and became a
+self-hosted app. Four clients for one API cost a CI job, a release gate, a
+publisher, a contract manifest and a conformance adapter each, and in the 30
+days before the decision the hosted instance had two active users. The
+maintainer (Jake) decided to keep one SDK.
+
+**Decision.** TypeScript (`@managoat/fountain-sdk`) is the one maintained SDK.
+`sdk/python`, `sdk/elixir`, `sdk/swift` and the root `Package.swift` are
+deleted, with their CI jobs (`python-sdk`, `elixir-sdk`, `swift-sdk`), release
+gates and publishers, the release workflow's Swift snapshot job, their
+contract manifests and propagation probes, their conformance matrix columns,
+the Swift wire-model generator and their manual pages. The Go CLI (`cli/`) is
+unaffected. The contract (`sdk/contract`), the omissions allowlist, the
+conformance scenarios and `sdk/catalog.json` stay, with TypeScript as their
+one registered client, so adding a client later is the same procedure as
+before. Operations only the removed clients claimed are recorded in
+`sdk/contract/omissions.json`.
+
+**What stays published.** `fountain-agent-sdk` on PyPI, `fountain_sdk` on Hex
+and the `sdk-swift-v*` and historical `v*` tags that SwiftPM resolves are left
+where they are. They are not yanked, retired on their registries or moved;
+they are no longer maintained or tested against new servers, and the manual
+and `SDKs.md` say so. A deprecation notice in their own READMEs is not
+possible without one more release, which this decision does not make.
+
+**Consequences.** The independent-release machinery above (catalog, ownership,
+release-tag recorder, gates) applies to TypeScript alone. Swift's
+revision-pinned release scheme and its compatibility baseline are moot.
+swift-goat, which consumes FountainKit (ADR 0041), keeps working at whatever
+revision it pins and receives no further releases.
+[ADR 0041](0041-typed-swift-client.md) is retired by this addendum.

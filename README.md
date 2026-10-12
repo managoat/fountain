@@ -66,7 +66,7 @@ four.
 ## Self-hosting
 
 [Run your own Fountain instance](docs/self-hosting.md) with the same apps,
-API, CLI and SDKs under your own keys and infrastructure.
+API, CLI and SDK under your own keys and infrastructure.
 
 Fountain's own UI is an operator console. You configure things in it; you do
 not watch an agent work in it. The three apps we build for that are separate
@@ -83,7 +83,7 @@ applications built on this API.
 
 ## Four surfaces
 
-Every public feature lives on the first three; the SDKs wrap the verbs most
+Every public feature lives on the first three; the SDK wraps the verbs most
 code actually reaches for.
 
 | Surface | Use it when |
@@ -91,24 +91,12 @@ code actually reaches for.
 | **Web UI** (`/dashboard`) | Getting started, managing agents, environments, vaults, keys and audit visually |
 | **REST API** (`/api/*`) | Scripting, CI/CD pipelines, integrating Fountain into your own tools |
 | **CLI** (`fountain`) | Local workflows, manifest-driven `apply`, shell scripting |
-| **TypeScript, Python, Elixir and Swift SDKs** | Running an agent from your own code: `run(prompt, agent: ..., vault: ...)` |
+| **TypeScript SDK** | Running an agent from your own code: `run(prompt, { agent, vault })` |
 
-The CLI and the SDKs are convenience wrappers over the REST API. Everything they do, you can do with `curl`.
+The CLI and the SDK are convenience wrappers over the REST API. Everything they do, you can do with `curl`.
 
 ```bash
 npm install @managoat/fountain-sdk
-# or
-pip install fountain-agent-sdk
-# or add {:fountain_sdk, "~> 0.1.0"} to mix.exs
-```
-
-Add Fountain with Swift Package Manager:
-
-```swift
-.package(
-    url: "https://github.com/managoat/fountain.git",
-    from: "0.16.0"
-)
 ```
 
 ```ts
@@ -122,34 +110,12 @@ const run = await new Fountain().run("Upgrade us to Phoenix 1.8 and open a PR", 
 console.log(run.text, run.url);
 ```
 
-```elixir
-client = Fountain.new()
-run = Fountain.run(client, "Upgrade us to Phoenix 1.8 and open a PR", agent: "reposage")
-{:ok, result} = Fountain.Run.await(run)
-
-IO.puts(result.text)
-```
-
-```python
-from fountain import Fountain
-
-run = Fountain().run(
-    "Upgrade us to Phoenix 1.8 and open a PR",
-    agent="reposage",
-    vault="github-bot",
-).result()
-
-print(run.text, run.url)
-```
-
 The sandbox is still there afterwards. A follow-up continues on the same
 machine, with the same checkout and the same session. See
-[`sdk/typescript/`](sdk/typescript/), [`sdk/python/`](sdk/python/),
-[`sdk/elixir/`](sdk/elixir/), [`sdk/swift/`](sdk/swift/), or the
-[TypeScript](https://managoat.com/docs/sdk),
-[Python](https://managoat.com/docs/python-sdk),
-[Elixir](https://managoat.com/docs/elixir-sdk) and
-[Swift](https://managoat.com/docs/swift-sdk) SDK docs.
+[`sdk/typescript/`](sdk/typescript/) or the
+[TypeScript SDK docs](https://managoat.com/docs/sdk). The Python, Elixir and
+Swift SDKs are retired: their published releases stay on PyPI, Hex and the
+`sdk-swift-v*` tags but are no longer maintained ([SDKs.md](SDKs.md)).
 
 ## Get started with the CLI
 
@@ -276,8 +242,7 @@ Fountain is not licensed as a single unit. The short version:
 | What | Licence | What it means for you |
 |---|---|---|
 | The server (`apps/fountain`) | [AGPL-3.0-or-later](LICENSE) | Run it, modify it, host it. If you host a modified version, your users are entitled to your source |
-
-| [`cli/`](cli/), [`sdk/typescript`](sdk/typescript), [`sdk/python`](sdk/python), [`sdk/elixir`](sdk/elixir), [`sdk/swift`](sdk/swift) | [Apache-2.0](cli/LICENSE) | Build on the API or ship a client in a proprietary product; follow the Apache license and notice terms when you redistribute it |
+| [`cli/`](cli/), [`sdk/typescript`](sdk/typescript) | [Apache-2.0](cli/LICENSE) | Build on the API or ship a client in a proprietary product; follow the Apache license and notice terms when you redistribute it |
 
 The client surfaces are permissive on purpose. Integrating with Fountain
 should never put a licence obligation on your application, and an AGPL SDK

@@ -33,8 +33,7 @@ sandbox caps and per-key rate limits.
 ## What you can still do
 
 Call the [conversation API](../api.md) from your own code, or through the
-[TypeScript](../sdk.md), [Python](../python-sdk.md), [Elixir](../elixir-sdk.md)
-or [Swift](../swift-sdk.md) SDK. Read [Plug into Fountain](clients.md) for the
+[TypeScript SDK](../sdk.md). Read [Plug into Fountain](clients.md) for the
 routes in.
 
 Gateways in the *other* direction are unaffected: Fountain still runs agents

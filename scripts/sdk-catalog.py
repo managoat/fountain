@@ -5,7 +5,6 @@ import json
 from pathlib import Path
 import re
 import sys
-import tomllib
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -22,18 +21,6 @@ def facts(language, root=ROOT):
     if language == 'typescript':
         pkg = json.loads((directory / 'package.json').read_text())
         return pkg['name'], pkg['version'], f"Node {pkg['engines']['node']}; browsers with fetch"
-    if language == 'python':
-        pkg = tomllib.loads((directory / 'pyproject.toml').read_text())['project']
-        return pkg['name'], pkg['version'], f"Python {pkg['requires-python']}"
-    if language == 'elixir':
-        pkg = (directory / 'mix.exs').read_text()
-        minimum = capture(r'elixir: "([^"]+)"', pkg)
-        return (capture(r'app: :(\w+)', pkg), capture(r'@version "([^"]+)"', pkg),
-                f"Elixir {minimum} / OTP 26+")
-    if language == 'swift':
-        pkg = json.loads((directory / 'version.json').read_text())
-        tools = capture(r'swift-tools-version: ([\d.]+)', (root / 'Package.swift').read_text())
-        return 'Fountain + FountainKit', pkg['version'], f'Swift {tools}+; macOS 12, iOS/tvOS 15, watchOS 8, Linux'
     raise ValueError(f'{language}: add a native manifest reader to scripts/sdk-catalog.py')
 
 
@@ -41,11 +28,6 @@ def version_errors(language, root=ROOT):
     _, version, _ = facts(language, root)
     expected = {
         'typescript': [('sdk/typescript/src/http.ts', r'USER_AGENT = "([^"]+)"', f'fountain-sdk-js/{version}')],
-        'python': [('sdk/python/src/fountain/http.py', r'USER_AGENT = "([^"]+)"', f'fountain-sdk-python/{version}'),
-                   ('sdk/python/src/fountain/__init__.py', r'__version__ = "([^"]+)"', version)],
-        'elixir': [('sdk/elixir/lib/fountain/http.ex', r'@user_agent "([^"]+)"', f'fountain-sdk-elixir/{version}')],
-        'swift': [('sdk/swift/Sources/Fountain/Fountain.swift', r'public let fountainSDKVersion = "([^"]+)"', version),
-                  ('sdk/swift/Sources/FountainKit/Version.swift', r'public let fountainKitVersion = "([^"]+)"', version)],
     }
     errors = []
     for path, pattern, value in expected[language]:
@@ -103,7 +85,7 @@ def validate(root=ROOT):
                     errors.append(f'{language}: missing {kind}: {hook}')
             if 'pull_request:' not in gate or f'"sdk/{language}/**"' not in gate:
                 errors.append(f'{language}: release gate does not watch SDK PRs')
-            if language != 'swift' and f'scripts/sdk-release-tag.py {language}' not in publisher:
+            if f'scripts/sdk-release-tag.py {language}' not in publisher:
                 errors.append(f'{language}: missing idempotent release-tag hook')
             if 'branches: [main]' not in publisher or 'concurrency:' not in publisher:
                 errors.append(f'{language}: publishing must serialize main pushes')
@@ -138,6 +120,12 @@ def render(root=ROOT):
     lines += ['', 'Conformance counts are declared coverage of the [shared scenarios](sdk/conformance/README.md),',
               'not a claim that every server feature exists in every client. [The matrix](sdk/conformance/matrix.json)',
               'records unsupported scenarios and their tracking issues. CI runs every registered adapter.', '',
+              '## Retired SDKs', '',
+              'The Python ([fountain-agent-sdk](https://pypi.org/project/fountain-agent-sdk/)), Elixir',
+              '([fountain_sdk](https://hex.pm/packages/fountain_sdk)) and Swift (`sdk-swift-v*` tags) SDKs were',
+              'removed from this repository on 2026-10-12 ([ADR 0059](decisions/0059-independent-sdk-maintenance.md)).',
+              'Their published releases stay where they are but are no longer maintained or tested against new',
+              'servers. Use the TypeScript SDK, the `fountain` CLI, or the HTTP API directly.', '',
               '## Maintenance', '',
               f'Fallback owner: {catalog["fallback_owner"]}. Explicit per-language ownership is enforced in',
               '[CODEOWNERS](.github/CODEOWNERS); it may be delegated without changing package versions.', '',
@@ -146,7 +134,7 @@ def render(root=ROOT):
     for language, sdk in catalog['sdks'].items():
         lines.append(f'| {language} | {sdk["owner"]} | [{sdk["manifest"]}]({sdk["manifest"]}) | [gate]({sdk["release_gate"]}) | [publish]({sdk["publish_workflow"]}) | `sdk-{language}-v<version>` |')
     lines += ['', 'See [SDK maintenance](contributing/sdk-maintenance.md) for version bumps, authentication,',
-              'tag recovery, Swift installation, and the checklist for adding an SDK.', '']
+              'tag recovery, and the checklist for adding an SDK.', '']
     return '\n'.join(lines)
 
 

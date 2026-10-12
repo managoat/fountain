@@ -10,12 +10,12 @@ from pathlib import Path
 
 FULL_JOBS = {
     "test", "coverage", "elixir-static", "release-and-contract", "cli-plugins", "typescript-sdk",
-    "elixir-sdk", "python-sdk", "swift-sdk", "core-distribution", "compose-fresh-clone", "compose-pinned-image-boot",
+    "core-distribution", "compose-fresh-clone", "compose-pinned-image-boot",
 }
-# The SDK legs run on every plan, docs-only included; only a reused tree skips
-# them. Each one is a fraction of a minute, and the routing that used to skip
-# an unselected language cost more to keep right than it saved.
-SDK_JOBS = {"elixir-sdk", "python-sdk", "typescript-sdk", "swift-sdk"}
+# The SDK leg runs on every plan, docs-only included; only a reused tree skips
+# it. It is a fraction of a minute, and the routing that used to skip an
+# unselected language cost more to keep right than it saved.
+SDK_JOBS = {"typescript-sdk"}
 JOBS = FULL_JOBS | {"already-tested", "changes", "workflow-checks", "docs"}
 
 # Which probes are expected to have run, per event. A merge group is the only

@@ -32,7 +32,7 @@ going to pretend otherwise.
 ## What you can still do
 
 Drive Fountain from Python directly, with the
-[Python SDK](../python-sdk.md) or the [conversation API](../api.md): create a
+[conversation API](../api.md): create a
 conversation for the work, prompt it, follow its stream, read the result, and
 hand that back to your orchestrator yourself. That replaces the *delegation*
 — an orchestrator handing work to a Fountain agent and reading its report —

@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Conversation requests pass through SDKs as API inputs"
-description: "Separate API-shaped requests from local run settings across four SDKs, with generated wire models and checked propagation."
+description: "Separate API-shaped requests from local run settings across four SDKs, with generated wire models and checked propagation. Since 2026-10-12 TypeScript is the one SDK that does so (ADR 0059 addendum)."
 tags: [api, sdk]
 status: stable
 adr: "0056"
@@ -77,3 +77,11 @@ field. The explicit storage/API boundary remains two intentional declarations.
 - Merge raw input with legacy options: adds collision/default precedence.
 - Generate all client behavior: the schema does not describe turn following.
 - Serialize database fields automatically: exposes internal representation.
+
+## Addendum — 2026-10-12: one SDK
+
+The Python, Elixir and Swift SDKs were removed
+([ADR 0059's addendum](0059-independent-sdk-maintenance.md#addendum--2026-10-12-typescript-is-the-one-sdk)).
+The decision stands for TypeScript's `runRequest` and for the CLI's
+`conv create --file`; the Swift wire-model generator and the Python, Elixir
+and Swift propagation probes went with their clients.

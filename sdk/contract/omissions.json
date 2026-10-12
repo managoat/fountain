@@ -15,7 +15,7 @@
         "POST /api/auth/device",
         "POST /api/auth/device/token"
       ],
-      "reason": "Account bootstrap. These sign-in and account recovery flows belong to the console and to `fountain auth login` (#1305). FountainKit models API key management after authentication."
+      "reason": "Account bootstrap. These sign-in and account recovery flows belong to the console and to `fountain auth login` (#1305)."
     },
     {
       "operations": ["* /api/oauth/clients*"],
@@ -23,7 +23,7 @@
     },
     {
       "operations": ["POST /api/oauth/token"],
-      "reason": "Sign in with Fountain. The browser apps exchange the code+PKCE themselves; the SDK starts with the API key that flow mints. FountainKit models revocation for sign-out."
+      "reason": "Sign in with Fountain. The browser apps exchange the code+PKCE themselves; the SDK starts with the API key that flow mints."
     },
     {
       "operations": ["* /api/account/*", "DELETE /api/account"],
@@ -43,7 +43,7 @@
     },
     {
       "operations": ["GET /api/runners/ws"],
-      "reason": "The self-hosted runner daemon's WebSocket (ADR 0022). Its socket is not JSON over HTTP. FountainKit models runner listing and deletion."
+      "reason": "The self-hosted runner daemon's WebSocket (ADR 0022). Its socket is not JSON over HTTP."
     },
     {
       "operations": ["* /api/buzz/agents*"],
@@ -51,21 +51,21 @@
     },
     {
       "operations": ["GET /api/support/reports", "GET /api/support/reports/{id}", "POST /api/support/reports"],
-      "reason": "The support inbox and report submission. No SDK models this console surface; FountainKit models the tenant's audit trail separately."
+      "reason": "The support inbox and report submission. No SDK models this console surface."
     },
     {
       "operations": [
         "PUT /api/agents/{id}/avatar",
         "DELETE /api/agents/{id}/avatar"
       ],
-      "reason": "Avatar upload and removal belong to the console. FountainKit models fetching the image bytes."
+      "reason": "Avatar upload and removal belong to the console."
     },
     {
       "operations": [
         "GET /api/conversations/{conversation_id}/egress",
         "GET /api/secret-bindings/presets"
       ],
-      "reason": "Console-facing reads. No SDK models these operations. FountainKit separately models connection providers and turn images."
+      "reason": "Console-facing reads. No SDK models these operations."
     },
     {
       "operations": ["GET /health", "GET /health/ready"],
@@ -82,6 +82,34 @@
     {
       "operations": ["POST /api/admin/users"],
       "reason": "Operator provisioning for a platform built on the instance (ADR 0064): its provisioner opens one account per application over plain HTTP with an admin's key. No SDK has an operator caller for account creation; the response is the AdminUser shape plus the new key."
+    },
+    {
+      "operations": [
+        "DELETE /api/admin/users/{id}",
+        "DELETE /api/auth/api-keys/{id}",
+        "DELETE /api/runners/{id}",
+        "GET /api/admin/audit",
+        "GET /api/admin/events",
+        "GET /api/admin/sandboxes",
+        "GET /api/admin/users",
+        "GET /api/admin/users/{id}",
+        "GET /api/agents/{id}/avatar",
+        "GET /api/agents/{id}/versions",
+        "GET /api/agents/{id}/versions/{version}",
+        "GET /api/audit",
+        "GET /api/auth/api-keys",
+        "GET /api/connections/providers",
+        "GET /api/conversations/{conversation_id}/turns/{turn_id}/images/{position}",
+        "GET /api/runners",
+        "POST /api/admin/sandboxes/{id}/reap",
+        "POST /api/admin/users/{id}/role",
+        "POST /api/admin/users/{id}/sandbox-limit",
+        "POST /api/admin/users/{id}/suspend",
+        "POST /api/apply",
+        "POST /api/auth/api-keys",
+        "POST /api/oauth/revoke"
+      ],
+      "reason": "Modelled only by the retired Python, Elixir and Swift SDKs (ADR 0059's 2026-10-12 addendum): operator administration, API key management and revocation, runner listing, agent versions and avatar bytes, the tenant audit trail, connection providers, turn images and declarative apply. The console owns them, `fountain apply` covers apply, and a TypeScript caller reaches any of them over the raw `api.request` client."
     }
   ]
 }

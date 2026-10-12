@@ -34,7 +34,7 @@ def typescript(check):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check", action="store_true")
-    parser.add_argument("--target", choices=["all", "contract", "typescript", "swift"], default="all")
+    parser.add_argument("--target", choices=["all", "contract", "typescript"], default="all")
     parser.add_argument("--skip-export", action="store_true", help="use existing artifacts (split CI jobs)")
     args = parser.parse_args()
     if args.skip_export and args.target == "contract":
@@ -47,8 +47,6 @@ def main():
             return status
     if args.target in {"all", "typescript"}:
         status |= typescript(args.check)
-    if args.target in {"all", "swift"}:
-        status |= subprocess.run([sys.executable, "scripts/sdk-contract/generate-swift.py", *flags], cwd=ROOT).returncode
     if status:
         print("Generated wire artifacts are stale or generation failed. Run: mise exec -- python3 scripts/sdk-contract/generate.py", file=sys.stderr)
     return status

@@ -12,8 +12,8 @@ defmodule FountainWeb.ApiSpec.Compose do
       `components.schemas` by each schema's `title`, so two *different* modules
       sharing a title collapse into one and every `$ref` to either resolves to
       whichever landed last. An extension defining a schema titled `Agent`
-      would rewrite the core's `Agent` in the published spec, and the four SDKs
-      are generated from that spec (#1411).
+      would rewrite the core's `Agent` in the published spec, and the SDK is
+      generated from that spec (#1411).
 
   Both raise here instead. The failure surfaces when the spec is built — which
   is at boot, in `mix openapi.spec.json`, and in the suite — rather than as a

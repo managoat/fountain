@@ -4,7 +4,7 @@
 The server is the only place the API is described. `mix openapi.export` renders
 that description to `dist/openapi.json`; this script canonicalises that file and
 projects it down to `sdk/contract/contract.json`, which is checked in and is
-what the four SDK verifiers read.
+what the SDK verifier reads.
 
 Two files rather than one, because they answer different questions:
 

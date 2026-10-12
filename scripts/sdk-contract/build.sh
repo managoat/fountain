@@ -7,7 +7,7 @@
 #                                          the checked-in contract is stale
 #
 # The export needs the Elixir toolchain and a database URL, because rendering
-# the spec boots the app. The four SDK verifiers do not — they read the checked
+# the spec boots the app. The SDK verifier does not — they read the checked
 # in projection, which is the whole point of committing it.
 set -euo pipefail
 

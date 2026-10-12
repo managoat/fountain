@@ -7,7 +7,6 @@ import shutil
 import subprocess
 import tempfile
 import unittest
-from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -20,8 +19,6 @@ def module(name, path):
 
 
 catalog = module('sdk_catalog', 'scripts/sdk-catalog.py')
-release = module('sdk_release', 'scripts/sdk-release.py')
-swiftgen = module('sdk_swift_generator', 'scripts/sdk-contract/generate-swift.py')
 
 
 class SDKMaintenanceTest(unittest.TestCase):
@@ -32,14 +29,12 @@ class SDKMaintenanceTest(unittest.TestCase):
         # Tiny fixture tree with the real metadata and hooks; no SDK builds or deps.
         config = catalog.load()
         paths = {'sdk/catalog.json', 'sdk/conformance/matrix.json', '.github/CODEOWNERS',
-                 '.github/workflows/ci.yml', 'Package.swift', 'scripts/sdk-release.mjs',
-                 'scripts/elixir-sdk-release.exs', 'scripts/sdk-release-tag.py', 'SDKs.md'}
+                 '.github/workflows/ci.yml', 'scripts/sdk-release.mjs',
+                 'scripts/sdk-release-tag.py', 'SDKs.md'}
         for language, sdk in config['sdks'].items():
             paths.update([sdk['manifest'], sdk['release_gate'], sdk['publish_workflow'], sdk['contract_check']])
             paths.update(f'sdk/{language}/{file}' for file in ['README.md', 'CHANGELOG.md', 'LICENSE'])
-        paths.update(['sdk/typescript/src/http.ts', 'sdk/python/src/fountain/http.py',
-                      'sdk/python/src/fountain/__init__.py', 'sdk/elixir/lib/fountain/http.ex',
-                      'sdk/swift/Sources/Fountain/Fountain.swift', 'sdk/swift/Sources/FountainKit/Version.swift'])
+        paths.add('sdk/typescript/src/http.ts')
         for path in paths:
             target = self.root / path
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -74,77 +69,28 @@ class SDKMaintenanceTest(unittest.TestCase):
         self.assertTrue(any('registered' in e for e in catalog.validate(self.root)))
 
     def test_owner_removal_is_rejected(self):
-        self.change('.github/CODEOWNERS', lambda s: s.replace('/sdk/python/ @BinaryBourbon', ''))
-        self.assertTrue(any('python: missing explicit CODEOWNERS' in e for e in catalog.validate(self.root)))
+        self.change('.github/CODEOWNERS', lambda s: s.replace('/sdk/typescript/ @BinaryBourbon', ''))
+        self.assertTrue(any('typescript: missing explicit CODEOWNERS' in e for e in catalog.validate(self.root)))
 
     def test_contract_check_removed_from_ci_is_rejected(self):
-        self.change('.github/workflows/ci.yml', lambda s: s.replace('run: python scripts/verify_contract.py', 'run: echo removed'))
-        self.assertTrue(any('python: CI job lacks' in e for e in catalog.validate(self.root)))
+        self.change('.github/workflows/ci.yml', lambda s: s.replace('run: npm run verify-contract', 'run: echo removed'))
+        self.assertTrue(any('typescript: CI job lacks' in e for e in catalog.validate(self.root)))
 
     def test_publisher_removed_from_workflow_is_rejected(self):
-        self.change('.github/workflows/python-sdk-publish.yml', lambda s: s.replace('pypa/gh-action-pypi-publish@', 'not-a-publisher@'))
-        self.assertTrue(any('python: missing publisher' in e for e in catalog.validate(self.root)))
+        self.change('.github/workflows/sdk-publish.yml', lambda s: s.replace('npm publish --tag', 'echo not-a-publisher'))
+        self.assertTrue(any('typescript: missing publisher' in e for e in catalog.validate(self.root)))
 
-    def test_version_identities_are_checked_even_without_a_bump(self):
-        for language, path, old in [
-            ('typescript', 'sdk/typescript/src/http.ts', 'fountain-sdk-js/'),
-            ('python', 'sdk/python/src/fountain/http.py', 'fountain-sdk-python/'),
-            ('elixir', 'sdk/elixir/lib/fountain/http.ex', 'fountain-sdk-elixir/'),
-            ('swift', 'sdk/swift/Sources/FountainKit/Version.swift', ' = "'),
-        ]:
-            with self.subTest(language=language):
-                source = (self.root / path).read_text()
-                (self.root / path).write_text(source.replace(old, old + 'stale'))
-                self.assertTrue(catalog.version_errors(language, self.root))
-                (self.root / path).write_text(source)
+    def test_version_identity_is_checked_even_without_a_bump(self):
+        path = self.root / 'sdk/typescript/src/http.ts'
+        path.write_text(path.read_text().replace('fountain-sdk-js/', 'fountain-sdk-js/stale'))
+        self.assertTrue(catalog.version_errors('typescript', self.root))
 
-    def test_readme_and_tests_do_not_require_python_or_swift_releases(self):
-        for language in ['python', 'swift']:
-            self.append(f'sdk/{language}/README.md')
-        self.commit()
-        for language in ['python', 'swift']:
-            self.assertEqual(release.guard(language, self.base, self.root), [])
-
-    def test_python_runtime_change_requires_release(self):
-        self.change('sdk/python/pyproject.toml', lambda s: s.replace('>=3.9', '>=3.10'))
-        self.commit()
-        self.assertTrue(any('without a version bump' in e for e in release.guard('python', self.base, self.root)))
-
-    def test_swift_sources_and_root_manifest_require_release(self):
-        self.append('Package.swift', '\n// A manifest edit\n')
-        self.commit()
-        self.assertTrue(any('without a version bump' in e for e in release.guard('swift', self.base, self.root)))
-
-    def bump_python(self):
-        old = catalog.facts('python', self.root)[1]
+    def bump_typescript(self):
+        old = catalog.facts('typescript', self.root)[1]
         new = old.rsplit('.', 1)[0] + '.' + str(int(old.rsplit('.', 1)[1]) + 1)
-        for file in ['sdk/python/pyproject.toml', 'sdk/python/src/fountain/http.py', 'sdk/python/src/fountain/__init__.py']:
+        for file in ['sdk/typescript/package.json', 'sdk/typescript/src/http.ts']:
             self.change(file, lambda s: s.replace(old, new))
         return new
-
-    def test_version_bump_without_changelog_is_rejected(self):
-        self.bump_python()
-        self.commit()
-        self.assertTrue(any('CHANGELOG' in e for e in release.guard('python', self.base, self.root)))
-
-    def test_valid_python_release_does_not_require_swift_release(self):
-        version = self.bump_python()
-        self.append('sdk/python/CHANGELOG.md', f'\n## {version}\n\nA change.\n')
-        self.commit()
-        self.assertEqual(release.guard('python', self.base, self.root), [])
-        self.assertEqual(release.guard('swift', self.base, self.root), [])
-
-    def test_existing_registry_version_is_rejected_and_outage_fails_closed(self):
-        version = self.bump_python()
-        self.append('sdk/python/CHANGELOG.md', f'\n## {version}\n\nA change.\n')
-        self.commit()
-        with mock.patch.object(release.urllib.request, 'urlopen') as request:
-            self.assertTrue(any('already exists' in e for e in release.guard('python', self.base, self.root, True)))
-            request.side_effect = release.urllib.error.HTTPError('https://test.invalid', 503, 'outage', {}, None)
-            with self.assertRaises(release.urllib.error.HTTPError):
-                release.guard('python', self.base, self.root, True)
-            request.side_effect = release.urllib.error.HTTPError('https://test.invalid', 404, 'not published', {}, None)
-            self.assertEqual(release.guard('python', self.base, self.root, True), [])
 
     def tag_fixture(self):
         temp = tempfile.TemporaryDirectory()
@@ -152,7 +98,7 @@ class SDKMaintenanceTest(unittest.TestCase):
         remote = Path(temp.name) / 'origin.git'
         subprocess.run(['git', 'init', '--bare', '-q', str(remote)], check=True)
         self.git('remote', 'add', 'origin', str(remote))
-        version = self.bump_python()
+        version = self.bump_typescript()
         self.commit()
         return version
 
@@ -161,11 +107,11 @@ class SDKMaintenanceTest(unittest.TestCase):
         return {
             path: {'id': 12345, 'run_attempt': attempt,
                    'repository': {'full_name': 'test/fountain'}, 'head_sha': source,
-                   'head_branch': 'main', 'path': '.github/workflows/python-sdk-publish.yml@main',
+                   'head_branch': 'main', 'path': '.github/workflows/sdk-publish.yml@main',
                    'event': 'push', 'status': 'completed'},
             f'{path}/jobs?per_page=100&page=1': {
                 'total_count': 1, 'jobs': [{
-                    'name': 'Publish to PyPI', 'run_id': 12345, 'head_sha': source,
+                    'name': 'Publish to npm', 'run_id': 12345, 'head_sha': source,
                     'status': 'completed', 'conclusion': 'failure',
                     'steps': [
                         {'name': 'Publish', 'status': 'completed', 'conclusion': conclusion},
@@ -196,7 +142,7 @@ urllib.request.urlopen = response
 sys.argv = ['scripts/sdk-release-tag.py', *sys.argv[1:]]
 runpy.run_path(sys.argv[0], run_name='__main__')
 """
-        command = [shutil.which('python3'), '-c', harness, 'python', version]
+        command = [shutil.which('python3'), '-c', harness, 'typescript', version]
         if published:
             command.append('--published-now')
         result = subprocess.run(command, cwd=self.root, env=env, text=True, capture_output=True)
@@ -214,7 +160,7 @@ runpy.run_path(sys.argv[0], run_name='__main__')
         self.append('SDKs.md')
         self.commit()
         self.record_tag(version)
-        remote = self.git('ls-remote', 'origin', f'refs/tags/sdk-python-v{version}^{{}}')
+        remote = self.git('ls-remote', 'origin', f'refs/tags/sdk-typescript-v{version}^{{}}')
         self.assertEqual(remote.split()[0], source)
 
     def test_original_run_can_repair_missing_tag_after_successful_upload(self):
@@ -222,7 +168,7 @@ runpy.run_path(sys.argv[0], run_name='__main__')
         self.record_tag(version)  # Already on registry; initial event cannot invent provenance.
         self.assertEqual(self.git('ls-remote', 'origin', 'refs/tags/*'), '')
         self.record_tag(version, attempt=2, evidence=self.upload_evidence(self.git('rev-parse', 'HEAD')))
-        remote = self.git('ls-remote', 'origin', f'refs/tags/sdk-python-v{version}^{{}}')
+        remote = self.git('ls-remote', 'origin', f'refs/tags/sdk-typescript-v{version}^{{}}')
         self.assertEqual(remote.split()[0], self.git('rev-parse', 'HEAD'))
 
     def test_later_rerun_cannot_backfill_tag_for_an_older_artifact(self):
@@ -238,7 +184,7 @@ runpy.run_path(sys.argv[0], run_name='__main__')
         bump_source = self.git('rev-parse', 'HEAD')
         # A fails before upload; B's README changes the packaged metadata and B
         # uploads the same version, then its tag write fails. Neither has a tag.
-        self.append('sdk/python/README.md', '\nPublished from B.\n')
+        self.append('sdk/typescript/README.md', '\nPublished from B.\n')
         self.commit()
         publishing_source = self.git('rev-parse', 'HEAD')
         self.git('checkout', '--detach', bump_source)
@@ -247,7 +193,7 @@ runpy.run_path(sys.argv[0], run_name='__main__')
         self.assertEqual(self.git('ls-remote', 'origin', 'refs/tags/*'), '')
         self.git('checkout', '--detach', publishing_source)
         self.record_tag(version, attempt=2, evidence=self.upload_evidence(publishing_source))
-        remote = self.git('ls-remote', 'origin', f'refs/tags/sdk-python-v{version}^{{}}')
+        remote = self.git('ls-remote', 'origin', f'refs/tags/sdk-typescript-v{version}^{{}}')
         self.assertEqual(remote.split()[0], publishing_source)
         self.assertNotEqual(remote.split()[0], bump_source)
 
@@ -298,28 +244,8 @@ runpy.run_path(sys.argv[0], run_name='__main__')
         evidence[path + '1'] = {'total_count': 101, 'jobs': [{'name': 'Other job'}] * 100}
         evidence[path + '2'] = {'total_count': 101, 'jobs': [publishing_job]}
         self.record_tag(version, attempt=3, evidence=evidence)
-        remote = self.git('ls-remote', 'origin', f'refs/tags/sdk-python-v{version}^{{}}')
+        remote = self.git('ls-remote', 'origin', f'refs/tags/sdk-typescript-v{version}^{{}}')
         self.assertEqual(remote.split()[0], sha)
-
-    def test_swift_baseline_follows_sdk_releases_and_ignores_later_server_tags(self):
-        self.git('tag', 'v0.19.0')
-        self.append('SDKs.md')
-        self.commit()
-        self.git('tag', 'v0.99.0')
-        try:
-            with mock.patch.object(swiftgen, 'ROOT', self.root):
-                swiftgen.released_tag.cache_clear()
-                self.assertEqual(swiftgen.released_tag(), 'v0.19.0')
-                self.append('SDKs.md')
-                self.commit()
-                self.git('tag', 'sdk-swift-v0.20.0')
-                self.append('SDKs.md')
-                self.commit()
-                self.git('tag', 'v1.0.0')
-                swiftgen.released_tag.cache_clear()
-                self.assertEqual(swiftgen.released_tag(), 'sdk-swift-v0.20.0')
-        finally:
-            swiftgen.released_tag.cache_clear()
 
     @unittest.skipUnless(shutil.which('node'), 'Node is needed for the native TypeScript gate')
     def test_native_typescript_gate_allows_docs_and_rejects_unversioned_source(self):
@@ -330,17 +256,6 @@ runpy.run_path(sys.argv[0], run_name='__main__')
         self.append('sdk/typescript/src/http.ts', '\n// A source edit\n')
         self.commit()
         self.assertNotEqual(subprocess.run(command, cwd=self.root, capture_output=True).returncode, 0)
-
-    @unittest.skipUnless(shutil.which('elixir'), 'Elixir is needed for the native Elixir gate')
-    def test_native_elixir_gate_allows_docs_and_rejects_unversioned_source(self):
-        self.append('sdk/elixir/README.md')
-        self.commit()
-        command = ['elixir', 'scripts/elixir-sdk-release.exs', 'guard', self.base]
-        self.assertEqual(subprocess.run(command, cwd=self.root, capture_output=True).returncode, 0)
-        self.append('sdk/elixir/lib/fountain/http.ex')
-        self.commit()
-        self.assertNotEqual(subprocess.run(command, cwd=self.root, capture_output=True).returncode, 0)
-
 
 if __name__ == '__main__':
     unittest.main()

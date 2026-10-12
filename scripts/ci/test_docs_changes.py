@@ -28,8 +28,8 @@ class DocumentationRoutingTest(unittest.TestCase):
             (["docs/nav.yml", "docs/images/primitives.svg"], True, True, False),
             (["CONTRIBUTING.md", "docs/index.md"], True, True, False),
             (["docs/cli/commands.md"], True, True, True),
-            (["docs/python-sdk.md"], True, True, False),
-            (["sdk/python/README.md"], True, False, False),
+            (["docs/sdk.md"], True, True, False),
+            (["sdk/typescript/README.md"], True, False, False),
         ]
         cases += [([f"apps/{app}/docs/nav.yml", f"apps/{app}/docs/guide.md"],
                    True, True, False) for app in MANUAL_EXTENSIONS]
@@ -60,7 +60,7 @@ class DocumentationRoutingTest(unittest.TestCase):
             "decisions/evidence/decimal-advisory.json", "decisions/check.py", "changelog.d/check.sh",
             "deploy/k8s/prometheusrule.yaml", "deploy/grafana/fountain-ops.json",
             "scripts/test-alerts.py", "scripts/decisions-index.sh", "scripts/test-docs.sh", ".github/workflows/ci.yml",
-            "sdk/python/client.py", "sdk/contract/README.md", "new-directory/guide.md",
+            "sdk/typescript/src/client.ts", "sdk/contract/README.md", "new-directory/guide.md",
         ):
             with self.subTest(path=path):
                 self.assertFalse(classify_docs(["CONTRIBUTING.md", "docs/cli.md", path])["docs_only"])
@@ -145,7 +145,7 @@ class DocumentationRoutingTest(unittest.TestCase):
                                         ("changelog.d/2210-docs.md", True, False),
                                         ("CHANGELOG.md", True, True),
                                         ("apps/fountain_slack/docs/nav.yml", True, True),
-                                        ("sdk/python/README.md", True, False),
+                                        ("sdk/typescript/README.md", True, False),
                                         ("config/runtime.exs", False, False)):
                 base = git("rev-parse", "HEAD")
                 git("branch", "-f", "main", base)

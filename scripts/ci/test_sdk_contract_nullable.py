@@ -165,7 +165,7 @@ class CommittedContract(unittest.TestCase):
     """The five fields, as they stand in the checked-in projection.
 
     `contract.json` is committed, so this runs with no Elixir toolchain and no
-    export — the same reason the four SDK verifiers read it. The document-level
+    export — the same reason the SDK verifier reads it. The document-level
     check runs against `dist/openapi.json` in `release-and-contract`; this is
     the half that cannot be skipped.
     """

@@ -102,8 +102,7 @@ rewrite, not a base-URL change:
 | `model: "<agent>"` | `agent_id` on the conversation |
 | `GET /v1/models` | [`GET /api/agents`](../api.md) |
 
-The [TypeScript](../sdk.md), [Python](../python-sdk.md),
-[Elixir](../elixir-sdk.md) and [Swift](../swift-sdk.md) SDKs wrap all of it, and
+The [TypeScript SDK](../sdk.md) wraps all of it, and
 [Plug into Fountain](clients.md) is the shortest route in.
 
 ## What is not affected

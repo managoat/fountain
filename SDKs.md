@@ -7,13 +7,18 @@ Versions below describe this checkout; registry links show what is published. SD
 | Language | Package / install | Version | Minimum runtime | Stability | Conformance |
 |---|---|---|---|---|---|
 | [TypeScript](sdk/typescript/README.md) | [npm install @managoat/fountain-sdk](https://www.npmjs.com/package/@managoat/fountain-sdk) | 7.0.0 | Node >=20.19; browsers with fetch | Stable; SemVer | typescript: 26/26 |
-| [Python](sdk/python/README.md) | [pip install fountain-agent-sdk](https://pypi.org/project/fountain-agent-sdk/) | 0.8.0 | Python >=3.9 | Alpha; pre-1.0 | python: 26/26 |
-| [Elixir](sdk/elixir/README.md) | [{:fountain_sdk, "~> 0.8.0"}](https://hex.pm/packages/fountain_sdk) | 0.8.0 | Elixir ~> 1.15 / OTP 26+ | Pre-1.0 | elixir: 26/26 |
-| [Swift](sdk/swift/README.md) | [SwiftPM revision: "sdk-swift-v0.23.0"](https://github.com/managoat/fountain/tags) | 0.23.0 | Swift 6.1+; macOS 12, iOS/tvOS 15, watchOS 8, Linux | Pre-1.0 | swift: 26/26; swift-kit: 26/26 |
 
 Conformance counts are declared coverage of the [shared scenarios](sdk/conformance/README.md),
 not a claim that every server feature exists in every client. [The matrix](sdk/conformance/matrix.json)
 records unsupported scenarios and their tracking issues. CI runs every registered adapter.
+
+## Retired SDKs
+
+The Python ([fountain-agent-sdk](https://pypi.org/project/fountain-agent-sdk/)), Elixir
+([fountain_sdk](https://hex.pm/packages/fountain_sdk)) and Swift (`sdk-swift-v*` tags) SDKs were
+removed from this repository on 2026-10-12 ([ADR 0059](decisions/0059-independent-sdk-maintenance.md)).
+Their published releases stay where they are but are no longer maintained or tested against new
+servers. Use the TypeScript SDK, the `fountain` CLI, or the HTTP API directly.
 
 ## Maintenance
 
@@ -23,9 +28,6 @@ Fallback owner: @BinaryBourbon. Explicit per-language ownership is enforced in
 | SDK | Owner | Version manifest | Release gate | Publisher | New tags |
 |---|---|---|---|---|---|
 | typescript | @BinaryBourbon | [sdk/typescript/package.json](sdk/typescript/package.json) | [gate](.github/workflows/sdk-release-gate.yml) | [publish](.github/workflows/sdk-publish.yml) | `sdk-typescript-v<version>` |
-| python | @BinaryBourbon | [sdk/python/pyproject.toml](sdk/python/pyproject.toml) | [gate](.github/workflows/python-sdk-release-gate.yml) | [publish](.github/workflows/python-sdk-publish.yml) | `sdk-python-v<version>` |
-| elixir | @BinaryBourbon | [sdk/elixir/mix.exs](sdk/elixir/mix.exs) | [gate](.github/workflows/elixir-sdk-release-gate.yml) | [publish](.github/workflows/elixir-sdk-publish.yml) | `sdk-elixir-v<version>` |
-| swift | @BinaryBourbon | [sdk/swift/version.json](sdk/swift/version.json) | [gate](.github/workflows/swift-sdk-release-gate.yml) | [publish](.github/workflows/swift-sdk-publish.yml) | `sdk-swift-v<version>` |
 
 See [SDK maintenance](contributing/sdk-maintenance.md) for version bumps, authentication,
-tag recovery, Swift installation, and the checklist for adding an SDK.
+tag recovery, and the checklist for adding an SDK.

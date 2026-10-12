@@ -1,8 +1,8 @@
 /**
  * The shared conformance suite, run against this client.
  *
- * The scenarios live in `sdk/conformance/scenarios` and are the same files
- * Python, Swift and Elixir run. Nothing language-specific belongs in them, and
+ * The scenarios live in `sdk/conformance/scenarios` and are written for any
+ * client, whatever its language. Nothing language-specific belongs in them, and
  * nothing here decides what passes: this file serves the scripted bytes, drives
  * the public client, normalises what it saw into the shared vocabulary, and
  * compares that against the scenario's own `expect`.

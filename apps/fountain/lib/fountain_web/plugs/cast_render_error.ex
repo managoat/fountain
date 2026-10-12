@@ -32,7 +32,7 @@ defmodule FountainWeb.Plugs.CastRenderError do
   A client reading `body.error` for a code gets one, a client reading
   `body.errors` for fields gets those, and nothing has to branch on which kind
   of 422 it received. That is the property worth having: the alternative
-  shapes clients apart, and four SDKs would each need to learn the difference.
+  shapes clients apart, and every client would need to learn the difference.
   Since #2324 every JSON error status declares the one `Error` schema, which
   requires `error` and describes `errors` beside it; before that the 27
   operations declared three different 422 schemas and this body was the one

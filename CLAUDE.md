@@ -68,7 +68,7 @@ apps/fountain_slack/       and builds no connection provider of its own. Their s
                            from their own directories; `BUNDLE_EXTENSIONS=false` builds the
                            core distribution. A new callback on the behaviour needs an ADR.
 cli/, apps/fountain_buzz/cli   two Go modules (Apache-2.0); test each from its own directory
-sdk/                       four clients against one OpenAPI contract (CONTRIBUTING.md)
+sdk/                       the TypeScript client, against one OpenAPI contract (CONTRIBUTING.md)
 config/                    config.exs, dev.exs, test.exs, prod.exs, runtime.exs
 decisions/                 ADRs, an OKF bundle; start at decisions/index.md
 docs/                      the public manual, served at /docs and nowhere else

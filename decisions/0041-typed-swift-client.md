@@ -1,11 +1,11 @@
 ---
 type: ADR
 title: "A second Swift client in the SDK package: typed for applications, untyped for scripts"
-description: "sdk/swift ships two products from one package — `Fountain`, the JSONObject client shaped like its TypeScript, Python and Elixir siblings, and `FountainKit`, a Codable-model client for applications, contributed from swift-goat under Apache-2.0. Both run the shared conformance suite; FountainKit is the `swift-kit` column, green on all 24. They share no code yet, and unifying their HTTP and SSE layers is not built."
+description: "Retired 2026-10-12: sdk/swift was removed when TypeScript became the one maintained SDK (ADR 0059 addendum). sdk/swift ships two products from one package — `Fountain`, the JSONObject client shaped like its TypeScript, Python and Elixir siblings, and `FountainKit`, a Codable-model client for applications, contributed from swift-goat under Apache-2.0. Both run the shared conformance suite; FountainKit is the `swift-kit` column, green on all 24. They share no code yet, and unifying their HTTP and SSE layers is not built."
 tags: [sdk, swift, clients, licensing]
-status: stable
+status: deprecated
 adr: "0041"
-adr_status: "Accepted"
+adr_status: "Retired"
 date: 2026-09-03
 generated: { by: claude-opus/5, at: 2026-09-03T00:00:00-04:00 }
 verified: { by: claude-opus/5, at: 2026-09-03T00:00:00-04:00 }
@@ -14,7 +14,8 @@ stale_after: 2026-12-03
 
 # 0041 — A second Swift client in the SDK package: typed for applications, untyped for scripts
 
-**Status:** Accepted, 2026-09-03. Built in the PR that adds this file: the
+**Status:** Retired 2026-10-12; see the addendum at the end. The text above
+the addendum is history. Was: Accepted, 2026-09-03. Built in the PR that adds this file: the
 `FountainKit` product, its 26 sources and its tests, the `swift-kit` column in
 the conformance matrix, and the version constant CI and the release bump now
 stamp. **Not built:** the two clients share no HTTP, SSE or error code. That
@@ -102,3 +103,13 @@ follow-up, not a gap in what ships here.
 swift-goat becomes the first consumer, depending on this package instead of
 carrying the client. It stays the worked example: a real application on the
 typed client, with its own docs mapping the operation surface.
+
+## Addendum — 2026-10-12: retired
+
+`sdk/swift`, with both the `Fountain` and `FountainKit` products, the root
+`Package.swift`, the `swift` and `swift-kit` conformance columns, the Swift
+contract manifest and the generated wire models, was removed when TypeScript
+became Fountain's one maintained SDK
+([ADR 0059's addendum](0059-independent-sdk-maintenance.md#addendum--2026-10-12-typescript-is-the-one-sdk)).
+The published `sdk-swift-v*` tags stay, unmaintained. The unification this
+ADR deferred will not happen here.

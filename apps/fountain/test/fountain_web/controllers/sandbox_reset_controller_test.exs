@@ -106,7 +106,7 @@ defmodule FountainWeb.SandboxResetControllerTest do
     # the window between a forced destroy's lease claim and its fence — until
     # that fence commits, the row still looks resettable to this endpoint, and
     # the claim is where the two meet. The operation declares
-    # `service_unavailable` for it, so the schema guard and the four SDKs know
+    # `service_unavailable` for it, so the schema guard and the SDK know
     # the shape.
     stub(Fountain.Machines.Destroy, :run, fn _id, _opts -> {:error, :machine_busy} end)
 

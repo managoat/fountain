@@ -4,7 +4,9 @@
 client does with an SSE frame split across two TCP writes, which error class a
 429 becomes, whether a dropped stream resumes from the right cursor, and what
 `run` returns when the turn fails. None of that is in an OpenAPI document, and
-all of it is something Fountain promises in four languages at once.
+all of it is something Fountain promises to every client, whatever its
+language. The TypeScript SDK is the client that runs it today; the Python,
+Elixir and Swift SDKs that also ran it were removed on 2026-10-12 (ADR 0059).
 
 Each scenario is a JSON file describing bytes in and observations out. Each SDK
 supplies a thin adapter that serves those bytes to its own public client and
@@ -26,12 +28,8 @@ sdk/conformance/
 | SDK | Command | Run from |
 |---|---|---|
 | TypeScript | `npm run conformance` | `sdk/typescript` |
-| Python | `python3 -m unittest discover -s tests -p test_conformance.py` | `sdk/python` |
-| Swift | `swift test --filter ConformanceTests` | repository root |
-| Swift (typed) | `swift test --filter FountainKitTests.Conformance` | repository root |
-| Elixir | `mix test test/conformance_test.exs` | `sdk/elixir` |
 
-Each also runs inside that SDK's normal test command, so a contributor who runs
+It also runs inside the SDK's normal test command, so a contributor who runs
 the suite gets it without knowing it is there. `python3 sdk/conformance/lint.py`
 checks the scenarios themselves.
 
@@ -107,14 +105,12 @@ looks like to a client that has been reading happily for hours.
 
 **How the bytes reach the client is the adapter's business.** A real loopback
 socket and a transport-level mock are both fine, as long as the client parses
-the same bytes. Swift uses its `MockURLProtocol` rather than a real socket on
-purpose: the `FoundationNetworking` teardown bug is tracked separately and is
-explicitly not this suite's problem.
+the same bytes.
 
 ### `steps`: what the client is asked to do
 
-The vocabulary is small on purpose. Every op is something all four clients
-expose publicly; nothing here reaches into a private class.
+The vocabulary is small on purpose. Every op is something a client
+exposes publicly; nothing here reaches into a private class.
 
 | `op` | Fields | What the adapter calls |
 |---|---|---|
@@ -144,7 +140,7 @@ Every key is optional, and an absent key asserts nothing.
 
 - **`requests`** — an ordered list. Each entry is a *subset* match against the
   request the server saw: `method` and `path` exactly, `query`, `headers`
-  (lower-cased names) and `body` as subsets. Four clients do not agree on every
+  (lower-cased names) and `body` as subsets. Clients do not agree on every
   header they send, and this suite is not the place to make them.
   `header_prefixes` asserts a header starts with a string, for the ones whose
   tail is a version; `headers_absent` asserts a header was not sent at all.
@@ -154,16 +150,15 @@ Every key is optional, and an absent key asserts nothing.
 - **`event_ids`** — the `id` of every event a `history` drain returned, in
   order. Exact, not a subset: the whole point is that none went missing.
 - **`events`** — the ordered run events, each a subset match. The event
-  vocabulary is the one all four clients already emit: `conversation`,
+  vocabulary is the one the SDK already emits: `conversation`,
   `turn-start`, `text`, `thinking`, `tool`, `permission`, `block`, `event`,
   `turn-end`. Adapters report `type` in that spelling whatever their language
   calls it.
 - **`result`** — a subset match against the finished run: `state`, `text`,
   `tools_used`, `turn_number`, `exit_code`, `reason`, `conversation_id`.
 - **`error`** — the failure the client raised, subset-matched. `kind` comes
-  from the shared vocabulary below, because `QuotaExceededError` and
-  `Fountain.Error` with `:quota_exceeded` are the same promise in two
-  languages. The other keys are `status`, `code` (the server's `error` string),
+  from the shared vocabulary below, because an error class name is
+  one language's spelling of the promise, not the promise. The other keys are `status`, `code` (the server's `error` string),
   `retryable`, `retry_after` (seconds, from `Retry-After`), `field_errors` (the
   422 map) and `partial_text` (what a timed-out run had collected).
 - **`no_error`: true** — the step must not raise. Implied when `result` or
@@ -193,7 +188,7 @@ the scenario wants.
 ## The support matrix
 
 `matrix.json` says which SDK runs which scenario. Every scenario needs an entry
-for all four, and the only values are `"yes"` or an object
+for every registered SDK, and the only values are `"yes"` or an object
 `{"skip": "why", "issue": 1234}`. `lint.py` fails on a scenario missing from the
 matrix, on an SDK missing from a scenario, on a skip with no issue, and on a
 matrix entry naming a scenario that no longer exists. A gap is therefore a
@@ -216,9 +211,8 @@ One place, in this order:
 ## What this is not
 
 It does not replace each SDK's own tests. Those cover idiom, ergonomics and
-implementation detail — how `for await` behaves, whether a Swift `AsyncSequence`
-cancels cleanly, what an Elixir `Stream` does on demand. This suite owns only
-the behaviour Fountain promises identically in every language, and its scenarios
+implementation detail, such as how `for await` behaves. This suite owns only
+the behaviour Fountain promises to every client, and its scenarios
 should stay boring enough that a reader can tell which is which.
 
 It also does not drive a real Fountain. Every scenario is scripted bytes, which

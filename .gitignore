@@ -84,11 +84,3 @@ priv/plts/
 # Python (integrations/hermes)
 __pycache__/
 *.pyc
-/sdk/python/build/
-/sdk/python/dist/
-/sdk/python/src/*.egg-info/
-
-
-# Swift Package Manager build state.
-/.build/
-/.swiftpm/

@@ -69,17 +69,6 @@ verification:
         - decisions/**
         - scripts/decisions-index.sh
         - .github/workflows/decisions.yml
-    - path: .github/workflows/elixir-sdk-release-gate.yml
-      paths:
-        - sdk/elixir/**
-        - scripts/elixir-sdk-release.exs
-        - .github/workflows/elixir-sdk-release-gate.yml
-    - path: .github/workflows/python-sdk-release-gate.yml
-      paths:
-        - sdk/python/**
-        - .github/workflows/python-sdk-release-gate.yml
-        - scripts/sdk-release.py
-        - scripts/sdk-catalog.py
     - path: .github/workflows/sandbox-images.yml
       paths:
         - images/**
@@ -92,14 +81,6 @@ verification:
         - scripts/sdk-publish-tag*.mjs
         - .github/workflows/sdk-publish.yml
         - .github/workflows/sdk-release-gate.yml
-    - path: .github/workflows/swift-sdk-release-gate.yml
-      paths:
-        - sdk/swift/**
-        - Package.swift
-        - scripts/sdk-release.py
-        - scripts/sdk-catalog.py
-        - .github/workflows/swift-sdk-release-gate.yml
-        - .github/workflows/swift-sdk-publish.yml
     - path: .github/workflows/secrets-scan.yml
   # Cold Credo/Dialyzer took ~23 minutes on the measured fresh worker.
   command_timeout_minutes: 30
@@ -127,11 +108,7 @@ verification:
       run build && npm run verify-contract && npm run conformance'
     - rl-env sh -c 'cd cli && go test -count=1 ./... && go vet ./...'
     - rl-env sh -c 'cd apps/fountain_buzz/cli && go test -count=1 ./... && go vet ./...'
-    - rl-env sh -c 'python3 sdk/conformance/lint.py && python3 -m unittest discover -s sdk/python/tests -v &&
-      python3 -m unittest discover -s integrations/hermes/tests -v && cd sdk/python && python3
-      scripts/verify_contract.py'
-    - rl-env sh -c 'cd sdk/elixir && mix deps.get && mix format --check-formatted && mix compile
-      --warnings-as-errors && mix test'
+    - rl-env sh -c 'python3 sdk/conformance/lint.py && python3 -m unittest discover -s integrations/hermes/tests -v'
 approval:
   mode: policy-pass-with-exceptions
   require_all_reviewers: true
@@ -163,9 +140,6 @@ approval:
     - rel/**
     - deploy/**
     - sdk/typescript/package.json
-    - sdk/python/pyproject.toml
-    - sdk/elixir/mix.exs
-    - sdk/swift/version.json
     - coverage.exs
     - .credo.exs
     - "**/.sobelow-conf"

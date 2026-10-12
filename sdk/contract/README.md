@@ -1,9 +1,10 @@
 # The SDK wire contract
 
-One API, four clients. The server is the only place the API is described, and
-this directory is how that description reaches TypeScript, Python, Swift and
-Elixir so a schema change fails in the PR that makes it rather than months
-later in somebody's application.
+One API, one SDK and the CLI. The server is the only place the API is
+described, and this directory is how that description reaches the TypeScript
+SDK and the `fountain` CLI, so a schema change fails in the PR that makes it
+rather than months later in somebody's application. The Python, Elixir and
+Swift SDKs that once read it too were removed on 2026-10-12 (ADR 0059).
 
 ## Artifacts and handwritten claims
 
@@ -13,7 +14,6 @@ later in somebody's application.
 | `contract.json` | `scripts/sdk-contract/build.py` | yes |
 | `manifests/<sdk>.json` | a person | yes |
 | `../typescript/src/generated/openapi.ts` | openapi-typescript | yes |
-| `../swift/Sources/FountainKit/Models/ConversationWire.generated.swift` | `generate-swift.py` | yes |
 
 `dist/openapi.json` is the whole OpenAPI document with vendor extensions off.
 It moves with every prose edit and every release, which is why it is rebuilt
@@ -23,19 +23,13 @@ rather than committed.
 schemas, requiredness, enums, formats, nullability. Descriptions, summaries,
 tags and `info.version` are dropped, so a docs pass or a version bump leaves
 this file byte-identical and a diff on it means exactly one thing — the wire
-changed. It is committed so an SDK check needs no Elixir toolchain: the Swift
-job on macOS reads it straight from the checkout.
+changed. It is committed so an SDK check needs no Elixir toolchain: the
+TypeScript job reads it straight from the checkout.
 
-`manifests/<sdk>.json` is what one client says it depends on. Each SDK has a
+`manifests/<sdk>.json` is what one client says it depends on. The SDK has a
 verifier in its own language that reads both files and fails, naming itself and
-the scenario, when the two disagree.
-
-`swift.json` claims the union of operations used by the `Fountain` and
-`FountainKit` products in the `Fountain` Swift package. Its schema and enum
-claims cover the original `Fountain` layer. `FountainKitContractTests` invokes
-the typed client's resource methods through a recording transport and checks
-their requests against the operation claims and the committed API contract.
-Add an inventory case there when adding a typed resource method.
+the scenario, when the two disagree. `manifests/typescript.json` is the one
+manifest today.
 
 ## Rebuilding
 
@@ -45,14 +39,13 @@ mise exec -- python3 scripts/sdk-contract/generate.py --check  # report stale ou
 ```
 
 Install dependencies/toolchains first: the pinned Elixir/OTP and server deps,
-a local test database, Python 3, `npm ci` in `sdk/typescript`, and Swift 6.1.
+a local test database, Python 3 and `npm ci` in `sdk/typescript`.
 `MIX_ENV=test` can select the configured test database. The command exports the
-server contract, generates TypeScript, then generates the bounded FountainKit
-conversation models. Check mode leaves committed generated files unchanged.
+server contract, then generates TypeScript. Check mode leaves committed
+generated files unchanged.
 
-Split CI jobs use `--target typescript --skip-export --check` after the contract
-export, and `--target swift --skip-export --check` using only the committed
-contract. `build.sh` remains the lower-level export/contract command.
+CI uses `--target typescript --skip-export --check` after the contract export.
+`build.sh` remains the lower-level export/contract command.
 
 
 The export boots the app, so it needs Elixir and a database URL. Everything
@@ -67,7 +60,7 @@ twice from a clean checkout and the second run writes the same bytes.
 
 ```jsonc
 {
-  "sdk": "python",
+  "sdk": "typescript",
   "operations": ["GET /api/agents", "POST /api/conversations"],
   "schemas": {
     "Turn": {
@@ -130,7 +123,7 @@ that reads it — the same way a new endpoint gets a test.
 The complement is `sdk/typescript`, which generates types for the *whole*
 document into `src/generated/openapi.ts` and fails on a diff. Between the two,
 every schema in the API is pinned somewhere, and the fields the ergonomic
-layers actually reach for are pinned in all four languages.
+layer actually reaches for is pinned by name.
 
 ## The `default` trap
 
@@ -175,24 +168,20 @@ onto a component diffs `contract.json` to nothing.
 |---|---|---|
 | TypeScript | `npm run verify-contract` | `sdk/typescript` |
 | TypeScript (types) | `npm run generate` then check for a diff | `sdk/typescript` |
-| Python | `python3 scripts/verify_contract.py` | `sdk/python` |
-| Swift | `swift test --filter ContractTests` | repository root |
-| Elixir | `mix test test/contract_test.exs` | `sdk/elixir` |
 
 `CONTRIBUTING.md` has the order to run them in when a PR changes the API.
 
 ## Conversation field workflow
 
-The API-shaped SDK launch methods forward the supplied request; FountainKit
-passes its generated request directly. The CLI's `conv create --file` preserves
+The API-shaped SDK launch method forwards the supplied request. The CLI's `conv create --file` preserves
 JSON values and prints the response, including queued 202 job responses. Run
 methods require a nonblank prompt and immediate creation. Omission and explicit
 null stay distinct; local timeout/collection options never enter the body.
 
 | Representative addition | Handwritten work before | Handwritten work now | Generated output |
 |---|---|---|---|
-| Optional conversation launch field | Server schema/input handling; four SDK arguments/body allowlists; CLI flag; manifest/fixture edits when used | Server schema/input behavior and focused server test; a convenience argument only if deliberately offered | Contract, TypeScript request type, Swift property/initializer/CodingKey/null support |
-| Optional conversation response field | Server schema and JSON view; Swift property/CodingKey; declarations/claims and fixtures when read | Server schema and JSON view plus serialization test; client logic only if it reads the field | Contract, TypeScript response type, Swift model |
+| Optional conversation launch field | Server schema/input handling; four SDK arguments/body allowlists; CLI flag; manifest/fixture edits when used | Server schema/input behavior and focused server test; a convenience argument only if deliberately offered | Contract, TypeScript request type |
+| Optional conversation response field | Server schema and JSON view; Swift property/CodingKey; declarations/claims and fixtures when read | Server schema and JSON view plus serialization test; client logic only if it reads the field | Contract, TypeScript response type |
 | New run/permission/SSE behavior | Server and client behavior; hand-authored conformance expectations | Same behavioral work and independent expectations | Shape declarations only |
 
 The passthrough and model generation do not remove server domain validation or
@@ -208,35 +197,28 @@ controller-response/schema validation remain in place.
 ```bash
 npm --prefix sdk/typescript run build
 mise exec -- python3 scripts/sdk-contract/check-propagation.py
-# Or just the language installed in a CI job:
-python3 scripts/sdk-contract/check-propagation.py --client swift
+# Or just the client installed in a CI job:
+python3 scripts/sdk-contract/check-propagation.py --client typescript
 ```
 
-Besides the generation prerequisites, the full probe needs Go and fetched
-`sdk/elixir` dependencies. It uses the built TypeScript output (so both Node
-20.19 and 24 run the same probe), source Python/Elixir, the Go CLI, and both
-Swift products. Each language job runs its own `--client` check in CI.
+Besides the generation prerequisites, the full probe needs Go. It uses the
+built TypeScript output (so both Node 20.19 and 24 run the same probe) and the
+Go CLI. Each job runs its own `--client` check in CI.
 
 `propagation/fixture.json` declares a synthetic optional object `future_options`
 with nested objects mixing required and nullable children, shared schema
 references, arrays and dictionaries, plus
 false/null/empty/zero values. Request-reachable generated models must be
 encodable and publicly constructible. Nullable input children distinguish
-omission, explicit null via `setNull`, and values; shared response models retain
-those states when decoded and re-encoded, along with Hashable conformance.
-A loopback server records and compares each request exactly, then deliberately
+omission, explicit null and values. A loopback server records and compares each request exactly, then deliberately
 returns 422 to stop the SDK run at creation.
-A GET proves map responses preserve the new field; the CLI prints a created
-response with it. For FountainKit, the probe copies sources into a temporary
-Swift package, extends only its in-memory contract, generates the field,
-compiles a caller using it, and checks request encoding and response decoding.
-No fake field enters the published schema or checked-in generated model.
-The separate generator mutation test covers Conversation and Turn as well.
+A GET proves the SDK's response preserves the new field; the CLI prints a
+created response with it. No fake field enters the published schema or a
+checked-in generated model.
 
 This fixture proves propagation, not server acceptance of an invented field.
 It does not generate expected SSE/retry/permission/pagination/run-termination
 behavior; those scenarios remain independently authored in `sdk/conformance`.
 
-Regeneration is not a release instruction. Assess each SDK's public change
-under its existing version/publishing rules; preserve the Swift/server version
-relationship until the separate release-policy initiative #1414 changes it.
+Regeneration is not a release instruction. Assess the SDK's public change under
+its version/publishing rules in `contributing/sdk-maintenance.md`.

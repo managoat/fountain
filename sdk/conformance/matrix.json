@@ -1,194 +1,86 @@
 {
   "$comment": "Which SDK runs which shared scenario. \"yes\" or {\"skip\": why, \"issue\": N}; sdk/conformance/lint.py refuses anything else, refuses a skip with no issue, and refuses a scenario with no verdict. See sdk/conformance/README.md.",
   "sdks": [
-    "typescript",
-    "python",
-    "swift",
-    "swift-kit",
-    "elixir"
+    "typescript"
   ],
   "scenarios": {
     "auth-bearer-and-user-agent": {
-      "typescript": "yes",
-      "python": "yes",
-      "swift": "yes",
-      "swift-kit": "yes",
-      "elixir": "yes"
+      "typescript": "yes"
     },
     "auth-me-is-not-enveloped": {
-      "typescript": "yes",
-      "python": "yes",
-      "swift": "yes",
-      "swift-kit": "yes",
-      "elixir": "yes"
+      "typescript": "yes"
     },
     "auth-missing-key-fails-before-any-request": {
-      "typescript": "yes",
-      "python": "yes",
-      "swift": "yes",
-      "swift-kit": "yes",
-      "elixir": "yes"
+      "typescript": "yes"
     },
     "base-url-trailing-slash-is-normalised": {
-      "typescript": "yes",
-      "python": "yes",
-      "swift": "yes",
-      "swift-kit": "yes",
-      "elixir": "yes"
+      "typescript": "yes"
     },
     "error-401-maps-to-auth": {
-      "typescript": "yes",
-      "python": "yes",
-      "swift": "yes",
-      "swift-kit": "yes",
-      "elixir": "yes"
+      "typescript": "yes"
     },
     "error-404-maps-to-not-found": {
-      "typescript": "yes",
-      "python": "yes",
-      "swift": "yes",
-      "swift-kit": "yes",
-      "elixir": "yes"
+      "typescript": "yes"
     },
     "error-422-carries-field-errors": {
-      "typescript": "yes",
-      "python": "yes",
-      "swift": "yes",
-      "swift-kit": "yes",
-      "elixir": "yes"
+      "typescript": "yes"
     },
     "error-429-carries-retry-after": {
-      "typescript": "yes",
-      "python": "yes",
-      "swift": "yes",
-      "swift-kit": "yes",
-      "elixir": "yes"
+      "typescript": "yes"
     },
     "error-503-sandbox-unavailable-is-retryable": {
-      "typescript": "yes",
-      "python": "yes",
-      "swift": "yes",
-      "swift-kit": "yes",
-      "elixir": "yes"
+      "typescript": "yes"
     },
     "error-code-outranks-status-conversation-busy": {
-      "typescript": "yes",
-      "python": "yes",
-      "swift": "yes",
-      "swift-kit": "yes",
-      "elixir": "yes"
+      "typescript": "yes"
     },
     "error-subscription-code-is-not-special": {
-      "typescript": "yes",
-      "python": "yes",
-      "swift": "yes",
-      "swift-kit": "yes",
-      "elixir": "yes"
+      "typescript": "yes"
     },
     "history-drains-the-feed-across-pages": {
-      "typescript": "yes",
-      "python": "yes",
-      "swift": "yes",
-      "swift-kit": "yes",
-      "elixir": "yes"
+      "typescript": "yes"
     },
     "history-empty-feed-is-an-empty-list": {
-      "typescript": "yes",
-      "python": "yes",
-      "swift": "yes",
-      "swift-kit": "yes",
-      "elixir": "yes"
+      "typescript": "yes"
     },
     "list-empty-collection-is-an-empty-list": {
-      "typescript": "yes",
-      "python": "yes",
-      "swift": "yes",
-      "swift-kit": "yes",
-      "elixir": "yes"
+      "typescript": "yes"
     },
     "permission-request-is-surfaced-and-answered": {
-      "typescript": "yes",
-      "python": "yes",
-      "swift": "yes",
-      "swift-kit": "yes",
-      "elixir": "yes"
+      "typescript": "yes"
     },
     "run-channel-resume-preserves-client-request-id": {
-      "typescript": "yes",
-      "python": "yes",
-      "swift": "yes",
-      "swift-kit": "yes",
-      "elixir": "yes"
+      "typescript": "yes"
     },
     "run-completes-with-text-and-tools": {
-      "typescript": "yes",
-      "python": "yes",
-      "swift": "yes",
-      "swift-kit": "yes",
-      "elixir": "yes"
+      "typescript": "yes"
     },
     "run-failed-turn-reports-failed": {
-      "typescript": "yes",
-      "python": "yes",
-      "swift": "yes",
-      "swift-kit": "yes",
-      "elixir": "yes"
+      "typescript": "yes"
     },
     "run-timeout-raises-and-keeps-partial-text": {
-      "typescript": "yes",
-      "python": "yes",
-      "swift": "yes",
-      "swift-kit": "yes",
-      "elixir": "yes"
+      "typescript": "yes"
     },
     "sse-comments-and-blank-lines-are-ignored": {
-      "typescript": "yes",
-      "python": "yes",
-      "swift": "yes",
-      "swift-kit": "yes",
-      "elixir": "yes"
+      "typescript": "yes"
     },
     "sse-crlf-frame-boundary": {
-      "typescript": "yes",
-      "python": "yes",
-      "swift": "yes",
-      "swift-kit": "yes",
-      "elixir": "yes"
+      "typescript": "yes"
     },
     "sse-fragmented-frame-is-reassembled": {
-      "typescript": "yes",
-      "python": "yes",
-      "swift": "yes",
-      "swift-kit": "yes",
-      "elixir": "yes"
+      "typescript": "yes"
     },
     "sse-malformed-frame-is-skipped": {
-      "typescript": "yes",
-      "python": "yes",
-      "swift": "yes",
-      "swift-kit": "yes",
-      "elixir": "yes"
+      "typescript": "yes"
     },
     "sse-multiline-data-joins-with-newlines": {
-      "typescript": "yes",
-      "python": "yes",
-      "swift": "yes",
-      "swift-kit": "yes",
-      "elixir": "yes"
+      "typescript": "yes"
     },
     "sse-no-cursor-header-on-the-first-connection": {
-      "typescript": "yes",
-      "python": "yes",
-      "swift": "yes",
-      "swift-kit": "yes",
-      "elixir": "yes"
+      "typescript": "yes"
     },
     "sse-reconnect-resumes-from-last-event-id": {
-      "typescript": "yes",
-      "python": "yes",
-      "swift": "yes",
-      "swift-kit": "yes",
-      "elixir": "yes"
+      "typescript": "yes"
     }
   }
 }

@@ -19,7 +19,7 @@ attributes must use the new field when upgrading their application code.
 | PostgreSQL `sandboxes` | `sprite_name`; historical migrations and operational SQL remain valid |
 | Conversation create input | `sprite_name` suffix and existing validation error codes |
 | Conversation, sandbox and admin JSON; OpenAPI | `sprite_name`; explicit serializers translate the internal field |
-| TypeScript, Python, Elixir and Swift SDKs | Existing `sprite_name` wire field and language-specific accessors |
+| TypeScript SDK | Existing `sprite_name` wire field and its accessor |
 | CLI conversation display | Reads the existing `sprite_name` response key |
 | Billing, audit and persisted provisioning stage metadata | Existing `sprite_name` keys; no rewrite of history |
 | Provisioning telemetry | Existing `sprite_name` metadata key |

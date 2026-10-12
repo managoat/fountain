@@ -37,7 +37,7 @@ SCENARIOS = HERE / "scenarios"
 MATRIX = HERE / "matrix.json"
 CONTRACT = ROOT / "sdk" / "contract" / "contract.json"
 
-SDKS = ("typescript", "python", "swift", "swift-kit", "elixir")
+SDKS = ("typescript",)
 
 OPS = {
     "me": set(),

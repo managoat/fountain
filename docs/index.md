@@ -61,8 +61,7 @@ Reach it the way you already work.
 
 - [**ACP**](integrations/acp.md), for an editor or a chat surface.
 - [**REST and SSE**](api.md), for your own code, with
-  [TypeScript](sdk.md), [Python](python-sdk.md), [Elixir](elixir-sdk.md) and
-  [Swift](swift-sdk.md) SDKs and a [CLI](cli.md) over them.
+  the [TypeScript SDK](sdk.md) and a [CLI](cli.md) over them.
 
 What you build on top is yours. It can be a chat client whose contacts are
 bots, or a tool that makes an engineer faster. Your own user need not know
@@ -127,9 +126,6 @@ in full.
 - [CLI reference](cli.md), the `fountain` command surface
 - [API reference](api.md), REST endpoints and auth
 - [TypeScript SDK](sdk.md)
-- [Elixir SDK](elixir-sdk.md)
-- [Python SDK](python-sdk.md)
-- [Swift SDK](swift-sdk.md)
 - [Configuration reference](configuration.md), each environment variable
 - [Conversation states](reference/conversation-states.md)
 - [Glossary](reference/glossary.md), with the five overloaded words

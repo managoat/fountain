@@ -3,26 +3,27 @@
 Follow-up: [#2249](https://github.com/managoat/fountain/issues/2249).
 Foundation: [ADR 0056](../decisions/0056-conversation-request-inputs.md).
 
+The Python, Elixir and Swift SDKs were removed on 2026-10-12
+([ADR 0059](../decisions/0059-independent-sdk-maintenance.md)); TypeScript and
+the CLI are the callers that remain here.
+
 ## Fountain repository
 
 | Caller | Identity and execution ownership | Disposition |
 |---|---|---|
 | `docs/snippets/first-request.ts`, `Fountain.Onboarding`, start page | Server already has the selected agent ID; SDK follows the first turn | Use `runRequest` with `agent_id`; catalog and CLI share the same snippet |
 | CLI first-request renderer | Reads the catalog; substitutes selected ID and raw key | Already supports the ID placeholder; test both current and older name-based catalog snippets |
-| FountainKit README examples | Caller already has an agent ID; SDK owns following | Use generated `ConversationCreateRequest` and `runRequest`; state tagged-release availability |
-| TypeScript/Python/Elixir README examples | Many intentionally start from resource names | Keep name conveniences documented; direct IDs and complete field coverage use the existing API-shaped launch sections linked below |
+| TypeScript README examples | Many intentionally start from resource names | Keep name conveniences documented; direct IDs and complete field coverage use the existing API-shaped launch sections linked below |
 | Hermes `FountainTools._run` | User tool accepts names; plugin owns polling, turn tracking and wait=false | Resolve names and translate tool arguments once, then pass an API-shaped map through the internal client. Preserve the tool schema and polling behavior |
 | `examples/deepagents-contractor` | LangChain-compatible wrapper over the OpenAI-compatible endpoint; its `run` was not the native SDK helper | **Removed** with the endpoint it wrapped ([ADR 0057](../decisions/0057-retire-public-compatibility-protocols.md), [#2252](https://github.com/managoat/fountain/issues/2252)). No migration: a stock `ChatOpenAI` has no native equivalent, and `docs/integrations/langchain.md` says so |
 | SDK conformance/tests | Exercise supported public conveniences and behavior | Keep independent coverage. The compatibility API they once verified is retired ([ADR 0057](../decisions/0057-retire-public-compatibility-protocols.md)); what remains is native and stays covered on its own terms |
 | CLI `run` and agent-manifest examples | User-facing name/flag conveniences and CLI-owned following | Retain the public CLI path; `conv create --file` is the complete API-shaped creation path |
 
-For resource IDs or full API-field coverage, use the existing request APIs:
-[TypeScript `runRequest`](../sdk/typescript/README.md#api-shaped-launches),
-[Python `run_request`](../sdk/python/README.md#api-shaped-launches), and
-[Elixir `run_request`](../sdk/elixir/README.md#api-shaped-launches).
-Local run options stay outside API-shaped request bodies. These packaged README
-sections already shipped with the foundation; this caller migration leaves
-those packages unchanged.
+For resource IDs or full API-field coverage, use the existing request API:
+[TypeScript `runRequest`](../sdk/typescript/README.md#api-shaped-launches).
+Local run options stay outside API-shaped request bodies. The packaged README
+section already shipped with the foundation; this caller migration leaves the
+package unchanged.
 
 No public SDK helper is removed by caller migration. The remaining name-based
 examples are evidence that those conveniences still serve a purpose. Their
@@ -57,6 +58,6 @@ inventory still claims no deployed-app migration.
 The next genuine optional field should record the server changes, generated
 diffs and caller edits it actually needs. The foundation's current propagation
 evidence is a temporary synthetic field, not an invented public API field.
-Swift and CLI are available in [v0.17.1](https://github.com/managoat/fountain/releases/tag/v0.17.1).
+The CLI is available in [v0.17.1](https://github.com/managoat/fountain/releases/tag/v0.17.1).
 Release and real-field evidence remains tracked in
 [#2248](https://github.com/managoat/fountain/issues/2248).

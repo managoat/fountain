@@ -58,9 +58,8 @@ npm install @managoat/fountain-sdk@^5.2.0
 `new Fountain()` reads `FOUNTAIN_API_KEY` and `FOUNTAIN_BASE_URL` from the
 environment, exactly as the CLI does. The request uses the same agent ID as
 the curl example; copy it from your start page. `runRequest` accepts API fields
-directly, with local timeout/event options passed separately. There are
-[Python](python-sdk.md), [Elixir](elixir-sdk.md) and [Swift](swift-sdk.md)
-clients over the same API.
+directly, with local timeout/event options passed separately. From another
+language, call the [HTTP API](api.md) directly.
 
 ## Where to go next
 

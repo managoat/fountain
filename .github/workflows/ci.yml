@@ -748,14 +748,15 @@ jobs:
       - name: Validate OpenAPI spec
         run: mix openapi.spec.json --spec FountainWeb.ApiSpec --output /tmp/openapi.json && jq empty /tmp/openapi.json
 
-      # One API, four clients (#1411). The server's OpenAPI document is the
-      # only description of the wire; everything below derives from it.
+      # One API, one SDK and the CLI (#1411, ADR 0059). The server's OpenAPI
+      # document is the only description of the wire; everything below
+      # derives from it.
       #
       # This step builds the two artifacts and fails if the committed one is
       # stale. `sdk/contract/contract.json` is the document projected down to
       # shape alone, with descriptions and info.version dropped, so it moves
-      # only when the wire moves — and it is committed so the Swift job, which
-      # has no Elixir, can check against it from the checkout.
+      # only when the wire moves — and it is committed so the SDK and CLI
+      # jobs, which have no Elixir, can check against it from the checkout.
       #
       # It also fails when an operation is neither claimed by an SDK manifest
       # nor written down in sdk/contract/omissions.json, which is what stops a
@@ -788,143 +789,6 @@ jobs:
       # the manifest checks below cover what each client reaches for by name.
       - name: SDK types match the spec
         run: python3 scripts/sdk-contract/generate.py --target typescript --skip-export --check
-
-  elixir-sdk:
-    name: Elixir SDK (${{ matrix.elixir }} / OTP ${{ matrix.otp }})
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    needs: [already-tested, changes]
-    if: ${{ !cancelled() && needs.already-tested.outputs.skip != 'true' }}
-
-    permissions:
-      contents: read
-
-    # Independent from the umbrella, Postgres and the other SDK toolchains.
-    env:
-      MIX_ENV: test
-
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - elixir: "1.15.8"
-            otp: "26.2.5.21"
-          - elixir: "1.19.2"
-            otp: "28.3"
-
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
-
-      - name: SDK conformance scenarios are well formed
-        run: python3 sdk/conformance/lint.py
-
-      - name: Set up Elixir
-        id: beam
-        uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1.24.1
-        with:
-          elixir-version: ${{ matrix.elixir }}
-          otp-version: ${{ matrix.otp }}
-
-      # The Elixir SDK is a standalone Mix project. Keep its dependency graph
-      # and build artifacts separate from the umbrella's cache.
-      - name: Restore Elixir SDK cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v5
-        with:
-          path: |
-            sdk/elixir/deps
-            sdk/elixir/_build
-          key: ${{ runner.os }}-sdk-elixir-${{ steps.beam.outputs.otp-version }}-${{ steps.beam.outputs.elixir-version }}-${{ hashFiles('sdk/elixir/mix.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-sdk-elixir-${{ steps.beam.outputs.otp-version }}-${{ steps.beam.outputs.elixir-version }}-
-
-      - name: Elixir SDK dependencies
-        working-directory: sdk/elixir
-        run: MIX_ENV=dev mix deps.get
-
-      # Formatter output changes across Elixir versions. The current
-      # toolchain owns style; both pairs check runtime compatibility.
-      - name: Elixir SDK formatting
-        if: ${{ matrix.elixir == '1.19.2' }}
-        working-directory: sdk/elixir
-        run: mix format --check-formatted
-
-      - name: Elixir SDK compile
-        working-directory: sdk/elixir
-        run: mix compile --warnings-as-errors
-
-      - name: Elixir SDK tests
-        working-directory: sdk/elixir
-        run: mix test
-
-      - name: Elixir SDK documentation
-        working-directory: sdk/elixir
-        run: MIX_ENV=dev mix docs --warnings-as-errors
-
-      - name: Elixir SDK package dry run
-        working-directory: sdk/elixir
-        run: MIX_ENV=dev mix hex.build
-
-      - name: Additive conversation fields (elixir)
-        run: python3 scripts/sdk-contract/check-propagation.py --client elixir
-
-      - name: Elixir SDK contract
-        working-directory: sdk/elixir
-        run: mix test test/contract_test.exs
-
-      - name: Elixir SDK conformance
-        working-directory: sdk/elixir
-        run: mix test test/conformance_test.exs
-
-  python-sdk:
-    name: Python SDK (${{ matrix.python }})
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    needs: [already-tested, changes]
-    if: ${{ !cancelled() && needs.already-tested.outputs.skip != 'true' }}
-
-    permissions:
-      contents: read
-
-    strategy:
-      fail-fast: false
-      matrix:
-        python: ["3.9", "3.13"]
-
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
-
-      - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version: ${{ matrix.python }}
-
-      - name: SDK conformance scenarios are well formed
-        run: python sdk/conformance/lint.py
-
-      # The SDK has no runtime dependencies. Check source syntax and wire
-      # assumptions, then exercise the built distribution below.
-      - name: Python SDK compiles
-        run: python -m compileall -q sdk/python/src sdk/python/scripts
-
-      - name: Additive conversation fields (python)
-        run: python3 scripts/sdk-contract/check-propagation.py --client python
-
-      - name: Python SDK contract
-        working-directory: sdk/python
-        run: python scripts/verify_contract.py
-
-      - name: Python SDK conformance
-        working-directory: sdk/python
-        run: python -m unittest discover -s tests -p "test_conformance.py" -v
-
-      - name: Python SDK build tool
-        run: python -m pip install --disable-pip-version-check build
-
-      - name: Python SDK package dry run
-        run: python -m build --outdir "$RUNNER_TEMP/python-sdk-dist" sdk/python
-
-      - name: Python SDK installed wheel
-        run: python sdk/python/scripts/verify_wheel.py "$RUNNER_TEMP"/python-sdk-dist/*.whl
 
   typescript-sdk:
     name: TypeScript SDK (${{ matrix.node }})
@@ -1110,88 +974,6 @@ jobs:
 
       - name: Deployed-instance runner tests
         run: node --test deployed/test/*.test.mjs
-
-  swift-sdk:
-    name: Swift SDK (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 10
-    needs: [already-tested, changes]
-    if: ${{ !cancelled() && needs.already-tested.outputs.skip != 'true' }}
-
-    permissions:
-      contents: read
-
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-24.04, macos-15]
-
-    steps:
-      # The generator's compatibility guard reads the last release's Swift
-      # models from their tag, so this job needs tags and their trees. The
-      # committed output cannot serve as that baseline: a change that makes a
-      # property required and regenerates would offer its own candidate as the
-      # record of what shipped (#2284).
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
-        with:
-          fetch-depth: 0
-          fetch-tags: true
-
-      - name: Set up Swift on Linux
-        if: ${{ runner.os == 'Linux' }}
-        uses: swift-actions/setup-swift@7ca6abe6b3b0e8b5421b88be48feee39cbf52c6a # v2.4.0
-        with:
-          swift-version: "6.1.3"
-
-      # Xcode 16.4 already supplies Apple Swift 6.1.2, satisfying the package's
-      # 6.1 minimum. Pin the Xcode selection and avoid downloading a second
-      # compiler. Linux exercises the upstream Swift 6.1.3 toolchain above.
-      - name: Select Apple Swift on macOS
-        if: ${{ runner.os == 'macOS' }}
-        env:
-          DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
-        run: |
-          echo "DEVELOPER_DIR=$DEVELOPER_DIR" >> "$GITHUB_ENV"
-          dirname "$(xcrun --find swift)" >> "$GITHUB_PATH"
-          xcrun swift --version
-
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version: "3.13"
-
-      - name: Check Swift SDK version
-        run: python3 scripts/sdk-catalog.py
-
-      - name: Generated Swift conversation models are current
-        run: python3 scripts/sdk-contract/generate.py --target swift --skip-export --check
-
-      - name: Swift format
-        run: swift format lint --strict --recursive Package.swift sdk/swift/Sources sdk/swift/Tests
-
-      # Its own step, though `swift test` below runs it too, so a wire change
-      # says "Swift SDK contract" in the checks list rather than hiding inside
-      # a suite of forty. This job has no Elixir: the check reads the committed
-      # sdk/contract/contract.json, which is why that file is committed (#1411).
-      - name: Additive conversation fields (swift)
-        run: python3 scripts/sdk-contract/check-propagation.py --client swift
-
-      - name: Swift SDK contract
-        run: swift test --configuration debug -Xswiftc -warnings-as-errors --filter ContractTests
-
-      # The behavioural half (#1412), the same scenarios the other three run.
-      # Its own step for the same reason: a divergence should say "Swift SDK
-      # conformance" in the checks list, not hide inside a suite of forty.
-      - name: Swift SDK conformance
-        run: swift test --configuration debug -Xswiftc -warnings-as-errors --filter ConformanceTests
-
-      # Includes the loopback streaming test, which used to need a process of
-      # its own while the SDK still cancelled finished URLSessionTasks and
-      # tripped FoundationNetworking's task registry at teardown (#1410).
-      - name: Swift debug tests
-        run: swift test --configuration debug -Xswiftc -warnings-as-errors
-
-      - name: Swift release build
-        run: swift build --configuration release -Xswiftc -warnings-as-errors
 
   # ADR 0043 decision 7 promises two distributions from one tree: the bundled
   # release, which every existing tag has meant, and a core release that carries
@@ -1663,11 +1445,8 @@ jobs:
         with:
           persist-credentials: false
           # The changelog guard diffs the PR's merge commit against its
-          # first parent, so it needs one level of history; the Swift
-          # generation tests read the last release's models from their tag, so
-          # they need tags and their trees (#2284).
+          # first parent, so it needs one level of history.
           fetch-depth: 0
-          fetch-tags: true
       - name: Check SDK maintenance contract
         run: python3 scripts/sdk-catalog.py
       - name: Reject conflict markers
@@ -1760,9 +1539,6 @@ jobs:
       - release-and-contract
       - cli-plugins
       - typescript-sdk
-      - elixir-sdk
-      - python-sdk
-      - swift-sdk
       - core-distribution
       - compose-fresh-clone
       - compose-pinned-image-boot

@@ -3,8 +3,8 @@ defmodule FountainWeb.SchemaGuard do
   Does the response a controller rendered match the schema it declares?
 
   Every other check in this repository compares a schema with another schema.
-  `sdk/contract` projects the OpenAPI document and pins four SDKs to it,
-  `sdk/conformance` pins what those clients do with it, and both pass happily
+  `sdk/contract` projects the OpenAPI document and pins the SDK to it,
+  `sdk/conformance` pins what that client does with it, and both pass happily
   when the document itself is a lie about its own controller. Three defects of
   exactly that shape surfaced in one day (#1427): a `required` list naming
   properties the schema did not have (#1417), a declared field the action never
@@ -133,8 +133,8 @@ defmodule FountainWeb.SchemaGuard do
 
         #{String.slice(to_string(conn.resp_body), 0, 800)}
 
-    The OpenAPI document is the wire contract for four SDKs (#1411), so a schema
-    that disagrees with its controller propagates into all of them. Fix whichever
+    The OpenAPI document is the wire contract for the SDK and CLI (#1411), so a
+    schema that disagrees with its controller propagates into both. Fix whichever
     is wrong — usually the schema in apps/fountain/lib/fountain_web/schemas.ex,
     sometimes the action.
 

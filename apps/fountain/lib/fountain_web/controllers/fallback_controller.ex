@@ -917,7 +917,7 @@ defmodule FountainWeb.FallbackController do
   # Until 7a this atom had no clause here at all and fell to the terminal
   # safety net's 422, which told every SDK that a transient provider refusal
   # was the caller's fault and not worth retrying. It is a 503 with a
-  # `Retry-After`, which is `NotReadyError` in all four SDKs.
+  # `Retry-After`, which is `NotReadyError` in the TypeScript SDK.
   def call(conn, {:error, :sandbox_resume_failed}) do
     conn
     |> put_resp_header("retry-after", "10")

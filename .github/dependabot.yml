@@ -11,24 +11,6 @@ updates:
     groups:
       actions:
         patterns: ["*"]
-    ignore:
-      # swift-actions/setup-swift v3 is a beta: the floating `v3` tag and
-      # `v3.0.0-beta.1` are the same commit (364295d), while `v2` still points
-      # at v2.4.0, which is what ci.yml and release.yml pin. The beta rewrote
-      # toolchain setup on top of Swiftly, which GPG-verifies the download, and
-      # the ubuntu-24.04 runner has no public key for it: `Swift SDK
-      # (ubuntu-24.04)` dies on `gpg: Can't check signature: No public key` ->
-      # `The process '/usr/bin/gpg' failed with exit code 2`. macos-15 passes,
-      # so a bump looks half-green while taking the Swift SDK *release* job
-      # down too, and a failed publish is invisible to every gate here (#1760).
-      # Dependabot reads the floating `v3` tag as plain version 3, so it cannot
-      # tell the beta from a future stable — this ignores the 3.x line whole.
-      # `github-actions` parses `versions` as a Bundler requirement, so the
-      # range is spelled `~> 3.0`; an npm-style `3.x` parses to `= 3.x`, which
-      # matches no version at all and silently ignores nothing.
-      # Delete this entry when a stable v3.0.0 ships and re-test both jobs.
-      - dependency-name: swift-actions/setup-swift
-        versions: ["~> 3.0"]
 
   - package-ecosystem: mix
     labels: ["type:dependency", "lang:elixir"]

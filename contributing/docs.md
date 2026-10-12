@@ -30,17 +30,17 @@ open the route.
 |---|---|
 | `CLAUDE.md`, `CONTRIBUTING.md`, `SETUP.md`, `scripts/ci/README.md`, Markdown under `contributing/`, `standards/`, `decisions/` or `changelog.d/` | Repository policy, changelog and conflict-marker checks, plus the secret scan |
 | `README.md`, `CHANGELOG.md`, `docs/`, or the Buzz, Google, Microsoft or Slack manuals | Core rendering and structural tests, plus every extension's documentation and manual-integration tests |
-| An SDK's `README.md` or its page under `docs/` | The four SDK checks, which run on every plan; published pages also get the manual tests |
+| The SDK's `README.md` or its page under `docs/` | The TypeScript SDK check, which runs on every plan; published pages also get the manual tests |
 | `docs/cli.md` or `docs/cli/` | Manual tests and the CLI reference parity checks |
-| Code, configuration, unregistered paths, or mixed code/documentation changes | Full server validation and the four SDK checks |
+| Code, configuration, unregistered paths, or mixed code/documentation changes | Full server validation and the TypeScript SDK check |
 
 The short paths apply to pull requests and merge groups. Main reuses a tested
 tree when possible; otherwise it runs full CI. A manual CI dispatch also runs
 full validation. ADRs retain their separate OKF validation and index check.
 Non-Markdown decision evidence and executable files still select full server
 validation. Alert fixtures run on full plans, including main and manual runs;
-docs-only plans skip their evaluator. The four SDK jobs still run on every
-plan unless the tree is reused.
+docs-only plans skip their evaluator. The TypeScript SDK job still runs on
+every plan unless the tree is reused.
 
 For contributor-only Markdown, run:
 

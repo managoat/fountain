@@ -59,7 +59,7 @@ defmodule FountainWeb.ConversationEventsControllerTest do
     } do
       # The schema declares `state` as one of four values or null, and the
       # server used to answer `""` — neither. This is the busiest read in the
-      # API and all four SDKs decode the field, so a strict enum decoder was
+      # API and every SDK decoded the field, so a strict enum decoder was
       # entitled to reject an ordinary output line.
       insert_log_event(conv, kind: "output", stream: "stdout", data: "hello")
 

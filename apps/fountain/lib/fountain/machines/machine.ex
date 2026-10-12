@@ -387,7 +387,7 @@ defmodule Fountain.Machines.Machine do
   machine underneath its owner: `Wake.maybe_reuse_sandbox/1`,
   `Machines.Binding.attachable/6` and `Rehydrator`'s boot sweep. Each turns `true`
   into the refusal the system already has, `:sandbox_unavailable` — 503 with a
-  `Retry-After: 30`, `NotReadyError` in all four SDKs, snoozed by the launch
+  `Retry-After: 30`, `NotReadyError` in the SDK, snoozed by the launch
   queue and the schedule runner. Thirty seconds is an honest number precisely
   because this is a *live* operation: one provider round trip, and the machine
   settles.
@@ -453,7 +453,7 @@ defmodule Fountain.Machines.Machine do
   looked at what a new word would buy and decided it was nothing: a wake or an
   attach that meets a machine mid-operation means exactly what a refused
   destroy means — come back shortly — and `:sandbox_unavailable` is already
-  503 with a `Retry-After`, `NotReadyError` in all four SDKs, and snoozed by
+  503 with a `Retry-After`, `NotReadyError` in the SDK, and snoozed by
   the launch queue and the schedule runner. A second word would have to be
   taught to five clients (#2304, written and closed unmerged) to say the same
   thing. What stage 6a did add is the vocabulary sites this one was still
@@ -972,7 +972,7 @@ defmodule Fountain.Machines.Machine do
   #
   # Everything not named in the verb's own list is "this machine could not be
   # reached right now", which is what `:sandbox_unavailable` already means
-  # (503, `retry-after: 30`, retryable in all four SDKs). Contention, a
+  # (503, `retry-after: 30`, retryable in the SDK). Contention, a
   # database fault out of `Lease` and an unreachable owner are all that shape.
   # The precise reason goes to the log, where an operator can find it; it does
   # not go on the wire.

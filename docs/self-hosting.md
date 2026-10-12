@@ -93,7 +93,7 @@ own company does not trigger this obligation. You do not offer a service to
 third parties in that case.
 
 
-The `cli/` directory and the TypeScript, Python, Elixir and Swift SDKs use the
+The `cli/` directory and the TypeScript SDK use the
 Apache Licence 2.0. They do not impose copyleft on an application that calls
 the Fountain API. The Apache license and notice terms apply when you
 redistribute a client.

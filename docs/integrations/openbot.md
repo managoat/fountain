@@ -102,8 +102,7 @@ Fountain's shape rather than AG-UI's, so a host that speaks AG-UI needs a
 translation layer of its own that Fountain no longer provides.
 
 Read [Plug into Fountain](clients.md) for the routes in, and the
-[TypeScript](../sdk.md), [Python](../python-sdk.md), [Elixir](../elixir-sdk.md)
-or [Swift](../swift-sdk.md) SDK for a client that already follows the stream.
+[TypeScript SDK](../sdk.md) for a client that already follows the stream.
 
 ## What has no replacement
 

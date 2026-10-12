@@ -59,12 +59,12 @@ are dollar-cost reporting.
 `setup.sh` installs pinned, hash-checked toolchains on a fresh Ubuntu 24.04 or
 26.04 worker before PR checkout, plus a disposable local PostgreSQL database
 (the supported distro major, 16 or 18). GitHub CI separately verifies PostgreSQL 16.
-Twenty commands run the core partitions, extension and single-VM umbrella
+Nineteen commands run the core partitions, extension and single-VM umbrella
 tests, precommit static checks, Dialyzer, prod release assembly,
-contracts, SDKs, CLIs and plugin tests. The eight required workflow definitions
+contracts, the TypeScript SDK, CLIs and plugin tests. The six required workflow definitions
 and their path filters were checked against Fountain main at
 `539a300207728bebc5216af586e497ce07778f94`. GitHub CI additionally supplies
-coverage, release boot, Swift, docs and distribution gates. No failed
+coverage, release boot, docs and distribution gates. No failed
 gate is skipped or changed to get an approval.
 
 An existing Go guest-handshake fixture race is tracked in

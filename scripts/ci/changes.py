@@ -7,8 +7,7 @@ import sys
 
 
 # An SDK's README is documentation; its job runs on every plan regardless.
-SDK_READMES = frozenset(f"sdk/{language}/README.md"
-                        for language in ("elixir", "python", "typescript", "swift"))
+SDK_READMES = frozenset({"sdk/typescript/README.md"})
 
 
 # Only these extension manuals have registered documentation suites.

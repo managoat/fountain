@@ -9,9 +9,9 @@ The reference describes the instance that serves it, with its installed
 extensions. On a self-hosted instance, open `/api/docs` on that instance.
 This guide explains workflows; it does not maintain a second endpoint catalog.
 
-For a script, start with the [TypeScript](sdk.md), [Python](python-sdk.md),
-[Elixir](elixir-sdk.md), or [Swift](swift-sdk.md) SDK. Use HTTP directly when
-your language or workflow needs a surface the SDK does not expose.
+For a script, start with the [TypeScript SDK](sdk.md). Use HTTP directly from
+another language, or when your workflow needs a surface the SDK does not
+expose.
 
 ## Authentication
 
@@ -562,11 +562,9 @@ A turn that Fountain opened by itself has the `autonomous` origin and a null
 `client_request_id`. A webhook delivery carries `turn_id` and does not carry
 this value. Read the turn to get it.
 
-Each SDK sends the value for you. The TypeScript, Python, Elixir and Swift
-clients take it on a run and on a follow-up prompt:
-`run(prompt, { clientRequestId })` and `send(prompt, { clientRequestId })` in
-TypeScript, `client_request_id=` in Python and Elixir, `clientRequestID:` in
-Swift. A client that resumes a conversation with `channel_id` sends the value
+The TypeScript SDK sends the value for you. It takes it on a run and on a
+follow-up prompt: `run(prompt, { clientRequestId })` and
+`send(prompt, { clientRequestId })`. A client that resumes a conversation with `channel_id` sends the value
 again on the prompts route, because that request opens the turn. A client that
 gets no value sends no field.
 

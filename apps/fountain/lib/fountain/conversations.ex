@@ -1093,7 +1093,7 @@ defmodule Fountain.Conversations do
     #
     # The word is `:sandbox_unavailable` and not a new one: "this machine
     # cannot be reached right now" is exactly what it means, it is already 503
-    # with a `Retry-After` and `NotReadyError` in all four SDKs, and stage 6's
+    # with a `Retry-After` and `NotReadyError` in the SDK, and stage 6's
     # decision was to reuse it rather than teach five clients a second word
     # (#2304, closed unmerged). Out of `Machines.Lease.claim/4` it can mean
     # nothing else — that function's own refusals are `{:held, _, _}`,

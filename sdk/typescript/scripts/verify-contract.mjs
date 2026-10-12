@@ -15,8 +15,8 @@
  * reaches for wire fields by name, and no type check catches a field that
  * moved out from under a template string.
  *
- * The same checks run for Python, Swift and Elixir from their own manifests.
- * Keep the four implementations in step; `sdk/contract/README.md` is the spec.
+ * A future client runs the same checks from its own manifest;
+ * `sdk/contract/README.md` is the spec.
  */
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";

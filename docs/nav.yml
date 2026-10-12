@@ -117,9 +117,6 @@ nav:
       - API guide and generated reference: api.md
       - Webhooks: reference/webhooks.md
       - TypeScript SDK: sdk.md
-      - Elixir SDK: elixir-sdk.md
-      - Python SDK: python-sdk.md
-      - Swift SDK: swift-sdk.md
       - Conversation states: reference/conversation-states.md
       - Glossary: reference/glossary.md
       - Feature status: reference/feature-status.md

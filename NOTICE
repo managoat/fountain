@@ -14,8 +14,6 @@ its own LICENSE file, and that file governs.
 
   cli/                           Apache License 2.0 ........... cli/LICENSE
   sdk/typescript/                Apache License 2.0 ........... sdk/typescript/LICENSE
-  sdk/elixir/                    Apache License 2.0 ........... sdk/elixir/LICENSE
-  sdk/swift/                     Apache License 2.0 ........... sdk/swift/LICENSE
 
   apps/managoat_*/               Apache License 2.0 ........... apps/<app>/LICENSE
   (a component library on its way out of the server under decisions/0037,

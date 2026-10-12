@@ -2307,7 +2307,7 @@ defmodule FountainWeb.Schemas do
           required: [:limit, :has_more]
         },
         # Beside `meta` rather than in it: `meta` is the cursor envelope the
-        # audit list shares, and the Swift SDK publishes the two as one
+        # audit list shares, and the Swift SDK published the two as one
         # `PageMeta` type (#2300), so a field here would retype that.
         page: %Schema{
           type: :object,

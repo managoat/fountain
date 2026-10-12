@@ -12,7 +12,7 @@ defaults, errors and enum values are distinct contracts. A schema agreeing with
 another schema does not prove a controller renders the promised response.
 Inspect schema guardrails and the reasons for any allowlist changes.
 
-Check all affected TypeScript, Python, Elixir and Swift clients, the main Go CLI,
+Check the TypeScript SDK, the main Go CLI,
 the Buzz CLI module and plugins. Generated TypeScript OpenAPI types and the
 committed wire contract must stay current. A new endpoint needs an explicit
 client or a justified omission; do not add an omission to make a test pass.

@@ -481,14 +481,15 @@ tarball. A package that a person sends by hand has no such attestation.
 
 ## Other languages
 
-Elixir, Python and Swift have their own SDKs. Read the
-[Elixir](elixir-sdk.md), [Python](python-sdk.md) and [Swift](swift-sdk.md)
-references for their full APIs. For a different language, use one of two
+TypeScript is the one SDK Fountain maintains. The Python
+(`fountain-agent-sdk` on PyPI), Elixir (`fountain_sdk` on Hex) and Swift
+(`sdk-swift-v*` tags) SDKs are retired: their published releases stay where
+they are, but they are no longer maintained or tested against new servers.
+For another language, call the [HTTP API](api.md) directly and use one of two
 worked references below. They show how to follow a turn through the log feed.
 
-- **Python.** The SDK follows SSE. The
-  [Hermes plugin](integrations/hermes.md)'s `tools.py` is a smaller reference
-  that polls `/events?blocks=true`.
+- **Python.** The [Hermes plugin](integrations/hermes.md)'s `tools.py` polls
+  `/events?blocks=true`.
 - **Go.** The [`fountain` CLI](cli.md)'s `fountain run`, which streams SSE.
 
 These references implement the rules that the TypeScript SDK implements. Keep
@@ -500,15 +501,9 @@ connection drops mid-turn.
 ## Credit error removal
 
 Fountain no longer has credits, and the server never sends
-`insufficient_credits` or a 402. Each SDK removed its credit error in the
-release below. Delete the branch that handled it. A 402 from something in
-front of the server, such as a proxy, is now the client's generic error and
-carries its status.
-
-| Client | Release | Removed |
-|---|---|---|
-| TypeScript | 7.0.0 | `InsufficientCreditsError` and `error.upgradeUrl` |
-| Python | 0.8.0 | `InsufficientCreditsError` and `error.upgrade_url` |
-| Elixir | 0.8.0 | `kind: :insufficient_credits` and `Fountain.Error.upgrade_url(error)` |
-| Swift `Fountain` | 0.23.0 | `FountainError.Kind.insufficientCredits` and `error.upgradeURL` |
-| Swift `FountainKit` | 0.23.0 | `.insufficientCredits(body, upgradeURL:)`, `APIErrorBody.upgradeURL`, `AdminResource.setComped`/`grantCredits`, the `comped` filter on `users`, and `comped`, `creditBalanceCents` and `hasStripeCustomer` on `AdminUser` and `AuthMe` |
+`insufficient_credits` or a 402. The TypeScript SDK removed
+`InsufficientCreditsError` and `error.upgradeUrl` in 7.0.0. Delete the branch
+that handled them. A 402 from something in front of the server, such as a
+proxy, is now the client's generic error and carries its status. A retired
+SDK that still handles `insufficient_credits` keeps a branch the server never
+takes.

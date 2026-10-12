@@ -162,6 +162,5 @@ in the Fountain repo.
 ## Related
 
 - [API reference](../api.md), which is everything the plugin wraps.
-- [Python SDK](../python-sdk.md), for the full client in the same language.
 - [TypeScript SDK](../sdk.md), if you build the same thing in TS.
 - [Plug into Fountain](clients.md).

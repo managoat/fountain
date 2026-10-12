@@ -25,7 +25,7 @@ mail, OAuth and error reports, read
 | [AI gateways](gateways.md) | **Retired** (ADR 0057), with the API under it. | — |
 | Buzz | A Nostr relay, hosted by Fountain. | The Buzz desktop, or `POST /api/buzz/agents`. |
 | [Agentic IDEs](../llm-integration.md) | `/skill` and the discovery endpoints. | The IDE. |
-| Your own code | The [HTTP API](../api.md), the [TypeScript](../sdk.md), [Python](../python-sdk.md), [Elixir](../elixir-sdk.md) or [Swift](../swift-sdk.md) SDK, the [CLI](../cli.md). | Wherever you want. |
+| Your own code | The [HTTP API](../api.md), the [TypeScript SDK](../sdk.md), the [CLI](../cli.md). | Wherever you want. |
 
 ## Over ACP
 
@@ -69,9 +69,7 @@ Tools an **agent** is configured to call on your application are a different
 mechanism and are fully supported — see below.
 
 Everything that plugin does is available to you directly. Read the
-[API reference](../api.md), the [TypeScript](../sdk.md),
-[Python](../python-sdk.md), [Elixir](../elixir-sdk.md) and
-[Swift](../swift-sdk.md) SDKs, and the
+[API reference](../api.md), the [TypeScript SDK](../sdk.md) and the
 [CLI reference](../cli.md).
 
 Do you build a chat surface of your own, the roster-and-threads app that

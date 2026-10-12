@@ -9,14 +9,10 @@ import urllib.request
 
 PUBLISHERS = {
     'typescript': ('.github/workflows/sdk-publish.yml', 'Publish to npm'),
-    'python': ('.github/workflows/python-sdk-publish.yml', 'Publish to PyPI'),
-    'elixir': ('.github/workflows/elixir-sdk-publish.yml', 'Publish to Hex'),
 }
 
 MANIFESTS = {
     'typescript': 'sdk/typescript/package.json',
-    'python': 'sdk/python/pyproject.toml',
-    'elixir': 'sdk/elixir/mix.exs',
 }
 
 
@@ -26,10 +22,7 @@ def git(*args):
 
 def version_at(language, revision):
     source = git('show', f'{revision}:{MANIFESTS[language]}')
-    if language == 'typescript':
-        return json.loads(source)['version']
-    pattern = r'^version = "([^"]+)"' if language == 'python' else r'^\s*@version "([^"]+)"'
-    return re.search(pattern, source, re.M)[1]
+    return json.loads(source)['version']
 
 
 def api(path):

@@ -3,6 +3,10 @@
 Follow-up: [#2250](https://github.com/managoat/fountain/issues/2250).
 Caller inventory and migration: [#2264](https://github.com/managoat/fountain/pull/2264).
 
+The Python, Elixir and Swift rows below are history: those SDKs were removed on
+2026-10-12 ([ADR 0059](../decisions/0059-independent-sdk-maintenance.md)), and
+TypeScript is the client this guidance now applies to.
+
 ## One creation/admission implementation per client
 
 Each public request API and convenience helper delegates to the same private

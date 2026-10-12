@@ -15,13 +15,13 @@ cross-app configuration leaks that separate CI partitions cannot. It covers the 
 unused-dependency/lockfile checks, formatting, Credo, Dialyzer in dev, security
 scanning, release assembly in prod, and tests. Commands fail fast, including grouped stages that keep the policy within
 20 entries; any failed stage makes verification incomplete. Plain `mix deps.get` preserves dev/test dependencies
-when preparing prod. It also checks the wire contract, conformance fixtures, the TypeScript,
-Python and Elixir SDKs, both Go modules and the Hermes plugin. Each command must
+when preparing prod. It also checks the wire contract, conformance fixtures, the TypeScript
+SDK, both Go modules and the Hermes plugin. Each command must
 exit successfully; a failed stage is not excused by a later successful one.
 
 The complete GitHub CI workflow additionally supplies the six-way partitioned
-coverage gate, release boot, generated-type freshness, Swift on Linux
-and macOS, docs prose, core distribution and Compose checks. The secret scan
+coverage gate, release boot, generated-type freshness, docs prose, core
+distribution and Compose checks. The secret scan
 always applies. Other required workflows follow the actual SDK, ADR and sandbox
 image path filters in the base policy. Only success for the recorded PR, head
 and base counts. The dispatch job only acknowledges admission.

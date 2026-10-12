@@ -51,9 +51,8 @@ defmodule Fountain.Docs do
     # read-only root filesystem, #879). `python` and `javascript` joined the
     # list with the webhooks reference (#700), which carries a signature
     # verifier in each; `toml` joined with the Fly guide, the first page to
-    # quote a `fly.toml`, since `ini` highlights the wrong things for it;
-    # `swift` joined with the Swift SDK manual.
+    # quote a `fly.toml`, since `ini` highlights the wrong things for it.
     # docs_test.exs fails if the corpus or priv/help grows a fence in a
     # language this list does not name.
-    languages: ~w(bash typescript javascript python swift json json5 yaml toml elixir ini)
+    languages: ~w(bash typescript javascript python json json5 yaml toml elixir ini)
 end

@@ -176,8 +176,8 @@ defmodule Fountain.ConversationsWakeTest do
 
     test "a ready row whose machine the provider says is parked is woken, not just reused" do
       # The 6b review's other half (ADR 0058 stage 7a). A park whose finalize
-      # was lost leaves a `ready` row over a machine E2B calls `paused` and
-      # Daytona calls `stopped`; `main` reused it on any `{:ok, _info}` and
+      # was lost leaves a `ready` row over a machine E2B calls `paused`;
+      # `main` reused it on any `{:ok, _info}` and
       # handed the conversation a handle to a machine that was not running.
       user = insert_verified_user()
       agent = insert_agent(user_id: user.id)

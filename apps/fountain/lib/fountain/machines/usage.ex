@@ -2,7 +2,7 @@ defmodule Fountain.Machines.Usage do
   @moduledoc """
   Active sandbox seconds, split by tenant and by provider, clipped to a period.
 
-  The operator pays Sprites, E2B and Daytona for the seconds its tenants'
+  The operator pays Sprites and E2B for the seconds its tenants'
   sandboxes are running (ADR 0005, ADR 0018). This module answers the question
   that turns one of those invoices into an internal number: *which tenant, on
   which provider, ran how long inside this period?* It is what `/admin` and
@@ -117,7 +117,7 @@ defmodule Fountain.Machines.Usage do
 
   # Providers whose seconds land on a bill the operator pays. `runner` is the
   # tenant's own hardware and is deliberately absent — see the moduledoc.
-  @platform_paid ~w(sprites e2b daytona)
+  @platform_paid ~w(sprites e2b)
 
   @typedoc """
   One tenant's time on one provider inside the period.
@@ -387,7 +387,7 @@ defmodule Fountain.Machines.Usage do
 
   @doc """
   Sandbox time per provider for a period, and who it belongs to — the number to
-  hold a Sprites, E2B or Daytona invoice next to. `/admin` and
+  hold a Sprites or E2B invoice next to. `/admin` and
   `/admin/sandboxes` render it.
 
   Options:

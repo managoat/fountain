@@ -26,7 +26,7 @@ Two catalogs are older than this section, and they keep their own pages for
 now.
 
 **[Sandbox providers](../integrations/sandbox-contract.md).** Where a
-conversation's machine comes from. Sprites, E2B, Daytona, or a machine you own
+conversation's machine comes from. Sprites, E2B, or a machine you own
 through `fountain runner`.
 
 **[Services Fountain uses](../integrations/index.md).** What an operator

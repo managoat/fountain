@@ -2681,13 +2681,13 @@ export interface components {
             metadata?: {
                 [key: string]: unknown;
             };
-            /** @description Canonical provider/model_id (e.g. anthropic/claude-sonnet-5). The provider must match the runtime — anthropic for claude, openai for codex, google for gemini; opencode accepts any of the three. Other providers are rejected: Fountain has no credentials to export for them. The model id is not checked against a list, so a newly released model works without a Fountain release. Null on the acp runtime, which resolves no inference credential and reads no model. */
+            /** @description Canonical provider/model_id (e.g. anthropic/claude-sonnet-5). The provider must match the runtime — anthropic for claude, openai for codex, google for gemini. Other providers are rejected: Fountain has no credentials to export for them. The model id is not checked against a list, so a newly released model works without a Fountain release. Null on the acp runtime, which resolves no inference credential and reads no model. */
             model: string | null;
             name: string;
-            /** @description Per-tool permission policy: a map of key to verdict, plus an optional "default" key. A key is matched against the tool card's title first and then ACP's kind (execute, edit, read, fetch, …); prefer a kind, because claude titles a tool call with the command it is about to run. Unset keys fall back to the default, and an unset default is auto_allow — today's behaviour. "ask" holds the tool until a human answers it on the conversation stream, and denies if nobody does before the timeout. A runtime that never asks (opencode) refuses anything stricter than auto_allow with 422 permission_policy_unenforceable. */
+            /** @description Per-tool permission policy: a map of key to verdict, plus an optional "default" key. A key is matched against the tool card's title first and then ACP's kind (execute, edit, read, fetch, …); prefer a kind, because claude titles a tool call with the command it is about to run. Unset keys fall back to the default, and an unset default is auto_allow — today's behaviour. "ask" holds the tool until a human answers it on the conversation stream, and denies if nobody does before the timeout. */
             permission_policy?: components["schemas"]["PermissionPolicy"] | null;
-            /** @enum {string} */
-            runtime: "claude" | "codex" | "gemini" | "opencode" | "acp";
+            /** @description claude, codex, gemini or acp. A row written before the opencode runtime was removed (2026-10) still reads opencode; such an agent cannot start a conversation until its runtime is changed. */
+            runtime: string;
             /** @description The command the acp runtime launches inside the sandbox, as a shell line resolved there (for example `chant acp`). Required when runtime is acp, and rejected on every other runtime, which resolves its own executable. A free string by design: it runs under the same isolation as an environment's setup script. */
             runtime_command?: string | null;
             /**
@@ -2699,7 +2699,7 @@ export interface components {
              * @description Sandbox backend override; null inherits the instance default (SANDBOX_PROVIDER). Only providers configured on this instance are accepted
              * @enum {string|null}
              */
-            sandbox_provider?: "sprites" | "e2b" | "daytona" | "runner" | null;
+            sandbox_provider?: "sprites" | "e2b" | "runner" | null;
             /** @description ACP session config options every conversation of this agent requests (ADR 0062), such as {"effort": "high"}. A conversation's own session_config overrides these keys, and a prompt's overrides both for that turn. Null or {} requests none. */
             session_config?: components["schemas"]["SessionConfig"];
             /** @description Each entry is either inline (`{name, content}` — full SKILL.md text written to the sprite) or github (`{source, ref?, name?}` — installed on the sprite via the skills.sh CLI, optionally pinned to a tag/branch/sha via `ref`). Exactly one of `content` or `source` must be set on each entry. */
@@ -2746,10 +2746,10 @@ export interface components {
             };
             model?: string | null;
             name: string;
-            /** @description Per-tool permission policy: a map of key to verdict, plus an optional "default" key. A key is matched against the tool card's title first and then ACP's kind (execute, edit, read, fetch, …); prefer a kind, because claude titles a tool call with the command it is about to run. Unset keys fall back to the default, and an unset default is auto_allow. "ask" holds the tool until a human answers it on the conversation stream, and denies if nobody does before the timeout. A conversation may narrow this at launch, never widen it. A runtime that never asks (opencode) refuses anything stricter than auto_allow with 422 permission_policy_unenforceable. */
+            /** @description Per-tool permission policy: a map of key to verdict, plus an optional "default" key. A key is matched against the tool card's title first and then ACP's kind (execute, edit, read, fetch, …); prefer a kind, because claude titles a tool call with the command it is about to run. Unset keys fall back to the default, and an unset default is auto_allow. "ask" holds the tool until a human answers it on the conversation stream, and denies if nobody does before the timeout. A conversation may narrow this at launch, never widen it. */
             permission_policy?: components["schemas"]["PermissionPolicy"] | null;
             /** @enum {string} */
-            runtime: "claude" | "codex" | "gemini" | "opencode" | "acp";
+            runtime: "claude" | "codex" | "gemini" | "acp";
             /** @description The command the acp runtime launches inside the sandbox, as a shell line resolved there (for example `chant acp`). Required when runtime is acp, and rejected on every other runtime, which resolves its own executable. A free string by design: it runs under the same isolation as an environment's setup script. */
             runtime_command?: string | null;
             /**
@@ -2761,7 +2761,7 @@ export interface components {
              * @description Sandbox backend override; null inherits the instance default (SANDBOX_PROVIDER). Only providers configured on this instance are accepted
              * @enum {string|null}
              */
-            sandbox_provider?: "sprites" | "e2b" | "daytona" | "runner" | null;
+            sandbox_provider?: "sprites" | "e2b" | "runner" | null;
             /** @description ACP session config options every conversation of this agent requests (ADR 0062), such as {"effort": "high"}. A conversation's own session_config overrides these keys, and a prompt's overrides both for that turn. Null or {} requests none. */
             session_config?: components["schemas"]["SessionConfig"];
             /** @description Each entry is either inline (`{name, content}` — full SKILL.md text written to the sprite) or github (`{source, ref?, name?}` — installed on the sprite via the skills.sh CLI, optionally pinned to a tag/branch/sha via `ref`). Exactly one of `content` or `source` must be set on each entry. */
@@ -2805,10 +2805,10 @@ export interface components {
             };
             model?: string | null;
             name?: string;
-            /** @description Per-tool permission policy: a map of key to verdict, plus an optional "default" key. A key is matched against the tool card's title first and then ACP's kind (execute, edit, read, fetch, …); prefer a kind, because claude titles a tool call with the command it is about to run. Unset keys fall back to the default, and an unset default is auto_allow. "ask" holds the tool until a human answers it on the conversation stream, and denies if nobody does before the timeout. A conversation may narrow this at launch, never widen it. A runtime that never asks (opencode) refuses anything stricter than auto_allow with 422 permission_policy_unenforceable. */
+            /** @description Per-tool permission policy: a map of key to verdict, plus an optional "default" key. A key is matched against the tool card's title first and then ACP's kind (execute, edit, read, fetch, …); prefer a kind, because claude titles a tool call with the command it is about to run. Unset keys fall back to the default, and an unset default is auto_allow. "ask" holds the tool until a human answers it on the conversation stream, and denies if nobody does before the timeout. A conversation may narrow this at launch, never widen it. */
             permission_policy?: components["schemas"]["PermissionPolicy"] | null;
             /** @enum {string} */
-            runtime?: "claude" | "codex" | "gemini" | "opencode" | "acp";
+            runtime?: "claude" | "codex" | "gemini" | "acp";
             /** @description The command the acp runtime launches inside the sandbox, as a shell line resolved there (for example `chant acp`). Required when runtime is acp, and rejected on every other runtime, which resolves its own executable. A free string by design: it runs under the same isolation as an environment's setup script. */
             runtime_command?: string | null;
             /**
@@ -2820,7 +2820,7 @@ export interface components {
              * @description Sandbox backend override; null inherits the instance default (SANDBOX_PROVIDER). Only providers configured on this instance are accepted
              * @enum {string|null}
              */
-            sandbox_provider?: "sprites" | "e2b" | "daytona" | "runner" | null;
+            sandbox_provider?: "sprites" | "e2b" | "runner" | null;
             /** @description ACP session config options every conversation of this agent requests (ADR 0062), such as {"effort": "high"}. A conversation's own session_config overrides these keys, and a prompt's overrides both for that turn. Null or {} requests none. */
             session_config?: components["schemas"]["SessionConfig"];
             /** @description Each entry is either inline (`{name, content}` — full SKILL.md text written to the sprite) or github (`{source, ref?, name?}` — installed on the sprite via the skills.sh CLI, optionally pinned to a tag/branch/sha via `ref`). Exactly one of `content` or `source` must be set on each entry. */
@@ -3512,8 +3512,8 @@ export interface components {
             pending_requests?: components["schemas"]["PendingPermissionRequest"][];
             /** @description The per-launch permission override this conversation was started with, or null if it had none. The policy actually in force is this merged with the agent's, taking the stricter of the two per tool. */
             permission_policy?: components["schemas"]["PermissionPolicy"] | null;
-            /** @enum {string} */
-            runtime: "claude" | "codex" | "gemini" | "opencode" | "acp";
+            /** @description claude, codex, gemini or acp. A row written before the opencode runtime was removed (2026-10) still reads opencode; such an agent cannot start a conversation until its runtime is changed. */
+            runtime: string;
             runtime_session_id?: string | null;
             sandbox?: (components["schemas"]["Sandbox"] | (null)) | null;
             /**
@@ -3570,7 +3570,7 @@ export interface components {
             } | null;
             /** @description Optional model to run instead of the agent's (ADR 0061), in canonical provider/model_id form, for this conversation only. Checked as the agent's own model is: a provider the runtime does not drive, or any model on the acp runtime, is 422 model_invalid. The model id itself is not checked against a catalog. Change it later with POST /api/conversations/{id}/reapply. Not part of the channel_id resume key: a request that resumes a conversation running a different model is 409 conversation_model_differs, before any prompt is sent; reapply the model, or set fresh: true. */
             model?: string | null;
-            /** @description Per-launch permission override (#939). Keys are matched against the tool card's title first and then ACP's kind (execute, edit, read, fetch, …); "default" covers the rest. Prefer a kind: claude titles a tool call with the command it is about to run, so a title matches one invocation only. Merged with the agent's own policy, taking the stricter of the two. It may only narrow: a policy that would loosen any tool is refused with 422 permission_policy_widens rather than silently clamped, and one the runtime never consults is refused with 422 permission_policy_unenforceable. If a queued request with a prompt and a nonempty policy resumes an existing channel, it fails with permission_policy_requires_fresh_conversation before sending the prompt. Set fresh: true to create a conversation for that policy. */
+            /** @description Per-launch permission override (#939). Keys are matched against the tool card's title first and then ACP's kind (execute, edit, read, fetch, …); "default" covers the rest. Prefer a kind: claude titles a tool call with the command it is about to run, so a title matches one invocation only. Merged with the agent's own policy, taking the stricter of the two. It may only narrow: a policy that would loosen any tool is refused with 422 permission_policy_widens rather than silently clamped. If a queued request with a prompt and a nonempty policy resumes an existing channel, it fails with permission_policy_requires_fresh_conversation before sending the prompt. Set fresh: true to create a conversation for that policy. */
             permission_policy?: components["schemas"]["PermissionPolicy"] | null;
             /** @description Optional first turn prompt. A launch may open with no prompt at all, but a prompt that is present must carry words: blank and whitespace-only text is refused with 422 invalid_prompt, before the launch reserves a sandbox. */
             prompt?: string;
@@ -3583,7 +3583,7 @@ export interface components {
             sandbox_api_access?: "owner" | "none";
             /**
              * Format: uuid
-             * @description Attach the conversation to a sandbox you already have instead of provisioning one (ADR 0023). The sandbox must be yours (404 sandbox_not_found), ready or suspended (409 sandbox_not_attachable), and built from the same environment and vault as this launch (422 sandbox_identity_mismatch). It is normally the same agent's (422 sandbox_runtime_mismatch if the agent's runtime changed since). An agent other than the one the sandbox was built for may attach to that agent's persistent sandbox as a guest only to make a claude and codex pair: a codex agent on a claude agent's home, or a claude agent on a codex agent's, where no other agent of either runtime has run. Any other guest is 422 sandbox_identity_mismatch. Attaching a guest needs a full-scope API key; a sandbox's own token, or any key below full scope, is refused with 403 guest_attach_requires_full_scope (reason insufficient_scope), a channel rotation (fresh) of a guest included. The sandbox stays its own agent's, and a guest's reapply is refused with 409 rebuild_required: field shared_sandbox while another conversation is on the sandbox, field guest when the guest is alone there. A claude home created before guests were admitted refuses a codex guest with 409 codex_inference_conflict until it is reset. The conversation opens idle on that machine; a prompt here wakes it. Several conversations then run on one disk at once, except on opencode and gemini, where a second turn of the same runtime is refused with 409 sandbox_at_capacity while one runs.
+             * @description Attach the conversation to a sandbox you already have instead of provisioning one (ADR 0023). The sandbox must be yours (404 sandbox_not_found), ready or suspended (409 sandbox_not_attachable), and built from the same environment and vault as this launch (422 sandbox_identity_mismatch). It is normally the same agent's (422 sandbox_runtime_mismatch if the agent's runtime changed since). An agent other than the one the sandbox was built for may attach to that agent's persistent sandbox as a guest only to make a claude and codex pair: a codex agent on a claude agent's home, or a claude agent on a codex agent's, where no other agent of either runtime has run. Any other guest is 422 sandbox_identity_mismatch. Attaching a guest needs a full-scope API key; a sandbox's own token, or any key below full scope, is refused with 403 guest_attach_requires_full_scope (reason insufficient_scope), a channel rotation (fresh) of a guest included. The sandbox stays its own agent's, and a guest's reapply is refused with 409 rebuild_required: field shared_sandbox while another conversation is on the sandbox, field guest when the guest is alone there. A claude home created before guests were admitted refuses a codex guest with 409 codex_inference_conflict until it is reset. The conversation opens idle on that machine; a prompt here wakes it. Several conversations then run on one disk at once, except on gemini, where a second turn of the same runtime is refused with 409 sandbox_at_capacity while one runs.
              */
             sandbox_id?: string | null;
             /**
@@ -4362,11 +4362,8 @@ export interface components {
              * @enum {string}
              */
             mode?: "ephemeral" | "persistent";
-            /**
-             * @description The sandbox backend this row lives on.
-             * @enum {string}
-             */
-            provider?: "sprites" | "e2b" | "daytona" | "runner";
+            /** @description The sandbox backend this row lives on: sprites, e2b or runner. A sandbox created before the Daytona provider was removed (2026-10) reads daytona and is terminated. */
+            provider?: string;
             /** @description For `provider: runner` — the user's own machine the sandbox lives on, and its directory there (#834). Null for hosted providers; the inner fields are null when the runner row was forgotten. */
             runner?: {
                 hostname?: string | null;
@@ -4417,8 +4414,8 @@ export interface components {
             inserted_at?: string;
             /** @description True while this conversation is running a turn on the machine. */
             mid_turn: boolean;
-            /** @enum {string} */
-            runtime?: "claude" | "codex" | "gemini" | "opencode" | "acp";
+            /** @description claude, codex, gemini or acp. A row written before the opencode runtime was removed (2026-10) still reads opencode; such an agent cannot start a conversation until its runtime is changed. */
+            runtime?: string;
             /** @enum {string} */
             status: "pending" | "running" | "idle" | "failed" | "terminated";
             title?: string | null;
@@ -4454,11 +4451,8 @@ export interface components {
              * @enum {string}
              */
             mode?: "ephemeral" | "persistent";
-            /**
-             * @description The sandbox backend this row lives on.
-             * @enum {string}
-             */
-            provider?: "sprites" | "e2b" | "daytona" | "runner";
+            /** @description The sandbox backend this row lives on: sprites, e2b or runner. A sandbox created before the Daytona provider was removed (2026-10) reads daytona and is terminated. */
+            provider?: string;
             /** @description For `provider: runner` — the user's own machine the sandbox lives on, and its directory there (#834). Null for hosted providers; the inner fields are null when the runner row was forgotten. */
             runner?: {
                 hostname?: string | null;
@@ -13984,7 +13978,7 @@ export interface operations {
     "FountainWeb.SandboxFilesController.diff": {
         parameters: {
             query?: {
-                /** @description In-sandbox path, absolute or relative to the agent's working directory (`/home/sprite` for claude and codex, `/tmp/gemini-workspace` and `/tmp/opencode-workspace` for the others). Confined to those directories: anything else is `422 path_outside_sandbox`. */
+                /** @description In-sandbox path, absolute or relative to the agent's working directory (`/home/sprite` for claude and codex, `/tmp/gemini-workspace` for gemini). Confined to those directories: anything else is `422 path_outside_sandbox`. */
                 path?: string;
                 /** @description Diff the index (`--cached`). */
                 staged?: boolean;
@@ -14087,7 +14081,7 @@ export interface operations {
     "FountainWeb.SandboxFilesController.show": {
         parameters: {
             query: {
-                /** @description In-sandbox path, absolute or relative to the agent's working directory (`/home/sprite` for claude and codex, `/tmp/gemini-workspace` and `/tmp/opencode-workspace` for the others). Confined to those directories: anything else is `422 path_outside_sandbox`. */
+                /** @description In-sandbox path, absolute or relative to the agent's working directory (`/home/sprite` for claude and codex, `/tmp/gemini-workspace` for gemini). Confined to those directories: anything else is `422 path_outside_sandbox`. */
                 path: string;
                 /** @description How many bytes to return, at most 4194304 (default 262144). `truncated` says whether the content stopped short. */
                 max_bytes?: number;
@@ -14186,7 +14180,7 @@ export interface operations {
     "FountainWeb.SandboxFilesController.index": {
         parameters: {
             query?: {
-                /** @description In-sandbox path, absolute or relative to the agent's working directory (`/home/sprite` for claude and codex, `/tmp/gemini-workspace` and `/tmp/opencode-workspace` for the others). Confined to those directories: anything else is `422 path_outside_sandbox`. */
+                /** @description In-sandbox path, absolute or relative to the agent's working directory (`/home/sprite` for claude and codex, `/tmp/gemini-workspace` for gemini). Confined to those directories: anything else is `422 path_outside_sandbox`. */
                 path?: string;
             };
             header?: never;
@@ -14283,7 +14277,7 @@ export interface operations {
     "FountainWeb.SandboxFilesController.git_status": {
         parameters: {
             query?: {
-                /** @description In-sandbox path, absolute or relative to the agent's working directory (`/home/sprite` for claude and codex, `/tmp/gemini-workspace` and `/tmp/opencode-workspace` for the others). Confined to those directories: anything else is `422 path_outside_sandbox`. */
+                /** @description In-sandbox path, absolute or relative to the agent's working directory (`/home/sprite` for claude and codex, `/tmp/gemini-workspace` for gemini). Confined to those directories: anything else is `422 path_outside_sandbox`. */
                 path?: string;
                 /** @description What to do about untracked paths: collapse an untracked directory to one entry (`normal`), list every file under it (`all`), or leave them out (`no`). */
                 untracked?: "normal" | "all" | "no";

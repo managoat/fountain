@@ -16,7 +16,7 @@ defmodule Fountain.Conversations.ExecutionTransport do
   `_unsafe_start/5` refuses any other provider with `:provider_not_supported`,
   and admission rolls back the same way, because binding a provider-issued
   session id from trusted control metadata is a per-adapter capability and only
-  the Sprites adapter has it. E2B, Daytona and self-hosted runners (ADR 0018,
+  the Sprites adapter has it. E2B and self-hosted runners (ADR 0018,
   ADR 0022) therefore cannot carry a bounded turn at all. They get a refusal at
   admission, not a silently unbounded turn — a caller that asks for a limit and
   is told no is fine; one that asks and is ignored is not.

@@ -13,9 +13,9 @@ export function validateBrowser(config, env) {
   ensure(!env.DEBUG && !env.PWDEBUG && !env.PW_TRACE, 'Disable browser debug/native trace environment variables before entering credentials');
   const a = b.agent;
   ensure(a && Object.keys(a).every(k => ['runtime', 'model', 'sandbox_provider'].includes(k)) &&
-    ['claude', 'codex', 'gemini', 'opencode'].includes(a.runtime) &&
+    ['claude', 'codex', 'gemini'].includes(a.runtime) &&
     typeof a.model === 'string' && /^[a-z0-9_-]+\/[a-z0-9._-]+$/.test(a.model) &&
-    ['sprites', 'e2b', 'daytona', 'runner'].includes(a.sandbox_provider), 'Pin the browser agent runtime, model and sandbox provider');
+    ['sprites', 'e2b', 'runner'].includes(a.sandbox_provider), 'Pin the browser agent runtime, model and sandbox provider');
   ensure(['anthropic_api_key', 'claude_code_oauth_token', 'openai_api_key', 'gemini_api_key'].includes(b.credential_provider), 'Select a credential setup provider');
   if (b.credential_setup !== undefined) {
     const setup = b.credential_setup;

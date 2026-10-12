@@ -50,7 +50,7 @@ defmodule Fountain.InferenceCredentials.SourceTest do
       "vault:9b8a7c6d-5e4f-4a3b-9c2d-1e0f9a8b7c6d:2c3d4e5f-6a7b-4c8d-9e0f-1a2b3c4d5e6f",
     "revision" => "e5f6a7b8-c9d0-4e1f-8a2b-3c4d5e6f7a8b",
     "set_id" => "3f2a1b0c-9d8e-4f7a-b6c5-d4e3f2a1b0c9",
-    "runtime" => "opencode",
+    "runtime" => "gemini",
     "model" => "google/gemini-2.5-pro",
     "environment_id" => nil,
     "vault_id" => "9b8a7c6d-5e4f-4a3b-9c2d-1e0f9a8b7c6d"

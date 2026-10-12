@@ -56,11 +56,6 @@
         "name": "gemini",
         "reason": "This example targets Codex on a dedicated runner; declare tested cells before extending this target.",
         "issue": "https://github.com/managoat/fountain/issues/1613"
-      },
-      {
-        "name": "opencode",
-        "reason": "This example targets Codex on a dedicated runner; declare tested cells before extending this target.",
-        "issue": "https://github.com/managoat/fountain/issues/1613"
       }
     ],
     "sandbox_providers": [
@@ -71,11 +66,6 @@
       },
       {
         "name": "e2b",
-        "reason": "Hosted-provider credentials and verification are outside this runner-only example.",
-        "issue": "https://github.com/managoat/fountain/issues/1613"
-      },
-      {
-        "name": "daytona",
         "reason": "Hosted-provider credentials and verification are outside this runner-only example.",
         "issue": "https://github.com/managoat/fountain/issues/1613"
       },

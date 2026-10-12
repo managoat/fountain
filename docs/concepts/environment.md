@@ -129,7 +129,7 @@ an open network.
 Put an IPv6 address in square brackets, such as `[2001:db8::1]`. Without them
 there is no way to tell the port apart from the address.
 
-Not every backend can hold egress. Sprites, E2B and Daytona can. A
+Not every backend can hold egress. Sprites and E2B can. A
 [self-hosted runner](../integrations/runners.md) cannot. The agent selects the
 backend, and the environment sets the policy. Fountain therefore compares the
 two at launch. It refuses a `limited` environment on a backend that cannot

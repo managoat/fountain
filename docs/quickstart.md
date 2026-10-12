@@ -170,6 +170,6 @@ the Agent. The [guided tour](tour.md) adds a GitHub token, changes a repository,
 and opens a pull request.
 
 The example uses Claude because it is Fountain's most exercised runtime. To
-use Codex, Gemini CLI, or OpenCode, change `runtime` and `model` in the
+use Codex or Gemini CLI, change `runtime` and `model` in the
 manifest and add that provider's inference credential. The
 [runtime catalog](catalog/runtimes/index.md) lists the accepted shapes.

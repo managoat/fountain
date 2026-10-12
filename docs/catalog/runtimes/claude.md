@@ -27,9 +27,6 @@ then use the agent definition below.
 It is the default, and it is the most exercised path. Editor integration, the
 permission flow and the block format all grew against it first.
 
-Choose [opencode](opencode.md) instead to get one agent definition that can
-move between providers.
-
 ## Set it up
 
 ```yaml

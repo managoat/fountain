@@ -164,7 +164,7 @@ defmodule Fountain.InferenceCredentials.Resolver do
   # provider that the runtime cannot use, is unusable rather than a fall
   # through to the platform.
   defp select(%Inputs{provider: provider, runtime: runtime, own: own, overrides: overrides}) do
-    accepted = accepted(provider, runtime)
+    accepted = accepted(provider)
 
     entries =
       Map.merge(Map.new(own, fn {kind, value} -> {kind, {value, nil, nil}} end), overrides)
@@ -222,9 +222,8 @@ defmodule Fountain.InferenceCredentials.Resolver do
     end
   end
 
-  defp accepted("anthropic", "opencode"), do: [:anthropic_api_key]
-  defp accepted("anthropic", _), do: [:claude_code_oauth_token, :anthropic_api_key]
-  defp accepted(provider, _), do: InferenceCredentials.credentials_for_provider(provider)
+  defp accepted("anthropic"), do: [:claude_code_oauth_token, :anthropic_api_key]
+  defp accepted(provider), do: InferenceCredentials.credentials_for_provider(provider)
 
   defp normalize(values, references, kinds) do
     Enum.reduce_while(Map.take(InferenceCredentials.env_aliases(), kinds), {:ok, %{}}, fn {kind,

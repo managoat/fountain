@@ -472,7 +472,7 @@ defmodule Fountain.Conversations.ChatGPTGrantAdmissionTest do
       # The set's own key, which every OpenAI consumer but codex runs on.
       assert {:ok, %Source{scope: :credential, kind: :openai_api_key},
               %{openai_api_key: "sk-set"}} =
-               resolve.("opencode", credential_set_id: ctx.on_main.id)
+               resolve.("acp", credential_set_id: ctx.on_main.id)
 
       # The deployment's grant and its key, as an account holding nothing of
       # its own gets them.
@@ -484,7 +484,7 @@ defmodule Fountain.Conversations.ChatGPTGrantAdmissionTest do
 
       assert {:ok, %Source{scope: :platform, kind: :openai_api_key},
               %{openai_api_key: "sk-platform"}} =
-               InferenceCredentials.resolve(bare.id, model, "opencode", [])
+               InferenceCredentials.resolve(bare.id, model, "acp", [])
     end
 
     defp admission_refusals(conv) do

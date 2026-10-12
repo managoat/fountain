@@ -97,15 +97,25 @@ defmodule Fountain.Conversations.SandboxModeTest do
     {:ok, first} = launch(ctx)
     home = Conversations._unsafe_get_sandbox!(first.sandbox_id)
     {:ok, _} = update_sandbox(home, %{status: "ready"})
-    {:ok, changed} = Agents.update_agent(ctx.agent, %{"runtime" => "opencode"})
+
+    {:ok, changed} =
+      Agents.update_agent(ctx.agent, %{
+        "runtime" => "gemini",
+        "model" => "google/gemini-3.1-pro-preview"
+      })
 
     assert {:ok, second} = launch(%{ctx | agent: changed})
     refute second.sandbox_id == first.sandbox_id
-    assert second.runtime == "opencode"
+    assert second.runtime == "gemini"
     assert Repo.reload!(home).status == "ready"
     assert Repo.reload!(first).sandbox_id == home.id
 
-    {:ok, _} = Agents.update_agent(changed, %{"runtime" => "claude"})
+    {:ok, _} =
+      Agents.update_agent(changed, %{
+        "runtime" => "claude",
+        "model" => "anthropic/claude-sonnet-4-6"
+      })
+
     assert {:ok, third} = launch(ctx)
     assert third.sandbox_id == first.sandbox_id
   end
@@ -115,7 +125,12 @@ defmodule Fountain.Conversations.SandboxModeTest do
     home = Conversations._unsafe_get_sandbox!(first.sandbox_id)
     {:ok, home} = update_sandbox(home, %{status: "ready"})
     Repo.delete!(first)
-    {:ok, changed} = Agents.update_agent(ctx.agent, %{"runtime" => "opencode"})
+
+    {:ok, changed} =
+      Agents.update_agent(ctx.agent, %{
+        "runtime" => "gemini",
+        "model" => "google/gemini-3.1-pro-preview"
+      })
 
     assert {:error, :sandbox_runtime_mismatch} =
              Launch.start_conversation(%{
@@ -127,7 +142,7 @@ defmodule Fountain.Conversations.SandboxModeTest do
     assert {:ok, second} = launch(ctx)
     refute second.sandbox_id == home.id
     assert Repo.reload!(home).runtime == "claude"
-    assert {:error, changeset} = update_sandbox(home, %{runtime: "opencode"})
+    assert {:error, changeset} = update_sandbox(home, %{runtime: "gemini"})
     assert %{runtime: [_]} = errors_on(changeset)
   end
 
@@ -136,8 +151,20 @@ defmodule Fountain.Conversations.SandboxModeTest do
     {:ok, first} = launch(ctx)
     home = Conversations._unsafe_get_sandbox!(first.sandbox_id)
     {:ok, _} = update_sandbox(home, %{status: "ready"})
-    {:ok, _} = Conversations.update_conversation(first, %{status: "idle"})
-    {:ok, _} = Agents.update_agent(ctx.agent, %{"runtime" => "opencode"})
+    # The conversation keeps the model it ran (ADR 0061), so the agent's move
+    # to another provider changes its runtime and not its inference source.
+    {:ok, _} =
+      Conversations.update_conversation(first, %{
+        status: "idle",
+        model: "anthropic/claude-sonnet-4-6"
+      })
+
+    {:ok, _} =
+      Agents.update_agent(ctx.agent, %{
+        "runtime" => "gemini",
+        "model" => "google/gemini-3.1-pro-preview"
+      })
+
     stub(Managoat.Sandbox.Sprites, :get, fn _handle -> {:error, :not_found} end)
 
     assert {:ok, woken} = Wake.wake_conversation(first.id)

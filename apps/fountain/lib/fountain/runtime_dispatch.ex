@@ -1,6 +1,12 @@
 defmodule Fountain.RuntimeDispatch do
   @moduledoc """
-  Host dispatch for the four packaged runtimes and the two that are Fountain's.
+  Host dispatch for the three packaged runtimes and the two that are Fountain's.
+
+  Only the runtimes `Fountain.Agents.Agent.packaged_runtimes/0` names are
+  dispatched, though `Managoat.Runtimes` still ships an `opencode` adapter.
+  Fountain removed that runtime in 2026-10; an agent row written before then
+  still carries it, and `for_agent/1` refuses it with a message that says what
+  to change, rather than running a runtime nothing here supports any more.
 
   `Fountain.DeployedACPFixture` is one fixed, account-restricted testing seam
   for #1611/#1007. It does not register tenant-provided code or replace a
@@ -13,6 +19,7 @@ defmodule Fountain.RuntimeDispatch do
   why `command/2` takes the agent.
   """
 
+  alias Fountain.Agents.Agent
   alias Fountain.CommandRuntime
   alias Fountain.DeployedACPFixture
   alias Managoat.Runtimes
@@ -26,7 +33,12 @@ defmodule Fountain.RuntimeDispatch do
   end
 
   def for_agent(%{runtime: "acp"}), do: {:ok, CommandRuntime}
-  def for_agent(%{runtime: runtime}), do: Runtimes.for_runtime(runtime)
+
+  def for_agent(%{runtime: runtime}) do
+    if runtime in Agent.packaged_runtimes(),
+      do: Runtimes.for_runtime(runtime),
+      else: {:error, "unsupported runtime: #{runtime}; change the agent's runtime"}
+  end
 
   def acp_enabled?(%{runtime: runtime}), do: acp_enabled?(runtime)
   def acp_enabled?("fountain-fixture"), do: DeployedACPFixture.enabled?()
@@ -59,9 +71,6 @@ defmodule Fountain.RuntimeDispatch do
 
   def concurrency("fountain-fixture"), do: 1
   def concurrency(runtime), do: ACP.concurrency(runtime)
-
-  def asks_permission?("fountain-fixture"), do: true
-  def asks_permission?(runtime), do: ACP.asks_permission?(runtime)
 
   def install(_handle, "fountain-fixture", _env), do: :ok
   def install(_handle, "acp", _env), do: :ok

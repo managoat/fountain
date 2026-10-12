@@ -138,8 +138,8 @@ can then work on one disk. All of these must hold:
   claude agent's machine, or a claude agent on a codex agent's. No agent of any
   other runtime can have run there, and no other agent of the guest's runtime.
   Two agents of the same runtime would share one set of instructions and
-  skills, so Fountain refuses them. Gemini and
-  opencode agents don't take part, and an `acp` agent runs a command whose
+  skills, so Fountain refuses them. Gemini
+  agents don't take part, and an `acp` agent runs a command whose
   files Fountain can't place.
 - Fountain also checks that the two runtimes keep their settings,
   instructions and skills in separate directories: `~/.claude` for claude,
@@ -248,8 +248,13 @@ deny-all.
 |---|---|---|
 | [Sprites](../integrations/sprites.md) | The first backend, and the instance default. | Parks on its own, scales to zero, keeps the disk. |
 | [E2B](../integrations/e2b.md) | Hosted. | An explicit pause, with a snapshot of filesystem **and memory**. |
-| [Daytona](../integrations/daytona.md) | Hosted, and you can self-host it. | An explicit stop, keeps the disk, archives a long park. |
 | [Self-hosted runner](../integrations/runners.md) | `fountain runner` on a machine the **user** owns. | Stops the processes. The directory stays. |
+
+**Daytona was removed in 2026-10.** A migration moved each agent pinned to
+`sandbox_provider: daytona` to the instance default, and marked each Daytona
+sandbox still recorded as live as terminated. Fountain no longer reaches
+Daytona, so if any of those machines still exist, delete them in Daytona's
+console.
 
 ## Capabilities are honest, and that has consequences
 

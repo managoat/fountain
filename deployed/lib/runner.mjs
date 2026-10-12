@@ -61,9 +61,9 @@ export function configFrom(path, env = process.env) {
   if (config.profiles.some(name => ['execution', 'streaming', 'secrets', 'mcp', 'webhooks', 'schedules'].includes(name))) {
     const settings = config.execution;
     requireThat(settings && Object.keys(settings).every(k => ['runtime', 'model', 'sandbox_provider', 'sandbox_mode', 'provision_ms', 'turn_ms', 'max_turns'].includes(k)), 'Expected explicit execution configuration');
-    requireThat(['claude', 'codex', 'gemini', 'opencode'].includes(settings.runtime) &&
+    requireThat(['claude', 'codex', 'gemini'].includes(settings.runtime) &&
       typeof settings.model === 'string' && /^[a-z0-9_-]+\/[a-z0-9._-]+$/.test(settings.model) &&
-      ['sprites', 'e2b', 'daytona', 'runner'].includes(settings.sandbox_provider), 'Pin an execution runtime, model, and sandbox provider');
+      ['sprites', 'e2b', 'runner'].includes(settings.sandbox_provider), 'Pin an execution runtime, model, and sandbox provider');
     settings.provision_ms = positive(settings.provision_ms, 120000, 300000);
     settings.sandbox_mode ??= 'ephemeral';
     requireThat(['ephemeral', 'persistent'].includes(settings.sandbox_mode), 'Unknown execution sandbox mode');
@@ -73,7 +73,7 @@ export function configFrom(path, env = process.env) {
   }
   if (config.profiles.includes('secrets')) {
     requireThat(config.profiles.length === 1, 'Run the secrets profile separately');
-    requireThat(config.execution.sandbox_mode === 'ephemeral' && ['sprites', 'e2b', 'daytona'].includes(config.execution.sandbox_provider), 'Secrets requires an ephemeral broker-capable hosted provider; runners cannot enforce broker egress');
+    requireThat(config.execution.sandbox_mode === 'ephemeral' && ['sprites', 'e2b'].includes(config.execution.sandbox_provider), 'Secrets requires an ephemeral broker-capable hosted provider; runners cannot enforce broker egress');
     requireThat(config.secrets && Object.keys(config.secrets).every(k => ['allowed_url', 'blocked_url', 'admin_credential', 'bootstrap_hosts'].includes(k)), 'Expected explicit controlled receiver configuration');
     const origins = receiverOrigins(config.secrets);
     requireThat(Array.isArray(config.secrets.bootstrap_hosts) && config.secrets.bootstrap_hosts.length <= 10 &&
@@ -109,7 +109,7 @@ export function configFrom(path, env = process.env) {
     requireThat(config.profiles.length === 1 && !config.execution, 'Run deterministic fixture separately from real-model profiles');
     const fixture = config.fixture;
     requireThat(fixture && Object.keys(fixture).every(k => ['sandbox_provider', 'provision_ms', 'turn_ms', 'max_turns'].includes(k)), 'Expected explicit fixture configuration');
-    requireThat(['sprites', 'e2b', 'daytona', 'runner'].includes(fixture.sandbox_provider), 'Pin a fixture sandbox provider');
+    requireThat(['sprites', 'e2b', 'runner'].includes(fixture.sandbox_provider), 'Pin a fixture sandbox provider');
     fixture.provision_ms = positive(fixture.provision_ms, 120000, 300000);
     fixture.turn_ms = positive(fixture.turn_ms, 30000, 60000);
     requireThat(fixture.max_turns === 7, 'Fixture requires an explicit seven-prompt budget');

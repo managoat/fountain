@@ -50,5 +50,4 @@ RUN mkdir -p /home/sprite/.local/bin /home/sprite/.npm-global && \
 RUN sudo npm install -g --no-progress --silent \
       @anthropic-ai/claude-code \
       @openai/codex \
-      @google/gemini-cli && \
-    /home/sprite/.bun/bin/bun install -g opencode-ai
+      @google/gemini-cli

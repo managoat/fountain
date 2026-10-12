@@ -89,26 +89,22 @@ defmodule FountainWeb.SchemaEnumGuardrailTest do
     {FountainWeb.Schemas.AdminRoleRequest, "role"} => {User, :roles},
     {FountainWeb.Schemas.AdminUser, "role"} => {User, :roles},
     {FountainWeb.Schemas.AuthMeResponse, "role"} => {User, :roles},
-    # The five Fountain ships, and the only ones the published contract names:
+    # The four Fountain ships, and the only ones the published contract names:
     # `fountain-fixture` is a per-deployment test harness, and a deployment that
     # names a fixture account adds it to the spec that deployment serves
     # (`FountainWeb.ApiSpec.FixtureRuntime`, #1716). Admission is narrower still
     # — `Agent.runtimes/0` — as sandbox providers distinguish known_providers/0
-    # from enabled_providers/0.
-    {FountainWeb.Schemas.Agent, "runtime"} => {Agent, :packaged_runtimes},
+    # from enabled_providers/0. Responses carry no enum for a runtime or a
+    # provider: rows from before opencode and Daytona were removed (2026-10)
+    # still name them.
     {FountainWeb.Schemas.AgentRequest, "runtime"} => {Agent, :packaged_runtimes},
     {FountainWeb.Schemas.AgentUpdate, "runtime"} => {Agent, :packaged_runtimes},
     {FountainWeb.Schemas.Agent, "sandbox_provider"} =>
       {Fountain.SandboxProviders, :known_providers},
-    {FountainWeb.Schemas.Sandbox, "provider"} => {Fountain.SandboxProviders, :known_providers},
     {FountainWeb.Schemas.AgentRequest, "sandbox_provider"} =>
       {Fountain.SandboxProviders, :known_providers},
     {FountainWeb.Schemas.AgentUpdate, "sandbox_provider"} =>
       {Fountain.SandboxProviders, :known_providers},
-    # A conversation's runtime is copied from its agent at spawn, so it must
-    # speak the same vocabulary even though the column carries no inclusion
-    # validation of its own.
-    {FountainWeb.Schemas.Conversation, "runtime"} => {Agent, :packaged_runtimes},
     {FountainWeb.Schemas.Agent, "avatar_media_type"} => {Images, :valid_media_types},
     {FountainWeb.Schemas.AvatarRequest, "media_type"} => {Images, :valid_media_types},
     {FountainWeb.Schemas.ImageInput, "media_type"} => {Images, :valid_media_types},
@@ -152,10 +148,7 @@ defmodule FountainWeb.SchemaEnumGuardrailTest do
     {FountainWeb.Schemas.AgentUpdate, "sandbox_mode"} => {Agent, :sandbox_modes},
     # The sandbox listing (ADR 0023 gate 3): a sandbox with its conversations.
     {FountainWeb.Schemas.SandboxDetail, "status"} => {Sandbox, :statuses},
-    {FountainWeb.Schemas.SandboxDetail, "provider"} =>
-      {Fountain.SandboxProviders, :known_providers},
     {FountainWeb.Schemas.SandboxConversation, "status"} => {Conversation, :statuses},
-    {FountainWeb.Schemas.SandboxConversation, "runtime"} => {Agent, :packaged_runtimes},
     {FountainWeb.Schemas.Turn, "status"} => {Turn, :statuses},
     {FountainWeb.Schemas.Turn, "origin"} => {Turn, :origins},
     {FountainWeb.Schemas.Teammate, "presence.state"} =>

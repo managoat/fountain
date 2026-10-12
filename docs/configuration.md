@@ -48,7 +48,7 @@ message.
 | `SPRITES_TOKEN` | — | For conversations. | The platform token for [sprites.dev](https://sprites.dev). The app boots without it, and each conversation then fails. Never show it to a tenant, because it pays for each sandbox. |
 | `SPRITES_BASE_URL` | `https://api.sprites.dev` | — | Repoints the sandbox API. Whatever you point it at must implement the same contract, and Fountain bundles no alternative. |
 | `SPRITES_TIMEOUT_MS` | `30000` | — | Bounds each HTTP call to the Sprites API. A long command, such as a package install or a clone, sets its own timeout for that call. Boot refuses a value that is not positive. |
-| `SANDBOX_PROVIDER` | `sprites` | — | Which backend a new sandbox runs on. One of `sprites`, `e2b`, `daytona` and `runner`. A hosted provider turns on when its credential is there. Boot refuses an explicit default whose credential is absent. A sandbox that already exists stays on the provider Fountain made it on. |
+| `SANDBOX_PROVIDER` | `sprites` | — | Which backend a new sandbox runs on. One of `sprites`, `e2b` and `runner`. A hosted provider turns on when its credential is there. Boot refuses an explicit default whose credential is absent. A sandbox that already exists stays on the provider Fountain made it on. |
 | `SANDBOX_RUNNERS_ENABLED` | `true` | — | A [self-hosted runner](integrations/runners.md) needs no credential. A `false` hides the `runner` provider, and refuses a `fountain runner` connection. |
 | `BROKER_LISTEN_PORT` | — | — | A port number, for example `14322`. This turns on credential brokerage (ADR 0019): Fountain runs the egress proxy itself, from the `managoat_broker` library, on this port on every replica. Each conversation's proxy session goes in the `broker_sessions` table, so any replica can serve a sandbox. Set it, and boot also requires `BROKER_PROXY_URL`. Point your ingress at this port. The proxy speaks plain HTTP, and TLS towards the sandbox is the job of the ingress. Blank leaves brokerage off, and each conversation provisions as before. Set it, and Fountain brokers every account on the deployment. |
 | `BROKER_PROXY_URL` | — | With `BROKER_LISTEN_PORT`. | The proxy address a sandbox dials, for example `https://broker.example.com:443`. It is not the same as the listen port when the sandboxes are on a different network from Fountain. Its host is the one host a brokered sandbox may reach. |
@@ -59,9 +59,6 @@ message.
 | `E2B_BASE_URL` | `https://api.e2b.app` | — | Repoints the E2B control plane. |
 | `E2B_TEMPLATE` | `base` | — | The template that Fountain creates a new E2B sandbox from. The stock `base` template has no agent CLI, so build one from `images/e2b/` for real use. |
 | `E2B_USER` | `sprite` | — | The in-guest user that envd runs a command as. An `images/e2b/` template creates `sprite`. Set it to `user` when you point at the stock `base` template. |
-| `DAYTONA_API_KEY` | — | For the `daytona` provider. | The [Daytona](https://daytona.io) API key. Its presence turns the provider on. |
-| `DAYTONA_API_URL` | `https://app.daytona.io/api` | — | Repoints the Daytona API, for a Daytona you host yourself. |
-| `DAYTONA_SNAPSHOT` | The org default. | — | The snapshot, which is an image, that Fountain creates a new Daytona sandbox from. The organization must hold it. The default image has no agent CLI, so build one from `images/daytona/` for real use. |
 | `SANDBOX_IDLE_TIMEOUT_MINUTES` | `60` | — | No turn activity for this long, and Fountain parks the sandbox. A provider without `:suspend` destroys it instead. The conversation stays [resumable](guides/operate/sandbox-lifetime.md) either way. A `0` turns the bound off, and boot refuses whatever is not a non-negative integer. |
 | `SANDBOX_MAX_LIFETIME_HOURS` | `0` (off) | — | A ceiling on one continuous run, whatever the activity. Off by default: nothing stops a sandbox that stays busy. Set it to park a persistent home, or destroy an ephemeral sandbox, after this many hours. The same boot refusal applies. |
 | `CHECKPOINT_CREATION_ENABLED` | `false` | — | Set to `true`, and Fountain takes a checkpoint of each persistent home when it parks, on a provider that has checkpoints (Sprites). The checkpoint belongs to that one machine. It can roll the machine back, and it cannot rebuild a machine that the provider lost. Each park adds one checkpoint, and Fountain does not delete old ones. The same flag also makes Fountain checkpoint each environment after it provisions a sandbox, which Sprites cannot restore into a new sandbox. |
@@ -191,8 +188,7 @@ deployment that already runs.
 
 Fountain can also hold one ChatGPT account for the `codex` runtime. A codex
 agent whose tenant has no OpenAI key then runs on that account, before the
-`PLATFORM_OPENAI_API_KEY` key. Opencode on an `openai/` model still needs a
-key. The tenant's own key always wins.
+`PLATFORM_OPENAI_API_KEY` key. The tenant's own key always wins.
 
 Connect the account at `/admin/inference`. There are three ways in.
 

@@ -99,7 +99,7 @@ defmodule Fountain.Conversations.SpriteEnvInferenceTest do
     # reaching selection by another door.
     test "a provider that needs none is :none", %{user: user} do
       assert {:ok, %Source{scope: :none}, %{}} =
-               InferenceCredentials.resolve(user.id, "ollama/llama3", "opencode", [])
+               InferenceCredentials.resolve(user.id, "ollama/llama3", "acp", [])
     end
 
     test "a conversation with no agent needs none either", %{user: user} do

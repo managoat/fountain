@@ -399,9 +399,6 @@ defmodule FountainWeb.AgentsLive.Index do
     do:
       "bg-[var(--color-info-bg)] text-[var(--color-info-text)] border border-[var(--color-info)]"
 
-  defp runtime_badge_class("opencode"),
-    do: "bg-[var(--color-bg-2)] text-[var(--color-brand)] border border-[var(--color-brand)]"
-
   defp runtime_badge_class("codex"),
     do:
       "bg-[var(--color-warning-bg)] text-[var(--color-warning-text)] border border-[var(--color-warning)]"

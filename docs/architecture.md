@@ -150,8 +150,8 @@ a state of `started`, `done`, `failed` or `interrupted`.
     pipeline runs, which is **`packages`, then `network`, then `clone`, then `setup`**.
     The sandbox is then `ready`. A step that fails destroys the sprite, and
     marks the sandbox and the conversation `failed`.
-3. **`turn`.** Fountain spawns the runtime, which is claude, codex, gemini or
-   opencode, inside the sprite. Its output flows back to the server, which
+3. **`turn`.** Fountain spawns the runtime, which is claude, codex or gemini,
+   inside the sprite. Its output flows back to the server, which
    redacts it, persists it as log events, and broadcasts it. The LiveView and
    the SSE endpoint both subscribe to the same feed. That endpoint is
    `GET /api/conversations/:id/stream`, and `Last-Event-ID` resumes it.

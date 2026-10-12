@@ -1,19 +1,24 @@
 # Runtimes
 
-A runtime is what a sandbox runs. For four of the five it is a coding-agent
+A runtime is what a sandbox runs. For three of the four it is a coding-agent
 CLI. It is one field on an [Agent](../../concepts/agent.md). It decides which
 provider's credential that agent needs, how skills land on disk, and where
 Fountain writes the system prompt.
 
-## The five
+## The four
 
-| Runtime | Provider | Transport | Multi-provider |
-|---|---|---|---|
-| [claude](claude.md) | `anthropic` | ACP | No |
-| [codex](codex.md) | `openai` | ACP | No |
-| [opencode](opencode.md) | Any of the three | ACP | **Yes** |
-| [gemini](gemini.md) | `google` | ACP, through `gemini --acp` | No |
-| `acp` | None | ACP, through the command you name | Not applicable |
+| Runtime | Provider | Transport |
+|---|---|---|
+| [claude](claude.md) | `anthropic` | ACP |
+| [codex](codex.md) | `openai` | ACP |
+| [gemini](gemini.md) | `google` | ACP, through `gemini --acp` |
+| `acp` | None | ACP, through the command you name |
+
+Each CLI runtime drives exactly one provider.
+
+**opencode was removed in 2026-10.** An existing agent whose runtime is
+`opencode` stays readable, but its conversations refuse to start until you
+change its runtime to one of the four above.
 
 ## How to choose
 
@@ -22,10 +27,6 @@ decides it most of the time. Inference credentials belong to one user, who
 enters them in the app, and Fountain can export keys for exactly three
 providers. Read
 [Services Fountain uses](../../integrations/index.md).
-
-**Choose `opencode` to make one agent definition work across providers.** It
-is the only multi-provider runtime. It takes the canonical `provider/model-id`
-string word for word, then reads the prefix to decide which key to export.
 
 **Choose `acp` to run a program instead of a model.** The agent names a
 command in `runtime_command`, Fountain launches it inside the sandbox, and it
@@ -126,7 +127,6 @@ different paths.
 |---|---|---|---|
 | `claude` | `/home/sprite/.claude/skills` | `claude-code` | `~/.claude/CLAUDE.md` |
 | `codex` | `/home/sprite/.codex/skills` | `codex` | `~/.codex/AGENTS.md` |
-| `opencode` | `/tmp/.config/opencode/skills` | `opencode` | `~/.config/opencode/AGENTS.md` |
 | `gemini` | `/tmp/.gemini/skills` | `gemini-cli` | `~/.gemini/GEMINI.md` |
 | `acp` | `/home/sprite/.claude/skills` | `claude-code` | None |
 

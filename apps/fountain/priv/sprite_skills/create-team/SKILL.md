@@ -46,7 +46,7 @@ For each teammate, in order:
 ```bash
 B="$FOUNTAIN_BASE_URL/api"; H=(-H "Authorization: Bearer $FOUNTAIN_TOKEN" -H "content-type: application/json")
 AGENT=$(curl -s "${H[@]}" -X POST "$B/agents" -d @- <<JSON | jq -r '.data.id'
-{"name":"<name>","model":"<provider/model>","runtime":"<claude|codex|opencode>",
+{"name":"<name>","model":"<provider/model>","runtime":"<claude|codex|gemini>",
  "description":"<one line>",
  "system":"You are <name>, a teammate on the user's team. Your role: <one line>. You have your own computer; do the work there and report back in chat — concise, concrete, no filler. <repo/scope specifics>"}
 JSON
@@ -55,7 +55,7 @@ curl -s "${H[@]}" -X POST "$B/team" -d "{\"agent_id\":\"$AGENT\"}" | jq -r '.dat
 ```
 
 Runtime follows the brain: `anthropic/*` → `claude`, `openai/*` → `codex`,
-anything else → `opencode`. If a teammate needs an environment (a repo
+`google/*` → `gemini`. If a teammate needs an environment (a repo
 mounted, a token, packages), say so and point at Fountain's Environments
 page or `fountain apply` — do not invent secrets; the user supplies them.
 

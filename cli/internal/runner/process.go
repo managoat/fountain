@@ -18,7 +18,7 @@ import (
 )
 
 // spriteHome is the home directory every Fountain provisioning script and
-// runtime assumes (the Sprites base image; the E2B/Daytona images recreate
+// runtime assumes (the Sprites base image; the E2B image recreates
 // it). The backend maps it to the sandbox directory in file paths, working
 // directories, and command arguments, so those scripts land inside the
 // sandbox without a Linux user of that name existing on this machine.

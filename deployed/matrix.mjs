@@ -22,8 +22,8 @@ export function validateMatrix(matrix, subset) {
   for (const cell of matrix.cells) {
     ensure(keys(cell, ['id', 'runtime', 'model', 'sandbox_provider', 'sandbox_mode', 'status', 'capabilities', 'reason', 'issue']) &&
       /^[a-z0-9][a-z0-9-]{0,79}$/.test(cell.id), 'Invalid matrix cell');
-    ensure(['claude', 'codex', 'gemini', 'opencode'].includes(cell.runtime) &&
-      ['sprites', 'e2b', 'daytona', 'runner', 'render'].includes(cell.sandbox_provider) &&
+    ensure(['claude', 'codex', 'gemini'].includes(cell.runtime) &&
+      ['sprites', 'e2b', 'runner', 'render'].includes(cell.sandbox_provider) &&
       ['ephemeral', 'persistent'].includes(cell.sandbox_mode), 'Unknown matrix combination');
     if (cell.status === 'supported') {
       ensure(cell.sandbox_provider !== 'render', 'Render remains a declared gap until #1439 verifies its execution contract');

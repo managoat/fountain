@@ -9,7 +9,7 @@ import { fingerprint } from '../receivers/secrets.mjs';
 
 export const MCP_AUTH_GAP = 'https://github.com/managoat/fountain/issues/1405';
 export function mcpCoverage(runtime) {
-  return ['claude', 'codex', 'gemini', 'opencode'].map(name => ({ runtime: name,
+  return ['claude', 'codex', 'gemini'].map(name => ({ runtime: name,
     static_bearer: name === runtime ? 'required_this_run' : 'not_run',
     conversation_auth: { status: 'gap', issue: MCP_AUTH_GAP,
       reason: 'Runtime-neutral conversation authentication and rotation are not covered by this static credential profile' } }));

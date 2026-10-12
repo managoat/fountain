@@ -5,7 +5,6 @@ defmodule FountainWeb.AgentsLive.Form do
   alias Fountain.{Agents, Environments, InferenceCredentials}
   alias Fountain.Agents.Agent
   alias Managoat.ACP.Permissions
-  alias Managoat.Runtimes.ACP
   alias Managoat.Runtimes.Model
   alias Fountain.Agents.ModelCatalog
 
@@ -106,8 +105,6 @@ defmodule FountainWeb.AgentsLive.Form do
     end
     |> Fountain.PermissionPolicy.keep_reserved(previous)
   end
-
-  defp asks_permission?(runtime), do: ACP.asks_permission?(runtime || "claude")
 
   # A new agent lands on claude, so it gets claude's model prefilled. An acp
   # agent gets none: the field is optional there and nothing reads it, so a
@@ -225,7 +222,7 @@ defmodule FountainWeb.AgentsLive.Form do
       else: []
   end
 
-  # Each runtime but opencode only reaches one provider, and the changeset
+  # Each runtime reaches one provider, and the changeset
   # rejects a mismatched prefix (#553). Track the selected runtime so the hint
   # can't lead someone into that error.
   defp model_placeholder("codex"), do: "openai/gpt-6-astra"
@@ -894,8 +891,7 @@ defmodule FountainWeb.AgentsLive.Form do
           </label>
           <select
             name="agent[permission_default]"
-            disabled={not asks_permission?(@form["runtime"])}
-            class="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm disabled:bg-zinc-100 disabled:text-zinc-500"
+            class="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm"
           >
             <option value="auto_allow" selected={@form["permission_default"] == "auto_allow"}>
               Run it
@@ -908,12 +904,7 @@ defmodule FountainWeb.AgentsLive.Form do
             </option>
           </select>
 
-          <p :if={not asks_permission?(@form["runtime"])} class="text-xs text-amber-700">
-            The {@form["runtime"]} runtime decides this inside its own server and never asks
-            Fountain, so a policy here would show a restriction it could not enforce.
-          </p>
-
-          <details :if={asks_permission?(@form["runtime"])} class="text-sm">
+          <details class="text-sm">
             <summary class="cursor-pointer text-zinc-600">
               Per kind of tool ({permission_override_count(@form)} set)
             </summary>

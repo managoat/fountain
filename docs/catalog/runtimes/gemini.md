@@ -27,9 +27,7 @@ then use the agent definition below.
 
 You want a Gemini model in particular. That is the whole case.
 
-Every runtime speaks ACP, so the transport no longer decides this. Choose
-[opencode](opencode.md) instead to move one agent definition between
-providers.
+Every runtime speaks ACP, so the transport no longer decides this.
 
 ## Set it up
 

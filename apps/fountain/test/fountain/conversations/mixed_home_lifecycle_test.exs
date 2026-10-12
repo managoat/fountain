@@ -585,7 +585,6 @@ defmodule Fountain.Conversations.MixedHomeLifecycleTest do
       refute reserve.("codex")
       # The command runtime can run `codex-acp` or `codex login` itself.
       refute reserve.("acp")
-      refute reserve.("opencode")
       refute reserve.(nil)
     end
   end

@@ -20,7 +20,7 @@ defmodule Fountain.Machines.MachineTest do
 
   setup do
     user = insert_verified_user()
-    agent = insert_agent(user_id: user.id, runtime: "opencode")
+    agent = insert_agent(user_id: user.id, runtime: "gemini")
     sandbox = insert_sandbox(user_id: user.id, status: "ready")
     a = insert_conversation(user_id: user.id, agent: agent, sandbox: sandbox, status: "idle")
     b = insert_conversation(user_id: user.id, agent: agent, sandbox: sandbox, status: "idle")
@@ -192,7 +192,7 @@ defmodule Fountain.Machines.MachineTest do
 
       assert %Occupancy{} = occupancy
       assert Enum.sort(occupancy.bound) == Enum.sort([ctx.a.id, ctx.b.id])
-      assert occupancy.running_turns == %{ctx.b.id => "opencode"}
+      assert occupancy.running_turns == %{ctx.b.id => "gemini"}
       assert occupancy.live == []
       assert occupancy.last_activity_at
 

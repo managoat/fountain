@@ -10,7 +10,7 @@ defmodule Fountain.Conversations.SharedSandboxTest do
 
   setup do
     user = insert_verified_user()
-    agent = insert_agent(user_id: user.id, runtime: "opencode")
+    agent = insert_agent(user_id: user.id, runtime: "gemini")
     sandbox = insert_sandbox(user_id: user.id, status: "ready")
     a = insert_conversation(user_id: user.id, agent: agent, sandbox: sandbox, status: "idle")
     b = insert_conversation(user_id: user.id, agent: agent, sandbox: sandbox, status: "idle")
@@ -47,7 +47,7 @@ defmodule Fountain.Conversations.SharedSandboxTest do
   end
 
   # A third conversation on the same machine, on a runtime with no bound. The
-  # per-runtime count (ADR 0058 stage 8a) is what keeps it and the two opencode
+  # per-runtime count (ADR 0058 stage 8a) is what keeps it and the two gemini
   # conversations from consuming each other's slots.
   defp claude_cotenant(%{user: user, sandbox: sandbox}) do
     agent = insert_agent(user_id: user.id, runtime: "claude")
@@ -137,15 +137,15 @@ defmodule Fountain.Conversations.SharedSandboxTest do
   describe "capacity is counted per runtime (ADR 0058 stage 8a, #1089 blocker 4)" do
     # On `main` every running turn on the machine counted against the asker's
     # bound whatever runtime it ran on, so a claude turn consumed the one
-    # opencode slot on a shared home. Both directions are pinned, and the
+    # gemini slot on a shared home. Both directions are pinned, and the
     # same-runtime refusal beside them so the fix cannot be "count nothing".
-    test "a claude turn does not consume the opencode slot", ctx do
+    test "a claude turn does not consume the gemini slot", ctx do
       running_turn(claude_cotenant(ctx))
 
       assert {:ok, _} = Conversations._unsafe_create_turn_on_sandbox(attrs(ctx.a), ctx.sandbox.id)
     end
 
-    test "an opencode turn does not refuse a claude turn", ctx do
+    test "a gemini turn does not refuse a claude turn", ctx do
       running_turn(ctx.b)
 
       assert {:ok, _} =
@@ -155,7 +155,7 @@ defmodule Fountain.Conversations.SharedSandboxTest do
                )
     end
 
-    test "an opencode turn still refuses the other opencode conversation", ctx do
+    test "a gemini turn still refuses the other gemini conversation", ctx do
       running_turn(claude_cotenant(ctx))
       running_turn(ctx.b)
 
@@ -167,13 +167,13 @@ defmodule Fountain.Conversations.SharedSandboxTest do
       claude = claude_cotenant(ctx)
       running_turn(claude)
 
-      refute Machine.at_capacity?(ctx.sandbox.id, ctx.a.id, "opencode")
+      refute Machine.at_capacity?(ctx.sandbox.id, ctx.a.id, "gemini")
       refute Machine.at_capacity?(ctx.sandbox.id, nil, "claude")
 
       running_turn(ctx.b)
-      assert Machine.at_capacity?(ctx.sandbox.id, ctx.a.id, "opencode")
-      assert Machine.at_capacity?(ctx.sandbox.id, nil, "opencode")
-      refute Machine.at_capacity?(ctx.sandbox.id, ctx.b.id, "opencode")
+      assert Machine.at_capacity?(ctx.sandbox.id, ctx.a.id, "gemini")
+      assert Machine.at_capacity?(ctx.sandbox.id, nil, "gemini")
+      refute Machine.at_capacity?(ctx.sandbox.id, ctx.b.id, "gemini")
       refute Machine.at_capacity?(ctx.sandbox.id, claude.id, "claude")
     end
 
@@ -183,13 +183,13 @@ defmodule Fountain.Conversations.SharedSandboxTest do
 
       assert Conversations._unsafe_running_turns_elsewhere(ctx.sandbox.id, ctx.a.id) == 2
 
-      assert Conversations._unsafe_running_turns_elsewhere(ctx.sandbox.id, ctx.a.id, "opencode") ==
+      assert Conversations._unsafe_running_turns_elsewhere(ctx.sandbox.id, ctx.a.id, "gemini") ==
                1
 
       assert Conversations._unsafe_running_turns_elsewhere(ctx.sandbox.id, ctx.a.id, "claude") ==
                1
 
-      assert Conversations._unsafe_running_turns_elsewhere(ctx.sandbox.id, nil, "gemini") == 0
+      assert Conversations._unsafe_running_turns_elsewhere(ctx.sandbox.id, nil, "codex") == 0
     end
   end
 

@@ -786,9 +786,8 @@ runtime does not drive returns `422 model_invalid`. So does any model on the
 against a list, so a model released today works today.
 
 The conversation keeps its credential. A model that the same credential serves
-applies in place. A model that needs another credential, for example an
-`opencode` conversation that moves from an `anthropic/` model to an `openai/`
-one, returns `409 inference_source_changed`, and nothing changes.
+applies in place. A model that needs another credential
+returns `409 inference_source_changed`, and nothing changes.
 
 A conversation without a `model` follows its agent. After you edit the agent's
 model, its next turn returns `409 inference_source_changed` until you reapply

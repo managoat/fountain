@@ -56,7 +56,7 @@ defmodule Fountain.Conversations.LifecycleActionsTest do
 
   describe "provider/1 and clock_start/1" do
     test "the provider tag comes off the live handle, and defaults to sprites" do
-      assert Lifecycle.provider(%Handle{provider: :daytona, name: "d"}) == :daytona
+      assert Lifecycle.provider(%Handle{provider: :e2b, name: "e"}) == :e2b
       assert Lifecycle.provider(nil) == :sprites
     end
 

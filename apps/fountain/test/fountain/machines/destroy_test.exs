@@ -472,15 +472,15 @@ defmodule Fountain.Machines.DestroyTest do
       renamed = "test-sprite-renamed-#{System.unique_integer([:positive])}"
 
       Repo.update_all(from(s in Sandbox, where: s.id == ^ctx.sandbox.id),
-        set: [machine_name: renamed, provider: "daytona"]
+        set: [machine_name: renamed, provider: "e2b"]
       )
 
-      expect(Managoat.Sandbox, :destroy, fn %Handle{provider: :daytona, name: ^renamed} -> :ok end)
+      expect(Managoat.Sandbox, :destroy, fn %Handle{provider: :e2b, name: ^renamed} -> :ok end)
 
       assert {:ok, :destroyed} = Destroy.run(ctx.sandbox.id, opts(ctx))
       assert row(ctx).status == "terminated"
       assert [destroyed] = events(ctx, "sandbox.destroyed")
-      assert destroyed.metadata["provider"] == "daytona"
+      assert destroyed.metadata["provider"] == "e2b"
       assert destroyed.metadata["sprite_name"] == renamed
     end
 

@@ -80,8 +80,7 @@ A subscription does nothing until a
    **Save**.
 
 Agents on that set now run `codex` on the subscription. Each other runtime
-still uses the keys in the set: OpenCode on an `openai/` model needs an OpenAI
-API key, and the subscription is not one.
+still uses the keys in the set, and the subscription is not one of them.
 
 **To change what a set names ends the codex conversations that run on that
 set.** A conversation is bound to the source it started on. Its next turn is

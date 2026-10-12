@@ -32,10 +32,10 @@ defmodule Fountain.Conversations.SandboxURLTest do
       assert {:ok, "https://url-test-" <> _} = Fake.public_url(handle)
     end
 
-    # The two providers that expose per-port hostnames rather than one sandbox
-    # URL say so, instead of returning something that looks like an address.
-    test "e2b and daytona report :unsupported rather than guessing" do
-      for provider <- [:e2b, :daytona] do
+    # A provider that exposes per-port hostnames rather than one sandbox URL
+    # says so, instead of returning something that looks like an address.
+    test "e2b reports :unsupported rather than guessing" do
+      for provider <- [:e2b] do
         handle = Sandbox.build_handle(provider, "whatever")
 
         refute Sandbox.supports?(provider, :public_url)

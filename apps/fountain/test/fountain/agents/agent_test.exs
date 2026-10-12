@@ -9,18 +9,16 @@ defmodule Fountain.Agents.AgentTest do
     runtime: "claude"
   }
 
-  # A model whose provider prefix each runtime actually accepts. opencode is
-  # multi-provider, so any prefix is fine there.
+  # A model whose provider prefix each runtime actually accepts.
   @model_for %{
     "claude" => "anthropic/claude-sonnet-4-6",
     "codex" => "openai/gpt-5.3-codex",
-    "gemini" => "google/gemini-3.1-pro-preview",
-    "opencode" => "anthropic/claude-sonnet-4-6"
+    "gemini" => "google/gemini-3.1-pro-preview"
   }
 
   describe "runtimes/0" do
     test "returns the expected list of runtimes" do
-      assert Agent.runtimes() == ~w(claude codex gemini opencode acp)
+      assert Agent.runtimes() == ~w(claude codex gemini acp)
     end
   end
 
@@ -85,7 +83,7 @@ defmodule Fountain.Agents.AgentTest do
       assert Enum.any?(errors_on(changeset).model, &(&1 =~ "unknown provider"))
     end
 
-    for runtime <- ~w(claude codex gemini opencode) do
+    for runtime <- ~w(claude codex gemini) do
       test "runtime_command on the #{runtime} runtime names the field" do
         attrs =
           Map.merge(@valid_attrs, %{
@@ -122,7 +120,7 @@ defmodule Fountain.Agents.AgentTest do
   end
 
   describe "changeset/2 — runtime inclusion" do
-    for runtime <- ~w(claude codex gemini opencode) do
+    for runtime <- ~w(claude codex gemini) do
       test "runtime #{runtime} is valid" do
         attrs =
           Map.merge(@valid_attrs, %{
@@ -133,6 +131,12 @@ defmodule Fountain.Agents.AgentTest do
         changeset = Agent.changeset(%Agent{}, attrs)
         assert changeset.valid?
       end
+    end
+
+    test "opencode, removed in 2026-10, is refused" do
+      attrs = Map.merge(@valid_attrs, %{runtime: "opencode"})
+      changeset = Agent.changeset(%Agent{}, attrs)
+      assert "is invalid" in errors_on(changeset).runtime
     end
 
     test "invalid runtime produces an error" do
@@ -163,25 +167,6 @@ defmodule Fountain.Agents.AgentTest do
       changeset = Agent.changeset(%Agent{}, attrs)
       refute changeset.valid?
       assert "gemini runtime requires a google/ model" in errors_on(changeset).model
-    end
-
-    test "opencode accepts any known provider — it is the multi-provider runtime" do
-      for model <- ~w(anthropic/claude-sonnet-4-6 openai/gpt-5 google/gemini-3.1-pro-preview) do
-        attrs = Map.merge(@valid_attrs, %{runtime: "opencode", model: model})
-        assert Agent.changeset(%Agent{}, attrs).valid?
-      end
-    end
-
-    # #554: opencode reads the prefix to pick which API key to export and
-    # falls through to none for an unrecognised one, so a typo used to reach
-    # the sprite with no inference credentials and fail as an auth error.
-    test "opencode rejects a provider Fountain holds no credentials for" do
-      attrs = Map.merge(@valid_attrs, %{runtime: "opencode", model: "anthopic/claude-sonnet-4-6"})
-      changeset = Agent.changeset(%Agent{}, attrs)
-      refute changeset.valid?
-
-      expected = ~s(unknown provider "anthopic" — must be one of: anthropic, openai, google)
-      assert expected in errors_on(changeset).model
     end
 
     test "a single-provider runtime reports the runtime mismatch, not the unknown provider" do

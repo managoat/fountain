@@ -19,7 +19,7 @@ defmodule Fountain.ComposePassthroughConfigTest do
 
   @vars ~w(TRUSTED_PROXIES SENTRY_DSN DATABASE_SSL_VERIFY DATABASE_SSL_CA_FILE
            SANDBOX_IDLE_TIMEOUT_MINUTES SANDBOX_MAX_LIFETIME_HOURS SPRITES_BASE_URL
-           SANDBOX_PROVIDER E2B_API_KEY E2B_BASE_URL DAYTONA_API_KEY DAYTONA_API_URL)
+           SANDBOX_PROVIDER E2B_API_KEY E2B_BASE_URL)
 
   # Not under test here, but they change what the prod boot requires (a
   # configured mail provider demands EMAIL_FROM). Cleared before every read
@@ -188,19 +188,13 @@ defmodule Fountain.ComposePassthroughConfigTest do
           Map.merge(base, %{
             "SANDBOX_PROVIDER" => "",
             "E2B_API_KEY" => "",
-            "E2B_BASE_URL" => "",
-            "DAYTONA_API_KEY" => "",
-            "DAYTONA_API_URL" => ""
+            "E2B_BASE_URL" => ""
           })
         )
 
       assert cfg[:fountain][:sandbox_default_provider] == :sprites
       assert cfg[:managoat_sandbox][Managoat.Sandbox.E2B][:api_key] == nil
       assert cfg[:managoat_sandbox][Managoat.Sandbox.E2B][:base_url] == "https://api.e2b.app"
-      assert cfg[:managoat_sandbox][Managoat.Sandbox.Daytona][:api_key] == nil
-
-      assert cfg[:managoat_sandbox][Managoat.Sandbox.Daytona][:api_url] ==
-               "https://app.daytona.io/api"
     end
 
     test "an explicit default with its credential present is stored as an atom", %{base: base} do
@@ -216,8 +210,14 @@ defmodule Fountain.ComposePassthroughConfigTest do
     end
 
     test "an unknown provider refuses to boot", %{base: base} do
-      assert_raise RuntimeError, ~r/must be one of sprites\|e2b\|daytona/, fn ->
+      assert_raise RuntimeError, ~r/must be one of sprites\|e2b\|runner/, fn ->
         read_prod(Map.put(base, "SANDBOX_PROVIDER", "modal"))
+      end
+    end
+
+    test "daytona, removed in 2026-10, refuses to boot as a default", %{base: base} do
+      assert_raise RuntimeError, ~r/must be one of sprites\|e2b\|runner/, fn ->
+        read_prod(Map.put(base, "SANDBOX_PROVIDER", "daytona"))
       end
     end
   end

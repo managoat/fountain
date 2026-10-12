@@ -563,40 +563,6 @@ defmodule Fountain.AgentsTest do
       assert %{permission_policy: _} = errors_on(changeset)
     end
 
-    test "a runtime that never asks refuses the policy instead of ignoring it" do
-      # Measured live 2026-08-22: opencode ran an external `curl` and an `rm -rf`
-      # under an ask-everything policy without ever sending
-      # `session/request_permission`. Storing the policy anyway would put
-      # "auto_deny" on every screen that shows the agent and enforce nothing.
-      user = insert_verified_user()
-
-      assert {:error, changeset} =
-               Agents.create_agent(
-                 agent_attrs(%{
-                   "user_id" => user.id,
-                   "runtime" => "opencode",
-                   "model" => "anthropic/claude-sonnet-5",
-                   "permission_policy" => %{"default" => "auto_deny"}
-                 })
-               )
-
-      assert %{permission_policy: [msg]} = errors_on(changeset)
-      assert msg =~ "never asks"
-
-      # auto_allow everywhere asks nothing of the runtime, so it still stores.
-      assert {:ok, agent} =
-               Agents.create_agent(
-                 agent_attrs(%{
-                   "user_id" => user.id,
-                   "runtime" => "opencode",
-                   "model" => "anthropic/claude-sonnet-5",
-                   "permission_policy" => %{"default" => "auto_allow"}
-                 })
-               )
-
-      assert agent.permission_policy == %{"default" => "auto_allow"}
-    end
-
     test "ask_timeout is seconds, not a verdict, and is stored beside the tools (#1635)" do
       user = insert_verified_user()
 
@@ -665,25 +631,6 @@ defmodule Fountain.AgentsTest do
         )
 
       assert agent.permission_policy["ask_timeout"] == max
-    end
-
-    test "an ask_timeout alone asks nothing of the runtime" do
-      # `needs_enforcement?/1` reads verdicts; a policy that names only the
-      # timeout is still auto_allow everywhere, so a runtime that never asks
-      # must not refuse it.
-      user = insert_verified_user()
-
-      assert {:ok, agent} =
-               Agents.create_agent(
-                 agent_attrs(%{
-                   "user_id" => user.id,
-                   "runtime" => "opencode",
-                   "model" => "anthropic/claude-sonnet-5",
-                   "permission_policy" => %{"ask_timeout" => 600}
-                 })
-               )
-
-      assert agent.permission_policy == %{"ask_timeout" => 600}
     end
 
     test "a policy change is audited by the existing agent.updated trail" do

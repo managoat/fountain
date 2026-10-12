@@ -182,18 +182,16 @@ defmodule Fountain.Conversations.Wake do
   # answered** (ADR 0058 stage 7a). Until 7a any `{:ok, _info}` was a reuse,
   # whatever `info.status` said, and the 6b review named what that cost: a park
   # whose finalize was lost leaves a row saying `ready` over a machine the
-  # provider has genuinely stopped, and on E2B (`paused`) and Daytona
-  # (`stopped`/`archived`) the wake then handed a conversation a handle to a
-  # machine that was not running. The third element of the verdict is
+  # provider has genuinely stopped, and on E2B (`paused`) the wake then handed
+  # a conversation a handle to a machine that was not running. The third element of the verdict is
   # `Managoat.Sandbox`'s own three-value fold — `:running | :suspended |
   # :unknown` — and `Machines.Resume` is what acts on it.
   #
   # Per adapter, so nobody has to go and find out:
   #
-  #   * **E2B** and **Daytona** report it faithfully. E2B's lookup asks for
-  #     `running,paused` explicitly and folds `paused` to `:suspended`; Daytona
-  #     folds six parked states including `archived` the same way. These are the
-  #     two the gap was real on.
+  #   * **E2B** reports it faithfully. Its lookup asks for `running,paused`
+  #     explicitly and folds `paused` to `:suspended`. This is the provider the
+  #     gap was real on.
   #   * The **self-hosted runner** reports it faithfully too, from the suspend
   #     marker its daemon writes (process backend) or the VM's own control
   #     socket (Firecracker).

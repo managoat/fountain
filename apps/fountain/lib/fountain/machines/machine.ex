@@ -203,8 +203,7 @@ defmodule Fountain.Machines.Machine do
   # not abandoned — `Machines.Renewal` keeps its lease alive and the owner
   # finishes it — so the caller is told `sandbox_unavailable` with a
   # `Retry-After`, and the retry finds the machine up. Holding an HTTP request
-  # open for a Daytona machine coming back from archived storage is the
-  # alternative, and it is worse.
+  # open for a slow resume is the alternative, and it is worse.
   # `machine_bounds_test.exs` pins the ordering.
   @resume_timeout 20_000
 

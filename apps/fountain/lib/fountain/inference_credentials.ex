@@ -635,8 +635,10 @@ defmodule Fountain.InferenceCredentials do
   @doc """
   Every supported runtime name for each static credential, canonical name first.
 
-  OpenCode's Google adapter exports `GOOGLE_GENERATIVE_AI_API_KEY` for the
-  same credential Gemini exports as `GEMINI_API_KEY`. Selection and shared
+  `GOOGLE_GENERATIVE_AI_API_KEY` is the name the removed opencode runtime read
+  the credential Gemini exports as `GEMINI_API_KEY` under; an environment or
+  vault that stored the key that way still supplies it, and the shared env
+  file still treats it as that credential. Selection and shared
   env-file filtering use this inventory; `env_names/0` names broker bindings.
   Managed ChatGPT tokens are reserved configuration, not static aliases.
   """
@@ -925,8 +927,7 @@ defmodule Fountain.InferenceCredentials do
      never the platform's key. The grant is read by owner and id, metadata
      only.
   5. **Select.** An override wins over the set's value for the same kind;
-     the runtime's kind precedence picks (Claude prefers OAuth, OpenCode's
-     Anthropic path accepts only an API key). An empty selected value, or a
+     the runtime's kind precedence picks (Claude prefers OAuth). An empty selected value, or a
      tenant value for the provider that the runtime cannot use, is
      `:inference_credential_unusable`.
   6. **Platform policy**, only when no tenant source was selected:

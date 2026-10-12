@@ -7859,13 +7859,6 @@
           "required": false
         },
         "runtime": {
-          "enum": [
-            "acp",
-            "claude",
-            "codex",
-            "gemini",
-            "opencode"
-          ],
           "required": true,
           "type": "string"
         },
@@ -7884,7 +7877,6 @@
         },
         "sandbox_provider": {
           "enum": [
-            "daytona",
             "e2b",
             "runner",
             "sprites"
@@ -8028,8 +8020,7 @@
             "acp",
             "claude",
             "codex",
-            "gemini",
-            "opencode"
+            "gemini"
           ],
           "required": true,
           "type": "string"
@@ -8049,7 +8040,6 @@
         },
         "sandbox_provider": {
           "enum": [
-            "daytona",
             "e2b",
             "runner",
             "sprites"
@@ -8185,8 +8175,7 @@
             "acp",
             "claude",
             "codex",
-            "gemini",
-            "opencode"
+            "gemini"
           ],
           "required": false,
           "type": "string"
@@ -8206,7 +8195,6 @@
         },
         "sandbox_provider": {
           "enum": [
-            "daytona",
             "e2b",
             "runner",
             "sprites"
@@ -9796,13 +9784,6 @@
           "required": false
         },
         "runtime": {
-          "enum": [
-            "acp",
-            "claude",
-            "codex",
-            "gemini",
-            "opencode"
-          ],
           "required": true,
           "type": "string"
         },
@@ -11601,12 +11582,6 @@
           "type": "string"
         },
         "provider": {
-          "enum": [
-            "daytona",
-            "e2b",
-            "runner",
-            "sprites"
-          ],
           "required": false,
           "type": "string"
         },
@@ -11735,13 +11710,6 @@
           "type": "boolean"
         },
         "runtime": {
-          "enum": [
-            "acp",
-            "claude",
-            "codex",
-            "gemini",
-            "opencode"
-          ],
           "required": false,
           "type": "string"
         },
@@ -11827,12 +11795,6 @@
           "type": "string"
         },
         "provider": {
-          "enum": [
-            "daytona",
-            "e2b",
-            "runner",
-            "sprites"
-          ],
           "required": false,
           "type": "string"
         },

@@ -8,8 +8,7 @@
 # `e2b template create <name>` is name-addressed and rebuilds in place, so the
 # template ID prod is pinned to (px8ej9g93zg6b8q9w01j, alias `fountain`)
 # survives every rebuild. Sandboxes already running keep the copy they started
-# from. There is no in-between state to protect, which is why this script is so
-# much shorter than its Daytona counterpart.
+# from. There is no in-between state to protect.
 #
 # Environment:
 #   E2B_API_KEY   required, and it must be the account prod uses — a template

@@ -180,10 +180,10 @@ defmodule Fountain.Machines.BindingTest do
       assert {:error, :sandbox_identity_mismatch} =
                Machine.attach(ctx.sandbox.id, attach_attrs(ctx, %{environment_id: other_env.id}))
 
-      ctx.agent |> Ecto.Changeset.change(runtime: "opencode") |> Repo.update!()
+      ctx.agent |> Ecto.Changeset.change(runtime: "gemini") |> Repo.update!()
 
       assert {:error, :sandbox_runtime_mismatch} =
-               Machine.attach(ctx.sandbox.id, attach_attrs(ctx, %{runtime: "opencode"}))
+               Machine.attach(ctx.sandbox.id, attach_attrs(ctx, %{runtime: "gemini"}))
 
       ctx.agent |> Repo.reload!() |> Ecto.Changeset.change(runtime: "claude") |> Repo.update!()
 

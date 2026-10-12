@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// #723: since ACP became the only path for claude, codex and opencode, a
+// #723: since ACP became the only path for the coding-agent runtimes, a
 // conversation's output *is* the protocol — and the CLI rendered it as
 // stream-json, which produced the empty string for every line. `fountain run`
 // printed a turn starting and finishing with nothing in between, and

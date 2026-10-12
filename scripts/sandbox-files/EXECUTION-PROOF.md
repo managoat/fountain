@@ -4,6 +4,9 @@ Status, September 18, 2026: **the existing execution paths do not yet prove the
 required lifecycle exclusion.** This is an executable characterization and
 implementation handoff, not a fix or a completed provider certification.
 
+Note, October 12, 2026: Fountain removed the Daytona provider. The Daytona
+findings below are historical; "all supported providers" no longer includes it.
+
 ## Decisions made with the maintainer
 
 - Complete the full guarantee: a remote file read must finish or be confirmed

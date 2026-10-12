@@ -61,8 +61,8 @@ defmodule Fountain.Conversations.ConversationServerSharedSandboxTest do
   end
 
   describe "capacity" do
-    test "a second prompt on an opencode machine is refused while another turn runs" do
-      %{a: a, b: b} = shared_machine("opencode")
+    test "a second prompt on a gemini machine is refused while another turn runs" do
+      %{a: a, b: b} = shared_machine("gemini")
       insert_turn(a, %{status: "running", prompt: "busy", started_at: now()})
 
       stub_happy_sprite()
@@ -93,7 +93,7 @@ defmodule Fountain.Conversations.ConversationServerSharedSandboxTest do
       # caller to answer) goes straight to the insert, which checks under the
       # sandbox's advisory lock. Refused there means: no turn row, a stage
       # event on the transcript, the conversation still idle.
-      %{a: a, b: b} = shared_machine("opencode")
+      %{a: a, b: b} = shared_machine("gemini")
       insert_turn(a, %{status: "running", prompt: "busy", started_at: now()})
 
       stub_happy_sprite()

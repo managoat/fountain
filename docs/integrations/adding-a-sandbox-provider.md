@@ -1,9 +1,9 @@
 # Add a sandbox provider
 
 Fountain runs a conversation on a pluggable sandbox backend, behind the
-`Managoat.Sandbox` behaviour. Today those are Sprites, E2B, Daytona and the
+`Managoat.Sandbox` behaviour. Today those are Sprites, E2B and the
 self-hosted runner. This page is the practical checklist for another one.
-The behaviour and the three hosted adapters are the `managoat_sandbox`
+The behaviour and the hosted adapters are the `managoat_sandbox`
 library, published on [Hex](https://hex.pm/packages/managoat_sandbox) with
 source in [managoat/managoat_sandbox](https://github.com/managoat/managoat_sandbox).
 Fountain pins it in `apps/fountain/mix.exs`. The runner adapter is a separate
@@ -22,7 +22,8 @@ would ask a vendor to support natively, and what each gap costs us.
 
 ## Before you write any code, answer six questions
 
-Each hard defect in the E2B and Daytona adapters came from one of these.
+Each hard defect in the E2B adapter, and in the Daytona adapter that
+Fountain ran until 2026-10, came from one of these.
 Answer them against the provider's real API. Run the calls, and do not trust
 the docs.
 
@@ -64,7 +65,7 @@ measured it live.
 6. **Egress.** Is there a deny-by-default network mode with a domain
    allowlist you can update at runtime? If so, advertise `:network_policy`,
    and remember that `allow: []` means *deny all*, and never a no-op. If the
-   tier gates it, as Daytona's does, document the failure. A `limited`
+   tier gates it, as Daytona's did, document the failure. A `limited`
    network environment then fails to provision on that provider.
 
 One note on a provider we rejected. The original campaign passed over Modal,
@@ -127,7 +128,7 @@ AgentCreate and AgentUpdate, and the `SANDBOX_PROVIDER` boot check in
    commands run as a user the provider selects, make sure that user is
    `sprite`. Compare `E2B_USER`.
 6. **Docs.** Add a `docs/integrations/<provider>.md` page and a `docs/nav.yml`
-   entry, modelled on `e2b.md` and `daytona.md`. The nav entry is not optional.
+   entry, modelled on `e2b.md`. The nav entry is not optional.
    Fountain serves only the pages the nav names, so a page you leave out of it
    reaches no reader. The test suite fails until you add it.
 

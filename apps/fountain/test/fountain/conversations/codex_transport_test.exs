@@ -325,7 +325,7 @@ defmodule Fountain.Conversations.CodexTransportTest do
     assert {:ok, ^opts} = CodexTransport.spawn_opts(%{broker: nil}, "codex", opts)
     assert {:ok, ^opts} = CodexTransport.spawn_opts(%{}, "codex", opts)
 
-    for runtime <- ["claude", "gemini", "opencode"] do
+    for runtime <- ["claude", "gemini", "acp"] do
       assert {:ok, ^opts} = CodexTransport.spawn_opts(%{broker: %{}}, runtime, opts)
     end
   end

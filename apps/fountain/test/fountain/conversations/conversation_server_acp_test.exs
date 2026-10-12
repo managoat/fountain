@@ -235,7 +235,7 @@ defmodule Fountain.Conversations.ConversationServerACPTest do
     test "every shippable runtime speaks ACP; the retired flag routes nothing" do
       user = insert_verified_user()
 
-      for runtime <- ACP.supported_runtimes() do
+      for runtime <- ACP.supported_runtimes(), runtime in Fountain.Agents.Agent.runtimes() do
         agent = insert_agent(user_id: user.id, runtime: runtime)
         assert ACP.enabled?(agent), "expected #{runtime} to be ACP-enabled"
       end

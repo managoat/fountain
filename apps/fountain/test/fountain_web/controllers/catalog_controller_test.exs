@@ -14,7 +14,7 @@ defmodule FountainWeb.CatalogControllerTest do
     assert data["sandbox_api_access"] == ["owner", "none"]
     assert data["runtimes"] == Fountain.Agents.Agent.runtimes()
     assert data["models"]["claude"] == Fountain.Agents.ModelCatalog.suggestions("claude")
-    assert Enum.all?(data["models"]["opencode"], &String.contains?(&1, "/"))
+    refute Map.has_key?(data["models"], "opencode")
     assert data["model_providers"] == Fountain.Agents.ModelCatalog.providers()
     assert is_list(data["sandbox_providers"]["enabled"])
     assert data["sandbox_providers"]["default"] in Fountain.SandboxProviders.known_providers()

@@ -11,6 +11,27 @@ server releases.
 
 ---
 
+## [Unreleased]
+
+Fountain removed the `opencode` runtime and the `daytona` sandbox provider.
+Held for the next release (`release:skip-sdk`).
+
+### Removed
+
+- `"opencode"` from the `runtime` enums of
+  `components["schemas"]["AgentRequest"]` and `["AgentUpdate"]`, and
+  `"daytona"` from their `sandbox_provider` enums and the `Agent` response's.
+  Requests naming either are refused by the server.
+
+### Changed
+
+- `runtime` on the `Agent`, `Conversation` and `SandboxConversation` responses,
+  and `provider` on the `Sandbox` response, are typed `string` rather than a
+  union: a row written before the removal still reads `opencode` or `daytona`.
+  Narrow with your own check where you switched on them.
+
+---
+
 ## [7.0.0] - 2026-10-12
 
 Fountain is now a self-hosted app with no credits, Stripe or claimable

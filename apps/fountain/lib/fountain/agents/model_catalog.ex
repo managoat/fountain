@@ -19,8 +19,7 @@ defmodule Fountain.Agents.ModelCatalog do
   # accepted and passed to the CLI verbatim (the form says so; see #554). The
   # *provider* half is gated, because the set is not open — Fountain can only
   # export credentials for these three (`InferenceCredentials.Credential` has a
-  # column per provider, and `OpenCode.default_env/2` maps exactly these three
-  # prefixes). A typo like `anthopic/...` used to reach the sprite with no
+  # column per provider). A typo like `anthopic/...` used to reach the sprite with no
   # inference credentials at all and fail as an auth error in the conversation
   # log; `Agent.changeset/2` now rejects it at write time.
   #
@@ -162,9 +161,8 @@ defmodule Fountain.Agents.ModelCatalog do
 
   @doc """
   Suggested canonical `provider/model_id` strings for a runtime — the
-  runtime's own provider for claude / codex / gemini, every provider for
-  opencode (and for an unrecognised runtime, which the changeset rejects
-  separately).
+  runtime's own provider for claude / codex / gemini, every provider for an
+  unrecognised runtime (which the changeset rejects separately).
 
   These are suggestions, not an allowlist. `Agent.changeset/2` accepts any
   model id under a known provider.

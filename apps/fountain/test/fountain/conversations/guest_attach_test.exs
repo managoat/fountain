@@ -261,7 +261,7 @@ defmodule Fountain.Conversations.GuestAttachTest do
                attach_as(ctx, agent_of(ctx, "claude"), home, %{}, [])
 
       assert {:error, :sandbox_identity_mismatch} =
-               attach_as(ctx, agent_of(ctx, "opencode"), home, %{}, [])
+               attach_as(ctx, agent_of(ctx, "gemini"), home, %{}, [])
     end
 
     test "a second conversation of an admitted guest is still a new pairing", ctx do
@@ -439,12 +439,9 @@ defmodule Fountain.Conversations.GuestAttachTest do
 
     test "any pair but claude and codex, though the directories are apart (#2525)", ctx do
       for {host, guest} <- [
-            {"claude", "opencode"},
             {"claude", "gemini"},
             {"codex", "gemini"},
-            {"codex", "opencode"},
-            {"gemini", "opencode"},
-            {"opencode", "claude"},
+            {"gemini", "claude"},
             {"gemini", "codex"}
           ] do
         {home, _host} = home_row(ctx, agent_of(ctx, host))
@@ -458,10 +455,10 @@ defmodule Fountain.Conversations.GuestAttachTest do
       host_agent = agent_of(ctx, "codex")
       {home, _host} = home_row(ctx, host_agent)
 
-      # A retired conversation of an opencode agent, from before the rule.
+      # A retired conversation of a gemini agent, from before the rule.
       insert_conversation(
         user_id: ctx.user.id,
-        agent: agent_of(ctx, "opencode"),
+        agent: agent_of(ctx, "gemini"),
         sandbox: home,
         status: "terminated"
       )

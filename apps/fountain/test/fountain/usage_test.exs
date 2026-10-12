@@ -156,7 +156,7 @@ defmodule Fountain.UsageTest do
 
     test "the split adds up to the total", %{user: user} do
       terminated_sandbox(user, "sprites", ~U[2026-05-10 12:00:00Z], ~U[2026-05-10 12:10:00Z])
-      terminated_sandbox(user, "daytona", ~U[2026-05-11 12:00:00Z], ~U[2026-05-11 12:07:00Z])
+      terminated_sandbox(user, "e2b", ~U[2026-05-11 12:00:00Z], ~U[2026-05-11 12:07:00Z])
 
       summary = Usage.usage_summary(user.id, @period_start, @period_end)
 

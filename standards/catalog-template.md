@@ -177,7 +177,7 @@ verification version is cheaper than pretending it does not.
 
 ## How the contract maps
 
-<!-- Sandbox providers only. The existing e2b.md, daytona.md and runners.md all
+<!-- Sandbox providers only. The existing e2b.md and runners.md both
      have this section already and it is the best thing about them. Table of
      contract operation against this provider's call. -->
 

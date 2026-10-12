@@ -259,13 +259,11 @@ elixir scripts/ci/timing-formatter-test.exs
 
 Merge CI runs no sandbox provider; three checks outside it do.
 
-- `sandbox-images.yml` rebuilds the E2B template (`fountain`) and the Daytona
-  snapshot weekly, on changes under `images/` and on dispatch. The E2B job
-  uses repository secret `E2B_API_KEY`, prod's key, set 2026-10-05 (#2481).
-  The first run rebuilt the template that day. Its smoke step failed on an
-  argument bug, which is now fixed; the same smoke passed by hand against the
-  rebuilt template. `DAYTONA_API_KEY` is not set, so the Daytona job still
-  fails.
+- `sandbox-images.yml` rebuilds the E2B template (`fountain`) weekly, on
+  changes under `images/` and on dispatch. The job uses repository secret
+  `E2B_API_KEY`, prod's key, set 2026-10-05 (#2481). The first run rebuilt
+  the template that day. Its smoke step failed on an argument bug, which is
+  now fixed; the same smoke passed by hand against the rebuilt template.
 - The adapters' live suites, `test/live/` in
   [managoat_sandbox](https://github.com/managoat/managoat_sandbox), run daily
   in its `live.yml`:

@@ -21,7 +21,7 @@ defmodule Fountain.SandboxProviders do
 
   alias Managoat.Sandbox
 
-  @known ~w(sprites e2b daytona runner)
+  @known ~w(sprites e2b runner)
 
   @doc "The closed vocabulary of providers Fountain knows how to name."
   @spec known_providers() :: [String.t()]
@@ -48,12 +48,11 @@ defmodule Fountain.SandboxProviders do
   end
 
   # The platform credentials live in the library's own config, where
-  # config/runtime.exs writes them from SPRITES_TOKEN / E2B_API_KEY /
-  # DAYTONA_API_KEY. "Is it set" is read back from there rather than kept in
+  # config/runtime.exs writes them from SPRITES_TOKEN / E2B_API_KEY.
+  # "Is it set" is read back from there rather than kept in
   # a second :fountain key that could drift from what the adapter uses.
   defp credential_present?(:sprites), do: Sandbox.Config.get(Sandbox.Sprites, :token) != nil
   defp credential_present?(:e2b), do: Sandbox.Config.get(Sandbox.E2B, :api_key) != nil
-  defp credential_present?(:daytona), do: Sandbox.Config.get(Sandbox.Daytona, :api_key) != nil
   # Self-hosted runners (ADR 0022) need no platform credential — every daemon
   # authenticates with the user's own API key — so the switch is an operator
   # opt-out rather than a key: `SANDBOX_RUNNERS_ENABLED=false` hides the

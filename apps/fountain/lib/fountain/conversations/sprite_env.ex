@@ -209,10 +209,10 @@ defmodule Fountain.Conversations.SpriteEnv do
   the value itself in `brokered`, which `build/4` registers, and left the
   runtime a string generated from the broker's own key name. Pass that map as
   `brokered` and each credential in it is matched against the placeholder for
-  **its** key, not for the name it is exported under: opencode reads a Google
-  key as `GOOGLE_GENERATIVE_AI_API_KEY` while the broker holds it as
-  `GEMINI_API_KEY`, so comparing against the exported name left
-  `AIza__gemini_api_key__` in the registry.
+  **its** key, not for the name it is exported under: a Google key stored as
+  `GOOGLE_GENERATIVE_AI_API_KEY` is held by the broker as `GEMINI_API_KEY`, so
+  comparing against the exported name left `AIza__gemini_api_key__` in the
+  registry.
 
   Every credential reaches a sprite through this list. One that ever reaches
   it another way — as a brokered value does, which `build/4` registers
@@ -346,7 +346,7 @@ defmodule Fountain.Conversations.SpriteEnv do
   end
 
   # Inject the W3C trace context as TRACEPARENT into the sprite env when
-  # we're inside an active OTel span. claude / codex / gemini / opencode
+  # we're inside an active OTel span. claude / codex / gemini
   # all read TRACEPARENT and tag their API calls into the trace, so a
   # turn span has every model API request as a child.
   @spec otel_propagation_env() :: [{String.t(), String.t()}]

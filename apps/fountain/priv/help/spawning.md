@@ -67,7 +67,6 @@ Two layers of JSON: outer is the SSE event envelope, inner is the runtime CLI's 
 | claude | `select(.type=="result")` | `.result` |
 | codex | `select(.type=="item.completed" and .item.type=="agent_message")` | `.item.text` |
 | gemini | `select(.type=="message" and .role=="assistant")` | `.content` (last one) |
-| opencode | `select(.type=="text")` | `.part.text` (concatenate) |
 
 ## `wait=false` on the stream
 

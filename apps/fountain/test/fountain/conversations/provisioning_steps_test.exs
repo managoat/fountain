@@ -253,7 +253,7 @@ defmodule Fountain.Conversations.ProvisioningStepsTest do
       assert :ok =
                Provisioning.prepare_runtime_sprite(
                  handle(),
-                 "opencode",
+                 "acp",
                  BareRuntime,
                  nil,
                  [],

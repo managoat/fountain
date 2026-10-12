@@ -198,7 +198,6 @@ suspending and the server restarting. A sweep every minute is what fires it.
 |---|---|---|
 | claude | Yes | Measured on claude-agent-acp 0.66. Safe commands that its own sandbox runs never reach Fountain. |
 | codex | Yes | Measured on codex-acp 1.1.14. |
-| opencode | **No** | It decides this in its own server, and sends nothing. Fountain refuses a policy stricter than `auto_allow` on this runtime, with 422 `permission_policy_unenforceable` ([#959](https://github.com/managoat/fountain/issues/959)). |
 | gemini | Yes | Measured on gemini 0.53 with `gemini-2.5-flash`. Google removed that model for new API keys after this measurement. Its option ids are its own (`proceed_once`, `cancel`), so answer with an id from the request, never a name you know from another runtime. |
 | acp | If the command does | Fountain runs the command that the agent names, and the command decides whether to send `session/request_permission`. Fountain assumes that it does, so a policy is accepted and enforced on each request that arrives. A command that never asks gets no protection from a policy, and Fountain has no way to know that in advance. |
 
@@ -212,7 +211,6 @@ decides how long its own grant lasts, and the three runtimes disagree.
 |---|---|
 | claude | It writes a rule to a file in the sandbox. The rule holds for later turns. |
 | codex | `Allow for Session` lasts the whole sandbox wake (#817). The option that amends the command policy goes to a file, and it holds. |
-| opencode | This runtime never asks, so it grants nothing. |
 | acp | The command decides. Fountain sends the option id that the command offered, and keeps no record of the answer. |
 
 Every grant lives inside the sandbox. A new sandbox starts with none of them.

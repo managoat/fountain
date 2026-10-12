@@ -301,7 +301,7 @@ defmodule Fountain.Conversations.Provisioning do
 
   Not every provider can hold egress. `Managoat.Runner.Adapter` answers
   `{:error, :not_supported}` and leaves `:network_policy` out of its
-  `capabilities/0`; Sprites, E2B and Daytona all advertise it. The pairing has
+  `capabilities/0`; Sprites and E2B both advertise it. The pairing has
   always failed closed — `apply_network_policy/3` turns the `:not_supported`
   into `{:error, {:network_policy, :not_supported}}` and the cold-provision
   `with` aborts — so a `limited` environment has never run unrestricted.

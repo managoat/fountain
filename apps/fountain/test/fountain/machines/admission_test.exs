@@ -28,7 +28,7 @@ defmodule Fountain.Machines.AdmissionTest do
 
   setup do
     user = insert_verified_user()
-    agent = insert_agent(user_id: user.id, runtime: "opencode")
+    agent = insert_agent(user_id: user.id, runtime: "gemini")
     sandbox = insert_sandbox(user_id: user.id, agent_id: agent.id, status: "ready")
     conv = insert_conversation(user_id: user.id, agent: agent, sandbox: sandbox, status: "idle")
 
@@ -443,7 +443,7 @@ defmodule Fountain.Machines.AdmissionTest do
     test "admission first: the park waits on the lock, then refuses on the turn it reads", _ctx do
       Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
         user = insert_verified_user()
-        agent = insert_agent(user_id: user.id, runtime: "opencode")
+        agent = insert_agent(user_id: user.id, runtime: "gemini")
         sandbox = insert_sandbox(user_id: user.id, agent_id: agent.id, status: "ready")
 
         conv =
@@ -519,7 +519,7 @@ defmodule Fountain.Machines.AdmissionTest do
       # sweep's turn arm without the race.
       Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
         user = insert_verified_user()
-        agent = insert_agent(user_id: user.id, runtime: "opencode")
+        agent = insert_agent(user_id: user.id, runtime: "gemini")
         sandbox = insert_sandbox(user_id: user.id, agent_id: agent.id, status: "ready")
 
         conv =
@@ -588,7 +588,7 @@ defmodule Fountain.Machines.AdmissionTest do
       # way `resume_test.exs` pins its half.
       Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
         user = insert_verified_user()
-        agent = insert_agent(user_id: user.id, runtime: "opencode")
+        agent = insert_agent(user_id: user.id, runtime: "gemini")
         sandbox = insert_sandbox(user_id: user.id, agent_id: agent.id, status: "ready")
 
         conv =
@@ -652,7 +652,7 @@ defmodule Fountain.Machines.AdmissionTest do
       # `pg_blocking_pids` — and reads the lease the moment it is committed.
       Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
         user = insert_verified_user()
-        agent = insert_agent(user_id: user.id, runtime: "opencode")
+        agent = insert_agent(user_id: user.id, runtime: "gemini")
         sandbox = insert_sandbox(user_id: user.id, agent_id: agent.id, status: "ready")
 
         conv =

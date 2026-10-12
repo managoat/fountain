@@ -125,12 +125,12 @@ defmodule Fountain.OpsGaugesTest do
     attach([[:fountain, :sandboxes_by_provider]])
 
     user = insert_verified_user()
-    insert_sandbox(user_id: user.id, provider: "daytona", status: "terminated")
+    insert_sandbox(user_id: user.id, provider: "e2b", status: "terminated")
 
     assert :ok = OpsGauges.emit_telemetry()
 
     refute_receive {:telemetry, [:fountain, :sandboxes_by_provider], _,
-                    %{provider: "daytona", status: "terminated"}}
+                    %{provider: "e2b", status: "terminated"}}
   end
 
   test "counts queued Oban jobs by queue and state" do

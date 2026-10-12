@@ -19,7 +19,7 @@ defmodule Fountain.Machines.OccupancyTest do
 
   setup do
     user = insert_verified_user()
-    agent = insert_agent(user_id: user.id, runtime: "opencode")
+    agent = insert_agent(user_id: user.id, runtime: "gemini")
     sandbox = insert_sandbox(user_id: user.id, status: "ready")
     a = insert_conversation(user_id: user.id, agent: agent, sandbox: sandbox, status: "idle")
     b = insert_conversation(user_id: user.id, agent: agent, sandbox: sandbox, status: "idle")
@@ -117,7 +117,7 @@ defmodule Fountain.Machines.OccupancyTest do
       occ = Occupancy.load(ctx.sandbox.id)
 
       assert Enum.sort(occ.bound) == Enum.sort([ctx.a.id, ctx.b.id])
-      assert occ.running_turns == %{ctx.b.id => "opencode"}
+      assert occ.running_turns == %{ctx.b.id => "gemini"}
       assert occ.live == []
       assert DateTime.compare(occ.last_activity_at, turn.started_at) in [:eq, :gt]
     end

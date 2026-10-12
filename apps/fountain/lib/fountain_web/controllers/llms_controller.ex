@@ -87,11 +87,10 @@ defmodule FountainWeb.LlmsController do
     {"Catalog",
      [
        {"catalog", "Catalog", "everything you can name in an agent spec"},
-       {"catalog/runtimes", "the four agent CLIs side by side"},
+       {"catalog/runtimes", "the three agent CLIs side by side"},
        {"catalog/runtimes/claude",
         "Anthropic's Claude Code, headless: transport, skills root, which credential it uses"},
        {"catalog/runtimes/codex", "OpenAI's Codex CLI, headless"},
-       {"catalog/runtimes/opencode", "the only runtime that can reach more than one provider"},
        {"catalog/runtimes/gemini", "Google's Gemini CLI, headless"},
        {"catalog/skills", "how skills mount per runtime, and the injection order"},
        {"catalog/skills/fountain",
@@ -177,7 +176,7 @@ defmodule FountainWeb.LlmsController do
       """
       # Fountain
 
-      > Fountain is a multi-tenant service for running sandboxed coding agents. It provisions an isolated sandbox per conversation, mounts a preconfigured environment (packages, repos, env vars, MCP servers, skills), and runs the agent CLI — claude, codex, gemini, or opencode — inside. Use it to delegate, fan out, or parallelize coding agents from your own scripts, CI, or IDE.
+      > Fountain is a multi-tenant service for running sandboxed coding agents. It provisions an isolated sandbox per conversation, mounts a preconfigured environment (packages, repos, env vars, MCP servers, skills), and runs the agent CLI — claude, codex, or gemini — inside. Use it to delegate, fan out, or parallelize coding agents from your own scripts, CI, or IDE.
 
       The four primitives:
 

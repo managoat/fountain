@@ -14,7 +14,7 @@ An Agent carries these choices.
 
 - **`model`**, as `provider/model-id`. An example is
   `anthropic/claude-sonnet-5`.
-- **`runtime`**, one of `claude`, `codex`, `gemini`, `opencode` or `acp`.
+- **`runtime`**, one of `claude`, `codex`, `gemini` or `acp`.
 - **`environment`**, an optional [Environment](environment.md) to start from.
 - **`inference_credential_id`**, an optional [credential set](secrets.md#credential-sets)
   to use instead of the account default.
@@ -46,8 +46,7 @@ teammate starts from one. Read [agents as teammates](teammates.md).
 This asymmetry surprises people, and it is deliberate.
 
 The provider must match the runtime. Use `anthropic` for `claude`, `openai`
-for `codex`, and `google` for `gemini`. `opencode` takes any of the three, and
-the prefix picks which API key to export. The `acp` runtime takes none. It
+for `codex`, and `google` for `gemini`. The `acp` runtime takes none. It
 runs a program rather than a model.
 
 Fountain rejects a provider outside that set at write time. It holds no
@@ -73,7 +72,6 @@ reattach.
 |---|---|
 | `claude` | `~/.claude/CLAUDE.md` |
 | `codex` | `~/.codex/AGENTS.md` |
-| `opencode` | `~/.config/opencode/AGENTS.md` |
 | `gemini` | `~/.gemini/GEMINI.md` |
 
 The `acp` runtime has no such file, and Fountain writes none. The command owns

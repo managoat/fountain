@@ -527,12 +527,13 @@ defmodule FountainWeb.MetricsTest do
       # this on every terminal turn path — is asserted in
       # conversation_server_turn_metrics_test.exs against a real server.
       # The reporter is global to the VM and the ConversationServer tests feed
-      # the same histogram with runtime="claude". "opencode" is emitted by
-      # nothing else, so the bucket counts below are this test's alone.
+      # the same histogram with real runtime names. "metrics-probe" is no
+      # runtime, so nothing else emits it and the bucket counts below are this
+      # test's alone.
       Fountain.Telemetry.event(
         [:turn, :completed],
         %{
-          runtime: "opencode",
+          runtime: "metrics-probe",
           status: "completed",
           provider: "runner",
           conv_id: Ecto.UUID.generate()
@@ -544,7 +545,7 @@ defmodule FountainWeb.MetricsTest do
       {200, body} = scrape()
 
       series =
-        ~s(fountain_turn_completed_duration_ms_bucket{provider="runner",runtime="opencode",status="completed")
+        ~s(fountain_turn_completed_duration_ms_bucket{provider="runner",runtime="metrics-probe",status="completed")
 
       # 42s lands above the 30s boundary and below 60s. A duration handed over
       # in seconds or in native units lands in a different bucket entirely.

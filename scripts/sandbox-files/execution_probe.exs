@@ -9,9 +9,7 @@ for mod <- [
       Sprites,
       Managoat.Sandbox.Sprites.Client,
       Managoat.Sandbox.E2B.Api,
-      Managoat.Sandbox.E2B.CommandServer,
-      Managoat.Sandbox.Daytona.Api,
-      Managoat.Sandbox.Daytona.Toolbox
+      Managoat.Sandbox.E2B.CommandServer
     ] do
   Mimic.copy(mod)
 end
@@ -23,7 +21,7 @@ defmodule Fountain.FilesExecutionProbe do
   use Mimic
 
   alias Managoat.Sandbox
-  alias Managoat.Sandbox.{Daytona, E2B, Handle}
+  alias Managoat.Sandbox.{E2B, Handle}
   alias Managoat.Sandbox.Sprites, as: SpriteAdapter
 
   # These tests assert existing gaps. Passing is evidence that the current
@@ -129,29 +127,15 @@ defmodule Fountain.FilesExecutionProbe do
     IO.puts("EVIDENCE e2b: paused lookup -> connect -> exec")
   end
 
-  test "Daytona exec explicitly starts a provider-stopped sandbox" do
-    expect(Daytona.Api, :get_sandbox, fn "probe" -> {:ok, %{"state" => "stopped"}} end)
-    expect(Daytona.Api, :start, fn "probe" -> :ok end)
-    expect(Daytona.Api, :toolbox_url, fn "probe" -> {:ok, "https://unused.invalid"} end)
-
-    expect(Daytona.Toolbox, :execute, fn "https://unused.invalid", "'probe'", opts ->
-      assert opts[:timeout] == 30_000
-      {:ok, "", 0}
-    end)
-
-    assert {:ok, "", 0} = Daytona.exec(handle(:daytona), "probe", [], timeout: 30_000)
-    IO.puts("EVIDENCE daytona: stopped lookup -> start -> exec (remote timeout not exercised)")
-  end
-
   test "only Sprites among the shipped providers exposes confirmed termination" do
     assert Sandbox.supports?(:sprites, :terminate_session)
 
-    for provider <- [:e2b, :daytona, :runner] do
+    for provider <- [:e2b, :runner] do
       refute Sandbox.supports?(provider, :terminate_session)
       assert {:error, :not_supported} = Sandbox.terminate_session(handle(provider), "probe")
     end
 
-    IO.puts("EVIDENCE termination capability: sprites=yes e2b=no daytona=no runner=no")
+    IO.puts("EVIDENCE termination capability: sprites=yes e2b=no runner=no")
   end
 
   defp adapter(:sprites), do: SpriteAdapter

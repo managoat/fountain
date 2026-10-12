@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Speaking the Agent Client Protocol to runtimes"
-description: "ACP is the only runtime I/O path for all four coding agents, adopted behind gates; Fountain.Runtimes stays the provisioning layer. All four gates are built."
+description: "ACP is the only runtime I/O path for all four coding agents, adopted behind gates; Fountain.Runtimes stays the provisioning layer. All four gates are built. Amended 2026-10-12: opencode is removed, leaving claude, codex and gemini."
 tags: [acp, runtimes]
 status: stable
 adr: "0014"
@@ -1005,3 +1005,14 @@ This follows the server's ACP-only Blocks contract. Historical rows remain
 accessible in `data` through `GET /api/conversations/:id/events`, including
 when `blocks=true` is requested. These clients require ACP conversations for
 structured transcript output; older vendor transcripts remain raw data.
+
+## Addendum — 2026-10-12: opencode is removed
+
+Fountain removed the opencode runtime (simplify 2/5). The library adapter
+remains in `managoat_runtimes`; Fountain no longer names it. ACP is now the
+I/O path for three coding agents (claude, codex, gemini) and the `acp`
+runtime. The opencode rows, measurements and the permission exception above
+are history: with opencode gone, every coding-agent runtime Fountain runs asks
+before a tool. An
+existing agent whose runtime is `opencode` stays readable, but its
+conversations refuse to start until its runtime is changed.

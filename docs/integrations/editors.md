@@ -172,12 +172,6 @@ continues from where it stopped.
 ## Limits, stated rather than discovered
 
 - **No access to your local files**, as above.
-- **The opencode runtime never asks.** It decides permission inside its own
-  server, and it sends no request to your editor. Fountain refuses a policy it
-  cannot enforce, with a 422 at session start
-  ([#959](https://github.com/managoat/fountain/issues/959)). Nobody has
-  measured whether opencode's own config reaches the protocol
-  ([#962](https://github.com/managoat/fountain/issues/962)).
 - **A reclaimed sandbox loses the agent's memory.** If Fountain reclaimed a
   conversation's sandbox while you were away, `session/load` still replays the
   full transcript. The agent itself does not remember it

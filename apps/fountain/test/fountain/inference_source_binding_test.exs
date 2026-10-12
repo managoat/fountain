@@ -17,7 +17,7 @@ defmodule Fountain.InferenceSourceBindingTest do
     vault
   end
 
-  test "runtime precedence and same-kind overrides select the value actually exported", %{
+  test "kind precedence and same-kind overrides select the value actually exported", %{
     user: user,
     dek: dek
   } do
@@ -32,22 +32,6 @@ defmodule Fountain.InferenceSourceBindingTest do
              InferenceCredentials.resolve(user.id, "anthropic/claude-sonnet-5", "claude",
                vault_id: vault.id
              )
-
-    assert {:ok, %{kind: :anthropic_api_key, scope: :tenant_secret},
-            %{anthropic_api_key: "override"}} =
-             InferenceCredentials.resolve(user.id, "anthropic/claude-sonnet-5", "opencode",
-               vault_id: vault.id
-             )
-
-    {:ok, oauth_only} = InferenceCredentials.create_set(user.id, "OAuth only")
-
-    {:ok, oauth_only} =
-      InferenceCredentials.put_credential_in(oauth_only, dek, :claude_code_oauth_token, "oauth")
-
-    assert {:error, :inference_credential_unusable} =
-             InferenceCredentials.resolve(user.id, "anthropic/claude-sonnet-5", "opencode",
-               credential_set_id: oauth_only.id
-             )
   end
 
   test "aliases normalize within a layer and reject only conflicting values for the selected provider",
@@ -55,7 +39,7 @@ defmodule Fountain.InferenceSourceBindingTest do
     google = vault_with(user, %{"GEMINI_API_KEY" => "google"})
 
     assert {:ok, %{kind: :gemini_api_key}, %{gemini_api_key: "google"}} =
-             InferenceCredentials.resolve(user.id, "google/gemini-2.5-pro", "opencode",
+             InferenceCredentials.resolve(user.id, "google/gemini-2.5-pro", "gemini",
                vault_id: google.id
              )
 
@@ -63,7 +47,7 @@ defmodule Fountain.InferenceSourceBindingTest do
       vault_with(user, %{"GEMINI_API_KEY" => "one", "GOOGLE_GENERATIVE_AI_API_KEY" => "two"})
 
     assert {:error, :inference_credential_conflict} =
-             InferenceCredentials.resolve(user.id, "google/gemini-2.5-pro", "opencode",
+             InferenceCredentials.resolve(user.id, "google/gemini-2.5-pro", "gemini",
                vault_id: conflicting.id
              )
 
@@ -83,7 +67,7 @@ defmodule Fountain.InferenceSourceBindingTest do
     secret = insert_vault_secret(vault, key: "GOOGLE_GENERATIVE_AI_API_KEY", value: "vault")
 
     assert {:ok, source, %{gemini_api_key: "vault"}} =
-             InferenceCredentials.resolve(user.id, "google/gemini-2.5-pro", "opencode",
+             InferenceCredentials.resolve(user.id, "google/gemini-2.5-pro", "gemini",
                environment_id: env.id,
                vault_id: vault.id
              )
@@ -226,7 +210,7 @@ defmodule Fountain.InferenceSourceBindingTest do
 
   test "stored platform key replacement retains no stale binding", %{user: user} do
     {:ok, key} = PlatformInference.put_key("openai", "first")
-    {:ok, source, _} = InferenceCredentials.resolve(user.id, "openai/gpt-5", "opencode")
+    {:ok, source, _} = InferenceCredentials.resolve(user.id, "openai/gpt-5", "codex")
     assert source.identity == "platform:stored:openai"
     assert source.revision == key.revision
     {:ok, _} = PlatformInference.put_key("openai", "second")

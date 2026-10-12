@@ -75,8 +75,10 @@ defmodule FountainWeb.Schemas do
         },
         provider: %Schema{
           type: :string,
-          enum: ~w(sprites e2b daytona runner),
-          description: "The sandbox backend this row lives on."
+          description:
+            "The sandbox backend this row lives on: sprites, e2b or runner. A sandbox " <>
+              "created before the Daytona provider was removed (2026-10) reads daytona " <>
+              "and is terminated."
         },
         runner: %Schema{
           type: :object,
@@ -118,7 +120,13 @@ defmodule FountainWeb.Schemas do
         id: %Schema{type: :string, format: :uuid},
         status: %Schema{type: :string, enum: ~w(pending running idle failed terminated)},
         title: %Schema{type: :string, nullable: true},
-        runtime: %Schema{type: :string, enum: Fountain.Agents.Agent.packaged_runtimes()},
+        runtime: %Schema{
+          type: :string,
+          description:
+            "claude, codex, gemini or acp. A row written before the opencode runtime " <>
+              "was removed (2026-10) still reads opencode; such an agent cannot start " <>
+              "a conversation until its runtime is changed."
+        },
         mid_turn: %Schema{
           type: :boolean,
           description: "True while this conversation is running a turn on the machine."
@@ -666,7 +674,13 @@ defmodule FountainWeb.Schemas do
               "null means it runs the agent's model. Each turn's model_selection records " <>
               "the model that turn actually asked for."
         },
-        runtime: %Schema{type: :string, enum: Fountain.Agents.Agent.packaged_runtimes()},
+        runtime: %Schema{
+          type: :string,
+          description:
+            "claude, codex, gemini or acp. A row written before the opencode runtime " <>
+              "was removed (2026-10) still reads opencode; such an agent cannot start " <>
+              "a conversation until its runtime is changed."
+        },
         acp: %Schema{
           type: :boolean,
           readOnly: true,
@@ -911,8 +925,7 @@ defmodule FountainWeb.Schemas do
               "the command it is about to run, so a title matches one invocation only. " <>
               "Merged with the agent's own policy, taking the stricter of the two. It may " <>
               "only narrow: a policy that would loosen any tool is refused with 422 " <>
-              "permission_policy_widens rather than silently clamped, and one the runtime " <>
-              "never consults is refused with 422 permission_policy_unenforceable. " <>
+              "permission_policy_widens rather than silently clamped. " <>
               "If a queued request with a prompt and a nonempty policy resumes an existing " <>
               "channel, it fails with permission_policy_requires_fresh_conversation before " <>
               "sending the prompt. Set fresh: true to create a conversation for that policy."
@@ -1020,7 +1033,7 @@ defmodule FountainWeb.Schemas do
               "the guest is alone there. A claude home created before guests were admitted refuses a codex " <>
               "guest with 409 codex_inference_conflict until it is reset. The " <>
               "conversation opens idle on that machine; a prompt here wakes it. Several " <>
-              "conversations then run on one disk at once, except on opencode and gemini, " <>
+              "conversations then run on one disk at once, except on gemini, " <>
               "where a second turn of the same runtime is refused with 409 " <>
               "sandbox_at_capacity while one runs."
         },
@@ -1439,7 +1452,7 @@ defmodule FountainWeb.Schemas do
           description:
             "Canonical provider/model_id (e.g. anthropic/claude-sonnet-5). The " <>
               "provider must match the runtime — anthropic for claude, openai for " <>
-              "codex, google for gemini; opencode accepts any of the three. Other " <>
+              "codex, google for gemini. Other " <>
               "providers are rejected: Fountain has no credentials to export for " <>
               "them. The model id is not checked against a list, so a newly " <>
               "released model works without a Fountain release. Null on the acp " <>
@@ -1447,7 +1460,13 @@ defmodule FountainWeb.Schemas do
           nullable: true,
           pattern: "^[a-z0-9_-]+/[a-z0-9._-]+$"
         },
-        runtime: %Schema{type: :string, enum: Fountain.Agents.Agent.packaged_runtimes()},
+        runtime: %Schema{
+          type: :string,
+          description:
+            "claude, codex, gemini or acp. A row written before the opencode runtime " <>
+              "was removed (2026-10) still reads opencode; such an agent cannot start " <>
+              "a conversation until its runtime is changed."
+        },
         runtime_command: %Schema{
           type: :string,
           nullable: true,
@@ -1470,7 +1489,7 @@ defmodule FountainWeb.Schemas do
         },
         sandbox_provider: %Schema{
           type: :string,
-          enum: ~w(sprites e2b daytona runner),
+          enum: ~w(sprites e2b runner),
           nullable: true,
           description:
             "Sandbox backend override; null inherits the instance default " <>
@@ -1506,9 +1525,7 @@ defmodule FountainWeb.Schemas do
               "claude titles a tool call with the command it is about to run. Unset keys " <>
               "fall back to the default, and an unset default is auto_allow \u2014 today's " <>
               "behaviour. \"ask\" holds the tool until a human answers it on the " <>
-              "conversation stream, and denies if nobody does before the timeout. A " <>
-              "runtime that never asks (opencode) refuses anything stricter than " <>
-              "auto_allow with 422 permission_policy_unenforceable."
+              "conversation stream, and denies if nobody does before the timeout."
         },
         skills: %Schema{
           type: :array,
@@ -1671,7 +1688,7 @@ defmodule FountainWeb.Schemas do
         },
         sandbox_provider: %Schema{
           type: :string,
-          enum: ~w(sprites e2b daytona runner),
+          enum: ~w(sprites e2b runner),
           nullable: true,
           description:
             "Sandbox backend override; null inherits the instance default " <>
@@ -1699,8 +1716,7 @@ defmodule FountainWeb.Schemas do
               "fall back to the default, and an unset default is auto_allow. \"ask\" holds " <>
               "the tool until a human answers it on the conversation stream, and denies if " <>
               "nobody does before the timeout. A conversation may narrow this at launch, " <>
-              "never widen it. A runtime that never asks (opencode) refuses anything " <>
-              "stricter than auto_allow with 422 permission_policy_unenforceable."
+              "never widen it."
         },
         environment_id: %Schema{type: :string, format: :uuid, nullable: true},
         session_config: %Schema{

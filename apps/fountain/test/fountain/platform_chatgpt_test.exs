@@ -512,17 +512,17 @@ defmodule Fountain.PlatformChatGPTTest do
                resolve(user, "openai/gpt-5.5-codex", "codex")
     end
 
-    test "opencode on an openai model never takes the grant", %{user: user} do
+    test "a runtime other than codex on an openai model never takes the grant", %{user: user} do
       broker_on()
       connect!()
 
       assert {:ok, %Source{scope: :missing}, %{}} =
-               resolve(user, "openai/gpt-5.5", "opencode")
+               resolve(user, "openai/gpt-5.5", "acp")
 
       Application.put_env(:fountain, :platform_openai_api_key, "sk-platform")
 
       assert {:ok, %Source{scope: :platform, kind: :openai_api_key},
-              %{openai_api_key: "sk-platform"}} = resolve(user, "openai/gpt-5.5", "opencode")
+              %{openai_api_key: "sk-platform"}} = resolve(user, "openai/gpt-5.5", "acp")
 
       assert {:ok, %Source{scope: :platform, kind: :openai_api_key},
               %{openai_api_key: "sk-platform"}} = resolve(user, "openai/gpt-5.5", nil)

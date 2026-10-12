@@ -518,27 +518,6 @@ defmodule Fountain.ConversationsStartTest do
       assert conv.permission_policy == %{"Bash" => "ask"}
     end
 
-    test "a runtime that never asks refuses the override, naming itself", ctx do
-      # opencode decides permission inside its own server and sends no
-      # `session/request_permission` (measured 2026-08-22). A launch policy it
-      # will never consult is refused, not stored: the caller asked for a
-      # restriction and has to learn they did not get one.
-      agent =
-        insert_agent(
-          user_id: ctx.user.id,
-          runtime: "opencode",
-          model: "anthropic/claude-sonnet-5"
-        )
-
-      assert {:error, {:permission_policy_unenforceable, "opencode"}} =
-               launch(ctx, agent, %{"default" => "ask"})
-
-      assert Repo.aggregate(Fountain.Conversations.Conversation, :count) == 0
-
-      # A policy that asks nothing of the runtime still launches.
-      assert {:ok, _conv} = launch(ctx, agent, %{"default" => "auto_allow"})
-    end
-
     test "ask is a narrowing of auto_allow but a widening of auto_deny", ctx do
       lenient = insert_agent(user_id: ctx.user.id, permission_policy: %{"Bash" => "auto_allow"})
       strict = insert_agent(user_id: ctx.user.id, permission_policy: %{"Bash" => "auto_deny"})

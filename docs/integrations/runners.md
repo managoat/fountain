@@ -84,7 +84,7 @@ daemon that you left up reconnects and registers itself again.
 ## What the machine needs
 
 It needs what the Sprites base image has, on the `PATH` of whoever starts the
-daemon. That is `bash`, `git`, `node`, `npm`, `npx`, and `bun` for opencode.
+daemon. That is `bash`, `git`, `node`, `npm` and `npx`.
 
 The machine does not need the agent CLIs. Fountain brings what each runtime
 needs at provision:
@@ -94,7 +94,6 @@ needs at provision:
 | claude | The pinned ACP adapter, which carries Claude Code. |
 | codex | The pinned ACP adapter. Fountain writes the credential (the API key, or the broker's placeholder for it) to `~/.codex/auth.json`, so no `codex` binary is needed. |
 | gemini | `@google/gemini-cli`, pinned, when `gemini` is not already on `PATH`. |
-| opencode | `opencode-ai` through `bun`, when `opencode` is not already on `PATH`. |
 
 npm installs go into the sandbox's own npm prefix, `<sandbox>/.npm-global`,
 so Fountain writes nothing to your global node install. The npm cache is your
@@ -113,8 +112,8 @@ Two things translate, and two do not.
 | `packages.apt` in an environment. | Fails. A Mac has no `apt`, and the daemon does not translate to `brew`. Leave it empty, or use `setup_script`. |
 | `networking_type: limited`. | Refused at launch. The provider does not advertise an egress policy, and it will not pretend. The conversation fails before a sandbox exists, with a `network` / `failed` event whose reason is `backend_lacks_network_policy`. The agent form shows the same warning when you pair the two. |
 
-`/tmp` is the machine's `/tmp`. The gemini and opencode workspaces live there,
-and each sandbox sees the same ones, as it does inside one Linux sandbox.
+`/tmp` is the machine's `/tmp`. The gemini workspace lives there,
+and each sandbox sees the same one, as it does inside one Linux sandbox.
 
 ## A microVM for each sandbox
 
@@ -169,8 +168,8 @@ nothing. Elsewhere it costs a full copy.
 
 The image must hold three things.
 
-- The packages a sandbox needs, which are `bash`, `git`, `node`, `npm`, `npx`
-  and `bun` for opencode.
+- The packages a sandbox needs, which are `bash`, `git`, `node`, `npm` and
+  `npx`.
 - The `fountain` binary, built for the guest architecture.
 - An init that starts `fountain runner-guest` at boot.
 
@@ -275,7 +274,7 @@ runner daemon still terminates its processes.
 
 A teammate whose sandbox lives on a runner shows where it runs. The roster
 entry's `sandbox`, and that of each conversation object, carries `provider`,
-one of `sprites|e2b|daytona|runner`. For a runner it also carries
+one of `sprites|e2b|runner`. For a runner it also carries
 `runner: {id, name, hostname, online, path}`. That names the machine and the
 sandbox directory on it, so a client can say "on mac-mini · ~/…" and parse no
 sandbox name.

@@ -70,12 +70,12 @@ defmodule Fountain.Machines.UsageTest do
       user = insert_verified_user()
 
       terminated_sandbox(user, "sprites", ~U[2026-05-02 00:00:00Z], ~U[2026-05-02 00:10:00Z])
-      terminated_sandbox(user, "daytona", ~U[2026-05-03 00:00:00Z], ~U[2026-05-03 00:30:00Z])
+      terminated_sandbox(user, "e2b", ~U[2026-05-03 00:00:00Z], ~U[2026-05-03 00:30:00Z])
 
       rows = attribution()
 
       assert seconds_for(rows, user.id, "sprites") == 600
-      assert seconds_for(rows, user.id, "daytona") == 1800
+      assert seconds_for(rows, user.id, "e2b") == 1800
     end
 
     test "keeps two tenants apart on the same provider" do
@@ -529,7 +529,7 @@ defmodule Fountain.Machines.UsageTest do
     test "the providers the operator pays for" do
       assert SandboxUsage.platform_cost?("sprites")
       assert SandboxUsage.platform_cost?("e2b")
-      assert SandboxUsage.platform_cost?("daytona")
+      refute SandboxUsage.platform_cost?("daytona")
     end
 
     test "a self-hosted runner is the tenant's own machine" do

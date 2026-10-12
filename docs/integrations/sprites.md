@@ -31,7 +31,7 @@ setup on the provider side.
 | Variable | Default | Effect |
 |---|---|---|
 | `SPRITES_TOKEN` | — | The platform token. Fountain does not check it at boot, so the app starts without it and the first conversation fails at provision time. |
-| `SPRITES_BASE_URL` | `https://api.sprites.dev` | Repoints the Sprites API. Whatever you point it at must implement the same transport. [E2B](e2b.md) and [Daytona](daytona.md) are separate providers, and not replacements behind this variable. |
+| `SPRITES_BASE_URL` | `https://api.sprites.dev` | Repoints the Sprites API. Whatever you point it at must implement the same transport. [E2B](e2b.md) is a separate provider, and not a replacement behind this variable. |
 | `SPRITES_TIMEOUT_MS` | `30000` | Bounds each HTTP call to the Sprites API. A long command, such as a package install or a clone, sets its own timeout for that call. Boot refuses a value that is not positive. |
 
 ## The cost model

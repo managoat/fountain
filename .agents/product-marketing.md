@@ -26,7 +26,7 @@ nothing, holds its disk and takes none of the account's concurrency. Copy that
 describes the machine without the meter has described a sandbox provider.
 
 **The harness is not the product.** There is a glut of agent harnesses and
-Fountain runs four of them (`claude`, `codex`, `gemini`, `opencode`) behind one
+Fountain runs three of them (`claude`, `codex`, `gemini`) behind one
 API. Nothing in the pitch should imply the runtime is the scarce part. The
 scarce part is everything under it: the machine lifecycle, the installs, the
 configuration, the networking, and a credential that reaches the machine
@@ -134,8 +134,8 @@ repo answers it.
 
 The competitive set to profile, in the order it matters:
 - **Sandbox and code-execution platforms** the buyer might use directly instead
-  of Fountain. E2B, Daytona, Modal, Fly.io. Note that E2B and Daytona are also
-  *providers Fountain runs on*, so the framing is a layer argument, not a
+  of Fountain. E2B, Daytona, Modal, Fly.io. Note that E2B is also a
+  *provider Fountain runs on*, so the framing is a layer argument, not a
   head-to-head one, and copy must not blur that.
 - **Agent-hosting products** that run a coding agent for you as a finished
   service.
@@ -224,7 +224,7 @@ credits, plans, tiers, seats or a subscription; there are none.
 | Vault | the primitive: a small, plural, static override layer | HashiCorp's central authoritative credential store |
 | Agent | the primitive, the stored config | the running process |
 | Conversation | the primitive, one run | the transcript |
-| runtime | the coding-agent CLI (`claude`, `codex`, `gemini`, `opencode`) | |
+| runtime | the coding-agent CLI (`claude`, `codex`, `gemini`) | |
 | sandbox | the isolated machine a run happens on | |
 | Fountain | the product | the CLI binary, or the injected skill |
 | `fountain` | the CLI binary, always in code font | |

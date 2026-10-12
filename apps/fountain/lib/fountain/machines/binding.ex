@@ -535,8 +535,8 @@ defmodule Fountain.Machines.Binding do
   #   * Only claude and codex, together (#2525, maintainer decision after a
   #     red-team review). The set of runtimes — the machine's, the guest's,
   #     and every other agent's by the reading below — must be exactly
-  #     `@guest_runtimes`. The directory rule would also admit gemini and
-  #     opencode pairs; nothing tests that their files stay apart beyond a
+  #     `@guest_runtimes`. The directory rule would also admit gemini
+  #     pairs; nothing tests that their files stay apart beyond a
   #     one-time audit, so they wait for #2525 item 3.
   #   * One agent per runtime. The pair above holds as well for a second
   #     codex agent on a machine that already has one, so the guest's

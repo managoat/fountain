@@ -89,8 +89,8 @@ defmodule Fountain.Conversations.AttachTest do
   end
 
   test "with a prompt, a one-at-a-time runtime's machine refuses while a turn runs", ctx do
-    agent = ctx.agent |> Ecto.Changeset.change(runtime: "opencode") |> Repo.update!()
-    {:ok, _} = Conversations.update_conversation(ctx.first, %{runtime: "opencode"})
+    agent = ctx.agent |> Ecto.Changeset.change(runtime: "gemini") |> Repo.update!()
+    {:ok, _} = Conversations.update_conversation(ctx.first, %{runtime: "gemini"})
     ctx = %{ctx | agent: agent}
 
     insert_turn(ctx.first, %{

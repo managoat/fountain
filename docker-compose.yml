@@ -88,9 +88,6 @@ services:
       E2B_BASE_URL: ${E2B_BASE_URL:-}
       E2B_TEMPLATE: ${E2B_TEMPLATE:-}
       E2B_USER: ${E2B_USER:-}
-      DAYTONA_API_KEY: ${DAYTONA_API_KEY:-}
-      DAYTONA_API_URL: ${DAYTONA_API_URL:-}
-      DAYTONA_SNAPSHOT: ${DAYTONA_SNAPSHOT:-}
 
       # The browser apps on top of this server's /api. The console is not an
       # interactive client: watching a conversation and messaging a teammate

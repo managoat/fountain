@@ -549,7 +549,7 @@ response bodies.
 Copy `deployed/secrets.example.json` and set the actual Fountain and receiver
 URLs, runtime/model and provider. Both dedicated tenants must have broker and
 Connections access. The primary tenant also needs its usual inference
-credentials. Select an ephemeral Sprites, E2B or Daytona sandbox. A runner is
+credentials. Select an ephemeral Sprites or E2B sandbox. A runner is
 rejected because it does not enforce broker egress. The sandbox image must
 provide Python 3 and curl; runtime setup must also have its usual dependencies.
 
@@ -603,8 +603,8 @@ and valid only for this receiver run.
 
 This mode tests static bearer delivery. Its permitted identity is the fixture's
 per-run principal. It does not establish a Fountain conversation identity or
-test callback-token rotation. Conversation authentication for Claude, Codex,
-Gemini and OpenCode remains an explicit linked gap under
+test callback-token rotation. Conversation authentication for Claude, Codex
+and Gemini remains an explicit linked gap under
 [#1405](https://github.com/managoat/fountain/issues/1405).
 Each result lists the selected runtime as required and the other runtimes as
 not run. A selected runtime that cannot authenticate or discover the tools

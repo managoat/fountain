@@ -13,7 +13,7 @@ defmodule Fountain.SandboxFiles do
       user's own machine behind a bearer token.
     * **Not a new seam.** `Managoat.Sandbox` has `exec/4` on every adapter
       and no read primitive, so the scripts run through `exec` and every
-      provider — Sprites, E2B, Daytona, the runner — is covered without an
+      provider — Sprites, E2B, the runner — is covered without an
       adapter change. Paths cross `Managoat.Sandbox.host_path/2` so the
       runner's `/home/sprite` mapping holds.
     * **Not a wake.** A parked sandbox costs nothing; a read that resumed
@@ -167,7 +167,7 @@ defmodule Fountain.SandboxFiles do
   @doc """
   The directories a path may live under: the sandbox home and the
   runtime's working directory (the same for claude and codex, `/tmp/…` for
-  gemini and opencode).
+  gemini).
   """
   @spec roots(Sandbox.t()) :: [String.t()]
   def roots(%Sandbox{} = sandbox), do: Enum.uniq([@home, cwd(sandbox)])

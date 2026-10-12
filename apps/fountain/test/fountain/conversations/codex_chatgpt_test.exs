@@ -29,7 +29,7 @@ defmodule Fountain.Conversations.CodexChatGPTTest do
       assert CodexChatGPT.env(Managoat.Runtimes.Codex, creds, source) == []
     end
 
-    assert CodexChatGPT.env(Managoat.Runtimes.OpenCode, creds, platform_source()) == []
+    assert CodexChatGPT.env(Managoat.Runtimes.Claude, creds, platform_source()) == []
     assert CodexChatGPT.env(nil, creds, platform_source()) == []
   end
 
@@ -200,7 +200,7 @@ defmodule Fountain.Conversations.CodexChatGPTTest do
                ]
       end
 
-      assert CodexChatGPT.env(Managoat.Runtimes.OpenCode, %{}, source) == []
+      assert CodexChatGPT.env(Managoat.Runtimes.Claude, %{}, source) == []
       assert Reserved.placeholder?(Reserved.placeholder(grant.id))
       assert Reserved.conflict?(Reserved.placeholder(grant.id))
       refute Reserved.placeholder(grant.id) == @placeholder

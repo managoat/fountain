@@ -163,16 +163,6 @@ defmodule FountainWeb.AgentsLive.IndexTest do
         })
 
       refute html =~ "credential on this account yet"
-
-      # a model from a provider Fountain doesn't know needs nothing
-      html =
-        view
-        |> element("form[phx-change=validate]")
-        |> render_change(%{
-          "agent" => %{"name" => "x", "runtime" => "opencode", "model" => "ollama/llama3"}
-        })
-
-      refute html =~ "credential on this account yet"
     end
 
     # #554: the model field was a bare text input, so nothing in the UI said
@@ -229,7 +219,7 @@ defmodule FountainWeb.AgentsLive.IndexTest do
       # let the changeset speak on submit.
       bad_provider =
         render_change(view, "validate", %{
-          "agent" => %{"runtime" => "opencode", "model" => "anthopic/claude-opus-5"}
+          "agent" => %{"runtime" => "claude", "model" => "anthopic/claude-opus-5"}
         })
 
       refute bad_provider =~ "passed to the runtime as-is"
@@ -400,22 +390,6 @@ defmodule FountainWeb.AgentsLive.IndexTest do
 
       assert Fountain.Agents.get_agent(agent.id, user.id).permission_policy == %{}
     end
-
-    test "a runtime that never asks says so instead of offering the choice", %{conn: conn} do
-      # opencode decides permission in its own server and sends no request
-      # (#959), so a policy here would display a restriction nothing enforces.
-      user = insert_verified_user()
-
-      agent =
-        insert_agent(user_id: user.id, runtime: "opencode", model: "anthropic/claude-sonnet-5")
-
-      conn = login_user(conn, user)
-
-      {:ok, _view, html} = live(conn, ~p"/agents/#{agent.id}/edit")
-
-      assert html =~ "decides this inside its own server"
-      assert html =~ "disabled"
-    end
   end
 
   # The model input renders `value=` before `placeholder=` (form.ex), and both
@@ -474,7 +448,7 @@ defmodule FountainWeb.AgentsLive.NetworkPolicyNoteTest do
       env = insert_env(user_id: user.id, networking_type: "limited", networking_config: %{})
 
       # No pin, so the agent runs on the instance default. That is sprites,
-      # which advertises `:network_policy`, as do e2b and daytona.
+      # which advertises `:network_policy`, as does e2b.
       agent = insert_agent(user_id: user.id, environment_id: env.id)
 
       conn = login_user(conn, user)

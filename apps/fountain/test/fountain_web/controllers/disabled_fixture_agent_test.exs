@@ -81,12 +81,11 @@ defmodule FountainWeb.DisabledFixtureAgentTest do
 
     assert {:ok, _operation} = SchemaGuard.check(shown)
 
-    # Clearing the account is what the retirement guidance forbids: the same
-    # response no longer fits the enum this deployment would serve.
+    # A response's runtime is a plain string (rows from before opencode was
+    # removed still name it), so it fits whatever the deployment serves.
     Application.delete_env(:fountain, :deployed_acp_fixture)
 
-    assert {:violation, %{message: message}} = SchemaGuard.check(shown)
-    assert message =~ "runtime: Invalid value for enum"
+    assert {:ok, _operation} = SchemaGuard.check(shown)
   end
 
   test "another tenant cannot edit or delete the fixture", ctx do

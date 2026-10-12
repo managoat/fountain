@@ -1,6 +1,6 @@
 ---
 name: fountain
-description: Delegate work to Fountain agents — sandboxed coding agents (claude/codex/gemini/opencode) that each run in their own per-conversation sandbox on a Fountain instance. Use when the user asks to spin up an agent on Fountain, hand a task to a named agent, fan a task out across several agents, or continue a Fountain conversation. The fountain_* tools are the interface; this skill is the operating model.
+description: Delegate work to Fountain agents — sandboxed coding agents (claude/codex/gemini) that each run in their own per-conversation sandbox on a Fountain instance. Use when the user asks to spin up an agent on Fountain, hand a task to a named agent, fan a task out across several agents, or continue a Fountain conversation. The fountain_* tools are the interface; this skill is the operating model.
 ---
 
 # Fountain from Hermes
@@ -13,7 +13,7 @@ on this machine.
 
 | Primitive | What it is |
 |---|---|
-| **Agent** | a named runtime config: runtime (claude/codex/gemini/opencode), model, system prompt, an environment (packages, repos, secrets, network policy), optional skills and MCP servers |
+| **Agent** | a named runtime config: runtime (claude/codex/gemini), model, system prompt, an environment (packages, repos, secrets, network policy), optional skills and MCP servers |
 | **Conversation** | one running instance of an agent in a fresh sandbox; multi-turn; the sandbox keeps state between turns until it is terminated or reclaimed |
 | **Turn** | one prompt and everything the agent did in response |
 | **Vault** | a bag of secret overrides picked per conversation (wins over the environment on key collision) |

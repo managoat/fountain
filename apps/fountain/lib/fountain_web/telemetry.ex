@@ -241,7 +241,7 @@ defmodule FountainWeb.Telemetry do
       # below that is where the signal is.
       #
       # Runtime-agnostic — ConversationServer measures the first stdout
-      # bytes, not parsed tokens, so claude/codex/gemini/opencode are all
+      # bytes, not parsed tokens, so claude/codex/gemini are all
       # comparable here.
       distribution("fountain.turn.first_output.elapsed_ms",
         event_name: [:fountain, :turn, :first_output],

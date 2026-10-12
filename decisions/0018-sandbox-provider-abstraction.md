@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Pluggable sandbox backends: the `Fountain.Sandbox` abstraction"
-description: "Fountain.Sandbox is one behaviour, one facade and one error taxonomy; Sprites is an adapter behind it. Built and merged in #676 through #686. Amends 0005 to one platform credential per provider."
+description: "Fountain.Sandbox is one behaviour, one facade and one error taxonomy; Sprites is an adapter behind it. Built and merged in #676 through #686. Amends 0005 to one platform credential per provider. Amended 2026-10-12: the Daytona provider is removed."
 tags: [sandbox, architecture]
 status: stable
 adr: "0018"
@@ -191,3 +191,14 @@ Still unproven live: the custom agent-CLI images (`images/e2b/`,
 `images/daytona/` — including selecting the `sprite` user in-guest) and a
 full Fountain conversation cycle on either provider; E2B Hobby's 1h
 continuous-run cap stands until the account upgrades.
+
+## Addendum — 2026-10-12: Daytona is removed
+
+Fountain removed the Daytona provider (simplify 2/5). The library adapter
+remains in `managoat_sandbox`; Fountain no longer names it. The seam, the
+facade and the error taxonomy decided here are unchanged; the providers behind
+them are now Sprites, E2B and the self-hosted runner (ADR 0022). The Daytona
+measurements above are history, and `images/daytona/` is deleted. A migration
+moved each agent pinned to `sandbox_provider: daytona` to the instance
+default and marked each Daytona sandbox still recorded as live as terminated;
+any such machine that still exists must be deleted in Daytona's console.

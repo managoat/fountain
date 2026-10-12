@@ -2,7 +2,7 @@
 
 An **Agent** is a named configuration for a single coding-agent CLI. It bundles together:
 
-- a **runtime** (`claude` / `codex` / `gemini` / `opencode`) — which binary runs in the sprite, or `acp` to run a command of your own
+- a **runtime** (`claude` / `codex` / `gemini`) — which binary runs in the sprite, or `acp` to run a command of your own
 - a **runtime_command** — the shell line the `acp` runtime launches, required there and rejected on the others
 - a **model** (`anthropic/claude-sonnet-5`, `openai/gpt-6-astra`, `google/gemini-3.1-pro-preview`, etc.); the `acp` runtime needs none
 - an optional **system prompt** (`system`)
@@ -78,15 +78,14 @@ Use `$${VAR}` only when the MCP server (or some downstream process the runtime s
 | claude | `claude` | `anthropic/claude-sonnet-5` | `CLAUDE_CODE_OAUTH_TOKEN` (preferred) or `ANTHROPIC_API_KEY` |
 | codex | `codex` | `openai/gpt-6-astra` | `OPENAI_API_KEY` (written to `~/.codex/auth.json` at provision time, as the broker placeholder when the broker is on) |
 | gemini | `gemini` | `google/gemini-3.1-pro-preview` | `GEMINI_API_KEY` |
-| opencode | `opencode` | `provider/model` (anthropic / openai / google) | per provider |
 
-Each has its own quirks — codex needs a one-shot login, opencode auto-installs from `bun install -g`, gemini needs `--allowed-mcp-server-names` for MCP, etc. The runtime modules in `apps/fountain/lib/fountain/runtimes/*.ex` handle these transparently.
+Each has its own quirks — codex needs a one-shot login, gemini needs `--allowed-mcp-server-names` for MCP, etc. The runtime modules in `apps/fountain/lib/fountain/runtimes/*.ex` handle these transparently.
 
 ## Skills
 
 Skills are reusable instructional/context files that get mounted into a sprite at provision time so the runtime can find them.
 
-- For **claude** and **opencode**: dropped under `~/.claude/skills/<name>/SKILL.md`.
+- For **claude**: dropped under `~/.claude/skills/<name>/SKILL.md`.
 - For **codex**: concatenated into `~/.codex/AGENTS.md`.
 - For **gemini**: concatenated into `~/.gemini/GEMINI.md`.
 

@@ -172,9 +172,7 @@ collectors restarted the receive timeout on every output message. Sandbox
 time. Its synchronous startup and remote process lifetime remain separate
 bounds: killing the local command process at timeout does not establish remote
 termination. See [the historical probe instructions](EXECUTION-PROOF.md#reproduce-without-provider-credentials)
-for the old counterexamples and current library regression coverage. Daytona's
-`exec` also calls `ensure_started`, relevant to the separate provider-wake
-decision in #2395.
+for the old counterexamples and current library regression coverage.
 
 Therefore a plain `try/after Lease.release` around today's blocking `exec/4`
 is not enough for a strict remote-execution exclusion claim. Before calling

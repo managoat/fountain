@@ -65,7 +65,7 @@ defmodule Fountain.Machines.Policy do
 
   The capability question, and the whole of ADR 0017's degradation. A provider
   that advertises `:suspend` parks with the disk preserved — implicit
-  scale-to-zero for Sprites, an explicit pause or stop for E2B and Daytona, a
+  scale-to-zero for Sprites, an explicit pause for E2B, a
   marker file for the self-hosted runner. A provider without it would leave an
   idle machine billing, so the cost control wins over the agent's memory,
   exactly as the max-lifetime ceiling already prices it.

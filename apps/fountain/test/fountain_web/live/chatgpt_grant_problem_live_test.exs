@@ -104,14 +104,12 @@ defmodule FountainWeb.ChatGPTGrantProblemLiveTest do
       refute html =~ "No OpenAI credential on this account yet"
 
       # The notice follows the form: another runtime does not run on the
-      # subscription, so it has a different problem, a missing key.
-      html =
-        view
-        |> element("#agent-form")
-        |> render_change(%{"agent" => %{"runtime" => "opencode", "model" => "openai/gpt-5"}})
+      # subscription, so the notice goes with it.
+      view
+      |> element("#agent-form")
+      |> render_change(%{"agent" => %{"runtime" => "acp", "model" => "openai/gpt-5"}})
 
       refute has_element?(view, "#agent-grant-problem")
-      assert html =~ "No OpenAI credential on this account yet"
 
       view
       |> element("#agent-form")
@@ -137,7 +135,7 @@ defmodule FountainWeb.ChatGPTGrantProblemLiveTest do
       # The runtime is: away and back asks again, and the answer is the new one.
       view
       |> element("#agent-form")
-      |> render_change(%{"agent" => %{"runtime" => "opencode", "model" => "openai/gpt-5"}})
+      |> render_change(%{"agent" => %{"runtime" => "acp", "model" => "openai/gpt-5"}})
 
       view
       |> element("#agent-form")

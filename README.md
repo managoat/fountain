@@ -44,7 +44,7 @@ nothing and takes none of your concurrency, so the next prompt lands on the
 same files instead of on a fresh box that has to be told everything again.
 
 Coding agents are not the scarce thing. There are dozens of them and Fountain
-runs Claude Code, Codex, Gemini CLI and opencode behind one API. The scarce
+runs Claude Code, Codex and Gemini CLI behind one API. The scarce
 thing is the computer underneath: building it, installing on it, configuring
 it, getting the networking right, getting a credential onto it that the model
 never reads, and turning it off before the bill notices. Nobody sets out to

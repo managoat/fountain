@@ -33,14 +33,6 @@ defmodule Fountain.Agents.ModelCatalogTest do
     end
   end
 
-  test "suggestions/1 offers every provider to opencode" do
-    suggestions = ModelCatalog.suggestions("opencode")
-
-    for provider <- ModelCatalog.providers() do
-      assert Enum.any?(suggestions, &String.starts_with?(&1, provider <> "/"))
-    end
-  end
-
   test "every suggestion is a model the changeset accepts for its runtime" do
     for runtime <- Agent.runtimes(), model <- ModelCatalog.suggestions(runtime) do
       changeset =

@@ -218,11 +218,6 @@ title, so a title matches one command and nothing else.
 makes the agent's own policy less strict gets a 422, at `session/new`, that
 names the tool. To set the agent's own policy, use the API or the console.
 
-**The opencode runtime never asks.** It decides permission in its own server,
-and sends no request. Fountain refuses a policy stricter than `auto_allow` on
-that runtime, and says so, and does not pretend to protect you
-([#959](https://github.com/managoat/fountain/issues/959)).
-
 ## Lifecycle, sandboxes, and what survives
 
 - **A turn ends when the conversation says so.** That is the terminal `turn`

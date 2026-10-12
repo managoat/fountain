@@ -23,7 +23,7 @@ import (
 // the one sandbox it holds is "sprite" and its directory is /home/sprite —
 // which makes the backend's /home/sprite path mapping the identity. A
 // provisioning script that writes /home/sprite/.env writes exactly there,
-// the way it does on Sprites, E2B and Daytona, with no rewriting on either
+// the way it does on Sprites and E2B, with no rewriting on either
 // side of the vsock.
 const guestSandbox = "sprite"
 

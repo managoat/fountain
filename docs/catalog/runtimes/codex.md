@@ -196,7 +196,7 @@ Six things follow from that.
   `INITIAL_AGENT_MODE=[REDACTED]`. That is the scrubber working, and not a
   variable that failed to arrive. Read
   [Where a secret comes from](../../concepts/secrets.md#hop-5-a-hop-back-fountain-scrubs-the-output).
-- **It is codex only.** claude, gemini and opencode do not express a sandbox
+- **It is codex only.** claude and gemini do not express a sandbox
   this way. The variable reaches them and means nothing to them.
 
 ## Limits

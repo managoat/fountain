@@ -95,18 +95,15 @@ defmodule Fountain.DeployedACPFixtureTest do
     assert Agent.changeset(agent, %{runtime: "claude", model: "anthropic/claude-sonnet-5"}).valid?
   end
 
-  test "packaged runtimes retain their dispatcher, ACP command, concurrency and permissions" do
+  test "packaged runtimes retain their dispatcher, ACP command and concurrency" do
     enable()
 
-    for runtime <- ~w(claude codex gemini opencode) do
+    for runtime <- ~w(claude codex gemini) do
       assert RuntimeDispatch.for_agent(%{runtime: runtime}) ==
                Managoat.Runtimes.for_runtime(runtime)
 
       assert RuntimeDispatch.command(runtime) == Managoat.Runtimes.ACP.command(runtime)
       assert RuntimeDispatch.concurrency(runtime) == Managoat.Runtimes.ACP.concurrency(runtime)
-
-      assert RuntimeDispatch.asks_permission?(runtime) ==
-               Managoat.Runtimes.ACP.asks_permission?(runtime)
     end
 
     assert RuntimeDispatch.command("fountain-fixture") == {"node", [".fountain-acp-fixture.mjs"]}

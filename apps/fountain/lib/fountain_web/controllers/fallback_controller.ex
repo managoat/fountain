@@ -405,20 +405,6 @@ defmodule FountainWeb.FallbackController do
     })
   end
 
-  # The runtime never sends `session/request_permission`, so the verdicts have
-  # nothing to travel on. Refused rather than stored: an inert `auto_deny`
-  # reads like protection everywhere it is displayed.
-  def call(conn, {:error, {:permission_policy_unenforceable, runtime}}) do
-    conn
-    |> put_status(:unprocessable_entity)
-    |> json(%{
-      error: "permission_policy_unenforceable",
-      message:
-        "the #{runtime} runtime never asks before it runs a tool, so a policy " <>
-          "stricter than auto_allow cannot be enforced on it"
-    })
-  end
-
   # A conversation's model override (ADR 0061) that the runtime cannot run,
   # checked as an agent's model is. The message says which check failed.
   def call(conn, {:error, {:model_invalid, message}}) do

@@ -143,7 +143,7 @@ Drop `wait=false` only when you actually want to live-tail.
 
 ## Per-runtime: where the final text lives
 
-The conversation's `runtime` (`claude` / `codex` / `gemini` / `opencode`)
+The conversation's `runtime` (`claude` / `codex` / `gemini`)
 controls the shape of the inner JSON. Pull the runtime once, then pick the
 right filter:
 
@@ -157,7 +157,6 @@ RT=$(curl -s "$FOUNTAIN_BASE_URL/api/conversations/$CONV" \
 | claude   | `select(.type=="result")`                                              | `.result`        |
 | codex    | `select(.type=="item.completed" and .item.type=="agent_message")`      | `.item.text`     |
 | gemini   | `select(.type=="message" and .role=="assistant")`                      | `.content` *(use the last one)*  |
-| opencode | `select(.type=="text")`                                                | `.part.text` *(concatenate all)* |
 
 ## Vaults — running as a different identity
 

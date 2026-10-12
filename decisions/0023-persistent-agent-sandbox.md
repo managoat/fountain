@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "A persistent sandbox per agent, offered beside the sandbox-per-conversation model"
-description: "Built 2026-08-24 (#1057–#1068). Adds a second sandbox mode, chosen per launch and defaulted per agent, where one long-lived sandbox serves many conversations of an agent (the 'grokbot' shape), with turns running concurrently where the runtime allows (amended 2026-08-23); keeps the per-conversation mode as the default; names the seven places the code hard-codes 1:1 today. Amended 2026-09-11 (#1565): a home's identity key moves through one narrow door, the reapply action, which refuses any selection that would change the build inputs, the runtime, or a cotenant's configuration. Amended 2026-09-26 (#2517, built by #2515 with #2520, #2521 and #2522): an agent of another runtime may attach to a home by `sandbox_id`, on the same environment and vault; narrowed 2026-09-27 (#2525) to a claude and codex pair attached with a full-scope key. Companion design note: #805."
+description: "Built 2026-08-24 (#1057–#1068). Adds a second sandbox mode, chosen per launch and defaulted per agent, where one long-lived sandbox serves many conversations of an agent (the 'grokbot' shape), with turns running concurrently where the runtime allows (amended 2026-08-23); keeps the per-conversation mode as the default; names the seven places the code hard-codes 1:1 today. Amended 2026-09-11 (#1565): a home's identity key moves through one narrow door, the reapply action, which refuses any selection that would change the build inputs, the runtime, or a cotenant's configuration. Amended 2026-09-26 (#2517, built by #2515 with #2520, #2521 and #2522): an agent of another runtime may attach to a home by `sandbox_id`, on the same environment and vault; narrowed 2026-09-27 (#2525) to a claude and codex pair attached with a full-scope key. Amended 2026-10-12: the opencode runtime is removed. Companion design note: #805."
 tags: [sandbox, lifecycle, conversations, product]
 status: stable
 adr: "0023"
@@ -722,3 +722,11 @@ to show something a conversation-centric view cannot.
    transcript takes the other's output, terminating one leaves the other
    running, idle park waits for both; then two Buzz channels on one
    persistent agent under interleaved turns.
+
+## Addendum — 2026-10-12: opencode is removed
+
+Fountain removed the opencode runtime (simplify 2/5). The library adapter
+remains in `managoat_runtimes`; Fountain no longer names it. The opencode row
+of the concurrency table above is history: gemini is now the only runtime
+with a capacity of 1 on a home, and the claude and codex pair remains the only
+mixed-runtime home.

@@ -14,16 +14,15 @@ deny-all, and more.
 [ADR 0018](https://github.com/managoat/fountain/blob/main/decisions/0018-sandbox-provider-abstraction.md)
 holds the design rationale.
 
-So far, four providers implement it.
+So far, three providers implement it.
 
 | Provider | What it is | Suspend semantics |
 |---|---|---|
 | [Sprites](sprites.md) | [sprites.dev](https://sprites.dev), the first backend and the instance default. | Parks on its own. The sprite scales to zero and keeps its disk. |
 | [E2B](e2b.md) | [e2b.dev](https://e2b.dev) | An explicit `pause`. It snapshots filesystem **and memory**, and restores both on resume. |
-| [Daytona](daytona.md) | [daytona.io](https://daytona.io), which you can self-host through `DAYTONA_API_URL`. | An explicit `stop`. It keeps the disk, and a sandbox that stays parked archives to object storage. |
 | [Self-hosted runner](runners.md) | `fountain runner` on a machine the **user** owns. It dials out to Fountain, and needs no vendor account. | Stops the sandbox's processes. The directory stays. Trusted mode, with no isolation and no egress policy. |
 
-The three hosted providers advertise suspend, network policy and attach. A
+Both hosted providers advertise suspend, network policy and attach. A
 runner advertises suspend and attach alone. Only Sprites supports a TTY.
 
 A warm start from a checkpoint exists in the Sprites transport alone, and it
@@ -33,7 +32,7 @@ warm start across sprites cannot work (#654).
 ## How to choose a provider
 
 - Exactly one thing turns a hosted provider on: its credential is there.
-  That is `SPRITES_TOKEN`, `E2B_API_KEY` or `DAYTONA_API_KEY`. The runner
+  That is `SPRITES_TOKEN` or `E2B_API_KEY`. The runner
   provider has no credential, because each daemon authenticates with the
   user's own API key. So it is on unless you set
   `SANDBOX_RUNNERS_ENABLED=false`.
@@ -82,8 +81,7 @@ conversation fails at provision time.
 
 ## Where to go next
 
-- To configure one provider, read [Sprites](sprites.md), [E2B](e2b.md) or
-  [Daytona](daytona.md).
+- To configure one provider, read [Sprites](sprites.md) or [E2B](e2b.md).
 - To implement the contract for a fourth backend, read
   [Add a provider](adding-a-sandbox-provider.md).
 - To build a Sprites-compatible replacement, read the first backend's wire

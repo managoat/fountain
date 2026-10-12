@@ -9,14 +9,12 @@ defmodule Fountain.SandboxProvidersTest do
     previous = %{
       sprites: Application.get_env(:managoat_sandbox, Managoat.Sandbox.Sprites, []),
       e2b: Application.get_env(:managoat_sandbox, Managoat.Sandbox.E2B, []),
-      daytona: Application.get_env(:managoat_sandbox, Managoat.Sandbox.Daytona, []),
       runners_enabled: Application.get_env(:fountain, :runners_enabled)
     }
 
     on_exit(fn ->
       Application.put_env(:managoat_sandbox, Managoat.Sandbox.Sprites, previous.sprites)
       Application.put_env(:managoat_sandbox, Managoat.Sandbox.E2B, previous.e2b)
-      Application.put_env(:managoat_sandbox, Managoat.Sandbox.Daytona, previous.daytona)
       restore(:runners_enabled, previous.runners_enabled)
     end)
 
@@ -32,7 +30,7 @@ defmodule Fountain.SandboxProvidersTest do
   end
 
   test "the known vocabulary is closed and sprites is the default" do
-    assert SandboxProviders.known_providers() == ~w(sprites e2b daytona runner)
+    assert SandboxProviders.known_providers() == ~w(sprites e2b runner)
     assert SandboxProviders.default_provider() == :sprites
   end
 
@@ -69,9 +67,10 @@ defmodule Fountain.SandboxProvidersTest do
     assert SandboxProviders.enabled?(:e2b)
   end
 
-  test "a daytona credential enables the provider" do
-    refute SandboxProviders.enabled?(:daytona)
+  test "daytona, removed in 2026-10, is not a provider even with a credential" do
+    on_exit(fn -> Application.delete_env(:managoat_sandbox, Managoat.Sandbox.Daytona) end)
     put_credential(Managoat.Sandbox.Daytona, :api_key, "dtn_x")
-    assert SandboxProviders.enabled?(:daytona)
+    refute SandboxProviders.enabled?(:daytona)
+    refute "daytona" in SandboxProviders.known_providers()
   end
 end

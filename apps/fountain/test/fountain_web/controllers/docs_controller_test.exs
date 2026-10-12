@@ -76,8 +76,7 @@ defmodule FountainWeb.DocsControllerTest do
     for {slug, name} <- [
           {"claude", "Claude Code"},
           {"codex", "Codex"},
-          {"gemini", "Gemini CLI"},
-          {"opencode", "OpenCode"}
+          {"gemini", "Gemini CLI"}
         ] do
       @slug slug
       @name name

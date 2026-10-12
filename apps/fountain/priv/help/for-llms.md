@@ -19,7 +19,7 @@ curl -fsSL https://managoat.com/skill > ~/.claude/skills/fountain/SKILL.md
 
 Self-hosted instance? Substitute your base URL. The skill text itself reads `$FOUNTAIN_BASE_URL` and `$FOUNTAIN_API_KEY` from the agent's environment, so it's not pinned to one host.
 
-For Codex (`~/.codex/AGENTS.md`), Gemini (`~/.gemini/GEMINI.md`), or Opencode (`~/.config/opencode/AGENTS.md`), concatenate the same content into the equivalent agent-instruction file.
+For Codex (`~/.codex/AGENTS.md`) or Gemini (`~/.gemini/GEMINI.md`), concatenate the same content into the equivalent agent-instruction file.
 
 ## How the two skills differ
 

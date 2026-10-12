@@ -569,7 +569,7 @@ func formatOutput(data map[string]any) string {
 		return ""
 	}
 	// ACP conversations store the protocol itself, one `session/update` per
-	// line. Since #674 made ACP the only path for claude, codex and opencode,
+	// line. Since #674 made ACP the only path for the coding-agent runtimes,
 	// this is what a turn's output *is* — and rendering it as stream-json
 	// produced nothing at all, so `fountain run` printed a turn starting and
 	// finishing with silence in between (#723).

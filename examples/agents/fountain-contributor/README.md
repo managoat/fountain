@@ -40,8 +40,8 @@ the committer ident, so without the override the DCO check rejects every
 commit this agent makes. The vault values are appended after the platform
 defaults, and **last wins on every provider** — measured on Sprites
 (duplicate keys are deduplicated to the last value in the process
-environment), and by construction on E2B (map conversion), Daytona (shell
-`K=V` prefix) and self-hosted runners (Go `exec.Cmd` semantics).
+environment), and by construction on E2B (map conversion) and self-hosted
+runners (Go `exec.Cmd` semantics).
 
 ## Run it
 

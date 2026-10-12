@@ -8,7 +8,7 @@ import { validateMatrix, compareCatalog, runMatrix } from '../matrix.mjs';
 import { ciConfig } from '../ci.mjs';
 
 const example = () => JSON.parse(readFileSync(new URL('../matrix.example.json', import.meta.url)));
-const catalog = { runtimes: ['claude', 'codex', 'gemini', 'opencode'], sandbox_providers: ['runner'] };
+const catalog = { runtimes: ['claude', 'codex', 'gemini'], sandbox_providers: ['runner'] };
 
 test('matrix declares both modes, bounded subsets, and linked intentional gaps', () => {
   assert.equal(validateMatrix(example(), 'canary').length, 1);

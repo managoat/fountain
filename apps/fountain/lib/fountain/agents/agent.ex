@@ -14,8 +14,9 @@ defmodule Fountain.Agents.Agent do
   # `acp` is the odd one (#1634): not a coding-agent CLI but a command the
   # agent names, launched inside the sandbox and spoken to over the same
   # protocol. It takes a `runtime_command` and needs no model, and the other
-  # four are the reverse of both. See `Fountain.RuntimeDispatch`.
-  @runtimes ~w(claude codex gemini opencode acp)
+  # three are the reverse of both. See `Fountain.RuntimeDispatch`, which also
+  # refuses `opencode`: removed in 2026-10, still on old agent rows.
+  @runtimes ~w(claude codex gemini acp)
 
   @typedoc "A persisted agent."
   @type t :: %__MODULE__{}
@@ -375,11 +376,8 @@ defmodule Fountain.Agents.Agent do
   # entirely, so `openai/gpt-5` on a claude agent looked configured and
   # silently ran the CLI's own default.
   #
-  # opencode takes any *known* prefix. It is multi-provider but not
-  # open-ended: it reads the prefix to pick which API key to export, and
-  # Fountain only holds three (`InferenceCredentials.Credential`). A
-  # misspelled provider used to fall through to no credentials at all and
-  # fail as an auth error inside the sprite, so reject it here too (#554).
+  # `acp` drives no single provider, so a model on it need only name one
+  # Fountain knows (#554).
   #
   # The model id itself is never checked — a model released since the last
   # deploy has to work the day it ships.
@@ -478,8 +476,7 @@ defmodule Fountain.Agents.Agent do
           verdicts = PermissionPolicy.verdicts(policy)
 
           Enum.flat_map(verdicts, fn {tool, verdict} -> policy_errors(tool, verdict) end) ++
-            reserved_errors(policy) ++
-            runtime_errors(changeset, verdicts)
+            reserved_errors(policy)
       end
     end)
   end
@@ -488,26 +485,6 @@ defmodule Fountain.Agents.Agent do
     Enum.map(PermissionPolicy.reserved_errors(policy), fn {key, message} ->
       {:permission_policy, "#{key}: #{message}"}
     end)
-  end
-
-  # A policy the runtime will never consult is refused rather than stored. The
-  # verdicts are carried by `session/request_permission`, and opencode does not
-  # send it — measured live, see `Managoat.Runtimes.ACP.asks_permission?/1`. An
-  # accepted-but-inert `auto_deny` is the worst of the three outcomes: it reads
-  # like protection on every screen that shows it.
-  defp runtime_errors(changeset, policy) do
-    runtime = Ecto.Changeset.get_field(changeset, :runtime)
-
-    if not Managoat.ACP.Permissions.needs_enforcement?(policy) or
-         Fountain.RuntimeDispatch.asks_permission?(runtime) do
-      []
-    else
-      [
-        permission_policy:
-          "the #{runtime} runtime never asks before it runs a tool, so a policy " <>
-            "stricter than auto_allow cannot be enforced on it"
-      ]
-    end
   end
 
   defp policy_errors(tool, verdict) do

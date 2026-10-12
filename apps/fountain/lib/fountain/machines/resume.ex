@@ -173,8 +173,8 @@ defmodule Fountain.Machines.Resume do
   # is the same shape: one provider round trip, no checkpoint in front of it.
   # `Renewal` extends it while that round trip runs, so this bounds a resume
   # that has *stopped* making progress rather than one that is merely slow —
-  # which matters here more than anywhere, because a Daytona machine coming back
-  # from archived storage is a genuinely long call.
+  # which matters here more than anywhere, because a resume can be a genuinely
+  # long call.
   @lease_ttl_ms 60_000
 
   # How long a *waiter* waits for that holder. `Destroy`'s and `Park`'s number.
@@ -447,7 +447,7 @@ defmodule Fountain.Machines.Resume do
       # A `ready` row whose machine the provider says is parked. This is the
       # other half of the 6b review's note, and `Wake.probe_sandbox/4` is what
       # supplies the reading: a park whose finalize was lost leaves exactly this
-      # row, and on E2B and Daytona the machine behind it is genuinely stopped.
+      # row, and on E2B the machine behind it is genuinely stopped.
       # `main` reused it and handed the conversation a handle to nothing.
       #
       # The verdict is the caller's observation and is deliberately not re-taken

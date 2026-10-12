@@ -363,7 +363,7 @@ defmodule Fountain.Conversations.ExecutionTransportTest do
     # that asks for a bound and is told no is fine; one that is ignored is not.
     execution = register(c)
 
-    for provider <- ~w(e2b daytona runner) do
+    for provider <- ~w(e2b runner) do
       Repo.update_all(
         from(e in TurnExecution, where: e.id == ^execution.id),
         set: [provider: provider]

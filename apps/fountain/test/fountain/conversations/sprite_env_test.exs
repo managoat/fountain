@@ -25,6 +25,13 @@ defmodule Fountain.Conversations.SpriteEnvTest do
       do: [{"HOME", "/home/sprite/.picky"}, {"PICKED", creds[:selected]}]
   end
 
+  # A runtime that exports the Gemini key under the alias an environment or
+  # vault may store it as, rather than the broker's own `GEMINI_API_KEY`.
+  defmodule AliasRuntime do
+    def default_env(_agent, creds),
+      do: [{"GOOGLE_GENERATIVE_AI_API_KEY", creds[:gemini_api_key]}]
+  end
+
   describe "build/4" do
     test "is the pieces in their fixed order, brokered placeholders last" do
       conv_id = "conv-#{System.unique_integer([:positive])}"
@@ -465,8 +472,8 @@ defmodule Fountain.Conversations.SpriteEnvTest do
 
     # Review of #2396: the broker keys its map by its own name for a
     # credential, and a runtime may export that credential under another.
-    # opencode reads a Google key as `GOOGLE_GENERATIVE_AI_API_KEY` while the
-    # broker holds it as `GEMINI_API_KEY`, so the placeholder in the env is
+    # A Google key exported as `GOOGLE_GENERATIVE_AI_API_KEY` is held by the
+    # broker as `GEMINI_API_KEY`, so the placeholder in the env is
     # `AIza__gemini_api_key__` and matching on the exported name missed it.
     test "a brokered credential exported under a runtime's own alias is still a placeholder" do
       conv_id = Ecto.UUID.generate()
@@ -481,7 +488,7 @@ defmodule Fountain.Conversations.SpriteEnvTest do
 
       sprite_env =
         SpriteEnv.build(%{model: "google/gemini-2.5-pro"}, nil, %{},
-          runtime_module: Managoat.Runtimes.OpenCode,
+          runtime_module: AliasRuntime,
           env_credentials: env_credentials,
           callback_token: nil,
           conversation_id: conv_id,
@@ -489,7 +496,7 @@ defmodule Fountain.Conversations.SpriteEnvTest do
           broker_credentials: brokered
         )
 
-      # The alias is what opencode reads, and it carries the broker's key.
+      # The alias is what the runtime reads, and it carries the broker's key.
       assert {"GOOGLE_GENERATIVE_AI_API_KEY", placeholder} in sprite_env
 
       registered = Redaction.lookup(conv_id)

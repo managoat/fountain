@@ -371,7 +371,8 @@ defmodule Fountain.InferenceCredentials.GrantSelectionTest do
   end
 
   describe "a grant beside a key" do
-    test "codex takes the grant and is not handed the key; opencode takes the key", ctx do
+    test "codex takes the grant and is not handed the key; a non-codex consumer takes the key",
+         ctx do
       grant = user_grant!(ctx.user.id)
       set = set_naming(ctx.user, "Both", grant)
       {:ok, _} = InferenceCredentials.put_credential_in(set, ctx.dek, :openai_api_key, "sk-own")
@@ -389,7 +390,7 @@ defmodule Fountain.InferenceCredentials.GrantSelectionTest do
 
       assert {:ok, %Source{scope: :credential, kind: :openai_api_key} = source,
               %{openai_api_key: "sk-own"}} =
-               resolve(ctx.user, set, runtime: "opencode", model: "openai/gpt-5")
+               resolve(ctx.user, set, runtime: "acp", model: "openai/gpt-5")
 
       assert is_nil(source.grant_id)
       refute Map.has_key?(Source.dump(source), "grant_id")
@@ -471,7 +472,7 @@ defmodule Fountain.InferenceCredentials.GrantSelectionTest do
       assert missing.(set, "codex") == nil
       # No prefix, no grant or no codex: a provider that asks for nothing, as before.
       assert missing.(plain, "codex") == nil
-      assert missing.(set, "opencode") == nil
+      assert missing.(set, "acp") == nil
 
       # Unbrokered, the grant cannot serve, and a key would not either: codex
       # on this set is the grant or a refusal (stage 4a, item 2). So no key is
@@ -509,7 +510,7 @@ defmodule Fountain.InferenceCredentials.GrantSelectionTest do
       assert InferenceCredentials.grant_unusable_message(detail) =~ ~s("Work" is disconnected)
 
       # Not a codex run, not a set that names one, not a set of this account.
-      assert problem.(set.id, "opencode") == nil
+      assert problem.(set.id, "acp") == nil
       assert problem.(set.id, nil) == nil
       assert problem.(plain.id, "codex") == nil
       assert problem.(Ecto.UUID.generate(), "codex") == nil
@@ -579,7 +580,7 @@ defmodule Fountain.InferenceCredentials.GrantSelectionTest do
     test "is eligible for codex and missing for every other OpenAI consumer", ctx do
       grant = user_grant!(ctx.user.id)
       default = set_naming(ctx.user, "Default", grant)
-      other = [runtime: "opencode", model: "openai/gpt-5"]
+      other = [runtime: "acp", model: "openai/gpt-5"]
 
       # Never the platform's key, which is configured: the account chose its
       # own OpenAI source for this set.
@@ -591,7 +592,7 @@ defmodule Fountain.InferenceCredentials.GrantSelectionTest do
       assert InferenceCredentials.missing_for_model(ctx.user.id, @codex_model, runtime: "codex") ==
                nil
 
-      for runtime <- ["opencode", nil] do
+      for runtime <- ["acp", nil] do
         assert InferenceCredentials.missing_for_model(ctx.user.id, "openai/gpt-5",
                  runtime: runtime,
                  credential_set_id: default.id

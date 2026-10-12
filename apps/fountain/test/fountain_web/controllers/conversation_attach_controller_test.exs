@@ -279,8 +279,8 @@ defmodule FountainWeb.ConversationAttachControllerTest do
   end
 
   test "a one-at-a-time runtime at capacity is a 409 when a prompt comes with it", ctx do
-    agent = ctx.agent |> Ecto.Changeset.change(runtime: "opencode") |> Fountain.Repo.update!()
-    {:ok, _} = Fountain.Conversations.update_conversation(ctx.first, %{runtime: "opencode"})
+    agent = ctx.agent |> Ecto.Changeset.change(runtime: "gemini") |> Fountain.Repo.update!()
+    {:ok, _} = Fountain.Conversations.update_conversation(ctx.first, %{runtime: "gemini"})
 
     insert_turn(ctx.first, %{
       status: "running",

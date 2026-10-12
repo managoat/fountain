@@ -32,13 +32,13 @@ defmodule FountainWeb.InferenceCredentialsLive.Index do
 
   @providers [
     {:anthropic_api_key, "Anthropic API key", "ANTHROPIC_API_KEY",
-     "For the Claude runtime (when no OAuth is set) and opencode against anthropic/* models. Get from console.anthropic.com."},
+     "For the Claude runtime (when no OAuth is set). Get from console.anthropic.com."},
     {:claude_code_oauth_token, "Claude OAuth token", "CLAUDE_CODE_OAUTH_TOKEN",
      "Preferred for the Claude runtime — bills against your Claude.ai Pro/Team plan instead of metered API. Generate via 'claude setup-token'."},
     {:openai_api_key, "OpenAI API key", "OPENAI_API_KEY",
-     "For the codex runtime and opencode against openai/* models. Get from platform.openai.com/api-keys."},
+     "For the codex runtime. Get from platform.openai.com/api-keys."},
     {:gemini_api_key, "Gemini API key", "GEMINI_API_KEY",
-     "For the gemini runtime and opencode against google/* models. Get from aistudio.google.com/apikey."}
+     "For the gemini runtime. Get from aistudio.google.com/apikey."}
   ]
 
   @impl true

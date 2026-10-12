@@ -3,7 +3,7 @@ defmodule Fountain.Conversations.InferenceProcessEnvTest do
 
   alias Fountain.Conversations.{Identity, Provisioning, Redaction, SpriteEnv}
   alias Fountain.{Environments, Vaults}
-  alias Managoat.Runtimes.{Claude, Codex, Gemini, OpenCode}
+  alias Managoat.Runtimes.{Claude, Codex, Gemini}
 
   @names ~w(ANTHROPIC_API_KEY CLAUDE_CODE_OAUTH_TOKEN OPENAI_API_KEY
             GEMINI_API_KEY GOOGLE_GENERATIVE_AI_API_KEY)
@@ -13,10 +13,7 @@ defmodule Fountain.Conversations.InferenceProcessEnvTest do
       {Claude, "anthropic/claude", :anthropic_api_key, "ANTHROPIC_API_KEY"},
       {Claude, "anthropic/claude", :claude_code_oauth_token, "CLAUDE_CODE_OAUTH_TOKEN"},
       {Codex, "openai/gpt", :openai_api_key, "OPENAI_API_KEY"},
-      {Gemini, "google/gemini", :gemini_api_key, "GEMINI_API_KEY"},
-      {OpenCode, "anthropic/claude", :anthropic_api_key, "ANTHROPIC_API_KEY"},
-      {OpenCode, "openai/gpt", :openai_api_key, "OPENAI_API_KEY"},
-      {OpenCode, "google/gemini", :gemini_api_key, "GOOGLE_GENERATIVE_AI_API_KEY"}
+      {Gemini, "google/gemini", :gemini_api_key, "GEMINI_API_KEY"}
     ]
 
     for {runtime, model, credential, name} <- cases do

@@ -1,24 +1,21 @@
-# Rebuilds the sandbox base images the non-default providers boot from: the
-# E2B template and the Daytona snapshot that prod pins with E2B_TEMPLATE and
-# DAYTONA_SNAPSHOT.
+# Rebuilds the sandbox base image the non-default provider boots from: the
+# E2B template that prod pins with E2B_TEMPLATE.
 #
-# Until this existed both were hand-built artifacts from 2026-08-14, and
-# nothing rebuilt them when images/ changed or refreshed the agent CLIs baked
-# into them. A stale image does not announce itself: every conversation pinned
-# to that provider quietly runs a months-old claude, codex, gemini or opencode.
+# Until this existed it was a hand-built artifact from 2026-08-14, and nothing
+# rebuilt it when images/ changed or refreshed the agent CLIs baked into it. A
+# stale image does not announce itself: every conversation pinned to that
+# provider quietly runs a months-old claude, codex or gemini.
 #
 # Three triggers, one pipeline:
 #
 #   * a push to main touching images/ or these scripts — the recipe changed;
 #   * a weekly cron — the recipe did not change but the CLIs inside it did;
-#   * workflow_dispatch — a rebuild by hand, one provider at a time.
+#   * workflow_dispatch — a rebuild by hand.
 #
-# Pull requests run the `dockerfile` job alone. It needs no provider account,
-# and it is the gate that matters for the Daytona job below: a Daytona snapshot
-# cannot be swapped in behind its name, so refreshing it means deleting the
-# name prod is pinned to and building it again. Proving the Dockerfile still
-# builds, on this runner, before touching the provider keeps that window from
-# being where an upstream apt or npm break is discovered.
+# Pull requests run the `dockerfile` job alone. It needs no provider account.
+# Proving the Dockerfile still builds, on this runner, before touching the
+# provider keeps prod's template from being where an upstream apt or npm break
+# is discovered.
 name: Sandbox images
 
 on:
@@ -42,8 +39,8 @@ on:
       providers:
         description: Which provider images to rebuild
         type: choice
-        default: both
-        options: [both, e2b, daytona, none]
+        default: e2b
+        options: [e2b, none]
       skip_smoke:
         description: Build without creating a sandbox to verify it
         type: boolean
@@ -52,16 +49,13 @@ on:
 permissions:
   contents: read
 
-# Never cancel a run in flight. The Daytona job deletes the snapshot prod is
-# pinned to before it creates the new one, and a cancellation between those two
-# calls leaves the organization with no `fountain` snapshot at all.
+# Never cancel a run in flight: one rebuild of prod's template at a time.
 concurrency:
   group: sandbox-images
   cancel-in-progress: false
 
 env:
   E2B_TEMPLATE: fountain
-  DAYTONA_SNAPSHOT: fountain
 
 jobs:
   dockerfile:
@@ -75,9 +69,6 @@ jobs:
           - provider: e2b
             context: images/e2b
             dockerfile: e2b.Dockerfile
-          - provider: daytona
-            context: images/daytona
-            dockerfile: Dockerfile
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
@@ -89,8 +80,7 @@ jobs:
       - name: Set up Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
-      # amd64 only, and deliberately: Daytona requires amd64, E2B runs amd64,
-      # and this build exists to prove the recipe, not to publish anything.
+      # amd64 only, and deliberately: E2B runs amd64, and this build exists to prove the recipe, not to publish anything.
       - name: Build
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
@@ -103,7 +93,7 @@ jobs:
 
       # The same checks the live smokes run inside a real sandbox. Here they
       # answer a narrower question — is the image itself the shape provisioning
-      # assumes — before either provider account is touched.
+      # assumes — before the provider account is touched.
       - name: Smoke the image
         run: |
           docker run --rm \
@@ -119,7 +109,7 @@ jobs:
     # a rebuild is a change to prod's artifact, not a check on a proposal.
     if: >-
       github.event_name != 'pull_request' &&
-      contains(fromJSON('["both", "e2b"]'), github.event.inputs.providers || 'both')
+      (github.event.inputs.providers || 'e2b') == 'e2b'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -153,40 +143,3 @@ jobs:
         if: always()
         run: |
           echo "E2B template \`${E2B_TEMPLATE}\` — ${{ job.status }}" >> "$GITHUB_STEP_SUMMARY"
-
-  daytona:
-    name: Rebuild the Daytona snapshot
-    needs: dockerfile
-    if: >-
-      github.event_name != 'pull_request' &&
-      contains(fromJSON('["both", "daytona"]'), github.event.inputs.providers || 'both')
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
-        with:
-          persist-credentials: false
-
-      - name: Require the Daytona key
-        env:
-          DAYTONA_API_KEY: ${{ secrets.DAYTONA_API_KEY }}
-        run: |
-          if [ -z "${DAYTONA_API_KEY}" ]; then
-            echo "::error::DAYTONA_API_KEY is not configured. It must be the" \
-                 "same account prod uses — a snapshot built under another org" \
-                 "is invisible to prod's key."
-            exit 1
-          fi
-
-      - name: Build and smoke the snapshot
-        env:
-          DAYTONA_API_KEY: ${{ secrets.DAYTONA_API_KEY }}
-          DAYTONA_SNAPSHOT: ${{ env.DAYTONA_SNAPSHOT }}
-          SKIP_SMOKE: ${{ github.event.inputs.skip_smoke == 'true' && '1' || '' }}
-        run: scripts/sandbox-image/build-daytona.sh
-
-      - name: Summary
-        if: always()
-        run: |
-          echo "Daytona snapshot \`${DAYTONA_SNAPSHOT}\` — ${{ job.status }}" >> "$GITHUB_STEP_SUMMARY"

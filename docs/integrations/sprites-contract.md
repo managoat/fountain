@@ -7,7 +7,7 @@ on, and the operational assumptions it makes.
 [The sandbox contract](sandbox-contract.md) is the provider-neutral contract
 that each backend must meet. That is the `Managoat.Sandbox` behaviour and its
 conformance suite, `Managoat.Sandbox.ConformanceCase`, which the
-[E2B](e2b.md) and [Daytona](daytona.md) adapters also satisfy. To evaluate a
+[E2B](e2b.md) adapter also satisfies. To evaluate a
 new backend, start there. This page is the reference for what the first
 backend provides.
 

@@ -28,7 +28,7 @@ defmodule Fountain.Conversations.SandboxTest do
       refute :sprite_name in Sandbox.__schema__(:fields)
     end
 
-    for provider <- ~w(sprites e2b daytona runner) do
+    for provider <- ~w(sprites e2b runner) do
       test "loads and updates existing #{provider} names without changing their identity" do
         user = insert_user()
         sandbox = insert_sandbox(user_id: user.id, provider: unquote(provider))

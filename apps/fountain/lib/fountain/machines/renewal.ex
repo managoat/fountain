@@ -150,9 +150,8 @@ defmodule Fountain.Machines.Renewal do
   @stop_timeout_ms 5_000
 
   # The hard stop, as a multiple of the TTL. Ten of them is far beyond any
-  # provider call this protocol makes — a Daytona machine coming back from
-  # archived storage is the slowest, and it is minutes rather than ten minutes —
-  # and far short of "for ever", which is what it replaces.
+  # provider call this protocol makes — a slow resume is minutes rather than
+  # ten minutes — and far short of "for ever", which is what it replaces.
   @max_lifetime_multiple 10
 
   @typedoc "Whether the lease was still this owner's when the work finished."

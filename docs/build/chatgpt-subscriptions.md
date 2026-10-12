@@ -93,9 +93,8 @@ account's default set. If your app manages one agent per user, name the
 grant on the set that agent uses. `GET /api/account/inference-credential-sets`
 lists them, default first. An account always has a default set.
 
-Only codex runs use the grant. Any other OpenAI consumer on the same set
-(opencode on an `openai/` model, for example) still needs an
-`openai_api_key` in the set.
+Only codex runs use the grant. It is not an `openai_api_key`, and nothing
+else on the set reads it as one.
 
 ### 3. Run, and read what served the turn
 

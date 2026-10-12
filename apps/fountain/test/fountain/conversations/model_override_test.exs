@@ -16,8 +16,6 @@ defmodule Fountain.Conversations.ModelOverrideTest do
     TurnMachine
   }
 
-  alias Fountain.InferenceCredentials.Source
-
   @agent_model "anthropic/claude-opus-5"
   @override "anthropic/claude-sonnet-5"
 
@@ -234,48 +232,6 @@ defmodule Fountain.Conversations.ModelOverrideTest do
                Reapply.reapply_conversation(c.conv, %{"model" => "openai/gpt-5"})
 
       assert Repo.reload!(c.conv) == before
-    end
-  end
-
-  describe "a model the pinned credential does not serve" do
-    test "is refused as inference_source_changed and nothing changes" do
-      user = insert_verified_user()
-      {:ok, dek} = Crypto.load_tenant_key(user.id)
-      {:ok, _} = InferenceCredentials.put_credential(user.id, dek, :anthropic_api_key, "a")
-      {:ok, _} = InferenceCredentials.put_credential(user.id, dek, :openai_api_key, "o")
-      env = insert_env(user_id: user.id)
-
-      agent =
-        insert_agent(
-          user_id: user.id,
-          runtime: "opencode",
-          model: @agent_model,
-          environment_id: env.id
-        )
-
-      sandbox =
-        insert_sandbox(
-          user_id: user.id,
-          status: "ready",
-          mode: "ephemeral",
-          agent_id: agent.id,
-          environment_id: env.id,
-          build_fingerprint: Reapply.fingerprint(env)
-        )
-
-      conv = insert_conversation(user_id: user.id, agent: agent, sandbox: sandbox, status: "idle")
-
-      {:ok, source, _} =
-        InferenceCredentials.resolve(user.id, agent.model, agent.runtime, environment_id: env.id)
-
-      :ok = InferenceBinding.reserve(conv, source)
-      before = Repo.reload!(conv)
-
-      assert {:error, :inference_source_changed} =
-               Reapply.reapply_conversation(before, %{"model" => "openai/gpt-5"})
-
-      assert Repo.reload!(conv) == before
-      assert before.inference_source == Source.dump(source)
     end
   end
 

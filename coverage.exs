@@ -20,7 +20,6 @@
   ignore_modules: [
     Fountain.Application,
     Managoat.Sandbox.Fake,
-    Managoat.Sandbox.Daytona.LogStream,
     Fountain.Repo,
     Fountain.Mailer,
     Fountain.Release,

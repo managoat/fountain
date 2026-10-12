@@ -3,8 +3,8 @@
 #
 # This runs INSIDE a sandbox (or inside the image under `docker run`), never on
 # the CI runner. Every caller ships it the same way — base64 on one command
-# line — so the E2B template, the Daytona snapshot and a local `docker build`
-# are held to the identical contract.
+# line — so the E2B template and a local `docker build` are held to the
+# identical contract.
 #
 # Every check stands for a provisioning step that fails in a way that is hard
 # to read from the outside. The npm one is the #691 trap: a global install as
@@ -15,8 +15,8 @@
 #
 # SMOKE_EXPECT_USER asserts which user the provider selected in-guest, and is
 # set only where Fountain pins that: E2B, where envd picks the user from Basic
-# auth and E2B_USER must match what the template creates. Daytona picks its own
-# and the value is reported rather than asserted.
+# auth and E2B_USER must match what the template creates. Elsewhere the value
+# is reported rather than asserted.
 #
 # The exit code and the trailing marker both carry the verdict: a provider exec
 # API that swallows the exit code still cannot fake the marker.
@@ -92,13 +92,11 @@ fi
 echo
 echo "== agent CLIs"
 # claude, codex and gemini are root-installed into the system prefix, so they
-# answer on any PATH. opencode comes from `bun install -g`, whose bin directory
-# the runtimes reach by absolute path.
+# answer on any PATH.
 check "claude" claude --version
 check "codex" codex --version
 check "gemini" gemini --version
 check "bun" /home/sprite/.bun/bin/bun --version
-check "opencode" /home/sprite/.bun/bin/opencode --version
 
 echo
 if [ "$failures" -eq 0 ]; then

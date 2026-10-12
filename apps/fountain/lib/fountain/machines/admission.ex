@@ -48,11 +48,11 @@ defmodule Fountain.Machines.Admission do
       that the machine is going away, and `Resume`, `Park` and `Provision` all
       refuse on either; admission now agrees with them.
     * **Capacity is counted per runtime.** `Fountain.RuntimeDispatch.concurrency/1`
-      is a property of a *runtime* — `opencode` and `gemini` take one turn at a
-      time, `claude` and `codex` as many as arrive — and `main` counted every
+      is a property of a *runtime* — `gemini` takes one turn at a time,
+      `claude` and `codex` as many as arrive — and `main` counted every
       running turn on the machine against the asker's bound whatever runtime
-      it ran on, so a `claude` turn on a shared home consumed the one `opencode`
-      slot (#1089 blocker 4). The count is now over running turns of
+      it ran on, so a `claude` turn on a shared home consumed a one-turn
+      runtime's only slot (#1089 blocker 4). The count is now over running turns of
       conversations on the **same runtime**, and the bound is read from the
       conversation row under the lock rather than passed in by the caller.
 

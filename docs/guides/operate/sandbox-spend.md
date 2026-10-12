@@ -52,10 +52,9 @@ Read [Admin](../../api.md#admin).
 |---|---|
 | `sprites` | You. Time here lands on your Sprites invoice. |
 | `e2b` | You. Time here lands on your E2B invoice. |
-| `daytona` | You. Time here lands on your Daytona invoice. |
 | `runner` | The account that owns the machine. A [self-hosted runner](../../integrations/runners.md) runs on hardware you do not pay for. |
 
-The **Billable to us** line adds up only the first three. The panel shows
+The **Billable to us** line adds up only the first two. The panel shows
 runner hours so the picture is complete. It keeps them out of that total so the
 total stays true.
 

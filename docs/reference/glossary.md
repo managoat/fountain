@@ -13,7 +13,7 @@ Three senses. The docs mean the first.
 1. **The primitive.** A named configuration that you can run again and again.
    Read [About agents](../concepts/agent.md).
 2. **The coding agent.** The process in the sandbox, which is Claude Code,
-   Codex, Gemini CLI or opencode. The docs call this the **runtime**.
+   Codex or Gemini CLI. The docs call this the **runtime**.
 3. **The ACP role.** In the Agent Client Protocol, the process an editor
    spawns. The docs call this `fountain acp`. Read
    [`fountain acp`](../integrations/acp.md).
@@ -66,9 +66,9 @@ on. The docs say **sandbox**.
 | **MCP server** | A Model Context Protocol server that an Agent gives its runtime. You declare it in `mcp_servers`. |
 | **Reaper** | The background sweep that suspends an idle sandbox, and destroys one that passed a configured ceiling. |
 | **Runner** | A machine you own that runs `fountain runner` and acts as a sandbox provider. Read [Self-hosted runners](../integrations/runners.md). |
-| **Runtime** | What a sandbox runs. One of `claude`, `codex`, `gemini`, `opencode`, which are coding-agent CLIs, or `acp`, which is a command the Agent names. |
+| **Runtime** | What a sandbox runs. One of `claude`, `codex`, `gemini`, which are coding-agent CLIs, or `acp`, which is a command the Agent names. |
 | **Sandbox** | The isolated machine that a Conversation runs in. Several Conversations can share one. Fountain provisions it at launch and reclaims it on the lifetime rules. `GET /api/sandboxes` lists them. |
-| **Sandbox provider** | A backend that Fountain provisions sandboxes on. Sprites, E2B, Daytona, or a self-hosted runner. Read [the sandbox contract](../integrations/sandbox-contract.md). |
+| **Sandbox provider** | A backend that Fountain provisions sandboxes on. Sprites, E2B, or a self-hosted runner. Read [the sandbox contract](../integrations/sandbox-contract.md). |
 | **Skill** | A `SKILL.md` that Fountain writes into the sandbox, inline or from GitHub. |
 | **Sprite** | One sandbox on the Sprites provider. Not a Fountain concept. Read [Sprites](../integrations/sprites.md). |
 | **Substitution** | `${VAR}` interpolation in an Agent config, resolved from the merged secrets at spawn. |

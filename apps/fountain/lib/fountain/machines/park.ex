@@ -123,7 +123,7 @@ defmodule Fountain.Machines.Park do
   compare-and-set would have produced a round trip later.
 
   The other half of that review note — `Wake.probe_sandbox/4` reusing a machine
-  on any `{:ok, _info}` without reading its status, which on E2B and Daytona
+  on any `{:ok, _info}` without reading its status, which on E2B
   means reusing one that is actually stopped — closed in 7a as well:
   `Fountain.Machines.Resume` reads the status and brings such a machine up.
 

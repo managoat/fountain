@@ -186,7 +186,6 @@ answer. `resume(id).answer(...)` is the same call from a process that is not
 the one following the turn.
 
 The default policy is `auto_allow` and never asks, so this is opt-in per agent.
-`opencode` never asks at all and refuses anything stricter than `auto_allow`.
 
 ## Defining what you run
 

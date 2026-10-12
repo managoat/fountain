@@ -52,17 +52,4 @@ defmodule FountainWeb.AgentFormChatGPTGrantLiveTest do
 
     refute has_element?(view, "form[phx-submit=save_credential]")
   end
-
-  test "an opencode agent on an OpenAI model is still asked: the grant is not a key", ctx do
-    agent =
-      insert_agent(
-        user_id: ctx.user.id,
-        runtime: "opencode",
-        model: "openai/gpt-5",
-        inference_credential_id: ctx.subscription.id
-      )
-
-    {:ok, view, _} = live(ctx.conn, "/agents/#{agent.id}/edit")
-    assert has_element?(view, "form[phx-submit=save_credential]")
-  end
 end

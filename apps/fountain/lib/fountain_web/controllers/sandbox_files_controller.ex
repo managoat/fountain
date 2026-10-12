@@ -29,8 +29,8 @@ defmodule FountainWeb.SandboxFilesController do
     required: false,
     description:
       "In-sandbox path, absolute or relative to the agent's working directory " <>
-        "(`/home/sprite` for claude and codex, `/tmp/gemini-workspace` and " <>
-        "`/tmp/opencode-workspace` for the others). Confined to those directories: " <>
+        "(`/home/sprite` for claude and codex, `/tmp/gemini-workspace` for gemini). " <>
+        "Confined to those directories: " <>
         "anything else is `422 path_outside_sandbox`."
   ]
 

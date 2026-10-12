@@ -95,7 +95,9 @@ defmodule FountainWeb.OrphanedHomeDoorTest do
   describe "persistent home runtime changes" do
     test "PATCH then repeated POST creates and reuses the new runtime home, preserving the old",
          ctx do
-      assert ctx |> patch_agent(%{"runtime" => "opencode"}) |> json_response(200)
+      assert ctx
+             |> patch_agent(%{"runtime" => "gemini", "model" => "google/gemini-3.1-pro-preview"})
+             |> json_response(200)
 
       attrs = %{"agent_id" => ctx.agent.id, "vault_id" => ctx.vault.id}
 
@@ -108,9 +110,9 @@ defmodule FountainWeb.OrphanedHomeDoorTest do
 
       first = Conversations.get_conversation(first["data"]["id"], ctx.user.id)
       refute first.sandbox_id == ctx.home.id
-      assert first.runtime == "opencode"
+      assert first.runtime == "gemini"
       new_home = Conversations._unsafe_get_sandbox!(first.sandbox_id)
-      assert new_home.runtime == "opencode"
+      assert new_home.runtime == "gemini"
       {:ok, _} = update_sandbox(new_home, %{status: "ready"})
 
       second =
@@ -127,7 +129,9 @@ defmodule FountainWeb.OrphanedHomeDoorTest do
     end
 
     test "explicit wrong-runtime attachment explains the reset and fresh-launch escape", ctx do
-      assert ctx |> patch_agent(%{"runtime" => "opencode"}) |> json_response(200)
+      assert ctx
+             |> patch_agent(%{"runtime" => "gemini", "model" => "google/gemini-3.1-pro-preview"})
+             |> json_response(200)
 
       body =
         ctx

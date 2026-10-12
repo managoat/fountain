@@ -10,14 +10,11 @@ defmodule Fountain.InferenceCredentials.Credential do
 
   Each row holds up to four encrypted credentials, one per supported provider:
 
-  - `anthropic_api_key` — for the `claude` runtime (when no OAuth token is set)
-    and for `opencode` runs against an `anthropic/...` model.
+  - `anthropic_api_key` — for the `claude` runtime (when no OAuth token is set).
   - `claude_code_oauth_token` — preferred for the `claude` runtime; bills
     against a Claude.ai Pro/Team subscription instead of metered API usage.
-  - `openai_api_key` — for the `codex` runtime and `opencode` runs against an
-    `openai/...` model.
-  - `gemini_api_key` — for the `gemini` runtime and `opencode` runs against a
-    `google/...` model.
+  - `openai_api_key` — for the `codex` runtime.
+  - `gemini_api_key` — for the `gemini` runtime.
 
   Each ciphertext is encrypted with the user's per-tenant DEK
   (see `Fountain.Crypto`). The schema does not store plaintext.

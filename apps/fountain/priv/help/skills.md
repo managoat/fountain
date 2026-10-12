@@ -19,7 +19,7 @@ With those three env vars and the skill's instructions, any agent can spawn new 
 To inspect the exact skill text your server is running, read it from inside any sprite:
 
 ```bash
-# claude / opencode
+# claude
 cat ~/.claude/skills/fountain/SKILL.md
 
 # codex (concatenated into AGENTS.md)
@@ -36,11 +36,10 @@ Where a skill lands depends on the runtime:
 | Runtime | Location | How used |
 | --- | --- | --- |
 | `claude` | `~/.claude/skills/<name>/SKILL.md` | Auto-discovered by Claude Code at session start |
-| `opencode` | `~/.claude/skills/<name>/SKILL.md` | Same discovery path as claude |
 | `codex` | concatenated into `~/.codex/AGENTS.md` | Read as global agent instructions |
 | `gemini` | concatenated into `~/.gemini/GEMINI.md` | Read as global instructions |
 
-For claude and opencode, each skill lives in its own named directory and is discovered independently — the runtime's skill-loading mechanism finds them all. For codex and gemini, all skills are concatenated in declaration order into a single flat file. The `fountain` skill is always first in that concatenated output.
+For claude, each skill lives in its own named directory and is discovered independently — Claude Code's skill loading finds them all. For codex and gemini, all skills are concatenated in declaration order into a single flat file. The `fountain` skill is always first in that concatenated output.
 
 ## Adding skills to an agent
 

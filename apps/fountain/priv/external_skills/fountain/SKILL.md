@@ -1,6 +1,6 @@
 ---
 name: fountain
-description: Operate Fountain (https://managoat.com) — a multi-tenant service that runs sandboxed coding agents (claude/codex/gemini/opencode) inside per-conversation sprites. Use this skill whenever the user asks you to spin up an agent on Fountain, delegate work to another agent, fan out a task across N agents, manage Fountain agents/environments/vaults declaratively, or drive the `fountain` CLI. Reads `FOUNTAIN_API_KEY` (required) and `FOUNTAIN_BASE_URL` (defaults to https://managoat.com).
+description: Operate Fountain (https://managoat.com) — a multi-tenant service that runs sandboxed coding agents (claude/codex/gemini) inside per-conversation sprites. Use this skill whenever the user asks you to spin up an agent on Fountain, delegate work to another agent, fan out a task across N agents, manage Fountain agents/environments/vaults declaratively, or drive the `fountain` CLI. Reads `FOUNTAIN_API_KEY` (required) and `FOUNTAIN_BASE_URL` (defaults to https://managoat.com).
 ---
 
 # Fountain — driving the API, CLI, and manifest from outside a sprite
@@ -21,7 +21,7 @@ with provenance headers and conversation-scoped tokens. This skill is for
 |---|---|---|
 | **Environment** | sandbox shape — apt packages, env_vars, repos to clone with secrets, networking allowlist, `setup_script` | per-tenant; PUT/POSTed via `/api/environments` |
 | **Vault** | free-floating bag of encrypted secret **overrides**, picked per-conversation; layered over the env's secrets, vault wins on key collision | per-tenant; PUT/POSTed via `/api/vaults` |
-| **Agent** | named runtime config: `runtime` (claude/codex/gemini/opencode), `model`, optional `system` prompt, optional `environment_id`, optional `skills`, optional `mcp_servers` | per-tenant; PUT/POSTed via `/api/agents` |
+| **Agent** | named runtime config: `runtime` (claude/codex/gemini), `model`, optional `system` prompt, optional `environment_id`, optional `skills`, optional `mcp_servers` | per-tenant; PUT/POSTed via `/api/agents` |
 | **Conversation** | one running instance of an agent in a freshly provisioned sprite; SSE-streamable; supports multi-turn | per-conversation; created via `POST /api/conversations`, lives until `/terminate` |
 
 `POST /api/conversations` is the hot path: pick an agent (and optionally a vault),
@@ -176,7 +176,6 @@ RT=$(curl -s "$FOUNTAIN_BASE_URL/api/conversations/$CONV" \
 | claude   | `select(.type=="result")`                                              | `.result`                          |
 | codex    | `select(.type=="item.completed" and .item.type=="agent_message")`      | `.item.text`                       |
 | gemini   | `select(.type=="message" and .role=="assistant")`                      | `.content` *(last one)*            |
-| opencode | `select(.type=="text")`                                                | `.part.text` *(concatenate all)*   |
 
 ## Multi-turn
 

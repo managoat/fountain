@@ -146,18 +146,6 @@ e2b_base_url =
     url -> url
   end
 
-daytona_api_key =
-  case System.get_env("DAYTONA_API_KEY") do
-    blank when blank in [nil, ""] -> nil
-    key -> key
-  end
-
-daytona_api_url =
-  case System.get_env("DAYTONA_API_URL") do
-    blank when blank in [nil, ""] -> "https://app.daytona.io/api"
-    url -> url
-  end
-
 e2b_template =
   case System.get_env("E2B_TEMPLATE") do
     blank when blank in [nil, ""] -> "base"
@@ -175,17 +163,6 @@ config :managoat_sandbox, Managoat.Sandbox.E2B,
   base_url: e2b_base_url,
   template: e2b_template,
   user: e2b_user
-
-daytona_snapshot =
-  case System.get_env("DAYTONA_SNAPSHOT") do
-    blank when blank in [nil, ""] -> nil
-    snapshot -> snapshot
-  end
-
-config :managoat_sandbox, Managoat.Sandbox.Daytona,
-  api_key: daytona_api_key,
-  api_url: daytona_api_url,
-  snapshot: daytona_snapshot
 
 # Egress credential brokerage (ADR 0019). Blank means off: no broker call is
 # made, nothing listens, and every conversation provisions exactly as it did
@@ -300,7 +277,7 @@ sandbox_default_provider =
     blank when blank in [nil, ""] ->
       :sprites
 
-    value when value in ["sprites", "e2b", "daytona", "runner"] ->
+    value when value in ["sprites", "e2b", "runner"] ->
       # An *explicitly chosen* default must be usable: failing at boot with
       # the missing variable named beats every conversation failing at
       # provision time. An unset SANDBOX_PROVIDER keeps the old behavior —
@@ -310,7 +287,6 @@ sandbox_default_provider =
         case value do
           "sprites" -> {sprites_token, "SPRITES_TOKEN"}
           "e2b" -> {e2b_api_key, "E2B_API_KEY"}
-          "daytona" -> {daytona_api_key, "DAYTONA_API_KEY"}
           # No credential to check; the opt-out is the only way to lose it.
           "runner" -> {if(runners_enabled, do: :enabled), "SANDBOX_RUNNERS_ENABLED"}
         end
@@ -325,7 +301,7 @@ sandbox_default_provider =
       end
 
     other ->
-      raise "SANDBOX_PROVIDER must be one of sprites|e2b|daytona|runner, got: #{inspect(other)}"
+      raise "SANDBOX_PROVIDER must be one of sprites|e2b|runner, got: #{inspect(other)}"
   end
 
 config :fountain, :sandbox_default_provider, sandbox_default_provider

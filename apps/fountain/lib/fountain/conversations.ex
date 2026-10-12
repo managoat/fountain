@@ -1564,7 +1564,7 @@ defmodule Fountain.Conversations do
   Capacity is `Fountain.RuntimeDispatch.concurrency/1` of the conversation's
   runtime **as read under the lock**, not a number the caller brought, and it
   is counted against the running turns of the other conversations **on that
-  runtime** — a `claude` turn does not consume the one `opencode` slot on a
+  runtime** — a `claude` turn does not consume the one `gemini` slot on a
   shared home (#1089 blocker 4). `:unbounded` skips only that check. Saved
   execution allowances are checked under row locks; no runtime control is
   supported yet, so any nonempty allowance refuses the turn. Refusal writes no
@@ -4215,7 +4215,6 @@ defmodule Fountain.Conversations do
     verdicts = PermissionPolicy.verdicts(policy)
 
     with :ok <- validate_policy_shape(policy),
-         :ok <- check_runtime_asks(verdicts, agent),
          :ok <-
            Managoat.ACP.Permissions.check_narrows(
              PermissionPolicy.verdicts(agent.permission_policy),
@@ -4232,17 +4231,6 @@ defmodule Fountain.Conversations do
   end
 
   def resolve_permission_policy(_policy, _agent), do: {:error, :permission_policy_invalid}
-
-  # A launch cannot be protected by a policy the runtime never consults. Refused
-  # rather than accepted-and-ignored — see `ACP.asks_permission?/1`, measured.
-  defp check_runtime_asks(policy, agent) do
-    if not Managoat.ACP.Permissions.needs_enforcement?(policy) or
-         Fountain.RuntimeDispatch.asks_permission?(agent.runtime) do
-      :ok
-    else
-      {:error, {:permission_policy_unenforceable, agent.runtime}}
-    end
-  end
 
   defp validate_policy_shape(policy) do
     with :ok <- validate_reserved_keys(policy) do
@@ -4273,8 +4261,15 @@ defmodule Fountain.Conversations do
     end
   end
 
-  def sandbox_provider_atom(%{provider: provider}) when is_binary(provider),
-    do: String.to_existing_atom(provider)
+  # A provider this release no longer knows (`daytona`, removed in 2026-10, on
+  # terminal rows kept as history) reads as `:removed`: no adapter serves it and
+  # `SandboxProviders.enabled?/1` says no, so the sweeps that walk terminal
+  # rows skip it rather than raise on an atom nothing loaded.
+  def sandbox_provider_atom(%{provider: provider}) when is_binary(provider) do
+    if provider in Fountain.SandboxProviders.known_providers(),
+      do: String.to_existing_atom(provider),
+      else: :removed
+  end
 
   def sandbox_provider_atom(_sandbox), do: :sprites
 

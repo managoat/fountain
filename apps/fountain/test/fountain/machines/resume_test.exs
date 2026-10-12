@@ -359,9 +359,8 @@ defmodule Fountain.Machines.ResumeTest do
 
   describe "a ready row the provider says is parked" do
     # The other half of the 6b review note: a park whose finalize was lost
-    # leaves a `ready` row over a machine E2B calls `paused` and Daytona calls
-    # `stopped`. `main` reused it and handed the conversation a handle to a
-    # machine that was not running.
+    # leaves a `ready` row over a machine E2B calls `paused`. `main` reused it
+    # and handed the conversation a handle to a machine that was not running.
     test "is restarted at the provider when the caller's probe saw it suspended", ctx do
       stamp(ctx, status: "ready")
       expect(Managoat.Sandbox, :resume, fn handle -> {:ok, handle} end)

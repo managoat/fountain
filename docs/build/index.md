@@ -74,7 +74,7 @@ bearer token.
 | You write | Fountain does |
 |---|---|
 | The roster, the thread, the composer. | Provisions and holds one sandbox for each teammate. |
-| The name of a bot, and how it looks. | Starts `claude`, `codex`, `gemini` or `opencode` in it, or the command that an `acp` agent names. |
+| The name of a bot, and how it looks. | Starts `claude`, `codex` or `gemini` in it, or the command that an `acp` agent names. |
 | Which connectors you offer. | Encrypts the tokens, injects them at spawn, and redacts them from the output. |
 | Your own sign-in, or none. | Accounts, API keys, OAuth, isolation for each user, quota, audit. |
 | What a routine is for. | Runs it on a cron. |

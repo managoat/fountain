@@ -1,17 +1,6 @@
 defmodule FountainWeb.AuthMeControllerTest do
-  # async: false for the billing-disabled tests, which flip global app env.
+  # async: false: the brokered tests below flip global app env.
   use FountainWeb.ConnCase, async: false
-
-  defp with_billing_disabled(fun) do
-    previous = Application.get_env(:fountain, :credits_enabled)
-    Application.put_env(:fountain, :credits_enabled, false)
-
-    try do
-      fun.()
-    after
-      Application.put_env(:fountain, :credits_enabled, previous)
-    end
-  end
 
   describe "GET /api/auth/me" do
     test "returns user identity for an authenticated request", %{conn: conn} do
@@ -27,14 +16,13 @@ defmodule FountainWeb.AuthMeControllerTest do
                "id" => id,
                "email" => email,
                "role" => role,
-               "expires_at" => nil,
-               "comped" => comped
-             } = json_response(conn, 200)
+               "expires_at" => nil
+             } = body = json_response(conn, 200)
 
       assert id == user.id
       assert email == user.email
       assert role == user.role
-      assert comped == false
+      refute Map.has_key?(body, "comped")
     end
 
     test "reports the presented key's expiry, not another key on the account", %{conn: conn} do
@@ -106,25 +94,6 @@ defmodule FountainWeb.AuthMeControllerTest do
         |> get("/api/auth/me")
 
       assert %{"role" => "admin"} = json_response(conn, 200)
-    end
-
-    test "comped is null when billing is disabled — key kept for shape compat (#480)",
-         %{conn: conn} do
-      # Residue case on purpose: even an account that still carries a status
-      # from before the flag flipped must not leak it to API consumers.
-      user = insert_verified_user()
-      {_key_record, raw_key} = insert_api_key(user)
-
-      with_billing_disabled(fn ->
-        conn =
-          conn
-          |> authed_with_key(raw_key)
-          |> get("/api/auth/me")
-
-        body = json_response(conn, 200)
-        assert Map.has_key?(body, "comped")
-        assert body["comped"] == nil
-      end)
     end
 
     test "email in response is downcased", %{conn: conn} do

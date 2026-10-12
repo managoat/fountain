@@ -186,27 +186,6 @@ defmodule Fountain.Release do
   end
 
   @doc """
-  Fill `credit_ledger.remaining_cents` for every tenant by replaying each
-  ledger in order (ADR 0030, batch 2). Idempotent; safe to rerun.
-
-      bin/fountain_server eval 'Fountain.Release.rebuild_credit_lots()'
-  """
-  def rebuild_credit_lots do
-    with_repo(fn ->
-      import Ecto.Query
-
-      users =
-        Fountain.Repo.all(
-          from e in Fountain.Credits.LedgerEntry, distinct: true, select: e.user_id
-        )
-
-      lots = users |> Enum.map(&Fountain.Credits.rebuild_lots/1) |> Enum.sum()
-      IO.puts("Rebuilt #{lots} lot(s) across #{length(users)} tenant(s).")
-      {:ok, lots}
-    end)
-  end
-
-  @doc """
   Print a read-only inventory of retained sandboxes' recorded build and skill
   metadata. Includes active and sleeping rows; it never contacts a provider or
   inspects a disk, so every disk skill manifest remains explicitly unverified.

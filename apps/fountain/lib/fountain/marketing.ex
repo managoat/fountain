@@ -12,15 +12,8 @@ defmodule Fountain.Marketing do
   card carries the pitch (`FountainWeb.OpenGraph`).
 
   Off unless `MARKETING_SITE=true` (config/runtime.exs), so a self-host is
-  right by default: a link to a page nothing serves is a dead end, and nobody
-  running Fountain for their own team is selling credit for it. The hosted
-  deployment opts in — the same shape, for the same reason, as `CREDITS_ENABLED`
-  (#336).
-
-  Deliberately *not* `Fountain.Credits.enabled?/0`, the closest existing flag.
-  Billing says "this instance charges money", which an operator running
-  Fountain commercially inside their own company may well turn on. That must
-  not hand their manual a nav full of somebody else's product pages.
+  right by default: a link to a page nothing serves is a dead end. The hosted
+  deployment opts in.
 
   Until 2026-09 this flag also chose what `/` served and the app rendered the
   pitch itself; `available?/1` gated the copy on the installed extensions

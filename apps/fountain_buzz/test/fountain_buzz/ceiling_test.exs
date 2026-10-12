@@ -1,15 +1,13 @@
 defmodule FountainBuzz.CeilingTest do
   @moduledoc """
-  `BUZZ_IDENTITY_CEILING` and the spend gate on `provision_identity/3` (#1017).
+  `BUZZ_IDENTITY_CEILING` on `provision_identity/3` (#1017).
 
   `async: false`: the ceiling is application env, and an async test that writes
   it leaks into every other module running beside it (#1214).
   """
 
   use Fountain.DataCase, async: false
-  import FountainBuzz.Factory
 
-  alias Fountain.Credits
   alias FountainBuzz, as: Buzz
 
   setup do
@@ -98,35 +96,6 @@ defmodule FountainBuzz.CeilingTest do
       other_params = params.(pubkey(2)) |> Map.put("agent_id", other_agent.id)
 
       assert {:ok, _} = Buzz.provision_identity(other.id, other_params)
-    end
-  end
-
-  describe "the spend gate" do
-    test "a drained account cannot stand up a new hosted agent", %{user: user, params: params} do
-      drain(user)
-
-      assert {:error, :insufficient_credits} =
-               Buzz.provision_identity(user.id, params.(pubkey(1)))
-
-      assert Buzz.list_identities(user.id) == []
-    end
-
-    test "a drained account may still converge on one it already has", %{
-      user: user,
-      params: params
-    } do
-      assert {:ok, first} = Buzz.provision_identity(user.id, params.(pubkey(1)))
-      drain(user)
-
-      assert {:ok, again} = Buzz.provision_identity(user.id, params.(pubkey(1)))
-      assert again.id == first.id
-    end
-  end
-
-  defp drain(user) do
-    case Credits.balance(user.id) do
-      0 -> :ok
-      cents -> {:ok, _} = Credits.debit(user.id, cents, "burn_turn", idempotency_key: "drain")
     end
   end
 end

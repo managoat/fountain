@@ -24,46 +24,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/account/billing": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Credit balance and current-month usage
-         * @description The credit balance, what of it expires and when, and the usage numbers the billing page shows, measured over the calendar month. On an instance with billing disabled this is a 404 carrying `billing: "disabled"`, mirroring the UI, which redirects away from the billing page entirely.
-         */
-        get: operations["FountainWeb.BillingApiController.show"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/account/billing/credits/checkout": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Mint a Stripe Checkout URL for a credit pack
-         * @description A one-time payment for one of the packs this deployment sells (`GET /api/account/billing` lists them under `credits.packs_cents`). The balance moves when Stripe's webhook confirms payment, not when this returns. Refused for a comped account with `comped`, and for an amount that is not a pack with `unknown_pack`.
-         */
-        post: operations["FountainWeb.BillingApiController.credits_checkout"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/account/chatgpt-subscriptions": {
         parameters: {
             query?: never;
@@ -499,43 +459,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/admin/users/{id}/comp": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Comp or un-comp an account */
-        post: operations["FountainWeb.AdminController.set_comp"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/admin/users/{id}/credits": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Add prepaid credit to an account
-         * @description A `grant_admin` ledger row (ADR 0030): goodwill, a won dispute, an outage. It never expires and is spent after the opening grant. There is deliberately no negative form here; a clawback is what a refund or dispute does through Stripe.
-         */
-        post: operations["FountainWeb.AdminController.grant_credits"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/admin/users/{id}/role": {
         parameters: {
             query?: never;
@@ -584,7 +507,7 @@ export interface paths {
         put?: never;
         /**
          * Suspend or unsuspend an account
-         * @description The reversible lever between comp and delete (#287): sessions die, API keys refuse, sandboxes are reaped. Billing is deliberately untouched.
+         * @description The reversible lever short of delete (#287): sessions die, API keys refuse, sandboxes are reaped.
          */
         post: operations["FountainWeb.AdminController.set_suspended"];
         delete?: never;
@@ -1041,7 +964,7 @@ export interface paths {
         put?: never;
         /**
          * Provision (or converge on) a hosted Buzz agent
-         * @description Converges on the Nostr pubkey, so a provider may call it repeatedly. A deploy that would add a **new** hosted agent is gated by the credit balance and by `BUZZ_IDENTITY_CEILING`, both `402`; a converging deploy of an agent that already exists is not.
+         * @description Converges on the Nostr pubkey, so a provider may call it repeatedly. A deploy that would add a **new** hosted agent is gated by `BUZZ_IDENTITY_CEILING` (`402`); a converging deploy of an agent that already exists is not.
          */
         post: operations["FountainWeb.BuzzAgentController.create"];
         delete?: never;
@@ -1528,7 +1451,7 @@ export interface paths {
          * Wake a conversation without a prompt
          * @description Brings the conversation's sandbox and server up without opening a turn, so the next prompt does not wait for them. A suspended sandbox is resumed; one that is gone is replaced with a fresh one, as a prompt would do. Answers `waking` once the checks that need no sandbox pass, and wakes behind the response: the reattach or provision reports on the event stream, and a wake that fails is a `wake` `failed` stage there. A woken conversation is parked again after the usual idle period.
          *
-         *     `awake` means the server was already running and nothing was done. Refused as a prompt's wake is: 402 without credits, 410 once the conversation has ended, 409 `sandbox_reset_pending` while its machine is being reset, and 503 while the fleet is full. Anything the sandbox itself refuses arrives on the event stream.
+         *     `awake` means the server was already running and nothing was done. Refused as a prompt's wake is: 410 once the conversation has ended, 409 `sandbox_reset_pending` while its machine is being reset, and 503 while the fleet is full. Anything the sandbox itself refuses arrives on the event stream.
          */
         post: operations["FountainWeb.ConversationController.wake"];
         delete?: never;
@@ -2590,23 +2513,6 @@ export interface components {
         AdminAuditListResponse: {
             data: components["schemas"]["AuditEvent"][];
         };
-        /** AdminCompRequest */
-        AdminCompRequest: {
-            comped: boolean;
-        };
-        /**
-         * AdminCreditsRequest
-         * @example {
-         *       "cents": 1000,
-         *       "note": "won dispute dp_123"
-         *     }
-         */
-        AdminCreditsRequest: {
-            /** @description Credit to add, in cents. Never expires and is spent last. */
-            cents: number;
-            /** @description Why, for the audit trail. A won dispute, a goodwill credit, an outage. */
-            note?: string | null;
-        };
         /**
          * AdminEventListResponse
          * @description The privilege trail: who did what to whom.
@@ -2663,7 +2569,7 @@ export interface components {
         };
         /** AdminSandboxLimitRequest */
         AdminSandboxLimitRequest: {
-            /** @description Override of the balance-funded concurrent-sandbox cap. Null clears it, handing the cap back to the balance rule. */
+            /** @description Override of the concurrent-sandbox cap. Null clears it, handing the cap back to the configured ceiling. */
             limit: number | null;
         };
         /** AdminSandboxListResponse */
@@ -2680,28 +2586,23 @@ export interface components {
          */
         AdminUser: {
             active_sandboxes?: number;
-            /** @description A free account: the balance is never checked (ADR 0031). */
-            comped?: boolean;
-            /** @description Prepaid balance in cents (ADR 0030). May be negative. Zero while credits are not active on this deployment. */
-            credit_balance_cents?: number;
             email: string;
             email_verified?: boolean;
             /** Format: date-time */
             email_verified_at?: string | null;
-            has_stripe_customer?: boolean;
             /** Format: uuid */
             id: string;
             /** Format: date-time */
             inserted_at?: string;
             /** Format: date-time */
             last_activity_at?: string | null;
-            /** @description The concurrency cap actually enforced: the override, or the balance rule's. */
+            /** @description The concurrency cap actually enforced: the override, or the configured ceiling. */
             max_concurrent_sandboxes?: number | null;
             /** Format: date-time */
             onboarding_completed_at?: string | null;
             /** @enum {string} */
             role: "admin" | "user";
-            /** @description Admin override of the cap. Null means the balance rule applies. */
+            /** @description Admin override of the cap. Null means the configured ceiling applies. */
             sandbox_limit_override?: number | null;
             suspended?: boolean;
             /** Format: date-time */
@@ -3059,8 +2960,6 @@ export interface components {
             brokered?: boolean;
             /** @description Whether this account may link a new ChatGPT subscription. Listing, renaming, reconnecting, disconnecting and removing the ones it holds never depend on it. */
             chatgpt_subscriptions_enabled?: boolean;
-            /** @description Null when billing is off. */
-            comped?: boolean | null;
             /** @description Whether this account may add connections, providers, or credential bindings. Use connections_manageable to show existing credentials and their removal controls. */
             connections_enabled?: boolean;
             /** @description Whether this account may list, revoke, and delete existing connections, providers, and credential bindings. Remains true when the connections rollout flag is off but the deployment still brokers credentials. */
@@ -3104,51 +3003,6 @@ export interface components {
             data: string;
             /** @enum {string} */
             media_type: "image/png" | "image/jpeg" | "image/gif" | "image/webp";
-        };
-        /** BillingResponse */
-        BillingResponse: {
-            data: {
-                /** @description The prepaid balance, in cents. Null when this deployment has billing off; a client must not show a zero balance then. At zero, new work is refused with 402 `insufficient_credits`. */
-                credits?: {
-                    /** @description May be negative: an in-flight turn that crosses zero finishes. */
-                    balance_cents?: number;
-                    /** Format: date-time */
-                    expires_at?: string | null;
-                    /** @description Unspent credit from the earliest live grant, which expires at expires_at. */
-                    expiring_cents?: number;
-                    /** @description The packs on sale, ascending. Pass one to the credits checkout. */
-                    packs_cents?: number[];
-                    /** @description The part of the balance that was bought. It never expires and is spent last. */
-                    purchased_cents?: number;
-                    /** @description What one hour of turn time costs. */
-                    turn_hour_cents?: number;
-                } | null;
-                has_stripe_customer?: boolean;
-                /** @description The calendar month the usage numbers cover, half-open: `end` is the first instant of the next month. */
-                period?: {
-                    /** Format: date-time */
-                    end?: string;
-                    /** Format: date-time */
-                    start?: string;
-                };
-                /** @description How many sandboxes this account may run at once: an admin override, or what the balance funds (ADR 0031). */
-                sandbox_cap?: number;
-                usage: {
-                    /** @description Conversations that ran a turn in the month, deleted or not. */
-                    conversations?: number;
-                    /** @description Cents the ledger took this month: turns and platform inference. The charged number, where turn_hours is the metered one. Null with billing off. */
-                    credit_burned_cents?: number | null;
-                    /** @description Active sandbox minutes inside the period, parked time excluded. */
-                    sandbox_minutes?: number;
-                    /** @description sandbox_minutes split by sandbox provider (sprites, e2b, daytona, runner). Providers not used in the period are absent. */
-                    sandbox_minutes_by_provider?: {
-                        [key: string]: number;
-                    };
-                    /** @description Hours with a prompt in flight, on providers Fountain pays for; what burns credit. An idle sandbox spends none of these; sandbox_minutes counts it. */
-                    turn_hours?: number;
-                    turns?: number;
-                };
-            };
         };
         /**
          * Block
@@ -3802,16 +3656,6 @@ export interface components {
             status: "awake" | "waking";
         };
         /**
-         * CreditsCheckoutRequest
-         * @example {
-         *       "cents": 2500
-         *     }
-         */
-        CreditsCheckoutRequest: {
-            /** @description The pack to buy, in cents. Must be one of credits.packs_cents. */
-            cents: number;
-        };
-        /**
          * DeviceAuthResponse
          * @description A fresh device-authorization grant (#1305). `device_code` stays on the polling machine and never gets typed; `user_code` is what the human enters at `verification_uri`.
          */
@@ -4003,7 +3847,7 @@ export interface components {
             /** @description How many the account has against `limit`, on `chatgpt_grant_limit_reached` and `chatgpt_link_attempts_exceeded` (409). */
             count?: number;
             /**
-             * @description The machine-readable code: `validation_failed`, `not_found`, `insufficient_credits`, `sandbox_quota_exceeded`, `expired`, `invalid_token` and the rest. On the key-authentication and scope refusals it is a sentence and `reason` carries the code.
+             * @description The machine-readable code: `validation_failed`, `not_found`, `sandbox_quota_exceeded`, `expired`, `invalid_token` and the rest. On the key-authentication and scope refusals it is a sentence and `reason` carries the code.
              * @example validation_failed
              */
             error: string;
@@ -4035,8 +3879,6 @@ export interface components {
              * @description When the subscription's Codex usage resets, on `chatgpt_grant_unusable` with `reason: "exhausted"`; null otherwise.
              */
             until?: string | null;
-            /** @description Where to buy credit, on `insufficient_credits` (402). */
-            upgrade_url?: string;
         };
         /**
          * Export
@@ -4986,16 +4828,6 @@ export interface components {
             reason: "changed";
         };
         /**
-         * StripeUrlResponse
-         * @description A Stripe-hosted URL to open in a browser. Single-use and short-lived.
-         */
-        StripeUrlResponse: {
-            data: {
-                /** Format: uri */
-                url: string;
-            };
-        };
-        /**
          * SupportReport
          * @description A problem report a client filed, with the context it had and where it was forwarded.
          */
@@ -5595,168 +5427,6 @@ export interface operations {
             };
             /** @description Too Many Requests */
             429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Billing cancellation failed */
-            502: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
-    "FountainWeb.BillingApiController.show": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Billing */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["BillingResponse"];
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Insufficient scope */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Billing disabled */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description No acceptable representation */
-            406: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["NegotiationError"];
-                };
-            };
-            /** @description Too Many Requests */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
-    "FountainWeb.BillingApiController.credits_checkout": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** @description Pack */
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CreditsCheckoutRequest"];
-            };
-        };
-        responses: {
-            /** @description Stripe URL */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["StripeUrlResponse"];
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Insufficient scope */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Billing disabled */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description No acceptable representation */
-            406: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["NegotiationError"];
-                };
-            };
-            /** @description Refused */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Too Many Requests */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Stripe unreachable */
-            502: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -7629,8 +7299,6 @@ export interface operations {
             query?: {
                 /** @description Email substring. */
                 q?: string;
-                /** @description Only comped accounts (`true`) or only billed ones (`false`). */
-                comped?: boolean;
                 role?: "admin" | "user";
                 verified?: boolean;
                 sort?: "email" | "joined" | "last_activity";
@@ -7786,177 +7454,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AccountDeletedResponse"];
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Admin required */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description No acceptable representation */
-            406: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["NegotiationError"];
-                };
-            };
-            /** @description Refused */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Too Many Requests */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Billing cancellation failed */
-            502: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
-    "FountainWeb.AdminController.set_comp": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        /** @description Comped */
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["AdminCompRequest"];
-            };
-        };
-        responses: {
-            /** @description Account */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AdminUserResponse"];
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Admin required */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description No acceptable representation */
-            406: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["NegotiationError"];
-                };
-            };
-            /** @description Refused */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Too Many Requests */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
-    "FountainWeb.AdminController.grant_credits": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        /** @description Credit */
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["AdminCreditsRequest"];
-            };
-        };
-        responses: {
-            /** @description Account */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AdminUserResponse"];
                 };
             };
             /** @description Unauthorized */
@@ -10071,7 +9568,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description Balance exhausted, or the hosted-agent ceiling is reached */
+            /** @description The hosted-agent ceiling is reached */
             402: {
                 headers: {
                     [name: string]: unknown;
@@ -11262,15 +10759,6 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description Insufficient credits */
-            402: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
             /** @description A sandbox token labelling the conversation a resume landed on, or a key below full scope attaching another agent's conversation to a sandbox (guest_attach_requires_full_scope) */
             403: {
                 headers: {
@@ -11717,15 +11205,6 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description Insufficient credits */
-            402: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
             /** @description Forbidden */
             403: {
                 headers: {
@@ -12010,15 +11489,6 @@ export interface operations {
             };
             /** @description Unauthorized */
             401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Insufficient credits */
-            402: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -12449,15 +11919,6 @@ export interface operations {
             };
             /** @description Unauthorized */
             401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Insufficient credits */
-            402: {
                 headers: {
                     [name: string]: unknown;
                 };

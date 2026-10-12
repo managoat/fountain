@@ -63,14 +63,9 @@ defmodule FountainWeb.ConsoleNavTest do
       assert html =~ ~s|href="/admin"|
     end
 
-    test "billing only when billing is on", %{conn: conn} do
+    test "no billing page", %{conn: conn} do
       {:ok, _lv, html} = live(conn, ~p"/dashboard")
-
-      if Fountain.Credits.enabled?() do
-        assert html =~ ~s|href="/account/billing"|
-      else
-        refute html =~ ~s|href="/account/billing"|
-      end
+      refute html =~ ~s|href="/account/billing"|
     end
   end
 

@@ -43,11 +43,6 @@
           "application/json": {
             "ref": "Error"
           }
-        },
-        "502": {
-          "application/json": {
-            "ref": "Error"
-          }
         }
       }
     },
@@ -283,11 +278,6 @@
           }
         },
         "429": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "502": {
           "application/json": {
             "ref": "Error"
           }
@@ -968,42 +958,6 @@
         }
       }
     },
-    "GET /api/account/billing": {
-      "operation_id": "FountainWeb.BillingApiController.show",
-      "path_params": [],
-      "responses": {
-        "200": {
-          "application/json": {
-            "ref": "BillingResponse"
-          }
-        },
-        "401": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "403": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "404": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "406": {
-          "application/json": {
-            "ref": "NegotiationError"
-          }
-        },
-        "429": {
-          "application/json": {
-            "ref": "Error"
-          }
-        }
-      }
-    },
     "GET /api/account/chatgpt-subscriptions": {
       "operation_id": "FountainWeb.ChatGPTSubscriptionController.index",
       "path_params": [],
@@ -1413,10 +1367,6 @@
       "operation_id": "FountainWeb.AdminController.index_users",
       "path_params": [],
       "query_params": {
-        "comped": {
-          "required": false,
-          "type": "boolean"
-        },
         "dir": {
           "enum": [
             "asc",
@@ -4712,60 +4662,6 @@
         }
       }
     },
-    "POST /api/account/billing/credits/checkout": {
-      "operation_id": "FountainWeb.BillingApiController.credits_checkout",
-      "path_params": [],
-      "request_body": {
-        "content": {
-          "application/json": {
-            "ref": "CreditsCheckoutRequest"
-          }
-        },
-        "required": true
-      },
-      "responses": {
-        "200": {
-          "application/json": {
-            "ref": "StripeUrlResponse"
-          }
-        },
-        "401": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "403": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "404": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "406": {
-          "application/json": {
-            "ref": "NegotiationError"
-          }
-        },
-        "422": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "429": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "502": {
-          "application/json": {
-            "ref": "Error"
-          }
-        }
-      }
-    },
     "POST /api/account/chatgpt-subscriptions/attempts": {
       "operation_id": "FountainWeb.ChatGPTSubscriptionController.create_attempt",
       "path_params": [],
@@ -5011,108 +4907,6 @@
           }
         },
         "503": {
-          "application/json": {
-            "ref": "Error"
-          }
-        }
-      }
-    },
-    "POST /api/admin/users/{id}/comp": {
-      "operation_id": "FountainWeb.AdminController.set_comp",
-      "path_params": [
-        "id"
-      ],
-      "request_body": {
-        "content": {
-          "application/json": {
-            "ref": "AdminCompRequest"
-          }
-        },
-        "required": false
-      },
-      "responses": {
-        "200": {
-          "application/json": {
-            "ref": "AdminUserResponse"
-          }
-        },
-        "401": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "403": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "404": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "406": {
-          "application/json": {
-            "ref": "NegotiationError"
-          }
-        },
-        "422": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "429": {
-          "application/json": {
-            "ref": "Error"
-          }
-        }
-      }
-    },
-    "POST /api/admin/users/{id}/credits": {
-      "operation_id": "FountainWeb.AdminController.grant_credits",
-      "path_params": [
-        "id"
-      ],
-      "request_body": {
-        "content": {
-          "application/json": {
-            "ref": "AdminCreditsRequest"
-          }
-        },
-        "required": false
-      },
-      "responses": {
-        "200": {
-          "application/json": {
-            "ref": "AdminUserResponse"
-          }
-        },
-        "401": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "403": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "404": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "406": {
-          "application/json": {
-            "ref": "NegotiationError"
-          }
-        },
-        "422": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "429": {
           "application/json": {
             "ref": "Error"
           }
@@ -5933,11 +5727,6 @@
             "ref": "Error"
           }
         },
-        "402": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
         "403": {
           "application/json": {
             "ref": "Error"
@@ -6044,11 +5833,6 @@
           }
         },
         "401": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "402": {
           "application/json": {
             "ref": "Error"
           }
@@ -6225,11 +6009,6 @@
             "ref": "Error"
           }
         },
-        "402": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
         "403": {
           "application/json": {
             "ref": "Error"
@@ -6313,11 +6092,6 @@
           }
         },
         "401": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "402": {
           "application/json": {
             "ref": "Error"
           }
@@ -7639,29 +7413,6 @@
       },
       "type": "object"
     },
-    "AdminCompRequest": {
-      "properties": {
-        "comped": {
-          "required": true,
-          "type": "boolean"
-        }
-      },
-      "type": "object"
-    },
-    "AdminCreditsRequest": {
-      "properties": {
-        "cents": {
-          "required": true,
-          "type": "integer"
-        },
-        "note": {
-          "nullable": true,
-          "required": false,
-          "type": "string"
-        }
-      },
-      "type": "object"
-    },
     "AdminEventListResponse": {
       "properties": {
         "data": {
@@ -7828,14 +7579,6 @@
           "required": false,
           "type": "integer"
         },
-        "comped": {
-          "required": false,
-          "type": "boolean"
-        },
-        "credit_balance_cents": {
-          "required": false,
-          "type": "integer"
-        },
         "email": {
           "required": true,
           "type": "string"
@@ -7849,10 +7592,6 @@
           "nullable": true,
           "required": false,
           "type": "string"
-        },
-        "has_stripe_customer": {
-          "required": false,
-          "type": "boolean"
         },
         "id": {
           "format": "uuid",
@@ -8763,11 +8502,6 @@
           "required": false,
           "type": "boolean"
         },
-        "comped": {
-          "nullable": true,
-          "required": false,
-          "type": "boolean"
-        },
         "connections_enabled": {
           "required": false,
           "type": "boolean"
@@ -8859,111 +8593,6 @@
           ],
           "required": true,
           "type": "string"
-        }
-      },
-      "type": "object"
-    },
-    "BillingResponse": {
-      "properties": {
-        "data": {
-          "properties": {
-            "credits": {
-              "nullable": true,
-              "properties": {
-                "balance_cents": {
-                  "required": false,
-                  "type": "integer"
-                },
-                "expires_at": {
-                  "format": "date-time",
-                  "nullable": true,
-                  "required": false,
-                  "type": "string"
-                },
-                "expiring_cents": {
-                  "required": false,
-                  "type": "integer"
-                },
-                "packs_cents": {
-                  "items": {
-                    "type": "integer"
-                  },
-                  "required": false,
-                  "type": "array"
-                },
-                "purchased_cents": {
-                  "required": false,
-                  "type": "integer"
-                },
-                "turn_hour_cents": {
-                  "required": false,
-                  "type": "integer"
-                }
-              },
-              "required": false,
-              "type": "object"
-            },
-            "has_stripe_customer": {
-              "required": false,
-              "type": "boolean"
-            },
-            "period": {
-              "properties": {
-                "end": {
-                  "format": "date-time",
-                  "required": false,
-                  "type": "string"
-                },
-                "start": {
-                  "format": "date-time",
-                  "required": false,
-                  "type": "string"
-                }
-              },
-              "required": false,
-              "type": "object"
-            },
-            "sandbox_cap": {
-              "required": false,
-              "type": "integer"
-            },
-            "usage": {
-              "properties": {
-                "conversations": {
-                  "required": false,
-                  "type": "integer"
-                },
-                "credit_burned_cents": {
-                  "nullable": true,
-                  "required": false,
-                  "type": "integer"
-                },
-                "sandbox_minutes": {
-                  "required": false,
-                  "type": "number"
-                },
-                "sandbox_minutes_by_provider": {
-                  "additionalProperties": {
-                    "type": "number"
-                  },
-                  "required": false,
-                  "type": "object"
-                },
-                "turn_hours": {
-                  "required": false,
-                  "type": "number"
-                },
-                "turns": {
-                  "required": false,
-                  "type": "integer"
-                }
-              },
-              "required": true,
-              "type": "object"
-            }
-          },
-          "required": true,
-          "type": "object"
         }
       },
       "type": "object"
@@ -10473,15 +10102,6 @@
       },
       "type": "object"
     },
-    "CreditsCheckoutRequest": {
-      "properties": {
-        "cents": {
-          "required": true,
-          "type": "integer"
-        }
-      },
-      "type": "object"
-    },
     "DeviceAuthResponse": {
       "properties": {
         "device_code": {
@@ -10936,10 +10556,6 @@
         "until": {
           "format": "date-time",
           "nullable": true,
-          "required": false,
-          "type": "string"
-        },
-        "upgrade_url": {
           "required": false,
           "type": "string"
         }
@@ -12983,22 +12599,6 @@
           ],
           "required": true,
           "type": "string"
-        }
-      },
-      "type": "object"
-    },
-    "StripeUrlResponse": {
-      "properties": {
-        "data": {
-          "properties": {
-            "url": {
-              "format": "uri",
-              "required": true,
-              "type": "string"
-            }
-          },
-          "required": true,
-          "type": "object"
         }
       },
       "type": "object"

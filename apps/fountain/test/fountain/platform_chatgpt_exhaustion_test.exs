@@ -194,7 +194,7 @@ defmodule Fountain.PlatformChatGPTExhaustionTest do
               %{openai_api_key: "sk-platform"} = creds} = resolve(victim)
 
       refute Map.has_key?(creds, :codex_chatgpt_access_token)
-      assert :ok = PlatformInference.gate_source(fallback)
+      assert Source.platform?(fallback)
     end
   end
 

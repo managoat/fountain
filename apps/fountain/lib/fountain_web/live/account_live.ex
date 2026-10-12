@@ -2,9 +2,7 @@ defmodule FountainWeb.Live.AccountLive do
   @moduledoc """
   `/account` — data export and account deletion.
 
-  Extracted from `FountainWeb.Live.CreditsLive` (#479): export and deletion
-  are core account features a billing-disabled instance still needs, so they
-  cannot live on a page that only exists when billing does. The handlers
+  Export and deletion are core account features (#479). The handlers
   delegate to `Fountain.Exports` and `Fountain.Accounts.Deletion`.
   """
 

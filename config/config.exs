@@ -37,7 +37,6 @@ config :fountain, Oban,
     maintenance: 1,
     chatgpt: 10,
     chatgpt_refresh: 2,
-    credits: 5,
     exports: 1,
     mailer: 5,
     notifications: 5,
@@ -120,14 +119,6 @@ config :fountain, Oban,
        # indexed query, usually empty — and a minute is the cron grain the
        # schedules are written in.
        {"* * * * *", Fountain.Workers.TeamScheduler},
-       # Every 10 minutes: price closed turns into the credit ledger
-       # (ADR 0030) and sweep expired grants. Idempotent per turn and per
-       # grant, so the cadence only sets how stale a balance can read. No-ops
-       # with billing off.
-       {"*/10 * * * *", Fountain.Workers.CreditPricer},
-       # 06:23 UTC daily: the expiry sweep on its own, as a backstop for the
-       # pricer's tick (ADR 0030 decision 2). Idempotent per grant.
-       {"23 6 * * *", Fountain.Workers.CreditExpirer},
        # Five-minute backstop for the event-driven sandbox queue (ADR 0042).
        # Normal drains come from a sandbox leaving a cap-counting status; this
        # catches a lost poke and expires work that waited too long.
@@ -135,13 +126,8 @@ config :fountain, Oban,
      ]}
   ]
 
-# Self-hosting switches. In dev and prod, runtime.exs overrides credits from
-# CREDITS_ENABLED — off unless set (#336); the hosted deployment opts in via
-# the hosted overlay. The `true` here reaches only :test (runtime.exs skips
-# the override there), where config/test.exs also pins it, so the suite
-# exercises the gate as enforced and flips it off per-test.
+# Self-hosting switches. runtime.exs overrides them from the environment.
 config :fountain,
-  credits_enabled: true,
   registration_enabled: true,
   registration_allowed_email_domains: [],
   registration_access_code: nil,
@@ -151,20 +137,17 @@ config :fountain,
   # true and tests flip it off per-test. See Fountain.Marketing.
   marketing_site: false
 
-# Concurrency (ADR 0031). A tenant may run as many sandboxes at once as
-# their balance funds: clamp(balance / reserve_cents, cap_floor, cap_ceiling),
-# with users.sandbox_limit_override winning when set. fleet_ceiling bounds
-# the sum across every tenant to what the providers allow. runtime.exs
-# overrides from SANDBOX_*.
 # Hosted Buzz agents a tenant may run at once. Each enabled identity is a
 # supervised `buzz-acp` OS process on Fountain's own pods (ADR 0020), so the
 # cost is standing rather than metered — no sandbox meter sees it. An abuse
 # ceiling, not an allowance (#1017).
 config :fountain_buzz, :buzz_identity_ceiling, 10
 
+# Concurrency (ADR 0005, 0042). A tenant may run cap_ceiling sandboxes at
+# once, or users.sandbox_limit_override when set. fleet_ceiling bounds the
+# sum across every tenant to what the providers allow. runtime.exs overrides
+# from SANDBOX_*.
 config :fountain, :sandboxes,
-  reserve_cents: 200,
-  cap_floor: 2,
   cap_ceiling: 20,
   fleet_ceiling: 20
 
@@ -179,16 +162,6 @@ config :fountain,
 # It stops a runaway client; it does not price anything. Nothing links one
 # yet, so there is no environment variable for it yet either.
 config :fountain, :chatgpt_grant_ceiling, 5
-
-# Prepaid credits (ADR 0030). Cents. `turn_hour_cents` is the customer price
-# of one hour of turn time. runtime.exs overrides from CREDIT_*.
-config :fountain, :credits,
-  # The opening grant a new account gets (ADR 0031 decision 3), and how
-  # long it lasts.
-  opening_cents: 500,
-  opening_days: 14,
-  turn_hour_cents: 25,
-  packs_cents: [1_000, 2_500, 10_000]
 
 # Sandbox lifetime bounds. Crossing the idle bound SUSPENDS the sandbox — the
 # sprite stays (scaled to zero) and the next prompt resumes the agent with its

@@ -239,15 +239,6 @@ defmodule FountainWeb.Router do
     post "/email/confirm", AccountSecurityController, :api_confirm_email_change
   end
 
-  ## ─── Stripe webhook (credit packs, ADR 0031) ───────────────────────────────────────────────────────────
-  # No TenantAPIAuth: authenticated via Stripe-Signature header verification.
-  # Must be reachable by Stripe's servers without a bearer token.
-
-  scope "/api/stripe", FountainWeb do
-    pipe_through :api_public
-    post "/webhook", StripeWebhookController, :create
-  end
-
   # Outbound webhooks (#700) — the ones Fountain *sends*. Full scope, like
   # key management: a sandbox's per-conversation token must not be able to
   # point the account's lifecycle events at a URL of its choosing.
@@ -412,11 +403,6 @@ defmodule FountainWeb.Router do
   # escalation as minting an API key — hence the full-scope gate (#518).
   scope "/api/account", FountainWeb do
     pipe_through [:accepts_json, :api, :require_full_scope]
-
-    # Billing self-serve (#524). The controller lives in ee/ with the rest of
-    # billing; the route has to be here, like the Stripe webhook above.
-    get "/billing", CreditsApiController, :show
-    post "/billing/credits/checkout", CreditsApiController, :credits_checkout
 
     # Export and deletion (#523). Deletion is irreversible and takes the
     # tenant key with it, so it wants the strongest credential the account has.
@@ -628,8 +614,6 @@ defmodule FountainWeb.Router do
     get "/users/:id", AdminController, :show_user
     post "/users/:id/role", AdminController, :set_role
     post "/users/:id/sandbox-limit", AdminController, :set_sandbox_limit
-    post "/users/:id/comp", AdminController, :set_comp
-    post "/users/:id/credits", AdminController, :grant_credits
     post "/users/:id/suspend", AdminController, :set_suspended
     delete "/users/:id", AdminController, :delete_user
 
@@ -668,9 +652,8 @@ defmodule FountainWeb.Router do
 
     # ── The console ───────────────────────────────────────────────────────────
     # What Fountain's own UI is for: the account, its keys and credentials, and
-    # the three primitives a conversation runs on. No billing gate — an
-    # account at zero can still read and manage what it has, and the gate that
-    # protects spend is in the context (ADR 0031), not here.
+    # the three primitives a conversation runs on. The gates that protect a
+    # sandbox start live in the context, not here.
     live_session :authenticated,
       on_mount: [{FountainWeb.Live.Hooks, :require_authenticated_user}] do
       # The verified landing (ADR 0038): a key, one request, the reply. Where
@@ -699,9 +682,6 @@ defmodule FountainWeb.Router do
 
       # ── Account page: data export + deletion (#479) ────────────────────────────────────────
       live "/account", Live.AccountLive, :index
-
-      # ── Credits: account/billing. Redirects to /account when billing is disabled ────────────
-      live "/account/billing", Live.CreditsLive, :index
 
       # ── BYO inference credentials (ADR 0008) ───────────────────────────────────────────────
       live "/account/inference-credentials", InferenceCredentialsLive.Index, :index
@@ -739,8 +719,6 @@ defmodule FountainWeb.Router do
       live "/admin/inference", AdminLive.Inference, :index
       live "/admin/broker", AdminLive.Broker, :index
       live "/admin/activity", AdminLive.Activity, :index
-      # Lives in ee/ with the rest of billing (#472): it is a revenue page.
-      live "/admin/finance", Live.AdminFinanceLive, :index
       live "/admin/users/:id", AdminLive.UserDetail, :show
       live "/admin/conversations/:id", AdminLive.ConversationDetail, :show
     end

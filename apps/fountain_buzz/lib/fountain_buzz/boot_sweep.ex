@@ -37,30 +37,8 @@ defmodule FountainBuzz.BootSweep do
     # not a user-facing request — every identity's own user_id scopes the mint
     # and vault decrypt that `Manager.start_harness/2` performs downstream.
     Buzz._unsafe_list_enabled_identities()
-    |> Enum.filter(&may_spend?/1)
     |> Enum.map(&start_one/1)
     |> Enum.count(&(&1 == :ok))
-  end
-
-  # A harness is a standing OS process the sandbox meters never see (#1017),
-  # so the balance gates it here too. Without this the sweep would undo
-  # `FountainBuzz.Workers.HarnessSweep` on every deploy: it stops a harness
-  # whose tenant cannot spend, and the next boot stood it straight back up.
-  # `check_spend/1` is `:ok` with billing off or for a comped account, so a
-  # deployment without credits sweeps exactly as it always did.
-  defp may_spend?(identity) do
-    case Fountain.Billing.check_spend(identity.user_id) do
-      :ok ->
-        true
-
-      {:error, reason} ->
-        Logger.info(
-          "buzz boot sweep: skipping identity=#{identity.id} " <>
-            "(user #{identity.user_id}: #{inspect(reason)})"
-        )
-
-        false
-    end
   end
 
   @impl true

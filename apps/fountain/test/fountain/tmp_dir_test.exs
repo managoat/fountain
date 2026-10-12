@@ -70,8 +70,8 @@ defmodule Fountain.TmpDirTest do
   end
 
   describe "the guardrail" do
-    # Every test file, from both test roots. `test_paths` is ["test",
-    # "../../ee/test"] and this file lives in apps/fountain/test/fountain.
+    # Every test file under apps/fountain/test; this file lives in
+    # apps/fountain/test/fountain.
     # This file names the forbidden call in its own scan and in the assertion
     # above, so it is the one file the scan skips. Nothing else is exempt.
     @self Path.expand(__ENV__.file)
@@ -79,8 +79,9 @@ defmodule Fountain.TmpDirTest do
     defp test_files do
       root = Path.expand("../..", __DIR__)
 
-      [Path.join(root, "test/**/*.exs"), Path.expand("../../../../ee/test/**/*.exs", __DIR__)]
-      |> Enum.flat_map(&Path.wildcard/1)
+      root
+      |> Path.join("test/**/*.exs")
+      |> Path.wildcard()
       |> Enum.reject(&(Path.expand(&1) == @self))
     end
 
@@ -104,11 +105,10 @@ defmodule Fountain.TmpDirTest do
 
     test "the guardrail is looking at the files it thinks it is" do
       # Guard the guard (#406): an empty or mis-rooted glob would make the test
-      # above pass over nothing. Both roots must be represented.
+      # above pass over nothing.
       files = test_files()
 
       assert length(files) > 100
-      assert Enum.any?(files, &String.contains?(&1, "/ee/test/"))
       # A file from the deeper half of apps/fountain/test, so a glob that only
       # reached the top level would still fail here. It used to name a Buzz
       # test; those live in apps/fountain_buzz since #1507, which this

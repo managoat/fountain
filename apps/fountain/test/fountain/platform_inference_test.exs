@@ -1,8 +1,8 @@
 defmodule Fountain.PlatformInferenceTest do
   @moduledoc """
-  The platform keys, the selection rule and the daily ceiling (#1388).
+  The platform keys and the selection rule (#1388).
 
-  `async: false` throughout: platform keys and the ceiling live in the global
+  `async: false` throughout: platform keys live in the global
   application environment, and an async module that writes it races every
   other module that reads it (#1214).
   """
@@ -11,7 +11,6 @@ defmodule Fountain.PlatformInferenceTest do
 
   import Ecto.Query, only: [from: 2]
 
-  alias Fountain.Credits
   alias Fountain.Environments
   alias Fountain.InferenceCredentials
   alias Fountain.InferenceCredentials.Source
@@ -22,8 +21,7 @@ defmodule Fountain.PlatformInferenceTest do
       for key <- [
             :platform_anthropic_api_key,
             :platform_openai_api_key,
-            :platform_gemini_api_key,
-            :platform_inference_daily_cents
+            :platform_gemini_api_key
           ],
           do: {key, Application.get_env(:fountain, key)}
 
@@ -283,132 +281,76 @@ defmodule Fountain.PlatformInferenceTest do
     end
   end
 
-  # What admission does (`Conversations.resolve_admission_inference/5`):
-  # resolve the launch's selection, then ask the ceiling about that source.
-  defp admit(user_id, model, opts \\ []) do
-    with {:ok, source, _credentials} <- InferenceCredentials.resolve(user_id, model, nil, opts),
-         do: PlatformInference.gate_source(source)
+  # What admission does (`Launch.resolve_admission_inference/6`): resolve the
+  # launch's selection. Nothing bounds a platform source's spend; the question
+  # left is only whose credential serves the run.
+  defp platform?(user_id, model, opts \\ []) do
+    {:ok, source, _credentials} = InferenceCredentials.resolve(user_id, model, nil, opts)
+    Source.platform?(source)
   end
 
-  describe "resolve/4 then gate_source/1, the door check" do
+  describe "resolve/4, whose credential a launch runs on" do
     setup do
       %{user: insert_verified_user()}
     end
 
-    test "with no platform key nothing is gated", %{user: user} do
-      assert admit(user.id, "anthropic/claude-opus-5") == :ok
+    test "a tenant with no credential of their own runs on the platform key", %{user: user} do
+      with_platform_key()
+      assert platform?(user.id, "anthropic/claude-opus-5")
     end
 
-    test "under the ceiling a platform account passes", %{user: user} do
+    test "a tenant with their own key runs on it", %{user: user} do
       with_platform_key()
-      assert admit(user.id, "anthropic/claude-opus-5") == :ok
-    end
-
-    test "over the ceiling a platform account is refused", %{user: user} do
-      with_platform_key()
-      Application.put_env(:fountain, :platform_inference_daily_cents, 10)
-      burn_inference(user, 10)
-
-      assert admit(user.id, "anthropic/claude-opus-5") ==
-               {:error, :platform_inference_unavailable}
-    end
-
-    test "a tenant with their own key is never touched by the ceiling", %{user: user} do
-      with_platform_key()
-      Application.put_env(:fountain, :platform_inference_daily_cents, 0)
-      burn_inference(user, 500)
 
       {:ok, dek} = Fountain.Crypto.load_tenant_key(user.id)
       {:ok, _} = InferenceCredentials.put_credential(user.id, dek, :anthropic_api_key, "sk-mine")
 
-      assert admit(user.id, "anthropic/claude-opus-5") == :ok
-      # And the same account without the key would have been refused.
-      assert admit(insert_verified_user().id, "anthropic/claude-opus-5") ==
-               {:error, :platform_inference_unavailable}
+      refute platform?(user.id, "anthropic/claude-opus-5")
+      # And the same launch for another account still lands on the platform key.
+      assert platform?(insert_verified_user().id, "anthropic/claude-opus-5")
     end
 
     # ADR 0053 decision 5. A vault or environment secret named after a
-    # credential serves the conversation instead of the platform key, so a
-    # tenant who brought one was being refused on a ceiling they were not
-    # spending against. The launch's ids are what make the door ask the
-    # question the provision answers.
-    test "a tenant whose vault names the credential is not refused either", %{user: user} do
+    # credential serves the conversation instead of the platform key. The
+    # launch's ids are what make the resolver ask the question the provision
+    # answers.
+    test "a tenant whose vault names the credential runs on it", %{user: user} do
       with_platform_key()
-      Application.put_env(:fountain, :platform_inference_daily_cents, 0)
-      burn_inference(user, 500)
 
       vault = insert_vault(user_id: user.id)
       insert_vault_secret(vault, key: "ANTHROPIC_API_KEY", value: "sk-from-the-vault")
 
-      assert admit(user.id, "anthropic/claude-opus-5", vault_id: vault.id) ==
-               :ok
+      refute platform?(user.id, "anthropic/claude-opus-5", vault_id: vault.id)
 
       # The same launch without the vault, and the same vault under another
-      # tenant, are both still refused.
-      assert admit(user.id, "anthropic/claude-opus-5") ==
-               {:error, :platform_inference_unavailable}
-
-      assert admit(insert_verified_user().id, "anthropic/claude-opus-5", vault_id: vault.id) ==
-               {:error, :platform_inference_unavailable}
+      # tenant, both run on the platform key.
+      assert platform?(user.id, "anthropic/claude-opus-5")
+      assert platform?(insert_verified_user().id, "anthropic/claude-opus-5", vault_id: vault.id)
     end
 
     test "an environment naming the credential counts too, and an unrelated key does not",
          %{user: user} do
       with_platform_key()
-      Application.put_env(:fountain, :platform_inference_daily_cents, 0)
-      burn_inference(user, 500)
 
       env = insert_env(user_id: user.id)
       {:ok, dek} = Fountain.Crypto.load_tenant_key(user.id)
       {:ok, _} = Environments.upsert_secret(env, %{"key" => "UNRELATED", "value" => "x"}, dek)
 
-      assert admit(user.id, "anthropic/claude-opus-5", environment_id: env.id) ==
-               {:error, :platform_inference_unavailable}
+      assert platform?(user.id, "anthropic/claude-opus-5", environment_id: env.id)
 
       {:ok, _} =
         Environments.upsert_secret(env, %{"key" => "ANTHROPIC_API_KEY", "value" => "sk-e"}, dek)
 
-      assert admit(user.id, "anthropic/claude-opus-5", environment_id: env.id) == :ok
+      refute platform?(user.id, "anthropic/claude-opus-5", environment_id: env.id)
     end
 
-    test "a secret for another provider does not excuse this one", %{user: user} do
+    test "a secret for another provider does not serve this one", %{user: user} do
       with_platform_key()
-      Application.put_env(:fountain, :platform_inference_daily_cents, 0)
-      burn_inference(user, 500)
 
       vault = insert_vault(user_id: user.id)
       insert_vault_secret(vault, key: "OPENAI_API_KEY", value: "sk-openai")
 
-      assert admit(user.id, "anthropic/claude-opus-5", vault_id: vault.id) ==
-               {:error, :platform_inference_unavailable}
-    end
-
-    test "yesterday's spend does not count against today", %{user: user} do
-      with_platform_key()
-      Application.put_env(:fountain, :platform_inference_daily_cents, 10)
-      entry = burn_inference(user, 500)
-
-      entry
-      |> Ecto.Changeset.change(
-        inserted_at: DateTime.utc_now() |> DateTime.add(-2, :day) |> DateTime.truncate(:second)
-      )
-      |> Repo.update!()
-
-      assert admit(user.id, "anthropic/claude-opus-5") == :ok
-    end
-  end
-
-  describe "check_ceiling/0" do
-    test "a zero ceiling refuses rather than reading as unbounded" do
-      Application.put_env(:fountain, :platform_inference_daily_cents, 0)
-
-      assert PlatformInference.check_ceiling() ==
-               {:error, :platform_inference_unavailable}
-    end
-
-    test "the default ceiling is $50" do
-      Application.delete_env(:fountain, :platform_inference_daily_cents)
-      assert PlatformInference.daily_ceiling_cents() == 5_000
+      assert platform?(user.id, "anthropic/claude-opus-5", vault_id: vault.id)
     end
   end
 
@@ -418,15 +360,5 @@ defmodule Fountain.PlatformInferenceTest do
         where: e.event_type == ^event_type,
         order_by: [asc: e.id]
     )
-  end
-
-  defp burn_inference(user, cents) do
-    {:ok, entry} =
-      Credits.debit(user.id, cents, "burn_inference",
-        idempotency_key: "burn_inference:test:#{System.unique_integer([:positive])}",
-        actor: "system:test"
-      )
-
-    entry
   end
 end

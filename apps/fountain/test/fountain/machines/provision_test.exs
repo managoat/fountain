@@ -1248,7 +1248,6 @@ defmodule Fountain.Machines.ProvisionTest do
     user =
       Repo.insert!(%Fountain.Accounts.User{
         email: "machine-provision-#{Ecto.UUID.generate()}@example.test",
-        credit_balance_cents: 5_000,
         sandbox_limit_override: 5
       })
 

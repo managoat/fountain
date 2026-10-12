@@ -22,8 +22,8 @@ observability pack, built from a real run of the hosted instance.
   built from metrics the app exports, and from nothing else. Import it
   into Grafana, then choose your Prometheus datasource. On compose, point any
   Prometheus at the metrics port and import the same file.
-- **Three team dashboards**, in `deploy/grafana/`, one each for ops, product
-  and finance. They cover the same metrics in more depth, and the ops one adds
+- **Two team dashboards**, in `deploy/grafana/`, one each for ops and
+  product. They cover the same metrics in more depth, and the ops one adds
   trace panels. [Read the dashboards](dashboards.md) says what each number
   means.
 
@@ -96,10 +96,7 @@ check the shipped expressions and their failure fixtures.
 | `FountainPitrWalMetricsAbsent` | CNPG WAL archive metrics are absent from Prometheus. |
 | `FountainStageFailures` | Conversation stages fail. |
 | `FountainSiteUnreachable` | An external probe cannot reach the public site. |
-| `FountainCreditPricerSilent` | The turn pricer has no successful pass. |
-| `FountainCreditWorkerSilent` | A credit worker stops. |
-| `FountainCreditPricerPricedNothing` | Paid-provider turns complete without ledger debits. |
-| `FountainStripeWebhookFailures` | Stripe webhooks fail. |
+
 | `FountainEmailDeliveryFailures` | Transactional email fails to send. |
 | `FountainBrokerListenerDown` | The broker listener refuses connections. |
 | `FountainBrokerUnreachable` | A probe cannot reach the broker through its Service. |

@@ -5,7 +5,7 @@
 # runtime stage copies the release onto a slim Debian base.
 #
 # Notes:
-#   - Umbrella: COPY apps/, ee/, config/, and the root mix.exs/mix.lock.
+#   - Umbrella: COPY apps/, config/, and the root mix.exs/mix.lock.
 #     Release definition lives in the umbrella root (releases/0 in
 #     mix.exs).
 #   - No assets pipeline today: apps/fountain has no `assets/` dir and
@@ -73,10 +73,6 @@ RUN mix deps.get --only prod \
  && mix deps.compile
 
 COPY apps ./apps
-# ee/ is extra elixirc_paths for the fountain app (billing + transactional
-# email — decisions/0010). Mix SILENTLY skips missing elixirc_paths dirs:
-# without this COPY the release still builds but is missing those modules.
-COPY ee ./ee
 # Fountain.Docs embeds docs/ at compile time to serve it at /docs — without
 # it the compile fails on File.read!. This is also the only way the content
 # ships: the release never contains docs/ as files.

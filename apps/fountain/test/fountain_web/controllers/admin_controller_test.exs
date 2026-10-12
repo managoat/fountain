@@ -9,12 +9,6 @@ defmodule FountainWeb.AdminControllerTest do
   as a clicked one.
   """
 
-  # async: false — the "billing actions when billing is disabled" block below
-  # flips `:credits_enabled`, which is application env and therefore global to
-  # the VM, not to this test. Run async, it made every concurrent test that
-  # reads `Credits.enabled?/0` see `false` for the duration, which is how
-  # AdminUserDetailLiveTest's billing section intermittently vanished
-  # (#576). Every other module that mutates this env is already async: false.
   use FountainWeb.ConnCase, async: false
   use Mimic
 
@@ -134,28 +128,7 @@ defmodule FountainWeb.AdminControllerTest do
 
       assert unverified_user.id in Enum.map(unverified["data"], & &1["id"])
 
-      # The status vocabulary retired with the subscription (ADR 0031); comped
-      # is the one billing distinction left, and `?status=` is rejected rather
-      # than silently ignored.
-      {:ok, comped_user} = Fountain.Billing.comp_account(insert_verified_user())
-
-      comped =
-        build_conn()
-        |> authed_with_key(key)
-        |> get("/api/admin/users?comped=true")
-        |> json_response(200)
-
-      assert Enum.map(comped["data"], & &1["id"]) == [comped_user.id]
-
-      billed =
-        build_conn()
-        |> authed_with_key(key)
-        |> get("/api/admin/users?comped=false")
-        |> json_response(200)
-
-      refute comped_user.id in Enum.map(billed["data"], & &1["id"])
-      assert target.id in Enum.map(billed["data"], & &1["id"])
-
+      # `?status=` is rejected rather than silently ignored.
       assert build_conn()
              |> authed_with_key(key)
              |> get("/api/admin/users?status=trialing")
@@ -332,37 +305,19 @@ defmodule FountainWeb.AdminControllerTest do
     end
   end
 
-  describe "billing actions when billing is disabled" do
-    setup do
-      previous = Application.get_env(:fountain, :credits_enabled)
-      Application.put_env(:fountain, :credits_enabled, false)
-      on_exit(fn -> Application.put_env(:fountain, :credits_enabled, previous) end)
-      :ok
-    end
-
-    test "comp and credit grants are refused", %{key: key, target: target} do
-      # The UI hides the buttons; events could still be sent by hand (#399).
+  describe "billing actions" do
+    test "comp and credit grants are gone", %{key: key, target: target} do
       for {path, payload} <- [
             {"comp", %{"comped" => true}},
             {"credits", %{"cents" => 100}}
           ] do
-        body =
-          build_conn()
-          |> authed_with_key(key)
-          |> post_json("/api/admin/users/#{target.id}/#{path}", payload)
-          |> json_response(404)
-
-        assert body["billing"] == "disabled"
+        build_conn()
+        |> authed_with_key(key)
+        |> post_json("/api/admin/users/#{target.id}/#{path}", payload)
+        |> json_response(404)
       end
 
       assert admin_events() == []
-    end
-
-    test "non-billing actions still work", %{conn: conn, key: key, target: target} do
-      conn
-      |> authed_with_key(key)
-      |> post_json("/api/admin/users/#{target.id}/sandbox-limit", %{"limit" => 2})
-      |> json_response(200)
     end
   end
 

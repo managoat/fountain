@@ -30,11 +30,10 @@ defmodule Fountain.Factory do
   end
 
   @doc """
-  A verified user, with everything verification gives an account: the $5
-  opening credit (ADR 0031) and the `starter` agent (ADR 0038). Both are real
-  rows, because both are what a verified account really has — see
-  `insert_empty_user/1` and `insert_user_without_agents/1` for the tests that
-  need one of them gone.
+  A verified user, with everything verification gives an account: the
+  `starter` agent (ADR 0038). It is a real row, because it is what a verified
+  account really has — see `insert_user_without_agents/1` for the tests that
+  need it gone.
   """
   def insert_verified_user(overrides \\ %{}) do
     user = insert_user(overrides)
@@ -87,27 +86,6 @@ defmodule Fountain.Factory do
     user = insert_verified_user(overrides)
     :ok = delete_starter_agent(user)
     user
-  end
-
-  @doc """
-  A verified user with an empty ledger: the opening credit every verified
-  account gets (ADR 0031) wiped and the balance recomputed to zero. For the
-  tests that assert exact ledger arithmetic from a blank slate; such an
-  account cannot spend until a test grants it something.
-  """
-  def insert_empty_user(overrides \\ %{}) do
-    user = insert_verified_user(overrides)
-    uid = user.id
-    Repo.delete_all(Ecto.Query.from(e in Fountain.Credits.LedgerEntry, where: e.user_id == ^uid))
-
-    Repo.delete_all(
-      Ecto.Query.from(a in Fountain.Audit.Event,
-        where: a.user_id == ^uid and like(a.action, "credit.%")
-      )
-    )
-
-    Fountain.Credits.recompute_balance(user.id)
-    Repo.reload!(user)
   end
 
   def insert_api_key(user, name \\ nil, opts \\ []) do

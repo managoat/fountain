@@ -21,8 +21,7 @@ config :fountain, Fountain.Repo,
   # `queue_interval`, and the 50 ms / 1 s defaults are sized for a pool with
   # spare connections rather than for a queue that is a queue by construction.
   # On a loaded workstation that dropped real tests: #1524 (Ecto's preloader,
-  # waits of 121-160 ms) and #1568 (the credit ledger's concurrent-post test,
-  # 263 ms), neither of them a defect in the code under test.
+  # waits of 121-160 ms) and #1568 (a concurrent-post test, 263 ms), neither of them a defect in the code under test.
   #
   # 200 ms / 5 s tolerates about 5 s of continuous backlog on one connection,
   # against the ~250 ms the real failures waited. A genuinely stuck connection
@@ -63,11 +62,6 @@ config :ueberauth, Ueberauth.Strategy.Github.OAuth,
   client_id: "test-github-client-id",
   client_secret: "test-github-client-secret"
 
-# The runtime CREDITS_ENABLED switch defaults to off (#336) but is not applied
-# in :test (see config/runtime.exs) — the suite pins the gate on here and
-# toggles it per-test via the application env.
-config :fountain, :credits_enabled, true
-
 # The public chrome links the marketing site's pages in :test (MARKETING_SITE
 # is not read in :test — see config/runtime.exs); the chrome without them is
 # covered by flipping this off per-test.
@@ -83,10 +77,9 @@ config :fountain, :legal, %{
   updated: "2026-01-01"
 }
 
-# A known webhook secret so StripeWebhookController's fail-closed secret
-# resolution (#390) succeeds; signature-path tests sign payloads with the
-# value they read back from this key, exercising the real construct_event.
-config :stripity_stripe, webhook_secret: "whsec_test_signing_secret"
+# A per-account cap well under the fleet ceiling, so a test that fills one
+# account's cap meets the account's refusal (429) rather than the fleet's (503).
+config :fountain, :sandboxes, cap_ceiling: 2, fleet_ceiling: 20
 
 # Key rate limit buckets by calling process PID instead of IP, so async
 # ExUnit tests don't share counters. Each test runs in its own process.

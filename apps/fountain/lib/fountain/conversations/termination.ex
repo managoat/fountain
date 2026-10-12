@@ -195,7 +195,7 @@ defmodule Fountain.Conversations.Termination do
       interrupted and the adapter closed, and a conversation rebound to another
       machine in between would make the second decision `:sandbox_kept`,
       leaving this machine fenced, live and billing with no server left to
-      finish it (`ee/test/.../termination_billing_test.exs` is that race).
+      finish it.
     * **`nil` again**, from every forced teardown. A home whose agent is gone,
       a tenant's machines during account deletion, an abandoned machine past
       its ceiling and an admin reap are all operations *on the machine*, not

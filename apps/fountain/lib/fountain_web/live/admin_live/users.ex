@@ -5,12 +5,12 @@ defmodule FountainWeb.AdminLive.Users do
   Split out of `AdminLive.Index` when `/admin` stopped being one page. Nothing
   about the table changed: the filter, sort and page state still live in the
   URL so the ten-second refresh, an admin action and a browser reload all
-  preserve position. What changed is that reading it no longer runs the funnel,
-  the billing overview, the provider-spend attribution and the sandbox list
-  alongside it, ten seconds apart, forever.
+  preserve position. What changed is that reading it no longer runs the
+  provider-spend attribution and the sandbox list alongside it, ten seconds
+  apart, forever.
 
   Every lever here is confirmed at the button and recorded to the privilege
-  trail (`/admin/activity`). The read-only money view is `/admin/finance`.
+  trail (`/admin/activity`).
   """
 
   use FountainWeb, :live_view
@@ -18,7 +18,7 @@ defmodule FountainWeb.AdminLive.Users do
   import FountainWeb.AdminLive.Helpers
   import FountainWeb.AdminLive.Shell
 
-  alias Fountain.{Accounts, Billing, Quotas}
+  alias Fountain.{Accounts, Quotas}
   alias Fountain.Accounts.Deletion
 
   @usage_window_days 30
@@ -33,7 +33,6 @@ defmodule FountainWeb.AdminLive.Users do
      socket
      |> FountainWeb.Audited.put_client_ip()
      |> assign(:page_title, "Admin · Users")
-     |> assign(:credits_enabled, Fountain.Credits.enabled?())
      |> assign(:extension_columns, [])}
   end
 
@@ -58,7 +57,6 @@ defmodule FountainWeb.AdminLive.Users do
     filters = %{
       socket.assigns.filters
       | search: params["q"] || "",
-        comped: parse_yes_no(params["comped"]),
         role: if(params["role"] in ~w(admin user), do: params["role"]),
         verified: parse_yes_no(params["verified"]),
         page: 1
@@ -72,11 +70,10 @@ defmodule FountainWeb.AdminLive.Users do
     with_target_user(socket, id, fn user -> do_toggle_admin(socket, user) end)
   end
 
-  # The concurrency cap normally follows the tenant's balance (ADR 0031).
-  # This overrides it, which is the lever for a noisy or abusive tenant
-  # (ADR 0005) and the way to hand a trusted one more than their balance
-  # funds. Submitting the field empty clears the override and hands the cap
-  # back to the balance rule.
+  # The concurrency cap is normally the configured ceiling. This overrides it,
+  # which is the lever for a noisy or abusive tenant (ADR 0005) and the way to
+  # hand a trusted one more. Submitting the field empty clears the override
+  # and hands the cap back to the ceiling.
   @impl true
   def handle_event("set_sandbox_limit", %{"user_id" => id, "limit" => raw}, socket) do
     with {:ok, limit} <- parse_limit_override(raw),
@@ -95,7 +92,7 @@ defmodule FountainWeb.AdminLive.Users do
 
       message =
         if is_nil(limit),
-          do: "Override cleared — the cap follows the balance again",
+          do: "Override cleared — the cap is the ceiling again",
           else: "Sandbox limit override set"
 
       {:noreply, socket |> assign_users() |> put_flash(:info, message)}
@@ -111,27 +108,14 @@ defmodule FountainWeb.AdminLive.Users do
          put_flash(
            socket,
            :error,
-           "Override must be a whole number of 0 or more, or empty for the balance rule's cap"
+           "Override must be a whole number of 0 or more, or empty for the ceiling"
          )}
     end
   end
 
-  # The buttons are hidden when billing is disabled, but events can still be
-  # sent by hand (#399's lesson) — and all of these actions talk to Stripe.
-  @impl true
-  def handle_event(event, _params, %{assigns: %{credits_enabled: false}} = socket)
-      when event in ~w(toggle_comp) do
-    {:noreply, put_flash(socket, :error, "Billing is disabled on this instance")}
-  end
-
-  @impl true
-  def handle_event("toggle_comp", %{"id" => id}, socket) do
-    with_target_user(socket, id, fn user -> do_toggle_comp(socket, user) end)
-  end
-
-  # The reversible abuse lever between comp and delete (#287): sessions die,
-  # API keys refuse, sandboxes are reaped — and it all comes back with one
-  # click. Billing is deliberately untouched; see Accounts.suspend_user/1.
+  # The reversible abuse lever short of delete (#287): sessions die, API keys
+  # refuse, sandboxes are reaped — and it all comes back with one click. See
+  # Accounts.suspend_user/1.
   @impl true
   def handle_event("toggle_suspend", %{"id" => id}, socket) do
     admin = socket.assigns.current_user
@@ -190,35 +174,6 @@ defmodule FountainWeb.AdminLive.Users do
 
       {:error, _} ->
         {:noreply, put_flash(socket, :error, "Failed to update role")}
-    end
-  end
-
-  defp do_toggle_comp(socket, user) do
-    result =
-      if user.comped,
-        do: {Billing.revoke_comp(user), "admin.comp.revoked"},
-        else: {Billing.comp_account(user), "admin.comp.granted"}
-
-    case result do
-      {{:ok, updated}, event_type} ->
-        Fountain.Audit.record_admin(%{
-          actor_user_id: socket.assigns.current_user.id,
-          target_user_id: user.id,
-          event_type: event_type,
-          metadata: %{
-            "email" => user.email,
-            "from" => user.comped,
-            "to" => updated.comped
-          }
-        })
-
-        {:noreply,
-         socket
-         |> assign_users()
-         |> put_flash(:info, if(updated.comped, do: "Comped", else: "Comp revoked"))}
-
-      {{:error, _}, _} ->
-        {:noreply, put_flash(socket, :error, "Could not change comp")}
     end
   end
 
@@ -326,7 +281,6 @@ defmodule FountainWeb.AdminLive.Users do
     %{users: users, total: total} =
       Accounts.list_users_admin(
         search: f.search,
-        comped: f.comped,
         role: f.role,
         verified: f.verified,
         sort: f.sort,
@@ -377,7 +331,6 @@ defmodule FountainWeb.AdminLive.Users do
   defp parse_filters(params) do
     %{
       search: params["q"] || "",
-      comped: parse_yes_no(params["comped"]),
       role: if(params["role"] in ~w(admin user), do: params["role"]),
       verified: parse_yes_no(params["verified"]),
       sort: if(params["sort"] in @sorts, do: params["sort"], else: "joined"),
@@ -405,14 +358,12 @@ defmodule FountainWeb.AdminLive.Users do
   `/admin/users` carrying `filters` as query params.
 
   Public because the pages that link *into* a filtered list build the same
-  URL — the finance page, the overview's "funded accounts"
-  tile — and a second hand-rolled copy of this would drift.
+  URL, and a second hand-rolled copy of this would drift.
   """
   def users_path(f) do
     params =
       [
         q: if(f[:search] not in [nil, ""], do: f[:search]),
-        comped: yes_no(f[:comped]),
         role: f[:role],
         verified: yes_no(f[:verified]),
         sort: if(f[:sort] && f[:sort] != "joined", do: f[:sort]),
@@ -459,7 +410,7 @@ defmodule FountainWeb.AdminLive.Users do
   def render(assigns) do
     ~H"""
     <div class="space-y-6">
-      <.admin_header title="Users" current={:users} credits_enabled={@credits_enabled}>
+      <.admin_header title="Users" current={:users}>
         <:subtitle>
           {@total_users} {if @total_users == 1, do: "account", else: "accounts"}. Refreshes every 10s.
         </:subtitle>
@@ -476,15 +427,6 @@ defmodule FountainWeb.AdminLive.Users do
             autocomplete="off"
             class="w-48 rounded border border-[var(--color-border)] px-2 py-1 text-xs"
           />
-          <select
-            :if={@credits_enabled}
-            name="comped"
-            class="rounded border border-[var(--color-border)] px-1 py-1 text-xs"
-          >
-            <option value="">comped or billed</option>
-            <option value="yes" selected={@filters.comped == true}>comped</option>
-            <option value="no" selected={@filters.comped == false}>billed</option>
-          </select>
           <select name="role" class="rounded border border-[var(--color-border)] px-1 py-1 text-xs">
             <option value="">any role</option>
             <option value="admin" selected={@filters.role == "admin"}>admin</option>
@@ -507,19 +449,9 @@ defmodule FountainWeb.AdminLive.Users do
                 <.sort_header label="Email" col="email" filters={@filters} />
               </th>
               <th class="px-4 py-2">Role</th>
-              <th :if={@credits_enabled} class="px-4 py-2">
-                Billing
-              </th>
-              <th
-                :if={@credits_enabled}
-                class="px-4 py-2"
-                title="The balance, or comped: an operator made this account free"
-              >
-                Credit
-              </th>
               <th
                 class="px-4 py-2"
-                title="Last 30 days: conversations · turns · turn hours (the unit credit is burned in)"
+                title="Last 30 days: conversations · turns · turn hours"
               >
                 Usage 30d
               </th>
@@ -541,7 +473,7 @@ defmodule FountainWeb.AdminLive.Users do
           <tbody>
             <tr :if={@users == []}>
               <td
-                colspan={if @credits_enabled, do: "10", else: "8"}
+                colspan="8"
                 class="px-4 py-6 text-center text-sm text-[var(--color-text-secondary)]"
               >
                 No users match.
@@ -581,37 +513,8 @@ defmodule FountainWeb.AdminLive.Users do
                   {u.role}
                 </span>
               </td>
-              <td :if={@credits_enabled} class="px-4 py-2">
-                <div class="flex flex-col gap-1">
-                  <span class={[
-                    "inline-flex w-fit items-center rounded px-1.5 py-0.5 text-xs font-medium border",
-                    account_badge_class(u.comped)
-                  ]}>
-                    {if u.comped,
-                      do: "comped",
-                      else: Fountain.Credits.format_cents(u.credit_balance_cents)}
-                  </span>
-                  <button
-                    phx-click="toggle_comp"
-                    phx-value-id={u.id}
-                    data-confirm={
-                      if u.comped,
-                        do:
-                          "Revoke #{u.email}'s comp? Their balance is checked again from the next spend.",
-                        else:
-                          "Comp #{u.email}? Their balance is never checked and nothing is refused."
-                    }
-                    class="text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] underline text-left"
-                  >
-                    {if u.comped, do: "revoke comp", else: "comp"}
-                  </button>
-                </div>
-              </td>
-              <%!-- Turn hours, not sandbox minutes. Sandbox time is what
-                    Fountain is billed and it is on /admin/finance; what a
-                    tenant *buys* is turn hours (ADR 0031), so that is the
-                    number to read beside their balance. The tooltip keeps
-                    the sandbox side one hover away. --%>
+              <%!-- Turn hours, not sandbox minutes: the tooltip keeps the
+                    sandbox side one hover away. --%>
               <td
                 class="px-4 py-2 text-xs text-[var(--color-text-secondary)] tabular-nums whitespace-nowrap"
                 title={usage_tooltip(u.usage)}
@@ -634,7 +537,7 @@ defmodule FountainWeb.AdminLive.Users do
                   ]}>
                     {u.active_sandboxes} / {u.sandbox_limit}
                   </span>
-                  <%!-- Empty means "no override": the cap is the balance rule's, shown
+                  <%!-- Empty means "no override": the cap is the ceiling, shown
                         as the placeholder so an admin can see what clearing
                         the box would leave behind. --%>
                   <input
@@ -643,7 +546,7 @@ defmodule FountainWeb.AdminLive.Users do
                     min="0"
                     value={u.sandbox_limit_override}
                     placeholder={u.sandbox_limit}
-                    title="Empty: what the balance funds (ADR 0031)"
+                    title="Empty: the configured ceiling"
                     class="w-14 rounded border border-[var(--color-border)] px-1 py-0.5 text-xs"
                   />
                   <button class="text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] underline">set</button>
@@ -676,7 +579,7 @@ defmodule FountainWeb.AdminLive.Users do
                     if u.suspended_at,
                       do: "Lift #{u.email}'s suspension? They can log in again immediately.",
                       else:
-                        "Suspend #{u.email}? Sessions and API keys stop working and running conversations are terminated. Reversible; billing is not touched."
+                        "Suspend #{u.email}? Sessions and API keys stop working and running conversations are terminated. Reversible."
                   }
                   class="text-xs text-[var(--color-warning-text)] hover:text-[var(--color-warning)] underline"
                 >
@@ -735,6 +638,6 @@ defmodule FountainWeb.AdminLive.Users do
       |> Enum.sort()
       |> Enum.map_join(" · ", fn {provider, minutes} -> "#{provider} #{round(minutes)}m" end)
 
-    "#{round(usage.sandbox_minutes)}m sandbox time (#{split}) — what we are billed, on /admin/finance"
+    "#{round(usage.sandbox_minutes)}m sandbox time (#{split})"
   end
 end

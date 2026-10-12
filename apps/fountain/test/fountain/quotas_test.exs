@@ -65,69 +65,35 @@ defmodule Fountain.QuotasTest do
   end
 
   describe "sandbox_limit/1" do
-    # The balance rule (ADR 0031): clamp(balance / reserve, floor, ceiling),
-    # with reserve $2, floor 2 and ceiling 20 in test config.
-    defp with_balance(user, cents) do
-      {:ok, _} =
-        Fountain.Credits.grant(user.id, cents, "purchase", idempotency_key: "q-#{user.id}")
-
-      user
+    # The ceiling is 2 in test config.
+    test "an account with no override gets the ceiling" do
+      assert Quotas.sandbox_limit(insert_active_user().id) == 2
     end
 
-    # Every verified account holds the $5 opening grant: the floor. Spent to
-    # nothing, it funds nothing — the gate refuses first, so the cap is never
-    # the answer that account hears.
-    test "the opening grant funds the floor; nothing at all funds nothing" do
-      user = insert_active_user()
-      assert Quotas.sandbox_limit(user.id) == 2
-
-      {:ok, _} =
-        Fountain.Credits.debit(user.id, 1_000, "burn_turn", idempotency_key: "drain-#{user.id}")
-
-      assert Quotas.sandbox_limit(user.id) == 0
-    end
-
-    test "the cap follows the balance, one sandbox per reserve" do
-      assert Quotas.sandbox_limit(with_balance(insert_active_user(), 1_000).id) == 7
-      assert Quotas.sandbox_limit(with_balance(insert_active_user(), 1_199).id) == 8
-      assert Quotas.sandbox_limit(with_balance(insert_active_user(), 100).id) == 3
-    end
-
-    test "the ceiling bounds it however large the balance" do
-      assert Quotas.sandbox_limit(with_balance(insert_active_user(), 100_000).id) == 20
-    end
-
-    # Billing off is covered in credits_enforcement_test (async: false): it
-    # flips global config, which an async module must not do.
-    test "a comped account gets the ceiling" do
-      {:ok, comped} = Fountain.Billing.comp_account(insert_active_user())
-      assert Quotas.sandbox_limit(comped.id) == 20
-    end
-
-    test "an override beats the balance, in either direction" do
+    test "an override beats the ceiling, in either direction" do
       up = insert_active_user()
       {:ok, up} = Fountain.Accounts.update_sandbox_limit(up, 25)
       assert Quotas.sandbox_limit(up.id) == 25
 
-      down = with_balance(insert_active_user(), 100_000)
+      down = insert_active_user()
       {:ok, down} = Fountain.Accounts.update_sandbox_limit(down, 1)
       assert Quotas.sandbox_limit(down.id) == 1
     end
 
     test "an override of zero is an override, not an absent one" do
-      user = with_balance(insert_active_user(), 100_000)
+      user = insert_active_user()
       {:ok, user} = Fountain.Accounts.update_sandbox_limit(user, 0)
       assert Quotas.sandbox_limit(user.id) == 0
     end
 
-    test "clearing the override hands the cap back to the balance" do
-      user = with_balance(insert_active_user(), 1_000)
+    test "clearing the override hands the cap back to the ceiling" do
+      user = insert_active_user()
       {:ok, user} = Fountain.Accounts.update_sandbox_limit(user, 1)
       {:ok, user} = Fountain.Accounts.update_sandbox_limit(user, nil)
-      assert Quotas.sandbox_limit(user.id) == 7
+      assert Quotas.sandbox_limit(user.id) == 2
     end
 
-    test "an unknown user funds nothing rather than being unlimited" do
+    test "an unknown user gets nothing rather than being unlimited" do
       assert Quotas.sandbox_limit(Ecto.UUID.generate()) == 0
     end
   end
@@ -141,38 +107,15 @@ defmodule Fountain.QuotasTest do
     # The admin table renders it per row and must not query per row, so it has
     # to agree with the querying version for every combination that matters.
     test "agrees with sandbox_limit/1 without touching the database" do
-      for cents <- [0, 1_000, 5_000, 100_000],
-          override <- [nil, 0, 25] do
+      for override <- [nil, 0, 25] do
         user = insert_active_user()
-
-        if cents > 0,
-          do:
-            {:ok, _} =
-              Fountain.Credits.grant(user.id, cents, "purchase", idempotency_key: "q-#{user.id}")
 
         {:ok, user} =
           Fountain.Accounts.update_sandbox_limit(Fountain.Repo.reload!(user), override)
 
         assert Quotas.sandbox_limit_for(user) == Quotas.sandbox_limit(user.id),
-               "cents=#{cents} override=#{inspect(override)}"
+               "override=#{inspect(override)}"
       end
-    end
-
-    test "an unfunded account is 0 on both, not the floor (#1127)" do
-      user = insert_active_user()
-
-      {:ok, _} =
-        Fountain.Credits.debit(user.id, 1_000, "burn_turn", idempotency_key: "drain-#{user.id}")
-
-      user = Fountain.Repo.reload!(user)
-      assert Quotas.sandbox_limit_for(user) == 0
-      assert Quotas.sandbox_limit(user.id) == 0
-
-      {:ok, comped} = Fountain.Billing.comp_account(user)
-      assert Quotas.sandbox_limit_for(comped) == Quotas.sandbox_limit(comped.id)
-
-      {:ok, overridden} = Fountain.Accounts.update_sandbox_limit(user, 3)
-      assert Quotas.sandbox_limit_for(overridden) == 3
     end
   end
 

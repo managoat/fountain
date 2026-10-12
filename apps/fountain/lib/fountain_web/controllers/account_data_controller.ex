@@ -155,8 +155,7 @@ defmodule FountainWeb.AccountDataController do
     responses: [
       ok: {"Deleted", "application/json", Schemas.AccountDeletedResponse},
       forbidden: {"Insufficient scope", "application/json", Schemas.Error},
-      unprocessable_entity: {"Confirmation mismatch", "application/json", Schemas.Error},
-      bad_gateway: {"Billing cancellation failed", "application/json", Schemas.Error}
+      unprocessable_entity: {"Confirmation mismatch", "application/json", Schemas.Error}
     ]
   )
 

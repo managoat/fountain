@@ -342,8 +342,8 @@ defmodule Fountain.Team.SchedulesTest do
     assert Conversations.get_conversation(conv.id, user.id)
   end
 
-  test "a broke scheduled run is described in words, not as an atom (#1126)" do
-    assert Schedules.describe_error(:insufficient_credits) == "out of credit"
+  test "a full fleet is described in words, not as an atom (#1126)" do
+    assert Schedules.describe_error(:fleet_full) == "sandbox fleet is full"
   end
 
   # ADR 0060 decision 4. The catch-all would have stored `inspect/1` of the

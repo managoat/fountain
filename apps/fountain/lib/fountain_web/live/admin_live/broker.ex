@@ -33,7 +33,6 @@ defmodule FountainWeb.AdminLive.Broker do
     {:ok,
      socket
      |> assign(:page_title, "Admin · Broker")
-     |> assign(:credits_enabled, Fountain.Credits.enabled?())
      |> assign(:window, 24)}
   end
 
@@ -102,7 +101,7 @@ defmodule FountainWeb.AdminLive.Broker do
   def render(assigns) do
     ~H"""
     <div class="space-y-6">
-      <.admin_header title="Broker" current={:broker} credits_enabled={@credits_enabled}>
+      <.admin_header title="Broker" current={:broker}>
         <:subtitle>
           Health refreshes every 30s. Traffic and session details refresh on request.
         </:subtitle>

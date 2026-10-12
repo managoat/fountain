@@ -36,10 +36,6 @@ defmodule FountainWeb.AuthMeController do
       # Read side of #525: a client that just bootstrapped an account can see
       # whether the browser will drop this user into the wizard.
       onboarding_completed: not is_nil(user.onboarding_completed_at),
-      # Null on a billing-disabled instance, even for an account that was
-      # comped before billing was turned off — there is no balance for the
-      # flag to be about (#480).
-      comped: if(Fountain.Credits.enabled?(), do: user.comped, else: nil),
       # Read-only: whether this deployment brokers egress (ADR 0019), so a
       # client can label the mode instead of probing /api/secret-bindings for
       # a 200 vs 404 (#1154). Deployment-wide since the §9 ratchet retired, so

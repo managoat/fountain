@@ -32,7 +32,7 @@ Include it, and the pattern is always safe to paste.
 |---|---|
 | `Fountain.Release.verify_email("a@b.c")` | Marks an account's email verified, and sends nothing. It is the escape hatch for a mail provider that broke. Since ADR 0011, `EMAIL_DELIVERY=none` self-verifies at registration. |
 | `Fountain.Release.promote_admin("a@b.c")` | Grants the admin role. The admin audit trail records it under a system actor. It is the manual alternative to `FIRST_USER_ADMIN=true` (ADR 0011). |
-| `Fountain.Release.rebuild_credit_lots()` | Replays every credit ledger and rewrites the lots. Safe to rerun. |
+
 | `Fountain.Release.inventory_sandbox_metadata()` | Prints retained sandbox IDs and counts of absent build and skill metadata. Read-only. Disk manifests remain unverified. |
 | `Fountain.Release.backfill_turn_replies()` | Fills the reply column on each turn that closed before the column existed. Safe to rerun. |
 | `Fountain.Release.migrate()` | Runs the migrations that are due, by hand. It is what `bin/migrate` runs. They already run at each boot, unless `MIGRATE_ON_BOOT=false`. In that case this, in a Job before the rollout, is how they run at all. That switch never skips it. |
@@ -203,6 +203,5 @@ to reverse a whole release's migrations on production data.
 ## Related
 
 - [Upgrade an instance](upgrade.md).
-- [Start billing](billing.md).
 - [Nobody can log in](../../troubleshooting/nobody-can-log-in.md), which is
   where `verify_email/1` matters.

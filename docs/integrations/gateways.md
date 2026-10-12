@@ -27,8 +27,8 @@ and followed over several calls rather than answered in one. No gateway can
 be configured into that shape.
 
 If the gateway was giving you key management, spend tracking or rate limiting
-across teams, Fountain has its own: [API keys](../api.md),
-[credits and billing](../guides/operate/billing.md) and per-key rate limits.
+across teams, Fountain has its own: [API keys](../api.md), per-account
+sandbox caps and per-key rate limits.
 
 ## What you can still do
 

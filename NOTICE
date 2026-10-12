@@ -11,7 +11,6 @@ its own LICENSE file, and that file governs.
   apps/fountain, config, priv    GNU Affero General Public License v3.0
   (the Fountain server)          or later  ...................  LICENSE
 
-  ee/                            Elastic License 2.0 .......... ee/LICENSE
 
   cli/                           Apache License 2.0 ........... cli/LICENSE
   sdk/typescript/                Apache License 2.0 ........... sdk/typescript/LICENSE

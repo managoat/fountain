@@ -39,7 +39,7 @@ properties decide whether a host suits it.
 | | |
 |---|---|
 | **One instance, and only one** | Fountain clusters over Erlang distribution, and most platforms give a service no way to discover its own peers. A second replica is not a second node. Two schedulers then race over the same sandboxes. |
-| **A process that never parks** | The sandbox reaper, the credit pricer and every scheduled teammate run inside the app process. A host that stops an idle instance stops all three, and nothing reports the loss. |
+| **A process that never parks** | The sandbox reaper, the retention pruner and every scheduled teammate run inside the app process. A host that stops an idle instance stops all three, and nothing reports the loss. |
 | **Long-lived connections** | The event streams are Server-Sent Events, and one turn runs for minutes. A host with a short request limit cuts them. |
 
 Some popular hosts fail one of these, and they fail it quietly.
@@ -70,7 +70,6 @@ Four have a guide below.
 
 - [Configure email](guides/operate/email.md)
 - [Change sandbox lifetimes](guides/operate/sandbox-lifetime.md)
-- [Start billing](guides/operate/billing.md)
 
 **How to keep it up.**
 
@@ -93,10 +92,6 @@ those people the source of your changed version. A private instance for your
 own company does not trigger this obligation. You do not offer a service to
 third parties in that case.
 
-The `ee/` directory holds the Stripe integration. That directory uses the
-Elastic Licence 2.0. You can run the code in your own instance at no cost, and
-your changes stay private. You must not offer that code to third parties as a
-hosted service.
 
 The `cli/` directory and the TypeScript, Python, Elixir and Swift SDKs use the
 Apache Licence 2.0. They do not impose copyleft on an application that calls

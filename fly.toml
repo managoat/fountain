@@ -78,10 +78,6 @@ primary_region = "iad"
   # the IPv4 range covers a proxy that reaches the machine over the host.
   TRUSTED_PROXIES = "fdaa::/16,172.16.0.0/12"
 
-  # Credits (ADR 0031) price the hosted service. On your own instance they are
-  # a lock with no key.
-  CREDITS_ENABLED = "false"
-
   # No mail, so a first deploy needs nothing external. Accounts self-verify at
   # registration in this mode (ADR 0011). For real mail set RESEND_API_KEY or
   # SMTP_HOST, and EMAIL_FROM, with `fly secrets set`.
@@ -128,9 +124,9 @@ primary_region = "iad"
   #
   # These two lines are the whole reason this file exists. Fly's defaults stop
   # an idle machine and start it again on a request, which is right for a web
-  # app and wrong here: the sandbox reaper, the credit pricer and every
-  # scheduled teammate run inside this process, so a parked machine is an
-  # instance that quietly stops reaping and stops pricing.
+  # app and wrong here: the sandbox reaper and every scheduled
+  # teammate run inside this process, so a parked machine is an instance that
+  # quietly stops reaping.
   auto_stop_machines = "off"
   auto_start_machines = false
   min_machines_running = 1

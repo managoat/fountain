@@ -120,11 +120,6 @@ services:
       SANDBOX_MAX_LIFETIME_HOURS: ${SANDBOX_MAX_LIFETIME_HOURS:-}
       REGISTRATION_ALLOWED_EMAIL_DOMAINS: ${REGISTRATION_ALLOWED_EMAIL_DOMAINS:-}
 
-      # Off by default (the app's own default since #336, pinned here too):
-      # credits (ADR 0031) are meaningful for the hosted service and a lock
-      # with no key on a self-hosted instance.
-      CREDITS_ENABLED: ${CREDITS_ENABLED:-false}
-
       # No mail by default, so a first run needs nothing external. Accounts
       # self-verify at registration in this mode (ADR 0011); set
       # RESEND_API_KEY or SMTP_HOST to send real mail instead.

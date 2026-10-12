@@ -912,7 +912,6 @@ defmodule Fountain.Machines.ResumeTest do
       travelling = [
         :provisioning,
         :fleet_full,
-        :insufficient_credits,
         {:sandbox_quota_exceeded, %{count: 1, limit: 1}}
       ]
 
@@ -1070,13 +1069,12 @@ defmodule Fountain.Machines.ResumeTest do
   # ── unboxed helpers ───────────────────────────────────────────────────────
 
   # A committed user and machine, kept as small as the foreign keys allow so
-  # `discard/1` can take them all back out. Funded and given a cap, because
+  # `discard/1` can take them all back out. Given a cap, because
   # unlike the boxed cases these go through the real admission.
   defp committed_tenant do
     user =
       Repo.insert!(%Fountain.Accounts.User{
         email: "machine-resume-#{Ecto.UUID.generate()}@example.test",
-        credit_balance_cents: 5_000,
         sandbox_limit_override: 5
       })
 

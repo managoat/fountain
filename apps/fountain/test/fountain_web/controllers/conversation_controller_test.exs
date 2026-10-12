@@ -472,51 +472,6 @@ defmodule FountainWeb.ConversationControllerTest do
     end
   end
 
-  describe "credit gate" do
-    test "POST /api/conversations/:id/prompts returns 402 when out of credit", %{
-      conn: conn,
-      user: user,
-      raw_key: raw_key
-    } do
-      # Prompting wakes a dormant conversation, which provisions a fresh sprite.
-      # It was the one provisioning path with no billing check at all.
-      conv = insert_conversation(user_id: user.id)
-
-      stub(ConversationServer, :send_prompt, fn _id, _prompt, _images, _opts ->
-        {:error, :insufficient_credits}
-      end)
-
-      conn =
-        conn
-        |> authed_with_key(raw_key)
-        |> post_json("/api/conversations/#{conv.id}/prompts", %{"prompt" => "hi"})
-
-      body = json_response(conn, 402)
-      assert body["error"] == "insufficient_credits"
-      assert body["upgrade_url"] == "/account/billing"
-    end
-
-    test "POST /api/conversations returns 402 when out of credit", %{
-      conn: conn,
-      user: user,
-      raw_key: raw_key
-    } do
-      agent = insert_agent(user_id: user.id)
-
-      {:ok, _} =
-        Fountain.Credits.debit(user.id, Fountain.Credits.balance(user.id) + 1, "burn_turn",
-          idempotency_key: "drain-#{user.id}"
-        )
-
-      conn =
-        conn
-        |> authed_with_key(raw_key)
-        |> post_json("/api/conversations", %{"agent_id" => agent.id})
-
-      assert json_response(conn, 402)["error"] == "insufficient_credits"
-    end
-  end
-
   describe "sandbox concurrency cap" do
     test "POST /api/conversations returns 429 at the cap", %{
       conn: conn,
@@ -970,27 +925,6 @@ defmodule FountainWeb.ConversationControllerTest do
         })
         |> json_response(422)
       end
-    end
-
-    test "returns 402 when the balance is gone", %{
-      conn: conn,
-      user: user,
-      raw_key: raw_key
-    } do
-      {:ok, _} =
-        Fountain.Credits.debit(user.id, Fountain.Credits.balance(user.id) + 1, "burn_turn",
-          idempotency_key: "drain-#{user.id}"
-        )
-
-      agent = insert_agent(user_id: user.id)
-
-      conn =
-        conn
-        |> authed_with_key(raw_key)
-        |> put_req_header("content-type", "application/json")
-        |> post("/api/conversations", Jason.encode!(%{"agent_id" => agent.id}))
-
-      assert json_response(conn, 402)
     end
 
     # The `message` is the assertion that matters: without the fallback clause

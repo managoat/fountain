@@ -3,18 +3,18 @@ defmodule Fountain.Accounts.Deletion do
   Closing an account and removing the tenant's data.
 
   The decisions here — ordering, crypto-shred scope and its backup boundary,
-  Stripe customer retention, no soft-delete — are recorded in ADR 0009
+  no soft-delete — are recorded in ADR 0009
   (`decisions/0009-account-deletion-and-export.md`). Change them there first.
 
   There was no deletion path at all — no self-serve, no admin, no context
   function — so a departing user's only options were to stop using the service
-  while continuing to be billed, or to ask an operator to edit the database.
+  with their data still held, or to ask an operator to edit the database.
 
   ## Order matters
 
   1. **Destroy the tenant's sprites.** Before the row deletion, because the
      cascade takes `conversations` with it, and after that nothing links a
-     sandbox to the user who was paying for it. Failures here are logged rather
+     sandbox to the user who owned it. Failures here are logged rather
      than fatal: `SandboxReaper` reconciles anything missed on its next run,
      which is exactly the case it exists for. An enclosing transaction is the
      one thing that refuses, and it refuses before any teardown starts
@@ -43,13 +43,6 @@ defmodule Fountain.Accounts.Deletion do
   taken before the deletion, which contain both the ciphertext and the wrapped
   key. Backup expiry is what erases those, and it runs on its own retention
   schedule.
-
-  ## Stripe
-
-  Nothing is cancelled, because nothing recurs (ADR 0031): a prepaid balance
-  goes with the row and its ledger. The Stripe customer is not deleted.
-  Charges and refunds are financial records a business is required to
-  retain, and Stripe is the system of record for them.
   """
 
   import Ecto.Query
@@ -76,8 +69,7 @@ defmodule Fountain.Accounts.Deletion do
 
   Returns `{:ok, summary}` or an error. An enclosing database transaction is
   refused before any teardown: actor and provider calls must run outside its
-  locks. There is no subscription to cancel first (ADR 0031), and the Stripe
-  customer stays for the refund trail.
+  locks.
   """
   @spec delete_user(User.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def delete_user(%User{} = user, opts \\ []) do

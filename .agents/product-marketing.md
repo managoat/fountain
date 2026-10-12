@@ -54,18 +54,14 @@ infrastructure. Put the ownership choices before prerequisites and installation
 detail. The open-source applications demonstrate product shapes, not customer
 adoption, and copy must not present them as third-party proof.
 
-**Business model:** Prepaid credit. No plans, no seats, no subscription
-(ADR 0031). Agent time bills out of a balance at the rate on the price card
-(`CREDIT_TURN_HOUR_CENTS`, default 25 cents an hour); an hour means an hour with
-a prompt in flight, so a parked agent, an idle one and one on your own runner all
-cost nothing. New accounts get an opening credit (`CREDIT_OPENING_CENTS`,
-default $5) that expires in `CREDIT_OPENING_DAYS` (14); bought credit never
-expires. Customers bring their own model keys, so Fountain never bills for
-inference. Licence split: the server is AGPL-3.0, `ee/` is Elastic 2.0.
+**Business model:** None. Since 2026-10-12 Fountain is a self-hosted
+application and is not sold as a service: no credits, no plans, no seats, no
+subscription (ADR 0031, retired). The operator pays their own sandbox provider
+and, if they set platform keys, their own model provider. Customers bring
+their own model keys. Licence: the server is AGPL-3.0.
 
-**Never quote a price from this file.** The templates read the live price card
-(`turn_hour_price/0`, `opening_credit/0`) precisely so a page cannot quote a
-number the meter does not charge. Copy should do the same.
+**Never quote a price.** Fountain charges nothing, and what a provider charges
+is the provider's to say.
 
 ## Target Audience
 
@@ -182,7 +178,7 @@ without telling us.
 | "I can run an agent in a sandbox myself." | You can. The templates are the part you would end up building: rows you list, diff, share and launch from code, and a run with an id something else can follow. |
 | "I am not giving a model a token that can push." | Then do not. Scope it to one repository, put the identity in a Vault so swapping it is a field and not a redeploy, and on a hosted account with the broker on the value never enters the sandbox at all. |
 | "What happens when it does something wrong?" | Build the last gate so the agent cannot pass it. The case study's agent cannot approve or merge its own pull request, and cannot reach the cluster at all. |
-| "What does this actually cost me?" | Agent time out of a prepaid balance, charged only while a prompt is in flight, with your own model key for inference. Quote the live price card, never a number from this file. |
+| "What does this actually cost me?" | Fountain is free to run. You pay your sandbox provider for machine time and your model provider for tokens, with your own keys. |
 
 **Anti-persona:** An enterprise buyer who needs orgs, seats, roles or SSO.
 Those features are deliberately out of scope until the traction goal lands, so
@@ -207,7 +203,7 @@ transcripts, reviews or quotes in this repo to mine. Until there are, copy draws
 on the repo's own problem statement rather than pretending to quote a user.
 
 **Words to use:** Agent, Environment, Vault, Conversation, sandbox, runtime,
-template, run, transcript, credit, primitive, cluster, gate, guardrail.
+template, run, transcript, primitive, cluster, gate, guardrail.
 
 **"Computer" is a marketing word only.** The manual uses "sandbox" for the
 isolated machine so its terminology matches the API and glossary. `README.md`
@@ -217,8 +213,8 @@ names coding agents and the work-only meter in its first line. When another
 marketing surface uses "computer", use it once to open, then say "sandbox" or
 "machine" for the rest of the page. Never use it in `docs/`.
 
-**Accuracy:** Do not describe unbuilt behavior as available. Avoid "plans",
-"tiers", "seats" and "subscription" when describing billing; there are none.
+**Accuracy:** Do not describe unbuilt behavior as available. Do not describe
+credits, plans, tiers, seats or a subscription; there are none.
 
 **Glossary:**
 
@@ -299,7 +295,7 @@ pull-request text, not a person's.
 | The credential is separable from the machine | Vault wins on collision; egress broker placeholders |
 | A run is addressable | Id, status, transcript, event stream; the case study's webhook |
 | Guardrails are mechanisms, not promises | Every limit in the case study is enforced outside the model |
-| You pay for machine time, never tokens | Live price card; bring your own model key |
+| You own the machine and the keys | Self-hosted; bring your own sandbox provider and model key |
 
 ## Goals
 

@@ -34,7 +34,7 @@ end
 max_cases = 8
 
 files =
-  ["apps/fountain/test", "ee/test"]
+  ["apps/fountain/test"]
   |> Enum.flat_map(&Path.wildcard(&1 <> "/**/*_test.exs"))
   |> Enum.sort()
 
@@ -115,24 +115,13 @@ if System.get_env("PARTITION_DEBUG") do
   end
 end
 
-# `mix test` resolves explicit paths against apps/fountain, because that is the
-# app whose test_paths (["test", "../../ee/test"]) own every test in the
-# umbrella. Repo-relative paths are what the manifest and this script reason
-# about; these are what mix will actually accept.
-#
-# The `../../ee/` hop exists only because ee/ sits at the repo root while its
-# tests belong to apps/fountain — decisions/0010 and its addendum own that
-# arrangement. IF EE/ EVER MOVES OR IS EXTRACTED: delete the ee clause below,
-# and the matching normalisation in scripts/regen-test-timings.exs, and check
-# apps/fountain/mix.exs `test_paths` at the same time — all three encode the
-# same layout, and nothing fails loudly if only one of them is updated. The
-# symptom would be a partition silently missing files, which the >0-tests guard
-# in test-partition.sh catches only if a partition empties completely.
+# `mix test` resolves explicit paths against apps/fountain, the app that owns
+# every test listed here. Repo-relative paths are what the manifest and this
+# script reason about; these are what mix will actually accept.
 mine
 |> Enum.sort()
 |> Enum.map(fn
   "apps/fountain/" <> rest -> rest
-  "ee/" <> rest -> "../../ee/" <> rest
   other -> other
 end)
 |> Enum.each(&IO.puts/1)

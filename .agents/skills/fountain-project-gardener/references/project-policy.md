@@ -44,7 +44,7 @@ Priority is relative impact and urgency, not implementation order by itself. Do 
 
 ### Other fields
 
-- **Workstream:** use one primary owning domain: Broker, Production safety, Conversation reliability, Render, API/SDK, Billing, Architecture, or Distribution.
+- **Workstream:** use one primary owning domain: Broker, Production safety, Conversation reliability, Render, API/SDK, Architecture, or Distribution.
 - **Iteration:** assign executable Now/Next work when capacity makes the plan credible. Keep at least four future weekly iterations available.
 - **Size:** estimate Now/Next executable issues as S/M/L/XL. Do not estimate the entire Later/Parked backlog.
 - **Target date:** reserve for genuine external or release commitments, not aspirational scheduling.

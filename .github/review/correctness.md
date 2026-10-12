@@ -14,8 +14,8 @@ preference. Do not invent requirements or mark findings resolved just because
 a fixer says they are fixed. Recommend small regression tests that reproduce
 the behavior rather than copying implementation details.
 
-Fountain's umbrella includes the core app, ee/ compiled into that app, and
-separate Buzz and Support extensions. Check cross-directory callers, extension
+Fountain's umbrella includes the core app and separate Buzz and Support
+extensions. Check cross-directory callers, extension
 boundaries and lifecycle state transitions. The core must not reference extension
 modules. Unawaited work should use the supervised task pattern from the base
 guide; fire-and-forget Task.async links failures to callers. Preserve SQL Sandbox
@@ -23,9 +23,9 @@ isolation, the test pool size of 20 and the test-mode authentication/rate-limit
 guards. Do not silence flakes by skipping tests or weakening assertions.
 
 Check idempotency and recovery for provisioning, wake/reattach, turns, callbacks,
-billing and cleanup. Duplicate deliveries, timeouts and process restarts must
-preserve ownership and durable state. Credit gates and concurrent reservations
-must remain enforced; an idle sandbox hour is not a billable turn hour.
+usage metering and cleanup. Duplicate deliveries, timeouts and process restarts
+must preserve ownership and durable state. Concurrency caps and reservations
+must remain enforced.
 
 For triage, a fix candidate needs a clear, high-confidence remedy within the
 trusted fix policy, including necessary regression tests. A speculative concern

@@ -49,17 +49,16 @@ fi
 file_count=$(printf '%s\n' "$files" | wc -l | tr -d ' ')
 echo "partition $partition/$partitions: $file_count files"
 
-# `mix test` must run from apps/fountain, not the umbrella root. That app's
-# test_paths are ["test", "../../ee/test"], and an explicit path is resolved
-# against the working directory — from the root, `../../ee/...` points outside
-# the repo and `ee/...` matches nothing, which CLAUDE.md already warns about.
+# `mix test` must run from apps/fountain, not the umbrella root: an explicit
+# path is resolved against the working directory, and the partition lists
+# paths relative to apps/fountain.
 cd apps/fountain
 
 # Every path is checked before mix sees it, because `mix test` reports
 # "did not match any directory/file" ONLY when NONE of its paths match: an
 # unresolvable path alongside resolvable ones is dropped in silence, exit 0.
-# That is how the first version of this ran green while skipping all 22 ee
-# files — 300 tests, and the 0-tests guard below could not see it because the
+# That is how the first version of this ran green while skipping 22 files —
+# 300 tests, and the 0-tests guard below could not see it because the
 # core files still ran. A path that does not exist is a failure here.
 missing=""
 while IFS= read -r f; do

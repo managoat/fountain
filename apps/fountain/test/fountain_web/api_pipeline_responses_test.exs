@@ -65,8 +65,7 @@ defmodule FountainWeb.ApiPipelineResponsesTest do
              %OpenApiSpex.Reference{"$ref": "#/components/schemas/Error"}
 
     responses = spec.paths["/api/conversations"].post.responses
-    assert responses[402].description == "Insufficient credits"
-    assert spec.components.schemas["Error"].properties[:upgrade_url]
+    refute Map.has_key?(responses, 402)
   end
 
   test "real pipeline refusals validate without an allowlist" do

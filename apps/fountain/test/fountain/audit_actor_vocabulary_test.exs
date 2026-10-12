@@ -3,8 +3,8 @@ defmodule Fountain.AuditActorVocabularyTest do
   The actor vocabulary is closed (ADR 0013).
 
   `actor` started life hardcoded to `"api"`, and the #540 campaign replaced
-  that with a set of strings written at ~30 call sites across core and `ee/`.
-  Nothing held the set together: `ee/` billing composed `system:admin` for an
+  that with a set of strings written at ~30 call sites.
+  Nothing held the set together: billing composed `system:admin` for an
   action a person took, one mix task spelled its worker `lifecycle-verify`
   while the rest use snake_case, and the unauthenticated routes recorded a
   bare `"system"` for people clicking links in their mail client.
@@ -25,8 +25,7 @@ defmodule Fountain.AuditActorVocabularyTest do
   @adr Path.expand("../../../../decisions/0013-audit-trail.md", __DIR__)
 
   defp lib_files do
-    ["../../lib/**/*.ex", "../../../../ee/lib/**/*.ex"]
-    |> Enum.flat_map(&(__DIR__ |> Path.expand() |> Path.join(&1) |> Path.wildcard()))
+    __DIR__ |> Path.expand() |> Path.join("../../lib/**/*.ex") |> Path.wildcard()
   end
 
   defp actor_literals do

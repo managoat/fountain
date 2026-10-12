@@ -8,7 +8,7 @@ loopback. GitHub CI also verifies PostgreSQL 16. Commands use rl-env so tool pat
 the disposable database settings survive between shells. No Fountain login,
 GitHub write token or provider credential belongs in this machine.
 
-Independent verification runs all six core and ee test partitions sequentially
+Independent verification runs all six core test partitions sequentially
 using the upstream runner's nonzero-test and coverage-export guards, then runs
 every sibling app's suite and root umbrella tests in one VM. The root run catches
 cross-app configuration leaks that separate CI partitions cannot. It covers the core `mix precommit` stages: compilation,

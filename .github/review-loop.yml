@@ -33,7 +33,6 @@ fixes:
   signoff: github-app
   allowed_paths:
     - apps/**
-    - ee/**
     - cli/**
     - sdk/**
     - docs/**

@@ -212,7 +212,7 @@ defmodule Fountain.Conversations.TerminationActorFenceTest do
     # so the fence's `lock_terminating_conversation/2` refuses — and this
     # machine would be left fenced, live and billing with no server to finish
     # it. Until now the only thing that caught it was an incidental assertion
-    # in `ee/test/fountain/conversations/termination_billing_test.exs`.
+    # in a billing test that has since been removed.
     replacement = insert_sandbox(user_id: ctx.user.id, status: "ready")
 
     expect(Managoat.Sandbox, :close_stdin, fn :adapter ->

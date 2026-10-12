@@ -81,7 +81,7 @@ defmodule Fountain.Workers.UnverifiedAccountPruner do
           {deleted + 1, skipped}
 
         true ->
-          # delete_user logged the reason; a Stripe refusal aborts before any
+          # delete_user logged the reason; a refusal aborts before any
           # destruction, so leaving it for the next run is safe.
           {deleted, skipped + 1}
       end

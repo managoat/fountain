@@ -546,13 +546,11 @@ defmodule Fountain.PlatformChatGPTTest do
                resolve(user, "openai/gpt-5.5-codex", "codex")
     end
 
-    test "the ceiling gate counts the grant as platform-served" do
+    test "the grant counts as platform-served" do
       user = insert_verified_user()
 
-      assert {:ok, %Source{scope: :missing} = source, _} =
+      assert {:ok, %Source{scope: :missing}, _} =
                InferenceCredentials.resolve(user.id, "openai/gpt-5.5-codex", "codex", [])
-
-      assert :ok = PlatformInference.gate_source(source)
 
       # The grant is selected only on a brokered deployment (decision 4 of
       # the selection order): configure one, as the egress tests do.
@@ -562,8 +560,7 @@ defmodule Fountain.PlatformChatGPTTest do
       assert {:ok, %Source{scope: :platform, kind: :codex_chatgpt_access_token} = source, _} =
                InferenceCredentials.resolve(user.id, "openai/gpt-5.5-codex", "codex", [])
 
-      # With credits off the ceiling never trips, so the gate is :ok.
-      assert :ok = PlatformInference.gate_source(source)
+      assert Source.platform?(source)
     end
   end
 

@@ -58,9 +58,6 @@ defmodule FountainWeb.ApiSpecTest do
       # The spec machinery itself — plugs, not controllers.
       {"/api/openapi.json", :get},
       {"/api/docs", :get},
-      # Authenticated by Stripe-Signature, not a bearer token. Its caller is
-      # Stripe, which does not read our spec.
-      {"/api/stripe/webhook", :post},
       # A browser-session route that happens to live under /api/ — CSRF-
       # protected, session-authenticated, and driven by the theme toggle.
       {"/api/settings/theme", :patch},

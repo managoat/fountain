@@ -1,7 +1,7 @@
 defmodule Fountain.PlatformInference do
   @moduledoc """
-  The deployment's own inference keys, and the ceiling on what they may spend
-  in a day (#1388, ADR 0038 decision 3, amending ADR 0008).
+  The deployment's own inference keys (#1388, ADR 0038 decision 3, amending
+  ADR 0008).
 
   Fountain holds a set of inference keys and runs a tenant's agent on one when
   the tenant has none of their own. The tenant's credential always wins; a
@@ -28,35 +28,17 @@ defmodule Fountain.PlatformInference do
       provider and runtime (the ChatGPT grant for codex on a brokered
       deployment, ADR 0047, else the key), and the durable identity a
       platform source is bound to.
-    * `gate_source/1` — the door check: may a conversation on this resolved
-      source start? `:ok` unless it would run on a platform key and the
-      deployment has spent its day.
-    * `check_ceiling/0` — the same ceiling without the "would it even use the
-      platform key" question, for the per-turn backstop in
-      `Conversations.TurnMachine.gate/2`, which already knows the answer.
 
   The *selection* rule lives in `Fountain.InferenceCredentials.resolve/4`,
   one function, because it is a statement about credentials rather than
   about money.
 
-  ## The ceiling is a circuit breaker, not a quota
+  ## Nothing bounds what the keys spend
 
-  `PLATFORM_INFERENCE_DAILY_CENTS` (default 5000, $50) bounds platform
-  inference spend for the **whole deployment**, every tenant together, over a
-  UTC day. It exists so one bad day cannot cost more than a number somebody
-  wrote down. Hitting it is a 503, like `:fleet_full` — this is Fountain's
-  limit, not the tenant's balance, and there is nothing they can buy to clear
-  it (`FountainWeb.FallbackController`).
-
-  Two properties worth knowing before trusting it:
-
-    * **It is measured from the ledger**, so it lags `Workers.CreditPricer` by
-      at most one tick. It bounds the day, not the minute.
-    * **It needs `CREDITS_ENABLED=true`**, because that is what writes the
-      ledger rows it reads. With credits off nothing is priced at all
-      (ADR 0031), so nothing is counted and the ceiling never trips. A
-      deployment that sets a platform key with credits off is paying its own
-      inference bill knowingly and has no brake here.
+  Usage on a platform key is unbounded: every account's conversations that
+  fall back to one are billed to the deployment's provider account, with no
+  daily ceiling and no per-account meter. An operator who sets a key is
+  paying for every account's inference on it.
   """
 
   import Ecto.Query, only: [from: 2]
@@ -422,67 +404,5 @@ defmodule Fountain.PlatformInference do
 
   defp validate_key(value) do
     if Regex.match?(~r/[[:space:][:cntrl:]]/u, value), do: {:error, :invalid_key}, else: :ok
-  end
-
-  @doc """
-  The daily ceiling in cents (`PLATFORM_INFERENCE_DAILY_CENTS`, default 5000).
-  """
-  @spec daily_ceiling_cents() :: non_neg_integer()
-  def daily_ceiling_cents do
-    case Application.get_env(:fountain, :platform_inference_daily_cents) do
-      cents when is_integer(cents) and cents >= 0 -> cents
-      _ -> 5_000
-    end
-  end
-
-  @doc """
-  Gate a resolved inference source against the deployment's daily ceiling.
-
-  Admission resolves the launch's selection with
-  `Fountain.InferenceCredentials.resolve/4`, asks this, and persists that
-  same snapshot for provisioning and later turns, so the gate and
-  provisioning agree on whose credential serves the run. A tenant source
-  passes without consuming the platform ceiling; a platform source checks
-  it. The per-account daily bound decided on #1709 lands here, beside the
-  ceiling, and needs the user: it will be `gate_source/2`.
-  """
-  @spec gate_source(Fountain.InferenceCredentials.Source.t()) ::
-          :ok | {:error, :platform_inference_unavailable}
-  def gate_source(source) do
-    if Fountain.InferenceCredentials.Source.platform?(source), do: check_ceiling(), else: :ok
-  end
-
-  @doc """
-  The ceiling on its own, for a caller that already knows the turn runs on a
-  platform key.
-
-  `:ok` when credits are off (nothing is counted), when the ceiling is zero
-  (which reads as "unbounded" the way `SANDBOX_CAP_CEILING` does not — see
-  below), or when the day's spend is under it.
-  """
-  @spec check_ceiling() :: :ok | {:error, :platform_inference_unavailable}
-  def check_ceiling do
-    ceiling = daily_ceiling_cents()
-
-    # Zero is "no platform inference today", not "unbounded": the variable
-    # exists to bound spend, so the degenerate value has to bound it hardest.
-    # An operator who wants the feature off unsets the keys.
-    spent = Fountain.Billing.platform_inference_spend_today()
-
-    cond do
-      is_nil(spent) ->
-        :ok
-
-      spent < ceiling ->
-        :ok
-
-      true ->
-        Logger.warning(
-          "platform inference: daily ceiling reached (#{spent} of #{ceiling} cents); " <>
-            "refusing conversations that would run on a platform key until UTC midnight"
-        )
-
-        {:error, :platform_inference_unavailable}
-    end
   end
 end

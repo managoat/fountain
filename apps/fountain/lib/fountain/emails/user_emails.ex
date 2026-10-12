@@ -8,11 +8,6 @@ defmodule Fountain.Emails.UserEmails do
   - Welcome (once, on the verification transition, from `Workers.WelcomeEmail`)
   - Account suspended / unsuspended / deleted (from `Workers.AccountEmail`)
   - Email-change confirmation + notice (from `Workers.EmailChangeEmail`)
-
-  The credit emails (credits low, exhausted) live in
-  `Fountain.Emails.CreditsEmails` under ee/ (#475) — it borrows
-  `from_address/0` and `support_phrase/0` from here so the whole mail
-  surface keeps one sender and one support-contact policy.
   """
 
   import Swoosh.Email
@@ -178,8 +173,7 @@ defmodule Fountain.Emails.UserEmails do
   Confirm an account deletion (#450).
 
   Takes a raw address, not a `User` — by send time the row is gone. Honest
-  about the two things that survive: Stripe keeps the invoices (financial
-  records), and backups age out on their own schedule.
+  about the thing that survives: backups age out on their own schedule.
 
   `chatgpt_subscriptions: n` is how many ChatGPT subscriptions the account
   had linked (ADR 0060). Above zero, the email is honest about a third
@@ -316,12 +310,10 @@ defmodule Fountain.Emails.UserEmails do
   end
 
   # The deployment's brand (PRODUCT_NAME), which is what every subject line and
-  # body calls the service. Public: CreditsEmails (ee/) shares it too.
+  # body calls the service.
   @doc false
   def brand, do: Fountain.Brand.name()
 
-  # Public (not defp): Fountain.Emails.CreditsEmails (ee/) shares the sender
-  # and support-contact policy rather than duplicating it.
   @doc false
   def from_address do
     # The fallback only ever renders in dev/test (the Local mailbox) and under
@@ -575,12 +567,10 @@ defmodule Fountain.Emails.UserEmails do
       <p>
         This confirms your #{brand()} account and its data — agents,
         environments, vaults, conversations and stored secrets — have been
-        permanently deleted. Nothing recurs, so nothing was cancelled; you
-        will not be charged again.
+        permanently deleted.
       </p>
       #{chatgpt_sign_ins_html(subscriptions)}
       <p style="color: #71717a; font-size: 13px;">
-        Past invoices remain available from Stripe, as financial records.
         Database backups that predate the deletion age out on their own
         retention schedule.
       </p>
@@ -598,10 +588,9 @@ defmodule Fountain.Emails.UserEmails do
 
     This confirms your #{brand()} account and its data — agents, environments,
     vaults, conversations and stored secrets — have been permanently deleted.
-    Nothing recurs, so nothing was cancelled; you will not be charged again.
     #{chatgpt_sign_ins_text(subscriptions)}
-    Past invoices remain available from Stripe, as financial records. Database
-    backups that predate the deletion age out on their own retention schedule.
+    Database backups that predate the deletion age out on their own retention
+    schedule.
 
     If you did not request this, #{support_phrase()} immediately.
     """

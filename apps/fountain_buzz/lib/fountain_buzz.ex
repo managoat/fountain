@@ -112,17 +112,13 @@ defmodule FountainBuzz do
   `allowlist` with no pubkeys is `{:error, %Ecto.Changeset{}}` rather than a
   harness that refuses to start.
 
-  A *new* identity is gated twice (#1017). An enabled identity is a supervised
+  A *new* identity is gated (#1017). An enabled identity is a supervised
   `buzz-acp` OS process on Fountain's own pods for as long as it exists, so
-  standing one up is spend that no sandbox meter ever reports: `check_spend/1`
-  refuses it on an exhausted balance, and `BUZZ_IDENTITY_CEILING` bounds how
-  many one tenant may stand up in a burst. Both are skipped when the deploy
-  **converges on an identity that already exists**, which adds no standing
-  process — refusing a re-deploy would strand a running harness on stale
-  credentials, which is strictly worse than letting it refresh them. What
-  stops the cost for an account out of credit is
-  `FountainBuzz.Workers.HarnessSweep`, which suspends the harness and keeps
-  the row.
+  `BUZZ_IDENTITY_CEILING` bounds how many one tenant may stand up in a burst.
+  The ceiling is skipped when the deploy **converges on an identity that
+  already exists**, which adds no standing process — refusing a re-deploy
+  would strand a running harness on stale credentials, which is strictly worse
+  than letting it refresh them.
 
   Returns `{:ok, %Identity{}}` or `{:error, reason}`.
   """
@@ -138,17 +134,15 @@ defmodule FountainBuzz do
     end
   end
 
-  # The gate is the balance and the ceiling is the burst bound (ADR 0031,
-  # #1017). Both only apply to a provision that would add a standing process:
-  # `provision_identity/3` converges on the pubkey, and a converging deploy is
-  # maintenance on a slot the tenant already holds.
+  # The ceiling is the burst bound (#1017). It only applies to a provision
+  # that would add a standing process: `provision_identity/3` converges on the
+  # pubkey, and a converging deploy is maintenance on a slot the tenant
+  # already holds.
   defp check_new_identity_allowed(user_id, pubkey) do
     if get_identity_by_pubkey(pubkey, user_id) do
       :ok
     else
-      with :ok <- Fountain.Billing.check_spend(user_id) do
-        check_identity_ceiling(user_id)
-      end
+      check_identity_ceiling(user_id)
     end
   end
 

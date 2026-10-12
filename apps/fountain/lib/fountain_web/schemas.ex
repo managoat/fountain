@@ -2360,26 +2360,16 @@ defmodule FountainWeb.Schemas do
         email_verified_at: %Schema{type: :string, format: :"date-time", nullable: true},
         suspended: %Schema{type: :boolean},
         suspended_at: %Schema{type: :string, format: :"date-time", nullable: true},
-        comped: %Schema{
-          type: :boolean,
-          description: "A free account: the balance is never checked (ADR 0031)."
-        },
-        has_stripe_customer: %Schema{type: :boolean},
         max_concurrent_sandboxes: %Schema{
           type: :integer,
           nullable: true,
           description:
-            "The concurrency cap actually enforced: the override, or the balance rule's."
+            "The concurrency cap actually enforced: the override, or the configured ceiling."
         },
         sandbox_limit_override: %Schema{
           type: :integer,
           nullable: true,
-          description: "Admin override of the cap. Null means the balance rule applies."
-        },
-        credit_balance_cents: %Schema{
-          type: :integer,
-          description:
-            "Prepaid balance in cents (ADR 0030). May be negative. Zero while credits are not active on this deployment."
+          description: "Admin override of the cap. Null means the configured ceiling applies."
         },
         active_sandboxes: %Schema{type: :integer},
         onboarding_completed_at: %Schema{type: :string, format: :"date-time", nullable: true},
@@ -2440,47 +2430,11 @@ defmodule FountainWeb.Schemas do
           minimum: 0,
           nullable: true,
           description:
-            "Override of the balance-funded concurrent-sandbox cap. Null clears it, " <>
-              "handing the cap back to the balance rule."
+            "Override of the concurrent-sandbox cap. Null clears it, " <>
+              "handing the cap back to the configured ceiling."
         }
       },
       required: [:limit]
-    })
-  end
-
-  defmodule AdminCompRequest do
-    @moduledoc false
-    require OpenApiSpex
-
-    OpenApiSpex.schema(%{
-      title: "AdminCompRequest",
-      type: :object,
-      properties: %{comped: %Schema{type: :boolean}},
-      required: [:comped]
-    })
-  end
-
-  defmodule AdminCreditsRequest do
-    @moduledoc false
-    require OpenApiSpex
-
-    OpenApiSpex.schema(%{
-      title: "AdminCreditsRequest",
-      type: :object,
-      properties: %{
-        cents: %Schema{
-          type: :integer,
-          minimum: 1,
-          description: "Credit to add, in cents. Never expires and is spent last."
-        },
-        note: %Schema{
-          type: :string,
-          nullable: true,
-          description: "Why, for the audit trail. A won dispute, a goodwill credit, an outage."
-        }
-      },
-      required: [:cents],
-      example: %{"cents" => 1000, "note" => "won dispute dp_123"}
     })
   end
 
@@ -2493,27 +2447,6 @@ defmodule FountainWeb.Schemas do
       type: :object,
       properties: %{suspended: %Schema{type: :boolean}},
       required: [:suspended]
-    })
-  end
-
-  defmodule AdminResyncResponse do
-    @moduledoc false
-    require OpenApiSpex
-
-    OpenApiSpex.schema(%{
-      title: "AdminResyncResponse",
-      type: :object,
-      properties: %{
-        data: %Schema{
-          type: :object,
-          properties: %{
-            outcome: %Schema{type: :string, enum: ~w(resynced customer_sync_enqueued)},
-            comped: %Schema{type: :boolean}
-          },
-          required: [:outcome]
-        }
-      },
-      required: [:data]
     })
   end
 
@@ -2593,149 +2526,6 @@ defmodule FountainWeb.Schemas do
             },
             required: [:event_type]
           }
-        }
-      },
-      required: [:data]
-    })
-  end
-
-  defmodule BillingResponse do
-    @moduledoc false
-    require OpenApiSpex
-
-    OpenApiSpex.schema(%{
-      title: "BillingResponse",
-      type: :object,
-      properties: %{
-        data: %Schema{
-          type: :object,
-          properties: %{
-            sandbox_cap: %Schema{
-              type: :integer,
-              description:
-                "How many sandboxes this account may run at once: an admin override, " <>
-                  "or what the balance funds (ADR 0031)."
-            },
-            has_stripe_customer: %Schema{type: :boolean},
-            period: %Schema{
-              type: :object,
-              description:
-                "The calendar month the usage numbers cover, half-open: `end` is " <>
-                  "the first instant of the next month.",
-              properties: %{
-                start: %Schema{type: :string, format: :"date-time"},
-                end: %Schema{type: :string, format: :"date-time"}
-              }
-            },
-            credits: %Schema{
-              type: :object,
-              nullable: true,
-              description:
-                "The prepaid balance, in cents. Null when this deployment has " <>
-                  "billing off; a client must not show a zero balance then. " <>
-                  "At zero, new work is refused with 402 `insufficient_credits`.",
-              properties: %{
-                balance_cents: %Schema{
-                  type: :integer,
-                  description: "May be negative: an in-flight turn that crosses zero finishes."
-                },
-                expiring_cents: %Schema{
-                  type: :integer,
-                  description:
-                    "Unspent credit from the earliest live grant, which expires at expires_at."
-                },
-                expires_at: %Schema{type: :string, format: :"date-time", nullable: true},
-                purchased_cents: %Schema{
-                  type: :integer,
-                  description:
-                    "The part of the balance that was bought. It never expires and is spent last."
-                },
-                turn_hour_cents: %Schema{
-                  type: :integer,
-                  description: "What one hour of turn time costs."
-                },
-                packs_cents: %Schema{
-                  type: :array,
-                  items: %Schema{type: :integer},
-                  description: "The packs on sale, ascending. Pass one to the credits checkout."
-                }
-              }
-            },
-            usage: %Schema{
-              type: :object,
-              properties: %{
-                conversations: %Schema{
-                  type: :integer,
-                  description: "Conversations that ran a turn in the month, deleted or not."
-                },
-                turns: %Schema{type: :integer},
-                credit_burned_cents: %Schema{
-                  type: :integer,
-                  nullable: true,
-                  description:
-                    "Cents the ledger took this month: turns and platform inference. " <>
-                      "The charged number, where turn_hours is the metered one. " <>
-                      "Null with billing off."
-                },
-                turn_hours: %Schema{
-                  type: :number,
-                  description:
-                    "Hours with a prompt in flight, on providers Fountain pays " <>
-                      "for; what burns credit. An idle sandbox spends none of " <>
-                      "these; sandbox_minutes counts it."
-                },
-                sandbox_minutes: %Schema{
-                  type: :number,
-                  description: "Active sandbox minutes inside the period, parked time excluded."
-                },
-                sandbox_minutes_by_provider: %Schema{
-                  type: :object,
-                  description:
-                    "sandbox_minutes split by sandbox provider (sprites, e2b, " <>
-                      "daytona, runner). Providers not used in the period are absent.",
-                  additionalProperties: %Schema{type: :number}
-                }
-              }
-            }
-          },
-          required: [:usage]
-        }
-      },
-      required: [:data]
-    })
-  end
-
-  defmodule CreditsCheckoutRequest do
-    @moduledoc false
-    require OpenApiSpex
-
-    OpenApiSpex.schema(%{
-      title: "CreditsCheckoutRequest",
-      type: :object,
-      properties: %{
-        cents: %Schema{
-          type: :integer,
-          description: "The pack to buy, in cents. Must be one of credits.packs_cents."
-        }
-      },
-      required: [:cents],
-      example: %{"cents" => 2500}
-    })
-  end
-
-  defmodule StripeUrlResponse do
-    @moduledoc false
-    require OpenApiSpex
-
-    OpenApiSpex.schema(%{
-      title: "StripeUrlResponse",
-      description: "A Stripe-hosted URL to open in a browser. Single-use and short-lived.",
-      type: :object,
-      properties: %{
-        data: %Schema{
-          type: :object,
-          properties: %{url: %Schema{type: :string, format: :uri}},
-          required: [:url]
         }
       },
       required: [:data]
@@ -4079,7 +3869,7 @@ defmodule FountainWeb.Schemas do
           type: :string,
           description:
             "The machine-readable code: `validation_failed`, `not_found`, " <>
-              "`insufficient_credits`, `sandbox_quota_exceeded`, `expired`, " <>
+              "`sandbox_quota_exceeded`, `expired`, " <>
               "`invalid_token` and the rest. On the key-authentication and scope " <>
               "refusals it is a sentence and `reason` carries the code.",
           example: "validation_failed"
@@ -4105,10 +3895,6 @@ defmodule FountainWeb.Schemas do
               "`error: \"validation_failed\"`, whether the request died at the " <>
               "OpenAPI cast or in a changeset (#1431).",
           additionalProperties: %Schema{type: :array, items: %Schema{type: :string}}
-        },
-        upgrade_url: %Schema{
-          type: :string,
-          description: "Where to buy credit, on `insufficient_credits` (402)."
         },
         active_sandboxes: %Schema{
           type: :integer,
@@ -4356,7 +4142,6 @@ defmodule FountainWeb.Schemas do
         role: %Schema{type: :string, enum: ~w(user admin)},
         email_verified: %Schema{type: :boolean},
         onboarding_completed: %Schema{type: :boolean},
-        comped: %Schema{type: :boolean, nullable: true, description: "Null when billing is off."},
         brokered: %Schema{
           type: :boolean,
           description:

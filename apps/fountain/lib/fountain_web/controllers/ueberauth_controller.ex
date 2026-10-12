@@ -85,12 +85,9 @@ defmodule FountainWeb.UeberauthController do
         )
 
         # The email+password path does this after verification. OAuth skips
-        # verification entirely (the provider asserts the address), so without
-        # this a GitHub signup would start with no opening credit.
-        Fountain.Credits.grant_opening(user)
-
-        # Same reasoning for the welcome email (#449): an OAuth signup is
-        # created verified, so this is its verification transition.
+        # verification entirely (the provider asserts the address), so an
+        # OAuth signup is created verified and this is its verification
+        # transition (#449).
         Fountain.Workers.WelcomeEmail.enqueue(user)
 
         # And the same landing (ADR 0038). An OAuth signup is created verified,

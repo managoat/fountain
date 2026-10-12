@@ -30,7 +30,7 @@ conversation's machine comes from. Sprites, E2B, Daytona, or a machine you own
 through `fountain runner`.
 
 **[Services Fountain uses](../integrations/index.md).** What an operator
-configures. Mail, GitHub OAuth, Stripe, Sentry.
+configures. Mail, GitHub OAuth, Sentry.
 
 **[Plug into Fountain](../integrations/clients.md).** What drives Fountain
 from outside. Editors, chat surfaces, plugin hosts, relays, and your own code.

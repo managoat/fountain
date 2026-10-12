@@ -456,22 +456,6 @@ config :sentry,
   # (cookies, user IPs, request bodies) should ride along by default.
   send_default_pii: false
 
-# ADR 0031 made the credit gate a product invariant. For a self-hosted
-# instance it is just a lock on the front door with no key, so it is config
-# rather than a source patch — and off by default (#336): an operator
-# exporting env by hand who never hears of CREDITS_ENABLED must not lock
-# themselves out of their own instance. The hosted deployment is the one that
-# opts in (its overlay sets CREDITS_ENABLED=true explicitly).
-#
-# Skipped in :test — the suite pins the gate on in config/test.exs and
-# toggles it per-test through the application env, independent of whatever
-# CREDITS_ENABLED happens to be in the developer's shell or .env.
-credits_enabled? = System.get_env("CREDITS_ENABLED", "false") != "false"
-
-if config_env() != :test do
-  config :fountain, :credits_enabled, credits_enabled?
-end
-
 # What the chrome calls this deployment (Fountain.Brand): the sidebar header,
 # the <title>, the sign-in and consent pages and every email subject. The
 # engine stays Fountain everywhere it is named as the engine — the CLI, the
@@ -518,8 +502,8 @@ end
 # terms, and the hosted instance's real entity does not belong in the repo.
 # All four or none — a partial set is a typo, and a terms page with a real
 # entity but a blank jurisdiction is broken legal copy, so refuse to boot
-# rather than render it. Unset entirely, the pages are hidden (billing off)
-# or keep #506's loud {{...}} placeholders (billing on) — see Fountain.Legal.
+# rather than render it. Unset entirely, the pages are hidden — see
+# Fountain.Legal.
 # Skipped in :test — config/test.exs pins values so the developer's shell
 # cannot leak into the suite.
 if config_env() != :test do
@@ -549,21 +533,6 @@ if config_env() != :test do
 
     {[], _unset} ->
       config :fountain, :legal, nil
-
-      # A billing-enabled instance is charging money with no published terms.
-      # Warn hard rather than refuse to boot: /terms and /privacy keep serving
-      # the loud {{COMPANY_LEGAL_NAME}} placeholders, which is the visible
-      # enforcement, and a raise here would take down a running deployment
-      # over copy rather than correctness.
-      if env == :prod and credits_enabled? do
-        IO.puts(:stderr, """
-
-        WARNING: CREDITS_ENABLED is set but no legal identity is configured.
-        /terms and /privacy are rendering {{COMPANY_LEGAL_NAME}} placeholders
-        to your paying users. Set LEGAL_ENTITY, LEGAL_CONTACT_EMAIL,
-        LEGAL_JURISDICTION, and LEGAL_EFFECTIVE_DATE.
-        """)
-      end
 
     {set, unset} ->
       raise """
@@ -829,30 +798,6 @@ case System.get_env("SLACK_OAUTH_USER_SCOPES") do
   scopes -> config :fountain_slack, slack_oauth_user_scopes: String.split(scopes)
 end
 
-# Stripe (§5.2)
-config :stripity_stripe, api_key: System.get_env("STRIPE_SECRET_KEY")
-
-# Absent stays absent, and "" counts as absent (#390). An unconditional write
-# would clobber the secret config/test.exs pins with nil, and a blank value
-# must never reach signature verification — Stripe.Webhook.construct_event
-# happily HMACs with an empty key, so the webhook controller fails closed
-# when this is unset. A billing-enabled prod instance without the secret
-# cannot process a purchase or a clawback, so refuse to boot rather than let
-# every webhook 400 quietly.
-case System.get_env("STRIPE_WEBHOOK_SECRET") do
-  blank when blank in [nil, ""] ->
-    if config_env() == :prod and credits_enabled? do
-      raise """
-      CREDITS_ENABLED is set but STRIPE_WEBHOOK_SECRET is empty or unset.
-      Set it to the signing secret of your Stripe webhook endpoint
-      (Stripe dashboard → Developers → Webhooks).
-      """
-    end
-
-  secret ->
-    config :stripity_stripe, webhook_secret: secret
-end
-
 # Cents, whole or fractional.
 parse_cents = fn var, raw ->
   trimmed = String.trim(raw)
@@ -883,50 +828,6 @@ provider_hourly_cents =
   end
 
 config :fountain, :provider_hourly_cents, provider_hourly_cents
-
-# Which hours that rate multiplies. `active` (the default) is every hour a
-# sandbox was awake, idle included. `turn` is only the hours with a prompt in
-# flight, which is the closer match where a provider scales to near-zero
-# between prompts. /admin/finance can switch between the two per view; this
-# sets what it opens on. Anything unrecognised reads as `active`, because a
-# typo must not quietly halve the reported bill.
-config :fountain,
-       :cost_basis,
-       if(System.get_env("PROVIDER_COST_BASIS") == "turn", do: :turn, else: :active)
-
-# Prepaid credits (ADR 0030): what the *customer* pays, in whole cents, as
-# distinct from the provider costs above. CREDIT_TURN_HOUR_CENTS is one hour
-# of turn time (default 25, a placeholder until #1038 gives a cost number).
-# CREDIT_PACKS_CENTS lists the packs a tenant can buy, e.g. "1000,2500,10000".
-credit_cents = fn var ->
-  case System.get_env(var) do
-    value when value in [nil, ""] ->
-      nil
-
-    value ->
-      case Integer.parse(String.trim(value)) do
-        {cents, ""} when cents >= 0 -> cents
-        _ -> raise "#{var} must be a whole number of cents, 0 or more, got #{inspect(value)}"
-      end
-  end
-end
-
-credit_packs =
-  case System.get_env("CREDIT_PACKS_CENTS") do
-    value when value in [nil, ""] ->
-      [1_000, 2_500, 10_000]
-
-    value ->
-      value
-      |> String.split(",", trim: true)
-      |> Enum.map(fn cents ->
-        case Integer.parse(String.trim(cents)) do
-          {n, ""} when n > 0 -> n
-          _ -> raise "CREDIT_PACKS_CENTS: #{inspect(cents)} is not a positive number of cents"
-        end
-      end)
-      |> Enum.sort()
-  end
 
 # Per-turn host ceiling. Empty until runtime enforcement and later-turn/recovery
 # ceiling checks are integrated. Never inherit an operator's shell policy in tests.
@@ -969,10 +870,9 @@ config :fountain,
        :execution_deadline_interval_ms,
        String.to_integer(System.get_env("FOUNTAIN_EXECUTION_DEADLINE_INTERVAL_MS") || "5000")
 
-# Concurrency (ADR 0031): the reserve one live sandbox needs in the balance,
-# the per-account floor and ceiling the balance rule is clamped to, and the
-# fleet ceiling — the most live sandboxes the deployment will run in total,
-# which is the provider plan's number (Sprites' $20 plan allows about 20).
+# Concurrency (ADR 0005, 0042): the per-account ceiling, and the fleet
+# ceiling — the most live sandboxes the deployment will run in total, which is
+# the provider plan's number (Sprites' $20 plan allows about 20).
 whole_number = fn var, default ->
   case System.get_env(var) do
     value when value in [nil, ""] ->
@@ -986,11 +886,14 @@ whole_number = fn var, default ->
   end
 end
 
-config :fountain, :sandboxes,
-  reserve_cents: whole_number.("SANDBOX_RESERVE_CENTS", 200),
-  cap_floor: whole_number.("SANDBOX_CAP_FLOOR", 2),
-  cap_ceiling: whole_number.("SANDBOX_CAP_CEILING", 20),
-  fleet_ceiling: whole_number.("SANDBOX_FLEET_CEILING", 20)
+#
+# Skipped in :test — config/test.exs pins a per-account ceiling below the
+# fleet's, so the suite's cap tests meet the account's refusal first.
+if config_env() != :test do
+  config :fountain, :sandboxes,
+    cap_ceiling: whole_number.("SANDBOX_CAP_CEILING", 20),
+    fleet_ceiling: whole_number.("SANDBOX_FLEET_CEILING", 20)
+end
 
 # The bounded sandbox-capacity queue (ADR 0042).
 config :fountain,
@@ -1005,18 +908,12 @@ config :fountain_buzz, :buzz_identity_ceiling, whole_number.("BUZZ_IDENTITY_CEIL
 # place until it is removed. Lowering it refuses new links only.
 config :fountain, :chatgpt_grant_ceiling, whole_number.("CHATGPT_GRANT_CEILING", 5)
 
-config :fountain, :credits,
-  # The opening grant a new account gets, and how many days it lasts.
-  opening_cents: credit_cents.("CREDIT_OPENING_CENTS") || 500,
-  opening_days: credit_cents.("CREDIT_OPENING_DAYS") || 14,
-  turn_hour_cents: credit_cents.("CREDIT_TURN_HOUR_CENTS") || 25,
-  packs_cents: credit_packs
-
 # Platform inference keys (#1388, ADR 0038 decision 3, amending ADR 0008).
 #
 # Fountain runs a tenant's agent on one of these when the tenant has no
-# credential of their own for the model's provider, and meters the tokens
-# against their credit balance. The tenant's own credential always wins.
+# credential of their own for the model's provider. The tenant's own
+# credential always wins. Nothing caps or meters what these keys spend: every
+# account's usage on them is billed to this deployment's provider account.
 #
 # **Blank means off, per provider.** A deployment that sets none of these
 # behaves exactly as it did before the feature existed: bring-your-own only.
@@ -1030,74 +927,6 @@ config :fountain,
   platform_anthropic_api_key: System.get_env("PLATFORM_ANTHROPIC_API_KEY"),
   platform_openai_api_key: System.get_env("PLATFORM_OPENAI_API_KEY"),
   platform_gemini_api_key: System.get_env("PLATFORM_GEMINI_API_KEY")
-
-# The circuit breaker: the most this deployment's platform keys may cost in a
-# UTC day, across every tenant together. A log line and a 503 when it is hit
-# (`FountainWeb.FallbackController`), so one bad day cannot cost more than the
-# number written here. It is measured from the `burn_inference` ledger rows,
-# so it needs CREDITS_ENABLED=true and it lags the pricer's tick: it bounds
-# the day, not the minute.
-config :fountain,
-       :platform_inference_daily_cents,
-       whole_number.("PLATFORM_INFERENCE_DAILY_CENTS", 5_000)
-
-# Per-model inference rates, overriding the compiled card in
-# `Fountain.Credits.InferenceRates`. One entry per comma:
-#
-#   PLATFORM_INFERENCE_RATES="anthropic/claude-opus-5:500:2500:50:625,openai/*:500:3000:50:500"
-#
-# Five colon-separated fields: `provider/model_id` (or `provider/*` for that
-# provider's fallback), then input, output, cached-read and cached-write
-# prices **in cents per million tokens**, which is the unit every provider
-# publishes in. Decimals are allowed and are the point — OpenAI's cached
-# input for gpt-5.3-codex is 17.5 cents per million tokens.
-#
-# The compiled card is list price with **no markup, a 1.0x margin**, and that
-# is a decision (ADR 0038, noted on 0030 and 0031): Fountain's margin is
-# sandbox time (CREDIT_TURN_HOUR_CENTS), and marking inference up would make
-# the opening credit buy less of the one thing it was granted to buy. This
-# variable exists so a price change does not need a deploy, not so a
-# deployment can quietly add a margin — though a self-hoster reselling
-# inference is welcome to.
-inference_rates =
-  case System.get_env("PLATFORM_INFERENCE_RATES") do
-    value when value in [nil, ""] ->
-      %{}
-
-    value ->
-      value
-      |> String.split(",", trim: true)
-      |> Map.new(fn entry ->
-        cents_per_mtok = fn field ->
-          case Float.parse(String.trim(field)) do
-            {n, ""} when n >= 0 ->
-              # Cents per billion tokens: the unit the rate card holds, so a
-              # fraction of a cent per million tokens is still an integer.
-              round(n * 1_000)
-
-            _ ->
-              raise "PLATFORM_INFERENCE_RATES: #{inspect(field)} is not a price in cents per million tokens"
-          end
-        end
-
-        case String.split(String.trim(entry), ":") do
-          [model, input, output, cache_read, cache_write] when model != "" ->
-            {model,
-             %{
-               input: cents_per_mtok.(input),
-               output: cents_per_mtok.(output),
-               cache_read: cents_per_mtok.(cache_read),
-               cache_write: cents_per_mtok.(cache_write)
-             }}
-
-          _ ->
-            raise "PLATFORM_INFERENCE_RATES: #{inspect(entry)} is not " <>
-                    "provider/model:input:output:cache_read:cache_write"
-        end
-      end)
-  end
-
-config :fountain, :inference_rates, inference_rates
 
 # Mail delivery.
 #

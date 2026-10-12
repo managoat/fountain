@@ -1043,8 +1043,7 @@ defmodule Fountain.Conversations.TurnMachine do
 
   Two keys beside the token counts: `"inference"` — `"platform"` when
   Fountain's key ran the turn, `"own"` when the tenant's did — and, on a
-  platform turn, `"model"`, which is what `Workers.CreditPricer` prices
-  against the rate card.
+  platform turn, `"model"`.
 
   Platform turns are stamped from the credential source selected for the
   turn, including the deployment's ChatGPT grant (scope `:platform`) without
@@ -1236,32 +1235,24 @@ defmodule Fountain.Conversations.TurnMachine do
   # Every turn passes through here, whichever door it came in by — the
   # controller/LiveView call above, or the queued initial prompt a wake
   # delivers as a cast. The provisioning gates cover fresh sprites only; a
-  # live server (or the reuse arm of a wake) outlives the balance it was
-  # started under, and each turn resets the idle clock, so a balance spent to
-  # zero otherwise bought up to the 24h max lifetime of continued service per
-  # live sandbox (#313). Suspension is the same shape.
+  # live server (or the reuse arm of a wake) outlives the account state it was
+  # started under, and each turn resets the idle clock, so a suspended account
+  # would otherwise keep up to the 24h max lifetime of continued service per
+  # live sandbox (#313).
   #
-  # `inference` is the conversation's inference source (#1388). On a turn
-  # running on a platform key the deployment's daily ceiling is the third
-  # gate: a live server outlives the ceiling it started under exactly as it
-  # outlives the balance, so the same backstop shape applies. A turn on the
-  # tenant's own key is never touched by it.
+  # `inference` is the conversation's inference source (#1388).
   @spec gate(String.t(), Source.t() | nil) :: :ok | {:error, term()}
   def gate(user_id, inference \\ nil) do
     with :ok <- validate_inference(user_id, inference),
-         :ok <- Fountain.Accounts.check_not_suspended(user_id),
-         :ok <- Fountain.Billing.check_spend(user_id),
-         # Last, so an account that may not run is told that and costs no
-         # provider call; and after the validation, never inside it: that ran
-         # under the owner's source lock, and renewing a grant there is the
-         # deadlock `Fountain.ChatGPTAccounts` documents. A user's
-         # subscription is renewed here, by id and generation, before the
-         # turn that would otherwise outlive its token; one that cannot serve
-         # refuses the turn by name.
-         :ok <- Fountain.Conversations.CodexChatGPT.ensure_fresh(user_id, inference) do
-      if Source.platform?(inference),
-        do: Fountain.PlatformInference.check_ceiling(),
-        else: :ok
+         :ok <- Fountain.Accounts.check_not_suspended(user_id) do
+      # Last, so an account that may not run is told that and costs no
+      # provider call; and after the validation, never inside it: that ran
+      # under the owner's source lock, and renewing a grant there is the
+      # deadlock `Fountain.ChatGPTAccounts` documents. A user's
+      # subscription is renewed here, by id and generation, before the
+      # turn that would otherwise outlive its token; one that cannot serve
+      # refuses the turn by name.
+      Fountain.Conversations.CodexChatGPT.ensure_fresh(user_id, inference)
     end
   end
 

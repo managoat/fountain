@@ -130,53 +130,37 @@ at a dead end, with no error to see. Read [Email](guides/operate/email.md).
 | `SLACK_OAUTH_CLIENT_SECRET` | — | — | |
 | `SLACK_OAUTH_USER_SCOPES` | the defaults in the catalog | — | The user scopes the Slack provider asks for, space-separated. These are `user_scope` values, not bot scopes. |
 
-## Payment
-
-<!-- "billing" is a Technical Name here: CREDITS_ENABLED is the flag, and the
-     Elixir context carries the word. STE exempts a Technical Name from Rule
-     3.4, and the linter has no vocabulary hook for that rule. -->
+## Sandbox capacity and cost
 
 | Variable | Default | Required | Effect |
 |---|---|---|---|
-| `CREDITS_ENABLED` | `false` | — | Credits on. Off by default: on a self-hosted instance there is nothing to sell. On, every account holds a credit balance, turns burn it, and a zero balance refuses new work. |
-| `STRIPE_SECRET_KEY` | — | For billing. | The Stripe API key. |
-| `STRIPE_WEBHOOK_SECRET` | — | For billing. | Verifies the signature on a `POST /api/stripe/webhook`. |
-| `PROVIDER_HOURLY_CENTS` | — | No. | What you pay each sandbox provider, in cents per sandbox hour, as `sprites=10.76,e2b=5.45`. Rates can be fractional. A provider you leave out stays unpriced. |
-| `PROVIDER_COST_BASIS` | `active` | No. | Which hours the provider rate multiplies. An `active` counts every hour a sandbox was awake. A `turn` counts only the hours with a prompt in flight. Use `turn` where the provider drops to near-zero between prompts. |
-| `SANDBOX_RESERVE_CENTS` | `200` | No. | The credit one live sandbox needs in the balance. A tenant may run `balance / reserve` sandboxes at once, between the floor and the ceiling. |
-| `SANDBOX_CAP_FLOOR` | `2` | No. | The fewest sandboxes a tenant with a positive balance may run at once. |
-| `SANDBOX_CAP_CEILING` | `20` | No. | The most sandboxes one tenant may run at once, unless an admin override raises it. |
+| `PROVIDER_HOURLY_CENTS` | — | No. | What you pay each sandbox provider, in cents per sandbox hour, as `sprites=10.76,e2b=5.45`. Rates can be fractional. Read and validated at boot; no page uses it at the moment (see below). |
+| `SANDBOX_CAP_CEILING` | `20` | No. | The most sandboxes one tenant may run at once. An admin override for one account replaces it for that account. |
 | `SANDBOX_FLEET_CEILING` | `20` | No. | The most live sandboxes across every tenant. Set it to what your sandbox provider plan allows. A start beyond it gets `503 fleet_full`. |
 | `SANDBOX_QUEUE_MAX_DEPTH` | `10` | No. | The most sandbox requests one tenant holds at once. A request beyond it keeps the immediate capacity error. |
 | `SANDBOX_QUEUE_MAX_WAIT_SECONDS` | `3600` | No. | How long a sandbox request waits for capacity before Fountain expires it. |
 | `FOUNTAIN_EXECUTION_LIMITS` | `{}` | No. | JSON per-turn host ceiling: `wall_time_seconds`, `max_model_turns`, `max_estimated_cost_usd`. Each configured value must be positive; time and turns must be integers. Read at boot; invalid input refuses startup. Requests inherit the stricter host/account ceiling. Keep unset until runtime enforcement and later-turn/recovery checks are integrated: nonempty effective limits currently refuse launch with `422 execution_limits_unsupported`. This is not an aggregate spend cap. |
 | `FOUNTAIN_EXECUTION_DEADLINE_WORKER` | on when `FOUNTAIN_EXECUTION_LIMITS` gives a ceiling | No. | If this node runs the deadline coordinator. The coordinator polls `turn_executions`, so it stays off where no host ceiling applies. Set `true` if you give an account a ceiling but no host ceiling. Set `false` to stop the poll on any node. A change needs a restart. |
 | `FOUNTAIN_EXECUTION_DEADLINE_INTERVAL_MS` | `5000` | No. | The interval at which the coordinator looks for due deadlines. Each deadline is absolute and durable, so a larger value costs precision and not safety. |
-| `CREDIT_OPENING_CENTS` | `500` | No. | The credit a new account starts with, in cents. |
-| `CREDIT_OPENING_DAYS` | `14` | No. | How many days the opening credit lasts. |
 | `BUZZ_IDENTITY_CEILING` | `10` | No. | The most hosted Buzz agents one account may run at once. Each one is a permanent process on the Fountain pods. |
 | `CHATGPT_GRANT_CEILING` | `5` | No. | The most ChatGPT subscriptions one account may link. A disconnected subscription keeps its place until the account removes it. A link beyond it gets `409 chatgpt_grant_limit_reached`. A lower value refuses new links only, and `0` refuses each new link. |
-| `CREDIT_TURN_HOUR_CENTS` | `25` | No. | What a tenant pays for one hour of turn time, in whole cents, from their prepaid balance. |
-| `CREDIT_PACKS_CENTS` | `1000,2500,10000` | No. | The credit packs a tenant can buy, in cents, as a list. |
 
-
-The rate variables are different from every other price here. They are what
-**you pay**, not what a tenant pays, and no other part of Fountain knows them.
-The admin finance panel at `/admin/finance` holds them next to your revenue,
-per tenant. The panel switches between the two hour bases per view. Compare
-both totals against a real invoice, then keep the basis that matches.
-
-Each rate can be fractional.
-
-Set none of them and the panel still works. It shows hours, and it shows `—`
-in each money column. A rate you do not set stays `—` and never becomes `$0`,
-because a cost of zero and a cost nobody told us about are different facts.
+`PROVIDER_HOURLY_CENTS` is what **you pay** your sandbox provider. Fountain
+charges a tenant nothing. The admin pages `/admin` and `/admin/sandboxes` show
+sandbox time in hours, per provider and per account, and do not turn it into
+money: the page that priced those hours with this rate was removed with
+billing, so today the variable is read and validated but nothing displays it.
 
 ## Platform inference
 
 Fountain can hold its own inference keys. A tenant with no credential of their
-own then runs on a Fountain key, and the tokens burn their credit balance. The
-tenant's own credential always wins. There is no per-agent switch.
+own then runs on a Fountain key. The tenant's own credential always wins.
+There is no per-agent switch.
+
+**Usage on a platform key has no limit.** You pay the provider for the tokens
+of every account that runs on your key. Fountain does not charge the tenant,
+and no daily ceiling stops the spend. Set a platform key only if you accept
+that bill, for example on a deployment where you trust each account.
 
 Every variable here is blank by default. A deployment with no platform key
 behaves as it always did, and each tenant supplies a credential of their own.
@@ -201,8 +185,6 @@ page.
 
 Use the variable to seed a new deployment. Use the panel to rotate a key on a
 deployment that already runs.
-| `PLATFORM_INFERENCE_DAILY_CENTS` | `5000` | No. | The most the keys above may cost in one UTC day, across every tenant. A conversation beyond it gets `503 platform_inference_unavailable`. It works only with `CREDITS_ENABLED=true`. |
-| `PLATFORM_INFERENCE_RATES` | — | No. | Per-model prices, in cents per million tokens. See below. |
 
 ### The ChatGPT account for the codex runtime
 
@@ -291,7 +273,7 @@ If ChatGPT confirms the limit, Fountain records the reset time that ChatGPT
 gives and shows it at `/admin/inference`. It also records an
 `admin.platform_chatgpt.exhausted` event. Until the reset time, new codex
 conversations use `PLATFORM_OPENAI_API_KEY` instead of the account. Those
-turns are billed per token, and the daily ceiling applies. If no OpenAI
+turns use the API key, which has no limit. If no OpenAI
 platform key is set, codex conversations continue to use the account.
 After the reset time, the account is used again. If ChatGPT does not confirm
 the limit, or the check fails, Fountain records nothing.
@@ -334,63 +316,10 @@ A personal subscription is one account for every tenant on the deployment.
 That pattern is behind reported account bans, and it is an operator's own
 risk. The page says so.
 
-### What a tenant pays
-
-Fountain prices these tokens at the provider's list price. There is no markup.
-The margin on a conversation is the turn time (`CREDIT_TURN_HOUR_CENTS`), not
-the tokens. A closed platform turn posts a `burn_inference` debit beside its
-`burn_turn` debit. The account credits page names both, and the
-finance panel at `/admin/finance` shows the two totals.
-
-The gate stays the balance. An account at zero cannot start the next
-conversation, and the answer is `402 insufficient_credits`. A comped account
-pays nothing, here as everywhere.
-
-### The daily ceiling
-
-`PLATFORM_INFERENCE_DAILY_CENTS` is a circuit breaker for the whole
-deployment. One bad day cannot cost more than this number. A refusal is a 503
-and not a 402, because the limit belongs to you and not to the tenant. A
-tenant with their own credential never meets this ceiling.
-
-The ceiling trails the real spend, because Fountain writes the ledger rows on
-a timer. The ceiling bounds a day. It does not bound a minute.
-
-#### With credits off there is no ceiling
-
-Fountain counts the day from the credit ledger. `CREDITS_ENABLED=false` prices
-nothing and writes no ledger rows, so it also counts nothing.
-
-**A deployment with credits off and a platform key set has no ceiling at all.**
-Every tenant with no credential of their own runs on your key, and no limit
-stops the spend. For a self-hoster that is the correct behaviour, because the
-key is yours and the provider bill is yours. Do not set a platform key with
-credits off unless you accept an unbounded bill.
-
-### Rate overrides
-
-Fountain ships a rate card for the models in the catalog. Each rate carries
-the date somebody read it from the provider. A provider that moves a price
-makes the card stale, and `PLATFORM_INFERENCE_RATES` corrects it without a new
-release.
-
-Give one entry per model, and separate the entries with a comma. Each entry
-has five fields with a colon between them. The fields are the model, the input
-price, the output price, the cached-read price and the cached-write price.
-Prices are cents per million tokens, and a fraction is valid.
-
-```bash
-PLATFORM_INFERENCE_RATES="anthropic/claude-opus-5:500:2500:50:625,openai/*:500:3000:50:500"
-```
-
-A `provider/*` entry is the price for every model of that provider with no
-entry of its own.
-
-
 ## Public pages
 
 The `/` page is not the same page on every deployment. The Fountain project's
-own site shows the product page, with the prices and the opening credit. Every other
+own site shows the product page. Every other
 deployment shows a plain front door: the name, a way in, and a link to this
 manual.
 
@@ -409,10 +338,6 @@ That is the operator's identity, and not the Fountain project's.
 
 Set all four, or set none. A partial set refuses to boot. With none set, the
 two pages return 404, and their links disappear from signup and the footer.
-
-There is one exception. With payment turned on, the pages stay up and carry
-loud `{{...}}` placeholders until you configure them. An instance that charges
-money must publish terms.
 
 | Variable | Default | Required | Effect |
 |---|---|---|---|

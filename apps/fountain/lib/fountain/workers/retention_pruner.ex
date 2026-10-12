@@ -17,8 +17,7 @@ defmodule Fountain.Workers.RetentionPruner do
   different number before it ever removes anything.
 
   The rest are operational and safe to expire sooner: a revoked API key can
-  never be used again, and `stripe_events` only has to outlive Stripe's
-  three-day redelivery window to do its job.
+  never be used again.
 
   `webhook_deliveries` is one row per HTTP attempt at one event, and every
   attempt of a failing endpoint writes another. It is a debugging aid, not an
@@ -33,8 +32,8 @@ defmodule Fountain.Workers.RetentionPruner do
   claimed one by the drain reclaiming an abandoned claim rather than by any
   expiry, so neither is the pruner's to reason about.
 
-  `usage_events` gets the longest window because it is the input to billing
-  history, and `turn_images` is deliberately absent — those rows are owned by
+  `usage_events` gets the longest window because it is the input to the
+  usage history, and `turn_images` is deliberately absent — those rows are owned by
   their turn and go when the conversation does.
 
   `agent_versions` is absent on purpose too: a version shares its agent's
@@ -43,7 +42,7 @@ defmodule Fountain.Workers.RetentionPruner do
   and the table only grows by one row per config edit.
 
   `admin_audit_events` is also absent, **on purpose** (#452): it is the
-  privilege trail — who suspended, comped, deleted or looked at whose account
+  privilege trail — who suspended, deleted or looked at whose account
   — and it only gains a row per manual admin action, so it stays small for
   years. Unbounded retention is the decision, not an oversight; do not "fix"
   it by adding a window here without revisiting that decision.
@@ -69,7 +68,6 @@ defmodule Fountain.Workers.RetentionPruner do
   @defaults [
     log_events: 90,
     audit_events: 365,
-    stripe_events: 90,
     revoked_api_keys: 30,
     usage_events: 400,
     webhook_deliveries: 30,
@@ -163,10 +161,6 @@ defmodule Fountain.Workers.RetentionPruner do
 
   defp do_prune(:audit_events, cutoff) do
     delete_where("audit_events", dynamic([r], r.inserted_at < ^cutoff))
-  end
-
-  defp do_prune(:stripe_events, cutoff) do
-    delete_where("stripe_events", dynamic([r], r.inserted_at < ^cutoff))
   end
 
   defp do_prune(:usage_events, cutoff) do

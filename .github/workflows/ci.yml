@@ -526,8 +526,7 @@ jobs:
 
       # Not plain `mix sobelow`: at the umbrella root sobelow detects no
       # Phoenix app, scans nothing, and exits 0 — indistinguishable from a
-      # pass (#194, #311). The script scans a merged tree so ee/lib web
-      # modules are covered too (decisions/0010).
+      # pass (#194, #311). The script runs it from apps/fountain.
       - name: Security scan (sobelow)
         run: scripts/sobelow.sh
 
@@ -744,7 +743,7 @@ jobs:
           # Both regressions fail exactly here.
           echo "release task runs beside the live server:"
           PHX_SERVER=false _build/prod/rel/fountain_server/bin/fountain_server \
-            eval 'Fountain.Release.rebuild_credit_lots()'
+            eval 'Fountain.Release.inventory_sandbox_metadata()'
 
       - name: Validate OpenAPI spec
         run: mix openapi.spec.json --spec FountainWeb.ApiSpec --output /tmp/openapi.json && jq empty /tmp/openapi.json

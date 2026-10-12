@@ -15,24 +15,20 @@ defmodule Fountain.Accounts.User do
     field :password, :string, virtual: true, redact: true
     field :email_verified_at, :utc_datetime
     field :onboarding_completed_at, :utc_datetime
-    # Per-user override of the balance-funded concurrent-sandbox cap
-    # (`Fountain.Quotas.sandbox_limit/1`); null means the balance rule. The
+    # Per-user override of the concurrent-sandbox cap
+    # (`Fountain.Quotas.sandbox_limit/1`); null means the configured ceiling. The
     # Postgres column is still `max_concurrent_sandboxes` — renaming it would
     # break a rolling deploy — so the honest name lives here.
     field :sandbox_limit_override, :integer, source: :max_concurrent_sandboxes
-    # Cached sum of `credit_ledger` (ADR 0030). Written only by
-    # `Fountain.Credits`, in the same transaction as the ledger row; never
-    # cast from user input.
-    field :credit_balance_cents, :integer, default: 0
+    # `credit_balance_cents`, `stripe_customer_id` and `comped` are still
+    # columns on `users`, unread since credits were removed. They are dropped
+    # one release later, so replicas still running the previous release keep
+    # finding them during a rolling deploy.
     # Operator-owned per-turn ceilings, read by launch preflight. Later-turn and
     # recovery ceiling checks remain unwired; leave overrides empty until integrated.
     # Never cast it through registration, OAuth or profile changes.
     field :execution_limits, :map, default: %{}
     field :role, :string, default: "user"
-    field :stripe_customer_id, :string
-    # A free account (ADR 0031): the balance is never checked. Set only from
-    # the admin panel; the one operator lever.
-    field :comped, :boolean, default: false
     # Set by an operator; a suspended account cannot sign in or spend.
     field :suspended_at, :utc_datetime
     # Bumped to invalidate every session (password change, suspension).
@@ -84,7 +80,7 @@ defmodule Fountain.Accounts.User do
 
   Admin-only. Zero is valid and meaningful — it is the lever for cutting off an
   abusive tenant without deleting their account. `nil` is valid too and means
-  something different: clear the override and let the balance decide again.
+  something different: clear the override and fall back to the ceiling.
   """
   def sandbox_limit_changeset(user, attrs) do
     user
@@ -106,18 +102,6 @@ defmodule Fountain.Accounts.User do
       {:error, {:execution_limits_invalid, field}} ->
         user |> change() |> add_error(:execution_limits, "invalid #{field}")
     end
-  end
-
-  @doc "Changeset for the Stripe customer id, written when a Checkout is opened."
-  def billing_changeset(user, attrs) do
-    user
-    |> cast(attrs, [:stripe_customer_id])
-    |> unique_constraint(:stripe_customer_id)
-  end
-
-  @doc "Admin-only: the comp flag (ADR 0031)."
-  def comp_changeset(user, attrs) do
-    user |> cast(attrs, [:comped]) |> validate_required([:comped])
   end
 
   @doc "Changeset for updating theme preference (light | dark | system)."

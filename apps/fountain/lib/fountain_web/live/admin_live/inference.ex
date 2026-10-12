@@ -33,7 +33,6 @@ defmodule FountainWeb.AdminLive.Inference do
     {:ok,
      socket
      |> assign(:page_title, "Admin · Inference")
-     |> assign(:credits_enabled, Fountain.Credits.enabled?())
      |> assign(:device, nil)
      |> assign_keys()
      |> assign_chatgpt()}
@@ -201,39 +200,18 @@ defmodule FountainWeb.AdminLive.Inference do
   defp assign_keys(socket) do
     socket
     |> assign(:keys, PlatformInference.status())
-    |> assign(:ceiling_cents, PlatformInference.daily_ceiling_cents())
-    |> assign(:spent_today_cents, Fountain.Billing.platform_inference_spend_today())
   end
 
   @impl true
   def render(assigns) do
     ~H"""
     <div class="space-y-6">
-      <.admin_header title="Inference" current={:inference} credits_enabled={@credits_enabled}>
+      <.admin_header title="Inference" current={:inference}>
         <:subtitle>
           The keys Fountain runs a tenant on when they have none of their own. A key set here
           wins over its environment variable and needs no restart.
         </:subtitle>
       </.admin_header>
-
-      <div class="bg-[var(--color-bg-1)] rounded shadow border border-[var(--color-border)] px-4 py-3 text-sm space-y-1">
-        <div class="font-medium">Daily ceiling</div>
-        <div class="text-[var(--color-text-primary)]">
-          <span class="font-semibold tabular-nums">
-            {Fountain.Credits.format_cents(@ceiling_cents)}
-          </span>
-          across every tenant per UTC day (<code class="text-xs">PLATFORM_INFERENCE_DAILY_CENTS</code>).
-          <span :if={@spent_today_cents != nil}>
-            Spent today:
-            <span class="font-semibold tabular-nums">
-              {Fountain.Credits.format_cents(@spent_today_cents)}
-            </span>
-          </span>
-          <span :if={@spent_today_cents == nil} class="text-[var(--color-text-secondary)]">
-            Credits are off, so nothing is counted against it.
-          </span>
-        </div>
-      </div>
 
       <section class="space-y-3">
         <div
@@ -291,8 +269,9 @@ defmodule FountainWeb.AdminLive.Inference do
       </section>
 
       <p class="text-xs text-[var(--color-text-secondary)]">
-        A tenant's own credential always wins over these. Tokens on a platform key burn the
-        tenant's credit at the provider's list price; the finance page shows the total.
+        A tenant's own credential always wins over these. Nothing limits what a platform key
+        spends: every tenant without a credential of their own runs on it, billed to this
+        deployment's provider account.
       </p>
 
       <section class="bg-[var(--color-bg-1)] rounded shadow border border-[var(--color-border)] px-4 py-3 space-y-3">
@@ -435,7 +414,7 @@ defmodule FountainWeb.AdminLive.Inference do
     <span :if={@chatgpt.exhausted_until} class="block mt-1 text-amber-800">
       The account has hit its Codex usage limit until {format_ts(@chatgpt.exhausted_until)} UTC.
       Until then, new codex conversations on a new sandbox run on the OpenAI platform key when one
-      is set, billed per token under the daily ceiling. Existing persistent homes and their
+      is set, billed per token. Existing persistent homes and their
       conversations stay on the source they were bound to, here and again after the reset:
       launches onto them fail with codex_inference_conflict until the home is reset.
     </span>

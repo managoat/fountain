@@ -43,15 +43,11 @@ defmodule FountainWeb.AdminJSON do
       email_verified_at: u.email_verified_at,
       suspended: not is_nil(u.suspended_at),
       suspended_at: u.suspended_at,
-      has_stripe_customer: u.stripe_customer_id not in [nil, ""],
       # The cap actually enforced, keeping the field's old name and meaning
       # for anything reading this API, plus the override that produced it —
-      # null when the cap is simply the balance rule's.
+      # null when the cap is simply the configured ceiling.
       max_concurrent_sandboxes: Fountain.Quotas.sandbox_limit_for(u),
       sandbox_limit_override: u.sandbox_limit_override,
-      # A free account (ADR 0031): the balance is never checked.
-      comped: u.comped,
-      credit_balance_cents: u.credit_balance_cents,
       active_sandboxes: Map.get(sandbox_counts, u.id, 0),
       onboarding_completed_at: u.onboarding_completed_at,
       last_activity_at: Map.get(u, :last_activity_at),

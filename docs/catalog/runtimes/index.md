@@ -89,8 +89,8 @@ host's `PATH` and network. Read
 [trusted mode](../../integrations/runners.md#read-this-first-trusted-mode)
 before you name a command there.
 
-With credits on, a turn on this runtime is priced by sandbox time. There is no
-token count to record, so `usage` on the turn is null.
+There is no token count to record for a turn on this runtime, so `usage` on
+the turn is null.
 
 ## The rule that catches people
 

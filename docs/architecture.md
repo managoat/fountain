@@ -18,7 +18,7 @@ sidecar. To scale out is to run more replicas of the same image.
 | **Phoenix endpoint** | The one public listener. It serves the operator console, the REST API and the SSE streams, on one port. |
 | **Conversation server** | One process for each active conversation. It owns the sandbox. It provisions the sandbox, spawns a turn in it, streams the output back, and enforces the lifecycle bounds. It holds the decrypted tenant key in memory while it lives. Fountain registers it across the cluster, so exactly one exists for each conversation, whatever the replica count. |
 | **Rehydrator** | Runs once at boot. It finds the conversations that were live before the restart and starts their servers again. Those servers reattach to the sprite, which still runs, so a deploy kills no work. |
-| **Oban** | Background jobs, which are the credit pricer and expirer, the credit emails and the account exports on the `exports` queue. It also runs the cron schedule below. |
+| **Oban** | Background jobs, which are the account emails, the outbound webhooks, the team schedules and the account exports on the `exports` queue. It also runs the cron schedule below. |
 | **Metrics listener** | A second, private HTTP listener on `METRICS_PORT`, which is 9568 in production and off elsewhere. It serves `/metrics` and `/health`. It is deliberately apart from the public endpoint, so that no ingress rule can expose it by accident. |
 
 Here is the scheduled work. All times are UTC.
@@ -26,12 +26,11 @@ Here is the scheduled work. All times are UTC.
 | Schedule | Job | What it does |
 |---|---|---|
 | Each hour at :07 | The sandbox reaper. | Reconciles the sandbox rows against sprites.dev. It frees a row stuck mid-provision, expires an abandoned sandbox, destroys a sprite whose row is already terminal, and reports an untracked sprite. |
-| 04:23 daily | The retention pruner. | Deletes a row past its retention. Log events and Stripe events go after 90 days, audit events after 365, and usage events after 400. A revoked API key or a finished sandbox request goes after 30. |
+| 04:23 daily | The retention pruner. | Deletes a row past its retention. Log events go after 90 days, audit events after 365, and usage events after 400. A revoked API key or a finished sandbox request goes after 30. |
 | 04:37 daily | The ChatGPT subscription keepalive. | Finds each linked ChatGPT subscription that nobody renewed for 6 days, and queues one renewal for each on the `chatgpt_refresh` queue. The renewals are spread over 5 minutes to 6 hours, by how many there are. With no linked subscription, it does nothing. |
 | 05:41 daily | The unverified-account pruner. | Deletes an account that never verified its email, after 30 days, through the full deletion path. That covers sprites and audit. |
 | Each 5 minutes | The sandbox queue drainer. | Replays work that waits for sandbox capacity, and expires a request past its wait bound. A freed sandbox slot drains the queue at once; this run is the backstop. |
-| Each 10 minutes | The credit pricer. | Burns each closed turn into the credit ledger, and sweeps each expired grant. |
-| 06:23 daily | The credit expirer. | Sweeps each expired grant. It is a backstop for the pricer. |
+
 
 ### Clustering
 
@@ -86,7 +85,7 @@ the key is half of that sentence.
 |---|---|---|
 | **Postgres** | Everything. | `GET /health/ready` returns 503, and a load balancer drains the instance. The app stays up and does not restart, because a restart does not fix Postgres. That is why [the restart check deliberately checks nothing](guides/operate/observability.md#health-endpoints). Recovery happens on its own. A replica that *boots* against a database that is down fails instead, because migrations run at boot. |
 | **sprites.dev** | Conversations. | A new provision and a wake both fail, after bounded retries with backoff. Fountain then marks the conversation `failed`, or leaves it resumable if it was a wake. Everything else still works, which is sign-in, dashboards, agent, environment and vault management, and past logs. Readiness deliberately leaves it out, because a third party's uptime does not belong on the request path. |
-| **Stripe** | Payment for credit packs, which is optional under `CREDITS_ENABLED`. | Checkout fails with a visible error. The account page itself still renders, from local state. Stripe delivers a webhook again until Fountain acknowledges it. Fountain expires the opening credit against the local clock, so an outage delays a purchase and does not open the gate. |
+
 | **Mail**, from Resend or SMTP. | Signup verification, and password reset. | Both dead-end while the provider is down. The escape hatch is `Fountain.Release.verify_email/1`. Read [Email](guides/operate/email.md). `EMAIL_DELIVERY=none` is a different thing, because an account then self-verifies (ADR 0011). |
 | **GitHub OAuth** | The OAuth login button, which is optional. | That button, and nothing else. Email and password auth still works. |
 | **Sentry** | Error reports, which are optional. | It is inert without a DSN, and nothing depends on it. |
@@ -134,12 +133,12 @@ exact strings that the UI, the SSE stream and the log rows show. Each carries
 a state of `started`, `done`, `failed` or `interrupted`.
 
 1. **Gates.** A prompt arrives, through `POST /api/conversations` or through a
-   client on it. Four gates apply, in order. The agent must exist *and belong
+   client on it. Three gates apply, in order. The agent must exist *and belong
    to you*, because Fountain scopes each query in the system to one tenant.
-   The vault must be on the agent's allowlist. The credit gate applies when
-   `CREDITS_ENABLED` is on, and answers `402` at a zero balance. The quota for
-   concurrent sandboxes applies. The balance funds it, between a floor of 2
-   and a ceiling of 20 for each user by default.
+   The vault must be on the agent's allowlist. The quota for concurrent
+   sandboxes applies: 20 for each user by default (`SANDBOX_CAP_CEILING`),
+   unless an admin sets an override for the account, and 20 across the whole
+   deployment (`SANDBOX_FLEET_CEILING`).
 2. **`provision`.** Fountain creates the sandbox and conversation rows, as
    `pending`, then starts a conversation server. That server creates the
    sprite, mounts the skills, and mints a scoped API key that expires. The
@@ -215,5 +214,5 @@ level, which says what to run and what the output means, is
 | A container restarts in a loop at boot. | Migrations cannot reach Postgres, so the boot fails before it opens a listener. |
 | The stream is dead for some viewers and correct for others, on several replicas. | The Erlang cluster, through `CLUSTER_DNS_QUERY`. |
 | A signup never completes. | Mail delivery. Read [Email](guides/operate/email.md). |
-| `402 insufficient_credits` on a self-hosted instance. | `CREDITS_ENABLED` must be `false`. |
+
 | A sandbox suspends between prompts, and the work resumes on the next one. | That is the design. Read [lifecycle bounds](guides/operate/sandbox-lifetime.md). |

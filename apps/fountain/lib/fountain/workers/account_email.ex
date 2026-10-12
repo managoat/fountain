@@ -2,10 +2,8 @@ defmodule Fountain.Workers.AccountEmail do
   @moduledoc """
   Account-state notifications (#450): suspended, unsuspended, deleted.
 
-  Separate from the credit emails (`Workers.CreditsEmail`, ee) because these
-  are not about money and their guards don't fit — a suspension can happen to
-  an account at any balance, and a deletion has no user row left to guard on
-  at all.
+  A deletion has no user row left to guard on at all, which is why the kinds
+  carry what they need.
 
   State-dependent kinds re-check at send time: a suspension lifted before the
   queue drained must not then be announced. The `"deleted"` kind carries the

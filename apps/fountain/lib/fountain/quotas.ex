@@ -7,17 +7,14 @@ defmodule Fountain.Quotas do
   concurrency cap is the primary defence against one account — whether abusive,
   scripted, or merely enthusiastic — consuming the platform's capacity.
 
-  The cap is funded by the balance (ADR 0031): a tenant may run
-  `clamp(balance ÷ reserve, floor, ceiling)` sandboxes at once, so nobody can
-  start a fleet they cannot pay for, and a bigger balance unlocks more. A
-  comped account, and a deployment with billing off, get the ceiling.
+  A tenant may run `cap_ceiling` sandboxes at once (`SANDBOX_CAP_CEILING`).
   `users.sandbox_limit_override` wins when it is set, which is the admin
-  lever the rule cannot express: raise it for a trusted tenant, drop it to
-  zero during abuse. A null override means "whatever the balance funds".
+  lever: raise it for a trusted tenant, drop it to zero during abuse. A null
+  override means the ceiling.
 
   A fleet ceiling bounds the sum across every tenant to what the providers
   allow; `with_sandbox_reservation/3` checks it under a global lock and
-  refuses with `:fleet_full`, which is capacity, not a billing state.
+  refuses with `:fleet_full`, which is capacity, not a tenant's cap.
 
   ## What counts
 
@@ -112,20 +109,20 @@ defmodule Fountain.Quotas do
 
   @doc """
   The concurrency cap for `user_id`: the override if it has one, otherwise
-  what the balance funds (ADR 0031).
+  the configured ceiling.
 
-  A user who cannot be found at all gets the floor, so a lookup failure
-  tightens rather than removes the limit.
+  A user who cannot be found at all gets zero, so a lookup failure tightens
+  rather than removes the limit.
   """
   @spec sandbox_limit(binary()) :: non_neg_integer()
   def sandbox_limit(user_id) when is_binary(user_id) do
     query =
       from u in User,
         where: u.id == ^user_id,
-        select: {u.sandbox_limit_override, u.credit_balance_cents, u.comped}
+        select: %{override: u.sandbox_limit_override}
 
     case Repo.one(query) do
-      {override, balance, comped} -> resolve_limit(override, balance, comped)
+      %{override: override} -> resolve_limit(override)
       nil -> 0
     end
   end
@@ -136,27 +133,10 @@ defmodule Fountain.Quotas do
   row (the same contract as `active_sandbox_counts/0`).
   """
   @spec sandbox_limit_for(User.t()) :: non_neg_integer()
-  def sandbox_limit_for(%User{} = user),
-    do: resolve_limit(user.sandbox_limit_override, user.credit_balance_cents, user.comped)
+  def sandbox_limit_for(%User{} = user), do: resolve_limit(user.sandbox_limit_override)
 
-  defp resolve_limit(override, _balance, _comped) when is_integer(override), do: override
-
-  defp resolve_limit(_override, balance, comped) do
-    %{reserve_cents: reserve, cap_floor: floor, cap_ceiling: ceiling} = settings()
-
-    cond do
-      not Fountain.Credits.enabled?() -> ceiling
-      comped == true -> ceiling
-      # Nothing in the balance funds nothing. The credit gate runs before the
-      # quota check under the reservation lock, so this account is refused as
-      # `insufficient_credits`, never as a 0/0 quota.
-      (balance || 0) <= 0 -> 0
-      true -> balance |> funded(reserve) |> max(floor) |> min(ceiling)
-    end
-  end
-
-  defp funded(_balance, 0), do: 0
-  defp funded(balance, reserve), do: div(balance, reserve)
+  defp resolve_limit(override) when is_integer(override), do: override
+  defp resolve_limit(_override), do: settings().cap_ceiling
 
   @doc "Live sandboxes across every tenant, against the fleet ceiling."
   @spec fleet_count() :: non_neg_integer()
@@ -202,10 +182,8 @@ defmodule Fountain.Quotas do
              s.lease_until > fragment("statement_timestamp() AT TIME ZONE 'UTC'"))
   end
 
-  @doc "The reserve, floor, ceiling and fleet ceiling in force."
+  @doc "The per-account ceiling and the fleet ceiling in force."
   @spec settings() :: %{
-          reserve_cents: non_neg_integer(),
-          cap_floor: non_neg_integer(),
           cap_ceiling: non_neg_integer(),
           fleet_ceiling: non_neg_integer()
         }
@@ -213,8 +191,6 @@ defmodule Fountain.Quotas do
     cfg = Application.get_env(:fountain, :sandboxes, [])
 
     %{
-      reserve_cents: Keyword.get(cfg, :reserve_cents, 200),
-      cap_floor: Keyword.get(cfg, :cap_floor, 2),
       cap_ceiling: Keyword.get(cfg, :cap_ceiling, 20),
       fleet_ceiling: Keyword.get(cfg, :fleet_ceiling, 20)
     }
@@ -302,15 +278,10 @@ defmodule Fountain.Quotas do
         :erlang.phash2(user_id)
       ])
 
-      # The fleet ceiling, the tenant's cap and the balance precheck all live
-      # under the locks (ADR 0030 decision 6, ADR 0031): two requests at the
-      # last slot or the last cent must not both read "room" and both
-      # provision. The turn that then burns the balance may still go
-      # negative; that is the soft stop, not a hole.
-      # Balance before cap: an unfunded account's cap is 0, and "out of
-      # credit" is the answer it should hear, not "0/0 sandboxes".
+      # The fleet ceiling and the tenant's cap both live under the locks:
+      # two requests at the last slot must not both read "room" and both
+      # provision.
       with :ok <- check_fleet_ceiling(quota_opts),
-           :ok <- Fountain.Credits.gate(user_id),
            :ok <- check_sandbox_quota(user_id, quota_opts),
            {:ok, value} <- fun.() do
         value

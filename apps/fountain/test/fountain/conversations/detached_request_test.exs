@@ -312,21 +312,21 @@ defmodule Fountain.Conversations.DetachedRequestTest do
       assert Repo.reload(turn).waiting
     end
 
-    test "a spent balance refuses the answer, and the request survives to be answered again" do
+    test "a suspended account refuses the answer, and the request survives to be answered again" do
       # The wake would refuse this anyway; running the gate first is what keeps
       # the answer from being resolved into a prompt nobody delivers, and the
       # caller from being told somebody else answered.
       %{user: user, conv: conv, turn: turn} = waiting_conversation()
-      drain_credit(user)
+      set_suspended(user, true)
 
-      assert {:error, :insufficient_credits} =
+      assert {:error, :account_suspended} =
                Conversations.answer_permission_request(conv.id, user.id, "7.abc", "allow")
 
       assert Repo.reload(turn).waiting
       refute Repo.reload(turn).pending_permission == nil
 
-      # Topped up, the same answer lands.
-      {:ok, _} = Fountain.Credits.grant(user.id, 500, "grant_admin", idempotency_key: "topup")
+      # Lifted, the same answer lands.
+      set_suspended(user, false)
       record_wake()
 
       assert :ok = Conversations.answer_permission_request(conv.id, user.id, "7.abc", "allow")
@@ -414,9 +414,9 @@ defmodule Fountain.Conversations.DetachedRequestTest do
       assert request_stages(conv.id, "done") == []
     end
 
-    test "a spent balance leaves the request for the next sweep" do
+    test "a suspended account leaves the request for the next sweep" do
       %{user: user, conv: conv, turn: turn} = waiting_conversation(deadline: hours_from_now(-1))
-      drain_credit(user)
+      set_suspended(user, true)
 
       # No `reject/1` here: the second half of this test needs the delivery to
       # work. The untouched row and the silent stream are what say the first
@@ -425,8 +425,8 @@ defmodule Fountain.Conversations.DetachedRequestTest do
       assert Repo.reload(turn).waiting
       assert request_stages(conv.id, "done") == []
 
-      # And it is not lost: the next sweep, after a top-up, carries it.
-      {:ok, _} = Fountain.Credits.grant(user.id, 500, "grant_admin", idempotency_key: "topup")
+      # And it is not lost: the next sweep, once lifted, carries it.
+      set_suspended(user, false)
       record_wake()
 
       assert DetachedRequestSweeper.sweep_expired_requests() == 1
@@ -493,18 +493,11 @@ defmodule Fountain.Conversations.DetachedRequestTest do
     end
   end
 
-  # `insert_verified_user/1` holds the $5 opening credit (ADR 0031), so
-  # refusal has to be arranged rather than assumed. Exactly the balance, so a
-  # later grant puts the account back above zero rather than into a hole no
-  # top-up in a test would fill.
-  defp drain_credit(user) do
-    balance = Repo.reload!(user).credit_balance_cents
-
-    if balance > 0 do
-      {:ok, _} =
-        Fountain.Credits.debit(user.id, balance, "burn_turn", idempotency_key: "drain-#{user.id}")
-    end
-
+  # The account's own refusal, arranged on the row alone: `suspend_user/2`
+  # would also reap the sandbox these tests need to wake again.
+  defp set_suspended(user, suspended?) do
+    at = if suspended?, do: DateTime.utc_now() |> DateTime.truncate(:second)
+    Repo.update!(Ecto.Changeset.change(Repo.reload!(user), suspended_at: at))
     :ok
   end
 

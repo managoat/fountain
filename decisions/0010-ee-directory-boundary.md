@@ -1,11 +1,11 @@
 ---
 type: ADR
 title: "Top-level `ee/` directory boundary for billing and transactional email"
-description: "Billing and billing-adjacent growth mail live in a top-level ee/ directory compiled into the same OTP app; the license change and the core/ee seam are not yet built."
+description: "Retired 2026-10-12: ee/ and everything in it were deleted when Fountain became self-hosted only. Billing and billing-adjacent growth mail live in a top-level ee/ directory compiled into the same OTP app; the license change and the core/ee seam are not yet built."
 tags: [licensing, ee, billing]
-status: stable
+status: deprecated
 adr: "0010"
-adr_status: "Accepted"
+adr_status: "Retired"
 date: 2026-08-04
 generated: { by: human:jhgaylor, at: 2026-08-07T02:39:02-04:00 }
 verified: { by: human:jhgaylor, at: 2026-08-07T02:39:02-04:00 }
@@ -13,7 +13,7 @@ verified: { by: human:jhgaylor, at: 2026-08-07T02:39:02-04:00 }
 
 # 0010 — Top-level `ee/` directory boundary for billing and transactional email
 
-**Status:** Accepted (documents the file move built in the PR that adds this
+**Status:** Retired 2026-10-12; see the addendum at the end. The text above the addendum is history. Was: Accepted (documents the file move built in the PR that adds this
 ADR; the license change and the core/ee seam are explicitly **not yet built**
 — see "Not done yet" below). **Scope narrowed by the 2026-08-05 addendum at
 the bottom: account email returned to core; ee/ is billing + billing-adjacent
@@ -133,3 +133,22 @@ otherwise.
 > copy of the root MIT license and that the public docs correctly say MIT,
 > described the state on 2026-08-04 and is no longer true. See
 > [`0027-agpl-relicensing.md`](0027-agpl-relicensing.md).
+
+## Addendum — 2026-10-12: retired, `ee/` is gone
+
+Fountain is no longer sold as a hosted service. It is a self-hosted
+application, and billing went with the hosted business. Everything this ADR
+put under `ee/` was deleted rather than moved: `Fountain.Credits` and its
+ledger, `Fountain.Billing` (the balance gate, finance and reconciliation),
+the Stripe webhook and the credits API, `/account/billing`, `/admin/finance`,
+the credit workers and the credit emails. The `stripity_stripe` dependency,
+`ee/LICENSE`, `ee/README.md` and `ee/test` went with them.
+
+What `ee/` had borrowed from core stays in core, where it already lived or
+was moved before the deletion: `Fountain.Usage` (the `usage_events` table),
+`Fountain.Machines.Usage` (the sandbox cost on `/admin` and
+`/admin/sandboxes`) and the account emails in `Fountain.Emails.UserEmails`.
+
+There is no longer a second licence in the repository, and the build no longer
+overlays a second source tree: `elixirc_paths`, the test paths, the sobelow
+overlay, the test partitioner and the Dockerfile name no `ee/` path.

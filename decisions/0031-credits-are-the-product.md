@@ -1,11 +1,11 @@
 ---
 type: ADR
 title: "Credits are the product: no tiers, concurrency as a balance-funded protection under a fleet ceiling"
-description: "Retire the subscription tiers. A tenant buys credit, burns it on turns (rent and messages were retired with Team comms, 2026-09), and may run as many sandboxes at once as their balance funds, up to a per-account ceiling and the fleet ceiling the providers allow. Stripe stays only as the till for one-time packs. Supersedes ADR 0026 and the subscription gate of ADR 0006; amends ADR 0030 decision 2. Built; persistent-home rent is not."
+description: "Retired 2026-10-12: no credits and no balance gate; the concurrency cap is an override else SANDBOX_CAP_CEILING, under the fleet ceiling. Retire the subscription tiers. A tenant buys credit, burns it on turns (rent and messages were retired with Team comms, 2026-09), and may run as many sandboxes at once as their balance funds, up to a per-account ceiling and the fleet ceiling the providers allow. Stripe stays only as the till for one-time packs. Supersedes ADR 0026 and the subscription gate of ADR 0006; amends ADR 0030 decision 2. Built; persistent-home rent is not."
 tags: [billing, credits, quotas, plans]
-status: stable
+status: deprecated
 adr: "0031"
-adr_status: "Accepted"
+adr_status: "Retired"
 date: 2026-08-25
 generated: { by: human:jhgaylor, at: 2026-08-25T02:00:00-04:00 }
 verified: { by: human:jhgaylor, at: 2026-08-25T04:00:00-04:00 }
@@ -14,7 +14,7 @@ stale_after: 2026-10-15
 
 # 0031 — Credits are the product: no tiers, concurrency as a balance-funded protection under a fleet ceiling
 
-**Status:** Accepted, built (#1114 the cap and fleet ceiling; the
+**Status:** Retired 2026-10-12; see the addendum at the end. The text above the addendum is history. Was: Accepted, built (#1114 the cap and fleet ceiling; the
 retirement PR that follows it). What runs: `Billing.check_spend/1` is the
 balance gate; `Accounts.verify_email/2` posts the opening grant;
 `Quotas.sandbox_limit/1` is balance-funded under `SANDBOX_FLEET_CEILING`;
@@ -145,3 +145,28 @@ exactly the customers who spend the most.
 ## Refs
 
 #1086, #798, #1038, #1112; ADR 0006, ADR 0017, ADR 0023, ADR 0026, ADR 0030.
+
+## Addendum — 2026-10-12: retired
+
+Fountain is no longer sold as a hosted service. Credits were the product, and
+there is no product to sell, so this ADR's decisions are removed with
+[ADR 0030](0030-prepaid-credits.md)'s ledger.
+
+- **There is no spend gate.** `Billing.check_spend/1` and `Credits.gate/1` are
+  deleted, and the doors that called them (launch, wake, prompt, schedules,
+  Buzz) no longer ask. Nothing answers `402 insufficient_credits`, and the
+  `upgrade_url` field is gone from the error schema.
+- **The concurrency cap is no longer balance-funded.**
+  `Quotas.sandbox_limit/1` is the account's `sandbox_limit_override` when an
+  operator set one, and `SANDBOX_CAP_CEILING` otherwise. `SANDBOX_FLEET_CEILING`
+  still bounds the whole deployment. `SANDBOX_RESERVE_CENTS` and
+  `SANDBOX_CAP_FLOOR` are no longer read.
+- **Comped accounts are gone**, with the admin comp and credit-grant actions
+  (`POST /api/admin/users/:id/comp`, `POST /api/admin/users/:id/credits`) and
+  the `comped` field on `/api/auth/me` and the admin user views.
+- **Stripe is gone.** `POST /api/stripe/webhook` no longer exists; an
+  operator who registered it should disable the endpoint in the Stripe
+  dashboard.
+
+The cap and the fleet ceiling still do what decision 5 said they protect: a
+noisy neighbour and the provider plan ([ADR 0005](0005-platform-shared-sprites-token.md)).

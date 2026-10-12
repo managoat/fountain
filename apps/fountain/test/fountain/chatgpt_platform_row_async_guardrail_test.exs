@@ -28,8 +28,7 @@ defmodule Fountain.ChatGPTPlatformRowAsyncGuardrailTest do
     root = Path.expand("../../../..", __DIR__)
 
     files =
-      ["apps/fountain/test", "ee/test"]
-      |> Enum.flat_map(&Path.wildcard(Path.join([root, &1, "**/*_test.exs"])))
+      Path.wildcard(Path.join([root, "apps/fountain/test", "**/*_test.exs"]))
 
     assert files != [], "the guardrail found no test files — it would pass over anything"
 

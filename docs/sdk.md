@@ -395,7 +395,7 @@ try {
 | `ConversationBusyError` | `conversation_busy` (400) | Yes. The turn in flight must finish. |
 | `NotReadyError` | `provisioning`, `fleet_full`, `sandbox_unavailable` (503) | Yes. It carries the server's `Retry-After`. |
 | `QuotaExceededError` | `sandbox_quota_exceeded` (429) | Yes. Terminate a conversation first. |
-| `InsufficientCreditsError` | `insufficient_credits` (402) | No. It carries `upgradeUrl`. |
+| `InsufficientCreditsError` | `insufficient_credits` (402) | No. The server no longer sends it. |
 | `ValidationError` | 422 | No. Read `fieldErrors`. |
 | `AuthError` and `NotFoundError` | 401 and 404 | No. |
 | `ConnectionError` | It never reached the server. | In a browser, the cause is usually CORS. |
@@ -403,12 +403,11 @@ try {
 Each one carries `status`, `code`, `body`, `retryAfter` and a `retryable`
 flag. So a generic retry wrapper needs no table of its own.
 
-Fountain sends four more codes that mean the same thing and are not yet mapped
+Fountain sends three more codes that mean the same thing and are not yet mapped
 to `NotReadyError` in any client: `sandbox_probe_failed` (Fountain could not
 reach the sandbox provider), `sandbox_resume_failed` (the provider would not
-wake a parked machine), `runner_offline` (a self-hosted runner is not
-connected) and `platform_inference_unavailable` (Fountain's shared model access
-is at its daily ceiling). All four are 503 with a `Retry-After`, so
+wake a parked machine) and `runner_offline` (a self-hosted runner is not
+connected). All three are 503 with a `Retry-After`, so
 **retry on the status or on `retryAfter`, not on the class**, and a wrapper
 that does will handle them today and keep handling them when they are mapped.
 
@@ -500,6 +499,10 @@ Start a new paragraph after a tool call. Resume from the last event id when a
 connection drops mid-turn.
 
 ## Credit error migration
+
+Fountain no longer has credits, and the server no longer sends
+`insufficient_credits` or a 402. The client names below stay until each SDK
+removes them in a release of its own.
 
 The credit error names start at TypeScript 2.0.0, Python 0.3.0, Elixir 0.3.0
 and Swift 0.17.0. The first three SDKs have independent version lines; Swift

@@ -1,4 +1,4 @@
-# The three team dashboards, wrapped as ConfigMaps for Grafana's sidecar.
+# The team dashboards, wrapped as ConfigMaps for Grafana's sidecar.
 #
 # kube-prometheus-stack runs a sidecar that watches every namespace for
 # ConfigMaps labelled `grafana_dashboard: "1"` and drops their contents into
@@ -37,13 +37,6 @@ configMapGenerator:
   - name: fountain-grafana-product
     files:
       - fountain-product.json
-    options:
-      disableNameSuffixHash: true
-      labels:
-        grafana_dashboard: "1"
-  - name: fountain-grafana-finance
-    files:
-      - fountain-finance.json
     options:
       disableNameSuffixHash: true
       labels:

@@ -11,7 +11,7 @@ Each of these authenticates as an ordinary user, with an API key or with the
 CLI's saved login. Each works against any instance it can reach.
 
 If you want the services that Fountain itself needs, which are sandboxes,
-mail, OAuth, billing and error reports, read
+mail, OAuth and error reports, read
 [Services Fountain uses](index.md).
 
 | Client | Talks over | Configured on |

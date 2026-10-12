@@ -7,11 +7,6 @@ defmodule FountainWeb.AdminLive.Helpers do
   badges identically.
   """
 
-  def account_badge_class(true), do: "bg-purple-100 text-purple-800 border-purple-200"
-
-  def account_badge_class(_),
-    do: "bg-[var(--color-bg-2)] text-[var(--color-text-secondary)] border-[var(--color-border)]"
-
   def sandbox_status_color("running"), do: "bg-blue-100 text-blue-800 border-blue-200"
   def sandbox_status_color("ready"), do: "bg-green-100 text-green-800 border-green-200"
   def sandbox_status_color("suspended"), do: "bg-sky-100 text-sky-800 border-sky-200"
@@ -39,18 +34,6 @@ defmodule FountainWeb.AdminLive.Helpers do
 
   def format_ts(nil), do: ""
   def format_ts(dt), do: Calendar.strftime(dt, "%Y-%m-%d %H:%M")
-
-  @doc """
-  Stripe amounts are integer minor units ("2900", "usd"). USD gets the
-  symbol; anything else renders as "29.00 EUR" rather than guessing symbols
-  or zero-decimal currencies wrong for money we don't charge in.
-  """
-  def format_money(cents, "usd"), do: "$#{minor_units(cents)}"
-  def format_money(cents, currency), do: "#{minor_units(cents)} #{String.upcase(currency)}"
-
-  defp minor_units(cents) do
-    :erlang.float_to_binary(cents / 100, decimals: 2)
-  end
 
   @doc """
   A duration in hours, at the precision an operator can act on: minutes below

@@ -253,20 +253,8 @@ defmodule FountainWeb.MetricsTest do
         # Also the proxy's own (Managoat.Broker.Proxy.connect_event/4, since
         # managoat_broker 0.1.2): once per connection rather than per request
         [:managoat, :broker, :connect],
-        # Credits and billing (#1169). The two are deliberately different
-        # producers: `worker.run` is Fountain.Credits.Telemetry.emit_run/2,
-        # called from each credit worker's perform/1, and answers "did it
-        # run"; `posted` is Fountain.Credits.post/4 at the ledger write, and
-        # answers "did money move". Both are exercised by
-        # Fountain.CreditsTelemetryTest.
-        [:fountain, :credits, :worker, :run],
-        [:fountain, :credits, :posted],
-        # FountainWeb.StripeWebhookController, on every rejected or failed
-        # delivery — exercised by its controller test.
-        [:fountain, :stripe_webhook, :failure],
         # Swoosh's own span around Mailer.deliver/1, which is why the email
-        # metrics needed no call-site change across the fourteen deliver
-        # sites. A failure is an `:error` key in the stop event's metadata,
+        # metrics needed no call-site change across the deliver sites. A failure is an `:error` key in the stop event's metadata,
         # not a separate event, hence the derived `outcome` tag.
         [:swoosh, :deliver, :stop],
         [:swoosh, :deliver, :exception],

@@ -13,9 +13,9 @@ defmodule FountainWeb.SchemaGuardrailTest do
     2. `AuthMeResponse` declares `expires_at`, which `show/2` never renders
        (#1418). The spec promises a field the endpoint does not return.
     3. Reported as a bare `{"type": "object"}` 402 on `POST /api/conversations`
-       carrying an undeclared `upgrade_url`. Building this guard showed that
-       one was not a server defect at all: the operation declares `error` and
-       `upgrade_url` perfectly well, and `scripts/sdk-contract/build.py` was
+       carrying an undeclared field. Building this guard showed that one was
+       not a server defect at all: the operation declared its fields perfectly
+       well, and `scripts/sdk-contract/build.py` was
        dropping the properties of an inline schema when it projected them.
        Fixed there. The check below still exists, because a response declared
        as a propertyless object is a real hazard even though nothing is in that

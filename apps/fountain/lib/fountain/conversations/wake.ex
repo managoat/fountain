@@ -431,7 +431,6 @@ defmodule Fountain.Conversations.Wake do
           # in so the owner can wake a machine the row calls `ready` and the
           # provider calls stopped — see `probe_sandbox/4`.
           with :ok <- Fountain.Accounts.check_not_suspended(conv.user_id),
-               :ok <- Fountain.Billing.check_spend(conv.user_id),
                :ok <- check_saved_inference(conv, agent),
                {:ok, _} <- wake_suspended_sandbox(conv, sandbox_id, observed) do
             case start_conversation_server(
@@ -627,7 +626,7 @@ defmodule Fountain.Conversations.Wake do
   @doc """
   The refusals a prompt's wake still owes its caller in the response, run
   without a provider round trip (#2561): the conversation's status, its saved
-  allowance, the agent, the account's suspension, its credit, the saved
+  allowance, the agent, the account's suspension, the saved
   inference source, a machine being reset, and, when the wake would add a
   machine, room under the tenant's cap and the fleet ceiling.
 
@@ -642,7 +641,6 @@ defmodule Fountain.Conversations.Wake do
   def admit_prompt_wake(conv_id) when is_binary(conv_id) do
     with {:ok, conv, agent, _runtime_module} <- preflight(conv_id, :work),
          :ok <- Fountain.Accounts.check_not_suspended(conv.user_id),
-         :ok <- Fountain.Billing.check_spend(conv.user_id),
          :ok <- check_saved_inference(conv, agent) do
       check_machine(conv)
     end
@@ -817,7 +815,6 @@ defmodule Fountain.Conversations.Wake do
 
     with :ok <- retire_replaced_home(mode, conv.sandbox_id),
          :ok <- Fountain.Accounts.check_not_suspended(conv.user_id),
-         :ok <- Fountain.Billing.check_spend(conv.user_id),
          :ok <- check_saved_inference(conv, agent),
          # A fresh sandbox is a fresh placement decision — re-resolve from
          # the agent, so a conversation whose old sandbox died can migrate

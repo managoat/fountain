@@ -575,12 +575,11 @@ defmodule Fountain.Machines.Machine do
     * `:sandbox_resume_failed` — the provider was asked and would not. `main`'s
       word, and the protocol's `:resume_failed` is translated to it here so the
       surfaces that already know it do not have to learn a second.
-    * the admission's own refusals — `{:sandbox_quota_exceeded, _}`,
-      `:fleet_full`, `:insufficient_credits` — which are the tenant's cap, the
-      fleet ceiling and the credit gate, exactly as
-      `Quotas.with_sandbox_reservation/3` has always answered them on this path.
-      They are 429, 503 and 402, and flattening any of them to
-      `:sandbox_unavailable` would tell somebody out of credit to retry.
+    * the admission's own refusals — `{:sandbox_quota_exceeded, _}` and
+      `:fleet_full` — which are the tenant's cap and the fleet ceiling, exactly
+      as `Quotas.with_sandbox_reservation/3` has always answered them on this
+      path. They are 429 and 503, and flattening either to
+      `:sandbox_unavailable` would hide which limit was hit.
 
   Everything else is a refusal to act on right now — contention for the lease, a
   database fault, an unreachable owner — and reads as `:sandbox_unavailable`.
@@ -602,7 +601,6 @@ defmodule Fountain.Machines.Machine do
              | :provisioning
              | :sandbox_resume_failed
              | :fleet_full
-             | :insufficient_credits
              | {:sandbox_quota_exceeded, map()}}
   def ensure_up(sandbox_id, opts) when is_binary(sandbox_id) and is_list(opts) do
     cond do
@@ -1054,7 +1052,7 @@ defmodule Fountain.Machines.Machine do
   end
 
   # For `ensure_up`: the fence, the two states there is nothing to resume from,
-  # the provider's refusal, and the admission's three. See `ensure_up/2`.
+  # the provider's refusal, and the admission's. See `ensure_up/2`.
   defp travelling(:ensure_up) do
     [
       :not_found,
@@ -1063,8 +1061,7 @@ defmodule Fountain.Machines.Machine do
       :sandbox_reset_pending,
       :provisioning,
       :sandbox_resume_failed,
-      :fleet_full,
-      :insufficient_credits
+      :fleet_full
     ]
   end
 

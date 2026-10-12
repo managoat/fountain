@@ -9,7 +9,7 @@ defmodule FountainWeb.SchemaGuard do
   exactly that shape surfaced in one day (#1427): a `required` list naming
   properties the schema did not have (#1417), a declared field the action never
   renders (#1418), and a declared response body with no properties at all while
-  the real one carries `upgrade_url`.
+  the real one carried fields.
 
   This module is the missing side of the comparison. It takes a `%Plug.Conn{}`
   that has already been sent, finds the operation the router routed it to, and

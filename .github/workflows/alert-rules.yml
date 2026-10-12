@@ -4,14 +4,14 @@ on:
   pull_request:
     paths:
       - deploy/k8s/prometheusrule.yaml
-      - deploy/grafana/fountain-finance.json
+      - deploy/grafana/fountain-ops.json
       - scripts/test-alerts.py
       - .github/workflows/alert-rules.yml
   push:
     branches: [main]
     paths:
       - deploy/k8s/prometheusrule.yaml
-      - deploy/grafana/fountain-finance.json
+      - deploy/grafana/fountain-ops.json
       - scripts/test-alerts.py
       - .github/workflows/alert-rules.yml
   workflow_dispatch:

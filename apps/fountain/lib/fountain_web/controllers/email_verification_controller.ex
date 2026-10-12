@@ -12,9 +12,7 @@ defmodule FountainWeb.EmailVerificationController do
   prompts for the token from that URL. Both routes accept the same token —
   there is one verification secret, not two.
 
-  A successful verification posts the opening credit
-  (`Accounts.verify_email/2` → `Credits.grant_opening/2`, ADR 0031) and
-  enqueues the welcome email.
+  A successful verification enqueues the welcome email.
   """
 
   use FountainWeb, :controller
@@ -53,11 +51,6 @@ defmodule FountainWeb.EmailVerificationController do
             # their mail client (ADR 0013 — bare "system" is a defect signal).
             case Accounts.verify_email(user, FountainWeb.Audited.attribution(conn, actor: "ui")) do
               {:ok, verified_user} ->
-                # Durable job rather than a linked Task: this used to be a bare
-                # Task.async with no await, so it could be killed when the
-                # request process finished and a Stripe error vanished silently,
-                # leaving an account with no customer id.
-
                 # Only on this branch, never the already-verified one below —
                 # the welcome fires on the verification transition (#449).
                 Fountain.Workers.WelcomeEmail.enqueue(verified_user)

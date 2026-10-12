@@ -55,8 +55,6 @@ nav:
       - Configure email: guides/operate/email.md
       - Change sandbox lifetimes: guides/operate/sandbox-lifetime.md
       - See what sandboxes cost: guides/operate/sandbox-spend.md
-      - Start billing: guides/operate/billing.md
-      - Prices: guides/operate/plans-and-prices.md
       - Back up and restore: guides/operate/back-up-and-restore.md
       - Upgrade an instance: guides/operate/upgrade.md
       - Configure observability: guides/operate/observability.md
@@ -112,7 +110,6 @@ nav:
       - Overview: integrations/index.md
       - Mail: integrations/mail.md
       - GitHub OAuth: integrations/github-oauth.md
-      - Stripe: integrations/stripe.md
       - Sentry: integrations/sentry.md
   - Reference:
       - CLI: cli.md

@@ -255,10 +255,9 @@ defmodule Fountain.Accounts do
   verification route — the emailed link, `Fountain.Release.verify_email/1`,
   and the `EMAIL_DELIVERY=none` auto-verify — behaves the same.
 
-  It is also where an account gets the two things it is meant to have before
-  it has built anything: the opening credit (ADR 0031) and the starter agent
-  (ADR 0038, `Fountain.Agents.Starter`). Both are best-effort and neither can
-  fail a verification.
+  It is also where an account gets what it is meant to have before it has
+  built anything: the starter agent (ADR 0038, `Fountain.Agents.Starter`).
+  That is best-effort and cannot fail a verification.
 
   Returns `{:ok, user}` or `{:error, changeset}`.
   """
@@ -274,7 +273,6 @@ defmodule Fountain.Accounts do
         email_verified_at: DateTime.utc_now() |> DateTime.truncate(:second)
       )
       |> Repo.update()
-      |> tap(&grant_opening_credit/1)
       |> audited_account("auth.email.verified", "user", opts, fn _ -> %{} end)
 
     with {:ok, verified} <- result do
@@ -285,22 +283,9 @@ defmodule Fountain.Accounts do
     end
   end
 
-  # The opening credit (ADR 0031 decision 3) lands on the verification
-  # transition, whichever door finished it: the browser route, the API, or
-  # an OAuth signup that arrives verified. Best-effort by rescuing — a ledger
-  # hiccup must not fail a verification — and idempotent per account.
-  defp grant_opening_credit({:ok, %User{} = user}) do
-    Fountain.Credits.grant_opening(user)
-    :ok
-  rescue
-    e -> Logger.warning("opening credit for #{user.id} failed: #{inspect(e)}")
-  end
-
-  defp grant_opening_credit(_), do: :ok
-
-  # The default agent (ADR 0038 decision 4) is planted beside the opening
-  # credit, for the same reason and on the same transition: a verified account
-  # must have something to send a first request to without building anything.
+  # The default agent (ADR 0038 decision 4) is planted on the verification
+  # transition, whichever door finished it: a verified account must have
+  # something to send a first request to without building anything.
   #
   # Guarded on the *transition* rather than on the agent's existence, so that
   # re-running a verification route on an already-verified account — the
@@ -308,7 +293,7 @@ defmodule Fountain.Accounts do
   # agent the tenant deleted. `Starter.create_for/2` is idempotent by name on
   # top of that, which covers two doors finishing the same verification at once.
   #
-  # Best-effort by rescuing, exactly like the credit: no failure to make an
+  # Best-effort by rescuing: no failure to make an
   # agent is worth refusing someone their account.
   defp plant_starter_agent(%User{} = user, true) do
     Fountain.Agents.Starter.create_for(user.id)
@@ -1004,7 +989,6 @@ defmodule Fountain.Accounts do
   Options:
 
   - `:search` — case-insensitive email substring
-  - `:comped` — `true` for free accounts
   - `:role` — `"admin"` or `"user"`
   - `:verified` — `true`/`false` (whether `email_verified_at` is set)
   - `:sort` — `"email"`, `"joined"`, or `"last_activity"`
@@ -1044,9 +1028,6 @@ defmodule Fountain.Accounts do
     Enum.reduce(opts, from(u in User), fn
       {:search, term}, q when is_binary(term) and term != "" ->
         where(q, [u], ilike(u.email, ^"%#{sanitize_like(term)}%"))
-
-      {:comped, comped}, q when is_boolean(comped) ->
-        where(q, [u], u.comped == ^comped)
 
       {:role, role}, q when role in ~w(admin user) ->
         where(q, [u], u.role == ^role)
@@ -1100,11 +1081,10 @@ defmodule Fountain.Accounts do
   @doc """
   Override a user's concurrent-sandbox cap (ADR 0005). Admin-only.
 
-  The cap normally follows the credit balance (`Fountain.Quotas.sandbox_limit/1`,
-  ADR 0031). This is the operator's override for the two things the balance
-  rule cannot express: raising the cap for a trusted tenant, and dropping it
-  to zero during abuse. `nil` clears the override and hands the cap back to
-  the balance.
+  The cap is normally the configured ceiling (`Fountain.Quotas.sandbox_limit/1`).
+  This is the operator's override for raising the cap for a trusted tenant, and
+  for dropping it to zero during abuse. `nil` clears the override and hands the
+  cap back to the ceiling.
   """
   def update_sandbox_limit(%User{} = user, limit, opts \\ []) do
     user
@@ -1155,10 +1135,7 @@ defmodule Fountain.Accounts do
   termination logs and moves on rather than failing the suspend; `SandboxReaper`
   sweeps stragglers. Login and API-key auth refuse while `suspended_at` is set.
 
-  Billing is deliberately untouched: the credit ledger keeps its balance and
-  the pricer keeps burning whatever was already running (like comped,
-  inverted — the balance is accurate, the gate is elsewhere). A suspension is
-  short-lived or becomes a deletion.
+  A suspension is short-lived or becomes a deletion.
 
   Returns `{:ok, user, reaped_count}`.
   """
@@ -1243,7 +1220,7 @@ defmodule Fountain.Accounts do
   def suspended?(%User{suspended_at: suspended_at}), do: not is_nil(suspended_at)
 
   @doc """
-  Provisioning-path backstop, shaped like `Billing.check_spend/1`: sessions
+  Provisioning-path backstop: sessions
   and API keys already refuse suspended accounts, but every route to a sprite
   should fail even if a surface slips. An unknown id fails closed.
   """

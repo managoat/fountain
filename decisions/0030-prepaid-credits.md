@@ -1,11 +1,11 @@
 ---
 type: ADR
 title: "Prepaid credits: a cents ledger burned by turn-hours, rent and messages"
-description: "Usage is paid from a Fountain-owned ledger of integer cents, opened by a grant at verification and topped up by one-time Stripe Checkout packs, burned at $0.25 per conversation turn-hour. Zero is a soft stop. Decision 2's tiers were retired by ADR 0031; rent and message pricing (decision 4 and the comms rows of decision 3) were retired with Team comms in 2026-09; the remaining ledger decisions stand and are live on the hosted deployment. Auto top-up is not built."
+description: "Retired 2026-10-12: credits, the ledger and Stripe packs were removed when Fountain became self-hosted only. Usage is paid from a Fountain-owned ledger of integer cents, opened by a grant at verification and topped up by one-time Stripe Checkout packs, burned at $0.25 per conversation turn-hour. Zero is a soft stop. Decision 2's tiers were retired by ADR 0031; rent and message pricing (decision 4 and the comms rows of decision 3) were retired with Team comms in 2026-09; the remaining ledger decisions stand and are live on the hosted deployment. Auto top-up is not built."
 tags: [billing, credits, entitlements, quotas, team-comms, finance]
-status: stable
+status: deprecated
 adr: "0030"
-adr_status: "Accepted"
+adr_status: "Retired"
 date: 2026-08-24
 generated: { by: human:jhgaylor, at: 2026-08-24T20:00:00-04:00 }
 verified: { by: agent:claude-code, at: 2026-08-25T05:00:00-04:00 }
@@ -13,7 +13,7 @@ verified: { by: agent:claude-code, at: 2026-08-25T05:00:00-04:00 }
 
 # 0030 — Prepaid credits beside the capacity tiers: a cents ledger burned by turn-hours, rent and messages
 
-**Status:** Accepted, amended by [ADR 0031](0031-credits-are-the-product.md)
+**Status:** Retired 2026-10-12; see the addendum at the end. The text above the addendum is history. Was: Accepted, amended by [ADR 0031](0031-credits-are-the-product.md)
 (2026-08-25), which reversed decision 2: there are no tiers, no tier grants
 and no subscription, and credits are the only product. The ledger decisions
 (1, 3–8) stand and are **built and live** on the hosted deployment
@@ -269,3 +269,21 @@ from `turn_hour_allowance/2`, named so it is not repeated.
 #1086 (tracker), #798 question 1, #1016 step 4, #1017, #1030, #1035, #1037,
 #1038, #1042, #1043; ADR 0006, ADR 0008, ADR 0010, ADR 0013, ADR 0017,
 ADR 0023, ADR 0026.
+
+## Addendum — 2026-10-12: retired
+
+Fountain is no longer sold as a hosted service, so nothing is prepaid and
+nothing is priced. The ledger decisions this ADR left standing are removed:
+`Fountain.Credits`, `Workers.CreditPricer`, `Workers.CreditExpirer`, the
+opening grant, Stripe Checkout packs, refunds and clawbacks, and the credit
+emails. The `credit_ledger`, `stripe_events`, `stripe_webhook_failures` and
+`provider_invoices` tables are dropped by a migration. The
+`users.credit_balance_cents`, `users.stripe_customer_id` and `users.comped`
+columns are no longer read, and a later migration drops them, one release
+after the code stopped reading them, so that a replica still running the old
+release during a rolling upgrade finds the columns it selects.
+
+`CREDITS_ENABLED`, `STRIPE_SECRET_KEY` (as server configuration),
+`STRIPE_WEBHOOK_SECRET`, `CREDIT_OPENING_CENTS`, `CREDIT_OPENING_DAYS`,
+`CREDIT_TURN_HOUR_CENTS` and `CREDIT_PACKS_CENTS` are no longer read.
+`usage_events` and `Fountain.Usage` stay: they measure, and price nothing.

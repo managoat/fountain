@@ -113,7 +113,6 @@ defmodule Fountain.Conversations.Launch do
          {:ok, parent_id} <-
            resolve_parent_id(attrs["parent_conversation_id"], user_id),
          :ok <- Fountain.Accounts.check_not_suspended(user_id),
-         :ok <- Fountain.Billing.check_spend(user_id),
          {:ok, inference_source} <-
            resolve_admission_inference(user_id, agent, env_id, vault_id, cred_set_id, model),
          # A persistent launch lands on the identity's home when there is one
@@ -419,7 +418,6 @@ defmodule Fountain.Conversations.Launch do
          {:ok, parent_id} <-
            resolve_parent_id(attrs["parent_conversation_id"], user_id),
          :ok <- Fountain.Accounts.check_not_suspended(user_id),
-         :ok <- Fountain.Billing.check_spend(user_id),
          {:ok, inference_source} <-
            resolve_admission_inference(user_id, agent, env_id, vault_id, cred_set_id, model),
          %Sandbox{} = sandbox <-
@@ -628,9 +626,9 @@ defmodule Fountain.Conversations.Launch do
   defp pending_initial_binding?(_, _, _, _), do: false
 
   # An unlocked read was not enough: `create_sandbox/1` and the conversation
-  # insert take `KEY SHARE` on `users` through their foreign keys, and
-  # `Credits.insert_and_move/3` holds that row `FOR UPDATE` across a ledger
-  # insert, lot consumption and the balance move. Taking `FOR SHARE` out here
+  # insert take `KEY SHARE` on `users` through their foreign keys, and any
+  # write that holds that row `FOR UPDATE` would stall them. Taking `FOR SHARE`
+  # out here
   # both settles the wait outside the fleet lock and satisfies those foreign
   # keys, so the inserts below cannot block on it. The rotation unbind is the
   # same category of wait and joins them.
@@ -640,17 +638,15 @@ defmodule Fountain.Conversations.Launch do
   # sandbox, conversation and allowance still commit or roll back together.
   # That is also why the `case` below re-raises the inner rollback with its
   # reason: a nested rollback the outer transaction does not re-raise reaches
-  # the caller as `{:error, :rollback}`, which would turn every credits, quota
-  # and fleet refusal into a 500 instead of a 402, 422 or 503.
+  # the caller as `{:error, :rollback}`, which would turn every quota and
+  # fleet refusal into a 500 instead of a 429 or 503.
   #
   # The wait does not disappear, it changes hands. This transaction holds
   # `users FOR SHARE` for its whole life, the fleet-lock wait included, and
-  # `FOR SHARE` conflicts with `FOR UPDATE` — so this tenant's credit postings
-  # now queue behind its own in-flight launch, which may itself be queued
-  # behind every other tenant's. Turn burns, purchases, grants, expiry and
-  # refund clawbacks all post through `Credits.insert_and_move/3`. A
-  # tenant-scoped wait beats a fleet-wide one, which is why it is the right
-  # trade, but a slow credit posting starts here.
+  # `FOR SHARE` conflicts with `FOR UPDATE` — so a write that locks this
+  # tenant's user row queues behind its own in-flight launch, which may itself
+  # be queued behind every other tenant's. A tenant-scoped wait beats a
+  # fleet-wide one, which is why it is the right trade.
   defp reserve_initial_conversation(sandbox_attrs, conversation_attrs, request, opts) do
     Repo.transaction(fn ->
       # Set/secret mutations take this same tenant lock. Take it before the
@@ -732,8 +728,7 @@ defmodule Fountain.Conversations.Launch do
              environment_id: env_id,
              vault_id: vault_id,
              model: model
-           ),
-         :ok <- Fountain.PlatformInference.gate_source(source) do
+           ) do
       {:ok, source}
     end
   end

@@ -2,7 +2,6 @@ defmodule FountainBuzz.AgentControllerTest do
   # Every provision request calls Manager.start_harness/1 under the global
   # Horde supervisor, even when start_harness_link/2 later rejects the launch.
   use FountainWeb.ConnCase, async: false
-  import FountainBuzz.Factory
 
   alias Fountain.{Crypto, Vaults}
 
@@ -309,30 +308,6 @@ defmodule FountainBuzz.AgentControllerTest do
       # 402 rather than 429: the fix is a ceiling change, not a retry.
       assert %{"error" => "identity_limit_reached", "count" => 1, "limit" => 1} =
                json_response(conn, 402)
-    end
-
-    test "402 insufficient_credits when the balance is exhausted", %{
-      conn: conn,
-      user: user,
-      raw_key: raw_key,
-      agent: agent
-    } do
-      case Fountain.Credits.balance(user.id) do
-        0 -> :ok
-        c -> {:ok, _} = Fountain.Credits.debit(user.id, c, "burn_turn", idempotency_key: "d")
-      end
-
-      conn =
-        conn
-        |> authed_with_key(raw_key)
-        |> put_req_header("content-type", "application/json")
-        |> post("/api/buzz/agents", params(agent))
-
-      # The FallbackController's 402, the same one every other spending door
-      # gives, carrying `upgrade_url` — not the generic 422 the catch-all
-      # would have produced.
-      assert %{"error" => "insufficient_credits"} = json_response(conn, 402)
-      assert FountainBuzz.list_identities(user.id) == []
     end
   end
 end

@@ -31,7 +31,6 @@ defmodule Fountain.QuotasFleetCeilingTest do
       insert_sandbox(user_id: other.id, status: "starting")
 
       user = insert_active_user()
-      {:ok, _} = Fountain.Credits.grant(user.id, 1_000, "purchase", idempotency_key: "fleet")
 
       assert {:error, :fleet_full} = Quotas.check_fleet_ceiling()
 

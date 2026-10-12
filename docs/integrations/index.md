@@ -16,7 +16,7 @@ such as editors, chat surfaces, plugins and SDKs, read
 | [A sandbox provider](sandbox-contract.md) | **Yes, one of four.** | `SPRITES_TOKEN` *or* `E2B_API_KEY` *or* `DAYTONA_API_KEY`, or a user's own machine through [`fountain runner`](runners.md), which needs no credential. Add `SANDBOX_PROVIDER` to choose the default. | The app boots, and each conversation fails at provision time. |
 | [Mail](mail.md) | **Yes, as a decision.** | `RESEND_API_KEY` *or* `SMTP_*` *or* `EMAIL_DELIVERY=none`, and `EMAIL_FROM`. | Production refuses to boot with none of the three set. |
 | [GitHub OAuth](github-oauth.md) | Optional. | `GITHUB_OAUTH_CLIENT_ID`, `GITHUB_OAUTH_CLIENT_SECRET` | Email and password auth alone. |
-| [Stripe](stripe.md) | Optional. | `CREDITS_ENABLED`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` | No billing. That is correct for most self-hosted instances, so leave the gate off. |
+
 | [Sentry](sentry.md) | Optional. | `SENTRY_DSN`, `SENTRY_ENVIRONMENT` | Fountain reports no error. The SDK is inert, and nothing leaves the instance. |
 
 The sandbox providers are Sprites, E2B, Daytona and a user's own machine. They

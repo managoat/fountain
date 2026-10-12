@@ -2,8 +2,7 @@ defmodule FountainWeb.WebhookEndpointController do
   @moduledoc """
   Webhook endpoint CRUD, the delivery log, test sends and redelivery (#700).
 
-  These are the webhooks Fountain *sends*, as opposed to the ones it
-  receives (Stripe's, under `/api/stripe`); they live under `/api/webhooks`
+  These are the webhooks Fountain *sends*; they live under `/api/webhooks`
   because that is where an integrator looks.
   """
 

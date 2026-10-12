@@ -20,14 +20,6 @@ defmodule Fountain.AccountsAdminListingTest do
       assert %{users: [], total: 0} = Accounts.list_users_admin(search: "_nderscore@example")
     end
 
-    test "filters by comped" do
-      _paying = insert_verified_user()
-      comped = Repo.update!(Ecto.Changeset.change(insert_verified_user(), comped: true))
-
-      %{users: users} = Accounts.list_users_admin(comped: true)
-      assert Enum.map(users, & &1.id) == [comped.id]
-    end
-
     test "filters by role" do
       user = insert_verified_user()
       {:ok, admin} = Accounts.update_user_role(insert_verified_user(), "admin")
@@ -51,17 +43,13 @@ defmodule Fountain.AccountsAdminListingTest do
     end
 
     test "filters combine" do
-      _wrong_status = insert_verified_user(%{email: "combo-a@example.com"})
+      _wrong_role = insert_verified_user(%{email: "combo-a@example.com"})
       _wrong_email = insert_verified_user(%{email: "other@example.com"})
 
-      match =
-        Repo.update!(
-          Ecto.Changeset.change(insert_verified_user(%{email: "combo-b@example.com"}),
-            comped: true
-          )
-        )
+      {:ok, match} =
+        Accounts.update_user_role(insert_verified_user(%{email: "combo-b@example.com"}), "admin")
 
-      %{users: users, total: 1} = Accounts.list_users_admin(search: "combo", comped: true)
+      %{users: users, total: 1} = Accounts.list_users_admin(search: "combo", role: "admin")
       assert Enum.map(users, & &1.id) == [match.id]
     end
   end

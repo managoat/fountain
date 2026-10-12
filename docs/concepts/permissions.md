@@ -119,11 +119,10 @@ so Fountain cannot hand the answer back down it. Instead Fountain resolves the
 request and opens a **new turn** whose prompt carries the outcome. Opening that
 turn wakes the sandbox.
 
-With `CREDITS_ENABLED=true`, this resume turn is billable on a platform-paid sandbox
-provider at the normal `CREDIT_TURN_HOUR_CENTS` rate. The expiry sweep opens the
-same billable turn when nobody answers before the deadline. The detached wait
+This resume turn wakes the sandbox, so it uses sandbox time. The expiry sweep
+opens the same turn when nobody answers before the deadline. The detached wait
 itself adds no turn time. Each later detached approval adds another resume
-turn. See [Prices](../guides/operate/plans-and-prices.md).
+turn.
 
 The prompt is one line of JSON and nothing else. It is broken up here to read
 it.

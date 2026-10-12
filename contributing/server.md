@@ -1,6 +1,6 @@
 # Server conventions
 
-Read the relevant sections when changing `apps/`, `ee/`, or server configuration.
+Read the relevant sections when changing `apps/` or server configuration.
 Paths below are relative to the repository root. These are the server's
 implementation rules; [CONTRIBUTING.md](../CONTRIBUTING.md) covers checks and PRs.
 
@@ -64,30 +64,21 @@ the unauthenticated routes pass an explicit actor. `audit_guardrail_test.exs`
 fails on a new context mutation until it audits or is excluded with a reason.
 `Audit.record!/1` is test-only.
 
-## Credits (ADR 0030, 0031)
+## Concurrency and usage (ADR 0005, 0042)
 
-There are no plans, tiers or subscriptions. `CREDITS_ENABLED` off means
-nothing is priced, granted, gated or shown.
+Nothing is priced, granted or gated on spend: credits and billing were removed
+on 2026-10-12 (ADR 0031, retired).
 
-- **The gate is the balance.** `Billing.check_spend/1` (`Credits.gate/1`) is
-  `:ok` with billing off, for a comped account, or a positive
-  `credit_balance_cents`; else `{:error, :insufficient_credits}` (402). Every
-  door that spends calls it, including the reservation lock in
-  `Quotas.with_sandbox_reservation/3`. In-flight turns finish and may go
-  negative. There is no router-level billing gate and no `check_active/1`.
-- **The opening credit lands at email verification**, idempotent per
-  account. In tests `insert_verified_user/1` holds $5 and may spend; drain it
-  with a `burn_turn` debit to test refusal.
-- **Concurrency is funded by the balance under a fleet ceiling.**
-  `Quotas.sandbox_limit/1` clamps balance ÷ `SANDBOX_RESERVE_CENTS` between
-  the floor and ceiling; `SANDBOX_FLEET_CEILING` is global and `:fleet_full`
-  is 503, not 402. Anything that displays a cap uses `Quotas.sandbox_limit_for/1`.
-- **A turn hour is not a sandbox hour.** Turns burn `turn_seconds` on
-  platform-paid providers only; `busy_seconds` is the union of intervals and
-  relates to a provider bill. Several conversations share one sandbox, so the
-  two differ and must not be swapped.
-- **The ledger** (`credit_ledger`, cached on `users.credit_balance_cents`) is
-  idempotent per row and never summed on a gate; debits consume lots in order.
+- **The cap is an override else a ceiling.** `Quotas.sandbox_limit/1` is the
+  account's `sandbox_limit_override` when an operator set one, else
+  `SANDBOX_CAP_CEILING`; `SANDBOX_FLEET_CEILING` is global and `:fleet_full`
+  is 503. Both are enforced under the reservation lock in
+  `Quotas.with_sandbox_reservation/3`. Anything that displays a cap uses
+  `Quotas.sandbox_limit_for/1`.
+- **A turn hour is not a sandbox hour.** `usage_events` (`Fountain.Usage`)
+  record `turn_seconds` per turn; `busy_seconds` in `Fountain.Machines.Usage`
+  is the union of intervals and relates to a provider bill. Several
+  conversations share one sandbox, so the two differ and must not be swapped.
 
 ## Surfaces
 
@@ -120,10 +111,9 @@ conversation-facing feature goes in the app; marketing copy goes in
 - Factories are in `test/support/factory.ex`, imported by `DataCase`:
   `insert_verified_user()`, `insert_agent(user_id: ...)`, `insert_env`,
   `insert_vault`. `*_attrs/1` helpers return **string-keyed** maps.
-- `mix test` at the umbrella root runs everything. From `apps/fountain`, which
-  is what CI's partitions do, an ee file is `mix test ../../ee/test/...`;
-  root-relative `ee/...` paths silently match nothing. An extension's suite
-  runs from its own directory or the root, never from `apps/fountain`.
+- `mix test` at the umbrella root runs everything. CI's partitions run from
+  `apps/fountain`. An extension's suite runs from its own directory or the
+  root, never from `apps/fountain`.
 - A test that fails and then passes with no code change is investigated, not
   re-run: [failure handling](../CONTRIBUTING.md#if-a-test-went-red-and-then-green).
 

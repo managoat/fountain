@@ -117,14 +117,10 @@ defmodule FountainWeb.Endpoint do
   plug Plug.RequestId
   plug Plug.Telemetry, event_prefix: [:phoenix, :endpoint]
 
-  # body_reader caches the raw request body in conn.assigns[:raw_body] before
-  # Plug.Parsers consumes it. Required for Stripe webhook signature verification
-  # in FountainWeb.StripeWebhookController.
   plug Plug.Parsers,
     parsers: [:urlencoded, :multipart, :json],
     pass: ["*/*"],
-    json_decoder: Phoenix.json_library(),
-    body_reader: {FountainWeb.CachingBodyReader, :read_body, []}
+    json_decoder: Phoenix.json_library()
 
   # Attaches request context (method, path, scrubbed headers/params) to any
   # Sentry event reported while this request is being handled. Sentry's

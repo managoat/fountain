@@ -84,17 +84,6 @@ setup without following the console checklist.
 
 See the account and Auth operations in the [generated reference](/api/docs).
 
-### Billing
-
-Hosted work spends a credit balance. An idle machine does not burn turn
-credits. Check the account's available balance before you offer a workflow
-that starts paid work, and handle a refusal when admission occurs.
-
-See [Billing](guides/operate/billing.md) for operation and
-[Sandbox spend](guides/operate/sandbox-spend.md) for the distinction between
-turn usage and provider usage. The [generated reference](/api/docs) describes
-account balances, purchases, and payment errors.
-
 ### Data export and deletion
 
 Export account data before you delete an account if you need an archive.
@@ -103,9 +92,9 @@ in the [generated reference](/api/docs) for the export and deletion contracts.
 
 ## Inference credentials
 
-Inference credentials pay the model provider. Fountain credits pay for
-Fountain's hosted work. Configure both when the selected runtime needs them.
-A configured credential does not imply that a provider will accept it.
+Inference credentials pay the model provider. Configure one when the selected
+runtime needs it. A configured credential does not imply that a provider will
+accept it.
 
 Store provider keys in named [credential sets](concepts/secrets.md#credential-sets).
 The first set an account creates is its default. An account with no sets gets
@@ -423,9 +412,8 @@ for the deployment's. `scope` is one of `credential`, `tenant_secret`, `grant`,
 `scope` is `grant`, and null otherwise. Fountain writes the object when the
 turn starts and does not change it. A later change to the credential set, a
 reconnect of the subscription or a restart changes later turns only. The
-object is null on a turn from before Fountain recorded it. A turn on a
-subscription of the account uses no credits. The data export shows the same
-object on each turn.
+object is null on a turn from before Fountain recorded it. The data export
+shows the same object on each turn.
 
 ```bash
 curl --fail-with-body \
@@ -444,7 +432,7 @@ text, and the error is `422 invalid_prompt`. An unsupported `media_type`,
 empty bytes, or more than 10MB give `422 invalid_images`. Both checks run
 before the launch reserves a sandbox, so bad input costs no machine.
 
-This starts real work and can consume credits and provider usage.
+This starts real work and can consume sandbox time and provider usage.
 [Conversation states](reference/conversation-states.md) explains lifecycle
 transitions. The Conversations operations in the
 [generated reference](/api/docs) define prompt admission, permission answers,
@@ -502,7 +490,7 @@ prompt instead.
 
 The wake runs after the response, and so does the wait for a sandbox that is
 still being set up or reattached. The request still refuses what needs no
-sandbox to decide: no credit, a suspended account, a missing agent, a sandbox
+sandbox to decide: a suspended account, a missing agent, a sandbox
 being reset, or no room for one more sandbox. A wake that fails later is a
 `wake` stage event with the `failed` state. Its `reason` says why, and
 `retryable` says whether sending the prompt again can succeed. No turn opens
@@ -620,7 +608,7 @@ the prompt was cancelled or that it did not run.
 Each tenant holds ten requests at once. A request waits one hour at most. A
 full queue keeps the immediate `429` or `503` answer. A start with images does
 not wait. A start with an explicit `sandbox_id` does not wait. A queued start
-must pass the credit gate and the inference gate again.
+must pass the inference gate again.
 
 A teammate schedule uses the queue without the flag. No person is present
 when its cron fires, so Fountain must not lose the run.
@@ -872,10 +860,6 @@ A create request that resumes a conversation through `channel_id` and names a
 different `session_config` returns `409 conversation_session_config_differs`.
 Reapply the options, send them on the prompt, or set `fresh: true`.
 
-Credits don't yet price fast mode separately. A turn that runs on the platform
-inference key with fast mode on is charged at the model's standard rate
-([#2538](https://github.com/managoat/fountain/issues/2538)).
-
 ### Workers without Fountain API access
 
 Set `sandbox_api_access` to `none` when the host must retain Fountain API
@@ -973,7 +957,7 @@ Use tenant-scoped resource reads for ordinary application work. An operator's
 metadata access does not grant access to another tenant's prompt or output.
 
 See Admin in the [generated reference](/api/docs) for account controls,
-credit grants, sandbox maintenance, and privilege-trail events.
+sandbox maintenance, and privilege-trail events.
 
 ## Webhooks
 
@@ -994,10 +978,10 @@ pagination, and returned metadata.
 Every JSON error status declares one schema, `Error`. Its `error` field is
 the machine-readable code to branch on. The other fields accompany particular
 codes and are absent otherwise: `message` is a sentence for a human, `errors`
-holds field validation messages beside `validation_failed`, `upgrade_url`
-comes with `insufficient_credits`, and `active_sandboxes` and `limit` come
-with `sandbox_quota_exceeded`. On the key-authentication and scope refusals
-`error` is a sentence and `reason` carries the code. A 406 is the one
+holds field validation messages beside `validation_failed`, and
+`active_sandboxes` and `limit` come with `sandbox_quota_exceeded`. On the
+key-authentication and scope refusals `error` is a sentence and `reason`
+carries the code. A 406 is the one
 exception: content negotiation fails before any operation runs and renders
 `{"errors": {"detail": "Not Acceptable"}}`.
 

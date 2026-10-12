@@ -18,7 +18,7 @@ The hosted instance has a different name so that "self-host Fountain" and
 | Part | Licence | What it means for you |
 |---|---|---|
 | The server (`apps/fountain`) | [AGPL-3.0-or-later](https://github.com/managoat/fountain/blob/main/LICENSE) | Run it, change it, host it. If you host a changed version, your users have a right to your source. |
-| `ee/` (credits, Stripe and the credit emails) | [Elastic Licence 2.0](https://github.com/managoat/fountain/blob/main/ee/LICENSE) | Free to run in your own instance. You may not offer it to third parties as a hosted service. |
+
 | `cli/`, `sdk/typescript`, `sdk/python`, `sdk/elixir` and `sdk/swift` | [Apache-2.0](https://github.com/managoat/fountain/blob/main/cli/LICENSE) | Build on the API or ship a client in a closed product. Keep the required license and notices when you redistribute it. |
 
 The client parts are permissive on purpose. A connection to Fountain must
@@ -54,7 +54,7 @@ site, and the repo README is its front page. One copy of each stays correct.
 ## What the hosted instance adds
 
 Nothing that is not in the repo. Managoat runs the release image with the
-`ee/` parts turned on, credits enabled, and the egress broker on. The
+egress broker on. The
 [configuration reference](configuration.md) lists every switch, so an instance
 of your own can match it or not.
 

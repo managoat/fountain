@@ -60,9 +60,6 @@ account is the operator.
 Here is what sends email today. Account verification, with a 24-hour link.
 Password reset, with a 1-hour link.
 
-With `CREDITS_ENABLED` on, two credit emails go out as well. Credits low.
-Credits exhausted.
-
 An OAuth signup skips verification, so [GitHub OAuth](github-oauth.md) with
 `EMAIL_DELIVERY=none` is a coherent minimal setup.
 

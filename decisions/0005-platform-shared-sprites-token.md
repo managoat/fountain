@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Platform-shared SPRITES_TOKEN; per-tenant concurrency cap as noisy-neighbor mitigation"
-description: "One platform-level Sprites credential provisions every tenant sandbox; a per-tenant concurrent-sandbox cap is the noisy-neighbor mitigation. Amended by 0018 to one credential per provider, and by 0042 with a bounded wait in front of the cap."
+description: "One platform-level Sprites credential provisions every tenant sandbox; a per-tenant concurrent-sandbox cap is the noisy-neighbor mitigation. Amended by 0018 to one credential per provider, and by 0042 with a bounded wait in front of the cap. Since 2026-10-12 the cap is an operator override or SANDBOX_CAP_CEILING, not funded by any balance."
 tags: [sandbox, secrets, quotas]
 status: stable
 adr: "0005"
@@ -72,3 +72,12 @@ Fresh API starts can opt in to that queue, and a teammate schedule's cron
 firing opts in by itself. The reservation still refuses work at the cap. The
 drainer replays later under the same reservation lock, so the queue delays
 the cap and never raises it.
+
+## Addendum — 2026-10-12: the cap is no longer balance-funded
+
+[ADR 0031](0031-credits-are-the-product.md) had the per-tenant cap funded by
+the account's credit balance. Credits are removed, so the cap is the
+account's `sandbox_limit_override` when an operator set one, and
+`SANDBOX_CAP_CEILING` (default 20) otherwise. `SANDBOX_FLEET_CEILING` still
+bounds the deployment as a whole. The noisy-neighbour rationale above is
+unchanged, and it is now the whole rationale.

@@ -1616,10 +1616,8 @@ defmodule Fountain.Conversations do
         end
 
         if source = Source.load(conv.inference_source) do
-          with :ok <- InferenceCredentials.validate_source(user_id, source),
-               :ok <- Fountain.PlatformInference.gate_source(source) do
-            :ok
-          else
+          case InferenceCredentials.validate_source(user_id, source) do
+            :ok -> :ok
             {:error, reason} -> Repo.rollback(reason)
           end
         end
@@ -3770,8 +3768,7 @@ defmodule Fountain.Conversations do
            InferenceResolution.revalidate(conv, agent,
              environment_id: conv.environment_id || agent.environment_id,
              vault_id: conv.vault_id
-           ),
-         :ok <- Fountain.PlatformInference.gate_source(source) do
+           ) do
       {:ok, source}
     end
   end
@@ -3927,7 +3924,7 @@ defmodule Fountain.Conversations do
   * `{:error, :gone}` — the conversation is over, so no turn will ever carry
     the answer.
 
-  Anything else is the account's own refusal (suspended, out of credit), and
+  Anything else is the account's own refusal (suspended), and
   is retryable once the account is not.
 
   WARNING: not scoped by owner. The answer door establishes ownership first;
@@ -3950,9 +3947,7 @@ defmodule Fountain.Conversations do
         {:error, :busy}
 
       true ->
-        with :ok <- Fountain.Accounts.check_not_suspended(conv.user_id) do
-          Fountain.Billing.check_spend(conv.user_id)
-        end
+        Fountain.Accounts.check_not_suspended(conv.user_id)
     end
   end
 

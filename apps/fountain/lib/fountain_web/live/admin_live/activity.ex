@@ -25,8 +25,7 @@ defmodule FountainWeb.AdminLive.Activity do
   def mount(_params, _session, socket) do
     {:ok,
      socket
-     |> assign(:page_title, "Admin · Activity")
-     |> assign(:credits_enabled, Fountain.Credits.enabled?())}
+     |> assign(:page_title, "Admin · Activity")}
   end
 
   # The page lives in the URL so a link to "what happened last week" is a link
@@ -58,7 +57,7 @@ defmodule FountainWeb.AdminLive.Activity do
   def render(assigns) do
     ~H"""
     <div class="space-y-6">
-      <.admin_header title="Activity" current={:activity} credits_enabled={@credits_enabled}>
+      <.admin_header title="Activity" current={:activity}>
         <:subtitle>
           Role grants, quota changes, comps, suspensions and deletions — who did what to whom.
         </:subtitle>

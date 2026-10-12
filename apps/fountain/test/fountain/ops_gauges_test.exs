@@ -47,7 +47,7 @@ defmodule Fountain.OpsGaugesTest do
     end
 
     # Every configured queue × watched state, zeros included.
-    for queue <- ~w(maintenance credits exports),
+    for queue <- ~w(maintenance exports),
         state <- ~w(available scheduled executing retryable discarded) do
       assert_receive {:telemetry, [:fountain, :oban_queue], %{depth: _},
                       %{queue: ^queue, state: ^state}}

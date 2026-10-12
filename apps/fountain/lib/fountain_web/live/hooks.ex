@@ -20,10 +20,6 @@ defmodule FountainWeb.Live.Hooks do
   - `:require_admin` — halts if current_user is absent or not an admin.
     Unauthenticated users are redirected to login (HTTP redirect). Authenticated
     non-admin users are redirected to /dashboard (live redirect).
-
-  There is no billing hook: the gate that protects spend is
-  `Fountain.Billing.check_spend/1` in the context (ADR 0031), so the console
-  stays readable for an account with no credit.
   """
 
   import Phoenix.LiveView

@@ -68,7 +68,7 @@ spec:
             - configMapRef:
                 name: fountain-config
             # SECRET_KEY_BASE, MASTER_SECRETS_KEY, DATABASE_URL,
-            # SPRITES_TOKEN (+ mail/OAuth/Stripe if used). See README.md.
+            # SPRITES_TOKEN (+ mail/OAuth if used). See README.md.
             - secretRef:
                 name: fountain-secrets
           securityContext:

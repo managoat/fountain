@@ -300,11 +300,9 @@ defmodule Fountain.Machines.Binding do
       :erlang.phash2(sandbox_id)
     ])
 
-    # Deliberately unlocked. `users` is the row every credit posting takes
-    # `FOR UPDATE` (`Credits.insert_and_move/3` holds it across a ledger
-    # insert, lot consumption and the balance move), so locking it here would
-    # park admission behind an unrelated billing transaction. This read is an
-    # ownership recheck; the insert's foreign keys enforce integrity.
+    # Deliberately unlocked: locking `users` here would park admission behind
+    # any unrelated transaction that holds the row. This read is an ownership
+    # recheck; the insert's foreign keys enforce integrity.
     Repo.one(from u in Fountain.Accounts.User, where: u.id == ^attrs.user_id, select: u.id) ||
       Repo.rollback(:not_found)
 

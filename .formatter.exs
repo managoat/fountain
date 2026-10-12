@@ -6,7 +6,6 @@
   subdirectories: ["apps/*"],
   inputs: [
     "*.{heex,ex,exs}",
-    "{config,lib,test}/**/*.{heex,ex,exs}",
-    "ee/**/*.{heex,ex,exs}"
+    "{config,lib,test}/**/*.{heex,ex,exs}"
   ]
 ]

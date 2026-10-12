@@ -276,7 +276,7 @@ Fountain is not licensed as a single unit. The short version:
 | What | Licence | What it means for you |
 |---|---|---|
 | The server (`apps/fountain`) | [AGPL-3.0-or-later](LICENSE) | Run it, modify it, host it. If you host a modified version, your users are entitled to your source |
-| [`ee/`](ee/) — Stripe billing and growth email | [Elastic Licence 2.0](ee/LICENSE) | Free to run in your own instance, changes stay yours. You may not offer it to third parties as a hosted service |
+
 | [`cli/`](cli/), [`sdk/typescript`](sdk/typescript), [`sdk/python`](sdk/python), [`sdk/elixir`](sdk/elixir), [`sdk/swift`](sdk/swift) | [Apache-2.0](cli/LICENSE) | Build on the API or ship a client in a proprietary product; follow the Apache license and notice terms when you redistribute it |
 
 The client surfaces are permissive on purpose. Integrating with Fountain

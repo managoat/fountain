@@ -2,9 +2,9 @@ defmodule FountainWeb.AdminLive.UserDetail do
   @moduledoc """
   Admin support view of a single account (#446): the investigative half of the
   admin story. Everything on this page is read-only — the levers (suspend,
-  comp, delete, role) stay on `/admin` next to their confirmations.
+  delete, role) stay on `/admin/users` next to their confirmations.
 
-  Shows account/billing state, resource counts, conversations, API-key
+  Shows account state, resource counts, conversations, API-key
   metadata (never key material), the user's own audit trail, and every admin action
   taken against them. Each visit records an `admin.user.viewed` admin
   audit event: cross-tenant reads are privileged actions and get the same
@@ -38,12 +38,9 @@ defmodule FountainWeb.AdminLive.UserDetail do
           })
         end
 
-        credits_enabled = Fountain.Credits.enabled?()
-
         {:ok,
          socket
          |> assign(:page_title, "Admin · #{user.email}")
-         |> assign(:credits_enabled, credits_enabled)
          |> load_user(user)}
     end
   end
@@ -72,8 +69,6 @@ defmodule FountainWeb.AdminLive.UserDetail do
     |> assign(:vault_count, length(Vaults.list_vaults(user.id)))
     |> assign(:audit_events, Audit.list_recent_for_user(user.id, 50))
     |> assign(:admin_events, Audit._unsafe_list_admin_events_for_target(user.id, 50))
-    |> assign(:credits, Fountain.Credits.summary(user))
-    |> assign(:ledger, Fountain.Credits.list_entries(user.id, limit: 20))
   end
 
   @impl true
@@ -81,7 +76,7 @@ defmodule FountainWeb.AdminLive.UserDetail do
     ~H"""
     <div class="space-y-8">
       <div>
-        <.admin_tabs current={:users} credits_enabled={@credits_enabled} />
+        <.admin_tabs current={:users} />
         <h1 class="text-2xl font-semibold font-mono mt-4">{@user.email}</h1>
         <div class="flex flex-wrap items-center gap-2 mt-2 text-xs">
           <span class={[
@@ -95,17 +90,6 @@ defmodule FountainWeb.AdminLive.UserDetail do
             {@user.role}
           </span>
           <span
-            :if={@credits_enabled}
-            class={[
-              "inline-flex items-center rounded px-1.5 py-0.5 font-medium border",
-              account_badge_class(@user.comped)
-            ]}
-          >
-            {if @user.comped,
-              do: "comped",
-              else: Fountain.Credits.format_cents(@user.credit_balance_cents)}
-          </span>
-          <span
             :if={is_nil(@user.email_verified_at)}
             class="inline-flex items-center rounded px-1.5 py-0.5 font-medium border bg-[var(--color-bg-2)] text-[var(--color-text-secondary)] border-[var(--color-border)]"
           >
@@ -117,15 +101,6 @@ defmodule FountainWeb.AdminLive.UserDetail do
           >
             suspended since {format_ts(@user.suspended_at)}
           </span>
-          <a
-            :if={@credits_enabled and @user.stripe_customer_id not in [nil, ""]}
-            href={"https://dashboard.stripe.com/customers/#{@user.stripe_customer_id}"}
-            target="_blank"
-            rel="noopener"
-            class="text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] underline"
-          >
-            stripe ↗
-          </a>
         </div>
         <p class="text-xs text-[var(--color-text-muted)] mt-2 font-mono">{@user.id}</p>
       </div>
@@ -138,10 +113,7 @@ defmodule FountainWeb.AdminLive.UserDetail do
             last active {if @last_activity_at, do: format_date(@last_activity_at), else: "—"}
           </div>
         </div>
-        <div
-          :if={not @credits_enabled}
-          class="bg-[var(--color-bg-1)] rounded shadow border border-[var(--color-border)] px-4 py-3"
-        >
+        <div class="bg-[var(--color-bg-1)] rounded shadow border border-[var(--color-border)] px-4 py-3">
           <div class="text-xs text-[var(--color-text-secondary)]">Onboarding</div>
           <div class="text-sm font-medium">
             {if @user.onboarding_completed_at, do: "completed", else: "not completed"}
@@ -160,24 +132,7 @@ defmodule FountainWeb.AdminLive.UserDetail do
           <div class="text-xs text-[var(--color-text-secondary)]">
             active / limit · {if @user.sandbox_limit_override,
               do: "override",
-              else: "what the balance funds"}
-          </div>
-        </div>
-        <div
-          :if={@credits.active?}
-          class="bg-[var(--color-bg-1)] rounded shadow border border-[var(--color-border)] px-4 py-3"
-        >
-          <div class="text-xs text-[var(--color-text-secondary)]">Credits</div>
-          <div class={[
-            "text-sm font-medium tabular-nums",
-            @credits.balance_cents < 0 && "text-[var(--color-warning-text)]"
-          ]}>
-            {Fountain.Credits.format_cents(@credits.balance_cents)}
-          </div>
-          <div class="text-xs text-[var(--color-text-secondary)]">
-            {Fountain.Credits.format_cents(@credits.purchased_cents)} bought · {Fountain.Credits.format_cents(
-              @credits.expiring_cents
-            )} expiring
+              else: "ceiling"}
           </div>
         </div>
         <div class="bg-[var(--color-bg-1)] rounded shadow border border-[var(--color-border)] px-4 py-3">

@@ -12,9 +12,7 @@ defmodule FountainWeb.LiveviewReconciliationTest do
   # Three of #401's six items lived on the conversation pages, which are the
   # standalone app's now (#867). What they pinned did not go with them:
   # the `conv:<id>` topic is what `GET /api/conversations/:id/stream` reads
-  # (conversation_events_controller_test.exs), and the out-of-credit
-  # refusal is the context's gate, tested at every door in
-  # ee/test/fountain/credits_enforcement_test.exs.
+  # (conversation_events_controller_test.exs).
 
   setup %{conn: conn} do
     user = insert_verified_user()

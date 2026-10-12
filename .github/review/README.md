@@ -59,7 +59,7 @@ are dollar-cost reporting.
 `setup.sh` installs pinned, hash-checked toolchains on a fresh Ubuntu 24.04 or
 26.04 worker before PR checkout, plus a disposable local PostgreSQL database
 (the supported distro major, 16 or 18). GitHub CI separately verifies PostgreSQL 16.
-Twenty commands run the core/ee partitions, extension and single-VM umbrella
+Twenty commands run the core partitions, extension and single-VM umbrella
 tests, precommit static checks, Dialyzer, prod release assembly,
 contracts, SDKs, CLIs and plugin tests. The eight required workflow definitions
 and their path filters were checked against Fountain main at

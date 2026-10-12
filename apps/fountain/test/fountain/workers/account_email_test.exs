@@ -68,7 +68,7 @@ defmodule Fountain.Workers.AccountEmailTest do
       assert_email_sent(fn email ->
         assert email.subject == "Your Fountain account has been deleted"
         assert email.to == [{"gone@example.com", "gone@example.com"}]
-        assert email.text_body =~ "will not be charged again"
+        assert email.text_body =~ "permanently deleted"
       end)
     end
   end

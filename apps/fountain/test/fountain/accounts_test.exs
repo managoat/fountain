@@ -65,18 +65,6 @@ defmodule Fountain.AccountsTest do
     end
   end
 
-  describe "User.billing_changeset/2 and comp_changeset/2" do
-    test "billing casts only the Stripe customer id" do
-      cs = User.billing_changeset(%User{}, %{stripe_customer_id: "cus_1", comped: true})
-      assert cs.changes == %{stripe_customer_id: "cus_1"}
-    end
-
-    test "comp casts the flag and requires it" do
-      assert User.comp_changeset(%User{}, %{comped: true}).valid?
-      refute User.comp_changeset(%User{}, %{comped: nil}).valid?
-    end
-  end
-
   describe "Accounts.hash_key/1" do
     test "produces a 64-character lowercase hex string" do
       hash = Accounts.hash_key("ftn_abc123")

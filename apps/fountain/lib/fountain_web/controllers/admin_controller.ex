@@ -3,17 +3,15 @@ defmodule FountainWeb.AdminController do
   Operator surface over the API (#527).
 
   Every admin operation was `AdminLive`-only, so nothing could be scripted: a
-  bulk credit grant, a suspension from an incident runbook, a nightly export
+  suspension from an incident runbook, a nightly export
   of the privilege trail all meant a human clicking. This mirrors the LiveView's
   actions one-for-one, including its refusals.
 
-  Three things are carried over deliberately:
+  Two things are carried over deliberately:
 
     * the same self-action refusals — no suspending or deleting yourself, and
       (new here) no revoking your own admin role, which over an API is a
       lockout one typo away rather than a button you can see;
-    * billing actions refuse when `credits_enabled` is false, because they talk
-      to Stripe;
     * the same `admin.*` privilege-trail events, so an action taken with curl
       is as visible as one taken with a mouse.
 
@@ -24,7 +22,7 @@ defmodule FountainWeb.AdminController do
   use FountainWeb, :controller
   use OpenApiSpex.ControllerSpecs
 
-  alias Fountain.{Accounts, Audit, Billing, Conversations, Quotas}
+  alias Fountain.{Accounts, Audit, Conversations, Quotas}
   alias Fountain.Accounts.Deletion
   alias Fountain.Conversations.Termination
   alias FountainWeb.Schemas
@@ -46,12 +44,6 @@ defmodule FountainWeb.AdminController do
     summary: "List accounts (admin)",
     parameters: [
       q: [in: :query, type: :string, required: false, description: "Email substring."],
-      comped: [
-        in: :query,
-        type: :boolean,
-        required: false,
-        description: "Only comped accounts (`true`) or only billed ones (`false`)."
-      ],
       role: [
         in: :query,
         type: %OpenApiSpex.Schema{type: :string, enum: ~w(admin user)},
@@ -90,7 +82,6 @@ defmodule FountainWeb.AdminController do
     %{users: users, total: total} =
       Accounts.list_users_admin(
         search: params["q"] || "",
-        comped: parse_verified(params["comped"]),
         role: if(params["role"] in ~w(admin user), do: params["role"]),
         verified: parse_verified(params["verified"]),
         sort: params["sort"],
@@ -244,87 +235,14 @@ defmodule FountainWeb.AdminController do
       refuse(
         conn,
         "invalid_limit",
-        "Limit must be a whole number of 0 or more, or null for the balance rule's cap."
+        "Limit must be a whole number of 0 or more, or null for the configured ceiling."
       )
-
-  operation(:set_comp,
-    summary: "Comp or un-comp an account",
-    parameters: [id: [in: :path, type: :string, required: true]],
-    request_body: {"Comped", "application/json", Schemas.AdminCompRequest},
-    responses: [
-      ok: {"Account", "application/json", Schemas.AdminUserResponse},
-      forbidden: {"Admin required", "application/json", Schemas.Error},
-      not_found: {"Not found", "application/json", Schemas.Error},
-      unprocessable_entity: {"Refused", "application/json", Schemas.Error}
-    ]
-  )
-
-  def set_comp(conn, %{"id" => id, "comped" => comped}) when is_boolean(comped) do
-    admin = conn.assigns.current_user
-
-    with :ok <- require_billing() do
-      with_user(conn, id, fn user -> apply_comp(conn, admin, user, comped) end)
-    end
-  end
-
-  def set_comp(conn, _params),
-    do: refuse(conn, "invalid_request", "Send {\"comped\": true} or {\"comped\": false}.")
-
-  operation(:grant_credits,
-    summary: "Add prepaid credit to an account",
-    description:
-      "A `grant_admin` ledger row (ADR 0030): goodwill, a won dispute, an " <>
-        "outage. It never expires and is spent after the opening grant. There " <>
-        "is deliberately no negative form here; a clawback is what a refund " <>
-        "or dispute does through Stripe.",
-    parameters: [id: [in: :path, type: :string, required: true]],
-    request_body: {"Credit", "application/json", Schemas.AdminCreditsRequest},
-    responses: [
-      ok: {"Account", "application/json", Schemas.AdminUserResponse},
-      forbidden: {"Admin required", "application/json", Schemas.Error},
-      not_found: {"Not found", "application/json", Schemas.Error},
-      unprocessable_entity: {"Refused", "application/json", Schemas.Error}
-    ]
-  )
-
-  def grant_credits(conn, %{"id" => id, "cents" => cents} = params)
-      when is_integer(cents) and cents > 0 do
-    admin = conn.assigns.current_user
-    note = params["note"]
-
-    with :ok <- require_billing() do
-      with_user(conn, id, fn user ->
-        case Fountain.Credits.grant(user.id, cents, "grant_admin",
-               idempotency_key: "grant_admin:#{Ecto.UUID.generate()}",
-               actor: "admin:#{admin.id}",
-               metadata: %{"note" => note}
-             ) do
-          {:ok, entry} ->
-            record_admin(admin, user, "admin.credits.granted", %{
-              "email" => user.email,
-              "cents" => cents,
-              "note" => note,
-              "ledger_entry_id" => entry.id
-            })
-
-            render_user(conn, Accounts.get_user(user.id))
-
-          {:error, _} ->
-            refuse(conn, "invalid_request", "Could not write the credit.")
-        end
-      end)
-    end
-  end
-
-  def grant_credits(conn, _params),
-    do:
-      refuse(conn, "invalid_request", "Send {\"cents\": <positive integer>, \"note\": \"...\"}.")
 
   operation(:set_suspended,
     summary: "Suspend or unsuspend an account",
     description:
-      "The reversible lever between comp and delete (#287): sessions die, API " <>
-        "keys refuse, sandboxes are reaped. Billing is deliberately untouched.",
+      "The reversible lever short of delete (#287): sessions die, API keys " <>
+        "refuse, sandboxes are reaped.",
     parameters: [id: [in: :path, type: :string, required: true]],
     request_body: {"Suspended", "application/json", Schemas.AdminSuspendRequest},
     responses: [
@@ -357,7 +275,6 @@ defmodule FountainWeb.AdminController do
     parameters: [id: [in: :path, type: :string, required: true]],
     responses: [
       ok: {"Deleted", "application/json", Schemas.AccountDeletedResponse},
-      bad_gateway: {"Billing cancellation failed", "application/json", Schemas.Error},
       forbidden: {"Admin required", "application/json", Schemas.Error},
       not_found: {"Not found", "application/json", Schemas.Error},
       unprocessable_entity: {"Refused", "application/json", Schemas.Error}
@@ -495,40 +412,6 @@ defmodule FountainWeb.AdminController do
     end
   end
 
-  defp apply_comp(conn, admin, user, true) do
-    case Billing.comp_account(user) do
-      {:ok, updated} ->
-        record_admin(admin, user, "admin.comp.granted", %{
-          "email" => user.email,
-          "from" => user.comped,
-          "to" => updated.comped
-        })
-
-        render_user(conn, updated)
-
-      {:error, _} ->
-        refuse(conn, "invalid_request", "Could not comp the account.")
-    end
-  end
-
-  defp apply_comp(conn, admin, user, false) do
-    case Billing.revoke_comp(user) do
-      {:ok, updated} ->
-        record_admin(admin, user, "admin.comp.revoked", %{
-          "email" => user.email,
-          "from" => user.comped,
-          "to" => updated.comped
-        })
-
-        render_user(conn, updated)
-
-      # revoke_comp/1 has no other failure mode — it only rejects an account
-      # that was not comped in the first place.
-      {:error, :not_comped} ->
-        refuse(conn, "not_comped", "Account is not comped.")
-    end
-  end
-
   defp apply_suspend(conn, admin, user, true) do
     if Accounts.suspended?(user) do
       render_user(conn, user)
@@ -622,12 +505,6 @@ defmodule FountainWeb.AdminController do
       event_type: event_type,
       metadata: metadata
     })
-  end
-
-  # The UI hides billing buttons on a billing-disabled instance, but events can
-  # still be sent by hand (#399's lesson) — and these all talk to Stripe.
-  defp require_billing do
-    if Fountain.Credits.enabled?(), do: :ok, else: {:error, :billing_disabled}
   end
 
   defp refuse(conn, error, message) do

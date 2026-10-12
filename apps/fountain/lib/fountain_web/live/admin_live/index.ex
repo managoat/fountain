@@ -5,7 +5,8 @@ defmodule FountainWeb.AdminLive.Index do
   This page used to be the whole admin panel: six stacked sections, and a
   `mount` plus a ten-second refresh that re-ran every query behind all six
   regardless of which one an operator had scrolled to. The sections are now
-  `/admin/users`, `/admin/sandboxes`, `/admin/billing` and `/admin/activity`,
+  `/admin/users`, `/admin/sandboxes`, `/admin/inference`, `/admin/broker` and
+  `/admin/activity`,
   and what is left here is the glance: is anything on fire, and where do I go.
 
   Every tile is a link. A number on this page is never the place to act on
@@ -18,7 +19,7 @@ defmodule FountainWeb.AdminLive.Index do
   import FountainWeb.AdminLive.Helpers
   import FountainWeb.AdminLive.Shell
 
-  alias Fountain.{Billing, Conversations}
+  alias Fountain.Conversations
   alias Fountain.Machines.Usage, as: SandboxUsage
 
   @impl true
@@ -28,7 +29,6 @@ defmodule FountainWeb.AdminLive.Index do
     {:ok,
      socket
      |> assign(:page_title, "Admin")
-     |> assign(:credits_enabled, Fountain.Credits.enabled?())
      |> assign_overview()}
   end
 
@@ -46,18 +46,6 @@ defmodule FountainWeb.AdminLive.Index do
     # numbers it is handed; it does not know what an extension is called or
     # what its figures mean, and `apps/fountain/lib` names no extension module.
     |> assign(:extension_overview, Fountain.Extensions.admin_overview())
-    |> assign_billing_overview()
-  end
-
-  # overview_admin/0 runs real queries (funded accounts, deferred credit,
-  # webhook events);
-  # on a billing-disabled instance nothing renders them, so don't run them.
-  defp assign_billing_overview(socket) do
-    if socket.assigns.credits_enabled do
-      assign(socket, :billing_overview, Billing.overview_admin())
-    else
-      assign(socket, :billing_overview, nil)
-    end
   end
 
   # An extension's admin figure. `{label, value}` or `{label, value, opts}`,
@@ -103,59 +91,13 @@ defmodule FountainWeb.AdminLive.Index do
   def render(assigns) do
     ~H"""
     <div class="space-y-6">
-      <.admin_header title="Admin" current={:overview} credits_enabled={@credits_enabled}>
+      <.admin_header title="Admin" current={:overview}>
         <:subtitle>System overview. Refreshes every 10s.</:subtitle>
       </.admin_header>
-
-      <%!-- The one genuinely bad state that has no tile of its own, because a
-            count is not the point: which webhooks, and how long they have
-            been failing, is on the billing page. --%>
-      <.link
-        :if={@credits_enabled and @billing_overview.failed_events != []}
-        navigate={~p"/admin/finance"}
-        class="block bg-red-50 border border-red-200 rounded px-4 py-3 text-sm text-red-900 hover:border-red-400"
-      >
-        <span class="font-medium">
-          {length(@billing_overview.failed_events)} webhook {if length(
-                                                                  @billing_overview.failed_events
-                                                                ) == 1,
-                                                                do: "event is",
-                                                                else: "events are"} failing
-        </span>
-        — a purchase or a clawback may not have reached the ledger. See Billing ↗
-      </.link>
 
       <section class="space-y-3">
         <h2 class="text-lg font-medium">At a glance</h2>
         <div class="grid grid-cols-2 sm:grid-cols-5 gap-3">
-          <.link
-            :if={@credits_enabled}
-            navigate={~p"/admin/finance"}
-            class="bg-[var(--color-bg-1)] rounded shadow border border-[var(--color-border)] px-4 py-3 hover:border-[var(--color-border-strong)]"
-          >
-            <div class="text-xs text-[var(--color-text-secondary)]">Deferred credit</div>
-            <div class="text-2xl font-semibold tabular-nums">
-              {Fountain.Credits.format_cents(@billing_overview.deferred_cents || 0)}
-            </div>
-            <div class="text-xs text-[var(--color-text-secondary)]">
-              held by {@billing_overview.funded} funded accounts · finance ↗
-            </div>
-          </.link>
-
-          <.link
-            :if={@credits_enabled}
-            navigate={~p"/admin/finance"}
-            class="bg-[var(--color-bg-1)] rounded shadow border border-[var(--color-border)] px-4 py-3 hover:border-[var(--color-border-strong)]"
-          >
-            <div class="text-xs text-[var(--color-text-secondary)]">Packs bought this month</div>
-            <div class="text-2xl font-semibold tabular-nums">
-              {@billing_overview.purchases_this_month}
-            </div>
-            <div class="text-xs text-[var(--color-text-secondary)]">
-              {@billing_overview.comped} comped accounts ↗
-            </div>
-          </.link>
-
           <.link
             navigate={~p"/admin/sandboxes"}
             class="bg-[var(--color-bg-1)] rounded shadow border border-[var(--color-border)] px-4 py-3 hover:border-[var(--color-border-strong)]"
@@ -172,8 +114,7 @@ defmodule FountainWeb.AdminLive.Index do
           <.extension_tile :for={tile <- @extension_overview} tile={tile} />
 
           <%!-- Hours, not money: minutes on different providers cost
-                different amounts, and only /admin/finance has the rate card
-                that turns one into the other. --%>
+                different amounts. --%>
           <.link
             navigate={~p"/admin/sandboxes"}
             class="bg-[var(--color-bg-1)] rounded shadow border border-[var(--color-border)] px-4 py-3 hover:border-[var(--color-border-strong)]"

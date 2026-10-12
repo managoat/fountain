@@ -139,22 +139,16 @@ defmodule Fountain.SandboxQueueDrainTest do
       assert SandboxQueue.position(Repo.get!(Request, first.id)) == 1
     end
 
-    test "a request that lost its funding fails terminally and erases its prompt" do
+    test "a request whose account was suspended fails terminally and erases its prompt" do
       user = insert_active_user()
       agent = insert_agent(user_id: user.id)
       request = enqueue!(user, agent)
 
-      {:ok, _} =
-        Fountain.Credits.debit(
-          user.id,
-          Fountain.Credits.balance(user.id) + 1,
-          "burn_turn",
-          idempotency_key: "queue-#{request.id}"
-        )
+      suspend!(user)
 
       assert %{started: 0, failed: 1, expired: 0} = SandboxQueue.drain(user.id)
 
-      assert %{status: "failed", error: "insufficient_credits", attrs: %{}} =
+      assert %{status: "failed", error: "account_suspended", attrs: %{}} =
                Repo.get!(Request, request.id)
     end
 
@@ -241,21 +235,15 @@ defmodule Fountain.SandboxQueueDrainTest do
     test "records a terminal failure with the reason, not the prompt" do
       user = insert_active_user()
       agent = insert_agent(user_id: user.id)
-      request = enqueue!(user, agent)
+      enqueue!(user, agent)
 
-      {:ok, _} =
-        Fountain.Credits.debit(
-          user.id,
-          Fountain.Credits.balance(user.id) + 1,
-          "burn_turn",
-          idempotency_key: "queue-#{request.id}"
-        )
+      suspend!(user)
 
       assert %{failed: 1} = SandboxQueue.drain(user.id)
 
       assert event = Enum.find(queue_events(user), &(&1.action == "sandbox_request.failed"))
       assert event.actor == "system:sandbox_queue"
-      assert event.metadata["error"] == "insufficient_credits"
+      assert event.metadata["error"] == "account_suspended"
       refute Map.has_key?(event.metadata, "prompt")
     end
 
@@ -688,12 +676,12 @@ defmodule Fountain.SandboxQueueDrainTest do
       # The blind `Repo.update/1` this fence replaced would write "started"
       # and the loser's conversation id over the winner's row, so one request
       # would read as one conversation while two were running.
-      stub(Fountain.Billing, :check_spend, fn user_id ->
+      stub(Fountain.Accounts, :check_not_suspended, fn user_id ->
         Repo.update_all(from(r in Request, where: r.id == ^request.id),
           set: [status: "cancelled", updated_at: DateTime.utc_now()]
         )
 
-        Fountain.Credits.gate(user_id)
+        call_original(Fountain.Accounts, :check_not_suspended, [user_id])
       end)
 
       assert %{started: 1, failed: 0, expired: 0} = SandboxQueue.drain(user.id)
@@ -708,12 +696,12 @@ defmodule Fountain.SandboxQueueDrainTest do
       agent = agent_mid_provision(user)
       request = enqueue!(user, agent)
 
-      stub(Fountain.Billing, :check_spend, fn user_id ->
+      stub(Fountain.Accounts, :check_not_suspended, fn user_id ->
         Repo.update_all(from(r in Request, where: r.id == ^request.id),
           set: [status: "cancelled", updated_at: DateTime.utc_now()]
         )
 
-        Fountain.Credits.gate(user_id)
+        call_original(Fountain.Accounts, :check_not_suspended, [user_id])
       end)
 
       assert %{started: 0, failed: 0, expired: 0} = SandboxQueue.drain(user.id)
@@ -745,5 +733,13 @@ defmodule Fountain.SandboxQueueDrainTest do
       assert Enum.sort(SandboxQueue.user_ids_with_active_requests()) ==
                Enum.sort([user.id, other.id])
     end
+  end
+
+  # The account's own refusal, on the row alone: `suspend_user/2` would also
+  # reap sandboxes, which these requests do not have yet.
+  defp suspend!(user) do
+    Repo.update!(
+      Ecto.Changeset.change(user, suspended_at: DateTime.truncate(DateTime.utc_now(), :second))
+    )
   end
 end

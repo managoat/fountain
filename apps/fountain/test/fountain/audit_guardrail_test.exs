@@ -202,8 +202,6 @@ defmodule Fountain.AuditGuardrailTest do
     {"webhook secret rotate", &__MODULE__.do_webhook_rotate/1, "webhook_endpoint.secret_rotated"},
     {"webhook endpoint disable", &__MODULE__.do_webhook_disable/1, "webhook_endpoint.disabled"},
     {"webhook endpoint enable", &__MODULE__.do_webhook_enable/1, "webhook_endpoint.enabled"},
-    # Prepaid credits (ADR 0030). Money in and money out are the two shapes;
-    # every reason family maps onto one of five `credit.*` actions.
     # Secret bindings (ADR 0019 gate 1b): where a credential goes is as
     # auditable as the credential's existence.
     {"secret binding create", &__MODULE__.do_binding_create/1, "secret_binding.created"},
@@ -223,8 +221,6 @@ defmodule Fountain.AuditGuardrailTest do
      "connection_provider.updated"},
     {"connection provider delete", &__MODULE__.do_provider_delete/1,
      "connection_provider.deleted"},
-    {"credit grant", &__MODULE__.do_credit_grant/1, "credit.granted"},
-    {"credit debit", &__MODULE__.do_credit_debit/1, "credit.burned"},
     # OAuth (#1343). The state machine is the managoat_oauth library, which
     # has no Repo call of its own to audit beside; it cannot complete any of
     # these three mutations without calling Fountain.OAuth.Host.audit/3, and
@@ -1036,16 +1032,6 @@ defmodule Fountain.AuditGuardrailTest do
   end
 
   def do_verify_email(user), do: {:ok, _} = Fountain.Accounts.verify_email(user)
-
-  def do_credit_grant(user) do
-    {:ok, _} =
-      Fountain.Credits.grant(user.id, 100, "grant_admin", idempotency_key: "guard-#{user.id}")
-  end
-
-  def do_credit_debit(user) do
-    {:ok, _} =
-      Fountain.Credits.debit(user.id, 1, "burn_turn", idempotency_key: "guard-b-#{user.id}")
-  end
 
   # The consent request the test client in config/test.exs accepts.
   defp oauth_request do

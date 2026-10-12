@@ -18,6 +18,10 @@ server releases.
 - The generated types for claimable principals: `components["schemas"]["ClaimableUser"]`, `["ClaimableUserCreated"]`, `["ClaimedPrincipal"]` and their response wrappers, with the `/api/claimable-users` entries of `paths` and `operations`. The server no longer serves those routes (ADR 0044, retired). No hand-written client method used them.
 
   Breaking for the type surface, because `schemas.ts` re-exports `components` and `paths`. Held for the next major release, which the rest of the self-hosted cleanup also needs.
+- The generated types for credits, comps and Stripe: `components["schemas"]["BillingResponse"]`, `["CreditsCheckoutRequest"]`, `["StripeUrlResponse"]`, `["AdminCompRequest"]` and `["AdminCreditsRequest"]`; the `/api/account/billing`, `/api/account/billing/credits/checkout`, `/api/admin/users/{id}/comp` and `/api/admin/users/{id}/credits` entries of `paths` and `operations`; the `comped` query parameter of the admin user list; the `402` responses; `Error.upgrade_url`; and `AdminUser.comped`, `AdminUser.has_stripe_customer`, `AdminUser.credit_balance_cents` and `AuthMe.comped`. The server no longer serves or sends them (ADRs 0030 and 0031, retired). The hand-written `InsufficientCreditsError` and its `upgrade_url` handling are left for the SDK release that removes them; the server no longer answers 402.
+
+  Breaking for the type surface in the same way as the entry above, and held for the same major release.
+
 ## [6.5.1] - 2026-10-13
 
 ### Changed

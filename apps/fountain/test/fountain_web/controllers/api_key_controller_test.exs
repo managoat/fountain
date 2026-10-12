@@ -196,7 +196,7 @@ defmodule FountainWeb.ApiKeyControllerTest do
       assert body["id"] == user.id
       assert body["email"] == user.email
       assert body["role"] == "user"
-      assert Map.has_key?(body, "comped")
+      refute Map.has_key?(body, "comped")
     end
 
     test "returns 401 without credentials", %{conn: conn} do

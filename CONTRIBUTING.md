@@ -51,7 +51,7 @@ carries its own LICENSE file:
 | Directory | License |
 |---|---|
 | `apps/fountain`, `config`, `priv` | GNU AGPL v3.0 or later |
-| `ee/` | Elastic License 2.0 |
+
 | `cli/`, `sdk/` (every client) | Apache License 2.0 |
 
 **You contribute under the Apache License 2.0, whichever directory you are
@@ -65,7 +65,7 @@ contribution anywhere else, including in proprietary code of your own.
 
 The asymmetry, stated plainly so nobody is surprised later: Apache-2.0 permits
 relicensing, so Fountain's maintainer can distribute your contribution under
-the AGPL, under the Elastic License, or under a commercial license sold to a
+the AGPL, or under a commercial license sold to a
 company whose policy forbids the AGPL. You cannot do the same with anyone
 else's contribution. That is the same asymmetry a CLA creates, with less
 ceremony, and it exists for one reason: without it, the option to sell a
@@ -140,9 +140,9 @@ such as a change to `test/support`, a factory, a migration or `config/`.
 | `format` | `mix format --check-formatted` |
 | `credo` | `mix credo --strict` |
 | `dialyzer` | `MIX_ENV=dev mix dialyzer` |
-| `sobelow` | `scripts/sobelow.sh`, core with `ee/lib` overlaid |
+| `sobelow` | `scripts/sobelow.sh` |
 | `release` | `MIX_ENV=prod mix deps.get && mix release fountain_server --overwrite` |
-| `test` | `mix test` from the umbrella root: core, `ee/test` and every sibling app. Only with `--full` or by name |
+| `test` | `mix test` from the umbrella root: core and every sibling app. Only with `--full` or by name |
 
 **The exit status is the verdict.** The run stops at the first failing stage,
 names it, and exits with that stage's status; the last line is always
@@ -201,7 +201,7 @@ failure marks the report incomplete.
 Treat findings as candidates. The Elixir tracer misses dynamic calls (including
 MFA callbacks), extension callers, test-only seams, some protocol/callback
 implementations and macro-generated functions. Search the function's bare name
-across `apps/`, `ee/` and their tests before deleting it. A test-only caller may
+across `apps/` and its tests before deleting it. A test-only caller may
 be a useful observation seam or evidence of a missing production caller;
 resolve which before removing the function and its tests.
 

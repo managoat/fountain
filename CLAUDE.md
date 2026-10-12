@@ -41,7 +41,7 @@ review upstream changes before replacing it.
 mise install                        # Erlang/OTP 28 + Elixir 1.19.2, from .tool-versions
 mix deps.get && mix setup           # dev DB: create + migrate
 MIX_ENV=test mix ecto.create && MIX_ENV=test mix ecto.migrate
-mix test                            # core, ee/test and every sibling app
+mix test                            # core and every sibling app
 mix precommit                       # server checks: static analysis, sobelow, release assemble
 mix precommit --full                # server checks plus the whole suite
 mix precommit --list                # its stages; `mix precommit credo test` runs a subset
@@ -67,8 +67,6 @@ apps/fountain_microsoft/   callbacks. Core names no module of any (extension_gua
 apps/fountain_slack/       and builds no connection provider of its own. Their suites run
                            from their own directories; `BUNDLE_EXTENSIONS=false` builds the
                            core distribution. A new callback on the behaviour needs an ADR.
-ee/                        credits, Stripe and the credit emails, compiled into :fountain
-                           (Elastic 2.0; ADR 0010, 0027). Account email + Mailer are core.
 cli/, apps/fountain_buzz/cli   two Go modules (Apache-2.0); test each from its own directory
 sdk/                       four clients against one OpenAPI contract (CONTRIBUTING.md)
 config/                    config.exs, dev.exs, test.exs, prod.exs, runtime.exs
@@ -104,7 +102,7 @@ docs, broker, runner, runtimes) are hex packages pinned in
 
 For server changes, read the relevant sections of
 [Server conventions](contributing/server.md): tenant ownership, encryption,
-audit, credits, UI boundaries, web plumbing and test setup. Read a procedure
+audit, UI boundaries, web plumbing and test setup. Read a procedure
 when the change touches it; the linked guides are reference material.
 
 ## How a change lands

@@ -226,31 +226,6 @@ defmodule FountainWeb.AdminUsersLiveTest do
     end
   end
 
-  describe "AdminLive.Users — toggle_comp" do
-    test "comps and un-comps an account, with audit events", %{conn: conn} do
-      admin = insert_admin()
-      user = insert_active_user()
-      conn = login_user(conn, admin)
-      {:ok, lv, _html} = live(conn, ~p"/admin/users")
-
-      # The row renders the button; the event is sent directly because the
-      # template's phx-value name and the handler's key disagree (see the
-      # ADR 0031 test-migration report).
-      assert has_element?(lv, "button[phx-value-id='#{user.id}'][phx-click='toggle_comp']")
-      render_click(lv, "toggle_comp", %{"id" => user.id})
-
-      assert Fountain.Repo.reload!(user).comped
-
-      render_click(lv, "toggle_comp", %{"id" => user.id})
-
-      refute Fountain.Repo.reload!(user).comped
-
-      events = Fountain.Audit._unsafe_list_recent_admin(10)
-      assert Enum.any?(events, &(&1.event_type == "admin.comp.granted"))
-      assert Enum.any?(events, &(&1.event_type == "admin.comp.revoked"))
-    end
-  end
-
   describe "AdminLive.Users — suspend (#287)" do
     test "suspends and unsuspends with audit events and a badge", %{conn: conn} do
       admin = insert_admin()
@@ -324,30 +299,6 @@ defmodule FountainWeb.AdminUsersLiveTest do
       assert_patch(lv, ~p"/admin/users?q=needle")
       assert html =~ needle.email
       refute html =~ straw.email
-    end
-
-    test "filters comped from billed accounts (#1126)", %{conn: conn} do
-      admin = insert_admin()
-
-      {:ok, comped} =
-        Fountain.Billing.comp_account(insert_active_user(%{email: "comped@example.com"}))
-
-      billed = insert_active_user(%{email: "billed@example.com"})
-      conn = login_user(conn, admin)
-      {:ok, lv, _html} = live(conn, ~p"/admin/users?comped=yes")
-
-      html = render(lv)
-      assert html =~ comped.email
-      refute html =~ billed.email
-
-      html =
-        lv
-        |> form("#user-filters")
-        |> render_change(%{"q" => "", "comped" => "no", "role" => "", "verified" => ""})
-
-      assert_patch(lv, ~p"/admin/users?comped=no")
-      refute html =~ comped.email
-      assert html =~ billed.email
     end
 
     test "filters by verification state and badges unverified users", %{conn: conn} do

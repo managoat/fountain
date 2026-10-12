@@ -16,8 +16,8 @@ defmodule Fountain.Conversations.AdmissionLockIsolationTest do
         blocker =
           independent(fn ->
             Repo.transaction(fn ->
-              # Credits.insert_and_move/3 takes this mode on users; an
-              # exclusive agent write can likewise block its foreign keys.
+              # Any write may take this mode on users; an exclusive agent
+              # write can likewise block its foreign keys.
               Repo.one!(lock(row_query(row, first), "FOR UPDATE"))
               send(owner, :row_locked)
 
@@ -81,8 +81,7 @@ defmodule Fountain.Conversations.AdmissionLockIsolationTest do
   defp tenant do
     user =
       Repo.insert!(%Fountain.Accounts.User{
-        email: "admission-lock-#{Ecto.UUID.generate()}@example.test",
-        credit_balance_cents: 500
+        email: "admission-lock-#{Ecto.UUID.generate()}@example.test"
       })
 
     Repo.insert!(%Fountain.Accounts.UserDataKey{

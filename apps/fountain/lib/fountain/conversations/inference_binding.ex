@@ -55,7 +55,6 @@ defmodule Fountain.Conversations.InferenceBinding do
     with_current(conv, fn current ->
       with :ok <- current_source(current, source),
            :ok <- InferenceCredentials.validate_source(current.user_id, source),
-           :ok <- Fountain.PlatformInference.gate_source(source),
            :ok <- compatible_machine(current, source) do
         case current
              |> Ecto.Changeset.change(inference_source: Source.dump(source))

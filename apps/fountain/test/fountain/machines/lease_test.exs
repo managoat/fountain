@@ -493,7 +493,7 @@ defmodule Fountain.Machines.LeaseTest do
       root = Path.expand("../../../../..", __DIR__)
 
       files =
-        ([Path.join(root, "apps/fountain/lib"), Path.join(root, "ee/lib")] ++
+        ([Path.join(root, "apps/fountain/lib")] ++
            Path.wildcard(Path.join(root, "apps/fountain_*/lib")))
         |> Enum.filter(&File.dir?/1)
         |> Enum.flat_map(&Path.wildcard(Path.join(&1, "**/*.ex")))
@@ -886,8 +886,7 @@ defmodule Fountain.Machines.LeaseTest do
   defp committed_tenant do
     user =
       Repo.insert!(%User{
-        email: "machine-lease-#{Ecto.UUID.generate()}@example.test",
-        credit_balance_cents: 0
+        email: "machine-lease-#{Ecto.UUID.generate()}@example.test"
       })
 
     sandbox =

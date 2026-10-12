@@ -13,10 +13,6 @@ data:
   # set X-Forwarded-Proto or every request looks like http and redirect-loops.
   PUBLIC_URL: "https://fountain.example.com"
 
-  # Credits (ADR 0031) are a lock with no key on a self-hosted instance
-  # unless you configure Stripe. Leave them off.
-  CREDITS_ENABLED: "false"
-
   # An instance on the public internet with registration open will be found.
   # Open it just long enough to register yourself, or scope it:
   # REGISTRATION_ALLOWED_EMAIL_DOMAINS: "example.com"

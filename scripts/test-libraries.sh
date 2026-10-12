@@ -13,7 +13,7 @@
 # sibling" rather than a list to keep updated.
 #
 # Why a separate script and not another partition: scripts/partition-files.sh
-# and the timings manifest are written against apps/fountain and ee/, whose
+# and the timings manifest are written against apps/fountain, whose
 # tests all belong to the :fountain app. A sibling app's tests belong to that
 # app, run from its own directory, and instrument its own modules — and
 # apps/fountain cannot load them at all, because it deliberately depends on

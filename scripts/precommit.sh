@@ -104,8 +104,8 @@ stage_credo() { mix_in test credo --strict; }
 stage_dialyzer() { mix_in dev dialyzer; }
 
 # Not plain `mix sobelow`: at the umbrella root sobelow finds no Phoenix app,
-# scans nothing and exits 0. The script scans apps/fountain with ee/lib
-# overlaid (decisions/0010); sobelow_gate_test.exs checks this file names it.
+# scans nothing and exits 0. The script scans apps/fountain;
+# sobelow_gate_test.exs checks this file names it.
 stage_sobelow() { scripts/sobelow.sh; }
 
 # The only stage that builds :prod, and so the only one that can see a
@@ -120,7 +120,7 @@ stage_release() {
   mix_in prod deps.get && mix_in prod release fountain_server --overwrite
 }
 
-# From the umbrella root: core, ee/test and every sibling app in one run.
+# From the umbrella root: core and every sibling app in one run.
 # Opt-in (OPT_IN_STAGES): `--full` or `mix precommit test`.
 stage_test() { mix_in test test; }
 

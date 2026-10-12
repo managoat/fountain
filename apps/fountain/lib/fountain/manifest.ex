@@ -603,7 +603,6 @@ defmodule Fountain.Manifest do
 
   defp context_errors(:vault_not_found), do: %{"vault" => ["vault not found"]}
   defp context_errors(:vault_not_allowed), do: %{"vault" => ["is not allowed by the agent"]}
-  defp context_errors(:insufficient_credits), do: %{"base" => ["out of credit"]}
 
   # The same hazard `Agent` reports, from the teammate's side: rebinding moves
   # the computer out from under a turn that is running on it.

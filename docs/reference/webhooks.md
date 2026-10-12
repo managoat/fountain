@@ -213,9 +213,8 @@ export function verify(header, rawBody, secret, tolerance = 300) {
 Read the pairs by name, not by position. A `v2` scheme would sit beside `v1`,
 and would not replace it.
 
-Fountain has the same problem when it receives a webhook. It solves that
-problem with `FountainWeb.CachingBodyReader`, which keeps the raw body
-available for the Stripe webhook. Copy it if you build a Phoenix receiver.
+In Phoenix, read the raw body in a custom `Plug.Parsers` `:body_reader` and
+keep it on the connection before the JSON parser consumes it.
 
 ## The delivery contract
 

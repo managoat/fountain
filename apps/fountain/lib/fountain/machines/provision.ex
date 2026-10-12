@@ -384,8 +384,8 @@ defmodule Fountain.Machines.Provision do
   per-sandbox advisory lock — the machine's row is the owner's now, so the
   transaction is gone, and what replaces it is this: the binding is re-checked
   and the conversation is failed here, under the lease, so the order an
-  observer sees is the order `main` committed. `Fountain.Billing`'s usage
-  effect, which runs after the machine's write and outside every transaction,
+  observer sees is the order `main` committed. The usage
+  effect (`Fountain.Usage`), which runs after the machine's write and outside every transaction,
   is that observer.
   """
   @spec fail(Ecto.UUID.t(), keyword()) ::
@@ -1092,7 +1092,7 @@ defmodule Fountain.Machines.Provision do
   #
   # A `suspended` row here is a machine Fountain parked whose disk the caller has
   # just been told is running, so bringing the row back to `ready` **is** a wake:
-  # it stamps `last_resumed_at`, the usage row `Billing` subtracts parked time
+  # it stamps `last_resumed_at`, the usage row `Fountain.Usage` subtracts parked time
   # from fires on the transition, and — new in this stage — it records
   # `sandbox.resumed`, the same event `Machines.Resume` records for the wake
   # path. `main` recorded nothing, so a machine that came back this way was

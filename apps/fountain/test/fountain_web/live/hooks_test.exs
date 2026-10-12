@@ -8,18 +8,6 @@ defmodule FountainWeb.Live.HooksTest do
 
   # ── helpers ─────────────────────────────────────────────────────────────────
 
-  # An account that cannot spend (ADR 0031): the opening credit burned away.
-  defp insert_broke_user do
-    user = insert_verified_user()
-
-    {:ok, _} =
-      Fountain.Credits.debit(user.id, Fountain.Credits.balance(user.id) + 1, "burn_turn",
-        idempotency_key: "drain-#{user.id}"
-      )
-
-    Repo.reload!(user)
-  end
-
   # ── :require_authenticated_user ─────────────────────────────────────────────
 
   describe ":require_authenticated_user hook" do
@@ -77,31 +65,6 @@ defmodule FountainWeb.Live.HooksTest do
     test "redirects an unauthenticated visitor to login", %{conn: conn} do
       assert {:error, {:redirect, %{to: path}}} = live(conn, ~p"/auth/verify-pending")
       assert path =~ "/auth/login"
-    end
-  end
-
-  # ── the console stays readable with no credit (#505, #867, ADR 0031) ───────
-  #
-  # There is no router-level billing gate and no billing hook: the gate that
-  # protects spend is `Billing.check_spend/1` in the context, so every door
-  # gets it — see ee/test/fountain/credits_enforcement_test.exs.
-
-  describe "an account with no credit" do
-    test "still reaches the console", %{conn: conn} do
-      user = insert_broke_user()
-      conn = login_user(conn, user)
-
-      {:ok, _lv, html} = live(conn, ~p"/dashboard")
-      assert html =~ ~r/dashboard/i
-    end
-
-    test "and can still manage its agents", %{conn: conn} do
-      user = insert_broke_user()
-      agent = insert_agent(user_id: user.id)
-      conn = login_user(conn, user)
-
-      {:ok, _lv, html} = live(conn, ~p"/agents")
-      assert html =~ agent.name
     end
   end
 

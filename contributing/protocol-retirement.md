@@ -130,7 +130,7 @@ Keep the native assertions in `saved_allowance_channel_test.exs`,
 feature-flag tests that happen to use `openai_compat` with a test flag; preserve
 remote-cache, failure and analytics behavior.
 
-Search the whole repository again after editing, including `ee/`, extension
+Search the whole repository again after editing, including extension
 apps, tests and scripts. Update stale comments in `PromptInput`, `Agents` and
 `llms_controller`, and test timing manifests for files actually deleted.
 Do not remove provider-side `/v1/models` calls or model-catalog commentary just

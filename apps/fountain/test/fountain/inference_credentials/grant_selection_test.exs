@@ -116,12 +116,11 @@ defmodule Fountain.InferenceCredentials.GrantSelectionTest do
       refute a.grant_id == b.grant_id
       refute Source.dump(a) == Source.dump(b)
 
-      # The user's own subscription: never the platform's bill or ceiling.
+      # The user's own subscription: never the platform's bill.
       for source <- [a, b] do
         refute Source.platform?(source)
         assert Source.origin(source) == "own"
         assert Source.dump(source)["origin"] == "own"
-        assert :ok = Fountain.PlatformInference.gate_source(source)
       end
 
       # No bearer travels in the credentials map, and no key beside the grant:

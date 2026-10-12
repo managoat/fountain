@@ -355,48 +355,10 @@ defmodule FountainWeb.Telemetry do
         ],
         description: "How long a sandbox request waited before its terminal outcome"
       ),
-      # ── Credits and billing (#1169) ────────────────────────────────────
-      #
-      # ADR 0031 makes the balance the gate, so these workers are load-bearing
-      # and none of them was watched: `FountainObanJobsRaising` needs a job to
-      # *raise*, and a pricer that runs and prices nothing never does. Two
-      # separate questions, deliberately — see Fountain.Credits.Telemetry.
-      #
-      # "Did it run?" A wall-clock stamp, so a rule can alert on staleness and
-      # on a worker that never fires at all. PER-REPLICA: the stamp exists only
-      # on the pod that ran the Oban job, so every rule over it needs `max`.
-      last_value("fountain.credits.worker.run.last_run_unix",
-        event_name: [:fountain, :credits, :worker, :run],
-        measurement: :last_run_unix,
-        tags: [:worker],
-        description: "Unix time of the last completed pass, per credit worker"
-      ),
-      sum("fountain.credits.worker.run.total",
-        event_name: [:fountain, :credits, :worker, :run],
-        measurement: :total,
-        tags: [:worker],
-        description: "Ledger rows written per credit worker pass"
-      ),
-      # "Did money move?" From the ledger write itself, so it cannot drift
-      # from the ledger. `reason` is a closed vocabulary, so this is the whole
-      # answer for turns, inference, messages, rent, expiry and purchases —
-      # and a burn_turn total of zero over a day while turns complete is the
-      # signal that the pricer is broken rather than idle.
-      sum("fountain.credits.posted.cents",
-        event_name: [:fountain, :credits, :posted],
-        measurement: :cents,
-        tags: [:reason, :direction],
-        description: "Cents moved through the credit ledger, by reason"
-      ),
-      counter("fountain.stripe_webhook.failure.count",
-        event_name: [:fountain, :stripe_webhook, :failure],
-        tags: [:kind],
-        description: "Stripe webhooks rejected or failed, by coarse kind"
-      ),
       # Swoosh already spans every delivery, so this needs no call-site change
-      # across the fourteen `Mailer.deliver/1` sites. A failed credit or
-      # verification email is a customer who never learns their balance ran
-      # out, which until now was visible in a log line and nowhere else.
+      # across the `Mailer.deliver/1` sites. A failed verification email is a
+      # person who never gets into their account, which until now was visible
+      # in a log line and nowhere else.
       counter("fountain.email.delivery.count",
         event_name: [:swoosh, :deliver, :stop],
         measurement: :duration,

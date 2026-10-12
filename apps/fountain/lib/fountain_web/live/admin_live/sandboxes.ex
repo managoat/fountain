@@ -8,11 +8,9 @@ defmodule FountainWeb.AdminLive.Sandboxes do
   had no turn in flight. Idle time is the lever on the provider bill, and the
   only way to act on it is to look at a running sandbox.
 
-  The spend panel is deliberately not gated on billing being enabled. A
-  self-hosted deployment still pays a provider, and this is the only page that
-  says whose sandboxes the bill is for. What it does *not* do is put money on
-  the screen — minutes on different providers cost different amounts, and the
-  rate card lives on `/admin/finance`.
+  A deployment pays its sandbox provider, and this is the only page that says
+  whose sandboxes the bill is for. What it does *not* do is put money on the
+  screen — minutes on different providers cost different amounts.
   """
 
   use FountainWeb, :live_view
@@ -35,7 +33,6 @@ defmodule FountainWeb.AdminLive.Sandboxes do
     {:ok,
      socket
      |> assign(:page_title, "Admin · Sandboxes")
-     |> assign(:credits_enabled, Fountain.Credits.enabled?())
      |> assign_sandboxes()}
   end
 
@@ -206,7 +203,7 @@ defmodule FountainWeb.AdminLive.Sandboxes do
   def render(assigns) do
     ~H"""
     <div class="space-y-6">
-      <.admin_header title="Sandboxes" current={:sandboxes} credits_enabled={@credits_enabled}>
+      <.admin_header title="Sandboxes" current={:sandboxes}>
         <:subtitle>
           {length(@sandboxes)} active. Refreshes every 10s.
         </:subtitle>
@@ -319,9 +316,6 @@ defmodule FountainWeb.AdminLive.Sandboxes do
           Active sandbox time {Calendar.strftime(@provider_spend.period_start, "%b %-d")} – now,
           parked time excluded. Minutes on different providers cost different amounts — hold these
           next to the invoice, they are not money.
-          <.link :if={@credits_enabled} navigate={~p"/admin/finance"} class="underline">
-            Finance prices them ↗
-          </.link>
         </p>
 
         <div :if={@provider_spend.by_provider == %{}} class="text-xs text-[var(--color-text-muted)]">

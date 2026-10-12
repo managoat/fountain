@@ -555,8 +555,7 @@ defmodule Fountain.Conversations.Reapply do
              model: model,
              environment_id: env_id || agent.environment_id,
              vault_id: vault_id
-           ),
-         :ok <- Fountain.PlatformInference.gate_source(source) do
+           ) do
       {:ok, source}
     end
   end

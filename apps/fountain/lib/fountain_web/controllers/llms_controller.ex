@@ -40,7 +40,7 @@ defmodule FountainWeb.LlmsController do
   # Slug `""` is the docs home page (`/docs`).
   #
   # This is deliberately not all of `Fountain.Docs.nav()`. The full manual is
-  # ~490 KB, over half of it operator runbooks (Kubernetes, Stripe, backups)
+  # ~490 KB, over half of it operator runbooks (Kubernetes, backups)
   # that an agent calling the API has no use for. What is inlined is the
   # "use Fountain" half, ~230 KB. The rest is linked under "More on /docs",
   # labelled as not inlined.

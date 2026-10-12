@@ -521,8 +521,7 @@ defmodule Fountain.Conversations.ExecutionAllowanceRaceTest do
     Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
       user =
         Repo.insert!(%Fountain.Accounts.User{
-          email: "attach-policy-race-#{Ecto.UUID.generate()}@example.test",
-          credit_balance_cents: 500
+          email: "attach-policy-race-#{Ecto.UUID.generate()}@example.test"
         })
 
       Repo.insert!(%Fountain.Accounts.UserDataKey{
@@ -638,7 +637,6 @@ defmodule Fountain.Conversations.ExecutionAllowanceRaceTest do
       user =
         Repo.insert!(%Fountain.Accounts.User{
           email: "rotation-busy-#{Ecto.UUID.generate()}@example.test",
-          credit_balance_cents: 500,
           sandbox_limit_override: 20
         })
 
@@ -747,7 +745,6 @@ defmodule Fountain.Conversations.ExecutionAllowanceRaceTest do
       user =
         Repo.insert!(%Fountain.Accounts.User{
           email: "rotation-race-#{Ecto.UUID.generate()}@example.test",
-          credit_balance_cents: 500,
           sandbox_limit_override: 20
         })
 

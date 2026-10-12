@@ -41,26 +41,10 @@ count, how many accounts are behind it, and the idle hours inside that total.
 The idle figure turns amber above 50%. Below the cards, **Who it belongs to**
 names the accounts with the most hours, each with its own idle share.
 
-The panel is there whether or not you turn billing on. A self-hosted instance
-still pays a provider.
 
 The list under the cards is also `GET /api/admin/sandboxes`, for a script.
 Read [Admin](../../api.md#admin).
 
-## Record the invoice next to the figure
-
-The computed cost is a model. Until a real invoice sits next to it, the
-error is unknown. The panel has a table with one row for each provider
-Fountain pays. Each row shows the computed cost, the invoiced cost, and the
-delta. Use the form under the table to record what a provider charged for
-the month the page shows. A positive delta means the model under-reports.
-Record every month. After a month of deltas, you know which gaps in the
-model matter, and you know enough to turn credit enforcement on. The order
-of steps is in [the guide that starts it](billing.md).
-
-The same section shows how many usage events this node dropped since it
-booted. A dropped event makes the figures for that period approximate. The
-count is for one node and resets when the node restarts.
 
 ## What each provider means for your bill
 
@@ -75,18 +59,6 @@ The **Billable to us** line adds up only the first three. The panel shows
 runner hours so the picture is complete. It keeps them out of that total so the
 total stays true.
 
-## Read one account's own view
-
-Each account sees its own sandbox minutes on `/account/billing`, split by
-provider. The same numbers come back from the API.
-
-```bash
-curl -sS https://your-instance/api/account/billing \
-  -H "Authorization: Bearer $FOUNTAIN_API_KEY"
-```
-
-The `usage.sandbox_minutes_by_provider` field holds the split. A provider the
-account did not use is absent rather than zero.
 
 ## Watch it live
 
@@ -106,8 +78,8 @@ and resume records that mark parked time are different. Fountain writes those
 best-effort on purpose, because a metering problem must not fail somebody's
 conversation. A database problem can drop one.
 
-A dropped suspend record makes parked time look like run time, and Fountain
-charges the account for it. A dropped resume record does the opposite. Neither
+A dropped suspend record makes parked time look like run time. A dropped
+resume record does the opposite. Neither
 one is silent. Each drop increments the `fountain_usage_dropped_count` metric.
 Read that metric for the period you want. A count above zero says the parked
 figures rest on an incomplete record. Treat that period as approximate.
@@ -118,11 +90,11 @@ They are hours, not money. Providers price by machine size and by contract, and
 Fountain holds no rate card. Multiply the hours by the rate you pay.
 
 They also cover sandboxes only. Model inference runs on your users' own
-credentials and never reaches a Fountain invoice.
+credentials, or on a platform key whose bill comes from the model provider.
 
 ## Related
 
-- [Start billing](billing.md), to charge for what you measure here.
+
 - [Change sandbox lifetimes](sandbox-lifetime.md), the main lever on the total.
 - [About sandboxes](../../concepts/sandboxes.md), for what a sandbox is.
 - [Configure observability](observability.md), for the metrics endpoint.

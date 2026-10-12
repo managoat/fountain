@@ -105,7 +105,7 @@ def conversation_cases(rules):
 
 
 def email_dashboard_cases():
-    dashboard = json.loads((ROOT / "deploy/grafana/fountain-finance.json").read_text())
+    dashboard = json.loads((ROOT / "deploy/grafana/fountain-ops.json").read_text())
     expression = next(target["expr"] for panel in dashboard["panels"]
                       for target in panel.get("targets", [])
                       if "fountain_email_delivery_exception" in target.get("expr", ""))

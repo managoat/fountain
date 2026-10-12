@@ -5,7 +5,6 @@ defmodule FountainWeb.ConversationController do
 
   require Logger
 
-  alias Fountain.Billing
   alias Fountain.Conversations
   alias Fountain.Conversations.{ConversationServer, Interruption, Launch, LogEvent}
   alias Fountain.Conversations.{Reapply, Termination, Wake}
@@ -641,8 +640,7 @@ defmodule FountainWeb.ConversationController do
            "full scope attaching another agent's conversation to a sandbox " <>
            "(guest_attach_requires_full_scope)", "application/json", Schemas.Error},
       not_found: {"Agent not found", "application/json", Schemas.Error},
-      unprocessable_entity: {"Validation error", "application/json", Schemas.Error},
-      payment_required: {"Insufficient credits", "application/json", Schemas.Error}
+      unprocessable_entity: {"Validation error", "application/json", Schemas.Error}
     ]
   )
 
@@ -685,8 +683,7 @@ defmodule FountainWeb.ConversationController do
       [guest_ok: RequireFullScope.full_scope?(conn)] ++
         SandboxKey.opts(conn) ++ Audited.attribution(conn)
 
-    with :ok <- Billing.check_spend(user),
-         {:ok, conv, outcome} <- Launch.start_or_resume_conversation(params, opts) do
+    with {:ok, conv, outcome} <- Launch.start_or_resume_conversation(params, opts) do
       # 201 when a conversation was opened; 200 when `channel_id` resumed an
       # existing one (#774). Same body either way, so a client that ignores
       # the status still gets the id it needs.
@@ -829,13 +826,12 @@ defmodule FountainWeb.ConversationController do
         "provision reports on the event stream, and a wake that fails is a `wake` `failed` " <>
         "stage there. A woken conversation is parked again after the usual idle period.\n\n" <>
         "`awake` means the server was already running and nothing was done. Refused as a " <>
-        "prompt's wake is: 402 without credits, 410 once the conversation has ended, 409 " <>
+        "prompt's wake is: 410 once the conversation has ended, 409 " <>
         "`sandbox_reset_pending` while its machine is being reset, and 503 while the " <>
         "fleet is full. Anything the sandbox itself refuses arrives on the event stream.",
     parameters: [conversation_id: [in: :path, type: :string, required: true]],
     responses: [
       ok: {"Awake or waking", "application/json", Schemas.ConversationWakeResponse},
-      payment_required: {"Insufficient credits", "application/json", Schemas.Error},
       not_found: {"Not found", "application/json", Schemas.Error},
       conflict: {"Sandbox is being reset or deleted", "application/json", Schemas.Error},
       gone: {"Conversation is terminal", "application/json", Schemas.Error},
@@ -885,7 +881,6 @@ defmodule FountainWeb.ConversationController do
         {"Already resolved, or resolved but not delivered", "application/json", Schemas.Error},
       unprocessable_entity: {"Unknown option", "application/json", Schemas.Error},
       bad_request: {"Busy", "application/json", Schemas.Error},
-      payment_required: {"Insufficient credits", "application/json", Schemas.Error},
       forbidden: {"The sandbox may not answer", "application/json", Schemas.Error}
     ]
   )
@@ -988,7 +983,6 @@ defmodule FountainWeb.ConversationController do
     parameters: [conversation_id: [in: :path, type: :string, required: true]],
     request_body: {"Prompt", "application/json", Schemas.PromptRequest},
     responses: [
-      payment_required: {"Insufficient credits", "application/json", Schemas.Error},
       gone: {"Conversation is terminal", "application/json", Schemas.Error},
       unprocessable_entity: {"Invalid request parameters", "application/json", Schemas.Error},
       service_unavailable: {"Sandbox or fleet unavailable", "application/json", Schemas.Error},
@@ -1088,8 +1082,8 @@ defmodule FountainWeb.ConversationController do
             {:error, "conversation_busy"}
 
           # Everything else renders via the FallbackController. This case has
-          # had error shapes threaded through it by hand four times (#212's
-          # 402, then :gone / :no_agent / changeset in #332), and each one it
+          # had error shapes threaded through it by hand four times (#212,
+          # then :gone / :no_agent / changeset in #332), and each one it
           # was missing was a CaseClauseError 500. The fallback owns the
           # error → status mapping; new shapes land there, not here.
           {:error, _} = err ->

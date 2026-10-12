@@ -364,14 +364,13 @@ defmodule Fountain.ConfigReferenceTest do
   end
 
   # Everything that can read an environment variable at boot: the four config
-  # files and the lib tree of every app, ee/ included. Test support and the
+  # files and the lib tree of every app. Test support and the
   # suites are left out; a read there is a fixture, not a switch.
   defp env_source do
     config = Path.wildcard(Path.join(@repo_root, "config/*.exs"))
     apps = Path.wildcard(Path.join(@repo_root, "apps/*/lib/**/*.ex"))
-    ee = Path.wildcard(Path.join(@repo_root, "ee/lib/**/*.ex"))
 
-    (config ++ apps ++ ee)
+    (config ++ apps)
     |> Enum.sort()
     |> Enum.map_join("\n", &File.read!/1)
   end

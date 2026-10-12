@@ -34,7 +34,7 @@ defmodule FountainWeb.AdminInferenceLiveTest do
       assert html =~ "Anthropic"
       assert html =~ "OpenAI"
       assert html =~ "Google"
-      assert html =~ "PLATFORM_INFERENCE_DAILY_CENTS"
+      refute html =~ "PLATFORM_INFERENCE_DAILY_CENTS"
     end
 
     test "a regular user is sent to the dashboard", %{conn: conn} do

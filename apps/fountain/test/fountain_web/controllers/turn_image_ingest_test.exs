@@ -106,9 +106,9 @@ defmodule FountainWeb.TurnImageIngestTest do
 
     test "an oversized image is a client error, not a 500" do
       # A body this large never reaches the controller: it exceeds the parser's
-      # read length, so Plug.Parsers rejects it. That path used to raise a
-      # MatchError inside CachingBodyReader and surface as a 500 for every
-      # endpoint — fixed here, so it is now the 413 it should always have been.
+      # read length, so Plug.Parsers rejects it. That path once raised a
+      # MatchError inside a custom body reader and surfaced as a 500 for every
+      # endpoint; it is the 413 it should always have been.
       oversized = Base.encode64(:binary.copy(<<0>>, 10 * 1024 * 1024 + 1))
       user = insert_active_user()
       {_key, raw_key} = insert_api_key(user)

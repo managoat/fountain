@@ -278,14 +278,9 @@ defmodule FountainWeb.DashboardLiveTest do
       refute html =~ "Nothing yet this month."
     end
 
-    test "the billing link is there only when billing is on", %{conn: conn} do
+    test "there is no billing link", %{conn: conn} do
       {:ok, _lv, html} = live(conn, ~p"/dashboard")
-
-      if Fountain.Credits.enabled?() do
-        assert html =~ ~p"/account/billing"
-      else
-        refute html =~ ~s|href="/account/billing"|
-      end
+      refute html =~ ~s|href="/account/billing"|
     end
   end
 

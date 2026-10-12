@@ -95,7 +95,7 @@ cp .env.example .env
 | `MASTER_SECRETS_KEY` | The platform master key for envelope encryption. |
 | `SPRITES_TOKEN` | The token for the Sprites sandbox platform. |
 | `GITHUB_OAUTH_CLIENT_ID/SECRET` | The GitHub OAuth app. |
-| `STRIPE_*` | The Stripe integration. |
+
 | `RESEND_API_KEY` | Transactional email. |
 
 Make a master key.

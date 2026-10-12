@@ -13,7 +13,6 @@ defmodule Fountain.MixProject do
       elixirc_paths: elixirc_paths(Mix.env()),
       compilers: unused_compiler() ++ Mix.compilers(),
       unused: unused_config(),
-      test_paths: ["test", "../../ee/test"],
       start_permanent: Mix.env() == :prod,
       aliases: aliases(),
       deps: deps(),
@@ -25,7 +24,7 @@ defmodule Fountain.MixProject do
 
   # Same file the umbrella root reads (#620). Read rather than referenced
   # through the root project because `mix test` is also run from inside this
-  # directory — the documented way to run a single ee/test file — and then the
+  # directory — the documented way to run a single test file — and then the
   # root mix.exs is never loaded at all.
   defp coverage do
     Path.expand("../../coverage.exs", __DIR__) |> Code.eval_file() |> elem(0)
@@ -38,11 +37,6 @@ defmodule Fountain.MixProject do
     ]
   end
 
-  # ee/ is the top-level EE directory (billing + transactional email); it
-  # compiles into this app. Mix requires external dirs as absolute paths and
-  # silently skips missing ones, so build contexts must include ee/ (see
-  # Dockerfile and decisions/0010).
-  @ee_lib Path.expand("../../ee/lib", __DIR__)
   # `MIX_UNUSED=1 MIX_ENV=dev mix compile --force`, from this directory, adds
   # the mix_unused tracer, which reports every public function no compiled
   # module calls. Off by default because the tracer sees only static calls
@@ -87,8 +81,8 @@ defmodule Fountain.MixProject do
     ]
   end
 
-  defp elixirc_paths(:test), do: ["lib", @ee_lib, "test/support"]
-  defp elixirc_paths(_), do: ["lib", @ee_lib]
+  defp elixirc_paths(:test), do: ["lib", "test/support"]
+  defp elixirc_paths(_), do: ["lib"]
 
   defp deps do
     [
@@ -145,7 +139,6 @@ defmodule Fountain.MixProject do
       # New Fountain deps
       {:bcrypt_elixir, "~> 3.0"},
       {:uniq, "~> 0.6"},
-      {:stripity_stripe, "~> 3.0"},
       {:swoosh, "~> 1.17"},
       # SMTP delivery, so a self-hoster is not obliged to use a SaaS provider.
       {:gen_smtp, "~> 1.2"},

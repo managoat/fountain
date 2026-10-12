@@ -25,8 +25,8 @@ defmodule Fountain.OnboardingGuardrailTest do
 
   test "every discovered reply writer calls activation or has a documented exclusion" do
     functions =
-      ["apps/*/lib/**/*.ex", "ee/lib/**/*.ex"]
-      |> Enum.flat_map(&Path.wildcard(Path.join(@root, &1)))
+      Path.join(@root, "apps/*/lib/**/*.ex")
+      |> Path.wildcard()
       |> Enum.flat_map(&(File.read!(&1) |> functions()))
 
     writers = writers(functions)

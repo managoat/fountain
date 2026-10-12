@@ -1,10 +1,6 @@
 defmodule Fountain.SelfHostSwitchesTest do
   @moduledoc """
-  The two switches a self-hoster needs and did not have.
-
-  ADR 0006 made the subscription gate a product invariant, which is right for
-  the hosted instance and is a lock with no key on a self-hosted one — the ADR
-  itself notes the reversal costs "one line", but that line was a source patch.
+  The switches a self-hoster needs.
 
   Registration was open to the world with no way to close it. On the hosted side
   that matters too: every signup consumes the platform Sprites token, and
@@ -13,8 +9,7 @@ defmodule Fountain.SelfHostSwitchesTest do
 
   use Fountain.DataCase, async: false
 
-  alias Fountain.{Accounts, Billing}
-  alias Fountain.Conversations.Launch
+  alias Fountain.Accounts
 
   @runtime_exs Path.expand("../../../../config/runtime.exs", __DIR__)
 
@@ -29,7 +24,7 @@ defmodule Fountain.SelfHostSwitchesTest do
     "PUBLIC_URL" => "https://fountain.example.com"
   }
 
-  @switch_vars ~w(CREDITS_ENABLED BILLING_ENABLED REGISTRATION_ENABLED REGISTRATION_ALLOWED_EMAIL_DOMAINS REGISTRATION_ACCESS_CODE STRIPE_WEBHOOK_SECRET EMAIL_DELIVERY FIRST_USER_ADMIN)
+  @switch_vars ~w(CREDITS_ENABLED REGISTRATION_ENABLED REGISTRATION_ALLOWED_EMAIL_DOMAINS REGISTRATION_ACCESS_CODE EMAIL_DELIVERY FIRST_USER_ADMIN)
 
   defp read_prod_config(extra) do
     previous = System.get_env()
@@ -63,57 +58,13 @@ defmodule Fountain.SelfHostSwitchesTest do
     end
   end
 
-  # An account that cannot spend: the opening credit burned away.
-  defp cancelled_user do
-    user = insert_verified_user()
-
-    {:ok, _} =
-      Fountain.Credits.debit(user.id, Fountain.Credits.balance(user.id) + 1, "burn_turn",
-        idempotency_key: "drain-#{user.id}"
-      )
-
-    Fountain.Repo.reload!(user)
-  end
-
   describe "the env-var side, read the way the release config provider does" do
-    # runtime.exs skips the CREDITS_ENABLED mapping under :test (the suite
-    # pins :credits_enabled in config/test.exs), and the domain-list tests
-    # below inject the parsed application env directly — so without these,
-    # nothing fails if the runtime.exs default flips or the parsing breaks.
+    # The domain-list tests below inject the parsed application env directly,
+    # so without these nothing fails if the runtime.exs parsing breaks.
 
-    test "CREDITS_ENABLED defaults off — a bare self-host must not lock itself out (#336)" do
-      cfg = read_prod_config(%{})
-      assert cfg[:fountain][:credits_enabled] == false
-    end
-
-    test "CREDITS_ENABLED=true opts the hosted deployment in" do
-      # Credits on requires the webhook secret at boot (#416), so supply one.
-      cfg =
-        read_prod_config(%{
-          "CREDITS_ENABLED" => "true",
-          "STRIPE_WEBHOOK_SECRET" => "whsec_test"
-        })
-
-      assert cfg[:fountain][:credits_enabled] == true
-    end
-
-    test "BILLING_ENABLED no longer enables credits" do
-      cfg = read_prod_config(%{"BILLING_ENABLED" => "true"})
-      assert cfg[:fountain][:credits_enabled] == false
-    end
-
-    test "CREDITS_ENABLED controls credits when the retired variable is also set" do
-      disabled = read_prod_config(%{"CREDITS_ENABLED" => "false", "BILLING_ENABLED" => "true"})
-      assert disabled[:fountain][:credits_enabled] == false
-
-      enabled =
-        read_prod_config(%{
-          "CREDITS_ENABLED" => "true",
-          "BILLING_ENABLED" => "false",
-          "STRIPE_WEBHOOK_SECRET" => "whsec_test"
-        })
-
-      assert enabled[:fountain][:credits_enabled] == true
+    test "CREDITS_ENABLED is no longer read" do
+      cfg = read_prod_config(%{"CREDITS_ENABLED" => "true"})
+      refute Keyword.has_key?(cfg[:fountain], :credits_enabled)
     end
 
     test "REGISTRATION_ALLOWED_EMAIL_DOMAINS is split, trimmed and downcased" do
@@ -179,39 +130,6 @@ defmodule Fountain.SelfHostSwitchesTest do
              ] == false
 
       assert read_prod_config(%{})[:fountain][:registration_enabled] == true
-    end
-  end
-
-  describe "CREDITS_ENABLED" do
-    test "the gate is enforced by default" do
-      assert {:error, :insufficient_credits} = Billing.check_spend(cancelled_user())
-    end
-
-    test "disabling it lets a cancelled account through" do
-      user = cancelled_user()
-
-      with_env([credits_enabled: false], fn ->
-        assert :ok = Billing.check_spend(user)
-      end)
-    end
-
-    test "a conversation can start with billing disabled" do
-      # The end-to-end point: the gate is checked in the context, so the switch
-      # has to reach there and not just the controller.
-      user = cancelled_user()
-      agent = insert_agent(user_id: user.id)
-
-      with_env([credits_enabled: false], fn ->
-        stub_server_start(fn _s, _spec ->
-          {:ok, spawn(fn -> :ok end)}
-        end)
-
-        assert {:ok, _} =
-                 Launch.start_conversation(%{
-                   "agent_id" => agent.id,
-                   "user_id" => user.id
-                 })
-      end)
     end
   end
 

@@ -58,7 +58,7 @@ class DocumentationRoutingTest(unittest.TestCase):
             "apps/new_extension/docs/page.md", "contributing/tool.py", "standards/check.sh",
             "config/test.exs", "mix.exs", "mix.lock", "Dockerfile",
             "decisions/evidence/decimal-advisory.json", "decisions/check.py", "changelog.d/check.sh",
-            "deploy/k8s/prometheusrule.yaml", "deploy/grafana/fountain-finance.json",
+            "deploy/k8s/prometheusrule.yaml", "deploy/grafana/fountain-ops.json",
             "scripts/test-alerts.py", "scripts/decisions-index.sh", "scripts/test-docs.sh", ".github/workflows/ci.yml",
             "sdk/python/client.py", "sdk/contract/README.md", "new-directory/guide.md",
         ):

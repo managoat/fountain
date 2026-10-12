@@ -13,15 +13,10 @@
 input = IO.read(:stdio, :eof)
 
 # ExUnit prints the module, then its file on the next line. Paths come through
-# app-relative for apps/fountain and absolute for ee/, so both are normalised
-# back to repo-relative here.
-#
-# The ee/ branch mirrors the one in scripts/partition-files.exs and exists for
-# the same reason: ee/ lives at the repo root while its tests belong to
-# apps/fountain. IF EE/ EVER MOVES OR IS EXTRACTED, both branches go, along
-# with `test_paths` in apps/fountain/mix.exs. The guard below — every parsed
-# path must exist on disk — is what turns a half-finished change into a loud
-# failure here rather than a quietly shrunken manifest.
+# app-relative for apps/fountain, so they are normalised back to repo-relative
+# here. The guard below — every parsed path must exist on disk — is what turns
+# a layout change into a loud failure here rather than a quietly shrunken
+# manifest.
 entries =
   Regex.scan(~r/^\s*[A-Za-z0-9_.]+ \((\d+(?:\.\d+)?)ms\)\n\s*\[([^\]]+)\]/m, input)
   |> Enum.map(fn [_, ms, path] ->
@@ -29,9 +24,6 @@ entries =
       cond do
         String.starts_with?(path, "test/") ->
           "apps/fountain/" <> path
-
-        String.contains?(path, "/ee/test/") ->
-          "ee/test/" <> List.last(String.split(path, "/ee/test/"))
 
         true ->
           path

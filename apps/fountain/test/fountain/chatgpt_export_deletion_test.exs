@@ -328,7 +328,7 @@ defmodule Fountain.ChatGPTExportDeletionTest do
       assert_email_sent(fn email ->
         refute email.text_body =~ "ChatGPT"
         refute email.html_body =~ "ChatGPT"
-        assert email.text_body =~ "will not be charged again"
+        assert email.text_body =~ "permanently deleted"
       end)
     end
 
@@ -374,7 +374,7 @@ defmodule Fountain.ChatGPTExportDeletionTest do
           refute body =~ "Work"
         end
 
-        assert email.text_body =~ "will not be charged again"
+        assert email.text_body =~ "permanently deleted"
       end)
     end
 

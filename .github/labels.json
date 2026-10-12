@@ -29,11 +29,7 @@
     "color": "1D76DB",
     "description": "HTTP API, OpenAPI and CLI contracts."
   },
-  {
-    "name": "area:billing",
-    "color": "1D76DB",
-    "description": "Credits, payments, metering, pricing and commercial limits."
-  },
+
   {
     "name": "area:buzz",
     "color": "1D76DB",

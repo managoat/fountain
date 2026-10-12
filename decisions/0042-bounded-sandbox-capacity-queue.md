@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Bounded sandbox-capacity queue"
-description: "A fresh start can opt into a per-tenant FIFO queue at the tenant or fleet ceiling, and a schedule opts in when its cron fires; ten requests wait at most an hour. Built with this ADR (#1033)."
+description: "A fresh start can opt into a per-tenant FIFO queue at the tenant or fleet ceiling, and a schedule opts in when its cron fires; ten requests wait at most an hour. Built with this ADR (#1033). Since 2026-10-12 there is no credit gate on replay."
 tags: [sandbox, quotas, api, schedules]
 status: stable
 adr: "0042"
@@ -242,3 +242,13 @@ drainer must never let two of them replay one request.
   double-start window described in decision 6.
 - **Retain launch attributes on terminal rows.** Rejected: the prompt is
   tenant content, and the audit trail needs only provenance and outcome.
+
+## Addendum — 2026-10-12: no credit gate
+
+The tenant limit is no longer funded by a credit balance: credits are removed
+([ADR 0031](0031-credits-are-the-product.md), retired). The tenant limit is
+the account's `sandbox_limit_override`, else `SANDBOX_CAP_CEILING`, under
+`SANDBOX_FLEET_CEILING`. A replay (decision 7) re-checks the tenant, fleet and
+inference gates; there is no credit gate to re-check, and a request can no
+longer fail after acceptance because its credit ran out. The queue's bounds
+and behaviour are otherwise unchanged.

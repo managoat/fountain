@@ -17,7 +17,6 @@ Application.put_env(:fountain, :api_cors_origins, [
   "http://127.0.0.1:5176"
 ])
 
-Application.put_env(:fountain, :credits_enabled, false)
 Application.put_env(:fountain, :marketing_site, true)
 {:ok, _} = Application.ensure_all_started(:fountain)
 Ecto.Adapters.SQL.Sandbox.mode(Fountain.Repo, :auto)

@@ -2,8 +2,8 @@ defmodule Fountain.SandboxQueue do
   @moduledoc """
   The bounded per-tenant queue for sandbox capacity (#1033, ADR 0042).
 
-  A start reaches a capacity limit two ways: the tenant's own cap, funded by
-  its credit balance under ADR 0031, and `SANDBOX_FLEET_CEILING` across the
+  A start reaches a capacity limit two ways: the tenant's own cap
+  (`SANDBOX_CAP_CEILING` or its override), and `SANDBOX_FLEET_CEILING` across the
   whole deployment. `Quotas.with_sandbox_reservation/3` refuses both
   immediately, which is the right answer for a caller that can retry and the
   wrong one for a cron firing with nobody there to retry it.

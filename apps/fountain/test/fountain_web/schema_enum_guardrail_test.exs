@@ -192,12 +192,10 @@ defmodule FountainWeb.SchemaEnumGuardrailTest do
     # carries a nil the domain list does not.
     {FountainWeb.Schemas.ConnectionProvider, "client_source"} =>
       "Provider.client_sources/0 plus nil for a provider with no client yet",
-    # Outcomes of two admin actions. Computed in the controller from what the
+    # Outcomes of an admin action. Computed in the controller from what the
     # action did; they describe an HTTP response, not a stored value.
     {FountainWeb.Schemas.AdminReapResponse, "data.outcome"} =>
       "admin reap result — response vocabulary, not persisted state",
-    {FountainWeb.Schemas.AdminResyncResponse, "data.outcome"} =>
-      "admin resync result — response vocabulary, not persisted state",
     # Per-resource results from `fountain apply`. Manifest reports these as
     # atoms built inline per branch; there is no list to compare against.
     {FountainWeb.Schemas.ApplyResult, "action"} =>

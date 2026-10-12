@@ -118,8 +118,8 @@ in full.
 - [Troubleshoot a problem](troubleshooting/index.md), which starts from the
   symptom
 - [Operations](operations.md), how to run an instance day to day
-- [Services Fountain uses](integrations/index.md), sandboxes, mail, OAuth,
-  billing and errors
+- [Services Fountain uses](integrations/index.md), sandboxes, mail, OAuth
+  and errors
 
 ## Look it up
 

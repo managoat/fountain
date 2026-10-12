@@ -202,9 +202,9 @@ it builds the Go CLI, and it fetches the pinned Buzz binaries.
 - **It never lets the machine park.** `auto_stop_machines` and
   `auto_start_machines` are off, and `min_machines_running` is 1. Fly's
   defaults park an idle machine and start it again on the next request, which
-  suits a web app. It does not suit this one. The sandbox reaper, the credit
-  pricer and every scheduled teammate run inside this process, so a parked
-  machine is an instance that quietly stops the reaper and stops the pricer.
+  suits a web app. It does not suit this one. The sandbox reaper, the retention
+  pruner and every scheduled teammate run inside this process, so a parked
+  machine is an instance that quietly stops the reaper and the schedules.
 - **It deploys with the `rolling` strategy.** Fly replaces one machine at a
   time and waits for its health check before the next. On a cluster the other
   machines keep serving, and the replaced machine rejoins under the same name.

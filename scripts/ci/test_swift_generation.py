@@ -169,7 +169,7 @@ class SwiftGeneration(unittest.TestCase):
         # is the expected tidying -- and growing it means editing this number
         # in the same diff, so a reviewer sees it move. Same shape as
         # `test_the_undescribed_property_table_has_not_grown`.
-        ceiling = 2
+        ceiling = 5
         self.assertLessEqual(len(swiftgen.REMOVED_PROPERTIES), ceiling)
         for (name, key), reason in swiftgen.REMOVED_PROPERTIES.items():
             with self.subTest(name=name, key=key):

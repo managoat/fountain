@@ -441,7 +441,6 @@ private func normalizeError(_ error: Error) -> JSONDictionary {
   let kinds: [FountainError.Kind: String] = [
     .api: "server",
     .authentication: "auth",
-    .insufficientCredits: "insufficient_credits",
     .notFound: "not_found",
     .validation: "validation",
     .rateLimit: "rate_limited",
@@ -459,7 +458,6 @@ private func normalizeError(_ error: Error) -> JSONDictionary {
     "retryable": error.retryable,
     "retry_after": error.retryAfter ?? NSNull(),
     "field_errors": error.fieldErrors,
-    "upgrade_url": error.upgradeURL ?? NSNull(),
   ]
   if error.kind == .timeout { output["partial_text"] = error.partialText ?? NSNull() }
   return output

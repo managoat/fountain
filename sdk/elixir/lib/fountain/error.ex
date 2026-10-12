@@ -13,7 +13,6 @@ defmodule Fountain.Error do
 
   @type kind ::
           :auth
-          | :insufficient_credits
           | :not_found
           | :validation
           | :rate_limit
@@ -31,7 +30,6 @@ defmodule Fountain.Error do
   @hints %{
     400 => "bad request",
     401 => "unauthorized — check the API key",
-    402 => "payment required — the account is out of credit",
     403 => "forbidden — the key may lack the scope for this call",
     404 => "not found — wrong id, or it belongs to another account",
     409 => "conflict",
@@ -55,8 +53,6 @@ defmodule Fountain.Error do
   end
 
   def field_errors(_), do: %{}
-  def upgrade_url(%__MODULE__{body: %{"upgrade_url" => url}}) when is_binary(url), do: url
-  def upgrade_url(_), do: nil
   def active_sandboxes(%__MODULE__{body: %{"active_sandboxes" => n}}) when is_integer(n), do: n
   def active_sandboxes(_), do: nil
   def limit(%__MODULE__{body: %{"limit" => n}}) when is_integer(n), do: n
@@ -90,10 +86,7 @@ defmodule Fountain.Error do
 
   defp kind("sandbox_quota_exceeded", _), do: :quota_exceeded
 
-  defp kind("insufficient_credits", _), do: :insufficient_credits
-
   defp kind(_, 401), do: :auth
-  defp kind(_, 402), do: :insufficient_credits
   defp kind(_, 404), do: :not_found
   defp kind(_, 422), do: :validation
   defp kind(_, 429), do: :rate_limit

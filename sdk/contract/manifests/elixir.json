@@ -99,7 +99,7 @@
     "Environment": { "required": ["id"], "fields": ["name"] },
     "EnvironmentListResponse": { "required": ["data"] },
     "EnvironmentResponse": { "required": ["data"] },
-    "Error": { "fields": ["error"], "optional": ["active_sandboxes", "errors", "limit", "message", "upgrade_url"] },
+    "Error": { "fields": ["error"], "optional": ["active_sandboxes", "errors", "limit", "message"] },
     "LogEvent": {
       "required": ["kind"],
       "fields": ["blocks", "data", "id", "stage", "state", "stream", "turn_id"]

@@ -244,7 +244,7 @@ import Testing
     let transport = FakeTransport(
       json: """
         {"id":"50e06232-0000-0000-0000-000000000000","email":"user@example.com","role":"admin",
-         "email_verified":true,"comped":false,"brokered":true,
+         "email_verified":true,"brokered":true,
          "onboarding_completed":true,"connections_enabled":false,"connections_manageable":true}
         """)
     let me = try await FountainClient.fake(transport).auth.me()
@@ -370,21 +370,21 @@ import Testing
     }
   }
 
-  @Test func insufficientCreditsCarriesUpgradeURL() async throws {
-    let transport = FakeTransport(
-      json: #"{"error":"insufficient_credits","upgrade_url":"/account/billing"}"#, status: 402
-    )
+  @Test func a402IsAnOrdinaryAPIError() async throws {
+    // The server stopped answering 402 when credits went (#2609); a 402 from
+    // a proxy is no longer a billing case, just its status.
+    let transport = FakeTransport(json: #"{"error":"insufficient_credits"}"#, status: 402)
     do {
       _ = try await FountainClient.fake(transport).conversations.create(
         ConversationCreateRequest(agentID: "a-1", prompt: "hi")
       )
       Issue.record("expected throw")
     } catch let error as FountainError {
-      guard case .insufficientCredits(_, let url) = error else {
+      guard case .api(_, let status) = error else {
         Issue.record("wrong case: \(error)")
         return
       }
-      #expect(url == "/account/billing")
+      #expect(status == 402 && error.code == "insufficient_credits" && !error.isRetryable)
     }
   }
 }

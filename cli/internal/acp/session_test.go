@@ -290,14 +290,14 @@ func TestNewSessionReportsAnUnresolvableAgent(t *testing.T) {
 }
 
 func TestNewSessionReportsAFailedConversationStart(t *testing.T) {
-	api := &fakeAPI{ref: acpAgentRef(), createErr: errors.New("http 402: insufficient_credits")}
+	api := &fakeAPI{ref: acpAgentRef(), createErr: errors.New("http 429: sandbox_quota_exceeded")}
 	a := sessionAgent(t, api, "researcher")
 
 	_, rpcErr := request(t, a, "session/new", map[string]any{})
 	if rpcErr == nil {
 		t.Fatal("session/new reported success for a conversation that was never created")
 	}
-	if !strings.Contains(rpcErr.Message, "insufficient_credits") {
+	if !strings.Contains(rpcErr.Message, "sandbox_quota_exceeded") {
 		t.Errorf("message = %q, want it to carry the server's reason", rpcErr.Message)
 	}
 }

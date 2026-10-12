@@ -395,7 +395,6 @@ try {
 | `ConversationBusyError` | `conversation_busy` (400) | Yes. The turn in flight must finish. |
 | `NotReadyError` | `provisioning`, `fleet_full`, `sandbox_unavailable` (503) | Yes. It carries the server's `Retry-After`. |
 | `QuotaExceededError` | `sandbox_quota_exceeded` (429) | Yes. Terminate a conversation first. |
-| `InsufficientCreditsError` | `insufficient_credits` (402) | No. The server no longer sends it. |
 | `ValidationError` | 422 | No. Read `fieldErrors`. |
 | `AuthError` and `NotFoundError` | 401 and 404 | No. |
 | `ConnectionError` | It never reached the server. | In a browser, the cause is usually CORS. |
@@ -498,30 +497,18 @@ kind. Join ACP chunks with nothing between them.
 Start a new paragraph after a tool call. Resume from the last event id when a
 connection drops mid-turn.
 
-## Credit error migration
+## Credit error removal
 
-Fountain no longer has credits, and the server no longer sends
-`insufficient_credits` or a 402. The client names below stay until each SDK
-removes them in a release of its own.
+Fountain no longer has credits, and the server never sends
+`insufficient_credits` or a 402. Each SDK removed its credit error in the
+release below. Delete the branch that handled it. A 402 from something in
+front of the server, such as a proxy, is now the client's generic error and
+carries its status.
 
-The credit error names start at TypeScript 2.0.0, Python 0.3.0, Elixir 0.3.0
-and Swift 0.17.0. The first three SDKs have independent version lines; Swift
-releases with the server. Replace subscription-era checks with the names below.
-
-| Client | Removed name | Credit error | Purchase URL |
-|---|---|---|---|
-| TypeScript | `SubscriptionRequiredError` | `InsufficientCreditsError` | `error.upgradeUrl` |
-| Python | `SubscriptionRequiredError` | `InsufficientCreditsError` | `error.upgrade_url` |
-| Elixir | `:subscription_required` | `:insufficient_credits` | `Fountain.Error.upgrade_url(error)` |
-| Swift `Fountain` | `.subscriptionRequired` | `.insufficientCredits` | `error.upgradeURL` |
-| Swift `FountainKit` | No case rename | `.insufficientCredits(body, upgradeURL:)` | Associated `upgradeURL` value |
-
-For billing error handling, use Fountain v0.13.0 or newer.
-[v0.13.0](https://github.com/managoat/fountain/releases/tag/v0.13.0) is the first
-release containing the credit-only server contract (`c3349343`).
-`insufficient_credits` and a generic HTTP 402 identify the credit gate.
-`subscription_required` has no special mapping; it follows the HTTP status.
-The response still exposes its original code and purchase URL.
-
-Swift v0.17.0 includes these source API changes. Earlier tags keep their
-original error names.
+| Client | Release | Removed |
+|---|---|---|
+| TypeScript | 7.0.0 | `InsufficientCreditsError` and `error.upgradeUrl` |
+| Python | 0.8.0 | `InsufficientCreditsError` and `error.upgrade_url` |
+| Elixir | 0.8.0 | `kind: :insufficient_credits` and `Fountain.Error.upgrade_url/1` |
+| Swift `Fountain` | 0.23.0 | `FountainError.Kind.insufficientCredits` and `error.upgradeURL` |
+| Swift `FountainKit` | 0.23.0 | `.insufficientCredits(body, upgradeURL:)`, `APIErrorBody.upgradeURL`, `AdminResource.setComped`/`grantCredits`, the `comped` filter on `users`, and `comped`, `creditBalanceCents` and `hasStripeCustomer` on `AdminUser` and `AuthMe` |

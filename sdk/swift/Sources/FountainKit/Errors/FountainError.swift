@@ -1,7 +1,7 @@
 import Foundation
 
 /// The Fountain API error body: the generated `APIErrorPayload` (`error`,
-/// `message`, `reason`, `errors`, `upgrade_url`, `active_sandboxes`, `limit`)
+/// `message`, `reason`, `errors`, `active_sandboxes`, `limit`)
 /// read into the values a caller branches on. `Retry-After` arrives as a
 /// response header, not in the body.
 public struct APIErrorBody: Sendable, Equatable {
@@ -14,7 +14,6 @@ public struct APIErrorBody: Sendable, Equatable {
   public var reason: String?
   /// Validation errors: field → messages. A bare string becomes a one-element array.
   public var fieldErrors: [String: [String]]
-  public var upgradeURL: String?
   public var activeSandboxes: Int?
   public var limit: Int?
   /// The HTTP status this body arrived with, stamped by the client — the
@@ -23,31 +22,11 @@ public struct APIErrorBody: Sendable, Equatable {
   /// lose it.
   public var httpStatus: Int?
 
-  /// The initializer v0.19.0 published, kept so a stored reference to it
-  /// (`APIErrorBody.init(code:message:fieldErrors:upgradeURL:activeSandboxes:limit:httpStatus:)`)
-  /// still compiles; a defaulted `reason` would have replaced its signature.
   public init(
     code: String? = nil,
     message: String? = nil,
+    reason: String? = nil,
     fieldErrors: [String: [String]] = [:],
-    upgradeURL: String? = nil,
-    activeSandboxes: Int? = nil,
-    limit: Int? = nil,
-    httpStatus: Int? = nil
-  ) {
-    self.init(
-      code: code, message: message, reason: nil, fieldErrors: fieldErrors,
-      upgradeURL: upgradeURL, activeSandboxes: activeSandboxes, limit: limit,
-      httpStatus: httpStatus)
-  }
-
-  /// `reason` has no default here, so `APIErrorBody()` keeps one candidate.
-  public init(
-    code: String? = nil,
-    message: String? = nil,
-    reason: String?,
-    fieldErrors: [String: [String]] = [:],
-    upgradeURL: String? = nil,
     activeSandboxes: Int? = nil,
     limit: Int? = nil,
     httpStatus: Int? = nil
@@ -56,7 +35,6 @@ public struct APIErrorBody: Sendable, Equatable {
     self.message = message
     self.reason = reason
     self.fieldErrors = fieldErrors
-    self.upgradeURL = upgradeURL
     self.activeSandboxes = activeSandboxes
     self.limit = limit
     self.httpStatus = httpStatus
@@ -74,7 +52,6 @@ extension APIErrorBody: Decodable {
       code: payload.error,
       message: payload.message,
       reason: payload.reason,
-      upgradeURL: payload.upgradeURL,
       activeSandboxes: payload.activeSandboxes,
       limit: payload.limit
     )
@@ -125,8 +102,6 @@ public enum FountainError: Error, Sendable {
   case notReady(APIErrorBody, retryAfter: Double?)
   /// `sandbox_quota_exceeded` (429) — carries active count and limit.
   case quotaExceeded(APIErrorBody)
-  /// `insufficient_credits` (402) — carries the top-up URL.
-  case insufficientCredits(APIErrorBody, upgradeURL: String?)
   /// 422 — per-field validation messages.
   case validation(APIErrorBody)
   /// 404 for the addressed resource.
@@ -159,7 +134,6 @@ public enum FountainError: Error, Sendable {
     if let stamped = body?.httpStatus { return stamped }
     switch self {
     case .unauthorized: return 401
-    case .insufficientCredits: return 402
     case .notFound: return 404
     case .validation: return 422
     case .quotaExceeded, .rateLimited: return 429
@@ -172,7 +146,7 @@ public enum FountainError: Error, Sendable {
     switch self {
     case .transport, .decoding, .missingAPIKey, .invalidBaseURL, .resolution, .timedOut: nil
     case .conversationBusy(let body), .notReady(let body, _), .quotaExceeded(let body),
-      .insufficientCredits(let body, _), .validation(let body):
+      .validation(let body):
       body
     case .unauthorized(let body), .notFound(let body), .rateLimited(let body, _),
       .api(let body, _):
@@ -219,15 +193,12 @@ extension FountainError {
         return .notReady(body, retryAfter: retryAfter)
       case "sandbox_quota_exceeded":
         return .quotaExceeded(body)
-      case "insufficient_credits":
-        return .insufficientCredits(body, upgradeURL: body.upgradeURL)
       default:
         break
       }
     }
     switch status {
     case 401: return .unauthorized(body)
-    case 402: return .insufficientCredits(body ?? APIErrorBody(), upgradeURL: body?.upgradeURL)
     case 404: return .notFound(body)
     case 422: return .validation(body ?? APIErrorBody())
     case 429: return .rateLimited(body, retryAfter: retryAfter)
@@ -256,8 +227,6 @@ extension FountainError: CustomStringConvertible {
       return (body.message ?? "The computer is still starting.") + wait
     case .quotaExceeded(let body):
       return body.message ?? "Sandbox quota exceeded."
-    case .insufficientCredits(let body, _):
-      return body.message ?? "The account is out of credit."
     case .validation(let body):
       if body.fieldErrors.isEmpty { return body.message ?? "The request was rejected." }
       return body.fieldErrors

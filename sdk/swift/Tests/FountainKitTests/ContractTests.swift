@@ -160,12 +160,6 @@ private struct TypedOperation: Sendable, CustomTestStringConvertible {
     TypedOperation("POST /api/admin/users/{id}/suspend") {
       _ = try await $0.admin.setSuspended("id", true)
     },
-    TypedOperation("POST /api/admin/users/{id}/comp") {
-      _ = try await $0.admin.setComped("id", true)
-    },
-    TypedOperation("POST /api/admin/users/{id}/credits") {
-      _ = try await $0.admin.grantCredits("id", cents: 100)
-    },
     TypedOperation("POST /api/admin/users/{id}/sandbox-limit") {
       _ = try await $0.admin.setSandboxLimit("id", limit: 2)
     },

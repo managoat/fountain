@@ -6,7 +6,7 @@ import Testing
 /// The shared SDK conformance suite, run against FountainKit.
 ///
 /// `sdk/contract/` pins the *shape* of the wire; `sdk/conformance/scenarios`
-/// pins the *behaviour*: which error class a 402 becomes, what a client does
+/// pins the *behaviour*: which error class a 429 becomes, what a client does
 /// with an SSE frame split across two writes, whether a dropped stream
 /// resumes from the right cursor. The scenarios are the same files the
 /// TypeScript, Python, Elixir and untyped-Swift clients run, and contain no
@@ -419,7 +419,6 @@ private func project(_ error: any Error) -> JSONValue {
   let kind: String =
     switch error {
     case .missingAPIKey, .unauthorized: "auth"
-    case .insufficientCredits: "insufficient_credits"
     case .notFound: "not_found"
     case .validation: "validation"
     case .rateLimited: "rate_limited"
@@ -439,9 +438,6 @@ private func project(_ error: any Error) -> JSONValue {
     "retry_after": error.retryAfter.map(JSONValue.number) ?? .null,
     "field_errors": .object(error.fieldErrors.mapValues { .array($0.map(JSONValue.string)) }),
   ]
-  if case .insufficientCredits(_, let url) = error {
-    output["upgrade_url"] = url.map(JSONValue.string) ?? .null
-  }
   if case .timedOut(let partial) = error { output["partial_text"] = .string(partial) }
   return .object(output)
 }

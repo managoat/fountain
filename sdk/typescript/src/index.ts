@@ -17,7 +17,6 @@ export { TurnFollower } from "./turn.ts";
 export {
   FountainError,
   AuthError,
-  InsufficientCreditsError,
   NotFoundError,
   ValidationError,
   RateLimitError,

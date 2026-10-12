@@ -3,6 +3,29 @@
 Notable changes to the Fountain Swift SDK follow
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.23.0] - 2026-10-12
+
+Fountain no longer has credits, comps or Stripe, and the server never answers
+402 (#2609). Both products drop what they carried for them.
+
+### Removed
+
+- `Fountain`: `FountainError.Kind.insufficientCredits` and
+  `FountainError.upgradeURL`. A 402 is now `.api` carrying its `status`.
+- `FountainKit`: `FountainError.insufficientCredits(_:upgradeURL:)` (a 402 is
+  now `.api(body, status: 402)`), `APIErrorBody.upgradeURL`,
+  `AdminResource.setComped(_:_:)`, `AdminResource.grantCredits(_:cents:note:)`,
+  the `comped:` argument of `AdminResource.users`, `AdminUser.comped`,
+  `.creditBalanceCents` and `.hasStripeCustomer`, and `AuthMe.comped`. The
+  generated wire file is regenerated without them.
+
+### Changed
+
+- `APIErrorBody` has one public initializer,
+  `init(code:message:reason:fieldErrors:activeSandboxes:limit:httpStatus:)`,
+  every argument defaulted. The two overloads existed to keep the v0.19.0
+  signature, which named `upgradeURL`.
+
 ## [0.22.0] - 2026-09-30
 
 ### Added

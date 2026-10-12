@@ -72,7 +72,6 @@ ERROR_KINDS = {
     "rate_limited",
     "busy",
     "quota",
-    "insufficient_credits",
     "not_ready",
     "timeout",
     "connection",
@@ -118,7 +117,6 @@ ERROR_KEYS = {
     "retryable",
     "retry_after",
     "field_errors",
-    "upgrade_url",
     "partial_text",
 }
 

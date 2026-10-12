@@ -63,8 +63,8 @@ struct PublicSurfaceTests {
     #expect(request.environment == .clear && request.vault == .use("v1"))
     #expect(try JSONEncoder().encode(request).isEmpty == false)
 
-    // APIErrorBody reads the generated payload since #2324 and keeps every
-    // member it published, Optional as before; `reason` is new.
+    // APIErrorBody reads the generated payload since #2324, Optional as
+    // before. 0.23.0 dropped `upgradeURL` with the server's 402.
     let refusal = try JSONDecoder().decode(
       APIErrorBody.self,
       from: Data(
@@ -73,17 +73,15 @@ struct PublicSurfaceTests {
     let errorMessage: String? = refusal.message
     let errorReason: String? = refusal.reason
     let fields: [String: [String]] = refusal.fieldErrors
-    let upgrade: String? = refusal.upgradeURL
     let active: Int? = refusal.activeSandboxes
     let quota: Int? = refusal.limit
     let status: Int? = refusal.httpStatus
     #expect(errorCode == "sandbox_quota_exceeded" && errorMessage == "m" && errorReason == nil)
-    #expect(fields.isEmpty && upgrade == nil && active == 3 && quota == 3 && status == nil)
-    // Both initializers are public: the v0.19.0 signature, which a consumer may
-    // hold as a function value, and the one that also takes `reason`.
+    #expect(fields.isEmpty && active == 3 && quota == 3 && status == nil)
+    // One public initializer, every member defaulted.
     let makeError = APIErrorBody.init(
-      code:message:fieldErrors:upgradeURL:activeSandboxes:limit:httpStatus:)
-    let built = makeError("conversation_busy", nil, [:], nil, nil, nil, 400)
+      code:message:reason:fieldErrors:activeSandboxes:limit:httpStatus:)
+    let built = makeError("conversation_busy", nil, nil, [:], nil, nil, 400)
     let narrowed = APIErrorBody(code: "broker_unavailable", reason: "timeout")
     #expect(built.code == "conversation_busy" && built.reason == nil && built.httpStatus == 400)
     #expect(narrowed.reason == "timeout" && APIErrorBody() == APIErrorBody(reason: nil))

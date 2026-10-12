@@ -255,11 +255,19 @@ class FakeFountain:
 
 
 class ConfigTests(unittest.TestCase):
-    def test_public_credit_error_replaces_subscription_export(self):
-        self.assertIn("InsufficientCreditsError", fountain.__all__)
-        self.assertTrue(issubclass(fountain.InsufficientCreditsError, fountain.FountainError))
-        self.assertNotIn("SubscriptionRequiredError", fountain.__all__)
-        self.assertFalse(hasattr(fountain, "SubscriptionRequiredError"))
+    def test_credit_and_subscription_errors_are_gone(self):
+        for name in ("InsufficientCreditsError", "SubscriptionRequiredError"):
+            self.assertNotIn(name, fountain.__all__)
+            self.assertFalse(hasattr(fountain, name))
+
+    def test_a_402_is_an_ordinary_fountain_error(self):
+        error = fountain.errors.error_for_status(
+            402, {"error": "insufficient_credits"}, "POST", "/api/conversations"
+        )
+        self.assertIs(type(error), fountain.FountainError)
+        self.assertEqual(error.status, 402)
+        self.assertEqual(error.code, "insufficient_credits")
+        self.assertFalse(error.retryable)
 
     def test_version_tokens_match_package_metadata(self):
         metadata = (Path(__file__).parents[1] / "pyproject.toml").read_text()

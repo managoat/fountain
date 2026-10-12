@@ -31,8 +31,7 @@ func (e *HTTPError) Error() string {
 	}
 	// The server writes genuinely actionable messages ("You have 3 of 3
 	// concurrent sandboxes in use. ..."); a raw Go map dump buries them.
-	// Prefer message, then error, flatten nested validation errors, and
-	// append upgrade_url when the server offers one.
+	// Prefer message, then error, and flatten nested validation errors.
 	if body, ok := e.Body.(map[string]any); ok {
 		var b strings.Builder
 		fmt.Fprintf(&b, "http %d", e.Status)
@@ -44,9 +43,6 @@ func (e *HTTPError) Error() string {
 		}
 		if errs, ok := body["errors"].(map[string]any); ok && len(errs) > 0 {
 			fmt.Fprintf(&b, ": %s", flattenErrors(errs))
-		}
-		if u := toString(body["upgrade_url"]); u != "" {
-			fmt.Fprintf(&b, " (upgrade: %s)", u)
 		}
 		if s := b.String(); s != fmt.Sprintf("http %d", e.Status) {
 			return s

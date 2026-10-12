@@ -29,7 +29,6 @@ import {
   QuotaExceededError,
   RateLimitError,
   ResolutionError,
-  InsufficientCreditsError,
   TimeoutError,
   ValidationError,
 } from "../src/errors.ts";
@@ -213,7 +212,6 @@ interface Observations {
 const ERROR_KINDS: [new (...args: any[]) => Error, string][] = [
   // Most specific first: every one of these extends FountainError.
   [ConversationBusyError, "busy"],
-  [InsufficientCreditsError, "insufficient_credits"],
   [QuotaExceededError, "quota"],
   [NotReadyError, "not_ready"],
   [RateLimitError, "rate_limited"],
@@ -235,7 +233,6 @@ function normaliseError(error: unknown): Record<string, unknown> {
     out.retryable = error.retryable;
     out.retry_after = error.retryAfter;
     out.field_errors = error.fieldErrors;
-    out.upgrade_url = error instanceof InsufficientCreditsError ? error.upgradeUrl ?? null : null;
   }
   if (error instanceof TimeoutError) out.partial_text = error.partialText;
   if (out.kind === "unknown") out.message = String((error as Error)?.message ?? error);

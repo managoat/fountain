@@ -243,7 +243,7 @@ import Testing
       #"{"id":"u1","email":"user@example.test","onboarding_state":"completed"}"#)
     #expect(me.id == "u1" && me.email == "user@example.test")
     #expect(me.role == nil && me.emailVerified == nil)
-    #expect(me.comped == nil && me.brokered == nil && me.expiresAt == nil)
+    #expect(me.brokered == nil && me.expiresAt == nil)
     #expect(me.connectionsEnabled == nil && me.connectionsManageable == nil)
     #expect(me.onboardingCompleted == nil)
 

@@ -27,14 +27,6 @@ func TestHTTPErrorError(t *testing.T) {
 			want: "http 410: conversation_terminated",
 		},
 		{
-			name: "upgrade_url is appended",
-			err: HTTPError{Status: 402, Body: map[string]any{
-				"error":       "insufficient_credits",
-				"upgrade_url": "/account/billing",
-			}},
-			want: "http 402: insufficient_credits (upgrade: /account/billing)",
-		},
-		{
 			name: "validation errors are flattened, not map-dumped",
 			err: HTTPError{Status: 422, Body: map[string]any{
 				"errors": map[string]any{"name": []any{"can't be blank"}},

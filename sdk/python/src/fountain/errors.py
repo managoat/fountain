@@ -56,13 +56,6 @@ class AuthError(FountainError):
     pass
 
 
-class InsufficientCreditsError(FountainError):
-    @property
-    def upgrade_url(self) -> Optional[str]:
-        value = self.body.get("upgrade_url") if isinstance(self.body, dict) else None
-        return value if isinstance(value, str) else None
-
-
 class NotFoundError(FountainError):
     pass
 
@@ -115,7 +108,6 @@ class TimeoutError(FountainError):
 _HINTS = {
     400: "bad request",
     401: "unauthorized — check the API key",
-    402: "payment required — the account is out of credit",
     403: "forbidden — the key may lack the scope for this call",
     404: "not found — wrong id, or it belongs to another account",
     409: "conflict",
@@ -172,11 +164,9 @@ def error_for_status(
         "sandbox_unavailable": NotReadyError,
         "fleet_full": NotReadyError,
         "sandbox_quota_exceeded": QuotaExceededError,
-        "insufficient_credits": InsufficientCreditsError,
     }
     by_status: Dict[int, Type[FountainError]] = {
         401: AuthError,
-        402: InsufficientCreditsError,
         404: NotFoundError,
         422: ValidationError,
         429: RateLimitError,

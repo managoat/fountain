@@ -73,8 +73,6 @@
     "PATCH /api/team/{agent_id}/schedules/{id}",
     "PATCH /api/vaults/{id}",
     "POST /api/admin/sandboxes/{id}/reap",
-    "POST /api/admin/users/{id}/comp",
-    "POST /api/admin/users/{id}/credits",
     "POST /api/admin/users/{id}/role",
     "POST /api/admin/users/{id}/sandbox-limit",
     "POST /api/admin/users/{id}/suspend",
@@ -126,7 +124,7 @@
     "Environment": { "required": ["id", "name"], "optional": ["setup_timeout_seconds"] },
     "EnvironmentListResponse": { "required": ["data"] },
     "EnvironmentResponse": { "required": ["data"] },
-    "Error": { "required": ["error"], "optional": ["active_sandboxes", "errors", "limit", "message", "reason", "upgrade_url"] },
+    "Error": { "required": ["error"], "optional": ["active_sandboxes", "errors", "limit", "message", "reason"] },
     "LogEvent": {
       "required": ["id", "kind"],
       "fields": ["blocks", "data", "stage", "state", "stream", "turn_id"]

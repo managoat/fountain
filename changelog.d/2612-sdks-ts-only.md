@@ -1,6 +1,6 @@
 ### Removed
 
-- **TypeScript is the one maintained SDK** (#PR). The Python, Elixir and Swift
+- **TypeScript is the one maintained SDK** (#2612). The Python, Elixir and Swift
   SDKs are removed from the repository with their CI jobs, release gates,
   publishers and manual pages. Their published releases stay where they are,
   unmaintained and untested against new servers: `fountain-agent-sdk` on PyPI,

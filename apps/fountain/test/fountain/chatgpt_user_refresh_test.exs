@@ -189,7 +189,6 @@ defmodule Fountain.ChatGPTUserRefreshTest do
   end
 
   for attrs <- [
-        %{principal: true},
         %{email_verified_at: nil},
         %{suspended_at: ~U[2026-09-01 00:00:00Z]}
       ] do

@@ -11,6 +11,7 @@ defmodule FountainWeb.ChatGPTSubscriptionControllerTest do
 
   use FountainWeb.ConnCase, async: false
   use Oban.Testing, repo: Fountain.Repo
+  use Mimic
 
   import Ecto.Query, only: [from: 2]
   import Fountain.BrokerTestHelpers
@@ -202,7 +203,7 @@ defmodule FountainWeb.ChatGPTSubscriptionControllerTest do
     test "an account that may no longer link is 403 chatgpt_owner_ineligible",
          %{conn: conn, user: user} do
       grant = link!(user, "Work", "acct-work")
-      user |> Ecto.Changeset.change(%{principal: true}) |> Repo.update!()
+      make_ineligible(user)
 
       assert %{"error" => "chatgpt_owner_ineligible"} =
                conn
@@ -449,7 +450,7 @@ defmodule FountainWeb.ChatGPTSubscriptionControllerTest do
 
     test "an account that may not link is 403", %{conn: conn, user: user} do
       stub_sign_in()
-      user |> Ecto.Changeset.change(%{principal: true}) |> Repo.update!()
+      make_ineligible(user)
 
       assert %{"error" => "chatgpt_owner_ineligible"} =
                conn |> post_json(@base <> "/attempts", %{"name" => "Work"}) |> json_response(403)
@@ -700,5 +701,15 @@ defmodule FountainWeb.ChatGPTSubscriptionControllerTest do
 
   defp start_attempt(user, target) do
     ChatGPTAccounts.start_attempt_for_user(user.id, target, device_start: device_start(self()))
+  end
+
+  # An account that authenticates but may no longer link: unverified in the
+  # database, while its key still resolves to the verified account it was
+  # issued to. The API auth path refuses an unverified account outright, so
+  # the stub stands in for one that lost its standing mid-session.
+  defp make_ineligible(user) do
+    key = Repo.get_by!(Fountain.Accounts.ApiKey, user_id: user.id)
+    user |> Ecto.Changeset.change(%{email_verified_at: nil}) |> Repo.update!()
+    stub(Fountain.Accounts, :authenticate_api_key, fn _raw -> {:ok, user, key} end)
   end
 end

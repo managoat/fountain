@@ -63,7 +63,7 @@ defmodule Fountain.Workers.ChatGPTKeepaliveSweepTest do
         |> Repo.update!()
       end
 
-      for attrs <- [%{suspended_at: now()}, %{email_verified_at: nil}, %{principal: true}] do
+      for attrs <- [%{suspended_at: now()}, %{email_verified_at: nil}] do
         owner = insert_verified_user()
         user_grant!(owner.id, %{last_refreshed_at: @long_ago})
         User |> Repo.get!(owner.id) |> change(attrs) |> Repo.update!()

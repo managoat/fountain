@@ -43,7 +43,6 @@ defmodule Fountain.AuditGuardrailTest do
     Environments,
     InferenceCredentials,
     OAuth,
-    Principals,
     Vaults,
     Webhooks
   }
@@ -88,9 +87,6 @@ defmodule Fountain.AuditGuardrailTest do
     {"vault copy", &__MODULE__.do_vault_copy/1, "vault.created"},
     {"api key mint", &__MODULE__.do_key_create/1, "api_key.created"},
     {"api key revoke", &__MODULE__.do_key_revoke/1, "api_key.revoked"},
-    {"owned principal credential renewal", &__MODULE__.do_principal_key_renewal/1,
-     "api_key.created"},
-    {"managed principal key revoke", &__MODULE__.do_managed_key_revoke/1, "api_key.revoked"},
     {"inference credential write", &__MODULE__.do_cred_write/1, "inference_credential.write"},
     {"inference credential clear", &__MODULE__.do_cred_clear/1, "inference_credential.delete"},
     {"credential set create", &__MODULE__.do_set_create/1, "inference_credential_set.created"},
@@ -236,14 +232,7 @@ defmodule Fountain.AuditGuardrailTest do
     # host still records them, whichever door the grant came through.
     {"oauth authorize", &__MODULE__.do_oauth_authorize/1, "oauth.authorized"},
     {"oauth device approve", &__MODULE__.do_oauth_device_approve/1, "oauth.device_approved"},
-    {"oauth device deny", &__MODULE__.do_oauth_device_deny/1, "oauth.device_denied"},
-    # Claimable principals (ADR 0044). The trail is written against the
-    # *application* that opened the principal, because a principal that
-    # expires unclaimed is a tenant nobody can ever sign in to read it from.
-    # The user each entry is exercised with here is that application.
-    {"claimable principal create", &__MODULE__.do_claimable_create/1, "claimable_user.created"},
-    {"claimable principal claim", &__MODULE__.do_claimable_claim/1, "claimable_user.claimed"},
-    {"claimable principal release", &__MODULE__.do_claimable_release/1, "claimable_user.released"}
+    {"oauth device deny", &__MODULE__.do_oauth_device_deny/1, "oauth.device_denied"}
   ]
 
   # Documented non-coverage. Mirrors the `Fountain.Audit` moduledoc; if the two
@@ -540,21 +529,6 @@ defmodule Fountain.AuditGuardrailTest do
   def do_key_revoke(user) do
     {:ok, {key, _}} = Fountain.Accounts.create_api_key(user.id, "guard-revoke")
     {:ok, _} = Fountain.Accounts.revoke_api_key(user.id, key.id)
-  end
-
-  def do_principal_key_renewal(user) do
-    app = insert_verified_user()
-    {:ok, opened} = Principals.create_claimable(app, %{"application_id" => "audit-renewal"})
-    {:ok, claimed} = Principals.claim(opened.claimable.id, opened.claim_token, user)
-    {:ok, _} = Principals.renew_owned_credential(user.id, claimed.claimable.user_id)
-  end
-
-  def do_managed_key_revoke(user) do
-    app = insert_verified_user()
-    {:ok, opened} = Principals.create_claimable(app, %{"application_id" => "audit-guard"})
-    {:ok, claimed} = Principals.claim(opened.claimable.id, opened.claim_token, user)
-    {:ok, _, key} = Fountain.Accounts.authenticate_api_key(claimed.api_key)
-    {:ok, _} = Fountain.Accounts.revoke_managed_api_key(user.id, key.id)
   end
 
   def do_cred_write(user) do
@@ -1107,23 +1081,5 @@ defmodule Fountain.AuditGuardrailTest do
   def do_oauth_device_deny(user) do
     {:ok, %{user_code: code}} = Fountain.OAuth.start_device_grant()
     :ok = Fountain.OAuth.deny_device_grant(code, user.id)
-  end
-
-  # ── claimable principals (ADR 0044) ──────────────────────────────────────
-
-  def do_claimable_create(app) do
-    {:ok, _} = Principals.create_claimable(app, %{"application_id" => "guardrail"})
-  end
-
-  def do_claimable_claim(app) do
-    {:ok, %{claimable: c, claim_token: token}} =
-      Principals.create_claimable(app, %{"application_id" => "guardrail"})
-
-    {:ok, _} = Principals.claim(c.id, token, insert_verified_user())
-  end
-
-  def do_claimable_release(app) do
-    {:ok, %{claimable: c}} = Principals.create_claimable(app, %{"application_id" => "guardrail"})
-    {:ok, _} = Principals.release(c)
   end
 end

@@ -83,7 +83,7 @@ defmodule FountainWeb.InferenceCredentialsLive.SubscriptionsCard do
       # a new sign-in would bring back.
       reconnect?: Fountain.Broker.configured?(),
       # Not a grant's state, and no run is served without it: a suspended or
-      # unverified account, or a principal, is refused at the turn.
+      # unverified account is refused at the turn.
       owner_eligible?: ChatGPTAccounts.eligible_owner(user_id) == :ok,
       visible?: linking? or grants != [] or attempts != []
     }

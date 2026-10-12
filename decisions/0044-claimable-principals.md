@@ -1,11 +1,11 @@
 ---
 type: ADR
 title: "Claimable principals: an anonymous computer that survives registration"
-description: "A trusted application opens a short-lived users row as a claimable principal; claiming attaches a registered account as its owner, so the principal id — and every sandbox, agent and conversation keyed to it — never changes."
+description: "Retired 2026-10-12: removed when Fountain became self-hosted only. A trusted application opened a short-lived users row as a claimable principal; claiming attaches a registered account as its owner, so the principal id — and every sandbox, agent and conversation keyed to it — never changes."
 tags: [api, security, billing, sandbox, accounts]
-status: stable
+status: deprecated
 adr: "0044"
-adr_status: "Accepted"
+adr_status: "Retired"
 date: 2026-09-04
 generated: { by: human:jhgaylor, at: 2026-09-04T00:00:00-04:00 }
 verified: { by: human:jhgaylor, at: 2026-09-04T00:00:00-04:00 }
@@ -13,7 +13,7 @@ verified: { by: human:jhgaylor, at: 2026-09-04T00:00:00-04:00 }
 
 # 0044 — Claimable principals: an anonymous computer that survives registration
 
-**Status:** Accepted. Built in #1551.
+**Status:** Retired 2026-10-12; see the addendum at the end. Built in #1551. The text above the addendum is history.
 
 ## Context
 
@@ -235,3 +235,28 @@ limit. Neither is a substitute for watching the application's ledger.
   config-file list of applications with their own secrets. It would need its
   own audit attribution, its own rate limiting and its own funding source, none
   of which a Fountain account needs to be given.
+
+## Addendum — 2026-10-12: retired
+
+Fountain is no longer sold as a hosted service. It is a self-hosted
+application, so no third-party application opens anonymous tenants on someone
+else's deployment and pays for them out of its credit balance. With that use
+case gone, claimable principals were removed.
+
+- `Fountain.Principals`, `/api/claimable-users` (create, read, claim, release
+  and the owner-authenticated inference-credential write from ADR 0053
+  decision 7) and `Fountain.Workers.ClaimablePrincipalSweep` are deleted.
+- The `principal` API-key scope is gone. `ApiKey` accepts `full` and `sprite`,
+  and the API auth path refuses every unverified account with no exception.
+- The `grant_application` and `burn_grant` ledger reasons, and the
+  claimed-principal billing subject, are gone from the credit code.
+- Migration `20261012120000` drops `claimable_users`, `principal_owners` and
+  the `api_keys_active_principal_expiry_required` CHECK. It deletes any
+  remaining principal `users` row and restores `NOT NULL` on `users.email`.
+  `users.principal` stays one release for rolling deploys, as the dropped
+  subscription columns did, and a later migration removes it.
+- The "Start before sign-in" guide is deleted. The upgrade guide's principal
+  credential expiry section, linked above, is replaced by a removal note.
+
+An application that needs per-customer isolation on its own deployment gives
+each customer an ordinary account.

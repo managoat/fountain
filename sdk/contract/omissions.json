@@ -18,10 +18,6 @@
       "reason": "Account bootstrap. These sign-in and account recovery flows belong to the console and to `fountain auth login` (#1305). FountainKit models API key management after authentication."
     },
     {
-      "operations": ["* /api/claimable-users*"],
-      "reason": "Claimable principal lifecycle and owner-authenticated credential management (ADRs 0044 and 0053). Applications open grants with their full-scope key; visitors claim with their own account key. The principal credential then uses the modeled resource API. Current-owner inference credential PUT/DELETE operations also use plain HTTP; principal-scoped keys cannot call them."
-    },
-    {
       "operations": ["* /api/oauth/clients*"],
       "reason": "Self-service OAuth client registration (#1125, ADR 0021). A person registers an app once, in the console or with `fountain oauth-client`, and then puts the returned client_id in the app. An SDK caller's work starts after that point, with the API key the flow mints, and every endpoint a client then calls is already modelled."
     },

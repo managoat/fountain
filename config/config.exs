@@ -93,11 +93,6 @@ config :fountain, Oban,
        # server stops while such a request waits. One indexed query, usually
        # empty.
        {"* * * * *", Fountain.Workers.DetachedRequestSweeper},
-       # Every 5 minutes: expire claimable principals nobody claimed (ADR
-       # 0044). Latency here is money — an expired principal is a sprite still
-       # running for a visitor who has gone — so the sweep runs on the same
-       # grain as the turn reaper rather than daily with the other pruners.
-       {"*/5 * * * *", Fountain.Workers.ClaimablePrincipalSweep},
        # An installed extension may add entries here at boot
        # (`Fountain.Extensions.oban_options/1`, ADR 0043). They are not listed
        # in this file, so a core-only release never names a worker module it
@@ -194,20 +189,6 @@ config :fountain, :credits,
   opening_days: 14,
   turn_hour_cents: 25,
   packs_cents: [1_000, 2_500, 10_000]
-
-# Claimable principals (ADR 0044): the anonymous tenant an application opens
-# for a visitor who has no account yet. Every number here bounds a leaked
-# application key; the application's own credit balance is the backstop
-# underneath them, since it funds each principal it opens. These are fixed
-# here, not read from the environment: a deployment that wants a different
-# bound changes the number in a fork, and nobody has.
-config :fountain, Fountain.Principals,
-  default_ttl_seconds: 86_400,
-  max_ttl_seconds: 604_800,
-  max_grant_cents: 500,
-  max_outstanding_per_application: 500,
-  max_created_per_hour: 500,
-  purge_after_days: 7
 
 # Sandbox lifetime bounds. Crossing the idle bound SUSPENDS the sandbox — the
 # sprite stays (scaled to zero) and the next prompt resumes the agent with its

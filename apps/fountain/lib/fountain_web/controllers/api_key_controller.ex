@@ -33,7 +33,7 @@ defmodule FountainWeb.ApiKeyController do
 
   def index(conn, _params) do
     user = conn.assigns.current_user
-    render(conn, :index, keys: Accounts.list_managed_api_keys(user.id))
+    render(conn, :index, keys: Accounts.list_api_keys(user.id))
   end
 
   operation(:create,
@@ -95,7 +95,7 @@ defmodule FountainWeb.ApiKeyController do
   def delete(conn, %{"id" => id}) do
     user = conn.assigns.current_user
 
-    case Accounts.revoke_managed_api_key(user.id, id, Audited.attribution(conn)) do
+    case Accounts.revoke_api_key(user.id, id, Audited.attribution(conn)) do
       {:ok, _key} ->
         send_resp(conn, :no_content, "")
 

@@ -2,71 +2,7 @@ defmodule FountainWeb.ApiKeyControllerTest do
   use FountainWeb.ConnCase, async: true
   use Mimic
 
-  import Ecto.Query
-
   alias Fountain.Accounts
-  alias Fountain.Repo
-
-  defp claimed_key(owner) do
-    app = insert_verified_user()
-    {:ok, opened} = Fountain.Principals.create_claimable(app, %{"application_id" => "test-app"})
-    {:ok, claimed} = Fountain.Principals.claim(opened.claimable.id, opened.claim_token, owner)
-    {:ok, principal, key} = Accounts.authenticate_api_key(claimed.api_key)
-    {principal, key, claimed.api_key}
-  end
-
-  test "the owner lists and revokes its principal credential with an owner-visible audit", %{
-    conn: conn
-  } do
-    owner = insert_verified_user()
-    {own_key, auth} = insert_api_key(owner)
-    {principal, key, raw} = claimed_key(owner)
-    {_foreign, foreign_key, _} = claimed_key(insert_verified_user())
-    {:ok, {callback, _}} = Accounts.create_api_key(principal.id, "callback", scopes: ["sprite"])
-
-    response = conn |> authed_with_key(auth) |> get("/api/auth/api-keys") |> json_response(200)
-    ids = Enum.map(response["data"], & &1["id"])
-    assert own_key.id in ids
-    assert key.id in ids
-    refute foreign_key.id in ids
-    refute callback.id in ids
-    refute inspect(response) =~ raw
-
-    assert %{status: 204} =
-             conn |> authed_with_key(auth) |> delete("/api/auth/api-keys/#{key.id}")
-
-    assert {:error, :revoked} = Accounts.authenticate_api_key(raw)
-
-    assert [audit] =
-             Repo.all(
-               from a in Fountain.Audit.Event,
-                 where:
-                   a.user_id == ^owner.id and a.resource_id == ^key.id and
-                     a.action == "api_key.revoked"
-             )
-
-    assert audit.metadata["principal_user_id"] == principal.id
-  end
-
-  test "foreign accounts and principal credentials cannot manage a claimed key", %{conn: conn} do
-    owner = insert_verified_user()
-    {_principal, key, raw} = claimed_key(owner)
-    {_other_key, other} = insert_api_key(insert_verified_user())
-
-    assert conn
-           |> authed_with_key(other)
-           |> delete("/api/auth/api-keys/#{key.id}")
-           |> json_response(404)
-
-    assert conn |> authed_with_key(raw) |> get("/api/auth/api-keys") |> json_response(403)
-
-    assert conn
-           |> authed_with_key(raw)
-           |> delete("/api/auth/api-keys/#{key.id}")
-           |> json_response(403)
-
-    assert {:ok, _, _} = Accounts.authenticate_api_key(raw)
-  end
 
   describe "POST /api/auth/api-keys" do
     test "creates a key and returns it in full once", %{conn: conn} do

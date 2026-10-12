@@ -156,69 +156,26 @@ Run it the same way and under the same bounds as the two above. After this
 migration no allowlist on an agent relies on a null to mean "anything the
 tenant owns"; the policy is readable from the record.
 
-## Principal credential expiry
+## Claimable principals removed
 
-Every unrevoked key with `principal` scope must have an expiry. The database
-CHECK enforces this independently of the issuer. Full and sprite keys can
-still omit expiry. Existing deadlines and revoked keys remain unchanged.
+Claimable principals (`/api/claimable-users`) are gone, along with the
+`principal` API-key scope. Migration `20261012120000` drops the
+`claimable_users` and `principal_owners` tables and the
+`api_keys_active_principal_expiry_required` CHECK. It deletes every remaining
+principal account, and with it that account's agents, conversations and keys.
+It then makes `users.email` required again.
 
-Principal issuance, create replay, claim, claim replay and owner renewal all
-supply an explicit deadline through `Principals.principal_key_opts/2` starting
-with [commit af1178dd](https://github.com/managoat/fountain/commit/af1178dd2b3462eb7a26e9d655ff3fe09681a0ed).
-Anonymous credentials use their grant deadline; claimed credentials get 30 days
-from issuance. The shared `Accounts.build_api_key/3` and `create_api_key/3`
-changeset also rejects missing principal expiry starting with
-[commit 1a005023](https://github.com/managoat/fountain/commit/1a005023d49556405d18dabc8cd11fed33a51db2).
-The console, API key, login-token and OAuth issuers create full credentials;
-sandbox callback issuers create sprite credentials. Those lifetimes are
-unaffected. Principal inference-credential writes change provider secrets,
-not the principal API key.
-
-Migration `20260913125930` removes the old-writer trigger and its function.
-Missing expiry then fails the CHECK rather than receiving an implicit 30-day
-deadline. The migration first requires the permanent CHECK to be validated;
-it never updates keys. Lock waits are bounded to five seconds and statements
-to 30 seconds. A failure rolls back the retirement and leaves it pending.
-
-**Finish the writer rollout before applying this migration.** Deploy a revision
-containing both commits above, but preceding the retirement migration, to
-every serving replica, worker and release-task process. Complete migrations
-through `20260913111350`, then drain and stop every older process. Inventory
-external database writers too: they must supply deadlines for principal keys.
-Only after that boundary is verified may a deployment containing the retirement
-migration start. Boot migrations run before replacement replicas serve requests,
-so a direct rolling upgrade from older writers is unsupported. A fresh database
-with no older processes can run the full migration sequence.
-
-Record each writer's deployed revision and the completed drain before removal.
-An image build, a published release or a validated CHECK alone does not prove
-that old writers have stopped.
-
-The hosted service's 2026-09-13 audit observed both ready replicas at commit
-`31a74cc9`, with no older pods or active replica sets. The CHECK was validated,
-and database clients belonged only to those replicas. No other Fountain writer
-workloads or jobs were inventoried. That establishes the hosted rollout boundary;
-self-hosted operators must establish it for their own processes and external
-writers. The required bridge revision predates v0.17.0. There is no earlier release
-tag containing the writer floor; use a reviewed bridge commit for this rollout.
-
-To check the database prerequisite, this query must return one row with
-`convalidated = true`:
+A migration cannot reach a sandbox provider, so it leaves a principal's
+sandboxes running. Release each open principal with the previous release
+before you upgrade. This query must return `0`:
 
 ```text
-SELECT convalidated
-FROM pg_constraint
-WHERE conrelid = 'api_keys'::regclass
-  AND conname = 'api_keys_active_principal_expiry_required';
+SELECT count(*) FROM users WHERE principal;
 ```
 
-A controlled rollback of this migration alone restores the 30-day default
-trigger, retaining the CHECK and every assigned deadline. It restores only
-this writer accommodation; it does not establish whole-release downgrade
-support. Any older writer would require that accommodation before restarting:
-an application-only rollback would reject its missing-expiry writes. Follow
-[the recovery policy](#when-an-upgrade-goes-wrong) for a failed release.
-Do not roll back the invariant or clear deadlines.
+The `users.principal` column stays for one release, so replicas from the
+previous release keep working during a rolling upgrade. A later migration
+drops it.
 
 ## Conversation message compatibility
 

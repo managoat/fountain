@@ -94,13 +94,6 @@ defmodule Fountain.Funnel do
     users =
       Repo.all(
         from u in User,
-          # Claimable principals are `users` rows (ADR 0044) and never verify,
-          # because they have no email to verify. Counted here every one would
-          # sit in `registered` forever and pull every conversion rate below it
-          # down — a growth metric moved by how many anonymous visitors an
-          # application opened, which is not what any stage in this funnel
-          # means.
-          where: u.principal == false,
           select: %{
             id: u.id,
             registered_at: u.inserted_at,

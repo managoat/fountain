@@ -35,19 +35,13 @@ defmodule Fountain.Credits.LedgerEntry do
     belongs_to :user, Fountain.Accounts.User
   end
 
-  # `grant_application` is money an application moved into a claimable
-  # principal it opened (ADR 0044), and the same reason carries the refund
-  # back to the application when an unclaimed principal is released or
-  # expires. `burn_grant` is the application paying for it: the two are one
-  # transfer, written as two rows because a tenant's ledger only ever
-  # describes its own side of it.
-  @credit_reasons ~w(grant_opening grant_admin grant_application purchase)
+  @credit_reasons ~w(grant_opening grant_admin purchase)
   # `burn_inference` is tokens a turn spent on a **platform** inference key
   # (#1388), priced at the provider's list price by
   # `Fountain.Credits.InferenceRates`. A turn on the tenant's own credential
   # burns none of it — Fountain paid nothing — so it sits beside `burn_turn`
   # rather than inside it.
-  @debit_reasons ~w(burn_turn burn_inference burn_grant expire clawback_refund clawback_dispute)
+  @debit_reasons ~w(burn_turn burn_inference expire clawback_refund clawback_dispute)
 
   @doc "Reasons that put money in. Every one is a positive row."
   def credit_reasons, do: @credit_reasons

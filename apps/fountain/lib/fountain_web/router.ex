@@ -328,36 +328,6 @@ defmodule FountainWeb.Router do
     delete "/api-keys/:id", ApiKeyController, :delete
   end
 
-  # Claimable principals (ADR 0044): the anonymous tenants an application opens
-  # for visitors who have no account yet. Full scope on every route, which is
-  # what keeps a principal out of its own grant surface — a `principal`-scoped
-  # key cannot open a second principal, enumerate anyone else's, claim itself,
-  # or release the grant that bounds it.
-  #
-  # `/:id/claim` is declared before `/:id` so a literal segment is never read
-  # as a grant id.
-  scope "/api/claimable-users", FountainWeb do
-    pipe_through [:accepts_json, :api, :require_full_scope]
-
-    post "/", ClaimableUserController, :create
-    post "/:id/claim", ClaimableUserController, :claim
-    get "/:id", ClaimableUserController, :show
-    delete "/:id", ClaimableUserController, :delete
-
-    # The one thing an application must do for a principal that the
-    # principal's own credential cannot do for itself (ADR 0053 decision 7):
-    # put the customer's inference key on it. Full scope, and authorised as
-    # the read above is — the application that opened it, or the account that
-    # claimed it.
-    put "/:id/inference-credentials/:provider",
-        ClaimableUserController,
-        :put_inference_credential
-
-    delete "/:id/inference-credentials/:provider",
-           ClaimableUserController,
-           :delete_inference_credential
-  end
-
   # Self-hosted runners (ADR 0022). Full scope: a sandbox's per-conversation
   # token must not be able to attach a machine that then runs the account's
   # agents. `/ws` is the daemon's WebSocket; it authenticates like any other

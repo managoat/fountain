@@ -125,8 +125,6 @@ apps/fountain/test/fountain/onboarding_test.exs	1
 apps/fountain/test/fountain/ops_gauges_test.exs	860
 apps/fountain/test/fountain/otel_config_test.exs	83
 apps/fountain/test/fountain/platform_inference_test.exs	1502
-apps/fountain/test/fountain/principals_ceiling_test.exs	1411
-apps/fountain/test/fountain/principals_test.exs	14182
 apps/fountain/test/fountain/public_url_test.exs	0
 apps/fountain/test/fountain/quotas_fleet_ceiling_test.exs	555
 apps/fountain/test/fountain/quotas_test.exs	10389
@@ -196,7 +194,6 @@ apps/fountain/test/fountain_web/controllers/auth_me_controller_test.exs	1671
 apps/fountain/test/fountain_web/controllers/auth_token_controller_test.exs	4534
 apps/fountain/test/fountain_web/controllers/catalog_controller_test.exs	881
 apps/fountain/test/fountain_web/controllers/changeset_json_test.exs	7
-apps/fountain/test/fountain_web/controllers/claimable_user_controller_test.exs	5424
 apps/fountain/test/fountain_web/controllers/connection_controller_test.exs	1246
 apps/fountain/test/fountain_web/controllers/connection_provider_controller_test.exs	1531
 apps/fountain/test/fountain_web/controllers/connections_controller_test.exs	2730

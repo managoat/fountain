@@ -26,15 +26,9 @@ defmodule Fountain.Accounts.User do
     field :credit_balance_cents, :integer, default: 0
     # Operator-owned per-turn ceilings, read by launch preflight. Later-turn and
     # recovery ceiling checks remain unwired; leave overrides empty until integrated.
-    # Never cast it through registration, OAuth, principal or profile changes.
+    # Never cast it through registration, OAuth or profile changes.
     field :execution_limits, :map, default: %{}
     field :role, :string, default: "user"
-    # A claimable principal (ADR 0044): a tenant with no identity, opened by a
-    # trusted application before its visitor has an account and claimed later
-    # by attaching an owner. It never gets an email, so it never verifies —
-    # which is why the auth path and the unverified-account pruner both read
-    # this column rather than inferring "unverified" means "abandoned".
-    field :principal, :boolean, default: false
     field :stripe_customer_id, :string
     # A free account (ADR 0031): the balance is never checked. Set only from
     # the admin panel; the one operator lever.
@@ -70,20 +64,6 @@ defmodule Fountain.Accounts.User do
     |> update_change(:email, &String.downcase/1)
     |> unique_constraint(:email)
     |> hash_password()
-  end
-
-  @doc """
-  Changeset for a claimable principal (ADR 0044).
-
-  No email, no password: the row is an identity-less tenant. `principal` is
-  put here rather than cast, so no other changeset can set it from user input
-  and no request can turn an ordinary account into one.
-  """
-  def principal_changeset(user, attrs) do
-    user
-    |> cast(attrs, [:sandbox_limit_override])
-    |> validate_number(:sandbox_limit_override, greater_than_or_equal_to: 0)
-    |> put_change(:principal, true)
   end
 
   @doc "Changeset for OAuth registration (no password required; email pre-verified by provider)."

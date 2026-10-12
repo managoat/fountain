@@ -68,14 +68,6 @@ defmodule FountainWeb.SchemaEnumGuardrailTest do
       {Fountain.ChatGPTAccounts.LinkAttempt, :failure_reasons},
     {FountainWeb.Schemas.ChatGPTLinkAttempt, "kind"} =>
       {Fountain.ChatGPTAccounts.AttemptView, :kinds},
-    # Claimable principals (ADR 0044). Three schemas restate the same list,
-    # which is exactly the drift this test exists for.
-    {FountainWeb.Schemas.ClaimableUser, "status"} =>
-      {Fountain.Principals.ClaimableUser, :statuses},
-    {FountainWeb.Schemas.ClaimableUserCreated, "status"} =>
-      {Fountain.Principals.ClaimableUser, :statuses},
-    {FountainWeb.Schemas.ClaimedPrincipal, "status"} =>
-      {Fountain.Principals.ClaimableUser, :statuses},
     # Sandbox files (ADR 0039): what the listing script classifies an entry
     # as, and how a file's bytes travel.
     {FountainWeb.Schemas.SandboxEntry, "type"} => {Fountain.SandboxFiles, :entry_types},

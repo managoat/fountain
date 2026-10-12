@@ -53,45 +53,4 @@ defmodule Fountain.InferenceCredentialMutationTest do
     assert length(Audit.list_recent_for_user(f.user.id)) == before
     assert InferenceCredentials.get_set(foreign.id, other.id).openai_api_key_ciphertext == nil
   end
-
-  test "default selection is read after locked authorization and preserves other providers", f do
-    authorize = fn ->
-      {:ok, _} = InferenceCredentials.set_default(f.selected)
-
-      {:ok, _} =
-        InferenceCredentials.put_credential_in(
-          f.selected,
-          f.dek,
-          :openai_api_key,
-          "other-provider"
-        )
-
-      :ok
-    end
-
-    assert {:ok, written} =
-             InferenceCredentials.put_credential(f.user.id, f.dek, :anthropic_api_key, "new-key",
-               authorize: authorize
-             )
-
-    assert written.id == f.selected.id
-
-    assert {:ok, %{anthropic_api_key: "new-key", openai_api_key: "other-provider"}} =
-             InferenceCredentials.decrypted_for_user(f.user.id, f.dek)
-
-    assert InferenceCredentials.get_set(f.default.id, f.user.id).anthropic_api_key_ciphertext ==
-             nil
-  end
-
-  test "authorization refusal writes and audits nothing", f do
-    before = length(Audit.list_recent_for_user(f.user.id))
-
-    assert {:error, :not_found} =
-             InferenceCredentials.put_credential(f.user.id, f.dek, :anthropic_api_key, "new-key",
-               authorize: fn -> {:error, :not_found} end
-             )
-
-    assert {:ok, %{}} = InferenceCredentials.decrypted_for_user(f.user.id, f.dek)
-    assert length(Audit.list_recent_for_user(f.user.id)) == before
-  end
 end

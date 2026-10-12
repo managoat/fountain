@@ -229,22 +229,6 @@
 
         // ── LiveView hooks ───────────────────────────────────────────────────
         const Hooks = {
-          ConfirmSubmit: {
-            mounted() {
-              this.confirmSubmit = (event) => {
-                let confirmed = false;
-                try { confirmed = window.confirm(this.el.dataset.confirm); } catch (_) {}
-                if (!confirmed) {
-                  event.preventDefault();
-                  event.stopImmediatePropagation();
-                }
-              };
-              // Confirm a submission, not a click on a field inside the form.
-              // Cancellation stops the event before LiveView receives it.
-              this.el.addEventListener("submit", this.confirmSubmit, { capture: true });
-            },
-            destroyed() { this.el.removeEventListener("submit", this.confirmSubmit, { capture: true }); }
-          },
           // Prevents a collapsed <details> section from staying closed when
           // LiveView adds new content to it. Because `open?` is always `true`
           // for turn/recursive sections, LiveView's diff never re-sends the

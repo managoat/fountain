@@ -64,18 +64,10 @@ defmodule Fountain.Workers.UnverifiedAccountPruner do
 
     # Suspended accounts are excluded even when unverified: suspension marks
     # an abuse investigation, and pruning would destroy the evidence (#287).
-    #
-    # Claimable principals are excluded too, and for a sharper reason (ADR
-    # 0044): a principal has no email and never verifies, so every one of them
-    # matches "registered and never verified" forever. This sweep would have
-    # deleted a claimed machine 30 days after its visitor started it.
-    # `Fountain.Workers.ClaimablePrincipalSweep` is what reaps those, on the
-    # grant's own timetable and with the application's refund.
     User
     |> where(
       [u],
-      is_nil(u.email_verified_at) and u.inserted_at < ^cutoff and is_nil(u.suspended_at) and
-        u.principal == false
+      is_nil(u.email_verified_at) and u.inserted_at < ^cutoff and is_nil(u.suspended_at)
     )
     |> order_by([u], asc: u.inserted_at)
     |> limit(@batch)

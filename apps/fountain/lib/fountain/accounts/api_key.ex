@@ -18,17 +18,9 @@ defmodule Fountain.Accounts.ApiKey do
       without that exclusion, code running in a sandbox can mint a permanent
       key that survives the conversation-scoped revoke at teardown, turning a
       one-conversation credential into standing tenant access.
-    * `"principal"` — the credential a claimable principal is operated with
-      (ADR 0044), before and after it is claimed. Like `sprite` it is outside
-      `@key_management_scopes`, so every `:require_full_scope` route refuses
-      it: a principal cannot mint a further credential, change an account, buy
-      credit, widen its own limits, or reach the `claimable-users` surface it
-      was opened from. What it can do is build and run a computer — agents,
-      environments, vaults, conversations, sandboxes, the team — which is the
-      whole of what an anonymous visitor's application needs.
   """
 
-  @scopes ~w(full sprite principal)
+  @scopes ~w(full sprite)
 
   # Scopes permitted to issue, list, or revoke API keys.
   @key_management_scopes ~w(full)
@@ -75,18 +67,7 @@ defmodule Fountain.Accounts.ApiKey do
     |> validate_length(:name, min: 1, max: 200)
     |> validate_length(:scopes, min: 1)
     |> validate_subset(:scopes, @scopes)
-    |> require_principal_expiry()
-    |> check_constraint(:expires_at, name: :api_keys_active_principal_expiry_required)
     |> unique_constraint(:key_hash)
     |> foreign_key_constraint(:user_id)
-  end
-
-  defp require_principal_expiry(changeset) do
-    if "principal" in (get_field(changeset, :scopes) || []) and
-         is_nil(get_field(changeset, :revoked_at)) do
-      validate_required(changeset, [:expires_at])
-    else
-      changeset
-    end
   end
 end

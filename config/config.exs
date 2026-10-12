@@ -218,6 +218,11 @@ config :phoenix, :filter_parameters, ["password", "token", "access_code"]
 # Swoosh mailer
 config :fountain, Fountain.Mailer, adapter: Swoosh.Adapters.Local
 
+# The API adapters (Resend) call out over Req. Swoosh defaults to hackney,
+# which only stripity_stripe used to pull in; without this the release dies
+# at boot on "missing hackney dependency". dev and test turn it off.
+config :swoosh, :api_client, Swoosh.ApiClient.Req
+
 # Whether this instance can deliver email at all. Flipped to false only by
 # EMAIL_DELIVERY=none in runtime.exs; registration auto-verifies accounts when
 # it is false, because a verification link that cannot be delivered gates

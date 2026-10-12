@@ -1,6 +1,6 @@
 ### Upgrade notes
 
-- **Connections are removed** (#NNNN). `/api/connections`,
+- **Connections are removed** (#2617). `/api/connections`,
   `/api/connection-providers`, the `/connections/:provider/start` and
   `/callback` round trip and the **Connections** page answer `404`, and the
   Google, Microsoft and Slack extensions are gone, with the Gmail MCP server at
@@ -21,7 +21,7 @@
 
 ### Changed
 
-- **Credential bindings need only the broker** (#NNNN). The bindings page and
+- **Credential bindings need only the broker** (#2617). The bindings page and
   `/api/secret-bindings` are open to every account on a deployment that runs
   the egress broker; the `connections` flag that also gated creating one is
   gone. `GET /api/auth/me` no longer reports `connections_enabled` or
@@ -30,5 +30,5 @@
 ### Removed
 
 - Connections, connection providers and the verified remote MCP server list
-  (#NNNN): `GET /api/catalog` no longer carries `mcp_servers`, and the
+  (#2617): `GET /api/catalog` no longer carries `mcp_servers`, and the
   connection guides and the per-server catalog pages left the manual.

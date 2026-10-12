@@ -509,6 +509,6 @@ carries its status.
 |---|---|---|
 | TypeScript | 7.0.0 | `InsufficientCreditsError` and `error.upgradeUrl` |
 | Python | 0.8.0 | `InsufficientCreditsError` and `error.upgrade_url` |
-| Elixir | 0.8.0 | `kind: :insufficient_credits` and `Fountain.Error.upgrade_url/1` |
+| Elixir | 0.8.0 | `kind: :insufficient_credits` and `Fountain.Error.upgrade_url(error)` |
 | Swift `Fountain` | 0.23.0 | `FountainError.Kind.insufficientCredits` and `error.upgradeURL` |
 | Swift `FountainKit` | 0.23.0 | `.insufficientCredits(body, upgradeURL:)`, `APIErrorBody.upgradeURL`, `AdminResource.setComped`/`grantCredits`, the `comped` filter on `users`, and `comped`, `creditBalanceCents` and `hasStripeCustomer` on `AdminUser` and `AuthMe` |

@@ -1379,12 +1379,9 @@ public struct ApplyResult: Sendable, Decodable, Hashable {
 
 public struct AdminUser: Sendable, Decodable, Hashable, Identifiable {
   public var activeSandboxes: Int?
-  public var comped: Bool?
-  public var creditBalanceCents: Int?
   public var email: String
   public var emailVerified: Bool?
   public var emailVerifiedAt: Date?
-  public var hasStripeCustomer: Bool?
   public var id: String
   public var insertedAt: Date?
   public var lastActivityAt: Date?
@@ -1397,12 +1394,9 @@ public struct AdminUser: Sendable, Decodable, Hashable, Identifiable {
 
   enum CodingKeys: String, CodingKey {
     case activeSandboxes = "active_sandboxes"
-    case comped = "comped"
-    case creditBalanceCents = "credit_balance_cents"
     case email = "email"
     case emailVerified = "email_verified"
     case emailVerifiedAt = "email_verified_at"
-    case hasStripeCustomer = "has_stripe_customer"
     case id = "id"
     case insertedAt = "inserted_at"
     case lastActivityAt = "last_activity_at"
@@ -1460,7 +1454,6 @@ public struct AdminEvent: Sendable, Decodable, Hashable, Identifiable {
 public struct AuthMe: Sendable, Decodable, Hashable, Identifiable {
   public var brokered: Bool?
   public var chatgptSubscriptionsEnabled: Bool?
-  public var comped: Bool?
   public var connectionsEnabled: Bool?
   public var connectionsManageable: Bool?
   public var email: String
@@ -1473,7 +1466,6 @@ public struct AuthMe: Sendable, Decodable, Hashable, Identifiable {
   enum CodingKeys: String, CodingKey {
     case brokered = "brokered"
     case chatgptSubscriptionsEnabled = "chatgpt_subscriptions_enabled"
-    case comped = "comped"
     case connectionsEnabled = "connections_enabled"
     case connectionsManageable = "connections_manageable"
     case email = "email"
@@ -1572,7 +1564,6 @@ public struct APIErrorPayload: Sendable, Decodable, Hashable {
   public var sets: [String]?
   public var state: String?
   public var until: Date?
-  public var upgradeURL: String?
 
   enum CodingKeys: String, CodingKey {
     case activeSandboxes = "active_sandboxes"
@@ -1589,7 +1580,6 @@ public struct APIErrorPayload: Sendable, Decodable, Hashable {
     case sets = "sets"
     case state = "state"
     case until = "until"
-    case upgradeURL = "upgrade_url"
   }
 }
 

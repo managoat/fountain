@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.8.0] - 2026-10-12
+
+### Breaking changes
+
+- The `:insufficient_credits` error kind and `Fountain.Error.upgrade_url/1` are
+  removed. Fountain no longer has credits and the server never answers 402
+  (#2609). A 402 from something in front of the server is now `kind: :api`
+  carrying its `status`. Delete any clause matching
+  `%Fountain.Error{kind: :insufficient_credits}`.
+
 ## [0.7.0] - 2026-09-26
 
 ### Added

@@ -20,7 +20,6 @@ from .errors import (
     QuotaExceededError,
     RateLimitError,
     ResolutionError,
-    InsufficientCreditsError,
     TimeoutError,
     ValidationError,
     error_for_status,
@@ -55,7 +54,6 @@ __all__ = [
     "ResolutionError",
     "Run",
     "RunResult",
-    "InsufficientCreditsError",
     "TimeoutError",
     "Team",
     "TeamSchedules",
@@ -72,4 +70,4 @@ __all__ = [
     "stream_path",
 ]
 
-__version__ = "0.7.0"
+__version__ = "0.8.0"

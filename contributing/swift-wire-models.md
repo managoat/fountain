@@ -141,10 +141,12 @@ under `Models/` adds to a generated type (`LogEvent.stageData`), since either
 would otherwise read as removed the moment this guard exists. A property that
 fails is a claim nobody meant to make, unless `REMOVED_PROPERTIES` — a table
 beside `REQUIRED_BY_CONTRACT` — records the removal as deliberate, citing the
-PR and changelog fragment that made it. Its first entry is
+PR and changelog fragment that made it. Its first entries were
 `("AuthMe", "onboardingState")`, retired in #2269 when `AuthMe` moved to
-generation; the second is `("PageMeta", "offset")`, which moved to
-`SearchResponse.Meta` in #2300.
+generation, and `("PageMeta", "offset")`, which moved to
+`SearchResponse.Meta` in #2300; both aged out and were pruned when #2609's
+credit and Stripe fields (`APIErrorPayload.upgradeURL`, `AdminUser.comped`,
+`.creditBalanceCents`, `.hasStripeCustomer`, `AuthMe.comped`) took their place.
 
 An entry has two lives, and **it must not be pruned in the release that
 retires the property**. While the release it cites is still the baseline the

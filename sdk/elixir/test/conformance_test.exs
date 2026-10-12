@@ -236,7 +236,6 @@ defmodule Fountain.ConformanceTest do
           204 => "No Content",
           400 => "Bad Request",
           401 => "Unauthorized",
-          402 => "Payment Required",
           404 => "Not Found",
           422 => "Unprocessable Entity",
           429 => "Too Many Requests",
@@ -486,7 +485,6 @@ defmodule Fountain.ConformanceTest do
       "retryable" => Error.retryable?(error),
       "retry_after" => error.retry_after,
       "field_errors" => Error.field_errors(error),
-      "upgrade_url" => Error.upgrade_url(error),
       "partial_text" => error.partial_text
     }
   end
@@ -508,7 +506,6 @@ defmodule Fountain.ConformanceTest do
   defp error_kind(:rate_limit), do: "rate_limited"
   defp error_kind(:conversation_busy), do: "busy"
   defp error_kind(:quota_exceeded), do: "quota"
-  defp error_kind(:insufficient_credits), do: "insufficient_credits"
   defp error_kind(:not_ready), do: "not_ready"
   defp error_kind(:timeout), do: "timeout"
   defp error_kind(:connection), do: "connection"

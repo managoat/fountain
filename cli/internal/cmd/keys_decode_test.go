@@ -70,13 +70,12 @@ func TestDecodeServerJSONShapes(t *testing.T) {
 
 	t.Run("auth/me is flat", func(t *testing.T) {
 		// AuthMeController.show/2: json(conn, %{id:, email:, role:,
-		// email_verified:, comped:, ...}) — no envelope.
+		// email_verified:, ...}) — no envelope.
 		fixture := `{
 			"id": "0198c9a2-1234-7890-abcd-ef0123456789",
 			"email": "dev@example.com",
 			"role": "user",
-			"email_verified": true,
-			"comped": false
+			"email_verified": true
 		}`
 		var got authMe
 		if err := json.Unmarshal([]byte(fixture), &got); err != nil {

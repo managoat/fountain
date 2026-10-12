@@ -265,21 +265,15 @@ swift test
 swift build -Xswiftc -warnings-as-errors
 ```
 
-## Credit error migration
+## Credit removal (0.23.0)
 
-Replace `FountainError.Kind.subscriptionRequired` with
-`FountainError.Kind.insufficientCredits` in the `Fountain` product, including
-switches and stored raw kind strings. The raw value is now `insufficientCredits`.
-Read `error.upgradeURL` for the purchase page. `FountainKit` already uses
-`.insufficientCredits(body, upgradeURL:)`; its case and associated URL remain unchanged.
-Both products retire the special `subscription_required` wire mapping.
-
-This source API boundary (#2104) ships in Swift v0.17.0. Use that tag or
-newer to adopt the credit error names; earlier tags keep their original names.
-
-For billing error handling, use Fountain v0.13.0 or newer.
-[v0.13.0](https://github.com/managoat/fountain/releases/tag/v0.13.0) is the first
-release containing the credit-only server contract (`c3349343`).
-`insufficient_credits` and a generic HTTP 402 identify the credit gate.
-`subscription_required` has no special mapping; it follows the HTTP status.
-The response still exposes its original code and purchase URL.
+Fountain no longer has credits, so the server never answers 402. In the
+`Fountain` product, `FountainError.Kind.insufficientCredits` and
+`FountainError.upgradeURL` are removed; a 402 from something in front of the
+server (a proxy, say) is now `.api` carrying its `status`. In `FountainKit`,
+`FountainError.insufficientCredits(_:upgradeURL:)`, `APIErrorBody.upgradeURL`
+and its initializer argument, `AdminResource.setComped` and `grantCredits`,
+the `comped:` argument of `AdminResource.users`, `AdminUser.comped`,
+`.creditBalanceCents` and `.hasStripeCustomer`, and `AuthMe.comped` are
+removed; a 402 is now `.api(body, status: 402)`. `APIErrorBody` has one
+initializer, with `reason` defaulted.

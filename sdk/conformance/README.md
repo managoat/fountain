@@ -2,7 +2,7 @@
 
 `sdk/contract/` pins the *shape* of the wire. This pins the *behaviour*: what a
 client does with an SSE frame split across two TCP writes, which error class a
-402 becomes, whether a dropped stream resumes from the right cursor, and what
+429 becomes, whether a dropped stream resumes from the right cursor, and what
 `run` returns when the turn fails. None of that is in an OpenAPI document, and
 all of it is something Fountain promises in four languages at once.
 
@@ -179,7 +179,6 @@ Every key is optional, and an absent key asserts nothing.
 | `rate_limited` | 429 |
 | `busy` | `conversation_busy` |
 | `quota` | `sandbox_quota_exceeded` — the concurrency cap; terminate a conversation and carry on |
-| `insufficient_credits` | `insufficient_credits` and a bare 402; the caller must buy credit. `upgrade_url` preserves the purchase destination when supplied. Retired `subscription_required` has no special mapping. |
 | `not_ready` | `provisioning`, `sprite_probe_failed`, `fleet_full`, 503 |
 | `timeout` | the client's own deadline elapsed |
 | `connection` | the transport failed before a status arrived |

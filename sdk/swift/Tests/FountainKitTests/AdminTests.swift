@@ -10,18 +10,17 @@ struct AdminTests {
       json: #"""
         {"data": [
             {"id": "u1", "email": "a@example.com", "role": "admin", "suspended": false,
-             "comped": true, "credit_balance_cents": 1250, "active_sandboxes": 2,
+             "active_sandboxes": 2,
              "max_concurrent_sandboxes": 5, "sandbox_limit_override": 10}
         ], "meta": {"page": 1, "per_page": 50, "total": 120}}
         """#)
     let page = try await FountainClient.fake(transport).admin.users(
-      query: "example", role: .admin, comped: true, page: 1, perPage: 50
+      query: "example", role: .admin, verified: true, page: 1, perPage: 50
     )
 
     #expect(page.users.count == 1)
     #expect(page.users[0].email == "a@example.com")
     #expect(page.users[0].role == .admin)
-    #expect(page.users[0].creditBalanceCents == 1250)
     #expect(page.users[0].sandboxLimitOverride == 10)
     #expect(page.page == 1)
     #expect(page.total == 120)
@@ -32,7 +31,7 @@ struct AdminTests {
     let query = try #require(url.query)
     #expect(query.contains("q=example"))
     #expect(query.contains("role=admin"))
-    #expect(query.contains("comped=true"))
+    #expect(query.contains("verified=true"))
     #expect(query.contains("per_page=50"))
   }
 
@@ -58,12 +57,11 @@ struct AdminTests {
     var body = try #require(request.httpBody.map { String(decoding: $0, as: UTF8.self) })
     #expect(body == #"{"suspended":true}"#)
 
-    _ = try await client.admin.grantCredits("u1", cents: 500)
+    _ = try await client.admin.setSandboxLimit("u1", limit: 3)
     request = try #require(transport.lastRequest)
-    #expect(request.url?.path == "/api/admin/users/u1/credits")
+    #expect(request.url?.path == "/api/admin/users/u1/sandbox-limit")
     body = try #require(request.httpBody.map { String(decoding: $0, as: UTF8.self) })
-    // note omitted entirely when nil — the API 422s on null.
-    #expect(body == #"{"cents":500}"#)
+    #expect(body == #"{"limit":3}"#)
   }
 
   @Test func reapPostsToTheSandbox() async throws {

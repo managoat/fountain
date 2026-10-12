@@ -302,16 +302,14 @@ REQUIRED_BY_CONTRACT = set()
 # contributing/swift-wire-models.md has the lifecycle and
 # test_the_removal_history_has_not_grown holds the ceiling that pays for it.
 REMOVED_PROPERTIES = {
-    ("AuthMe", "onboardingState"): (
-        "#2269 finished #1393: the server dropped users.onboarding_state in "
-        "v0.16.0, so the key had decoded nil for two releases. See "
-        "changelog.d/2269-swift-authme-generated.md."),
-    ("PageMeta", "offset"): (
-        "#2300 generated PageMeta from the cursor envelope `/api/audit` and "
-        "`/api/conversations/:id/events` declare. The handwritten struct was "
-        "the union of that shape and `/api/search`'s offset page, so `offset` "
-        "decoded nil on every cursor endpoint; it lives on `SearchResponse.Meta` "
-        "now. See changelog.d/2300-swift-page-meta.md."),
+    # #2609 removed credits, comps and Stripe from the server (ADRs 0030 and
+    # 0031, retired): no 402, so no `Error.upgrade_url`, and the account JSON
+    # lost its billing fields. See sdk/swift/CHANGELOG.md 0.23.0.
+    ("APIErrorPayload", "upgradeURL"): "#2609: the server no longer answers 402.",
+    ("AdminUser", "comped"): "#2609: comps are gone from the admin user JSON.",
+    ("AdminUser", "creditBalanceCents"): "#2609: credits are gone from the admin user JSON.",
+    ("AdminUser", "hasStripeCustomer"): "#2609: Stripe is gone from the admin user JSON.",
+    ("AuthMe", "comped"): "#2609: comps are gone from GET /api/auth/me.",
 }
 
 # Properties this SDK publishes that the contract does not describe, each with

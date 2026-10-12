@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.8.0
+
+### Breaking changes
+
+- `InsufficientCreditsError` and its `upgrade_url` are removed. Fountain no
+  longer has credits and the server never answers 402 (#2609). A 402 from
+  something in front of the server is now a plain `FountainError` carrying its
+  `status`. Delete any `except InsufficientCreditsError` clause and its import.
+
 ## 0.7.0
 
 ### Added

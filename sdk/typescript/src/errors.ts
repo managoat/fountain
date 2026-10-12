@@ -19,7 +19,6 @@ export type FountainErrorCode =
   | "sandbox_not_attachable"
   | "sandbox_identity_mismatch"
   | "sandbox_runtime_mismatch"
-  | "insufficient_credits"
   | "fleet_full"
   | "rate_limited"
   | "account_suspended"
@@ -96,17 +95,6 @@ const RETRYABLE_CODES = new Set([
 /** No API key, or the key was rejected (401). */
 export class AuthError extends FountainError {}
 
-/**
- * The account is out of credit (`insufficient_credits`, 402). `upgradeUrl` is
- * the billing page, where credit is bought. A bare HTTP 402 uses this class too.
- */
-export class InsufficientCreditsError extends FountainError {
-  get upgradeUrl(): string | undefined {
-    const url = (this.body as { upgrade_url?: unknown } | null)?.upgrade_url;
-    return typeof url === "string" ? url : undefined;
-  }
-}
-
 /** Wrong id, or it belongs to another account — Fountain does not distinguish (404). */
 export class NotFoundError extends FountainError {}
 
@@ -133,7 +121,7 @@ export class NotReadyError extends FountainError {}
 
 /**
  * The account is at its concurrent-sandbox cap (`sandbox_quota_exceeded`, 429).
- * Deliberately not a billing error: terminate a conversation and continue.
+ * Terminate a conversation and continue.
  */
 export class QuotaExceededError extends FountainError {
   /** Sandboxes in use right now. */
@@ -171,7 +159,6 @@ export class ConnectionError extends FountainError {}
 const HINTS: Record<number, string> = {
   400: "bad request",
   401: "unauthorized — check the API key",
-  402: "payment required — the account is out of credit",
   403: "forbidden — the key may lack the scope for this call",
   404: "not found — wrong id, or it belongs to another account",
   409: "conflict",
@@ -216,8 +203,6 @@ export function errorForStatus(
       return new NotReadyError(message, init);
     case "sandbox_quota_exceeded":
       return new QuotaExceededError(message, init);
-    case "insufficient_credits":
-      return new InsufficientCreditsError(message, init);
     case "fleet_full":
       return new NotReadyError(message, init);
   }
@@ -225,8 +210,6 @@ export function errorForStatus(
   switch (status) {
     case 401:
       return new AuthError(message, init);
-    case 402:
-      return new InsufficientCreditsError(message, init);
     case 404:
       return new NotFoundError(message, init);
     case 422:

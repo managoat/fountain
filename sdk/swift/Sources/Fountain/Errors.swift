@@ -2,7 +2,7 @@ import Foundation
 
 public struct FountainError: Error, CustomStringConvertible, LocalizedError, Sendable {
   public enum Kind: String, Sendable {
-    case api, authentication, insufficientCredits, notFound, validation
+    case api, authentication, notFound, validation
     case rateLimit, conversationBusy, notReady, quotaExceeded
     case connection, resolution, timeout
   }
@@ -57,7 +57,6 @@ public struct FountainError: Error, CustomStringConvertible, LocalizedError, Sen
     }
   }
 
-  public var upgradeURL: String? { body?["upgrade_url"]?.stringValue }
   public var activeSandboxes: Int? { body?["active_sandboxes"]?.intValue }
   public var limit: Int? { body?["limit"]?.intValue }
 }
@@ -72,11 +71,9 @@ func fountainError(
   case "conversation_busy": kind = .conversationBusy
   case "provisioning", "sprite_probe_failed", "fleet_full", "sandbox_unavailable": kind = .notReady
   case "sandbox_quota_exceeded": kind = .quotaExceeded
-  case "insufficient_credits": kind = .insufficientCredits
   default:
     switch status {
     case 401: kind = .authentication
-    case 402: kind = .insufficientCredits
     case 404: kind = .notFound
     case 422: kind = .validation
     case 429: kind = .rateLimit
@@ -85,7 +82,7 @@ func fountainError(
   }
   let hint: [Int: String] = [
     400: "bad request", 401: "unauthorized — check the API key",
-    402: "payment required — the account is out of credit", 403: "forbidden",
+    403: "forbidden",
     404: "not found", 409: "conflict", 422: "rejected", 429: "rate limited",
     503: "temporarily unavailable",
   ]

@@ -7,6 +7,15 @@ defmodule Fountain.HttpSseTest do
     :ok
   end
 
+  test "a 402 is an ordinary API error now that credits are gone" do
+    error =
+      Error.for_status(402, %{"error" => "insufficient_credits"}, "POST", "/api/conversations")
+
+    assert %Error{kind: :api, status: 402, code: "insufficient_credits"} = error
+    refute Error.retryable?(error)
+    refute function_exported?(Error, :upgrade_url, 1)
+  end
+
   test "HTTP sends auth, JSON and parent attribution and maps API errors" do
     parent = self()
 

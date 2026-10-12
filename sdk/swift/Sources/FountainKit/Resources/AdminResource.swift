@@ -11,7 +11,6 @@ public struct AdminResource: Sendable {
   public func users(
     query: String? = nil,
     role: UserRole? = nil,
-    comped: Bool? = nil,
     verified: Bool? = nil,
     sort: String? = nil,
     dir: String? = nil,
@@ -23,7 +22,6 @@ public struct AdminResource: Sendable {
       options: .init(query: [
         "q": query,
         "role": role?.rawValue,
-        "comped": comped.map(String.init),
         "verified": verified.map(String.init),
         "sort": sort,
         "dir": dir,
@@ -48,23 +46,6 @@ public struct AdminResource: Sendable {
 
   public func setSuspended(_ id: String, _ suspended: Bool) async throws -> AdminUser {
     try await client.data(.post, "/api/admin/users/\(id)/suspend", body: ["suspended": suspended])
-  }
-
-  public func setComped(_ id: String, _ comped: Bool) async throws -> AdminUser {
-    try await client.data(.post, "/api/admin/users/\(id)/comp", body: ["comped": comped])
-  }
-
-  /// Grant prepaid credit (negative cents claws back).
-  public func grantCredits(_ id: String, cents: Int, note: String? = nil) async throws -> AdminUser
-  {
-    struct Body: Encodable {
-      var cents: Int
-      var note: String?
-    }
-    return try await client.data(
-      .post, "/api/admin/users/\(id)/credits",
-      body: Body(cents: cents, note: note)
-    )
   }
 
   public func setSandboxLimit(_ id: String, limit: Int) async throws -> AdminUser {

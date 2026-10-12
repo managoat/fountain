@@ -23,9 +23,9 @@ defmodule FountainWeb.SchemaGuardAllowlist do
 
   That is not a hypothetical. `{"POST /api/support/reports", 401}` sat here
   until #1528 deleted it as stale, and it was not stale: the operation had
-  simply moved into `apps/fountain_support`, where nothing checked it either,
-  because the schema guard could not resolve through `ExtensionDispatch` at all
-  until #1536. A ratchet cannot count what it cannot see, and the entry looked
+  simply moved into the support extension (since removed), where nothing
+  checked it either, because the schema guard could not resolve through
+  `ExtensionDispatch` at all until #1536. A ratchet cannot count what it cannot see, and the entry looked
   like a fix landing.
 
   So an extension declares the statuses on its own operations instead — there

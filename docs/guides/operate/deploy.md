@@ -262,51 +262,14 @@ Merge those fields into the target file. This checks a nonce artifact, two
 real tool-using turns, tenant isolation, live output, reconnect, replay and
 history agreement, then terminates and deletes its fixtures.
 
-### Run in CI
+### Run after a rollout
 
-The `Deployed verification` workflow accepts only `staging` and `production`
-and runs code from `main`. Create the matching GitHub environment,
-`deployed-staging` or `deployed-production`, and restrict its deployment branch
-to `main`. Configure these environment settings:
+Run the suite **after** migrations and the serving deployment have finished
+rolling out. In a GitOps installation, wait for the intended source revision
+and the Deployment rollout; a webhook being received is not completion.
 
-| Setting | Purpose |
-|---|---|
-| Variable `SUITE_ENABLED=true` | Explicitly enable this target. |
-| Variable `SUITE_TARGET_JSON` | Target JSON with approved HTTPS URL, required capabilities and execution settings. |
-| Secret `FOUNTAIN_SUITE_KEY` | Primary dedicated test account API key. |
-| Secret `FOUNTAIN_SUITE_OTHER_KEY` | Different verified account's API key. |
-| Secret `SUITE_KUBECONFIG` | Optional read-only Kubernetes access for rollout mode. |
-| Secret `SUITE_MONITOR_URL` | Sentry Crons check-in URL for the scheduled canary. |
-
-The workflow fixes credential variable names and bounds each run to seven
-minutes plus 90 seconds for cleanup. It creates at most 12 resources and
-attempts at most two inference prompts. These limits do not cap the monetary
-cost of a model turn. Profiles run sequentially. All dispatches and schedules
-share one concurrency group per target, and an active run is never cancelled
-by a newer one. GitHub can replace a pending run; use a separate workflow run
-ID when recording which rollout received verification.
-
-```bash
-gh workflow run deployed.yml --ref main \
-  -f target=staging -f profile=streaming -f mode=public
-```
-
-Public mode needs no cluster credentials and reports deployment identity as
-unverified. Every initialized suite run retains `result.json`, `junit.xml`,
-redacted traces and `cleanup.json` as a 30-day Actions artifact. Setup failures
-before runner initialization remain visible in the workflow log. Credential
-files are outside the uploaded directory and are removed at job completion.
-Copy unresolved cleanup manifests to durable incident storage before expiry.
-
-### Invoke after rollout completion
-
-The deployment owner invokes the same workflow **after** migrations and the
-serving deployment have finished rolling out. Neither image publication nor
-manifest publication invokes this workflow. In a Flux installation, wait for
-the relevant Kustomization's intended source revision and Deployment rollout,
-then dispatch verification. Do not treat Flux receiving a webhook as completion.
-
-For Kubernetes, add an adapter to the environment-owned `SUITE_TARGET_JSON`:
+For Kubernetes, rollout mode also checks which image serves the URL. Add an
+adapter to the target file:
 
 ```json
 {
@@ -316,7 +279,8 @@ For Kubernetes, add an adapter to the environment-owned `SUITE_TARGET_JSON`:
     "namespace": "fountain",
     "deployment": "fountain",
     "service": "fountain",
-    "container": "fountain"
+    "container": "fountain",
+    "expected_digest": "sha256:..."
   }
 }
 ```
@@ -326,8 +290,6 @@ to this Service, including any ingress, CDN, tunnel or regional routing. This
 binding is an explicit trust input; the adapter does not discover it from a
 successful HTTP response. Give its Kubernetes identity only `get` and `list`
 on Deployments, ReplicaSets, Pods, Services and EndpointSlices in this namespace.
-The CI runner must reach the API server. Public-only checks remain usable
-when it cannot.
 
 Obtain the intended image digest from the release's registry manifest or build
 provenance, independently of the running pods. Match the kind of identity
@@ -335,66 +297,32 @@ reported by your container runtime: some report the multi-architecture image
 index digest; others report a platform manifest digest. The registry supplies
 both. This adapter requires one expected digest across the serving deployment;
 a fleet reporting different platform digests needs a future platform-aware
-adapter. Keep the registry's commit-to-digest provenance with the rollout
-record. The suite verifies the digest and does not independently claim a source
-commit from a mutable image tag.
+adapter. The suite verifies the digest and does not independently claim a
+source commit from a mutable image tag.
+
+The CLI reads the cluster through your current kubeconfig.
 
 ```bash
 kubectl --context staging -n fountain rollout status deployment/fountain --timeout=5m
-gh workflow run deployed.yml --ref main \
-  -f target=staging -f profile=streaming -f mode=rollout \
-  -f expected_digest="$EXPECTED_IMAGE_DIGEST"
+node deployed/cli.mjs run --config /tmp/fountain-target.json --out /tmp/fountain-check-001
 ```
 
 The adapter checks observed generation, all desired replicas, Pod ownership,
 container readiness and the intended digest. It reads every EndpointSlice
 for the Service and rejects missing, extra or terminating backends. It repeats
 the observation after public checks and cleanup; changed membership,
-generation, image or restart counts invalidate attribution. Reports retain
-both observations without raw cluster objects. These observations establish
-identity at the boundaries; they are not a continuous audit of all routing
-changes during the run.
+generation, image or restart counts invalidate attribution. These
+observations establish identity at the boundaries; they are not a continuous
+audit of all routing changes during the run. For other deployment types, run
+public mode. Never relabel that result as revision-verified.
 
-For a local invocation of rollout mode, include `expected_digest` in the
-`deployment` object and run the normal CLI with your read-only kubeconfig.
-For other deployment types, run public mode until an external identity adapter
-covers all their serving replicas. Never relabel that result as revision-verified.
-
-### Schedule and failure ownership
-
-After a manual `canary` profile passes against the intended production target,
-configure its Sentry monitor and set the **repository** variable
-`DEPLOYED_CANARY_ENABLED=true`. The schedule runs basic API checks and two
-real execution turns at 00:23, 06:23, 12:23 and 18:23 UTC. It is disabled until
-that explicit configuration exists; this repository change alone does not
-activate production runs.
-
-Reuse the [Sentry Crons channel](../../integrations/sentry.md#crons-an-alert-when-a-scheduled-job-stops)
-for start, success and error check-ins, correlated by workflow run and attempt.
-Configure the monitor on the same
-six-hour schedule, a 30-minute check-in margin, a 12-minute maximum duration,
-an issue threshold of two consecutive failures and recovery after one success.
-Route its issues to the deployment's existing operational owner. Sentry keeps
-the consecutive-failure history and catches missed schedules; no repository
-cache is used as an incident ledger. A monitor delivery failure is visible in
-Actions, and a missing monitor URL fails a scheduled run before inference.
-Confirm the monitor's incident and recovery behavior before enabling the schedule.
-
-Use the existing [stage and provider alert policy](observability.md#which-alerts-you-get)
-to investigate canary failures alongside request IDs, provider health and
-runtime logs. A canary is additional external evidence for the same incident,
-not a separate rollback trigger. Assign setup, ingress, revision and cleanup
-failures to the deployment owner; assign runtime/provider failures to that
-owner for provider triage; assign reproducible contract failures to the API
-maintainer. Record the actual named owners in the environment's operations
-record before activation.
-
-Start with visible verification. Before making this a promotion gate, collect
-at least 28 consecutive scheduled successes over seven days, zero unresolved
-cleanup entries, tested failure/recovery notification delivery and a named
-responding owner. Review durations and provider spending, and separate observed
-provider outages from suite defects. Blocking promotion is a separate change;
-this workflow does not modify a release, deployment or rollback policy.
+To run the suite from your own CI, call `node deployed/ci.mjs`. It reads the
+target JSON from `SUITE_TARGET_JSON`, the keys from `FOUNTAIN_SUITE_KEY` and
+`FOUNTAIN_SUITE_OTHER_KEY`, and `SUITE_TARGET` (`staging` or `production`),
+`SUITE_ENABLED=true`, `SUITE_PROFILE` and `SUITE_MODE` (`public` or
+`rollout`, with `SUITE_EXPECTED_DIGEST` for rollout). Keep those keys in a protected environment: they
+belong to real accounts, and the suite runs real inference turns. The
+repository itself schedules no run against any instance.
 
 On failure, inspect the failing phase and `revision` evidence in `result.json`.
 Check cleanup even when public assertions passed. Retry cleanup with the same

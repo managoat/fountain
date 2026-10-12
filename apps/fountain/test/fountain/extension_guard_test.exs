@@ -2,8 +2,9 @@ defmodule Fountain.ExtensionGuardTest do
   @moduledoc """
   The compile-time boundary, checked as source (ADR 0043, #1507 and #1528).
 
-  The umbrella's dependency resolution proves `fountain_support -> fountain`:
-  the extension lists `{:fountain, in_umbrella: true}` and Fountain lists nothing.
+  The umbrella's dependency resolution would prove `fountain_<name> -> fountain`:
+  an extension lists `{:fountain, in_umbrella: true}` and Fountain lists nothing.
+  No first-party extension ships today, so the table below is empty.
   It proves nothing at all about the other direction, because the way that
   breaks is not a dependency — it is a stray module atom, a route, a migration
   or a config key that compiles perfectly and only surprises somebody on the
@@ -14,13 +15,9 @@ defmodule Fountain.ExtensionGuardTest do
 
   ## What is allowed
 
-  Prose. `apps/fountain/lib` may say the word "support" in a comment,
-  a docstring or a schema description, and does — the ADR calls that
-  human-facing discovery metadata, and #1528 keeps the support-report
-  documentation in core deliberately. `SUPPORT_EMAIL` is core's too: the
-  account emails name it, so the key stays `config :fountain, :support_email` and only the
-  GitHub forwarding keys moved. What is refused is *code* that names an
-  extension.
+  Prose. `apps/fountain/lib` may name a former extension's product in a
+  comment, a docstring or a schema description. What is refused is *code*
+  that names an extension.
 
   `config/` is deliberately not walked: naming an extension module in
   configuration is the one place ADR 0043 says it belongs.
@@ -44,16 +41,7 @@ defmodule Fountain.ExtensionGuardTest do
   #     the `route_except` substrings that are core's after all.
   #   * `priv` — files under core's priv that belong to the extension, which is
   #     how a migration comes back.
-  @extensions [
-    %{
-      app: :fountain_support,
-      module:
-        ~r/\b(FountainSupport\b|Fountain\.Support\b|Fountain\.Workers\.SupportForward\b|FountainWeb\.SupportReport[A-Z])/,
-      route: ~r|"/(api/)?support|,
-      route_except: [],
-      priv: "**/*support_report*"
-    }
-  ]
+  @extensions []
 
   for %{app: app} = extension <- @extensions do
     @extension extension

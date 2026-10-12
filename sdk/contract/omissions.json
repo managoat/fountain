@@ -42,10 +42,6 @@
       "reason": "The self-hosted runner daemon's WebSocket (ADR 0022). Its socket is not JSON over HTTP."
     },
     {
-      "operations": ["GET /api/support/reports", "GET /api/support/reports/{id}", "POST /api/support/reports"],
-      "reason": "The support inbox and report submission. No SDK models this console surface."
-    },
-    {
       "operations": [
         "PUT /api/agents/{id}/avatar",
         "DELETE /api/agents/{id}/avatar"

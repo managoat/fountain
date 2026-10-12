@@ -76,11 +76,6 @@ defmodule FountainWeb.Plugs.CastRenderErrorTest do
       # `{"errors": [{"title": …, "source": {"pointer": "/runtime"}}]}` — an
       # array keyed by pointer, which no declared schema described and which
       # every SDK's `fieldErrors` read as empty.
-      #
-      # This used `POST /api/support/reports` until #1528 moved that operation
-      # into the `fountain_support` extension, which is not on the code path
-      # when this app's suite runs alone. Any core operation with an enum makes
-      # the same point; the extension checks its own rendering from its side.
       body =
         build_conn()
         |> authed_with_key(ctx.raw_key)

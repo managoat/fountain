@@ -14,13 +14,13 @@ You bring a Postgres, an ingress controller, and the `fountain-secrets`
 Secret. Its README walks you through the rest. The manifests explain the
 choices about probes and scale in inline comments.
 
-## Track `main` with Flux
+## Track releases with GitOps
 
-Every merge to `main` publishes `deploy/` as an OCI artifact at
-`ghcr.io/managoat/fountain-manifests`, with the image tag built from
-that commit in place of the release pin. The hosted instance runs from it. A
-Flux `OCIRepository` on the tag `latest` and a `Kustomization` on the path
-`./deploy/k8s` give you the same, and Flux `patches` hold your changes.
+The repository publishes no manifest artifact. To run `deploy/k8s/` from a
+GitOps tool, point it at this repository at a release tag, on the path
+`./deploy/k8s`. The `images:` block in its `kustomization.yaml` pins the
+image tag of that release. Keep your own changes in an overlay or in your
+tool's patches.
 
 ## Run more than one replica
 

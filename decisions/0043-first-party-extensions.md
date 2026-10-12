@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "First-party extensions: Buzz becomes an OTP app installed at build time and enabled at runtime"
-description: "Buzz leaves the Fountain core as fountain_buzz, an AGPL OTP application depending on :fountain that the host reaches only through eleven Fountain.Extension callbacks. Build-time install, runtime enable, no hot code loading. The bundled image keeps every Buzz path, command and provider behavior; a new -core image carries none of it. Built so far: gates 2, 3 and 4 — the seam, migration and OpenAPI composition, and the move itself: apps/fountain_buzz exists and core names no FountainBuzz module. A second extension, fountain_support, moved the problem-report feature out under three of the ten callbacks and added none. Every gate but the repository split is built: the supply chain, the -core image and its release tags, the manual as a callback, and core marketing that renders only what its distribution can serve. Amended 2026-10-12: Buzz itself is removed; the seam stays. Amended again 2026-10-12: the Google, Microsoft and Slack extensions left with Connections, and fountain_support is the one extension left."
+description: "Buzz leaves the Fountain core as fountain_buzz, an AGPL OTP application depending on :fountain that the host reaches only through eleven Fountain.Extension callbacks. Build-time install, runtime enable, no hot code loading. The bundled image keeps every Buzz path, command and provider behavior; a new -core image carries none of it. Built so far: gates 2, 3 and 4 — the seam, migration and OpenAPI composition, and the move itself: apps/fountain_buzz exists and core names no FountainBuzz module. A second extension, fountain_support, moved the problem-report feature out under three of the ten callbacks and added none. Every gate but the repository split is built: the supply chain, the -core image and its release tags, the manual as a callback, and core marketing that renders only what its distribution can serve. Amended 2026-10-12: Buzz itself is removed; the seam stays. Amended again 2026-10-12: the Google, Microsoft and Slack extensions left with Connections, and fountain_support is the one extension left. Amended a third time 2026-10-12: fountain_support is removed and core drops its table; no extension remains."
 tags: [buzz, extensions, packaging, architecture, licensing, support]
 status: stable
 adr: "0043"
@@ -651,3 +651,21 @@ its removal is proposed separately.
   stay, with their host plumbing and fixture tests. If fountain_support is
   removed too, no extension remains, and the mechanism itself, with the
   `BUNDLE_EXTENSIONS=false` core distribution, can be retired in one change.
+
+## Addendum — 2026-10-12: `fountain_support` is removed
+
+The problem-report extension (#1528) is deleted along with its
+`/api/support` routes, its OpenAPI operations, and `SUPPORT_GITHUB_REPO` and
+`SUPPORT_GITHUB_TOKEN`. It forwarded reports to the hosted service's
+operator, which a self-hosted product does not have. `SUPPORT_EMAIL` stays a
+core setting, because the account emails name it.
+
+Its table needs a core migration to go: an uninstalled extension contributes
+no migration path, so nothing else would drop it.
+`20261012150000_drop_support_reports` drops `support_reports` if it exists
+and deletes the extension's pending Oban jobs.
+
+No first-party extension remains. The `Fountain.Extension` behaviour, its
+host plumbing and the `BUNDLE_EXTENSIONS=false` core distribution are still
+in place in this change, with an empty extension list; retiring them is the
+next change in the stack.

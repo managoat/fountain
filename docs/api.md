@@ -904,15 +904,6 @@ A browser client on another origin needs a registered OAuth client or an
 `API_CORS_ORIGINS` entry. Read [configuration](configuration.md). A bearer
 key is the one credential that crosses an origin.
 
-## Support
-
-Use the console's support action to report a problem or request access to a
-feature. Include the conversation ID and the time of the failure. Review any
-attached transcript for sensitive content before you submit it.
-
-Support is an optional extension. Its operations appear in the
-[generated reference](/api/docs) only when the instance installs it.
-
 ## Admin
 
 Administrative workflows require an operator account and an appropriate key.

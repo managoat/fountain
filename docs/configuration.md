@@ -101,9 +101,7 @@ at a dead end, with no error to see. Read [Email](guides/operate/email.md).
 | `SMTP_TLS` | `always` | — | STARTTLS by default. Use `never` for a relay on a trusted network that does not offer it. |
 | `EMAIL_DELIVERY` | — | One of three. | A `none` turns email off, on purpose. An account then self-verifies at registration (ADR 0011). Nothing can deliver a password-reset email. So in this mode, a password that somebody forgets stays forgotten. |
 | `EMAIL_FROM` | — | When mail is on. | The From address. A real delivery provider needs it. A prod instance refuses to boot without it, because a receiver rejects mail from a domain nobody verified anyway. `EMAIL_DELIVERY=none` uses it for nothing. |
-| `SUPPORT_EMAIL` | — | — | Where "contact support" in an account email points. Those are the suspension and deletion emails. Fountain also mails a `POST /api/support/reports` report there. Unset, the copy names no address, and Fountain mails no report. |
-| `SUPPORT_GITHUB_REPO` | — | — | An `owner/repo`. Each support report also becomes a GitHub issue there, with the labels `support` and the category. It needs `SUPPORT_GITHUB_TOKEN`. |
-| `SUPPORT_GITHUB_TOKEN` | — | — | A token with `issues:write` on `SUPPORT_GITHUB_REPO`. |
+| `SUPPORT_EMAIL` | — | — | Where "contact support" in an account email points. Those are the suspension and deletion emails. Unset, the copy names no address. |
 
 ## Authentication
 

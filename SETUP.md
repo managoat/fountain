@@ -103,7 +103,7 @@ mix test         # full suite
 
 ## Production parity reference
 
-Production is home-cloud Kubernetes, deployed via Flux: the image is built from the repo-root `Dockerfile`, the manifest artifact is published from `deploy/`, and the cluster-specific overlay lives in home-cloud (decisions/0032). The Erlang/Elixir toolchain is pinned in three places, and a toolchain bump must update all of them:
+The release image is built from the repo-root `Dockerfile`, and `deploy/` holds the portable Kubernetes baseline (decisions/0032). The Erlang/Elixir toolchain is pinned in three places, and a toolchain bump must update all of them:
 
 | Where                      | What pins the toolchain                                              |
 | -------------------------- | -------------------------------------------------------------------- |

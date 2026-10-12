@@ -42,9 +42,9 @@ PrometheusRule CRD and the scrapes its expressions need. A rule file alone
 does not collect metrics.
 
 The hosted instance adds the rules [listed below](#added-by-the-hosted-overlay).
-Those rules are specific to that deployment. They do not arrive with the
-portable manifest artifact. Shared rule names can also have different
-thresholds or selectors in the overlay.
+Those rules are specific to that deployment. They are not in the portable
+manifests. Shared rule names can also have different thresholds or selectors
+in the overlay.
 
 ### Portable baseline
 

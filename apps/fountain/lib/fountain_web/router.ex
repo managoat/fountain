@@ -479,11 +479,6 @@ defmodule FountainWeb.Router do
     delete "/team/:agent_id/schedules/:id", TeamScheduleController, :delete
     post "/team/:agent_id/schedules/:id/run", TeamScheduleController, :run
 
-    # Problem reports (#843) used to be declared here. They are the
-    # `fountain_support` extension's now (ADR 0043, #1528): `/api/support` is a
-    # mount, dispatched at the end of this same pipeline, and a core-only
-    # release serves none of it.
-
     # The machines conversations run on (ADR 0023 gate 3). Read-only: a
     # sandbox is made by creating a conversation and reused by naming it as
     # `sandbox_id` on the next one.

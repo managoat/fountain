@@ -257,7 +257,7 @@ elixir scripts/ci/timing-formatter-test.exs
 
 ## Sandbox providers
 
-Merge CI runs no sandbox provider; three checks outside it do.
+Merge CI runs no sandbox provider; two checks outside it do.
 
 - `sandbox-images.yml` rebuilds the E2B template (`fountain`) weekly, on
   changes under `images/` and on dispatch. The job uses repository secret
@@ -275,11 +275,9 @@ Merge CI runs no sandbox provider; three checks outside it do.
     checkpoints and egress.
 
   Neither can be checked by the stubbed tests.
-- The deployed suite's matrix (`deployed/README.md`) declares four E2B cells
-  for production in `SUITE_MATRIX_JSON` on the `deployed-production`
-  environment: claude and codex, ephemeral and persistent. It runs on
-  dispatch only (`matrix-scheduled`), and each run needs an environment
-  reviewer's approval. `DEPLOYED_MATRIX_ENABLED` is unset, so no schedule.
+
+The deployed suite's provider matrix (`deployed/README.md`) has no workflow
+here; an operator runs it by hand against their own instance.
 
 ## Portable alert rules
 

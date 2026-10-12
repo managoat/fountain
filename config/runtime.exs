@@ -854,18 +854,6 @@ if config_env() == :prod do
   # "reply to this email" would point somewhere replies go to die.
   config :fountain, :support_email, System.get_env("SUPPORT_EMAIL")
 
-  # Optional (#843): where "Report a problem" reports are forwarded besides
-  # SUPPORT_EMAIL — a GitHub issue in this repo, created with this token
-  # (needs `issues:write`). Unset, reports stay on the row and in the mail.
-  #
-  # Under `:fountain_support` rather than `:fountain` since #1528: these two
-  # exist for the extension and nothing else, so a core-only release reads no
-  # key for a feature it does not carry. SUPPORT_EMAIL above stays the host's,
-  # because the account emails name it too.
-  # Configuring an extension that is not installed is inert, not an error.
-  config :fountain_support, :support_github_repo, System.get_env("SUPPORT_GITHUB_REPO")
-  config :fountain_support, :support_github_token, System.get_env("SUPPORT_GITHUB_TOKEN")
-
   # "" counts as unset for the adapter choice (#396): docker-compose.yml passes
   # `${RESEND_API_KEY:-}` / `${SMTP_HOST:-}` / `${SMTP_USERNAME:-}`, which
   # deliver present-but-empty variables — and "" is truthy, so a blank
@@ -1188,8 +1176,8 @@ end
 #
 # Each extension is installed *where it loads*. `apps/fountain` deliberately
 # depends on no sibling app, so `mix test` run from there — which is what CI's
-# partition script does — does not have `:fountain_support` on the code path,
-# and naming it unconditionally would make `Fountain.Extensions.validate!/0` refuse to boot
+# partition script does — has no extension on the code path, and naming one
+# unconditionally would make `Fountain.Extensions.validate!/0` refuse to boot
 # every partition. That check
 # working exactly as intended, on a configuration that is wrong for that run.
 #
@@ -1198,7 +1186,7 @@ end
 # the apps are built, where the answer is always false.
 installed_extensions =
   Enum.filter(
-    [FountainSupport.Extension],
+    [],
     &Code.ensure_loaded?/1
   )
 

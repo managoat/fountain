@@ -88,9 +88,13 @@ update the "Built so far" block in decisions/0037.
 The reverse of the section above: an `apps/managoat_<name>` app leaves this
 umbrella for a repository of its own, `managoat/managoat_<name>` (the same
 string as the hex package), from which CI publishes it to hex, and
-`apps/fountain` pins the hex release. The recipe is `scripts/graduate-library.sh`
-plus `templates/managoat-library/`; #1345 wrote both and proved them on
-`managoat_substitution`, then ran them for the other seven.
+`apps/fountain` pins the hex release. All nine graduated through
+`scripts/graduate-library.sh` and a `templates/managoat-library/` copied into
+each new repository (#1345). Both are gone from this repository now that
+extraction is paused; a tenth library starts from one of the nine. Copy
+`managoat/managoat_substitution`'s CI, release gate, publish workflow,
+`scripts/release.exs`, `NOTICE` and `CHANGELOG.md`, and take the three
+umbrella path lines out of its `mix.exs`.
 
 **When.** A library graduates when it has stopped moving: its public surface
 has not changed since extraction, or its last change was a release of its own
@@ -99,64 +103,13 @@ issue that needs a change on both sides of the seam. Until then the umbrella
 gives the compile-time boundary at no release cost; after, every cross-seam
 change costs two PRs (below).
 
-**Prerequisite, org admin only.** The publish workflow authenticates with
-`HEX_API_KEY`, an organization-level secret on `managoat` visible to every
-repository, holding a write key from the hex.pm user account that owns every
-`managoat_*` package. There is no hex organization and hex has no trusted
-publishing; that key, used only by CI, is the mechanism. Listing org secrets
-needs a scope your `gh` token may not have, so the check is to use it: the
-first publish run of a new repository either works or fails with 401. On a
-401, stop and ask; never create a key, and never put one in a repository
-secret or a file.
+**Publishing.** The publish workflow authenticates with `HEX_API_KEY`, an
+organization-level secret on `managoat` visible to every repository. A hex
+package name is claimed by its first publish and can never be released, so
+run `mix hex.build` and the library's gates before the repository's first
+push to `main`. Protect `main` behind its `ci` and `release gate` checks.
 
-**The script.** From the umbrella root, on a clean and up-to-date `main`:
-
-```bash
-scripts/graduate-library.sh --prepare-only <name>   # nothing on GitHub yet
-scripts/graduate-library.sh <name>
-```
-
-`--prepare-only` runs the preflight and builds the stand-alone tree in a
-scratch clone with the local gates, and stops. Do that first: a hex package
-name is claimed by its first publish and can never be released, and the name
-in `mix.exs` is permanent from the moment `main` exists. The full run then:
-
-1. refuses unless the tree is clean, `main` matches `origin/main`, and
-   `mix hex.build` succeeds for the app (a git dependency fails it; hex takes
-   hex packages only, which is why `managoat_sandbox` waited for the Sprites
-   client's hex release, pinned exactly to `0.2.0` for the reason in its
-   `mix.exs`);
-2. `git subtree split -P apps/managoat_<name>` puts the app's history on
-   `graduate/<name>` (one commit per app today, the extraction PR; an
-   `--unshallow` fetch first if the clone is shallow);
-3. creates the repository (public, no wiki, topic `managoat-library`) and
-   pushes the split as `main`;
-4. in a fresh clone, copies the template in, takes the three umbrella path
-   lines out of `mix.exs`, points `@source_url` at the new repository, adds
-   `ex_doc` (so `mix hex.publish` publishes hexdocs too), credo and dialyzer,
-   writes the repository's own `mix.lock`, runs compile, credo, the tests and
-   `mix hex.build` locally, and pushes `chore: stand alone (...)`. That push
-   is what runs CI and the first publish;
-5. creates the `no-release` label and protects `main` behind the two checks,
-   `ci` and `release gate`, with no review requirement, since a library
-   repository's `main` is what publishes and the gate is what keeps it honest.
-
-It is idempotent after a failure in 4 or 5: rerun it and it skips what exists.
-The template it copies mirrors the SDK's release automation
-(`.github/workflows/sdk-publish.yml`, `sdk-release-gate.yml`,
-`scripts/sdk-release.mjs`): `scripts/release.exs state` reads `@version` from
-`mix.exs` and asks hex whether it exists; `guard <base>` fails a PR that
-changes `lib/`, `priv/` or the consumer-facing part of `mix.exs` without a
-bump, a bump whose version hex already has, or a bump without a
-`## [<version>]` heading in `CHANGELOG.md`. Merging a bump publishes and tags
-`v<version>` as a record; a docs-only merge finds nothing to do. The template
-carries a Postgres service block that only `managoat_oauth` keeps (the script
-strips it for the others) and action pins copied from `ci.yml`; Dependabot
-maintains them from there, and the checkout-pin trap from this repository
-applies: a Dependabot bump can move the SHA and leave the version comment
-behind, so trust the SHA.
-
-**What the script does not do: the Fountain-side PR.** One per library, opened
+**The Fountain-side PR.** One per library, opened
 only after the hex release exists and only after the previous library's PR has
 merged (two open at once conflict on `apps/fountain/mix.exs`, the Dockerfile
 and the table above):

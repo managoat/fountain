@@ -134,39 +134,7 @@ defmodule FountainWeb.Live.Hooks do
     socket
     |> assign_new(:current_path, fn -> "/" end)
     |> Phoenix.LiveView.attach_hook(:current_path, :handle_params, fn _params, uri, socket ->
-      capture_pageview(socket, uri)
       {:cont, assign(socket, :current_path, URI.parse(uri).path)}
     end)
-  end
-
-  # `$pageview` for the console, from the server.
-  #
-  # The console has no analytics snippet and is not getting one: it is an
-  # operator surface behind a login, the pages are LiveView, and a client
-  # library would be a third script tag to keep out of the CSP for data the
-  # server already has. This hook is where every authenticated console page
-  # passes, so page-level usage is covered without a single page knowing.
-  #
-  # Connected mounts only. `handle_params` runs twice for a full page load —
-  # once for the dead render, once over the socket — and counting both would
-  # double every pageview in the project.
-  defp capture_pageview(socket, uri) do
-    if connected?(socket) do
-      Fountain.Analytics.capture(
-        "$pageview",
-        socket.assigns[:current_user],
-        %{
-          "$current_url" => uri,
-          "$pathname" => URI.parse(uri).path,
-          "surface" => "console"
-        },
-        # Without this every console pageview geolocates to the deployment's
-        # own egress address — PostHog fills a missing `$ip` from wherever the
-        # batch came from, which for a server-side sink is a pod. `client_ip`
-        # is resolved at mount by `Audited.put_client_ip/1`, under the same
-        # trusted-proxy rule the audit trail and the rate limiter use.
-        request_ip: socket.assigns[:client_ip]
-      )
-    end
   end
 end

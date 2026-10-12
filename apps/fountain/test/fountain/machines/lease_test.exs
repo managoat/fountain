@@ -278,7 +278,7 @@ defmodule Fountain.Machines.LeaseTest do
     test "a terminal status carries its own terminated_at", ctx do
       assert {:ok, epoch} = Lease.claim(ctx.sandbox.id, ctx.node, @ttl_ms)
 
-      # `Billing.SandboxUsage` reads `terminated_at` as the end of the billed
+      # `Machines.Usage` reads `terminated_at` as the end of the billed
       # interval, and a writer that fails a machine never passes one. Without
       # this stamp `cas_update/3` would leave a retired sandbox reading as
       # still running, which is the bug `stamp_terminated_at/1` was written for.

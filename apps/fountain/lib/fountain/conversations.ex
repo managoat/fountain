@@ -207,7 +207,7 @@ defmodule Fountain.Conversations do
 
     :ok
   rescue
-    # Best-effort for the same reason `Billing.record_usage/5` rescues at this
+    # Best-effort for the same reason `Fountain.Usage.record_usage/5` rescues at this
     # choke point: the row is already committed, nearly every call site matches
     # `{:ok, _}` (ConversationServer's terminate path, `Accounts.Deletion`,
     # `SandboxReaper`), and a failed poke must not take down a caller that only
@@ -226,7 +226,7 @@ defmodule Fountain.Conversations do
   @doc false
   def record_sandbox_usage(was, %Sandbox{status: "ready"} = sandbox)
       when was in ["pending", "starting"] do
-    Fountain.Billing.record_usage(
+    Fountain.Usage.record_usage(
       sandbox.user_id,
       "sandbox_provisioned",
       sandbox.id,
@@ -241,7 +241,7 @@ defmodule Fountain.Conversations do
   # end of its own so the duration roll-up can subtract it from
   # sandbox_terminated's duration_ms instead of billing parked time (#665).
   def record_sandbox_usage("suspended", %Sandbox{status: "ready"} = sandbox) do
-    Fountain.Billing.record_usage(
+    Fountain.Usage.record_usage(
       sandbox.user_id,
       "sandbox_resumed",
       sandbox.id,
@@ -256,7 +256,7 @@ defmodule Fountain.Conversations do
   # roll-up can tell parked time apart from run time (#665).
   def record_sandbox_usage(was, %Sandbox{status: "suspended"} = sandbox)
       when was not in @billable_terminal do
-    Fountain.Billing.record_usage(
+    Fountain.Usage.record_usage(
       sandbox.user_id,
       "sandbox_suspended",
       sandbox.id,
@@ -275,7 +275,7 @@ defmodule Fountain.Conversations do
     # sides can be reconciled. `suspended` had to pass through `ready` to get
     # parked, so it is a completed provision, not a failed one.
     if was in ["pending", "starting"] do
-      Fountain.Billing.record_usage(
+      Fountain.Usage.record_usage(
         sandbox.user_id,
         "sandbox_provision_failed",
         sandbox.id,
@@ -291,7 +291,7 @@ defmodule Fountain.Conversations do
     # `failed` counts too: a sprite that died mid-provision still ran, and was
     # still billed by Sprites. Recording only clean terminations would
     # understate cost precisely when something is going wrong.
-    Fountain.Billing.record_usage(
+    Fountain.Usage.record_usage(
       sandbox.user_id,
       "sandbox_terminated",
       sandbox.id,
@@ -760,10 +760,7 @@ defmodule Fountain.Conversations do
   def unread?(_), do: false
 
   def create_conversation(attrs) do
-    with {:ok, conv} <- insert_conversation_row(attrs) do
-      after_conversation_created(conv)
-      {:ok, conv}
-    end
+    insert_conversation_row(attrs)
   end
 
   # The one place a conversation row is written. Admission writes it inside a
@@ -775,23 +772,6 @@ defmodule Fountain.Conversations do
   @doc false
   def insert_conversation_row(attrs) do
     %Conversation{} |> Conversation.changeset(attrs) |> Repo.insert()
-  end
-
-  # The account's first conversation is the request the verified landing handed
-  # over (ADR 0038), and this is the funnel's third step. It is deliberately
-  # *not* inside `insert_conversation_row/1`: a caller in a transaction must
-  # fire it after that transaction commits, so a rolled-back write reports no
-  # request. Every door that inserts a conversation calls it exactly once —
-  # `create_conversation/1`, `Fountain.Machines.Binding.attach/3` (the attach
-  # door since ADR 0058 stage 8b, `Launch.create_attached_conversation/3`
-  # before it), `reserve_initial_conversation/3` — and
-  # `conversation_creation_seam_test.exs` drives each of them and fails if one
-  # stops firing.
-  # A door for `Fountain.Conversations.Launch` (#2217); not part of the
-  # context's public surface.
-  @doc false
-  def after_conversation_created(%Conversation{} = conv) do
-    Fountain.Activation.conversation_created(conv)
   end
 
   @doc """
@@ -2084,7 +2064,7 @@ defmodule Fountain.Conversations do
         :ok
 
       user_id ->
-        Fountain.Billing.record_usage(user_id, "turn_started", turn.id, "turn", %{
+        Fountain.Usage.record_usage(user_id, "turn_started", turn.id, "turn", %{
           "conversation_id" => turn.conversation_id,
           "turn_number" => turn.turn_number
         })
@@ -2098,8 +2078,8 @@ defmodule Fountain.Conversations do
   completion and orphan reconciliation also materialize the reply in their
   transactions. A turn that already carries a `reply_text` keeps it.
 
-  The same write is where activation is decided (ADR 0038): a turn that ends
-  carrying a reply is handed to `Fountain.Activation.turn_replied/1`, which
+  The same write is where onboarding completes (ADR 0038): a turn that ends
+  carrying a reply is handed to `Fountain.Onboarding.turn_replied/1`, which
   does nothing unless it is the account's *first*. Same choke-point argument,
   same best-effort contract — it cannot fail this update.
   """
@@ -2118,7 +2098,7 @@ defmodule Fountain.Conversations do
     case result do
       {:ok, {updated, changeset}} ->
         if is_binary(Ecto.Changeset.get_change(changeset, :reply_text)) do
-          Fountain.Activation.turn_replied(updated)
+          Fountain.Onboarding.turn_replied(updated)
         end
 
         {:ok, updated}
@@ -2136,7 +2116,7 @@ defmodule Fountain.Conversations do
   terminal conversation is a no-op. An already-ended current turn can release
   its parent without announcing another terminal event. Reply materialization
   shares that transaction;
-  activation and sidebar publication run after it commits. The optional
+  the onboarding stamp and sidebar publication run after it commits. The optional
   `:exit_code` is persisted atomically with the result.
 
   Only the latest generation can idle a running parent, and a journal must
@@ -2189,7 +2169,7 @@ defmodule Fountain.Conversations do
         :noop
 
       {:ok, {updated, conv, reply_materialized?, announce?}} ->
-        if reply_materialized?, do: Fountain.Activation.turn_replied(updated)
+        if reply_materialized?, do: Fountain.Onboarding.turn_replied(updated)
         if idle?, do: broadcast_sidebar_update(conv.user_id)
         if announce?, do: {:ok, updated}, else: :noop
 
@@ -2331,7 +2311,7 @@ defmodule Fountain.Conversations do
 
       {:ok, {updated_turn, conv, conversation_changed?, bounded?}} ->
         if is_nil(turn.reply_text) and is_binary(updated_turn.reply_text) do
-          Fountain.Activation.turn_replied(updated_turn)
+          Fountain.Onboarding.turn_replied(updated_turn)
         end
 
         if conversation_changed?, do: broadcast_sidebar_update(conv.user_id)
@@ -2679,24 +2659,16 @@ defmodule Fountain.Conversations do
         event
 
       {:new, event} ->
-        notify_stage(event, meta)
+        notify_stage(event)
         Fountain.Webhooks.dispatch_stage(event)
         event
     end
   end
 
   @doc "Notify subscribers of an existing stage; deadline jobs may repeat its id."
-  def _unsafe_notify_stage(%LogEvent{kind: "stage"} = event) do
-    meta =
-      case Jason.decode(event.data) do
-        {:ok, meta} when is_map(meta) -> meta
-        _ -> %{}
-      end
+  def _unsafe_notify_stage(%LogEvent{kind: "stage"} = event), do: notify_stage(event)
 
-    notify_stage(event, meta)
-  end
-
-  defp notify_stage(event, meta) do
+  defp notify_stage(event) do
     conv_id = event.conversation_id
     stage = event.stage
     status = event.state
@@ -2709,58 +2681,7 @@ defmodule Fountain.Conversations do
 
     Phoenix.PubSub.broadcast(Fountain.PubSub, "conv:#{conv_id}", {:log_event, event})
 
-    mirror_stage_to_analytics(event, meta)
-
     event
-  end
-
-  # Which stage outcomes are product events, and why only these.
-  #
-  # Provisioning already reaches PostHog through `Billing.record_usage/5`
-  # (`usage.sandbox_provisioned` and friends), which carries the user id for
-  # free — mirroring it here as well would double-count the same fact. What
-  # metering does *not* have is how a turn ended, and "how many turns finished,
-  # and how many of those failed" is the single most useful thing this system
-  # can report about itself. The two failure stages join it because they are
-  # the ones that end an activation attempt.
-  @analytics_stages %{
-    {"turn", "done"} => true,
-    {"turn", "failed"} => true,
-    {"turn", "interrupted"} => true,
-    {"setup", "failed"} => true,
-    {"model", "failed"} => true
-  }
-
-  defp mirror_stage_to_analytics(event, meta) do
-    # `enabled?/0` first, before anything touches the database. This runs on
-    # the conversation hot path, and an instance with no PostHog key must not
-    # pay a query for a feature it has not turned on.
-    with true <- Fountain.Analytics.enabled?(),
-         true <- Map.has_key?(@analytics_stages, {event.stage, event.state}),
-         user_id when is_binary(user_id) <- conversation_user_id(event.conversation_id) do
-      Fountain.Analytics.capture(
-        "conversation.#{event.stage}.#{event.state}",
-        user_id,
-        meta
-        |> Fountain.Analytics.sanitize()
-        |> Map.merge(%{
-          "conversation_id" => event.conversation_id,
-          "source" => "conversation"
-        })
-      )
-    else
-      _ -> :ok
-    end
-  rescue
-    # Same contract as the webhook dispatch above it: a stage transition that
-    # raises is a stuck agent, and analytics is never worth that.
-    _ -> :ok
-  end
-
-  defp conversation_user_id(nil), do: nil
-
-  defp conversation_user_id(conversation_id) do
-    Repo.one(from c in Conversation, where: c.id == ^conversation_id, select: c.user_id)
   end
 
   @doc """

@@ -456,7 +456,7 @@ defmodule FountainWeb.AdminUsersLiveTest do
       user = insert_active_user()
 
       {:ok, _} =
-        Fountain.Billing.record_usage(user.id, "turn_started", nil, nil, %{
+        Fountain.Usage.record_usage(user.id, "turn_started", nil, nil, %{
           "conversation_id" => Ecto.UUID.generate()
         })
 

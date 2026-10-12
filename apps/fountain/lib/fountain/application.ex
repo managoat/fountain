@@ -21,7 +21,7 @@ defmodule Fountain.Application do
     end
 
     # Counts metering events this node drops, for /admin/finance (#1038).
-    Fountain.Billing.Reconciliation.attach_drop_counter()
+    Fountain.Usage.attach_drop_counter()
 
     # Extensions (ADR 0043, #1505). Raises on a duplicate id, a malformed or
     # duplicated API prefix, a prefix a core route already claims, or a
@@ -100,9 +100,7 @@ defmodule Fountain.Application do
         {DynamicSupervisor, name: Fountain.ExecutionTransportSupervisor, strategy: :one_for_one},
         FountainWeb.Plugs.RateLimit.Sweeper,
         Fountain.Conversations.Redaction,
-        Fountain.FeatureFlags.Cache,
         Fountain.LogThrottle.Table,
-        Fountain.Analytics.Sink,
         # Extensions may add cron entries (ADR 0043, #1507). Core-only, this is
         # the configured options untouched; nothing in config names a worker
         # module the release might not carry.

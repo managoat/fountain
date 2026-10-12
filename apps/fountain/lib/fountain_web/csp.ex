@@ -5,11 +5,10 @@ defmodule FountainWeb.CSP do
 
   `FountainWeb.Router`'s `@csp` is a compile-time attribute, so anything read
   from the environment in `config/runtime.exs` cannot appear in it: a release
-  would carry whatever the *build* saw, which is nothing. Two plugs widen it
-  per response instead — `FountainWeb.Plugs.WebAnalytics` for the PostHog
-  origins on the public pages, `FountainWeb.Plugs.BrandAssets` for the origin
-  a brand bundle is served from — and both go through here so the header has
-  one rewriter.
+  would carry whatever the *build* saw, which is nothing.
+  `FountainWeb.Plugs.BrandAssets` widens it per response instead, for the
+  origin a brand bundle is served from, through here so the header has one
+  rewriter.
   """
 
   import Plug.Conn

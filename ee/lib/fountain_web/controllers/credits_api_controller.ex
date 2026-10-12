@@ -50,7 +50,7 @@ defmodule FountainWeb.CreditsApiController do
   def show(conn, _params) do
     with :ok <- require_billing() do
       user = conn.assigns.current_user
-      period = Billing.month_range()
+      period = Fountain.Usage.month_range()
 
       render(conn, :show,
         user: user,

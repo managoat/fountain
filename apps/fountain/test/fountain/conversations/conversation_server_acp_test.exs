@@ -566,7 +566,7 @@ defmodule Fountain.Conversations.ConversationServerACPTest do
         before = :sys.get_state(ctx.pid)
         turns = Conversations._unsafe_list_turns(ctx.conv.id)
         conv = Fountain.Repo.reload!(ctx.conv)
-        usage_count = Fountain.Repo.aggregate(Fountain.Billing.UsageEvent, :count)
+        usage_count = Fountain.Repo.aggregate(Fountain.Usage.Event, :count)
         {_key, raw} = insert_api_key(Fountain.Accounts.get_user!(ctx.conv.user_id))
 
         expect(Horde.Registry, :lookup, fn Fountain.ConversationRegistry, id ->
@@ -596,7 +596,7 @@ defmodule Fountain.Conversations.ConversationServerACPTest do
         assert :sys.get_state(ctx.pid) == before
         assert Conversations._unsafe_list_turns(ctx.conv.id) == turns
         assert Fountain.Repo.reload!(ctx.conv) == conv
-        assert Fountain.Repo.aggregate(Fountain.Billing.UsageEvent, :count) == usage_count
+        assert Fountain.Repo.aggregate(Fountain.Usage.Event, :count) == usage_count
         refute_received :stdin_closed
         refute_received {:wrote, _}
 
@@ -672,7 +672,7 @@ defmodule Fountain.Conversations.ConversationServerACPTest do
         before = :sys.get_state(ctx.pid)
         turns = Conversations._unsafe_list_turns(ctx.conv.id)
         conv = Fountain.Repo.reload!(ctx.conv)
-        usage_count = Fountain.Repo.aggregate(Fountain.Billing.UsageEvent, :count)
+        usage_count = Fountain.Repo.aggregate(Fountain.Usage.Event, :count)
 
         ConversationServer.queue_initial_prompt(ctx.pid, "queued")
 
@@ -680,7 +680,7 @@ defmodule Fountain.Conversations.ConversationServerACPTest do
         assert :sys.get_state(ctx.pid) == before
         assert Conversations._unsafe_list_turns(ctx.conv.id) == turns
         assert Fountain.Repo.reload!(ctx.conv) == conv
-        assert Fountain.Repo.aggregate(Fountain.Billing.UsageEvent, :count) == usage_count
+        assert Fountain.Repo.aggregate(Fountain.Usage.Event, :count) == usage_count
         refute_received :stdin_closed
         refute_received {:wrote, _}
 

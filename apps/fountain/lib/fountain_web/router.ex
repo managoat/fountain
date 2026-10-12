@@ -45,14 +45,6 @@ defmodule FountainWeb.Router do
   # at render time (#323). What it does pin down: no framing, no <object>,
   # no off-origin form posts, fetch/websocket restricted to self + the LV
   # socket, images to self + the data: URLs the image picker and avatars use.
-  #
-  # This is the console's policy, and it names no PostHog origin — the console
-  # loads no analytics script (`FountainWeb.Plugs.WebAnalytics`), so it has no
-  # business permitting one. The public pages, which do load it, get those two
-  # origins appended at runtime by that same plug: `POSTHOG_HOST` is read in
-  # `config/runtime.exs`, so a compile-time entry here would carry whatever
-  # the *build* saw — for a release, nothing — and would block every
-  # self-hosted PostHog behind a header that looked correct in the source.
   @csp [
          "default-src 'self'",
          "base-uri 'self'",
@@ -77,23 +69,11 @@ defmodule FountainWeb.Router do
     # After the policy is set: widens img-src with the brand bundle's origin
     # (BRAND_ASSETS_URL), which is read at runtime and so cannot be in @csp.
     plug FountainWeb.Plugs.BrandAssets
-    # After :fetch_session — it reads the session on both sides of the
-    # request to spot a sign-in. On every browser route on purpose: the merge
-    # has to happen wherever a session is established, and five controllers do
-    # that today.
-    plug FountainWeb.Plugs.AnalyticsIdentity
   end
 
   # Public browser routes (login, register, verify) — no auth check
   pipeline :browser_public do
     # intentionally empty; inherits :browser
-  end
-
-  # The public, unauthenticated surface: the landing and legal pages, the
-  # manual, and the auth flow. The only routes that load the PostHog browser
-  # snippet — see FountainWeb.Plugs.WebAnalytics for why the console does not.
-  pipeline :public_analytics do
-    plug FountainWeb.Plugs.WebAnalytics
   end
 
   # Authenticated browser routes — loads current_user from session
@@ -156,7 +136,7 @@ defmodule FountainWeb.Router do
   # pages (managoat/site) sit in front of these paths at the ingress; the app
   # itself serves a plain front door at `/` everywhere.
   scope "/", FountainWeb do
-    pipe_through [:browser, :browser_optional_auth, :public_analytics]
+    pipe_through [:browser, :browser_optional_auth]
     get "/", FrontDoorController, :home
     get "/terms", FrontDoorController, :terms
     get "/privacy", FrontDoorController, :privacy
@@ -169,7 +149,7 @@ defmodule FountainWeb.Router do
 
   # Multi-tenant auth routes (no session auth required)
   scope "/auth", FountainWeb do
-    pipe_through [:browser, :public_analytics]
+    pipe_through [:browser]
 
     get "/login", SessionController, :new
     post "/login", SessionController, :create
@@ -194,7 +174,7 @@ defmodule FountainWeb.Router do
 
   # Email verification (token in path)
   scope "/users", FountainWeb do
-    pipe_through [:browser, :public_analytics]
+    pipe_through [:browser]
     get "/confirm/:token", EmailVerificationController, :confirm
   end
 

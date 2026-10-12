@@ -92,9 +92,9 @@ config :stripity_stripe, webhook_secret: "whsec_test_signing_secret"
 # ExUnit tests don't share counters. Each test runs in its own process.
 config :fountain, :rate_limit_test_isolation, true
 
-# The funnel telemetry poller queries the DB outside any test's SQL Sandbox
-# ownership; keep it off here (Fountain.Funnel is tested directly).
-config :fountain, :funnel_poller_enabled, false
+# The gauge telemetry poller queries the DB outside any test's SQL Sandbox
+# ownership; keep it off here (Fountain.OpsGauges is tested directly).
+config :fountain, :gauge_poller_enabled, false
 
 # Managoat.Sandbox.Retry sleeps between attempts; 1ms keeps retry-path tests
 # fast without changing the retry logic under test.
@@ -137,11 +137,6 @@ config :fountain, Fountain.OAuth,
 # runner tests switch it on explicitly.
 config :fountain, :runners_enabled, false
 
-# The PostHog flag lookup goes to a Req.Test plug, so a test that forgets to
-# stub fails loudly instead of reaching PostHog. A flag stays off (no
-# override, no PostHog key) until a test flips `:feature_flag_overrides`.
-config :fountain, :posthog_req_options, plug: {Req.Test, Fountain.FeatureFlags}
-
 # Connections (#1178, #1299): every platform OAuth client set so the flows
 # are "configured", and Req.Test plugs so no test reaches a provider: an
 # unstubbed call fails loudly.
@@ -171,15 +166,6 @@ config :managoat_mcp_auth, :allow_private_hosts, true
 # Req.Test plug, so a test that forgets to stub it fails rather than dialling
 # out. Under its own otp_app, like every extension key.
 config :fountain_google, :req_options, plug: {Req.Test, FountainGoogle.Gmail}
-
-# Product analytics (`Fountain.Analytics`). Capture is inert without a project
-# API key, which the suite deliberately does not set — so the default here is
-# "nothing is sent", and a test that wants to assert on a payload sets the key
-# and stubs the plug. `:inline` sends from the calling process so the stub is
-# owned by the test that installed it, exactly as the flag lookup is.
-config :fountain, :analytics_mode, :inline
-config :fountain, :analytics_req_options, plug: {Req.Test, Fountain.Analytics}
-config :fountain, :analytics_instance, "test"
 
 # Webhooks (#700). Every delivery goes to a Req.Test plug, so a test that
 # forgets to stub fails loudly instead of reaching a real receiver. `http://`

@@ -1,6 +1,6 @@
 defmodule Fountain.OpsGaugesTest do
   # #321: conversation/sandbox count gauges and Oban queue metrics. The
-  # poller is off in test (funnel_poller_enabled: false), so these call
+  # poller is off in test (gauge_poller_enabled: false), so these call
   # emit_telemetry/0 directly — the same function the poller invokes.
   use Fountain.DataCase, async: false
 

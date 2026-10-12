@@ -34,7 +34,7 @@ defmodule Fountain.Machines.DestroyForcedTest do
   alias Fountain.Accounts.Deletion
   alias Fountain.Agents
   alias Fountain.Audit
-  alias Fountain.Billing.UsageEvent
+  alias Fountain.Usage.Event, as: UsageEvent
   alias Fountain.Conversations
   alias Fountain.Conversations.Lifecycle
   alias Fountain.Conversations.ConversationServer

@@ -1,7 +1,7 @@
 defmodule Fountain.Billing.Reconciliation do
   @moduledoc """
   Computed spend held next to what the provider actually charged (#1038
-  step 1), and the count of metering events this node has dropped (step 2).
+  step 1). The count of dropped metering events is `Fountain.Usage`'s.
 
   `Finance.summary/1` is a plausible number with an unknown error until a
   real invoice sits beside it. `record_invoice/2` stores one per provider
@@ -105,44 +105,5 @@ defmodule Fountain.Billing.Reconciliation do
       seconds = if(card.basis == :turn, do: totals.busy_seconds, else: totals.active_seconds)
       {provider, Finance.provider_cost_cents(seconds, provider, card)}
     end)
-  end
-
-  @doc """
-  Metering events dropped on this node since it booted (`[:fountain, :usage,
-  :dropped]`). A non-zero count means the period's figures rest on an
-  incomplete record. Per node and since boot — a fleet-wide, durable count is
-  what a metric backend is for; this is the number that belongs beside the
-  figures it undermines.
-  """
-  @spec dropped_on_this_node() :: non_neg_integer()
-  def dropped_on_this_node do
-    case :persistent_term.get({__MODULE__, :dropped}, nil) do
-      nil -> 0
-      ref -> :counters.get(ref, 1)
-    end
-  end
-
-  @doc false
-  def attach_drop_counter do
-    ref = :counters.new(1, [:write_concurrency])
-    :persistent_term.put({__MODULE__, :dropped}, ref)
-
-    :telemetry.attach(
-      "fountain-usage-dropped-counter",
-      [:fountain, :usage, :dropped],
-      &__MODULE__.handle_drop/4,
-      ref
-    )
-  end
-
-  @doc false
-  def handle_drop(_event, %{count: n}, _meta, ref), do: :counters.add(ref, 1, n)
-
-  @doc false
-  def reset_drop_counter do
-    case :persistent_term.get({__MODULE__, :dropped}, nil) do
-      nil -> :ok
-      ref -> :counters.put(ref, 1, 0)
-    end
   end
 end

@@ -58,7 +58,7 @@ defmodule Fountain.OpsGauges do
 
   # How many sandboxes are costing money on each provider right now — the live
   # counterpart to the after-the-fact roll-up in
-  # `Fountain.Billing.SandboxUsage`, and the series to watch when a provider
+  # `Fountain.Machines.Usage`, and the series to watch when a provider
   # bill moves. Deliberately not tagged by tenant: attribution belongs in the
   # database report, where a per-user dimension is a column rather than a new
   # Prometheus series per account.

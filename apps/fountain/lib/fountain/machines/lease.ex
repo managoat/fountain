@@ -693,7 +693,7 @@ defmodule Fountain.Machines.Lease do
   # Fills `terminated_at` on the way into a terminal status, as
   # `Fountain.Conversations.stamp_terminated_at/1` did for `update_sandbox/2`
   # until stage 9b deleted both; this is the only copy now, and it has a
-  # billing consequence: `Billing.SandboxUsage` reads `terminated_at` as the end of the billed
+  # billing consequence: `Machines.Usage` reads `terminated_at` as the end of the billed
   # interval, and of the writers of a terminal status the ones that *fail* a
   # machine never pass a timestamp — which once left every failed sandbox
   # reading as still running. `cas_update/3` is another such writer.

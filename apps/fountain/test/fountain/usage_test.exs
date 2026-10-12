@@ -1,9 +1,8 @@
-defmodule Fountain.BillingTest do
+defmodule Fountain.UsageTest do
   use Fountain.DataCase, async: true
-  use Mimic
 
-  alias Fountain.Billing
-  alias Fountain.Billing.UsageEvent
+  alias Fountain.Usage
+  alias Fountain.Usage.Event, as: UsageEvent
   alias Fountain.Repo
 
   describe "usage_summary/3" do
@@ -15,7 +14,7 @@ defmodule Fountain.BillingTest do
     end
 
     test "returns zeros when no events exist", %{user: user} do
-      summary = Billing.usage_summary(user.id, @period_start, @period_end)
+      summary = Usage.usage_summary(user.id, @period_start, @period_end)
 
       assert summary.conversations == 0
       assert summary.turns == 0
@@ -31,30 +30,17 @@ defmodule Fountain.BillingTest do
       insert_event(user, "turn_started", ~U[2026-05-10 12:05:00Z], %{"conversation_id" => c1})
       insert_event(user, "turn_started", ~U[2026-05-12 12:10:00Z], %{"conversation_id" => c2})
 
-      summary = Billing.usage_summary(user.id, @period_start, @period_end)
+      summary = Usage.usage_summary(user.id, @period_start, @period_end)
 
       assert summary.conversations == 2
       assert summary.turns == 3
-    end
-
-    test "credit_burned_cents is what the ledger took in the window", %{user: user} do
-      {:ok, _} =
-        Fountain.Credits.debit(user.id, 40, "burn_turn", idempotency_key: "in-#{user.id}")
-
-      {:ok, _} =
-        Fountain.Credits.debit(user.id, 7, "burn_inference", idempotency_key: "in2-#{user.id}")
-
-      now = DateTime.utc_now()
-      %{start: s, end: e} = Billing.month_range(0, now: now)
-      assert Billing.usage_summary(user.id, s, e).credit_burned_cents == 47
-      assert Billing.usage_summary(user.id, @period_start, @period_end).credit_burned_cents == 0
     end
 
     test "sums the sandboxes' active time into sandbox_minutes", %{user: user} do
       terminated_sandbox(user, "sprites", ~U[2026-05-10 12:00:00Z], ~U[2026-05-10 12:01:00Z])
       terminated_sandbox(user, "sprites", ~U[2026-05-10 12:30:00Z], ~U[2026-05-10 12:32:00Z])
 
-      summary = Billing.usage_summary(user.id, @period_start, @period_end)
+      summary = Usage.usage_summary(user.id, @period_start, @period_end)
 
       assert summary.sandbox_minutes == 3.0
     end
@@ -65,7 +51,7 @@ defmodule Fountain.BillingTest do
       # Exactly at period_end - excluded (query uses `< ^period_end`)
       insert_event(user, "turn_started", ~U[2026-06-01 00:00:00Z], %{"conversation_id" => "b"})
 
-      summary = Billing.usage_summary(user.id, @period_start, @period_end)
+      summary = Usage.usage_summary(user.id, @period_start, @period_end)
 
       assert summary.conversations == 0
       assert summary.turns == 0
@@ -76,30 +62,30 @@ defmodule Fountain.BillingTest do
   describe "month_range/2" do
     test "is half-open: the last second of the month is inside it" do
       now = ~U[2026-02-14 12:00:00Z]
-      %{start: s, end: e} = Billing.month_range(0, now: now)
+      %{start: s, end: e} = Usage.month_range(0, now: now)
       assert s == ~U[2026-02-01 00:00:00Z]
       assert e == ~U[2026-03-01 00:00:00Z]
       assert DateTime.compare(~U[2026-02-28 23:59:59Z], e) == :lt
 
       assert %{start: ~U[2025-12-01 00:00:00Z], end: ~U[2026-01-01 00:00:00Z]} =
-               Billing.month_range(2, now: now)
+               Usage.month_range(2, now: now)
 
-      {ts, te} = Billing.current_month_range()
+      {ts, te} = Usage.current_month_range()
       assert ts.day == 1 and te.day == 1 and te.hour == 0
     end
 
     test "usage_summary/3 counts an event in the month's last second" do
       user = insert_verified_user()
-      %{start: s, end: e} = Billing.month_range(0, now: ~U[2026-02-14 12:00:00Z])
+      %{start: s, end: e} = Usage.month_range(0, now: ~U[2026-02-14 12:00:00Z])
 
       {:ok, _} =
-        Billing.record_usage(user.id, "turn_started", Ecto.UUID.generate(), "conversation")
+        Usage.record_usage(user.id, "turn_started", Ecto.UUID.generate(), "conversation")
 
-      Repo.update_all(Fountain.Billing.UsageEvent,
+      Repo.update_all(Fountain.Usage.Event,
         set: [inserted_at: ~U[2026-02-28 23:59:59Z]]
       )
 
-      assert Billing.usage_summary(user.id, s, e).turns == 1
+      assert Usage.usage_summary(user.id, s, e).turns == 1
     end
   end
 
@@ -112,7 +98,7 @@ defmodule Fountain.BillingTest do
       resource_id = Ecto.UUID.generate()
 
       assert {:ok, event} =
-               Billing.emit(user.id, "sandbox_provisioned", resource_id, "sandbox", %{
+               Usage.emit(user.id, "sandbox_provisioned", resource_id, "sandbox", %{
                  "foo" => "bar"
                })
 
@@ -127,14 +113,14 @@ defmodule Fountain.BillingTest do
     test "metadata defaults to %{} when called with arity 4", %{user: user} do
       resource_id = Ecto.UUID.generate()
 
-      assert {:ok, event} = Billing.emit(user.id, "turn_started", resource_id, "conversation")
+      assert {:ok, event} = Usage.emit(user.id, "turn_started", resource_id, "conversation")
 
       assert event.metadata == %{}
     end
 
     test "emitted event is queryable from the DB", %{user: user} do
       assert {:ok, event} =
-               Billing.emit(user.id, "sandbox_terminated", nil, nil, %{"duration_ms" => 30_000})
+               Usage.emit(user.id, "sandbox_terminated", nil, nil, %{"duration_ms" => 30_000})
 
       persisted = Repo.get!(UsageEvent, event.id)
       assert persisted.user_id == user.id
@@ -146,34 +132,8 @@ defmodule Fountain.BillingTest do
       nonexistent_user_id = Ecto.UUID.generate()
 
       assert_raise Ecto.ConstraintError, ~r/usage_events_user_id_fkey/, fn ->
-        Billing.emit(nonexistent_user_id, "sandbox_provisioned", nil, nil)
+        Usage.emit(nonexistent_user_id, "sandbox_provisioned", nil, nil)
       end
-    end
-  end
-
-  describe "create_stripe_customer/1" do
-    test "on Stripe success: stores stripe_customer_id on the user" do
-      user = insert_verified_user()
-
-      stub(Stripe.Customer, :create, fn _attrs ->
-        {:ok, %Stripe.Customer{id: "cus_new123"}}
-      end)
-
-      assert {:ok, updated_user} = Billing.create_stripe_customer(user)
-      assert updated_user.stripe_customer_id == "cus_new123"
-    end
-
-    test "on Stripe error: returns {:error, reason} without modifying the user" do
-      user = insert_verified_user()
-
-      stub(Stripe.Customer, :create, fn _attrs ->
-        {:error, %Stripe.Error{message: "card declined", source: :stripe, code: :card_declined}}
-      end)
-
-      assert {:error, %Stripe.Error{}} = Billing.create_stripe_customer(user)
-
-      unchanged = Repo.get!(Fountain.Accounts.User, user.id)
-      assert unchanged.stripe_customer_id == nil
     end
   end
 
@@ -189,7 +149,7 @@ defmodule Fountain.BillingTest do
       terminated_sandbox(user, "sprites", ~U[2026-05-10 12:00:00Z], ~U[2026-05-10 12:10:00Z])
       terminated_sandbox(user, "e2b", ~U[2026-05-11 12:00:00Z], ~U[2026-05-11 12:05:00Z])
 
-      summary = Billing.usage_summary(user.id, @period_start, @period_end)
+      summary = Usage.usage_summary(user.id, @period_start, @period_end)
 
       assert summary.sandbox_minutes_by_provider == %{"sprites" => 10.0, "e2b" => 5.0}
     end
@@ -198,7 +158,7 @@ defmodule Fountain.BillingTest do
       terminated_sandbox(user, "sprites", ~U[2026-05-10 12:00:00Z], ~U[2026-05-10 12:10:00Z])
       terminated_sandbox(user, "daytona", ~U[2026-05-11 12:00:00Z], ~U[2026-05-11 12:07:00Z])
 
-      summary = Billing.usage_summary(user.id, @period_start, @period_end)
+      summary = Usage.usage_summary(user.id, @period_start, @period_end)
 
       assert summary.sandbox_minutes == 17.0
 
@@ -207,7 +167,7 @@ defmodule Fountain.BillingTest do
     end
 
     test "is empty for a tenant with no sandbox time", %{user: user} do
-      summary = Billing.usage_summary(user.id, @period_start, @period_end)
+      summary = Usage.usage_summary(user.id, @period_start, @period_end)
 
       assert summary.sandbox_minutes == 0.0
       assert summary.sandbox_minutes_by_provider == %{}
@@ -223,7 +183,7 @@ defmodule Fountain.BillingTest do
         inserted_at: ~U[2026-05-31 23:00:00Z]
       )
 
-      summary = Billing.usage_summary(user.id, @period_start, @period_end)
+      summary = Usage.usage_summary(user.id, @period_start, @period_end)
 
       assert summary.sandbox_minutes == 60.0
     end
@@ -235,37 +195,9 @@ defmodule Fountain.BillingTest do
       insert_event(user, "sandbox_suspended", ~U[2026-05-10 12:20:00Z], %{}, sandbox.id)
       insert_event(user, "sandbox_resumed", ~U[2026-05-10 12:50:00Z], %{}, sandbox.id)
 
-      summary = Billing.usage_summary(user.id, @period_start, @period_end)
+      summary = Usage.usage_summary(user.id, @period_start, @period_end)
 
       assert summary.sandbox_minutes == 30.0
-    end
-  end
-
-  describe "comp_account/2 and revoke_comp/2" do
-    test "comps an account: the balance is never checked, and nothing is cancelled upstream" do
-      user = insert_verified_user()
-      refute user.comped
-
-      assert {:ok, updated} = Billing.comp_account(user)
-      assert updated.comped
-      assert Billing.check_spend(updated) == :ok
-      assert {:ok, ^updated} = Billing.comp_account(updated)
-
-      [event] =
-        Fountain.Audit.list_recent_for_user(user.id, 20)
-        |> Enum.filter(&(&1.action == "billing.comp.granted"))
-
-      assert event.metadata == %{"from" => false, "to" => true}
-    end
-
-    test "revoke_comp checks the balance again, and refuses an account that was not comped" do
-      user = insert_verified_user()
-      {:ok, comped} = Billing.comp_account(user)
-
-      assert {:ok, updated} = Billing.revoke_comp(comped)
-      refute updated.comped
-      assert {:error, :insufficient_credits} = Billing.check_spend(updated)
-      assert {:error, :not_comped} = Billing.revoke_comp(updated)
     end
   end
 
@@ -276,16 +208,16 @@ defmodule Fountain.BillingTest do
       quiet = insert_verified_user()
 
       c = Ecto.UUID.generate()
-      {:ok, _} = Billing.record_usage(a.id, "sandbox_provisioned", nil, nil)
-      {:ok, _} = Billing.record_usage(a.id, "turn_started", nil, nil, %{"conversation_id" => c})
-      {:ok, _} = Billing.record_usage(a.id, "turn_started", nil, nil, %{"conversation_id" => c})
-      {:ok, _} = Billing.record_usage(b.id, "turn_started", nil, nil, %{"conversation_id" => c})
+      {:ok, _} = Usage.record_usage(a.id, "sandbox_provisioned", nil, nil)
+      {:ok, _} = Usage.record_usage(a.id, "turn_started", nil, nil, %{"conversation_id" => c})
+      {:ok, _} = Usage.record_usage(a.id, "turn_started", nil, nil, %{"conversation_id" => c})
+      {:ok, _} = Usage.record_usage(b.id, "turn_started", nil, nil, %{"conversation_id" => c})
 
       now = DateTime.utc_now() |> DateTime.truncate(:second)
 
       terminated_sandbox(a, "sprites", DateTime.add(now, -2, :minute), now)
 
-      summaries = Billing.usage_summaries(DateTime.add(now, -1, :day), DateTime.add(now, 1, :day))
+      summaries = Usage.usage_summaries(DateTime.add(now, -1, :day), DateTime.add(now, 1, :day))
 
       assert summaries[a.id] == %{
                conversations: 1,
@@ -312,13 +244,13 @@ defmodule Fountain.BillingTest do
       a = insert_verified_user()
       c = Ecto.UUID.generate()
 
-      {:ok, _} = Billing.record_usage(a.id, "sandbox_provisioned", nil, nil)
-      {:ok, _} = Billing.record_usage(a.id, "sandbox_provision_failed", nil, nil)
-      {:ok, _} = Billing.record_usage(a.id, "turn_started", nil, nil, %{"conversation_id" => c})
-      {:ok, _} = Billing.record_usage(a.id, "turn_started", nil, nil, %{"conversation_id" => c})
+      {:ok, _} = Usage.record_usage(a.id, "sandbox_provisioned", nil, nil)
+      {:ok, _} = Usage.record_usage(a.id, "sandbox_provision_failed", nil, nil)
+      {:ok, _} = Usage.record_usage(a.id, "turn_started", nil, nil, %{"conversation_id" => c})
+      {:ok, _} = Usage.record_usage(a.id, "turn_started", nil, nil, %{"conversation_id" => c})
 
       now = DateTime.utc_now()
-      summaries = Billing.usage_summaries(DateTime.add(now, -1, :day), DateTime.add(now, 1, :day))
+      summaries = Usage.usage_summaries(DateTime.add(now, -1, :day), DateTime.add(now, 1, :day))
 
       assert summaries[a.id].conversations == 1
       assert summaries[a.id].turns == 2
@@ -339,7 +271,7 @@ defmodule Fountain.BillingTest do
       terminated_sandbox(b, "sprites", ~U[2026-05-10 12:00:00Z], ~U[2026-05-10 13:00:00Z])
 
       summaries =
-        Billing.usage_summaries(~U[2026-05-01 00:00:00Z], ~U[2026-06-01 00:00:00Z])
+        Usage.usage_summaries(~U[2026-05-01 00:00:00Z], ~U[2026-06-01 00:00:00Z])
 
       assert summaries[a.id].sandbox_minutes == 30.0
       assert summaries[b.id].sandbox_minutes == 60.0
@@ -351,7 +283,7 @@ defmodule Fountain.BillingTest do
       terminated_sandbox(a, "sprites", ~U[2026-05-10 12:00:00Z], ~U[2026-05-10 12:10:00Z])
       terminated_sandbox(a, "runner", ~U[2026-05-10 12:00:00Z], ~U[2026-05-10 12:04:00Z])
 
-      summaries = Billing.usage_summaries(~U[2026-05-01 00:00:00Z], ~U[2026-06-01 00:00:00Z])
+      summaries = Usage.usage_summaries(~U[2026-05-01 00:00:00Z], ~U[2026-06-01 00:00:00Z])
 
       assert summaries[a.id].sandbox_minutes_by_provider == %{
                "sprites" => 10.0,

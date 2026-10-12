@@ -58,7 +58,7 @@ defmodule FountainWeb.CreditsApiControllerTest do
     } do
       # Turn hours, not sandbox minutes: an hour with a prompt in flight.
       now = DateTime.utc_now() |> DateTime.truncate(:second)
-      {period_start, _} = Fountain.Billing.current_month_range()
+      {period_start, _} = Fountain.Usage.current_month_range()
       started = Enum.max([DateTime.add(now, -30, :minute), period_start], DateTime)
 
       sandbox =
@@ -104,7 +104,7 @@ defmodule FountainWeb.CreditsApiControllerTest do
       key: key
     } do
       now = DateTime.utc_now() |> DateTime.truncate(:second)
-      {period_start, _} = Fountain.Billing.current_month_range()
+      {period_start, _} = Fountain.Usage.current_month_range()
       started = Enum.max([DateTime.add(now, -30, :minute), period_start], DateTime)
 
       insert_sandbox(
@@ -129,7 +129,7 @@ defmodule FountainWeb.CreditsApiControllerTest do
       # Which provider ran the minutes is what makes them attributable to a
       # cost: a minute on each is bought at a different price.
       now = DateTime.utc_now() |> DateTime.truncate(:second)
-      {period_start, _} = Fountain.Billing.current_month_range()
+      {period_start, _} = Fountain.Usage.current_month_range()
 
       # Clamped to the month the endpoint reports on, so the run is ten minutes
       # long every day except the first ten minutes of a month, when it is

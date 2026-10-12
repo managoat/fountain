@@ -61,7 +61,7 @@ defmodule Fountain.Machines.ProvisionTest do
 
   defp usage_events(ctx) do
     Repo.all(
-      from e in Fountain.Billing.UsageEvent,
+      from e in Fountain.Usage.Event,
         where: e.resource_id == ^ctx.sandbox.id,
         select: e.event_type,
         order_by: e.id
@@ -623,7 +623,7 @@ defmodule Fountain.Machines.ProvisionTest do
 
       assert [failure] =
                Repo.all(
-                 from e in Fountain.Billing.UsageEvent,
+                 from e in Fountain.Usage.Event,
                    where:
                      e.resource_id == ^ctx.sandbox.id and
                        e.event_type == "sandbox_provision_failed",
@@ -1266,7 +1266,7 @@ defmodule Fountain.Machines.ProvisionTest do
 
   defp discard(%{user: user, sandbox: sandbox}) do
     Repo.delete_all(from e in Fountain.Audit.Event, where: e.user_id == ^user.id)
-    Repo.delete_all(from e in Fountain.Billing.UsageEvent, where: e.user_id == ^user.id)
+    Repo.delete_all(from e in Fountain.Usage.Event, where: e.user_id == ^user.id)
     Repo.delete!(sandbox)
     Repo.delete!(user)
   end

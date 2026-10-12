@@ -169,10 +169,9 @@ services:
       # error. `rationed_features/0` names them and a test now holds this list
       # against it.
       #
-      # FEATURE_FLAGS_ON is the no-PostHog path: a comma-separated list of flag
-      # keys forced on for every user. Nothing shipped needs one today —
-      # openai_compat did until ADR 0057 retired the OpenAI-compatible API,
-      # and the broker below is turned on by its own port variable.
+      # FEATURE_FLAGS_ON: a comma-separated list of flag keys turned on for
+      # every user (`chatgpt_subscriptions` to allow linking a ChatGPT
+      # subscription). The broker below is turned on by its own port variable.
       FEATURE_FLAGS_ON: ${FEATURE_FLAGS_ON:-}
 
       # Brokered credentials (ADR 0019): the real token never enters the

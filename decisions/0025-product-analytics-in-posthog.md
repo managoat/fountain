@@ -1,11 +1,11 @@
 ---
 type: ADR
 title: "Product analytics in PostHog, from choke points already in the code"
-description: "Product events go to PostHog from Audit.record/1, Billing.record_usage/5 and Conversations.publish_stage/4 rather than from instrumented call sites; capture is off without a project key, best-effort, and carries no secret values, prompts or agent output."
+description: "Retired 2026-10-12: PostHog product analytics removed when Fountain became self-hosted only. Product events go to PostHog from Audit.record/1, Billing.record_usage/5 and Conversations.publish_stage/4 rather than from instrumented call sites; capture is off without a project key, best-effort, and carries no secret values, prompts or agent output."
 tags: [observability, analytics, privacy]
-status: stable
+status: deprecated
 adr: "0025"
-adr_status: "Accepted"
+adr_status: "Retired"
 date: 2026-08-22
 generated: { by: human:jhgaylor, at: 2026-08-22T04:00:00-04:00 }
 verified: { by: human:jhgaylor, at: 2026-08-22T04:00:00-04:00 }
@@ -13,7 +13,7 @@ verified: { by: human:jhgaylor, at: 2026-08-22T04:00:00-04:00 }
 
 # 0025 — Product analytics in PostHog, from choke points already in the code
 
-**Status:** Accepted. Everything described here is built. `Fountain.Analytics`,
+**Status:** Retired 2026-10-12; see the addendum at the end. The text above the addendum is history. Was: Accepted. Everything described here is built. `Fountain.Analytics`,
 `Fountain.Analytics.Sink`, the three bridges and the config switches are in
 `apps/fountain/lib/fountain/analytics*` and covered by
 `analytics_test.exs`, `analytics_bridges_test.exs`, `analytics/sink_test.exs`
@@ -171,3 +171,23 @@ with no client address now sets `$geoip_disable` instead.
   measures, and a queue of unsent events is not worth keeping.
 - **Extend `Fountain.Funnel` instead.** It answers one question well. Adding
   retention, cohorts and per-page usage to it means building PostHog.
+
+## Addendum — 2026-10-12: retired
+
+Fountain is no longer sold as a hosted service. It is a self-hosted
+application, and the product analytics this ADR set up existed to measure a
+hosted growth goal. They were removed, along with the PostHog dependency.
+
+- `Fountain.Analytics` and `Fountain.Analytics.Sink` are deleted, and so is
+  every capture: the mirror in `Fountain.Audit.record/1`, the `usage.` mirror
+  in what was `Billing.record_usage/5` (now `Fountain.Usage.record_usage/5`,
+  which writes `usage_events` and nothing else), the stage mirror in
+  `Conversations.publish_stage/4`, the console `$pageview` hook and the
+  `$feature_flag_called` and `$identify` events.
+- `POSTHOG_PROJECT_API_KEY`, `POSTHOG_HOST`, `POSTHOG_CAPTURE`,
+  `POSTHOG_PERSON_PII` and `POSTHOG_INSTANCE` are no longer read.
+- `Fountain.FeatureFlags` no longer asks PostHog. A flag is on or off for the
+  whole deployment, from `FEATURE_FLAGS_ON` and each flag's default.
+
+The audit trail (ADR 0013) and the Prometheus metrics are unchanged, and are
+what an operator reads instead.

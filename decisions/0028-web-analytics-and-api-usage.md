@@ -1,11 +1,11 @@
 ---
 type: ADR
 title: "Web analytics from the public pages, API usage as one event, and an end to the datacentre geolocation"
-description: "posthog-js on the public browser surface only (the console stays snippet-free and server-captured), the anonymous visitor merged into the account at sign-in from the server, the :api pipeline's request log captured as a single api.request event with route as a property, and $ip replaced by an explicit $geoip_disable."
+description: "Retired 2026-10-12: the posthog-js snippet and the sign-in merge were removed with ADR 0025. posthog-js on the public browser surface only (the console stays snippet-free and server-captured), the anonymous visitor merged into the account at sign-in from the server, the :api pipeline's request log captured as a single api.request event with route as a property, and $ip replaced by an explicit $geoip_disable."
 tags: [observability, analytics, privacy, api]
-status: stable
+status: deprecated
 adr: "0028"
-adr_status: "Accepted"
+adr_status: "Retired"
 date: 2026-08-23
 generated: { by: human:jhgaylor, at: 2026-08-23T03:00:00-04:00 }
 verified: { by: human:jhgaylor, at: 2026-08-23T03:00:00-04:00 }
@@ -13,7 +13,7 @@ verified: { by: human:jhgaylor, at: 2026-08-23T03:00:00-04:00 }
 
 # 0028 — Web analytics from the public pages, API usage as one event, and an end to the datacentre geolocation
 
-**Status:** Accepted. Everything described here is built:
+**Status:** Retired 2026-10-12; see the addendum at the end. The text above the addendum is history. Was: Accepted. Everything described here is built:
 `FountainWeb.Plugs.WebAnalytics`, `FountainWeb.Plugs.AnalyticsIdentity`,
 `Fountain.Analytics.browser_config/0`, `alias_anonymous/2`, `api_request/1`,
 the `api.request` branch in `Fountain.Audit`, and the runtime CSP in
@@ -286,3 +286,18 @@ and this one had not been checked.
 
 ADR 0025 §"the request log is not a product event" carries the same
 "permanently" and inherits this correction.
+
+## Addendum — 2026-10-12: retired
+
+Retired with [ADR 0025](0025-product-analytics-in-posthog.md), when Fountain
+became a self-hosted application. The public pages load no third-party script
+and nothing is recorded.
+
+- `FountainWeb.Plugs.WebAnalytics`, `FountainWeb.Plugs.AnalyticsIdentity`, the
+  `:public_analytics` pipeline and the posthog-js snippet in the root layout
+  are deleted. The Content Security Policy is the router's `@csp` everywhere,
+  widened only by `FountainWeb.Plugs.BrandAssets`.
+- `POSTHOG_BROWSER_CAPTURE` is no longer read.
+- The audit plug still records the route pattern rather than the request path.
+  That rule never depended on PostHog: the pattern is the only groupable value
+  in the trail.

@@ -25,23 +25,13 @@ defmodule FountainWeb.StartLive do
   `Conversations` broadcasts `sidebar:<user_id>` on every log event and every
   conversation change — the same topic the console's sidebar counts on. The
   page subscribes to it and, while it has no reply yet, asks
-  `Fountain.Activation.first_reply/1` on each nudge. So the reply that appears
-  here is the row the funnel counted, not a second opinion about which reply
-  was first.
-
-  ## The events
-
-  `onboarding.landing_viewed` and `onboarding.reply_shown` are this page's,
-  and `onboarding.key_copied` rides on the copy button's `phx-click`. The
-  funnel's third step, `onboarding.request_sent`, is deliberately **not**
-  here: it is emitted server-side by `Fountain.Activation` when the account's
-  first conversation is written, so a developer who copies the request and
-  runs it after closing the tab still counts. `Activation.funnel_events/0`
-  holds the four names.
+  `Fountain.Onboarding.first_reply/1` on each nudge. So the reply that appears
+  here is the same row that completes onboarding, not a second opinion about
+  which reply was first.
   """
   use FountainWeb, :live_view
 
-  alias Fountain.{Accounts, Activation, Agents, Analytics, Apps, InferenceCredentials, Onboarding}
+  alias Fountain.{Accounts, Agents, Apps, InferenceCredentials, Onboarding}
 
   @key_label "quickstart"
 
@@ -58,7 +48,7 @@ defmodule FountainWeb.StartLive do
       |> assign(:conversations_app, Apps.conversations())
       |> assign(:raw_key, nil)
       |> assign(:has_key?, Accounts.list_api_keys(user.id) != [])
-      |> assign(:reply, Activation.first_reply(user.id))
+      |> assign(:reply, Onboarding.first_reply(user.id))
       |> assign(:sent?, false)
       |> assign_credential_problem(user.id, agent)
 
@@ -67,12 +57,6 @@ defmodule FountainWeb.StartLive do
 
   defp on_connect(socket, user) do
     Phoenix.PubSub.subscribe(Fountain.PubSub, "sidebar:#{user.id}")
-
-    Analytics.capture("onboarding.landing_viewed", user, %{
-      "has_agent" => socket.assigns.agent != nil,
-      "already_replied" => socket.assigns.reply != nil,
-      "source" => "console"
-    })
 
     socket
     |> assign(:sent?, Fountain.Conversations.conversation_counts(user.id).total > 0)
@@ -183,14 +167,6 @@ defmodule FountainWeb.StartLive do
   end
 
   @impl true
-  def handle_event("key_copied", _params, socket) do
-    Analytics.capture("onboarding.key_copied", socket.assigns.current_user, %{
-      "source" => "console"
-    })
-
-    {:noreply, socket}
-  end
-
   def handle_event("new_key", _params, socket) do
     {:noreply, mint(socket, socket.assigns.current_user)}
   end
@@ -209,16 +185,11 @@ defmodule FountainWeb.StartLive do
   defp refresh_reply(socket) do
     user = socket.assigns.current_user
 
-    case Activation.first_reply(user.id) do
+    case Onboarding.first_reply(user.id) do
       nil ->
         assign(socket, :sent?, Fountain.Conversations.conversation_counts(user.id).total > 0)
 
       reply ->
-        Analytics.capture("onboarding.reply_shown", user, %{
-          "conversation_id" => reply.conversation_id,
-          "source" => "console"
-        })
-
         socket |> assign(:reply, reply) |> assign(:sent?, true)
     end
   end
@@ -295,7 +266,6 @@ defmodule FountainWeb.StartLive do
             <.button
               id="copy-start-api-key"
               phx-hook="CopyToClipboard"
-              phx-click="key_copied"
               data-target="start-api-key"
               variant="secondary"
             >

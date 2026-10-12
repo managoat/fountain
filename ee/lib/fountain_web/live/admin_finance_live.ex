@@ -33,10 +33,9 @@ defmodule FountainWeb.Live.AdminFinanceLive do
   import FountainWeb.AdminLive.Helpers
   import FountainWeb.AdminLive.Shell
 
-  alias Fountain.Billing
   alias Fountain.Billing.Finance
   alias Fountain.Billing.Reconciliation
-  alias Fountain.Billing.SandboxUsage
+  alias Fountain.Machines.Usage, as: SandboxUsage
 
   @impl true
   def mount(_params, _session, socket) do
@@ -103,7 +102,7 @@ defmodule FountainWeb.Live.AdminFinanceLive do
     socket
     |> assign(:finance, finance)
     |> assign(:invoice_lines, Reconciliation.lines(finance, invoices))
-    |> assign(:dropped, Reconciliation.dropped_on_this_node())
+    |> assign(:dropped, Fountain.Usage.dropped_on_this_node())
   end
 
   # An invoice is typed in dollars and stored in cents; the month is the one
@@ -146,9 +145,9 @@ defmodule FountainWeb.Live.AdminFinanceLive do
   end
 
   # `months_ago` back from the current month, as a whole half-open UTC month
-  # (`Billing.month_range/1`). Zero is the running month, the only one moving.
+  # (`Fountain.Usage.month_range/1`). Zero is the running month, the only one moving.
   defp month_range(months_ago) do
-    %{start: period_start, end: period_end} = Billing.month_range(months_ago)
+    %{start: period_start, end: period_end} = Fountain.Usage.month_range(months_ago)
     {period_start, period_end}
   end
 

@@ -9,7 +9,7 @@ defmodule FountainBuzz.Workers.HarnessSweep do
   **OS process** on Fountain's own pods (`FountainBuzz.Harness`, ADR 0020),
   holding an Erlang port, a live relay connection and a long-lived API key. It
   runs whether or not anyone ever mentions the agent, so the cost is
-  **standing, not usage**, and `Fountain.Billing.SandboxUsage` reports zero for
+  **standing, not usage**, and `Fountain.Machines.Usage` reports zero for
   it: a harness is not a sandbox on any provider, and every existing meter
   measures sandboxes.
 

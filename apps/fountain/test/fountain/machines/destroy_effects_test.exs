@@ -20,7 +20,7 @@ defmodule Fountain.Machines.DestroyEffectsTest do
   use Fountain.DataCase, async: false
   use Mimic
 
-  alias Fountain.Billing.UsageEvent
+  alias Fountain.Usage.Event, as: UsageEvent
   alias Fountain.Conversations
   alias Fountain.Conversations.ConversationServer
   alias Fountain.Conversations.Lifecycle

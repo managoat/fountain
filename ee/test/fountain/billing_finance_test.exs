@@ -413,7 +413,7 @@ defmodule Fountain.Billing.FinanceTest do
       user = subscriber("solo")
       ran(user, "sprites", 10, 3)
 
-      rows = Fountain.Billing.SandboxUsage.attribution(@period_start, @period_end, now: @now)
+      rows = Fountain.Machines.Usage.attribution(@period_start, @period_end, now: @now)
       usage = Finance.usage_by_user(rows)
 
       assert %{active_seconds: 36_000, busy_seconds: 10_800, idle_seconds: 25_200} =
@@ -427,7 +427,7 @@ defmodule Fountain.Billing.FinanceTest do
       ran(user, "sprites", 1, 1)
       Repo.update_all(Fountain.Conversations.Sandbox, set: [user_id: nil])
 
-      rows = Fountain.Billing.SandboxUsage.attribution(@period_start, @period_end, now: @now)
+      rows = Fountain.Machines.Usage.attribution(@period_start, @period_end, now: @now)
 
       assert Finance.usage_by_user(rows) == %{}
     end
@@ -435,12 +435,12 @@ defmodule Fountain.Billing.FinanceTest do
 
   ## ── usage_summaries, which /admin's table reads ───────────────────────────
 
-  describe "Billing.usage_summaries/2 turn hours" do
+  describe "Fountain.Usage.usage_summaries/2 turn hours" do
     test "reports turn hours beside sandbox minutes" do
       user = subscriber("solo")
       ran(user, "sprites", 10, 3)
 
-      summary = Billing.usage_summaries(@period_start, @period_end)[user.id]
+      summary = Fountain.Usage.usage_summaries(@period_start, @period_end)[user.id]
 
       assert summary.turn_hours == 3.0
       assert summary.sandbox_minutes == 600.0
@@ -450,7 +450,7 @@ defmodule Fountain.Billing.FinanceTest do
       user = subscriber("solo")
       ran(user, "runner", 4, 4)
 
-      summary = Billing.usage_summaries(@period_start, @period_end)[user.id]
+      summary = Fountain.Usage.usage_summaries(@period_start, @period_end)[user.id]
 
       assert summary.turn_hours == 0.0
       assert summary.sandbox_minutes == 240.0

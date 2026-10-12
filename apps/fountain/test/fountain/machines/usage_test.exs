@@ -1,4 +1,4 @@
-defmodule Fountain.Billing.SandboxUsageTest do
+defmodule Fountain.Machines.UsageTest do
   @moduledoc """
   Provider spend attribution: which tenant, on which provider, ran how long.
 
@@ -10,9 +10,9 @@ defmodule Fountain.Billing.SandboxUsageTest do
 
   use Fountain.DataCase, async: true
 
-  alias Fountain.Billing
-  alias Fountain.Billing.SandboxUsage
-  alias Fountain.Billing.UsageEvent
+  alias Fountain.Usage
+  alias Fountain.Machines.Usage, as: SandboxUsage
+  alias Fountain.Usage.Event, as: UsageEvent
   alias Fountain.Conversations
   alias Fountain.Repo
 
@@ -405,8 +405,8 @@ defmodule Fountain.Billing.SandboxUsageTest do
       assert SandboxUsage.busy_for_user(user.id, @period_start, @period_end) ==
                %{"sprites" => 3600}
 
-      # Credit burns against the sum.
-      assert Billing.usage_summary(user.id, @period_start, @period_end).turn_hours == 2.5
+      # Turn hours report the sum.
+      assert Usage.usage_summary(user.id, @period_start, @period_end).turn_hours == 2.5
     end
 
     test "a turn still running is busy up to the ceiling" do
@@ -526,7 +526,7 @@ defmodule Fountain.Billing.SandboxUsageTest do
   end
 
   describe "platform_cost?/1" do
-    test "the providers Fountain pays for" do
+    test "the providers the operator pays for" do
       assert SandboxUsage.platform_cost?("sprites")
       assert SandboxUsage.platform_cost?("e2b")
       assert SandboxUsage.platform_cost?("daytona")
@@ -563,7 +563,7 @@ defmodule Fountain.Billing.SandboxUsageTest do
     end
   end
 
-  describe "Billing.provider_spend/1" do
+  describe "provider_spend/1" do
     test "splits by provider and names the tenants behind the bill" do
       one = insert_verified_user()
       two = insert_verified_user()
@@ -571,7 +571,7 @@ defmodule Fountain.Billing.SandboxUsageTest do
       terminated_sandbox(one, "sprites", ~U[2026-05-02 00:00:00Z], ~U[2026-05-02 01:00:00Z])
       terminated_sandbox(two, "e2b", ~U[2026-05-02 00:00:00Z], ~U[2026-05-02 00:30:00Z])
 
-      spend = Billing.provider_spend(period: {@period_start, @period_end}, now: @now)
+      spend = SandboxUsage.provider_spend(period: {@period_start, @period_end}, now: @now)
 
       assert spend.by_provider["sprites"].active_seconds == 3600
       assert spend.by_provider["e2b"].active_seconds == 1800
@@ -590,7 +590,7 @@ defmodule Fountain.Billing.SandboxUsageTest do
 
       terminated_sandbox(user, "runner", ~U[2026-05-02 00:00:00Z], ~U[2026-05-02 01:00:00Z])
 
-      spend = Billing.provider_spend(period: {@period_start, @period_end}, now: @now)
+      spend = SandboxUsage.provider_spend(period: {@period_start, @period_end}, now: @now)
 
       assert spend.by_provider["runner"].active_seconds == 3600
       assert spend.platform_seconds == 0
@@ -609,7 +609,7 @@ defmodule Fountain.Billing.SandboxUsageTest do
         set: [user_id: nil]
       )
 
-      spend = Billing.provider_spend(period: {@period_start, @period_end}, now: @now)
+      spend = SandboxUsage.provider_spend(period: {@period_start, @period_end}, now: @now)
 
       assert spend.by_provider["sprites"].active_seconds == 3600
       assert [%{email: nil}] = spend.top_tenants

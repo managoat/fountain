@@ -2,9 +2,9 @@ defmodule Fountain.UsageMeteringTest do
   @moduledoc """
   Usage events, emitted where sandboxes and turns actually change state.
 
-  `Billing.emit/5` was defined, documented as being called from
+  `Fountain.Usage.emit/5` was defined, documented as being called from
   `ConversationServer`, schema'd, and unit-tested — with **no call sites**. So
-  `usage_events` was permanently empty and `/account/billing` rendered zeros to
+  `usage_events` was permanently empty and the usage surfaces rendered zeros to
   every user. The lesson those tests didn't catch is the one pinned here:
   emission has to be verified from the operations that cause it, not from the
   emit function in isolation.
@@ -14,8 +14,8 @@ defmodule Fountain.UsageMeteringTest do
 
   import ExUnit.CaptureLog
 
-  alias Fountain.{Billing, Conversations}
-  alias Fountain.Billing.UsageEvent
+  alias Fountain.{Conversations, Usage}
+  alias Fountain.Usage.Event, as: UsageEvent
   alias Fountain.Repo
 
   defp events_for(user_id, type) do
@@ -216,7 +216,7 @@ defmodule Fountain.UsageMeteringTest do
         })
 
       summary =
-        Billing.usage_summary(
+        Usage.usage_summary(
           user.id,
           DateTime.utc_now() |> DateTime.add(-3600, :second),
           DateTime.utc_now() |> DateTime.add(3600, :second)
@@ -288,7 +288,7 @@ defmodule Fountain.UsageMeteringTest do
         })
 
       summary =
-        Billing.usage_summary(
+        Usage.usage_summary(
           user.id,
           DateTime.utc_now() |> DateTime.add(-3600, :second),
           DateTime.utc_now() |> DateTime.add(3600, :second)
@@ -309,7 +309,7 @@ defmodule Fountain.UsageMeteringTest do
       |> update_sandbox(%{status: "ready"})
 
       {:ok, _} =
-        Billing.record_usage(a.id, "turn_started", nil, nil, %{
+        Usage.record_usage(a.id, "turn_started", nil, nil, %{
           "conversation_id" => Ecto.UUID.generate()
         })
 
@@ -319,8 +319,8 @@ defmodule Fountain.UsageMeteringTest do
       }
 
       {from, to} = window
-      assert Billing.usage_summary(a.id, from, to).conversations == 1
-      assert Billing.usage_summary(b.id, from, to).conversations == 0
+      assert Usage.usage_summary(a.id, from, to).conversations == 1
+      assert Usage.usage_summary(b.id, from, to).conversations == 0
     end
   end
 
@@ -329,7 +329,7 @@ defmodule Fountain.UsageMeteringTest do
       user = insert_verified_user()
 
       assert {:error, :invalid} =
-               Billing.record_usage(user.id, "not_a_real_event", nil, nil, %{})
+               Usage.record_usage(user.id, "not_a_real_event", nil, nil, %{})
     end
 
     test "a dropped event emits the usage.dropped telemetry event (#503)" do
@@ -351,7 +351,7 @@ defmodule Fountain.UsageMeteringTest do
       on_exit(fn -> :telemetry.detach(handler_id) end)
 
       capture_log(fn ->
-        Billing.record_usage(user.id, "not_a_real_event", nil, nil, %{})
+        Usage.record_usage(user.id, "not_a_real_event", nil, nil, %{})
       end)
 
       assert_receive {:dropped, %{count: 1}, %{event_type: "not_a_real_event", kind: "rejected"}}
@@ -377,7 +377,7 @@ defmodule Fountain.UsageMeteringTest do
       # close to a real infrastructure failure as a unit test can get.
       capture_log(fn ->
         assert {:error, :exception} =
-                 Billing.record_usage(user.id, "turn_started", nil, nil, %{bad: self()})
+                 Usage.record_usage(user.id, "turn_started", nil, nil, %{bad: self()})
       end)
 
       assert_receive {:dropped, %{count: 1}, %{event_type: "turn_started", kind: "exception"}}

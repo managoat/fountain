@@ -1,9 +1,9 @@
-defmodule Fountain.Emails.CreditsEmailsTest do
+defmodule Fountain.Emails.UserEmailsWelcomeTest do
   use Fountain.DataCase, async: true
 
   import Swoosh.TestAssertions
 
-  alias Fountain.Emails.CreditsEmails
+  alias Fountain.Emails.UserEmails
 
   describe "deliver_welcome_email/1" do
     # ADR 0038: the welcome points at the verified landing, and carries the
@@ -11,7 +11,7 @@ defmodule Fountain.Emails.CreditsEmailsTest do
     test "welcomes the user and points at the landing" do
       user = insert_verified_user()
 
-      assert {:ok, _email} = CreditsEmails.deliver_welcome_email(user)
+      assert {:ok, _email} = UserEmails.deliver_welcome_email(user)
 
       assert_email_sent(fn email ->
         assert email.subject == "Welcome to Fountain"
@@ -24,7 +24,7 @@ defmodule Fountain.Emails.CreditsEmailsTest do
     test "carries the first request, with the key still a placeholder" do
       user = insert_verified_user()
 
-      assert {:ok, _email} = CreditsEmails.deliver_welcome_email(user)
+      assert {:ok, _email} = UserEmails.deliver_welcome_email(user)
 
       assert_email_sent(fn email ->
         assert email.text_body =~ "/api/conversations"
@@ -41,7 +41,7 @@ defmodule Fountain.Emails.CreditsEmailsTest do
       {:ok, user} =
         user |> Ecto.Changeset.change(onboarding_completed_at: now) |> Repo.update()
 
-      assert {:ok, _email} = CreditsEmails.deliver_welcome_email(user)
+      assert {:ok, _email} = UserEmails.deliver_welcome_email(user)
 
       assert_email_sent(fn email ->
         refute email.text_body =~ "/onboarding"

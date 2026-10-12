@@ -302,7 +302,7 @@ defmodule FountainWeb.AdminLive.Users do
     # of `now` loses its sub-second part in the cast and excludes events
     # recorded within the current second.
     usage =
-      Billing.usage_summaries(
+      Fountain.Usage.usage_summaries(
         DateTime.add(now, -@usage_window_days, :day),
         DateTime.add(now, 1, :second)
       )

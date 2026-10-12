@@ -1,17 +1,16 @@
-defmodule Fountain.Billing.TurnHoursTest do
+defmodule Fountain.Usage.TurnHoursTest do
   @moduledoc """
-  The turn hours `Billing.usage_summary/3` reports (#1016, ADR 0031).
+  The turn hours `Fountain.Usage.usage_summary/3` reports (#1016).
 
-  The unit has to be *turn* time: an idle sandbox costs Fountain money but
-  burns none of a tenant's credit, and a tenant's own runner costs Fountain
-  nothing at all. The window is the calendar month (`current_month_range/0`);
+  The unit is *turn* time: an idle sandbox costs the operator money but is not
+  work, and a tenant's own runner costs the operator nothing at all. The window is the calendar month (`current_month_range/0`);
   every test here passes an explicit one.
   """
 
   use Fountain.DataCase, async: true
 
-  alias Fountain.Billing
-  alias Fountain.Billing.SandboxUsage
+  alias Fountain.Usage
+  alias Fountain.Machines.Usage, as: SandboxUsage
   alias Fountain.Conversations
 
   # A period wholly in the past, so `attribution/3`'s ceiling is the period end
@@ -44,7 +43,7 @@ defmodule Fountain.Billing.TurnHoursTest do
       })
   end
 
-  defp turn_hours(user), do: Billing.usage_summary(user.id, @period_start, @period_end).turn_hours
+  defp turn_hours(user), do: Usage.usage_summary(user.id, @period_start, @period_end).turn_hours
 
   describe "usage_summary/3 turn_hours" do
     test "counts time with a prompt in flight, not the sandbox's whole life" do

@@ -561,24 +561,18 @@ defmodule Fountain.InferenceCredentials.GrantSelectionTest do
       other = insert_active_user()
       grant = user_grant!(ctx.user.id)
       _unnamed = user_grant!(other.id)
-      ids = [ctx.user.id, other.id]
 
       # A subscription no set names serves no run, and does not count.
       refute InferenceCredentials.has_any_credential?(ctx.user.id)
       refute InferenceCredentials.has_any_credential?(other.id)
-      assert InferenceCredentials._unsafe_user_ids_with_credential(ids) == MapSet.new()
 
       set_naming(ctx.user, "Set", grant)
       assert InferenceCredentials.has_any_credential?(ctx.user.id)
       refute InferenceCredentials.has_any_credential?(other.id)
 
-      assert InferenceCredentials._unsafe_user_ids_with_credential(ids) ==
-               MapSet.new([ctx.user.id])
-
       # Disconnected, it holds nothing, and the checklist asks again.
       :ok = ChatGPTAccounts.disconnect_for_user(grant.id, ctx.user.id)
       refute InferenceCredentials.has_any_credential?(ctx.user.id)
-      assert InferenceCredentials._unsafe_user_ids_with_credential(ids) == MapSet.new()
     end
   end
 

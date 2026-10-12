@@ -45,7 +45,7 @@ defmodule Fountain.Machines.DestroyResetTest do
   import ExUnit.CaptureLog
 
   alias Fountain.Audit
-  alias Fountain.Billing.UsageEvent
+  alias Fountain.Usage.Event, as: UsageEvent
   alias Fountain.Conversations
   alias Fountain.Conversations.Sandbox
   alias Fountain.Conversations.Termination

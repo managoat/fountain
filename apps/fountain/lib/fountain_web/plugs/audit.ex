@@ -54,13 +54,8 @@ defmodule FountainWeb.Plugs.Audit do
   conversation, and the id is already in `resource_id` where a query can use
   it.
 
-  And `Fountain.Analytics` derives the **PostHog event name** from `action`.
-  One event definition per uuid is unbounded cardinality in a taxonomy every
-  reader of the project shares — the Fountain project had already grown
-  `POST /api/conversations/<uuid>/read`, `POST /api/team/<uuid>/messages` and
-  `POST /api/mcp/team/<uuid>` as separate events by the time anyone looked at
-  it. (Those definitions have since aged out; ADR 0028's Correction retracts
-  the claim that they never would.)
+  And anything that groups by `action` — a dashboard, an export — gets one
+  bucket per uuid: unbounded cardinality.
 
   The route pattern is what both want. `Phoenix.Router.route_info/4` gives it
   exactly, from the same match the request already went through. When there is

@@ -21,7 +21,7 @@ defmodule FountainWeb.Live.CreditsLive do
   def mount(_params, _session, socket) do
     if Credits.enabled?() do
       user = socket.assigns.current_user
-      period = Billing.month_range()
+      period = Fountain.Usage.month_range()
 
       {:ok,
        assign(socket,

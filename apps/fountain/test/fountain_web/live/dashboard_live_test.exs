@@ -16,7 +16,7 @@ defmodule FountainWeb.DashboardLiveTest do
   # This module is `async: false`, so the pin is not visible to another test
   # running beside it; restored either way.
   defp pin_usage_clock(%DateTime{} = at) do
-    key = Fountain.Billing.SandboxUsage
+    key = Fountain.Machines.Usage
     original = Application.get_env(:fountain, key, [])
     Application.put_env(:fountain, key, Keyword.put(original, :now, at))
     on_exit(fn -> Application.put_env(:fountain, key, original) end)
@@ -83,7 +83,7 @@ defmodule FountainWeb.DashboardLiveTest do
   end
 
   # ADR 0038 decision 7: `onboarding_completed_at` is stamped at the first
-  # reply by `Fountain.Activation`, not by this mount when three things exist.
+  # reply by `Fountain.Onboarding`, not by this mount when three things exist.
   test "the dashboard no longer stamps onboarding", %{conn: conn, user: user} do
     refute user.onboarding_completed_at
 
@@ -140,7 +140,7 @@ defmodule FountainWeb.DashboardLiveTest do
     # moves instead (#1586). Pinned an hour past the seeded data, which is what
     # every other hour of the month already looks like.
     setup do
-      {period_start, _} = Fountain.Billing.current_month_range()
+      {period_start, _} = Fountain.Usage.current_month_range()
       pin_usage_clock(DateTime.add(period_start, 11 * 3600, :second))
       :ok
     end
@@ -152,7 +152,7 @@ defmodule FountainWeb.DashboardLiveTest do
       # Ten hours awake, two with a prompt in flight. The old tile said "10h"
       # and a customer could do nothing with it: what their plan includes, and
       # what they are measured on, is the two.
-      {period_start, _} = Fountain.Billing.current_month_range()
+      {period_start, _} = Fountain.Usage.current_month_range()
 
       sandbox =
         insert_sandbox(
@@ -190,19 +190,19 @@ defmodule FountainWeb.DashboardLiveTest do
   describe "this month" do
     test "reports conversations, turns, sandbox time and tokens", %{conn: conn, user: user} do
       now = DateTime.utc_now() |> DateTime.truncate(:second)
-      {period_start, _} = Fountain.Billing.current_month_range()
+      {period_start, _} = Fountain.Usage.current_month_range()
       at = DateTime.add(period_start, 60, :second)
 
       # Two usage events of each shape the summary counts.
-      Fountain.Billing.record_usage(
+      Fountain.Usage.record_usage(
         user.id,
         "sandbox_provisioned",
         Ecto.UUID.generate(),
         "sandbox"
       )
 
-      Fountain.Billing.record_usage(user.id, "turn_started", Ecto.UUID.generate(), "turn")
-      Fountain.Billing.record_usage(user.id, "turn_started", Ecto.UUID.generate(), "turn")
+      Fountain.Usage.record_usage(user.id, "turn_started", Ecto.UUID.generate(), "turn")
+      Fountain.Usage.record_usage(user.id, "turn_started", Ecto.UUID.generate(), "turn")
 
       conv = insert_conversation(user_id: user.id)
       turn = insert_turn(conv)

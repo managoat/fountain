@@ -808,7 +808,7 @@ defmodule Fountain.Machines.AdmissionTest do
   # audit and usage included.
   defp discard(user, sandboxes) do
     Repo.delete_all(from e in Fountain.Audit.Event, where: e.user_id == ^user.id)
-    Repo.delete_all(from e in Fountain.Billing.UsageEvent, where: e.user_id == ^user.id)
+    Repo.delete_all(from e in Fountain.Usage.Event, where: e.user_id == ^user.id)
     Repo.delete_all(from c in Conversation, where: c.user_id == ^user.id)
     for sandbox <- sandboxes, do: Repo.delete!(sandbox)
     Repo.delete!(user)

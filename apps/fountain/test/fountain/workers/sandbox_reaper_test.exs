@@ -521,7 +521,7 @@ defmodule Fountain.Workers.SandboxReaperTest do
       # machine whose billed interval never closed is the whole reason
       # `terminated_at` matters, so the two are asserted together.
       assert Repo.exists?(
-               from(e in Fountain.Billing.UsageEvent,
+               from(e in Fountain.Usage.Event,
                  where: e.resource_id == ^sandbox.id and e.event_type == "sandbox_terminated"
                )
              )

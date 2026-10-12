@@ -165,7 +165,6 @@ defmodule Fountain.Conversations.Launch do
              attrs["execution_limits"],
              opts
            ) do
-      Conversations.after_conversation_created(conv)
       Conversations.record_execution_allowance_created(allowance, user_id, opts)
 
       # Recorded here rather than in either branch below: both of them return

@@ -605,38 +605,6 @@ defmodule Fountain.InferenceCredentials do
     end)
   end
 
-  @doc """
-  Of `user_ids`, the ones holding at least one provider credential, or a set
-  that names an active ChatGPT subscription of their own (ADR 0060 stage 4b).
-
-  The set form of `has_any_credential?/1`, for the admin funnel's stalled
-  breakdown (#1421). A row whose every ciphertext is `nil` belongs to an
-  account that cleared its last key (`put_credential/5` clears to `nil`), so
-  the row existing is not the signal and this asks the same question
-  `has_any_credential?/1` asks, a named subscription included, in two queries
-  instead of one account at a time.
-
-  `_unsafe_` because it crosses tenants: it answers for whatever ids it is
-  handed. The legitimate caller is a system-level aggregate — today
-  `Fountain.Funnel`, which is admin-only and unscoped by construction.
-  """
-  @spec _unsafe_user_ids_with_credential([binary()]) :: MapSet.t(binary())
-  def _unsafe_user_ids_with_credential(user_ids) when is_list(user_ids) do
-    held =
-      @providers
-      |> Enum.map(&ciphertext_field/1)
-      |> Enum.reduce(nil, fn ct, acc ->
-        clause = dynamic([c], not is_nil(field(c, ^ct)))
-        if acc, do: dynamic(^acc or ^clause), else: clause
-      end)
-
-    from(c in Credential, where: c.user_id in ^user_ids, distinct: true, select: c.user_id)
-    |> where(^held)
-    |> Repo.all()
-    |> MapSet.new()
-    |> MapSet.union(owners_naming_active_grant(user_ids))
-  end
-
   # The environment variable each static credential is exported as. A tenant
   # secret of the same name overrides it in the sandbox (`Egress`'s gate-3
   # split, published in `docs/concepts/secrets.md`), which is what the

@@ -19,7 +19,6 @@ Application.put_env(:fountain, :api_cors_origins, [
 
 Application.put_env(:fountain, :credits_enabled, false)
 Application.put_env(:fountain, :marketing_site, true)
-Application.put_env(:fountain, :posthog_project_api_key, nil)
 {:ok, _} = Application.ensure_all_started(:fountain)
 Ecto.Adapters.SQL.Sandbox.mode(Fountain.Repo, :auto)
 import Fountain.Factory

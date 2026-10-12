@@ -271,7 +271,7 @@ defmodule Fountain.Conversations.ExecutionAllowanceTest do
 
     assert Repo.reload!(allowance).limits == %{"max_model_turns" => 2}
     assert Conversations._unsafe_list_turns(conv.id) == []
-    refute Repo.exists?(from e in Fountain.Billing.UsageEvent, where: e.user_id == ^conv.user_id)
+    refute Repo.exists?(from e in Fountain.Usage.Event, where: e.user_id == ^conv.user_id)
   end
 
   test "scoped creation hides foreign and missing conversations before validation", %{
@@ -371,7 +371,7 @@ defmodule Fountain.Conversations.ExecutionAllowanceTest do
 
     assert Repo.reload!(allowance).limits == %{"max_model_turns" => 2}
     assert Conversations._unsafe_list_turns(conv.id) == []
-    refute Repo.exists?(from e in Fountain.Billing.UsageEvent, where: e.user_id == ^conv.user_id)
+    refute Repo.exists?(from e in Fountain.Usage.Event, where: e.user_id == ^conv.user_id)
   end
 
   defp creation_events(conv),

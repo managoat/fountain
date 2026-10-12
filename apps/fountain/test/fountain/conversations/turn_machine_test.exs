@@ -570,12 +570,12 @@ defmodule Fountain.Conversations.TurnMachineTest do
     end
 
     # The interrupt is a second door onto the writer that materialises
-    # `reply_text`, and materialising it is what activates an account (#1392).
-    # `_unsafe_interrupt_turn/2` passes `idle?: false`, so the activation call
+    # `reply_text`, and materialising it is what completes onboarding (#1392).
+    # `_unsafe_interrupt_turn/2` passes `idle?: false`, so the onboarding call
     # must not be gated on the idle write the way the sidebar broadcast beside
     # it is: an interrupted first reply is still a first reply, and nothing
     # recovers it later. `_unsafe_backfill_reply_texts/0` writes the column
-    # without calling `Activation.turn_replied/1`, and `maybe_put_reply_text/2`
+    # without calling `Onboarding.turn_replied/1`, and `maybe_put_reply_text/2`
     # only re-derives on a later write a terminal row may never get (#2055).
     test "an interrupted first reply activates the account", ctx do
       insert_log_event(ctx.conv, turn_id: ctx.row.id, stream: "acp", data: @update_line)

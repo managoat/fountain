@@ -163,13 +163,14 @@ defmodule FountainWeb.Telemetry do
         description:
           "Times this node paused the ChatGPT keepalive after two owners were throttled"
       ),
-      # Any non-zero value here means billing data is being lost (#503) —
-      # record_usage/5 swallows failures by contract, so this counter is the
-      # only signal that distinguishes "no usage" from "metering broken".
+      # Any non-zero value here means usage data is being lost (#503) —
+      # `Fountain.Usage.record_usage/5` swallows failures by contract, so this
+      # counter is the only signal that distinguishes "no usage" from
+      # "metering broken".
       counter("fountain.usage.dropped.count",
         event_name: [:fountain, :usage, :dropped],
         tags: [:event_type, :kind],
-        description: "Usage events dropped at write time (lost billing data)"
+        description: "Usage events dropped at write time (lost usage data)"
       ),
       distribution("fountain.fresh_provision.stop.duration",
         event_name: [:fountain, :fresh_provision, :stop],
@@ -503,40 +504,6 @@ defmodule FountainWeb.Telemetry do
         description: "Conversations whose durable output hit the byte budget and was dropped"
       ),
 
-      # ── Lifecycle funnel (#282) ───────────────────────────────────────────
-      # Gauges polled from Fountain.Funnel.emit_telemetry/0 so Grafana can
-      # trend stage counts and conversion over time.
-      last_value("fountain.funnel.registered",
-        event_name: [:fountain, :funnel],
-        measurement: :registered,
-        description: "Users registered (all time)"
-      ),
-      last_value("fountain.funnel.verified",
-        event_name: [:fountain, :funnel],
-        measurement: :verified,
-        description: "Users with a verified email"
-      ),
-      last_value("fountain.funnel.onboarded",
-        event_name: [:fountain, :funnel],
-        measurement: :onboarded,
-        description: "Users who completed onboarding"
-      ),
-      last_value("fountain.funnel.activated",
-        event_name: [:fountain, :funnel],
-        measurement: :activated,
-        description: "Users with at least one conversation"
-      ),
-      last_value("fountain.funnel.funded",
-        event_name: [:fountain, :funnel],
-        measurement: :funded,
-        description: "Users with a positive credit balance"
-      ),
-      last_value("fountain.funnel.stalled_verified",
-        event_name: [:fountain, :funnel],
-        measurement: :stalled_verified,
-        description: "Verified users who never started a conversation"
-      ),
-
       # ── Ops gauges (#321) ─────────────────────────────────────────────────
       # Polled from Fountain.OpsGauges.emit_telemetry/0; zeros emitted for
       # every known status so the series exist from boot.
@@ -811,7 +778,7 @@ defmodule FountainWeb.Telemetry do
     ]
   end
 
-  # Funnel stage gauges (#282) and ops gauges (#321). Full-table passes
+  # Ops gauges (#321). Full-table passes
   # every tick — cheap at current scale. Off in test: the poller's Repo
   # calls would race the SQL Sandbox's connection ownership (the modules
   # are exercised directly by tests instead).
@@ -821,12 +788,11 @@ defmodule FountainWeb.Telemetry do
   # boot in the only environment where the list is non-empty — production.
   @doc false
   def periodic_measurements(
-        enabled? \\ Application.get_env(:fountain, :funnel_poller_enabled, true)
+        enabled? \\ Application.get_env(:fountain, :gauge_poller_enabled, true)
       )
 
   def periodic_measurements(true) do
     [
-      {Fountain.Funnel, :emit_telemetry, []},
       {Fountain.OpsGauges, :emit_telemetry, []},
       {Fountain.Broker.Native, :emit_telemetry, []}
     ]

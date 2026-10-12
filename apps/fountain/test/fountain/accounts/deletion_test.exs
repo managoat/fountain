@@ -101,11 +101,11 @@ defmodule Fountain.Accounts.DeletionTest do
       # Nilify rather than cascade, so historical usage totals do not silently
       # change every time somebody closes an account.
       user = insert_verified_user()
-      {:ok, event} = Fountain.Billing.record_usage(user.id, "turn_started", nil, nil)
+      {:ok, event} = Fountain.Usage.record_usage(user.id, "turn_started", nil, nil)
 
       capture_log(fn -> assert {:ok, _} = Deletion.delete_user(user) end)
 
-      assert reloaded = Repo.get(Fountain.Billing.UsageEvent, event.id)
+      assert reloaded = Repo.get(Fountain.Usage.Event, event.id)
       assert reloaded.user_id == nil
     end
   end

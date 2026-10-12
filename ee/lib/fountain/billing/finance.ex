@@ -3,7 +3,7 @@ defmodule Fountain.Billing.Finance do
   What Fountain is paid and what Fountain pays, per tenant, over a period.
 
   The pieces have existed for a while and never met. `Billing.overview_admin/1`
-  had revenue with no cost beside it, and `Billing.provider_spend/1` had cost
+  had revenue with no cost beside it, and `Fountain.Machines.Usage.provider_spend/1` had cost
   with no revenue beside it and deliberately no money in it at all. This
   module puts the two on one row so the question "which tenants cost more
   than they pay" has an answer.
@@ -94,8 +94,7 @@ defmodule Fountain.Billing.Finance do
   import Ecto.Query
 
   alias Fountain.Accounts.User
-  alias Fountain.Billing
-  alias Fountain.Billing.SandboxUsage
+  alias Fountain.Machines.Usage, as: SandboxUsage
   alias Fountain.Repo
 
   @typedoc "One tenant's money for a period. Every `*_cents` may be `nil` when the rate card is silent."
@@ -191,7 +190,9 @@ defmodule Fountain.Billing.Finance do
   """
   @spec summary(keyword()) :: map()
   def summary(opts \\ []) do
-    {period_start, period_end} = Keyword.get(opts, :period) || Billing.current_month_range()
+    {period_start, period_end} =
+      Keyword.get(opts, :period) || Fountain.Usage.current_month_range()
+
     now = Keyword.get(opts, :now) || DateTime.utc_now()
 
     rows = SandboxUsage.attribution(period_start, period_end, now: now)
@@ -291,7 +292,7 @@ defmodule Fountain.Billing.Finance do
   The platform-paid part of an attribution: the rows on providers Fountain
   pays for, their active and idle seconds summed, and the per-provider split
   of every row. The one fold behind both `cost/3` and
-  `Billing.provider_spend/1`, so the finance page and the `/admin` tiles
+  `Fountain.Machines.Usage.provider_spend/1`, so the finance page and the `/admin` tiles
   cannot disagree about what Fountain was billed for.
   """
   @spec platform_totals([SandboxUsage.row()]) :: %{
@@ -300,16 +301,7 @@ defmodule Fountain.Billing.Finance do
           idle_seconds: non_neg_integer(),
           by_provider: map()
         }
-  def platform_totals(rows) when is_list(rows) do
-    paid = Enum.filter(rows, &SandboxUsage.platform_cost?(&1.provider))
-
-    %{
-      paid: paid,
-      active_seconds: paid |> Enum.map(& &1.active_seconds) |> Enum.sum(),
-      idle_seconds: paid |> Enum.map(& &1.idle_seconds) |> Enum.sum(),
-      by_provider: SandboxUsage.by_provider(rows)
-    }
-  end
+  defdelegate platform_totals(rows), to: SandboxUsage
 
   # The spend nobody can be charged for: sandboxes whose owner has been
   # deleted. Real money, no tenant row.
@@ -401,7 +393,7 @@ defmodule Fountain.Billing.Finance do
   # Turn seconds that spend a tenant's allowance: the providers Fountain pays
   # for, so a tenant's own runner (ADR 0022) is excluded, summed per turn
   # rather than the sandbox's busy union (ADR 0023 step 6). The same filter and
-  # the same figure `Billing.usage_summary/3` reports and `CreditPricer` burns,
+  # the same figure `Fountain.Usage.usage_summary/3` reports and `CreditPricer` burns,
   # and it has to be the same one — the hours shown here and the hours on the
   # tenant's own billing page cannot come apart.
   defp billable_turn_seconds(usage) do
@@ -522,31 +514,7 @@ defmodule Fountain.Billing.Finance do
   turn hours on each row.
   """
   @spec usage_by_user([SandboxUsage.row()]) :: %{optional(binary()) => map()}
-  def usage_by_user(rows) when is_list(rows) do
-    rows
-    |> Enum.reject(&is_nil(&1.user_id))
-    |> Enum.group_by(& &1.user_id)
-    |> Map.new(fn {user_id, group} ->
-      {user_id,
-       %{
-         active_seconds: group |> Enum.map(& &1.active_seconds) |> Enum.sum(),
-         busy_seconds: group |> Enum.map(& &1.busy_seconds) |> Enum.sum(),
-         idle_seconds: group |> Enum.map(& &1.idle_seconds) |> Enum.sum(),
-         turn_seconds: group |> Enum.map(& &1.turn_seconds) |> Enum.sum(),
-         by_provider:
-           Enum.map(
-             group,
-             &%{
-               provider: &1.provider,
-               active: &1.active_seconds,
-               busy: &1.busy_seconds,
-               idle: &1.idle_seconds,
-               turn: &1.turn_seconds
-             }
-           )
-       }}
-    end)
-  end
+  defdelegate usage_by_user(rows), to: SandboxUsage
 
   @doc """
   How much of the period has actually elapsed, `0.0..1.0`.

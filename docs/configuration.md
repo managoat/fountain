@@ -487,144 +487,26 @@ architectures from source, and bakes it in. Read
 
 ## Feature flags
 
-PostHog evaluates a per-user flag, `Fountain.FeatureFlags`, when you set a
-project key. Fountain caches an answer for one minute for each user.
+`Fountain.FeatureFlags` reads configuration and nothing else. A flag is on or
+off for the whole deployment, and the same answer applies to each account.
 
-When PostHog is unreachable, Fountain reuses the last answer it gave. With no
-answer at all, each flag reads off, so an outage never turns a feature on.
-Without PostHog you can force a flag on for each user.
-
-A flag over a feature that shipped is the exception. The `connections` flag
-reads on where you set no `POSTHOG_PROJECT_API_KEY`. A deployment with no flag
-service keeps the feature, and an upgrade does not take it away. Where you
-configure PostHog, the answer from PostHog decides.
+The `connections` flag holds a feature that shipped, so it reads on unless
+you turn it off. An upgrade that adds a flag over a shipped feature does not
+take the feature away.
 
 The `chatgpt_subscriptions` flag is the other kind. It holds the door that
 links a new ChatGPT subscription to an account, and that feature is in
-development. The flag reads off everywhere that nobody turned it on, and a
-deployment with no PostHog is one such place. It needs the credential broker
-too. To have the feature on your own instance, add `chatgpt_subscriptions` to
-`FEATURE_FLAGS_ON`. The hosted platform turned the flag on for every account
-on 2026-09-21, before the feature was tested with a user's subscription on
-the real service, and its first use there is the only use it has had. Read
-[feature status](reference/feature-status.md) first, and do not force the
-flag on an instance that serves people you do not trust. An account that loses the flag keeps each subscription it linked. The API
-still lists, renames, reconnects, disconnects and removes them.
+development. The flag reads off until you add `chatgpt_subscriptions` to
+`FEATURE_FLAGS_ON`. It needs the credential broker too. Read
+[feature status](reference/feature-status.md) first, and do not turn the flag
+on for an instance that serves people you do not trust. An account that loses
+the flag keeps each subscription it linked. The API still lists, renames,
+reconnects, disconnects and removes them.
 
 | Variable | Default | Required | Effect |
 |---|---|---|---|
-| `POSTHOG_PROJECT_API_KEY` | — | — | The PostHog *project* API key. That is the public `phc_…` token, and not a personal key. Unset, Fountain looks up no flag remotely. |
-| `POSTHOG_HOST` | `https://us.i.posthog.com` | — | The PostHog ingestion host. Use `https://eu.i.posthog.com` for EU Cloud, or an instance you host yourself. |
-| `FEATURE_FLAGS_ON` | — | — | Comma-separated flag keys, forced on for each user. It wins over PostHog. No released feature needs a key here today: `openai_compat` did until the OpenAI-compatible API was retired, and Connections is turned on by `BROKER_LISTEN_PORT`. One feature in development does: ChatGPT subscriptions are off on your own instance unless `chatgpt_subscriptions` is here, and the feature is not proven on the real service. See [feature status](reference/feature-status.md). |
+| `FEATURE_FLAGS_ON` | — | — | Comma-separated flag keys, turned on for each account. ChatGPT subscriptions are off unless `chatgpt_subscriptions` is here, and the feature is not proven on the real service. See [feature status](reference/feature-status.md). Connections needs no entry, and is turned on by `BROKER_LISTEN_PORT`. |
 
-For a hosted Connections rollout, leave the global override unset. Enable
-`connections` for the intended test accounts in PostHog, with evaluation
-runtime set to `all`. Enable the credential broker too. The broker is the
-switch that decides which accounts get the feature.
-
-The flag holds only the doors that add a credential. Those doors connect an
-account, define a provider and attach a secret to a host. An account that loses
-the flag keeps what it has. The console and the API still list it, revoke it
-and delete it.
-
-## Product analytics
-
-The same project key sends product events to PostHog. Fountain captures most
-of them on the server.
-
-Set no key and Fountain sends nothing. Set a key and the events go to your own
-PostHog project.
-
-Fountain captures an event at three points in the code. Each point is a
-function that the operation must call, so Fountain captures a new action
-without a new call site.
-
-- Every audited change, under the name of its audit action. `agent.created`
-  and `vault.secret.write` are examples.
-- Every usage event that the meter records, with a `usage.` prefix.
-  `usage.turn_started` is an example.
-- The end of a conversation turn, as `conversation.turn.done`,
-  `conversation.turn.failed` or `conversation.turn.interrupted`.
-
-Each API write leaves a second audit row named after the request line. Fountain
-sends these rows as one event, `api.request`. The route is a property, not part
-of the name. A name per route makes an event type per route, and each event
-type fills the list that every person on the project reads. A property keeps
-the count of names at one, and PostHog can break down a property.
-
-The `api.request` event carries `method`, `route`, `status` and `status_class`.
-Together they answer which endpoints your callers use, and which of them fail.
-A request that Fountain refuses before it knows the account has no person, so
-Fountain sends no event for it. The audit trail keeps that row.
-
-One kind of audited change stays out of PostHog. The audit trail keeps it. It
-is an API key that Fountain issued to itself. A sandbox and a Buzz harness each
-get a key, and an OAuth token is a key. These were 70 percent of the trail in
-one day. Fountain keeps a key that a person makes in the console, or through
-the API.
-
-Fountain also captures `$pageview` for each console page, `$identify` when the
-shape of an account changes, and `$feature_flag_called` when it reads a flag.
-Each event carries the flags that Fountain already knows for that person, as
-`$feature/<key>`.
-
-## Web analytics
-
-The public pages load the PostHog browser library. These pages are the home
-page, the legal pages, the manual and the sign-in flow. The console loads no
-browser library, and Fountain captures console pageviews on the server.
-
-The split has a reason. A pageview from the server has no session, no referrer
-and no device. Fountain also drops an event with no account, so a visitor with
-no account is invisible to it. Only a browser knows these facts, and only the
-public pages have visitors who are not yet accounts.
-
-The browser library sends anonymous events. It makes no person profile for a
-reader. A person profile appears when an account appears.
-
-### PostHog records the public pages
-
-PostHog session replay makes a record of each visit to a public page. The
-record covers the home page, the legal pages, the manual and the sign-in flow.
-
-PostHog does not record the console. This includes the dashboard, the agent and
-vault pages, and the admin pages. The console loads no browser library, so
-there is no recorder on those pages.
-
-Fountain masks every input in the record. This matters on the sign-in and
-sign-up pages, where the mask hides the email address. PostHog masks a password
-field in all conditions.
-
-The switch for replay is a PostHog project setting, not a Fountain setting. To
-stop the records, turn replay off in your PostHog project. To stop the browser
-library and the records together, set `POSTHOG_BROWSER_CAPTURE` to `false`.
-
-Fountain joins the two halves at sign-in. It reads the anonymous id from the
-PostHog cookie, and it tells PostHog to merge that visitor into the account.
-The pages a person read before the account then belong to the account. Fountain
-reads this cookie and writes nothing to it. A reader with no cookie signs in as
-normal, and Fountain sends no merge.
-
-Each browser event carries `surface: "public"`. Each console pageview carries
-`surface: "console"`. Use this property to hold the two apart.
-
-Fountain adds the PostHog origins to the Content Security Policy of the public
-pages. The console keeps its own policy, which names no PostHog origin.
-Fountain reads `POSTHOG_HOST` for both origins. PostHog Cloud serves the
-library from a second origin, and Fountain derives that origin from the first.
-
-Fountain sends no secret value, no environment variable value, no prompt and
-no agent output. An event holds the name of the action, the type of the
-resource, and counts or sizes.
-
-Delivery is best-effort. Events go to a queue and leave in batches. Fountain
-drops them if the queue is full or if PostHog answers with an error, and it
-counts each drop on the `fountain.analytics.dropped` telemetry event. An
-analytics failure cannot fail the operation it measures.
-
-| Variable | Default | Required | Effect |
-|---|---|---|---|
-| `POSTHOG_CAPTURE` | `true` | — | Set it to `false` to stop product events. Flag evaluation continues. |
-| `POSTHOG_BROWSER_CAPTURE` | `true` | — | Set it to `false` to keep the PostHog browser library off the public pages. This also stops the session recordings. Server capture continues. |
-| `POSTHOG_PERSON_PII` | `true` | — | Set it to `false` to keep the account email out of PostHog. The person is then known by user id alone. |
-| `POSTHOG_INSTANCE` | `PHX_HOST` | — | The name of this deployment. Each event is a member of this PostHog group, so two deployments that report to one project stay apart. |
+The `connections` flag holds only the doors that add a credential. Those doors
+connect an account, define a provider and attach a secret to a host. The
+console and the API still list, revoke and delete what an account has.

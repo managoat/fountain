@@ -21,7 +21,7 @@ defmodule Fountain.Workers.WelcomeEmail do
 
   require Logger
 
-  alias Fountain.{Accounts, Emails.CreditsEmails}
+  alias Fountain.{Accounts, Emails.UserEmails}
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: %{"user_id" => user_id}}) do
@@ -40,7 +40,7 @@ defmodule Fountain.Workers.WelcomeEmail do
         :ok
 
       user ->
-        case CreditsEmails.deliver_welcome_email(user) do
+        case UserEmails.deliver_welcome_email(user) do
           {:ok, _} ->
             :ok
 

@@ -25,7 +25,7 @@ observability pack, built from a real run of the hosted instance.
 - **Three team dashboards**, in `deploy/grafana/`, one each for ops, product
   and finance. They cover the same metrics in more depth, and the ops one adds
   trace panels. [Read the dashboards](dashboards.md) says what each number
-  means, and which questions belong in PostHog instead.
+  means.
 
 One series gets a mention here, because it is the one that maps to money.
 The gauge `fountain_sandboxes_by_provider_count` reports how many sandboxes

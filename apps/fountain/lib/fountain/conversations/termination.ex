@@ -535,7 +535,7 @@ defmodule Fountain.Conversations.Termination do
   # `terminated_at` is nobody's argument any more. This used to pass none so
   # that `update_sandbox/2` would stamp it from `stamp_terminated_at/1` at the
   # *start* of the retirement rather than after the provider call — the gap
-  # mattered because `Billing.SandboxUsage` reconciles a provider bill against
+  # mattered because `Machines.Usage` reconciles a provider bill against
   # it. `Lease.stamp_terminated_at/2` keeps that behaviour: `COALESCE` fills
   # the column only when it is empty, so a caller that already stamped it under
   # its own lock keeps the stamp it wrote.

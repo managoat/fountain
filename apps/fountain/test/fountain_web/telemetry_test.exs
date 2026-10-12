@@ -4,16 +4,15 @@ defmodule FountainWeb.TelemetryTest do
 
   describe "periodic_measurements/1" do
     test "defaults to the test-env flag, which disables polling" do
-      # config/test.exs sets funnel_poller_enabled: false so the poller's
+      # config/test.exs sets gauge_poller_enabled: false so the poller's
       # Repo calls can't race the SQL Sandbox. If this ever flips on in
       # test, async suites start flaking on connection ownership.
       assert FountainWeb.Telemetry.periodic_measurements() == []
     end
 
-    test "when enabled, polls the funnel and ops gauges" do
+    test "when enabled, polls the ops gauges" do
       measurements = FountainWeb.Telemetry.periodic_measurements(true)
 
-      assert {Fountain.Funnel, :emit_telemetry, []} in measurements
       assert {Fountain.OpsGauges, :emit_telemetry, []} in measurements
     end
 

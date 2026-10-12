@@ -13,7 +13,7 @@ defmodule Fountain.Conversations.InitialStartFailureTest do
   end
 
   test "an unchanged initial start failure retires both pending rows", ctx do
-    expect(Fountain.Billing, :record_usage, 2, fn user_id, event, sandbox_id, "sandbox", _ ->
+    expect(Fountain.Usage, :record_usage, 2, fn user_id, event, sandbox_id, "sandbox", _ ->
       assert user_id == ctx.user.id
       assert event in ["sandbox_provision_failed", "sandbox_terminated"]
       refute Repo.in_transaction?()

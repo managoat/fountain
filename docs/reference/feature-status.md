@@ -9,8 +9,8 @@ describes one of these features.
 
 | Feature | Status | On the hosted platform | On your own instance |
 |---|---|---|---|
-| [Connections](../catalog/connections/index.md) | Alpha | Off by default. Behind the `connections` flag, separately from the credential broker. [Ask us](../api.md#support) to turn it on for your account. | Configure the credential broker and your provider apps, then add `connections` to `FEATURE_FLAGS_ON`. This also enables the credential bindings page. |
-| [ChatGPT subscriptions](../guides/chatgpt-subscriptions.md) | In development | On for every account since 2026-09-21, behind the `chatgpt_subscriptions` flag. We opened it before we had tested it with a user's subscription on the real service: see below. We can turn it off again. | Off. The flag reads off on an instance with no PostHog too. `FEATURE_FLAGS_ON=chatgpt_subscriptions` forces it on where the credential broker is configured. Do not do that on an instance that serves people you do not trust: see below. |
+| [Connections](../catalog/connections/index.md) | Alpha | Off by default. Behind the `connections` flag, separately from the credential broker. [Ask us](../api.md#support) to turn it on for your account. | Configure the credential broker and your provider apps. The `connections` flag reads on by default. This also enables the credential bindings page. |
+| [ChatGPT subscriptions](../guides/chatgpt-subscriptions.md) | In development | On for every account since 2026-09-21, behind the `chatgpt_subscriptions` flag. We opened it before we had tested it with a user's subscription on the real service: see below. We can turn it off again. | Off. `FEATURE_FLAGS_ON=chatgpt_subscriptions` turns it on where the credential broker is configured. Do not do that on an instance that serves people you do not trust: see below. |
 
 ## What each status means
 

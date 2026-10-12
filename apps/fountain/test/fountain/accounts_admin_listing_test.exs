@@ -97,7 +97,7 @@ defmodule Fountain.AccountsAdminListingTest do
     test "sorts by last activity, users without any activity always last" do
       quiet = insert_verified_user()
       active = insert_verified_user()
-      {:ok, _} = Fountain.Billing.record_usage(active.id, "turn_started", nil, nil)
+      {:ok, _} = Fountain.Usage.record_usage(active.id, "turn_started", nil, nil)
 
       active_id = active.id
       quiet_id = quiet.id
@@ -111,7 +111,7 @@ defmodule Fountain.AccountsAdminListingTest do
 
     test "carries last_activity_at on every user" do
       active = insert_verified_user()
-      {:ok, _} = Fountain.Billing.record_usage(active.id, "turn_started", nil, nil)
+      {:ok, _} = Fountain.Usage.record_usage(active.id, "turn_started", nil, nil)
 
       %{users: [user]} = Accounts.list_users_admin(search: active.email)
       assert %DateTime{} = user.last_activity_at

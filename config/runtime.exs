@@ -1570,31 +1570,12 @@ case System.get_env("OAUTH_CLIENTS") do
     end
 end
 
-# ── PostHog: feature flags and product analytics ──────────────────────────
-#
-# One project API key serves both halves. `Fountain.FeatureFlags` reads it to
-# evaluate per-user flags; `Fountain.Analytics` reads it to send product
-# events. Neither does anything without it, so an instance that sets no key
-# evaluates no flags and sends nothing.
-#
 # ── Feature flags ─────────────────────────────────────────────────────────
 #
-# Per-user flags are evaluated by PostHog (`Fountain.FeatureFlags`) when a
-# project API key is set; the module caches answers and falls back to the
-# last one it got when PostHog is unreachable, and to "off" when it has
-# none — an outage never turns a feature on. FEATURE_FLAGS_ON is the
-# no-PostHog path: a comma-separated list of flag keys forced on for every
-# user (a self-hoster, or dev). Read in every env.
-# Set only when present, so config/test.exs keeps its own value.
-case System.get_env("POSTHOG_PROJECT_API_KEY") do
-  blank when blank in [nil, ""] -> :ok
-  key -> config :fountain, :posthog_project_api_key, key
-end
-
-config :fountain,
-       :posthog_host,
-       System.get_env("POSTHOG_HOST", "https://us.i.posthog.com")
-
+# `Fountain.FeatureFlags` is configuration only. FEATURE_FLAGS_ON is a
+# comma-separated list of flag keys turned on for every user (for example
+# `chatgpt_subscriptions`); a flag that gates a shipped feature
+# (`connections`) is on without being listed. Read in every env.
 config :fountain,
        :feature_flag_overrides,
        "FEATURE_FLAGS_ON"
@@ -1603,45 +1584,3 @@ config :fountain,
        |> Enum.map(&String.trim/1)
        |> Enum.reject(&(&1 == ""))
        |> Map.new(&{&1, true})
-
-# ── Product analytics ─────────────────────────────────────────────────────
-#
-# `Fountain.Analytics` captures product events into the same PostHog project
-# the flags come from. On whenever a key is set; POSTHOG_CAPTURE=false keeps
-# flag evaluation and turns capture off, for a deployment that wants one
-# without the other.
-#
-# POSTHOG_PERSON_PII=false drops the account email from person properties,
-# leaving the user id — which is all the audit trail stores either. The
-# events themselves never carry PII: no secret values, no prompts, no agent
-# output (`Fountain.Analytics.sanitize/1`).
-#
-# POSTHOG_INSTANCE names this deployment. Every event is associated with it
-# as a PostHog group, so a hosted instance and a self-hoster reporting into
-# one project stay separable. Defaults to PHX_HOST.
-config :fountain,
-       :analytics_enabled,
-       System.get_env("POSTHOG_CAPTURE", "true") not in ~w(false 0 no off)
-
-config :fountain,
-       :analytics_person_pii,
-       System.get_env("POSTHOG_PERSON_PII", "true") not in ~w(false 0 no off)
-
-# POSTHOG_BROWSER_CAPTURE=false stops the public pages (landing, legal, the
-# manual, the auth flow) loading posthog-js, leaving the server-side capture
-# untouched. The console never loads it either way.
-#
-# The snippet is what makes visitors countable at all: a server-side pageview
-# has no session, no referrer and no device, and `Fountain.Analytics` drops
-# events with no subject — so before it, nobody who was not signed in was
-# counted anywhere. The off-switch exists because loading a third-party script
-# into a visitor's browser is a different decision from sending product events
-# from a server, and a self-hoster is entitled to make them separately.
-config :fountain,
-       :analytics_browser_capture,
-       System.get_env("POSTHOG_BROWSER_CAPTURE", "true") not in ~w(false 0 no off)
-
-case System.get_env("POSTHOG_INSTANCE") || System.get_env("PHX_HOST") do
-  blank when blank in [nil, ""] -> :ok
-  name -> config :fountain, :analytics_instance, name
-end

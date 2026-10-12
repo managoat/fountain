@@ -310,19 +310,11 @@ defmodule FountainWeb.ConnectionsRolloutTest do
     assert %{"data" => []} = conn |> get("/api/connections") |> json_response(200)
   end
 
-  test "a deployment with no PostHog keeps Connections rather than losing it on upgrade", ctx do
-    # The self-host case (#1693): no override, no flag service. The upgrade
-    # that introduced the flag must not take the feature away.
-    previous = Application.get_env(:fountain, :posthog_project_api_key)
-
-    on_exit(fn ->
-      if previous, do: Application.put_env(:fountain, :posthog_project_api_key, previous)
-      Fountain.FeatureFlags.reset()
-    end)
-
+  test "a deployment with no override keeps Connections rather than losing it on upgrade",
+       ctx do
+    # The self-host case (#1693): nothing configured. The upgrade that
+    # introduced the flag must not take the feature away.
     Application.put_env(:fountain, :feature_flag_overrides, %{})
-    Application.delete_env(:fountain, :posthog_project_api_key)
-    Fountain.FeatureFlags.reset()
 
     assert Fountain.Connections.enabled_for?(ctx.user.id)
 

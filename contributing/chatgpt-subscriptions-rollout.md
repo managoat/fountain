@@ -17,9 +17,9 @@ friend, and the unproven parts fail recoverably. The unticked items are now
 observations of a live feature rather than gates, and
 ["While it is open"](#while-it-is-open) says what to watch.
 
-Until every item is ticked, **the flag stays out of `@on_without_posthog`**
-(`Fountain.FeatureFlags`), so a self-hosted deployment is off unless its
-operator forces it. `FEATURE_FLAGS_ON` can force it on where the credential
+Until every item is ticked, **the flag stays out of `@on_by_default`**
+(`Fountain.FeatureFlags`), so a deployment is off unless its operator lists
+it. `FEATURE_FLAGS_ON` can force it on where the credential
 broker is configured; never do that on an instance that serves people you
 do not trust.
 
@@ -93,8 +93,10 @@ do not trust.
   the maintainer's decision (#2475). The flag is active in the hosted
   instance's PostHog project for all users with no filter, checked by
   evaluating it with the instance's project key for arbitrary user ids.
-  There was no staff step and no 5% step. `@on_without_posthog` only after
-  (c), (d) and (e), if at all.
+  There was no staff step and no 5% step. Since 2026-10-12 flags are
+  configuration only, so the hosted instance carries it in
+  `FEATURE_FLAGS_ON`. `@on_by_default` only after (c), (d) and (e), if at
+  all.
 - [x] **(g) Rollback is the flag.** Off, nobody can link a new subscription;
   the grants people hold stay listable, renamable, reconnectable,
   disconnectable and removable, and the keepalive goes on renewing them.
@@ -129,10 +131,10 @@ The first real links on the hosted instance are the test. Watch:
   browser, which no test here has met.
 - Any `error` line that starts `chatgpt keepalive:`.
 
-**Rollback:** set `chatgpt_subscriptions` inactive in the hosted instance's
-PostHog project. Fountain caches an answer for sixty seconds
-(`Fountain.FeatureFlags`), so the door closes within a minute; a sign-in
-that is open when it closes fails with `linking_disabled`. Existing
+**Rollback:** remove `chatgpt_subscriptions` from the instance's
+`FEATURE_FLAGS_ON` and restart it (flags are configuration only since
+2026-10-12, ADR 0025's addendum). A sign-in that is open when it closes fails
+with `linking_disabled`. Existing
 subscriptions stay manageable and keep being renewed, as (g) says.
 
 Accepting ADR 0060 is the maintainer's decision and is not an item here. Its

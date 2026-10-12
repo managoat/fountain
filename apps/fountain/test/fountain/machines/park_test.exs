@@ -51,7 +51,7 @@ defmodule Fountain.Machines.ParkTest do
 
   defp usage_events(ctx) do
     Repo.all(
-      from e in Fountain.Billing.UsageEvent,
+      from e in Fountain.Usage.Event,
         where: e.resource_id == ^ctx.sandbox.id,
         select: e.event_type,
         order_by: e.id

@@ -1,16 +1,16 @@
-defmodule Fountain.Billing.UsageEvent do
+defmodule Fountain.Usage.Event do
   @moduledoc """
-  Schema for the `usage_events` table.
+  Schema for the `usage_events` table: the sandbox lifecycle, one row per
+  provision, turn start, park, wake and teardown.
 
-  **Nothing here is money any more** (#1143). These rows are the product
-  signal: a count on a dashboard and the PostHog mirror that
-  `Billing.record_usage/5` writes from the same choke point. That writer
-  rescues and logs rather than failing the action that produced it, because a
-  metering outage must never fail a conversation — the right contract for a
-  count and the wrong one for a row the ledger keys on.
+  **Nothing here is money** (#1143). The rows are counts for the dashboard and
+  the admin usage summaries, and the park/wake pairs
+  `Fountain.Machines.Usage` subtracts from sandbox time. The writer,
+  `Fountain.Usage.record_usage/5`, rescues and logs rather than failing the
+  action that produced it, because a metering outage must never fail a
+  conversation.
 
-  Written from `ConversationServer` at key lifecycle points; never updated
-  after insertion (no `updated_at`).
+  Never updated after insertion (no `updated_at`).
   """
 
   use Ecto.Schema
@@ -35,7 +35,7 @@ defmodule Fountain.Billing.UsageEvent do
   # The closed vocabulary: the sandbox lifecycle.
   #
   # None of it is priced. `sandbox_terminated` never was — it is forensic
-  # only, and `SandboxUsage` reads the sandbox rows. Do not add a type
+  # only, and `Fountain.Machines.Usage` reads the sandbox rows. Do not add a type
   # expecting it to bill.
   @valid_event_types ~w(sandbox_provisioned sandbox_provision_failed turn_started sandbox_terminated
                          sandbox_suspended sandbox_resumed)

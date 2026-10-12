@@ -255,3 +255,20 @@ developer takes because they want to, not because nothing works without it.
   different origin to click a button.
 - **Do nothing until strangers arrive.** The number would still be
   unmeasured when they did.
+
+## Addendum — 2026-10-12: the measurement is removed
+
+Fountain is no longer sold as a hosted service, and the growth measurement
+this ADR asked for went with PostHog ([ADR 0025](0025-product-analytics-in-posthog.md)).
+The onboarding path itself stays.
+
+- `Fountain.Funnel`, its `fountain.funnel.*` gauges, the admin funnel tile at
+  `/admin` and the funnel panels on the Grafana product dashboard are removed.
+- `Fountain.Activation` is removed. What the product still needs from it moved
+  to `Fountain.Onboarding`: `first_reply/1` and `first_reply_at/1`, which the
+  verified landing and the dashboard read, and `turn_replied/1`, which still
+  stamps `users.onboarding_completed_at` at the account's first reply
+  (decision 7). The `onboarding.*` and `activation.first_reply` events are no
+  longer sent.
+- Decision 2's definition (the first conversation with a reply) still decides
+  when onboarding is complete. Nothing counts it across accounts any more.

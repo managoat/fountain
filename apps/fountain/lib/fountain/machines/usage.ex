@@ -1,11 +1,13 @@
-defmodule Fountain.Billing.SandboxUsage do
+defmodule Fountain.Machines.Usage do
   @moduledoc """
   Active sandbox seconds, split by tenant and by provider, clipped to a period.
 
-  Fountain pays Sprites, E2B and Daytona for the seconds its tenants' sandboxes
-  are running (ADR 0005, ADR 0018). This module answers the question that turns
-  one of those invoices into an internal number: *which tenant, on which
-  provider, ran how long inside this period?*
+  The operator pays Sprites, E2B and Daytona for the seconds its tenants'
+  sandboxes are running (ADR 0005, ADR 0018). This module answers the question
+  that turns one of those invoices into an internal number: *which tenant, on
+  which provider, ran how long inside this period?* It is what `/admin` and
+  `/admin/sandboxes` show as sandbox cost (`provider_spend/1`), and what
+  `Fountain.Usage` reads sandbox minutes from.
 
   ## Where the numbers come from
 
@@ -45,7 +47,7 @@ defmodule Fountain.Billing.SandboxUsage do
   by the sandbox's own end, or by `period_end`.
 
   **The interval is durable; the discount is not.** A sandbox row is written
-  synchronously and cannot be lost, but `Billing.record_usage/5` is
+  synchronously and cannot be lost, but `Fountain.Usage.record_usage/5` is
   deliberately best-effort — metering must never be able to fail a
   conversation (#503) — so the suspend/resume rows this subtraction pairs on
   can be dropped. A dropped `sandbox_suspended` bills parked time as running;
@@ -75,8 +77,7 @@ defmodule Fountain.Billing.SandboxUsage do
   negative idle.
 
   Turn time (`turn_seconds`) is the *sum* of those same intervals, each clipped
-  to the period. What credits buy (decisions/0031) is hours of work, and
-  two conversations each running an hour on one machine are two hours of work
+  to the period: hours of work, where two conversations each running an hour on one machine are two hours of work
   on a machine that was busy for one (decisions/0023, step 6). It is not
   capped at `active` and may exceed it; `busy` is the machine's view, `turn`
   the tenant's.
@@ -99,22 +100,22 @@ defmodule Fountain.Billing.SandboxUsage do
 
   Two queries: the sandbox rows overlapping the period, and the park events for
   those rows. Pairing suspends with resumes needs the per-sandbox timeline, so
-  the folding happens in Elixir — the same trade `Billing.usage_summaries/2`
+  the folding happens in Elixir — the same trade `Fountain.Usage.usage_summaries/2`
   already makes, and on a strictly smaller set of rows.
   """
 
   import Ecto.Query
 
-  alias Fountain.Billing.UsageEvent
   alias Fountain.Conversations.Conversation
   alias Fountain.Conversations.Sandbox
   alias Fountain.Conversations.Turn
   alias Fountain.Repo
+  alias Fountain.Usage.Event, as: UsageEvent
 
   @terminal ~w(terminated failed)
   @park_events ~w(sandbox_suspended sandbox_resumed)
 
-  # Providers whose seconds land on a bill Fountain pays. `runner` is the
+  # Providers whose seconds land on a bill the operator pays. `runner` is the
   # tenant's own hardware and is deliberately absent — see the moduledoc.
   @platform_paid ~w(sprites e2b daytona)
 
@@ -123,8 +124,8 @@ defmodule Fountain.Billing.SandboxUsage do
 
   `active_seconds` is what the provider charges for. `busy_seconds` is the part
   of it with a turn in flight and `idle_seconds` the rest; the two add up to
-  `active_seconds`. `turn_seconds` is the turns themselves, summed — the unit
-  credit is burned in — and is not bounded by `active_seconds`.
+  `active_seconds`. `turn_seconds` is the turns themselves, summed, and is not
+  bounded by `active_seconds`.
 
   `user_id` is `nil` for sandboxes whose owner has been deleted.
   """
@@ -144,7 +145,7 @@ defmodule Fountain.Billing.SandboxUsage do
   Pass `user_id: id` to scope to a single tenant — the same computation, one
   tenant's rows. `:now` pins the clock (tests); a test driving a surface end to
   end, with nowhere to pass an option, pins the same clock with
-  `Application.put_env(:fountain, Fountain.Billing.SandboxUsage, now: dt)`.
+  `Application.put_env(:fountain, Fountain.Machines.Usage, now: dt)`.
 
   A still-running sandbox accrues only up to *now*, never to a `period_end`
   that has not happened yet: asked about the current month, this reports what
@@ -270,9 +271,8 @@ defmodule Fountain.Billing.SandboxUsage do
 
   The same rows `for_user/3` reads, reporting the part of each with a prompt
   actually in flight rather than the whole active window. This is the
-  machine's view, the one a provider bill on the `:turn` basis relates to. The
-  tenant's credit is burned in `turn_seconds_for_user/3`, which sums turns
-  instead: on a shared sandbox the two differ.
+  machine's view. `turn_seconds_for_user/3` sums turns instead: on a shared
+  sandbox the two differ.
 
   Providers with no turn time in the period are absent rather than zero, so a
   tenant whose sandboxes all sat idle gets an empty map, not `%{"sprites" => 0}`.
@@ -292,11 +292,10 @@ defmodule Fountain.Billing.SandboxUsage do
   One tenant's *turn* seconds per provider: `%{provider => turn_seconds}` —
   the sum over its turns, each clipped to the period.
 
-  This is the unit credit is burned in (`Fountain.Credits.turn_cost_cents/1`):
-  an idle sandbox costs Fountain money and is reported by `for_user/3`, but
-  burning none of a customer's credit for it is the deliberate choice — the
-  price measures work, not forgetfulness. And it is a sum, not a union: two conversations each running
-  an hour on one machine are two hours of work (decisions/0023, step 6).
+  This measures work: an idle sandbox still costs the operator money and is
+  reported by `for_user/3`, but it is not turn time. And it is a sum, not a
+  union: two conversations each running an hour on one machine are two hours
+  of work (decisions/0023, step 6).
 
   Same shape and absence rule as `busy_for_user/3`.
   """
@@ -312,7 +311,7 @@ defmodule Fountain.Billing.SandboxUsage do
   end
 
   @doc """
-  Does time on this provider land on a bill Fountain pays?
+  Does time on this provider land on a bill the operator pays?
 
   False for `runner` (the tenant's own machine) and for any provider this
   build does not know about — a name we cannot price is not a name to assume
@@ -329,9 +328,144 @@ defmodule Fountain.Billing.SandboxUsage do
   @spec hours(non_neg_integer()) :: float()
   def hours(seconds) when is_integer(seconds), do: Float.round(seconds / 3600, 2)
 
-  @doc "Providers whose seconds Fountain pays for, in report order."
+  @doc "Providers whose seconds the operator pays for, in report order."
   @spec platform_paid_providers() :: [String.t()]
   def platform_paid_providers, do: @platform_paid
+
+  @doc """
+  `attribution/3` rows folded per tenant, keeping the per-provider split the
+  totals were built from. Rows with a `nil` owner (deleted accounts) are
+  dropped: there is no user to hang them on.
+  """
+  @spec usage_by_user([row()]) :: %{optional(binary()) => map()}
+  def usage_by_user(rows) when is_list(rows) do
+    rows
+    |> Enum.reject(&is_nil(&1.user_id))
+    |> Enum.group_by(& &1.user_id)
+    |> Map.new(fn {user_id, group} ->
+      {user_id,
+       %{
+         active_seconds: group |> Enum.map(& &1.active_seconds) |> Enum.sum(),
+         busy_seconds: group |> Enum.map(& &1.busy_seconds) |> Enum.sum(),
+         idle_seconds: group |> Enum.map(& &1.idle_seconds) |> Enum.sum(),
+         turn_seconds: group |> Enum.map(& &1.turn_seconds) |> Enum.sum(),
+         by_provider:
+           Enum.map(
+             group,
+             &%{
+               provider: &1.provider,
+               active: &1.active_seconds,
+               busy: &1.busy_seconds,
+               idle: &1.idle_seconds,
+               turn: &1.turn_seconds
+             }
+           )
+       }}
+    end)
+  end
+
+  @doc """
+  The rows on providers the operator pays for, and their totals, with the
+  per-provider roll-up of every row.
+  """
+  @spec platform_totals([row()]) :: %{
+          paid: [row()],
+          active_seconds: non_neg_integer(),
+          idle_seconds: non_neg_integer(),
+          by_provider: map()
+        }
+  def platform_totals(rows) when is_list(rows) do
+    paid = Enum.filter(rows, &platform_cost?(&1.provider))
+
+    %{
+      paid: paid,
+      active_seconds: paid |> Enum.map(& &1.active_seconds) |> Enum.sum(),
+      idle_seconds: paid |> Enum.map(& &1.idle_seconds) |> Enum.sum(),
+      by_provider: by_provider(rows)
+    }
+  end
+
+  @doc """
+  Sandbox time per provider for a period, and who it belongs to — the number to
+  hold a Sprites, E2B or Daytona invoice next to. `/admin` and
+  `/admin/sandboxes` render it.
+
+  Options:
+    * `:period` — `{period_start, period_end}`, default the current month
+    * `:top` — how many tenants `:top_tenants` names (default 10)
+    * `:now` — pins the clock (tests)
+
+  Returns:
+    * `:period_start` / `:period_end` — the window these numbers cover
+    * `:by_provider` — `%{provider => %{active_seconds, busy_seconds,
+      idle_seconds, sandboxes, users}}`, parked time already excluded
+    * `:platform_seconds` — seconds on providers the operator pays for.
+      Self-hosted runners (decisions/0022) run on the tenant's own machine, so
+      they appear in `:by_provider` but deliberately not in this total
+    * `:platform_idle_seconds` — the part of `:platform_seconds` with no turn
+      in flight. This is the number a shorter idle timeout removes
+    * `:top_tenants` — the accounts behind that total, biggest first, each with
+      its `email` (`nil` once the account is deleted)
+    * `:attribution` — every per-tenant row the totals were built from
+
+  Deliberately no money: prices are per-provider, per-machine-size and
+  negotiated, and none of them are in this codebase. Multiply outside, against
+  the rate card you actually pay.
+  """
+  @spec provider_spend(keyword()) :: %{
+          period_start: DateTime.t(),
+          period_end: DateTime.t(),
+          by_provider: map(),
+          platform_seconds: non_neg_integer(),
+          platform_idle_seconds: non_neg_integer(),
+          top_tenants: [map()],
+          attribution: [row()]
+        }
+  def provider_spend(opts \\ []) do
+    {period_start, period_end} =
+      Keyword.get(opts, :period) || Fountain.Usage.current_month_range()
+
+    attribution_opts =
+      case Keyword.fetch(opts, :now) do
+        {:ok, now} -> [now: now]
+        :error -> []
+      end
+
+    rows = attribution(period_start, period_end, attribution_opts)
+    totals = platform_totals(rows)
+
+    %{
+      period_start: period_start,
+      period_end: period_end,
+      by_provider: totals.by_provider,
+      platform_seconds: totals.active_seconds,
+      platform_idle_seconds: totals.idle_seconds,
+      top_tenants: top_tenants(totals.paid, Keyword.get(opts, :top, 10)),
+      attribution: rows
+    }
+  end
+
+  # One email lookup for the whole list rather than one per row — this renders
+  # on the admin panel's ten-second refresh.
+  defp top_tenants(rows, limit) do
+    top = rows |> Enum.sort_by(& &1.active_seconds, :desc) |> Enum.take(limit)
+
+    emails =
+      top
+      |> Enum.map(& &1.user_id)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+      |> case do
+        [] ->
+          %{}
+
+        ids ->
+          Repo.all(from u in Fountain.Accounts.User, where: u.id in ^ids, select: {u.id, u.email})
+          |> Map.new()
+      end
+
+    Enum.map(top, &Map.put(&1, :email, Map.get(emails, &1.user_id)))
+  end
 
   # ── internals ───────────────────────────────────────────────────────────────
 

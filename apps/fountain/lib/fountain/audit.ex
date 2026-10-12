@@ -84,8 +84,7 @@ defmodule Fountain.Audit do
       |> Map.put_new(:inserted_at, DateTime.utc_now() |> DateTime.truncate(:second))
 
     case %Event{} |> Event.changeset(attrs) |> Repo.insert() do
-      {:ok, event} = ok ->
-        mirror_to_analytics(event)
+      {:ok, _event} = ok ->
         ok
 
       {:error, changeset} = err ->
@@ -96,130 +95,6 @@ defmodule Fountain.Audit do
       require Logger
       Logger.warning("audit: record failed: #{inspect(e)}")
       {:error, :exception}
-  end
-
-  # Product analytics rides on the audit trail rather than on a second set of
-  # call sites (see `Fountain.Analytics`): every mutation already has to come
-  # through here, so a new audited action is a new PostHog event for free and
-  # the two can never drift apart in coverage.
-  #
-  # Only the attributed events go. A `user_id: nil` row is a system action or
-  # one whose account has since been deleted; giving either a synthetic person
-  # would put rows in PostHog that no cohort should ever match. The metadata
-  # is passed through `Analytics.sanitize/1` — audit metadata is values-free
-  # by rule (ADR 0013), and this is the fence that keeps it that way when the
-  # destination is a third party rather than our own table.
-  defp mirror_to_analytics(%Event{user_id: nil}), do: :ok
-
-  defp mirror_to_analytics(%Event{} = event) do
-    # Checked here rather than left to `capture/4`, which would also do
-    # nothing: `refresh_person/1` re-reads the user row, and an instance with
-    # no PostHog key must not pay a `SELECT` on every account-shaped mutation
-    # for a feature it has not turned on.
-    if Fountain.Analytics.enabled?(), do: do_mirror(event)
-    :ok
-  end
-
-  defp do_mirror(%Event{} = event) do
-    # An audited row becomes one of three things, and `Fountain.Analytics`
-    # owns every one of those judgements:
-    #
-    #   * a semantic product event under its own name (`agent.created`) —
-    #     `product_event?/2`;
-    #   * the `:api` pipeline's request-log row, which becomes the single
-    #     `api.request` event with the route as a property — `api_request/1`
-    #     says why the name cannot be the route;
-    #   * nothing — a self-issued API key, which was 70% of the trail.
-    #
-    # `refresh_person/1` runs for all three. A credit event recorded against
-    # a system actor changes the account's shape whether or not the row
-    # itself is worth counting.
-    refresh_person(event)
-
-    cond do
-      Fountain.Analytics.product_event?(event.action, event.actor) ->
-        capture_event(event)
-
-      match?({:ok, _}, Fountain.Analytics.api_request(event.action)) ->
-        capture_api_request(event)
-
-      true ->
-        :ok
-    end
-  end
-
-  # One event name for the whole API surface. `route` is the matched router
-  # pattern, so it is bounded by the router rather than by traffic, and
-  # `status`/`status_class` make a run of refusals visible as a breakdown
-  # instead of as a shape in the audit table nobody queries.
-  #
-  # A refused request with no principal (a 401 on a bad credential) captures
-  # nothing: `Analytics.capture/4` drops events with no subject by rule, so
-  # PostHog person counts keep meaning accounts. Unauthenticated API failures
-  # are an access-log question and stay one — the audit trail keeps the row.
-  defp capture_api_request(%Event{} = event) do
-    {:ok, {method, route}} = Fountain.Analytics.api_request(event.action)
-    status = status(event.metadata)
-
-    Fountain.Analytics.capture(
-      "api.request",
-      event.user_id,
-      %{
-        "method" => method,
-        "route" => route,
-        "endpoint" => event.action,
-        "status" => status,
-        "status_class" => status_class(status),
-        "resource_type" => event.resource_type,
-        "actor" => event.actor,
-        "source" => "audit"
-      },
-      request_ip: event.request_ip,
-      timestamp: event.inserted_at
-    )
-  end
-
-  defp status(metadata) when is_map(metadata), do: Map.get(metadata, "status")
-  defp status(_), do: nil
-
-  defp status_class(status) when is_integer(status), do: "#{div(status, 100)}xx"
-  defp status_class(_), do: nil
-
-  defp capture_event(%Event{} = event) do
-    Fountain.Analytics.capture(
-      event.action,
-      event.user_id,
-      event.metadata
-      |> Fountain.Analytics.sanitize()
-      |> Map.merge(%{
-        "resource_type" => event.resource_type,
-        "actor" => event.actor,
-        "source" => "audit"
-      }),
-      request_ip: event.request_ip,
-      timestamp: event.inserted_at
-    )
-  end
-
-  # An action that changes the *shape* of the account, not just its contents.
-  # These are the only ones worth re-reading the user row for: PostHog person
-  # properties are what cohorts are built from, and they go stale the moment a
-  # balance moves or an account is suspended. Everything else (an agent
-  # created, a secret written) leaves the person unchanged, and refreshing on
-  # those would put a `SELECT` on every audited mutation in the system.
-  @person_refreshing_prefixes ~w(account. auth. billing. credit. admin.)
-
-  defp refresh_person(%Event{user_id: user_id, action: action}) do
-    if String.starts_with?(action, @person_refreshing_prefixes) do
-      case Fountain.Accounts.get_user(user_id) do
-        nil -> :ok
-        user -> Fountain.Analytics.identify(user)
-      end
-    end
-
-    :ok
-  rescue
-    _ -> :ok
   end
 
   # The account was deleted between the action and this write, so `user_id`

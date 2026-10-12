@@ -1012,7 +1012,7 @@ defmodule Fountain.Accounts do
   end
 
   defp last_activity_query do
-    from(e in Fountain.Billing.UsageEvent,
+    from(e in Fountain.Usage.Event,
       group_by: e.user_id,
       select: %{user_id: e.user_id, last_at: max(e.inserted_at)}
     )

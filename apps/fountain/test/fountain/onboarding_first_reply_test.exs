@@ -1,7 +1,7 @@
-defmodule Fountain.ActivationTest do
+defmodule Fountain.OnboardingFirstReplyTest do
   use Fountain.DataCase, async: true
 
-  alias Fountain.Activation
+  alias Fountain.Onboarding
   alias Fountain.Conversations
 
   # One ACP `agent_message_chunk`: the shape a runtime writes assistant text
@@ -26,13 +26,12 @@ defmodule Fountain.ActivationTest do
     |> DateTime.truncate(:second)
   end
 
-  describe "first_reply_by_user/0" do
+  describe "first_reply_at/1" do
     test "empty when nobody has replied" do
       user = insert_verified_user()
       insert_conversation(user_id: user.id)
 
-      assert Activation.first_reply_by_user() == %{}
-      assert Activation.first_reply_at(user.id) == nil
+      assert Onboarding.first_reply_at(user.id) == nil
     end
 
     test "the earliest replied turn, across conversations" do
@@ -46,10 +45,10 @@ defmodule Fountain.ActivationTest do
       insert_turn(other, %{status: "completed", reply_text: "later", ended_at: at(1)})
       insert_turn(conv, %{status: "completed", reply_text: "first", ended_at: earliest})
 
-      first = Activation.first_reply_at(user.id)
+      first = Onboarding.first_reply_at(user.id)
 
       assert DateTime.compare(first, earliest) == :eq
-      assert Activation.first_reply_by_user() == %{user.id => first}
+      assert Onboarding.first_reply(user.id).text == "first"
     end
 
     test "a turn with no assistant text is not a reply" do
@@ -59,7 +58,8 @@ defmodule Fountain.ActivationTest do
       insert_turn(conv, %{status: "completed", ended_at: at(1)})
       insert_turn(conv, %{status: "failed", reply_text: "", ended_at: at(1)})
 
-      assert Activation.first_reply_by_user() == %{}
+      assert Onboarding.first_reply_at(user.id) == nil
+      assert Onboarding.first_reply(user.id) == nil
     end
 
     test "accounts are separate" do
@@ -72,8 +72,8 @@ defmodule Fountain.ActivationTest do
         ended_at: at(2)
       })
 
-      assert Map.keys(Activation.first_reply_by_user()) == [one.id]
-      assert Activation.first_reply_at(two.id) == nil
+      assert Onboarding.first_reply_at(one.id) != nil
+      assert Onboarding.first_reply_at(two.id) == nil
     end
   end
 
@@ -83,7 +83,7 @@ defmodule Fountain.ActivationTest do
       conv = insert_conversation(user_id: user.id)
       turn = insert_turn(conv, %{status: "running"})
 
-      assert Activation.turn_replied(turn) == :ok
+      assert Onboarding.turn_replied(turn) == :ok
     end
 
     test "does not raise when the turn's conversation is gone" do
@@ -93,7 +93,7 @@ defmodule Fountain.ActivationTest do
 
       Repo.delete!(conv)
 
-      assert Activation.turn_replied(turn) == :ok
+      assert Onboarding.turn_replied(turn) == :ok
     end
 
     test "answers :ok for the first reply and for every one after it" do
@@ -103,13 +103,13 @@ defmodule Fountain.ActivationTest do
       first = insert_turn(conv, %{status: "completed", reply_text: "one", ended_at: at(3)})
       second = insert_turn(conv, %{status: "completed", reply_text: "two", ended_at: at(2)})
 
-      assert Activation.turn_replied(first) == :ok
-      assert Activation.turn_replied(second) == :ok
+      assert Onboarding.turn_replied(first) == :ok
+      assert Onboarding.turn_replied(second) == :ok
     end
   end
 
   describe "the seam in Conversations._unsafe_update_turn/2" do
-    test "ending a turn with assistant text activates the account" do
+    test "ending a turn with assistant text completes onboarding" do
       user = insert_verified_user()
       conv = insert_conversation(user_id: user.id)
       turn = insert_turn(conv, %{status: "running"})
@@ -120,10 +120,10 @@ defmodule Fountain.ActivationTest do
         Conversations._unsafe_update_turn(turn, %{status: "completed", ended_at: at(0)})
 
       assert ended.reply_text =~ "hello"
-      assert Activation.first_reply_at(user.id) != nil
+      assert Onboarding.first_reply_at(user.id) != nil
     end
 
-    test "ending a turn that said nothing does not activate the account" do
+    test "ending a turn that said nothing does not complete onboarding" do
       user = insert_verified_user()
       conv = insert_conversation(user_id: user.id)
       turn = insert_turn(conv, %{status: "running"})
@@ -132,7 +132,7 @@ defmodule Fountain.ActivationTest do
         Conversations._unsafe_update_turn(turn, %{status: "completed", ended_at: at(0)})
 
       assert ended.reply_text == nil
-      assert Activation.first_reply_at(user.id) == nil
+      assert Onboarding.first_reply_at(user.id) == nil
     end
   end
 
@@ -171,32 +171,6 @@ defmodule Fountain.ActivationTest do
       {:ok, _} = Conversations._unsafe_update_turn(turn, %{status: "completed", ended_at: at(0)})
 
       assert DateTime.compare(Repo.reload!(user).onboarding_completed_at, earlier) == :eq
-    end
-  end
-
-  describe "conversation_created/1" do
-    test "is safe for the first conversation and for every one after it" do
-      user = insert_verified_user()
-      first = insert_conversation(user_id: user.id)
-      second = insert_conversation(user_id: user.id)
-
-      assert Activation.conversation_created(first) == :ok
-      assert Activation.conversation_created(second) == :ok
-    end
-
-    test "does not raise for a conversation with no owner" do
-      assert Activation.conversation_created(%Fountain.Conversations.Conversation{}) == :ok
-    end
-  end
-
-  describe "funnel_events/0" do
-    test "names the four steps of the PostHog funnel, in order" do
-      assert Activation.funnel_events() == [
-               "auth.email.verified",
-               "onboarding.landing_viewed",
-               "onboarding.request_sent",
-               "activation.first_reply"
-             ]
     end
   end
 end

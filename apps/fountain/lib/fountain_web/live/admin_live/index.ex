@@ -1,6 +1,6 @@
 defmodule FountainWeb.AdminLive.Index do
   @moduledoc """
-  `/admin` — the funnel, and one tile per thing that could be wrong.
+  `/admin` — one tile per thing that could be wrong.
 
   This page used to be the whole admin panel: six stacked sections, and a
   `mount` plus a ten-second refresh that re-ran every query behind all six
@@ -19,7 +19,7 @@ defmodule FountainWeb.AdminLive.Index do
   import FountainWeb.AdminLive.Shell
 
   alias Fountain.{Billing, Conversations}
-  alias Fountain.Billing.SandboxUsage
+  alias Fountain.Machines.Usage, as: SandboxUsage
 
   @impl true
   def mount(_params, _session, socket) do
@@ -40,8 +40,7 @@ defmodule FountainWeb.AdminLive.Index do
 
   defp assign_overview(socket) do
     socket
-    |> assign(:funnel, Fountain.Funnel.summary_admin())
-    |> assign(:provider_spend, Billing.provider_spend())
+    |> assign(:provider_spend, SandboxUsage.provider_spend())
     |> assign(:sandbox_count, Conversations._unsafe_count_sandboxes_admin())
     # Whatever installed extensions report (ADR 0043). The console renders
     # numbers it is handed; it does not know what an extension is called or
@@ -127,82 +126,6 @@ defmodule FountainWeb.AdminLive.Index do
       </.link>
 
       <section class="space-y-3">
-        <h2 class="text-lg font-medium">Funnel</h2>
-        <div class="grid grid-cols-2 sm:grid-cols-5 gap-3">
-          <div
-            :for={stage <- @funnel.stages}
-            :if={stage.key != :funded or @credits_enabled}
-            class="bg-[var(--color-bg-1)] rounded shadow border border-[var(--color-border)] px-4 py-3"
-          >
-            <div class="text-xs text-[var(--color-text-secondary)]">{stage_label(stage.key)}</div>
-            <div class="text-2xl font-semibold tabular-nums">{stage.count}</div>
-            <div class="text-xs text-[var(--color-text-secondary)] space-x-2">
-              <span :if={stage.conversion}>{format_pct(stage.conversion)} of prev</span>
-              <span :if={stage.median_hours}>· median {format_hours(stage.median_hours)}</span>
-            </div>
-          </div>
-        </div>
-        <%!-- The number ADR 0038 judges onboarding on. Verification to the
-              first reply, not to the first conversation: an attempt that
-              never answered is not an activation. --%>
-        <div class="bg-[var(--color-bg-1)] rounded shadow border border-[var(--color-border)] px-4 py-3 text-sm space-y-1">
-          <div class="font-medium">Time to first reply</div>
-          <div
-            :if={@funnel.time_to_first_reply.count > 0}
-            class="text-[var(--color-text-primary)] space-x-2"
-          >
-            <span>
-              median
-              <span class="font-semibold tabular-nums">
-                {format_hours(@funnel.time_to_first_reply.median_hours)}
-              </span>
-            </span>
-            <span>
-              · p90
-              <span class="font-semibold tabular-nums">
-                {format_hours(@funnel.time_to_first_reply.p90_hours)}
-              </span>
-            </span>
-            <span class="text-[var(--color-text-secondary)]">
-              · over {@funnel.time_to_first_reply.count} activated {if @funnel.time_to_first_reply.count ==
-                                                                         1,
-                                                                       do: "account",
-                                                                       else: "accounts"}
-            </span>
-          </div>
-          <div :if={@funnel.time_to_first_reply.count == 0} class="text-[var(--color-text-secondary)]">
-            No account has had a reply yet.
-          </div>
-          <div
-            :if={@funnel.time_to_first_reply.within_day_of > 0}
-            class="text-xs text-[var(--color-text-secondary)]"
-          >
-            within a day of verifying: {@funnel.time_to_first_reply.within_day} of {@funnel.time_to_first_reply.within_day_of}
-            <span :if={@funnel.time_to_first_reply.within_day_share}>
-              ({format_pct(@funnel.time_to_first_reply.within_day_share)})
-            </span>
-            — accounts verified less than a day ago are counted in neither.
-          </div>
-        </div>
-        <div
-          :if={@funnel.stalled.count > 0}
-          class="bg-amber-50 border border-amber-200 rounded px-4 py-3 text-sm text-amber-900 space-y-1"
-        >
-          <div class="font-medium">
-            {@funnel.stalled.count} verified {if @funnel.stalled.count == 1,
-              do: "user has",
-              else: "users have"} never had a reply
-          </div>
-          <div class="text-xs">
-            started a conversation and got nothing back: {@funnel.stalled.started}
-          </div>
-          <div class="text-xs">
-            added a credential: {@funnel.stalled.added_credential} · created an environment: {@funnel.stalled.built_environment} · built their own agent: {@funnel.stalled.built_own_agent}
-          </div>
-        </div>
-      </section>
-
-      <section class="space-y-3">
         <h2 class="text-lg font-medium">At a glance</h2>
         <div class="grid grid-cols-2 sm:grid-cols-5 gap-3">
           <.link
@@ -280,12 +203,4 @@ defmodule FountainWeb.AdminLive.Index do
   defp platform_totals(spend) do
     %{active_seconds: spend.platform_seconds, idle_seconds: spend.platform_idle_seconds}
   end
-
-  defp stage_label(:registered), do: "Registered"
-  defp stage_label(:verified), do: "Verified"
-  defp stage_label(:onboarded), do: "Onboarded"
-  defp stage_label(:activated), do: "Activated"
-  defp stage_label(:funded), do: "Funded"
-
-  defp format_pct(fraction), do: "#{round(fraction * 100)}%"
 end

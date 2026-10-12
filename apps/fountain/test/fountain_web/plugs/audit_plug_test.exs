@@ -301,10 +301,8 @@ defmodule FountainWeb.Plugs.AuditTest do
     end
   end
 
-  # The action string is mirrored straight through as the PostHog event name
-  # (`Fountain.Audit.do_mirror/1`), so a resource id inside it is one event
-  # definition per resource in a third-party project. It is also the only
-  # groupable column the trail has.
+  # The action string is the only groupable column the trail has, so a
+  # resource id inside it is one bucket per resource.
   describe "action — the route pattern, never the request path" do
     setup do
       user = insert_verified_user()

@@ -39,7 +39,7 @@ defmodule Fountain.Workers.CreditPricer do
 
   import Ecto.Query
 
-  alias Fountain.Billing.SandboxUsage
+  alias Fountain.Machines.Usage, as: SandboxUsage
   alias Fountain.Conversations.Conversation
   alias Fountain.Conversations.Sandbox
   alias Fountain.Conversations.Turn

@@ -36,6 +36,14 @@ defmodule Fountain.Onboarding do
   a reader could not have known.
   """
 
+  import Ecto.Query
+
+  require Logger
+
+  alias Fountain.Accounts.User
+  alias Fountain.Conversations.{Conversation, Turn}
+  alias Fountain.Repo
+
   @root Path.expand("../../../..", __DIR__)
   @sh_path Path.join(@root, "docs/snippets/first-request.sh")
   @ts_path Path.join(@root, "docs/snippets/first-request.ts")
@@ -131,5 +139,107 @@ defmodule Fountain.Onboarding do
       |> Enum.map_join(", ", fn {k, v} -> ~s(#{k}: "#{v}") end)
 
     String.replace(text, "new Fountain()", "new Fountain({ #{args} })")
+  end
+
+  # ─── The first reply ──────────────────────────────────────────────────────
+  #
+  # Onboarding is done at the account's first reply (ADR 0038 decision 7): a
+  # `turns` row whose `reply_text` is a non-empty string.
+  # `Conversations._unsafe_update_turn/2` materialises that column when the
+  # turn ends, through the same parse the transcript uses, so "the agent
+  # answered" needs no second definition here.
+
+  @doc """
+  When `user_id` first got a reply, or `nil` if it never has.
+  """
+  @spec first_reply_at(String.t()) :: DateTime.t() | nil
+  def first_reply_at(user_id) when is_binary(user_id) do
+    Repo.one(
+      from t in Turn,
+        join: c in Conversation,
+        on: c.id == t.conversation_id,
+        where: c.user_id == ^user_id,
+        where: not is_nil(t.reply_text) and t.reply_text != "",
+        select: type(min(coalesce(t.ended_at, t.inserted_at)), :utc_datetime)
+    )
+  end
+
+  @doc """
+  The account's first reply itself — when it landed, which conversation it
+  came from, and what the agent said — or `nil` if it never got one. What the
+  verified landing (`FountainWeb.StartLive`) renders. `user_id` is the scope.
+  """
+  @spec first_reply(String.t()) ::
+          %{at: DateTime.t(), conversation_id: String.t(), text: String.t()} | nil
+  def first_reply(user_id) when is_binary(user_id) do
+    Repo.one(
+      from t in Turn,
+        join: c in Conversation,
+        on: c.id == t.conversation_id,
+        where: c.user_id == ^user_id,
+        where: not is_nil(t.reply_text) and t.reply_text != "",
+        order_by: [asc: coalesce(t.ended_at, t.inserted_at), asc: t.id],
+        limit: 1,
+        select: %{
+          at: type(coalesce(t.ended_at, t.inserted_at), :utc_datetime),
+          conversation_id: c.id,
+          text: t.reply_text
+        }
+    )
+  end
+
+  @doc """
+  A turn has ended carrying a reply: if it is the account's first, stamp
+  `users.onboarding_completed_at`, whatever door the request came through.
+
+  Called after general turn updates, conditional completion and orphan
+  reconciliation materialize a reply (the conditional paths after their
+  transaction commits). Returns `:ok` in every case, including when anything
+  goes wrong: callers are on the turn-ending path and must never branch on it.
+  """
+  @spec turn_replied(Turn.t()) :: :ok
+  def turn_replied(%Turn{reply_text: text} = turn) when is_binary(text) and text != "" do
+    with user_id when is_binary(user_id) <- owner_of(turn),
+         %User{onboarding_completed_at: nil} = user <- Repo.get(User, user_id),
+         true <- first_reply?(user_id, turn) do
+      Fountain.Accounts.complete_onboarding(user)
+    end
+
+    :ok
+  rescue
+    e ->
+      Logger.warning("onboarding: first-reply check failed: #{inspect(e)}")
+      :ok
+  end
+
+  def turn_replied(_turn), do: :ok
+
+  defp owner_of(%Turn{} = turn) do
+    Repo.one(
+      from c in Conversation,
+        join: t in Turn,
+        on: t.conversation_id == c.id,
+        where: t.id == ^turn.id,
+        select: c.user_id
+    )
+  end
+
+  # Is `turn` the earliest replied turn this account has? Ordered by the same
+  # timestamp `first_reply/1` reports, with the id as the tie-break so two
+  # turns that ended in the same second still name one winner.
+  defp first_reply?(user_id, %Turn{} = turn) do
+    earliest =
+      Repo.one(
+        from t in Turn,
+          join: c in Conversation,
+          on: c.id == t.conversation_id,
+          where: c.user_id == ^user_id,
+          where: not is_nil(t.reply_text) and t.reply_text != "",
+          order_by: [asc: coalesce(t.ended_at, t.inserted_at), asc: t.id],
+          limit: 1,
+          select: t.id
+      )
+
+    earliest == turn.id
   end
 end

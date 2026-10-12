@@ -1211,7 +1211,7 @@ defmodule Fountain.Conversations.ConversationServerTest do
   describe "secret redaction wiring" do
     test "the server registers the sprite env for redaction", %{conv: conv, env: env} do
       # The registry only protects anything if something populates it. This is
-      # the assertion that would have caught Billing.emit/5 having no call
+      # the assertion that would have caught Fountain.Usage.emit/5 having no call
       # sites: verify from the operation, not from the helper.
       {:ok, _} =
         Fountain.Environments.upsert_secret(

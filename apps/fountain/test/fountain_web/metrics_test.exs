@@ -221,7 +221,7 @@ defmodule FountainWeb.MetricsTest do
         [:fountain, :chatgpt, :refresh, :rate_limited],
         [:fountain, :chatgpt, :refresh, :breaker_opened],
         [:fountain, :chatgpt, :refresh, :breaker_closed],
-        # Billing.record_usage/5 swallow path (#503) — exercised by
+        # Fountain.Usage.record_usage/5 swallow path (#503) — exercised by
         # Fountain.UsageMeteringTest's dropped-usage telemetry test
         [:fountain, :usage, :dropped],
         # ConversationServer: provision watchdog (#329) and durable-output
@@ -277,7 +277,6 @@ defmodule FountainWeb.MetricsTest do
         [:phoenix, :router_dispatch, :stop],
         [:phoenix, :router_dispatch, :exception],
         [:fountain, :repo, :query],
-        [:fountain, :funnel],
         [:vm, :memory],
         [:vm, :total_run_queue_lengths]
       ]

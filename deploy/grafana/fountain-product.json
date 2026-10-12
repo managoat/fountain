@@ -1,5 +1,5 @@
 {
-  "__comment": "Product dashboard for Fountain. Owned by the repo at deploy/grafana/fountain-product.json; see docs/guides/operate/dashboards.md. Counts and durations only. Anything needing person identity, cohorts or retention belongs on the PostHog dashboard of the same name. Funnel and status gauges are polled from the database by every replica and are identical per pod, so they use `max` and never `sum`.",
+  "__comment": "Product dashboard for Fountain. Owned by the repo at deploy/grafana/fountain-product.json; see docs/guides/operate/dashboards.md. Counts and durations only. Status gauges are polled from the database by every replica and are identical per pod, so they use `max` and never `sum`.",
   "title": "Fountain / Product",
   "uid": "fountain-product",
   "tags": [
@@ -51,7 +51,7 @@
   "panels": [
     {
       "type": "row",
-      "title": "Lifecycle funnel",
+      "title": "What agents actually do",
       "collapsed": false,
       "gridPos": {
         "h": 1,
@@ -62,432 +62,14 @@
       "panels": []
     },
     {
-      "type": "bargauge",
-      "title": "Users by lifecycle stage",
-      "description": "All-time totals, polled from Fountain.Funnel. Onboarded means the account holds an inference credential and an agent (#867), not that somebody clicked through the old wizard. Activated means the first conversation with a reply (ADR 0038), counted as the earliest turn carrying assistant text. A conversation that never answered does not count, and neither does the sandbox provisioned for one. Every replica polls the same database and reports the same number, so these use `max`; `sum` would multiply the funnel by the replica count.",
-      "gridPos": {
-        "h": 9,
-        "w": 12,
-        "x": 0,
-        "y": 1
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "text",
-                "value": null
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "displayMode": "lcd",
-        "orientation": "horizontal",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "showUnfilled": true
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "max(fountain_funnel_registered{namespace=\"$namespace\"})",
-          "legendFormat": "registered",
-          "instant": true
-        },
-        {
-          "refId": "B",
-          "expr": "max(fountain_funnel_verified{namespace=\"$namespace\"})",
-          "legendFormat": "verified",
-          "instant": true
-        },
-        {
-          "refId": "C",
-          "expr": "max(fountain_funnel_onboarded{namespace=\"$namespace\"})",
-          "legendFormat": "onboarded",
-          "instant": true
-        },
-        {
-          "refId": "D",
-          "expr": "max(fountain_funnel_activated{namespace=\"$namespace\"})",
-          "legendFormat": "activated",
-          "instant": true
-        },
-        {
-          "refId": "E",
-          "expr": "max(fountain_funnel_funded{namespace=\"$namespace\"})",
-          "legendFormat": "funded",
-          "instant": true
-        }
-      ]
-    },
-    {
-      "type": "stat",
-      "title": "Verified / registered",
-      "description": "Email verification is the first gate. Login is refused while email_verified_at is nil, so a drop here means nobody gets in at all.",
-      "gridPos": {
-        "h": 4,
-        "w": 3,
-        "x": 12,
-        "y": 1
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percentunit",
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "text",
-                "value": null
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "auto"
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "max(fountain_funnel_verified{namespace=\"$namespace\"}) / max(fountain_funnel_registered{namespace=\"$namespace\"})"
-        }
-      ]
-    },
-    {
-      "type": "stat",
-      "title": "Onboarded / verified",
-      "description": "Reaching a credential and an agent.",
-      "gridPos": {
-        "h": 4,
-        "w": 3,
-        "x": 15,
-        "y": 1
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percentunit",
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "text",
-                "value": null
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "auto"
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "max(fountain_funnel_onboarded{namespace=\"$namespace\"}) / max(fountain_funnel_verified{namespace=\"$namespace\"})"
-        }
-      ]
-    },
-    {
-      "type": "stat",
-      "title": "Activated / verified",
-      "description": "The conversion that matters most: a verified account that ever got a reply from an agent.",
-      "gridPos": {
-        "h": 4,
-        "w": 3,
-        "x": 18,
-        "y": 1
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percentunit",
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "text",
-                "value": null
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "auto"
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "max(fountain_funnel_activated{namespace=\"$namespace\"}) / max(fountain_funnel_verified{namespace=\"$namespace\"})"
-        }
-      ]
-    },
-    {
-      "type": "stat",
-      "title": "Funded / activated",
-      "description": "Comped accounts are operator grants rather than conversions and are excluded. An account that spent its balance to zero drops out of this stage.",
-      "gridPos": {
-        "h": 4,
-        "w": 3,
-        "x": 21,
-        "y": 1
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percentunit",
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "text",
-                "value": null
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "auto"
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "max(fountain_funnel_funded{namespace=\"$namespace\"}) / max(fountain_funnel_activated{namespace=\"$namespace\"})"
-        }
-      ]
-    },
-    {
-      "type": "stat",
-      "title": "Stalled after verifying",
-      "description": "Verified accounts that never got a reply. The admin funnel page breaks the same number down further, into started a conversation and got nothing back, built an agent, built an environment, or built nothing. Time to first reply, the number ADR 0038 judges onboarding on, is on that page and in PostHog rather than here \u2014 a median makes a poor gauge.",
-      "gridPos": {
-        "h": 5,
-        "w": 6,
-        "x": 12,
-        "y": 5
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "text",
-                "value": null
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "auto"
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "max(fountain_funnel_stalled_verified{namespace=\"$namespace\"})"
-        }
-      ]
-    },
-    {
-      "type": "stat",
-      "title": "Turns completed /h",
-      "description": "The single most useful thing the system reports about itself.",
-      "gridPos": {
-        "h": 5,
-        "w": 6,
-        "x": 18,
-        "y": 5
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "text",
-                "value": null
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "auto"
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "sum(increase(fountain_stage_count{namespace=\"$namespace\", stage=\"turn\", status=\"done\"}[1h])) or vector(0)"
-        }
-      ]
-    },
-    {
-      "type": "timeseries",
-      "title": "Funnel stages over time",
-      "description": "Cumulative all-time counts, so these lines only ever climb. Read the slope, not the level. A flat activated line under a climbing verified line is the stall the stat above counts.",
-      "gridPos": {
-        "h": 8,
-        "w": 24,
-        "x": 0,
-        "y": 10
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "fillOpacity": 0,
-            "lineWidth": 2
-          },
-          "min": 0
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "max(fountain_funnel_registered{namespace=\"$namespace\"})",
-          "legendFormat": "registered"
-        },
-        {
-          "refId": "B",
-          "expr": "max(fountain_funnel_verified{namespace=\"$namespace\"})",
-          "legendFormat": "verified"
-        },
-        {
-          "refId": "C",
-          "expr": "max(fountain_funnel_onboarded{namespace=\"$namespace\"})",
-          "legendFormat": "onboarded"
-        },
-        {
-          "refId": "D",
-          "expr": "max(fountain_funnel_activated{namespace=\"$namespace\"})",
-          "legendFormat": "activated"
-        },
-        {
-          "refId": "E",
-          "expr": "max(fountain_funnel_funded{namespace=\"$namespace\"})",
-          "legendFormat": "funded"
-        }
-      ]
-    },
-    {
-      "type": "row",
-      "title": "What agents actually do",
-      "collapsed": false,
-      "gridPos": {
-        "h": 1,
-        "w": 24,
-        "x": 0,
-        "y": 18
-      },
-      "panels": []
-    },
-    {
       "type": "timeseries",
       "title": "Turn outcomes per hour",
-      "description": "Turn rate and outcome mix. These three stages are also the ones mirrored into PostHog as conversation.turn.done and friends, so the same fact is sliceable per account there.",
+      "description": "Turn rate and outcome mix.",
       "gridPos": {
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 19
+        "y": 1
       },
       "datasource": {
         "type": "prometheus",
@@ -539,7 +121,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 19
+        "y": 1
       },
       "datasource": {
         "type": "prometheus",
@@ -579,7 +161,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 27
+        "y": 9
       },
       "datasource": {
         "type": "prometheus",
@@ -624,7 +206,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 27
+        "y": 9
       },
       "datasource": {
         "type": "prometheus",
@@ -669,7 +251,7 @@
         "h": 7,
         "w": 8,
         "x": 0,
-        "y": 35
+        "y": 17
       },
       "datasource": {
         "type": "prometheus",
@@ -713,12 +295,12 @@
     {
       "type": "timeseries",
       "title": "Setup and model failures per hour",
-      "description": "The two stages that end an activation attempt before any output. Both reach PostHog as well, so an account-level view of who hit them is one query away there.",
+      "description": "The two stages that end an attempt before any output.",
       "gridPos": {
         "h": 7,
         "w": 16,
         "x": 8,
-        "y": 35
+        "y": 17
       },
       "datasource": {
         "type": "prometheus",
@@ -758,18 +340,49 @@
       ]
     },
     {
-      "type": "text",
-      "title": "Where the rest of the product questions live",
+      "type": "stat",
+      "title": "Turns completed /h",
+      "description": "The single most useful thing the system reports about itself.",
       "gridPos": {
-        "h": 6,
-        "w": 24,
+        "h": 5,
+        "w": 6,
         "x": 0,
-        "y": 42
+        "y": 24
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
       },
       "options": {
-        "mode": "markdown",
-        "content": "\nThis dashboard answers **how many** and **how fast**, because Prometheus holds\ncounts and durations with no identity attached.\n\nQuestions about **who** and **whether they came back** live in PostHog, on the\n**Fountain / Product** dashboard. Cohorts, retention and per-account funnels\nneed person-level events, which is exactly what `Fountain.Analytics` sends and\nwhat a time series deliberately throws away.\n\nRough split:\n\n| Question | Here | PostHog |\n|---|---|---|\n| How many turns finished this hour | yes | yes |\n| Did last week's signups come back | no | yes |\n| Which accounts hit a model failure | no | yes |\n| Is p95 time-to-first-output regressing | yes | no |\n| Which runtime is slowest | yes | no |\n\nSee `docs/guides/operate/dashboards.md` in the Fountain repo for both.\n"
-      }
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(fountain_stage_count{namespace=\"$namespace\", stage=\"turn\", status=\"done\"}[1h])) or vector(0)"
+        }
+      ]
     }
   ]
 }

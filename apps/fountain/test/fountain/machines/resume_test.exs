@@ -55,7 +55,7 @@ defmodule Fountain.Machines.ResumeTest do
 
   defp usage_events(ctx) do
     Repo.all(
-      from e in Fountain.Billing.UsageEvent,
+      from e in Fountain.Usage.Event,
         where: e.resource_id == ^ctx.sandbox.id,
         select: e.event_type,
         order_by: e.id
@@ -999,7 +999,7 @@ defmodule Fountain.Machines.ResumeTest do
 
           assert 1 =
                    Repo.aggregate(
-                     from(e in Fountain.Billing.UsageEvent,
+                     from(e in Fountain.Usage.Event,
                        where: e.resource_id == ^tenant.sandbox.id
                      ),
                      :count
@@ -1094,7 +1094,7 @@ defmodule Fountain.Machines.ResumeTest do
 
   defp discard(%{user: user, sandbox: sandbox}) do
     Repo.delete_all(from e in Fountain.Audit.Event, where: e.user_id == ^user.id)
-    Repo.delete_all(from e in Fountain.Billing.UsageEvent, where: e.user_id == ^user.id)
+    Repo.delete_all(from e in Fountain.Usage.Event, where: e.user_id == ^user.id)
     Repo.delete!(sandbox)
     Repo.delete!(user)
   end

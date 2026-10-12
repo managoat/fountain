@@ -50,7 +50,7 @@ defmodule FountainWeb.AdminFinanceLiveTest do
   # runs. Every test that seeds through here opens the page with
   # ?months_ago=1.
   defp ran(user, hours, busy_hours) do
-    %{start: started} = Fountain.Billing.month_range(1)
+    %{start: started} = Fountain.Usage.month_range(1)
     ended = DateTime.add(started, hours * 3600, :second)
 
     sandbox =

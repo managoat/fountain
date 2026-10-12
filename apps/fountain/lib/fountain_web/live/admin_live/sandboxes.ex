@@ -22,8 +22,8 @@ defmodule FountainWeb.AdminLive.Sandboxes do
   import FountainWeb.AdminLive.Helpers
   import FountainWeb.AdminLive.Shell
 
-  alias Fountain.{Accounts, Billing, Conversations}
-  alias Fountain.Billing.SandboxUsage
+  alias Fountain.{Accounts, Conversations}
+  alias Fountain.Machines.Usage, as: SandboxUsage
   alias Fountain.Conversations.Termination
   alias Fountain.Machines.Lease
   alias Fountain.Machines.Machine
@@ -193,7 +193,7 @@ defmodule FountainWeb.AdminLive.Sandboxes do
   defp assign_sandboxes(socket) do
     socket
     |> assign(:sandboxes, Conversations._unsafe_list_sandboxes_admin())
-    |> assign(:provider_spend, Billing.provider_spend())
+    |> assign(:provider_spend, SandboxUsage.provider_spend())
     # One clock for the whole table (ADR 0058 stage 7a): `Machine.busy?/2`
     # judges against the database's `now()`, and letting each of two calls per
     # row fetch its own would be two queries a row on a page that refreshes

@@ -19,13 +19,13 @@ defmodule Fountain.Workers.WelcomeEmailTest do
       end)
     end
 
-    test "tells the new account what it starts with (ADR 0031)" do
+    test "says nothing about credit" do
       user = insert_verified_user()
 
       assert :ok = perform_job(WelcomeEmail, %{"user_id" => user.id})
 
       assert_email_sent(fn email ->
-        assert email.text_body =~ "starts with $5.00 of credit, good for 14 days"
+        not (email.text_body =~ "credit" or email.html_body =~ "credit")
       end)
     end
 

@@ -96,7 +96,7 @@ defmodule Fountain.Quotas do
   @doc """
   Active-sandbox counts for every user with at least one, in a single query —
   for the admin view, which refreshes on a timer and must not run a count per
-  row (the same contract as `Fountain.Billing.usage_summaries/2`).
+  row (the same contract as `Fountain.Usage.usage_summaries/2`).
 
   Returns `%{user_id => count}`; users with no active sandboxes are absent.
   """

@@ -43,8 +43,7 @@ curl -N -H "Authorization: Bearer $FOUNTAIN_API_KEY" \
 ```
 
 That reply came from your agent, on a machine that Fountain operates for you.
-Fountain counts that moment as activation. It is the whole product, in one
-request.
+It is the whole product, in one request.
 
 ## The same request from the SDK
 

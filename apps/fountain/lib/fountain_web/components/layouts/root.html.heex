@@ -49,67 +49,6 @@
       sizes="180x180"
       href={Fountain.Brand.asset("apple-touch-icon.png")}
     />
-    <%!--
-      PostHog, on the public surface only — the front door and legal pages,
-      the manual and the auth flow. `FountainWeb.Plugs.WebAnalytics` sets this
-      assign and holds the reasoning; the console has no snippet and captures
-      its pageviews server-side from `FountainWeb.Live.Hooks`, so rendering
-      this there would double every one of them.
-
-      `person_profiles: "identified_only"` keeps an anonymous reader from
-      minting a person profile. The events still count — visitors, sessions,
-      referrers and entry pages all work on anonymous events — but a person
-      appears when an account does, which is the same rule the server-side
-      capture keeps, and it is what stops the manual from becoming the
-      project's largest cohort.
-
-      `session_recording` is stated rather than left to the default, because
-      the default is not ours to rely on: replay is switched on in the PostHog
-      *project*, so posthog-js starts recording on its own unless a page says
-      otherwise. A reader of this file should be able to see that these pages
-      are recorded without going and checking a project setting, and the
-      masking should not silently change when a dependency does.
-
-      Everything typed is masked. The public surface includes /auth/login and
-      /auth/register, so this is where someone types their email address and
-      their password. `maskAllInputs` covers the address; passwords are masked
-      by rrweb regardless.
-    --%>
-    <script
-      :if={assigns[:web_analytics]}
-      defer
-      src={"#{@web_analytics.assets_host}/static/array.js"}
-    >
-    </script>
-    <%!--
-      The config reaches the script as data attributes rather than as values
-      interpolated into the JS. HEEx escapes an attribute on its own, so
-      nothing here needs `raw/1` and no value can close the tag — which also
-      keeps this out of the XSS surface a template that builds JS by
-      concatenation would have.
-
-      The inline block runs at parse time and only registers a listener;
-      array.js is deferred, so it has executed by the time DOMContentLoaded
-      fires and `posthog.init` exists.
-    --%>
-    <script
-      :if={assigns[:web_analytics]}
-      id="posthog-config"
-      data-api-key={@web_analytics.api_key}
-      data-api-host={@web_analytics.api_host}
-    >
-      window.addEventListener("DOMContentLoaded", function () {
-        if (!window.posthog || !window.posthog.init) return;
-        var cfg = document.getElementById("posthog-config");
-        window.posthog.init(cfg.dataset.apiKey, {
-          api_host: cfg.dataset.apiHost,
-          defaults: "2025-05-24",
-          person_profiles: "identified_only",
-          session_recording: { maskAllInputs: true }
-        });
-        window.posthog.register({ surface: "public" });
-      });
-    </script>
     <%!-- Design tokens — must load before Tailwind CDN so CSS vars are defined --%>
     <link rel="stylesheet" href={FountainWeb.StaticVersion.tokens_css()} />
     <%!-- Tailwind CDN config: register token-backed colour utilities --%>

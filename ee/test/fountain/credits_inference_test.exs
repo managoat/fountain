@@ -377,7 +377,7 @@ defmodule Fountain.Credits.InferenceTest do
     test "the finance panel counts inference as both earned and paid, netting to zero" do
       user = insert_empty_user()
       now = DateTime.utc_now()
-      {start, _} = Billing.current_month_range()
+      {start, _} = Fountain.Usage.current_month_range()
 
       {:ok, _} =
         Credits.debit(user.id, 300, "burn_inference",

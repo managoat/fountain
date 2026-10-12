@@ -9,7 +9,7 @@ defmodule FountainWeb.DashboardLive.Index do
   "three things exist" (#867). ADR 0038 replaced that with the verified
   landing (`FountainWeb.StartLive`), where a key and one request produce a
   reply, and `users.onboarding_completed_at` is stamped at that reply by
-  `Fountain.Activation` rather than by this mount. The dashboard is what an
+  `Fountain.Onboarding` rather than by this mount. The dashboard is what an
   account gets *after* the first reply, which is what a dashboard is for.
   """
   use FountainWeb, :live_view
@@ -38,7 +38,7 @@ defmodule FountainWeb.DashboardLive.Index do
      |> assign(:environment_count, length(Environments.list_environments(user.id)))
      |> assign(:vault_count, length(Vaults.list_vaults(user.id)))
      |> assign(:has_credential?, has_credential?)
-     |> assign(:replied?, Fountain.Activation.first_reply_at(user.id) != nil)
+     |> assign(:replied?, Fountain.Onboarding.first_reply_at(user.id) != nil)
      |> assign(:active_count, counts.active)
      |> assign(:conversation_count, counts.total)
      |> assign(:conversations_app, Apps.conversations())
@@ -96,10 +96,10 @@ defmodule FountainWeb.DashboardLive.Index do
   # agents have been doing.
   defp assign_usage(socket, user) do
     credits_enabled? = Fountain.Credits.enabled?()
-    period = Fountain.Billing.month_range()
+    period = Fountain.Usage.month_range()
 
     socket
-    |> assign(:usage, Fountain.Billing.usage_summary(user.id, period.start, period.end))
+    |> assign(:usage, Fountain.Usage.usage_summary(user.id, period.start, period.end))
     |> assign(:tokens, Conversations.token_usage(user.id, period.start, period.end))
     |> assign(:period, period)
     |> assign(:period_start, period.start)
@@ -196,7 +196,7 @@ defmodule FountainWeb.DashboardLive.Index do
           />
         </div>
         <%!-- Only when every tile is empty. Usage events are best-effort
-              (`Billing.record_usage/5` swallows its failures), so an instance
+              (`Fountain.Usage.record_usage/5` swallows its failures), so an instance
               can have turns and tokens with no events behind them — and
               "nothing yet" above four populated tiles reads as a bug. --%>
         <p :if={nothing_this_month?(assigns)} class="mt-2 text-xs text-[var(--color-text-muted)]">
@@ -296,7 +296,7 @@ defmodule FountainWeb.DashboardLive.Index do
   end
 
   # Turn time on the providers the platform pays for, which excludes a
-  # tenant's own runner (ADR 0022); `Billing.usage_summary/3` does the sum.
+  # tenant's own runner (ADR 0022); `Fountain.Usage.usage_summary/3` does the sum.
   defp billable_turn_hours(usage) do
     Map.get(usage, :turn_hours, 0.0)
   end

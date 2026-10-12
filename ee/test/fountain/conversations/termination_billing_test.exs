@@ -1,7 +1,7 @@
 defmodule Fountain.Conversations.TerminationBillingTest do
   use Fountain.ConversationServerCase
 
-  alias Fountain.Billing.SandboxUsage
+  alias Fountain.Machines.Usage, as: SandboxUsage
   alias Fountain.Conversations.ExecutionGuard
   alias Fountain.Credits
   alias Fountain.Workers.CreditPricer

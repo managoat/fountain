@@ -56,7 +56,7 @@ defmodule Fountain.Conversations.SavedAllowanceAdmissionTest do
     assert Repo.reload!(conv).status == "idle"
 
     refute Repo.exists?(
-             from e in Fountain.Billing.UsageEvent,
+             from e in Fountain.Usage.Event,
                where: e.user_id == ^conv.user_id and e.event_type == "turn_started"
            )
   end
@@ -136,7 +136,7 @@ defmodule Fountain.Conversations.SavedAllowanceAdmissionRaceTest do
         after
           # Billing history survives user deletion; remove this fixture's rows
           # before deleting its user so they cannot become anonymous test data.
-          Repo.delete_all(from e in Fountain.Billing.UsageEvent, where: e.user_id == ^user.id)
+          Repo.delete_all(from e in Fountain.Usage.Event, where: e.user_id == ^user.id)
           Repo.delete!(user)
           Repo.get!(Sandbox, conv.sandbox_id) |> Repo.delete!()
           assert Repo.get(ExecutionAllowance, conv.id) == nil

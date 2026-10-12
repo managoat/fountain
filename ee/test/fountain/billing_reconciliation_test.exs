@@ -28,7 +28,7 @@ defmodule Fountain.Billing.ReconciliationTest do
     end)
 
     Enum.each(@rate_keys, &Application.delete_env(:fountain, &1))
-    Reconciliation.reset_drop_counter()
+    Fountain.Usage.reset_drop_counter()
     :ok
   end
 
@@ -45,7 +45,7 @@ defmodule Fountain.Billing.ReconciliationTest do
   # the numbers are exact whenever the suite runs. Tests that seed through
   # `ran/2` compute over `month_range(1)` and open the page with
   # ?months_ago=1.
-  defp month_start, do: Billing.month_range(1).start
+  defp month_start, do: Fountain.Usage.month_range(1).start
 
   defp ran(user, hours) do
     started = month_start()
@@ -91,7 +91,7 @@ defmodule Fountain.Billing.ReconciliationTest do
     user = insert_verified_user()
     ran(user, 10)
 
-    %{start: ps, end: pe} = Billing.month_range(1)
+    %{start: ps, end: pe} = Fountain.Usage.month_range(1)
     summary = Finance.summary(period: {ps, pe}, basis: :active)
 
     {:ok, _} =
@@ -140,7 +140,7 @@ defmodule Fountain.Billing.ReconciliationTest do
     assert html =~ "Enter the invoice total in dollars"
 
     :telemetry.execute([:fountain, :usage, :dropped], %{count: 3}, %{event_type: "x", kind: "y"})
-    assert Reconciliation.dropped_on_this_node() == 3
+    assert Fountain.Usage.dropped_on_this_node() == 3
     {:ok, _lv, html} = live(login_user(conn, admin), ~p"/admin/finance")
     assert html =~ "3 metering events dropped on this node"
   end

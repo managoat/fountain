@@ -247,7 +247,7 @@ defmodule FountainWeb.AdminSandboxesLiveTest do
   describe "AdminLive.Sandboxes — sandbox spend by provider" do
     defp sandbox_run(user, provider, minutes) do
       now = DateTime.utc_now() |> DateTime.truncate(:second)
-      {period_start, _} = Fountain.Billing.current_month_range()
+      {period_start, _} = Fountain.Usage.current_month_range()
       started = Enum.max([DateTime.add(now, -minutes, :minute), period_start], DateTime)
 
       insert_sandbox(

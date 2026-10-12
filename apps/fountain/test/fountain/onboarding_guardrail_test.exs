@@ -1,6 +1,6 @@
-defmodule Fountain.ActivationGuardrailTest do
+defmodule Fountain.OnboardingGuardrailTest do
   @moduledoc """
-  Every reply materializer must decide activation at the write (#2055).
+  Every reply materializer must decide onboarding completion at the write (#2055).
 
   Like AuditGuardrailTest, intentional silence needs a named function and a
   reason. Unlike a fixed inventory, discovery scans production source for
@@ -11,7 +11,7 @@ defmodule Fountain.ActivationGuardrailTest do
   This checks visible calls, not control flow or data flow: dynamic modules or
   field names, raw SQL and builders in another module need discovery extended
   when introduced.
-  ActivationTest covers the behavior of the live seams.
+  OnboardingFirstReplyTest covers the behavior of the live seams.
   """
 
   use ExUnit.Case, async: true
@@ -19,9 +19,8 @@ defmodule Fountain.ActivationGuardrailTest do
   @root Path.expand("../../../..", __DIR__)
   @deliberately_silent %{
     {Fountain.Conversations, :_unsafe_backfill_reply_texts, 0} =>
-      "Historical repair for turns predating reply_text avoids replaying activation " <>
-        "analytics per repaired turn; the analytics/stamping repair gap remains " <>
-        "tracked in #2054."
+      "Historical repair for turns predating reply_text does not replay the " <>
+        "onboarding stamp per repaired turn; that repair gap remains tracked in #2054."
   }
 
   test "every discovered reply writer calls activation or has a documented exclusion" do
@@ -48,7 +47,7 @@ defmodule Fountain.ActivationGuardrailTest do
     defmodule Example do
       def covered(turn, text) do
         updated = turn |> Turn.changeset(%{reply_text: text}) |> Repo.update!()
-        Fountain.Activation.turn_replied(updated)
+        Fountain.Onboarding.turn_replied(updated)
       end
 
       def newly_added(turn, text) do
@@ -139,7 +138,7 @@ defmodule Fountain.ActivationGuardrailTest do
     defmodule Example do
       def finish(:live, turn, text) do
         updated = turn |> Turn.changeset(%{reply_text: text}) |> Repo.update!()
-        Fountain.Activation.turn_replied(updated)
+        Fountain.Onboarding.turn_replied(updated)
       end
 
       def finish(:repair, turn, text) do
@@ -295,7 +294,7 @@ defmodule Fountain.ActivationGuardrailTest do
   defp repo_write?(_), do: false
 
   defp activation?({{:., _, [{:__aliases__, _, module}, :turn_replied]}, _, [_turn]}),
-    do: module in [[:Activation], [:Fountain, :Activation]]
+    do: module in [[:Onboarding], [:Fountain, :Onboarding]]
 
   defp activation?(_), do: false
 

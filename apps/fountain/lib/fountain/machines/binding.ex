@@ -264,9 +264,8 @@ defmodule Fountain.Machines.Binding do
 
   Both guest options are read by `attachable/6` under the lock.
 
-  Answers `{:ok, conversation, allowance}` after the commit, having fired the
-  two effects every conversation insert owes: `Conversations.after_conversation_created/1`
-  and the allowance's audit event.
+  Answers `{:ok, conversation, allowance}` after the commit, having recorded
+  the allowance's audit event.
   """
   @spec attach(Ecto.UUID.t(), map(), keyword()) ::
           {:ok, Conversation.t(), struct()} | {:error, term()}
@@ -277,7 +276,6 @@ defmodule Fountain.Machines.Binding do
     else
       case Repo.transaction(fn -> locked_attach(sandbox_id, attrs, opts) end) do
         {:ok, {conv, allowance}} ->
-          Conversations.after_conversation_created(conv)
           Conversations.record_execution_allowance_created(allowance, conv.user_id, opts)
           {:ok, conv, allowance}
 

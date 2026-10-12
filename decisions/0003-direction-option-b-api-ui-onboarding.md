@@ -1,18 +1,18 @@
 ---
 type: ADR
 title: "Fountain targets Option B: API + Hosted UI with Self-Serve Onboarding"
-description: "G0: Fountain targets Option B, a multi-tenant REST API plus hosted LiveView UI plus self-serve onboarding; org/team features are deferred."
+description: "Retired 2026-10-12: Fountain is no longer sold as a hosted service. G0: Fountain targets Option B, a multi-tenant REST API plus hosted LiveView UI plus self-serve onboarding; org/team features are deferred."
 tags: [framing, scope, gates]
-status: stable
+status: deprecated
 adr: "0003"
-adr_status: "Accepted"
+adr_status: "Retired"
 date: 2026-05-10
 generated: { by: human:jhgaylor, at: 2026-05-09T22:38:48-04:00 }
 ---
 
 # 0003 — Fountain targets Option B: API + Hosted UI with Self-Serve Onboarding
 
-**Status:** Accepted — 2026-05-10.
+**Status:** Retired 2026-10-12; see the addendum at the end. The text above the addendum is history. Was: Accepted — 2026-05-10.
 
 ## Context
 
@@ -41,3 +41,23 @@ Fountain will pursue **Option B — API + Hosted UI with Self-Serve Onboarding**
 ## Alternatives considered
 
 - **Option A (API-only)** — Rejected at G0. Faster to ship but the 100 WAU target is harder without a visual surface and guided onboarding.
+
+## Addendum — 2026-10-12: retired, Fountain is not a hosted service
+
+Fountain is no longer sold as a hosted service (2026-10-12). It is a
+self-hosted application: an operator runs it for themselves or the people
+they let in. The direction this ADR chose was a hosted, multi-tenant product
+reached through self-serve onboarding and measured against a 100-WAU goal.
+That goal is withdrawn, and so is the product reason for this decision.
+
+What stays is what was built, because a self-hosted instance with more than
+one account still needs it: the three surfaces (REST API, LiveView console,
+CLI), per-user tenant scoping of every primitive, per-user API keys and
+secret encryption, the sandbox concurrency cap, `usage_events`, the admin
+console, and the first-run page for a new account. What went with the
+hosted business: the billing surface (credits and Stripe, ADR 0010, 0030,
+0031), the product analytics (ADR 0025) and claimable principals (ADR 0044).
+
+Org/team features are not planned. The "deferred post-launch" line above no
+longer means "until traction shows": there is no traction goal, and
+`CLAUDE.md` now says what Fountain is instead.

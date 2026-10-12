@@ -13,7 +13,8 @@ uses Docker Compose, and it is the shorter path.
 declares an app on the published image. The machines run the published
 image, not a build of your checkout. They form one Erlang cluster once you set
 `RELEASE_COOKIE`, so you can run one machine or several. The file gives you an instance that runs.
-It does not describe how the hosted service runs, which is Kubernetes.
+It does not describe how the maintainer's instance at `managoat.com` runs,
+which is Kubernetes.
 
 Fly gives you no database. You create one in a separate step below.
 

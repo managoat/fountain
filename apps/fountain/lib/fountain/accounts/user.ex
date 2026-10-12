@@ -20,10 +20,6 @@ defmodule Fountain.Accounts.User do
     # Postgres column is still `max_concurrent_sandboxes` — renaming it would
     # break a rolling deploy — so the honest name lives here.
     field :sandbox_limit_override, :integer, source: :max_concurrent_sandboxes
-    # `credit_balance_cents`, `stripe_customer_id` and `comped` are still
-    # columns on `users`, unread since credits were removed. They are dropped
-    # one release later, so replicas still running the previous release keep
-    # finding them during a rolling deploy.
     # Operator-owned per-turn ceilings, read by launch preflight. Later-turn and
     # recovery ceiling checks remain unwired; leave overrides empty until integrated.
     # Never cast it through registration, OAuth or profile changes.

@@ -1,11 +1,11 @@
 ---
 type: ADR
 title: "G3: Go for public launch"
-description: "G3: go for public launch as of 2026-05-10 with gates G0 through G2 cleared; the 2026-08-03 addendum records what of the post-launch backlog was built."
+description: "Retired 2026-10-12: Fountain is no longer sold as a hosted service. G3: go for public launch as of 2026-05-10 with gates G0 through G2 cleared; the 2026-08-03 addendum records what of the post-launch backlog was built."
 tags: [gates, launch]
-status: stable
+status: deprecated
 adr: "0007"
-adr_status: "Accepted"
+adr_status: "Retired"
 date: 2026-05-10
 generated: { by: human:jhgaylor, at: 2026-08-03T13:41:32-04:00 }
 verified: { by: human:jhgaylor, at: 2026-08-03T13:41:32-04:00 }
@@ -13,7 +13,7 @@ verified: { by: human:jhgaylor, at: 2026-08-03T13:41:32-04:00 }
 
 # 0007 — G3: Go for public launch
 
-**Status:** Accepted — 2026-05-10.
+**Status:** Retired 2026-10-12; see the addendum at the end. The text above the addendum is history. Was: Accepted — 2026-05-10.
 
 ## Context
 
@@ -77,3 +77,24 @@ deployment:
 Of the post-launch backlog: NC-1 (dark mode), NC-4 and NC-5 are built and
 tested; NC-9 was handled by the `nilify` migration for `usage_events`;
 NC-6 remains open.
+
+## Addendum — 2026-10-12: retired, the launch metric is withdrawn
+
+Fountain is no longer sold as a hosted service (2026-10-12). The public launch
+this ADR cleared did happen, so the decision stands as history, but nothing
+in it still governs:
+
+- **The success metric is withdrawn.** There is no 100-WAU target for
+  2026-11-10, and no product-analyst or growth role to measure one: PostHog
+  analytics, the funnel and the activation metrics were removed (ADR 0025,
+  retired).
+- **The Stripe steps of the launch checklist describe code that no longer
+  exists.** Credits, Stripe and `/api/stripe/webhook` were removed (ADR 0010,
+  0030, 0031, retired). The 2026-08-03 addendum above points at
+  `docs/integrations/stripe.md` for the webhook events; that page was deleted
+  with them.
+- **Org/team features are not planned.** The consequence above that they be
+  revisited once solo-user multi-tenancy is validated no longer applies; see
+  the [ADR 0003](0003-direction-option-b-api-ui-onboarding.md) addendum.
+
+How to deploy an instance is in the manual (`/docs`), not here.

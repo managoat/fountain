@@ -695,37 +695,6 @@ if github_client_id = System.get_env("GITHUB_OAUTH_CLIENT_ID") do
     client_secret: System.get_env("GITHUB_OAUTH_CLIENT_SECRET")
 end
 
-# Cents, whole or fractional.
-parse_cents = fn var, raw ->
-  trimmed = String.trim(raw)
-
-  case Float.parse(trimmed) do
-    {cents, ""} when cents >= 0 -> cents
-    _ -> raise "#{var} must be a number of cents, 0 or more, got #{inspect(raw)}"
-  end
-end
-
-provider_hourly_cents =
-  case System.get_env("PROVIDER_HOURLY_CENTS") do
-    value when value in [nil, ""] ->
-      %{}
-
-    value ->
-      value
-      |> String.split(",", trim: true)
-      |> Map.new(fn pair ->
-        case String.split(pair, "=", parts: 2) do
-          [provider, cents] ->
-            {String.trim(provider), parse_cents.("PROVIDER_HOURLY_CENTS", cents)}
-
-          _ ->
-            raise "PROVIDER_HOURLY_CENTS: #{inspect(pair)} is not provider=cents"
-        end
-      end)
-  end
-
-config :fountain, :provider_hourly_cents, provider_hourly_cents
-
 # Per-turn host ceiling. Empty until runtime enforcement and later-turn/recovery
 # ceiling checks are integrated. Never inherit an operator's shell policy in tests.
 execution_limit_ceiling =

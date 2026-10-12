@@ -146,8 +146,23 @@ SELECT count(*) FROM users WHERE principal;
 ```
 
 The `users.principal` column stays for one release, so replicas from the
-previous release keep working during a rolling upgrade. A later migration
-drops it.
+previous release keep working during a rolling upgrade. Migration
+`20261012140000` drops it; see the next section.
+
+## Billing and principal columns dropped
+
+Removing credits left `credit_ledger` and the `users` columns
+`credit_balance_cents`, `stripe_customer_id` and `comped` in place, unread,
+for the same reason `users.principal` stayed: replicas of the release before
+it still read them during a rolling upgrade. Migration `20261012140000`
+drops all five, with the `users` indexes on `stripe_customer_id` and
+`principal`. The ledger's rows are deleted with the table.
+
+Take the release that removed credits first, and let it finish rolling out,
+before you take this one. Do not skip from a release that still has credits
+straight to this one with a rolling deploy: its replicas would fail every
+request that loads an account until they are replaced. A deploy that stops
+every old replica before migrating can skip it.
 
 ## Conversation message compatibility
 

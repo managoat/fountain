@@ -20,10 +20,10 @@ the files it points at.
 ## Product and goal
 
 What Fountain is, in one paragraph, is the top of [README.md](README.md).
-The standing goal since the May-2026 launch is **100 weekly active users by
-month 6** (November 2026). Org/team features stay out of scope until that
-traction shows; onboarding is the open product decision on the way there
-(#1039). This is the only place the goal is written down.
+Fountain is a self-hosted product. Since 2026-10-12 it is not sold as a
+hosted service: there is no billing, no growth target and no product
+analytics, and `managoat.com` is the maintainer's own instance. No org/team
+(shared people) or billing features are planned.
 
 ## Working with Review Loop
 

@@ -110,11 +110,10 @@ at a dead end, with no error to see. Read [Email](guides/operate/email.md).
 | `GITHUB_OAUTH_CLIENT_ID` | — | — | Turns the GitHub sign-in button on. Unset, Fountain hides the button, and email and password auth still works. |
 | `GITHUB_OAUTH_CLIENT_SECRET` | — | — | |
 
-## Sandbox capacity and cost
+## Sandbox capacity
 
 | Variable | Default | Required | Effect |
 |---|---|---|---|
-| `PROVIDER_HOURLY_CENTS` | — | No. | What you pay each sandbox provider, in cents per sandbox hour, as `sprites=10.76,e2b=5.45`. Rates can be fractional. Read and validated at boot; no page uses it at the moment (see below). |
 | `SANDBOX_CAP_CEILING` | `20` | No. | The most sandboxes one tenant may run at once. An admin override for one account replaces it for that account. |
 | `SANDBOX_FLEET_CEILING` | `20` | No. | The most live sandboxes across every tenant. Set it to what your sandbox provider plan allows. A start beyond it gets `503 fleet_full`. |
 | `SANDBOX_QUEUE_MAX_DEPTH` | `10` | No. | The most sandbox requests one tenant holds at once. A request beyond it keeps the immediate capacity error. |
@@ -123,12 +122,6 @@ at a dead end, with no error to see. Read [Email](guides/operate/email.md).
 | `FOUNTAIN_EXECUTION_DEADLINE_WORKER` | on when `FOUNTAIN_EXECUTION_LIMITS` gives a ceiling | No. | If this node runs the deadline coordinator. The coordinator polls `turn_executions`, so it stays off where no host ceiling applies. Set `true` if you give an account a ceiling but no host ceiling. Set `false` to stop the poll on any node. A change needs a restart. |
 | `FOUNTAIN_EXECUTION_DEADLINE_INTERVAL_MS` | `5000` | No. | The interval at which the coordinator looks for due deadlines. Each deadline is absolute and durable, so a larger value costs precision and not safety. |
 | `CHATGPT_GRANT_CEILING` | `5` | No. | The most ChatGPT subscriptions one account may link. A disconnected subscription keeps its place until the account removes it. A link beyond it gets `409 chatgpt_grant_limit_reached`. A lower value refuses new links only, and `0` refuses each new link. |
-
-`PROVIDER_HOURLY_CENTS` is what **you pay** your sandbox provider. Fountain
-charges a tenant nothing. The admin pages `/admin` and `/admin/sandboxes` show
-sandbox time in hours, per provider and per account, and do not turn it into
-money: the page that priced those hours with this rate was removed with
-billing, so today the variable is read and validated but nothing displays it.
 
 ## Platform inference
 

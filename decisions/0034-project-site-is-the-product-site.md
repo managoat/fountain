@@ -1,11 +1,11 @@
 ---
 type: ADR
 title: "The open-source project has no site of its own; managoat.com and /docs carry it"
-description: "With the hosted instance branded Managoat, Fountain the AGPL project keeps its name but gets no separate domain or GitHub Pages site. The product site is the project site: one 'Open source' page under /docs states the licence split and links the repo, and the README points back. Amended 2026-09-14: the marketing pages are a static site of their own (managoat/site) on the same host, in front of the app at the ingress; the app serves the front door, the legal pages and /docs. Confirmed 2026-09-14: goatherd's repository and README are not a second Fountain project site."
+description: "Retired 2026-10-12: Fountain is no longer sold as a hosted service, so there is no product site for the project to share. With the hosted instance branded Managoat, Fountain the AGPL project keeps its name but gets no separate domain or GitHub Pages site. The product site is the project site: one 'Open source' page under /docs states the licence split and links the repo, and the README points back. Amended 2026-09-14: the marketing pages are a static site of their own (managoat/site) on the same host, in front of the app at the ingress; the app serves the front door, the legal pages and /docs. Confirmed 2026-09-14: goatherd's repository and README are not a second Fountain project site."
 tags: [open-source, docs, brand, product]
-status: stable
+status: deprecated
 adr: "0034"
-adr_status: "Accepted"
+adr_status: "Retired"
 date: 2026-08-25
 generated: { by: openai/gpt-6, at: 2026-09-14T09:12:00Z }
 verified: { by: human:jhgaylor, at: 2026-08-25T22:00:00-04:00 }
@@ -13,7 +13,7 @@ verified: { by: human:jhgaylor, at: 2026-08-25T22:00:00-04:00 }
 
 # 0034 — The open-source project has no site of its own; managoat.com and /docs carry it
 
-**Status:** Accepted, built in the PR that adds this file. Amended
+**Status:** Retired 2026-10-12; see the addendum at the end. The text above the addendum is history. Was: Accepted, built in the PR that adds this file. Amended
 2026-09-14 (see the end): the marketing pages left the app for a static site
 on the same host. Nothing described here is unbuilt.
 
@@ -157,3 +157,29 @@ and the app's manual retain the boundary in the amendment above.
 hosted/local boundary from [#1516](https://github.com/managoat/fountain/issues/1516).
 goatherd's README documents its own application; it does not become
 Fountain's onboarding page or a second publisher for Fountain's manual.
+
+## Addendum — 2026-10-12: retired, there is no hosted product to carry the project
+
+Fountain is no longer sold as a hosted service (2026-10-12). This ADR answered
+a question that only a hosted product raises: where does an open-source
+project live when its hosted instance has a different brand? With no hosted
+product to sell, *Managoat* is not a product, and `managoat.com` is not the
+project's product site. It is one Fountain instance, the maintainer's own,
+which serves the manual at `/docs` the way every instance does.
+
+What still holds, now because it is simply true and not because this ADR
+decided it:
+
+- The GitHub repository is the project's home, and its README is the front
+  page.
+- `/docs` is the manual, served by the app. The absolute links in the
+  changelog and in other public material point at `managoat.com/docs`
+  because that instance publishes the current manual.
+- `docs/open-source.md` states the licence. It no longer describes an
+  `ee/` part: `ee/` was deleted with billing (ADR 0010, retired).
+
+What no longer holds: "managoat.com is the site" as a sales and login
+destination, the edition split between *Fountain* and a hosted *Managoat*,
+and the 2026-09-14 amendment's note that the site's pricing copy must follow
+the `CREDIT_*` variables, which no longer exist. Whatever `managoat/site`
+says is that repository's concern.

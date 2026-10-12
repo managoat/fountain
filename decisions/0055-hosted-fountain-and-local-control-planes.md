@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Hosted Fountain and local control planes share libraries, with different responsibilities"
-description: "goatherd drives watched turns through the component libraries; Fountain owns service coordination, unattended lifecycle, triggers and reachable callbacks. This is a boundary record, not an adoption path. No new features are commissioned; org/team expansion remains gated."
+description: "goatherd drives watched turns through the component libraries; Fountain owns service coordination, unattended lifecycle, triggers and reachable callbacks. This is a boundary record, not an adoption path. No new features are commissioned. Amended 2026-10-12: the 100-WAU gate is withdrawn with the hosted service, and org/team features are not planned."
 tags: [architecture, libraries, product, hosting]
 status: stable
 adr: "0055"
@@ -22,8 +22,9 @@ checked at [`20d0e5c`](https://github.com/managoat/goatherd/tree/20d0e5cf15f4d51
 Fountain's conversation supervision, callback keys and web routes were checked
 at [`67d65b46`](https://github.com/managoat/fountain/tree/67d65b46).
 The capabilities below describe service responsibilities, not a claim that
-every org/team feature is built. Further org/team work remains outside scope
-until the standing 100-WAU traction gate in `CLAUDE.md` is met.
+every org/team feature is built. Amended 2026-10-12 (see the end): the
+100-WAU traction gate this ADR deferred to is withdrawn, and org/team features
+are not planned.
 
 ## Context
 
@@ -148,3 +149,22 @@ guarantee a complete local transcript across driver downtime.
   same reachability and lifecycle obligations Fountain already owns.
 - **Create another Fountain project site for goatherd.** A README for an
   independent application needs no second publisher for Fountain's manual.
+
+## Amendment — 2026-10-12: the 100-WAU gate is withdrawn
+
+Fountain is no longer sold as a hosted service (2026-10-12). The goal of 100
+weekly active users by November 2026, which `CLAUDE.md` held and this ADR
+cited as the gate on org/team work, is withdrawn with it (ADR 0003 and 0007,
+retired). `CLAUDE.md` now says Fountain is a self-hosted product with no
+org/team or billing features planned.
+
+The boundary above is unchanged: goatherd drives watched turns through the
+libraries, and Fountain owns service coordination, unattended lifecycle,
+triggers and reachable callbacks. Two sentences read differently. "This
+allocation does not lift the org/team scope gate" in decision 1 now means
+org/team features are not planned, not that they wait on traction. The
+"100-WAU path" in the original issue's framing has no target to lead to;
+goatherd still is not Fountain's onboarding path.
+
+The title's "hosted Fountain" means a Fountain instance running as a service,
+which is what a self-hosted deployment is. It does not mean a hosted product.

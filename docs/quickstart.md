@@ -1,7 +1,9 @@
 # Run your first agent
 
 One request gets a reply from an agent in its own sandbox. You need an
-account and nothing else. No repository, no GitHub token, and no install.
+account on a Fountain instance and nothing else. No repository, no GitHub
+token, and no install. To run an instance of your own, read
+[Self-host Fountain](self-hosting.md).
 
 ## 1. Your key and your agent
 
@@ -9,12 +11,12 @@ Your start page holds an API key and the id of your agent. The page adds both
 to the request below, and it shows a key once. Copy the key there.
 
 ```sh
-export FOUNTAIN_BASE_URL="https://managoat.com"
+export FOUNTAIN_BASE_URL="https://fountain.example.com"
 export FOUNTAIN_API_KEY="the key from your start page"
 export FOUNTAIN_AGENT_ID="the agent id from your start page"
 ```
 
-For your own server, use that server's address as `FOUNTAIN_BASE_URL`.
+Use your instance's address as `FOUNTAIN_BASE_URL`.
 
 !!! note "Whose model key"
 

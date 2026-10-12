@@ -59,7 +59,7 @@ Fountain is that half. You write the conversation.
 Agent, Environment and Vault are templates: rows you write once and use many
 times. A Conversation is a run of an Agent on a machine that Fountain builds,
 warms, meters and reclaims. Secrets merge at launch, the Vault winning; on a
-hosted account with the egress broker on, a bound secret never enters the
+deployment with the egress broker on, a bound secret never enters the
 sandbox at all. [The four primitives](docs/primitives.md) says why there are
 four.
 
@@ -253,12 +253,10 @@ it as a service owes those improvements back to everyone else running it. It
 does not stop anyone hosting Fountain commercially, including in competition
 with the hosted product. It stops them doing it in private.
 
-The hosted instance at [managoat.com](https://managoat.com) is one
-instance of this code under the name Managoat; the project keeps the name
-Fountain. The long form of the split, and where everything lives, is
-[docs/open-source.md](docs/open-source.md), published at `/docs/open-source`
-(`decisions/0034-project-site-is-the-product-site.md` says why there is no
-separate project site).
+Fountain is a self-hosted application and is not sold as a hosted service.
+[managoat.com](https://managoat.com) is the maintainer's own instance of this
+code. The long form, and where everything lives, is
+[docs/open-source.md](docs/open-source.md), published at `/docs/open-source`.
 
 See [`NOTICE`](NOTICE) for third-party attribution,
 [`CONTRIBUTING.md`](CONTRIBUTING.md) for how the licences apply to

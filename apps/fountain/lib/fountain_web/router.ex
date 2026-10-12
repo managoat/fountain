@@ -634,7 +634,6 @@ defmodule FountainWeb.Router do
       # ── Secret bindings at the egress broker (ADR 0019 gate 1b) ────────────────────────────
       live "/account/bindings", SecretBindingsLive.Index, :index
 
-
       # ── Credential management (#448) ───────────────────────────────────────────────────────
       live "/account/security", AccountSecurityLive, :index
     end

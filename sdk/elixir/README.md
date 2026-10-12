@@ -163,7 +163,7 @@ Apache-2.0. See [LICENSE](LICENSE).
 ## Credit removal (0.8.0)
 
 Fountain no longer has credits, so the server never answers 402. The
-`:insufficient_credits` kind and `Fountain.Error.upgrade_url/1` are removed:
+`:insufficient_credits` kind and `Fountain.Error.upgrade_url(error)` are removed:
 delete any clause matching `%Fountain.Error{kind: :insufficient_credits}`. A 402
 from something in front of the server (a proxy, say) is now `kind: :api`
 carrying its `status`.

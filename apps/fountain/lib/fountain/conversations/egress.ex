@@ -1,14 +1,13 @@
 defmodule Fountain.Conversations.Egress do
   @moduledoc """
   Everything ADR 0019 wired into a conversation: which secrets are brokered,
-  the connections that contribute tokens, the proxy session's life, and the
-  network floor.
+  the proxy session's life, and the network floor.
 
   Talks to `Fountain.Broker` (the facade over its backends since #1357,
-  never a backend) and `Fountain.Connections`. Functions over rows and
-  values, not over server state (#1369): `ConversationServer` keeps the
-  fields the session, its placeholders and its bindings live in, unpacks
-  them for each call and applies what comes back. The mint, which changes
+  never a backend). Functions over rows and values, not over server state
+  (#1369): `ConversationServer` keeps the fields the session, its
+  placeholders and its bindings live in, unpacks them for each call and
+  applies what comes back. The mint, which changes
   more than one field at once, is the server's short wrapper over
   `prepare/4`. The refresh before a turn reads seven fields and writes four
   since #1736, so `refresh_before_turn/1` takes the state and names them;
@@ -16,8 +15,8 @@ defmodule Fountain.Conversations.Egress do
   the same.
 
   The split rules, in order, as the server applies them at provision:
-  `bindings/1`, `add_connection_secrets/4`, `split_brokered/2`,
-  `split_inference/3`. Each is a no-op where no broker is configured.
+  `bindings/1`, `split_brokered/2`, `split_inference/3`. Each is a no-op
+  where no broker is configured.
   """
 
   alias Fountain.Broker
@@ -52,103 +51,14 @@ defmodule Fountain.Conversations.Egress do
       else: {secrets, %{}}
   end
 
-  # A tenant's connections (#1178) contribute their access tokens as
-  # synthetic secrets, brokered like inference keys: the sandbox gets a
-  # placeholder, the broker gets the value with an implicit bearer binding
-  # to the provider's hosts. A tenant's own secret of the same name wins,
-  # as does their own binding on it (which is how the token reaches an MCP
-  # server they run). Only for brokered tenants — without the broker the
-  # token would have to enter the sandbox in the clear, which is the thing
-  # connections exist to avoid.
-  @spec add_connection_secrets(String.t(), map(), Broker.bindings(), map() | nil) ::
-          {map(), Broker.bindings(), [String.t()]}
-  def add_connection_secrets(user_id, merged, bindings, agent) do
-    if Broker.configured?() do
-      connections = active_connections_by_id(user_id)
-      synthetic = Fountain.Connections.synthetic_secrets(user_id)
-      remote_hosts = remote_connection_hosts(agent, connections)
-
-      {merged, bindings, keys} =
-        Enum.reduce(synthetic, {merged, bindings, []}, fn {key, token}, {m, b, keys} ->
-          if Map.has_key?(m, key) do
-            {m, b, keys}
-          else
-            b =
-              if Map.has_key?(b, key),
-                do: b,
-                else: Map.put(b, key, connection_bindings(user_id, key, remote_hosts))
-
-            {Map.put(m, key, token), b, [key | keys]}
-          end
-        end)
-
-      {merged, bindings, Enum.sort(keys)}
-    else
-      {merged, bindings, []}
-    end
-  end
-
-  # The provider's own hosts, plus the host of every remote MCP server the
-  # agent attaches with this connection (#1186): the broker attaches the
-  # bearer to exactly those and nothing else.
-  @spec connection_bindings(String.t(), String.t(), %{String.t() => [String.t()]}) ::
-          [Fountain.SecretBindings.Binding.t()]
-  def connection_bindings(user_id, key, remote_hosts) do
-    (Fountain.Connections.implicit_hosts(user_id, key) ++ Map.get(remote_hosts, key, []))
-    |> Enum.uniq()
-    |> Enum.map(fn host ->
-      %Fountain.SecretBindings.Binding{
-        key: key,
-        host: host,
-        auth_type: "bearer",
-        headers: %{},
-        enabled: true
-      }
-    end)
-  end
-
-  defp active_connections_by_id(user_id) do
-    user_id
-    |> Fountain.Connections.active_connections()
-    |> Map.new(&{&1.id, &1})
-  end
-
-  defp remote_connection_hosts(%{mcp_servers: servers}, connections) when is_map(servers),
-    do: Fountain.Connections.McpServers.remote_hosts(servers, connections)
-
-  defp remote_connection_hosts(_agent, _connections), do: %{}
-
-  # Re-read the brokered connection tokens; a rotated one is swapped into
-  # `brokered` and the caller re-prepares the vault. A refresh that fails
-  # leaves the old token in place: the turn runs on it and, if it has
-  # expired, fails at the provider with a reason rather than silently here.
-  @spec refresh_connection_secrets([String.t()], String.t(), map()) :: {map(), boolean()}
-  def refresh_connection_secrets([], _user_id, brokered), do: {brokered, false}
-
-  def refresh_connection_secrets(keys, user_id, brokered) do
-    fresh = user_id |> Fountain.Connections.synthetic_secrets() |> Map.take(keys)
-
-    rotated =
-      Enum.filter(fresh, fn {k, v} -> Map.get(brokered, k) != v end)
-
-    if rotated == [] do
-      {brokered, false}
-    else
-      {Map.merge(brokered, Map.new(rotated)), true}
-    end
-  end
-
-  # Re-read the tenant's own brokered secrets before a turn (#1736), the
-  # way `refresh_connection_secrets/3` re-reads the connection tokens.
+  # Re-read the tenant's own brokered secrets before a turn (#1736).
   # `merged` is the environment + vault merge as `SpriteEnv.merge_secrets/3`
   # returns it now, `tenant_keys` the keys the previous read brokered. An
   # edited value replaces the broker's; a deleted key is dropped, and what
   # it was masking takes the name back, as at provisioning: `underlay` is
-  # the map of those values, the runtime's inference credentials and the
-  # connection tokens under their env var names. Returns the brokered map,
-  # the tenant's brokered keys now, and whether anything moved. Runs after
-  # the connection refresh so a tenant's own secret of a connection's name
-  # wins, as it does at init.
+  # the map of those values, the runtime's inference credentials under their
+  # env var names. Returns the brokered map, the tenant's brokered keys now,
+  # and whether anything moved.
   @spec refresh_tenant_secrets([String.t()], map(), map(), Broker.bindings(), map()) ::
           {map(), [String.t()], boolean()}
   def refresh_tenant_secrets(tenant_keys, merged, brokered, bindings, underlay) do
@@ -164,37 +74,6 @@ defmodule Fountain.Conversations.Egress do
 
     {next, fresh_keys, next != brokered}
   end
-
-  # An agent whose `mcp_servers` names a connection beside a URL gets the
-  # entry rewritten into the remote server with a broker placeholder (#1186);
-  # one that names a connection alone is dropped, because that shape is an
-  # extension's to serve (ADR 0043, #2152). Not for an unbrokered tenant
-  # either: every connection entry is dropped and the agent runs without it.
-  @spec with_connection_servers(map() | nil, String.t(), String.t(), String.t() | nil) ::
-          map() | nil
-  def with_connection_servers(agent, user_id, conversation_id, callback_token)
-
-  def with_connection_servers(nil, _user_id, _conversation_id, _callback_token), do: nil
-
-  def with_connection_servers(%{mcp_servers: servers} = agent, user_id, conversation_id, token)
-      when is_map(servers) do
-    brokered = Broker.configured?()
-    token = if brokered, do: token
-    connections = if brokered, do: active_connections_by_id(user_id), else: %{}
-
-    %{
-      agent
-      | mcp_servers:
-          Fountain.Connections.McpServers.resolve(
-            servers,
-            conversation_id,
-            token,
-            connections
-          )
-    }
-  end
-
-  def with_connection_servers(agent, _user_id, _conversation_id, _callback_token), do: agent
 
   # Only read for a brokered tenant: for everyone else the table is rows
   # nobody consults, and this path stays free of a query.
@@ -381,9 +260,9 @@ defmodule Fountain.Conversations.Egress do
   session's rules with the token kept, and a session near its end is
   replaced before the turn that would outlive it, the env rebuilt with the
   new token for the next spawn. Reads `broker`, `brokered`, `tenant_keys`,
-  `connection_keys`, `secret_sources`, `broker_bindings` and
-  `inference_credentials` (plus the ids and the DEK); writes `brokered`,
-  `tenant_keys`, `broker` and `sprite_env`. Returns the state and whether
+  `secret_sources`, `broker_bindings` and `inference_credentials` (plus the
+  ids and the DEK); writes `brokered`, `tenant_keys`, `broker` and
+  `sprite_env`. Returns the state and whether
   the session token was replaced. The state of an unbrokered conversation
   comes back unchanged.
 
@@ -452,10 +331,9 @@ defmodule Fountain.Conversations.Egress do
   defp reread_and_rewrite(state) do
     {state, changed?} = reread_secrets(state)
 
-    # Before the broker can inject any of it. An edited vault secret or a
-    # rotated connection token becomes live through the rewrite or a fresh
-    # session, and `SpriteEnv.build/4` — the only other registration — does
-    # not run on these paths. Registered without it, the new credential
+    # Before the broker can inject any of it. An edited vault secret becomes
+    # live through the rewrite or a fresh session, and `SpriteEnv.build/4` —
+    # the only other registration — does not run on these paths. Registered without it, the new credential
     # would be echoed into `log_events` in plaintext by the first upstream
     # that returns a header. `add/2`, not `put/2`: the old value can still be
     # in output already on its way.
@@ -468,25 +346,19 @@ defmodule Fountain.Conversations.Egress do
     end
   end
 
-  # The connection tokens first, then the tenant's own secrets, in the order
-  # init merged them: a tenant's secret of a connection's name wins. Two
-  # decrypts of two rows per turn; a turn is a sandbox spawn or an ACP
-  # prompt, so the read is not what a turn waits on.
+  # The tenant's own secrets, as init merged them. Two decrypts of two rows
+  # per turn; a turn is a sandbox spawn or an ACP prompt, so the read is not
+  # what a turn waits on.
   defp reread_secrets(state) do
     # No managed ChatGPT grant is re-read here, the deployment's or a user's:
     # a conversation holds no token of one to swap. It is renewed by id and
     # generation at the turn's gate (`CodexChatGPT.ensure_fresh/2`), and the
     # proxy reads the grant row on every request.
-    {brokered, rotated?} =
-      refresh_connection_secrets(state.connection_keys, state.user_id, state.brokered)
-
+    #
     # What a deleted tenant secret hands its name back to: the inference
-    # credential of that name, or the connection token it had overridden
-    # (the connection refresh above has just put the current one in place).
-    {_creds, inference, _implicit} =
+    # credential of that name.
+    {_creds, underlay, _implicit} =
       Broker.split_inference(state.inference_credentials, state.broker_bindings)
-
-    underlay = Map.merge(inference, Map.take(brokered, state.connection_keys))
 
     {brokered, tenant_keys, edited?} =
       refresh_tenant_secrets(
@@ -496,12 +368,12 @@ defmodule Fountain.Conversations.Egress do
           tenant_secrets(state),
           Map.get(state, :inference_source)
         ),
-        brokered,
+        state.brokered,
         state.broker_bindings,
         underlay
       )
 
-    {%{state | brokered: brokered, tenant_keys: tenant_keys}, rotated? or edited?}
+    {%{state | brokered: brokered, tenant_keys: tenant_keys}, edited?}
   end
 
   # The environment + vault merge as it stands now. Both fetches are

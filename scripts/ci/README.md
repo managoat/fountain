@@ -190,9 +190,9 @@ either way. The documentation job honors verified tree reuse on the merge
 queue, just like the server jobs.
 
 See [the manual contribution guide](../../contributing/docs.md#checks-for-documentation-changes)
-for the path table and matching local commands. Register an extension's docs
-in `MANUAL_EXTENSIONS` and `scripts/test-docs.sh` together; the routing tests
-check that the selected manuals have runnable documentation suites.
+for the path table and matching local commands. No extension ships a manual
+today; one that does adds its docs path to `manual_doc` in `changes.py` and
+its suite to `scripts/test-docs.sh` together.
 
 ## Coverage
 

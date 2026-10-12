@@ -76,7 +76,7 @@ below retain their original observation dates.
 
 | Section | Verdict | What the source implements |
 |---|---|---|
-| §1 Storage and delivery | Built, narrower than the original headline | `Broker.split/2` and `Egress` broker enabled bindings, the GitHub defaults, runtime inference credentials and active connection tokens. Other encrypted secrets still enter the sandbox as values. `Crypto` remains the storage boundary. |
+| §1 Storage and delivery | Built, narrower than the original headline | `Broker.split/2` and `Egress` broker enabled bindings, the GitHub defaults and runtime inference credentials (connection tokens too, until Connections were removed on 2026-10-12). Other encrypted secrets still enter the sandbox as values. `Crypto` remains the storage boundary. |
 | §2 Network floor | Built, with a development exception | `Provisioning.check_broker_support/4` and `Egress.apply_policy/4` cover cold provision, warm restore and reattach. `BROKER_ALLOW_UNENFORCED` explicitly permits unsupported providers without enforcement. |
 | §3 Environment policy | Built | `Broker.network_for/1` creates passthrough rules plus default deny for `limited`; unrestricted uses unmatched-host passthrough behind the same sandbox floor. |
 | §4 Placeholders | Built | `Broker.placeholder/1` and `Native` construct the placeholder and matching substitution rules together; inference uses vendor-shaped placeholders. |
@@ -84,7 +84,7 @@ below retain their original observation dates.
 | §6 Failure behavior | Built, with limits stated here | No plaintext fallback on broker failure. A failed wake preserves the disk. CA installation on reattach remains best effort; a failure is logged and may fail the next turn. |
 | §7 Non-HTTP labels | Not built | No `unbrokerable` field or classification UI/API exists. Non-HTTP credentials remain a residual plaintext delivery path. |
 | §8 Vendor | Changed | `Native` is the only backend. The Agent Vault client and its configuration were removed; the original vendor comparison is historical. |
-| §9 Rollout and escape hatch | Built, and the ratchet retired | Brokerage is a property of the deployment alone: `Broker.configured?/0` is the whole gate, and `Broker.enabled_for?/1` and the `:broker_tenants` configuration no longer exist. The proposed per-secret classification escape hatch is not implemented. Connections and binding management additionally require the `connections` rollout flag; that flag does not disable brokering. |
+| §9 Rollout and escape hatch | Built, and the ratchet retired | Brokerage is a property of the deployment alone: `Broker.configured?/0` is the whole gate, and `Broker.enabled_for?/1` and the `:broker_tenants` configuration no longer exist. The proposed per-secret classification escape hatch is not implemented. Binding management needs nothing more: the `connections` rollout flag that also gated it was removed with Connections on 2026-10-12. |
 | §10 Bodies and rewriting | Partly built by design | The proxy sees HTTP bodies but streams them without substitution. `Injector` substitutes header values and request targets. Content-policy rewriting remains future work. |
 | §11 Topology and custody | Changed | Fountain runs the library listener in-process, stores sessions in its own database and derives the CA from the master key. There are no vendor vaults or separate broker database. |
 
@@ -1040,3 +1040,13 @@ Neither is described here as decided, because neither is:
 Until those land, the honest statement of scope is the one in §9's first line,
 with the tenant clause struck: brokering is a property of **the deployment** and
 of the secret.
+
+## Addendum — 2026-10-12: Connections removed
+
+Connections (ADR 0033) were removed (simplify 5/5). The broker no longer
+carries connection tokens: `Egress` lost `add_connection_secrets/4`,
+`refresh_connection_secrets/3` and `with_connection_servers/4`, and the
+conversation state its `connection_keys`. The refresh before a turn (#1736)
+and the live refresh on a secret write (#2548) re-read the tenant's
+environment and vault secrets alone. Credential bindings are gated by
+`Broker.configured?/0` alone, for creation as for removal.

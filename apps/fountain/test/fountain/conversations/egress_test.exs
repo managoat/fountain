@@ -51,14 +51,12 @@ defmodule Fountain.Conversations.EgressTest do
     test "are all no-ops, and read no bindings", %{user: user} do
       broker_off()
       {:ok, _} = Fountain.SecretBindings.create_binding(user.id, binding_attrs("DATABASE_URL"))
-      _conn = insert_connection(user)
 
       refute Egress.brokered?()
       assert Egress.bindings(user.id) == %{}
 
       secrets = %{"GITHUB_TOKEN" => "ghp_real", "DATABASE_URL" => "postgres://x"}
       assert Egress.split_brokered(secrets, %{}) == {secrets, %{}}
-      assert Egress.add_connection_secrets(user.id, secrets, %{}, nil) == {secrets, %{}, []}
 
       creds = %{anthropic_api_key: "sk-ant-api03-x"}
       assert Egress.split_inference(creds, %{}, %{}) == {creds, %{}, %{}}
@@ -114,61 +112,7 @@ defmodule Fountain.Conversations.EgressTest do
     end
   end
 
-  describe "connections" do
-    test "add_connection_secrets/4 brokers a connection's token with bearer bindings to its hosts",
-         %{user: user} do
-      broker_on()
-      conn = insert_connection(user)
-
-      {merged, bindings, keys} =
-        Egress.add_connection_secrets(user.id, %{"OWN" => "o"}, %{}, nil)
-
-      assert keys == [conn.env_key]
-      assert merged["OWN"] == "o"
-      assert merged[conn.env_key] == conn.access_token
-
-      assert host_triples(bindings[conn.env_key]) ==
-               Enum.map(["svc.fixture.example"], &{conn.env_key, &1, "bearer"})
-    end
-
-    test "a tenant's own secret and own binding of the same name win", %{user: user} do
-      broker_on()
-      conn = insert_connection(user)
-      own = %{conn.env_key => "mine"}
-      own_bindings = %{conn.env_key => [:mine]}
-
-      assert Egress.add_connection_secrets(user.id, own, own_bindings, nil) ==
-               {own, own_bindings, []}
-    end
-
-    test "connection_bindings/3 adds the agent's remote MCP hosts to the provider's",
-         %{user: user} do
-      broker_on()
-      conn = insert_connection(user)
-      remote = %{conn.env_key => ["mcp.example", "svc.fixture.example"]}
-
-      hosts =
-        Egress.connection_bindings(user.id, conn.env_key, remote) |> Enum.map(& &1.host)
-
-      assert hosts == ["svc.fixture.example", "mcp.example"]
-    end
-
-    test "refresh_connection_secrets/3 swaps in a rotated token and says so", %{user: user} do
-      broker_on()
-      conn = insert_connection(user)
-      current = %{conn.env_key => conn.access_token, "OTHER" => "x"}
-
-      assert Egress.refresh_connection_secrets([], user.id, current) == {current, false}
-
-      assert Egress.refresh_connection_secrets([conn.env_key], user.id, current) ==
-               {current, false}
-
-      stale = %{conn.env_key => "old", "OTHER" => "x"}
-
-      assert Egress.refresh_connection_secrets([conn.env_key], user.id, stale) ==
-               {current, true}
-    end
-
+  describe "refreshes" do
     # #1736: the tenant's own secrets, read again before a turn. Pure over
     # the merged map, so no rows are needed.
     test "refresh_tenant_secrets/5 swaps in an edited value and says so" do
@@ -210,9 +154,8 @@ defmodule Fountain.Conversations.EgressTest do
 
     test "refresh_tenant_secrets/5 drops a deleted key, and what it masked takes the name back" do
       # The tenant's own ANTHROPIC_API_KEY won at init; deleting it hands the
-      # name back to the runtime's credential, as init would. Same for a
-      # vault override of a connection's key (the review's row 1): the
-      # connection token is in the underlay, and comes back.
+      # name back to the runtime's credential, as init would. Same for any
+      # key the underlay holds: what the deleted secret masked comes back.
       underlay = %{"ANTHROPIC_API_KEY" => "sk-ant-api03-inference", "GOOGLE_TOKEN" => "ya29.live"}
 
       brokered = %{
@@ -254,48 +197,6 @@ defmodule Fountain.Conversations.EgressTest do
 
       stub(Broker, :refresh, fn _, _, _, _ -> {:error, :down} end)
       assert Egress.refresh_rules("conv-1", %{}, %{}, []) == {:error, :down}
-    end
-
-    test "with_connection_servers/4 resolves a remote entry only for a brokered tenant",
-         %{user: user} do
-      conn = insert_connection(user)
-
-      # Three kinds of entry: one that names the connection and no URL (an
-      # extension's to serve, ADR 0043 #2152), one remote server the
-      # connection's token is attached to, and a plain one.
-      agent = %{
-        mcp_servers: %{
-          "served" => %{"connection" => conn.id},
-          "remote" => %{"connection" => conn.id, "url" => "https://mcp.example/sse"},
-          "plain" => %{"url" => "https://plain.example"}
-        }
-      }
-
-      # Unbrokered: no connections, so both connection entries are dropped
-      # and the agent runs on the plain one.
-      broker_off()
-
-      assert %{mcp_servers: %{"plain" => _} = off} =
-               Egress.with_connection_servers(agent, user.id, "conv-1", "tok")
-
-      assert Map.keys(off) == ["plain"]
-
-      broker_on()
-
-      # Brokered: the remote entry resolves; the connection-only one is still
-      # dropped here, because core builds no server for it — the Google
-      # extension does, through `conversation_mcp_servers/2`.
-      assert %{mcp_servers: %{"remote" => remote, "plain" => _} = on} =
-               Egress.with_connection_servers(agent, user.id, "conv-1", "tok")
-
-      assert Map.keys(on) |> Enum.sort() == ["plain", "remote"]
-      assert remote["url"] == "https://mcp.example/sse"
-
-      assert Egress.with_connection_servers(nil, user.id, "conv-1", "tok") == nil
-
-      assert Egress.with_connection_servers(%{mcp_servers: nil}, user.id, "conv-1", "tok") == %{
-               mcp_servers: nil
-             }
     end
   end
 
@@ -491,8 +392,8 @@ defmodule Fountain.Conversations.EgressTest do
 
   # A brokered credential never enters the sandbox, so it is registered for
   # output redaction explicitly — at provisioning by `SpriteEnv.build/4`, and
-  # here, because a running conversation rotates it. An edited vault secret or
-  # a refreshed connection token goes live through this refresh, which neither
+  # here, because a running conversation rotates it. An edited vault secret
+  # goes live through this refresh, which neither
   # rebuilds the env nor runs `SpriteEnv.build/4`. Unregistered, the first
   # upstream that echoed the new value would put it in `log_events` in
   # plaintext: the disclosure the provisioning registration exists to close.
@@ -527,7 +428,6 @@ defmodule Fountain.Conversations.EgressTest do
         },
         brokered: %{"BOUND_TOKEN" => "original-credential-aaaa"},
         tenant_keys: ["BOUND_TOKEN"],
-        connection_keys: [],
         secret_sources: %{environment_id: nil, vault_id: vault.id},
         broker_bindings: bindings,
         inference_credentials: %{},

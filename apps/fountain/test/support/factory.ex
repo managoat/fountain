@@ -132,66 +132,6 @@ defmodule Fountain.Factory do
     end
   end
 
-  # ── connections (#1178) ───────────────────────────────────────────────────
-
-  @doc """
-  A stored platform connection with a refresh token and a fresh access token,
-  as `Fountain.Connections.connect/4` would persist after a consent. No
-  network: the grant map is what `OAuth.exchange_code/4` returns. The
-  provider defaults to the fixture extension's (`fixture-svc`), the one
-  platform provider every suite has since Google, Microsoft and Slack became
-  extensions of their own (#2152); pass `provider: "google"` (a slug, or a
-  `%Provider{}` for a tenant's own) where a suite has that extension loaded.
-  """
-  def insert_connection(user, overrides \\ %{}) do
-    overrides = Map.new(overrides, fn {k, v} -> {to_string(k), v} end)
-    provider = overrides["provider"] || "fixture-svc"
-
-    grant = %{
-      refresh_token: Map.get(overrides, "refresh_token", "refresh-#{uniq()}"),
-      access_token: overrides["access_token"] || "access-#{uniq()}",
-      expires_at:
-        overrides["expires_at"] ||
-          DateTime.utc_now() |> DateTime.add(3600, :second) |> DateTime.truncate(:second),
-      scopes: overrides["scopes"] || ["read"],
-      account_email: overrides["account_email"] || "user-#{uniq()}@example.com"
-    }
-
-    {:ok, conn} = Fountain.Connections.connect(user.id, provider, grant)
-    conn
-  end
-
-  @doc """
-  A tenant `oauth2` provider (#1186): the tenant's own app registration at
-  a service, with its endpoints on the Req.Test host.
-  """
-  def insert_provider(user, overrides \\ %{}) do
-    {:ok, provider} = Fountain.Connections.create_provider(user.id, provider_attrs(overrides))
-    provider
-  end
-
-  def provider_attrs(overrides \\ %{}) do
-    overrides = to_string_map(overrides)
-    n = uniq()
-
-    Map.merge(
-      %{
-        "slug" => "svc-#{n}",
-        "name" => "Service #{n}",
-        "kind" => "oauth2",
-        "authorize_url" => "https://svc.example/oauth/authorize",
-        "token_url" => "https://svc.example/oauth/token",
-        "userinfo_url" => "https://svc.example/user",
-        "account_label_path" => "login",
-        "scopes" => ["read"],
-        "client_id" => "client-#{n}",
-        "client_secret" => "secret-#{n}",
-        "token_hosts" => ["api.svc.example"]
-      },
-      overrides
-    )
-  end
-
   # ── environments ──────────────────────────────────────────────────────────
 
   def env_attrs(overrides \\ %{}) do

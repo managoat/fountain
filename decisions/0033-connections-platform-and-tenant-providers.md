@@ -1,11 +1,11 @@
 ---
 type: ADR
 title: "Connections: a small platform provider registry, tenant-defined providers for everything else, and MCP-spec discovery for remote servers"
-description: "Built. A connection is a provider account Fountain holds the credential for and hands to an agent as a capability, never as a token in the sandbox. Google, Microsoft and Slack are the platform providers with Fountain-owned OAuth clients (a registry closed to core and grown by installing an extension, since 0054); every other service is a provider the tenant defines from their own app registration, and a remote MCP server is a provider Fountain discovers (RFC 9728 / 8414) and registers a client with (RFC 7591). Only for accounts the egress broker is on for."
+description: "Retired 2026-10-12: Connections were removed (simplify 5/5). Built. A connection is a provider account Fountain holds the credential for and hands to an agent as a capability, never as a token in the sandbox. Google, Microsoft and Slack are the platform providers with Fountain-owned OAuth clients (a registry closed to core and grown by installing an extension, since 0054); every other service is a provider the tenant defines from their own app registration, and a remote MCP server is a provider Fountain discovers (RFC 9728 / 8414) and registers a client with (RFC 7591). Only for accounts the egress broker is on for."
 tags: [security, secrets, connections, oauth, mcp, egress]
-status: stable
+status: deprecated
 adr: "0033"
-adr_status: "Accepted"
+adr_status: "Retired"
 date: 2026-08-25
 generated: { by: human:jhgaylor, at: 2026-08-25T21:00:00-04:00 }
 verified: { by: agent:claude-code, at: 2026-09-01T00:00:00-04:00 }
@@ -13,7 +13,7 @@ verified: { by: agent:claude-code, at: 2026-09-01T00:00:00-04:00 }
 
 # 0033 — Connections: a small platform provider registry, tenant-defined providers for everything else, and MCP-spec discovery for remote servers
 
-**Status:** Accepted, built in #1182 (Google, #1178) and #1187 (#1186).
+**Status:** Retired 2026-10-12; see the addendum at the end. The text above the addendum is history. Was: Accepted, built in #1182 (Google, #1178) and #1187 (#1186).
 Amended for #1299: decision 1 grew from "Google is the one platform
 provider" to a registry of three (Google, Microsoft, Slack), for the reason
 recorded there. Nothing described here is unbuilt.
@@ -242,3 +242,34 @@ with effort:
   favour of presets inside a tenant-owned record: a catalog entry that is
   wrong (an endpoint moved, a scope renamed) blocks every tenant until a
   release; a preset is a starting point the tenant can edit.
+
+## Addendum — 2026-10-12: retired
+
+Fountain removed Connections (simplify 5/5). In the thirty days before the
+decision the hosted instance held four connections, and Fountain is now a
+self-hosted application; an OAuth client per provider, a tenant provider
+registry and MCP authorization discovery are more than that use carries.
+
+- `Fountain.Connections` and everything under it are deleted: the provider
+  registry, tenant providers, the OAuth adapter over `Managoat.McpAuth`, the
+  connection rows' token handling and refresh, and the verified remote MCP
+  server catalog with `scripts/mcp-catalog-probe.exs` and its workflow.
+  Fountain no longer depends on `managoat_mcp_auth`.
+- `/api/connections`, `/api/connection-providers`, the
+  `/connections/:provider/start` and `/callback` round trip and
+  `/account/connections` answer `404`. `GET /api/auth/me` no longer reports
+  `connections_enabled` or `connections_manageable`, and `GET /api/catalog`
+  no longer carries `mcp_servers`.
+- The three platform providers left with their extensions (ADR 0054 is
+  retired with this one), and with them `GOOGLE_*`, `MICROSOFT_*` and
+  `SLACK_*` OAuth configuration.
+- The `connections` feature flag is gone. Credential bindings, which it also
+  gated, are open to every account on a deployment that runs the broker
+  (ADR 0019); `brokered` on `GET /api/auth/me` is the signal a client reads.
+- An agent's `mcp_servers` can no longer name a connection. Migration
+  `20261012190000` removes such entries from every agent, and the agent
+  changeset refuses one. A remote MCP server takes its bearer from a vault
+  secret through `${VAR}`, bound to the server's host where the broker runs.
+- The `connections` and `connection_providers` tables are not dropped yet:
+  the release before this one reads `connections` on every brokered
+  provision, so the drop waits a release, in a follow-up migration.

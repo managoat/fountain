@@ -39,12 +39,12 @@ defmodule Fountain.Conversations.McpServers do
 
   @doc """
   The whole `session/new` MCP list for a turn: the agent's own servers, with
-  `${VAR}` already resolved and the tenant's brokered connections folded in,
-  followed by the ones Fountain serves back to the sandbox.
+  `${VAR}` already resolved, followed by the ones Fountain serves back to the
+  sandbox.
 
-  `opts` is what `ConversationServer` unpacks from its state — `:user_id`,
-  `:conversation_id`, `:callback_token` and `:resolved`, the conversation's
-  resolved MCP configuration (see `resolve_for_session/2`).
+  `opts` is what `ConversationServer` unpacks from its state; this reads
+  `:callback_token` and `:resolved`, the conversation's resolved MCP
+  configuration (see `resolve_for_session/2`).
   """
   @spec for_session(Agent.t() | nil, map(), keyword()) :: [map()]
   def for_session(agent, conv, opts) do
@@ -52,11 +52,6 @@ defmodule Fountain.Conversations.McpServers do
 
     agent
     |> resolve_for_session(Keyword.get(opts, :resolved))
-    |> Fountain.Conversations.Egress.with_connection_servers(
-      Keyword.fetch!(opts, :user_id),
-      Keyword.fetch!(opts, :conversation_id),
-      token
-    )
     |> Managoat.Runtimes.ACP.mcp_servers()
     |> Kernel.++(fountain_served(conv, token))
   end

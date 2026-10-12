@@ -294,25 +294,8 @@ broker supplies its value to an approved destination. The credential value stays
 See [Secrets](concepts/secrets.md) for the security model and the binding
 operations in the [generated reference](/api/docs) for configuration.
 
-## Connections
-
-A connection authorizes access to an external service through its OAuth flow.
-It is distinct from an API key for Fountain. See
-[Connections](catalog/connections/index.md) for supported services and setup.
-The [generated reference](/api/docs) describes discovery and connection state.
-
-Use `GET /api/auth/me` to decide which controls to show:
-`connections_enabled` allows adding connections, providers, and credential
-bindings; `connections_manageable` allows listing and removing existing ones.
-Keep removal controls visible when `connections_manageable` is true, even if
-`connections_enabled` is false.
-
-### Connection providers
-
-An instance must configure a provider before an account can connect it.
-For an external service, follow [Register your own OAuth app](guides/connect/own-oauth-app.md).
-Use provider discovery from the [generated reference](/api/docs) to decide
-which connection choices the UI can offer.
+Use `GET /api/auth/me` and its `brokered` field to decide whether to show
+binding controls: bindings exist only on a deployment that runs the broker.
 
 ## Bulk apply
 

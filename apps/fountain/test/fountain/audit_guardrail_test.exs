@@ -199,17 +199,6 @@ defmodule Fountain.AuditGuardrailTest do
     {"oauth client create", &__MODULE__.do_oauth_client_create/1, "oauth_client.created"},
     {"oauth client update", &__MODULE__.do_oauth_client_update/1, "oauth_client.updated"},
     {"oauth client delete", &__MODULE__.do_oauth_client_delete/1, "oauth_client.deleted"},
-    {"connection connect", &__MODULE__.do_connection_connect/1, "connection.created"},
-    {"connection revoke", &__MODULE__.do_connection_revoke/1, "connection.revoked"},
-    {"connection expire", &__MODULE__.do_connection_expire/1, "connection.expired"},
-    # Connection providers (#1186): the tenant's own OAuth apps and the MCP
-    # authorization servers Fountain discovered. The secret is never in the trail.
-    {"connection provider create", &__MODULE__.do_provider_create/1,
-     "connection_provider.created"},
-    {"connection provider update", &__MODULE__.do_provider_update/1,
-     "connection_provider.updated"},
-    {"connection provider delete", &__MODULE__.do_provider_delete/1,
-     "connection_provider.deleted"},
     # OAuth (#1343). The state machine is the managoat_oauth library, which
     # has no Repo call of its own to audit beside; it cannot complete any of
     # these three mutations without calling Fountain.OAuth.Host.audit/3, and
@@ -444,32 +433,6 @@ defmodule Fountain.AuditGuardrailTest do
       })
 
     {:ok, _} = Fountain.SecretBindings.delete_binding(b)
-  end
-
-  def do_connection_connect(user), do: insert_connection(user)
-
-  def do_connection_revoke(user) do
-    Req.Test.stub(Fountain.Connections.OAuth, fn conn -> Req.Test.json(conn, %{}) end)
-    {:ok, _} = Fountain.Connections.revoke(insert_connection(user))
-  end
-
-  # A tenant provider that issued no refresh token: the lapsed access token
-  # is the expiry event.
-  def do_connection_expire(user) do
-    past = DateTime.utc_now() |> DateTime.add(-1, :second) |> DateTime.truncate(:second)
-    p = insert_provider(user)
-    c = insert_connection(user, provider: p, refresh_token: nil, expires_at: past)
-    {:error, :expired} = Fountain.Connections.access_token(c)
-  end
-
-  def do_provider_create(user), do: insert_provider(user)
-
-  def do_provider_update(user) do
-    {:ok, _} = Fountain.Connections.update_provider(insert_provider(user), %{"name" => "renamed"})
-  end
-
-  def do_provider_delete(user) do
-    {:ok, _} = Fountain.Connections.delete_provider(insert_provider(user))
   end
 
   def do_runner_register(user) do

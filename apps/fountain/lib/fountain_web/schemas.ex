@@ -3531,30 +3531,6 @@ defmodule FountainWeb.Schemas do
               },
               required: [:conversations, :team]
             },
-            mcp_servers: %Schema{
-              type: :array,
-              description:
-                "Remote MCP servers verified to complete the MCP authorization " <>
-                  "discovery chain, each with the date it was last verified. " <>
-                  "Suggestions, not an allowlist — any URL can be discovered.",
-              items: %Schema{
-                type: :object,
-                properties: %{
-                  slug: %Schema{type: :string},
-                  name: %Schema{type: :string},
-                  url: %Schema{type: :string},
-                  dcr: %Schema{
-                    type: :boolean,
-                    description:
-                      "Whether the authorization server offers dynamic client " <>
-                        "registration (RFC 7591). False means the tenant pastes a " <>
-                        "client id from their own app registration."
-                  },
-                  verified_on: %Schema{type: :string, format: :date}
-                },
-                required: [:slug, :name, :url, :dcr, :verified_on]
-              }
-            },
             first_request: %Schema{
               type: :object,
               description:
@@ -3993,27 +3969,13 @@ defmodule FountainWeb.Schemas do
             "Whether this account's conversations run behind the egress credential " <>
               "broker (ADR 0019): secrets with bindings stay at the broker, a limited " <>
               "environment is enforced there, and /api/conversations/:id/egress " <>
-              "has content. Connections availability is separate. Read-only; an operator " <>
-              "sets it."
-        },
-        connections_enabled: %Schema{
-          type: :boolean,
-          description:
-            "Whether this account may add connections, providers, or credential bindings. " <>
-              "Use connections_manageable to show existing credentials and their removal controls."
+              "has content. Read-only; an operator sets it."
         },
         chatgpt_subscriptions_enabled: %Schema{
           type: :boolean,
           description:
             "Whether this account may link a new ChatGPT subscription. Listing, renaming, " <>
               "reconnecting, disconnecting and removing the ones it holds never depend on it."
-        },
-        connections_manageable: %Schema{
-          type: :boolean,
-          description:
-            "Whether this account may list, revoke, and delete existing connections, " <>
-              "providers, and credential bindings. Remains true when the connections " <>
-              "rollout flag is off but the deployment still brokers credentials."
         },
         expires_at: %Schema{type: :string, format: :"date-time", nullable: true}
       },
@@ -4563,211 +4525,6 @@ defmodule FountainWeb.Schemas do
         message: %Schema{type: :string}
       },
       required: [:email, :message]
-    })
-  end
-
-  defmodule Connection do
-    @moduledoc false
-    require OpenApiSpex
-
-    OpenApiSpex.schema(%{
-      title: "Connection",
-      description:
-        "A provider account the tenant signed in to once, whose credential " <>
-          "Fountain holds (#1178). Agents get the capability, never the token: " <>
-          "an agent's `mcp_servers` names the connection " <>
-          ~s|(`{"gmail": {"connection": "<id>"}}`) and Fountain serves the Gmail | <>
-          "tools; and the access token is brokered under `env_key` for an MCP " <>
-          "server the tenant runs. Only on a deployment that runs the egress broker.",
-      type: :object,
-      properties: %{
-        id: %Schema{type: :string, format: :uuid},
-        provider: %Schema{
-          type: :string,
-          description: "The provider's slug: `google`, or a tenant provider's."
-        },
-        provider_id: %Schema{
-          type: :string,
-          format: :uuid,
-          nullable: true,
-          description: "The tenant provider (#1186); null for the platform provider."
-        },
-        account_email: %Schema{
-          type: :string,
-          description: "The connected account: an address, or the label the provider gave."
-        },
-        scopes: %Schema{type: :array, items: %Schema{type: :string}},
-        env_key: %Schema{
-          type: :string,
-          description:
-            "The env var name the access token is brokered under (`GOOGLE_ACCESS_TOKEN`)."
-        },
-        status: %Schema{
-          type: :string,
-          enum: ["active", "revoked", "expired"],
-          description:
-            "`revoked` once the tenant cut it or the provider refused the refresh token; " <>
-              "`expired` when the access token lapsed and the provider issued no refresh token. " <>
-              "The row stays so the console can say why the tools stopped. Reconnect to replace it."
-        },
-        expires_at: %Schema{
-          type: :string,
-          format: :"date-time",
-          nullable: true,
-          description: "When the cached access token expires. Refreshed on use."
-        },
-        revoked_at: %Schema{type: :string, format: :"date-time", nullable: true},
-        created_at: %Schema{type: :string, format: :"date-time"},
-        updated_at: %Schema{type: :string, format: :"date-time"}
-      },
-      required: [:id, :provider, :account_email, :scopes, :env_key, :status]
-    })
-  end
-
-  list_response(ConnectionListResponse, of: Connection)
-
-  defmodule ConnectionProvider do
-    @moduledoc false
-    require OpenApiSpex
-
-    OpenApiSpex.schema(%{
-      title: "ConnectionProvider",
-      description:
-        "Where a connection's tokens come from (#1186, #1299): a platform " <>
-          "provider (`platform: true`, id `google`, `microsoft` or `slack` — " <>
-          "Fountain's own OAuth client), a tenant's own OAuth app at a " <>
-          "service (`kind: oauth2`), or a remote MCP server whose authorization " <>
-          "Fountain discovered (`kind: mcp`). The client secret is never returned.",
-      type: :object,
-      properties: %{
-        id: %Schema{type: :string, description: "A uuid, or a platform slug."},
-        slug: %Schema{type: :string},
-        name: %Schema{type: :string},
-        kind: %Schema{type: :string, enum: ["oauth2", "mcp"]},
-        platform: %Schema{
-          type: :boolean,
-          description: "True for a platform provider, which has no row."
-        },
-        configured: %Schema{
-          type: :boolean,
-          description: "True when the provider has a client Fountain can start a flow with."
-        },
-        authorize_url: %Schema{type: :string, nullable: true},
-        token_url: %Schema{type: :string, nullable: true},
-        revoke_url: %Schema{type: :string, nullable: true},
-        userinfo_url: %Schema{type: :string, nullable: true},
-        account_label_path: %Schema{
-          type: :string,
-          nullable: true,
-          description: "A dotted path into the userinfo body that names the account."
-        },
-        scopes: %Schema{type: :array, items: %Schema{type: :string}},
-        client_id: %Schema{type: :string, nullable: true},
-        has_client_secret: %Schema{type: :boolean},
-        token_endpoint_auth: %Schema{
-          type: :string,
-          enum: ["client_secret_post", "client_secret_basic", "none"]
-        },
-        pkce: %Schema{type: :boolean},
-        env_key: %Schema{
-          type: :string,
-          description: "The env var a connection's access token is brokered under."
-        },
-        token_hosts: %Schema{
-          type: :array,
-          items: %Schema{type: :string},
-          description: "The hosts the brokered token is attached to as a bearer."
-        },
-        mcp_url: %Schema{type: :string, nullable: true},
-        issuer: %Schema{
-          type: :string,
-          nullable: true,
-          description: "The authorization server discovery found (`mcp`)."
-        },
-        client_source: %Schema{
-          type: :string,
-          nullable: true,
-          enum: ["dcr", "manual", nil],
-          description: "`dcr` when the client came from RFC 7591 registration."
-        },
-        registration_endpoint: %Schema{type: :string, nullable: true},
-        redirect_uri: %Schema{
-          type: :string,
-          description: "The callback to register at the service."
-        },
-        connect_url: %Schema{
-          type: :string,
-          description:
-            "Where to send the account owner, in a browser signed in to the console, " <>
-              "to connect an account."
-        },
-        created_at: %Schema{type: :string, format: :"date-time", nullable: true},
-        updated_at: %Schema{type: :string, format: :"date-time", nullable: true}
-      },
-      required: [
-        :id,
-        :slug,
-        :name,
-        :kind,
-        :platform,
-        :configured,
-        :scopes,
-        :env_key,
-        :token_hosts,
-        :redirect_uri,
-        :connect_url
-      ]
-    })
-  end
-
-  list_response(ConnectionProviderListResponse, of: ConnectionProvider)
-
-  defmodule ConnectionProviderRequest do
-    @moduledoc false
-    require OpenApiSpex
-
-    OpenApiSpex.schema(%{
-      title: "ConnectionProviderRequest",
-      description:
-        "`kind: oauth2` needs `name`, `authorize_url`, `token_url`, `client_id` and " <>
-          "`client_secret` (unless `token_endpoint_auth` is `none`). `kind: mcp` " <>
-          "needs `mcp_url`; the rest comes from discovery. `slug` defaults from the " <>
-          "name or the server host, `env_key` from the slug (`GITHUB_ACCESS_TOKEN`).",
-      type: :object,
-      properties: %{
-        kind: %Schema{type: :string, enum: ["oauth2", "mcp"]},
-        slug: %Schema{type: :string},
-        name: %Schema{type: :string},
-        authorize_url: %Schema{type: :string},
-        token_url: %Schema{type: :string},
-        revoke_url: %Schema{type: :string, nullable: true},
-        userinfo_url: %Schema{type: :string, nullable: true},
-        account_label_path: %Schema{type: :string, nullable: true},
-        scopes: %Schema{type: :array, items: %Schema{type: :string}},
-        client_id: %Schema{type: :string},
-        client_secret: %Schema{type: :string, description: "Write-only."},
-        token_endpoint_auth: %Schema{
-          type: :string,
-          enum: ["client_secret_post", "client_secret_basic", "none"]
-        },
-        pkce: %Schema{type: :boolean},
-        env_key: %Schema{type: :string},
-        token_hosts: %Schema{type: :array, items: %Schema{type: :string}},
-        mcp_url: %Schema{type: :string}
-      },
-      example: %{
-        kind: "oauth2",
-        slug: "github",
-        name: "GitHub",
-        authorize_url: "https://github.com/login/oauth/authorize",
-        token_url: "https://github.com/login/oauth/access_token",
-        userinfo_url: "https://api.github.com/user",
-        account_label_path: "login",
-        scopes: ["repo", "read:user"],
-        client_id: "Iv1.abc",
-        client_secret: "…",
-        token_hosts: ["api.github.com"]
-      }
     })
   end
 end

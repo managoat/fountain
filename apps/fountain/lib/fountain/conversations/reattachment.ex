@@ -132,12 +132,7 @@ defmodule Fountain.Conversations.Reattachment do
     Provisioning.write_runtime_config(
       handle,
       state.runtime_module,
-      Egress.with_connection_servers(
-        agent,
-        state.user_id,
-        state.conversation_id,
-        state.callback_token
-      )
+      agent
     )
     |> best_effort("runtime config write on wake")
   end

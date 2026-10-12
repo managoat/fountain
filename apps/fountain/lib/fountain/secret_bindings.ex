@@ -89,9 +89,7 @@ defmodule Fountain.SecretBindings do
         select: s.key
       )
 
-    # A connection's token is a secret the account holds too (#1178): it is
-    # brokered under its env_key, so it can be bound to a host like any other.
-    (Repo.all(env_keys) ++ Repo.all(vault_keys) ++ Fountain.Connections.env_keys(user_id))
+    (Repo.all(env_keys) ++ Repo.all(vault_keys))
     |> Enum.uniq()
     |> Enum.sort()
   end

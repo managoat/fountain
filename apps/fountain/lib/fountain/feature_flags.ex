@@ -5,8 +5,8 @@ defmodule Fountain.FeatureFlags do
   `enabled?(flag, user)` answers a yes/no. The sources, in order:
 
   1. **Overrides** — `config :fountain, :feature_flag_overrides,
-     %{"connections" => true}`, which `config/runtime.exs` builds from
-     `FEATURE_FLAGS_ON=connections,...`. An override of `false` (tests use
+     %{"chatgpt_subscriptions" => true}`, which `config/runtime.exs` builds
+     from `FEATURE_FLAGS_ON=chatgpt_subscriptions,...`. An override of `false` (tests use
      one) turns a default-on flag off.
   2. **The flag's default** — `@on_by_default` names the flags that gate a
      shipped feature, which read on unless something turns them off. Every
@@ -22,8 +22,6 @@ defmodule Fountain.FeatureFlags do
   """
 
   @flags %{
-    # Provider registration and credential bindings.
-    connections: "connections",
     # Linking a new ChatGPT subscription (ADR 0060 stage 4). Off until a
     # deployment lists it in FEATURE_FLAGS_ON.
     chatgpt_subscriptions: "chatgpt_subscriptions"
@@ -33,7 +31,7 @@ defmodule Fountain.FeatureFlags do
   # otherwise. A flag that gates a shipped feature and read off by default
   # would make the feature disappear on the upgrade that introduced the flag
   # (#1620, #1693).
-  @on_by_default MapSet.new(["connections"])
+  @on_by_default MapSet.new([])
 
   @doc "The configuration key for a known flag atom."
   def key!(flag) when is_atom(flag), do: Map.fetch!(@flags, flag)

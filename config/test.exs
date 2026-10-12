@@ -130,18 +130,6 @@ config :fountain, Fountain.OAuth,
 # runner tests switch it on explicitly.
 config :fountain, :runners_enabled, false
 
-# Connections (#1178, #1299): every platform OAuth client set so the flows
-# are "configured", and Req.Test plugs so no test reaches a provider: an
-# unstubbed call fails loudly.
-# Every platform provider's pair lives under its extension (ADR 0054
-# decision 5), read only where that app loads and inert elsewhere.
-config :fountain_google, :google_oauth_client_id, "google-test-client-id"
-config :fountain_google, :google_oauth_client_secret, "google-test-client-secret"
-config :fountain_microsoft, :microsoft_oauth_client_id, "microsoft-test-client-id"
-config :fountain_microsoft, :microsoft_oauth_client_secret, "microsoft-test-client-secret"
-config :fountain_slack, :slack_oauth_client_id, "slack-test-client-id"
-config :fountain_slack, :slack_oauth_client_secret, "slack-test-client-secret"
-config :fountain, :connections_req_options, plug: {Req.Test, Fountain.Connections.OAuth}
 # The ChatGPT grant for codex (ADR 0047): every call to auth.openai.com goes to
 # a Req.Test plug, so a test that forgets to stub it fails rather than dialling
 # out.
@@ -149,16 +137,6 @@ config :fountain, :platform_chatgpt_req_options, plug: {Req.Test, Fountain.Platf
 # `ChatGPTAccounts.RefreshBreaker` reads a test's clock
 # (`:chatgpt_refresh_breaker_now_ms`) only in a build compiled with this.
 config :fountain, :chatgpt_refresh_breaker_test_clock, true
-# Discovery and the OAuth client (Managoat.McpAuth.Client, whose Req options
-# Fountain.Connections.OAuth takes from :connections_req_options above) refuse
-# private hosts; the Req.Test stub answers for any host, so the resolution
-# check is off here (#1186).
-config :managoat_mcp_auth, :req_options, plug: {Req.Test, Fountain.Connections.OAuth}
-config :managoat_mcp_auth, :allow_private_hosts, true
-# The Google extension (ADR 0043): every call to the Gmail API goes to a
-# Req.Test plug, so a test that forgets to stub it fails rather than dialling
-# out. Under its own otp_app, like every extension key.
-config :fountain_google, :req_options, plug: {Req.Test, FountainGoogle.Gmail}
 
 # Extensions (ADR 0043) are assembled in `config/runtime.exs`, not here.
 #

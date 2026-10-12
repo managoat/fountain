@@ -4,7 +4,7 @@ import { resolveConfig, type ConfigOptions, type ResolvedConfig } from "./config
 import { Resolver } from "./resolve.ts";
 import { Run, type RunOptions } from "./run.ts";
 import { Conversation } from "./conversation.ts";
-import { Agents, Connections, Environments, Vaults } from "./resources.ts";
+import { Agents, Environments, Vaults } from "./resources.ts";
 import { Team, normalizeStreams } from "./team.ts";
 import { streamPath, type StreamRequest } from "./sse.ts";
 import type {
@@ -101,8 +101,6 @@ export class Fountain {
   readonly vaults: Vaults;
   /** The team: teammates, their threads and their routines. */
   readonly team: Team;
-  /** Provider accounts Fountain holds the credential for (Gmail via OAuth). */
-  readonly connections: Connections;
 
   private readonly resolver: Resolver;
 
@@ -117,7 +115,6 @@ export class Fountain {
     this.environments = new Environments(this.api, this.resolver);
     this.vaults = new Vaults(this.api, this.resolver);
     this.team = new Team(this.api, this.resolver);
-    this.connections = new Connections(this.api);
   }
 
   /**

@@ -10,8 +10,6 @@ import sys
 SDK_READMES = frozenset({"sdk/typescript/README.md"})
 
 
-# Only these extension manuals have registered documentation suites.
-MANUAL_EXTENSIONS = ("fountain_google", "fountain_microsoft", "fountain_slack")
 CONTRIBUTOR_FILES = {"CLAUDE.md", "CONTRIBUTING.md", "SETUP.md", "SDKs.md", "scripts/ci/README.md"}
 
 
@@ -23,9 +21,7 @@ def contributor_doc(path):
 
 def manual_doc(path):
     # README's diagram alt text is checked by Fountain.DocsTest.
-    return path in {"README.md", "CHANGELOG.md"} or path.startswith(
-        ("docs/", *(f"apps/{app}/docs/" for app in MANUAL_EXTENSIONS))
-    )
+    return path in {"README.md", "CHANGELOG.md"} or path.startswith("docs/")
 
 
 def valid_paths(paths):

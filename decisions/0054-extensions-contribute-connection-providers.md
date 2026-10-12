@@ -1,11 +1,11 @@
 ---
 type: ADR
 title: "Extensions contribute connection providers"
-description: "Built. Fountain.Extension has an eleventh callback, connection_providers/0: an extension hands the host config-backed Fountain.Connections.Provider structs and the host lists them, reserves their slugs and drives them with the one OAuth client. Google, Microsoft and Slack each ship as an extension (fountain_google, fountain_microsoft, fountain_slack); core builds no platform provider and a core distribution lists none."
+description: "Retired 2026-10-12: the connection providers and the three extensions that contributed them were removed with Connections (simplify 5/5). Built. Fountain.Extension has an eleventh callback, connection_providers/0: an extension hands the host config-backed Fountain.Connections.Provider structs and the host lists them, reserves their slugs and drives them with the one OAuth client. Google, Microsoft and Slack each ship as an extension (fountain_google, fountain_microsoft, fountain_slack); core builds no platform provider and a core distribution lists none."
 tags: [connections, oauth, extensions, architecture]
-status: stable
+status: deprecated
 adr: "0054"
-adr_status: "Accepted"
+adr_status: "Retired"
 date: 2026-09-14
 generated: { by: claude-fable/5.1, at: 2026-09-14T00:40:00-04:00 }
 verified: { by: claude-fable/5.1, at: 2026-09-14T00:40:00-04:00 }
@@ -13,7 +13,7 @@ verified: { by: claude-fable/5.1, at: 2026-09-14T00:40:00-04:00 }
 
 # 0054 — Extensions contribute connection providers
 
-**Status:** Accepted — **built.** The callback, the registry composition in
+**Status:** Retired 2026-10-12; see the addendum at the end. The text above the addendum is history. Was: Accepted — **built.** The callback, the registry composition in
 `Fountain.Connections.Platform` and the boot validation in
 `Fountain.Extensions` are built (#2152 step 4a), and so are the three moves
 that make core own no platform provider: Microsoft is
@@ -137,3 +137,18 @@ service and a provider can come from anywhere.
   flow.** A second hot path and a callback that runs extension code with a
   token in hand, both of which ADR 0043 said it would not add. The `oauth2`
   and `mcp` kinds cover every provider anyone has asked for. Rejected.
+
+## Addendum — 2026-10-12: retired
+
+Connections were removed (simplify 5/5; ADR 0033 is retired), and with them
+everything this ADR added:
+
+- `apps/fountain_google`, `apps/fountain_microsoft` and `apps/fountain_slack`
+  are deleted, with the Gmail MCP server at `/api/mcp/gmail`, their manual
+  pages, their `config :fountain, :extensions` entries and their
+  `*_OAUTH_CLIENT_ID`, `*_OAUTH_CLIENT_SECRET` and scope variables.
+- The `connection_providers/0` callback is removed from `Fountain.Extension`,
+  with `Fountain.Extensions.connection_providers/0` and its boot validation:
+  it handed the host a `Fountain.Connections.Provider`, a struct that no
+  longer exists, so it could not stay as an unimplemented callback the way
+  ADR 0043's addendum kept three.

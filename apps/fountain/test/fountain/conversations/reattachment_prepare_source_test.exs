@@ -24,7 +24,6 @@ defmodule Fountain.Conversations.ReattachmentPrepareSourceTest do
       inference_source: nil
     }
 
-    stub(Egress, :with_connection_servers, fn agent, _user, _conv, _token -> agent end)
     stub(Provisioning, :write_instructions, fn _handle, _runtime, _agent -> :ok end)
     stub(Provisioning, :write_env_file, fn _handle, _env -> :ok end)
     stub(Reapply, :mount_skills, fn _handle, _conv, _agent -> :ok end)

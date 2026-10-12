@@ -11,7 +11,7 @@ Each entry has the same shape. Read one and you can skim the rest.
 |---|---|---|
 | [Runtimes](runtimes/index.md) | One coding-agent CLI that a sandbox can run. | 4 |
 | [Skills](skills/index.md) | One `SKILL.md` that Fountain writes into the sandbox. | 2 bundled, and any repo on GitHub. |
-| [MCP servers](mcp-servers/index.md) | One server that gives the runtime tools. | 3 hosted, 10 verified remote, and any server you declare. |
+| [MCP servers](mcp-servers/index.md) | One server that gives the runtime tools. | 1 hosted, and any server you declare. |
 
 ## Start from a whole agent
 
@@ -39,9 +39,3 @@ from outside. Editors, chat surfaces, plugin hosts, relays, and your own code.
 
 If you want an entry that does not exist, open an issue. The entry template is
 `standards/catalog-template.md` in the repository.
-
-For a remote MCP server, run
-`mix run --no-start scripts/mcp-catalog-probe.exs <url>` first. A green
-probe is the whole bar for the
-[verified list](mcp-servers/index.md#what-verified-means). "Supported" as
-an opinion was the reason no such list existed for a year.

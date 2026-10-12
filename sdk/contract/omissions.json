@@ -90,7 +90,6 @@
         "GET /api/agents/{id}/versions/{version}",
         "GET /api/audit",
         "GET /api/auth/api-keys",
-        "GET /api/connections/providers",
         "GET /api/conversations/{conversation_id}/turns/{turn_id}/images/{position}",
         "GET /api/runners",
         "POST /api/admin/sandboxes/{id}/reap",
@@ -101,7 +100,7 @@
         "POST /api/auth/api-keys",
         "POST /api/oauth/revoke"
       ],
-      "reason": "Modelled only by the retired Python, Elixir and Swift SDKs (ADR 0059's 2026-10-12 addendum): operator administration, API key management and revocation, runner listing, agent versions and avatar bytes, the tenant audit trail, connection providers, turn images and declarative apply. The console owns them, `fountain apply` covers apply, and a TypeScript caller reaches any of them over the raw `api.request` client."
+      "reason": "Modelled only by the retired Python, Elixir and Swift SDKs (ADR 0059's 2026-10-12 addendum): operator administration, API key management and revocation, runner listing, agent versions and avatar bytes, the tenant audit trail, turn images and declarative apply. The console owns them, `fountain apply` covers apply, and a TypeScript caller reaches any of them over the raw `api.request` client."
     }
   ]
 }

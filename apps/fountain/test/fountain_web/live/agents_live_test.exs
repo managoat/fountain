@@ -474,12 +474,10 @@ defmodule FountainWeb.AgentsLive.NetworkPolicyNoteTest do
   end
 end
 
-defmodule FountainWeb.AgentsLive.ConnectionsFormTest do
-  # async: false because it turns the broker on (application-wide config).
-  use FountainWeb.ConnCase, async: false
+defmodule FountainWeb.AgentsLive.RawMcpServersFormTest do
+  use FountainWeb.ConnCase, async: true
 
   import Phoenix.LiveViewTest
-  import Fountain.BrokerTestHelpers
 
   defp with_credential(user) do
     {:ok, dek} = Fountain.Crypto.load_tenant_key(user.id)
@@ -490,60 +488,7 @@ defmodule FountainWeb.AgentsLive.ConnectionsFormTest do
     user
   end
 
-  describe "MCP servers that are not a command (#1178)" do
-    test "a connection can be attached as an MCP server and survives a later save", %{conn: conn} do
-      user = with_credential(insert_verified_user())
-      enable_connections()
-      connection = insert_connection(user, account_email: "me@example.com")
-      agent = insert_agent(user_id: user.id)
-      conn = login_user(conn, user)
-
-      {:ok, view, _html} = live(conn, ~p"/agents/#{agent.id}/edit")
-      html = view |> element("button", "+ Add server") |> render_click()
-      assert html =~ "Connected account"
-
-      # Switching the type reveals the connection select.
-      html =
-        view
-        |> element("form[phx-change=validate]")
-        |> render_change(%{
-          "agent" => %{"mcp_servers" => %{"0" => %{"name" => "gmail", "kind" => "connection"}}}
-        })
-
-      assert html =~ "me@example.com (fixture-svc)"
-
-      view
-      |> form("#agent-form", %{
-        "agent" => %{
-          "name" => agent.name,
-          "model" => agent.model,
-          "runtime" => agent.runtime,
-          "mcp_servers" => %{
-            "0" => %{"name" => "gmail", "kind" => "connection", "connection" => connection.id}
-          }
-        }
-      })
-      |> render_submit()
-
-      assert %{"gmail" => %{"connection" => id}} =
-               Fountain.Agents.get_agent(agent.id, user.id).mcp_servers
-
-      assert id == connection.id
-
-      # Reopen and save with no change to the row: the entry is kept.
-      {:ok, view, html} = live(conn, ~p"/agents/#{agent.id}/edit")
-      assert html =~ "me@example.com (fixture-svc)"
-
-      view
-      |> form("#agent-form", %{
-        "agent" => %{"name" => agent.name, "model" => agent.model, "runtime" => agent.runtime}
-      })
-      |> render_submit()
-
-      assert %{"gmail" => %{"connection" => ^id}} =
-               Fountain.Agents.get_agent(agent.id, user.id).mcp_servers
-    end
-
+  describe "MCP servers that are not a command" do
     test "a remote server written through the API survives a save from the form", %{conn: conn} do
       user = with_credential(insert_verified_user())
       remote = %{"type" => "http", "url" => "https://mcp.example.com/sse"}

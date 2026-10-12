@@ -291,16 +291,10 @@ redaction that a new caller will one day forget.
 
 ## Bindings, when the broker is on
 
-!!! note "Connections"
-
-    Connections and credential binding management also need the `connections`
-    feature flag. On your own instance, add `connections` to `FEATURE_FLAGS_ON`
-    after configuring the broker and provider apps. Hosted accounts are enrolled
-    separately; see [feature status](../reference/feature-status.md).
-    The broker is on for every account of a deployment that runs one, and
-    the hosted platform runs one. Without a broker, a secret enters the
-    sandbox in the clear, and the bindings page and routes are absent. On your own instance, read
-    [Feature status](../reference/feature-status.md).
+The broker is on for every account of a deployment that runs one, and the
+hosted platform runs one. Without a broker, a secret enters the sandbox in
+the clear, and the bindings page and routes are absent. On your own instance,
+read [Feature status](../reference/feature-status.md).
 
 On a hosted account with the egress credential broker on, a secret can have
 one or more **bindings**. A binding names a host. By default the broker

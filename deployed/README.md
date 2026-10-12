@@ -125,9 +125,9 @@ On a deployment you administer, with registration open:
    secret store. Posting the token to `POST /api/auth/verify` instead skips
    both.
 
-`secrets` and `mcp` additionally need Connections enabled on both
-accounts; an account may be brokered and still have `connections_enabled`
-false, which fails those profiles at setup.
+`secrets` and `mcp` additionally need a deployment that runs the egress
+broker; without it the binding routes answer 404 and those profiles fail at
+setup.
 
 Removing a suite account afterwards removes its fixtures with it. Keep the
 accounts if you intend to verify this deployment again.
@@ -547,8 +547,8 @@ response bodies.
 ### Configure and run the profile
 
 Copy `deployed/secrets.example.json` and set the actual Fountain and receiver
-URLs, runtime/model and provider. Both dedicated tenants must have broker and
-Connections access. The primary tenant also needs its usual inference
+URLs, runtime/model and provider. Both dedicated tenants must have broker
+access. The primary tenant also needs its usual inference
 credentials. Select an ephemeral Sprites or E2B sandbox. A runner is
 rejected because it does not enforce broker egress. The sandbox image must
 provide Python 3 and curl; runtime setup must also have its usual dependencies.
@@ -568,7 +568,7 @@ node deployed/cli.mjs run \
 
 The prompt budget is explicitly one, with no automatic retry. The run limit
 cannot exceed ten minutes, within the receiver's retention window. Missing
-broker/Connections access or unreachable/mismatched receiver hosts fail setup
+broker access or unreachable/mismatched receiver hosts fail setup
 before fixture creation. Provisioning/broker setup failures remain failures
 with their category recorded, and each later assertion has its own named check.
 Receiver observations are retained even when the turn fails. A healthy model

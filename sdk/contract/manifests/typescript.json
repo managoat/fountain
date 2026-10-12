@@ -6,8 +6,6 @@
   "note": "Wire types for the whole document are generated into src/generated/openapi.ts and `npm run generate` proves they are current. What this manifest adds is the hand-written layer above them: the fields run(), the turn follower and the resources reach for by name, which no type check can pin to the wire.",
   "operations": [
     "DELETE /api/agents/{id}",
-    "DELETE /api/connection-providers/{id}",
-    "DELETE /api/connections/{id}",
     "DELETE /api/conversations/{id}",
     "DELETE /api/environments/{environment_id}/secrets/{id}",
     "DELETE /api/environments/{id}",
@@ -20,10 +18,6 @@
     "GET /api/agents/{id}",
     "GET /api/auth/me",
     "GET /api/catalog",
-    "GET /api/connection-providers",
-    "GET /api/connection-providers/{id}",
-    "GET /api/connections",
-    "GET /api/connections/{id}",
     "GET /api/conversations",
     "GET /api/conversations/{conversation_id}/events",
     "GET /api/conversations/{conversation_id}/stream",
@@ -52,7 +46,6 @@
     "GET /api/vaults/{id}",
     "GET /api/vaults/{vault_id}/secrets",
     "PATCH /api/agents/{id}",
-    "PATCH /api/connection-providers/{id}",
     "PATCH /api/conversations/{conversation_id}/labels",
     "PATCH /api/environments/{id}",
     "PATCH /api/team/{agent_id}",
@@ -60,8 +53,6 @@
     "PATCH /api/vaults/{id}",
     "PATCH /api/vaults/{vault_id}/secrets/{id}",
     "POST /api/agents",
-    "POST /api/connection-providers",
-    "POST /api/connection-providers/{id}/discover",
     "POST /api/conversations",
     "POST /api/conversations/{conversation_id}/interrupt",
     "POST /api/conversations/{conversation_id}/prompts",
@@ -84,15 +75,12 @@
     "Agent": { "required": ["id", "name"] },
     "AgentRequest": {},
     "AgentUpdate": {},
-    "AuthMeResponse": { "required": ["id", "email"], "fields": ["connections_enabled", "connections_manageable"] },
+    "AuthMeResponse": { "required": ["id", "email"], "fields": ["brokered"] },
     "Block": {
       "required": ["kind"],
       "fields": ["body", "error", "id", "name", "options", "raw", "request_id", "summary", "tool_id"]
     },
     "CatalogResponse": { "required": ["data"] },
-    "Connection": {},
-    "ConnectionProvider": {},
-    "ConnectionProviderRequest": {},
     "Conversation": {
       "required": ["id", "status"],
       "fields": ["agent_id", "environment_id", "sandbox_id", "title", "unread", "vault_id"]

@@ -39,13 +39,6 @@ defmodule Fountain.FeatureFlagsTest do
     assert_raise KeyError, fn -> FeatureFlags.enabled?(:no_such_flag, @user_id) end
   end
 
-  # A flag over a shipped feature reads on by default, or a deployment loses
-  # the feature on the upgrade that added the flag (#1693).
-  test "a flag that gates a shipped feature reads on" do
-    assert FeatureFlags.enabled?(:connections, @user_id)
-    assert FeatureFlags.enabled?(:connections, nil)
-  end
-
   # Linking a ChatGPT subscription is behind gates ADR 0060 has not passed, so
   # a deployment does not get it unless FEATURE_FLAGS_ON names it.
   test "the chatgpt_subscriptions flag is off until listed" do
@@ -56,7 +49,7 @@ defmodule Fountain.FeatureFlagsTest do
   end
 
   test "an override decides in both directions" do
-    Application.put_env(:fountain, :feature_flag_overrides, %{"connections" => false})
-    refute FeatureFlags.enabled?(:connections, @user_id)
+    Application.put_env(:fountain, :feature_flag_overrides, %{"chatgpt_subscriptions" => false})
+    refute FeatureFlags.enabled?(:chatgpt_subscriptions, @user_id)
   end
 end

@@ -28,11 +28,6 @@ apps/fountain/test/fountain/broker/native_request_log_test.exs	2291
 apps/fountain/test/fountain/broker_native_test.exs	11159
 apps/fountain/test/fountain/compose_passthrough_config_test.exs	317
 apps/fountain/test/fountain/config_reference_test.exs	17
-apps/fountain/test/fountain/connections/mcp_discovery_test.exs	748
-apps/fountain/test/fountain/connections/mcp_server_catalog_test.exs	0
-apps/fountain/test/fountain/connections/platform_test.exs	904
-apps/fountain/test/fountain/connections/provider_test.exs	4332
-apps/fountain/test/fountain/connections_test.exs	3238
 apps/fountain/test/fountain/conversation_tree_scoping_test.exs	3487
 apps/fountain/test/fountain/conversations/attach_test.exs	3387
 apps/fountain/test/fountain/conversations/blocks_test.exs	0
@@ -189,9 +184,6 @@ apps/fountain/test/fountain_web/controllers/auth_me_controller_test.exs	1671
 apps/fountain/test/fountain_web/controllers/auth_token_controller_test.exs	4534
 apps/fountain/test/fountain_web/controllers/catalog_controller_test.exs	881
 apps/fountain/test/fountain_web/controllers/changeset_json_test.exs	7
-apps/fountain/test/fountain_web/controllers/connection_controller_test.exs	1246
-apps/fountain/test/fountain_web/controllers/connection_provider_controller_test.exs	1531
-apps/fountain/test/fountain_web/controllers/connections_controller_test.exs	2730
 apps/fountain/test/fountain_web/controllers/conversation_attach_controller_test.exs	2306
 apps/fountain/test/fountain_web/controllers/conversation_call_timeout_test.exs	2333
 apps/fountain/test/fountain_web/controllers/conversation_controller_test.exs	21237
@@ -249,7 +241,6 @@ apps/fountain/test/fountain_web/live/agent_versions_live_test.exs	1493
 apps/fountain/test/fountain_web/live/agents_live_test.exs	4933
 apps/fountain/test/fountain_web/live/api_keys_live_test.exs	2554
 apps/fountain/test/fountain_web/live/audit_live_test.exs	6239
-apps/fountain/test/fountain_web/live/connections_live_test.exs	1754
 apps/fountain/test/fountain_web/live/console_nav_test.exs	1833
 apps/fountain/test/fountain_web/live/dashboard_live_test.exs	3464
 apps/fountain/test/fountain_web/live/device_live_test.exs	1257

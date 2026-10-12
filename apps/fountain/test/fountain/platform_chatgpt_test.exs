@@ -650,7 +650,6 @@ defmodule Fountain.PlatformChatGPTTest do
         broker: session,
         brokered: %{},
         tenant_keys: [],
-        connection_keys: [],
         secret_sources: nil,
         broker_bindings: %{},
         inference_credentials: creds,

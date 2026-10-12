@@ -100,7 +100,7 @@ defmodule Fountain.SandboxQueue do
   # reservation, and every namespace here hashes a different kind of id into
   # the same 32 bits: sharing one would let a `phash2` collision between a
   # user and a sandbox block an unrelated writer. Taken: 4315
-  # `Fountain.Quotas`, 4316 `Conversations`, 4331 `Fountain.Connections`.
+  # `Fountain.Quotas`, 4316 `Conversations`.
   @lock_namespace 4317
 
   @doc """

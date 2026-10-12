@@ -293,34 +293,6 @@ defmodule FountainWeb.Router do
     delete "/:id", RunnerController, :delete
   end
 
-  # Connections (#1178): the provider accounts the tenant has signed in to.
-  # Full scope: a conversation-scoped token must not be able to list or cut
-  # the account's connections. Connecting one needs a browser and a session,
-  # so it is not an API operation — `GET /api/connections/providers` says
-  # where to send the owner.
-  scope "/api/connections", FountainWeb do
-    pipe_through [:accepts_json, :api, :require_full_scope]
-
-    get "/", ConnectionController, :index
-    get "/providers", ConnectionController, :providers
-    get "/:id", ConnectionController, :show
-    delete "/:id", ConnectionController, :delete
-  end
-
-  # Connection providers (#1186): where a tenant's connections get their
-  # tokens — their own OAuth app, or a discovered MCP authorization server.
-  # Full scope: a provider holds a client secret and names where a token goes.
-  scope "/api/connection-providers", FountainWeb do
-    pipe_through [:accepts_json, :api, :require_full_scope]
-
-    get "/", ConnectionProviderController, :index
-    post "/", ConnectionProviderController, :create
-    get "/:id", ConnectionProviderController, :show
-    patch "/:id", ConnectionProviderController, :update
-    delete "/:id", ConnectionProviderController, :delete
-    post "/:id/discover", ConnectionProviderController, :discover
-  end
-
   # Secret bindings (ADR 0019 gate 1b). Full scope for the same reason as
   # runners: a conversation-scoped token must not be able to redirect the
   # account's credentials to another host.
@@ -452,10 +424,6 @@ defmodule FountainWeb.Router do
 
     # The team tools a teammate's sandbox calls to see and message the team (#851).
     post "/mcp/team/:conversation_id", TeamMcpController, :handle
-
-    # The Gmail tools for a Google connection used to be `/mcp/gmail/...` here;
-    # they are the `fountain_google` extension's now (ADR 0043, #2152), mounted
-    # by `ExtensionDispatch` at the same path.
 
     resources "/environments", EnvironmentController, except: [:new, :edit] do
       resources "/secrets", SecretController, only: [:index, :create, :delete]
@@ -621,12 +589,6 @@ defmodule FountainWeb.Router do
     post "/account/security/password", AccountSecurityController, :change_password
     post "/account/security/email", AccountSecurityController, :request_email_change
 
-    # ── Connections (#1178): the OAuth round trip to a provider. Session-
-    # authenticated so the grant lands on the signed-in account; the page
-    # they start from is ConnectionsLive below ───────────────────────────
-    get "/connections/:provider/start", ConnectionsController, :start
-    get "/connections/:provider/callback", ConnectionsController, :callback
-
     # ── The console ───────────────────────────────────────────────────────────
     # What Fountain's own UI is for: the account, its keys and credentials, and
     # the three primitives a conversation runs on. The gates that protect a
@@ -672,8 +634,6 @@ defmodule FountainWeb.Router do
       # ── Secret bindings at the egress broker (ADR 0019 gate 1b) ────────────────────────────
       live "/account/bindings", SecretBindingsLive.Index, :index
 
-      # ── Connections: provider accounts Fountain holds the credential for (#1178) ────────────
-      live "/account/connections", ConnectionsLive.Index, :index
 
       # ── Credential management (#448) ───────────────────────────────────────────────────────
       live "/account/security", AccountSecurityLive, :index

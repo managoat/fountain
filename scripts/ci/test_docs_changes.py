@@ -7,7 +7,7 @@ import tempfile
 import textwrap
 import unittest
 
-from changes import MANUAL_EXTENSIONS, classify_docs
+from changes import classify_docs
 from gate import validate
 from test_gate import plan
 
@@ -31,8 +31,6 @@ class DocumentationRoutingTest(unittest.TestCase):
             (["docs/sdk.md"], True, True, False),
             (["sdk/typescript/README.md"], True, False, False),
         ]
-        cases += [([f"apps/{app}/docs/nav.yml", f"apps/{app}/docs/guide.md"],
-                   True, True, False) for app in MANUAL_EXTENSIONS]
         for paths, short, manual, cli in cases:
             with self.subTest(paths=paths):
                 flags = classify_docs(paths)
@@ -54,8 +52,7 @@ class DocumentationRoutingTest(unittest.TestCase):
     def test_code_and_unknown_paths_cannot_enter_the_short_path(self):
         for path in (
             "apps/fountain/lib/fountain/agents.ex", "apps/fountain/test/fountain/docs_test.exs",
-            "apps/fountain_google/lib/fountain_google/docs.ex", "apps/fountain_google/test/fountain_google/docs_test.exs",
-            "apps/new_extension/docs/page.md", "contributing/tool.py", "standards/check.sh",
+            "apps/new_extension/lib/new_extension.ex", "apps/new_extension/docs/page.md", "contributing/tool.py", "standards/check.sh",
             "config/test.exs", "mix.exs", "mix.lock", "Dockerfile",
             "decisions/evidence/decimal-advisory.json", "decisions/check.py", "changelog.d/check.sh",
             "deploy/k8s/prometheusrule.yaml", "deploy/grafana/fountain-ops.json",
@@ -144,7 +141,6 @@ class DocumentationRoutingTest(unittest.TestCase):
                                         ("decisions/0002-choice.md", True, False),
                                         ("changelog.d/2210-docs.md", True, False),
                                         ("CHANGELOG.md", True, True),
-                                        ("apps/fountain_slack/docs/nav.yml", True, True),
                                         ("sdk/typescript/README.md", True, False),
                                         ("config/runtime.exs", False, False)):
                 base = git("rev-parse", "HEAD")
@@ -194,32 +190,29 @@ class DocumentationRunnerTest(unittest.TestCase):
         self.assertIn("if: ${{ needs.changes.outputs.cli_docs == 'true' }}", job)
         self.assertIn("go test -count=1 ./internal/cmd -run", job)
 
-    def test_runner_covers_registered_manuals_and_stops_on_failure(self):
+    def test_runner_runs_the_manual_suites_and_stops_on_failure(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             mix = root / "mix"
             mix.write_text('#!/bin/bash\nprintf "%s|%s\\n" "$PWD" "$*" >> "$DOCS_CALLS"\n'
-                           'if [[ "$PWD" == *"${FAIL_APP:-never-match}" ]]; then exit 42; fi\n')
+                           'exit "${FAIL_CODE:-0}"\n')
             mix.chmod(0o755)
             calls = root / "calls"
             env = dict(os.environ, PATH=str(root) + os.pathsep + os.environ["PATH"], DOCS_CALLS=str(calls))
             result = subprocess.run(["bash", str(ROOT / "scripts/test-docs.sh")], env=env)
             self.assertEqual(result.returncode, 0)
             entries = [line.split("|", 1) for line in calls.read_text().splitlines()]
-            self.assertEqual([Path(cwd).name for cwd, _ in entries[1:]], list(MANUAL_EXTENSIONS))
-            self.assertEqual(len(entries), 1 + len(MANUAL_EXTENSIONS))
-            self.assertEqual(entries[0][1].split()[1:], [
+            self.assertEqual(len(entries), 1)
+            cwd, command = entries[0]
+            self.assertEqual(command.split(), [
+                "test",
                 "apps/fountain/test/fountain/docs_test.exs",
                 "apps/fountain/test/fountain_web/controllers/docs_controller_test.exs",
             ])
-            for app, (_, command) in zip(MANUAL_EXTENSIONS, entries[1:]):
-                self.assertEqual(command.split()[1:], [f"test/{app}/docs_test.exs", f"test/{app}/manual_test.exs"])
-            for cwd, command in entries:
-                self.assertTrue(command.startswith("test "))
-                for test in command.split()[1:]:
-                    self.assertTrue((Path(cwd) / test).is_file(), test)
+            for test in command.split()[1:]:
+                self.assertTrue((Path(cwd) / test).is_file(), test)
             calls.unlink()
             result = subprocess.run(["bash", str(ROOT / "scripts/test-docs.sh")],
-                                    env=dict(env, FAIL_APP="fountain_google"))
+                                    env=dict(env, FAIL_CODE="42"))
             self.assertEqual(result.returncode, 42)
-            self.assertEqual(len(calls.read_text().splitlines()), 2)
+            self.assertEqual(len(calls.read_text().splitlines()), 1)

@@ -43,7 +43,6 @@ defmodule FountainWeb.AgentsLive.Form do
      |> assign(:errors, %{})
      |> assign(:skills, agent_to_skill_list(agent.skills || []))
      |> assign(:mcp_servers, agent_to_mcp_server_list(agent.mcp_servers || %{}))
-     |> assign(:connections, connections_for(user_id))
      |> allow_upload(:avatar,
        accept: ~w(image/jpeg image/png image/gif image/webp),
        max_entries: 1,
@@ -162,24 +161,12 @@ defmodule FountainWeb.AgentsLive.Form do
     end)
   end
 
-  # Three shapes an entry can have: a stdio server the form edits field by
-  # field; a connection (#1178) that names a Google account Fountain holds
-  # the credential for; and anything else (an HTTP/SSE server written
+  # Two shapes an entry can have: a stdio server the form edits field by
+  # field, and anything else (an HTTP/SSE server written
   # through the API), carried through untouched so saving the form does not
   # silently drop it.
   defp agent_to_mcp_server_list(mcp_servers) do
     Enum.map(mcp_servers, fn
-      {name, %{"connection" => id} = config} when is_binary(id) ->
-        %{
-          "name" => name,
-          "kind" => "connection",
-          "connection" => id,
-          "url" => config["url"] || "",
-          "command" => "",
-          "args" => "",
-          "env_vars" => []
-        }
-
       {name, %{"command" => _} = config} ->
         stdio_server(name, config)
 
@@ -209,17 +196,6 @@ defmodule FountainWeb.AgentsLive.Form do
       "args" => args_str,
       "env_vars" => env_vars
     }
-  end
-
-  # The active connections the form can offer, only where connections exist
-  # (a brokered account). Elsewhere the select is not rendered. The rollout
-  # flag is not asked: naming a connection the account already holds is not
-  # connecting a new one, and an agent must stay editable after the flag goes
-  # off (#1693).
-  defp connections_for(user_id) do
-    if Fountain.Connections.manageable_for?(),
-      do: Fountain.Connections.active_connections(user_id),
-      else: []
   end
 
   # Each runtime reaches one provider, and the changeset
@@ -623,24 +599,12 @@ defmodule FountainWeb.AgentsLive.Form do
       length(names) != length(Enum.uniq(names)) ->
         {:error, "mcp_servers_json", "server names must be unique"}
 
-      Enum.any?(servers, &(&1["kind"] == "connection" and (&1["connection"] || "") == "")) ->
-        {:error, "mcp_servers_json", "pick a connection for each connection server"}
-
       true ->
         :ok
     end
   end
 
   # The stored shape for one form row (the inverse of agent_to_mcp_server_list/1).
-  # A connection entry is either a bare connection (an extension's to serve,
-  # ADR 0043 #2152) or a remote server of the tenant's (URL + connection, #1186).
-  defp mcp_server_config(%{"kind" => "connection"} = s) do
-    case String.trim(s["url"] || "") do
-      "" -> %{"connection" => s["connection"]}
-      url -> %{"type" => "http", "url" => url, "connection" => s["connection"]}
-    end
-  end
-
   defp mcp_server_config(%{"kind" => "raw", "raw" => raw}) when is_map(raw), do: raw
 
   defp mcp_server_config(s) do
@@ -1148,66 +1112,6 @@ defmodule FountainWeb.AgentsLive.Form do
               value={server["name"] || ""}
               placeholder="github"
             />
-
-            <%!-- A connection (#1178): Fountain serves the server and holds the
-                  credential. Only offered where the account has one. --%>
-            <div :if={@connections != [] and server["kind"] != "raw"} class="space-y-1">
-              <label for={"mcp_#{i}_kind"} class="block text-sm font-medium text-zinc-700">
-                Type
-              </label>
-              <select
-                id={"mcp_#{i}_kind"}
-                name={"agent[mcp_servers][#{i}][kind]"}
-                class="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm"
-              >
-                <option
-                  :for={
-                    {label, kind} <- [
-                      {"Command (stdio)", "stdio"},
-                      {"Connected account", "connection"}
-                    ]
-                  }
-                  value={kind}
-                  selected={(server["kind"] || "stdio") == kind}
-                >
-                  {label}
-                </option>
-              </select>
-            </div>
-            <div :if={server["kind"] == "connection"} class="space-y-1">
-              <label for={"mcp_#{i}_connection"} class="block text-sm font-medium text-zinc-700">
-                Connection
-              </label>
-              <select
-                id={"mcp_#{i}_connection"}
-                name={"agent[mcp_servers][#{i}][connection]"}
-                class="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm"
-              >
-                <option value="">Pick a connected account</option>
-                <option
-                  :for={c <- @connections}
-                  value={c.id}
-                  selected={server["connection"] == c.id}
-                >
-                  {c.account_email} ({c.provider})
-                </option>
-              </select>
-            </div>
-            <.form_field
-              :if={server["kind"] == "connection"}
-              id={"mcp_#{i}_url"}
-              name={"agent[mcp_servers][#{i}][url]"}
-              label="Remote server URL (optional)"
-              value={server["url"] || ""}
-              placeholder="https://mcp.example.com/mcp"
-            />
-            <p :if={server["kind"] == "connection"} class="text-xs text-zinc-500">
-              With a URL, the sandbox calls that server and the egress broker attaches the
-              account's token to it. Without one, a Google account gets the Gmail tools the
-              Google extension serves, where it is installed; any other provider needs a URL
-              here, or a stdio server that reads its brokered env key. Either way no token
-              enters the sandbox.
-            </p>
 
             <div :if={server["kind"] == "raw"} class="text-xs text-zinc-500">
               A remote server defined through the API (kept as is):

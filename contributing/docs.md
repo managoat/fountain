@@ -29,7 +29,7 @@ open the route.
 | Change | CI checks |
 |---|---|
 | `CLAUDE.md`, `CONTRIBUTING.md`, `SETUP.md`, `scripts/ci/README.md`, Markdown under `contributing/`, `standards/`, `decisions/` or `changelog.d/` | Repository policy, changelog and conflict-marker checks, plus the secret scan |
-| `README.md`, `CHANGELOG.md`, `docs/`, or the Google, Microsoft or Slack manuals | Core rendering and structural tests, plus every extension's documentation and manual-integration tests |
+| `README.md`, `CHANGELOG.md` or `docs/` | Core rendering and structural tests |
 | The SDK's `README.md` or its page under `docs/` | The TypeScript SDK check, which runs on every plan; published pages also get the manual tests |
 | `docs/cli.md` or `docs/cli/` | Manual tests and the CLI reference parity checks |
 | Code, configuration, unregistered paths, or mixed code/documentation changes | Full server validation and the TypeScript SDK check |
@@ -56,11 +56,9 @@ For published manual changes, use the pinned toolchain and run:
 bash scripts/test-docs.sh
 ```
 
-This runs the core and extension documentation suites, including navigation,
-rendering and links across manuals. It needs the usual migrated test database.
-A changed core heading can break an extension's link, so both sides are checked
-together. `README.md` participates because its diagram text has a docs test.
-While editing one page, its app's `docs_test.exs` is a useful narrower check.
+This runs the manual's documentation suites, including navigation, rendering
+and links. It needs the usual migrated test database. `README.md` participates
+because its diagram text has a docs test.
 
 For CLI reference changes, also run:
 
@@ -109,7 +107,8 @@ For code, tooling or mixed changes, use the component checks in
   merge by title. A core page must not link to an extension page: the core
   test walks the core manual alone, and a core-only distribution would carry
   a dead link. The extension's own suite runs the link checks over the merged
-  manual.
+  manual. No extension ships pages today; the Google, Microsoft and Slack
+  manuals left with those extensions (simplify 5/5).
 
 ## Writing guidance (optional)
 

@@ -151,7 +151,7 @@ defmodule Fountain.Conversations.Redaction do
 
   `put/2` replaces, which is right for the first registration and wrong for
   every one after it. A credential rotates mid-conversation — an edited vault
-  secret, a refreshed connection token — while output produced under the old
+  or environment secret — while output produced under the old
   one can still be on its way to `log_events`. So once a value has been a
   secret in this conversation, it stays redacted until the conversation ends
   and `delete/1` clears it. Over-redacting a retired credential costs nothing;
@@ -273,7 +273,7 @@ defmodule Fountain.Conversations.Redaction do
         sprite_env: Enum.map(state.sprite_env, fn {k, _v} -> {k, @placeholder} end),
         # ADR 0019: `Broker.split/2` leaves placeholders in the sandbox env and
         # puts the real values here, so this map — not `sprite_env` — is where
-        # a brokered GITHUB_TOKEN, connection token or inference key lives.
+        # a brokered GITHUB_TOKEN or inference key lives.
         brokered: secrets(state.brokered),
         # The minted proxy session: `%{vault, token, expires_at}`. Every value
         # goes rather than the token alone, so a field added to the session

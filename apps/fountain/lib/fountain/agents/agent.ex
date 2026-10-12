@@ -507,24 +507,16 @@ defmodule Fountain.Agents.Agent do
     end
   end
 
-  # An entry may name a connection instead of a server (#1178):
-  # `%{"connection" => "<id>"}`, which an installed extension serves at each
-  # turn (ADR 0043, #2152). Only the shape is checked here — a connection that is gone or
-  # revoked by the time a conversation runs fails at the tool call with a
-  # reason, which is the contract; a changeset cannot know the future.
+  # Connections were removed (2026-10-12), and with them every entry that
+  # named one instead of a server (`%{"connection" => "<id>"}`). One sent now
+  # would reach the runtime as a server with nothing to start, so it is
+  # refused here rather than failing the session.
   defp validate_mcp_servers(changeset) do
     validate_change(changeset, :mcp_servers, fn :mcp_servers, servers ->
       if is_map(servers) do
-        servers
-        |> Enum.filter(fn {_name, entry} ->
-          is_map(entry) and Map.has_key?(entry, "connection")
-        end)
-        |> Enum.reject(fn {_name, %{"connection" => id}} ->
-          is_binary(id) and match?({:ok, _}, Ecto.UUID.dump(id))
-        end)
-        |> Enum.map(fn {name, _} ->
-          {:mcp_servers, "#{name}: connection must be a connection id"}
-        end)
+        for {name, %{"connection" => _}} <- servers do
+          {:mcp_servers, "#{name}: connections were removed; give the server a command or a url"}
+        end
       else
         [mcp_servers: "must be a map of server name to server config"]
       end

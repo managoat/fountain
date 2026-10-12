@@ -58,9 +58,6 @@ COPY apps/fountain/mix.exs ./apps/fountain/mix.exs
 # BUNDLE_EXTENSIONS decides is whether the release *includes* the extension
 # applications (ADR 0043 decision 7).
 COPY apps/fountain_support/mix.exs ./apps/fountain_support/mix.exs
-COPY apps/fountain_microsoft/mix.exs ./apps/fountain_microsoft/mix.exs
-COPY apps/fountain_slack/mix.exs ./apps/fountain_slack/mix.exs
-COPY apps/fountain_google/mix.exs ./apps/fountain_google/mix.exs
 # One line per umbrella library app (decisions/0037), when there is one: the
 # umbrella loads every child's mix.exs to resolve deps, so a missing one fails
 # `mix deps.get` here. Every managoat_* library has graduated to hex (#1345,

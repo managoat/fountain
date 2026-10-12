@@ -2,9 +2,8 @@ defmodule Fountain.ExtensionGuardTest do
   @moduledoc """
   The compile-time boundary, checked as source (ADR 0043, #1507 and #1528).
 
-  The umbrella's dependency resolution proves `fountain_support -> fountain`
-  and `fountain_google -> fountain`: each
-  extension lists `{:fountain, in_umbrella: true}` and Fountain lists nothing.
+  The umbrella's dependency resolution proves `fountain_support -> fountain`:
+  the extension lists `{:fountain, in_umbrella: true}` and Fountain lists nothing.
   It proves nothing at all about the other direction, because the way that
   breaks is not a dependency — it is a stray module atom, a route, a migration
   or a config key that compiles perfectly and only surprises somebody on the
@@ -53,34 +52,6 @@ defmodule Fountain.ExtensionGuardTest do
       route: ~r|"/(api/)?support|,
       route_except: [],
       priv: "**/*support_report*"
-    },
-    %{
-      app: :fountain_microsoft,
-      # The builder `Fountain.Connections.Platform.microsoft/0` is the name the
-      # provider carried before it moved (ADR 0054); core may say "Microsoft"
-      # in prose and in a schema description, and does.
-      module: ~r/\b(FountainMicrosoft\.|Fountain\.Connections\.Platform\.microsoft\b)/,
-      route: ~r|"/(api/)?microsoft|,
-      route_except: [],
-      priv: "**/*microsoft*"
-    },
-    %{
-      app: :fountain_slack,
-      module: ~r/\b(FountainSlack\.|Fountain\.Connections\.Platform\.slack\b)/,
-      route: ~r|"/(api/)?slack|,
-      route_except: [],
-      priv: "**/*slack*"
-    },
-    %{
-      app: :fountain_google,
-      # `Fountain.Connections.McpServers` stays core's (the `\b` after `Mcp`
-      # keeps it out); the Gmail tool layer and client were the two modules
-      # beside it that moved (#2152).
-      module:
-        ~r/\b(FountainGoogle\.|Fountain\.Connections\.(Mcp|Gmail|Google)\b|Fountain\.Connections\.Platform\.google\b|FountainWeb\.GmailMcp[A-Z])/,
-      route: ~r|"/(api/)?mcp/gmail|,
-      route_except: [],
-      priv: "**/*gmail*"
     }
   ]
 

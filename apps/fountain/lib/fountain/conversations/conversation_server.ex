@@ -256,11 +256,6 @@ defmodule Fountain.Conversations.ConversationServer do
       # The tenant's enabled bindings by key (gate 1b), loaded once per
       # provision; what the broker's services are built from.
       broker_bindings: %{},
-      # The env var names of the tenant's connections brokered into this
-      # conversation (#1178): their access tokens rotate hourly, so each turn
-      # kick re-reads them and rewrites the session's rules when one has
-      # changed.
-      connection_keys: [],
       # Where the tenant's own brokered secrets came from and which keys they
       # were (#1736); `Egress.refresh_before_turn/1` reads the rows again.
       secret_sources: nil,
@@ -462,15 +457,12 @@ defmodule Fountain.Conversations.ConversationServer do
 
         bindings = Egress.bindings(conv.user_id)
 
-        {merged, bindings, connection_keys} =
-          Egress.add_connection_secrets(conv.user_id, tenant_secrets, bindings, agent)
-
-        {secrets, brokered} = Egress.split_brokered(merged, bindings)
+        {secrets, brokered} = Egress.split_brokered(tenant_secrets, bindings)
 
         # The tenant's own brokered keys: what the environment and vault
-        # rows contributed, less the connection tokens (#1736). Read again
-        # before each turn by `broker_refresh/1`.
-        tenant_keys = (brokered |> Map.keys() |> Enum.sort()) -- connection_keys
+        # rows contributed (#1736). Read again before each turn by
+        # `broker_refresh/1`.
+        tenant_keys = brokered |> Map.keys() |> Enum.sort()
 
         {env_creds, brokered, bindings} =
           Egress.split_inference(inference_creds, brokered, bindings)
@@ -494,7 +486,6 @@ defmodule Fountain.Conversations.ConversationServer do
               env_credentials: env_creds,
               brokered: brokered,
               broker_bindings: bindings,
-              connection_keys: connection_keys,
               secret_sources: %{environment_id: env && env.id, vault_id: vault && vault.id},
               tenant_keys: tenant_keys,
               broker_network: Fountain.Broker.network_for(env)

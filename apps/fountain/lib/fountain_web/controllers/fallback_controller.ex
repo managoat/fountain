@@ -179,8 +179,8 @@ defmodule FountainWeb.FallbackController do
   # rule is the one above: a bad state of something the caller owns is a 409.
   # Names the tenant chose, ids and counts; never a code, a token or an email.
 
-  # The Connections precedent (#1693): a feature this account does not have
-  # is a 404, and only the door that adds one answers it.
+  # A feature this account does not have is a 404 (#1693), and only the door
+  # that adds one answers it.
   def call(conn, {:error, {:chatgpt_subscription, :subscriptions_not_enabled}}) do
     conn
     |> put_status(:not_found)

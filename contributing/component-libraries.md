@@ -12,7 +12,7 @@ day that changes, and for a fix that has to land in a graduated library.
 | Library | Owns | Fountain keeps |
 |---|---|---|
 | `managoat_substitution` | `Managoat.Substitution`, the `${VAR}` engine | |
-| `managoat_mcp_auth` | the client side of MCP authorization: RFC 9728/8414/7591 discovery and registration, the SSRF guard, and since 0.2.0 (#2152) `Managoat.McpAuth.Client`, the OAuth 2.0 code flow behind Connections | provider rows, the verified catalog; `Fountain.Connections.OAuth` maps a Provider onto its Config |
+| `managoat_mcp_auth` | the client side of MCP authorization: RFC 9728/8414/7591 discovery and registration, the SSRF guard, and `Managoat.McpAuth.Client`, an OAuth 2.0 code flow | nothing: Connections, its one consumer, were removed, and Fountain no longer depends on it |
 | `managoat_oauth` | the OAuth 2.0 code+PKCE and device-grant state machine, a `use` macro over `Managoat.OAuth.Host` | `Fountain.OAuth` is the instance; its host mints the API key |
 | `managoat_acp` | the client-side ACP session (Peer), Protocol, Permissions, Blocks, Usage, Tracer, the ScriptedAgent | `Conversations.Blocks` |
 | `managoat_sandbox` | the sandbox behaviour, the Sprites/E2B adapters (and a Daytona adapter Fountain no longer names), Retry, the Fake, the conformance case | `Fountain.SandboxProviders`, the "which providers are enabled" policy |

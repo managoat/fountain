@@ -19,8 +19,7 @@
           "email": "conformance@example.test",
           "role": "user",
           "email_verified": true,
-          "connections_enabled": false,
-          "connections_manageable": true
+          "brokered": true
         }
       }
     }
@@ -34,8 +33,7 @@
     "value": {
       "id": "00000000-0000-0000-0000-000000000001",
       "email": "conformance@example.test",
-      "connections_enabled": false,
-      "connections_manageable": true
+      "brokered": true
     },
     "no_error": true
   }

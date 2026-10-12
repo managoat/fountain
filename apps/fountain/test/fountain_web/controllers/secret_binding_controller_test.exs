@@ -7,15 +7,6 @@ defmodule FountainWeb.SecretBindingControllerTest do
     user = insert_verified_user()
     {:ok, {_key, raw}} = Fountain.Accounts.create_api_key(user.id, "t")
 
-    previous_flags = Application.get_env(:fountain, :feature_flag_overrides, %{})
-    on_exit(fn -> Application.put_env(:fountain, :feature_flag_overrides, previous_flags) end)
-
-    Application.put_env(
-      :fountain,
-      :feature_flag_overrides,
-      Map.put(previous_flags, "connections", true)
-    )
-
     previous =
       for k <- [:broker_listen_port, :broker_proxy_url],
           do: {k, Application.get_env(:fountain, k)}

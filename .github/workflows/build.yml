@@ -272,7 +272,7 @@ jobs:
             -e PHX_HOST=example.test -e PUBLIC_URL="https://example.test" \
             -e RESEND_API_KEY=re_dummy -e EMAIL_FROM="fountain@example.test" \
             "${IMAGE}:sha-${SHA}" /app/bin/fountain_server eval '
-              for app <- [:fountain_support, :fountain_google, :fountain_microsoft, :fountain_slack] do
+              for app <- [:fountain_support] do
                 case :code.lib_dir(app) do
                   path when is_list(path) ->
                     unless File.dir?(path), do: raise("bundled image missing #{app}")

@@ -60,12 +60,11 @@ Run every mix command through the pinned toolchain (activate mise, or
 ```
 apps/fountain/             the server (AGPL-3.0): lib/fountain/ contexts, lib/fountain_web/ Phoenix
   test/support/            DataCase, ConnCase, factory.ex
-apps/fountain_support/     the four first-party extensions (ADR 0043, 0054): AGPL OTP apps
-apps/fountain_google/      that depend on :fountain, are named in `config :fountain,
-apps/fountain_microsoft/   :extensions` and are reached only through the `Fountain.Extension`
-apps/fountain_slack/       callbacks. Core names no module of any (extension_guard_test.exs)
-                           and builds no connection provider of its own. Their suites run
-                           from their own directories; `BUNDLE_EXTENSIONS=false` builds the
+apps/fountain_support/     the one first-party extension (ADR 0043): an AGPL OTP app that
+                           depends on :fountain, is named in `config :fountain, :extensions`
+                           and is reached only through the `Fountain.Extension` callbacks.
+                           Core names no module of it (extension_guard_test.exs). Its suite
+                           runs from its own directory; `BUNDLE_EXTENSIONS=false` builds the
                            core distribution. A new callback on the behaviour needs an ADR.
 cli/                       the Go CLI module (Apache-2.0); test it from its own directory
 sdk/                       the TypeScript client, against one OpenAPI contract (CONTRIBUTING.md)
@@ -76,8 +75,8 @@ standards/, contributing/  unpublished contributor material
 scripts/                   the gates and the CI helpers (scripts/ci/README.md)
 ```
 
-The nine `managoat_*` libraries (substitution, mcp_auth, oauth, acp, sandbox,
-docs, broker, runner, runtimes) are hex packages pinned in
+The eight `managoat_*` libraries Fountain uses (substitution, oauth, acp,
+sandbox, docs, broker, runner, runtimes) are hex packages pinned in
 `apps/fountain/mix.exs`, not directories here. What each owns is tabled in
 [contributing/component-libraries.md](contributing/component-libraries.md).
 

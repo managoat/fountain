@@ -42,8 +42,6 @@ defmodule FountainWeb.AuthMeController do
       # it is the same answer for every account here — still reported per
       # request, because it is what this client's sandboxes will do.
       brokered: Fountain.Broker.configured?(),
-      connections_enabled: Fountain.Connections.enabled_for?(user.id),
-      connections_manageable: Fountain.Connections.manageable_for?(),
       # The one door the `chatgpt_subscriptions` rollout holds (ADR 0060): a
       # new link. What an account already holds stays operable without it.
       chatgpt_subscriptions_enabled: Fountain.ChatGPTAccounts.linking_enabled_for?(user.id)

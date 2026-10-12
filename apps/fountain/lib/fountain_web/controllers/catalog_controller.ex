@@ -66,10 +66,6 @@ defmodule FountainWeb.CatalogController do
           conversations: Fountain.Apps.conversations(),
           team: Fountain.Apps.team()
         },
-        # Remote MCP servers whose authorization chain is known to complete
-        # (dated, re-checked by scripts/mcp-catalog-probe.exs) — so a client
-        # can render "Connect Sentry"-style rows without hard-coding URLs.
-        mcp_servers: Fountain.Connections.McpServerCatalog.entries(),
         # The first request, from the one source the landing and the manual
         # share (ADR 0038). Rendered with this deployment's base URL, which
         # the server knows; the key and the agent stay placeholders, because

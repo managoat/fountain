@@ -100,15 +100,9 @@ out. That is deliberate, and it is not a defect. An empty allowlist that
 quietly meant "allow everything" would be the worst default for a policy whose
 whole purpose is restriction.
 
-!!! note "Connections"
-
-    Connections and credential binding management also need the `connections`
-    feature flag. On your own instance, add `connections` to `FEATURE_FLAGS_ON`
-    after configuring the broker and provider apps. Hosted accounts are enrolled
-    separately; see [feature status](../reference/feature-status.md).
-    The broker is on for every account on the hosted platform. On your own
-    instance it is off until you turn it on. Read
-    [Feature status](../reference/feature-status.md).
+The broker is on for every account on the hosted platform. On your own
+instance it is off until you turn it on. Read
+[Feature status](../reference/feature-status.md).
 
 On a hosted account with the egress credential broker on, the sandbox can
 reach only the broker. The broker then applies your policy. With

@@ -48,7 +48,6 @@ defmodule FountainWeb.SchemaEnumGuardrailTest do
       {Conversation, :sandbox_api_access_modes},
     {FountainWeb.Schemas.CatalogResponse, "data.sandbox_api_access.[]"} =>
       {Conversation, :sandbox_api_access_modes},
-    {FountainWeb.Schemas.Connection, "status"} => {Fountain.Connections.Connection, :statuses},
     # Which source served a turn (ADR 0060 decision 6), from the stored source.
     {FountainWeb.Schemas.Turn, "inference.scope"} =>
       {Fountain.InferenceCredentials.Source, :scopes},
@@ -76,15 +75,6 @@ defmodule FountainWeb.SchemaEnumGuardrailTest do
     {FountainWeb.Schemas.SandboxChange, "index"} => {Fountain.SandboxFiles, :change_states},
     {FountainWeb.Schemas.SandboxChange, "worktree"} => {Fountain.SandboxFiles, :change_states},
     {FountainWeb.Schemas.SandboxStatus, "untracked"} => {Fountain.SandboxFiles, :untracked_modes},
-    # Connection providers (#1186): the kinds, the client-auth methods and
-    # where a client came from are the provider schema's own lists.
-    {FountainWeb.Schemas.ConnectionProvider, "kind"} => {Fountain.Connections.Provider, :kinds},
-    {FountainWeb.Schemas.ConnectionProviderRequest, "kind"} =>
-      {Fountain.Connections.Provider, :kinds},
-    {FountainWeb.Schemas.ConnectionProvider, "token_endpoint_auth"} =>
-      {Fountain.Connections.Provider, :token_endpoint_auths},
-    {FountainWeb.Schemas.ConnectionProviderRequest, "token_endpoint_auth"} =>
-      {Fountain.Connections.Provider, :token_endpoint_auths},
     {FountainWeb.Schemas.AdminRoleRequest, "role"} => {User, :roles},
     {FountainWeb.Schemas.AdminUser, "role"} => {User, :roles},
     {FountainWeb.Schemas.AuthMeResponse, "role"} => {User, :roles},
@@ -176,10 +166,6 @@ defmodule FountainWeb.SchemaEnumGuardrailTest do
       "ACP selection outcomes built per report in TurnMachine",
     {FountainWeb.Schemas.Turn, "model_selection.source"} =>
       "ACP peer evidence: a runtime model field or a setter acknowledgement",
-    # `client_source` is nullable on the wire (no client yet), so the enum
-    # carries a nil the domain list does not.
-    {FountainWeb.Schemas.ConnectionProvider, "client_source"} =>
-      "Provider.client_sources/0 plus nil for a provider with no client yet",
     # Outcomes of an admin action. Computed in the controller from what the
     # action did; they describe an HTTP response, not a stored value.
     {FountainWeb.Schemas.AdminReapResponse, "data.outcome"} =>

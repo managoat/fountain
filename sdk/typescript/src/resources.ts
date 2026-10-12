@@ -4,10 +4,6 @@ import type {
   Agent,
   AgentInput,
   AgentPatch,
-  Connection,
-  ConnectionProvider,
-  ConnectionProviderInput,
-  ConnectionProviderPatch,
   Environment,
   EnvironmentInput,
   EnvironmentPatch,
@@ -165,90 +161,6 @@ export class Environments extends Collection<Environment, EnvironmentInput, Envi
   constructor(http: HttpClient, resolver: Resolver) {
     super(http, resolver, "/api/environments", "environment");
     this.secrets = new Secrets(http, resolver, this.path, this.what);
-  }
-}
-
-/**
- * The provider accounts this tenant has signed in to, whose credentials
- * Fountain holds (#1178). Connecting one is a browser round trip — send the
- * account owner to `connect_url` from `providers()` — so there is no `create`
- * here. An agent uses one by naming it in `mcp_servers`:
- * `{ gmail: { connection: "<id>" } }`. Only for accounts the egress broker is
- * on for; elsewhere every call is a `NotFoundError` (`connections_not_enabled`).
- */
-export class Connections {
-  private readonly http: HttpClient;
-  /** Where connections get their tokens: Google, plus the tenant's own providers (#1186). */
-  readonly providers: ConnectionProviders;
-
-  constructor(http: HttpClient) {
-    this.http = http;
-    this.providers = new ConnectionProviders(http);
-  }
-
-  /** Every connection on the account, active or revoked. Never a token. */
-  async list(): Promise<Connection[]> {
-    return this.http.list<Connection>("/api/connections");
-  }
-
-  /** One connection by id. Unenveloped, as the server answers `show`. */
-  async get(id: string): Promise<Connection> {
-    return this.http.request<Connection>("GET", `/api/connections/${encodeURIComponent(id)}`);
-  }
-
-  /** Revoke at the provider and delete. Agents that name it get `connection revoked`. */
-  async delete(id: string): Promise<void> {
-    await this.http.request("DELETE", `/api/connections/${encodeURIComponent(id)}`);
-  }
-}
-
-/**
- * Connection providers (#1186): the platform provider (Google, id `google`),
- * the tenant's own OAuth apps (`kind: "oauth2"`) and the remote MCP servers
- * whose authorization Fountain discovered (`kind: "mcp"`). The client secret
- * is write-only. Only for accounts the egress broker is on for.
- */
-export class ConnectionProviders {
-  private readonly http: HttpClient;
-
-  constructor(http: HttpClient) {
-    this.http = http;
-  }
-
-  /** Google first, then the tenant's own. */
-  async list(): Promise<ConnectionProvider[]> {
-    return this.http.list<ConnectionProvider>("/api/connection-providers");
-  }
-
-  /** One provider; `"google"` is the platform provider. */
-  async get(id: string): Promise<ConnectionProvider> {
-    return this.http.request<ConnectionProvider>("GET", `/api/connection-providers/${encodeURIComponent(id)}`);
-  }
-
-  /**
-   * Define a provider. `kind: "oauth2"` takes the tenant's app registration;
-   * `kind: "mcp"` takes `mcp_url` and Fountain discovers the authorization
-   * server and registers a client where it can.
-   */
-  async create(input: ConnectionProviderInput): Promise<ConnectionProvider> {
-    return this.http.request<ConnectionProvider>("POST", "/api/connection-providers", { body: input });
-  }
-
-  /** Edit a tenant provider. A blank `client_secret` keeps the stored one. */
-  async update(id: string, patch: ConnectionProviderPatch): Promise<ConnectionProvider> {
-    return this.http.request<ConnectionProvider>("PATCH", `/api/connection-providers/${encodeURIComponent(id)}`, {
-      body: patch,
-    });
-  }
-
-  /** Delete a tenant provider and every connection on it. */
-  async delete(id: string): Promise<void> {
-    await this.http.request("DELETE", `/api/connection-providers/${encodeURIComponent(id)}`);
-  }
-
-  /** Run MCP discovery again on an `mcp` provider. */
-  async discover(id: string): Promise<ConnectionProvider> {
-    return this.http.request<ConnectionProvider>("POST", `/api/connection-providers/${encodeURIComponent(id)}/discover`);
   }
 }
 

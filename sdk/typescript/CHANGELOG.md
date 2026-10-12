@@ -14,10 +14,30 @@ server releases.
 ## [Unreleased]
 
 Fountain removed the `opencode` runtime, the `daytona` sandbox provider, the
-Buzz extension, outbound webhooks and the account data export. Held for the
-next release (`release:skip-sdk`).
+Buzz extension, Connections, outbound webhooks and the account data export.
+Held for the next release (`release:skip-sdk`). Removing `client.connections`
+takes a public method away, so that release is a major one.
 
 ### Removed
+
+- `client.connections` and `client.connections.providers`, the `Connections`
+  and `ConnectionProviders` classes, and the `Connection`,
+  `ConnectionProvider`, `ConnectionProviderInput` and
+  `ConnectionProviderPatch` types. The server answers `404` on
+  `/api/connections` and `/api/connection-providers`. Pass a remote MCP
+  server's bearer from a vault secret instead.
+
+- `connections_enabled` and `connections_manageable` from `AuthMe`, and
+  `mcp_servers` from `Catalog`; the server no longer sends them. Read
+  `brokered` on `AuthMe` to decide whether to show credential bindings.
+
+- `paths["/api/connections"]`, `paths["/api/connections/providers"]`,
+  `paths["/api/connections/{id}"]`, `paths["/api/connection-providers"]`,
+  `paths["/api/connection-providers/{id}"]` and
+  `paths["/api/connection-providers/{id}/discover"]`, and the `Connection`,
+  `ConnectionListResponse`, `ConnectionProvider`,
+  `ConnectionProviderListResponse` and `ConnectionProviderRequest` schemas,
+  from the generated types.
 
 - The `/api/webhooks` paths (list, create, show, update, delete,
   `rotate-secret`, `test`, `deliveries` and `redeliver`) and the

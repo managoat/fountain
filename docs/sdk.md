@@ -437,12 +437,6 @@ keys and admin.
 await fountain.request("GET", "/api/audit", { query: { limit: 50 } });
 ```
 
-Connections have a wrapper. `client.connections` lists, gets and deletes
-them. `client.connections.providers` has `list`, `get`, `create`, `update`,
-`delete` and `discover`, over `/api/connection-providers`. A `create` with
-`kind: "mcp"` and an `mcp_url` runs discovery. Read
-[Connections](catalog/connections/index.md).
-
 The [API reference](api.md) covers those, and so does the generated
 `GET /api/openapi.json`.
 

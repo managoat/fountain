@@ -101,21 +101,9 @@ defmodule FountainWeb.Layouts do
               <.nav_link href={~p"/account/runners"} label="Runners" current={@current_path} />
               <.nav_link href={~p"/account/oauth-apps"} label="OAuth apps" current={@current_path} />
               <.nav_link
-                :if={
-                  assigns[:current_user] &&
-                    Fountain.Connections.manageable_for?()
-                }
+                :if={assigns[:current_user] && Fountain.Broker.configured?()}
                 href={~p"/account/bindings"}
                 label="Credential bindings"
-                current={@current_path}
-              />
-              <.nav_link
-                :if={
-                  assigns[:current_user] &&
-                    Fountain.Connections.manageable_for?()
-                }
-                href={~p"/account/connections"}
-                label="Connections"
                 current={@current_path}
               />
               <.nav_link href={~p"/account/security"} label="Security" current={@current_path} />

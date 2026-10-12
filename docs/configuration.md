@@ -111,15 +111,6 @@ at a dead end, with no error to see. Read [Email](guides/operate/email.md).
 |---|---|---|---|
 | `GITHUB_OAUTH_CLIENT_ID` | — | — | Turns the GitHub sign-in button on. Unset, Fountain hides the button, and email and password auth still works. |
 | `GITHUB_OAUTH_CLIENT_SECRET` | — | — | |
-| `GOOGLE_OAUTH_CLIENT_ID` | — | — | Turns the Google connection on, where the deployment runs the egress broker and installs the `fountain_google` extension (the standard image does). A tenant connects Gmail and Google Calendar once on the Connections page, and Fountain keeps the refresh token. Register a Web client in Google Cloud with the redirect URI `<PUBLIC_URL>/connections/google/callback`, and enable the Gmail and Calendar APIs. Unset, the page says the feature is not configured. |
-| `GOOGLE_OAUTH_CLIENT_SECRET` | — | — | |
-| `GOOGLE_OAUTH_SCOPES` | the defaults in the catalog | — | The scopes the Google provider asks for, space-separated. Use it when your app verification does not cover a default scope. A scope you do not request is a product that does not light up, not an error. |
-| `MICROSOFT_OAUTH_CLIENT_ID` | — | — | Turns the Microsoft connection on: Outlook mail, calendar and Teams chat through one sign-in, brokered to `graph.microsoft.com`. Register a web app in Microsoft Entra on the `common` endpoint, with the redirect URI `<PUBLIC_URL>/connections/microsoft/callback`. Unset, the page says the provider is not configured. |
-| `MICROSOFT_OAUTH_CLIENT_SECRET` | — | — | |
-| `MICROSOFT_OAUTH_SCOPES` | the defaults in the catalog | — | The scopes the Microsoft provider asks for, space-separated. Keep `offline_access` in the list: without it, Microsoft issues no refresh token. |
-| `SLACK_OAUTH_CLIENT_ID` | — | — | Turns the Slack connection on: a user token per workspace, brokered to `slack.com`. Create a Slack app with the redirect URL `<PUBLIC_URL>/connections/slack/callback`. Unset, the page says the provider is not configured. |
-| `SLACK_OAUTH_CLIENT_SECRET` | — | — | |
-| `SLACK_OAUTH_USER_SCOPES` | the defaults in the catalog | — | The user scopes the Slack provider asks for, space-separated. These are `user_scope` values, not bot scopes. |
 
 ## Sandbox capacity and cost
 
@@ -383,12 +374,7 @@ the table above says.
 `Fountain.FeatureFlags` reads configuration and nothing else. A flag is on or
 off for the whole deployment, and the same answer applies to each account.
 
-The `connections` flag holds a feature that shipped, so it reads on unless
-you turn it off. An upgrade that adds a flag over a shipped feature does not
-take the feature away.
-
-The `chatgpt_subscriptions` flag is the other kind. It holds the door that
-links a new ChatGPT subscription to an account, and that feature is in
+The one flag is `chatgpt_subscriptions`. It holds the door that links a new ChatGPT subscription to an account, and that feature is in
 development. The flag reads off until you add `chatgpt_subscriptions` to
 `FEATURE_FLAGS_ON`. It needs the credential broker too. Read
 [feature status](reference/feature-status.md) first, and do not turn the flag
@@ -398,8 +384,7 @@ reconnects, disconnects and removes them.
 
 | Variable | Default | Required | Effect |
 |---|---|---|---|
-| `FEATURE_FLAGS_ON` | — | — | Comma-separated flag keys, turned on for each account. ChatGPT subscriptions are off unless `chatgpt_subscriptions` is here, and the feature is not proven on the real service. See [feature status](reference/feature-status.md). Connections needs no entry, and is turned on by `BROKER_LISTEN_PORT`. |
+| `FEATURE_FLAGS_ON` | — | — | Comma-separated flag keys, turned on for each account. ChatGPT subscriptions are off unless `chatgpt_subscriptions` is here, and the feature is not proven on the real service. See [feature status](reference/feature-status.md). |
 
-The `connections` flag holds only the doors that add a credential. Those doors
-connect an account, define a provider and attach a secret to a host. The
-console and the API still list, revoke and delete what an account has.
+A flag that gates a shipped feature would read on by default, so that an
+upgrade adding it does not take the feature away. None does today.

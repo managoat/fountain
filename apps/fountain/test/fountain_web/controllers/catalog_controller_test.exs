@@ -19,15 +19,7 @@ defmodule FountainWeb.CatalogControllerTest do
     assert is_list(data["sandbox_providers"]["enabled"])
     assert data["sandbox_providers"]["default"] in Fountain.SandboxProviders.known_providers()
     assert data["package_managers"] == ["apt", "npm"]
-
-    assert length(data["mcp_servers"]) ==
-             length(Fountain.Connections.McpServerCatalog.entries())
-
-    linear = Enum.find(data["mcp_servers"], &(&1["slug"] == "linear"))
-    assert linear["name"] == "Linear"
-    assert linear["url"] == "https://mcp.linear.app/mcp"
-    assert linear["dcr"] == true
-    assert {:ok, _} = Date.from_iso8601(linear["verified_on"])
+    refute Map.has_key?(data, "mcp_servers")
   end
 
   # ADR 0038: the landing, the manual and `fountain auth register` print the

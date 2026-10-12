@@ -211,9 +211,8 @@ end
 # it keeps the one job of #1686. That guard fails the boot in the dangerous
 # direction: a deployment that means to broker and loses its listener (the
 # `envFrom` drift of #1495) does not half-broker anyone. Brokerage turns
-# itself off for everyone, each sandbox gets plaintext GitHub, inference and
-# connection credentials instead, and the console and the connections keep
-# working, so nothing downstream can tell it from a deployment that meant to
+# itself off for everyone, each sandbox gets plaintext GitHub and inference
+# credentials instead, and the console keeps working, so nothing downstream can tell it from a deployment that meant to
 # broker nobody. Removing the ratchet removes the tenant list that used to
 # carry that intent, which makes `*` the last place an operator can state it.
 # Until brokerage is unconditional, keep the assertion available.
@@ -694,69 +693,6 @@ if github_client_id = System.get_env("GITHUB_OAUTH_CLIENT_ID") do
   config :ueberauth, Ueberauth.Strategy.Github.OAuth,
     client_id: github_client_id,
     client_secret: System.get_env("GITHUB_OAUTH_CLIENT_SECRET")
-end
-
-# OAuth clients for the platform connection providers (#1178, #1299): a
-# tenant signs in to Google, Microsoft or Slack once in the console and
-# Fountain holds the refresh token. Not the sign-in provider — that is GitHub
-# above. Every one of them ships as an extension (ADR 0054 decision 6) and
-# reads its own variables into its own otp_app; core reads none of them, so a
-# core-only release has no key for a provider it does not carry. Same shape
-# for each: absent stays absent, "" counts as absent, so the console says a
-# provider is not configured rather than sending anyone to a consent screen
-# with an empty client id; configuring an extension that is not installed is
-# inert, not an error. The env var names stay literal here for the reference
-# guard.
-#
-# Google (`fountain_google`): the client, and `GOOGLE_OAUTH_SCOPES`, the lever
-# for app verification — a deployment whose Google app is not verified for a
-# scope simply does not request it, and the products that need it stay dark.
-case System.get_env("GOOGLE_OAUTH_CLIENT_ID") do
-  blank when blank in [nil, ""] ->
-    :ok
-
-  client_id ->
-    config :fountain_google,
-      google_oauth_client_id: client_id,
-      google_oauth_client_secret: System.get_env("GOOGLE_OAUTH_CLIENT_SECRET")
-end
-
-case System.get_env("GOOGLE_OAUTH_SCOPES") do
-  blank when blank in [nil, ""] -> :ok
-  scopes -> config :fountain_google, google_oauth_scopes: String.split(scopes)
-end
-
-# Microsoft (`fountain_microsoft`), likewise.
-case System.get_env("MICROSOFT_OAUTH_CLIENT_ID") do
-  blank when blank in [nil, ""] ->
-    :ok
-
-  client_id ->
-    config :fountain_microsoft,
-      microsoft_oauth_client_id: client_id,
-      microsoft_oauth_client_secret: System.get_env("MICROSOFT_OAUTH_CLIENT_SECRET")
-end
-
-case System.get_env("MICROSOFT_OAUTH_SCOPES") do
-  blank when blank in [nil, ""] -> :ok
-  scopes -> config :fountain_microsoft, microsoft_oauth_scopes: String.split(scopes)
-end
-
-# Slack, likewise (`fountain_slack`). The scopes are user scopes, sent as
-# `user_scope`, which is why the variable is not named like the other two.
-case System.get_env("SLACK_OAUTH_CLIENT_ID") do
-  blank when blank in [nil, ""] ->
-    :ok
-
-  client_id ->
-    config :fountain_slack,
-      slack_oauth_client_id: client_id,
-      slack_oauth_client_secret: System.get_env("SLACK_OAUTH_CLIENT_SECRET")
-end
-
-case System.get_env("SLACK_OAUTH_USER_SCOPES") do
-  blank when blank in [nil, ""] -> :ok
-  scopes -> config :fountain_slack, slack_oauth_user_scopes: String.split(scopes)
 end
 
 # Cents, whole or fractional.
@@ -1252,9 +1188,8 @@ end
 #
 # Each extension is installed *where it loads*. `apps/fountain` deliberately
 # depends on no sibling app, so `mix test` run from there — which is what CI's
-# partition script does — has none of `:fountain_support`, `:fountain_google`,
-# `:fountain_microsoft` or `:fountain_slack` on the code path, and naming them
-# unconditionally would make `Fountain.Extensions.validate!/0` refuse to boot
+# partition script does — does not have `:fountain_support` on the code path,
+# and naming it unconditionally would make `Fountain.Extensions.validate!/0` refuse to boot
 # every partition. That check
 # working exactly as intended, on a configuration that is wrong for that run.
 #
@@ -1263,12 +1198,7 @@ end
 # the apps are built, where the answer is always false.
 installed_extensions =
   Enum.filter(
-    [
-      FountainSupport.Extension,
-      FountainGoogle.Extension,
-      FountainMicrosoft.Extension,
-      FountainSlack.Extension
-    ],
+    [FountainSupport.Extension],
     &Code.ensure_loaded?/1
   )
 
@@ -1347,8 +1277,7 @@ end
 #
 # `Fountain.FeatureFlags` is configuration only. FEATURE_FLAGS_ON is a
 # comma-separated list of flag keys turned on for every user (for example
-# `chatgpt_subscriptions`); a flag that gates a shipped feature
-# (`connections`) is on without being listed. Read in every env.
+# `chatgpt_subscriptions`). Read in every env.
 config :fountain,
        :feature_flag_overrides,
        "FEATURE_FLAGS_ON"

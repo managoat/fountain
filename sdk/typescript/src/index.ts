@@ -2,7 +2,7 @@ export { Fountain, type FountainOptions, type RunConfig } from "./client.ts";
 export { Run, type RunOptions } from "./run.ts";
 export { Conversation, type ReapplyOptions, type SendOptions } from "./conversation.ts";
 export { HttpClient, type FetchLike, type RequestOptions } from "./http.ts";
-export { Agents, ConnectionProviders, Connections, Environments, Vaults } from "./resources.ts";
+export { Agents, Environments, Vaults } from "./resources.ts";
 export { Team, TeamSchedules, type MessageOptions } from "./team.ts";
 export {
   resolveConfig,

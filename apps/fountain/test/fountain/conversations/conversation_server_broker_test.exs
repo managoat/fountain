@@ -880,9 +880,8 @@ defmodule Fountain.Conversations.ConversationServerBrokerTest do
     setup %{user: user, agent: agent, env: env} do
       configure_broker()
 
-      # The tenant's real key, not `stub_happy_sprite/1`'s zeros: a
-      # connection's token is encrypted by the factory under the real one,
-      # and a token that does not decrypt is a connection that is not there.
+      # The tenant's real key, not `stub_happy_sprite/1`'s zeros: the vault
+      # secrets below are encrypted under it.
       {:ok, dek} = Fountain.Crypto.load_tenant_key(user.id)
 
       {:ok, _} =
@@ -894,8 +893,6 @@ defmodule Fountain.Conversations.ConversationServerBrokerTest do
         Vaults.upsert_secret(vault, %{"key" => "GITHUB_TOKEN", "value" => "ghp_from_vault"}, dek)
 
       conv = insert_conversation(user_id: user.id, agent: agent, vault_id: vault.id)
-      # A connection (#1178) beside the vault, so its token is brokered too.
-      conn = insert_connection(user)
       test = self()
 
       # A session with an end in sight: `@session`'s nil end reads as
@@ -949,40 +946,7 @@ defmodule Fountain.Conversations.ConversationServerBrokerTest do
       peer = :sys.get_state(pid).acp_peer
       assert is_pid(peer)
 
-      {:ok,
-       conv: conv,
-       vault: vault,
-       conn: conn,
-       dek: dek,
-       pid: pid,
-       ref: ref,
-       peer: peer,
-       session: session}
-    end
-
-    test "a vault override of a connection's key, added then deleted, hands the token back", %{
-      vault: vault,
-      conn: conn,
-      dek: dek,
-      pid: pid,
-      ref: ref
-    } do
-      key = conn.env_key
-
-      {:ok, _} = Vaults.upsert_secret(vault, %{"key" => key, "value" => "ya29.override"}, dek)
-      assert :ok = GenServer.call(pid, {:send_prompt, "again", []})
-      assert_receive {:refreshed, _, %{^key => "ya29.override"}}, 2_000
-      %{"method" => "session/prompt", "id" => prompt_id} = next_prompt(pid, ref)
-      reply(pid, ref, prompt_id, %{"stopReason" => "end_turn"})
-
-      secret = vault |> Vaults._unsafe_list_secrets() |> Enum.find(&(&1.key == key))
-      {:ok, _} = Vaults.delete_secret(vault, secret)
-      assert :ok = GenServer.call(pid, {:send_prompt, "once more", []})
-
-      # The connection is still active: its token, not a hole (review row 1).
-      token = conn.access_token
-      assert_receive {:refreshed, _, %{^key => ^token}}, 2_000
-      assert %{"method" => "session/prompt"} = next_prompt(pid, ref)
+      {:ok, conv: conv, vault: vault, dek: dek, pid: pid, ref: ref, peer: peer, session: session}
     end
 
     test "a vault value edited between two turns reaches the live session, token kept", %{

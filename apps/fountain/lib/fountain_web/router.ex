@@ -652,28 +652,19 @@ defmodule FountainWeb.Router do
     end
   end
 
-  ## ─── Extension API surface (ADR 0043, #1505) ────────────────────────────────────────────────────────
+  ## ─── Unmatched /api paths ───────────────────────────────────────────────────────────────────────────
 
-  # Whatever an installed extension serves under /api/<its prefix>. Declared
-  # LAST, after every core route including the browser scope's
-  # `/api/settings/theme`, because Phoenix matches in declaration order: an
-  # extension therefore cannot shadow a core path, and this plug only ever sees
-  # a request core routing had no answer for.
+  # Declared LAST, after every core route including the browser scope's
+  # `/api/settings/theme`, because Phoenix matches in declaration order: this
+  # only ever sees a request core routing had no answer for.
   #
-  # Inside the ordinary `:api` pipeline on purpose. The rate limit,
-  # TenantAPIAuth and the request audit run before the extension's plug does,
-  # so there is no prefix an extension can pick that reaches it without the
-  # host having authenticated the caller and assigned current_user. An
-  # extension gets a mount point, not a door of its own.
-  #
-  # `/api/<unknown>` reaches here too and answers 404 JSON rather than raising
-  # NoRouteError. That is the intended trade: one unmatched-path behaviour for
-  # the whole authenticated API, and no way for a client to learn from a status
-  # code which optional extensions a deployment installed.
+  # `/api/<unknown>` answers 404 JSON rather than raising NoRouteError, and
+  # only after the ordinary `:api` pipeline has run, so an unauthenticated
+  # caller gets the same 401 on a path that does not exist as on one that does.
   scope "/api" do
     pipe_through [:accepts_json, :api]
 
-    forward "/", FountainWeb.Plugs.ExtensionDispatch
+    forward "/", FountainWeb.Plugs.ApiNotFound
   end
 
   ## ─── Dev dashboard ──────────────────────────────────────────────────────────────────────────────────

@@ -1,20 +1,19 @@
 ---
 type: ADR
 title: "First-party extensions: Buzz becomes an OTP app installed at build time and enabled at runtime"
-description: "Buzz leaves the Fountain core as fountain_buzz, an AGPL OTP application depending on :fountain that the host reaches only through eleven Fountain.Extension callbacks. Build-time install, runtime enable, no hot code loading. The bundled image keeps every Buzz path, command and provider behavior; a new -core image carries none of it. Built so far: gates 2, 3 and 4 — the seam, migration and OpenAPI composition, and the move itself: apps/fountain_buzz exists and core names no FountainBuzz module. A second extension, fountain_support, moved the problem-report feature out under three of the ten callbacks and added none. Every gate but the repository split is built: the supply chain, the -core image and its release tags, the manual as a callback, and core marketing that renders only what its distribution can serve. Amended 2026-10-12: Buzz itself is removed; the seam stays. Amended again 2026-10-12: the Google, Microsoft and Slack extensions left with Connections, and fountain_support is the one extension left. Amended a third time 2026-10-12: fountain_support is removed and core drops its table; no extension remains."
+description: "Retired 2026-10-12: no extension remained, so the Fountain.Extension behaviour, its host plumbing and the -core distribution were removed. Buzz leaves the Fountain core as fountain_buzz, an AGPL OTP application depending on :fountain that the host reaches only through eleven Fountain.Extension callbacks. Build-time install, runtime enable, no hot code loading. The bundled image keeps every Buzz path, command and provider behavior; a new -core image carries none of it. Built so far: gates 2, 3 and 4 — the seam, migration and OpenAPI composition, and the move itself: apps/fountain_buzz exists and core names no FountainBuzz module. A second extension, fountain_support, moved the problem-report feature out under three of the ten callbacks and added none. Every gate but the repository split is built: the supply chain, the -core image and its release tags, the manual as a callback, and core marketing that renders only what its distribution can serve. Amended 2026-10-12: Buzz itself is removed; the seam stays. Amended again 2026-10-12: the Google, Microsoft and Slack extensions left with Connections, and fountain_support is the one extension left. Amended a third time 2026-10-12: fountain_support is removed and core drops its table; no extension remains."
 tags: [buzz, extensions, packaging, architecture, licensing, support]
-status: stable
+status: deprecated
 adr: "0043"
-adr_status: "Accepted"
+adr_status: "Retired"
 date: 2026-09-03
 generated: { by: claude-opus/5, at: 2026-09-04T00:00:00-04:00 }
 verified: { by: claude-opus/5, at: 2026-09-04T00:00:00-04:00 }
-stale_after: 2026-12-04
 ---
 
 # 0043 — First-party extensions: Buzz becomes an OTP app installed at build time and enabled at runtime
 
-**Status:** Accepted — **partially built.** Gates 2, 3 and 4 (#1505, #1506,
+**Status:** Retired 2026-10-12; see the last addendum. The text above the addenda is history. Was: Accepted — **partially built.** Gates 2, 3 and 4 (#1505, #1506,
 #1507) are built, and so is the second extension (#1528, `fountain_support`),
 which used three of the ten callbacks and added none. `Fountain.Extension` (now eleven callbacks — see decision 3 and ADR 0054),
 `Fountain.Extensions`, the authenticated dispatch, the conversation MCP
@@ -669,3 +668,35 @@ No first-party extension remains. The `Fountain.Extension` behaviour, its
 host plumbing and the `BUNDLE_EXTENSIONS=false` core distribution are still
 in place in this change, with an empty extension list; retiring them is the
 next change in the stack.
+
+## Addendum — 2026-10-12: retired
+
+With `fountain_support` gone no extension remained, so the mechanism this ADR
+decided was retired in the change after it (simplify 6/7). Every callback had
+lost its last implementer, and the seam had no consumer to justify its upkeep.
+
+- `Fountain.Extension`, `Fountain.Extensions`, `FountainWeb.Plugs.ExtensionDispatch`,
+  `FountainWeb.ApiSpec.Compose`, `Fountain.Manual` and `Fountain.Migrations`
+  are deleted, along with `config :fountain, :extensions`, the fixture
+  extensions, their test migration path and the extension guard test.
+- Each host call site that iterated extensions loses the hook rather than
+  inlining anything, because there was nothing to inline: the boot-time
+  `validate!/0`, the Oban cron merge, the conversation MCP fan-out (the team
+  tools are now the whole Fountain-served list), the admin overview tiles and
+  user columns, the manual and nav merge, the OpenAPI composition and the
+  migration path set. Migrations run over Ecto's default single path, and the
+  mix aliases that appended extension paths are gone.
+- An unmatched `/api` path still answers `404` JSON after the `:api` pipeline
+  has run, now from `FountainWeb.Plugs.ApiNotFound`. Content negotiation
+  (`406`) and authentication (`401`) still come first, which ADR 0057's
+  retirement behaviour depends on.
+- Decision 7's two distributions are one. `BUNDLE_EXTENSIONS`, the release's
+  `extension_applications/0`, the CI job that booted the core release, the
+  bundled/core release matrix and its `-core` tags are removed. Existing
+  `-core` tags stay published but receive no new versions.
+- The published OpenAPI document is byte-identical to the one before this
+  change, because no extension described a path.
+
+What is not retired: the `apps/` umbrella layout and ADR 0037's rules for a
+library app inside it. Collapsing the umbrella into a single application is a
+separate, mechanical change.

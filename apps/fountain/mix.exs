@@ -41,7 +41,7 @@ defmodule Fountain.MixProject do
   # the mix_unused tracer, which reports every public function no compiled
   # module calls. Off by default because the tracer sees only static calls
   # inside this app: router dispatch, LiveView and OTP callbacks, protocol
-  # impls, the extension apps and the tests all read as "nobody calls this".
+  # impls and the tests all read as "nobody calls this".
   # The report is advisory (`.github/workflows/dead-code.yml` publishes it
   # monthly; `scripts/dead-code.sh` runs it here) and never gates anything.
   # The ignore list below drops the shapes that are never dead, so a reader
@@ -74,9 +74,7 @@ defmodule Fountain.MixProject do
         Fountain.Repo,
         Fountain.Mailer,
         Fountain.OAuth,
-        Fountain.Docs,
-        # The extension seam (ADR 0043): an extension is the caller.
-        ~r/^Fountain\.Extension/
+        Fountain.Docs
       ]
     ]
   end
@@ -157,57 +155,9 @@ defmodule Fountain.MixProject do
       setup: ["deps.get", "ecto.setup"],
       "ecto.setup": ["ecto.create", "ecto.migrate", "run priv/repo/seeds.exs"],
       "ecto.reset": ["ecto.drop", "ecto.setup"],
-      # Extension migrations at the mix entrances (ADR 0043, #1506). These
-      # aliases shadow Ecto's tasks, add `--migrations-path` for the core
-      # directory and every installed extension's, and then run the real task —
-      # a same-named task inside its own alias is the original, which is the
-      # same mechanism `test: ["test"]` below relies on.
-      #
-      # Shadowing rather than adding `mix fountain.migrate` beside it is
-      # deliberate: a contributor who types `mix ecto.migrate` out of habit must
-      # not end up with a database that is missing an installed extension's
-      # tables and no indication why.
-      #
-      # With nothing installed these add only the core path, which is the path
-      # Ecto would have picked itself, so the behaviour is unchanged.
-      "ecto.migrate": [&migrate_with_extension_paths/1],
-      "ecto.rollback": [&rollback_with_extension_paths/1],
       test: ["test"],
-      # `openapi.export` moved to the umbrella root (#1507): the spec describes
-      # the running distribution, and an installed extension's operations are
-      # only on the code path there. See the root mix.exs.
+      # `openapi.export` is an umbrella-root alias; see the root mix.exs.
       "openapi.noop": []
     ]
-  end
-
-  defp migrate_with_extension_paths(args), do: run_ecto_task("ecto.migrate", args)
-  defp rollback_with_extension_paths(args), do: run_ecto_task("ecto.rollback", args)
-
-  # `app.config` first: the path set is read from `config :fountain, :extensions`
-  # and resolved through `:code.priv_dir/1`, and neither the configuration nor
-  # the applications are loaded before it runs.
-  #
-  # A caller who passes their own --migrations-path is taken at their word and
-  # gets no additions — that is the escape hatch for migrating one directory on
-  # purpose, and Ecto already treats the flag as replacing the default.
-  defp run_ecto_task(task, args) do
-    Mix.Task.run("app.config")
-
-    args =
-      if "--migrations-path" in args do
-        args
-      else
-        args ++ path_args()
-      end
-
-    Mix.Task.run(task, args)
-  end
-
-  defp path_args do
-    repo = Fountain.Repo
-    core = Path.join(Mix.EctoSQL.source_repo_priv(repo), "migrations")
-
-    [core | Fountain.Migrations.extension_paths()]
-    |> Enum.flat_map(&["--migrations-path", &1])
   end
 end

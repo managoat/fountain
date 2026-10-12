@@ -27,10 +27,9 @@ name in a red build says which toolchain to look at:
 | **already-tested** | `Skip the re-run when a PR already tested this exact tree`: `scripts/ci/already-tested.sh` compares the checkout tree with a successful run's `tested-tree` artifact. Runs only on `push` and `merge_group`. Missing or expired artifacts and API failures leave `skip=false` |
 | **typescript-sdk** (×2) | The TypeScript SDK on the minimum Node in `engines.node` (20.19.0) and on 24, conformance fixtures, and the packed tarball installed into a throwaway consumer project |
 | **cli-plugins** | The Go module (`cli/`) with vet and gofmt, the Hermes plugin, and the deployed-instance runner tests under `deployed/test/` |
-| **core-distribution** | Builds with `BUNDLE_EXTENSIONS=false`, boots and migrates a fresh database, probes health, and checks that extension applications and API paths are absent; then rebuilds with extensions to check their inclusion. Skips docs-only changes and reused trees |
 | **compose-fresh-clone** | `docker compose config --quiet` without `.env`, `SECRET_KEY_BASE` or `MASTER_SECRETS_KEY`, so the documented database-only startup can load the Compose file |
 | **compose-pinned-image-boot** | `scripts/compose-boot-check.sh` exercises the Compose quick start against its pinned release image. An unpublished pin that matches the version in `mix.exs` defers the boot check to `release.yml`; any other missing pin fails |
-| **docs** | Compiles the embedded manual, runs `scripts/test-docs.sh` (core and extension documentation suites), and runs CLI documentation parity when `cli_docs` is true. Selected only when `docs_only` and `manual_docs` are true and the tree is not reused; skipped on `push` |
+| **docs** | Compiles the embedded manual, runs `scripts/test-docs.sh` (the manual's suites), and runs CLI documentation parity when `cli_docs` is true. Selected only when `docs_only` and `manual_docs` are true and the tree is not reused; skipped on `push` |
 | **gate** | `CI required`: validates every expected job result and records a successful PR checkout tree |
 
 `mix hex.audit` is not one of these: `scripts/hex-audit-gate.exs` fails the
@@ -178,7 +177,7 @@ their agreement and every supported event plan.
 `changes.py` reads one NUL-delimited diff with rename detection disabled, then
 selects documentation checks from those paths. The contributor-only
 allowlist includes ADR and changelog-fragment Markdown. Non-Markdown decision
-evidence, executable files and new extension directories select the full server
+evidence, executable files and new app directories select the full server
 plan. A move out of code retains the old code path in
 the diff. Missing bases, failed/empty diffs and malformed paths select full CI.
 
@@ -190,9 +189,7 @@ either way. The documentation job honors verified tree reuse on the merge
 queue, just like the server jobs.
 
 See [the manual contribution guide](../../contributing/docs.md#checks-for-documentation-changes)
-for the path table and matching local commands. No extension ships a manual
-today; one that does adds its docs path to `manual_doc` in `changes.py` and
-its suite to `scripts/test-docs.sh` together.
+for the path table and matching local commands.
 
 ## Coverage
 
@@ -230,13 +227,9 @@ PARTITION_DEBUG=1 elixir scripts/partition-files.exs 1 6
 Use one run's logs, not multiple runs, because durations for modules in the
 same file are summed. The artifact retention is one day. Unknown test files
 still get a median estimate and run; refreshing the table improves balance.
-The allocator reserves 30 seconds on partition 1 for the sibling suites,
-measured at 26-34 seconds on September 5, 2026. Update that reserve when the
+When a sibling app exists under `apps/`, the allocator reserves 30 seconds on
+partition 1 for its suite, measured at 26-34 seconds on September 5, 2026. Update that reserve when the
 `Run the sibling apps' tests with coverage` step changes materially.
-
-The core release uses a separate cache of compiled production modules. The
-assembled release is rebuilt each time, including the check that toggles from
-the core distribution to the bundled distribution.
 
 ## Manual public-link check
 

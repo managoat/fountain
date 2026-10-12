@@ -112,7 +112,7 @@ defmodule FountainWeb.DocsControllerTest do
       refute json =~ "search_index_json", "the expression rendered verbatim instead of its value"
 
       decoded = Jason.decode!(json)
-      assert length(decoded) == length(Fountain.Manual.search_index())
+      assert length(decoded) == length(Fountain.Docs.search_index())
 
       home = Enum.find(decoded, &(&1["slug"] == ""))
       assert home["title"] != ""

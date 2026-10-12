@@ -10,7 +10,7 @@ from pathlib import Path
 
 FULL_JOBS = {
     "test", "coverage", "elixir-static", "release-and-contract", "cli-plugins", "typescript-sdk",
-    "core-distribution", "compose-fresh-clone", "compose-pinned-image-boot",
+    "compose-fresh-clone", "compose-pinned-image-boot",
 }
 # The SDK leg runs on every plan, docs-only included; only a reused tree skips
 # it. It is a fraction of a minute, and the routing that used to skip an

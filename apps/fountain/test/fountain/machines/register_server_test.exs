@@ -463,14 +463,10 @@ defmodule Fountain.Machines.RegisterServerTest do
     end
 
     defp source_files(root) do
-      top_level =
-        ["apps/fountain/lib"]
-        |> Enum.map(&Path.join(root, &1))
-        |> Enum.filter(&File.dir?/1)
-
-      extensions = root |> Path.join("apps/fountain_*/lib") |> Path.wildcard()
-
-      (top_level ++ extensions)
+      root
+      |> Path.join("apps/fountain/lib")
+      |> List.wrap()
+      |> Enum.filter(&File.dir?/1)
       |> Enum.flat_map(&Path.wildcard(Path.join(&1, "**/*.ex")))
       |> Enum.sort()
     end

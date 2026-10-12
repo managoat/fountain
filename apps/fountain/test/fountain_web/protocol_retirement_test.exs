@@ -14,10 +14,10 @@ defmodule FountainWeb.ProtocolRetirementTest do
       **404** `{"errors": {"detail": "Not Found"}}` for every Accept header,
       with or without a key, because nothing authenticates first.
     * `/api/agui/*` and `/api/mcp/caller/*` fall through to
-      `FountainWeb.Plugs.ExtensionDispatch`,
+      `FountainWeb.Plugs.ApiNotFound`,
       whose scope pipes through `:accepts_json` inside the `:api` pipeline. An
       authenticated JSON client gets **404**; an unauthenticated one gets
-      **401**, because `TenantAPIAuth` runs before dispatch; and a client
+      **401**, because `TenantAPIAuth` runs first; and a client
       sending `Accept: text/event-stream` — exactly what an AG-UI client sends
       — is refused by content negotiation with **406**.
 

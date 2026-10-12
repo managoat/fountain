@@ -103,7 +103,7 @@ parts you changed; mixed changes take the union of the relevant rows.
 
 | Change | Local checks |
 |---|---|
-| Server or extension Elixir code, tests, dependencies, or runtime/build configuration | `mix precommit`, plus the tests covering the changed behavior |
+| Server Elixir code, tests, dependencies, or runtime/build configuration | `mix precommit`, plus the tests covering the changed behavior |
 | Go CLI | In `cli/`: `go test -mod=readonly -count=1 ./...` and `go vet -mod=readonly ./...`; format changed Go files with `gofmt` |
 | SDK implementation or packaging | That SDK's checks in [CI maintenance](scripts/ci/README.md#sdk-jobs); API changes also follow [Changing the API](#changing-the-api) |
 | CI decision logic or workflow wiring | `python3 -m unittest discover -s scripts/ci -p 'test_*.py'`; use `actionlint` for changed workflows and run the changed script's own checks |
@@ -163,7 +163,7 @@ needs `SECRET_KEY_BASE` and a database.
 CI additionally runs `hex.audit`, the Go modules, the release boot check,
 OpenAPI validation, the SDK jobs and the docs gates;
 [`scripts/ci/README.md`](scripts/ci/README.md) lists every job. If you
-touched `docs/` or an extension's manual, read
+touched `docs/`, read
 [`contributing/docs.md`](contributing/docs.md): the structural checks are in
 the suite, and `bash scripts/test-docs.sh` runs just those.
 
@@ -199,39 +199,11 @@ workflow keeps advisory artifacts. Findings do not block merges; an analyzer
 failure marks the report incomplete.
 
 Treat findings as candidates. The Elixir tracer misses dynamic calls (including
-MFA callbacks), extension callers, test-only seams, some protocol/callback
+MFA callbacks), test-only seams, some protocol/callback
 implementations and macro-generated functions. Search the function's bare name
 across `apps/` and its tests before deleting it. A test-only caller may
 be a useful observation seam or evidence of a missing production caller;
 resolve which before removing the function and its tests.
-
-## Extension migrations share one `schema_migrations`
-
-A first-party extension (ADR 0043) contributes migration directories through
-`Fountain.Extension`'s `migrations/0`, and `Fountain.Migrations` appends them
-after the core's at every entrance: the boot migrator, `Fountain.Release`, and
-`mix ecto.migrate` / `ecto.rollback` / `ecto.setup` (aliased in both
-`mix.exs` files so the root and the app agree). Two rules come with that.
-
-**Version numbers are global.** Extension migrations are recorded in
-Fountain's own `schema_migrations` table, not one of their own, so a version an
-extension picks must not collide with the core's or another extension's. Ecto
-refuses to run a path set containing a duplicate version, which makes a
-collision a loud failed migrate rather than a quietly skipped migration. Keep
-generating timestamps; never hand-pick an integer.
-
-**Moving a migration between paths is not a re-run.** A version already in
-`schema_migrations` stays applied when its file moves from `priv/repo/migrations`
-into an extension's directory, because Ecto matches on the version and never on
-the path. That is what lets an extraction move a table without touching a live
-database, and
-`apps/fountain/test/fountain/extension_composition_test.exs` pins it.
-
-Migrating from the umbrella root goes through `apps/fountain` on purpose:
-`mix ecto.migrate` is a recursive task, and Mix invokes it inside each child
-project *without* resolving that child's aliases, so the root would otherwise
-report "Migrations already up" and leave an installed extension's tables
-missing. The root aliases shell into the app the way `ecto.reset` already did.
 
 ## Adding an umbrella library app
 

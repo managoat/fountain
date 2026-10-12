@@ -289,10 +289,7 @@ defmodule Fountain.Conversations.McpServersTest do
   end
 
   describe "fountain_served/2" do
-    test "is extensions, then team" do
-      # The order of these is the order the server appended them before #1371,
-      # with installed extensions prepended by #1505. The retired caller-tool
-      # bridge was another entry here until ADR 0057 (#2252).
+    test "is the team tools on the team channel" do
       conv = insert_conversation(channel_id: Fountain.Team.channel())
 
       assert [%{name: team_name}] = McpServers.fountain_served(conv, "tok")
@@ -303,37 +300,11 @@ defmodule Fountain.Conversations.McpServersTest do
     test "is empty for an ordinary conversation" do
       assert McpServers.fountain_served(insert_conversation(), "tok") == []
     end
-  end
 
-  describe "fountain_served/2 and extensions (ADR 0043, #1505)" do
-    alias Fountain.ExtensionFixtures
-
-    test "an installed extension's servers come first, ahead of the host's own" do
-      # The fixture claims one fixed conversation id, so this is the only test
-      # in the suite that sees its contribution — every other conversation is a
-      # fresh UUID and gets nothing.
-      conv = %{id: ExtensionFixtures.Enabled.claimed_conversation_id()}
-
-      assert [%{"name" => "fixture"}] = McpServers.fountain_served(conv, "tok")
-    end
-
-    test "an extension contributes nothing to a conversation it does not claim" do
-      assert McpServers.fountain_served(%{id: Ecto.UUID.generate()}, "tok") == []
-    end
-
-    test "a disabled extension contributes nothing even to the claimed conversation" do
-      # ExtensionFixtures.Disabled returns a server unconditionally and is in
-      # :extensions. If installed/0 stopped filtering, it would appear here.
-      conv = %{id: ExtensionFixtures.Enabled.claimed_conversation_id()}
-
-      names = conv |> McpServers.fountain_served("tok") |> Enum.map(& &1["name"])
-      refute "disabled-should-never-appear" in names
-    end
-
-    test "extensions are not consulted without a callback token" do
-      # The whole list is gated on the conversation-scoped credential: an
-      # extension's servers are authenticated with it or they are not served.
-      conv = %{id: ExtensionFixtures.Enabled.claimed_conversation_id()}
+    test "is empty without a callback token" do
+      # Fountain-served tools authenticate with the conversation-scoped
+      # credential, or they are not served at all.
+      conv = insert_conversation(channel_id: Fountain.Team.channel())
 
       assert McpServers.fountain_served(conv, nil) == []
     end

@@ -259,7 +259,7 @@ jobs:
       # plain (#879 shipped exactly that). Nothing in the test suite can see
       # inside the image, so the image itself is asked, offline and read-only,
       # the way the pods run it.
-      - name: The image contains extensions and can highlight code
+      - name: The image can highlight code
         env:
           SHA: ${{ env.SRC_SHA }}
         run: |
@@ -272,14 +272,6 @@ jobs:
             -e PHX_HOST=example.test -e PUBLIC_URL="https://example.test" \
             -e RESEND_API_KEY=re_dummy -e EMAIL_FROM="fountain@example.test" \
             "${IMAGE}:sha-${SHA}" /app/bin/fountain_server eval '
-              for app <- [] do
-                case :code.lib_dir(app) do
-                  path when is_list(path) ->
-                    unless File.dir?(path), do: raise("bundled image missing #{app}")
-                  {:error, _} ->
-                    raise "bundled image missing #{app}"
-                end
-              end
               {:ok, _} = Application.ensure_all_started(:lumis)
               html = Managoat.Docs.Markdown.to_trusted_html("```ts\nconst x = 1;\n```")
               IO.puts("spans=#{length(Regex.scan(~r/<span style="color/, html))}")

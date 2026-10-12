@@ -12,7 +12,7 @@ defmodule Fountain.Release do
       {:ok, _, _} =
         Ecto.Migrator.with_repo(
           repo,
-          &Ecto.Migrator.run(&1, Fountain.Migrations.paths(&1), :up, all: true)
+          &Ecto.Migrator.run(&1, :up, all: true)
         )
     end
   end
@@ -60,7 +60,7 @@ defmodule Fountain.Release do
     {:ok, _, _} =
       Ecto.Migrator.with_repo(
         repo,
-        &Ecto.Migrator.run(&1, Fountain.Migrations.paths(&1), :down, to: version)
+        &Ecto.Migrator.run(&1, :down, to: version)
       )
   end
 

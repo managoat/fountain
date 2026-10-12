@@ -100,15 +100,6 @@ For code, tooling or mixed changes, use the component checks in
 - **`docs/cli.md` is diffed against the CLI.** `cli/internal/cmd/docs_test.go`
   fails if a command exists that the page does not mention, or the reverse.
   Add a CLI command, add it to `docs/cli.md` in a fenced `bash` block.
-- **An extension may own pages** (ADR 0043, #1510). They live in
-  `apps/<app>/docs/` with that app's own `nav.yml`, embedded by its own
-  `use Managoat.Docs` module and merged into the sidebar by `Fountain.Manual`,
-  which is what every renderer asks instead of `Fountain.Docs`. Sections
-  merge by title. A core page must not link to an extension page: the core
-  test walks the core manual alone, and a core-only distribution would carry
-  a dead link. The extension's own suite runs the link checks over the merged
-  manual. No extension ships pages today; the Google, Microsoft and Slack
-  manuals left with those extensions (simplify 5/5).
 
 ## Writing guidance (optional)
 
@@ -131,7 +122,7 @@ Run this when checking the manual's external references:
 python3 scripts/ci/check_external_links.py
 ```
 
-It checks public GitHub links in the manual, extension manuals and CLAUDE.md.
+It checks public GitHub links in the manual and CLAUDE.md.
 Network availability and remote link changes do not block merge CI. Internal
 links and anchors remain part of the structural tests above.
 

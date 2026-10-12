@@ -14,17 +14,17 @@ defmodule FountainWeb.DocsController do
   def show(conn, params) do
     slug = params |> Map.get("page", []) |> Enum.join("/")
 
-    case Fountain.Manual.get(slug) do
+    case Fountain.Docs.get(slug) do
       {:ok, page} ->
         render(conn, :show,
           layout: {FountainWeb.Layouts, :public},
           page_title: "Docs · " <> page.title,
           meta_description: "#{page.title}, from the #{Fountain.Brand.name()} manual.",
-          nav: Fountain.Manual.nav(),
+          nav: Fountain.Docs.nav(),
           slug: slug,
           title: page.title,
           body_html: Managoat.Docs.Markdown.to_trusted_html(page.body),
-          search_index_json: Fountain.Manual.search_index_json()
+          search_index_json: Fountain.Docs.search_index_json()
         )
 
       :error ->

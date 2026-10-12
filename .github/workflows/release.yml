@@ -179,7 +179,7 @@ jobs:
     # the arm64 Erlang compile. build.yml migrated off it and this job was
     # left behind, so the only slow build left in the repo was the one that
     # runs least often and blocks the release.
-    name: Build versioned server image (${{ matrix.distribution }}, ${{ matrix.arch }})
+    name: Build versioned server image (${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 20
     permissions:
@@ -188,15 +188,8 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
-        # Two distributions from one tree (ADR 0043 decision 7), each built
-        # natively on both arches. The bundled one is what every existing tag
-        # has meant and what the hosted deployment runs; the core one carries
-        # no extension application and none of their native binaries, and is
-        # the supported base for someone writing an extension of their own.
-        #
-        # Four builds rather than two, but four runners rather than two as
-        # well: the release's wall clock is one native build, not the sum.
-        distribution: [bundled, core]
+        # Built natively on both arches, so the release's wall clock is one
+        # native build, not the sum.
         arch: [amd64, arm64]
         include:
           - arch: amd64
@@ -206,14 +199,6 @@ jobs:
             platform: linux/arm64
             # Free for public repos; the cluster's own architecture.
             runner: ubuntu-24.04-arm
-          - distribution: bundled
-            bundle_extensions: "true"
-            # The bundled image keeps the bare tags. A core image that had to
-            # be asked for by name is the whole point of the default.
-            suffix: ""
-          - distribution: core
-            bundle_extensions: "false"
-            suffix: "-core"
 
     steps:
       - name: Resolve tag
@@ -270,7 +255,6 @@ jobs:
           platforms: ${{ matrix.platform }}
           build-args: |
             BUILD_SHA=${{ steps.sha.outputs.sha }}
-            BUNDLE_EXTENSIONS=${{ matrix.bundle_extensions }}
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ steps.sha.outputs.sha }}
@@ -292,14 +276,13 @@ jobs:
         run: |
           mkdir -p "${RUNNER_TEMP}/digests"
           digest="${{ steps.build.outputs.digest }}"
-          mkdir -p "${RUNNER_TEMP}/digests/${{ matrix.distribution }}"
-          touch "${RUNNER_TEMP}/digests/${{ matrix.distribution }}/${digest#sha256:}"
+          touch "${RUNNER_TEMP}/digests/${digest#sha256:}"
 
       - name: Upload digest
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: image-digest-${{ matrix.distribution }}-${{ matrix.arch }}
-          path: ${{ runner.temp }}/digests/${{ matrix.distribution }}/*
+          name: image-digest-${{ matrix.arch }}
+          path: ${{ runner.temp }}/digests/*
           if-no-files-found: error
           retention-days: 1
 
@@ -334,11 +317,8 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       # Deliberately NOT merge-multiple: each artifact lands in its own
-      # directory named for the artifact, which is how the two distributions'
-      # digests stay apart. Merged, four digests would arrive in one directory
-      # and a manifest built from them would mix a core image into the bundled
-      # tag — the failure this job's digest count exists to catch, arriving in
-      # a form the count could not see.
+      # directory named for the artifact, so the per-arch digest count below
+      # can see a build job that pushed something unexpected.
       - name: Download digests
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -355,7 +335,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Create and push the manifest lists
+      - name: Create and push the manifest list
         working-directory: ${{ runner.temp }}/digests
         env:
           IMAGE: ghcr.io/managoat/fountain
@@ -364,72 +344,29 @@ jobs:
         run: |
           set -euo pipefail
 
-          # One manifest list per distribution (ADR 0043 decision 7). The
-          # bundled one keeps the bare tags, because that is what every
-          # existing tag has meant and what every existing puller expects; the
-          # core one is the same version with a `-core` suffix, so nobody has
-          # to decide which product they are running.
-          publish() {
-            distribution="$1"
-            suffix="$2"
+          # One digest per arch, in per-arch directories. Anything else means
+          # a build job pushed something unexpected, and a manifest built from
+          # it would publish a release image nobody checked.
+          refs=()
+          for arch in amd64 arm64; do
+            dir="image-digest-${arch}"
+            if [ ! -d "$dir" ]; then
+              echo "no digest artifact for ${arch}" >&2
+              exit 1
+            fi
+            digests=("$dir"/*)
+            if [ "${#digests[@]}" -ne 1 ]; then
+              echo "expected 1 digest in ${dir}, found ${#digests[@]}" >&2
+              exit 1
+            fi
+            refs+=("${IMAGE}@sha256:$(basename "${digests[0]}")")
+          done
 
-            # One digest per arch, in per-arch directories. Anything else means
-            # a build job pushed something unexpected, and a manifest built
-            # from it would publish a release image nobody checked.
-            refs=()
-            for arch in amd64 arm64; do
-              dir="image-digest-${distribution}-${arch}"
-              if [ ! -d "$dir" ]; then
-                echo "no digest artifact for ${distribution}/${arch}" >&2
-                exit 1
-              fi
-              digests=("$dir"/*)
-              if [ "${#digests[@]}" -ne 1 ]; then
-                echo "expected 1 digest in ${dir}, found ${#digests[@]}" >&2
-                exit 1
-              fi
-              refs+=("${IMAGE}@sha256:$(basename "${digests[0]}")")
-            done
-
-            docker buildx imagetools create \
-              --tag "${IMAGE}:${TAG}${suffix}" \
-              --tag "${IMAGE}:${MINOR}${suffix}" \
-              "${refs[@]}"
-            docker buildx imagetools inspect "${IMAGE}:${TAG}${suffix}"
-          }
-
-          publish bundled ""
-          publish core "-core"
-
-      # The published core image, opened. Every claim the campaign makes about
-      # it is checked somewhere earlier — CI's core-distribution job builds the
-      # release — but nothing had looked inside the artifact a person actually
-      # pulls. A build arg that stopped being passed would
-      # publish a bundled image under the core tag and every one of those
-      # earlier checks would still be green.
-      - name: The published core image carries no extension
-        env:
-          IMAGE: ghcr.io/managoat/fountain
-          TAG: ${{ steps.tag.outputs.tag }}
-        run: |
-          set -euo pipefail
-          core="${IMAGE}:${TAG}-core"
-
-          apps=$(docker run --rm --entrypoint sh "$core" -c 'ls /app/lib')
-          echo "$apps" | tr '\n' ' '; echo
-          if echo "$apps" | grep -qE '^fountain_'; then
-            echo "::error::${core} contains an extension application" >&2
-            echo "$apps" | grep -E '^fountain_' >&2
-            exit 1
-          fi
-
-          # Guard the guard: an image whose /app/lib is empty would satisfy
-          # the check above. The server itself has to be in there.
-          echo "$apps" | grep -qE '^fountain-[0-9]' || {
-            echo "::error::${core} does not contain the fountain application" >&2
-            exit 1
-          }
-          echo "${core}: no extension application"
+          docker buildx imagetools create \
+            --tag "${IMAGE}:${TAG}" \
+            --tag "${IMAGE}:${MINOR}" \
+            "${refs[@]}"
+          docker buildx imagetools inspect "${IMAGE}:${TAG}"
 
   compose-boot:
     # ci.yml's "Compose boots the pinned image" skips on the bump PR and on

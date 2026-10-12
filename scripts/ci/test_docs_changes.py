@@ -52,7 +52,7 @@ class DocumentationRoutingTest(unittest.TestCase):
     def test_code_and_unknown_paths_cannot_enter_the_short_path(self):
         for path in (
             "apps/fountain/lib/fountain/agents.ex", "apps/fountain/test/fountain/docs_test.exs",
-            "apps/new_extension/lib/new_extension.ex", "apps/new_extension/docs/page.md", "contributing/tool.py", "standards/check.sh",
+            "apps/new_app/lib/new_app.ex", "apps/new_app/docs/page.md", "contributing/tool.py", "standards/check.sh",
             "config/test.exs", "mix.exs", "mix.lock", "Dockerfile",
             "decisions/evidence/decimal-advisory.json", "decisions/check.py", "changelog.d/check.sh",
             "deploy/k8s/prometheusrule.yaml", "deploy/grafana/fountain-ops.json",

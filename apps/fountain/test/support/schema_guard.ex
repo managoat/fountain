@@ -37,8 +37,8 @@ defmodule FountainWeb.SchemaGuard do
   controller test produces — 146 operations, from tests that already exist.
 
   **Every app with a helper attaches it, and calling it again is a no-op.**
-  Each umbrella app's helper runs in the same VM under a root `mix test`, and
-  each extension attaches for its own standalone run (#1536). Naively that
+  Each umbrella app's helper runs in the same VM under a root `mix test`
+  (#1536). Naively that
   spawned a second keeper, which died on `:ets.new` against a table the first
   one already owns — harmless, but a crash report in every run. So a second
   call finds the table and returns.
@@ -242,34 +242,11 @@ defmodule FountainWeb.SchemaGuard do
       :error ->
         {:skip, :no_route}
 
-      # An extension's routes sit behind `forward "/", ExtensionDispatch`, and a
-      # forward is opaque to `route_info/4`: the core router reports the
-      # forward's own route, `/api`, which matches no documented path. So every
-      # extension response was skipped as `:undocumented` and the guard has
-      # never seen one (ADR 0043, #1536). Re-resolve through the mount.
-      %{plug: FountainWeb.Plugs.ExtensionDispatch} ->
-        extension_template(conn)
-
       %{route: route} ->
         {:ok, spell(route)}
 
       _ ->
         {:skip, :no_route}
-    end
-  end
-
-  # `Fountain.Extensions` is the host's own registry, so this reads no
-  # extension module and crosses no ADR 0043 boundary.
-  defp extension_template(%Plug.Conn{} = conn) do
-    segments = conn.request_path |> String.split("/", trim: true) |> Enum.drop(1)
-
-    with {_ext, mount, plug} when is_atom(plug) <- Fountain.Extensions.find_mount(segments),
-         under = segments |> Enum.drop(length(mount)) |> Enum.join("/"),
-         %{route: route} <-
-           Phoenix.Router.route_info(plug, conn.method, "/" <> under, conn.host) do
-      {:ok, spell("/api/" <> Enum.join(mount, "/") <> route)}
-    else
-      _ -> {:skip, :no_route}
     end
   end
 

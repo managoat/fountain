@@ -6,9 +6,8 @@ defmodule Fountain.Conversations.McpServers do
   resolved against the environment and the secrets (`substitute_agent/3`),
   and the ones Fountain serves back to the sandbox itself, authenticated with
   the conversation's callback token (`Fountain.Conversations.CallbackKey`):
-  installed extensions' tools and the team tools. Each of those decides for
-  itself whether this conversation gets it; `fountain_served/2` only asks, in
-  the order the server has always appended them.
+  the team tools, which decide for themselves whether this conversation gets
+  them; `fountain_served/2` only asks.
 
   Functions over rows and values, not over server state: `ConversationServer`
   unpacks what it holds and passes it in (#1369). Nothing here touches the
@@ -103,29 +102,13 @@ defmodule Fountain.Conversations.McpServers do
   end
 
   @doc """
-  The Fountain-served servers for a turn, in the order the server has always
-  appended them after the agent's own: extensions, then team.
-
-  Installed extensions come first (ADR 0043, #1505), in configured order, ahead
-  of everything the host serves itself. That ordering is a host decision, not a
-  promise to an extension — ADR 0043 fixes "extensions before team" and nothing
-  finer. The retired
-  caller-tool bridge (#1202) appended a third list here; it left with the
-  dialects that fed it (ADR 0057, #2252), and the agent's own servers above
-  are untouched by that removal.
+  The Fountain-served servers for a turn, appended after the agent's own:
+  the team tools. Installed extensions' servers came first until the
+  extension mechanism was retired (ADR 0043), and the retired caller-tool
+  bridge (#1202) appended another list until ADR 0057 (#2252).
   """
   @spec fountain_served(map(), String.t() | nil) :: [map()]
-  def fountain_served(%{id: conv_id}, token) do
-    extensions(conv_id, token) ++ team(conv_id, token)
-  end
-
-  # Every installed extension's contribution. `Fountain.Extensions` contains a
-  # failure to the extension that caused it: a raise here costs that
-  # extension's servers and leaves the rest of this list intact, because the
-  # alternative is one broken optional integration ending an unrelated turn.
-  @spec extensions(String.t() | nil, String.t() | nil) :: [map()]
-  defp extensions(conv_id, token),
-    do: Fountain.Extensions.conversation_mcp_servers(conv_id, token)
+  def fountain_served(%{id: conv_id}, token), do: team(conv_id, token)
 
   # The team tools (#851), for conversations on the team channel.
   @spec team(String.t() | nil, String.t() | nil) :: [map()]

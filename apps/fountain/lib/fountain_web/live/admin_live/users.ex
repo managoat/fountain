@@ -32,8 +32,7 @@ defmodule FountainWeb.AdminLive.Users do
     {:ok,
      socket
      |> FountainWeb.Audited.put_client_ip()
-     |> assign(:page_title, "Admin · Users")
-     |> assign(:extension_columns, [])}
+     |> assign(:page_title, "Admin · Users")}
   end
 
   # Filter/sort/page state lives in the URL, so the 10s refresh, admin
@@ -271,10 +270,6 @@ defmodule FountainWeb.AdminLive.Users do
     }
 
     sandbox_counts = Quotas.active_sandbox_counts()
-    # Whatever installed extensions add (ADR 0043). Each is one grouped query
-    # built once for the page, same contract as the counts above; the console
-    # names no extension module.
-    extension_columns = Fountain.Extensions.admin_user_columns()
 
     %{users: users, total: total} =
       Accounts.list_users_admin(
@@ -292,39 +287,13 @@ defmodule FountainWeb.AdminLive.Users do
         u
         |> Map.put(:active_sandboxes, Map.get(sandbox_counts, u.id, 0))
         |> Map.put(:sandbox_limit, Fountain.Quotas.sandbox_limit_for(u))
-        |> Map.put(
-          :extension_cells,
-          Enum.map(extension_columns, fn {_header, cells} -> Map.get(cells, u.id, 0) end)
-        )
         |> Map.put(:usage, Map.get(usage, u.id, no_usage))
       end)
 
     socket
     |> assign(:users, users)
-    |> assign(:extension_columns, extension_columns)
     |> assign(:total_users, total)
   end
-
-  # One extension-contributed number. A bare value, or
-  # `%{value: v, alert?: true}` when the extension wants it highlighted — its
-  # ceiling, its policy; the host owns the colour.
-  attr :cell, :any, required: true
-
-  defp extension_cell(assigns) do
-    {value, alert?} = normalize_cell(assigns.cell)
-    assigns = assigns |> assign(:value, value) |> assign(:alert?, alert?)
-
-    ~H"""
-    <td class="px-4 py-2 text-xs text-[var(--color-text-secondary)] tabular-nums whitespace-nowrap">
-      <span class={if(@alert?, do: "text-[var(--color-error-text)] font-medium", else: "")}>
-        {@value}
-      </span>
-    </td>
-    """
-  end
-
-  defp normalize_cell(%{value: value} = cell), do: {value, Map.get(cell, :alert?, false)}
-  defp normalize_cell(value), do: {value, false}
 
   defp parse_filters(params) do
     %{
@@ -454,10 +423,6 @@ defmodule FountainWeb.AdminLive.Users do
                 Usage 30d
               </th>
               <th class="px-4 py-2">Sandboxes</th>
-              <%!-- Standing slots: an installed extension may add a column of
-                    its own here (#1017's hosted-agent count is one of those),
-                    for a thing that costs while nobody uses it. --%>
-              <th :for={{header, _cells} <- @extension_columns} class="px-4 py-2">{header}</th>
               <th class="px-4 py-2">Onboarding</th>
               <th class="px-4 py-2">
                 <.sort_header label="Last active" col="last_activity" filters={@filters} />
@@ -550,7 +515,6 @@ defmodule FountainWeb.AdminLive.Users do
                   <button class="text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] underline">set</button>
                 </form>
               </td>
-              <.extension_cell :for={cell <- u.extension_cells} cell={cell} />
               <td class="px-4 py-2 text-[var(--color-text-secondary)] text-xs">
                 {if u.onboarding_completed_at, do: format_date(u.onboarding_completed_at), else: "—"}
               </td>

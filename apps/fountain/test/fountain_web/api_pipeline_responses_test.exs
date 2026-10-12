@@ -39,20 +39,7 @@ defmodule FountainWeb.ApiPipelineResponsesTest do
     assert Map.has_key?(spec.paths["/api/conversations"].get.responses, 406)
   end
 
-  test "installed extension operations inherit the dispatch pipeline's errors" do
-    spec = ApiSpec.spec()
-
-    for {path, item} <- Fountain.Extensions.openapi_paths(),
-        {verb, %OpenApiSpex.Operation{}} <- Map.from_struct(item) do
-      responses = Map.fetch!(spec.paths[path], verb).responses
-
-      for status <- [401, 403, 406, 429] do
-        assert Map.has_key?(responses, status), "#{verb} #{path} lacks #{status}"
-      end
-    end
-  end
-
-  test "composition preserves operation-specific responses" do
+  test "pipeline responses preserve operation-specific responses" do
     # Every JSON error status declares the one `Error` schema (#2324), so what
     # a controller adds over the pipeline is the status itself and its
     # description; the pipeline's 403 must not overwrite the egress

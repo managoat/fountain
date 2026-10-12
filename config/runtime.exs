@@ -1158,61 +1158,6 @@ if config_env() == :prod and server? do
   end
 end
 
-# The first-party extensions (ADR 0043). Naming a module here is the whole of
-# Fountain's knowledge of it: `Fountain.Extensions` reads this list and reaches
-# each one only through `Fountain.Extension` callbacks. Drop a line and the
-# release serves none of that extension's routes, runs none of its jobs and
-# applies none of its migrations — which is what a core distribution is
-# (decision 7).
-#
-# A configured module that will not load is a bad deploy and
-# `Fountain.Extensions.validate!/0` refuses to boot on it, on purpose.
-#
-# The whole extension list, for every environment, in ONE declaration —
-# `config :fountain, :extensions` replaces the key rather than appending, so two
-# declarations would silently delete one another. That is not hypothetical: it
-# happened in #1507, where a second declaration deleted every fixture extension
-# `config/test.exs` installs and the seam's own tests measured an empty list.
-#
-# Each extension is installed *where it loads*. `apps/fountain` deliberately
-# depends on no sibling app, so `mix test` run from there — which is what CI's
-# partition script does — has no extension on the code path, and naming one
-# unconditionally would make `Fountain.Extensions.validate!/0` refuse to boot
-# every partition. That check
-# working exactly as intended, on a configuration that is wrong for that run.
-#
-# `Code.ensure_loaded?/1` can only answer that after compilation, which is why
-# this lives here and not in `config/test.exs`: that file is evaluated before
-# the apps are built, where the answer is always false.
-installed_extensions =
-  Enum.filter(
-    [],
-    &Code.ensure_loaded?/1
-  )
-
-# Fixture extensions prove the seam without a real one (#1505). They are named
-# here rather than set per test because `:extensions` is global application
-# state and a test that wrote it would collide with every async test in the VM
-# (#1214); tests vary the fixture, not the configuration.
-#
-# The misbehaving ones each fail for a single conversation id, which is what
-# makes them safe to install beside the others and what lets the isolation tests
-# exercise the real fan-out rather than a copy of its logic.
-extension_fixtures =
-  if config_env() == :test do
-    [
-      Fountain.ExtensionFixtures.Enabled,
-      Fountain.ExtensionFixtures.Disabled,
-      Fountain.ExtensionFixtures.Silent,
-      Fountain.ExtensionFixtures.Exploding,
-      Fountain.ExtensionFixtures.WrongShape
-    ]
-  else
-    []
-  end
-
-config :fountain, :extensions, installed_extensions ++ extension_fixtures
-
 # ── CORS for /api ─────────────────────────────────────────────────────────
 #
 # Browser clients on other origins (the standalone team app, #809). Empty —

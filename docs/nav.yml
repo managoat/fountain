@@ -19,12 +19,6 @@
 # `/docs` link and anchor resolves. `docs/cli.md` is diffed against the real
 # CLI command tree by the Go suite.
 #
-# An installed extension may add pages and nav sections of its own
-# (ADR 0043, #1510). They live in that app's `docs/` with its own nav.yml, and
-# `Fountain.Manual` merges them in by section title — so this file names only
-# the pages a CORE distribution serves, and a link from here to one of theirs
-# would be a dead link on that distribution. The guardrails enforce it.
-#
 # Paths are relative to `docs/`.
 nav:
   - Home: index.md

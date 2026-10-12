@@ -15,15 +15,6 @@
 #     fountain-secrets Secret (deployment.yaml envFrom). No fallback
 #     generation here — fail-fast at boot if it's missing rather than
 #     silently invalidate cookie sessions on every restart.
-#   - One Dockerfile, two distributions (ADR 0043 decision 7).
-#     `--build-arg BUNDLE_EXTENSIONS=false` builds the CORE image: no
-#     extension application in the release. The default is the bundled image, which is what every existing tag
-#     has meant and what the hosted deployment runs.
-
-# Global scope, before the first FROM, so the default lives in one place. The
-# stage that *uses* the value re-declares it; that is how build args work and
-# not a duplication to tidy.
-ARG BUNDLE_EXTENSIONS=true
 
 FROM hexpm/elixir:1.19.2-erlang-28.3-debian-trixie-20260610-slim AS build
 
@@ -52,11 +43,6 @@ RUN mix local.hex --force \
 COPY mix.exs mix.lock coverage.exs ./
 COPY config ./config
 COPY apps/fountain/mix.exs ./apps/fountain/mix.exs
-# Every extension's mix.exs is COPYd whatever the distribution: the umbrella
-# loads every child's project to resolve dependencies, so a missing one fails
-# `mix deps.get` here regardless of what the release ends up carrying. What
-# BUNDLE_EXTENSIONS decides is whether the release *includes* the extension
-# applications (ADR 0043 decision 7). No first-party extension ships today.
 # One line per umbrella library app (decisions/0037), when there is one: the
 # umbrella loads every child's mix.exs to resolve deps, so a missing one fails
 # `mix deps.get` here. Every managoat_* library has graduated to hex (#1345,
@@ -103,10 +89,6 @@ COPY rel ./rel
 # config/runtime.exs, which demands MASTER_SECRETS_KEY and the rest of the
 # production environment that does not exist during a build. Prepending the
 # compiled ebin paths gives the same code without the config.
-# BUNDLE_EXTENSIONS decides which applications the release carries (ADR 0043 decision
-# 7, and see mix.exs). Re-declared in this stage because a build ARG is scoped to
-# the stage that declares it.
-ARG BUNDLE_EXTENSIONS
 RUN mix compile \
  && elixir -e 'Enum.each(Path.wildcard("_build/prod/lib/*/ebin"), &Code.prepend_path/1); {:ok, _} = Application.ensure_all_started(:lumis); {:ok, _} = Lumis.Languages.cache(Fountain.Docs.languages())' \
  && mix release fountain_server

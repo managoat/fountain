@@ -6,7 +6,7 @@ defmodule FountainWeb.ApiSpec do
 
   alias OpenApiSpex.{Components, Info, OpenApi, Paths, SecurityScheme, Server}
   alias FountainWeb.{Endpoint, Router}
-  alias FountainWeb.ApiSpec.{Compose, FixtureRuntime, PipelineResponses}
+  alias FountainWeb.ApiSpec.{FixtureRuntime, PipelineResponses}
 
   @behaviour OpenApi
 
@@ -44,15 +44,6 @@ defmodule FountainWeb.ApiSpec do
       },
       security: [%{"bearer" => []}]
     }
-    # Resolve shared pipeline schemas before composition so extensions cannot
-    # silently replace them with a different schema of the same name.
-    |> PipelineResponses.apply(Router)
-    # Installed extensions describe what they serve (ADR 0043, #1506). Composed
-    # after the core resolves, so a schema title an extension shares with the
-    # core is a loud failure rather than a silent overwrite. With nothing
-    # installed this is the identity function and the spec is byte-identical to
-    # what it was before extensions existed.
-    |> Compose.compose!()
     |> PipelineResponses.apply(Router)
     # Last, on resolved components: a deployment that names an account for the
     # opt-in test fixture names its runtime in its own spec, nowhere else (#1716).

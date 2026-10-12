@@ -112,8 +112,7 @@ conversation-facing feature goes in the app; marketing copy goes in
   `insert_verified_user()`, `insert_agent(user_id: ...)`, `insert_env`,
   `insert_vault`. `*_attrs/1` helpers return **string-keyed** maps.
 - `mix test` at the umbrella root runs everything. CI's partitions run from
-  `apps/fountain`. An extension's suite runs from its own directory or the
-  root, never from `apps/fountain`.
+  `apps/fountain`.
 - A test that fails and then passes with no code change is investigated, not
   re-run: [failure handling](../CONTRIBUTING.md#if-a-test-went-red-and-then-green).
 

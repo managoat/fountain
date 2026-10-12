@@ -28,48 +28,25 @@ under two tags, next to the tags that track development.
 | `latest` | On each merge to `main`. | Nothing you keep in production, because it moves under you. |
 | `sha-<commit>` | Never. | To reproduce exactly what one commit built. |
 
-## Two distributions
+## The `-core` tags
 
-Each tag above names the **bundled** image: the server plus the first-party
-extensions, which is what this project has always published. Each release also
-publishes the same version with a `-core` suffix.
-
-| Tag | Contains |
-|---|---|
-| `vX.Y.Z` and `vX.Y` | The server with the Support extension. |
-| `vX.Y.Z-core` and `vX.Y-core` | The server. No extension, no extension route and no extension migration. |
-
-Use the bundled image unless you know you want the other one. The hosted
-deployment runs it, and we triage a bug report against it.
-
-The core image is smaller and has less surface to attack. It is also what to
-build an extension of your own against. The cost: the problem-report endpoint
-answers `404`, because the code that serves it is not installed.
-
-To move between them, pull the other tag and restart. Extension tables stay in
-the database. A core image does not create them. It also does not drop the ones
-a bundled image made, so a move back finds your rows where you left them.
+Earlier releases also published each version with a `-core` suffix, an image
+without the first-party extensions. Fountain no longer has extensions, so a
+release publishes one image under the tags above. A `-core` tag you pinned
+keeps working, but no new version is published under one. To take a newer
+release, move to the tag without the suffix.
 
 Releases v0.2.1 and earlier are older than the image tags. They exist as
 `sha-` tags alone.
 
 ## Build your own image
 
-`BUNDLE_EXTENSIONS` is a build argument, defaulting to `true`. It selects the
-release's applications and extension executables when Docker builds the image.
-Setting it on a running container does not change its distribution.
-
 ```bash
-# Bundled: Fountain with all first-party extensions.
-docker build --build-arg BUNDLE_EXTENSIONS=true -t fountain:bundled .
-
-# Core: Fountain without first-party extensions.
-docker build --build-arg BUNDLE_EXTENSIONS=false -t fountain:core .
+docker build -t fountain .
 ```
 
 For a release built directly from the source tree, use
-`BUNDLE_EXTENSIONS=false MIX_ENV=prod mix release fountain_server` to select
-core. Omit the variable, or set it to `true`, to bundle the extensions.
+`MIX_ENV=prod mix release fountain_server`.
 
 ## Take a new version
 

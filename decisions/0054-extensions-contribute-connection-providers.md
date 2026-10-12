@@ -152,3 +152,9 @@ everything this ADR added:
   it handed the host a `Fountain.Connections.Provider`, a struct that no
   longer exists, so it could not stay as an unimplemented callback the way
   ADR 0043's addendum kept three.
+
+## Addendum — 2026-10-12: the behaviour is gone too
+
+The `Fountain.Extension` behaviour this ADR added a callback to was itself
+removed once no extension remained (ADR 0043's last addendum). Nothing here
+describes code that still exists.

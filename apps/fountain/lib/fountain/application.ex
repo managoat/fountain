@@ -23,15 +23,6 @@ defmodule Fountain.Application do
     # Counts metering events this node drops, for /admin/finance (#1038).
     Fountain.Usage.attach_drop_counter()
 
-    # Extensions (ADR 0043, #1505). Raises on a duplicate id, a malformed or
-    # duplicated API prefix, a prefix a core route already claims, or a
-    # half-declared HTTP surface — before a single child starts, so a
-    # misconfigured deployment fails to boot instead of serving a surface
-    # nobody checked. An extension's own processes are not started here: it is
-    # an OTP application depending on :fountain, so OTP starts it after this
-    # one returns and stops it before this one goes away.
-    Fountain.Extensions.validate!()
-
     # The proxy's request-log handler. Attached here rather than from
     # `children/0` so that function stays a pure reading of the configuration,
     # which is what pins its order in `application_children_test.exs`.
@@ -74,15 +65,8 @@ defmodule Fountain.Application do
     [
       FountainWeb.Telemetry,
       Fountain.Repo,
-      # Migrates over the one ordered path set (ADR 0043, #1506): core first,
-      # then every installed extension's. `:migrator` is Ecto's own hook for
-      # exactly this; without it the child would run `Ecto.Migrator.run/3`,
-      # which hard-codes the single core path and would silently skip an
-      # extension's migrations on every boot.
       {Ecto.Migrator,
-       repos: Application.fetch_env!(:fountain, :ecto_repos),
-       skip: skip_migrations?(),
-       migrator: &Fountain.Migrations.run/3}
+       repos: Application.fetch_env!(:fountain, :ecto_repos), skip: skip_migrations?()}
     ] ++
       broker_children() ++
       [
@@ -101,10 +85,7 @@ defmodule Fountain.Application do
         FountainWeb.Plugs.RateLimit.Sweeper,
         Fountain.Conversations.Redaction,
         Fountain.LogThrottle.Table,
-        # Extensions may add cron entries (ADR 0043, #1507). Core-only, this is
-        # the configured options untouched; nothing in config names a worker
-        # module the release might not carry.
-        {Oban, Fountain.Extensions.oban_options(Application.fetch_env!(:fountain, Oban))}
+        {Oban, Application.fetch_env!(:fountain, Oban)}
       ] ++
       execution_deadline_children() ++
       cluster_children(cluster_topologies) ++

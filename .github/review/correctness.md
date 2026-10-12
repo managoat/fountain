@@ -14,10 +14,8 @@ preference. Do not invent requirements or mark findings resolved just because
 a fixer says they are fixed. Recommend small regression tests that reproduce
 the behavior rather than copying implementation details.
 
-Fountain's umbrella includes the core app and separate first-party
-extensions. Check cross-directory callers, extension
-boundaries and lifecycle state transitions. The core must not reference extension
-modules. Unawaited work should use the supervised task pattern from the base
+Fountain's umbrella holds one app, `apps/fountain`. Check cross-directory
+callers, context boundaries and lifecycle state transitions. Unawaited work should use the supervised task pattern from the base
 guide; fire-and-forget Task.async links failures to callers. Preserve SQL Sandbox
 isolation, the test pool size of 20 and the test-mode authentication/rate-limit
 guards. Do not silence flakes by skipping tests or weakening assertions.

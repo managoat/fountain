@@ -137,17 +137,3 @@ config :fountain, :platform_chatgpt_req_options, plug: {Req.Test, Fountain.Platf
 # `ChatGPTAccounts.RefreshBreaker` reads a test's clock
 # (`:chatgpt_refresh_breaker_now_ms`) only in a build compiled with this.
 config :fountain, :chatgpt_refresh_breaker_test_clock, true
-
-# Extensions (ADR 0043) are assembled in `config/runtime.exs`, not here.
-#
-# `Code.ensure_loaded?/1` is the only way to ask whether a sibling app is on
-# this run's code path — `apps/fountain` depends on none of them, so running
-# from there (which is what CI's partition script does) must install none — and
-# that question can only be answered AFTER compilation. This file is evaluated
-# before it, where the answer is always false. `runtime.exs` runs after, in
-# every entry point, so the whole list is built there in one place: fixtures for
-# the suite, plus the first-party extensions where they load.
-#
-# `config :fountain, :extensions` REPLACES the key rather than appending, which
-# is why it must be one declaration and not two — two silently deleted the
-# fixtures and made the seam's own tests measure an empty list.

@@ -5,8 +5,7 @@ request bodies, response schemas, and error statuses. Fountain builds that
 reference from the same OpenAPI descriptions that define its SDK contract.
 The [OpenAPI document](/api/openapi.json) is public and needs no credential.
 
-The reference describes the instance that serves it, with its installed
-extensions. On a self-hosted instance, open `/api/docs` on that instance.
+The reference describes the instance that serves it. On a self-hosted instance, open `/api/docs` on that instance.
 This guide explains workflows; it does not maintain a second endpoint catalog.
 
 For a script, start with the [TypeScript SDK](sdk.md). Use HTTP directly from

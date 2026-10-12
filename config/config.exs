@@ -81,11 +81,6 @@ config :fountain, Oban,
        # server stops while such a request waits. One indexed query, usually
        # empty.
        {"* * * * *", Fountain.Workers.DetachedRequestSweeper},
-       # An installed extension may add entries here at boot
-       # (`Fountain.Extensions.oban_options/1`, ADR 0043). They are not listed
-       # in this file, so a core-only release never names a worker module it
-       # does not carry — which would be a crash on start, not a missing
-       # feature.
        # 05:41 UTC — after the 03:17 backup and the 04:23 retention prune, so
        # a backup always captures the accounts before the sweep removes them.
        {"41 5 * * *", Fountain.Workers.UnverifiedAccountPruner},

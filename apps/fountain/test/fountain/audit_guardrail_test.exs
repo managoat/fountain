@@ -174,8 +174,6 @@ defmodule Fountain.AuditGuardrailTest do
     {"password reset", &__MODULE__.do_password_reset/1, "auth.password.reset"},
     {"password change", &__MODULE__.do_password_change/1, "auth.password.changed"},
     {"email verification", &__MODULE__.do_verify_email/1, "auth.email.verified"},
-    # ADR 0013's actor vocabulary is the host's and closed — an extension records through
-    # `Fountain.Audit` and gets no trail of its own.
     # Team membership: a teammate is a channel-bound conversation, so add also
     # leaves conversation.created underneath; these are the team-side events.
     {"team member add", &__MODULE__.do_team_add/1, "team.member.added"},

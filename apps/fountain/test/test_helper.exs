@@ -9,19 +9,6 @@ ExUnit.start()
 # Same value as config/config.exs.
 Application.put_env(:managoat_runner, :host, Fountain.Runners.Host)
 
-# Extension fixtures describe OpenAPI paths only while the suite runs (ADR 0043,
-# #1506). The published spec artifact is generated in MIX_ENV=test —
-# `scripts/sdk-contract/build.sh` runs `mix openapi.export`, and both ci.yml and
-# release.yml set MIX_ENV: test for it — so the `dist/openapi.json` attached to
-# every tag, and `sdk/contract/contract.json` projected from it, would otherwise
-# carry `/api/fixture/whoami` in every release. `mix openapi.export` is not a
-# test run and never loads this file, which is exactly the distinction wanted:
-# the fixture is part of the suite's distribution, not of the artifact's.
-#
-# A real extension is the opposite case and needs no flag — the bundled
-# distribution serves its operations, so they belong in the artifact.
-Application.put_env(:fountain, :extension_fixture_openapi, true)
-
 # Only set sandbox mode when the Repo is actually running (integration tests).
 # Pure unit tests that don't touch the DB can run without a live Postgres.
 if Process.whereis(Fountain.Repo) do

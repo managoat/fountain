@@ -72,89 +72,16 @@ defmodule Fountain.Umbrella.MixProject do
     ]
   end
 
-  # Migrating from the umbrella root has to reach apps/fountain — that is where
-  # the Repo's project lives — but the migration PATH SET can only be computed
-  # here, because `apps/fountain` deliberately depends on no sibling app and so
-  # cannot see an extension's `priv` at all (ADR 0043).
-  #
-  # Shelling in without the paths is how CI went red on #1507: a fresh database
-  # got no extension table, and a core migration that altered it then failed. A pre-migrated workstation database hides it
-  # completely, which is why it took a clean CI run to find.
-  #
-  # The paths are absolute because the child process runs in apps/fountain, and
-  # apps/fountain's own `ecto.migrate` alias takes an explicit
-  # `--migrations-path` at face value rather than adding its own.
-  defp migrate_in_app(args), do: run_ecto_in_app("ecto.migrate", args)
-  defp rollback_in_app(args), do: run_ecto_in_app("ecto.rollback", args)
-
-  defp run_ecto_in_app(task, args) do
-    Mix.Task.run("app.config")
-
-    args = if "--migrations-path" in args, do: args, else: args ++ migration_path_args()
-
-    Mix.Task.run("do", ["--app", "fountain", "cmd", "mix", task] ++ args)
-  end
-
-  defp migration_path_args do
-    core = Path.expand("apps/fountain/priv/repo/migrations", File.cwd!())
-
-    [core | Fountain.Migrations.extension_paths()]
-    |> Enum.flat_map(&["--migrations-path", &1])
-  end
-
   defp releases do
     [
       fountain_server: [
-        # One release name, two distributions (ADR 0043 decision 7). The name
-        # stays `fountain_server` in both, because it is `bin/fountain_server`
-        # in the image's CMD, in every `bin/migrate` and in the operator's
-        # muscle memory — a core release is a different set of applications,
-        # not a different product.
-        #
-        # `apps/fountain` deliberately depends on NO extension — the arrow
-        # points the other way and the compiler proves it — so inclusion is the
-        # release's decision, made here, and dropping one is a switch rather
-        # than untangling a dependency.
-        #
-        # `BUNDLE_EXTENSIONS=false` builds the core release: the server and
-        # nothing else. Every `apps/fountain_*` app is an extension and is
-        # discovered rather than listed, so a new one is in the bundled release
-        # from the commit that adds it and out of the core one for free.
-        applications: [fountain: :permanent] ++ extension_applications()
+        applications: [fountain: :permanent]
       ]
     ]
   end
 
-  # `BUNDLE_EXTENSIONS=false mix release` builds the core distribution.
-  #
-  # Read from the environment rather than from Mix config because the Dockerfile
-  # passes it as a build arg, and a build arg reaches `mix release` as an
-  # environment variable.
-  #
-  # Discovered from `apps/fountain_*` rather than listed. A `managoat_*` library
-  # under apps/ is a DEPENDENCY of fountain (decisions/0037) and belongs in both
-  # releases, which is why the glob is the naming convention and not "every
-  # sibling".
-  defp extension_applications do
-    if System.get_env("BUNDLE_EXTENSIONS", "true") == "true" do
-      __DIR__
-      |> Path.join("apps/fountain_*")
-      |> Path.wildcard()
-      |> Enum.filter(&File.dir?/1)
-      |> Enum.map(&{String.to_atom(Path.basename(&1)), :permanent})
-      |> Enum.sort()
-    else
-      []
-    end
-  end
-
   defp aliases do
     [
-      # `ecto.setup` and `ecto.reset` go through this project's `ecto.migrate`
-      # below, NOT through apps/fountain's — the app cannot see a sibling's
-      # migration path, so shelling straight into its `ecto.setup` would create
-      # a database with no extension tables (ADR 0043). Same bug CI caught on
-      # the plain `ecto.migrate` path, on the two entrances CI does not run.
       setup: ["deps.get", "ecto.setup"],
       # `cmd` under `do --app`, rather than `do --app <task>` directly (#1526,
       # replacing the deprecated `cmd --app`): `mix do --app` narrows only a
@@ -167,33 +94,15 @@ defmodule Fountain.Umbrella.MixProject do
       # command runs inside apps/fountain, which is what `cmd --app` did.
       "ecto.setup": [
         "do --app fountain cmd mix ecto.create",
-        "ecto.migrate",
+        "do --app fountain cmd mix ecto.migrate",
         "do --app fountain cmd mix run priv/repo/seeds.exs"
       ],
       "ecto.reset": ["do --app fountain cmd mix ecto.drop", "ecto.setup"],
-      # Migrating from the umbrella root has to go through apps/fountain, or the
-      # extension migration paths are silently dropped (ADR 0043, #1506).
-      #
-      # `mix ecto.migrate` is a recursive task: run here, Mix invokes the task
-      # module inside each child project WITHOUT resolving that child's aliases,
-      # so apps/fountain's "ecto.migrate" alias — the one that appends every
-      # installed extension's --migrations-path — never fires. It reports
-      # "Migrations already up" and leaves the extension's tables missing.
-      # Shelling into the app the way `ecto.reset` above already does is what
-      # makes the child's alias run. CI, SETUP.md and CLAUDE.md all migrate from
-      # the root, so without these two lines the root is the entrance that
-      # quietly skips extensions.
-      # Render the served OpenAPI spec. At the UMBRELLA ROOT on purpose: the
-      # document describes the running distribution (ADR 0043), and only here
-      # is every app on the code path. Run inside apps/fountain — which is what
-      # this did until #1507 — and `Fountain.Extensions.installed/0` is empty,
-      # so the extension's operations vanish from `dist/openapi.json` and from
-      # the SDK contract projected out of it, silently and by deletion.
+      # Render the served OpenAPI spec to dist/openapi.json, which
+      # scripts/sdk-contract/build.sh projects into the SDK contract.
       "openapi.export": [
         "openapi.spec.json --spec FountainWeb.ApiSpec --vendor-extensions=false dist/openapi.json"
       ],
-      "ecto.migrate": [&migrate_in_app/1],
-      "ecto.rollback": [&rollback_in_app/1],
       # The gate is scripts/precommit.sh, one OS process per stage, and its
       # exit status is the verdict. `System.halt/1` rather than `Mix.raise/1`
       # so that status reaches the shell untouched: nothing in Mix's own exit

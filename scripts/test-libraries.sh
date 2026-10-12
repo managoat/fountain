@@ -5,18 +5,15 @@
 # with the partitions' exports and the 85% gate stands on the union
 # (scripts/coverage-gate.exs reads that one directory).
 #
-# That is two kinds of app today: a library on its way out (apps/managoat_*,
-# decisions/0037 — none right now, all nine graduated) and a first-party
-# extension (apps/fountain_*, decisions/0043).
-# They need the same treatment for the same reason, so the glob is "every
-# sibling" rather than a list to keep updated.
+# That is a library on its way out (apps/managoat_*, decisions/0037 — none
+# right now, all nine graduated). The glob is "every sibling" rather than a
+# list to keep updated.
 #
 # Why a separate script and not another partition: scripts/partition-files.sh
 # and the timings manifest are written against apps/fountain, whose
 # tests all belong to the :fountain app. A sibling app's tests belong to that
 # app, run from its own directory, and instrument its own modules — and
-# apps/fountain cannot load them at all, because it deliberately depends on
-# neither. Without this they would be unmeasured and would run only when
+# apps/fountain does not load them. Without this they would be unmeasured and would run only when
 # someone ran `mix test` at the root. CI runs this from one partition (see
 # ci.yml). When a sibling's suite grows past a few seconds, give it a matrix
 # entry of its own instead.
@@ -41,8 +38,7 @@ for dir in apps/*/; do
 done
 shopt -u nullglob
 
-# Zero siblings is a legitimate state — a core-only checkout with every library
-# on hex and no extension — and the coverage job counts the same directories, so
+# Zero siblings is the usual state — every library is on hex — and the coverage job counts the same directories, so
 # the merge still balances.
 if [ "${#apps[@]}" -eq 0 ]; then
   echo "no sibling apps under apps/ besides fountain; nothing to run"

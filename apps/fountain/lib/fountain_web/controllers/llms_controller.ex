@@ -130,13 +130,6 @@ defmodule FountainWeb.LlmsController do
   # A slug that no longer exists is a dead link in a machine-readable index.
   # Fail the compile instead — same bargain `Fountain.Docs` makes with its nav
   # parser, and the same reason: a silently missing page is the bug.
-  #
-  # `Fountain.Docs` and not `Fountain.Manual` throughout this module, on
-  # purpose. llms.txt is a hand-curated index of the CORE manual, and this
-  # check is what keeps the corpus below from naming a page an extension owns
-  # — which would be a core file pointing at something a core distribution does
-  # not serve. It also has to be answerable at compile time, and the installed
-  # set is not (ADR 0043: build-time install, runtime enable).
   @known MapSet.new(Fountain.Docs.slugs())
 
   for {slug, _title, _blurb} <-

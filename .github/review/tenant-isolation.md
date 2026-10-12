@@ -14,7 +14,7 @@ Admin sweeps and established-owner GenServers have different entry conditions;
 prove those conditions rather than treating the prefix alone as a bug.
 
 Check relationships across environments, vaults, agents, conversations,
-sandboxes, runners and extension resources. User-supplied IDs, runtime/model
+sandboxes, runners and teams. User-supplied IDs, runtime/model
 choices, inherited sandboxes and environment overrides must not cross owners
 or expand an agent's allowed environments. Verify API-key scopes and OAuth
 permissions at every entry point, including sandbox callbacks and file access.

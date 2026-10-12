@@ -96,9 +96,6 @@ apps/fountain/test/fountain/emails/user_emails_test.exs	1752
 apps/fountain/test/fountain/emails/user_emails_welcome_test.exs	732
 apps/fountain/test/fountain/environments/environment_test.exs	12
 apps/fountain/test/fountain/environments_test.exs	6152
-apps/fountain/test/fountain/extension_composition_test.exs	315
-apps/fountain/test/fountain/extension_guard_test.exs	525
-apps/fountain/test/fountain/extensions_test.exs	240
 apps/fountain/test/fountain/feature_flags_test.exs	58
 apps/fountain/test/fountain/health_test.exs	4006
 apps/fountain/test/fountain/help_test.exs	11
@@ -258,7 +255,6 @@ apps/fountain/test/fountain_web/oauth_test.exs	0
 apps/fountain/test/fountain_web/plugs/audit_plug_test.exs	4441
 apps/fountain/test/fountain_web/plugs/cast_render_error_test.exs	253
 apps/fountain/test/fountain_web/plugs/cors_test.exs	4
-apps/fountain/test/fountain_web/plugs/extension_dispatch_test.exs	3221
 apps/fountain/test/fountain_web/plugs/pre_auth_rate_limit_test.exs	281
 apps/fountain/test/fountain_web/plugs/put_api_spec_test.exs	6
 apps/fountain/test/fountain_web/plugs/rate_limit_sweeper_test.exs	0

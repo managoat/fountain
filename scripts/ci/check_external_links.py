@@ -65,7 +65,7 @@ def check(url):
 
 def main():
     sources = [ROOT / "CLAUDE.md"]
-    for directory in [ROOT / "docs", *sorted(ROOT.glob("apps/*/docs"))]:
+    for directory in [ROOT / "docs"]:
         sources.extend(sorted(directory.rglob("*.md")))
     references = {}
     for path in sources:

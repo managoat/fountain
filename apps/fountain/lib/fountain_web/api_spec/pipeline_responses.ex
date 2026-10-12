@@ -5,8 +5,7 @@ defmodule FountainWeb.ApiSpec.PipelineResponses do
   The router supplies membership; this module describes each pipeline's wire
   responses. Controller declarations take precedence, including specialized
   error envelopes. Controller-local plugs and context refusals remain declared
-  on the operation that can return them. Composed extension paths inherit the
-  pipelines of their real dispatch route too.
+  on the operation that can return them.
   """
 
   alias FountainWeb.Schemas

@@ -22,8 +22,8 @@ permissions:
   contents: read
 
 # Independent jobs keep feedback near the slowest test partition plus coverage.
-# Six partitions share a :test cache; static analysis, bundled release and core
-# release use their own build caches. Postgres starts alongside toolchain setup.
+# Six partitions share a :test cache; static analysis and the release use their
+# own build caches. Postgres starts alongside toolchain setup.
 # The partition manifest reserves time on partition 1 for the sibling apps.
 #
 # CI required verifies the selected plan, including intentional skips. A green
@@ -324,12 +324,10 @@ jobs:
           MIX_TEST_PARTITION: ${{ matrix.partition }}
         run: scripts/test-partition.sh ${{ strategy.job-total }}
 
-      # The sibling umbrella apps — a managoat_* library on its way out
-      # (decisions/0037) and the first-party extensions (apps/fountain_*,
-      # decisions/0043) — are not in the partition manifest: their tests belong
-      # to those apps, run from their own directories and instrument their own
-      # modules, and apps/fountain cannot even load them because it depends on
-      # neither. One partition runs them all and copies the exports into the
+      # A sibling umbrella app — a managoat_* library on its way out
+      # (decisions/0037), none today — is not in the partition manifest: its
+      # tests belong to that app, run from its own directory and instrument its
+      # own modules. One partition runs them all and copies the exports into the
       # merge directory as lib-*, so the coverage gate below stands on the
       # union. The allocator reserves their measured duration on partition 1
       # instead of treating that partition as an equally empty bucket.
@@ -420,7 +418,7 @@ jobs:
           fi
           # The sibling apps' exports (scripts/test-libraries.sh): one per
           # umbrella app other than fountain — a managoat_* library on its way
-          # out (decisions/0037) or a first-party extension (decisions/0043) — or the
+          # out (decisions/0037) — or the
           # gate would stand on the partitions alone and their coverage would go
           # unmeasured.
           libs=()
@@ -957,230 +955,6 @@ jobs:
       - name: Deployed-instance runner tests
         run: node --test deployed/test/*.test.mjs
 
-  # ADR 0043 decision 7 promises two distributions from one tree: the bundled
-  # release, which every existing tag has meant, and a core release that carries
-  # no extension at all. Until this job existed the core half was an assertion —
-  # `apps/fountain` running alone in the test partitions proves the TEST path,
-  # and the release path was proved only by `mix release` assembling with every
-  # `applications:` entry present.
-  #
-  # Its own job rather than a step in `checks`, for two reasons: that job is
-  # already close to its 15-minute ceiling (#1537), and a red here should say
-  # one thing — "the core distribution does not work" — rather than arrive
-  # buried in static analysis.
-  core-distribution:
-    name: Core distribution boots without the extensions
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    needs: [already-tested, changes]
-    if: ${{ !cancelled() && needs.already-tested.outputs.skip != 'true'
-         && needs.changes.outputs.docs_only != 'true' }}
-
-    permissions:
-      contents: read
-
-    env:
-      PG_IMAGE: postgres:16@sha256:287eced1f33b59ed265ed13a60d3680dd7646d70c4dc0e785f59a470ebc03eeb
-
-    steps:
-      # Backgrounded rather than a service container, for the reason the test
-      # job's copy explains: a service container's ~27s sits on the critical
-      # path before the first step runs.
-      - name: Start Postgres in the background
-        run: |
-          set -euo pipefail
-          nohup docker run -d --name postgres \
-            -p 5432:5432 \
-            -e POSTGRES_USER=postgres \
-            -e POSTGRES_PASSWORD=postgres \
-            -e POSTGRES_DB=fountain_core \
-            "${PG_IMAGE}" > "${RUNNER_TEMP}/postgres-start.log" 2>&1 &
-          echo "postgres starting; the wait step is what decides"
-
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
-
-      - name: Set up Elixir
-        id: beam
-        uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1.24.1
-        with:
-          elixir-version: "1.19.2"
-          otp-version: "28.3"
-
-      - name: Backport the pinned Mix lock fix
-        run: scripts/ci/mix-lock-backport.sh --install
-
-      - name: Restore deps cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v5
-        with:
-          path: deps
-          key: ${{ runner.os }}-mix-core-${{ hashFiles('mix.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-mix-core-
-
-      - name: Restore core build cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v5
-        with:
-          path: |
-            _build/prod/lib
-            _build/prod/.mix
-          key: ${{ runner.os }}-build-core-${{ steps.beam.outputs.otp-version }}-${{ steps.beam.outputs.elixir-version }}-${{ hashFiles('mix.lock', 'mix.exs', 'apps/*/mix.exs') }}
-          restore-keys: |
-            ${{ runner.os }}-build-core-${{ steps.beam.outputs.otp-version }}-${{ steps.beam.outputs.elixir-version }}-
-
-      - name: Wait for Postgres
-        run: |
-          set -euo pipefail
-          for _ in $(seq 1 120); do
-            if docker exec postgres pg_isready -U postgres -q 2>/dev/null; then
-              echo "postgres ready"
-              exit 0
-            fi
-            sleep 0.5
-          done
-          echo "::error::postgres never became ready"
-          docker logs postgres 2>&1 | tail -50 || true
-          exit 1
-
-      # BUNDLE_EXTENSIONS is read by `extension_applications/0` in mix.exs and by the
-      # Dockerfile's asset stage; one switch drives both halves so an image
-      # cannot end up with an extension application and no binaries (#1509).
-      - name: Build the core release
-        env:
-          MIX_ENV: prod
-          BUNDLE_EXTENSIONS: "false"
-        run: |
-          set -euo pipefail
-          mix deps.get --only prod
-          rm -rf _build/prod/rel
-          mix release fountain_server
-
-      # The assertion the campaign has been making since #1507. `mix release`
-      # is happy to build a release containing an application nobody asked
-      # for, so the contents are checked rather than trusted.
-      - name: The core release carries no extension
-        run: |
-          set -euo pipefail
-          apps=$(ls _build/prod/rel/fountain_server/lib | sed -E 's/-[0-9.]+$//' | sort)
-          echo "$apps" | tr '\n' ' '; echo
-          # `apps/fountain_*` is the extension naming convention. A
-          # `managoat_*` library under apps/ would be a DEPENDENCY of fountain
-          # and legitimately in both releases, so it must not be swept up here.
-          for ext in $(ls apps | grep '^fountain_'); do
-            if echo "$apps" | grep -qx "$ext"; then
-              echo "::error::the core release contains $ext" >&2
-              exit 1
-            fi
-          done
-          echo "no extension application in the core release"
-
-      # A FRESH database, migrated by the core release itself. This is the
-      # check that would have caught the crossing #1509 found by accident: a
-      # core migration altering a table only an extension created, which a core
-      # distribution does not have. Nothing but a core release against an empty
-      # database exercises that path.
-      - name: The core release boots, migrates and answers its health probes
-        env:
-          MIX_ENV: prod
-          PHX_SERVER: "true"
-          PORT: "4000"
-          SECRET_KEY_BASE: ci-only-not-a-secret-000000000000000000000000000000000000000000000000
-          MASTER_SECRETS_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-          DATABASE_URL: postgres://postgres:postgres@localhost/fountain_core
-          DATABASE_SSL: "false"
-          PUBLIC_URL: https://ci.example.com
-          EMAIL_DELIVERY: none
-          OTEL_TRACES_EXPORTER: none
-        run: |
-          set -euo pipefail
-          rel=_build/prod/rel/fountain_server/bin/fountain_server
-
-          # Config providers run here, against a release whose :extensions list
-          # resolves to nothing. A core release that names an extension it does
-          # not carry aborts in Fountain.Extensions.validate!/0, at this line.
-          "$rel" eval 'IO.puts("config ok")'
-
-          # Migrations run on boot. An empty database plus a core-only path set
-          # is the whole point of this step.
-          "$rel" daemon
-          trap '"$rel" stop || true' EXIT
-
-          probe() {
-            for _ in $(seq 1 45); do
-              code=$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: 10.42.0.1' "http://127.0.0.1:4000$1") || code=000
-              if [ "$code" = "200" ]; then
-                echo "  $1 -> 200"
-                return 0
-              fi
-              if [ "$code" != "000" ] && [ "$code" != "502" ]; then
-                echo "  $1 -> $code (expected 200)" >&2
-                return 1
-              fi
-              sleep 2
-            done
-            echo "  $1 never answered" >&2
-            return 1
-          }
-
-          probe /health
-          probe /health/ready
-
-          # The document describes the running distribution (ADR 0043). A core
-          # release advertising an operation it cannot serve would be a lie the
-          # SDKs are generated from.
-          #
-          # Asked of the running node with `rpc`, not fetched over HTTP. The
-          # first version curled /api/openapi.json and got a **301** — prod
-          # enforces HTTPS and only the health paths are excluded — which
-          # `curl -f` does not treat as a failure, so it wrote an empty file,
-          # `jq` exited 0 with no output, and the check passed on nothing. That
-          # is the same redirect trap the bundled boot check's own comment
-          # warns about, walked into one step later.
-          #
-          # `eval` cannot do this either: ApiSpec.spec/0 reaches the Endpoint
-          # through OpenApiSpex.Server.from_endpoint/1, which needs it started.
-          # `rpc` runs in the daemon that is already serving.
-          "$rel" rpc 'FountainWeb.ApiSpec.spec().paths |> Map.keys() |> Enum.sort() |> Enum.each(&IO.puts/1)' \
-            > /tmp/core-paths.txt
-
-          # Guard the guard: a spec with no paths satisfies every "describes no
-          # extension" check ever written, which is exactly how the first
-          # version of this step passed.
-          count=$(wc -l < /tmp/core-paths.txt | tr -d ' ')
-          if [ "${count:-0}" -lt 50 ]; then
-            echo "::error::the core spec has ${count:-0} paths; the API has far more" >&2
-            head -c 2000 /tmp/core-paths.txt >&2 || true
-            exit 1
-          fi
-
-          for ext in $(ls apps | grep '^fountain_' | sed 's/^fountain_//'); do
-            if grep -q "^/api/$ext" /tmp/core-paths.txt; then
-              echo "::error::the core spec describes /api/$ext" >&2
-              grep "^/api/$ext" /tmp/core-paths.txt >&2
-              exit 1
-            fi
-          done
-          echo "no extension path in the core spec ($count paths)"
-
-      # The other direction, from the same compiled tree, so the job proves the
-      # switch rather than one setting of it. A release that carried nothing
-      # either way would pass every check above.
-      - name: The bundled release carries every extension
-        env:
-          MIX_ENV: prod
-          BUNDLE_EXTENSIONS: "true"
-        run: |
-          set -euo pipefail
-          rm -rf _build/prod/rel
-          mix release fountain_server
-          apps=$(ls _build/prod/rel/fountain_server/lib | sed -E 's/-[0-9.]+$//' | sort)
-          for ext in $(ls apps | grep '^fountain_'); do
-            echo "$apps" | grep -qx "$ext" || {
-              echo "::error::the bundled release is missing $ext" >&2
-              exit 1
-            }
-          done
-          echo "every extension application is in the bundled release"
-
   compose-fresh-clone:
     name: Compose fresh-clone check
     runs-on: ubuntu-24.04
@@ -1521,7 +1295,6 @@ jobs:
       - release-and-contract
       - cli-plugins
       - typescript-sdk
-      - core-distribution
       - compose-fresh-clone
       - compose-pinned-image-boot
       - docs

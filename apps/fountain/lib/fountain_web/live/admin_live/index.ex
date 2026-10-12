@@ -42,50 +42,7 @@ defmodule FountainWeb.AdminLive.Index do
     socket
     |> assign(:provider_spend, SandboxUsage.provider_spend())
     |> assign(:sandbox_count, Conversations._unsafe_count_sandboxes_admin())
-    # Whatever installed extensions report (ADR 0043). The console renders
-    # numbers it is handed; it does not know what an extension is called or
-    # what its figures mean, and `apps/fountain/lib` names no extension module.
-    |> assign(:extension_overview, Fountain.Extensions.admin_overview())
   end
-
-  # An extension's admin figure. `{label, value}` or `{label, value, opts}`,
-  # where opts may carry :navigate (make the tile a link) and :note (a line
-  # under the number). The host owns every element of the markup.
-  attr :tile, :any, required: true
-
-  defp extension_tile(assigns) do
-    {label, value, opts} = normalize_tile(assigns.tile)
-
-    assigns =
-      assigns
-      |> assign(:label, label)
-      |> assign(:value, value)
-      |> assign(:navigate, Keyword.get(opts, :navigate))
-      |> assign(:note, Keyword.get(opts, :note))
-
-    ~H"""
-    <.link
-      :if={@navigate}
-      navigate={@navigate}
-      class="bg-[var(--color-bg-1)] rounded shadow border border-[var(--color-border)] px-4 py-3 hover:border-[var(--color-border-strong)]"
-    >
-      <div class="text-xs text-[var(--color-text-secondary)]">{@label}</div>
-      <div class="text-2xl font-semibold tabular-nums">{@value}</div>
-      <div :if={@note} class="text-xs text-[var(--color-text-secondary)]">{@note}</div>
-    </.link>
-    <div
-      :if={!@navigate}
-      class="bg-[var(--color-bg-1)] rounded shadow border border-[var(--color-border)] px-4 py-3"
-    >
-      <div class="text-xs text-[var(--color-text-secondary)]">{@label}</div>
-      <div class="text-2xl font-semibold tabular-nums">{@value}</div>
-      <div :if={@note} class="text-xs text-[var(--color-text-secondary)]">{@note}</div>
-    </div>
-    """
-  end
-
-  defp normalize_tile({label, value}), do: {label, value, []}
-  defp normalize_tile({label, value, opts}) when is_list(opts), do: {label, value, opts}
 
   @impl true
   def render(assigns) do
@@ -106,12 +63,6 @@ defmodule FountainWeb.AdminLive.Index do
             <div class="text-2xl font-semibold tabular-nums">{@sandbox_count}</div>
             <div class="text-xs text-[var(--color-text-secondary)]">running now ↗</div>
           </.link>
-
-          <%!-- Installed extensions' figures (ADR 0043). One tile each, in
-                configured order, rendered from data the extension returns.
-                Nothing here knows what an extension is; with none installed
-                this renders nothing. --%>
-          <.extension_tile :for={tile <- @extension_overview} tile={tile} />
 
           <%!-- Hours, not money: minutes on different providers cost
                 different amounts. --%>

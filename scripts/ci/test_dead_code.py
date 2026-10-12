@@ -16,7 +16,7 @@ class DeadCodeReportTest(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        for directory in ("scripts", "bin", "apps/fountain", "cli", "apps/fountain_buzz/cli"):
+        for directory in ("scripts", "bin", "apps/fountain", "cli"):
             (self.root / directory).mkdir(parents=True)
         shutil.copy2(SCRIPT, self.root / "scripts/dead-code.sh")
         self.env = {**os.environ, "PATH": f"{self.root / 'bin'}:{os.environ['PATH']}"}
@@ -72,24 +72,17 @@ REPORT
         self.assertIn("Compilation failed", result.stderr)
         self.assertIn("invalid source", result.stderr)
 
-    def test_go_failure_in_either_module_is_not_a_clean_report(self):
-        for module in ("cli", "apps/fountain_buzz/cli"):
-            with self.subTest(module=module):
-                self.env["FAIL_DIRECTORY"] = str(self.root / module)
-                self.tool("go", """if [[ "$PWD" == "$FAIL_DIRECTORY" ]]; then
-  echo 'cannot load packages' >&2
-  exit 24
-fi
-echo 'main.go:8:1: unreachable func: unused'
+    def test_go_failure_is_not_a_clean_report(self):
+        self.tool("go", """echo 'cannot load packages' >&2
+exit 24
 """)
-                result = self.report("go")
-                self.assertEqual(result.returncode, 24)
-                self.assertIn("cannot load packages", result.stderr)
+        result = self.report("go")
+        self.assertEqual(result.returncode, 24)
+        self.assertIn("cannot load packages", result.stderr)
 
-    def test_successful_go_report_contains_both_modules(self):
+    def test_successful_go_report_contains_the_module(self):
         self.tool("go", "echo 'main.go:8:1: unreachable func: unused'\n")
         result = self.report("go")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("### cli", result.stdout)
-        self.assertIn("### apps/fountain_buzz/cli", result.stdout)
-        self.assertEqual(result.stdout.count("unreachable func: unused"), 2)
+        self.assertEqual(result.stdout.count("unreachable func: unused"), 1)

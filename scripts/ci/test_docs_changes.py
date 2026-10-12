@@ -54,7 +54,7 @@ class DocumentationRoutingTest(unittest.TestCase):
     def test_code_and_unknown_paths_cannot_enter_the_short_path(self):
         for path in (
             "apps/fountain/lib/fountain/agents.ex", "apps/fountain/test/fountain/docs_test.exs",
-            "apps/fountain_buzz/lib/fountain_buzz/docs.ex", "apps/fountain_buzz/test/fountain_buzz/docs_test.exs",
+            "apps/fountain_google/lib/fountain_google/docs.ex", "apps/fountain_google/test/fountain_google/docs_test.exs",
             "apps/new_extension/docs/page.md", "contributing/tool.py", "standards/check.sh",
             "config/test.exs", "mix.exs", "mix.lock", "Dockerfile",
             "decisions/evidence/decimal-advisory.json", "decisions/check.py", "changelog.d/check.sh",
@@ -220,6 +220,6 @@ class DocumentationRunnerTest(unittest.TestCase):
                     self.assertTrue((Path(cwd) / test).is_file(), test)
             calls.unlink()
             result = subprocess.run(["bash", str(ROOT / "scripts/test-docs.sh")],
-                                    env=dict(env, FAIL_APP="fountain_buzz"))
+                                    env=dict(env, FAIL_APP="fountain_google"))
             self.assertEqual(result.returncode, 42)
             self.assertEqual(len(calls.read_text().splitlines()), 2)

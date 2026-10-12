@@ -125,39 +125,6 @@ fountain vault set-secret <id-or-name> <key> <value>
 fountain vault delete-secret <id-or-name> <key>
 ```
 
-## Hosted Buzz agents
-
-These commands change the inbound gate on a hosted
-Buzz agent. The gate decides whose `@`-mention the
-harness answers.
-
-The Buzz desktop refuses to change access on a provider agent it already
-deployed. So this is where that gate changes. To set it restarts the harness,
-and the new gate is then live.
-
-**This does not make the agent mentionable.** Buzz Desktop 0.5.17 and newer
-builds its agent directory from the owner-signed kind-30177 policy that the
-desktop published at deploy. It does not build it from what the harness
-advertises.
-
-So open the gate here, publish that policy again, and other users can send the
-mention. Open the gate alone, and they cannot send it at all. Read
-"Who may talk to it", on the Buzz page a bundled distribution serves.
-
-```bash
-fountain buzz agents list [--json]
-fountain buzz agents set-access <name-or-id> --respond-to anyone
-fountain buzz agents set-access <name-or-id> --respond-to allowlist --allowlist <hex>,<hex>
-fountain buzz agents set-access <name-or-id> --respond-to owner-only
-```
-
-`--respond-to` is one of `owner-only`, `allowlist`, `anyone` and `nobody`.
-Those are `buzz-acp`'s own modes. Only the flags you pass change, so
-`--respond-to` on its own keeps the stored allowlist.
-
-A later provider deploy from the desktop sends the desktop's own record again,
-and overwrites what you set here.
-
 ## Conversations
 
 ```bash

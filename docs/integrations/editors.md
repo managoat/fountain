@@ -112,7 +112,7 @@ that [environment](../concepts/environment.md), and not from the agent's own.
 
 Use it when one agent config must run under several baselines. The same
 "engineer" then runs against a `fountain` environment in one entry and a
-`buzz` environment in another, and you duplicate no agent. The vault, if there
+`website` environment in another, and you duplicate no agent. The vault, if there
 is one, still wins on a key collision. An agent can also restrict which
 environments can stand in for its own, with `allowed_environment_ids`.
 

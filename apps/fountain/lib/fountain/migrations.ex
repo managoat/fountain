@@ -29,7 +29,7 @@ defmodule Fountain.Migrations do
     * **Moving a migration between paths is not a re-run.** A version already in
       `schema_migrations` stays applied when its file moves from the core
       directory to an extension's, because Ecto matches on the version number
-      and never on the path. That is what lets #1507 move `buzz_identities`
+      and never on the path. That is what let #1507 move an extension's table
       without touching a live database.
 
   ## Two ways to name the core path, and why

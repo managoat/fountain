@@ -31,11 +31,6 @@
   },
 
   {
-    "name": "area:buzz",
-    "color": "1D76DB",
-    "description": "Buzz integration, hosted harnesses and protocol compatibility."
-  },
-  {
     "name": "area:conversations",
     "color": "1D76DB",
     "description": "Conversation lifecycle, turns, streaming, recovery and orchestration."

@@ -24,10 +24,7 @@ updates:
 
   - package-ecosystem: gomod
     labels: ["type:dependency", "lang:go"]
-    # One update job spans both sides of Buzz's local replace (#1769).
-    directories:
-      - /cli
-      - /apps/fountain_buzz/cli
+    directory: /cli
     schedule:
       interval: weekly
     groups:

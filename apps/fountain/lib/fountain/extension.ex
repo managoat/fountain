@@ -93,9 +93,8 @@ defmodule Fountain.Extension do
   The paths under `/api` this extension serves, and the Plug behind each.
 
   Each entry is `{"/segment[/segment...]", plug}` — an absolute path relative to
-  `/api`, lowercase, and static. More than one is allowed, and the Buzz
-  extension needs it: ADR 0043's compatibility promise keeps both of its
-  existing paths and they are not nested under one another.
+  `/api`, lowercase, and static. More than one is allowed, for an extension
+  whose paths are not nested under one another.
 
       def api_mounts do
         [{"/my-ext", MyExt.Router}, {"/mcp/my-ext", MyExt.McpRouter}]
@@ -197,6 +196,9 @@ defmodule Fountain.Extension do
   hosted agent is a standing OS process no sandbox meter reports. Deleting them
   to move Buzz would have removed the only view an operator has of what they are
   paying for. Called on a page render, so it must be one query or none.
+
+  Buzz was the only implementer of this and of `c:admin_user_columns/0`, and is
+  gone (simplify 3/5), so no first-party extension implements either today.
   """
   @callback admin_overview() :: [
               {label :: String.t(), value :: term()}
@@ -227,6 +229,9 @@ defmodule Fountain.Extension do
   Oban-shaped on purpose. An extension shares the host's Repo, its `oban_jobs`
   table and its queues; a second Oban instance to avoid naming the first would
   be pretending a coupling away rather than removing it.
+
+  Buzz's harness sweep was its only entry and is gone (simplify 3/5), so no
+  first-party extension implements it today.
   """
   @callback oban_cron() :: [{crontab :: String.t(), worker :: module()}]
 

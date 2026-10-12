@@ -190,8 +190,8 @@ the database allows that many for every machine.
 start runs. To run a fork with your own changes, delete the `image` line under
 `[build]`. Fly then builds the `Dockerfile` in your checkout.
 
-The build takes 15 to 25 minutes on Fly's builders. It compiles the umbrella,
-it builds the Go CLI, and it fetches the pinned Buzz binaries.
+The build takes 15 to 25 minutes on Fly's builders. It compiles the umbrella
+and assembles the release.
 
 ## What the file does not do
 

@@ -159,44 +159,6 @@ Print current user info
 fountain auth whoami
 ```
 
-## `fountain buzz agents list`
-
-List hosted Buzz agents
-
-```
-fountain buzz agents list [flags]
-```
-
-Options:
-
-```
-      --json   output JSON
-```
-
-## `fountain buzz agents set-access`
-
-Change who may @-mention a hosted Buzz agent (restarts its harness)
-
-Set buzz-acp's inbound author gate on a hosted Buzz agent and restart its
-harness so it takes effect.
-
-  --respond-to  owner-only | allowlist | anyone | nobody
-  --allowlist   comma-separated 64-hex pubkeys (allowlist mode; required non-empty there)
-
-Note: a later provider deploy from the Buzz desktop resends the desktop's own
-record for the agent and overwrites what is set here.
-
-```
-fountain buzz agents set-access <name-or-id> [flags]
-```
-
-Options:
-
-```
-      --allowlist string    comma-separated 64-hex pubkeys admitted in allowlist mode
-      --respond-to string   owner-only | allowlist | anyone | nobody
-```
-
 ## `fountain conv create`
 
 Create from API-shaped JSON and print the API response

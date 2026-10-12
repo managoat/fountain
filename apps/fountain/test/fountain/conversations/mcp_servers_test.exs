@@ -289,11 +289,10 @@ defmodule Fountain.Conversations.McpServersTest do
   end
 
   describe "fountain_served/2" do
-    test "is extensions, buzz, team, in that order" do
-      # No Buzz identity on this row, so that list is empty; the order of the
-      # ones that remain is the order the server appended them before #1371,
+    test "is extensions, then team" do
+      # The order of these is the order the server appended them before #1371,
       # with installed extensions prepended by #1505. The retired caller-tool
-      # bridge was a fourth entry here until ADR 0057 (#2252).
+      # bridge was another entry here until ADR 0057 (#2252).
       conv = insert_conversation(channel_id: Fountain.Team.channel())
 
       assert [%{name: team_name}] = McpServers.fountain_served(conv, "tok")

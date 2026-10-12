@@ -6,7 +6,7 @@ defmodule Fountain.Team.Mcp do
   `get_teammate("engineer")` → `send_to_teammate(id, text)`, and
   `read_teammate` fetches the reply.
 
-  Same shape as the Buzz tools (ADR 0020): a pure JSON-RPC/tool layer over a
+  A pure JSON-RPC/tool layer over a
   `ctx`, served by `FountainWeb.TeamMcpController` at
   `POST /api/mcp/team/:conversation_id`, injected into each turn by
   `Fountain.Team.conversation_mcp_servers/2`. The sandbox authenticates with

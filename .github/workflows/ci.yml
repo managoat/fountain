@@ -325,8 +325,8 @@ jobs:
         run: scripts/test-partition.sh ${{ strategy.job-total }}
 
       # The sibling umbrella apps — a managoat_* library on its way out
-      # (decisions/0037) and the first-party extensions (apps/fountain_buzz and
-      # apps/fountain_support, decisions/0043) — are not in the partition manifest: their tests belong
+      # (decisions/0037) and the first-party extensions (apps/fountain_*,
+      # decisions/0043) — are not in the partition manifest: their tests belong
       # to those apps, run from their own directories and instrument their own
       # modules, and apps/fountain cannot even load them because it depends on
       # neither. One partition runs them all and copies the exports into the
@@ -907,9 +907,7 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: cli/go.mod
-          cache-dependency-path: |
-            cli/go.sum
-            apps/fountain_buzz/cli/go.sum
+          cache-dependency-path: cli/go.sum
 
       # The CLI had tests since launch that no workflow ever ran, so they gated
       # neither a merge nor a release.
@@ -934,28 +932,12 @@ jobs:
         working-directory: cli
         run: go vet ./...
 
-      # The Buzz provider is a second Go module (ADR 0043 decision 6, #1508),
-      # so `go test ./...` in cli/ does not reach it. Separate steps rather
-      # than a loop, for the same reason the SDK contract checks are separate:
-      # a failing log line should name the module a contributor has to fix.
-      #
-      # It is the extension's, and it graduates with the extension (#1510) —
-      # at which point these steps move to that repository's CI and the
-      # `replace` in its go.mod becomes a version pin.
-      - name: Buzz provider tests
-        working-directory: apps/fountain_buzz/cli
-        run: go test -count=1 ./...
-
-      - name: Buzz provider vet
-        working-directory: apps/fountain_buzz/cli
-        run: go vet ./...
-
       # `gofmt -l` prints offending files and exits 0, so the failure has to
       # come from the emptiness check — print the list first so the log says
       # which files to run gofmt on.
       - name: CLI gofmt
         run: |
-          unformatted=$(gofmt -l cli apps/fountain_buzz/cli)
+          unformatted=$(gofmt -l cli)
           if [ -n "$unformatted" ]; then
             echo "gofmt needed on:" >&2
             echo "$unformatted" >&2
@@ -1093,9 +1075,9 @@ jobs:
 
       # A FRESH database, migrated by the core release itself. This is the
       # check that would have caught the crossing #1509 found by accident: a
-      # core migration altering `buzz_identities`, a table a core distribution
-      # does not have. Nothing but a core release against an empty database
-      # exercises that path.
+      # core migration altering a table only an extension created, which a core
+      # distribution does not have. Nothing but a core release against an empty
+      # database exercises that path.
       - name: The core release boots, migrates and answers its health probes
         env:
           MIX_ENV: prod

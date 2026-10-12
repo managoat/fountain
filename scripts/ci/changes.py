@@ -11,7 +11,7 @@ SDK_READMES = frozenset({"sdk/typescript/README.md"})
 
 
 # Only these extension manuals have registered documentation suites.
-MANUAL_EXTENSIONS = ("fountain_buzz", "fountain_google", "fountain_microsoft", "fountain_slack")
+MANUAL_EXTENSIONS = ("fountain_google", "fountain_microsoft", "fountain_slack")
 CONTRIBUTOR_FILES = {"CLAUDE.md", "CONTRIBUTING.md", "SETUP.md", "SDKs.md", "scripts/ci/README.md"}
 
 

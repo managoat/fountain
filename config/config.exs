@@ -137,12 +137,6 @@ config :fountain,
   # true and tests flip it off per-test. See Fountain.Marketing.
   marketing_site: false
 
-# Hosted Buzz agents a tenant may run at once. Each enabled identity is a
-# supervised `buzz-acp` OS process on Fountain's own pods (ADR 0020), so the
-# cost is standing rather than metered — no sandbox meter sees it. An abuse
-# ceiling, not an allowance (#1017).
-config :fountain_buzz, :buzz_identity_ceiling, 10
-
 # Concurrency (ADR 0005, 0042). A tenant may run cap_ceiling sandboxes at
 # once, or users.sandbox_limit_override when set. fleet_ceiling bounds the
 # sum across every tenant to what the providers allow. runtime.exs overrides

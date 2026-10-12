@@ -33,21 +33,6 @@ function inventoryRows(body) {
   return body.data;
 }
 
-async function verifyBuzzDependencies(client, resources, recovery, signal) {
-  const { status, body } = await client.request('GET', '/api/buzz/agents', { expected: [200, 404], recordBody: false, signal });
-  if (status === 404) {
-    // The dispatcher gives the same 404 for absent and disabled extensions.
-    // Disabled routes do not prove their stored FK references disappeared.
-    need(body?.error === 'Not found' && body.reason === 'not_found' && note(recovery.buzz_absence_evidence),
-      'Buzz inventory unavailable; record operator-verified absence of stored Buzz dependencies or escalate');
-    return;
-  }
-  for (const row of inventoryRows(body)) {
-    need(uuid(row.agent_id) && uuid(row.vault_id) && (row.environment_id === null || uuid(row.environment_id)), 'Invalid Buzz identity dependency evidence');
-    need(!related(row, resources), 'Unrecorded Buzz identity depends on recovery fixtures; retain parents and escalate');
-  }
-}
-
 async function verifyQueueDependencies(client, recovery, signal) {
   // Neither list nor detail exposes source overrides or conversation parents.
   // A different agent cannot prove independence, even for source-only recovery.
@@ -77,7 +62,7 @@ export async function inventoryFixtures(client, { ownerId, runId }) {
   }
   resources.sort((a, b) => Number(a.name.split('-').at(-1)) - Number(b.name.split('-').at(-1)));
   return { version: 1, base_url: client.baseUrl, owner_id: ownerId, run_id: runId,
-    profiles: [], ownership_evidence: '', writers_stopped: '', intent_inventory: '', buzz_absence_evidence: '', queue_account_settlement_evidence: '', resources };
+    profiles: [], ownership_evidence: '', writers_stopped: '', intent_inventory: '', queue_account_settlement_evidence: '', resources };
 }
 
 export function validateRecoveryEvidence(evidence, baseUrl) {
@@ -86,9 +71,6 @@ export function validateRecoveryEvidence(evidence, baseUrl) {
     evidence.profiles.every(p => ['basic', 'execution', 'streaming', 'deterministic'].includes(p)),
   'Journal reconstruction supports basic, execution, streaming and deterministic only; escalate other profiles');
   for (const field of ['ownership_evidence', 'writers_stopped', 'intent_inventory']) need(note(evidence[field]), `Record ${field} before reconstructing cleanup`);
-  if (evidence.buzz_absence_evidence !== undefined && evidence.buzz_absence_evidence !== '') {
-    need(note(evidence.buzz_absence_evidence), 'Invalid Buzz absence evidence');
-  }
   need(Array.isArray(evidence.resources) && evidence.resources.length > 0 && evidence.resources.length <= 100, 'Recovery requires one to one hundred exact create intents');
   const names = new Set(), ids = new Set(), slots = new Set();
   for (const r of evidence.resources) {
@@ -122,7 +104,6 @@ export async function verifyRecoveryDependencies(client, resources, runId, signa
       record.id = row.id; record.state = 'created';
     }
   }
-  await verifyBuzzDependencies(client, resources, recovery, signal);
   await verifyQueueDependencies(client, recovery, signal);
   const ids = new Set(resources.map(r => r.id).filter(Boolean));
   const conversations = await list(client, '/api/conversations', signal);
@@ -211,7 +192,7 @@ export async function reconstructFixtures(client, evidence, manifestPath) {
   }
   await verifyRecoveryDependencies(client, resources, evidence.run_id, undefined, evidence);
   const manifest = { version: 1, base_url: client.baseUrl, owner_id: evidence.owner_id, run_id: evidence.run_id, resources,
-    recovery: { version: 1, ...Object.fromEntries(['profiles', 'ownership_evidence', 'writers_stopped', 'intent_inventory', 'buzz_absence_evidence', 'queue_account_settlement_evidence'].map(k => [k, evidence[k]])) } };
+    recovery: { version: 1, ...Object.fromEntries(['profiles', 'ownership_evidence', 'writers_stopped', 'intent_inventory', 'queue_account_settlement_evidence'].map(k => [k, evidence[k]])) } };
   atomicJson(manifestPath, manifest);
   // Use the cleanup reader as the final check, including its parent rules.
   Fixtures.load(manifestPath, client, evidence.owner_id);

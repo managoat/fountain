@@ -114,8 +114,7 @@ defmodule Fountain.Conversations.McpServers do
   Installed extensions come first (ADR 0043, #1505), in configured order, ahead
   of everything the host serves itself. That ordering is a host decision, not a
   promise to an extension — ADR 0043 fixes "extensions before team" and nothing
-  finer. Buzz's reply tools reach a turn through that fan-out since #1507; the
-  `buzz/2` clause that used to sit here went with them. The retired
+  finer. The retired
   caller-tool bridge (#1202) appended a third list here; it left with the
   dialects that fed it (ADR 0057, #2252), and the agent's own servers above
   are untouched by that removal.

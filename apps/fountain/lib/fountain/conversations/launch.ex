@@ -759,9 +759,9 @@ defmodule Fountain.Conversations.Launch do
   Like `start_conversation/2`, but a conversation already bound to
   `attrs["channel_id"]` is resumed instead of a new one being opened.
 
-  The channel key is opaque and client-supplied — a Buzz channel id from ACP
+  The channel key is opaque and client-supplied — a chat thread id from ACP
   `session/new` `_meta.channelId` (#774). A client that forgets its sessions
-  (a restarted `buzz-acp`) then lands back on the same conversation, and so
+  (a restarted chat harness) then lands back on the same conversation, and so
   the same sandbox and workspace, rather than opening a fresh one per restart.
 
   Resumes the **latest live** conversation for the same user + agent + vault

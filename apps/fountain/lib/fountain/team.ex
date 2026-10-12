@@ -5,7 +5,7 @@ defmodule Fountain.Team do
 
   A teammate is not a new kind of thing. It is a conversation — one per
   agent — bound to the reserved channel `"fountain:team"`, exactly the way
-  a Buzz channel binds a conversation through `channel_id` (#774). Adding an
+  any client binds a conversation through `channel_id` (#774). Adding an
   agent to the team opens that conversation, which provisions the agent its
   own sandbox: its computer. Messaging the teammate is `send_prompt` on that
   conversation, and `ConversationServer.send_prompt/4` already wakes a

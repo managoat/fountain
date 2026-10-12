@@ -1043,7 +1043,7 @@ defmodule FountainWeb.Schemas do
           nullable: true,
           description:
             "Opaque key for the external channel this conversation is bound to (for example a " <>
-              "Buzz channel id). When set, the latest live conversation for the same agent, vault " <>
+              "chat thread id). When set, the latest live conversation for the same agent, vault " <>
               "and channel is resumed (200) instead of a new one being opened (201)."
         },
         fresh: %Schema{

@@ -14,8 +14,8 @@ defmodule FountainGoogle.MixProject do
   release, and is switched on by naming `FountainGoogle.Extension` in
   `config :fountain, :extensions`.
 
-  AGPL-3.0-or-later, like `apps/fountain`, `apps/fountain_buzz` and
-  `apps/fountain_support`, and unlike a `managoat_*` component library
+  AGPL-3.0-or-later, like `apps/fountain` and `apps/fountain_support`, and
+  unlike a `managoat_*` component library
   (ADR 0037): Fountain-specific product code that depends on the server's
   connections, conversations and agents. Not published to hex.
   """

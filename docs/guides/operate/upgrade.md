@@ -36,16 +36,15 @@ publishes the same version with a `-core` suffix.
 
 | Tag | Contains |
 |---|---|
-| `vX.Y.Z` and `vX.Y` | The server with Buzz, Support, Google/Gmail, Microsoft and Slack extensions, plus the Buzz executables. |
-| `vX.Y.Z-core` and `vX.Y-core` | The server. No extension, no extension route, no extension migration and no extension executable. |
+| `vX.Y.Z` and `vX.Y` | The server with Support, Google/Gmail, Microsoft and Slack extensions. |
+| `vX.Y.Z-core` and `vX.Y-core` | The server. No extension, no extension route and no extension migration. |
 
 Use the bundled image unless you know you want the other one. The hosted
 deployment runs it, and we triage a bug report against it.
 
 The core image is smaller and has less surface to attack. It is also what to
-build an extension of your own against. The cost: hosted Buzz agents
-(`/api/buzz/agents` and the Nostr harness) and the problem-report endpoint
-answer `404`, because the code that serves them is not installed. The Gmail
+build an extension of your own against. The cost: the problem-report endpoint
+answers `404`, because the code that serves it is not installed. The Gmail
 MCP route is also absent. Core lists no Google, Microsoft or Slack platform
 connection provider; their OAuth environment variables are inert. You can
 revoke or delete retained connections locally. They contribute no token while

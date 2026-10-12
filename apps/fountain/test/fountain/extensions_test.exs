@@ -30,7 +30,7 @@ defmodule Fountain.ExtensionsTest do
 
   describe "configured/0 and installed/0" do
     # These assert about the FIXTURES, not about the whole list. Which real
-    # extensions a run installs depends on the working directory — the Buzz
+    # extensions a run installs depends on the working directory — a real
     # extension is on the code path at the umbrella root and not inside
     # apps/fountain (ADR 0043) — so a test that pinned the exact list would
     # pass in one and fail in the other while testing nothing about the seam.
@@ -88,8 +88,8 @@ defmodule Fountain.ExtensionsTest do
     end
 
     test "the LONGEST mount wins, so a nested mount is not swallowed" do
-      # The property Buzz needs: one extension holding both /api/buzz and
-      # /api/mcp/buzz, with a different plug behind each.
+      # One extension holding both /api/buzz and /api/mcp/buzz, with a
+      # different plug behind each (the shape the Buzz extension had).
       defmodule TwoMounts do
         use Fountain.Extension, id: :two_mounts
         @impl true
@@ -383,8 +383,8 @@ defmodule Fountain.ExtensionsTest do
     end
 
     test "but NOT on a deeper mount beside a core one (/mcp/buzz beside /api/mcp/team)" do
-      # The case the Buzz move needs: /api/mcp/team/:id is a core route, and
-      # /api/mcp/buzz overlaps it nowhere.
+      # /api/mcp/team/:id is a core route, and /api/mcp/buzz overlaps it
+      # nowhere (the shape the Buzz extension had).
       defmodule McpSibling do
         use Fountain.Extension, id: :mcp_sibling
         @impl true

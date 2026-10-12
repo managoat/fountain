@@ -12,7 +12,7 @@ defmodule FountainSupport.MixProject do
   release, and is switched on by naming `FountainSupport.Extension` in
   `config :fountain, :extensions`.
 
-  AGPL-3.0-or-later, like `apps/fountain` and `apps/fountain_buzz` and unlike a
+  AGPL-3.0-or-later, like `apps/fountain` and unlike a
   `managoat_*` component library (ADR 0037): databaseful, Fountain-specific
   product code that depends on the server. Not published to hex.
   """

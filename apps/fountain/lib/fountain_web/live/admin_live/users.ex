@@ -273,9 +273,7 @@ defmodule FountainWeb.AdminLive.Users do
     sandbox_counts = Quotas.active_sandbox_counts()
     # Whatever installed extensions add (ADR 0043). Each is one grouped query
     # built once for the page, same contract as the counts above; the console
-    # names no extension module. A hosted Buzz agent is a standing OS process
-    # that no sandbox meter reports (#1017), which is why an extension gets to
-    # put a number on the row at all.
+    # names no extension module.
     extension_columns = Fountain.Extensions.admin_user_columns()
 
     %{users: users, total: total} =

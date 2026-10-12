@@ -60,14 +60,14 @@ Run every mix command through the pinned toolchain (activate mise, or
 ```
 apps/fountain/             the server (AGPL-3.0): lib/fountain/ contexts, lib/fountain_web/ Phoenix
   test/support/            DataCase, ConnCase, factory.ex
-apps/fountain_buzz/        the five first-party extensions (ADR 0043, 0054): AGPL OTP apps
-apps/fountain_support/     that depend on :fountain, are named in `config :fountain,
-apps/fountain_google/      :extensions` and are reached only through the `Fountain.Extension`
-apps/fountain_microsoft/   callbacks. Core names no module of any (extension_guard_test.exs)
-apps/fountain_slack/       and builds no connection provider of its own. Their suites run
+apps/fountain_support/     the four first-party extensions (ADR 0043, 0054): AGPL OTP apps
+apps/fountain_google/      that depend on :fountain, are named in `config :fountain,
+apps/fountain_microsoft/   :extensions` and are reached only through the `Fountain.Extension`
+apps/fountain_slack/       callbacks. Core names no module of any (extension_guard_test.exs)
+                           and builds no connection provider of its own. Their suites run
                            from their own directories; `BUNDLE_EXTENSIONS=false` builds the
                            core distribution. A new callback on the behaviour needs an ADR.
-cli/, apps/fountain_buzz/cli   two Go modules (Apache-2.0); test each from its own directory
+cli/                       the Go CLI module (Apache-2.0); test it from its own directory
 sdk/                       the TypeScript client, against one OpenAPI contract (CONTRIBUTING.md)
 config/                    config.exs, dev.exs, test.exs, prod.exs, runtime.exs
 decisions/                 ADRs, an OKF bundle; start at decisions/index.md

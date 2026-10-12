@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "First-party extensions: Buzz becomes an OTP app installed at build time and enabled at runtime"
-description: "Buzz leaves the Fountain core as fountain_buzz, an AGPL OTP application depending on :fountain that the host reaches only through eleven Fountain.Extension callbacks. Build-time install, runtime enable, no hot code loading. The bundled image keeps every Buzz path, command and provider behavior; a new -core image carries none of it. Built so far: gates 2, 3 and 4 — the seam, migration and OpenAPI composition, and the move itself: apps/fountain_buzz exists and core names no FountainBuzz module. A second extension, fountain_support, moved the problem-report feature out under three of the ten callbacks and added none. Every gate but the repository split is built: the supply chain, the -core image and its release tags, the manual as a callback, and core marketing that renders only what its distribution can serve."
+description: "Buzz leaves the Fountain core as fountain_buzz, an AGPL OTP application depending on :fountain that the host reaches only through eleven Fountain.Extension callbacks. Build-time install, runtime enable, no hot code loading. The bundled image keeps every Buzz path, command and provider behavior; a new -core image carries none of it. Built so far: gates 2, 3 and 4 — the seam, migration and OpenAPI composition, and the move itself: apps/fountain_buzz exists and core names no FountainBuzz module. A second extension, fountain_support, moved the problem-report feature out under three of the ten callbacks and added none. Every gate but the repository split is built: the supply chain, the -core image and its release tags, the manual as a callback, and core marketing that renders only what its distribution can serve. Amended 2026-10-12: Buzz itself is removed; the seam and the other first-party extensions stay."
 tags: [buzz, extensions, packaging, architecture, licensing, support]
 status: stable
 adr: "0043"
@@ -607,3 +607,25 @@ Outside the gate list, because it is not a Buzz gate:
 problem-report feature into `apps/fountain_support` — **built**. It is the
 second consumer decision 4 named as a precondition for graduating
 `Fountain.Extension`, and it added no callback.
+
+## Addendum — 2026-10-12: Buzz is removed
+
+Fountain removed the Buzz extension (simplify 3/5; ADR 0020 is retired). The
+seam this ADR decided stays, and so do the first-party extensions built on it
+since: `apps/fountain_support`, `apps/fountain_google`,
+`apps/fountain_microsoft` and `apps/fountain_slack`.
+
+- `apps/fountain_buzz`, its Go provider module, its manual pages and its
+  `config :fountain, :extensions` entry are deleted. The extension guard no
+  longer carries a Buzz row.
+- The Docker native-asset stages (decision 7's binary half) and the
+  `buzz-acp` pin are gone; `BUNDLE_EXTENSIONS` now decides only which
+  applications the release carries. The bundled and core images still differ
+  in exactly that.
+- Core drops `buzz_identities` itself in migration `20261012160000`, because an
+  uninstalled extension contributes no migration path.
+- Three callbacks had Buzz as their only implementer:
+  `admin_overview/0`, `admin_user_columns/0` and `oban_cron/0`. They stay on
+  the behaviour, with their host plumbing and fixture tests, because removing
+  them reaches the admin console and every extension's boundary test.
+  Retiring them is a separate change.

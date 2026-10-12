@@ -43,7 +43,7 @@ func TestNoDocumentedCommandIsInvented(t *testing.T) {
 		real["fountain "+strings.Join(path, " ")] = true
 	})
 	// Group commands are legitimate to mention on their own.
-	for _, g := range []string{"agent", "auth", "conv", "env", "keys", "vault", "buzz", "buzz agents", "webhooks"} {
+	for _, g := range []string{"agent", "auth", "conv", "env", "keys", "vault", "webhooks"} {
 		real["fountain "+g] = true
 	}
 
@@ -72,8 +72,8 @@ func TestNoDocumentedCommandIsInvented(t *testing.T) {
 			continue
 		}
 
-		// Longest match first: `fountain buzz agents list` before
-		// `fountain vault set-secret` before `fountain vault`.
+		// Longest match first: `fountain vault set-secret` before
+		// `fountain vault`.
 		var candidates []string
 		if len(fields) >= 4 && isCommandWord(fields[2]) && isCommandWord(fields[3]) {
 			candidates = append(candidates, strings.Join(fields[:4], " "))

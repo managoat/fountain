@@ -24,7 +24,7 @@ defmodule FountainWeb.Plugs.ExtensionDispatch do
   generate the full path.
 
   The **longest** declared mount wins, which is what lets one extension hold
-  both `/api/buzz` and `/api/mcp/buzz` with a different plug behind each.
+  both `/api/ext` and `/api/mcp/ext` with a different plug behind each.
 
   ## What is deliberately not caught
 

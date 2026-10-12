@@ -3,7 +3,7 @@
 An MCP server gives a runtime tools that it did not ship with. Fountain deals
 with two kinds. They work differently enough to keep apart.
 
-**Servers Fountain hosts.** Two of them, listed below. Nobody declares these
+**Servers Fountain hosts.** One of them, listed below. Nobody declares these
 and no operator configures them. Fountain injects them into a conversation
 when that conversation qualifies.
 
@@ -12,22 +12,20 @@ an [Agent](../../concepts/agent.md). Fountain passes the declaration through.
 For remote servers with OAuth discovery, it keeps the dated list below. The
 authorization chain completed against each entry on the date shown.
 
-## The two Fountain hosts
+## The Fountain host
 
 | Server | Injected when | Tools |
 |---|---|---|
 | [fountain-team](fountain-team.md) | The conversation is a teammate's. | `list_teammates`, `get_teammate`, `send_to_teammate`, `wait_for_teammate`, `read_teammate` |
-| `fountain-buzz` | The conversation's vault holds a Buzz identity. | `buzz_send_message`, `buzz_react` |
 
-Both share three properties, and each property carries weight.
+It has three properties, and each property carries weight.
 
-**The sandbox never holds the credential.** That is the whole point.
-`fountain-buzz` is the clearest case. Fountain holds the Buzz identity, and
-the teammate reaches the network through tools alone. No key enters the
-sandbox, so an agent that leaks its environment leaks nothing that can post.
+**The sandbox never holds an API key.** The teammate reaches its teammates
+through tools alone. No key enters the sandbox, so an agent that leaks its
+environment leaks nothing that can call the API.
 
-**They authenticate with the token the sandbox already holds.** Fountain
-serves each one over HTTP at a URL for that one conversation, and the sandbox
+**It authenticates with the token the sandbox already holds.** Fountain
+serves it over HTTP at a URL for that one conversation, and the sandbox
 presents its own callback token. There is no second credential to manage, and
 the token reaches only that conversation's owner.
 

@@ -177,7 +177,7 @@ config :fountain, :webhooks_enabled, true
 # that question can only be answered AFTER compilation. This file is evaluated
 # before it, where the answer is always false. `runtime.exs` runs after, in
 # every entry point, so the whole list is built there in one place: fixtures for
-# the suite, plus the Buzz extension where it loads.
+# the suite, plus the first-party extensions where they load.
 #
 # `config :fountain, :extensions` REPLACES the key rather than appending, which
 # is why it must be one declaration and not two — two silently deleted the

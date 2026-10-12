@@ -77,9 +77,8 @@ defmodule Fountain.Umbrella.MixProject do
   # here, because `apps/fountain` deliberately depends on no sibling app and so
   # cannot see an extension's `priv` at all (ADR 0043).
   #
-  # Shelling in without the paths is how CI went red on this PR: a fresh
-  # database got no `buzz_identities`, and the core migration that alters it
-  # (20260817020000) then failed. A pre-migrated workstation database hides it
+  # Shelling in without the paths is how CI went red on #1507: a fresh database
+  # got no extension table, and a core migration that altered it then failed. A pre-migrated workstation database hides it
   # completely, which is why it took a clean CI run to find.
   #
   # The paths are absolute because the child process runs in apps/fountain, and
@@ -129,9 +128,8 @@ defmodule Fountain.Umbrella.MixProject do
   # `BUNDLE_EXTENSIONS=false mix release` builds the core distribution.
   #
   # Read from the environment rather than from Mix config because the Dockerfile
-  # passes the same switch as a build arg for the native-asset stage, and one
-  # switch for both halves is the point: an image cannot end up with an
-  # extension application but no binaries, or the reverse.
+  # passes it as a build arg, and a build arg reaches `mix release` as an
+  # environment variable.
   #
   # Discovered from `apps/fountain_*` rather than listed. A `managoat_*` library
   # under apps/ is a DEPENDENCY of fountain (decisions/0037) and belongs in both

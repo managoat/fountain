@@ -11,8 +11,8 @@ A teammate is an [Agent](agent.md) with one
 `fountain:team`.
 
 That is the whole mechanism. There is no team table and no teammate record.
-Fountain binds it the way a Buzz channel binds through `channel_id`, and
-points it at a reserved name.
+Fountain binds it the way any client binds a channel through `channel_id`,
+and points it at a reserved name.
 
 The [team app](https://github.com/managoat/demos/tree/main/apps/fountain-team) lays those
 conversations out the way a chat client does. The roster is on the left and

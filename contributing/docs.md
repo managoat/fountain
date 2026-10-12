@@ -29,7 +29,7 @@ open the route.
 | Change | CI checks |
 |---|---|
 | `CLAUDE.md`, `CONTRIBUTING.md`, `SETUP.md`, `scripts/ci/README.md`, Markdown under `contributing/`, `standards/`, `decisions/` or `changelog.d/` | Repository policy, changelog and conflict-marker checks, plus the secret scan |
-| `README.md`, `CHANGELOG.md`, `docs/`, or the Buzz, Google, Microsoft or Slack manuals | Core rendering and structural tests, plus every extension's documentation and manual-integration tests |
+| `README.md`, `CHANGELOG.md`, `docs/`, or the Google, Microsoft or Slack manuals | Core rendering and structural tests, plus every extension's documentation and manual-integration tests |
 | The SDK's `README.md` or its page under `docs/` | The TypeScript SDK check, which runs on every plan; published pages also get the manual tests |
 | `docs/cli.md` or `docs/cli/` | Manual tests and the CLI reference parity checks |
 | Code, configuration, unregistered paths, or mixed code/documentation changes | Full server validation and the TypeScript SDK check |

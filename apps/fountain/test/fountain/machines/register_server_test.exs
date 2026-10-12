@@ -468,9 +468,9 @@ defmodule Fountain.Machines.RegisterServerTest do
         |> Enum.map(&Path.join(root, &1))
         |> Enum.filter(&File.dir?/1)
 
-      buzz = root |> Path.join("apps/fountain_*/lib") |> Path.wildcard()
+      extensions = root |> Path.join("apps/fountain_*/lib") |> Path.wildcard()
 
-      (top_level ++ buzz)
+      (top_level ++ extensions)
       |> Enum.flat_map(&Path.wildcard(Path.join(&1, "**/*.ex")))
       |> Enum.sort()
     end

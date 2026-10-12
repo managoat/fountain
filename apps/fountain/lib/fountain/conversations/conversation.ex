@@ -45,7 +45,7 @@ defmodule Fountain.Conversations.Conversation do
     field :title_source, :string, default: "user"
     field :last_read_at, :utc_datetime_usec
     # Client-supplied key for the external channel this conversation is bound
-    # to (a Buzz channel id via ACP `session/new` `_meta.channelId`, #774).
+    # to (a chat thread id via ACP `session/new` `_meta.channelId`, #774).
     # `start_or_resume_conversation/2` resumes by it. Opaque to Fountain.
     field :channel_id, :string
     # Running sums of the turns' `usage.input` / `usage.output` (#827), kept

@@ -1,20 +1,19 @@
 ---
 type: ADR
 title: "Buzz as a client of the ACP gateway: hosted harness + brokered signing"
-description: "Fountain hosts the Buzz harness and brokers the Buzz Nostr signature at the gateway, so the sandbox holds neither the relay connection nor the identity key. Phases 1-3 are built and ship in the image; PDP gating of publishes and the mem/thread tools are not."
+description: "Retired 2026-10-12: the Buzz extension was removed (simplify 3/5). Fountain hosts the Buzz harness and brokers the Buzz Nostr signature at the gateway, so the sandbox holds neither the relay connection nor the identity key. Phases 1-3 are built and ship in the image; PDP gating of publishes and the mem/thread tools are not."
 tags: [acp, buzz, nostr, gateway]
-status: stable
+status: deprecated
 adr: "0020"
-adr_status: "Accepted"
+adr_status: "Retired"
 date: 2026-08-16
 generated: { by: human:jhgaylor, at: 2026-08-16T00:08:11-04:00 }
 verified: { by: human:jhgaylor, at: 2026-08-16T00:08:11-04:00 }
-stale_after: 2026-11-16
 ---
 
 # 0020 — Buzz as a client of the ACP gateway: hosted harness + brokered signing
 
-**Status:** Accepted — **Phases 1–3 are built.** The hosted-harness supervisor
+**Status:** Retired 2026-10-12; see the addendum at the end. The text above the addendum is history. Was: Accepted — **Phases 1–3 are built.** The hosted-harness supervisor
 (Phase 1, [#739](https://github.com/BinaryBourbon/fountain/pull/739)/[#740](https://github.com/BinaryBourbon/fountain/pull/740)/[#742](https://github.com/BinaryBourbon/fountain/pull/742)),
 the Fountain-hosted signer and its `buzz_*` MCP tools (Phase 2,
 [#750](https://github.com/BinaryBourbon/fountain/pull/750)–[#752](https://github.com/BinaryBourbon/fountain/pull/752),
@@ -239,3 +238,29 @@ without it.
    `buzz-backend-fountain` in `cli/` mapping
    Buzz's `deploy` onto the Phase 1 supervisor; conforms to block/buzz's
    remote-agents [L1]/[L2] checklist and documents its own binding.
+
+## Addendum — 2026-10-12: retired
+
+Fountain removed the Buzz extension (simplify 3/5). In the thirty days before
+the decision no account ran a hosted Buzz agent, and Fountain is now a
+self-hosted application with no reason to carry a Nostr harness for one
+client.
+
+- `apps/fountain_buzz` is deleted: the harness supervisor and boot sweep, the
+  `buzz_*` MCP tools and the signer behind them, `/api/buzz/agents` and
+  `/api/mcp/buzz/:conversation_id`, the harness sweep worker and the two
+  manual pages. Both paths now answer `404`.
+- The `buzz-backend-fountain` provider (its Go module under the extension),
+  the `fountain buzz agents` CLI commands, the `buzz-acp` fork pin and
+  `.github/workflows/buzz-acp-publish.yml` are deleted. Releases attach no
+  provider binary, and the server image bakes neither `buzz-acp`, `buzz` nor the
+  `fountain` CLI it ran as the harness's ACP child.
+- `BUZZ_IDENTITY_CEILING`, `BUZZ_ACP_BASE_URL`, `BUZZ_ACP_PATH` and
+  `FOUNTAIN_CLI_PATH` are no longer read.
+- Migration `20261012160000` drops `buzz_identities` and deletes pending
+  harness-sweep jobs. The vault secrets that held each identity's Nostr key are
+  ordinary vault rows and stay until their owner deletes them.
+
+What this ADR built on stays: `fountain acp` (ADR 0015), and the channel
+binding through `channel_id` and `_meta.channelId` (#774) that any chat
+harness can use.

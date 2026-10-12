@@ -876,9 +876,6 @@ config :fountain,
   sandbox_queue_max_depth: whole_number.("SANDBOX_QUEUE_MAX_DEPTH", 10),
   sandbox_queue_max_wait_seconds: whole_number.("SANDBOX_QUEUE_MAX_WAIT_SECONDS", 3600)
 
-# Hosted Buzz agents one account may run at once — an abuse ceiling (#1017).
-config :fountain_buzz, :buzz_identity_ceiling, whole_number.("BUZZ_IDENTITY_CEILING", 10)
-
 # ChatGPT subscriptions one account may link (ADR 0060 decision 1). It stops a
 # runaway client and prices nothing; a disconnected subscription holds its
 # place until it is removed. Lowering it refuses new links only.
@@ -1270,10 +1267,10 @@ end
 #
 # Each extension is installed *where it loads*. `apps/fountain` deliberately
 # depends on no sibling app, so `mix test` run from there — which is what CI's
-# partition script does — has none of `:fountain_buzz`, `:fountain_support`,
-# `:fountain_google`, `:fountain_microsoft` or `:fountain_slack` on the code
-# path, and naming them unconditionally would make
-# `Fountain.Extensions.validate!/0` refuse to boot every partition. That check
+# partition script does — has none of `:fountain_support`, `:fountain_google`,
+# `:fountain_microsoft` or `:fountain_slack` on the code path, and naming them
+# unconditionally would make `Fountain.Extensions.validate!/0` refuse to boot
+# every partition. That check
 # working exactly as intended, on a configuration that is wrong for that run.
 #
 # `Code.ensure_loaded?/1` can only answer that after compilation, which is why
@@ -1282,7 +1279,6 @@ end
 installed_extensions =
   Enum.filter(
     [
-      FountainBuzz.Extension,
       FountainSupport.Extension,
       FountainGoogle.Extension,
       FountainMicrosoft.Extension,
@@ -1313,32 +1309,6 @@ extension_fixtures =
   end
 
 config :fountain, :extensions, installed_extensions ++ extension_fixtures
-
-# The Buzz extension's own configuration, under its own otp_app, and only what
-# an operator overrides. Where its binaries live is `FountainBuzz.Assets`'s to
-# know (#1509) — a core release's configuration has no business naming a path
-# only the bundled image has — so these exist to be *overridden* and default to
-# nothing here.
-#
-# The harness's ACP child (`fountain acp`) talks back to THIS server, so its
-# base URL defaults to the loopback endpoint: no egress, no TLS, no dependence
-# on PUBLIC_URL resolving inside the pod.
-if config_env() == :prod do
-  config :fountain_buzz,
-         :fountain_cli_path,
-         System.get_env("FOUNTAIN_CLI_PATH", "/usr/local/bin/fountain")
-
-  config :fountain_buzz,
-         :buzz_acp_base_url,
-         System.get_env("BUZZ_ACP_BASE_URL") ||
-           "http://127.0.0.1:#{System.get_env("PORT", "4000")}"
-
-  # Only when set. An unset BUZZ_ACP_PATH means "wherever the image installed
-  # it", which FountainBuzz.Assets answers.
-  if path = System.get_env("BUZZ_ACP_PATH") do
-    config :fountain_buzz, :buzz_acp_path, path
-  end
-end
 
 # ── CORS for /api ─────────────────────────────────────────────────────────
 #

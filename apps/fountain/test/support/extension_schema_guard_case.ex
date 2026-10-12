@@ -19,8 +19,8 @@ defmodule FountainWeb.ExtensionSchemaGuardCase do
 
   Use it from the extension's suite, naming the extension module:
 
-      defmodule FountainBuzz.SchemaGuardTest do
-        use FountainWeb.ExtensionSchemaGuardCase, extension: FountainBuzz.Extension
+      defmodule FountainGoogle.SchemaGuardTest do
+        use FountainWeb.ExtensionSchemaGuardCase, extension: FountainGoogle.Extension
       end
 
   It lives in core's `test/support` rather than in each extension because both

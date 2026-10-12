@@ -140,7 +140,6 @@ at a dead end, with no error to see. Read [Email](guides/operate/email.md).
 | `FOUNTAIN_EXECUTION_LIMITS` | `{}` | No. | JSON per-turn host ceiling: `wall_time_seconds`, `max_model_turns`, `max_estimated_cost_usd`. Each configured value must be positive; time and turns must be integers. Read at boot; invalid input refuses startup. Requests inherit the stricter host/account ceiling. Keep unset until runtime enforcement and later-turn/recovery checks are integrated: nonempty effective limits currently refuse launch with `422 execution_limits_unsupported`. This is not an aggregate spend cap. |
 | `FOUNTAIN_EXECUTION_DEADLINE_WORKER` | on when `FOUNTAIN_EXECUTION_LIMITS` gives a ceiling | No. | If this node runs the deadline coordinator. The coordinator polls `turn_executions`, so it stays off where no host ceiling applies. Set `true` if you give an account a ceiling but no host ceiling. Set `false` to stop the poll on any node. A change needs a restart. |
 | `FOUNTAIN_EXECUTION_DEADLINE_INTERVAL_MS` | `5000` | No. | The interval at which the coordinator looks for due deadlines. Each deadline is absolute and durable, so a larger value costs precision and not safety. |
-| `BUZZ_IDENTITY_CEILING` | `10` | No. | The most hosted Buzz agents one account may run at once. Each one is a permanent process on the Fountain pods. |
 | `CHATGPT_GRANT_CEILING` | `5` | No. | The most ChatGPT subscriptions one account may link. A disconnected subscription keeps its place until the account removes it. A link beyond it gets `409 chatgpt_grant_limit_reached`. A lower value refuses new links only, and `0` refuses each new link. |
 
 `PROVIDER_HOURLY_CENTS` is what **you pay** your sandbox provider. Fountain
@@ -385,27 +384,6 @@ else. It is **off by default**. It exports a span only when you explicitly set
 The OTel SDK also honours its own standard variables, and those win. Set
 `OTEL_TRACES_EXPORTER=otlp` or `=none` to force the export on or off, whatever
 the table above says.
-
-## Hosted Buzz agents
-
-Fountain can host the `buzz-acp` harness for a
-[Buzz](https://github.com/block/buzz) agent (ADR 0020). A Buzz agent then
-keeps a body on its relay, with no desktop up.
-
-The image bakes the harness binary in, for both amd64 and arm64. These two
-variables tune where it runs, and how its ACP child reaches back. An operator
-rarely sets either one, because the defaults are correct for the packaged
-image.
-
-| Variable | Default | Required | Effect |
-|---|---|---|---|
-| `BUZZ_ACP_BASE_URL` | The loopback endpoint, `http://127.0.0.1:$PORT`. | — | The base URL that the harness's ACP child, `fountain acp`, uses to reach this instance. It defaults to the loopback, so harness traffic never leaves the pod. Override it only to point the child at a different Fountain endpoint. |
-| `FOUNTAIN_CLI_PATH` | `/usr/local/bin/fountain` | — | The path to the `fountain` CLI that the harness runs as its ACP child. The image bakes it at the default, so override it only for a layout that is not standard. |
-| `BUZZ_ACP_PATH` | Wherever the bundled image installs it, `/usr/local/lib/fountain-buzz/buzz-acp`. | — | The path to the `buzz-acp` harness binary. Set it only for an installation that is not standard. The extension finds the bundled one by itself, and a core image has none, so an unset value is correct on both. The binary must report the version in `apps/fountain_buzz/buzz-acp.version`, or no harness starts. |
-
-Upstream publishes `buzz-acp` for amd64 alone. So Fountain builds it for both
-architectures from source, and bakes it in. Read
-`.github/workflows/buzz-acp-publish.yml`.
 
 ## Feature flags
 

@@ -107,7 +107,6 @@ verification:
     - rl-env sh -c 'cd sdk/typescript && npm ci --no-audit --no-fund && npm run typecheck && npm test && npm
       run build && npm run verify-contract && npm run conformance'
     - rl-env sh -c 'cd cli && go test -count=1 ./... && go vet ./...'
-    - rl-env sh -c 'cd apps/fountain_buzz/cli && go test -count=1 ./... && go vet ./...'
     - rl-env sh -c 'python3 sdk/conformance/lint.py && python3 -m unittest discover -s integrations/hermes/tests -v'
 approval:
   mode: policy-pass-with-exceptions

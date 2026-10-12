@@ -7,8 +7,7 @@
 #
 # That is two kinds of app today: a library on its way out (apps/managoat_*,
 # decisions/0037 — none right now, all nine graduated) and a first-party
-# extension (apps/fountain_buzz, apps/fountain_support and apps/fountain_google,
-# decisions/0043).
+# extension (apps/fountain_*, decisions/0043).
 # They need the same treatment for the same reason, so the glob is "every
 # sibling" rather than a list to keep updated.
 #

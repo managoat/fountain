@@ -34,15 +34,10 @@ elixir_report() {
 go_report() {
   echo "## Go: unreachable functions (golang.org/x/tools/cmd/deadcode)"
   echo
-  for mod in cli apps/fountain_buzz/cli; do
-    echo "### $mod"
-    # -test: a function only a test reaches is not unreachable. An exported
-    # function in cli/api or cli/credentials may still be one another module
-    # imports (apps/fountain_buzz/cli does), so read those lines as API, not
-    # dead code.
-    (cd "$root/$mod" && go run "golang.org/x/tools/cmd/deadcode@$DEADCODE_VERSION" -test ./...)
-    echo
-  done
+  echo "### cli"
+  # -test: a function only a test reaches is not unreachable.
+  (cd "$root/cli" && go run "golang.org/x/tools/cmd/deadcode@$DEADCODE_VERSION" -test ./...)
+  echo
 }
 
 case "$what" in

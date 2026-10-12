@@ -13,10 +13,15 @@ server releases.
 
 ## [Unreleased]
 
-Fountain removed the `opencode` runtime and the `daytona` sandbox provider.
-Held for the next release (`release:skip-sdk`).
+Fountain removed the `opencode` runtime, the `daytona` sandbox provider and
+the Buzz extension. Held for the next release (`release:skip-sdk`).
 
 ### Removed
+
+- `paths["/api/buzz/agents"]` and `paths["/api/buzz/agents/{id}"]`, and the
+  `BuzzProvisionRequest`, `BuzzAccessUpdateRequest`, `BuzzIdentity`,
+  `BuzzIdentityResponse` and `BuzzIdentityListResponse` schemas, from the
+  generated types. No client method used them; the server answers `404`.
 
 - `"opencode"` from the `runtime` enums of
   `components["schemas"]["AgentRequest"]` and `["AgentUpdate"]`, and

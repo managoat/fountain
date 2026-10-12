@@ -46,10 +46,6 @@
       "reason": "The self-hosted runner daemon's WebSocket (ADR 0022). Its socket is not JSON over HTTP."
     },
     {
-      "operations": ["* /api/buzz/agents*"],
-      "reason": "The Buzz gateway's own provisioning surface (ADR 0020). Buzz calls it; no general client does."
-    },
-    {
       "operations": ["GET /api/support/reports", "GET /api/support/reports/{id}", "POST /api/support/reports"],
       "reason": "The support inbox and report submission. No SDK models this console surface."
     },

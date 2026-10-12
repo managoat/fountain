@@ -104,7 +104,7 @@ parts you changed; mixed changes take the union of the relevant rows.
 | Change | Local checks |
 |---|---|
 | Server or extension Elixir code, tests, dependencies, or runtime/build configuration | `mix precommit`, plus the tests covering the changed behavior |
-| Go CLI or Buzz CLI | In each affected module: `go test -mod=readonly -count=1 ./...` and `go vet -mod=readonly ./...`; format changed Go files with `gofmt`. Shared dependency changes need [both modules](#go-dependency-updates-span-two-modules) |
+| Go CLI | In `cli/`: `go test -mod=readonly -count=1 ./...` and `go vet -mod=readonly ./...`; format changed Go files with `gofmt` |
 | SDK implementation or packaging | That SDK's checks in [CI maintenance](scripts/ci/README.md#sdk-jobs); API changes also follow [Changing the API](#changing-the-api) |
 | CI decision logic or workflow wiring | `python3 -m unittest discover -s scripts/ci -p 'test_*.py'`; use `actionlint` for changed workflows and run the changed script's own checks |
 | Shell tooling | `shellcheck` and `bash -n` on changed Bash scripts, plus their focused regression tests |
@@ -204,32 +204,6 @@ implementations and macro-generated functions. Search the function's bare name
 across `apps/` and its tests before deleting it. A test-only caller may
 be a useful observation seam or evidence of a missing production caller;
 resolve which before removing the function and its tests.
-
-## Go dependency updates span two modules
-
-Buzz's Go module replaces `github.com/managoat/fountain/cli` with the local
-`cli/` directory. A dependency bump there can require changes to Buzz's
-`go.mod` and `go.sum` even when no Buzz source changes.
-
-Dependabot monitors both directories in one Go update job and groups version
-updates by dependency name across them. This includes major updates.
-[GitHub's grouping rules](https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference#groups)
-exclude security updates and can split incompatible version constraints into
-separate PRs. Whenever a shared dependency changes, tidy both modules on the
-same PR branch and commit every resulting module-file change together:
-
-```bash
-go -C cli mod tidy
-go -C apps/fountain_buzz/cli mod tidy
-go -C cli test -mod=readonly -count=1 ./...
-go -C cli vet -mod=readonly ./...
-go -C apps/fountain_buzz/cli test -mod=readonly -count=1 ./...
-go -C apps/fountain_buzz/cli vet -mod=readonly ./...
-```
-
-Run tidy again after committing those files; it should leave no diff in either
-module. CI retains separate test and vet steps for both modules. A green core
-CLI check alone does not cover Buzz.
 
 ## Extension migrations share one `schema_migrations`
 

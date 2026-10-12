@@ -38,7 +38,7 @@ primary_region = "iad"
   #
   # To run your own build of a fork instead of the published image, delete the
   # `image` line and let Fly build the Dockerfile in this checkout. The build
-  # compiles the umbrella, the Go CLI and fetches the pinned Buzz binaries, so
+  # compiles the umbrella from source, so
   # prefer the image unless you have changes to run.
   image = "ghcr.io/managoat/fountain:v0.21.0"
 

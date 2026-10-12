@@ -14,7 +14,7 @@ preference. Do not invent requirements or mark findings resolved just because
 a fixer says they are fixed. Recommend small regression tests that reproduce
 the behavior rather than copying implementation details.
 
-Fountain's umbrella includes the core app and separate Buzz and Support
+Fountain's umbrella includes the core app and separate first-party
 extensions. Check cross-directory callers, extension
 boundaries and lifecycle state transitions. The core must not reference extension
 modules. Unawaited work should use the supervised task pattern from the base

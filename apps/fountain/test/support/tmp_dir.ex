@@ -29,10 +29,10 @@ defmodule Fountain.TmpDir do
   ## Use
 
       # a directory, made and cleaned up for you
-      dir = Fountain.TmpDir.mkdir!("buzz-harness")
+      dir = Fountain.TmpDir.mkdir!("my-harness")
 
       # just the path, when the caller owns creation and cleanup
-      file = Fountain.TmpDir.path("buzz-acp")
+      file = Fountain.TmpDir.path("my-binary")
   """
 
   @doc """

@@ -105,9 +105,7 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: cli/go.mod
-          cache-dependency-path: |
-            cli/go.sum
-            apps/fountain_buzz/cli/go.sum
+          cache-dependency-path: cli/go.sum
 
       - name: Report
         id: report
@@ -123,8 +121,6 @@ jobs:
             echo '```'
             grep 'unreachable func' dead-code-go.md || echo "none"
             echo '```'
-            echo
-            echo "Exported functions in \`cli/api\` and \`cli/credentials\` are imported by \`apps/fountain_buzz/cli\`; read those as API, not dead code."
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Mark incomplete analysis

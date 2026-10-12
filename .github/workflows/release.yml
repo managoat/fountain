@@ -33,19 +33,15 @@ jobs:
           - goos: linux
             goarch: amd64
             artifact: fountain-linux-amd64
-            provider_artifact: buzz-backend-fountain-linux-amd64
           - goos: linux
             goarch: arm64
             artifact: fountain-linux-arm64
-            provider_artifact: buzz-backend-fountain-linux-arm64
           - goos: darwin
             goarch: amd64
             artifact: fountain-darwin-amd64
-            provider_artifact: buzz-backend-fountain-darwin-amd64
           - goos: darwin
             goarch: arm64
             artifact: fountain-darwin-arm64
-            provider_artifact: buzz-backend-fountain-darwin-arm64
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
@@ -67,13 +63,6 @@ jobs:
         working-directory: cli
         run: go test -count=1 ./...
 
-      # The Buzz provider is a second module and `go test ./...` above does not
-      # reach it. Same reason as the step above: a release used to
-      # cross-compile without running the suite.
-      - name: Test the Buzz provider
-        working-directory: apps/fountain_buzz/cli
-        run: go test -count=1 ./...
-
       - name: Build
         env:
           CGO_ENABLED: "0"
@@ -93,42 +82,11 @@ jobs:
           file "../dist/${{ matrix.artifact }}"
           du -h "../dist/${{ matrix.artifact }}"
 
-      # `buzz-backend-fountain` is the Buzz remote-agents provider. Buzz's
-      # desktop discovers it by name on PATH, so it has to BE somewhere a
-      # person can put on their PATH — and until #1508 it was built by nothing
-      # and attached to no release, while docs/integrations/buzz.md and ADR
-      # 0043 both described it as shipped. It is a separate module owned by
-      # the extension, cross-compiled for the same four platforms as the
-      # `fountain` binary beside it.
-      #
-      # No version stamp: the provider reports `protocol_version` (1) and its
-      # own `version` string in the `info` op, which is what Buzz's desktop
-      # checks. Neither is the Fountain release tag.
-      - name: Build the Buzz provider
-        env:
-          CGO_ENABLED: "0"
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
-        working-directory: apps/fountain_buzz/cli
-        run: |
-          set -euxo pipefail
-          mkdir -p ../../../dist
-          go build -trimpath -ldflags "-s -w" \
-            -o "../../../dist/${{ matrix.provider_artifact }}" ./cmd/buzz-backend-fountain
-          file "../../../dist/${{ matrix.provider_artifact }}"
-          du -h "../../../dist/${{ matrix.provider_artifact }}"
-
       - name: Upload artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ matrix.artifact }}
           path: dist/${{ matrix.artifact }}
-
-      - name: Upload the Buzz provider
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: ${{ matrix.provider_artifact }}
-          path: dist/${{ matrix.provider_artifact }}
 
   openapi:
     name: Export OpenAPI spec
@@ -288,10 +246,6 @@ jobs:
         id: sha
         run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
-      - name: Read buzz-acp pin
-        id: buzzver
-        run: echo "version=$(tr -d '[:space:]' < apps/fountain_buzz/buzz-acp.version)" >> "$GITHUB_OUTPUT"
-
       - name: Set up Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
@@ -316,7 +270,6 @@ jobs:
           platforms: ${{ matrix.platform }}
           build-args: |
             BUILD_SHA=${{ steps.sha.outputs.sha }}
-            BUZZ_ACP_VERSION=${{ steps.buzzver.outputs.version }}
             BUNDLE_EXTENSIONS=${{ matrix.bundle_extensions }}
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
@@ -450,9 +403,8 @@ jobs:
 
       # The published core image, opened. Every claim the campaign makes about
       # it is checked somewhere earlier — CI's core-distribution job builds the
-      # release, and the Dockerfile refuses to bake a Buzz binary under
-      # BUNDLE_EXTENSIONS=false — but nothing had looked inside the artifact a
-      # person actually pulls. A build arg that stopped being passed would
+      # release — but nothing had looked inside the artifact a person actually
+      # pulls. A build arg that stopped being passed would
       # publish a bundled image under the core tag and every one of those
       # earlier checks would still be green.
       - name: The published core image carries no extension
@@ -471,20 +423,13 @@ jobs:
             exit 1
           fi
 
-          binaries=$(docker run --rm --entrypoint sh "$core" \
-            -c 'ls -A /usr/local/lib/fountain-buzz 2>/dev/null || true')
-          if [ -n "$binaries" ]; then
-            echo "::error::${core} carries native extension assets: ${binaries}" >&2
-            exit 1
-          fi
-
           # Guard the guard: an image whose /app/lib is empty would satisfy
-          # both checks above. The server itself has to be in there.
+          # the check above. The server itself has to be in there.
           echo "$apps" | grep -qE '^fountain-[0-9]' || {
             echo "::error::${core} does not contain the fountain application" >&2
             exit 1
           }
-          echo "${core}: no extension application, no native assets"
+          echo "${core}: no extension application"
 
   compose-boot:
     # ci.yml's "Compose boots the pinned image" skips on the bump PR and on
@@ -570,7 +515,7 @@ jobs:
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           path: artifacts
-          pattern: "{fountain-*,buzz-backend-fountain-*,openapi.json}"
+          pattern: "{fountain-*,openapi.json}"
 
       - name: Create release
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
@@ -583,10 +528,6 @@ jobs:
             artifacts/fountain-linux-arm64/fountain-linux-arm64
             artifacts/fountain-darwin-amd64/fountain-darwin-amd64
             artifacts/fountain-darwin-arm64/fountain-darwin-arm64
-            artifacts/buzz-backend-fountain-linux-amd64/buzz-backend-fountain-linux-amd64
-            artifacts/buzz-backend-fountain-linux-arm64/buzz-backend-fountain-linux-arm64
-            artifacts/buzz-backend-fountain-darwin-amd64/buzz-backend-fountain-darwin-amd64
-            artifacts/buzz-backend-fountain-darwin-arm64/buzz-backend-fountain-darwin-arm64
             artifacts/openapi.json/openapi.json
           fail_on_unmatched_files: true
 

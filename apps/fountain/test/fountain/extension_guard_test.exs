@@ -2,8 +2,8 @@ defmodule Fountain.ExtensionGuardTest do
   @moduledoc """
   The compile-time boundary, checked as source (ADR 0043, #1507 and #1528).
 
-  The umbrella's dependency resolution proves `fountain_buzz -> fountain`,
-  `fountain_support -> fountain` and `fountain_google -> fountain`: each
+  The umbrella's dependency resolution proves `fountain_support -> fountain`
+  and `fountain_google -> fountain`: each
   extension lists `{:fountain, in_umbrella: true}` and Fountain lists nothing.
   It proves nothing at all about the other direction, because the way that
   breaks is not a dependency — it is a stray module atom, a route, a migration
@@ -15,7 +15,7 @@ defmodule Fountain.ExtensionGuardTest do
 
   ## What is allowed
 
-  Prose. `apps/fountain/lib` may say the words "Buzz" or "support" in a comment,
+  Prose. `apps/fountain/lib` may say the word "support" in a comment,
   a docstring or a schema description, and does — the ADR calls that
   human-facing discovery metadata, and #1528 keeps the support-report
   documentation in core deliberately. `SUPPORT_EMAIL` is core's too: the
@@ -39,21 +39,13 @@ defmodule Fountain.ExtensionGuardTest do
 
   # Every extension, and what naming it from core looks like:
   #
-  #   * `module` — module references, not the product's name. `FountainBuzz.X`,
-  #     `Fountain.Buzz.X`, and the names each subsystem carried before it moved.
+  #   * `module` — module references, not the product's name. `FountainSupport.X`,
+  #     `Fountain.Support.X`, and the names each subsystem carried before it moved.
   #   * `route` — a router line that would serve the extension's mount, minus
   #     the `route_except` substrings that are core's after all.
   #   * `priv` — files under core's priv that belong to the extension, which is
   #     how a migration comes back.
   @extensions [
-    %{
-      app: :fountain_buzz,
-      module:
-        ~r/\b(FountainBuzz\.|Fountain\.Buzz\b|Fountain\.BuzzRegistry\b|Fountain\.BuzzSupervisor\b|Fountain\.Workers\.BuzzHarnessSweep\b|FountainWeb\.Buzz[A-Z])/,
-      route: ~r|"/(api/)?(mcp/)?buzz|,
-      route_except: [],
-      priv: "**/*buzz*"
-    },
     %{
       app: :fountain_support,
       module:

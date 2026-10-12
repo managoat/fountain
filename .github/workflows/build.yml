@@ -159,9 +159,6 @@ jobs:
           # executes should not inherit one from .git/config.
           persist-credentials: false
 
-      - name: Read buzz-acp pin
-        run: echo "BUZZ_ACP_VERSION=$(tr -d '[:space:]' < apps/fountain_buzz/buzz-acp.version)" >> "$GITHUB_ENV"
-
       - name: Set up Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
@@ -189,7 +186,6 @@ jobs:
           # in the manifests (decisions/0032 addendum). It reaches the console
           # footer and the Sentry release.
           build-args: |
-            BUZZ_ACP_VERSION=${{ env.BUZZ_ACP_VERSION }}
             BUILD_SHA=${{ github.sha }}
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
@@ -276,7 +272,7 @@ jobs:
             -e PHX_HOST=example.test -e PUBLIC_URL="https://example.test" \
             -e RESEND_API_KEY=re_dummy -e EMAIL_FROM="fountain@example.test" \
             "${IMAGE}:sha-${SHA}" /app/bin/fountain_server eval '
-              for app <- [:fountain_buzz, :fountain_support] do
+              for app <- [:fountain_support, :fountain_google, :fountain_microsoft, :fountain_slack] do
                 case :code.lib_dir(app) do
                   path when is_list(path) ->
                     unless File.dir?(path), do: raise("bundled image missing #{app}")

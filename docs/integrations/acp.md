@@ -1,14 +1,13 @@
 # `fountain acp`, the ACP agent reference
 
 `fountain acp` is the one process that each ACP client of Fountain spawns.
-[Editors](editors.md) such as Zed, [OpenClaw](openclaw.md), and the
-Buzz harness all speak the
+[Editors](editors.md) such as Zed and [OpenClaw](openclaw.md) both speak the
 [Agent Client Protocol](https://agentclientprotocol.com) to it over stdio. It
 then drives a conversation in a Fountain sandbox.
 
-Those three pages cover how to configure *the client*. This page is the
+Those two pages cover how to configure *the client*. This page is the
 reference for the adapter itself. It says what the adapter accepts, what it
-does with that, and what it deliberately ignores. The three pages then do not
+does with that, and what it deliberately ignores. The two pages then do not
 each state it again.
 
 **What it is, and is not.** It is a control surface for a conversation on your
@@ -37,8 +36,7 @@ fountain acp --agent <name-or-id> [--vault <name-or-id>] [--environment <name-or
 `FOUNTAIN_BASE_URL` in the environment, or from the profile that
 `fountain auth login` saved. There is no login inside the protocol.
 `authenticate` verifies what the CLI already holds, and its one advertised
-method says only "run `fountain auth login`". A hosted Buzz harness gets a
-freshly minted, sprite-scoped key in its environment for exactly this reason.
+method says only "run `fountain auth login`".
 
 **stdout carries the protocol and nothing else. Diagnostics go to stderr.**
 Your client's agent-server log shows them, and that is the first place to look
@@ -68,8 +66,7 @@ see.
 Fountain logs `cwd` and `mcpServers` on `session/new`, and ignores both. The
 sandbox clones its own checkout, and a Fountain agent carries its own MCP
 configuration to the sandbox. Fountain can *add* MCP servers of its own to a
-session, and it injects the Buzz publish tools this way. It never adds the
-client's.
+session, such as the team tools. It never adds the client's.
 
 ### The session id is the conversation id
 
@@ -158,7 +155,7 @@ other field in `_meta`.
 | `channelId` | Names the external channel that this session serves. With it, `session/new` **resumes** the conversation already bound to that channel, for this user, agent and vault. That is the same conversation, the same sandbox and the same runtime session, with a fresh ACP id on the client's side. A harness that forgets its sessions on restart therefore lands back where it was ([#774](https://github.com/managoat/fountain/issues/774)). A destroyed sandbox also stops the resume. The workspace does not survive it, so Fountain opens a new conversation on a new sandbox ([#779](https://github.com/managoat/fountain/issues/779)). Without it, each `session/new` is a new conversation. |
 | `sandboxMode` | Where this one session's conversation runs, `ephemeral` or `persistent`. It replaces `--sandbox-mode` for the session. See [Sandboxes](../concepts/sandboxes.md). |
 | `sandboxId` | A sandbox id to attach this one session's conversation to. It replaces `--sandbox` for the session. |
-| `freshSession` | With `channelId`, it skips the resume this one time. It unbinds the current conversation, which continues and then retires like any other idle one. It opens a new conversation, and binds the channel to that. A Buzz owner's `!rotate` turns into this ([#788](https://github.com/managoat/fountain/pull/788)). Fountain ignores it without `channelId`. |
+| `freshSession` | With `channelId`, it skips the resume this one time. It unbinds the current conversation, which continues and then retires like any other idle one. It opens a new conversation, and binds the channel to that. A chat harness's "start over" command turns into this ([#788](https://github.com/managoat/fountain/pull/788)). Fountain ignores it without `channelId`. |
 
 The same knobs exist on the API, as `channel_id`, `fresh`, `sandbox_mode` and
 `sandbox_id` on `POST /api/conversations`. Read
@@ -257,7 +254,6 @@ on stdin, which proves that the process starts and finds its credentials.
 |---|---|---|
 | Zed and other ACP editors | The editor, from its agent-server config. | [Editors](editors.md) |
 | OpenClaw, on Telegram, Discord or Slack | The `acpx` plugin on the OpenClaw host. | [OpenClaw](openclaw.md) |
-| Buzz, on Nostr | `buzz-acp`, which **Fountain itself** supervises on the gateway, one for each hosted identity. | Buzz |
 
 ## Test the deployed ACP path
 

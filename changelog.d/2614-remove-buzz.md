@@ -1,6 +1,6 @@
 ### Upgrade notes
 
-- **The Buzz extension is removed** (#NNNN). Hosted Buzz agents stop when the
+- **The Buzz extension is removed** (#2614). Hosted Buzz agents stop when the
   release rolls out: `/api/buzz/agents` and `/api/mcp/buzz/:conversation_id`
   answer `404`, and a migration drops `buzz_identities` and deletes pending
   harness-sweep jobs. The vaults that held each identity's Nostr key are
@@ -12,5 +12,5 @@
 
 - The Buzz extension (`apps/fountain_buzz`), its `buzz-backend-fountain`
   provider binary, the `fountain buzz agents` CLI commands and the Buzz manual
-  pages (#NNNN). Releases no longer attach `buzz-backend-fountain-*`, and the
+  pages (#2614). Releases no longer attach `buzz-backend-fountain-*`, and the
   server image no longer bakes `buzz-acp`, `buzz` or the `fountain` CLI.

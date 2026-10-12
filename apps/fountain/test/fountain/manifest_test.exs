@@ -4,7 +4,6 @@ defmodule Fountain.ManifestTest do
 
   alias Fountain.{Agents, Audit, Conversations, Crypto, Environments, Manifest, Team, Vaults}
   alias Fountain.Team.Schedules
-  alias Fountain.Webhooks
 
   setup do
     # No starter agent (ADR 0038): every assertion here counts what the
@@ -18,10 +17,6 @@ defmodule Fountain.ManifestTest do
 
   defp vault_resource(name, spec \\ %{}) do
     %{"kind" => "Vault", "name" => name, "spec" => spec}
-  end
-
-  defp webhook_resource(name, spec) do
-    %{"kind" => "Webhook", "name" => name, "spec" => spec}
   end
 
   defp schedule_resource(name, spec) do
@@ -402,16 +397,10 @@ defmodule Fountain.ManifestTest do
   end
 
   describe "apply_manifest/2 the whole estate" do
-    @hook_url "https://hooks.example.com/fountain"
-
     defp estate_manifest(vault_spec \\ %{"secrets" => %{"GH" => "ghp_x"}}) do
       # Deliberately out of order: the kinds reconcile in a fixed order,
       # whatever the file says.
       [
-        webhook_resource("ci", %{
-          "url" => @hook_url,
-          "event_types" => ["conversation.turn.done"]
-        }),
         schedule_resource("standup", %{
           "teammate" => "Ada",
           "cron" => "0 9 * * 1-5",
@@ -428,7 +417,7 @@ defmodule Fountain.ManifestTest do
       ]
     end
 
-    test "all six kinds apply in one request, and a second apply changes nothing",
+    test "all five kinds apply in one request, and a second apply changes nothing",
          %{user: user} do
       inert_start_child()
       resources = estate_manifest()
@@ -440,8 +429,7 @@ defmodule Fountain.ManifestTest do
                {"Vault", "alice", :created},
                {"Agent", "ada", :created},
                {"Teammate", "Ada", :created},
-               {"Schedule", "standup", :created},
-               {"Webhook", "ci", :created}
+               {"Schedule", "standup", :created}
              ]
 
       env = Environments.get_environment_by_name("proj", user.id)
@@ -458,18 +446,14 @@ defmodule Fountain.ManifestTest do
       assert [%{name: "standup", cron: "0 9 * * 1-5", one_off: false, enabled: true}] =
                Schedules.list_schedules(user.id, agent.id)
 
-      assert [%{url: @hook_url, event_types: ["conversation.turn.done"]}] =
-               Webhooks.list_endpoints(user.id)
-
       {:ok, second} = Manifest.apply_manifest(user.id, resources)
 
-      assert Enum.map(second, & &1.action) == List.duplicate(:unchanged, 6)
+      assert Enum.map(second, & &1.action) == List.duplicate(:unchanged, 5)
       assert Enum.map(second, & &1.kind) == Enum.map(first, & &1.kind)
 
       # Nothing was duplicated by the second pass.
       assert length(Team.list_teammates(user.id)) == 1
       assert length(Schedules.list_schedules(user.id, agent.id)) == 1
-      assert length(Webhooks.list_endpoints(user.id)) == 1
     end
 
     test "the applied rows are audited with the request's attribution", %{user: user} do
@@ -483,9 +467,8 @@ defmodule Fountain.ManifestTest do
 
       assert "team.member.added" in actions
       assert "team.schedule.created" in actions
-      assert "webhook_endpoint.created" in actions
 
-      for action <- ~w(team.member.added team.schedule.created webhook_endpoint.created) do
+      for action <- ~w(team.member.added team.schedule.created) do
         event = Enum.find(events, &(&1.action == action))
         assert event.actor == "api", "#{action} was recorded as #{event.actor}"
         assert to_string(event.request_ip) == "203.0.113.5"
@@ -524,8 +507,7 @@ defmodule Fountain.ManifestTest do
           "teammate" => "Ada of proj",
           "cron" => "@daily",
           "prompt" => "What is on today?"
-        }),
-        webhook_resource("ci", %{"url" => @hook_url, "description" => "CI"})
+        })
       ]
 
       {:ok, results} = Manifest.apply_manifest(user.id, moved, opts)
@@ -535,14 +517,13 @@ defmodule Fountain.ManifestTest do
                {"Vault", :unchanged},
                {"Agent", :unchanged},
                {"Teammate", :updated},
-               {"Schedule", :updated},
-               {"Webhook", :updated}
+               {"Schedule", :updated}
              ]
 
       events = Audit.list_recent_for_user(user.id, 500)
       added = Enum.take(events, length(events) - before)
 
-      for action <- ~w(team.updated team.schedule.updated webhook_endpoint.updated) do
+      for action <- ~w(team.updated team.schedule.updated) do
         event = Enum.find(added, &(&1.action == action))
 
         assert event,
@@ -913,75 +894,6 @@ defmodule Fountain.ManifestTest do
         ])
 
       assert schedule.errors == %{"crn" => ["is not a supported spec key"]}
-    end
-
-    test "a Webhook hands back its secret once and never on update", %{user: user} do
-      hook = fn spec -> [webhook_resource("ci", Map.put(spec, "url", @hook_url))] end
-
-      {:ok, [created]} = Manifest.apply_manifest(user.id, hook.(%{}))
-      assert created.action == :created
-      assert String.starts_with?(created.secret, "whsec_")
-
-      {:ok, [again]} = Manifest.apply_manifest(user.id, hook.(%{}))
-      assert again.action == :unchanged
-      assert again.secret == nil
-
-      {:ok, [updated]} = Manifest.apply_manifest(user.id, hook.(%{"description" => "CI"}))
-      assert updated.action == :updated
-      assert updated.secret == nil
-
-      assert [endpoint] = Webhooks.list_endpoints(user.id)
-      assert endpoint.description == "CI"
-      # The secret handed back on the create is still the one that signs.
-      assert Webhooks.secret(endpoint) == {:ok, created.secret}
-    end
-
-    test "a Webhook is keyed by its url, not by the document name", %{user: user} do
-      {:ok, [%{action: :created}]} =
-        Manifest.apply_manifest(user.id, [webhook_resource("ci", %{"url" => @hook_url})])
-
-      {:ok, [%{action: :unchanged}]} =
-        Manifest.apply_manifest(user.id, [webhook_resource("renamed", %{"url" => @hook_url})])
-
-      assert length(Webhooks.list_endpoints(user.id)) == 1
-    end
-
-    test "a Webhook the endpoint refuses fails that row only", %{user: user} do
-      {:ok, [good, bad]} =
-        Manifest.apply_manifest(user.id, [
-          vault_resource("v"),
-          webhook_resource("bad", %{"url" => "http://127.0.0.1/hook"})
-        ])
-
-      assert good.action == :created
-      assert bad.action == :error
-      assert Map.has_key?(bad.errors, "url")
-      assert Webhooks.list_endpoints(user.id) == []
-    end
-
-    test "changing a Webhook's url leaves the old endpoint and adds a new one", %{user: user} do
-      {:ok, [%{action: :created}]} =
-        Manifest.apply_manifest(user.id, [webhook_resource("ci", %{"url" => @hook_url})])
-
-      {:ok, [%{action: :created, secret: secret}]} =
-        Manifest.apply_manifest(user.id, [
-          webhook_resource("ci", %{"url" => "https://hooks.example.com/second"})
-        ])
-
-      assert String.starts_with?(secret, "whsec_")
-      # No prune: the endpoint the old URL named is still there and still
-      # delivering, and has to be deleted through its own route.
-      assert length(Webhooks.list_endpoints(user.id)) == 2
-    end
-
-    test "unknown spec keys on a Webhook are rejected", %{user: user} do
-      {:ok, [webhook]} =
-        Manifest.apply_manifest(user.id, [
-          webhook_resource("w", %{"url" => @hook_url, "status" => "disabled"})
-        ])
-
-      assert webhook.errors == %{"status" => ["is not a supported spec key"]}
-      assert Webhooks.list_endpoints(user.id) == []
     end
   end
 end

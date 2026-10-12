@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Account deletion and data export"
-description: "Account deletion is immediate and ordered, aborting only if Stripe cancellation fails; export covers what deletion erases. Documents behavior built in #170, #288 and #450."
+description: "Account deletion is immediate and ordered, aborting only if Stripe cancellation fails; export covers what deletion erases. Documents behavior built in #170, #288 and #450. Amended 2026-10-12: the data export and the Stripe step are removed; deletion stands."
 tags: [accounts, privacy, billing]
 status: stable
 adr: "0009"
@@ -13,7 +13,7 @@ verified: { by: human:jhgaylor, at: 2026-08-03T16:55:10-04:00 }
 
 # 0009 — Account deletion and data export
 
-**Status:** Accepted (documents behavior built in #170/#288 and refined through #450; nothing described here is unbuilt)
+**Status:** Accepted, amended 2026-10-12 (see the addendum at the end: the data export is removed, deletion stands). Documents behavior built in #170/#288 and refined through #450.
 
 ## Context
 
@@ -94,3 +94,24 @@ regardless of who triggered the deletion (#450).
   artifact the most dangerous file the product produces, sitting in a
   download directory. Secrets are reproducible by their owner; conversations
   are not. Rejected, and stated in the UI.
+
+## Addendum — 2026-10-12: the export is removed
+
+Fountain removed the account data export (simplify 4/5). No account had ever
+requested one, and Fountain is now a self-hosted application whose operator
+holds the database.
+
+- `Fountain.Exports`, the `AccountExport` worker and its `:exports` queue,
+  `/api/account/exports` (request, list, show, download), the session
+  download at `/account/exports/:id/download` and the export card on
+  `/account` are deleted. The routes answer `404`.
+- Migration `20261012170000` drops `account_exports` and deletes pending
+  export jobs.
+- "Export is the other half" above no longer holds, and the export nudge is
+  gone from beside the delete button. The typed-email confirmation and the
+  confirmation email remain the mitigations for an immediate, unrecoverable
+  deletion.
+- Stripe went earlier, with credits (#2609): deletion no longer cancels a
+  subscription, so step 1 above is gone and the ordered path starts at
+  sandbox destruction. The crypto-shred boundary, the absence of a grace window and the
+  verified-address rule for the confirmation email are unchanged.

@@ -112,28 +112,6 @@ defmodule Fountain.Emails.UserEmails do
   end
 
   @doc """
-  Tell an owner that a webhook endpoint was switched off (#700).
-
-  Sent once, by `Workers.WebhookEmail`, when consecutive delivery failures
-  cross the threshold. Names the host and the reason and nothing else: the
-  URL path is tenant-chosen and the response body is in the delivery log,
-  behind the console's auth, where it belongs.
-  """
-  @spec deliver_webhook_disabled_email(User.t(), String.t(), String.t()) ::
-          {:ok, term()} | {:error, term()}
-  def deliver_webhook_disabled_email(%User{} = user, host, reason) do
-    url = "#{Fountain.PublicUrl.base()}/account/webhooks"
-
-    new()
-    |> from(from_address())
-    |> to({user.email, user.email})
-    |> subject("Your #{brand()} webhook to #{host} was switched off")
-    |> html_body(webhook_disabled_html(host, reason, url))
-    |> text_body(webhook_disabled_text(host, reason, url))
-    |> Mailer.deliver()
-  end
-
-  @doc """
   Warn an owner that vault secrets are about to expire.
 
   Sent by `Workers.SecretExpirySweeper`, once per recorded expiry, listing
@@ -333,49 +311,6 @@ defmodule Fountain.Emails.UserEmails do
       addr when is_binary(addr) and addr != "" -> "contact us at #{addr}"
       _ -> "contact support"
     end
-  end
-
-  defp webhook_disabled_html(host, reason, url) do
-    """
-    <!DOCTYPE html>
-    <html>
-    <body style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 24px;">
-      <h2>A webhook endpoint was switched off</h2>
-      <p>
-        #{brand()} stopped delivering events to <strong>#{host}</strong> after
-        repeated failures. The last one was: #{reason}.
-      </p>
-      <p>
-        Nothing else changed. Your agents and conversations carry on; only the
-        callbacks to this URL have stopped. Fix the receiver, then switch the
-        endpoint back on and send a test event.
-      </p>
-      <p><a href="#{url}">#{url}</a></p>
-      <p style="color: #71717a; font-size: 13px;">
-        Every attempt, with its status and response, is on that page. If this
-        looks wrong, #{support_phrase()}.
-      </p>
-    </body>
-    </html>
-    """
-  end
-
-  defp webhook_disabled_text(host, reason, url) do
-    """
-    A webhook endpoint was switched off
-
-    #{brand()} stopped delivering events to #{host} after repeated failures.
-    The last one was: #{reason}.
-
-    Nothing else changed. Your agents and conversations carry on; only the
-    callbacks to this URL have stopped. Fix the receiver, then switch the
-    endpoint back on and send a test event.
-
-    #{url}
-
-    Every attempt, with its status and response, is on that page.
-    If this looks wrong, #{support_phrase()}.
-    """
   end
 
   defp secrets_expiring_html(entries, url) do

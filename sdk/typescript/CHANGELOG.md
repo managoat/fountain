@@ -13,10 +13,24 @@ server releases.
 
 ## [Unreleased]
 
-Fountain removed the `opencode` runtime, the `daytona` sandbox provider and
-the Buzz extension. Held for the next release (`release:skip-sdk`).
+Fountain removed the `opencode` runtime, the `daytona` sandbox provider, the
+Buzz extension, outbound webhooks and the account data export. Held for the
+next release (`release:skip-sdk`).
 
 ### Removed
+
+- The `/api/webhooks` paths (list, create, show, update, delete,
+  `rotate-secret`, `test`, `deliveries` and `redeliver`) and the
+  `/api/account/exports` paths (request, list, show and `download`), with the
+  `WebhookEndpoint`, `WebhookEndpointResponse`, `WebhookEndpointListResponse`,
+  `WebhookEndpointCreatedResponse`, `WebhookEndpointCreateRequest`,
+  `WebhookEndpointUpdateRequest`, `WebhookDelivery`,
+  `WebhookDeliveryListResponse`, `WebhookTestResponse`, `Export`,
+  `ExportResponse` and `ExportListResponse` schemas, from the generated types.
+  No client method used them; the server answers `404`.
+
+- `"Webhook"` from the `kind` enum of `components["schemas"]["ManifestResource"]`,
+  and `secret` from `["ApplyResult"]`. An apply naming the kind is refused.
 
 - `paths["/api/buzz/agents"]` and `paths["/api/buzz/agents/{id}"]`, and the
   `BuzzProvisionRequest`, `BuzzAccessUpdateRequest`, `BuzzIdentity`,

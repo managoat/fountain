@@ -201,19 +201,10 @@ Fountain does not renew a disconnected subscription, a subscription in
 **Reconnect required**, or the subscription of an account that is suspended.
 The 6 days are provisional, because the 8 days are an assumption.
 
-## Export and account deletion
+## Account deletion
 
-The [account export](../api.md#data-export-and-deletion) lists your subscriptions and
-your sign-ins of the last week. For a subscription, the export has the name,
-the state, the plan, the email that OpenAI reported, the times, and the names
-of the credential sets that name it. For a sign-in, the export has what it was
-for and how it ended.
-
-The export never has a token, the code that you typed, OpenAI's ID for your
-ChatGPT account, or an encrypted copy of one of them.
-
-When you delete your account, Fountain deletes your subscriptions, your
-sign-ins and its copy of each token. **Fountain cannot revoke a sign-in at
+When you [delete your account](../api.md#account-deletion), Fountain deletes
+your subscriptions, your sign-ins and its copy of each token. **Fountain cannot revoke a sign-in at
 OpenAI.** The sign-in stays valid at OpenAI until it expires or you end it. To
 end it, sign the device out in your ChatGPT account. The email that confirms
 the deletion says the same.

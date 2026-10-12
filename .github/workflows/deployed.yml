@@ -11,7 +11,7 @@ on:
       profile:
         description: Required public checks (canary includes basic and execution)
         type: choice
-        options: [basic, probe, execution, streaming, canary, matrix-canary, matrix-scheduled, matrix-full, secrets, mcp, webhooks, schedules]
+        options: [basic, probe, execution, streaming, canary, matrix-canary, matrix-scheduled, matrix-full, secrets, mcp, schedules]
         default: streaming
         required: true
       mode:
@@ -77,7 +77,6 @@ jobs:
       SUITE_MATRIX_JSON: ${{ vars.SUITE_MATRIX_JSON }}
       FOUNTAIN_SUITE_KEY: ${{ secrets.FOUNTAIN_SUITE_KEY }}
       FOUNTAIN_SUITE_OTHER_KEY: ${{ secrets.FOUNTAIN_SUITE_OTHER_KEY }}
-      FOUNTAIN_WEBHOOK_ADMIN_KEY: ${{ secrets.FOUNTAIN_WEBHOOK_ADMIN_KEY }}
       FOUNTAIN_MCP_ADMIN_KEY: ${{ secrets.FOUNTAIN_MCP_ADMIN_KEY }}
       FOUNTAIN_RECEIVER_ADMIN_KEY: ${{ secrets.FOUNTAIN_RECEIVER_ADMIN_KEY }}
     steps:

@@ -330,26 +330,6 @@ defmodule Fountain.ChatGPTAccounts.LinkAttempts do
     end
   end
 
-  # Every attempt the account still has, which is a week's (`purge/0`),
-  # oldest first, for the account export. Nothing is decrypted: a view from
-  # here has no user code and no page to type it on, open or not.
-  def list_all(user_id) when is_binary(user_id) do
-    now = now()
-
-    case Ecto.UUID.cast(user_id) do
-      {:ok, owner} ->
-        from(a in LinkAttempt,
-          where: a.user_id == ^owner,
-          order_by: [asc: a.inserted_at, asc: a.id]
-        )
-        |> Repo.all()
-        |> Enum.map(&view(&1, now, false))
-
-      :error ->
-        []
-    end
-  end
-
   defp ended_at(%LinkAttempt{state: "pending", expires_at: at}), do: at
   defp ended_at(%LinkAttempt{updated_at: at}), do: at
 
@@ -804,11 +784,9 @@ defmodule Fountain.ChatGPTAccounts.LinkAttempts do
     )
   end
 
-  # `code?` false leaves the user code sealed and the page out, whatever the
-  # state: `list_all/1`'s, for a document that is kept.
-  defp view(%LinkAttempt{} = attempt, now, code? \\ true) do
+  defp view(%LinkAttempt{} = attempt, now) do
     pending? = attempt.state == "pending" and not LinkAttempt.expired?(attempt, now)
-    shown? = pending? and code?
+    shown? = pending?
 
     %AttemptView{
       id: attempt.id,

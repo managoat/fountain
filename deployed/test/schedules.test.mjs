@@ -167,7 +167,7 @@ const config = () => ({ base_url: 'https://fountain.example.test', profiles: ['s
 test('scheduled profile has one authorization, independent selection and explicit bounded windows', t => {
   const path = join(temporary(t), 'target.json'), env = { KEY: randomUUID(), OTHER: randomUUID() };
   writeFileSync(path, JSON.stringify(config())); assert.equal(configFrom(path, env).execution.max_turns, 1);
-  for (const change of [c => c.profiles.push('webhooks'), c => c.execution.max_turns = 2, c => c.execution.sandbox_mode = 'persistent',
+  for (const change of [c => c.profiles.push('mcp'), c => c.execution.max_turns = 2, c => c.execution.sandbox_mode = 'persistent',
     c => c.schedules.observe_ms = 119999, c => c.schedules.start_ms = 59999, c => c.limits.resources = 3, c => c.limits.run_ms = 900001]) {
     const bad = config(); change(bad); writeFileSync(path, JSON.stringify(bad)); assert.throws(() => configFrom(path, env));
   }

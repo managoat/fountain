@@ -206,8 +206,8 @@ Select coverage with the second argument: `probe` for identity, capability and
 health checks, `basic` for the API surface without a sandbox, `execution` for
 two turns without streaming conformance, `canary` for both, or `streaming` for
 everything. Missing required credentials or capabilities fail the run; they
-never become passing skips. The integration profiles — `secrets`, `mcp`,
-`webhooks` and `schedules` — need configuration these flags do not supply, and
+never become passing skips. The integration profiles — `secrets`, `mcp` and
+`schedules` — need configuration these flags do not supply, and
 run from a target file through `deployed/cli.mjs`.
 
 Change what the run declares with flags, which

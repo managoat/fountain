@@ -180,7 +180,7 @@ null stay distinct; local timeout/collection options never enter the body.
 
 | Representative addition | Handwritten work before | Handwritten work now | Generated output |
 |---|---|---|---|
-| Optional conversation launch field | Server schema/input handling; four SDK arguments/body allowlists; CLI flag; manifest/fixture edits when used | Server schema/input behavior and focused server test; a convenience argument only if deliberately offered | Contract, TypeScript request type |
+| Optional conversation launch field | Server schema/input handling; SDK arguments/body allowlists in every client; CLI flag; manifest/fixture edits when used | Server schema/input behavior and focused server test; a convenience argument only if deliberately offered | Contract, TypeScript request type |
 | Optional conversation response field | Server schema and JSON view; Swift property/CodingKey; declarations/claims and fixtures when read | Server schema and JSON view plus serialization test; client logic only if it reads the field | Contract, TypeScript response type |
 | New run/permission/SSE behavior | Server and client behavior; hand-authored conformance expectations | Same behavioral work and independent expectations | Shape declarations only |
 

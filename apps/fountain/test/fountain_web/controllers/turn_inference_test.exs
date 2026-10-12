@@ -19,7 +19,6 @@ defmodule FountainWeb.TurnInferenceTest do
   alias Fountain.ChatGPTAccounts
   alias Fountain.Conversations.{Turn, TurnMachine}
   alias Fountain.Crypto
-  alias Fountain.Exports
   alias Fountain.InferenceCredentials
   alias Fountain.InferenceCredentials.Source
   alias Fountain.Repo
@@ -219,24 +218,6 @@ defmodule FountainWeb.TurnInferenceTest do
 
     conn = conn |> authed_with_key(other_key) |> get("/api/conversations/#{ctx.conv.id}/turns")
     assert json_response(conn, 404)
-  end
-
-  test "the export's turn entries carry the same object", ctx do
-    turn = run_turn(ctx, "on work")
-    generation = Repo.get!(Turn, turn.id).inference_source["generation"]
-
-    doc = Exports.build(ctx.user.id)
-    conv = Enum.find(doc["conversations"], &(&1["id"] == ctx.conv.id))
-
-    assert [%{"inference" => inference}] = conv["turns"]
-
-    assert inference == %{
-             "origin" => "own",
-             "scope" => "grant",
-             "chatgpt_grant_id" => ctx.work.id
-           }
-
-    refute Jason.encode!(doc) =~ generation
   end
 
   test "Source.summary/1 reads an older row, and refuses a scope it does not know" do

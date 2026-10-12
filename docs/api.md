@@ -84,11 +84,11 @@ setup without following the console checklist.
 
 See the account and Auth operations in the [generated reference](/api/docs).
 
-### Data export and deletion
+### Account deletion
 
-Export account data before you delete an account if you need an archive.
-Treat deletion as a separate, explicit user action. See the account operations
-in the [generated reference](/api/docs) for the export and deletion contracts.
+Treat deletion as a separate, explicit user action. Deletion is immediate and
+cannot be undone. See the account operations in the
+[generated reference](/api/docs) for the deletion contract.
 
 ## Inference credentials
 
@@ -321,8 +321,8 @@ resources. The CLI compiles the manifest and submits the resource graph.
 Inspect every resource result. One failed resource does not mean that all
 other writes failed.
 
-A manifest holds six kinds. Fountain reconciles them in a fixed order, which
-is `Environment`, `Vault`, `Agent`, `Teammate`, `Schedule` and `Webhook`. A
+A manifest holds five kinds. Fountain reconciles them in a fixed order, which
+is `Environment`, `Vault`, `Agent`, `Teammate` and `Schedule`. A
 document can name another document whatever its position in the file. An `Agent` names an
 `environment`. A `Teammate` names an `agent`, an `environment` and a `vault`.
 A `Schedule` names a `teammate`. A teammate's name is not unique, so a name
@@ -331,14 +331,11 @@ them. Each name resolves against the manifest first, then against the records
 the account already holds. A name that matches neither fails that document
 alone.
 
-The document name is the key for five of the kinds. `Webhook` is the
-exception, and is keyed by `spec.url`. Change that URL and the apply creates
-a second endpoint. The first one stays, and keeps delivering, until you
-delete it through the webhook routes.
+The document name is the key for every kind.
 
 A `Teammate` document is the whole teammate. Drop `environment` or `vault`
 from it and the apply clears that binding, which puts the teammate back on
-the agent's own environment and on no vault. The other five kinds behave the
+the agent's own environment and on no vault. The other four kinds behave the
 other way around, where an absent `spec` key leaves that field alone.
 
 Rebinding a teammate moves its computer. Fountain retires the machine the old
@@ -358,17 +355,8 @@ record in place. There is no prune.
 
 The audit trail names each applied row. Teammate rows record
 `team.member.added` and `team.updated`, and schedule rows record
-`team.schedule.created` and `team.schedule.updated`, and webhook rows record
-`webhook_endpoint.created` and `webhook_endpoint.updated`. The webhook actions
-carry the `webhook_endpoint` prefix that the webhook routes have always
-written, not a shorter `webhook` one. Each row carries the actor and the IP
+`team.schedule.created` and `team.schedule.updated`. Each row carries the actor and the IP
 address of the request that applied it.
-
-A `Webhook` that an apply creates carries its signing secret in that result
-row. Fountain shows the secret one time. An update of the same endpoint
-carries no secret. A manifest that holds a `Webhook` needs a full-scope
-credential, which is what `POST /api/webhooks` needs. A sandbox-scoped
-credential is refused before any resource in that manifest is written.
 
 Each result row reports `created`, `updated`, `unchanged` or `error`. A
 second apply of an unchanged manifest reports `unchanged` for every row, and
@@ -412,8 +400,7 @@ for the deployment's. `scope` is one of `credential`, `tenant_secret`, `grant`,
 `scope` is `grant`, and null otherwise. Fountain writes the object when the
 turn starts and does not change it. A later change to the credential set, a
 reconnect of the subscription or a restart changes later turns only. The
-object is null on a turn from before Fountain recorded it. The data export
-shows the same object on each turn.
+object is null on a turn from before Fountain recorded it.
 
 ```bash
 curl --fail-with-body \
@@ -559,8 +546,7 @@ for some minutes. In that time, Fountain can deliver a prompt without its
 value. The turn then has a null `client_request_id`.
 
 A turn that Fountain opened by itself has the `autonomous` origin and a null
-`client_request_id`. A webhook delivery carries `turn_id` and does not carry
-this value. Read the turn to get it.
+`client_request_id`.
 
 The TypeScript SDK sends the value for you. It takes it on a run and on a
 follow-up prompt: `run(prompt, { clientRequestId })` and
@@ -676,9 +662,6 @@ callback token can label only the conversation it was minted for. Another
 conversation returns 403 `sprite_may_not_label_another_conversation`. This
 applies to all three doors that write labels, which are the labels route, a
 team message, and a `channel_id` resume.
-
-`conversation.*` webhook payloads carry `labels` under `data`. See
-[Webhooks](reference/webhooks.md).
 
 ### An agent that labels its own run
 
@@ -955,13 +938,6 @@ metadata access does not grant access to another tenant's prompt or output.
 
 See Admin in the [generated reference](/api/docs) for account controls,
 sandbox maintenance, and privilege-trail events.
-
-## Webhooks
-
-Use webhooks when another server must react to Fountain events. Verify the
-signature before you process an event. Make the delivery handler idempotent.
-Follow [Webhooks](reference/webhooks.md) for delivery and retry behavior.
-The [generated reference](/api/docs) describes endpoint registration and replay.
 
 ## Audit
 

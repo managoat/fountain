@@ -3133,44 +3133,6 @@ defmodule Fountain.Conversations.ConversationServerACPTest do
       # The agent's own rejection, never an invented id.
       assert answer["option_id"] == "no"
     end
-
-    test "the request webhooks fire on the ask and on the resolution" do
-      user = insert_verified_user()
-      conv = insert_conversation(user_id: user.id, agent: waiting_agent(user))
-
-      {:ok, {endpoint, _secret}} =
-        Fountain.Webhooks.create_endpoint(user.id, %{
-          "url" => "https://hooks.example.com/f",
-          "event_types" => ["conversation.request.started", "conversation.request.done"]
-        })
-
-      {pid, ref} = start_acp_turn(conv)
-      prompt_id = drive_to_prompt(pid, ref)
-
-      request_id = raise_permission_with(pid, ref, 411, %{})
-      reply(pid, ref, prompt_id, %{"stopReason" => "waiting"})
-      register(pid, conv.id)
-
-      assert [started] = webhook_types(endpoint)
-      assert started == "conversation.request.started"
-
-      assert :ok = Conversations.answer_permission_request(conv.id, user.id, request_id, "yes")
-
-      assert webhook_types(endpoint) == [
-               "conversation.request.started",
-               "conversation.request.done"
-             ]
-    end
-
-    defp webhook_types(endpoint) do
-      Fountain.Repo.all(
-        from(j in Oban.Job,
-          where: fragment("?->>'endpoint_id' = ?", j.args, ^endpoint.id),
-          order_by: j.id,
-          select: fragment("?->'payload'->>'type'", j.args)
-        )
-      )
-    end
   end
 
   describe "labels over the ACP extension (#1637)" do

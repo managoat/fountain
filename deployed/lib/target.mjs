@@ -2,7 +2,7 @@
 // command. Both compose the same run from a caller-supplied target so that a
 // local verdict and a CI verdict mean the same thing.
 
-export const PROFILES = ['probe', 'basic', 'execution', 'streaming', 'canary', 'secrets', 'mcp', 'webhooks', 'schedules'];
+export const PROFILES = ['probe', 'basic', 'execution', 'streaming', 'canary', 'secrets', 'mcp', 'schedules'];
 
 // `canary` is the only alias: it is basic API coverage plus two real turns.
 export function profileList(profile) {
@@ -16,9 +16,8 @@ export function profileLimits(profile) {
 }
 
 // Profiles that assert on delivery rather than on model output spend fewer
-// prompts; webhooks needs none at all.
+// prompts.
 export function profileTurns(profile) {
-  if (profile === 'webhooks') return 0;
   return ['secrets', 'schedules'].includes(profile) ? 1 : 2;
 }
 

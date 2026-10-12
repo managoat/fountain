@@ -198,12 +198,11 @@ its parents retained; keep evidence and retry after resolving the cause.
 ## Other profiles and escalation
 
 Surviving manifests retain their existing profile coverage. Schedules must be
-disabled/deleted before generated conversations and parent fixtures; webhooks
-must be disabled/deleted before conversation teardown can queue more events.
+disabled/deleted before generated conversations and parent fixtures.
 The existing cleanup path does this and retries receiver cleanup from its
 sidecar. Keep receiver admin configuration and sidecars with the manifest.
 
-Missing-journal reconstruction intentionally refuses `schedules`, `webhooks`,
+Missing-journal reconstruction intentionally refuses `schedules`,
 `secrets`, `mcp`, `browser` and rollout `recovery` profiles. Their journals
 carry evidence not recoverable from ordinary fixture names alone: generated
 conversations, receiver sessions/nonces, credential IDs, or disrupted
@@ -214,7 +213,7 @@ these profiles as `execution` or drop sidecars to get a passing verdict.
 For an unsupported profile, unknown ownership, unknown submitted intents,
 unrecorded child/co-tenant, or persistent provider failure, retain the exact
 IDs and a read-only snapshot and involve the deployment operator. First
-identify and stop each proven run-owned schedule/webhook and active execution
+identify and stop each proven run-owned schedule and active execution
 through its public API; revoke or confirm expiration of its exact receiver
 session through that receiver's admin API. Reconstruct relationships before
 removing any parent. Do not reset an arbitrary sandbox, sweep by prefix,

@@ -2,15 +2,11 @@ defmodule Fountain.Workers.TurnDeadlineNotification do
   @moduledoc """
   Delivers a persisted deadline stage independently of the conversation actor.
 
-  Webhook jobs were already committed with the event. This job only notifies
-  local subscribers and telemetry; retries reuse the same event id. Deleted
-  transcripts or changed ownership suppress notification without touching the
-  remote execution journal.
+  This job notifies local subscribers and telemetry; retries reuse the same
+  event id. Deleted transcripts or changed ownership suppress notification
+  without touching the remote execution journal.
   """
-  # Its own queue. Not `:webhooks`, which delivers to customers and would see a
-  # deadline storm compete with real deliveries — the webhook job for this event
-  # was already committed beside it (see `DeadlineEvents`), so nothing here is
-  # customer-facing. And not `:maintenance`, which is concurrency 1 behind eight
+  # Its own queue, not `:maintenance`, which is concurrency 1 behind eight
   # sweeps: a notification whose whole job is to be prompt must not queue behind
   # the retention pruner.
   #

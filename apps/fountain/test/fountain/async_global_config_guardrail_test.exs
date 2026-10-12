@@ -44,10 +44,6 @@ defmodule Fountain.AsyncGlobalConfigGuardrailTest do
     "apps/fountain/test/fountain/audit_guardrail_test.exs",
     # :broker_allow_unenforced — read while provisioning a brokered sandbox.
     "apps/fountain/test/fountain/conversations/provisioning_test.exs",
-    # :webhook_allow_http — read when a webhook URL is validated.
-    "apps/fountain/test/fountain/webhooks/url_test.exs",
-    # :webhooks_enabled — read on every webhook dispatch.
-    "apps/fountain/test/fountain/webhooks_test.exs",
     # :retention_days — read only by the pruner under test.
     "apps/fountain/test/fountain/workers/retention_pruner_test.exs",
     # :callback_key_ttl_seconds — read when a callback key is minted.

@@ -614,21 +614,6 @@ if config_env() != :test do
     enabled: System.get_env("SANDBOX_SNAPSHOTS_ENABLED", "true") != "false"
 end
 
-# Webhooks (#700). On by default; a deployment with no outbound HTTP egress
-# can switch dispatch off entirely. WEBHOOK_ALLOW_HTTP relaxes the https-only
-# rule on endpoint URLs, which is for a self-hosted instance calling a
-# receiver on its own network. It does NOT relax the SSRF address checks —
-# loopback, link-local and RFC1918 targets stay refused either way.
-#
-# Skipped in :test, like the runner switch above: config/test.exs pins both
-# so the suite exercises a known state, and an unguarded override here would
-# silently replace it with whatever the developer's shell happens to say.
-if config_env() != :test do
-  config :fountain,
-    webhooks_enabled: System.get_env("WEBHOOKS_ENABLED", "true") == "true",
-    webhook_allow_http: System.get_env("WEBHOOK_ALLOW_HTTP", "false") == "true"
-end
-
 # Accounts that registered and never verified are deleted after thirty days
 # (#258; the number lives in Fountain.Workers.UnverifiedAccountPruner) — they
 # cannot log in, so they are rows, not users. UNVERIFIED_PRUNE_EXEMPT is a

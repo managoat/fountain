@@ -239,23 +239,6 @@ defmodule FountainWeb.Router do
     post "/email/confirm", AccountSecurityController, :api_confirm_email_change
   end
 
-  # Outbound webhooks (#700) — the ones Fountain *sends*. Full scope, like
-  # key management: a sandbox's per-conversation token must not be able to
-  # point the account's lifecycle events at a URL of its choosing.
-  scope "/api/webhooks", FountainWeb do
-    pipe_through [:accepts_json, :api, :require_full_scope]
-
-    get "/", WebhookEndpointController, :index
-    post "/", WebhookEndpointController, :create
-    get "/:id", WebhookEndpointController, :show
-    patch "/:id", WebhookEndpointController, :update
-    delete "/:id", WebhookEndpointController, :delete
-    post "/:id/rotate-secret", WebhookEndpointController, :rotate
-    post "/:id/test", WebhookEndpointController, :test
-    get "/:id/deliveries", WebhookEndpointController, :deliveries
-    post "/:id/deliveries/:delivery_id/redeliver", WebhookEndpointController, :redeliver
-  end
-
   ## ─── Authenticated JSON resource endpoints ──────────────────────────────────────────────────────────────
 
   scope "/api/auth", FountainWeb do
@@ -404,12 +387,8 @@ defmodule FountainWeb.Router do
   scope "/api/account", FountainWeb do
     pipe_through [:accepts_json, :api, :require_full_scope]
 
-    # Export and deletion (#523). Deletion is irreversible and takes the
-    # tenant key with it, so it wants the strongest credential the account has.
-    post "/exports", AccountDataController, :create_export
-    get "/exports", AccountDataController, :index_exports
-    get "/exports/:id", AccountDataController, :show_export
-    get "/exports/:id/download", AccountDataController, :download_export
+    # Deletion (#523) is irreversible and takes the tenant key with it, so it
+    # wants the strongest credential the account has.
     delete "/", AccountDataController, :delete_account
 
     get "/onboarding", OnboardingController, :show
@@ -636,9 +615,6 @@ defmodule FountainWeb.Router do
     # ── Avatar serving — tenant-scoped image endpoint ─────────────────────────────────────────────────────
     get "/agents/:id/avatar", AgentAvatarController, :show
 
-    # ── Account data export download — owner-scoped, expiring artifact (#288) ─────────────────────────────
-    get "/account/exports/:id/download", ExportController, :download
-
     # ── Credential management (#448) — controller POSTs so the session can be
     # re-issued after a password change and RateLimit applies; the page they
     # POST from is AccountSecurityLive below ─────────────────────────────────
@@ -681,7 +657,7 @@ defmodule FountainWeb.Router do
       live "/help", HelpLive.Show, :index
       live "/help/:topic", HelpLive.Show, :show
 
-      # ── Account page: data export + deletion (#479) ────────────────────────────────────────
+      # ── Account page: deletion (#479) ─────────────────────────────────────────────────────
       live "/account", Live.AccountLive, :index
 
       # ── BYO inference credentials (ADR 0008) ───────────────────────────────────────────────
@@ -698,9 +674,6 @@ defmodule FountainWeb.Router do
 
       # ── Connections: provider accounts Fountain holds the credential for (#1178) ────────────
       live "/account/connections", ConnectionsLive.Index, :index
-
-      # ── Outbound webhooks (#700) ───────────────────────────────────────────────────────────
-      live "/account/webhooks", WebhooksLive.Index, :index
 
       # ── Credential management (#448) ───────────────────────────────────────────────────────
       live "/account/security", AccountSecurityLive, :index

@@ -23,15 +23,12 @@ test('an unknown profile names the approved ones instead of running', () => {
 const stubReceiver = profile => (profile === 'secrets'
   ? { allowed_url: 'https://allowed.example.com/', blocked_url: 'https://blocked.example.com/',
       admin_credential: 'FOUNTAIN_RECEIVER_ADMIN_KEY', bootstrap_hosts: ['registry.npmjs.org'] }
-  : profile === 'mcp'
-    ? { receiver_url: 'https://mcp.example.com/', admin_credential: 'FOUNTAIN_MCP_ADMIN_KEY', auth_mode: 'static_bearer' }
-    : { receiver_url: 'https://hook.example.com/', admin_credential: 'FOUNTAIN_WEBHOOK_ADMIN_KEY',
-        delivery_ms: 180000, observe_ms: 30000 });
+  : { receiver_url: 'https://mcp.example.com/', admin_credential: 'FOUNTAIN_MCP_ADMIN_KEY', auth_mode: 'static_bearer' });
 
 test('every advertised profile composes a target the runner accepts', () => {
   const dir = mkdtempSync(join(tmpdir(), 'fountain-verify-profiles-'));
   const env = { ...keys, FOUNTAIN_RECEIVER_ADMIN_KEY: 'x'.repeat(64),
-    FOUNTAIN_MCP_ADMIN_KEY: 'x'.repeat(64), FOUNTAIN_WEBHOOK_ADMIN_KEY: 'x'.repeat(64) };
+    FOUNTAIN_MCP_ADMIN_KEY: 'x'.repeat(64) };
   try {
     for (const profile of VERIFY_PROFILES) {
       const composed = verifyConfig(args({ profile }), env, hostsReceiver(profile) ? stubReceiver(profile) : undefined);
@@ -161,7 +158,7 @@ test('an expected contract is carried through and otherwise left to the default'
 // means. Both compose through lib/target.mjs; this pins that they agree.
 test('a local run composes the same profiles, limits and turns as CI', () => {
   const env = { ...keys, FOUNTAIN_RECEIVER_ADMIN_KEY: 'x'.repeat(64),
-    FOUNTAIN_MCP_ADMIN_KEY: 'x'.repeat(64), FOUNTAIN_WEBHOOK_ADMIN_KEY: 'x'.repeat(64) };
+    FOUNTAIN_MCP_ADMIN_KEY: 'x'.repeat(64) };
   for (const profile of VERIFY_PROFILES) {
     const local = verifyConfig(args({ profile }), env, hostsReceiver(profile) ? stubReceiver(profile) : undefined);
     const ci = ciConfig({

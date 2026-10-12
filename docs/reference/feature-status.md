@@ -45,8 +45,7 @@ credential set can name one. Each turn records which subscription served it.
 Fountain detects a subscription that has spent its plan's Codex allowance
 after a turn fails on it, and refuses the subscription until the reset time.
 A daily job renews a subscription that nobody used for 6 days, so that its
-sign-in does not end. An account export lists the subscriptions, and an
-account deletion removes them. The credential broker refuses a response that
+sign-in does not end. An account deletion removes the subscriptions. The credential broker refuses a response that
 repeats the subscription's token. It refuses a query string on the Responses
 route, and allows only `client_version` on the model list route. The broker finds only an exact
 copy of the token. It does not find an encoded copy or a partial copy. These

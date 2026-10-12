@@ -2,8 +2,8 @@ import { readFileSync, existsSync } from 'node:fs';
 import { atomicJson } from './fixtures.mjs';
 
 // Every receiver profile writes a journal beside its cleanup manifest —
-// `receiver.json`, `mcp-receiver.json`, `webhook-receiver.json` — recording
-// whether the run's records on that receiver still need deleting.
+// `receiver.json`, `mcp-receiver.json` — recording whether the run's records
+// on that receiver still need deleting.
 //
 // A replay reads it to decide whether the receiver still owes anything. Two
 // states mean it does not:

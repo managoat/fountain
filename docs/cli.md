@@ -323,8 +323,8 @@ fountain apply -f dir/ --var REGION=eu-west-1 # ${VAR} substitution, repeatable
 ```
 
 Apply is idempotent. It creates what is new, and updates what changed. It
-supports six kinds, which are `Environment`, `Vault`, `Agent`, `Teammate`,
-`Schedule` and `Webhook`.
+supports five kinds, which are `Environment`, `Vault`, `Agent`, `Teammate`
+and `Schedule`.
 
 `--var` and `${VAR}` substitution apply to a `spec.secrets` value alone. A
 `${VAR}` anywhere else in the document goes across as it stands. A
@@ -333,16 +333,13 @@ supports six kinds, which are `Environment`, `Vault`, `Agent`, `Teammate`,
 The CLI compiles each document into one manifest, and sends that to
 `POST /api/apply` in one request.
 
-The server reconciles the six kinds in the order above. A document can name
+The server reconciles the five kinds in the order above. A document can name
 another document whatever its position in the file. An `Agent` names an
 `environment`. A `Teammate` names an `agent`, an `environment` and a `vault`.
 A `Schedule` names a `teammate`. Each name resolves against the manifest
 first, then against the records your account already holds.
 
-The `metadata.name` is the key for five of the kinds. A `Webhook` is keyed by
-its `spec.url`, so the document name is a label alone. Change that URL and the
-next apply creates a second endpoint. The first one stays, and keeps
-delivering, until you delete it with `fountain webhooks delete`.
+The `metadata.name` is the key for every kind.
 
 ```yaml
 ---
@@ -366,16 +363,6 @@ spec:
   prompt: What is on today?
   one_off: false
   enabled: true
-
----
-apiVersion: fountain/v1
-kind: Webhook
-metadata:
-  name: ci
-spec:
-  url: https://ci.example.com/hooks/fountain
-  description: CI receiver
-  event_types: [conversation.turn.done]
 ```
 
 A `Teammate` document adds the agent to the team, which opens the teammate's
@@ -385,7 +372,7 @@ computer.
 
 A `Teammate` document is the whole teammate. Drop `environment` or `vault`
 from it and the next apply clears that binding, which puts the teammate back
-on the agent's own environment and on no vault. The other five kinds behave
+on the agent's own environment and on no vault. The other four kinds behave
 the other way around, where an absent `spec` key leaves that field alone.
 
 A teammate's computer is built for one environment and one vault. Move either
@@ -404,9 +391,6 @@ computer. Reset or remove the computer first, then apply again.
 Two `Teammate` documents cannot name the same agent. An agent is on the team
 once, so the second document fails and the first one applies.
 
-A `Webhook` that an apply creates prints its signing secret one time. Save it
-then. An apply that updates the same endpoint prints no secret.
-
 A `Schedule` names its teammate. A teammate's name is not unique, so a name
 that two of your teammates answer to fails that row. Rename one of them, or
 name the teammate in the same manifest, which makes the name unambiguous.
@@ -424,9 +408,6 @@ vault  =  alice
 agent  ~  ada
 teammate  +  Ada
 schedule  +  standup
-webhook  +  ci
-  signing secret  ci  whsec_...
-  save it now, it is not shown again
 ```
 
 A second apply of the
@@ -501,33 +482,6 @@ and match on any port.
 The app starts in development mode. It signs in only the account that
 registered it. `delete` stops new sign-ins, but keys already issued stay
 valid until you revoke them with `fountain keys revoke`.
-
-## Webhooks
-
-Endpoints that Fountain sends conversation lifecycle events to. The
-[webhooks reference](reference/webhooks.md) holds the full event catalogue and
-a worked signature verifier.
-
-```bash
-fountain webhooks list [--json]
-fountain webhooks create <url> [--description <text>] [--event <type>]...
-fountain webhooks show <id>
-fountain webhooks delete <id>
-fountain webhooks test <id>
-fountain webhooks rotate-secret <id>
-fountain webhooks pause <id>
-fountain webhooks resume <id>
-fountain webhooks deliveries <id> [--limit <n>] [--json]
-fountain webhooks redeliver <id> <delivery-id>
-```
-
-`create` and `rotate-secret` print the secret once. Fountain cannot show it
-again, and can only replace it. Repeat `--event` for each type. An endpoint
-with no `--event` gets `conversation.turn.done`,
-`conversation.turn.failed` and `conversation.provision.failed`.
-
-`deliveries` turns a broken integration into a status code and a response
-body, rather than a support thread.
 
 ## Output
 

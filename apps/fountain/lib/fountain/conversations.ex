@@ -2658,7 +2658,6 @@ defmodule Fountain.Conversations do
 
       {:new, event} ->
         notify_stage(event)
-        Fountain.Webhooks.dispatch_stage(event)
         event
     end
   end

@@ -81,7 +81,6 @@ defmodule FountainWeb.LlmsController do
         "endpoints, the response envelope, SSE streaming, and calling back from inside a sandbox to spawn more"},
        {"sdk",
         "TypeScript: `fountain.run(prompt, {agent, vault})`, awaitable, streamable, resumable"},
-       {"reference/webhooks", "event payloads and delivery"},
        {"reference/conversation-states", "the lifecycle, and every terminal state"}
      ]},
     {"Catalog",

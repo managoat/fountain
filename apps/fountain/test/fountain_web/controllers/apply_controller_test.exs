@@ -2,7 +2,7 @@ defmodule FountainWeb.ApplyControllerTest do
   use FountainWeb.ConnCase, async: true
   use Mimic
 
-  alias Fountain.{Agents, Crypto, Environments, Team, Vaults, Webhooks}
+  alias Fountain.{Agents, Crypto, Environments, Team, Vaults}
   alias Fountain.Team.Schedules
 
   setup do
@@ -11,45 +11,10 @@ defmodule FountainWeb.ApplyControllerTest do
     {:ok, user: user, raw_key: raw_key}
   end
 
-  describe "POST /api/apply — the webhook scope boundary" do
-    setup %{user: user} do
+  describe "POST /api/apply — a sandbox token" do
+    test "may apply a manifest", %{conn: conn, user: user} do
       {_key, sprite_key} = insert_sprite_api_key(user)
-      %{sprite_key: sprite_key}
-    end
 
-    test "a sandbox token cannot create a webhook endpoint through a manifest", %{
-      conn: conn,
-      user: user,
-      sprite_key: sprite_key
-    } do
-      payload = %{
-        "resources" => [
-          %{"kind" => "Environment", "name" => "proj", "spec" => %{"setup_script" => "echo hi"}},
-          %{
-            "kind" => "Webhook",
-            "name" => "ops",
-            "spec" => %{"url" => "https://example.test/hook", "event_types" => ["*"]}
-          }
-        ]
-      }
-
-      conn = conn |> authed_with_key(sprite_key) |> post_json(~p"/api/apply", payload)
-
-      body = json_response(conn, 403)
-      assert body["reason"] == "insufficient_scope"
-      assert body["required_scope"] == "full"
-
-      # Refused before any resource is written, so the environment sharing the
-      # manifest with the webhook does not land either.
-      assert Fountain.Environments.list_environments(user.id) == []
-      assert Fountain.Webhooks.list_endpoints(user.id) == []
-    end
-
-    test "a sandbox token may still apply a manifest with no webhook in it", %{
-      conn: conn,
-      user: user,
-      sprite_key: sprite_key
-    } do
       payload = %{
         "resources" => [
           %{"kind" => "Environment", "name" => "proj", "spec" => %{"setup_script" => "echo hi"}}
@@ -62,28 +27,21 @@ defmodule FountainWeb.ApplyControllerTest do
       assert [_] = Fountain.Environments.list_environments(user.id)
     end
 
-    test "a full-scope key applies the same webhook manifest", %{
-      conn: conn,
-      user: user,
-      raw_key: raw_key
-    } do
+    test "cannot apply a Webhook, which is no longer a kind", %{conn: conn, user: user} do
+      {_key, sprite_key} = insert_sprite_api_key(user)
+
       payload = %{
         "resources" => [
           %{
             "kind" => "Webhook",
             "name" => "ops",
-            "spec" => %{"url" => "https://example.test/hook", "event_types" => ["*"]}
+            "spec" => %{"url" => "https://example.test/hook"}
           }
         ]
       }
 
-      conn = conn |> authed_with_key(raw_key) |> post_json(~p"/api/apply", payload)
-
-      assert %{"data" => %{"results" => [%{"action" => "created", "secret" => secret}]}} =
-               json_response(conn, 200)
-
-      assert is_binary(secret)
-      assert [_] = Fountain.Webhooks.list_endpoints(user.id)
+      conn = conn |> authed_with_key(sprite_key) |> post_json(~p"/api/apply", payload)
+      assert conn.status == 422
     end
   end
 
@@ -241,7 +199,7 @@ defmodule FountainWeb.ApplyControllerTest do
       assert Vaults.get_vault_by_name("valid", user.id)
     end
 
-    test "reconciles the three team and webhook kinds in one request", %{
+    test "reconciles the team kinds in one request", %{
       conn: conn,
       user: user,
       raw_key: raw_key
@@ -269,11 +227,6 @@ defmodule FountainWeb.ApplyControllerTest do
             "kind" => "Schedule",
             "name" => "standup",
             "spec" => %{"teammate" => "Ada", "cron" => "0 9 * * 1-5", "prompt" => "morning"}
-          },
-          %{
-            "kind" => "Webhook",
-            "name" => "ci",
-            "spec" => %{"url" => "https://hooks.example.com/fountain"}
           }
         ]
       }
@@ -286,28 +239,19 @@ defmodule FountainWeb.ApplyControllerTest do
                {"Vault", "created"},
                {"Agent", "created"},
                {"Teammate", "created"},
-               {"Schedule", "created"},
-               {"Webhook", "created"}
+               {"Schedule", "created"}
              ]
-
-      # The signing secret is on the webhook row and nowhere else.
-      assert [%{"kind" => "Webhook", "secret" => secret}] =
-               Enum.filter(results, &(&1["secret"] != nil))
-
-      assert String.starts_with?(secret, "whsec_")
 
       agent = Agents.get_agent_by_name("ada", user.id)
       assert [%{name: "Ada"}] = Team.list_teammates(user.id)
       assert [%{name: "standup"}] = Schedules.list_schedules(user.id, agent.id)
 
-      # A second apply writes nothing and returns no secret.
+      # A second apply writes nothing.
       second =
         build_conn() |> authed_with_key(raw_key) |> post_json(~p"/api/apply", payload)
 
       assert %{"data" => %{"results" => rows}} = json_response(second, 200)
-      assert Enum.map(rows, & &1["action"]) == List.duplicate("unchanged", 6)
-      assert Enum.all?(rows, &(&1["secret"] == nil))
-      assert length(Webhooks.list_endpoints(user.id)) == 1
+      assert Enum.map(rows, & &1["action"]) == List.duplicate("unchanged", 5)
     end
 
     test "never echoes secret values back", %{conn: conn, raw_key: raw_key} do

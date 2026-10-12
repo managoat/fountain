@@ -48,11 +48,10 @@ defmodule Fountain.Docs do
     extra_resources: ["CHANGELOG.md"],
     # The languages whose tree-sitter parsers the Dockerfile bakes into the
     # image before `mix release` (Lumis cannot fetch one at runtime on a
-    # read-only root filesystem, #879). `python` and `javascript` joined the
-    # list with the webhooks reference (#700), which carries a signature
-    # verifier in each; `toml` joined with the Fly guide, the first page to
-    # quote a `fly.toml`, since `ini` highlights the wrong things for it.
+    # read-only root filesystem, #879). `toml` joined with the Fly guide, the
+    # first page to quote a `fly.toml`, since `ini` highlights the wrong things
+    # for it.
     # docs_test.exs fails if the corpus or priv/help grows a fence in a
     # language this list does not name.
-    languages: ~w(bash typescript javascript python json json5 yaml toml elixir ini)
+    languages: ~w(bash typescript json json5 yaml toml elixir ini)
 end

@@ -41,7 +41,6 @@ func TestBuildApplyPayloadOrdersAndStrips(t *testing.T) {
 		})},
 		"Teammate": {doc("Teammate", "Ada", map[string]any{"agent": "researcher"})},
 		"Schedule": {doc("Schedule", "standup", map[string]any{"teammate": "Ada", "cron": "@daily"})},
-		"Webhook":  {doc("Webhook", "ci", map[string]any{"url": "https://example.com/h"})},
 	}
 
 	// Payload order is the reconciliation order, whatever order the manifest
@@ -89,7 +88,6 @@ func TestGroupDocsBucketsEveryKind(t *testing.T) {
 		doc("Cluster", "nope", nil),
 		doc("Teammate", "Ada", nil),
 		doc("Schedule", "standup", nil),
-		doc("Webhook", "ci", nil),
 		doc("Environment", "e", nil),
 		doc("Vault", "v", nil),
 	}
@@ -116,7 +114,6 @@ func TestRenderApplyResultsFailureDetection(t *testing.T) {
 			{Kind: "Environment", Name: "e", Action: "created"},
 			{Kind: "Agent", Name: "a", Action: "updated"},
 			{Kind: "Vault", Name: "v", Action: "unchanged"},
-			{Kind: "Webhook", Name: "ci", Action: "created", Secret: "whsec_x"},
 		}, false},
 		{"resource error", []applyResult{
 			{Kind: "Agent", Name: "a", Action: "error", Errors: map[string]any{"model": []any{"can't be blank"}}},

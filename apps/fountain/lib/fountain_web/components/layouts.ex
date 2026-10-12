@@ -118,7 +118,6 @@ defmodule FountainWeb.Layouts do
                 label="Connections"
                 current={@current_path}
               />
-              <.nav_link href={~p"/account/webhooks"} label="Webhooks" current={@current_path} />
               <.nav_link href={~p"/account/security"} label="Security" current={@current_path} />
             </div>
 

@@ -159,8 +159,8 @@ test('an external receiver URL carrying a credential is refused without echoing 
 });
 
 test('only the outbound profiles need a receiver', () => {
-  assert.deepEqual(['probe', 'basic', 'execution', 'streaming', 'canary', 'secrets', 'mcp', 'webhooks', 'schedules']
-    .filter(hostsReceiver), ['secrets', 'mcp', 'webhooks']);
+  assert.deepEqual(['probe', 'basic', 'execution', 'streaming', 'canary', 'secrets', 'mcp', 'schedules']
+    .filter(hostsReceiver), ['secrets', 'mcp']);
 });
 
 test('a hosted secrets receiver needs two origins and its admin credential', () => {

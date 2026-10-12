@@ -91,7 +91,7 @@ defmodule Fountain.InferenceCredentials.Source do
 
   @doc """
   What a stored source says to its owner, for a turn's `inference` field in
-  the API and the export (ADR 0060 decision 6): the `"origin"`, the scope and,
+  the API (ADR 0060 decision 6): the `"origin"`, the scope and,
   on a `:grant` source, which subscription. Nil for a row with no source, or
   with one whose scope this version does not know.
 

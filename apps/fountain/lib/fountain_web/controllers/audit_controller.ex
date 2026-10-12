@@ -2,10 +2,9 @@ defmodule FountainWeb.AuditController do
   @moduledoc """
   The tenant's own audit trail over the API (#526).
 
-  The trail was readable at `/audit` in a browser and, indirectly, inside an
-  account export. Anything that wanted to ship its own audit events somewhere —
-  a SIEM, a compliance archive, a weekly digest — had to scrape a LiveView or
-  request a full export.
+  The trail was readable at `/audit` in a browser only. Anything that wanted
+  to ship its own audit events somewhere — a SIEM, a compliance archive, a
+  weekly digest — had to scrape a LiveView.
 
   Tenant-scoped by construction: `Audit.list_for_user/2` filters on `user_id`,
   and cross-tenant listing belongs to the admin API, not here.

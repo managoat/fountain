@@ -4,7 +4,7 @@ defmodule Fountain.Manifest do
 
   Takes the full list of resources the CLI compiled from a `fountain.yml`
   and reconciles them against the tenant's records in one pass, in a fixed
-  order: environments, vaults, agents, teammates, schedules, webhooks. The
+  order: environments, vaults, agents, teammates, schedules. The
   order is what lets a document reference another by name regardless of
   where it sits in the file. An Agent's `environment`, a Teammate's `agent`,
   `environment` and `vault`, and a Schedule's `teammate` all resolve against
@@ -20,7 +20,6 @@ defmodule Fountain.Manifest do
   | `Agent` | `name` | `Fountain.Agents` |
   | `Teammate` | `name`, which names the agent's membership | `Fountain.Team` |
   | `Schedule` | `name`, under its `teammate` | `Fountain.Team.Schedules` |
-  | `Webhook` | `spec.url` | `Fountain.Webhooks` |
 
   A teammate is one agent's membership of the team, so the document's `name`
   is what the teammate is called and the resolved `agent` is what it
@@ -31,7 +30,7 @@ defmodule Fountain.Manifest do
   conversation and no apply would ever be `unchanged`.
 
   A Teammate document is also the only one read as a whole declaration. On
-  the other five an absent `spec` key leaves that column alone; on a Teammate
+  the other four an absent `spec` key leaves that column alone; on a Teammate
   an absent `environment` or `vault` clears the binding, back to the agent's
   own environment and no vault. Moving either id moves the teammate's
   computer, which `Fountain.Team.update_teammate/4` retires and refuses
@@ -42,18 +41,17 @@ defmodule Fountain.Manifest do
   and does not stop the rest of the manifest.
 
   Apply is additive. A document removed from the manifest leaves its record
-  in place; there is no prune. A `Webhook` whose `spec.url` changes is a new
-  endpoint for that reason, and the one the old URL named keeps delivering.
+  in place; there is no prune.
   """
 
   require Logger
 
-  alias Fountain.{Agents, Crypto, Environments, Team, Vaults, Webhooks}
+  alias Fountain.{Agents, Crypto, Environments, Team, Vaults}
   alias Fountain.Team.Schedules
 
   @unexpected "apply failed unexpectedly; see the server log"
 
-  @kinds ~w(Environment Vault Agent Teammate Schedule Webhook)
+  @kinds ~w(Environment Vault Agent Teammate Schedule)
 
   def kinds, do: @kinds
 
@@ -65,13 +63,11 @@ defmodule Fountain.Manifest do
   Apply `resources` (maps with `"kind"`, `"name"`, and `"spec"`) for `user_id`.
 
   Returns `{:ok, results}` with one result map per resource in apply order
-  (the six kinds in the order above, then any malformed entries). Each result
+  (the five kinds in the order above, then any malformed entries). Each result
   holds `:kind`, `:name`, an `:action` of `:created` / `:updated` /
   `:unchanged` / `:error`, changeset-style `:errors` when the action is
-  `:error`, a `:secrets` list with the per-key upsert outcome, the
-  reconciled record's `:id` (nil for errors), and `:secret`, which carries a
-  webhook endpoint's signing secret on the apply that created it and is nil
-  everywhere else.
+  `:error`, a `:secrets` list with the per-key upsert outcome, and the
+  reconciled record's `:id` (nil for errors).
 
   `:unchanged` means the record already matched the document, so nothing was
   written to it. Inline `spec.secrets` are re-encrypted on every apply and
@@ -87,7 +83,6 @@ defmodule Fountain.Manifest do
     agents = Map.get(groups, "Agent", [])
     teammates = Map.get(groups, "Teammate", [])
     schedules = Map.get(groups, "Schedule", [])
-    webhooks = Map.get(groups, "Webhook", [])
 
     dek = if Enum.any?(envs ++ vaults, &has_secrets?/1), do: load_dek!(user_id)
 
@@ -116,16 +111,12 @@ defmodule Fountain.Manifest do
         apply_schedule(user_id, res, known_teammates, opts)
       end)
 
-    {webhook_results, _} =
-      reconcile("Webhook", webhooks, fn res, _claimed -> apply_webhook(user_id, res, opts) end)
-
     results =
       env_results ++
         vault_results ++
         agent_results ++
         teammate_results ++
         schedule_results ++
-        webhook_results ++
         Enum.map(invalid, &invalid_result/1)
 
     {:ok, results}
@@ -369,44 +360,6 @@ defmodule Fountain.Manifest do
     end
   end
 
-  # Keyed by `spec.url`: the endpoint the tenant already has for that URL is
-  # the one this document describes. The document's name is a label, carried
-  # into the result row so `fountain apply` prints something a reader picked.
-  defp apply_webhook(user_id, %{"name" => name} = res, opts) do
-    with :ok <- validate_keys(res, ~w(url description event_types)) do
-      attrs = spec_of(res)
-      existing = Enum.find(Webhooks.list_endpoints(user_id), &(&1.url == attrs["url"]))
-
-      case reconcile_webhook(user_id, existing, attrs, opts) do
-        {:ok, endpoint, secret} ->
-          row =
-            %{
-              result("Webhook", name, verdict(existing, endpoint), nil, [], endpoint.id)
-              | secret: secret
-            }
-
-          {row, nil}
-
-        {:error, reason} ->
-          {result("Webhook", name, :error, context_errors(reason), []), nil}
-      end
-    else
-      {:error, errors} -> {result("Webhook", name, :error, errors, []), nil}
-    end
-  end
-
-  # The signing secret comes back on creation only, exactly as
-  # `POST /api/webhooks` gives it: an update has none to return.
-  defp reconcile_webhook(user_id, nil, attrs, opts) do
-    with {:ok, {endpoint, secret}} <- Webhooks.create_endpoint(user_id, attrs, opts),
-         do: {:ok, endpoint, secret}
-  end
-
-  defp reconcile_webhook(_user_id, endpoint, attrs, opts) do
-    with {:ok, updated} <- Webhooks.update_endpoint(endpoint, attrs, opts),
-         do: {:ok, updated, nil}
-  end
-
   # ── references ────────────────────────────────────────────────────────────
 
   # Resolve a `<field>: <name>` reference: documents applied earlier in this
@@ -521,7 +474,7 @@ defmodule Fountain.Manifest do
   end
 
   # The kinds with no Ecto schema of their own behind the manifest document
-  # (a Teammate is a conversation, a Webhook an endpoint) name their keys
+  # (a Teammate is a conversation, a Schedule names a teammate) name their keys
   # here, so an unsupported key still fails before anything is written.
   defp validate_keys(res, allowed) do
     allowed = allowed ++ ~w(id user_id created_by)
@@ -564,8 +517,6 @@ defmodule Fountain.Manifest do
   # `id` is the reconciled record's id when there is one. It is not serialized
   # in the API response; callers use it to attribute the secret writes this
   # manifest performed to a concrete resource in the audit trail (#530).
-  # `secret` is a webhook endpoint's signing secret on the apply that minted
-  # it, and nil on every other row and every later apply.
   defp result(kind, name, action, errors, secrets, id \\ nil) do
     %{
       kind: kind,
@@ -573,8 +524,7 @@ defmodule Fountain.Manifest do
       action: action,
       errors: errors,
       secrets: secrets,
-      id: id,
-      secret: nil
+      id: id
     }
   end
 

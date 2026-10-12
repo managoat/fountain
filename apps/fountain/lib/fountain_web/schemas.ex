@@ -2589,37 +2589,6 @@ defmodule FountainWeb.Schemas do
     })
   end
 
-  defmodule Export do
-    @moduledoc false
-    require OpenApiSpex
-
-    OpenApiSpex.schema(%{
-      title: "Export",
-      description:
-        "An account data export. Built asynchronously; the payload is fetched " <>
-          "from the download endpoint, never embedded here.",
-      type: :object,
-      properties: %{
-        id: %Schema{type: :string, format: :uuid},
-        status: %Schema{type: :string, enum: ~w(pending completed failed)},
-        byte_size: %Schema{type: :integer, nullable: true, description: "Uncompressed size."},
-        error: %Schema{type: :string, nullable: true},
-        expires_at: %Schema{type: :string, format: :"date-time", nullable: true},
-        downloadable: %Schema{
-          type: :boolean,
-          description: "Completed and not yet expired — the only state the download serves."
-        },
-        inserted_at: %Schema{type: :string, format: :"date-time"},
-        updated_at: %Schema{type: :string, format: :"date-time"}
-      },
-      required: [:id, :status]
-    })
-  end
-
-  item_response(ExportResponse, of: Export)
-
-  list_response(ExportListResponse, of: Export)
-
   defmodule AccountDeleteRequest do
     @moduledoc false
     require OpenApiSpex
@@ -3739,176 +3708,6 @@ defmodule FountainWeb.Schemas do
     })
   end
 
-  defmodule WebhookEndpoint do
-    @moduledoc false
-    require OpenApiSpex
-
-    OpenApiSpex.schema(%{
-      title: "WebhookEndpoint",
-      description:
-        "A URL of yours that Fountain POSTs lifecycle events to. The signing secret is " <>
-          "returned only by create and rotate, and never appears here.",
-      type: :object,
-      properties: %{
-        id: %Schema{type: :string, format: :uuid},
-        url: %Schema{type: :string, example: "https://example.com/hooks/fountain"},
-        description: %Schema{type: :string, nullable: true, maxLength: 500},
-        event_types: %Schema{
-          type: :array,
-          items: %Schema{type: :string},
-          description:
-            "What this endpoint is subscribed to. An exact type " <>
-              "(`conversation.turn.done`), one stage (`conversation.turn.*`), or `*` for " <>
-              "everything. `GET /api/catalog` is not the source for these; the docs page is.",
-          example: ["conversation.turn.done", "conversation.turn.failed"]
-        },
-        status: %Schema{
-          type: :string,
-          enum: ["active", "disabled"],
-          description:
-            "`disabled` means Fountain stopped delivering, either because you switched it " <>
-              "off or because deliveries failed for long enough."
-        },
-        consecutive_failures: %Schema{
-          type: :integer,
-          description:
-            "Events in a row that exhausted their retries. Any accepted delivery clears it."
-        },
-        disabled_at: %Schema{type: :string, format: :"date-time", nullable: true},
-        disabled_reason: %Schema{type: :string, nullable: true},
-        inserted_at: %Schema{type: :string, format: :"date-time"},
-        updated_at: %Schema{type: :string, format: :"date-time"}
-      },
-      required: [:id, :url, :event_types, :status]
-    })
-  end
-
-  item_response(WebhookEndpointResponse, of: WebhookEndpoint)
-  list_response(WebhookEndpointListResponse, of: WebhookEndpoint)
-
-  defmodule WebhookEndpointCreatedResponse do
-    @moduledoc false
-    require OpenApiSpex
-
-    OpenApiSpex.schema(%{
-      title: "WebhookEndpointCreatedResponse",
-      description:
-        "The endpoint, plus the signing secret. This is the only response that carries " <>
-          "the secret; it is not recoverable afterwards, only replaceable.",
-      type: :object,
-      properties: %{
-        data: WebhookEndpoint,
-        secret: %Schema{
-          type: :string,
-          description: "The HMAC-SHA256 signing secret. Store it; it is not shown again.",
-          example: "whsec_Zm91bnRhaW4tZXhhbXBsZS1zZWNyZXQtdmFsdWU"
-        }
-      },
-      required: [:data, :secret]
-    })
-  end
-
-  defmodule WebhookEndpointCreateRequest do
-    @moduledoc false
-    require OpenApiSpex
-
-    OpenApiSpex.schema(%{
-      title: "WebhookEndpointCreateRequest",
-      type: :object,
-      properties: %{
-        url: %Schema{
-          type: :string,
-          description:
-            "https:// only, unless the instance permits http. Loopback, link-local " <>
-              "(including the cloud metadata address) and RFC1918 targets are refused, " <>
-              "at request time as well as here.",
-          example: "https://example.com/hooks/fountain"
-        },
-        description: %Schema{type: :string, nullable: true, maxLength: 500},
-        event_types: %Schema{
-          type: :array,
-          items: %Schema{type: :string},
-          description:
-            "Defaults to conversation.turn.done, conversation.turn.failed and " <>
-              "conversation.provision.failed when absent.",
-          example: ["conversation.turn.done"]
-        }
-      },
-      required: [:url]
-    })
-  end
-
-  defmodule WebhookEndpointUpdateRequest do
-    @moduledoc false
-    require OpenApiSpex
-
-    OpenApiSpex.schema(%{
-      title: "WebhookEndpointUpdateRequest",
-      description: "Any subset. `status` toggles delivery; the secret is rotated separately.",
-      type: :object,
-      properties: %{
-        url: %Schema{type: :string},
-        description: %Schema{type: :string, nullable: true, maxLength: 500},
-        event_types: %Schema{type: :array, items: %Schema{type: :string}},
-        status: %Schema{type: :string, enum: ["active", "disabled"]}
-      }
-    })
-  end
-
-  defmodule WebhookDelivery do
-    @moduledoc false
-    require OpenApiSpex
-
-    OpenApiSpex.schema(%{
-      title: "WebhookDelivery",
-      description: "One HTTP attempt at one event. Retained for 30 days by default, then pruned.",
-      type: :object,
-      properties: %{
-        id: %Schema{type: :string, format: :uuid},
-        event_id: %Schema{
-          type: :string,
-          description: "The log_events row id, which is also the SSE event id."
-        },
-        event_type: %Schema{type: :string, example: "conversation.turn.done"},
-        attempt: %Schema{type: :integer, description: "1 for the first try."},
-        status_code: %Schema{
-          type: :integer,
-          nullable: true,
-          description: "null when the request never got a response."
-        },
-        duration_ms: %Schema{type: :integer, nullable: true},
-        error: %Schema{type: :string, nullable: true},
-        response_body: %Schema{
-          type: :string,
-          nullable: true,
-          description: "The first few KB of what the receiver said."
-        },
-        inserted_at: %Schema{type: :string, format: :"date-time"}
-      },
-      required: [:id, :event_id, :event_type, :attempt]
-    })
-  end
-
-  list_response(WebhookDeliveryListResponse, of: WebhookDelivery)
-
-  defmodule WebhookTestResponse do
-    @moduledoc false
-    require OpenApiSpex
-
-    OpenApiSpex.schema(%{
-      title: "WebhookTestResponse",
-      description:
-        "The test event was queued. Its delivery shows up in " <>
-          "`GET /api/webhooks/{id}/deliveries` once the worker has run.",
-      type: :object,
-      properties: %{
-        queued: %Schema{type: :boolean},
-        event_type: %Schema{type: :string, example: "webhook.test"}
-      },
-      required: [:queued, :event_type]
-    })
-  end
-
   defmodule Error do
     @moduledoc false
     require OpenApiSpex
@@ -4038,14 +3837,12 @@ defmodule FountainWeb.Schemas do
           "and a Teammate document is read as a whole declaration, so an absent " <>
           "`environment` or `vault` clears that binding. Schedule specs take " <>
           "`teammate` plus the TeamScheduleCreateRequest fields `cron`, " <>
-          "`prompt`, `one_off` and `enabled`; Webhook specs take the " <>
-          "WebhookEndpointCreateRequest fields `url`, `description` and " <>
-          "`event_types`, and are keyed by `url` rather than by `name`.",
+          "`prompt`, `one_off` and `enabled`.",
       type: :object,
       properties: %{
         kind: %Schema{
           type: :string,
-          enum: ["Environment", "Vault", "Agent", "Teammate", "Schedule", "Webhook"]
+          enum: ["Environment", "Vault", "Agent", "Teammate", "Schedule"]
         },
         name: %Schema{type: :string, minLength: 1, maxLength: 200},
         spec: %Schema{type: :object, additionalProperties: true}
@@ -4105,16 +3902,7 @@ defmodule FountainWeb.Schemas do
               "`upserted` under `secrets`."
         },
         errors: %Schema{type: :object, additionalProperties: true, nullable: true},
-        secrets: %Schema{type: :array, items: ApplySecretResult},
-        secret: %Schema{
-          type: :string,
-          nullable: true,
-          description:
-            "A Webhook endpoint's HMAC-SHA256 signing secret, on the apply that " <>
-              "created it. Store it; it is not shown again, and an update never " <>
-              "returns it. Null on every other row.",
-          example: "whsec_Zm91bnRhaW4tZXhhbXBsZS1zZWNyZXQtdmFsdWU"
-        }
+        secrets: %Schema{type: :array, items: ApplySecretResult}
       },
       required: [:kind, :name, :action]
     })

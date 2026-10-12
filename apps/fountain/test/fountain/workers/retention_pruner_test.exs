@@ -232,29 +232,6 @@ defmodule Fountain.Workers.RetentionPrunerTest do
     end
   end
 
-  describe "exports" do
-    test "perform/1 purges expired export payloads" do
-      # Exports.purge_expired/0 used to have exactly one production call
-      # site — the first line of the next export request. After the last
-      # export on an instance, every expired gzipped payload sat in
-      # Postgres indefinitely.
-      user = insert_verified_user()
-
-      {:ok, export} =
-        %Fountain.Exports.Export{
-          user_id: user.id,
-          status: "completed",
-          payload: :zlib.gzip("data"),
-          expires_at: days_ago(3)
-        }
-        |> Repo.insert()
-
-      assert :ok = perform_job(RetentionPruner, %{})
-
-      refute Repo.get(Fountain.Exports.Export, export.id)
-    end
-  end
-
   describe "usage_events" do
     test "gets the longest window, because it is billing input" do
       assert RetentionPruner.window_days(:usage_events) == 400

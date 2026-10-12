@@ -2,9 +2,9 @@ defmodule Fountain.Conversations.DeadlineEventsTest do
   use Fountain.DataCase, async: true
   use Mimic
 
-  alias Fountain.{Conversations, Webhooks}
+  alias Fountain.Conversations
   alias Fountain.Conversations.{ExecutionGuard, LogEvent, Turn, TurnExecution, TurnMachine}
-  alias Fountain.Workers.{TurnDeadlineNotification, WebhookDelivery}
+  alias Fountain.Workers.TurnDeadlineNotification
 
   setup do
     user = insert_verified_user()
@@ -17,9 +17,6 @@ defmodule Fountain.Conversations.DeadlineEventsTest do
     {:ok, execution} =
       ExecutionGuard._unsafe_register(turn.id, Ecto.UUID.generate(), deadline, now: now)
 
-    {:ok, {endpoint, _}} =
-      Webhooks.create_endpoint(user.id, %{"url" => "https://hooks.example.com/deadline"})
-
     Phoenix.PubSub.subscribe(Fountain.PubSub, "conv:#{conv.id}")
 
     %{
@@ -27,8 +24,7 @@ defmodule Fountain.Conversations.DeadlineEventsTest do
       conv: conv,
       turn: turn,
       execution: execution,
-      deadline: deadline,
-      endpoint: endpoint
+      deadline: deadline
     }
   end
 
@@ -36,20 +32,13 @@ defmodule Fountain.Conversations.DeadlineEventsTest do
   defp event(c), do: Repo.get_by!(LogEvent, turn_id: c.turn.id, stage: "turn")
   defp jobs(worker), do: all_enqueued(worker: worker)
 
-  test "expiration commits its event and tenant-scoped delivery jobs without an actor", c do
-    other = insert_verified_user()
-    {:ok, _} = Webhooks.create_endpoint(other.id, %{"url" => "https://hooks.example.com/other"})
-
+  test "expiration commits its event and its notification without an actor", c do
     assert {:ok, _} = expire(c)
     event = event(c)
     assert event.state == "failed"
     assert Jason.decode!(event.data)["stop_reason"] == "wall_time_limit"
     assert Repo.get!(Turn, c.turn.id).limit_reason == "wall_time_limit"
     assert Repo.get!(TurnExecution, c.execution.id).deadline_event_id == event.id
-    assert [delivery] = jobs(WebhookDelivery)
-    assert delivery.args["endpoint_id"] == c.endpoint.id
-    assert delivery.args["payload"]["id"] == to_string(event.id)
-    assert delivery.args["payload"]["data"]["turn_id"] == c.turn.id
     assert [notification] = jobs(TurnDeadlineNotification)
     assert notification.args["user_id"] == c.user.id
     refute_received {:log_event, _}
@@ -58,7 +47,7 @@ defmodule Fountain.Conversations.DeadlineEventsTest do
     assert_received {:log_event, ^event}
   end
 
-  test "rollback cannot leave a failed turn without its event or delivery intent", c do
+  test "rollback cannot leave a failed turn without its event or notification", c do
     assert {:error, :abort} =
              Repo.transaction(fn ->
                assert {:ok, _} = expire(c)
@@ -69,47 +58,11 @@ defmodule Fountain.Conversations.DeadlineEventsTest do
     assert Repo.get!(TurnExecution, c.execution.id).state == "active"
     assert Repo.get!(TurnExecution, c.execution.id).deadline_event_id == nil
     assert Repo.aggregate(LogEvent, :count) == 0
-    assert jobs(WebhookDelivery) == []
     assert jobs(TurnDeadlineNotification) == []
     refute_received {:log_event, _}
   end
 
-  test "a failed webhook enqueue rolls the deadline outcome back for recovery", c do
-    expect(WebhookDelivery, :enqueue, fn _, _ -> {:error, :queue_unavailable} end)
-    assert_raise MatchError, fn -> expire(c) end
-    assert Repo.get!(Turn, c.turn.id).status == "running"
-    assert Repo.get!(TurnExecution, c.execution.id).state == "active"
-    assert Repo.aggregate(LogEvent, :count) == 0
-    assert jobs(WebhookDelivery) == []
-    assert jobs(TurnDeadlineNotification) == []
-    refute_received {:log_event, _}
-
-    expect(WebhookDelivery, :enqueue, fn id, payload ->
-      Mimic.call_original(WebhookDelivery, :enqueue, [id, payload])
-    end)
-
-    assert {:ok, _} = expire(c)
-    assert event(c).state == "failed"
-    assert [_] = jobs(WebhookDelivery)
-  end
-
-  test "ordinary stage dispatch still tries other endpoints after an enqueue refusal", c do
-    {:ok, {other, _}} =
-      Webhooks.create_endpoint(c.user.id, %{"url" => "https://hooks.example.com/second"})
-
-    stub(WebhookDelivery, :enqueue, fn id, payload ->
-      if id == c.endpoint.id,
-        do: {:error, :queue_unavailable},
-        else: Mimic.call_original(WebhookDelivery, :enqueue, [id, payload])
-    end)
-
-    Conversations.publish_stage(c.conv.id, "turn", "done")
-    assert [job] = jobs(WebhookDelivery)
-    assert job.args["endpoint_id"] == other.id
-    assert_received {:log_event, %{state: "done"}}
-  end
-
-  test "a retried notification reuses its id without adding webhook jobs", c do
+  test "a retried notification reuses its id without adding events", c do
     expire(c)
     event = event(c)
     [job] = jobs(TurnDeadlineNotification)
@@ -119,7 +72,6 @@ defmodule Fountain.Conversations.DeadlineEventsTest do
       assert_received {:log_event, ^event}
     end
 
-    assert [_] = jobs(WebhookDelivery)
     assert Repo.aggregate(LogEvent, :count) == 1
   end
 
@@ -134,7 +86,6 @@ defmodule Fountain.Conversations.DeadlineEventsTest do
 
     assert event(c).state == "failed"
     assert [_] = jobs(TurnDeadlineNotification)
-    assert [_] = jobs(WebhookDelivery)
 
     expect(Conversations, :_unsafe_notify_stage, fn event ->
       Mimic.call_original(Conversations, :_unsafe_notify_stage, [event])
@@ -163,7 +114,6 @@ defmodule Fountain.Conversations.DeadlineEventsTest do
 
     assert event(c) == original
     assert Repo.aggregate(LogEvent, :count) == 1
-    assert [_] = jobs(WebhookDelivery)
     assert [_] = jobs(TurnDeadlineNotification)
     refute_received {:log_event, _}
   end
@@ -194,7 +144,6 @@ defmodule Fountain.Conversations.DeadlineEventsTest do
     assert Conversations.publish_stage(c.conv.id, "turn", "done", %{turn_id: c.turn.id}) == nil
     assert Repo.aggregate(LogEvent, :count) == 0
     assert Repo.get!(TurnExecution, c.execution.id).state == "active"
-    assert jobs(WebhookDelivery) == []
   end
 
   test "malformed retained metadata does not lose the committed stage notification", c do
@@ -205,22 +154,16 @@ defmodule Fountain.Conversations.DeadlineEventsTest do
     assert :ok = perform_job(TurnDeadlineNotification, job.args)
     assert_received {:log_event, %{id: id, state: "failed", data: "[REDACTED]"}}
     assert id == event.id
-    assert [_] = jobs(WebhookDelivery)
   end
 
-  test "the notification does not compete with customer webhook delivery", c do
+  test "the notification runs on its own queue with bounded retries", c do
     assert {:ok, _} = expire(c)
     assert [notification] = jobs(TurnDeadlineNotification)
-    assert [delivery] = jobs(WebhookDelivery)
 
-    # The webhook job was already committed beside the event, so the local
-    # notification has no business on the queue that reaches customers — a
-    # deadline storm would otherwise starve outbound delivery exactly when it
-    # matters. Retries are bounded too: the event is durable, so re-pushing it
-    # to live subscribers twenty times buys nothing.
+    # Retries are bounded: the event is durable, so re-pushing it to live
+    # subscribers twenty times buys nothing.
     assert notification.queue == "notifications"
     assert notification.max_attempts == 3
-    assert delivery.queue == "webhooks"
   end
 
   test "a conversation that changed hands is not published on, and says so", c do
@@ -238,7 +181,6 @@ defmodule Fountain.Conversations.DeadlineEventsTest do
     assert log =~ c.turn.id
     assert Repo.get!(TurnExecution, c.execution.id).deadline_event_id == nil
     assert jobs(TurnDeadlineNotification) == []
-    assert jobs(WebhookDelivery) == []
   end
 
   test "a deleted transcript makes the notification a logged no-op, not a crash", c do

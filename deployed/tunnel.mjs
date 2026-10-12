@@ -2,9 +2,9 @@ import { spawn } from 'node:child_process';
 import { Resolver } from 'node:dns/promises';
 
 // The integration profiles assert on what a deployment does *outbound*: a
-// secret delivered into a sandbox, an MCP server called, a webhook posted. A
-// receiver has to be reachable from the deployment and from its sandbox
-// provider, so it needs a public HTTPS origin. Rather than ask an operator to
+// secret delivered into a sandbox, an MCP server called. A receiver has to be
+// reachable from the deployment and from its sandbox provider, so it needs a
+// public HTTPS origin. Rather than ask an operator to
 // host one, a run borrows one: a Cloudflare quick tunnel needs no account and
 // no DNS record, and lasts exactly as long as the run.
 //

@@ -1,7 +1,6 @@
-defmodule Fountain.ChatGPTExportDeletionTest do
-  # ADR 0060 stage 5: what an account export says of the ChatGPT
-  # subscriptions an account linked, and what an account deletion does with
-  # them. One account holds two grants, one linked through a real sign-in so
+defmodule Fountain.ChatGPTDeletionTest do
+  # ADR 0060 stage 5: what an account deletion does with the ChatGPT
+  # subscriptions an account linked. One account holds two grants, one linked through a real sign-in so
   # its audit events are the real ones, and an open and an ended sign-in.
   # `async: false`: the broker, the flag and the auth stub are shared.
   use Fountain.DataCase, async: false
@@ -16,7 +15,6 @@ defmodule Fountain.ChatGPTExportDeletionTest do
   alias Fountain.Broker.Native.Session
   alias Fountain.ChatGPTAccounts
   alias Fountain.ChatGPTAccounts.LinkAttempt
-  alias Fountain.Exports
   alias Fountain.InferenceCredentials
   alias Fountain.PlatformChatGPT.Account
   alias Fountain.PlatformChatGPT.OAuth
@@ -83,135 +81,6 @@ defmodule Fountain.ChatGPTExportDeletionTest do
       access: [access_a, access_b],
       attempts: %{completed: completed, cancelled: cancelled, open: open}
     }
-  end
-
-  # Every spelling a ciphertext could take in a JSON document.
-  defp spellings(binary) do
-    [
-      Base.encode64(binary),
-      Base.encode64(binary, padding: false),
-      Base.url_encode64(binary),
-      Base.url_encode64(binary, padding: false),
-      Base.encode16(binary),
-      Base.encode16(binary, case: :lower)
-    ]
-  end
-
-  describe "the account export" do
-    test "lists both subscriptions and every sign-in, by what the owner sees", %{user: user} do
-      %{a: a, b: b, attempts: attempts} = link_everything(user)
-      doc = user.id |> Exports.build() |> Jason.encode!() |> Jason.decode!()
-
-      assert [personal, work] = doc["chatgpt_subscriptions"]
-      assert %{"id" => id_a, "name" => "Work", "status" => "active", "plan_type" => "pro"} = work
-      assert id_a == a.id
-      assert work["account_email"] == "admin@example.com"
-      assert work["named_by_sets"] == ["Codex on work"]
-      assert work["revoked_reason"] == nil
-      assert work["exhausted_until"] == nil
-      assert {:ok, _, 0} = DateTime.from_iso8601(work["last_refreshed_at"])
-      assert {:ok, _, 0} = DateTime.from_iso8601(work["created_at"])
-
-      assert personal["id"] == b.id
-      assert personal["name"] == "Personal"
-      assert personal["named_by_sets"] == []
-
-      allowed =
-        ~w(id name status plan_type account_email last_refreshed_at revoked_reason
-           exhausted_until named_by_sets created_at updated_at)
-
-      assert Enum.sort(Map.keys(work)) == Enum.sort(allowed)
-
-      by_id = Map.new(doc["chatgpt_link_attempts"], &{&1["id"], &1})
-      assert map_size(by_id) == 3
-
-      assert %{"kind" => "link", "name" => "Work", "state" => "completed"} =
-               done = by_id[attempts.completed.id]
-
-      assert done["result_grant_id"] == a.id
-
-      assert %{"kind" => "reconnect", "state" => "cancelled", "name" => nil} =
-               by_id[attempts.cancelled.id]
-
-      assert by_id[attempts.cancelled.id]["grant_id"] == b.id
-
-      assert %{"kind" => "link", "name" => "Side project", "state" => "pending"} =
-               by_id[attempts.open.id]
-
-      for attempt <- Map.values(by_id) do
-        assert Enum.sort(Map.keys(attempt)) ==
-                 Enum.sort(~w(id kind name grant_id state failure_reason result_grant_id
-                              expires_at created_at updated_at))
-      end
-
-      assert doc["notes"]["chatgpt_subscriptions"] =~ "does not revoke it at OpenAI"
-    end
-
-    test "a disconnected subscription is listed as that, still named by its set", %{
-      user: user
-    } do
-      %{a: a} = link_everything(user)
-      # A disconnect keeps the row, and the set goes on naming it.
-      :ok = ChatGPTAccounts.disconnect_for_user(a.id, user.id)
-
-      work = Enum.find(Exports.build(user.id)["chatgpt_subscriptions"], &(&1["name"] == "Work"))
-      assert work["status"] == "disconnected"
-      assert work["named_by_sets"] == ["Codex on work"]
-    end
-
-    test "the rendered JSON holds no token, ciphertext, device id, user code, provider account id or generation",
-         %{user: user} do
-      %{a: a, b: b, access: access, attempts: attempts} = link_everything(user)
-      json = user.id |> Exports.build() |> Jason.encode!()
-
-      # The fixture's own values, so this cannot pass by the export being empty.
-      assert json =~ "Work" and json =~ "Personal" and json =~ attempts.open.id
-
-      for secret <- access ++ [@refresh_a, @refresh_b, @user_code, @device_auth_id] do
-        refute json =~ secret
-      end
-
-      for account_id <- [@account_a, @account_b], do: refute(json =~ account_id)
-      for grant <- [a, b], do: refute(json =~ grant.generation)
-
-      open = Repo.get!(LinkAttempt, attempts.open.id)
-      assert is_binary(open.user_code_ciphertext) and is_binary(open.device_auth_ciphertext)
-      assert open.expected_generation == nil or not (json =~ open.expected_generation)
-
-      ciphertexts =
-        [open.user_code_ciphertext, open.device_auth_ciphertext] ++
-          Enum.flat_map([a, b], &[&1.access_token_ciphertext, &1.refresh_token_ciphertext])
-
-      for ciphertext <- ciphertexts, spelling <- [ciphertext | spellings(ciphertext)] do
-        assert :binary.match(json, spelling) == :nomatch
-      end
-
-      for key <- ~w(generation lock_version account_id user_code device_auth_id
-                    verification_url access_token refresh_token id_claims) do
-        refute json =~ ~s("#{key}")
-      end
-    end
-
-    test "another account's export has none of it", %{user: user, other: other} do
-      %{a: a, attempts: attempts} = link_everything(user)
-      theirs = user_grant!(other.id, %{name: "Theirs"})
-
-      doc = Exports.build(other.id)
-      assert [%{"id" => id, "name" => "Theirs"}] = doc["chatgpt_subscriptions"]
-      assert id == theirs.id
-      assert doc["chatgpt_link_attempts"] == []
-
-      json = Jason.encode!(doc)
-      refute json =~ a.id
-      refute json =~ attempts.open.id
-      refute json =~ "Codex on work"
-    end
-
-    test "an account that linked nothing exports two empty lists", %{other: other} do
-      doc = Exports.build(other.id)
-      assert doc["chatgpt_subscriptions"] == []
-      assert doc["chatgpt_link_attempts"] == []
-    end
   end
 
   describe "deleting the account" do

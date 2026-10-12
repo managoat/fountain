@@ -2,8 +2,7 @@ defmodule FountainWeb.AuditControllerTest do
   @moduledoc """
   The account's audit trail over the API (#526).
 
-  Before this, programmatic access meant either scraping the `/audit`
-  LiveView or requesting a whole account export.
+  Before this, programmatic access meant scraping the `/audit` LiveView.
   """
 
   use FountainWeb.ConnCase, async: true

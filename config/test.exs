@@ -160,15 +160,6 @@ config :managoat_mcp_auth, :allow_private_hosts, true
 # out. Under its own otp_app, like every extension key.
 config :fountain_google, :req_options, plug: {Req.Test, FountainGoogle.Gmail}
 
-# Webhooks (#700). Every delivery goes to a Req.Test plug, so a test that
-# forgets to stub fails loudly instead of reaching a real receiver. `http://`
-# endpoints are permitted here so a test can use a plain URL; the SSRF guard
-# is unaffected by that flag and is exercised directly in
-# `webhooks/url_test.exs`.
-config :fountain, :webhook_req_options, plug: {Req.Test, Fountain.Webhooks}
-config :fountain, :webhook_allow_http, true
-config :fountain, :webhooks_enabled, true
-
 # Extensions (ADR 0043) are assembled in `config/runtime.exs`, not here.
 #
 # `Code.ensure_loaded?/1` is the only way to ask whether a sibling app is on

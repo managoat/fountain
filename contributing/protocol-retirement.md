@@ -140,7 +140,7 @@ Published surfaces to reconcile:
 
 - Integration pages: `openai-compatible.md`, `openbot.md`, `langchain.md`,
   `gateways.md`, `clients.md`, plus `docs/nav.yml`.
-- Build guides, docs index, glossary, webhook catalog, feature-status and
+- Build guides, docs index, glossary, feature-status and
   configuration pages.
 - `.env.example`, `.env.compose.example`, and the Compose flag comments.
 - The three example directories above and links to them.

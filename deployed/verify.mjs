@@ -62,7 +62,7 @@ export const help = `Verify a deployed Fountain (Node 24+)
   --contract   expected wire contract file, relative to the output directory
   --keychain   macOS keychain service to read keys from (default: ${KEYCHAIN_SERVICE})
 
-The secrets, mcp and webhooks profiles assert on outbound behaviour, so they
+The secrets and mcp profiles assert on outbound behaviour, so they
 need a receiver the deployment can reach. By default the run hosts one and
 publishes it over Cloudflare quick tunnels for the duration:
 
@@ -266,7 +266,7 @@ export async function verifyMain(argv, env = process.env, { hostReceiverFn = hos
     // a replay finds an unsettled one and demands the configuration for an
     // instance that no longer exists.
     if (receiver?.hosted && out) {
-      for (const name of ['receiver.json', 'mcp-receiver.json', 'webhook-receiver.json']) {
+      for (const name of ['receiver.json', 'mcp-receiver.json']) {
         discardJournal(resolve(out, 'results', name), reportRunId(resolve(out, 'results')));
       }
     }

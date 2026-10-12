@@ -32,7 +32,6 @@ defmodule FountainWeb.SchemaEnumGuardrailTest do
   alias Fountain.Agents.Agent
   alias Fountain.Conversations.{Conversation, LogEvent, Sandbox, Turn}
   alias Fountain.Environments.Environment
-  alias Fountain.Exports.Export
   alias Fountain.InferenceCredentials.Credential
   alias Fountain.{Images, Manifest}
   alias OpenApiSpex.Schema
@@ -125,7 +124,6 @@ defmodule FountainWeb.SchemaEnumGuardrailTest do
     {FountainWeb.Schemas.Environment, "networking_type"} => {Environment, :networking},
     {FountainWeb.Schemas.EnvironmentRequest, "networking_type"} => {Environment, :networking},
     {FountainWeb.Schemas.EnvironmentUpdate, "networking_type"} => {Environment, :networking},
-    {FountainWeb.Schemas.Export, "status"} => {Export, :statuses},
     {FountainWeb.Schemas.InferenceCredentialStatus, "provider"} => {Credential, :providers},
     {FountainWeb.Schemas.InferenceCredentialSet, "providers.[]"} => {Credential, :providers},
     {FountainWeb.Schemas.LogEvent, "kind"} => {LogEvent, :kinds},
@@ -160,10 +158,7 @@ defmodule FountainWeb.SchemaEnumGuardrailTest do
     {FountainWeb.Schemas.SecretBinding, "auth_type"} =>
       {Fountain.SecretBindings.Binding, :auth_types},
     {FountainWeb.Schemas.SecretBindingRequest, "auth_type"} =>
-      {Fountain.SecretBindings.Binding, :auth_types},
-    {FountainWeb.Schemas.WebhookEndpoint, "status"} => {Fountain.Webhooks.Endpoint, :statuses},
-    {FountainWeb.Schemas.WebhookEndpointUpdateRequest, "status"} =>
-      {Fountain.Webhooks.Endpoint, :statuses}
+      {Fountain.SecretBindings.Binding, :auth_types}
   }
 
   # Enums with no domain list behind them. Each entry needs a reason: the

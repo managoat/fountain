@@ -16,7 +16,7 @@ defmodule Fountain.AuditSystemActorsTest do
 
   import Ecto.Query
 
-  alias Fountain.{Audit, Exports, Repo}
+  alias Fountain.{Audit, Repo}
   alias Fountain.Workers.RetentionPruner
 
   defp system_events(action) do
@@ -75,48 +75,6 @@ defmodule Fountain.AuditSystemActorsTest do
       :ok = RetentionPruner.perform(%Oban.Job{args: %{}})
 
       assert system_events("retention.pruned") == []
-    end
-  end
-
-  describe "export transitions" do
-    setup do
-      user = insert_verified_user()
-      {:ok, export} = Exports.request_export(user)
-      {:ok, user: user, export: export}
-    end
-
-    test "completion is recorded against the owner", %{user: user, export: export} do
-      {:ok, _} = Exports.complete_export(export, :zlib.gzip("{}"), 2)
-
-      event = find_for_user(user.id, "account.export_completed")
-      assert event, "an export finishing must be visible to the person who asked for it"
-      assert event.actor == "system:account_export"
-      assert event.resource_id == export.id
-    end
-
-    test "failure is recorded, so a request cannot just go quiet", %{user: user, export: export} do
-      {:ok, _} = Exports.fail_export(export, :boom)
-
-      event = find_for_user(user.id, "account.export_failed")
-      assert event.actor == "system:account_export"
-      assert event.metadata["error"] =~ "boom"
-    end
-
-    test "expiry is recorded against the owner", %{user: user, export: export} do
-      {:ok, export} = Exports.complete_export(export, :zlib.gzip("{}"), 2)
-
-      # Past its expiry.
-      Repo.update_all(
-        from(e in Exports.Export, where: e.id == ^export.id),
-        set: [expires_at: DateTime.utc_now() |> DateTime.add(-60, :second)]
-      )
-
-      assert Exports.purge_expired() == 1
-
-      event = find_for_user(user.id, "account.export_expired")
-      assert event, "an artifact aging out is still the user's data going away"
-      assert event.actor == "system:retention_pruner"
-      assert event.resource_id == export.id
     end
   end
 end

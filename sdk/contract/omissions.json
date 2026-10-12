@@ -27,11 +27,7 @@
     },
     {
       "operations": ["* /api/account/*", "DELETE /api/account"],
-      "reason": "Account self-service: data exports, inference credentials, ChatGPT subscriptions and their sign-in attempts, onboarding. The console owns all of it and none of it is part of running an agent."
-    },
-    {
-      "operations": ["* /api/webhooks*"],
-      "reason": "Webhook registration and delivery replay. Server-to-server configuration a person does once in the console; nothing an SDK caller does per run."
+      "reason": "Account self-service: inference credentials, ChatGPT subscriptions and their sign-in attempts, onboarding. The console owns all of it and none of it is part of running an agent."
     },
     {
       "operations": ["* /api/sandbox-queue*"],

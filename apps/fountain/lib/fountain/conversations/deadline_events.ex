@@ -2,18 +2,16 @@ defmodule Fountain.Conversations.DeadlineEvents do
   @moduledoc """
   Records deadline outcomes in the same transaction as the failed turn.
 
-  Webhook jobs and a retryable local notification share that transaction. The
-  persisted log id is the deduplication identity for both streams and callbacks.
-  Notifications may repeat; the terminal log event is inserted only once under
-  the execution journal lock. No actor or provider call participates.
+  A retryable local notification shares that transaction. The persisted log id
+  is the deduplication identity for streams. Notifications may repeat; the
+  terminal log event is inserted only once under the execution journal lock. No actor or provider call participates.
 
   **The atomicity here is deliberate, and it is the exception to the usual
   rule.** Elsewhere a recording is best-effort precisely so that a failed insert
   cannot take its mutation down (ADR 0013). Here it is the opposite: a turn that
   is durably failed while nothing was ever told is the bug this module exists to
-  prevent, so `Conversations.log!/1`, `Webhooks.dispatch_stage!/1` and
-  `Oban.insert!/1` all raise inside the caller's transaction and *should* roll
-  the turn write back. The caller retries; the alternative is a silent
+  prevent, so `Conversations.log!/1` and `Oban.insert!/1` both raise inside the
+  caller's transaction and *should* roll the turn write back. The caller retries; the alternative is a silent
   disagreement between the journal and every reader of it.
 
   `_unsafe_record!/2` is the one thing that does not raise: it returns `nil`
@@ -23,7 +21,7 @@ defmodule Fountain.Conversations.DeadlineEvents do
 
   require Logger
 
-  alias Fountain.{Conversations, Repo, Webhooks}
+  alias Fountain.{Conversations, Repo}
   alias Fountain.Conversations.Conversation
   alias Fountain.Workers.TurnDeadlineNotification
 
@@ -55,8 +53,6 @@ defmodule Fountain.Conversations.DeadlineEvents do
               stop_reason: "wall_time_limit"
             })
         })
-
-      Webhooks.dispatch_stage!(event)
 
       %{"event_id" => event.id, "conversation_id" => owner.id, "user_id" => owner.user_id}
       |> TurnDeadlineNotification.new()

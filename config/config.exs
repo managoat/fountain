@@ -5,23 +5,14 @@ import Config
 # the problem the Rehydrator solves by hand.
 config :fountain, Oban,
   repo: Fountain.Repo,
-  # exports is its own queue so a user-requested data export is never stuck
-  # behind a maintenance sweep; concurrency 1 because each job reads every row
-  # an account owns and two at once doubles that memory.
-  # webhooks is its own queue so a tenant's slow receiver never sits in front
-  # of a maintenance sweep or an email, and so its concurrency can be tuned
-  # against outbound HTTP rather than against database work (#700).
   # notifications carries work whose whole value is being prompt — a turn
-  # outcome reaching a live subscriber. It is not on webhooks, because that
-  # queue is for outbound HTTP to tenants and a deadline storm would compete
-  # with real deliveries; and not on maintenance, because that one is
-  # concurrency 1 behind eight sweeps, so a notification would queue single
-  # file behind whichever one is mid-run. Same argument as exports and
-  # webhooks above, one more time.
+  # outcome reaching a live subscriber. It is not on maintenance, because that
+  # one is concurrency 1 behind eight sweeps, so a notification would queue
+  # single file behind whichever one is mid-run.
   # chatgpt carries the pollers of users' ChatGPT sign-ins (ADR 0060 stage 4):
   # one short HTTP call to the auth server every few seconds per open attempt,
   # for at most fifteen minutes. Its own queue so a burst of sign-ins never
-  # sits in front of a schedule or a webhook. Ten, because the queue serves
+  # sits in front of a schedule or an email. Ten, because the queue serves
   # every account at once and a run is one or two HTTP calls and a short
   # write: it waits on the auth server, never on a CPU. Each call is bounded
   # at eighteen seconds (`OAuth.refresh_timeout_ceiling_ms/0`), so an auth
@@ -37,11 +28,9 @@ config :fountain, Oban,
     maintenance: 1,
     chatgpt: 10,
     chatgpt_refresh: 2,
-    exports: 1,
     mailer: 5,
     notifications: 5,
-    schedules: 5,
-    webhooks: 10
+    schedules: 5
   ],
   plugins: [
     # Oban's own job-table pruning: completed jobs older than 7 days.

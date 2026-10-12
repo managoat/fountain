@@ -41,10 +41,7 @@ defmodule FountainWeb.AccountDeletionLiveTest do
 
       {:ok, lv, html} = live(login_user(conn, user), ~p"/account")
       assert html =~ "Delete account"
-      # The export nudge sits in the danger zone and anchors to the export
-      # section above it (#450).
-      assert html =~ "Request an export above"
-      assert html =~ ~s{id="export"}
+      refute html =~ "export"
 
       capture_log(fn ->
         assert {:error, {:redirect, %{to: to}}} =

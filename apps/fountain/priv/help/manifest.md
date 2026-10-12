@@ -8,30 +8,30 @@ A `fountain.yml` is a multi-document YAML file. Each doc is one resource with th
 
 ```yaml
 apiVersion: fountain/v1
-kind: Environment | Vault | Agent | Teammate | Schedule | Webhook
+kind: Environment | Vault | Agent | Teammate | Schedule
 metadata:
   name: <unique-on-operator-side>
 spec:
   # ... fields matching the API schema for the kind ...
 ```
 
-The `metadata.name` is the upsert key for five of the six kinds. If a resource with that name exists, it's updated; if not, it's created. A `Webhook` is keyed by its `spec.url` instead, so its `metadata.name` is a label that shows up in the apply output.
+The `metadata.name` is the upsert key for every kind. If a resource with that name exists, it's updated; if not, it's created.
 
 ## Order is irrelevant inside the file
 
-`fountain apply` reconciles in a fixed order: **environments, vaults, agents, teammates, schedules, webhooks** — so a doc can reference another by name even if that one is defined later in the file. An `Agent` references an `environment`; a `Teammate` references an `agent`, an `environment` and a `vault`; a `Schedule` references a `teammate`. Every reference resolves against the manifest first and then against what **already exists** server-side, so a manifest can attach an agent to an environment managed elsewhere; a name that matches neither fails that doc and no other.
+`fountain apply` reconciles in a fixed order: **environments, vaults, agents, teammates, schedules** — so a doc can reference another by name even if that one is defined later in the file. An `Agent` references an `environment`; a `Teammate` references an `agent`, an `environment` and a `vault`; a `Schedule` references a `teammate`. Every reference resolves against the manifest first and then against what **already exists** server-side, so a manifest can attach an agent to an environment managed elsewhere; a name that matches neither fails that doc and no other.
 
 ## The team kinds
 
-A `Teammate` puts an agent on the team, which opens its conversation and provisions its computer. Re-applying moves what the teammate is called and which environment and vault it is bound to — it never provisions a second one, and it never resurrects a computer that is gone (message the teammate for that). A `Schedule` is a cron that runs a teammate with a prompt, keyed by its name under its teammate. A `Webhook` is an endpoint Fountain POSTs conversation lifecycle events to; the apply that creates one prints its signing secret **once**, and no later apply ever prints it again. A manifest holding one needs a full-scope credential, which is what `POST /api/webhooks` needs.
+A `Teammate` puts an agent on the team, which opens its conversation and provisions its computer. Re-applying moves what the teammate is called and which environment and vault it is bound to — it never provisions a second one, and it never resurrects a computer that is gone (message the teammate for that). A `Schedule` is a cron that runs a teammate with a prompt, keyed by its name under its teammate.
 
 Two things about it that surprise people:
 
-- **A `Teammate` doc is the whole teammate.** Unlike the other five kinds, where an absent `spec` key leaves that column alone, dropping `environment` or `vault` from a Teammate doc *clears* that binding — back to the agent's own environment and no vault. That is what makes the doc a declaration rather than a patch.
+- **A `Teammate` doc is the whole teammate.** Unlike the other four kinds, where an absent `spec` key leaves that column alone, dropping `environment` or `vault` from a Teammate doc *clears* that binding — back to the agent's own environment and no vault. That is what makes the doc a declaration rather than a patch.
 - **A teammate's name is not unique.** It is the conversation's title, or the agent's name. A `Schedule` naming a teammate that two of them answer to fails rather than binding to whichever the roster listed last; one this manifest reconciled is unique among the docs and wins.
 - **Rebinding moves the computer.** A home is keyed on `(user, agent, environment, vault)`, so changing either id retires the machine the old key named; the teammate's next message builds a fresh one. Refused with an error on that row while a turn is still running there — the same refusal `Agent`'s `environment` gives (#1084). A conversation that *shared* that machine and names a different environment or vault does not follow the teammate; it builds its own on its next prompt. And because there is only ever one home per identity, a rebind onto an identity the agent **already** has a home for is **refused**, not merged onto that home — reset or remove the existing one first (#1636).
 
-**Two Teammate docs can't name the same agent**, and a `Webhook` whose `spec.url` changes creates a *second* endpoint (nothing is pruned; delete the old one with `fountain webhooks delete`).
+**Two Teammate docs can't name the same agent.**
 
 ```yaml
 ---
@@ -55,15 +55,6 @@ spec:
   prompt: What is on today?
   one_off: false
   enabled: true
-
----
-apiVersion: fountain/v1
-kind: Webhook
-metadata:
-  name: ci
-spec:
-  url: https://ci.example.com/hooks/fountain
-  event_types: [conversation.turn.done]
 ```
 
 ## Nothing is pruned
@@ -72,7 +63,7 @@ Apply is additive. Deleting a doc from the manifest leaves its record in place; 
 
 ## What the trail says
 
-Each applied row leaves its context's own audit event, with the actor and IP of the request that applied it: `team.member.added` / `team.updated` for a Teammate, `team.schedule.created` / `team.schedule.updated` for a Schedule, and `webhook_endpoint.created` / `webhook_endpoint.updated` for a Webhook — the `webhook_endpoint` prefix the webhook routes have always written, not a shorter `webhook` one. An `unchanged` row writes nothing at all.
+Each applied row leaves its context's own audit event, with the actor and IP of the request that applied it: `team.member.added` / `team.updated` for a Teammate and `team.schedule.created` / `team.schedule.updated` for a Schedule. An `unchanged` row writes nothing at all.
 
 ## Example
 
@@ -134,9 +125,6 @@ vault  +  alice
 agent  =  researcher
 teammate  =  Ada
 schedule  +  standup
-webhook  +  ci
-  signing secret  ci  whsec_...
-  save it now, it is not shown again
 ```
 
 Errors per-resource go to stderr but don't stop the run; other resources still apply.

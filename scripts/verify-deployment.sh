@@ -27,8 +27,8 @@ Verify a deployed Fountain.
   base-url   the deployment's origin; http:// only for loopback
   profile    probe, basic, execution, streaming (default), canary
 
-The secrets, mcp, webhooks and schedules profiles need configuration no flag
-supplies. Write a target file and run deployed/cli.mjs for those.
+The secrets, mcp and schedules profiles need configuration no flag supplies.
+Write a target file and run deployed/cli.mjs for those.
 
 Run `node deployed/verify.mjs --help` for the full flag list.
 USAGE

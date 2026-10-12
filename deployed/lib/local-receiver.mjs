@@ -4,13 +4,11 @@ import { controlledOrigin } from './controlled-receiver.mjs';
 import { openTunnels } from '../tunnel.mjs';
 import { createReceiver } from '../receivers/secrets.mjs';
 import { createMcpReceiver } from '../receivers/mcp.mjs';
-import { createWebhookReceiver } from '../receivers/webhooks.mjs';
 
 // Hosting a receiver for the duration of one run, reachable over borrowed
 // public origins. The receiver modules are unchanged and still run standalone
 // behind a real ingress; this only saves an operator from standing one up to
-// answer "does this deployment deliver secrets, call MCP servers and send
-// webhooks".
+// answer "does this deployment deliver secrets and call MCP servers".
 //
 // The admin credential is generated per run and lives only in the child
 // environment handed to the runner, so it never reaches the caller's shell,
@@ -25,9 +23,6 @@ const RECEIVERS = {
       admin_credential: 'FOUNTAIN_RECEIVER_ADMIN_KEY', bootstrap_hosts: options.bootstrapHosts }) },
   mcp: { create: createMcpReceiver, origins: 1, credential: 'FOUNTAIN_MCP_ADMIN_KEY',
     settings: ([receiver]) => ({ receiver_url: receiver, admin_credential: 'FOUNTAIN_MCP_ADMIN_KEY', auth_mode: 'static_bearer' }) },
-  webhooks: { create: createWebhookReceiver, origins: 1, credential: 'FOUNTAIN_WEBHOOK_ADMIN_KEY',
-    settings: ([receiver]) => ({ receiver_url: receiver, admin_credential: 'FOUNTAIN_WEBHOOK_ADMIN_KEY',
-      delivery_ms: 180000, observe_ms: 30000 }) },
 };
 
 export const hostsReceiver = profile => Object.hasOwn(RECEIVERS, profile);

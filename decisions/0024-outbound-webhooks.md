@@ -1,20 +1,19 @@
 ---
 type: ADR
 title: "Outbound webhooks: signed lifecycle callbacks, no values, pinned egress"
-description: "Tenant-scoped webhook endpoints delivered by Oban off publish_stage/4, Stripe-shaped HMAC signing, a payload that carries ids and a stage and never conversation content, and an SSRF guard that resolves and pins the address at request time. Built in this PR; per-resource routing and asymmetric signatures are deliberately not built."
+description: "Retired 2026-10-12: outbound webhooks were removed (simplify 4/5). Tenant-scoped webhook endpoints delivered by Oban off publish_stage/4, Stripe-shaped HMAC signing, a payload that carries ids and a stage and never conversation content, and an SSRF guard that resolves and pins the address at request time. Built in this PR; per-resource routing and asymmetric signatures are deliberately not built."
 tags: [api, security, integrations]
-status: stable
+status: deprecated
 adr: "0024"
-adr_status: "Accepted"
+adr_status: "Retired"
 date: 2026-08-22
 generated: { by: human:jhgaylor, at: 2026-08-22T09:00:00-04:00 }
 verified: { by: human:jhgaylor, at: 2026-08-22T09:00:00-04:00 }
-stale_after: 2026-11-22
 ---
 
 # 0024 — Outbound webhooks: signed lifecycle callbacks, no values, pinned egress
 
-**Status:** Accepted — built in this PR: `Fountain.Webhooks` (the
+**Status:** Retired 2026-10-12; see the addendum at the end. The text above the addendum is history. Was: Accepted — built in this PR: `Fountain.Webhooks` (the
 `webhook_endpoints` and `webhook_deliveries` tables), `Fountain.Webhooks.Url`
 (the SSRF guard), `Fountain.Webhooks.Signature`, the `:webhooks` Oban queue
 with `Fountain.Workers.WebhookDelivery`, `/api/webhooks`, `/account/webhooks`
@@ -199,3 +198,28 @@ secret, and never the path or query, which a tenant can put anything in.
 - **Hash the secret like an API key.** Impossible: signing needs the plaintext.
   Envelope encryption with the tenant DEK is the existing answer for a secret
   Fountain has to read back.
+
+## Addendum — 2026-10-12: retired
+
+Fountain removed outbound webhooks (simplify 4/5). In the thirty days before
+the decision no account had a webhook endpoint, and Fountain is now a
+self-hosted application whose operators can follow a conversation over the
+event stream.
+
+- `Fountain.Webhooks` and its modules (`Url`, `Signature`, `Events`,
+  `Endpoint`, `Delivery`), the `WebhookDelivery` and `WebhookEmail` workers,
+  the `:webhooks` Oban queue, `/api/webhooks`, `/account/webhooks`, the
+  switched-off email, `fountain webhooks` and the `Webhook` manifest kind are
+  deleted. The routes answer `404`, and an apply naming the kind is refused.
+- `Conversations.publish_stage/4` and the deadline transaction
+  (`DeadlineEvents`, [0046](0046-durable-turn-deadlines.md)) no longer
+  dispatch. The deadline transaction still commits the turn, its stage event
+  and its local notification together.
+- `WEBHOOKS_ENABLED` and `WEBHOOK_ALLOW_HTTP` are no longer read, and the
+  retention pruner no longer prunes `webhook_deliveries`.
+- Migration `20261012170000` deletes pending jobs on the `webhooks` queue and
+  for both workers. It does **not** drop `webhook_endpoints` or
+  `webhook_deliveries`: the previous release reads `webhook_endpoints` on every
+  stage transition, including inside the deadline transaction, so dropping it
+  during a rolling deploy would fail turns on the old pods. A later migration
+  drops both once no running release reads them.

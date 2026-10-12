@@ -11,8 +11,7 @@ defmodule FountainWeb.ApplyJSON do
       name: result.name,
       action: result.action,
       errors: result.errors,
-      secrets: Enum.map(result.secrets, &Map.take(&1, [:key, :action, :errors])),
-      secret: result.secret
+      secrets: Enum.map(result.secrets, &Map.take(&1, [:key, :action, :errors]))
     }
   end
 end

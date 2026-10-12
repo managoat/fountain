@@ -80,7 +80,7 @@ func runApply(cmd *cobra.Command, args []string) error {
 // a teammate's `spec.agent`/`environment`/`vault`, a schedule's
 // `spec.teammate`. The server resolves each by name, including against records
 // that already exist and are not part of this manifest.
-var applyKindOrder = []string{"Environment", "Vault", "Agent", "Teammate", "Schedule", "Webhook"}
+var applyKindOrder = []string{"Environment", "Vault", "Agent", "Teammate", "Schedule"}
 
 // applyResource is one compiled manifest document. The whole manifest is
 // sent to POST /api/apply in a single request.
@@ -102,9 +102,6 @@ type applyResult struct {
 	Action  string              `json:"action"`
 	Errors  map[string]any      `json:"errors"`
 	Secrets []applySecretResult `json:"secrets"`
-	// Secret is a webhook endpoint's signing secret, sent on the apply that
-	// created it and never again.
-	Secret string `json:"secret"`
 }
 
 func buildApplyPayload(grouped map[string][]*manifest.Doc) []applyResource {
@@ -162,12 +159,6 @@ func renderApplyResults(results []applyResult) (anyFailed bool) {
 		default:
 			anyFailed = true
 			warnf("%s  !  %s: %s", label, r.Name, formatResultErrors(r.Errors))
-		}
-		// A webhook endpoint's signing secret comes back on the apply that
-		// created it and never again, so print it where the reader is looking.
-		if r.Secret != "" {
-			fmt.Printf("  signing secret  %s  %s\n", r.Name, r.Secret)
-			fmt.Println("  save it now, it is not shown again")
 		}
 		for _, s := range r.Secrets {
 			if s.Action == "upserted" {

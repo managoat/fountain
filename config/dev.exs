@@ -55,8 +55,3 @@ config :fountain, Fountain.OAuth,
       redirect_uris: ["http://localhost:5183/"]
     }
   ]
-
-# Webhooks (#700): a local receiver is usually plain http on localhost. The
-# scheme rule relaxes here; the SSRF address checks do not, so a loopback
-# target is still refused. Point a dev endpoint at a tunnel, not at 127.0.0.1.
-config :fountain, :webhook_allow_http, true

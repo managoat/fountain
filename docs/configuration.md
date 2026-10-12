@@ -75,13 +75,6 @@ custom harnesses. See [Test the deployed ACP path](integrations/acp.md#test-the-
 | `DEPLOYED_ACP_FIXTURE_ENABLED` | `false` | — | Set exactly `true` to offer the fixed `fountain-fixture` runtime on a test deployment. The account UUID below is also required. |
 | `DEPLOYED_ACP_FIXTURE_USER_ID` | — | With the fixture enabled | UUID of the dedicated verified test account allowed to create and launch fixture agents. Other accounts are refused. Naming it is also what puts `fountain-fixture` into the runtime enums of the OpenAPI document this deployment serves, so keep it set while any fixture agent or fixture conversation still exists. Both outlive the flag: agents so their owner can edit and delete them, and conversations because deleting an agent keeps its conversation history, which the conversation and sandbox responses still report with the `fountain-fixture` runtime. |
 
-## Webhooks
-
-| Variable | Default | Required | Effect |
-|---|---|---|---|
-| `WEBHOOKS_ENABLED` | `true` | — | A `false` stops every outbound [webhook](reference/webhooks.md). An endpoint stays saved and gets nothing. Use it on a deployment with no outbound egress. |
-| `WEBHOOK_ALLOW_HTTP` | `false` | — | A `true` lets an endpoint URL use plain `http://`, for a receiver on your own network. It relaxes the scheme rule alone. Fountain refuses a loopback, link local or RFC1918 target either way, at every request. |
-
 ## Registration and accounts
 
 | Variable | Default | Required | Effect |

@@ -43,8 +43,7 @@ defmodule Fountain.AuditGuardrailTest do
     Environments,
     InferenceCredentials,
     OAuth,
-    Vaults,
-    Webhooks
+    Vaults
   }
 
   alias Fountain.Conversations.ConversationServer
@@ -192,14 +191,6 @@ defmodule Fountain.AuditGuardrailTest do
     {"team schedule run", &__MODULE__.do_schedule_run/1, "team.schedule.fired"},
     {"runner register", &__MODULE__.do_runner_register/1, "runner.registered"},
     {"runner delete", &__MODULE__.do_runner_delete/1, "runner.deleted"},
-    # Outbound webhooks (ADR 0024). The auto-disable path is the one with no
-    # human behind it, hence `system:webhook_delivery` in the vocabulary.
-    {"webhook endpoint create", &__MODULE__.do_webhook_create/1, "webhook_endpoint.created"},
-    {"webhook endpoint update", &__MODULE__.do_webhook_update/1, "webhook_endpoint.updated"},
-    {"webhook endpoint delete", &__MODULE__.do_webhook_delete/1, "webhook_endpoint.deleted"},
-    {"webhook secret rotate", &__MODULE__.do_webhook_rotate/1, "webhook_endpoint.secret_rotated"},
-    {"webhook endpoint disable", &__MODULE__.do_webhook_disable/1, "webhook_endpoint.disabled"},
-    {"webhook endpoint enable", &__MODULE__.do_webhook_enable/1, "webhook_endpoint.enabled"},
     # Secret bindings (ADR 0019 gate 1b): where a credential goes is as
     # auditable as the credential's existence.
     {"secret binding create", &__MODULE__.do_binding_create/1, "secret_binding.created"},
@@ -326,9 +317,6 @@ defmodule Fountain.AuditGuardrailTest do
           {Lifecycle, :fence_sandbox_for_teardown, 2},
           {Fountain.Accounts.Deletion, :destroy_sprites, 2},
           {Conversations, :delete_conversation, 2},
-          {Webhooks, :create_endpoint, 3},
-          {Webhooks, :update_endpoint, 3},
-          {Webhooks, :delete_endpoint, 2},
           {Fountain.OAuth, :authorize, 3},
           {Fountain.OAuth, :approve_device_grant, 3},
           {Fountain.OAuth, :deny_device_grant, 3}
@@ -344,31 +332,6 @@ defmodule Fountain.AuditGuardrailTest do
   end
 
   ## ── the mutations ─────────────────────────────────────────────────────────
-
-  defp a_webhook(user) do
-    {:ok, {endpoint, _secret}} =
-      Webhooks.create_endpoint(user.id, %{"url" => "https://hooks.example.com/f"})
-
-    endpoint
-  end
-
-  def do_webhook_create(user), do: a_webhook(user)
-
-  def do_webhook_update(user) do
-    {:ok, _} = Webhooks.update_endpoint(a_webhook(user), %{"description" => "ci"})
-  end
-
-  def do_webhook_delete(user), do: {:ok, _} = Webhooks.delete_endpoint(a_webhook(user))
-
-  def do_webhook_rotate(user), do: {:ok, {_, _}} = Webhooks.rotate_secret(a_webhook(user))
-
-  def do_webhook_disable(user),
-    do: {:ok, _} = Webhooks.disable_endpoint(a_webhook(user), "test")
-
-  def do_webhook_enable(user) do
-    {:ok, disabled} = Webhooks.disable_endpoint(a_webhook(user), "test")
-    {:ok, _} = Webhooks.enable_endpoint(disabled)
-  end
 
   def do_agent_create(user),
     do: {:ok, _} = Agents.create_agent(agent_attrs(%{"user_id" => user.id}))

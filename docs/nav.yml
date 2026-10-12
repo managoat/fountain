@@ -113,7 +113,6 @@ nav:
       - CLI: cli.md
       - All CLI commands: cli/commands.md
       - API guide and generated reference: api.md
-      - Webhooks: reference/webhooks.md
       - TypeScript SDK: sdk.md
       - Conversation states: reference/conversation-states.md
       - Glossary: reference/glossary.md

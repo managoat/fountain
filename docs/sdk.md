@@ -431,7 +431,7 @@ person to search their own code for an hour.
 
 The SDK wraps the verbs that are worth a wrapper. The rest of the API is one
 call away, with the same auth and the same errors. That rest is audit, API
-keys, admin, payment and exports.
+keys and admin.
 
 ```ts
 await fountain.request("GET", "/api/audit", { query: { limit: 50 } });

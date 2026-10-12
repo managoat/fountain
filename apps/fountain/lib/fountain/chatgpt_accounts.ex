@@ -1156,16 +1156,6 @@ defmodule Fountain.ChatGPTAccounts do
   def list_recent_attempts_for_user(user_id), do: LinkAttempts.list_recent(user_id)
 
   @doc """
-  Every link attempt the account still has, oldest first, for the account
-  export (`Fountain.Exports`). Attempts are kept a week
-  (`purge_ended_attempts/0`). Scoped by the owner, and nothing is decrypted:
-  these views carry no user code and no verification page, even for an
-  attempt that is still open.
-  """
-  @spec list_all_attempts_for_user(String.t()) :: [AttemptView.t()]
-  def list_all_attempts_for_user(user_id), do: LinkAttempts.list_all(user_id)
-
-  @doc """
   Cancel one pending attempt. Its secrets are dropped with the write, and a
   completion that arrives afterwards finds no pending row and stores
   nothing: the two take the same locks in the same order, the owner's key

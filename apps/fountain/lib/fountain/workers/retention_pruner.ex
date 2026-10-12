@@ -19,10 +19,6 @@ defmodule Fountain.Workers.RetentionPruner do
   The rest are operational and safe to expire sooner: a revoked API key can
   never be used again.
 
-  `webhook_deliveries` is one row per HTTP attempt at one event, and every
-  attempt of a failing endpoint writes another. It is a debugging aid, not an
-  event store, so it gets the shortest window of the lot.
-
   `sandbox_requests` is the same shape of bookkeeping (ADR 0042): a finished
   request holds no prompt, because every terminal transition erases `attrs`.
   What is left is provenance and an outcome that the audit trail already
@@ -50,9 +46,9 @@ defmodule Fountain.Workers.RetentionPruner do
   Every window is configurable, and setting one to `nil` disables pruning for
   that table entirely.
 
-  Two tables are swept here on their own, fixed terms rather than a window:
-  expired account exports, and `chatgpt_link_attempts` (ADR 0060 stage 4),
-  whose ended rows hold no secret and are deleted a week after they ended.
+  One table is swept here on its own, fixed term rather than a window:
+  `chatgpt_link_attempts` (ADR 0060 stage 4), whose ended rows hold no secret
+  and are deleted a week after they ended.
   """
 
   use Oban.Worker, queue: :maintenance, max_attempts: 3
@@ -70,7 +66,6 @@ defmodule Fountain.Workers.RetentionPruner do
     audit_events: 365,
     revoked_api_keys: 30,
     usage_events: 400,
-    webhook_deliveries: 30,
     sandbox_requests: 30
   ]
 
@@ -79,7 +74,6 @@ defmodule Fountain.Workers.RetentionPruner do
     results =
       Enum.map(@defaults, fn {table, _} -> {table, prune(table)} end) ++
         [
-          {:exports, Fountain.Exports.purge_expired()},
           {:chatgpt_link_attempts, Fountain.ChatGPTAccounts.purge_ended_attempts()}
         ]
 
@@ -165,14 +159,6 @@ defmodule Fountain.Workers.RetentionPruner do
 
   defp do_prune(:usage_events, cutoff) do
     delete_where("usage_events", dynamic([r], r.inserted_at < ^cutoff))
-  end
-
-  # One row per HTTP attempt, so this grows with conversation volume times
-  # endpoint count. 30 days is longer than any "why did my integration miss
-  # that" investigation and short enough that the table stays a debugging
-  # aid rather than a second event store (#700).
-  defp do_prune(:webhook_deliveries, cutoff) do
-    delete_where("webhook_deliveries", dynamic([r], r.inserted_at < ^cutoff))
   end
 
   # Terminal rows only. A `queued` or `starting` row is live work, and the

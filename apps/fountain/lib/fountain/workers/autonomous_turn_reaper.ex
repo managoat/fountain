@@ -12,7 +12,7 @@ defmodule Fountain.Workers.AutonomousTurnReaper do
   A conversation that reached its durable output budget can appear quiet even
   while its runtime is active. The server liveness check remains a second
   guard for that case. The oldest candidates are capped per run so a historical
-  backlog cannot fan out an unbounded burst of events and webhooks.
+  backlog cannot fan out an unbounded burst of events.
   """
 
   use Oban.Worker, queue: :maintenance, max_attempts: 3

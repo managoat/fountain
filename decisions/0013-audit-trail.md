@@ -242,3 +242,12 @@ kept with the id put back.
 - **Keeping `system:admin` in `ee/` billing** — it is the same shape reached
   by a different route, and it makes the one human source look unattended.
   Rejected in favour of converging on `admin`.
+
+## Addendum — 2026-10-12: two system actors retired
+
+The account data export and outbound webhooks are removed (simplify 4/5; ADR
+[0009](0009-account-deletion-and-export.md) and
+[0024](0024-outbound-webhooks.md) carry the addenda). Nothing writes the
+`system:account_export` or `system:webhook_delivery` actors, or the
+`account.export_*` and `webhook_endpoint.*` actions, any more. Rows already
+written keep them.

@@ -458,19 +458,6 @@ defmodule Fountain.Agents do
     )
   end
 
-  @doc """
-  Every version of every agent the user owns, grouped by agent id with each
-  group newest first. One query, for the account export (#1051).
-  """
-  def list_agent_versions_by_agent(user_id) when is_binary(user_id) do
-    Repo.all(
-      from v in AgentVersion,
-        where: v.user_id == ^user_id,
-        order_by: [asc: v.agent_id, desc: v.version]
-    )
-    |> Enum.group_by(& &1.agent_id)
-  end
-
   @doc "Get one version of an agent by number, scoped to user. Nil when missing."
   def get_agent_version(agent_id, version, user_id)
       when is_integer(version) and is_binary(user_id) do

@@ -19,8 +19,6 @@
  *   POST /api/conversations/{id}/requests/{request_id}
  *   POST /api/team/{agent_id}/messages
  *   POST /api/team/{agent_id}/schedules/{id}/run
- *   POST /api/webhooks/{id}/test
- *   POST /api/webhooks/{id}/deliveries/{delivery_id}/redeliver
  *   GET  /health, GET /health/ready
  *
  * Regenerate that list against a fresh spec rather than trusting it to age

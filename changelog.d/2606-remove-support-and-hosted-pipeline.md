@@ -9,5 +9,3 @@
 ### Removed
 
 - The scheduled deployed-instance verification workflow is removed (#2606).
-  Run `deployed/` by hand or from your own CI; see
-  [Deploy an instance](https://managoat.com/docs/guides/operate/deploy#run-after-a-rollout).

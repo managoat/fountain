@@ -16,9 +16,8 @@ defmodule Fountain.CommandRuntime do
 
   ## The name
 
-  Named for what varies, which is the command, and flat like its one sibling:
-  `Fountain.DeployedACPFixture` is the other runtime that is Fountain's
-  rather than the library's. `Managoat.Runtimes.ACP` was not available and
+  Named for what varies, which is the command. It is the one runtime that is
+  Fountain's rather than the library's. `Managoat.Runtimes.ACP` was not available and
   would have been wrong anyway, since that is the provisioning table saying
   which adapter each of the four LLM runtimes reaches the protocol through.
   `Command` alone would have read against `Managoat.Sandbox.Command`, which is
@@ -53,11 +52,6 @@ defmodule Fountain.CommandRuntime do
   skills.sh with `--agent claude-code`, which puts it in the same tree. One
   location rather than two, and the path is exported so the command need not
   know which one was chosen.
-
-  `Fountain.DeployedACPFixture` answers these two differently, with a private
-  root and an empty skills.sh id, and that is right for it: its changeset
-  refuses an agent that carries any skills at all, so the pair never has to
-  agree. This runtime accepts them, so the pair does.
   """
 
   @behaviour Managoat.Runtimes

@@ -947,14 +947,6 @@ jobs:
       - name: Hermes plugin tests
         run: python3 -m unittest discover -s integrations/hermes/tests -v
 
-      - name: Set up Node
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: 24
-
-      - name: Deployed-instance runner tests
-        run: node --test deployed/test/*.test.mjs
-
   compose-fresh-clone:
     name: Compose fresh-clone check
     runs-on: ubuntu-24.04

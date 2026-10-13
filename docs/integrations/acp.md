@@ -254,30 +254,3 @@ on stdin, which proves that the process starts and finds its credentials.
 |---|---|---|
 | Zed and other ACP editors | The editor, from its agent-server config. | [Editors](editors.md) |
 | OpenClaw, on Telegram, Discord or Slack | The `acpx` plugin on the OpenClaw host. | [OpenClaw](openclaw.md) |
-
-## Test the deployed ACP path
-
-An isolated test instance can enable the fixed `fountain-fixture` runtime with
-`DEPLOYED_ACP_FIXTURE_ENABLED=true` and `DEPLOYED_ACP_FIXTURE_USER_ID` set to
-one dedicated verified account. It stays absent by default and rejects other
-accounts. The four built-in runtimes keep their existing installation paths.
-This is a testing seam for #1611 and #1007, not a custom-harness registry.
-
-It is not in the published contract, so no generated SDK offers it as a
-runtime. A deployment that names `DEPLOYED_ACP_FIXTURE_USER_ID` names it in
-the OpenAPI document that deployment serves at `/api/openapi.json` — including
-after the flag goes false, because the agents it created and their
-conversations outlive it — and
-`runtimes` on `GET /api/catalog` reports what the instance currently admits.
-
-The external `deterministic` profile provisions a real sandbox, verifies the
-installed fixture program's digest through the file API, and submits seven
-structured prompts over the public conversation API. It checks incremental
-SSE, nonce file bytes, permission approval and denial, cancellation, explicit
-failure, replay and resume. Cleanup must leave no active turn or sandbox.
-The fixture bypasses inference and built-in CLI installation; keep a separate
-real-model canary for those guarantees.
-
-See the [deployed suite instructions](https://github.com/managoat/fountain/blob/main/deployed/README.md#deterministic-acp-fixture)
-for the target configuration and account/provider requirements. Run this
-profile only on a test deployment; it is excluded from production canaries.

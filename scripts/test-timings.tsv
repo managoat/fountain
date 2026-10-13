@@ -89,7 +89,6 @@ apps/fountain/test/fountain/conversations_turns_test.exs	3994
 apps/fountain/test/fountain/conversations_usage_test.exs	3941
 apps/fountain/test/fountain/conversations_wake_test.exs	5418
 apps/fountain/test/fountain/crypto_test.exs	616
-apps/fountain/test/fountain/deployed_acp_fixture_test.exs	34
 apps/fountain/test/fountain/docs_test.exs	3225
 apps/fountain/test/fountain/emails/user_emails_public_url_test.exs	732
 apps/fountain/test/fountain/emails/user_emails_test.exs	1752
@@ -156,7 +155,6 @@ apps/fountain/test/fountain/workers/unverified_account_pruner_test.exs	2195
 apps/fountain/test/fountain/workers/verification_email_test.exs	973
 apps/fountain/test/fountain/workers/welcome_email_test.exs	982
 apps/fountain/test/fountain_web/api_key_scope_test.exs	3797
-apps/fountain/test/fountain_web/api_spec/fixture_runtime_test.exs	420
 apps/fountain/test/fountain_web/api_spec_test.exs	62
 apps/fountain/test/fountain_web/audit_coverage_test.exs	8584
 apps/fountain/test/fountain_web/audit_identity_test.exs	1710
@@ -188,7 +186,6 @@ apps/fountain/test/fountain_web/controllers/conversation_egress_test.exs	1509
 apps/fountain/test/fountain_web/controllers/conversation_events_controller_test.exs	3507
 apps/fountain/test/fountain_web/controllers/conversation_read_model_test.exs	4133
 apps/fountain/test/fountain_web/controllers/device_auth_controller_test.exs	511
-apps/fountain/test/fountain_web/controllers/disabled_fixture_agent_test.exs	38
 apps/fountain/test/fountain_web/controllers/docs_controller_test.exs	461
 apps/fountain/test/fountain_web/controllers/email_verification_controller_test.exs	1715
 apps/fountain/test/fountain_web/controllers/environment_controller_test.exs	4951

@@ -31,7 +31,7 @@ defmodule Fountain.SandboxSkills do
   rather than through the library's own dispatcher (#1634).
   `Managoat.Runtimes.Skills` resolves a string through
   `Managoat.Runtimes.for_runtime/1`, which is a closed map of the four
-  packaged runtimes and knows neither `acp` nor the deployed fixture — so
+  packaged runtimes and does not know `acp` — so
   passing the string straight through returned
   `{:error, "unsupported runtime: acp"}` and an acp sandbox came up with no
   skills at all and nothing said so.
@@ -44,9 +44,6 @@ defmodule Fountain.SandboxSkills do
   @spec mount(Managoat.Sandbox.Handle.t(), String.t() | module(), [map()] | nil) ::
           :ok | {:error, String.t()}
   def mount(handle, runtime, skills) when is_binary(runtime) do
-    # `for_agent/1` takes the agent because the deployed fixture is scoped to
-    # one account. Skills are refused on a fixture agent by its own changeset,
-    # so a nil user here resolves to the refusal, which is the right answer.
     case Fountain.RuntimeDispatch.for_agent(%{runtime: runtime, user_id: nil}) do
       {:ok, module} ->
         mount(handle, module, skills)

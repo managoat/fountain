@@ -1,8 +1,0 @@
-{
-  "base_url": "http://localhost:4000",
-  "credentials": { "primary": "FOUNTAIN_SUITE_KEY" },
-  "profiles": ["probe"],
-  "required_capabilities": { "runtimes": ["claude"], "sandbox_providers": [] },
-  "optional_capabilities": {},
-  "limits": { "request_ms": 10000, "run_ms": 120000, "cleanup_ms": 30000, "resources": 20 }
-}

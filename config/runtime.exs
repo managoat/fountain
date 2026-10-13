@@ -40,15 +40,6 @@ config :fountain, FountainWeb.Endpoint,
 
 env = config_env()
 
-# Fixed testing runtime; never enabled by the presence of ordinary provider keys.
-# Keep tests independent of the operator's shell environment.
-if env != :test do
-  config :fountain, :deployed_acp_fixture, %{
-    enabled: System.get_env("DEPLOYED_ACP_FIXTURE_ENABLED") == "true",
-    user_id: System.get_env("DEPLOYED_ACP_FIXTURE_USER_ID")
-  }
-end
-
 # The dev fallback below is derived from a constant committed to this repo, so it
 # must never be reachable in :prod. The guard is deliberately on config_env()
 # alone — gating it on `server?` too would hand that public key to every prod

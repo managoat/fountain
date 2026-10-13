@@ -43,7 +43,7 @@ defmodule Fountain.CommandRuntimeTest do
       assert RuntimeDispatch.command_required?("acp")
       refute RuntimeDispatch.model_required?("acp")
 
-      for runtime <- ~w(claude codex gemini fountain-fixture) do
+      for runtime <- ~w(claude codex gemini) do
         refute RuntimeDispatch.command_required?(runtime)
         assert RuntimeDispatch.model_required?(runtime)
       end

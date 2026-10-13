@@ -168,8 +168,6 @@ defmodule Fountain.Agents.ModelCatalog do
   model id under a known provider.
   """
   @spec suggestions(String.t() | nil) :: [String.t()]
-  def suggestions("fountain-fixture"), do: ["fixture/deterministic-v1"]
-
   # The acp runtime resolves no inference credential and reads no model, so
   # suggesting one would be advice to fill in a field that does nothing.
   def suggestions("acp"), do: []

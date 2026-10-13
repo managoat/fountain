@@ -207,7 +207,7 @@ The release that removed ChatGPT subscriptions (#2642) stopped reading
 `inference_credentials.chatgpt_grant_id` and the `managed_*` columns of
 `broker_sessions`, but left them in place, because its predecessor reads them
 on every codex resolution and every brokered provision. Migration
-`20261013130000` drops them, with their indexes and constraints, and deletes
+`20261013160000` drops them, with their indexes and constraints, and deletes
 any unfinished job of the four removed ChatGPT workers. Take it only after
 that release is fully rolled out; a rolling upgrade straight from an older
 release fails the old replicas' provisions until they are replaced. The

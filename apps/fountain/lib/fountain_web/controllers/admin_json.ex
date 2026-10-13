@@ -27,6 +27,9 @@ defmodule FountainWeb.AdminJSON do
     }
   end
 
+  def create_user(%{user: user, sandbox_counts: counts, api_key: raw}),
+    do: %{data: user_data(user, counts), api_key: raw}
+
   def index_sandboxes(%{sandboxes: sandboxes}),
     do: %{data: Enum.map(sandboxes, &sandbox_data/1)}
 

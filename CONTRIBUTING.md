@@ -42,34 +42,18 @@ or an exploratory title alone does not establish that work is unaccepted. If an
 issue mixes an idea with a concrete bug or approved task, preserve that action
 in its own linked issue before converting the broader record.
 
-## Licensing of contributions
+## Licensing
 
-**You contribute under the Apache License 2.0**, and Fountain distributes
-your work under the Apache License 2.0. Every first-party directory carries an
-Apache-2.0 LICENSE file:
-
-| Directory | License |
-|---|---|
-| `apps/fountain`, `config`, `priv` | Apache License 2.0 |
-| `cli/`, `sdk/` | Apache License 2.0 |
-
-There is no separate document to sign and no CLA bot. Opening a pull request is
-the grant. You keep the copyright in your work. This is a license, not an
-assignment, so you keep the full right to reuse your own contribution
-anywhere else, including in proprietary code of your own.
-
-The server was AGPL-3.0-or-later until
-[ADR 0068](decisions/0068-relicense-the-server-under-apache.md). Inbound and
-outbound are now the same licence, so the old asymmetry, where the maintainer
-could relicense a contribution and a contributor could not, no longer has
-anything to apply to.
+Fountain is licensed under the [Apache License 2.0](LICENSE), and so is what
+you contribute: section 5 of the licence covers it. There is no contributor
+agreement and nothing to sign beyond the DCO below. You keep the copyright in
+your work.
 
 ## Sign your commits (DCO)
 
 Fountain uses the [Developer Certificate of Origin](https://developercertificate.org/).
 It is a one-line assertion that you wrote the patch, or otherwise have the right
-to submit it. Your sign-off also records your agreement to the inbound terms
-above. Add it with `-s`:
+to submit it. Add it with `-s`:
 
 ```bash
 git commit -s -m "fix(agents): ..."

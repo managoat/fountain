@@ -261,8 +261,8 @@ defmodule Fountain.Conversations.Egress do
   replaced before the turn that would outlive it, the env rebuilt with the
   new token for the next spawn. Reads `broker`, `brokered`, `tenant_keys`,
   `secret_sources`, `broker_bindings` and `inference_credentials` (plus the
-  ids and the DEK); writes `brokered`, `tenant_keys`, `broker` and
-  `sprite_env`. Returns the state and whether
+  ids and the DEK); writes `brokered`, `tenant_keys`, `broker`,
+  `sprite_env` and, on a ChatGPT subscription, `inference_credentials`. Returns the state and whether
   the session token was replaced. The state of an unbrokered conversation
   comes back unchanged.
 
@@ -350,6 +350,8 @@ defmodule Fountain.Conversations.Egress do
   # per turn; a turn is a sandbox spawn or an ACP prompt, so the read is not
   # what a turn waits on.
   defp reread_secrets(state) do
+    {state, token_moved?} = reread_chatgpt_token(state)
+
     # What a deleted tenant secret hands its name back to: the inference
     # credential of that name.
     {_creds, underlay, _implicit} =
@@ -367,7 +369,37 @@ defmodule Fountain.Conversations.Egress do
         underlay
       )
 
-    {%{state | brokered: brokered, tenant_keys: tenant_keys}, edited?}
+    {%{state | brokered: brokered, tenant_keys: tenant_keys}, edited? or token_moved?}
+  end
+
+  # A conversation on a ChatGPT subscription (ADR 0070): the access token as
+  # it is stored now, so a refresh by the daily keepalive (or by another
+  # replica) reaches the broker's rule before the next turn. A database read,
+  # not an exchange with the auth server, unless the stored token has
+  # expired or is about to (`Fountain.ChatGPT.token_for/2`). A subscription
+  # that no longer serves changes nothing here: the turn's gate refuses it
+  # with `chatgpt_reconnect_required`.
+  defp reread_chatgpt_token(state) do
+    with {owner, account_id} <-
+           Fountain.InferenceCredentials.Source.chatgpt_owner(Map.get(state, :inference_source)),
+         {:ok, token} <- Fountain.ChatGPT.token_for(owner, account_id),
+         creds when is_map(creds) <- state.inference_credentials,
+         old when is_binary(old) and old != token <- creds[:codex_chatgpt_access_token] do
+      key = Fountain.Conversations.CodexChatGPT.env_key()
+
+      brokered =
+        if Map.has_key?(state.brokered, key),
+          do: Map.put(state.brokered, key, token),
+          else: state.brokered
+
+      {%{
+         state
+         | inference_credentials: Map.put(creds, :codex_chatgpt_access_token, token),
+           brokered: brokered
+       }, true}
+    else
+      _ -> {state, false}
+    end
   end
 
   # The environment + vault merge as it stands now. Both fetches are

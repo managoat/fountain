@@ -3905,7 +3905,7 @@ export interface components {
             id: string;
             /** @description Number of images attached to this turn. */
             image_count?: number;
-            /** @description Which inference source served this turn, recorded once when the turn started and never rewritten: repointing the credential set or restarting the conversation changes later turns only. Null on a turn that started before the source was recorded, or on one that ran on a ChatGPT subscription, which Fountain no longer supports. */
+            /** @description Which inference source served this turn, recorded once when the turn started and never rewritten: repointing the credential set, relinking the subscription or restarting the conversation changes later turns only. Null on a turn that started before the source was recorded. */
             readonly inference?: {
                 /**
                  * @description `own` for a credential of the account's, `platform` for the deployment's.
@@ -3913,10 +3913,10 @@ export interface components {
                  */
                 origin: "own" | "platform";
                 /**
-                 * @description Where the credential came from: the account's credential set (`credential`), an environment or vault value (`tenant_secret`), the deployment (`platform`), or nowhere because the provider needs none (`none`) or none was found (`missing`).
+                 * @description Where the credential came from: the account's credential set (`credential`), an environment or vault value (`tenant_secret`), the account's ChatGPT subscription (`grant`), the deployment (`platform`: its API key or its ChatGPT subscription), or nowhere because the provider needs none (`none`) or none was found (`missing`).
                  * @enum {string}
                  */
-                scope: "credential" | "tenant_secret" | "platform" | "none" | "missing";
+                scope: "credential" | "tenant_secret" | "grant" | "platform" | "none" | "missing";
             } | null;
             /** Format: date-time */
             inserted_at?: string;

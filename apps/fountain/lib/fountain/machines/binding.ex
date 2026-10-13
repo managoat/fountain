@@ -133,10 +133,11 @@ defmodule Fountain.Machines.Binding do
   The binding exists because every codex peer on a machine shares one
   `~/.codex/auth.json` (ADR 0053 decision 6's interim rule). Two API keys
   collide there, and the way forward is an ephemeral sandbox or a reset of
-  the home. A peer that ran on a ChatGPT subscription (removed 2026-10-13)
-  kept its `auth.json` in a `CODEX_HOME` of its own and never wrote the
-  shared file, so on a machine flagged `codex_peer_homes` it is not counted
-  against a newcomer.
+  the home. A ChatGPT subscription (ADR 0070) writes the shared file too and
+  is bound like a key. A peer that ran on the retired implementation's
+  subscription (ADR 0060, before 2026-10-13) kept its `auth.json` in a
+  `CODEX_HOME` of its own and never wrote the shared file, so on a machine
+  flagged `codex_peer_homes` it is not counted against a newcomer.
 
   `codex_peer_homes` is set in one of two places. A codex conversation's
   first bind sets it while the machine is still being built. A machine a
@@ -1050,8 +1051,10 @@ defmodule Fountain.Machines.Binding do
       if peer_homes? do
         # Every bind that uses the shared file records itself, so on such a
         # machine nothing recorded means nothing has, built or not; and a
-        # peer that ran on a ChatGPT subscription had a home of its own.
-        shared = Enum.reject(peers, &match?(%{"scope" => "grant"}, &1))
+        # peer that ran on the retired implementation's ChatGPT subscription
+        # (its source names a `grant_id`) had a home of its own. One on
+        # today's subscription (ADR 0070) uses the shared file like a key.
+        shared = Enum.reject(peers, &match?(%{"scope" => "grant", "grant_id" => _}, &1))
         bind_shared(sandbox, source, shared, true, codex_peer_homes: true)
       else
         # A machine first bound before the column existed: today's rule, for

@@ -165,17 +165,29 @@ defmodule Fountain.InferenceCredentials.SourceTest do
     end
   end
 
-  describe "a row from a ChatGPT subscription (removed)" do
-    test "loads with no scope or kind, shows no source, and never equals a fresh dump" do
-      assert %Source{scope: nil, kind: nil} = source = Source.load(@grant)
-      assert Source.summary(@grant) == nil
+  # ADR 0070 rebuilt subscriptions on the same scope and kind, so a turn
+  # the retired implementation ran still says what served it. Its extra keys
+  # mean a conversation pinned to one never validates again.
+  describe "a row from the retired ChatGPT subscriptions (ADR 0060)" do
+    test "loads as a subscription, names no owner, and never equals a fresh dump" do
+      assert %Source{scope: :grant, kind: :codex_chatgpt_access_token} =
+               source = Source.load(@grant)
+
+      assert Source.summary(@grant) == %{origin: "own", scope: "grant"}
+      assert Source.chatgpt_owner(source) == nil
       refute Source.dump(source) == @grant
     end
 
-    test "the deployment's account loads as the platform's with no kind, and never matches" do
-      assert %Source{scope: :platform, kind: nil} = source = Source.load(@platform_chatgpt)
+    test "the deployment's account loads as the platform's, and never matches" do
+      assert %Source{scope: :platform, kind: :codex_chatgpt_access_token} =
+               source = Source.load(@platform_chatgpt)
+
       assert Source.summary(@platform_chatgpt) == %{origin: "platform", scope: "platform"}
-      refute Source.dump(source) == @platform_chatgpt
+
+      # It round-trips, but its identity names the retired grant row
+      # (`platform:chatgpt:<id>`), which no resolution produces any more.
+      assert Source.chatgpt_owner(source) == nil
+      refute source.identity == "platform:chatgpt"
     end
   end
 

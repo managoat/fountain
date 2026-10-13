@@ -12,7 +12,7 @@ generated: { by: claude-fable/5.1, at: 2026-09-08T12:00:00-04:00 }
 
 # 0047 — Run the codex runtime on the platform's ChatGPT account
 
-**Status:** Retired 2026-10-13; see the addendum at the end. The text above the addendum is history. Was: Proposed, 2026-09-08.
+**Status:** Retired 2026-10-13; see the addendum at the end. Rebuilt in a much smaller form by [0070](0070-one-chatgpt-subscription-per-user.md) the same day. The text above the addendum is history. Was: Proposed, 2026-09-08.
 
 **Status before retirement:** Proposed, 2026-09-08. **Built and measured in #1755**, out of
 the order the gates below prescribe: G1, G2 and G3 are in the code, and

@@ -1007,7 +1007,7 @@ defmodule Fountain.Conversations.TurnMachine do
         |> put_model(:platform, Map.get(ctx, :model))
 
       %Source{scope: scope}
-      when scope in [:credential, :tenant_secret, :none, :missing] ->
+      when scope in [:credential, :tenant_secret, :grant, :none, :missing] ->
         if Fountain.PlatformInference.enabled?(),
           do: Map.put(usage, "inference", "own"),
           else: usage
@@ -1467,7 +1467,10 @@ defmodule Fountain.Conversations.TurnMachine do
         additional_directories: Keyword.get(opts, :additional_directories, []),
         model: Keyword.get(opts, :model),
         config: Keyword.get(opts, :config, %{}),
-        permission_policy: Keyword.get(opts, :permission_policy)
+        permission_policy: Keyword.get(opts, :permission_policy),
+        # A codex spawn on a ChatGPT subscription must not be authenticated
+        # with codex-acp's api-key method (`CodexChatGPT.peer_auth/2`).
+        auth: Keyword.get(opts, :auth, :api_key)
       )
 
     {peer, Process.monitor(peer)}

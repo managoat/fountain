@@ -41,9 +41,9 @@ spec:
 
 The model must carry the `openai/` prefix.
 
-Add your OpenAI key at `/account/inference-credentials` in the app. Codex
-runs on an OpenAI API key only: Fountain removed ChatGPT subscriptions on
-2026-10-13.
+Add your OpenAI key at `/account/inference-credentials` in the app, or link
+a ChatGPT plan there instead: see
+[Run Codex on a ChatGPT subscription](../../guides/chatgpt-subscription.md).
 
 ## Call it over HTTP
 

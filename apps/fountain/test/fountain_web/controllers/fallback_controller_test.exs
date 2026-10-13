@@ -119,17 +119,18 @@ defmodule FountainWeb.FallbackControllerTest do
   end
 
   # A persistent home keeps its Codex source, so both refusals name the way to
-  # a sandbox that is not bound to the old source. A conversation that ran on
-  # a ChatGPT subscription (removed) is told its source is gone.
+  # a sandbox that is not bound to the old source. A conversation whose ChatGPT
+  # subscription stopped serving is told to link it again (ADR 0070).
   test "Codex source refusals name the sandbox that is not bound to the old source", %{
     conn: conn
   } do
     body =
       conn
-      |> FountainWeb.FallbackController.call({:error, :inference_source_changed})
+      |> FountainWeb.FallbackController.call({:error, :chatgpt_reconnect_required})
       |> json_response(409)
 
-    assert body["message"] =~ "ChatGPT subscription, which Fountain no longer supports"
+    assert body["error"] == "chatgpt_reconnect_required"
+    assert body["message"] =~ "link it again"
 
     for reason <- [:inference_source_changed, :codex_inference_conflict] do
       body = conn |> FountainWeb.FallbackController.call({:error, reason}) |> json_response(409)

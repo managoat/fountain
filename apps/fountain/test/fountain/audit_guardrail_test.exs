@@ -76,6 +76,10 @@ defmodule Fountain.AuditGuardrailTest do
     {"environment create", &__MODULE__.do_env_create/1, "environment.created"},
     {"environment update", &__MODULE__.do_env_update/1, "environment.updated"},
     {"environment delete", &__MODULE__.do_env_delete/1, "environment.deleted"},
+    {"chatgpt subscription connect", &__MODULE__.do_chatgpt_connect/1,
+     "chatgpt_subscription.connected"},
+    {"chatgpt subscription disconnect", &__MODULE__.do_chatgpt_disconnect/1,
+     "chatgpt_subscription.disconnected"},
     {"vault create", &__MODULE__.do_vault_create/1, "vault.created"},
     {"vault update", &__MODULE__.do_vault_update/1, "vault.updated"},
     {"vault delete", &__MODULE__.do_vault_delete/1, "vault.deleted"},
@@ -198,6 +202,8 @@ defmodule Fountain.AuditGuardrailTest do
       "account deletion nilifies user_id before its machines are torn down (#2329), so the " <>
         "destroy has no tenant to attribute; the deletion's own trail is the record of it",
     "Accounts.touch_api_key/1" => "a last-used stamp on every authenticated request",
+    "ChatGPT.refresh/1 on success" =>
+      "a token rotation keeps the subscription as it was; a refusal that revokes it is audited",
     "Runners.touch/1 and reconnects" =>
       "a last-seen stamp on every heartbeat; a reconnect refreshes the same row",
     "Conversations.mark_read/2" => "reading is not a state change anyone audits",
@@ -313,6 +319,25 @@ defmodule Fountain.AuditGuardrailTest do
 
   def do_env_delete(user) do
     {:ok, _} = Environments.delete_environment(insert_env(user_id: user.id))
+  end
+
+  def do_chatgpt_connect(user) do
+    {:ok, _} = Fountain.ChatGPT.connect_auth_json({:user, user.id}, chatgpt_auth_json())
+  end
+
+  def do_chatgpt_disconnect(user) do
+    do_chatgpt_connect(user)
+    :ok = Fountain.ChatGPT.disconnect({:user, user.id})
+  end
+
+  defp chatgpt_auth_json do
+    claims = %{"https://api.openai.com/auth" => %{"chatgpt_account_id" => "acct_1"}}
+    id_token = "e30." <> Base.url_encode64(Jason.encode!(claims), padding: false) <> ".x"
+
+    Jason.encode!(%{
+      "auth_mode" => "chatgpt",
+      "tokens" => %{"id_token" => id_token, "access_token" => "at", "refresh_token" => "rt"}
+    })
   end
 
   def do_vault_create(user),

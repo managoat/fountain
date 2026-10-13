@@ -62,6 +62,10 @@ config :fountain, Oban,
        # credential; the notice window is days wide, so the hour is about
        # being read, not about precision.
        {"7 17 * * *", Fountain.Workers.SecretExpirySweeper},
+       # 04:29 UTC daily: refresh each ChatGPT subscription nobody has
+       # refreshed for six days (ADR 0070); a turn never does. Empty when
+       # none is linked.
+       {"29 4 * * *", Fountain.Workers.ChatGPTKeepalive},
        {"31 3 * * *", Fountain.Workers.BrokerReaper},
        # Every minute: the tick for user-defined team schedules. Cheap — one
        # indexed query, usually empty — and a minute is the cron grain the

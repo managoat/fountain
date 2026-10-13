@@ -46,6 +46,19 @@ defmodule Fountain.Conversations.CodexTransport do
   # way to point codex somewhere else, and `OPENAI_BASE_URL` set there is
   # carried across.
   #
+  # **A ChatGPT subscription** (ADR 0070) is the second shape. When the
+  # spawn carries `CODEX_CHATGPT_ACCESS_TOKEN` and no `OPENAI_API_KEY`, the
+  # sandbox's `auth.json` is in `chatgptAuthTokens` mode with the placeholder
+  # as its access token (`CodexChatGPT`), and the provider must *read* it:
+  # `requires_openai_auth` with no `env_key` resolves the ambient auth (bearer
+  # plus `chatgpt-account-id`) whatever the provider's id
+  # (`codex-rs/model-provider/src/auth.rs`, `resolve_provider_auth`). The
+  # endpoint is the Codex backend, not the API, and `OPENAI_BASE_URL` is not
+  # consulted: it points at OpenAI-compatible gateways, which this is not.
+  # What the id costs is the built-in-only routes (guardian, remote
+  # compaction, the token budget), none of which a turn depends on. Ran in
+  # production from 2026-09-08 to 2026-10-13 (ADR 0047, 0060).
+  #
   # **Resume** (#2503). The overlay alone does not hold a resumed thread on
   # this provider. codex-acp 1.10 sends `thread/resume` a typed
   # `modelProvider`: its `MODEL_PROVIDER` launch variable, else the
@@ -58,11 +71,13 @@ defmodule Fountain.Conversations.CodexTransport do
   # overlay's `model_provider`.
   @provider_id "fountain_openai_http"
   @openai_base_url "https://api.openai.com/v1"
+  @chatgpt_base_url "https://chatgpt.com/backend-api/codex"
+  @chatgpt_key "CODEX_CHATGPT_ACCESS_TOKEN"
 
   # The names this module reads and acts on. `CODEX_CONFIG` is already
   # collapsed by the rewrite, which rejects every entry and appends one.
   @provider_env "MODEL_PROVIDER"
-  @resolved_names ["OPENAI_API_KEY", "OPENAI_BASE_URL", @provider_env]
+  @resolved_names ["OPENAI_API_KEY", "OPENAI_BASE_URL", @chatgpt_key, @provider_env]
 
   def spawn_opts(%{broker: broker}, "codex", opts) when not is_nil(broker) do
     env = Keyword.get(opts, :env, [])
@@ -129,6 +144,11 @@ defmodule Fountain.Conversations.CodexTransport do
         |> Map.put("model_provider", @provider_id)
         |> Map.put("model_providers", Map.put(providers, @provider_id, provider(env)))
 
+      chatgpt?(config, env) ->
+        config
+        |> Map.put("model_provider", @provider_id)
+        |> Map.put("model_providers", Map.put(providers, @provider_id, chatgpt_provider()))
+
       true ->
         config
     end
@@ -136,6 +156,14 @@ defmodule Fountain.Conversations.CodexTransport do
 
   defp substitute?(config, env) do
     selected(config, env) == "openai" and present?(env, "OPENAI_API_KEY")
+  end
+
+  # The subscription shape: the built-in would be selected, the spawn carries
+  # the placeholder and no API key. A key beside it would win above, as it
+  # does everywhere else; the resolver never hands out both.
+  defp chatgpt?(config, env) do
+    selected(config, env) == "openai" and present?(env, @chatgpt_key) and
+      not present?(env, "OPENAI_API_KEY")
   end
 
   # What codex would run on: the overlay's selection, else the launch
@@ -159,6 +187,22 @@ defmodule Fountain.Conversations.CodexTransport do
 
   defp present?(env, name) do
     match?(value when is_binary(value) and value != "", Map.get(env, name))
+  end
+
+  # Audited against the same lib.rs as `provider/1`: with a ChatGPT auth mode
+  # the built-in's base URL is the Codex backend and its auth is the ambient
+  # `auth.json`. `requires_openai_auth` without `env_key` selects that auth on
+  # a custom id; `supports_websockets` is deliberately false. No
+  # `env_http_headers`: the organization and project headers belong to the
+  # API.
+  defp chatgpt_provider do
+    %{
+      "name" => "OpenAI",
+      "base_url" => @chatgpt_base_url,
+      "wire_api" => "responses",
+      "requires_openai_auth" => true,
+      "supports_websockets" => false
+    }
   end
 
   # Field audit: Codex rust-v0.147.0 (installed in the review image) and

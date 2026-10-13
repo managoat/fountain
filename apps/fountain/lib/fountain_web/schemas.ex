@@ -1335,10 +1335,9 @@ defmodule FountainWeb.Schemas do
           readOnly: true,
           description:
             "Which inference source served this turn, recorded once when the turn " <>
-              "started and never rewritten: repointing the credential set or restarting " <>
-              "the conversation changes later turns only. Null on a turn that started " <>
-              "before the source was recorded, or on one that ran on a ChatGPT " <>
-              "subscription, which Fountain no longer supports.",
+              "started and never rewritten: repointing the credential set, relinking " <>
+              "the subscription or restarting the conversation changes later turns only. " <>
+              "Null on a turn that started before the source was recorded.",
           properties: %{
             origin: %Schema{
               type: :string,
@@ -1348,12 +1347,13 @@ defmodule FountainWeb.Schemas do
             },
             scope: %Schema{
               type: :string,
-              enum: ~w(credential tenant_secret platform none missing),
+              enum: ~w(credential tenant_secret grant platform none missing),
               description:
                 "Where the credential came from: the account's credential set " <>
                   "(`credential`), an environment or vault value (`tenant_secret`), the " <>
-                  "deployment (`platform`), or nowhere because the provider needs none " <>
-                  "(`none`) or none was found (`missing`)."
+                  "account's ChatGPT subscription (`grant`), the deployment (`platform`: " <>
+                  "its API key or its ChatGPT subscription), or nowhere because the " <>
+                  "provider needs none (`none`) or none was found (`missing`)."
             }
           },
           required: [:origin, :scope]

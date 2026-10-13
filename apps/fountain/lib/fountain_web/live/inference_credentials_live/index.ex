@@ -20,6 +20,7 @@ defmodule FountainWeb.InferenceCredentialsLive.Index do
   alias Fountain.Crypto
   alias Fountain.InferenceCredentials
   alias Fountain.InferenceCredentials.Validator
+  alias FountainWeb.ChatGPTSubscriptionCard
 
   @providers [
     {:anthropic_api_key, "Anthropic API key", "ANTHROPIC_API_KEY",
@@ -43,6 +44,7 @@ defmodule FountainWeb.InferenceCredentialsLive.Index do
      |> assign(:providers, @providers)
      |> assign(:provider_messages, %{})
      |> assign(:set_message, nil)
+     |> ChatGPTSubscriptionCard.assign_card({:user, user.id})
      |> load_sets()}
   end
 
@@ -67,6 +69,9 @@ defmodule FountainWeb.InferenceCredentialsLive.Index do
   end
 
   @impl true
+  def handle_event("chatgpt_" <> _ = event, params, socket),
+    do: ChatGPTSubscriptionCard.handle_event(event, params, socket)
+
   def handle_event(event, _params, %{assigns: %{invalid_set_selection: true}} = socket)
       when event in ["rename_set", "make_default", "delete_set", "save", "clear"] do
     {:noreply, unavailable_selection(socket)}
@@ -330,6 +335,10 @@ defmodule FountainWeb.InferenceCredentialsLive.Index do
   end
 
   @impl true
+  def handle_info({:chatgpt_poll, _ref} = message, socket),
+    do: ChatGPTSubscriptionCard.handle_poll(message, socket)
+
+  @impl true
   def render(assigns) do
     ~H"""
     <div class="space-y-6 max-w-2xl">
@@ -340,6 +349,14 @@ defmodule FountainWeb.InferenceCredentialsLive.Index do
           Tokens are encrypted at rest with your per-tenant key and decrypted only inside the conversation that needs them.
         </p>
       </div>
+
+      <ChatGPTSubscriptionCard.card
+        owner={@chatgpt_owner}
+        sub={@chatgpt_sub}
+        device={@chatgpt_device}
+        message={@chatgpt_message}
+        brokered?={@chatgpt_brokered?}
+      />
 
       <%!-- The sets, and which one the four rows below are about (ADR 0053
             decision 1). Hidden entirely for an account with at most one:

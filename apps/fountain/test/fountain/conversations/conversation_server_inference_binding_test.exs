@@ -81,7 +81,7 @@ defmodule Fountain.Conversations.ConversationServerInferenceBindingTest do
         "replacement"
       )
 
-    reject(Fountain.Conversations.Provisioning, :prepare_runtime_sprite, 5)
+    reject(Fountain.Conversations.Provisioning, :prepare_runtime_sprite, 7)
     {_pid, _ref, :stopped} = start_server(stale)
     assert Repo.reload!(stale).status == "failed"
     assert Repo.reload!(sandbox).status == "ready"
@@ -108,7 +108,7 @@ defmodule Fountain.Conversations.ConversationServerInferenceBindingTest do
       :ok
     end)
 
-    reject(Fountain.Conversations.Provisioning, :prepare_runtime_sprite, 5)
+    reject(Fountain.Conversations.Provisioning, :prepare_runtime_sprite, 7)
     {_pid, _ref, :stopped} = start_server(conv)
     assert Repo.reload!(conv).status == "failed"
   end
@@ -129,7 +129,7 @@ defmodule Fountain.Conversations.ConversationServerInferenceBindingTest do
       {:error, :cleanup_failed}
     end)
 
-    reject(Fountain.Conversations.Provisioning, :prepare_runtime_sprite, 5)
+    reject(Fountain.Conversations.Provisioning, :prepare_runtime_sprite, 7)
     {_pid, _ref, :stopped} = start_server(conv)
     assert Repo.reload!(sandbox).status == "ready"
   end

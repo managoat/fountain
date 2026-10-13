@@ -549,7 +549,7 @@ defmodule Fountain.Conversations.Reattachment do
   # carries on with `current_turn: nil`, which is correct: a turn it no longer
   # owns is not its to finish.
   #
-  # `AutonomousTurnReaper` stays unfenced deliberately, and is unaffected by
+  # `SandboxReaper.sweep_stuck_turns/0` stays unfenced deliberately, and is unaffected by
   # this: it fires only when `ConversationServer.whereis/1` is nil, so there is
   # no actor whose binding it could compare against (#2021 item 1).
   defp mark_orphan(state, running_turn, why) do

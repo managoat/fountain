@@ -777,7 +777,8 @@ agent's memory with it (#649).
 > because a longer wait is more time for the tool to be approved and so is the
 > looser direction. The deadline lives on the turn row rather than in a
 > process timer, because a two-day wait outlives every process involved, and
-> `Fountain.Workers.DetachedRequestSweeper` is what fires it. Expiry is still
+> `Fountain.Workers.SandboxReaper`'s minute pass is what fires it
+> (`DetachedRequestSweeper` until 2026-10-13). Expiry is still
 > a deny, and it opens the same resume turn.
 >
 > **The connection does not survive the detach**, which is the one place this

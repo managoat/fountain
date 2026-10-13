@@ -2987,7 +2987,7 @@ defmodule Fountain.Conversations.ConversationServerACPTest do
           )
         )
 
-      assert Fountain.Workers.DetachedRequestSweeper.sweep_expired_requests() == 1
+      assert Fountain.Workers.SandboxReaper.sweep_expired_requests() == 1
       settle(pid)
 
       params = drive_to_resume_prompt(pid, ref)

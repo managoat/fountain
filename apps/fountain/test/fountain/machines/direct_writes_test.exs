@@ -612,7 +612,7 @@ defmodule Fountain.Machines.DirectWritesTest do
           "apps/fountain/lib/fountain/conversations/reattachment.ex",
           "apps/fountain/lib/fountain/conversations/wake.ex",
           "apps/fountain/lib/fountain/conversations/conversation_server.ex",
-          "apps/fountain/lib/fountain/workers/autonomous_turn_reaper.ex"
+          "apps/fountain/lib/fountain/workers/sandbox_reaper.ex"
         ] do
       assert MapSet.member?(relative, site),
              "the scan missed #{site} (#{length(files)} files under #{root}), so a direct " <>

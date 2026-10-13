@@ -373,7 +373,7 @@ defmodule Fountain.Conversations.Pending do
   does, the request outlives the turn: the row is marked `waiting`, the
   deadline decided at ask time is written onto it, and the in-process timer is
   dropped. From here the request is the sweep's
-  (`Fountain.Workers.DetachedRequestSweeper`), because the sandbox is about to
+  (`Fountain.Workers.SandboxReaper.sweep_expired_requests/1`), because the sandbox is about to
   park and this process is about to have nothing left to do.
 
   Returns the turn row with the flag on it and the value with no timer.

@@ -70,7 +70,7 @@ defmodule Fountain.Conversations.MachineGoneBindingTest do
     # row recoverable. `follow_cotenants/2` casts `:machine_gone` and then
     # rebinds, so this actor's finish routinely reads the new binding after
     # `_unsafe_idle_interrupted_turn/1` — which takes no `sandbox_id` (#2000) —
-    # retired the last running turn. `AutonomousTurnReaper` selects running
+    # retired the last running turn. `SandboxReaper.sweep_stuck_turns/0` selects running
     # turns and there is none, so refusing the write here strands the row for
     # good.
     test "a conversation that moved on with no running turn is still released", ctx do

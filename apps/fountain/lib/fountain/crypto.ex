@@ -1,12 +1,13 @@
 defmodule Fountain.Crypto do
   @moduledoc """
-  Envelope encryption for per-tenant secret values at rest.
+  Envelope encryption for per-account secret values at rest.
 
-  Each tenant has a data-encryption key (DEK) stored wrapped (AES-256-GCM) in
+  Each account has a data-encryption key (DEK) stored wrapped (AES-256-GCM) in
   `user_data_keys.wrapped_key` using the platform master key (`MASTER_SECRETS_KEY`).
 
   `encrypt/3` and `decrypt/3` accept an explicit `key` argument — callers are
-  responsible for supplying the correct tenant DEK, enabling multi-tenant isolation.
+  responsible for supplying the correct account's DEK, which keeps one account's
+  secrets unreadable with another's key.
 
   ## Key lifecycle
 

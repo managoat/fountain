@@ -120,8 +120,7 @@ email and no webhook about a spent plan.
 An account that is suspended cannot run on a subscription, whatever state the
 card shows. The card and the **ChatGPT subscription** row say so.
 
-The `/start` page and the agent form show the same sentence before you launch
-anything.
+The agent form shows the same sentence before you launch anything.
 
 ## A reply that stops partway
 

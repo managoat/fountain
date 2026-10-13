@@ -6,14 +6,14 @@ defmodule FountainWeb.CatalogController do
   an environment accepts,
   where this instance's browser apps live (#866), and the remote MCP
   servers verified to complete connection discovery (#1322), and the first
-  request (ADR 0038).
+  request.
 
   Everything here is already public through the forms; this is the same
   lists over the API so a client on another origin does not hard-code them
   and drift from the server. `first_request` is that argument applied to the
-  onboarding snippet: the verified landing prints it, `docs/quickstart.md`
-  prints it, and `fountain auth register` prints it, so the text has to come
-  from one place or the three will disagree. `Fountain.Onboarding` is that
+  quickstart snippet: `docs/quickstart.md` prints it and `fountain auth
+  register` prints it, so the text has to come from one place or the two
+  will disagree. `Fountain.FirstRequest` is that
   place; this is how a client that is not the server reaches it.
   """
   use FountainWeb, :controller
@@ -21,7 +21,7 @@ defmodule FountainWeb.CatalogController do
 
   alias Fountain.Agents.Agent
   alias Fountain.Agents.ModelCatalog
-  alias Fountain.Onboarding
+  alias Fountain.FirstRequest
   alias Managoat.Runtimes.Model
   alias FountainWeb.Schemas
 
@@ -39,7 +39,7 @@ defmodule FountainWeb.CatalogController do
         "browser apps this instance sends people to for conversations and the team, " <>
         "and remote MCP servers verified to complete connection discovery " <>
         "(again suggestions — any URL can be discovered), each with the date " <>
-        "it was last verified. Also `first_request`, the one onboarding " <>
+        "it was last verified. Also `first_request`, the one quickstart " <>
         "snippet this deployment hands out, with its base URL already in it " <>
         "and the caller's own key and agent left as placeholders.",
     responses: [ok: {"Catalog", "application/json", Schemas.CatalogResponse}]
@@ -66,8 +66,8 @@ defmodule FountainWeb.CatalogController do
           conversations: Fountain.Apps.conversations(),
           team: Fountain.Apps.team()
         },
-        # The first request, from the one source the landing and the manual
-        # share (ADR 0038). Rendered with this deployment's base URL, which
+        # The first request, from the one source the CLI and the manual
+        # share. Rendered with this deployment's base URL, which
         # the server knows; the key and the agent stay placeholders, because
         # the server holds only a *hash* of the caller's key and cannot fill
         # one in. A client substitutes the key it already has and an agent it
@@ -79,7 +79,7 @@ defmodule FountainWeb.CatalogController do
   end
 
   defp first_request(base_url) do
-    curl = Onboarding.curl(base_url: base_url)
+    curl = FirstRequest.curl(base_url: base_url)
 
     # The TypeScript keeps its bare `new Fountain()`, and that is not an
     # oversight. The SDK resolves the key and the base URL exactly as the CLI
@@ -88,13 +88,13 @@ defmodule FountainWeb.CatalogController do
     # prints: it would carry a base URL and no key, which reads as a complete
     # snippet and is not one. `curl` gets the base URL because `curl`
     # resolves nothing.
-    typescript = Onboarding.typescript()
+    typescript = FirstRequest.typescript()
 
     %{
       curl: curl,
       typescript: typescript,
-      prompt: Onboarding.prompt(),
-      placeholders: Onboarding.remaining_placeholders(curl <> typescript)
+      prompt: FirstRequest.prompt(),
+      placeholders: FirstRequest.remaining_placeholders(curl <> typescript)
     }
   end
 end

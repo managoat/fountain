@@ -87,9 +87,9 @@ vaults, audit, keys, account, admin). Watching a conversation and messaging a
 team are separate apps on `/api` ([managoat/demos](https://github.com/managoat/demos));
 `Fountain.Apps` is the only place that knows where they live, and retired
 `/conversations*`, `/team*` and `/onboarding*` URLs 404. **A
-conversation-facing feature goes in the app; marketing copy goes in
-[managoat/site](https://github.com/managoat/site)** (ADR 0034). The boundary is
-`docs/concepts/surfaces.md`.
+conversation-facing feature goes in the app.** The only public page the
+server renders is the manual at `/docs`; `/` redirects to the console. The
+boundary is `docs/concepts/surfaces.md`.
 
 ## Web plumbing
 

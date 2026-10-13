@@ -3,14 +3,9 @@ defmodule FountainWeb.DashboardLive.Index do
   The console's home: the account's own numbers, and the way in to its
   primitives.
 
-  It is no longer what greets a new account. It used to carry a three-item
-  checklist — an inference credential, an agent, a conversation — which
-  replaced the four-page onboarding wizard and then defined onboarding as
-  "three things exist" (#867). ADR 0038 replaced that with the verified
-  landing (`FountainWeb.StartLive`), where a key and one request produce a
-  reply, and `users.onboarding_completed_at` is stamped at that reply by
-  `Fountain.Onboarding` rather than by this mount. The dashboard is what an
-  account gets *after* the first reply, which is what a dashboard is for.
+  It is also where a newly verified or signed-in account lands: `/` and the
+  verification link both send people here. Getting started is the manual's
+  quickstart (`/docs/quickstart`), not a page of its own.
   """
   use FountainWeb, :live_view
 
@@ -19,7 +14,6 @@ defmodule FountainWeb.DashboardLive.Index do
     Apps,
     Conversations,
     Environments,
-    InferenceCredentials,
     Vaults
   }
 
@@ -29,7 +23,6 @@ defmodule FountainWeb.DashboardLive.Index do
 
     agents = Agents.list_agents(user.id, [])
     counts = Conversations.conversation_counts(user.id)
-    has_credential? = InferenceCredentials.has_any_credential?(user.id)
 
     {:ok,
      socket
@@ -37,8 +30,6 @@ defmodule FountainWeb.DashboardLive.Index do
      |> assign(:agent_count, length(agents))
      |> assign(:environment_count, length(Environments.list_environments(user.id)))
      |> assign(:vault_count, length(Vaults.list_vaults(user.id)))
-     |> assign(:has_credential?, has_credential?)
-     |> assign(:replied?, Fountain.Onboarding.first_reply_at(user.id) != nil)
      |> assign(:active_count, counts.active)
      |> assign(:conversation_count, counts.total)
      |> assign(:conversations_app, Apps.conversations())
@@ -110,19 +101,6 @@ defmodule FountainWeb.DashboardLive.Index do
           <.button>Start a conversation ↗</.button>
         </a>
       </div>
-
-      <%!-- One line, not a checklist: an account that has never had a reply
-            has somewhere better to be, and it is not this page. --%>
-      <.link
-        :if={not @replied?}
-        navigate={~p"/start"}
-        class="block rounded-lg border border-[var(--color-border)] p-4 hover:border-[var(--color-border-strong)]"
-      >
-        <p class="text-sm font-medium">Nothing has answered on this account yet</p>
-        <p class="mt-1 text-sm text-[var(--color-text-secondary)]">
-          Your key and one request are on the start page, and the reply comes back there.
-        </p>
-      </.link>
 
       <%!-- The apps. External on purpose: their own origins, their own
             tokens, and a deployment may have neither. --%>

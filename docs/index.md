@@ -9,15 +9,15 @@ through an SDK. The person who uses your app need never learn that an agent
 is there.
 
 The whole product fits in one request. It gets a reply from an agent in its
-own sandbox. Your API key and your agent's id are on your start page, and that
-page puts both into this request for you.
+own sandbox. It needs an API key from the console and the id of your
+`starter` agent.
 
 ```sh
 --8<-- "docs/snippets/first-request.sh"
 ```
 
-The reply arrives on that same page. The [quickstart](quickstart.md) is those
-three steps in full.
+The [quickstart](quickstart.md) is the key, the request and the reply in
+full.
 
 <!-- The snippet include above must start a line: an admonition indents its
      body, and an indented include is left unexpanded. -->

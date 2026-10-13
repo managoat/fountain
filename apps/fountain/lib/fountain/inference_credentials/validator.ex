@@ -4,7 +4,7 @@ defmodule Fountain.InferenceCredentials.Validator do
 
   Each provider exposes a cheap "list models" or "me" style endpoint that
   authenticates the supplied credential without consuming meaningful quota.
-  Called from the Settings LiveView (and the onboarding step) on save, so
+  Called from the Settings LiveView on save, so
   users find out about typos / revoked keys at the boundary instead of
   mid-conversation.
 

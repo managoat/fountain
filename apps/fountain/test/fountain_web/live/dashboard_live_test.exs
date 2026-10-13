@@ -1,9 +1,7 @@
 defmodule FountainWeb.DashboardLiveTest do
   @moduledoc """
-  The console's home (#867). It is what a new account lands on, so it carries
-  what the onboarding wizard used to: the three things that have to be true
-  before an agent can run, ticked as they are done — but as a list the
-  account can ignore, not four pages it cannot leave.
+  The console's home (#867): the account's own numbers, and the way in to
+  its primitives.
   """
 
   use FountainWeb.ConnCase, async: false
@@ -39,69 +37,11 @@ defmodule FountainWeb.DashboardLiveTest do
     {:ok, conn: login_user(conn, user), user: user}
   end
 
-  # The three-item checklist went with ADR 0038. What is left is one line
-  # pointing at the landing, and it is about a reply rather than about things
-  # existing.
-  test "an account that has never had a reply is pointed at the landing", %{conn: conn} do
-    {:ok, _lv, html} = live(conn, ~p"/dashboard")
-
-    assert html =~ "Nothing has answered on this account yet"
-    assert html =~ "/start"
-    refute html =~ "Before an agent can run"
-  end
-
-  test "owning an agent and a credential is not what clears it", %{conn: conn, user: user} do
-    insert_agent(user_id: user.id)
-    {:ok, dek} = Fountain.Crypto.load_tenant_key(user.id)
-
-    {:ok, _} =
-      Fountain.InferenceCredentials.put_credential(
-        user.id,
-        dek,
-        :anthropic_api_key,
-        "sk-ant-test-key-000000000000",
-        actor: "ui"
-      )
-
-    {:ok, _lv, html} = live(conn, ~p"/dashboard")
-
-    assert html =~ "Nothing has answered on this account yet"
-  end
-
-  test "a reply clears it", %{conn: conn, user: user} do
-    conv = insert_conversation(user_id: user.id)
-
-    insert_turn(conv, %{
-      status: "completed",
-      reply_text: "the agent answered",
-      ended_at: DateTime.utc_now() |> DateTime.truncate(:second)
-    })
-
+  test "a new account gets no getting-started nag", %{conn: conn} do
     {:ok, _lv, html} = live(conn, ~p"/dashboard")
 
     refute html =~ "Nothing has answered on this account yet"
-  end
-
-  # ADR 0038 decision 7: `onboarding_completed_at` is stamped at the first
-  # reply by `Fountain.Onboarding`, not by this mount when three things exist.
-  test "the dashboard no longer stamps onboarding", %{conn: conn, user: user} do
-    refute user.onboarding_completed_at
-
-    insert_agent(user_id: user.id)
-    {:ok, dek} = Fountain.Crypto.load_tenant_key(user.id)
-
-    {:ok, _} =
-      Fountain.InferenceCredentials.put_credential(
-        user.id,
-        dek,
-        :anthropic_api_key,
-        "sk-ant-test-key-000000000000",
-        actor: "ui"
-      )
-
-    {:ok, _lv, _html} = live(conn, ~p"/dashboard")
-
-    refute Fountain.Accounts.get_user(user.id).onboarding_completed_at
+    refute html =~ ~s(href="/start")
   end
 
   test "the apps are linked out to, and the primitives linked in to", %{conn: conn, user: user} do

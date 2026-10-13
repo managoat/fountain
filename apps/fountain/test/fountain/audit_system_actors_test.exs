@@ -1,11 +1,9 @@
 defmodule Fountain.AuditSystemActorsTest do
   @moduledoc """
-  Background paths that mutate tenant data leave a trail too (#551).
+  Background paths that mutate an account's data leave a trail too (#551).
 
-  The precedent this follows is `UnverifiedAccountPruner`, which deletes
-  through `Accounts.Deletion` with `actor: "system:unverified_pruner"` and gets
-  audited for free. Everything here was the opposite: real changes to a
-  tenant's data, attributable to nothing but a line in the server log.
+  Before this, each was a real change to an account's data, attributable to
+  nothing but a line in the server log.
 
   The sharpest case is the retention pruner, which deletes `audit_events`
   itself — so before this the trail could shrink with no record of when or by

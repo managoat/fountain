@@ -132,14 +132,11 @@ defmodule FountainWeb.Router do
 
   ## ─── Public browser routes ────────────────────────────────────────────────────────────────────────
 
-  # The front door and the legal pages. On the hosted deployment the marketing
-  # pages (managoat/site) sit in front of these paths at the ingress; the app
-  # itself serves a plain front door at `/` everywhere.
+  # `/` sends a person to the console (sign-in when signed out); the manual
+  # is the only public page.
   scope "/", FountainWeb do
     pipe_through [:browser, :browser_optional_auth]
     get "/", FrontDoorController, :home
-    get "/terms", FrontDoorController, :terms
-    get "/privacy", FrontDoorController, :privacy
     # The public manual, and since #1008 the only place it is published —
     # content embedded at compile time by Fountain.Docs. Distinct from /help
     # (curated in-app topics) and /api/docs (Swagger).
@@ -147,7 +144,7 @@ defmodule FountainWeb.Router do
     get "/docs/*page", DocsController, :show
   end
 
-  # Multi-tenant auth routes (no session auth required)
+  # Auth routes (no session auth required)
   scope "/auth", FountainWeb do
     pipe_through [:browser]
 
@@ -362,9 +359,6 @@ defmodule FountainWeb.Router do
     # Deletion (#523) is irreversible and takes the tenant key with it, so it
     # wants the strongest credential the account has.
     delete "/", AccountDataController, :delete_account
-
-    get "/onboarding", OnboardingController, :show
-    post "/onboarding/complete", OnboardingController, :complete
 
     get "/inference-credentials", InferenceCredentialController, :index
     put "/inference-credentials/:provider", InferenceCredentialController, :update
@@ -590,10 +584,6 @@ defmodule FountainWeb.Router do
     # sandbox start live in the context, not here.
     live_session :authenticated,
       on_mount: [{FountainWeb.Live.Hooks, :require_authenticated_user}] do
-      # The verified landing (ADR 0038): a key, one request, the reply. Where
-      # `GET /users/confirm/:token` sends a person, and where the welcome
-      # email points. The dashboard is what they get afterwards.
-      live "/start", StartLive, :index
       live "/dashboard", DashboardLive.Index, :index
       live "/agents", AgentsLive.Index, :index
       live "/agents/new", AgentsLive.Form, :new

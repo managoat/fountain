@@ -52,7 +52,6 @@ defmodule FountainWeb.AdminJSON do
       max_concurrent_sandboxes: Fountain.Quotas.sandbox_limit_for(u),
       sandbox_limit_override: u.sandbox_limit_override,
       active_sandboxes: Map.get(sandbox_counts, u.id, 0),
-      onboarding_completed_at: u.onboarding_completed_at,
       last_activity_at: Map.get(u, :last_activity_at),
       inserted_at: u.inserted_at
     }

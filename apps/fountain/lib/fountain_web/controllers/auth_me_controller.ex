@@ -33,9 +33,6 @@ defmodule FountainWeb.AuthMeController do
       expires_at: conn.assigns.current_api_key.expires_at,
       role: user.role,
       email_verified: not is_nil(user.email_verified_at),
-      # Read side of #525: a client that just bootstrapped an account can see
-      # whether the browser will drop this user into the wizard.
-      onboarding_completed: not is_nil(user.onboarding_completed_at),
       # Read-only: whether this deployment brokers egress (ADR 0019), so a
       # client can label the mode instead of probing /api/secret-bindings for
       # a 200 vs 404 (#1154). Deployment-wide since the §9 ratchet retired, so

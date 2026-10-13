@@ -84,21 +84,11 @@ defmodule FountainWeb.UeberauthController do
           metadata: %{"provider" => provider}
         )
 
-        # The email+password path does this after verification. OAuth skips
-        # verification entirely (the provider asserts the address), so an
-        # OAuth signup is created verified and this is its verification
-        # transition (#449).
-        Fountain.Workers.WelcomeEmail.enqueue(user)
-
-        # And the same landing (ADR 0038). An OAuth signup is created verified,
-        # so this *is* its first screen after verification; sending it to the
-        # dashboard instead would give one of the two signup doors a different
-        # first hour.
         conn
         |> configure_session(renew: true)
         |> put_session(:user_id, user.id)
         |> put_session(:session_version, user.session_version)
-        |> redirect(to: ~p"/start")
+        |> redirect(to: ~p"/dashboard")
 
       {:ok, user, :existing} ->
         if Fountain.Accounts.suspended?(user) do

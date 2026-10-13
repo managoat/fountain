@@ -5,7 +5,6 @@ defmodule Fountain.Emails.UserEmails do
   Sends:
   - Email verification (24 h token, from `Workers.VerificationEmail`)
   - Password reset (1 h token)
-  - Welcome (once, on the verification transition, from `Workers.WelcomeEmail`)
   - Account suspended / unsuspended / deleted (from `Workers.AccountEmail`)
   - Email-change confirmation + notice (from `Workers.EmailChangeEmail`)
   """
@@ -53,28 +52,6 @@ defmodule Fountain.Emails.UserEmails do
     |> subject("Reset your #{brand()} password")
     |> html_body(reset_html(reset_url))
     |> text_body(reset_text(reset_url))
-    |> Mailer.deliver()
-  end
-
-  @doc """
-  Welcome a just-verified user (#449): what to do next, which is the verified
-  landing (ADR 0038) — a key, one request, the reply.
-  """
-  @spec deliver_welcome_email(User.t()) :: {:ok, term()} | {:error, term()}
-  def deliver_welcome_email(%User{} = user) do
-    base_url = Fountain.PublicUrl.base()
-    start_url = "#{base_url}/start"
-    # The same request the landing shows and the manual prints, with its
-    # placeholders left in. The key is never in an email; the email says
-    # where the key is.
-    request = Fountain.Onboarding.curl(base_url: base_url)
-
-    new()
-    |> from(from_address())
-    |> to({user.email, user.email})
-    |> subject("Welcome to #{brand()}")
-    |> html_body(welcome_html(start_url, request))
-    |> text_body(welcome_text(start_url, request))
     |> Mailer.deliver()
   end
 
@@ -370,54 +347,6 @@ defmodule Fountain.Emails.UserEmails do
   end
 
   defp expiry_date(%DateTime{} = dt), do: dt |> DateTime.to_date() |> Date.to_iso8601()
-
-  defp welcome_html(start_url, request) do
-    """
-    <!DOCTYPE html>
-    <html>
-    <body style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 24px;">
-      <h2>Welcome to #{brand()}</h2>
-      <p>
-        Your account is verified. One request gets you a reply from an agent
-        running in its own sandbox — no repository, no token, no install.
-      </p>
-      <pre style="background: #f4f4f5; border-radius: 6px; padding: 12px; font-size: 12px; overflow-x: auto;"><code>#{Phoenix.HTML.html_escape(request) |> Phoenix.HTML.safe_to_string()}</code></pre>
-      <p>
-        Your API key and your agent's id are on your start page, already
-        filled into that request. Keys are shown once, so open it when you are
-        ready to paste.
-      </p>
-      <p style="margin: 32px 0;">
-        <a href="#{start_url}"
-           style="background: #18181b; color: #fff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-size: 14px;">
-          Get your key
-        </a>
-      </p>
-      <p style="color: #71717a; font-size: 13px;">
-        Or copy this link into your browser:<br/>
-        <a href="#{start_url}" style="color: #3b82f6;">#{start_url}</a>
-      </p>
-    </body>
-    </html>
-    """
-  end
-
-  defp welcome_text(start_url, request) do
-    """
-    Welcome to #{brand()}
-
-    Your account is verified. One request gets you a reply from an agent
-    running in its own sandbox — no repository, no token, no install.
-
-    #{request}
-
-    Your API key and your agent's id are on your start page, already filled
-    into that request. Keys are shown once, so open it when you are ready to
-    paste:
-
-    #{start_url}
-    """
-  end
 
   defp account_suspended_html do
     """

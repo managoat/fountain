@@ -2,7 +2,7 @@ defmodule FountainWeb.BrandChromeTest do
   use FountainWeb.ConnCase, async: false
 
   # PRODUCT_NAME is a per-deployment brand for the chrome only: the manual
-  # keeps saying Fountain (the engine) and explains the split once per page.
+  # keeps saying Fountain (the engine).
   setup do
     previous = Application.get_env(:fountain, :product_name)
     Application.put_env(:fountain, :product_name, "Managoat")
@@ -16,12 +16,11 @@ defmodule FountainWeb.BrandChromeTest do
     :ok
   end
 
-  test "the docs header carries the brand and each page explains the split", %{conn: conn} do
+  test "the docs header and footer carry the brand", %{conn: conn} do
     html = conn |> get(~p"/docs") |> html_response(200)
     assert html =~ ~s(<title>Docs · )
     assert html =~ ~r/>\s*Managoat\s*<\/span>/
-    assert html =~ ~s(data-role="brand-note")
-    assert html =~ ~r/Managoat<\/span>\s*is the hosted Fountain/
+    assert html =~ "© 2026 Managoat."
     # The page body is the engine's manual, untouched.
     assert html =~ "Fountain runs an agent on a cloud sandbox"
   end
@@ -38,33 +37,11 @@ defmodule FountainWeb.BrandChromeTest do
     assert_email_sent(subject: "Verify your Managoat account")
   end
 
-  test "the front door and legal pages name the brand", %{conn: conn} do
-    home = conn |> get(~p"/") |> html_response(200)
-    assert home =~ ~r/>\s*Managoat\s*<\/h1>/
-    assert home =~ "© 2026 Managoat."
-    assert home =~ "Built on Fountain. Open source and yours to run."
-
-    for path <- [~p"/terms", ~p"/privacy"] do
-      html = conn |> get(path) |> html_response(200)
-      assert html =~ "Managoat"
-      refute html =~ "the Fountain service"
-      refute html =~ "Fountain is operated by"
-      refute html =~ "Fountain lets you"
-    end
-  end
-
-  test "without the brand the front door credits nobody", %{conn: conn} do
-    Application.delete_env(:fountain, :product_name)
-    home = conn |> get(~p"/") |> html_response(200)
-    assert home =~ "© 2026 Fountain."
-    refute home =~ "Built on Fountain. Open source and yours to run."
-  end
-
-  test "without the brand the docs show no note", %{conn: conn} do
+  test "without the brand the chrome says Fountain", %{conn: conn} do
     Application.delete_env(:fountain, :product_name)
     html = conn |> get(~p"/docs") |> html_response(200)
-    refute html =~ ~s(data-role="brand-note")
     assert html =~ ~r/>\s*Fountain\s*<\/span>/
+    assert html =~ "© 2026 Fountain."
   end
 
   describe "BRAND_ASSETS_URL" do
@@ -82,7 +59,7 @@ defmodule FountainWeb.BrandChromeTest do
     end
 
     test "the chrome, the favicons and the card come from the bundle", %{conn: conn} do
-      conn = get(conn, ~p"/")
+      conn = get(conn, ~p"/docs")
       html = html_response(conn, 200)
       assert html =~ ~s(src="https://cdn.example.com/brand/app-icon.png")
       assert html =~ ~s(href="https://cdn.example.com/brand/favicon.ico")
@@ -107,7 +84,7 @@ defmodule FountainWeb.BrandChromeTest do
     end
 
     test "the CSP admits the bundle's origin on img-src, once, and nowhere else", %{conn: conn} do
-      [csp] = conn |> get(~p"/") |> get_resp_header("content-security-policy")
+      [csp] = conn |> get(~p"/docs") |> get_resp_header("content-security-policy")
       assert csp =~ "img-src 'self' data: https://cdn.example.com"
       refute csp =~ "script-src 'self' 'unsafe-inline' https://cdn.example.com"
       assert length(String.split(csp, "https://cdn.example.com")) == 2
@@ -116,7 +93,7 @@ defmodule FountainWeb.BrandChromeTest do
 
   test "without a bundle the CSP is untouched", %{conn: conn} do
     Application.delete_env(:fountain, :brand_assets_url)
-    [csp] = conn |> get(~p"/") |> get_resp_header("content-security-policy")
+    [csp] = conn |> get(~p"/docs") |> get_resp_header("content-security-policy")
     assert csp =~ "img-src 'self' data:;"
   end
 end

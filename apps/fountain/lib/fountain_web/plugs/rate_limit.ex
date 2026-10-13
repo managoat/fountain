@@ -1,9 +1,9 @@
 defmodule FountainWeb.Plugs.RateLimit do
   @moduledoc """
-  Lightweight ETS-based fixed-window rate limiter. Fountain is multi-tenant;
-  this is a coarse abuse control, not a per-tenant quota — the goal is to
-  stop a buggy or hostile client from spamming sprite spawns or saturating
-  the BEAM, not to meter individual tenants.
+  Lightweight ETS-based fixed-window rate limiter. This is a coarse abuse
+  control, not a per-account quota — the goal is to stop a buggy or hostile
+  client from spamming sprite spawns or saturating the BEAM, not to meter
+  individual accounts.
 
   Buckets are per-IP by default, or per API key with `key: :api_key` on a
   plug that runs after `TenantAPIAuth`. The per-key shape exists because an

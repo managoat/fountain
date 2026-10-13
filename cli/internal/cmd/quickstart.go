@@ -17,9 +17,9 @@ import (
 
 // ── the first request, from the server ──────────────────────────────────
 //
-// ADR 0038 says the landing, the manual and this CLI print the same request.
-// That is only true if there is one copy of the text, and there is: the two
-// files under docs/snippets/, read at compile time by `Fountain.Onboarding`.
+// The manual and this CLI print the same request. That is only true if there
+// is one copy of the text, and there is: the two files under docs/snippets/,
+// read at compile time by `Fountain.FirstRequest`.
 // The CLI is Go and cannot read them — `go:embed` cannot reach outside
 // cli/'s own module, and a build-time copy would be a second file to keep in
 // step, which is the failure this is trying to avoid.
@@ -71,8 +71,7 @@ func fetchFirstRequest(base, key string) (firstRequest, error) {
 
 // fetchDefaultAgent picks the agent the first request runs against: the
 // `starter` planted at verification, or failing that whatever the account
-// has. Same rule as the verified landing, for the same reason — the starter
-// is an ordinary agent and may be renamed or deleted.
+// has. The starter is an ordinary agent and may be renamed or deleted.
 func fetchDefaultAgent(base, key string) (namedAgent, error) {
 	var out struct {
 		Data []map[string]any `json:"data"`
@@ -115,12 +114,12 @@ func (f firstRequest) render(key string, agent namedAgent) (curl, ts string) {
 	return rep.Replace(f.Curl), rep.Replace(f.TypeScript)
 }
 
-// printFirstRequest is what `auth register` ends with: the same three things
-// the verified landing shows, in the order that page shows them.
+// printFirstRequest is what `auth register` ends with: the first request,
+// filled in with the saved key and the account's agent.
 func printFirstRequest(w io.Writer, base, key string) {
 	req, err := fetchFirstRequest(base, key)
 	if err != nil {
-		fmt.Fprintf(w, "\nYour key is saved. Open %s/start for your first request.\n", base)
+		fmt.Fprintf(w, "\nYour key is saved. Run `fountain quickstart` for your first request, or read %s/docs/quickstart.\n", base)
 		return
 	}
 
@@ -143,7 +142,7 @@ func init() {
 	rootCmd.AddCommand(&cobra.Command{
 		Use:   "quickstart",
 		Short: "Run the first request against your default agent and stream the reply",
-		Long: "Sends the same prompt the start page and the manual show, to the agent " +
+		Long: "Sends the same prompt the manual shows, to the agent " +
 			"this account already has, and streams the reply. It is `fountain run` " +
 			"with the agent and the prompt filled in.",
 		RunE: func(cmd *cobra.Command, args []string) error { return quickstart() },
@@ -205,11 +204,9 @@ func printWhyItMightNotHaveAnswered(w io.Writer, base string) {
 	fmt.Fprintf(w, "\nThe two usual reasons a first run does not answer:\n")
 	fmt.Fprintf(w, "  no model key for this account   %s/account/inference-credentials\n", base)
 	fmt.Fprintf(w, "  no sandbox provider configured  %s/docs/self-hosting\n", base)
-	fmt.Fprintf(w, "Your start page shows which of the two applies: %s/start\n", base)
 }
 
-// printDoors is the three doors the verified landing shows below the fold,
-// for the developer who never opened it.
+// printDoors is where to go after the first reply.
 func printDoors(w io.Writer, base string) {
 	fmt.Fprintf(w, "\nThat reply came from your agent, in a sandbox Fountain started for it.\n\n")
 	fmt.Fprintf(w, "  Your own inference key   %s/account/inference-credentials\n", base)

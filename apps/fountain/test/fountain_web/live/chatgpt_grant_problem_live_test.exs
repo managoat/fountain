@@ -1,10 +1,8 @@
 defmodule FountainWeb.ChatGPTGrantProblemLiveTest do
   @moduledoc """
-  The `/start` banner and the agent form, for a codex agent on a credential
-  set whose named ChatGPT subscription cannot serve (ADR 0060 decision 4,
-  stage 4b). Stage 2 left both quiet: the banner answered "will reach a
-  model" for a launch that would be refused, and the form asked for an
-  OpenAI key resolution would never use.
+  The agent form, for a codex agent on a credential set whose named ChatGPT
+  subscription cannot serve (ADR 0060 decision 4, stage 4b). Stage 2 left it
+  quiet: the form asked for an OpenAI key resolution would never use.
 
   `async: false`: the broker is application env.
   """
@@ -33,52 +31,6 @@ defmodule FountainWeb.ChatGPTGrantProblemLiveTest do
       |> Agents.update_agent(%{"runtime" => "codex", "model" => @codex_model})
 
     %{conn: login_user(conn, user), user: user, grant: grant, set: set, agent: agent}
-  end
-
-  describe "/start" do
-    test "says nothing while the named subscription can serve", %{conn: conn} do
-      {:ok, view, html} = live(conn, ~p"/start")
-
-      refute has_element?(view, "#start-grant-problem")
-      refute html =~ "no inference credential yet"
-    end
-
-    test "names a disconnected subscription, and does not ask for a key", %{
-      conn: conn,
-      user: user,
-      grant: grant
-    } do
-      :ok = ChatGPTAccounts.disconnect_for_user(grant.grant_id, user.id)
-      {:ok, view, html} = live(conn, ~p"/start")
-
-      banner = view |> element("#start-grant-problem") |> render()
-      assert banner =~ "cannot serve a run right now"
-      assert banner =~ "&quot;Work&quot; is disconnected"
-      assert banner =~ "Fountain does not switch to another subscription"
-      assert banner =~ ~s(href="/account/inference-credentials")
-      refute html =~ "no inference credential yet"
-    end
-
-    test "says so for an account that may not use a subscription, which the turn would refuse",
-         %{conn: conn, user: user} do
-      user
-      |> Ecto.Changeset.change(suspended_at: DateTime.utc_now() |> DateTime.truncate(:second))
-      |> Fountain.Repo.update!()
-
-      {:ok, view, _html} = live(conn, ~p"/start")
-      banner = view |> element("#start-grant-problem") |> render()
-
-      assert banner =~ "cannot be used by this account right now"
-      assert banner =~ "Until that changes, the request below is refused."
-    end
-
-    test "says so on a deployment with no broker", %{conn: conn} do
-      disable_broker()
-      {:ok, view, _html} = live(conn, ~p"/start")
-
-      assert view |> element("#start-grant-problem") |> render() =~
-               "does not run the egress broker a subscription needs"
-    end
   end
 
   describe "the agent form" do

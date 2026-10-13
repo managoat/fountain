@@ -114,17 +114,6 @@ defmodule FountainWeb.AdminLive.UserDetail do
           </div>
         </div>
         <div class="bg-[var(--color-bg-1)] rounded shadow border border-[var(--color-border)] px-4 py-3">
-          <div class="text-xs text-[var(--color-text-secondary)]">Onboarding</div>
-          <div class="text-sm font-medium">
-            {if @user.onboarding_completed_at, do: "completed", else: "not completed"}
-          </div>
-          <div class="text-xs text-[var(--color-text-secondary)]">
-            {if @user.onboarding_completed_at,
-              do: format_date(@user.onboarding_completed_at),
-              else: "—"}
-          </div>
-        </div>
-        <div class="bg-[var(--color-bg-1)] rounded shadow border border-[var(--color-border)] px-4 py-3">
           <div class="text-xs text-[var(--color-text-secondary)]">Sandboxes</div>
           <div class="text-sm font-medium tabular-nums">
             {@active_sandboxes} / {Fountain.Quotas.sandbox_limit_for(@user)}

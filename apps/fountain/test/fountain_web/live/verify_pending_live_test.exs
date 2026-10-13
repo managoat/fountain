@@ -80,19 +80,6 @@ defmodule FountainWeb.VerifyPendingLiveTest do
       assert_redirect(lv, "/dashboard", @advance_timeout)
     end
 
-    test "an onboarded user is advanced to the conversation list", %{conn: conn, user: user} do
-      {:ok, user} =
-        user
-        |> Ecto.Changeset.change(onboarding_completed_at: DateTime.utc_now(:second))
-        |> Repo.update()
-
-      {:ok, lv, _html} = live(conn, ~p"/auth/verify-pending")
-
-      {:ok, _verified} = Accounts.verify_email(user)
-
-      assert_redirect(lv, "/dashboard", @advance_timeout)
-    end
-
     test "the poll advances even when the broadcast never arrives", %{conn: conn, user: user} do
       {:ok, lv, _html} = live(conn, ~p"/auth/verify-pending")
 

@@ -37,9 +37,9 @@ defmodule Fountain.Accounts.DeletionTest do
       )
     end
 
-    test "an unverified account gets no confirmation — covers the pruner path" do
+    test "an unverified account gets no confirmation" do
       # An address that never proved it was theirs gets no mail from us,
-      # whoever triggered the deletion (UnverifiedAccountPruner included).
+      # whoever triggered the deletion.
       user = insert_user()
 
       capture_log(fn -> assert {:ok, _} = Deletion.delete_user(user) end)

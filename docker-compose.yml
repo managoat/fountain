@@ -137,13 +137,6 @@ services:
       # A shared code every signup must give. Empty leaves signup open.
       REGISTRATION_ACCESS_CODE: ${REGISTRATION_ACCESS_CODE:-}
 
-      # Legal identity for /terms and /privacy (#517). Empty means unset:
-      # the pages are hidden rather than rendering someone else's terms.
-      LEGAL_ENTITY: ${LEGAL_ENTITY:-}
-      LEGAL_CONTACT_EMAIL: ${LEGAL_CONTACT_EMAIL:-}
-      LEGAL_JURISDICTION: ${LEGAL_JURISDICTION:-}
-      LEGAL_EFFECTIVE_DATE: ${LEGAL_EFFECTIVE_DATE:-}
-
       # Error tracking. Off unless set — nothing leaves the instance.
       SENTRY_DSN: ${SENTRY_DSN:-}
 

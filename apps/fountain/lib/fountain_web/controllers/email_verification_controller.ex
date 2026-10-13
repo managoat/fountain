@@ -4,15 +4,12 @@ defmodule FountainWeb.EmailVerificationController do
   JSON twin POST /api/auth/verify.
 
   Validates a Phoenix.Token (24 h TTL), marks the user verified, sets
-  the session cookie (browser route only), and redirects to onboarding or
-  dashboard.
+  the session cookie (browser route only), and redirects to the dashboard.
 
   The API route exists so account activation does not require a browser
   (#522): the emailed link keeps pointing at the browser route, and a CLI
   prompts for the token from that URL. Both routes accept the same token —
   there is one verification secret, not two.
-
-  A successful verification enqueues the welcome email.
   """
 
   use FountainWeb, :controller
@@ -43,7 +40,7 @@ defmodule FountainWeb.EmailVerificationController do
             conn
             |> log_in_user(user)
             |> put_flash(:info, "Your email is already verified.")
-            |> redirect(to: destination(user))
+            |> redirect(to: ~p"/dashboard")
 
           user ->
             # Explicit actor: this route runs before a session exists, so
@@ -51,16 +48,9 @@ defmodule FountainWeb.EmailVerificationController do
             # their mail client (ADR 0013 — bare "system" is a defect signal).
             case Accounts.verify_email(user, FountainWeb.Audited.attribution(conn, actor: "ui")) do
               {:ok, verified_user} ->
-                # Only on this branch, never the already-verified one below —
-                # the welcome fires on the verification transition (#449).
-                Fountain.Workers.WelcomeEmail.enqueue(verified_user)
-
-                # The verified landing, not the dashboard (ADR 0038): the
-                # first screen after verification hands over a key and one
-                # request rather than a list of things to go and set up.
                 conn
                 |> log_in_user(verified_user)
-                |> redirect(to: ~p"/start")
+                |> redirect(to: ~p"/dashboard")
 
               {:error, _changeset} ->
                 conn
@@ -134,10 +124,6 @@ defmodule FountainWeb.EmailVerificationController do
     # rather than derived. Same caveat as the browser route above.
     case Accounts.verify_email(user, FountainWeb.Audited.attribution(conn, actor: "api")) do
       {:ok, verified} ->
-        # Same follow-on work the browser route does — the account must not
-        # end up in a different state depending on which surface finished it.
-        Fountain.Workers.WelcomeEmail.enqueue(verified)
-
         json(conn, %{
           user_id: verified.id,
           email_verified: true,
@@ -165,6 +151,4 @@ defmodule FountainWeb.EmailVerificationController do
     |> put_session(:user_id, user.id)
     |> put_session(:session_version, user.session_version)
   end
-
-  defp destination(_user), do: ~p"/dashboard"
 end

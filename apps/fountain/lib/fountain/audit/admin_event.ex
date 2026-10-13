@@ -31,7 +31,7 @@ defmodule Fountain.Audit.AdminEvent do
 
   # Closed allowlist: an unknown type fails validation, so an event type
   # missing from this list is never recorded. That bit twice
-  # (admin.account.deleted, then again in the billing work) while the drop
+  # (admin.account.deleted, then again in later admin work) while the drop
   # was silent. Since #451 a rejected write logs at error and emits
   # [:fountain, :audit, :admin_record_rejected], and a static test
   # (audit_coverage_test.exs) fails if a record_admin call site uses a type
@@ -42,15 +42,12 @@ defmodule Fountain.Audit.AdminEvent do
     admin.sandbox_limit.changed
     admin.account.created
     admin.account.deleted
-    admin.comp.granted
-    admin.comp.revoked
     admin.sandbox.reaped
     admin.sandbox.reset_retried
     admin.account.suspended
     admin.account.unsuspended
     admin.user.viewed
     admin.conversation.viewed
-    admin.credits.granted
     admin.platform_inference_key.set
     admin.platform_inference_key.cleared
     admin.platform_chatgpt.connected

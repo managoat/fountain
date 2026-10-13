@@ -71,7 +71,6 @@ message.
 | `REGISTRATION_ENABLED` | `true` | — | A `false` closes signup entirely. Somebody will find an open instance on the public internet. |
 | `REGISTRATION_ALLOWED_EMAIL_DOMAINS` | any | — | A comma-separated list. Fountain refuses a signup outside these domains. Empty means no restriction. |
 | `REGISTRATION_ACCESS_CODE` | — | — | A shared code that every signup must give: in the sign-up form, as `access_code` to `POST /api/auth/register` (`--access-code` on `fountain auth register`), and before a first GitHub sign-in. Existing accounts sign in without it. Empty means no code. |
-| `UNVERIFIED_PRUNE_EXEMPT` | — | — | Comma-separated email substrings that the sweep never prunes. Use it for an operator or test account that stays unverified on purpose. |
 | `FIRST_USER_ADMIN` | `false` | — | A `true` promotes the first account that becomes verified to admin, while the instance has no admin. The audit trail records it (ADR 0011). Leave it off on a multi-tenant deployment, because it hands admin to whoever verifies first. |
 
 ## Email
@@ -276,35 +275,16 @@ A personal subscription is one account for every tenant on the deployment.
 That pattern is behind reported account bans, and it is an operator's own
 risk. The page says so.
 
-## Public pages
+## Brand
 
-The `/` page is not the same page on every deployment. The Fountain project's
-own site shows the product page. Every other
-deployment shows a plain front door: the name, a way in, and a link to this
-manual.
-
-Your deployment is not the Fountain project, so the front door is the default.
+`/` sends a visitor to the console, and on to sign-in when they are signed
+out. The manual at `/docs` is the only public page. These variables change
+what the console and the manual's chrome call the deployment.
 
 | Variable | Default | Required | Effect |
 |---|---|---|---|
-| `PRODUCT_NAME` | `Fountain` | — | The name the console, the sign-in page, the OAuth consent screen and each email subject use for this deployment. Set it when you sell a hosted deployment under a different brand. The CLI, the API and this manual keep the name Fountain, because that is the name of the engine. When the two differ, each manual page opens with one line that says so. |
-| `BRAND_ASSETS_URL` | unset | — | The URL of the directory with the brand's image files. The directory must contain seven files. They are `app-icon.png`, `apple-touch-icon.png`, `favicon-32x32.png`, `favicon-16x16.png`, `favicon.ico`, `og-card.png` (1200 by 630 pixels) and `mark-mono.png`. The last one is the mark in one colour on a transparent ground, for the public pages. Unset, the pages use the files in the release image. Set, the pages link the files in this directory, and the CSP permits images from its origin. The value must be an absolute URL. |
-| `MARKETING_SITE` | `false` | — | A `true` makes the manual's header and footer link the project's marketing pages, which a static site serves in front of the app on the project's own host. It also puts the project's copyright line in the footer. Turn it on only if you operate the project's own site. |
-
-## Legal pages
-
-These four variables carry the identity that `/terms` and `/privacy` render.
-That is the operator's identity, and not the Fountain project's.
-
-Set all four, or set none. A partial set refuses to boot. With none set, the
-two pages return 404, and their links disappear from signup and the footer.
-
-| Variable | Default | Required | Effect |
-|---|---|---|---|
-| `LEGAL_ENTITY` | — | No. | The legal entity that operates this instance, such as `Example Corp Inc.` |
-| `LEGAL_CONTACT_EMAIL` | — | No. | The contact address that both pages show. |
-| `LEGAL_JURISDICTION` | — | No. | The law and the venue that govern, such as `the State of Delaware, USA`. |
-| `LEGAL_EFFECTIVE_DATE` | — | No. | The "Last updated" date on both pages. |
+| `PRODUCT_NAME` | `Fountain` | — | The name the console, the sign-in page, the OAuth consent screen and each email subject use for this deployment. The CLI, the API and this manual keep the name Fountain, because that is the name of the engine. |
+| `BRAND_ASSETS_URL` | unset | — | The URL of the directory with the brand's image files. The directory must contain six files. They are `app-icon.png`, `apple-touch-icon.png`, `favicon-32x32.png`, `favicon-16x16.png`, `favicon.ico` and `og-card.png` (1200 by 630 pixels). Unset, the pages use the files in the release image. Set, the pages link the files in this directory, and the CSP permits images from its origin. The value must be an absolute URL. |
 
 ## Proxies and origins
 

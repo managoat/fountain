@@ -161,7 +161,7 @@ defmodule Fountain.Audit do
   pipeline plug covered every write, and the browser surface covered whatever
   its LiveView remembered to record. Resource CRUD landed on the wrong side of
   that — audited via `/api`, silent via the UI (#543). Recording inside the
-  context covers UI, API, the onboarding wizard, manifest apply and any future
+  context covers UI, API, manifest apply and any future
   caller from one place.
 
   The resource supplies `user_id`, `id` and `name`; the caller supplies

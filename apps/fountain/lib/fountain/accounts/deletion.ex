@@ -143,9 +143,8 @@ defmodule Fountain.Accounts.Deletion do
       {:ok, _} ->
         Logger.info("account deleted: #{user.id} (#{sprites} sprite(s) destroyed)")
 
-        # Confirmation to the departing user (#450). Gated on verification,
-        # which covers the UnverifiedAccountPruner path for free — an
-        # address that never proved it was theirs gets no mail from us,
+        # Confirmation to the departing user (#450). Gated on verification:
+        # an address that never proved it was theirs gets no mail from us,
         # whoever triggered the deletion. The job carries the address
         # itself; the row is already gone.
         if user.email_verified_at do

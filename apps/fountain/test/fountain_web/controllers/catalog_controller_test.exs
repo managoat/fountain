@@ -22,25 +22,25 @@ defmodule FountainWeb.CatalogControllerTest do
     refute Map.has_key?(data, "mcp_servers")
   end
 
-  # ADR 0038: the landing, the manual and `fountain auth register` print the
+  # The manual and `fountain auth register` print the
   # same request, so it has one source. This is how a client that is not the
   # server reaches it.
   test "GET /api/catalog carries the first request", %{conn: conn, raw_key: key} do
     body = conn |> authed_with_key(key) |> get("/api/catalog") |> json_response(200)
     first = body["data"]["first_request"]
 
-    assert first["curl"] == Fountain.Onboarding.curl(base_url: Fountain.PublicUrl.base())
+    assert first["curl"] == Fountain.FirstRequest.curl(base_url: Fountain.PublicUrl.base())
 
     # The SDK resolves its own key and base URL, so its snippet keeps the bare
     # constructor the manual prints; a base URL with no key beside it would
     # look finished and would not be.
-    assert first["typescript"] == Fountain.Onboarding.typescript()
+    assert first["typescript"] == Fountain.FirstRequest.typescript()
     assert first["typescript"] =~ "new Fountain()"
 
-    assert first["prompt"] == Fountain.Onboarding.prompt()
+    assert first["prompt"] == Fountain.FirstRequest.prompt()
     # Only what a client must still substitute: the base URL is already in.
     assert first["placeholders"] ==
-             Fountain.Onboarding.remaining_placeholders(first["curl"] <> first["typescript"])
+             Fountain.FirstRequest.remaining_placeholders(first["curl"] <> first["typescript"])
 
     refute "$FOUNTAIN_BASE_URL" in first["placeholders"]
 

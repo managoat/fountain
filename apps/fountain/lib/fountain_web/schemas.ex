@@ -2388,7 +2388,6 @@ defmodule FountainWeb.Schemas do
           description: "Admin override of the cap. Null means the configured ceiling applies."
         },
         active_sandboxes: %Schema{type: :integer},
-        onboarding_completed_at: %Schema{type: :string, format: :"date-time", nullable: true},
         last_activity_at: %Schema{type: :string, format: :"date-time", nullable: true},
         inserted_at: %Schema{type: :string, format: :"date-time"}
       },
@@ -2640,27 +2639,6 @@ defmodule FountainWeb.Schemas do
         }
       },
       required: [:data, :media_type]
-    })
-  end
-
-  defmodule OnboardingResponse do
-    @moduledoc false
-    require OpenApiSpex
-
-    OpenApiSpex.schema(%{
-      title: "OnboardingResponse",
-      type: :object,
-      properties: %{
-        data: %Schema{
-          type: :object,
-          properties: %{
-            completed: %Schema{type: :boolean},
-            completed_at: %Schema{type: :string, format: :"date-time", nullable: true}
-          },
-          required: [:completed]
-        }
-      },
-      required: [:data]
     })
   end
 
@@ -3534,8 +3512,8 @@ defmodule FountainWeb.Schemas do
             first_request: %Schema{
               type: :object,
               description:
-                "The one onboarding request this deployment hands out (ADR 0038), " <>
-                  "the same text the verified landing and the manual print. The base " <>
+                "The one quickstart request this deployment hands out, the same " <>
+                  "text the manual and `fountain quickstart` print. The base " <>
                   "URL is already in it. The caller's key and agent are not: the " <>
                   "server stores only a hash of a key, so a client substitutes the " <>
                   "key it holds and an agent from `GET /api/agents`.",
@@ -3962,7 +3940,6 @@ defmodule FountainWeb.Schemas do
         email: %Schema{type: :string, format: :email},
         role: %Schema{type: :string, enum: ~w(user admin)},
         email_verified: %Schema{type: :boolean},
-        onboarding_completed: %Schema{type: :boolean},
         brokered: %Schema{
           type: :boolean,
           description:

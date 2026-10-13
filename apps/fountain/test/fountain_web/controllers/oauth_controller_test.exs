@@ -7,7 +7,6 @@ defmodule FountainWeb.UeberauthControllerTest do
   """
 
   use FountainWeb.ConnCase, async: true
-  use Oban.Testing, repo: Fountain.Repo
   use Mimic
 
   alias Fountain.Accounts
@@ -66,7 +65,7 @@ defmodule FountainWeb.UeberauthControllerTest do
         |> assign_auth(auth)
         |> get(~p"/auth/oauth/github/callback")
 
-      assert redirected_to(conn) == ~p"/start"
+      assert redirected_to(conn) == ~p"/dashboard"
       user_id = get_session(conn, :user_id)
       assert user_id
 
@@ -85,21 +84,6 @@ defmodule FountainWeb.UeberauthControllerTest do
       assert identity
       assert identity.provider_uid == to_string(auth.uid)
     end
-
-    test "enqueues the welcome email — OAuth signup is the verification transition (#449)", %{
-      conn: conn
-    } do
-      auth = github_auth("github_welcome_#{System.unique_integer()}@example.com")
-
-      conn =
-        conn
-        |> Phoenix.ConnTest.init_test_session(%{})
-        |> assign_auth(auth)
-        |> get(~p"/auth/oauth/github/callback")
-
-      user_id = get_session(conn, :user_id)
-      assert_enqueued(worker: Fountain.Workers.WelcomeEmail, args: %{user_id: user_id})
-    end
   end
 
   describe "callback/2 — success (existing user)" do
@@ -115,20 +99,6 @@ defmodule FountainWeb.UeberauthControllerTest do
 
       assert redirected_to(conn) == ~p"/dashboard"
       assert get_session(conn, :user_id) == user.id
-    end
-
-    test "does not enqueue a welcome email — login is not a verification transition (#449)", %{
-      conn: conn
-    } do
-      user = insert_verified_user()
-      auth = github_auth(user.email, "gh_existing_#{System.unique_integer()}")
-
-      conn
-      |> Phoenix.ConnTest.init_test_session(%{})
-      |> assign_auth(auth)
-      |> get(~p"/auth/oauth/github/callback")
-
-      refute_enqueued(worker: Fountain.Workers.WelcomeEmail)
     end
   end
 

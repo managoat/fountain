@@ -1,11 +1,8 @@
 defmodule FountainWeb.EmailVerificationControllerTest do
   use FountainWeb.ConnCase, async: true
-  use Oban.Testing, repo: Fountain.Repo
   use Mimic
 
   alias Fountain.Accounts
-  alias Fountain.Repo
-  alias Fountain.Workers.WelcomeEmail
 
   describe "GET /users/confirm/:token" do
     test "verifies email, sets session, and redirects to the verified landing", %{
@@ -17,17 +14,12 @@ defmodule FountainWeb.EmailVerificationControllerTest do
       token = Phoenix.Token.sign(FountainWeb.Endpoint, "email_verification", user.id)
       conn = get(conn, ~p"/users/confirm/#{token}")
 
-      # ADR 0038: the first screen after verification is the landing that
-      # hands over a key and one request, not the dashboard.
-      assert redirected_to(conn) == ~p"/start"
+      assert redirected_to(conn) == ~p"/dashboard"
       assert get_session(conn, :user_id) == user.id
 
       # User should be verified in DB
       updated = Accounts.get_user!(user.id)
       refute is_nil(updated.email_verified_at)
-
-      # The welcome email rides the verification transition (#449)
-      assert_enqueued(worker: WelcomeEmail, args: %{user_id: user.id})
     end
 
     test "attributes the verification to the browser, not to the system", %{conn: conn} do
@@ -48,44 +40,16 @@ defmodule FountainWeb.EmailVerificationControllerTest do
       assert event.actor == "ui"
     end
 
-    test "does not enqueue a welcome email for an already-verified user (#449)", %{conn: conn} do
-      user = insert_verified_user()
-
-      token = Phoenix.Token.sign(FountainWeb.Endpoint, "email_verification", user.id)
-      get(conn, ~p"/users/confirm/#{token}")
-
-      refute_enqueued(worker: WelcomeEmail)
-    end
-
     test "redirects an already-verified user to the dashboard", %{
       conn: conn
     } do
       user = insert_verified_user()
-      assert is_nil(user.onboarding_completed_at)
 
       token = Phoenix.Token.sign(FountainWeb.Endpoint, "email_verification", user.id)
       conn = get(conn, ~p"/users/confirm/#{token}")
 
       assert redirected_to(conn) == ~p"/dashboard"
       assert get_session(conn, :user_id) == user.id
-    end
-
-    test "redirects an already-verified, onboarded user to the dashboard too", %{
-      conn: conn
-    } do
-      user = insert_verified_user()
-      now = DateTime.utc_now() |> DateTime.truncate(:second)
-
-      {:ok, user_with_onboarding} =
-        Repo.update(Ecto.Changeset.change(user, onboarding_completed_at: now))
-
-      token =
-        Phoenix.Token.sign(FountainWeb.Endpoint, "email_verification", user_with_onboarding.id)
-
-      conn = get(conn, ~p"/users/confirm/#{token}")
-
-      assert redirected_to(conn) == ~p"/dashboard"
-      assert get_session(conn, :user_id) == user_with_onboarding.id
     end
 
     test "redirects with error when user no longer exists in database", %{conn: conn} do

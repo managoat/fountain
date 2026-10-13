@@ -146,8 +146,8 @@ deployment that already runs.
 
 Fountain removed the deployment's ChatGPT account, and users' ChatGPT
 subscriptions, on 2026-10-13. A codex agent with no OpenAI key of its own runs
-on `PLATFORM_OPENAI_API_KEY`, or on nothing. A later release deletes the
-stored ChatGPT sign-ins. Fountain cannot revoke a sign-in at OpenAI: to end
+on `PLATFORM_OPENAI_API_KEY`, or on nothing. Migration `20261013130000`
+deletes the stored ChatGPT sign-ins. Fountain cannot revoke a sign-in at OpenAI: to end
 one now, sign the device out in the ChatGPT account's security settings.
 
 ## Brand

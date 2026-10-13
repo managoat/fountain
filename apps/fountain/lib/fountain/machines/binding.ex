@@ -130,21 +130,13 @@ defmodule Fountain.Machines.Binding do
   #2348 reason as well: the call sits inside an advisory-locked transaction
   whose own uncommitted rows are the ones being bound.
 
-  The binding exists because every codex peer on a machine shared one
-  `~/.codex/auth.json` (ADR 0053 decision 6's interim rule). A source whose
-  peer keeps that file in a `CODEX_HOME` of its own
-  (a user's ChatGPT subscription, ADR 0060 decision 6;
-  `Fountain.Conversations.CodexChatGPT.outside_machine_binding?/1`) shares
-  nothing, so on a machine first
-  bound under that code (`codex_peer_homes`) it is compatible with every
-  peer, is not recorded as the machine's binding, and is not counted against
-  a newcomer that does use the shared file. Two of one user's subscriptions
-  therefore run side by side on one persistent home. Everything else is as
-  it was: two API keys still collide there, the deployment's grant stays
-  under the binding although it has a home of its own too (what a home does
-  across that account's usage limit is published behaviour), a machine bound
-  before the column existed keeps the old rule for every source, and the way
-  forward on one is still an ephemeral sandbox or a reset of the home.
+  The binding exists because every codex peer on a machine shares one
+  `~/.codex/auth.json` (ADR 0053 decision 6's interim rule). Two API keys
+  collide there, and the way forward is an ephemeral sandbox or a reset of
+  the home. A peer that ran on a ChatGPT subscription (removed 2026-10-13)
+  kept its `auth.json` in a `CODEX_HOME` of its own and never wrote the
+  shared file, so on a machine flagged `codex_peer_homes` it is not counted
+  against a newcomer.
 
   `codex_peer_homes` is set in one of two places. A codex conversation's
   first bind sets it while the machine is still being built. A machine a
@@ -175,7 +167,7 @@ defmodule Fountain.Machines.Binding do
 
   alias Fountain.Agents
   alias Fountain.Conversations
-  alias Fountain.Conversations.{CodexChatGPT, Conversation, Sandbox}
+  alias Fountain.Conversations.{Conversation, Sandbox}
   alias Fountain.Conversations.{InferenceBinding, Launch, Lifecycle, Termination}
   alias Fountain.InferenceCredentials
   alias Fountain.InferenceCredentials.Source
@@ -1003,9 +995,7 @@ defmodule Fountain.Machines.Binding do
   reservation stamped `codex_peer_homes` and that records no binding yet
   (#2516); a built one takes a source whose kind, identity and revision
   match its recorded binding, and only if every Codex
-  co-tenant's does too. Legacy peers without a binding are incompatible. A
-  source with a `CODEX_HOME` of its own is outside that rule on a machine
-  with `codex_peer_homes` (the moduledoc, "The Codex auth binding"). Must be
+  co-tenant's does too. Legacy peers without a binding are incompatible. Must be
   called inside `InferenceBinding.with_current/2`'s transaction — this is the
   one protocol entry point that *requires* an enclosing transaction rather
   than refusing one, because the row it binds is locked there.
@@ -1057,25 +1047,16 @@ defmodule Fountain.Machines.Binding do
         sandbox.codex_peer_homes or
           (fresh? and is_nil(sandbox.codex_inference_source) and peers == [])
 
-      cond do
-        # A home of its own shares nothing: compatible with every peer, and
-        # not the machine's binding.
-        peer_homes? and CodexChatGPT.outside_machine_binding?(source) ->
-          record(sandbox, codex_peer_homes: true)
-
+      if peer_homes? do
         # Every bind that uses the shared file records itself, so on such a
-        # machine nothing recorded means nothing has, built or not; and the
-        # peers with homes of their own are not in the way.
-        peer_homes? ->
-          shared =
-            Enum.reject(peers, &(&1 |> Source.load() |> CodexChatGPT.outside_machine_binding?()))
-
-          bind_shared(sandbox, source, shared, true, codex_peer_homes: true)
-
+        # machine nothing recorded means nothing has, built or not; and a
+        # peer that ran on a ChatGPT subscription had a home of its own.
+        shared = Enum.reject(peers, &match?(%{"scope" => "grant"}, &1))
+        bind_shared(sandbox, source, shared, true, codex_peer_homes: true)
+      else
         # A machine first bound before the column existed: today's rule, for
         # every source. Built and unrecorded, its auth file is unknown.
-        true ->
-          bind_shared(sandbox, source, peers, fresh?, [])
+        bind_shared(sandbox, source, peers, fresh?, [])
       end
     else
       {:error, :sandbox_not_found}

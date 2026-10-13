@@ -41,18 +41,9 @@ spec:
 
 The model must carry the `openai/` prefix.
 
-Add your OpenAI key at `/account/inference-credentials` in the app.
-
-!!! note "ChatGPT subscriptions"
-
-    A credential set can name a linked ChatGPT subscription, and codex then
-    runs on that plan with no OpenAI key. This is in development. It is on
-    for every account on the hosted platform since 2026-09-21, with parts
-    not tested on the real service, and off on your own instance unless the
-    operator forces the `chatgpt_subscriptions` flag. See
-    [feature status](../../reference/feature-status.md) and
-    [Run Codex on a ChatGPT subscription](../../guides/chatgpt-subscriptions.md),
-    which also says what a setup script must not do with `CODEX_HOME`.
+Add your OpenAI key at `/account/inference-credentials` in the app. Codex
+runs on an OpenAI API key only: Fountain removed ChatGPT subscriptions on
+2026-10-13.
 
 ## Call it over HTTP
 
@@ -213,10 +204,6 @@ to HTTP, which was about 300 seconds on every turn. Fountain
 carries across `OPENAI_BASE_URL`, the OpenAI-Organization and OpenAI-Project
 header mappings, and standalone web search. A conversation with no
 `OPENAI_API_KEY` keeps the built-in provider, which reads `~/.codex/auth.json`.
-A conversation on a
-[ChatGPT subscription](../../guides/chatgpt-subscriptions.md) gets the same
-treatment. Its provider points at the Codex backend and reads the
-subscription's sign-in.
 
 Fountain also sets `MODEL_PROVIDER` to that provider. The ACP adapter passes
 this variable to Codex when it resumes a conversation. Without it, a resumed

@@ -68,9 +68,7 @@ defmodule Fountain.Conversations.Reattachment do
             runtime(conv, agent),
             state.runtime_module,
             agent,
-            sprite_env,
-            state.inference_source,
-            state.user_id
+            sprite_env
           )
         end)
       end
@@ -178,19 +176,11 @@ defmodule Fountain.Conversations.Reattachment do
   end
 
   @doc """
-  What a failed reattach publishes. A reason that is the grant's is permanent
-  and says so in stage 2's words (`CodexChatGPT.refusal_stage/3`); any other
-  is `inspect/1`ed beside whatever the caller's arm says of it in `meta`.
+  What a failed reattach publishes: the reason `inspect/1`ed beside whatever
+  the caller's arm says of it in `meta`.
   """
   @spec failed_stage(map(), term(), map()) :: map()
-  def failed_stage(state, reason, meta \\ %{}) do
-    source = Map.get(state, :inference_source)
-
-    case Fountain.Conversations.CodexChatGPT.refusal_stage(reason, state.user_id, source) do
-      nil -> Map.put(meta, :reason, inspect(reason))
-      refusal -> Map.merge(meta, refusal)
-    end
-  end
+  def failed_stage(_state, reason, meta \\ %{}), do: Map.put(meta, :reason, inspect(reason))
 
   @replay_dedup_ttl_ms 10_000
 
@@ -224,11 +214,6 @@ defmodule Fountain.Conversations.Reattachment do
         # deploy.
         permission_policy:
           TurnMachine.effective_permission_policy(conv, TurnMachine.agent_for(conv)),
-        auth:
-          Fountain.Conversations.CodexChatGPT.peer_auth(
-            state.runtime_module,
-            state.inference_credentials
-          ),
         # Hand back the request the previous peer was holding, if any (#940).
         # The agent minted the JSON-RPC id and is still blocked on it, so the
         # id outlives our process — but only if we wrote it down. This is the

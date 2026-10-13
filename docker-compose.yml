@@ -145,20 +145,8 @@ services:
       # instance, or set this to false and use Fountain.Release.promote_admin/1.
       FIRST_USER_ADMIN: ${FIRST_USER_ADMIN:-true}
 
-      # ── The three features the hosted platform rations ──────────────────
+      # ── The credential broker ───────────────────────────────────────────
       #
-      # /self-hosted sells this inversion: what is behind a flag or an enrolment
-      # on the hosted platform is a line of config on your own. That promise was
-      # unkeepable on the compose path, because none of these reached the
-      # container — an operator set them, restarted, and got no feature and no
-      # error. `rationed_features/0` names them and a test now holds this list
-      # against it.
-      #
-      # FEATURE_FLAGS_ON: a comma-separated list of flag keys turned on for
-      # every user (`chatgpt_subscriptions` to allow linking a ChatGPT
-      # subscription). The broker below is turned on by its own port variable.
-      FEATURE_FLAGS_ON: ${FEATURE_FLAGS_ON:-}
-
       # Brokered credentials (ADR 0019): the real token never enters the
       # sandbox. BROKER_ALLOW_UNENFORCED is a development escape hatch and
       # belongs off on anything that matters.

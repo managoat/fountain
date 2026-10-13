@@ -237,7 +237,7 @@ defmodule Fountain.Conversations.ProvisioningStepsTest do
     end
   end
 
-  describe "prepare_runtime_sprite/7 and prepare_acp_adapter/3" do
+  describe "prepare_runtime_sprite/5 and prepare_acp_adapter/3" do
     test "a native ACP runtime installs nothing, then the runtime prepares the sandbox" do
       assert {:prepared, :agent, [{"A", "1"}]} =
                Provisioning.prepare_runtime_sprite(
@@ -245,9 +245,7 @@ defmodule Fountain.Conversations.ProvisioningStepsTest do
                  "gemini",
                  ConfigRuntime,
                  :agent,
-                 [{"A", "1"}],
-                 nil,
-                 nil
+                 [{"A", "1"}]
                )
 
       assert :ok =
@@ -256,9 +254,7 @@ defmodule Fountain.Conversations.ProvisioningStepsTest do
                  "acp",
                  BareRuntime,
                  nil,
-                 [],
-                 nil,
-                 nil
+                 []
                )
     end
 
@@ -282,9 +278,7 @@ defmodule Fountain.Conversations.ProvisioningStepsTest do
                  "claude",
                  BareRuntime,
                  nil,
-                 [],
-                 nil,
-                 nil
+                 []
                )
 
       stub(Managoat.Sandbox, :exec, fn _handle, "bash", _args, _opts -> {:error, :nxdomain} end)
@@ -295,9 +289,7 @@ defmodule Fountain.Conversations.ProvisioningStepsTest do
                  "claude",
                  ConfigRuntime,
                  nil,
-                 [],
-                 nil,
-                 nil
+                 []
                )
     end
 

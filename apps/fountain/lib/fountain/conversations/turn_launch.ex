@@ -20,7 +20,7 @@ defmodule Fountain.Conversations.TurnLaunch do
   require OpenTelemetry.Tracer
 
   alias Fountain.Conversations
-  alias Fountain.Conversations.{CodexChatGPT, Connection}
+  alias Fountain.Conversations.Connection
   alias Fountain.Conversations.{McpServers, Output, TurnMachine}
 
   def run(state, conv, turn, prompt, agent, images, fail_before_start) do
@@ -127,8 +127,7 @@ defmodule Fountain.Conversations.TurnLaunch do
               additional_directories: repository_directories(state),
               model: TurnMachine.acp_model(conv, agent),
               config: TurnMachine.acp_session_config(turn),
-              permission_policy: TurnMachine.effective_permission_policy(conv, agent),
-              auth: CodexChatGPT.peer_auth(state.runtime_module, state.inference_credentials)
+              permission_policy: TurnMachine.effective_permission_policy(conv, agent)
             )
 
           %{
@@ -303,8 +302,8 @@ defmodule Fountain.Conversations.TurnLaunch do
   # The error Codex's app-server exits with, on `initialize`, when it cannot
   # open its SQLite state (#1910). In production that was `database is locked`
   # (SQLITE_BUSY): the app-server waits five seconds for the lock at startup,
-  # and a `CODEX_HOME` shared by every Codex conversation on the machine (or on
-  # one ChatGPT sign-in) can keep it busier than that during a burst of turns.
+  # and a `CODEX_HOME` shared by every Codex conversation on the machine can
+  # keep it busier than that during a burst of turns.
   @state_runtime_failed "failed to initialize sqlite state runtime"
 
   # Seconds each relaunch waits, before jitter of up to as much again. The
@@ -317,8 +316,7 @@ defmodule Fountain.Conversations.TurnLaunch do
   not open its SQLite state (#1910).
 
   Codex keeps its state in SQLite under its home, which every Codex
-  conversation on the machine shares, or every one on the same ChatGPT
-  sign-in. A new app-server writes there before it answers `initialize`, and
+  conversation on the machine shares. A new app-server writes there before it answers `initialize`, and
   gives up after five seconds of other processes holding the lock. The error
   names no cause (Codex drops it); the evidence on #1910 is the processes
   beside it logging `database is locked` in the same minutes. The fix is state

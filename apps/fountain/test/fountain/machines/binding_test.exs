@@ -962,23 +962,25 @@ defmodule Fountain.Machines.BindingTest do
     end
   end
 
-  # ADR 0060 stage 3. A user's ChatGPT subscription keeps its `auth.json` in a
-  # `CODEX_HOME` of its own, so it is outside the one-source-per-machine rule,
-  # on a machine first bound under that code and nowhere else.
-  describe "bind_inference with sources that have a home of their own" do
+  # A machine first bound under the `codex_peer_homes` code records every bind
+  # that uses the shared `auth.json`. A peer that ran on a ChatGPT
+  # subscription (removed 2026-10-13) had a `CODEX_HOME` of its own and never
+  # wrote that file, so on such a machine it is not counted against a newcomer.
+  describe "bind_inference on a machine with peer homes" do
     alias Fountain.InferenceCredentials.Source
 
-    defp subscription do
+    # What a conversation on a subscription stored before the removal.
+    defp legacy_subscription do
       id = Ecto.UUID.generate()
-      generation = Ecto.UUID.generate()
 
       %{
-        Source.grant()
-        | kind: :codex_chatgpt_access_token,
-          identity: "chatgpt_grant:" <> id,
-          revision: generation,
-          grant_id: id,
-          generation: generation
+        "origin" => "own",
+        "scope" => "grant",
+        "kind" => "codex_chatgpt_access_token",
+        "identity" => "chatgpt_grant:" <> id,
+        "revision" => Ecto.UUID.generate(),
+        "grant_id" => id,
+        "generation" => Ecto.UUID.generate()
       }
     end
 
@@ -991,15 +993,13 @@ defmodule Fountain.Machines.BindingTest do
       }
     end
 
-    # A codex conversation on the machine, pinned to `source` as admission
-    # leaves it.
-    defp codex_peer(ctx, source) do
+    defp codex_peer(ctx, stored) do
       insert_conversation(
         user_id: ctx.user.id,
         agent: ctx.agent,
         sandbox: ctx.sandbox,
         runtime: "codex",
-        inference_source: source && Source.dump(source)
+        inference_source: stored
       )
     end
 
@@ -1012,7 +1012,7 @@ defmodule Fountain.Machines.BindingTest do
     # its reservation are one transaction, so a refused one leaves no peer.
     defp join(ctx, source) do
       Repo.transaction(fn ->
-        conv = codex_peer(ctx, source)
+        conv = codex_peer(ctx, Source.dump(source))
 
         case Machine.bind_inference(conv, source) do
           :ok -> conv
@@ -1027,88 +1027,41 @@ defmodule Fountain.Machines.BindingTest do
       :ok
     end
 
-    test "two subscriptions share a machine, and neither becomes its binding", ctx do
-      {personal, work} = {subscription(), subscription()}
-      first = codex_peer(ctx, personal)
-      assert :ok = bind(first, personal)
-
-      machine = Repo.reload!(ctx.sandbox)
-      assert machine.codex_peer_homes
-      assert is_nil(machine.codex_inference_source)
-
-      # Built, and carrying a peer on another subscription.
-      stamp(ctx, status: "ready")
-      second = codex_peer(ctx, work)
-      assert :ok = bind(second, work)
-      assert :ok = bind(first, personal)
-
-      # A reconnect of the first is another generation and another home.
-      again = %{personal | revision: Ecto.UUID.generate(), generation: Ecto.UUID.generate()}
-      assert :ok = bind(codex_peer(ctx, again), again)
-      assert is_nil(Repo.reload!(ctx.sandbox).codex_inference_source)
-    end
-
-    test "a subscription and an API key share a machine; two API keys still do not", ctx do
-      personal = subscription()
-      assert :ok = bind(codex_peer(ctx, personal), personal)
-      stamp(ctx, status: "ready")
-
-      # Nothing recorded on a machine with peer homes means nothing has used
-      # the shared file, built or not.
+    test "the first bind flags the machine; two API keys still do not share it", ctx do
       key = api_key()
-      keyed = codex_peer(ctx, key)
-      assert :ok = bind(keyed, key)
-      assert Repo.reload!(ctx.sandbox).codex_inference_source["identity"] == key.identity
-
-      assert {:error, :codex_inference_conflict} = join(ctx, api_key())
+      keyed = codex_peer(ctx, Source.dump(key))
       assert :ok = bind(keyed, key)
 
-      # And a subscription still joins after the key.
-      work = subscription()
-      assert :ok = bind(codex_peer(ctx, work), work)
-      assert Repo.reload!(ctx.sandbox).codex_inference_source["identity"] == key.identity
-    end
-
-    test "a machine first bound to an API key under this code takes a subscription later", ctx do
-      key = api_key()
-      assert :ok = bind(codex_peer(ctx, key), key)
       machine = Repo.reload!(ctx.sandbox)
       assert machine.codex_peer_homes
       assert machine.codex_inference_source["identity"] == key.identity
 
       stamp(ctx, status: "ready")
-      personal = subscription()
-      assert :ok = bind(codex_peer(ctx, personal), personal)
-    end
-
-    test "a machine bound before the column existed keeps the old rule for every source", ctx do
-      key = api_key()
-      keyed = codex_peer(ctx, key)
-
-      # Recorded, built, and never marked: what every existing row looks like.
-      stamp(ctx, status: "ready", codex_inference_source: Source.dump(key))
-      refute Repo.reload!(ctx.sandbox).codex_peer_homes
-
-      assert {:error, :codex_inference_conflict} = join(ctx, subscription())
-      assert :ok = bind(keyed, key)
-      refute Repo.reload!(ctx.sandbox).codex_peer_homes
-
-      # Nor does a machine still being built that was already bound.
-      stamp(ctx, status: "starting")
-      assert {:error, :codex_inference_conflict} = join(ctx, subscription())
-
-      # Built with nothing recorded: its auth file is unknown, to anyone.
-      stamp(ctx, status: "ready", codex_inference_source: nil)
-      assert {:error, :codex_inference_conflict} = join(ctx, subscription())
-      assert {:error, :codex_inference_conflict} = bind(keyed, key)
-    end
-
-    test "a peer with no stored source still refuses a newcomer that uses the shared file", ctx do
-      personal = subscription()
-      assert :ok = bind(codex_peer(ctx, personal), personal)
-      codex_peer(ctx, nil)
       assert {:error, :codex_inference_conflict} = join(ctx, api_key())
-      assert {:ok, _} = join(ctx, subscription())
+      assert :ok = bind(keyed, key)
+    end
+
+    test "a peer that ran on a subscription does not count against a newcomer", ctx do
+      codex_peer(ctx, legacy_subscription())
+      stamp(ctx, status: "ready", codex_peer_homes: true)
+
+      key = api_key()
+      assert {:ok, _} = join(ctx, key)
+      assert Repo.reload!(ctx.sandbox).codex_inference_source["identity"] == key.identity
+    end
+
+    test "a machine bound before the column existed keeps the old rule", ctx do
+      codex_peer(ctx, legacy_subscription())
+      stamp(ctx, status: "ready", codex_inference_source: nil)
+      refute Repo.reload!(ctx.sandbox).codex_peer_homes
+
+      assert {:error, :codex_inference_conflict} = join(ctx, api_key())
+    end
+
+    test "a peer with no stored source still refuses a newcomer", ctx do
+      codex_peer(ctx, nil)
+      stamp(ctx, status: "ready", codex_peer_homes: true)
+      assert {:error, :codex_inference_conflict} = join(ctx, api_key())
     end
   end
 

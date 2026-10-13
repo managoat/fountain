@@ -698,10 +698,6 @@ defmodule Fountain.Conversations.Wake do
   """
   @spec report_unrun_prompt(binary(), term()) :: term()
   def report_unrun_prompt(conv_id, reason) do
-    # The stream is the tenant's, but a refusal can carry a credential's
-    # detail; the same redaction the log line gets.
-    reason = Fountain.InferenceCredentials.loggable_reason(reason)
-
     Conversations.publish_stage(conv_id, "wake", "failed", %{
       reason: failed_wake_reason(reason),
       retryable: retryable_wake_failure?(reason)

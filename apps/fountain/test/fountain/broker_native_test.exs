@@ -813,24 +813,6 @@ defmodule Fountain.BrokerNativeTest do
       refute log_output =~ "skipped a row"
     end
 
-    # A reflected credential is the one ending said at `error`: once a minute
-    # per conversation, because the sandbox chooses how often it happens.
-    test "a reflected credential is logged at error, once per conversation", ctx do
-      %{user: user, conv: conv} = ctx
-      reflected = %{status: 502, error: :credential_reflected, rule: "codex-chatgpt"}
-
-      log_output =
-        capture_log(fn ->
-          for _ <- 1..3, do: emit(%{count: 1, duration: 0}, reflected, conv, user)
-        end)
-
-      assert [_, _] =
-               String.split(log_output, "[error] broker: the response to GET api.github.com")
-
-      assert log_output =~ "under rule codex-chatgpt repeated the credential"
-      assert log_output =~ conv.id
-    end
-
     test "an event with no duration and no status stores neither", ctx do
       %{user: user, conv: conv, log: log} = ctx
       emit(%{count: 1}, %{}, conv, user)

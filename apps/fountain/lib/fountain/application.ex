@@ -78,9 +78,6 @@ defmodule Fountain.Application do
         # request process that started it, or the test that made the request
         # (#1040). Supervised and unlinked, a crash here is a log line.
         {Task.Supervisor, name: Fountain.TaskSupervisor},
-        Fountain.PlatformChatGPT.Refresher,
-        Fountain.ChatGPTAccounts.RefreshBreaker.Table,
-        Fountain.ChatGPTAccounts.RefreshSupervisor,
         FountainWeb.Plugs.RateLimit.Sweeper,
         Fountain.Conversations.Redaction,
         Fountain.LogThrottle.Table,

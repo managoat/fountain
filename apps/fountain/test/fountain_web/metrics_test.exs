@@ -208,19 +208,6 @@ defmodule FountainWeb.MetricsTest do
         # Audit.record_admin/1 rejection path (#451) — exercised by
         # Fountain.AuditTest's rejected-write telemetry test
         [:fountain, :audit, :admin_record_rejected],
-        # ChatGPTAccounts.RefreshLock.attempt/4, when another refresher owns
-        # the grant lock — exercised by ChatGPTRefreshCoordinationTest.
-        [:fountain, :chatgpt, :refresh_lock, :contention],
-        # The keepalive for users' grants (ADR 0060 stage 5):
-        # Workers.ChatGPTKeepaliveSweep's first page, Workers.ChatGPTGrantKeepalive
-        # at each job's end, and ChatGPTAccounts.RefreshBreaker.observe/2 and succeeded/0 -- exercised
-        # by workers/chatgpt_keepalive_sweep_test.exs and
-        # workers/chatgpt_grant_keepalive_test.exs.
-        [:fountain, :chatgpt, :keepalive, :sweep],
-        [:fountain, :chatgpt, :keepalive, :grant],
-        [:fountain, :chatgpt, :refresh, :rate_limited],
-        [:fountain, :chatgpt, :refresh, :breaker_opened],
-        [:fountain, :chatgpt, :refresh, :breaker_closed],
         # Fountain.Usage.record_usage/5 swallow path (#503) — exercised by
         # Fountain.UsageMeteringTest's dropped-usage telemetry test
         [:fountain, :usage, :dropped],

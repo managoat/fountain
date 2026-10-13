@@ -46,18 +46,6 @@ defmodule Fountain.Conversations.CodexTransport do
   # way to point codex somewhere else, and `OPENAI_BASE_URL` set there is
   # carried across.
   #
-  # **The ChatGPT grant** (ADR 0047 decision 4) is the second shape. When the
-  # spawn carries `CODEX_CHATGPT_ACCESS_TOKEN` and no `OPENAI_API_KEY`, the
-  # sandbox's `auth.json` is in `chatgptAuthTokens` mode with the placeholder
-  # as its access token, and the provider must *read* it: `requires_openai_auth`
-  # with no `env_key` resolves the ambient auth (bearer plus
-  # `chatgpt-account-id`) whatever the provider's id
-  # (`codex-rs/model-provider/src/auth.rs`, `resolve_provider_auth`). The
-  # endpoint is the Codex backend, not the API, and `OPENAI_BASE_URL` is not
-  # consulted: it points at OpenAI-compatible gateways, which this is not.
-  # What the id costs is the built-in-only routes (guardian, remote
-  # compaction, the token budget), none of which a turn depends on.
-  #
   # **Resume** (#2503). The overlay alone does not hold a resumed thread on
   # this provider. codex-acp 1.10 sends `thread/resume` a typed
   # `modelProvider`: its `MODEL_PROVIDER` launch variable, else the
@@ -68,29 +56,16 @@ defmodule Fountain.Conversations.CodexTransport do
   # to the WebSocket. So the variable is exported whenever this provider is
   # selected. An existing `MODEL_PROVIDER` counts as a selection, like the
   # overlay's `model_provider`.
-  #
-  # **Refused traffic on the grant.** A managed grant's session refuses every
-  # `chatgpt.com` route but the protected ones. Codex's remote plugin
-  # catalog asked for such routes hundreds of times an hour, and none of
-  # them could succeed. On a grant spawn it is off, unless the overlay sets
-  # it. Analytics cannot be turned off here: codex builds its analytics
-  # client once per app-server from the process config (`config.toml`,
-  # `-c`), which this per-thread overlay does not reach. Measured in
-  # production on 2026-09-26 (#2503): with `analytics.enabled = false` in
-  # the overlay, the analytics posts continued. A grant home's `config.toml`
-  # turns it off instead (`CodexChatGPT`), and the broker allows the route.
   @provider_id "fountain_openai_http"
   @openai_base_url "https://api.openai.com/v1"
-  @chatgpt_base_url "https://chatgpt.com/backend-api/codex"
-  @chatgpt_key "CODEX_CHATGPT_ACCESS_TOKEN"
 
   # The names this module reads and acts on. `CODEX_CONFIG` is already
   # collapsed by the rewrite, which rejects every entry and appends one.
   @provider_env "MODEL_PROVIDER"
-  @resolved_names ["OPENAI_API_KEY", "OPENAI_BASE_URL", @chatgpt_key, @provider_env]
+  @resolved_names ["OPENAI_API_KEY", "OPENAI_BASE_URL", @provider_env]
 
-  def spawn_opts(%{broker: broker} = state, "codex", opts) when not is_nil(broker) do
-    env = opts |> Keyword.get(:env, []) |> host_codex_home(Map.get(state, :handle))
+  def spawn_opts(%{broker: broker}, "codex", opts) when not is_nil(broker) do
+    env = Keyword.get(opts, :env, [])
 
     # `SpriteEnv.build/4` concatenates its pieces without merging, so a name
     # can appear more than once. Nothing states which duplicate the sandbox
@@ -114,7 +89,6 @@ defmodule Fountain.Conversations.CodexTransport do
         |> Map.put("features", Map.put(features, "respect_system_proxy", true))
         |> Map.delete("features.respect_system_proxy")
         |> select_http_provider(resolved)
-        |> quiet_grant(resolved)
 
       env =
         env
@@ -130,29 +104,6 @@ defmodule Fountain.Conversations.CodexTransport do
   end
 
   def spawn_opts(_state, _runtime, opts), do: {:ok, opts}
-
-  # A managed grant's `CODEX_HOME` (`CodexChatGPT.home/1`) is a path under
-  # `/home/sprite`. File writes and command arguments reach a self-hosted
-  # runner with that prefix mapped, but an env value reaches it verbatim (see
-  # `Provisioning.broker_ca_files/1`), and codex would be pointed at a
-  # directory that is not there. The same translation the ACP `cwd` gets; the
-  # identity on every hosted provider. Only a home Fountain made is touched.
-  defp host_codex_home(env, %Managoat.Sandbox.Handle{} = handle) do
-    key = Fountain.Conversations.CodexChatGPT.home_key()
-    root = Fountain.Conversations.CodexChatGPT.homes_root()
-
-    Enum.map(env, fn
-      {^key, value} = pair when is_binary(value) ->
-        if String.starts_with?(value, root <> "/"),
-          do: {key, Managoat.Sandbox.host_path(handle, value)},
-          else: pair
-
-      pair ->
-        pair
-    end)
-  end
-
-  defp host_codex_home(env, _handle), do: env
 
   # Repoint the conversation at an equivalent provider with the websocket
   # transport off. Only the one that would otherwise dial OpenAI directly: an
@@ -178,11 +129,6 @@ defmodule Fountain.Conversations.CodexTransport do
         |> Map.put("model_provider", @provider_id)
         |> Map.put("model_providers", Map.put(providers, @provider_id, provider(env)))
 
-      chatgpt?(config, env) ->
-        config
-        |> Map.put("model_provider", @provider_id)
-        |> Map.put("model_providers", Map.put(providers, @provider_id, chatgpt_provider()))
-
       true ->
         config
     end
@@ -191,14 +137,6 @@ defmodule Fountain.Conversations.CodexTransport do
   defp substitute?(config, env) do
     selected(config, env) == "openai" and present?(env, "OPENAI_API_KEY")
   end
-
-  # The grant shape: the built-in would be selected, the spawn carries the
-  # grant and no API key. A key beside the grant is the tenant's own or the
-  # platform's, and the resolver never hands both out — but if both were
-  # present the key would win above, as it does everywhere else.
-  defp chatgpt?(config, env), do: selected(config, env) == "openai" and grant?(env)
-
-  defp grant?(env), do: present?(env, @chatgpt_key) and not present?(env, "OPENAI_API_KEY")
 
   # What codex would run on: the overlay's selection, else the launch
   # variable codex-acp passes as a typed override, else the built-in.
@@ -219,45 +157,8 @@ defmodule Fountain.Conversations.CodexTransport do
 
   defp pin_provider(env, _config), do: env
 
-  # Only defaults: a value the overlay sets, in either spelling, is kept.
-  defp quiet_grant(config, env) do
-    if grant?(env) do
-      put_default(config, ["features", "remote_plugin"], false)
-    else
-      config
-    end
-  end
-
-  defp put_default(config, [table, key] = path, value) do
-    case Map.get(config, table, %{}) do
-      section when is_map(section) ->
-        if Map.has_key?(section, key) or Map.has_key?(config, Enum.join(path, ".")),
-          do: config,
-          else: Map.put(config, table, Map.put(section, key, value))
-
-      _ ->
-        config
-    end
-  end
-
   defp present?(env, name) do
     match?(value when is_binary(value) and value != "", Map.get(env, name))
-  end
-
-  # Audited against the same lib.rs as `provider/1`: with a ChatGPT auth mode
-  # the built-in's base URL is the Codex backend and its auth is the ambient
-  # `auth.json`. `requires_openai_auth` without `env_key` is what selects
-  # that auth on a custom id; `supports_websockets` is deliberately false.
-  # No `env_http_headers`: the organization and project headers belong to
-  # the API, and the backend ignores them.
-  defp chatgpt_provider do
-    %{
-      "name" => "OpenAI",
-      "base_url" => @chatgpt_base_url,
-      "wire_api" => "responses",
-      "requires_openai_auth" => true,
-      "supports_websockets" => false
-    }
   end
 
   # Field audit: Codex rust-v0.147.0 (installed in the review image) and

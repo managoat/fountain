@@ -643,11 +643,6 @@ config :fountain,
   sandbox_queue_max_depth: whole_number.("SANDBOX_QUEUE_MAX_DEPTH", 10),
   sandbox_queue_max_wait_seconds: whole_number.("SANDBOX_QUEUE_MAX_WAIT_SECONDS", 3600)
 
-# ChatGPT subscriptions one account may link (ADR 0060 decision 1). It stops a
-# runaway client and prices nothing; a disconnected subscription holds its
-# place until it is removed. Lowering it refuses new links only.
-config :fountain, :chatgpt_grant_ceiling, whole_number.("CHATGPT_GRANT_CEILING", 5)
-
 # Platform inference keys (#1388, ADR 0038 decision 3, amending ADR 0008).
 #
 # Fountain runs a tenant's agent on one of these when the tenant has no
@@ -1051,17 +1046,3 @@ case System.get_env("OAUTH_CLIENTS") do
         raise "OAUTH_CLIENTS must be a JSON array of {id, name, redirect_uris}"
     end
 end
-
-# ── Feature flags ─────────────────────────────────────────────────────────
-#
-# `Fountain.FeatureFlags` is configuration only. FEATURE_FLAGS_ON is a
-# comma-separated list of flag keys turned on for every user (for example
-# `chatgpt_subscriptions`). Read in every env.
-config :fountain,
-       :feature_flag_overrides,
-       "FEATURE_FLAGS_ON"
-       |> System.get_env("")
-       |> String.split(",", trim: true)
-       |> Enum.map(&String.trim/1)
-       |> Enum.reject(&(&1 == ""))
-       |> Map.new(&{&1, true})

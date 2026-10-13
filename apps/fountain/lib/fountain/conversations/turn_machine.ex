@@ -66,16 +66,14 @@ defmodule Fountain.Conversations.TurnMachine do
   swaps the env before the call; the machine words the message), and the
   pair the usage stamp needs — `:inference` (the
   `Fountain.InferenceCredentials.Source` whose key ran this turn, #1388 and
-  ADR 0053) and `:model` (what it ran). `:user_id` is the conversation's
-  owner, which a usage check of the owner's own ChatGPT grant is scoped by.
+  ADR 0053) and `:model` (what it ran).
   """
   @type ctx :: %{
           optional(:autonomous?) => boolean(),
           optional(:runtime_module) => module(),
           optional(:oauth_switched?) => boolean(),
           optional(:inference) => Fountain.InferenceCredentials.Source.t() | nil,
-          optional(:model) => String.t() | nil,
-          optional(:user_id) => String.t() | nil
+          optional(:model) => String.t() | nil
         }
 
   @type effect ::
@@ -164,8 +162,7 @@ defmodule Fountain.Conversations.TurnMachine do
         autonomous?: autonomous_turn?(state),
         runtime_module: state.runtime_module,
         inference: state.inference_source,
-        model: state.inference_model,
-        user_id: state.user_id
+        model: state.inference_model
       ] ++ extra
     )
   end
@@ -642,39 +639,6 @@ defmodule Fountain.Conversations.TurnMachine do
     end
   end
 
-  # #2362: the prompt failed with codex-acp's `usageLimitExceeded`, on a turn
-  # bound to the deployment's ChatGPT grant (ADR 0047). The report is only a
-  # hint: it comes from the sandbox, and a tenant's `setup_script` can put a
-  # fake adapter there that says this without contacting OpenAI, while the
-  # grant is every tenant's. So nothing is written from it. The context asks
-  # the ChatGPT backend itself, in the background, throttled, and records the
-  # exhaustion only when the backend confirms it
-  # (`ChatGPTAccounts.platform_confirm_exhausted/2`). This turn fails as it
-  # would have, and nothing is retried.
-  #
-  # A turn bound to one of the owner's own subscriptions (ADR 0060 decision
-  # 4) is asked about the same way, scoped by the owner
-  # (`ChatGPTAccounts.confirm_exhausted_for_user/3`): the hint is no more
-  # trustworthy for being about the tenant's own grant, and what a confirmed
-  # limit changes is that later turns and launches on that grant are refused
-  # by name until it resets. Nothing is substituted for it. A turn on any
-  # other source starts no check.
-  def handle(%__MODULE__{} = turn, {:failed, {:acp_error, :prompt, error} = reason}, ctx) do
-    with %Source{scope: scope, kind: :codex_chatgpt_access_token} = source
-         when scope in [:platform, :grant] <- Map.get(ctx, :inference),
-         true <- Fountain.PlatformChatGPT.UsageLimit.hint?(error) do
-      case scope do
-        :platform ->
-          Fountain.ChatGPTAccounts.platform_check_exhaustion(source)
-
-        :grant ->
-          Fountain.ChatGPTAccounts.check_exhaustion_for_user(source, Map.get(ctx, :user_id))
-      end
-    end
-
-    handle_failed(turn, reason)
-  end
-
   # A failed peer is not reusable: end the turn it was driving (if any) and
   # drop the connection, so the next prompt spawns a fresh adapter.
   def handle(%__MODULE__{} = turn, {:failed, reason}, _ctx), do: handle_failed(turn, reason)
@@ -1026,16 +990,9 @@ defmodule Fountain.Conversations.TurnMachine do
   platform turn, `"model"`.
 
   Platform turns are stamped from the credential source selected for the
-  turn, including the deployment's ChatGPT grant (scope `:platform`) without
-  any platform API key. A later configuration change cannot erase the source
-  that served the turn. Tenant-owned turns retain their legacy shape when no
-  platform API key is configured.
-
-  A user's own named ChatGPT grant (scope `:grant`, ADR 0060) is a tenant
-  source and is stamped `"own"`. Which grant served the turn is not in this
-  map, which the pricer and `Turn.inference_stamp_only?/1` key off: it is in
-  the turn's `inference_source`, written beside the stamp, and the API reads
-  it from there (`Source.summary/1`, decision 6).
+  turn. A later configuration change cannot erase the source that served the
+  turn. Tenant-owned turns retain their legacy shape when no platform API key
+  is configured.
 
   The `"model"` key is deliberately absent on an `"own"` turn: nothing prices
   it, so recording it would put a configuration detail in a column that
@@ -1050,7 +1007,7 @@ defmodule Fountain.Conversations.TurnMachine do
         |> put_model(:platform, Map.get(ctx, :model))
 
       %Source{scope: scope}
-      when scope in [:credential, :tenant_secret, :grant, :none, :missing] ->
+      when scope in [:credential, :tenant_secret, :none, :missing] ->
         if Fountain.PlatformInference.enabled?(),
           do: Map.put(usage, "inference", "own"),
           else: usage
@@ -1223,28 +1180,16 @@ defmodule Fountain.Conversations.TurnMachine do
   # `inference` is the conversation's inference source (#1388).
   @spec gate(String.t(), Source.t() | nil) :: :ok | {:error, term()}
   def gate(user_id, inference \\ nil) do
-    with :ok <- validate_inference(user_id, inference),
-         :ok <- Fountain.Accounts.check_not_suspended(user_id) do
-      # Last, so an account that may not run is told that and costs no
-      # provider call; and after the validation, never inside it: that ran
-      # under the owner's source lock, and renewing a grant there is the
-      # deadlock `Fountain.ChatGPTAccounts` documents. A user's
-      # subscription is renewed here, by id and generation, before the
-      # turn that would otherwise outlive its token; one that cannot serve
-      # refuses the turn by name.
-      Fountain.Conversations.CodexChatGPT.ensure_fresh(user_id, inference)
+    with :ok <- validate_inference(user_id, inference) do
+      Fountain.Accounts.check_not_suspended(user_id)
     end
   end
 
   @doc """
-  The log line for a prompt the server could not turn into a turn. The
-  reason goes through `InferenceCredentials.loggable_reason/1`: an unusable
-  ChatGPT grant carries the name its owner chose, which is theirs and stays
-  out of the application log.
+  The log line for a prompt the server could not turn into a turn.
   """
   @spec log_refusal(String.t(), String.t(), term()) :: :ok
   def log_refusal(conversation_id, what, reason) do
-    reason = Fountain.InferenceCredentials.loggable_reason(reason)
     Logger.info("conv #{conversation_id}: #{what} (#{inspect(reason)})")
   end
 
@@ -1417,22 +1362,6 @@ defmodule Fountain.Conversations.TurnMachine do
 
         :at_capacity
 
-      # The subscription this conversation runs on cannot serve the turn (ADR
-      # 0060 decision 4). `validate_source/2` keeps this refusal whole so it
-      # stays actionable; the stream says the same thing the 409 does, rather
-      # than "invalid_turn".
-      {:error, {:chatgpt_grant_unusable, %{reason: reason} = detail}} = error ->
-        publish_stage(conversation_id, "sandbox", "done", %{
-          event: "admission_refused",
-          reason: "chatgpt_grant_unusable",
-          grant_reason: Atom.to_string(reason),
-          grant_id: detail[:grant_id],
-          until: detail[:until],
-          message: Fountain.InferenceCredentials.grant_unusable_message(detail)
-        })
-
-        error
-
       {:error, reason} = error ->
         publish_stage(conversation_id, "sandbox", "done", %{
           event: "admission_refused",
@@ -1538,11 +1467,7 @@ defmodule Fountain.Conversations.TurnMachine do
         additional_directories: Keyword.get(opts, :additional_directories, []),
         model: Keyword.get(opts, :model),
         config: Keyword.get(opts, :config, %{}),
-        permission_policy: Keyword.get(opts, :permission_policy),
-        # A codex spawn on the deployment's ChatGPT grant must not be
-        # authenticated with codex-acp's api-key method (ADR 0047); see
-        # `Fountain.Conversations.CodexChatGPT.peer_auth/2`.
-        auth: Keyword.get(opts, :auth, :api_key)
+        permission_policy: Keyword.get(opts, :permission_policy)
       )
 
     {peer, Process.monitor(peer)}

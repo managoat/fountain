@@ -38,10 +38,7 @@ defmodule FountainWeb.AuthMeController do
       # a 200 vs 404 (#1154). Deployment-wide since the §9 ratchet retired, so
       # it is the same answer for every account here — still reported per
       # request, because it is what this client's sandboxes will do.
-      brokered: Fountain.Broker.configured?(),
-      # The one door the `chatgpt_subscriptions` rollout holds (ADR 0060): a
-      # new link. What an account already holds stays operable without it.
-      chatgpt_subscriptions_enabled: Fountain.ChatGPTAccounts.linking_enabled_for?(user.id)
+      brokered: Fountain.Broker.configured?()
     })
   end
 end

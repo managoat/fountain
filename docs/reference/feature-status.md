@@ -1,61 +1,15 @@
 # Feature status
 
-Most of Fountain is on for every account and finished. One feature is
-not. This page lists it. Each row says who has the feature on the hosted
-platform, and how to turn it on.
+Every feature of Fountain is on for every account, and none is in
+development behind a flag. This page used to list the ones that were not, and
+it says here where each of them went.
 
-A note with the same title as the row sits at the top of each page that
-describes one of these features.
-
-| Feature | Status | On the hosted platform | On your own instance |
-|---|---|---|---|
-| [ChatGPT subscriptions](../guides/chatgpt-subscriptions.md) | In development | On for every account since 2026-09-21, behind the `chatgpt_subscriptions` flag. We opened it before we had tested it with a user's subscription on the real service: see below. We can turn it off again. | Off. `FEATURE_FLAGS_ON=chatgpt_subscriptions` turns it on where the credential broker is configured. Do not do that on an instance that serves people you do not trust: see below. |
-
-## What each status means
-
-**In development.** The feature is not complete. It is off on your own
-instance until you force its flag on. We do not say that it works end to
-end, because we have not shown that it does.
-
-On 2026-09-21 we turned ChatGPT subscriptions on for every account on the
-hosted platform. We did that early, because the parts that we have not
-tested fail in a way that you can recover from. When we turned it on, a
-user's subscription had not done these things against the real service:
-
-- A sign-in with a code at `auth.openai.com`, and the job that waits for the
-  approval.
-- The **ChatGPT subscriptions** card in a real browser.
-- A turn in a sandbox that two subscriptions share.
-- The daily renewal of an idle subscription.
-- The check of the plan's usage with a user's token.
-
-We have not measured how long an idle sign-in lasts, so the 6 days below are
-an estimate. We have not measured how `auth.openai.com` limits the rate of
-sign-ins and renewals. The deployment's own ChatGPT account has completed
-two turns through the same broker path. A turn after a sandbox reattaches
-is not measured. The first subscriptions that people link on the hosted
-platform are the test. If the feature fails, reconnect the subscription or
-use an OpenAI key. We can turn the flag off, and then nobody can link a new
-subscription. Do not rely on this feature for work that must not stop.
-
-For ChatGPT subscriptions, the console and the
-[API](../api.md#chatgpt-subscriptions) can link a subscription and a
-credential set can name one. Each turn records which subscription served it.
-Fountain detects a subscription that has spent its plan's Codex allowance
-after a turn fails on it, and refuses the subscription until the reset time.
-A daily job renews a subscription that nobody used for 6 days, so that its
-sign-in does not end. An account deletion removes the subscriptions. The credential broker refuses a response that
-repeats the subscription's token. It refuses a query string on the Responses
-route, and allows only `client_version` on the model list route. The broker finds only an exact
-copy of the token. It does not find an encoded copy or a partial copy. These
-parts are not built: a check of the usage before a turn fails, an email or a
-webhook about a spent plan, and a way to revoke a sign-in at OpenAI. The flag
-holds
-only the door that links a new subscription. An account that holds one can
-always list, rename, disconnect and remove it, and keeps the **ChatGPT
-subscriptions** card in the console. It can reconnect it on a deployment that
-has the credential broker. With the flag off, the console also does not offer
-a credential set a subscription that it does not name already.
+ChatGPT subscriptions, the feature this page listed last, were removed from
+Fountain on 2026-10-13, and so was the feature flag that held them. The
+codex runtime runs on an OpenAI API key: a credential set's, an environment's
+or a vault's, or the deployment's platform key. A conversation that ran on a
+subscription keeps its history and cannot take another turn. Start a new
+conversation instead.
 
 Connections, the one Alpha feature this page used to list, were removed from
 Fountain. A credential reaches a sandbox from an environment

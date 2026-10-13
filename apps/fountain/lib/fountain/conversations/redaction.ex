@@ -24,7 +24,7 @@ defmodule Fountain.Conversations.Redaction do
   ## What is registered
 
   The conversation's secrets, and nothing else: the decrypted environment and
-  vault values, the inference credential, the ChatGPT grant, the callback
+  vault values, the inference credential, the callback
   token, the brokered credentials and the broker session token.
   `Fountain.Conversations.SpriteEnv.build/4` classifies them, and a value
   registered once is never forgotten (`add/2`). On a machine that also carries

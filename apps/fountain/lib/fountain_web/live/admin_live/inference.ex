@@ -13,11 +13,6 @@ defmodule FountainWeb.AdminLive.Inference do
 
   Every mutation goes through `Fountain.PlatformInference`, which records
   the `admin.platform_inference_key.*` event; the page only says who asked.
-
-  The "ChatGPT account (codex)" row (ADR 0047) is the same shape over
-  `Fountain.ChatGPTAccounts`: paste, workspace token, device code and
-  disconnect, each recorded by the context. The device flow runs in a
-  supervised task and reports back as `{:platform_chatgpt_device, _}`.
   """
 
   use FountainWeb, :live_view
@@ -25,7 +20,6 @@ defmodule FountainWeb.AdminLive.Inference do
   import FountainWeb.AdminLive.Helpers
   import FountainWeb.AdminLive.Shell
 
-  alias Fountain.ChatGPTAccounts
   alias Fountain.PlatformInference
 
   @impl true
@@ -33,9 +27,7 @@ defmodule FountainWeb.AdminLive.Inference do
     {:ok,
      socket
      |> assign(:page_title, "Admin · Inference")
-     |> assign(:device, nil)
-     |> assign_keys()
-     |> assign_chatgpt()}
+     |> assign_keys()}
   end
 
   @impl true
@@ -68,134 +60,6 @@ defmodule FountainWeb.AdminLive.Inference do
      |> assign_keys()
      |> put_flash(:info, "#{provider_label(provider)} key cleared")}
   end
-
-  # ── the ChatGPT account for codex (ADR 0047) ─────────────────────────────
-
-  def handle_event("chatgpt_paste", %{"auth_json" => json}, socket) do
-    case ChatGPTAccounts.platform_connect_from_auth_json(json,
-           actor_user_id: socket.assigns.current_user.id
-         ) do
-      {:ok, account} ->
-        {:noreply,
-         socket
-         |> assign_chatgpt()
-         |> put_flash(:info, "ChatGPT account connected as #{account.account_email || "unknown"}")}
-
-      {:error, reason} ->
-        {:noreply, put_flash(socket, :error, chatgpt_error(reason))}
-    end
-  end
-
-  def handle_event("chatgpt_workspace_token", %{"value" => value} = params, socket) do
-    expires_on =
-      case Date.from_iso8601(Map.get(params, "expires_on", "")) do
-        {:ok, date} -> date
-        _ -> nil
-      end
-
-    case ChatGPTAccounts.platform_connect_workspace_token(value, expires_on,
-           actor_user_id: socket.assigns.current_user.id,
-           account_id: Map.get(params, "account_id")
-         ) do
-      {:ok, _account} ->
-        {:noreply,
-         socket
-         |> assign_chatgpt()
-         |> put_flash(
-           :info,
-           "Workspace access token saved — in use from the next codex conversation"
-         )}
-
-      {:error, reason} ->
-        {:noreply, put_flash(socket, :error, chatgpt_error(reason))}
-    end
-  end
-
-  def handle_event("chatgpt_connect_device", _params, socket) do
-    case Fountain.PlatformChatGPT.Device.start(
-           notify: self(),
-           actor_user_id: socket.assigns.current_user.id
-         ) do
-      {:ok, pid} ->
-        # Monitored, so a task that dies without reporting (a crash, a
-        # constraint from a paste in another tab) frees the button.
-        ref = Process.monitor(pid)
-        {:noreply, assign(socket, :device, %{state: :starting, ref: ref})}
-
-      {:error, reason} ->
-        {:noreply,
-         put_flash(socket, :error, "Could not start the device flow: #{inspect(reason)}")}
-    end
-  end
-
-  def handle_event("chatgpt_disconnect", _params, socket) do
-    :ok = ChatGPTAccounts.platform_disconnect(actor_user_id: socket.assigns.current_user.id)
-
-    {:noreply,
-     socket
-     |> assign_chatgpt()
-     |> assign(:device, nil)
-     |> put_flash(:info, "ChatGPT account disconnected")}
-  end
-
-  @impl true
-  def handle_info({:platform_chatgpt_device, {:code, code}}, socket) do
-    {:noreply,
-     assign(
-       socket,
-       :device,
-       Map.merge(socket.assigns.device || %{}, %{state: :waiting, code: code})
-     )}
-  end
-
-  def handle_info({:DOWN, ref, :process, _pid, reason}, socket) do
-    case socket.assigns.device do
-      %{ref: ^ref} when reason != :normal ->
-        {:noreply,
-         socket
-         |> assign(:device, nil)
-         |> assign_chatgpt()
-         |> put_flash(:error, "Device sign-in stopped: #{inspect(reason)}")}
-
-      _ ->
-        {:noreply, socket}
-    end
-  end
-
-  def handle_info({:platform_chatgpt_device, {:connected, _status}}, socket) do
-    {:noreply,
-     socket
-     |> assign(:device, nil)
-     |> assign_chatgpt()
-     |> put_flash(:info, "ChatGPT account connected")}
-  end
-
-  def handle_info({:platform_chatgpt_device, {:error, reason}}, socket) do
-    {:noreply,
-     socket
-     |> assign(:device, nil)
-     |> put_flash(:error, "Device sign-in failed: #{chatgpt_error(reason)}")}
-  end
-
-  defp assign_chatgpt(socket), do: assign(socket, :chatgpt, ChatGPTAccounts.platform_status())
-
-  defp chatgpt_error(:invalid_auth_json), do: "That is not an auth.json codex wrote"
-
-  defp chatgpt_error(:not_a_chatgpt_login),
-    do:
-      "That auth.json must explicitly set auth_mode to chatgpt. " <>
-        "Sign in again with Codex 0.93.0 or newer using file storage, then paste the new auth.json."
-
-  defp chatgpt_error(:no_refresh_token), do: "That sign-in carries no refresh token"
-  defp chatgpt_error(:invalid_id_token), do: "That sign-in carries no account id"
-  defp chatgpt_error(:invalid_token), do: "Paste one token with no spaces"
-
-  defp chatgpt_error(:no_account_id),
-    do: "Enter the workspace's account id beside an opaque token; codex sends it on every request"
-
-  defp chatgpt_error(:abandoned), do: "the page that asked for the code went away"
-  defp chatgpt_error(:device_timeout), do: "the code was not approved within fifteen minutes"
-  defp chatgpt_error(other), do: inspect(other)
 
   defp assign_keys(socket) do
     socket
@@ -273,188 +137,9 @@ defmodule FountainWeb.AdminLive.Inference do
         spends: every tenant without a credential of their own runs on it, billed to this
         deployment's provider account.
       </p>
-
-      <section class="bg-[var(--color-bg-1)] rounded shadow border border-[var(--color-border)] px-4 py-3 space-y-3">
-        <div class="flex flex-wrap items-start justify-between gap-3">
-          <div class="space-y-1">
-            <div class="font-medium">ChatGPT account (codex)</div>
-            <div class="text-sm text-[var(--color-text-primary)]">
-              <.chatgpt_status chatgpt={@chatgpt} />
-            </div>
-          </div>
-          <span class={["text-xs px-2 py-0.5 rounded border", chatgpt_badge_class(@chatgpt)]}>
-            {chatgpt_label(@chatgpt)}
-          </span>
-        </div>
-
-        <p class="text-xs text-[var(--color-text-secondary)]">
-          A codex agent whose tenant has no OpenAI key runs on this sign-in, before the OpenAI
-          platform key. Fountain holds the refresh token and renews it; a sandbox sees only a
-          placeholder. A ChatGPT Business or Enterprise workspace access token is the
-          sanctioned credential; a personal sign-in shares one subscription across every
-          tenant and is an operator's own risk.
-        </p>
-
-        <div :if={@device} class="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-sm">
-          <div :if={@device.state == :starting}>Asking ChatGPT for a device code…</div>
-          <div :if={@device.state == :waiting} class="space-y-1">
-            <div>
-              Open
-              <a href={@device.code.verification_url} target="_blank" rel="noopener" class="underline">{@device.code.verification_url}</a>
-              and enter the code <code class="font-mono text-base font-semibold">{@device.code.user_code}</code>.
-            </div>
-            <div class="text-xs text-zinc-600">
-              Waiting for approval. The code expires in fifteen minutes; device-code sign-in must be
-              enabled in the account's ChatGPT security settings.
-            </div>
-          </div>
-        </div>
-
-        <div class="flex flex-wrap items-start gap-4">
-          <button
-            type="button"
-            phx-click="chatgpt_connect_device"
-            disabled={@device != nil}
-            class="px-3 py-1.5 text-sm rounded bg-zinc-900 text-white hover:bg-zinc-700 disabled:opacity-50"
-          >
-            Connect with a device code
-          </button>
-
-          <form phx-submit="chatgpt_paste" class="flex flex-wrap items-end gap-2">
-            <label class="block text-xs text-[var(--color-text-secondary)]">
-              Paste auth.json from a fresh Codex 0.93.0 or newer ChatGPT sign-in.
-              Use file storage as described in <a
-                href="/docs/configuration#the-chatgpt-account-for-the-codex-runtime"
-                class="link"
-              >the configuration guide</a>. <textarea
-                name="auth_json"
-                rows="3"
-                autocomplete="off"
-                spellcheck="false"
-                placeholder={~s({"auth_mode":"chatgpt","tokens":{...}})}
-                class="block mt-1 w-96 max-w-full rounded border-[var(--color-border-strong)] bg-[var(--color-bg-1)] text-xs font-mono text-[var(--color-text-primary)]"
-              ></textarea>
-            </label>
-            <button
-              type="submit"
-              class="px-3 py-1.5 text-sm rounded border border-[var(--color-border-strong)] hover:border-[var(--color-border-strong)]"
-            >
-              Connect from file
-            </button>
-          </form>
-
-          <form phx-submit="chatgpt_workspace_token" class="flex flex-wrap items-end gap-2">
-            <label class="block text-xs text-[var(--color-text-secondary)]">
-              Workspace access token
-              <input
-                type="password"
-                name="value"
-                autocomplete="off"
-                spellcheck="false"
-                placeholder="CODEX_ACCESS_TOKEN"
-                class="block mt-1 w-64 max-w-full rounded border-[var(--color-border-strong)] bg-[var(--color-bg-1)] text-sm font-mono text-[var(--color-text-primary)]"
-              />
-            </label>
-            <label class="block text-xs text-[var(--color-text-secondary)]">
-              Expires on
-              <input
-                type="date"
-                name="expires_on"
-                class="block mt-1 rounded border-[var(--color-border-strong)] bg-[var(--color-bg-1)] text-sm text-[var(--color-text-primary)]"
-              />
-            </label>
-            <label class="block text-xs text-[var(--color-text-secondary)]">
-              Account id
-              <input
-                type="text"
-                name="account_id"
-                autocomplete="off"
-                spellcheck="false"
-                class="block mt-1 w-48 max-w-full rounded border-[var(--color-border-strong)] bg-[var(--color-bg-1)] text-sm font-mono text-[var(--color-text-primary)]"
-              />
-            </label>
-            <button
-              type="submit"
-              class="px-3 py-1.5 text-sm rounded border border-[var(--color-border-strong)] hover:border-[var(--color-border-strong)]"
-            >
-              Save token
-            </button>
-          </form>
-
-          <button
-            :if={@chatgpt != :not_connected}
-            type="button"
-            phx-click="chatgpt_disconnect"
-            data-confirm="Disconnect the ChatGPT account? Codex conversations with no tenant key fall back to the OpenAI platform key, or to no credential."
-            class="px-3 py-1.5 text-sm rounded border border-[var(--color-border-strong)] hover:border-red-400 hover:text-[var(--color-error-text)]"
-          >
-            Disconnect
-          </button>
-        </div>
-      </section>
     </div>
     """
   end
-
-  attr :chatgpt, :any, required: true
-
-  defp chatgpt_status(%{chatgpt: :not_connected} = assigns) do
-    ~H"""
-    Not connected. Codex agents with no tenant key use the OpenAI platform key, or nothing.
-    """
-  end
-
-  defp chatgpt_status(%{chatgpt: %{status: "active"}} = assigns) do
-    ~H"""
-    Connected as
-    <span class="font-medium">{@chatgpt.account_email || @chatgpt.account_id || "workspace"}</span>
-    ({@chatgpt.plan_type || "unknown plan"}){if @chatgpt.updated_by,
-      do: ", by #{@chatgpt.updated_by}"}. Last renewed {format_ts(@chatgpt.last_refreshed_at)}{if @chatgpt.access_expires_at,
-      do: "; the access token expires #{format_ts(@chatgpt.access_expires_at)}"}.
-    <span :if={@chatgpt.exhausted_until} class="block mt-1 text-amber-800">
-      The account has hit its Codex usage limit until {format_ts(@chatgpt.exhausted_until)} UTC.
-      Until then, new codex conversations on a new sandbox run on the OpenAI platform key when one
-      is set, billed per token. Existing persistent homes and their
-      conversations stay on the source they were bound to, here and again after the reset:
-      launches onto them fail with codex_inference_conflict until the home is reset.
-    </span>
-    """
-  end
-
-  defp chatgpt_status(%{chatgpt: %{status: "revoked"}} = assigns) do
-    ~H"""
-    Sign-in lost: the auth server refused the refresh token
-    (<code class="font-mono">{@chatgpt.revoked_reason}</code>). Reconnect.
-    """
-  end
-
-  defp chatgpt_status(%{chatgpt: %{status: "expired"}} = assigns) do
-    ~H"""
-    The token expired{if @chatgpt.access_expires_at,
-      do: " on #{format_ts(@chatgpt.access_expires_at)}"}. Reconnect, or paste a new one.
-    """
-  end
-
-  defp chatgpt_label(:not_connected), do: "not connected"
-  defp chatgpt_label(%{status: "active", exhausted_until: %DateTime{}}), do: "usage limit"
-  defp chatgpt_label(%{status: "active", kind: "workspace_token"}), do: "workspace token"
-  defp chatgpt_label(%{status: "active"}), do: "connected"
-  defp chatgpt_label(%{status: "revoked"}), do: "revoked"
-  defp chatgpt_label(%{status: "expired"}), do: "expired"
-
-  defp chatgpt_badge_class(:not_connected),
-    do: "bg-[var(--color-bg-2)] text-[var(--color-text-secondary)] border-[var(--color-border)]"
-
-  defp chatgpt_badge_class(%{status: "active", exhausted_until: %DateTime{}}),
-    do: "bg-amber-100 text-amber-800 border-amber-200"
-
-  defp chatgpt_badge_class(%{status: "active"}),
-    do: "bg-green-100 text-green-800 border-green-200"
-
-  defp chatgpt_badge_class(%{status: "revoked"}), do: "bg-red-100 text-red-700 border-red-200"
-
-  defp chatgpt_badge_class(%{status: "expired"}),
-    do: "bg-amber-100 text-amber-800 border-amber-200"
 
   attr :key, :map, required: true
 

@@ -1,17 +1,19 @@
 ---
 type: ADR
 title: "A user links several ChatGPT subscriptions, and a credential set names one"
-description: "All five stages are built except stage 5's controlled run with two real subscriptions, and the ADR is still Proposed: accepting it is the maintainer's decision (the table, the owner-scoped context and the per-owner source lock; a credential set naming a grant and resolution to it with no fallback; the transport and custody: a CODEX_HOME per grant and generation, broker sessions that carry which grant they may use, and a per-request check against the durable generation; then durable link attempts, /api/account/chatgpt-subscriptions, and the ChatGPT subscriptions card and the set picker in the console; then exhaustion recorded for a user's grant when OpenAI confirms it with nothing substituted, which grant served a turn, a daily keepalive with one job per grant, and grants in the account export and deletion). A change of its own after stage 3 (stage 3b, #2458) moves the deployment's grant (ADR 0047) onto that path and drains its legacy broker sessions; it merged on 2026-09-21 without the measurement against the image's codex client that gated it, by the maintainer's decision; the measurement's offline half was taken later that day (ADR 0047, measurement 6), and its hosted half that evening for a first and a second turn, once the account was reconnected: both completed through the real broker on managoat_broker 0.15.0, and chatgpt.com honoured the forced identity encoding. The reattached turn is still owed. Linking is behind a flag that fails closed. On 2026-09-21 the maintainer turned it on for every account on the hosted instance, ahead of the rollout checklist's controlled run, idle-lifetime measurement and keepalive observation, none of which is done; a self-hosted deployment is unchanged, off unless its operator forces the flag. Rebuilds ADR 0052's user surface with many grants per user instead of one: the grant table loses its one-row-per-user index for a named row, an inference credential set names a grant, and an agent selects a subscription the same way it selects an API key. No automatic failover between a user's subscriptions and no platform fallback when the named one is exhausted."
+description: "Retired 2026-10-13: ChatGPT subscriptions and the deployment's ChatGPT account were removed, and codex runs on an OpenAI API key. Was: A user links several ChatGPT subscriptions and a credential set names one, with a CODEX_HOME per grant and generation, a per-request broker check and no fallback; built in five stages and opened on the hosted instance on 2026-09-21."
 tags: [inference, codex, oauth, security, billing]
-status: draft
+status: deprecated
 adr: "0060"
-adr_status: "Proposed"
+adr_status: "Retired"
 date: 2026-09-20
 ---
 
 # 0060 — A user links several ChatGPT subscriptions, and a credential set names one
 
-**Status:** Proposed, 2026-09-20. **All five stages below are built, stages
+**Status:** Retired 2026-10-13; see the addendum at the end. The text above the addendum is history. Was: Proposed, 2026-09-20.
+
+**Status before retirement:** Proposed, 2026-09-20. **All five stages below are built, stages
 4 and 5 in two halves each, except the second sentence of stage 5: the
 controlled run with two real subscriptions has not been made. Linking has
 been open to every account on the hosted instance since 2026-09-21, by the
@@ -2665,3 +2667,38 @@ before any user can link a subscription
 - **Wait for 0047's idle-lifetime measurement.** It sets a keepalive
   interval, not the data model. Decision 5 names it as a dependency of the
   fan-out sizing rather than of the design.
+
+## Addendum — 2026-10-13: retired, ChatGPT subscriptions are removed
+
+Fountain no longer runs codex on a ChatGPT sign-in (#PRNUM). The maintainer
+decided on 2026-10-13 to cut the feature: production held three grants, all
+owned by one account that has left, none on the deployment's own row, and
+the last conversation on a subscription ran on 2026-10-08. The feature was
+about 7,700 lines of server code and 15,500 of tests for that. "If I want it
+I can add it back."
+
+What went: the deployment's ChatGPT account (`/admin/inference`'s ChatGPT
+row, its refresher and keepalive), users' subscriptions (the
+`/api/account/chatgpt-subscriptions` routes, device-code link attempts, the
+console card and the set picker, `chatgpt_grant_id` on a credential set, the
+`chatgpt_subscriptions` flag and with it `Fountain.FeatureFlags`), the
+per-grant `CODEX_HOME` and its `auth.json`, the broker's managed-grant path
+(`ProtectedCompiler`, `authorize/2`, the `managed_*` session fence, the
+reserved `CODEX_CHATGPT_ACCESS_TOKEN` name), the usage-limit check and the
+`chatgpt` and `chatgpt_refresh` Oban queues.
+
+What stays: the codex runtime on an OpenAI API key from a credential set, an
+environment, a vault or the platform key, with the broker's ordinary
+substitution path; `PlatformInference`'s keys; and the machine's
+`codex_peer_homes` flag, which ADR 0023's guest attach (#2516) still uses to
+let a built machine take its first Codex bind.
+
+Existing rows: a credential set that named a subscription was cleared by a
+migration. A conversation or turn that ran on one still lists, with no
+`inference` source shown, and a conversation pinned to one is refused with
+`409 inference_source_changed` at its next turn or wake. The grant tables,
+`inference_credentials.chatgpt_grant_id` and the `managed_*` broker session
+columns are dropped one release later, so a replica of the previous release
+keeps working during the rollout. Nothing revokes a sign-in at OpenAI.
+
+The text above this addendum is history.

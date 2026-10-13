@@ -12,21 +12,6 @@ defmodule FountainWeb.FallbackControllerTest do
     assert message =~ "administrator can retry from the admin sandbox list"
   end
 
-  test "a ChatGPT subscription atom nothing maps yet reaches the safety net", %{conn: conn} do
-    log =
-      ExUnit.CaptureLog.capture_log(fn ->
-        conn =
-          FountainWeb.FallbackController.call(
-            conn,
-            {:error, {:chatgpt_subscription, :a_refusal_nobody_mapped}}
-          )
-
-        assert json_response(conn, 422) == %{"error" => "a_refusal_nobody_mapped"}
-      end)
-
-    assert log =~ "unmapped error atom :a_refusal_nobody_mapped"
-  end
-
   # Driven directly rather than through the route: reaching this refusal needs
   # an agent on the runner provider, and `runners_enabled` is global
   # application env this async module must not write (#1214). The `message` is
@@ -133,75 +118,21 @@ defmodule FountainWeb.FallbackControllerTest do
     end
   end
 
-  # ADR 0060 decision 4: the refusal names the subscription and says nothing
-  # was used in its place.
-  test "an unusable named ChatGPT grant is a 409 that names it and carries no secret", %{
-    conn: conn
-  } do
-    until = ~U[2026-09-21 12:00:00Z]
-
-    detail = %{
-      grant_id: "6e5d4c3b-2a19-4f8e-9d7c-6b5a4f3e2d1c",
-      name: "Work",
-      reason: :exhausted,
-      until: until
-    }
-
-    body =
-      conn
-      |> FountainWeb.FallbackController.call({:error, {:chatgpt_grant_unusable, detail}})
-      |> json_response(409)
-
-    assert body == %{
-             "error" => "chatgpt_grant_unusable",
-             "reason" => "exhausted",
-             "grant_id" => detail.grant_id,
-             "grant" => "Work",
-             "until" => "2026-09-21T12:00:00Z",
-             "message" => Fountain.InferenceCredentials.grant_unusable_message(detail)
-           }
-
-    assert body["message"] =~ ~s("Work")
-    assert body["message"] =~ "2026-09-21T12:00:00Z"
-    assert body["message"] =~ "does not switch"
-
-    not_found = %{grant_id: detail.grant_id, name: nil, reason: :not_found, until: nil}
-
-    body =
-      conn
-      |> FountainWeb.FallbackController.call({:error, {:chatgpt_grant_unusable, not_found}})
-      |> json_response(409)
-
-    assert %{"reason" => "not_found", "grant" => nil, "until" => nil} = body
-  end
-
-  test "a grant its owner may not use right now says so, and not to reconnect it", %{conn: conn} do
-    detail = %{
-      grant_id: Ecto.UUID.generate(),
-      name: "Work",
-      reason: :owner_ineligible,
-      until: nil
-    }
-
-    body =
-      conn
-      |> FountainWeb.FallbackController.call({:error, {:chatgpt_grant_unusable, detail}})
-      |> json_response(409)
-
-    assert %{"error" => "chatgpt_grant_unusable", "reason" => "owner_ineligible"} = body
-    assert body["message"] =~ "verified account"
-    refute body["message"] =~ "Reconnect"
-  end
-
-  # #2362: a persistent home keeps its Codex source when the platform ChatGPT
-  # account's usage limit starts or resets, so both refusals name the way to a
-  # sandbox that is not bound to the old source.
+  # A persistent home keeps its Codex source, so both refusals name the way to
+  # a sandbox that is not bound to the old source. A conversation that ran on
+  # a ChatGPT subscription (removed) is told its source is gone.
   test "Codex source refusals name the sandbox that is not bound to the old source", %{
     conn: conn
   } do
+    body =
+      conn
+      |> FountainWeb.FallbackController.call({:error, :inference_source_changed})
+      |> json_response(409)
+
+    assert body["message"] =~ "ChatGPT subscription, which Fountain no longer supports"
+
     for reason <- [:inference_source_changed, :codex_inference_conflict] do
       body = conn |> FountainWeb.FallbackController.call({:error, reason}) |> json_response(409)
-      assert body["message"] =~ "usage limit"
       assert body["message"] =~ "sandbox_mode ephemeral"
       assert body["message"] =~ "reset"
     end

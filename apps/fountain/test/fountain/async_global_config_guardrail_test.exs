@@ -40,8 +40,6 @@ defmodule Fountain.AsyncGlobalConfigGuardrailTest do
   # The list only shrinks. Moving a file into a sibling `async: false` module
   # is always correct.
   @allowed [
-    # :feature_flag_overrides — read by the flag lookup.
-    "apps/fountain/test/fountain/audit_guardrail_test.exs",
     # :broker_allow_unenforced — read while provisioning a brokered sandbox.
     "apps/fountain/test/fountain/conversations/provisioning_test.exs",
     # :retention_days — read only by the pruner under test.

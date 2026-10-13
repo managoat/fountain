@@ -23,11 +23,9 @@ defmodule Fountain.PlatformInference do
     * `status/0` — one entry per provider for the admin page: where the live
       key comes from, when and by whom it was set, and its last four
       characters.
-    * `credential_for/2` and `reference/3` — what the resolver asks when no
-      tenant source was selected: the deployment's credential for this
-      provider and runtime (the ChatGPT grant for codex on a brokered
-      deployment, ADR 0047, else the key), and the durable identity a
-      platform source is bound to.
+    * `key_for/1` and `reference/3` — what the resolver asks when no tenant
+      source was selected: the deployment's key for this provider, and the
+      durable identity a platform source is bound to.
 
   The *selection* rule lives in `Fountain.InferenceCredentials.resolve/4`,
   one function, because it is a statement about credentials rather than
@@ -40,8 +38,6 @@ defmodule Fountain.PlatformInference do
   daily ceiling and no per-account meter. An operator who sets a key is
   paying for every account's inference on it.
   """
-
-  import Ecto.Query, only: [from: 2]
 
   require Logger
 
@@ -134,92 +130,17 @@ defmodule Fountain.PlatformInference do
   def key_for(_provider), do: :none
 
   @doc """
-  The deployment's credential for a provider and runtime: `{:ok, kind, value}`
-  in the shape `key_for/1` returns, or `:none`.
-
-  Codex on an OpenAI model takes the deployment's ChatGPT grant (ADR 0047
-  decision 6) when one is active and the deployment is brokered, and falls
-  through to the platform key otherwise; every other pairing is `key_for/1`.
-  "Brokered" is `Fountain.Broker.configured?/0`, a deployment fact rather
-  than a conversation's: the broker carries the value on every sandbox it
-  serves, so wherever the grant is selected the sandbox holds a placeholder
-  (#2057). On a deployment with no broker the token would land in the
-  sandbox in the clear, so the grant is never selected there.
-
-  An active grant whose account has spent its Codex usage is skipped while
-  the recorded reset is in the future
-  (`Fountain.ChatGPTAccounts.platform_exhausted_until/1`, #2362), and the
-  platform key serves instead: metered per token, still under the daily
-  ceiling, since `gate_source/1` gates whatever this selected. With no key to
-  fall back to, the grant is still selected, so the turn fails with the
-  provider's own reset time rather than with no credential at all. The skip
-  ends by itself when the reset passes.
-
-  For the grant the value is its placeholder
-  (`Fountain.ChatGPTAccounts.Reserved.placeholder/1`), not its token: a
-  conversation never holds a managed grant's bearer. Answered from the row
-  alone, no provider I/O: a grant within its expiry margin is selected as it
-  is, and the turn's gate renews it (`CodexChatGPT.ensure_fresh/2`).
-  """
-  @spec credential_for(String.t() | nil, String.t() | nil) :: {:ok, atom(), String.t()} | :none
-  def credential_for("openai" = provider, "codex") do
-    if Fountain.Broker.configured?() do
-      # Which grant, never its bearer: what the runtime is handed is the
-      # grant's placeholder, and the token reaches the proxy only through the
-      # broker's per-request read (ADR 0052 decision 6).
-      case Fountain.ChatGPTAccounts.platform_selection() do
-        {:ok, %{grant_id: grant_id}} ->
-          grant_unless_exhausted(
-            provider,
-            Fountain.ChatGPTAccounts.Reserved.placeholder(grant_id)
-          )
-
-        :none ->
-          key_for(provider)
-      end
-    else
-      key_for(provider)
-    end
-  end
-
-  def credential_for(provider, _runtime), do: key_for(provider)
-
-  defp grant_unless_exhausted(provider, placeholder) do
-    with %DateTime{} <- Fountain.ChatGPTAccounts.platform_exhausted_until(),
-         {:ok, _kind, _key} = key <- key_for(provider) do
-      key
-    else
-      _ -> {:ok, :codex_chatgpt_access_token, placeholder}
-    end
-  end
-
-  @doc """
   The durable identity and revision of a platform source, for
   `Fountain.InferenceCredentials.Source`: which deployment credential served
   the run, and a marker that changes when it is replaced. Never bearer
   material.
 
-  The ChatGPT grant is `platform:chatgpt:<grant id>` at the grant's
-  generation: a token refresh keeps the identity, a reconnect replaces it.
   A stored key is `platform:stored:<provider>` at the row's revision. A key
   from the environment is `platform:environment:<provider>` with a keyed
   digest of the value under the tenant DEK, so a replaced variable reads as
   a new revision without the source holding the key.
   """
   @spec reference(atom(), map(), binary()) :: {String.t(), term()}
-  def reference(:codex_chatgpt_access_token, _creds, _dek) do
-    # Ownership and generation are read from the same null-owner grant
-    # `credential_for/3` selected. Token refresh does not replace this
-    # identity.
-    grant =
-      Repo.one(
-        from a in Fountain.PlatformChatGPT.Account,
-          where: is_nil(a.user_id) and a.status == "active"
-      )
-
-    {"platform:chatgpt:#{grant.id}", grant.generation}
-  end
-
   def reference(kind, creds, dek) do
     {provider, _} =
       Enum.find(@providers, fn {_provider, {credential, _}} -> credential == kind end)

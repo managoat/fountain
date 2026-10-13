@@ -103,8 +103,8 @@ then stops the offer. Read
 [Deploy an instance](../guides/operate/deploy.md).
 
 **Do you write something that links a person to a transcript?** Read the URL
-from the one place that knows it. The console's links, an email's "open it", a
-forwarded support report and `/api/catalog` all agree, because they all ask
+from the one place that knows it. The console's links, an email's "open it"
+and `/api/catalog` all agree, because they all ask
 the same module.
 
 ## What this is not

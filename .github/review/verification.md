@@ -10,8 +10,8 @@ GitHub write token or provider credential belongs in this machine.
 
 Independent verification runs all six core test partitions sequentially
 using the upstream runner's nonzero-test and coverage-export guards, then runs
-every sibling app's suite and root umbrella tests in one VM. The root run catches
-cross-app configuration leaks that separate CI partitions cannot. It covers the core `mix precommit` stages: compilation,
+the whole suite from the umbrella root in one VM. The root run catches
+configuration leaks that separate CI partitions cannot. It covers the core `mix precommit` stages: compilation,
 unused-dependency/lockfile checks, formatting, Credo, Dialyzer in dev, security
 scanning, release assembly in prod, and tests. Commands fail fast, including grouped stages that keep the policy within
 20 entries; any failed stage makes verification incomplete. Plain `mix deps.get` preserves dev/test dependencies

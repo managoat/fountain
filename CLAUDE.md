@@ -12,7 +12,7 @@ the files it points at.
 | Server implementation conventions | [contributing/server.md](contributing/server.md) |
 | CI jobs, the merge queue mechanics, coverage, partitions | [scripts/ci/README.md](scripts/ci/README.md) |
 | Writing and checking manual pages | [contributing/docs.md](contributing/docs.md) |
-| Component libraries (extraction is paused) | [contributing/component-libraries.md](contributing/component-libraries.md) |
+| The hex-pinned `managoat_*` libraries | [contributing/component-libraries.md](contributing/component-libraries.md) |
 | Why things are the way they are | [decisions/index.md](decisions/index.md) |
 | Reference templates and GitHub labels | [standards/](standards/) |
 | Configuration reference | [docs/configuration.md](docs/configuration.md), `.env.example` |
@@ -41,7 +41,7 @@ review upstream changes before replacing it.
 mise install                        # Erlang/OTP 28 + Elixir 1.19.2, from .tool-versions
 mix deps.get && mix setup           # dev DB: create + migrate
 MIX_ENV=test mix ecto.create && MIX_ENV=test mix ecto.migrate
-mix test                            # core and every sibling app
+mix test                            # the whole suite, from the umbrella root
 mix precommit                       # server checks: static analysis, sobelow, release assemble
 mix precommit --full                # server checks plus the whole suite
 mix precommit --list                # its stages; `mix precommit credo test` runs a subset

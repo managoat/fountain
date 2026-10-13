@@ -82,6 +82,10 @@
     {
       "operations": ["POST /api/vaults/{id}/copy"],
       "reason": "Server-side vault copy, added for a provisioning client (Ravix) that derives one vault per workstream from a template vault over plain HTTP. No SDK has a caller for it yet; the response is the existing Vault shape, so a client can adopt it without new models."
+    },
+    {
+      "operations": ["POST /api/admin/users"],
+      "reason": "Operator provisioning for a platform built on the instance (ADR 0064): its provisioner opens one account per application over plain HTTP with an admin's key. No SDK has an operator caller for account creation; the response is the AdminUser shape plus the new key."
     }
   ]
 }

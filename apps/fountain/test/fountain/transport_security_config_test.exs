@@ -19,7 +19,7 @@ defmodule Fountain.TransportSecurityConfigTest do
     "EMAIL_DELIVERY" => "none"
   }
 
-  @vars ~w(PUBLIC_URL CHECK_ORIGIN_EXTRA SPRITES_BASE_URL)
+  @vars ~w(PUBLIC_URL CHECK_ORIGIN_EXTRA SPRITES_BASE_URL FORCE_SSL_EXCLUDE_HOSTS)
 
   setup do
     previous = System.get_env()
@@ -63,6 +63,24 @@ defmodule Fountain.TransportSecurityConfigTest do
       assert force_ssl[:hsts] == true
       assert force_ssl[:expires] == 31_536_000
       assert force_ssl[:subdomains] == true
+    end
+
+    test "force_ssl excludes localhost by default", %{config: config} do
+      assert config[:force_ssl][:exclude] == ["localhost"]
+    end
+
+    test "FORCE_SSL_EXCLUDE_HOSTS adds in-network hosts to the exclusion", %{base: base} do
+      config =
+        read_prod(
+          base
+          |> Map.put("PUBLIC_URL", "https://fountain.example.com")
+          |> Map.put(
+            "FORCE_SSL_EXCLUDE_HOSTS",
+            " fountain.fountain.svc.cluster.local, ,localhost"
+          )
+        )
+
+      assert config[:force_ssl][:exclude] == ["localhost", "fountain.fountain.svc.cluster.local"]
     end
 
     test "force_ssl rewrites on forwarded headers", %{config: config} do

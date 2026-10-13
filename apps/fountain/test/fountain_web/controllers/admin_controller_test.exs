@@ -92,6 +92,122 @@ defmodule FountainWeb.AdminControllerTest do
     end
   end
 
+  describe "POST /api/admin/users (ADR 0064)" do
+    test "opens a verified, passwordless account and returns its working full-scope key", %{
+      conn: conn,
+      key: key,
+      admin: admin
+    } do
+      body =
+        conn
+        |> authed_with_key(key)
+        |> post_json("/api/admin/users", %{"email" => "Helpdesk@Apps.Example.com"})
+        |> json_response(201)
+
+      assert body["data"]["email"] == "helpdesk@apps.example.com"
+      assert body["data"]["email_verified"] == true
+      assert body["data"]["role"] == "user"
+      assert "ftn_" <> _ = new_key = body["api_key"]
+
+      user = Accounts.get_user(body["data"]["id"])
+      assert user.password_hash == nil
+      refute is_nil(user.email_verified_at)
+
+      # The key is the new account's own, full scope, and works on the tenant API.
+      me =
+        build_conn()
+        |> authed_with_key(new_key)
+        |> get("/api/auth/me")
+        |> json_response(200)
+
+      assert me["id"] == user.id or get_in(me, ["data", "id"]) == user.id
+      assert [%{scopes: ["full"]}] = Repo.all(Ecto.assoc(user, :api_keys))
+
+      assert "admin.account.created" in event_types()
+
+      actions =
+        Fountain.Audit.Event
+        |> Repo.all()
+        |> Enum.filter(&(&1.user_id == user.id))
+        |> Enum.map(&{&1.action, &1.actor})
+
+      assert {"account.created_by_admin", "admin:#{admin.id}"} in actions
+      assert {"api_key.created", "admin:#{admin.id}"} in actions
+    end
+
+    test "ignores registration's gates", %{conn: conn, key: key} do
+      previous = Application.get_env(:fountain, :registration_enabled)
+      Application.put_env(:fountain, :registration_enabled, false)
+      on_exit(fn -> Application.put_env(:fountain, :registration_enabled, previous) end)
+
+      conn
+      |> authed_with_key(key)
+      |> post_json("/api/admin/users", %{"email" => "closed@apps.example.com"})
+      |> json_response(201)
+    end
+
+    test "names the key", %{conn: conn, key: key} do
+      body =
+        conn
+        |> authed_with_key(key)
+        |> post_json("/api/admin/users", %{
+          "email" => "named@apps.example.com",
+          "key_name" => "provisioner"
+        })
+        |> json_response(201)
+
+      user = Accounts.get_user(body["data"]["id"])
+      assert [%{name: "provisioner"}] = Repo.all(Ecto.assoc(user, :api_keys))
+    end
+
+    test "refuses an address already taken, and creates nothing", %{
+      conn: conn,
+      key: key,
+      target: target
+    } do
+      before = Repo.aggregate(Fountain.Accounts.User, :count)
+
+      body =
+        conn
+        |> authed_with_key(key)
+        |> post_json("/api/admin/users", %{"email" => target.email})
+        |> json_response(422)
+
+      assert body["error"] == "invalid_account"
+      assert Repo.aggregate(Fountain.Accounts.User, :count) == before
+      assert admin_events() == []
+    end
+
+    test "refuses a malformed address", %{conn: conn, key: key} do
+      conn
+      |> authed_with_key(key)
+      |> post_json("/api/admin/users", %{"email" => "not-an-address"})
+      |> json_response(422)
+    end
+
+    test "is refused to a non-admin and to an admin's sprite token", %{
+      conn: conn,
+      admin: admin,
+      target: target
+    } do
+      {_rec, plain_key} = insert_api_key(target)
+      {_rec, sprite_key} = insert_sprite_api_key(admin)
+
+      assert conn
+             |> authed_with_key(plain_key)
+             |> post_json("/api/admin/users", %{"email" => "a@apps.example.com"})
+             |> json_response(403)
+
+      assert build_conn()
+             |> authed_with_key(sprite_key)
+             |> post_json("/api/admin/users", %{"email" => "b@apps.example.com"})
+             |> json_response(403)
+
+      assert Accounts.get_user_by_email("a@apps.example.com") == nil
+      assert Accounts.get_user_by_email("b@apps.example.com") == nil
+    end
+  end
+
   describe "GET /api/admin/users" do
     test "lists accounts with operator metadata and pagination", %{conn: conn, key: key} do
       body = conn |> authed_with_key(key) |> get("/api/admin/users") |> json_response(200)

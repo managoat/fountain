@@ -17,7 +17,7 @@ defmodule Fountain.Conversations.SpriteEnv do
   """
 
   alias Fountain.{Broker, Crypto, Environments, InferenceCredentials, Vaults}
-  alias Fountain.Conversations.{CallbackKey, CodexChatGPT, InferenceResolution}
+  alias Fountain.Conversations.{CallbackKey, InferenceResolution}
   alias Fountain.Environments.Environment
   alias Fountain.Vaults.Vault
 
@@ -74,8 +74,7 @@ defmodule Fountain.Conversations.SpriteEnv do
   `:env_credentials`, `:callback_token`, `:conversation_id` and
   `:sandbox_id`, plus `:sandbox_url` (nil before the sandbox has one),
   `:brokered` (the pairs from the broker session, `[]` when the conversation
-  is not brokered; the broker half is #1373's) and `:inference_source` (the
-  resolved source, when the caller holds one).
+  is not brokered; the broker half is #1373's).
   """
   @spec build(map() | nil, Environment.t() | nil, map(), keyword()) ::
           [{String.t(), String.t()}]
@@ -88,15 +87,13 @@ defmodule Fountain.Conversations.SpriteEnv do
 
     # Only the resolved kind reaches the selected provider's auth inputs.
     # Its value has already passed through Egress, including broker custody.
-    source = Keyword.get(opts, :inference_source)
-    auth_names = inference_input_names(agent && agent.model, source)
+    auth_names = inference_input_names(agent && agent.model)
 
     plain = if env, do: Map.drop(env.env_vars || %{}, auth_names), else: %{}
     secrets = Map.drop(secrets, auth_names)
 
     sprite_env =
       (runtime_module.default_env(agent, env_credentials) || []) ++
-        CodexChatGPT.env(runtime_module, env_credentials, source) ++
         CallbackKey.env(Keyword.fetch!(opts, :callback_token)) ++
         conversation_env(conversation_id) ++
         sandbox_id_env(Keyword.fetch!(opts, :sandbox_id)) ++
@@ -226,11 +223,6 @@ defmodule Fountain.Conversations.SpriteEnv do
     for {credential, value} <- env_credentials,
         is_binary(value),
         value != Map.get(stand_ins, credential),
-        # A managed grant's credential is a placeholder from the start: its
-        # bearer never enters a conversation. It is not in `brokered`, so the
-        # line above does not know it, and it ends in `__` like every other
-        # stand-in (#2366).
-        not Fountain.ChatGPTAccounts.Reserved.placeholder?(value),
         MapSet.member?(exported, value),
         do: value
   end
@@ -268,33 +260,16 @@ defmodule Fountain.Conversations.SpriteEnv do
         do: {credential, Broker.placeholder(key)}
   end
 
-  def without_inference_inputs(model, inputs, source \\ nil),
-    do: Map.drop(inputs, inference_input_names(model, source))
+  def without_inference_inputs(model, inputs),
+    do: Map.drop(inputs, inference_input_names(model))
 
   # The env names that would carry a credential for the provider the run
-  # reaches. The model's prefix says which provider, except on a `:grant`
-  # source: that is a codex run on a ChatGPT subscription whatever the model
-  # string says (the resolver keys the grant on the runtime, and an agent's
-  # model may carry no prefix), so OpenAI's names are dropped there too. An
-  # `OPENAI_API_KEY` from the environment or the vault beside the grant would
-  # be the silent switch ADR 0060 decision 4 forbids.
-  #
-  # A source whose codex peer keeps its `auth.json` in a home of its own
-  # (`CodexChatGPT.own_home?/1`) loses a tenant `CODEX_HOME` as well. The
-  # list is concatenated and the last entry of a name wins at the spawn, so an
-  # `env_vars` or vault `CODEX_HOME` would point codex back at the shared
-  # `~/.codex`, and at whichever account's file was written there last.
-  defp inference_input_names(model, source) do
-    granted =
-      if match?(%InferenceCredentials.Source{scope: :grant}, source), do: ["openai"], else: []
-
-    names =
-      [Managoat.Runtimes.Model.provider(model) | granted]
-      |> Enum.uniq()
-      |> Enum.flat_map(&InferenceCredentials.credentials_for_provider/1)
-      |> Enum.flat_map(&Map.fetch!(InferenceCredentials.env_aliases(), &1))
-
-    if CodexChatGPT.own_home?(source), do: [CodexChatGPT.home_key() | names], else: names
+  # reaches, which the model's prefix says.
+  defp inference_input_names(model) do
+    model
+    |> Managoat.Runtimes.Model.provider()
+    |> InferenceCredentials.credentials_for_provider()
+    |> Enum.flat_map(&Map.fetch!(InferenceCredentials.env_aliases(), &1))
   end
 
   # The overridable half of the broker's pairs, and the half that is not.

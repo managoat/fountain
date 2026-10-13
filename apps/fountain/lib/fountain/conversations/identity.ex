@@ -56,10 +56,8 @@ defmodule Fountain.Conversations.Identity do
   # including tenant env/vault secrets with a supported name or alias.
   # Unbrokered values are bearer material; broker placeholders are harmless
   # fixed strings, but neither needs to persist in the shared env file.
-  # The managed ChatGPT path also emits a placeholder into the process env.
-  # Strip its reserved name defensively along with the static credentials.
   # Runtime-owned auth files require separate isolation (decision 6).
-  @process_only [@tag_key, "FOUNTAIN_TOKEN", "TRACEPARENT", "CODEX_CHATGPT_ACCESS_TOKEN"] ++
+  @process_only [@tag_key, "FOUNTAIN_TOKEN", "TRACEPARENT"] ++
                   Fountain.Broker.process_only_keys() ++
                   (Fountain.InferenceCredentials.env_aliases() |> Map.values() |> List.flatten())
 
@@ -81,24 +79,8 @@ defmodule Fountain.Conversations.Identity do
   """
   @spec disk_env([{String.t(), String.t()}]) :: [{String.t(), String.t()}]
   def disk_env(sprite_env) when is_list(sprite_env) do
-    Enum.reject(sprite_env, fn {k, v} ->
-      to_string(k) in @process_only or grant_home?(to_string(k), v)
-    end)
+    Enum.reject(sprite_env, fn {k, _v} -> to_string(k) in @process_only end)
   end
-
-  # The isolation decision 6 asks for, for a managed ChatGPT grant, is a
-  # `CODEX_HOME` of the grant's own (`Fountain.Conversations.CodexChatGPT`).
-  # It differs between two conversations on one machine, so it is process
-  # env: in the shared file it would point every codex process on the disk
-  # at one account's `auth.json`. Decided by the value, not by the name: a
-  # tenant's own `CODEX_HOME` is machine-wide configuration and stays where
-  # it has always been.
-  defp grant_home?(key, value) when is_binary(value) do
-    key == Fountain.Conversations.CodexChatGPT.home_key() and
-      String.starts_with?(value, Fountain.Conversations.CodexChatGPT.homes_root() <> "/")
-  end
-
-  defp grant_home?(_key, _value), do: false
 
   @doc """
   Wrap a command so its session is tagged with `conv_id` and the process sees

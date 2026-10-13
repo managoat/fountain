@@ -1,19 +1,20 @@
 ---
 type: ADR
 title: "Users link a ChatGPT subscription and Fountain manages the grant"
-description: "Proposed; linking a grant is behind a flag that the maintainer turned on for every account on the hosted instance on 2026-09-21, ahead of ADR 0060's rollout checklist, and that is off on a self-hosted deployment unless forced. ADR 0060 stage 4 built decision 2's attempts, its API and its card; stages 1 to 3 built the owner-scoped lifecycle, selection, and the revocation-fenced broker authorization and protected destination, for a user's grant and then for the platform grant. Tenant-owned ChatGPT grants use tenant encryption, coordinated refresh, revocation-fenced broker authorization, protected provider destinations, and no automatic paid fallback."
+description: "Retired 2026-10-13: ChatGPT subscriptions and the deployment's ChatGPT account were removed, and codex runs on an OpenAI API key. Was: Users link a ChatGPT subscription and Fountain manages the grant, with tenant encryption, coordinated refresh, revocation-fenced broker authorization and no automatic paid fallback."
 tags: [inference, codex, oauth, security, billing]
-status: draft
+status: deprecated
 adr: "0052"
-adr_status: "Proposed"
+adr_status: "Retired"
 date: 2026-09-11
 generated: { by: "process:codex", at: 2026-09-11T21:03:56-04:00 }
-stale_after: 2026-10-11
 ---
 
 # 0052 — Users link a ChatGPT subscription and Fountain manages the grant
 
-**Status:** Proposed. The user-level surface (decisions 2, 4 and 5: the
+**Status:** Retired 2026-10-13; see the addendum at the end. The text above the addendum is history. Was: Proposed, 2026-09-11.
+
+**Status before retirement:** Proposed. The user-level surface (decisions 2, 4 and 5: the
 linking UI and API, selection, per-peer sandbox identity) was never built.
 Decisions 1, 3 and 6 were built by #2011–#2015 and #2017 on 2026-09-13;
 their platform half is live, and their tenant-owner half was plumbing that
@@ -516,3 +517,38 @@ be corrected; they do not get a compatibility exception.
   inference selection, and billing need an inference-specific context.
 - **Silently fall back to an API key or platform grant.** Changes whose
   quota or money is consumed when the user selected their subscription.
+
+## Addendum — 2026-10-13: retired, ChatGPT subscriptions are removed
+
+Fountain no longer runs codex on a ChatGPT sign-in (#2642). The maintainer
+decided on 2026-10-13 to cut the feature: production held three grants, all
+owned by one account that has left, none on the deployment's own row, and
+the last conversation on a subscription ran on 2026-10-08. The feature was
+about 7,700 lines of server code and 15,500 of tests for that. "If I want it
+I can add it back."
+
+What went: the deployment's ChatGPT account (`/admin/inference`'s ChatGPT
+row, its refresher and keepalive), users' subscriptions (the
+`/api/account/chatgpt-subscriptions` routes, device-code link attempts, the
+console card and the set picker, `chatgpt_grant_id` on a credential set, the
+`chatgpt_subscriptions` flag and with it `Fountain.FeatureFlags`), the
+per-grant `CODEX_HOME` and its `auth.json`, the broker's managed-grant path
+(`ProtectedCompiler`, `authorize/2`, the `managed_*` session fence, the
+reserved `CODEX_CHATGPT_ACCESS_TOKEN` name), the usage-limit check and the
+`chatgpt` and `chatgpt_refresh` Oban queues.
+
+What stays: the codex runtime on an OpenAI API key from a credential set, an
+environment, a vault or the platform key, with the broker's ordinary
+substitution path; `PlatformInference`'s keys; and the machine's
+`codex_peer_homes` flag, which ADR 0023's guest attach (#2516) still uses to
+let a built machine take its first Codex bind.
+
+Existing rows: a credential set that named a subscription was cleared by a
+migration. A conversation or turn that ran on one still lists, with no
+`inference` source shown, and a conversation pinned to one is refused with
+`409 inference_source_changed` at its next turn or wake. The grant tables,
+`inference_credentials.chatgpt_grant_id` and the `managed_*` broker session
+columns are dropped one release later, so a replica of the previous release
+keeps working during the rollout. Nothing revokes a sign-in at OpenAI.
+
+The text above this addendum is history.

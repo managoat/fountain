@@ -439,3 +439,17 @@ and it is what ships; the pool is a later decision with evidence behind it.
   building tenancy twice.
 - **Put the set in the sandbox identity tuple.** Simple and wrong: it gives a
   tenant one persistent home per credential when they asked for one home.
+
+## Addendum — 2026-10-13: ChatGPT subscriptions removed
+
+ADRs 0047, 0052 and 0060 are retired (#2642): Fountain no longer runs codex
+on a ChatGPT sign-in. What this ADR said about them no longer applies. A set
+does not name a subscription (`chatgpt_grant_id` was cleared by a migration
+and is dropped one release later), resolution has no `grant` scope, and
+`CODEX_CHATGPT_ACCESS_TOKEN` is no longer a reserved name. A conversation
+pinned to a subscription is refused with `inference_source_changed`, by the
+binding rules above: no fresh resolution can equal its stored source. The
+interim one-source Codex binding of decision 6 stands for every source; a
+peer that ran on a subscription is not counted against a newcomer on a
+machine flagged `codex_peer_homes`, since it never wrote the shared
+`auth.json`.

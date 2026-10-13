@@ -78,6 +78,23 @@ and `QuotaExceededError` takes public API away, so that release is a major one.
   `"daytona"` from their `sandbox_provider` enums and the `Agent` response's.
   Requests naming either are refused by the server.
 
+- The `/api/account/chatgpt-subscriptions` paths (list, rename, disconnect,
+  delete, and the sign-in `attempts`), with the `ChatGPTSubscription`,
+  `ChatGPTSubscriptionResponse`, `ChatGPTSubscriptionListResponse`,
+  `ChatGPTSubscriptionUpdateRequest`, `ChatGPTLinkAttempt`,
+  `ChatGPTLinkAttemptResponse`, `ChatGPTLinkAttemptListResponse` and
+  `ChatGPTLinkAttemptCreateRequest` schemas, from the generated types. No
+  client method used them; Fountain removed ChatGPT subscriptions and the
+  server answers `404`.
+
+- `chatgpt_grant_id` and `chatgpt_grant` from `InferenceCredentialSet` and
+  `chatgpt_grant_id` from `InferenceCredentialSetUpdateRequest`,
+  `chatgpt_subscriptions_enabled` from `AuthMeResponse`, `chatgpt_grant_id`
+  and the `"grant"` scope from a `Turn`'s `inference`, and the
+  `retry_after_seconds`, `count`, `grant_id`, `grant`, `until`, `attempt_id`,
+  `state` and `sets` fields of `Error`, which only the ChatGPT refusals sent.
+  A turn that ran on a subscription now reads `inference: null`.
+
 ### Changed
 
 - `runtime` on the `Agent`, `Conversation` and `SandboxConversation` responses,

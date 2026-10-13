@@ -108,11 +108,3 @@ config :fountain, Fountain.OAuth,
 # about "which providers are enabled" (only what a test configures) hold;
 # runner tests switch it on explicitly.
 config :fountain, :runners_enabled, false
-
-# The ChatGPT grant for codex (ADR 0047): every call to auth.openai.com goes to
-# a Req.Test plug, so a test that forgets to stub it fails rather than dialling
-# out.
-config :fountain, :platform_chatgpt_req_options, plug: {Req.Test, Fountain.PlatformChatGPT.OAuth}
-# `ChatGPTAccounts.RefreshBreaker` reads a test's clock
-# (`:chatgpt_refresh_breaker_now_ms`) only in a build compiled with this.
-config :fountain, :chatgpt_refresh_breaker_test_clock, true

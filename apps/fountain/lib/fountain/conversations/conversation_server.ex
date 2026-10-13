@@ -439,8 +439,7 @@ defmodule Fountain.Conversations.ConversationServer do
         tenant_secrets =
           SpriteEnv.without_inference_inputs(
             agent && agent.model,
-            SpriteEnv.merge_secrets(env, vault, dek),
-            inference_source
+            SpriteEnv.merge_secrets(env, vault, dek)
           )
 
         bindings = Egress.bindings(conv.user_id)
@@ -488,7 +487,7 @@ defmodule Fountain.Conversations.ConversationServer do
 
       {:error, reason} ->
         Logger.error(
-          "ConversationServer could not load tenant credentials for conv #{conv.id} (user #{conv.user_id}): #{inspect(Fountain.InferenceCredentials.loggable_reason(reason))}"
+          "ConversationServer could not load tenant credentials for conv #{conv.id} (user #{conv.user_id}): #{inspect(reason)}"
         )
 
         # Through the owner (ADR 0058 stage 7b), which re-reads the status this
@@ -496,14 +495,9 @@ defmodule Fountain.Conversations.ConversationServer do
         # for a row that is no longer pending or starting.
         fail_machine(sandbox.id, :tenant_credential_load_failed, conv.id)
 
-        # A named subscription that cannot serve says so as the turn's refusal
-        # and a failed reattach do (`CodexChatGPT.refusal_stage/3`: the grant,
-        # why, and `until` at a usage limit), not as an inspected tuple.
-        Conversations.ActorStatus.fail(
-          state,
-          Fountain.Conversations.CodexChatGPT.refusal_stage(reason, conv.user_id, nil) ||
-            %{reason: "tenant_credential_load_failed: #{inspect(reason)}"}
-        )
+        Conversations.ActorStatus.fail(state, %{
+          reason: "tenant_credential_load_failed: #{inspect(reason)}"
+        })
 
         {:stop, :normal, state}
     end
@@ -716,8 +710,6 @@ defmodule Fountain.Conversations.ConversationServer do
              ] and not is_nil(running_turn) and not is_nil(running_turn.acp_prompt_id) do
           Reattachment.wait_for_runner(%{state | current_turn: running_turn}, &fail_transport/2)
         else
-          # Not every reason here is transient: a grant the broker will mint
-          # no session for is permanent, and `failed_stage/3` says which.
           meta = %{retryable: true, node: to_string(node())}
           failed = Reattachment.failed_stage(state, reason, meta)
           Output.publish_stage(state.conversation_id, "reattach", "failed", failed)
@@ -780,8 +772,7 @@ defmodule Fountain.Conversations.ConversationServer do
       sandbox_id: state.sandbox_id,
       sandbox_url: sandbox_url,
       brokered: Egress.sandbox_env(state.broker, ca_files || Fountain.Broker.system_ca_files()),
-      broker_credentials: state.brokered,
-      inference_source: Map.get(state, :inference_source)
+      broker_credentials: state.brokered
     )
     |> Fountain.Conversations.CotenantSecrets.assembled(state)
   end

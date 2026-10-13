@@ -102,7 +102,7 @@ defmodule Fountain.Conversations.MixedHomeLifecycleTest do
       :ok
     end)
 
-    stub(Provisioning, :prepare_runtime_sprite, fn _h, runtime, _mod, _a, _env, _src, _u ->
+    stub(Provisioning, :prepare_runtime_sprite, fn _h, runtime, _mod, _a, _env ->
       send(test, {:runtime_prepared, runtime})
       :ok
     end)

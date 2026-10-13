@@ -5,25 +5,8 @@ import Config
 # the problem the Rehydrator solves by hand.
 config :fountain, Oban,
   repo: Fountain.Repo,
-  # chatgpt carries the pollers of users' ChatGPT sign-ins (ADR 0060 stage 4):
-  # one short HTTP call to the auth server every few seconds per open attempt,
-  # for at most fifteen minutes. Its own queue so a burst of sign-ins never
-  # sits in front of a schedule or an email. Ten, because the queue serves
-  # every account at once and a run is one or two HTTP calls and a short
-  # write: it waits on the auth server, never on a CPU. Each call is bounded
-  # at eighteen seconds (`OAuth.refresh_timeout_ceiling_ms/0`), so an auth
-  # server that stops answering delays the other polls by seconds, and an
-  # account's own three open attempts cannot fill it.
-  # chatgpt_refresh carries the keepalive's renewals of users' idle ChatGPT
-  # grants (ADR 0060 stage 5): one call to the auth server's token endpoint
-  # per job, through `ChatGPTAccounts.RefreshCoordinator`. Two per node, on
-  # purpose below the four renewals that coordinator admits, so a turn whose
-  # grant needs renewing never finds the keepalive holding every slot. Not
-  # on chatgpt, whose ten slots would let it.
   queues: [
     maintenance: 1,
-    chatgpt: 10,
-    chatgpt_refresh: 2,
     mailer: 5,
     schedules: 5
   ],
@@ -79,15 +62,6 @@ config :fountain, Oban,
        # credential; the notice window is days wide, so the hour is about
        # being read, not about precision.
        {"7 17 * * *", Fountain.Workers.SecretExpirySweeper},
-       # 04:29 UTC daily: renew the deployment's ChatGPT grant for codex if
-       # nobody has for six days (ADR 0047), so it
-       # never idles past the auth server's window. No-op when not connected.
-       {"29 4 * * *", Fountain.Workers.PlatformChatGPTKeepalive},
-       # 04:37 UTC daily: the same for users' grants (ADR 0060 stage 5). The
-       # sweep only pages ids and queues one chatgpt_refresh job per idle
-       # grant, spread over minutes to hours by how many are due; the jobs
-       # make the calls. Empty when nobody has linked a subscription.
-       {"37 4 * * *", Fountain.Workers.ChatGPTKeepaliveSweep},
        {"31 3 * * *", Fountain.Workers.BrokerReaper},
        # Every minute: the tick for user-defined team schedules. Cheap — one
        # indexed query, usually empty — and a minute is the cron grain the
@@ -106,11 +80,6 @@ config :fountain,
 # every account to what the provider plan allows; a start past it is refused
 # with 503 fleet_full. runtime.exs overrides it from SANDBOX_FLEET_CEILING.
 config :fountain, :sandboxes, fleet_ceiling: 20
-
-# How many ChatGPT subscriptions one account may link (ADR 0060 decision 1).
-# It stops a runaway client; it does not price anything. Nothing links one
-# yet, so there is no environment variable for it yet either.
-config :fountain, :chatgpt_grant_ceiling, 5
 
 # Sandbox lifetime bounds. Crossing the idle bound SUSPENDS the sandbox — the
 # sprite stays (scaled to zero) and the next prompt resumes the agent with its

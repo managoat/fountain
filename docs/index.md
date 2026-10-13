@@ -129,4 +129,4 @@ in full.
 - [Configuration reference](configuration.md), each environment variable
 - [Conversation states](reference/conversation-states.md)
 - [Glossary](reference/glossary.md), with the five overloaded words
-- [Feature status](reference/feature-status.md), the feature that is not on for every account
+- [Feature status](reference/feature-status.md), where the features that were not on for every account went

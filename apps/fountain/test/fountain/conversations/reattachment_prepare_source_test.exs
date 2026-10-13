@@ -28,7 +28,7 @@ defmodule Fountain.Conversations.ReattachmentPrepareSourceTest do
     stub(Provisioning, :write_env_file, fn _handle, _env -> :ok end)
     stub(Reapply, :mount_skills, fn _handle, _conv, _agent -> :ok end)
     stub(InferenceBinding, :reserve, fn _conv, _source -> :ok end)
-    stub(Provisioning, :prepare_runtime_sprite, fn _, _, _, _, _, _, _ -> :ok end)
+    stub(Provisioning, :prepare_runtime_sprite, fn _, _, _, _, _ -> :ok end)
 
     %{conv: conv, state: state, handle: %Handle{provider: :sprites, name: "s"}}
   end
@@ -78,7 +78,7 @@ defmodule Fountain.Conversations.ReattachmentPrepareSourceTest do
     stub(Provisioning, :write_runtime_config, fn _, _, _ -> :ok end)
     stub(Egress, :install_ca, fn _, _, _ -> :ok end)
     stub(Provisioning, :write_env_file, fn _, _ -> {:error, :disk_full} end)
-    reject(&Provisioning.prepare_runtime_sprite/7)
+    reject(&Provisioning.prepare_runtime_sprite/5)
 
     assert {:error, :disk_full} =
              Reattachment.prepare_source(ctx.handle, ctx.state, ctx.conv, nil, [])

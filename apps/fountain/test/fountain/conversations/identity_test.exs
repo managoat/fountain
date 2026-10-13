@@ -35,12 +35,6 @@ defmodule Fountain.Conversations.IdentityTest do
       assert Identity.disk_env(env) == []
     end
 
-    test "keeps managed ChatGPT token inputs and broker placeholders off disk" do
-      for value <- ["managed-bearer", Fountain.Broker.placeholder("CODEX_CHATGPT_ACCESS_TOKEN")] do
-        assert Identity.disk_env([{"CODEX_CHATGPT_ACCESS_TOKEN", value}]) == []
-      end
-    end
-
     test "an empty env stays empty" do
       assert Identity.disk_env([]) == []
     end

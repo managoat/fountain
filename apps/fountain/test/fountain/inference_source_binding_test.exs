@@ -89,6 +89,61 @@ defmodule Fountain.InferenceSourceBindingTest do
     assert :ok = InferenceCredentials.validate_source(user.id, source)
   end
 
+  # ChatGPT subscriptions were removed on 2026-10-13. A conversation pinned
+  # to one, a user's or the deployment's, is refused with
+  # `:inference_source_changed` at its next turn or wake, even when the set
+  # it names now holds an OpenAI key: nothing is substituted for it.
+  test "a conversation pinned to a ChatGPT subscription is refused, not moved to a key", %{
+    user: user,
+    dek: dek
+  } do
+    {:ok, set} = InferenceCredentials.put_credential(user.id, dek, :openai_api_key, "sk-own")
+    grant_id = Ecto.UUID.generate()
+
+    base = %{
+      "set_id" => set.id,
+      "runtime" => "codex",
+      "model" => "openai/gpt-5",
+      "environment_id" => nil,
+      "vault_id" => nil
+    }
+
+    user_grant =
+      Map.merge(base, %{
+        "origin" => "own",
+        "scope" => "grant",
+        "kind" => "codex_chatgpt_access_token",
+        "identity" => "chatgpt_grant:" <> grant_id,
+        "revision" => Ecto.UUID.generate(),
+        "grant_id" => grant_id,
+        "generation" => Ecto.UUID.generate()
+      })
+
+    platform_grant =
+      Map.merge(base, %{
+        "origin" => "platform",
+        "scope" => "platform",
+        "kind" => "codex_chatgpt_access_token",
+        "identity" => "platform:chatgpt:" <> grant_id,
+        "revision" => Ecto.UUID.generate()
+      })
+
+    for stored <- [user_grant, platform_grant] do
+      assert {:error, :inference_source_changed} =
+               InferenceCredentials.validate_source(user.id, Source.load(stored))
+
+      conv =
+        insert_conversation(
+          user_id: user.id,
+          runtime: "codex",
+          inference_source: stored
+        )
+
+      assert {:error, :inference_source_changed} =
+               InferenceBinding.reserve(conv, Source.load(stored))
+    end
+  end
+
   test "renames retain a binding and replacement changes its revision even when restored", %{
     user: user,
     dek: dek

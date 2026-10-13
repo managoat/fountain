@@ -350,11 +350,6 @@ defmodule Fountain.Conversations.Egress do
   # per turn; a turn is a sandbox spawn or an ACP prompt, so the read is not
   # what a turn waits on.
   defp reread_secrets(state) do
-    # No managed ChatGPT grant is re-read here, the deployment's or a user's:
-    # a conversation holds no token of one to swap. It is renewed by id and
-    # generation at the turn's gate (`CodexChatGPT.ensure_fresh/2`), and the
-    # proxy reads the grant row on every request.
-    #
     # What a deleted tenant secret hands its name back to: the inference
     # credential of that name.
     {_creds, underlay, _implicit} =
@@ -365,8 +360,7 @@ defmodule Fountain.Conversations.Egress do
         state.tenant_keys,
         Fountain.Conversations.SpriteEnv.without_inference_inputs(
           Map.get(state, :inference_model),
-          tenant_secrets(state),
-          Map.get(state, :inference_source)
+          tenant_secrets(state)
         ),
         state.brokered,
         state.broker_bindings,
@@ -411,29 +405,10 @@ defmodule Fountain.Conversations.Egress do
 
   @doc """
   What every mint and every rewrite of this conversation's broker session is
-  given: the network shape, the tenant, and `managed:`, the managed ChatGPT
-  grant the conversation's source is pinned to, if it is on one
-  (`CodexChatGPT.managed_grant/2`). Derived from the source each time and
-  held nowhere: the server's state carries which grant, never its bearer.
-
-  Passing it on **every** issuance path is the point (ADR 0052 decision 5,
-  "every broker issuance path, including reprepare and reattach"): a session
-  re-minted because the old one is expiring goes through the same fence on
-  the grant row, so a grant disconnected since the conversation began gets no
-  fresh session.
+  given: the network shape and the tenant.
   """
   @spec session_opts(map()) :: keyword()
-  def session_opts(state) do
-    [
-      network: state.broker_network,
-      user_id: state.user_id,
-      managed:
-        Fountain.Conversations.CodexChatGPT.managed_grant(
-          Map.get(state, :inference_source),
-          state.user_id
-        )
-    ]
-  end
+  def session_opts(state), do: [network: state.broker_network, user_id: state.user_id]
 
   @doc "Keep the minted proxy session in server state; unbrokered state is unchanged."
   def prepare_state(state) do

@@ -95,8 +95,6 @@ defmodule Fountain.MixProject do
       # repository that publishes to hex from its own CI. The pins are
       # patch-level within each library's current minor release while everything
       # is 0.x: a new minor reaches Fountain only when someone bumps its pin here.
-      # A future library starts as {:managoat_<name>, in_umbrella: true}
-      # again; umbrella_layout_test.exs checks it is listed here.
       {:managoat_acp, "~> 0.5.0"},
       {:managoat_broker, "~> 0.16.0"},
       {:managoat_docs, "~> 0.1.0"},

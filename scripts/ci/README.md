@@ -227,9 +227,6 @@ PARTITION_DEBUG=1 elixir scripts/partition-files.exs 1 6
 Use one run's logs, not multiple runs, because durations for modules in the
 same file are summed. The artifact retention is one day. Unknown test files
 still get a median estimate and run; refreshing the table improves balance.
-When a sibling app exists under `apps/`, the allocator reserves 30 seconds on
-partition 1 for its suite, measured at 26-34 seconds on September 5, 2026. Update that reserve when the
-`Run the sibling apps' tests with coverage` step changes materially.
 
 ## Manual public-link check
 

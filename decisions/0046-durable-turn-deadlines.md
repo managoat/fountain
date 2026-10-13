@@ -336,6 +336,9 @@ Reproduce with `scripts/verify-turn-deadline-races.exs` through `MIX_ENV=test mi
 after migrating a dedicated local database whose name starts with
 `fountain_deadline_races_`. The script refuses other environments and leaves only
 local fixtures; it cannot start provider workers.
+The script and its four siblings were removed on 2026-10-13 as one-off
+proofs; they remain in git history before that date, and the hashes in
+`decisions/evidence/` identify the versions that produced each record.
 
 ## Alternatives considered
 

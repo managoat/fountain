@@ -68,7 +68,9 @@ behavior to preserve. This report is maintainer evidence, not a measured census
 of hosted traffic or self-hosted databases.
 
 The source and consumer inventory in `contributing/protocol-retirement.md`
-records the exact snapshots, removable code, shared behavior and migration gaps.
+recorded the exact snapshots, removable code, shared behavior and migration
+gaps. The retirement it planned has been executed, and the file was removed on
+2026-10-13; it is in git history before that date.
 [ADR 0056](0056-conversation-request-inputs.md) supplies native request APIs; it
 does not make an OpenAI or AG-UI host work by changing its base URL alone.
 

@@ -18,7 +18,7 @@ choices about probes and scale in inline comments.
 
 Every merge to `main` publishes `deploy/` as an OCI artifact at
 `ghcr.io/managoat/fountain-manifests`, with the image tag built from
-that commit in place of the release pin. The hosted instance runs from it. A
+that commit in place of the release pin. The maintainer's instance runs from it. A
 Flux `OCIRepository` on the tag `latest` and a `Kustomization` on the path
 `./deploy/k8s` give you the same, and Flux `patches` hold your changes.
 

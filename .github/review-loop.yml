@@ -98,8 +98,8 @@ verification:
     - rl-env env MIX_TEST_PARTITION=4 bash scripts/test-partition.sh 6
     - rl-env env MIX_TEST_PARTITION=5 bash scripts/test-partition.sh 6
     - rl-env env MIX_TEST_PARTITION=6 bash scripts/test-partition.sh 6
-    # Root tests share one VM and catch cross-app config leaks missed by partitions.
-    - rl-env sh -c 'bash scripts/test-libraries.sh && mix test'
+    # The root run shares one VM and catches config leaks the partitions miss.
+    - rl-env mix test
     - rl-env sh -c 'mix credo --strict && MIX_ENV=dev mix dialyzer'
     - rl-env elixir scripts/hex-audit-gate.exs
     - rl-env bash scripts/sobelow.sh
@@ -146,7 +146,6 @@ approval:
     - scripts/hex-audit-gate.exs
     - scripts/sobelow.sh
     - scripts/test-partition.sh
-    - scripts/test-libraries.sh
     - decisions/**
   human_review_label: needs:human-review
 limits:

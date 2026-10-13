@@ -523,7 +523,7 @@ environment variable, then the active profile in the credentials file. For the
 URL alone it then falls back to the built-in default,
 `https://managoat.com`.
 
-**Do you self-host?** That built-in default is the hosted instance, and not
+**Do you self-host?** That built-in default is the maintainer's instance, and not
 yours.
 
 Run `fountain auth login` with `FOUNTAIN_BASE_URL` pointed at your instance.

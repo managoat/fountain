@@ -114,7 +114,7 @@ such as a change to `test/support`, a factory, a migration or `config/`.
 | `dialyzer` | `MIX_ENV=dev mix dialyzer` |
 | `sobelow` | `scripts/sobelow.sh` |
 | `release` | `MIX_ENV=prod mix deps.get && mix release fountain_server --overwrite` |
-| `test` | `mix test` from the umbrella root: core and every sibling app. Only with `--full` or by name |
+| `test` | `mix test` from the umbrella root. Only with `--full` or by name |
 
 **The exit status is the verdict.** The run stops at the first failing stage,
 names it, and exits with that stage's status; the last line is always
@@ -177,17 +177,12 @@ across `apps/` and its tests before deleting it. A test-only caller may
 be a useful observation seam or evidence of a missing production caller;
 resolve which before removing the function and its tests.
 
-## Adding an umbrella library app
+## Component libraries
 
-Further extraction is paused until an independent consumer or release schedule
-justifies it. See [Component libraries](contributing/component-libraries.md)
-for ownership and the extraction recipe.
-
-## Graduating a library
-
-The [library guide](contributing/component-libraries.md#graduating-a-library)
-contains the graduation procedure. Routine library fixes use
+The `managoat_*` libraries are hex packages pinned in `apps/fountain/mix.exs`,
+each in its own repository. A fix that crosses into one follows
 [Updating existing libraries](contributing/component-libraries.md#updating-existing-libraries).
+No new library is planned (ADR 0037).
 
 ## Changing the API
 

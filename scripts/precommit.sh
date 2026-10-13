@@ -120,7 +120,7 @@ stage_release() {
   mix_in prod deps.get && mix_in prod release fountain_server --overwrite
 }
 
-# From the umbrella root: core and every sibling app in one run.
+# The whole suite from the umbrella root, in one run.
 # Opt-in (OPT_IN_STAGES): `--full` or `mix precommit test`.
 stage_test() { mix_in test test; }
 

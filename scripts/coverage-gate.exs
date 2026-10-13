@@ -36,9 +36,8 @@ opts = "coverage.exs" |> Code.eval_file() |> elem(0)
 ignore = Keyword.get(opts, :ignore_modules, [])
 threshold = opts |> Keyword.get(:summary, []) |> Keyword.get(:threshold, 90)
 
-# One directory holds every export: the partitions write <n>.coverdata here
-# directly, and scripts/test-libraries.sh copies each library app's export in
-# as lib-<app>.coverdata, so the gate stands on the union of both.
+# One directory holds every export: the partitions write <n>.coverdata here,
+# so the gate stands on their union.
 exports = Path.wildcard("apps/fountain/cover/*.coverdata")
 
 if exports == [] do

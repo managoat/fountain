@@ -22,17 +22,16 @@ would ask a vendor to support natively, and what each gap costs us.
 
 ## Before you write any code, answer six questions
 
-Each hard defect in the E2B adapter, and in the Daytona adapter that
-Fountain ran until 2026-10, came from one of these.
+Each hard defect in the Sprites and E2B adapters came from one of these.
 Answer them against the provider's real API. Run the calls, and do not trust
 the docs.
 
-Both adapters shipped with research that somebody verified against the
-official specs. That research was *still* wrong on five counts once we
-measured it live.
+The E2B adapter shipped with research that somebody verified against the
+official specs. That research was *still* wrong once we measured it live.
 
 1. **Identity.** Can you create a sandbox with a name you choose, then fetch
-   it by that name? Daytona can. E2B cannot, so the adapter emulates a name
+   it by that name? Sprites can: a name is unique per token, and a create
+   that finds the name taken adopts that sprite. E2B cannot, so the adapter emulates a name
    with metadata filters and adopt-on-list. Fountain always mints the name,
    as `fountain-<prefix>-<hex>`. Your adapter must make create idempotent, so
    that a create against a name that exists adopts it. Your `get` must tell
@@ -48,25 +47,29 @@ measured it live.
    And, above all, can a client that *reconnects* replay the output from byte
    zero? The attach contract demands replay from the start. E2B's daemon
    cannot replay, so the adapter uses a `tee` shim that journals, and a tail
-   replayer. Daytona's follow websocket turned out to be unusable live, so
-   the adapter polls the HTTP journal. Expect to build something here.
+   replayer. Expect to build something here.
    Measure the vendor's stream endpoint with raw bytes before you trust it.
 4. **stdin.** Can you write to a live process's stdin again and again, and
    send a real EOF? An ACP turn holds stdin open for the whole turn and
-   writes NDJSON into it. Daytona's input endpoint sent EOF to the pipe after
-   each write, so the adapter routes stdin through a file that `tail` feeds.
-   Also, `write_stdin` must be *total*. A write to a command that exited
-   returns `{:error, :command_exited}`, and never crashes the caller.
+   writes NDJSON into it. If an input endpoint closes the pipe after each
+   write, route stdin through a file that `tail` feeds. Also, `write_stdin`
+   must be *total*. A write to a command that exited returns
+   `{:error, :command_exited}`, and never crashes the caller. The Sprites SDK's
+   write is a bare `GenServer.call` into a command process that stops the
+   moment the exit frame arrives, so a late write crashed the caller until
+   the adapter caught that exit (#603).
 5. **Exit codes.** Does the provider report the exit code of a spawned
-   command reliably? Daytona does not, so the spawn shim writes an exit
+   command reliably? If it does not, have the spawn shim write an exit
    sentinel file. Never invent an exit 0. A stream that closes with no
    verdict is exit 0 only when the contract's close-without-exit rule
    applies.
 6. **Egress.** Is there a deny-by-default network mode with a domain
    allowlist you can update at runtime? If so, advertise `:network_policy`,
-   and remember that `allow: []` means *deny all*, and never a no-op. If the
-   tier gates it, as Daytona's did, document the failure. A `limited`
-   network environment then fails to provision on that provider.
+   and remember that `allow: []` means *deny all*, and never a no-op. Sprites
+   reads a bare `rules: []` as no enforcement at all, so its adapter sends an
+   empty allowlist as an explicit deny-all rule. If the provider's plan tier
+   gates the feature, document the failure. A `limited` network environment
+   then fails to provision on that provider.
 
 One note on a provider we rejected. The original campaign passed over Modal,
 because its control plane is gRPC alone, and everything else here is plain
@@ -78,7 +81,7 @@ gRPC dependency.
 A provider change crosses two repositories. Open the adapter and conformance
 PR in the library, publish its Hex release, then bump Fountain's dependency
 pin and register the provider here. Follow the
-[component library contribution recipes](https://github.com/managoat/fountain/blob/main/CONTRIBUTING.md#graduating-a-library)
+[procedure for updating a component library](https://github.com/managoat/fountain/blob/main/contributing/component-libraries.md#updating-existing-libraries)
 for the library gates, release and consumer PR. A local path override can test
 the two changes together before release; the committed pin must name a
 published version.
@@ -132,7 +135,7 @@ AgentCreate and AgentUpdate, and the `SANDBOX_PROVIDER` boot check in
    Fountain serves only the pages the nav names, so a page you leave out of it
    reaches no reader. The test suite fails until you add it.
 
-## Two traps that both adapters hit
+## Two traps to plan for
 
 - **Spawn must not return before the provider acks the process.** The ACP
   peer writes `initialize` within milliseconds of the return from spawn. An
@@ -141,8 +144,7 @@ AgentCreate and AgentUpdate, and the `SANDBOX_PROVIDER` boot check in
   exited". E2B lost that race in about 300ms, and PR #693 fixed it. Block on
   the daemon's start acknowledgment.
 - **A local success proves less than you think.** The E2B race passed each
-  local run and both full local cycles, on latency luck. Daytona's websocket
-  looked fine in unit tests. The verification ladder below exists because
+  local run and both full local cycles, on latency luck. The verification ladder below exists because
   each rung caught something the rung before it could not.
 
 ## The verification ladder

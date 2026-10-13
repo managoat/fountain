@@ -1,7 +1,7 @@
 # Fountain on Fly.io — https://fly.io/docs/reference/configuration/
 #
 # This file is for somebody who wants an instance of their own on Fly. It is
-# not how the hosted service runs (that is Kubernetes, ADR 0032), so treat it
+# not how the maintainer's instance runs (that is Kubernetes, ADR 0032), so treat it
 # the way you would treat docker-compose.yml: a starting point that comes up,
 # not a description of production.
 #

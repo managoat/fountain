@@ -24,7 +24,6 @@ permissions:
 # Independent jobs keep feedback near the slowest test partition plus coverage.
 # Six partitions share a :test cache; static analysis and the release use their
 # own build caches. Postgres starts alongside toolchain setup.
-# The partition manifest reserves time on partition 1 for the sibling apps.
 #
 # CI required verifies the selected plan, including intentional skips. A green
 # PR publishes the actual checkout tree; main may reuse that proof, otherwise
@@ -324,17 +323,6 @@ jobs:
           MIX_TEST_PARTITION: ${{ matrix.partition }}
         run: scripts/test-partition.sh ${{ strategy.job-total }}
 
-      # A sibling umbrella app — a managoat_* library on its way out
-      # (decisions/0037), none today — is not in the partition manifest: its
-      # tests belong to that app, run from its own directory and instrument its
-      # own modules. One partition runs them all and copies the exports into the
-      # merge directory as lib-*, so the coverage gate below stands on the
-      # union. The allocator reserves their measured duration on partition 1
-      # instead of treating that partition as an equally empty bucket.
-      - name: Run the sibling apps' tests with coverage
-        if: ${{ matrix.partition == 1 }}
-        run: scripts/test-libraries.sh
-
       - name: Publish the partition count
         id: total
         run: echo "count=${{ strategy.job-total }}" >> "$GITHUB_OUTPUT"
@@ -343,15 +331,10 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: coverdata-${{ matrix.partition }}
-          # The lib-* globs match only on the partition that ran the library
-          # apps; if-no-files-found looks at the set as a whole, so the other
-          # partitions still upload their own pair without complaint.
           path: |
             apps/fountain/cover/${{ matrix.partition }}.coverdata
             apps/fountain/cover/${{ matrix.partition }}.tests
             apps/fountain/cover/${{ matrix.partition }}.timings.log
-            apps/fountain/cover/lib-*.coverdata
-            apps/fountain/cover/lib-*.tests
           # An export that silently fails to upload would leave the merge job
           # gating on a fraction of the suite while still printing a number.
           if-no-files-found: error
@@ -416,23 +399,8 @@ jobs:
             echo "merged ${#exports[@]} coverage exports, expected $expected" >&2
             exit 1
           fi
-          # The sibling apps' exports (scripts/test-libraries.sh): one per
-          # umbrella app other than fountain — a managoat_* library on its way
-          # out (decisions/0037) — or the
-          # gate would stand on the partitions alone and their coverage would go
-          # unmeasured.
-          libs=()
-          for dir in apps/*/; do
-            [ "$dir" = "apps/fountain/" ] && continue
-            libs+=("$dir")
-          done
-          lib_exports=(apps/fountain/cover/lib-*.coverdata)
-          if [ "${#lib_exports[@]}" -ne "${#libs[@]}" ]; then
-            echo "merged ${#lib_exports[@]} sibling exports, expected ${#libs[@]} (one per apps/* other than fountain)" >&2
-            exit 1
-          fi
           total=$(cat apps/fountain/cover/*.tests | awk '{s += $1} END {print s + 0}')
-          echo "merging ${#exports[@]} partitions and ${#lib_exports[@]} library apps covering $total tests"
+          echo "merging ${#exports[@]} partitions covering $total tests"
 
       # Not `mix test.coverage`: ~90% of that task's time is rendering an
       # HTML report — 530 files, 129MB — that this job never opens, since all

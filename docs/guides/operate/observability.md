@@ -11,7 +11,7 @@ publish that port. Map the port to scrape it, and keep it off the public
 internet. The endpoint lists routes, request rates and database timings.
 
 You do not have to start from an empty scrape. The repo ships an
-observability pack, built from a real run of the hosted instance.
+observability pack, built from a real run of the maintainer's instance.
 
 - **Alerts**, in `deploy/k8s/prometheusrule.yaml`. They cover error rate,
   unhandled exceptions, pool saturation, failures to provision, and staleness
@@ -41,7 +41,7 @@ They are optional: enable the file in your Kustomization and install the
 PrometheusRule CRD and the scrapes its expressions need. A rule file alone
 does not collect metrics.
 
-The hosted instance adds the rules [listed below](#added-by-the-hosted-overlay).
+The maintainer's instance adds the rules [listed below](#added-by-the-hosted-overlay).
 Those rules are specific to that deployment. They are not in the portable
 manifests. Shared rule names can also have different thresholds or selectors
 in the overlay.

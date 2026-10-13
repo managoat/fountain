@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Component libraries, extracted umbrella-first under the Managoat namespace"
-description: "Fountain's database-free subsystems (sandbox, ACP peer, runtime provisioning, MCP authorization discovery, broker, runner protocol, docs, OAuth, substitution) are extracted one at a time as Apache-2.0 libraries named Managoat.*, first as apps in this umbrella and then as managoat/<name> repos on hex. Built so far: managoat_substitution (#1336), managoat_sandbox (#1337), managoat_mcp_auth (#1338), managoat_runner (#1341), managoat_docs (#1342), managoat_oauth (#1343), managoat_broker (#1340), managoat_acp (#1339) and managoat_runtimes (#1368). Graduated to hex so far: managoat_substitution, managoat_mcp_auth, managoat_oauth, managoat_acp, managoat_sandbox, managoat_docs, managoat_broker, managoat_runner, managoat_runtimes. All nine. goatherd is an external application consumer; ADR 0055 records its boundary with Fountain. Further extraction is paused (2026-09-14) unless an independent consumer or a release schedule of its own justifies the two-PR coordination cost. Addendum 2026-10-12: scripts/graduate-library.sh and templates/managoat-library are removed; a new library copies an existing managoat_* repository. Addendum 2026-10-13: managoat_substitution is folded back into the server as Fountain.Substitution; it never had a second consumer."
+description: "Fountain's database-free subsystems (sandbox, ACP peer, runtime provisioning, MCP authorization discovery, broker, runner protocol, docs, OAuth, substitution) are extracted one at a time as Apache-2.0 libraries named Managoat.*, first as apps in this umbrella and then as managoat/<name> repos on hex. Built so far: managoat_substitution (#1336), managoat_sandbox (#1337), managoat_mcp_auth (#1338), managoat_runner (#1341), managoat_docs (#1342), managoat_oauth (#1343), managoat_broker (#1340), managoat_acp (#1339) and managoat_runtimes (#1368). Graduated to hex so far: managoat_substitution, managoat_mcp_auth, managoat_oauth, managoat_acp, managoat_sandbox, managoat_docs, managoat_broker, managoat_runner, managoat_runtimes. All nine. goatherd is an external application consumer; ADR 0055 records its boundary with Fountain. Further extraction is paused (2026-09-14) unless an independent consumer or a release schedule of its own justifies the two-PR coordination cost. Addendum 2026-10-12: scripts/graduate-library.sh and templates/managoat-library are removed; a new library copies an existing managoat_* repository. Addendum 2026-10-13: managoat_substitution is folded back into the server as Fountain.Substitution; it never had a second consumer. Addendum 2026-10-13: the umbrella-first rule is dropped with its guards (umbrella_layout_test.exs, scripts/test-libraries.sh); no further extraction is planned, and a library that is ever needed starts as a repository of its own."
 tags: [architecture, libraries, licensing, ci]
 status: stable
 adr: "0037"
@@ -308,6 +308,21 @@ not kept extracted either. The module returns unchanged as
 `managoat/managoat_substitution` repository is archived and 0.1.0 stays on
 hex. The other libraries are unaffected; this is not a precedent for folding
 back a library that has a second consumer.
+
+## Addendum (2026-10-13): the umbrella-first rule is dropped
+
+Fountain is self-hosted for a handful of users and no further extraction is
+planned. The machinery kept "for the next one" guarded an umbrella that has
+held no library app since #1345: `apps/fountain/test/fountain/umbrella_layout_test.exs`
+defined no tests, `scripts/test-libraries.sh` exited 0 on every CI run, and
+the coverage job counted zero sibling exports. All three are removed, with
+the partition allocator's reserve for sibling suites. Should a subsystem ever
+need extracting, it starts as a `managoat/managoat_<name>` repository copied
+from an existing one, and Fountain takes it as a hex pin from its first
+release; the decision's "Umbrella-first" rule no longer applies.
+`contributing/component-libraries.md` keeps the library table and the
+procedure for updating a library Fountain already pins. The namespace, the
+licence and the two-PR cost are unchanged.
 
 ## Alternatives considered
 

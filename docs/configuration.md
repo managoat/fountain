@@ -206,10 +206,8 @@ two routes Codex uses: `POST https://chatgpt.com/backend-api/codex/responses`,
 and `GET https://chatgpt.com/backend-api/codex/models` with only the
 `client_version` query parameter.
 So a disconnect or a reconnect takes effect on the next request, including
-in a conversation that is mid-turn. A secret binding or a custom header
-template cannot send the token anywhere else. If a binding of yours matches
-either route, a codex conversation on the account fails to provision until you
-remove it. A codex conversation on the account cannot open a WebSocket, or
+in a conversation that is mid-turn. No secret of yours can send the token
+anywhere else. A codex conversation on the account cannot open a WebSocket, or
 any other protocol upgrade, through the broker to any host. Plain HTTP
 requests and streamed responses work as before. Fountain sets `CODEX_HOME`
 for such a conversation, and ignores a `CODEX_HOME` from its environment or

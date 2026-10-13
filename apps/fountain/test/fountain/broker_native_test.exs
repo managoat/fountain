@@ -10,7 +10,7 @@ defmodule Fountain.BrokerNativeTest do
   alias Fountain.Broker
   alias Fountain.Broker.Native
   alias Fountain.Broker.Native.Sessions
-  alias Fountain.SecretBindings.Binding
+  alias Fountain.Broker.Binding
   alias Managoat.Broker.Rule
 
   @keys [:broker_listen_port, :broker_proxy_url]
@@ -35,12 +35,7 @@ defmodule Fountain.BrokerNativeTest do
     {:ok, user: user, conv: conv}
   end
 
-  defp binding(key, host, auth_type, extra \\ %{}) do
-    struct(
-      %Binding{key: key, host: host, auth_type: auth_type, headers: %{}, enabled: true},
-      extra
-    )
-  end
+  defp binding(key, host), do: %Binding{key: key, host: host}
 
   describe "the switch" do
     # There is no per-tenant arm to assert on: the ADR 0019 §9 ratchet retired,
@@ -141,80 +136,43 @@ defmodule Fountain.BrokerNativeTest do
                Broker.prepare(Ecto.UUID.generate(), %{"GH_TOKEN" => "g"})
     end
 
-    test "every binding shape becomes a rule with the credential resolved", %{
+    test "a binding becomes a substitution rule with the credential resolved", %{
       user: user,
       conv: conv
     } do
-      brokered = %{
-        "STRIPE_KEY" => "sk_live",
-        "DISCORD_BOT_TOKEN" => "disc",
-        "PD" => "pd_real",
-        "HTTPBIN" => "hb",
-        "CLAUDE_CODE_OAUTH_TOKEN" => "oat_real"
-      }
+      brokered = %{"OPENAI_API_KEY" => "sk-real", "CLAUDE_CODE_OAUTH_TOKEN" => "oat_real"}
 
       bindings = %{
-        "STRIPE_KEY" => [binding("STRIPE_KEY", "api.stripe.com/v1/*", "bearer")],
-        "DISCORD_BOT_TOKEN" => [
-          binding("DISCORD_BOT_TOKEN", "discord.com/api/*", "api_key", %{
-            header: "Authorization",
-            prefix: "Bot "
-          })
-        ],
-        "PD" => [
-          binding("PD", "api.pagerduty.com", "custom", %{
-            headers: %{"Authorization" => "Token token={{ PD }}"}
-          })
-        ],
-        "HTTPBIN" => [binding("HTTPBIN", "httpbin.org", "basic", %{username: "alice"})],
-        "CLAUDE_CODE_OAUTH_TOKEN" => [
-          binding("CLAUDE_CODE_OAUTH_TOKEN", "api.anthropic.com", "substitute")
-        ]
+        "OPENAI_API_KEY" => [binding("OPENAI_API_KEY", "api.openai.com")],
+        "CLAUDE_CODE_OAUTH_TOKEN" => [binding("CLAUDE_CODE_OAUTH_TOKEN", "api.anthropic.com")]
       }
 
       assert {:ok, session} = Broker.prepare(conv.id, brokered, bindings, user_id: user.id)
       {:ok, %{rules: rules}} = Sessions.lookup(session.token)
 
-      by = fn name, scheme -> Enum.find(rules, &(&1.name == name and &1.scheme == scheme)) end
-
-      # Sorted by key: the OAuth token's rule comes first.
-      assert %Rule{scheme: :substitute, placeholder: "sk-ant-oat01-__claude_code_oauth_token__"} =
-               hd(rules)
-
-      assert %Rule{pattern: "api.stripe.com/v1/*", credential: "sk_live"} =
-               by.("stripe-key-api-stripe-com-v1", :bearer)
-
-      assert %Rule{placeholder: "__stripe_key__", credential: "sk_live"} =
-               by.("stripe-key-api-stripe-com-v1", :substitute)
-
-      assert %Rule{header: "Authorization", prefix: "Bot ", credential: "disc"} =
-               by.("discord-bot-token-discord-com-api", :api_key)
-
-      assert %Rule{template: %{"Authorization" => "Token token={{ PD }}"}, credential: ^brokered} =
-               by.("pd-api-pagerduty-com", :custom)
-
-      assert %Rule{credential: {"alice", "hb"}} = by.("httpbin-httpbin-org", :basic)
-
-      # A bound key gets no catalog pair, and there is no GitHub key here.
-      refute Enum.any?(rules, &(&1.name in ["github-api", "github-git"]))
-    end
-
-    test "a bound GitHub key keeps its own rule and gets no catalog pair", %{
-      user: user,
-      conv: conv
-    } do
-      bindings = %{"GITHUB_TOKEN" => [binding("GITHUB_TOKEN", "ghe.example.com", "bearer")]}
-
-      {:ok, session} =
-        Broker.prepare(conv.id, %{"GITHUB_TOKEN" => "gh"}, bindings, user_id: user.id)
-
-      {:ok, %{rules: rules}} = Sessions.lookup(session.token)
-      assert Enum.map(rules, & &1.pattern) == ["ghe.example.com", "ghe.example.com"]
+      # Sorted by key: the OAuth token's rule comes first. Every binding is a
+      # substitution and nothing else: no header the agent did not send.
+      assert [
+               %Rule{
+                 name: "claude-code-oauth-token-api-anthropic-com",
+                 pattern: "api.anthropic.com",
+                 scheme: :substitute,
+                 placeholder: "sk-ant-oat01-__claude_code_oauth_token__",
+                 credential: "oat_real"
+               },
+               %Rule{
+                 name: "openai-api-key-api-openai-com",
+                 pattern: "api.openai.com",
+                 scheme: :substitute,
+                 placeholder: "sk-__openai_api_key__",
+                 credential: "sk-real"
+               }
+             ] = rules
     end
 
     test "a limited network is deny plus a passthrough per allowed host, minus the credentialed ones",
          %{user: user, conv: conv} do
-      bindings = %{"K" => [binding("K", "api.example.com", "bearer")]}
+      bindings = %{"K" => [binding("K", "api.example.com")]}
 
       {:ok, session} =
         Broker.prepare(conv.id, %{"K" => "v"}, bindings,
@@ -226,7 +184,6 @@ defmodule Fountain.BrokerNativeTest do
       {:ok, %{unmatched_host_policy: :deny, rules: rules}} = Sessions.lookup(session.token)
 
       assert [
-               %Rule{pattern: "api.example.com", scheme: :bearer},
                %Rule{pattern: "api.example.com", scheme: :substitute},
                %Rule{
                  name: "allow-registry-npmjs-org",
@@ -270,7 +227,7 @@ defmodule Fountain.BrokerNativeTest do
                Broker.refresh(
                  conv.id,
                  %{"GITHUB_TOKEN" => "ghp_new", "K" => "v"},
-                 %{"K" => [binding("K", "api.example.com", "bearer")]},
+                 %{"K" => [binding("K", "api.example.com")]},
                  user_id: user.id
                )
 
@@ -281,7 +238,7 @@ defmodule Fountain.BrokerNativeTest do
                  Enum.find(rules, &(&1.name == "github-api"))
 
         assert %Rule{pattern: "api.example.com", credential: "v"} =
-                 Enum.find(rules, &(&1.scheme == :bearer and &1.pattern == "api.example.com"))
+                 Enum.find(rules, &(&1.pattern == "api.example.com"))
 
         assert meta["credential_keys"]["k-api-example-com"] == ["K"]
       end
@@ -580,7 +537,7 @@ defmodule Fountain.BrokerNativeTest do
     end
 
     test "credential_keys/2 names a bound key under the rule name it will match" do
-      binding = binding("STRIPE_KEY", "api.stripe.com", "bearer")
+      binding = binding("STRIPE_KEY", "api.stripe.com")
 
       assert Native.credential_keys(%{"STRIPE_KEY" => "sk"}, %{"STRIPE_KEY" => [binding]}) ==
                %{"stripe-key-api-stripe-com" => ["STRIPE_KEY"]}
@@ -926,7 +883,7 @@ defmodule Fountain.BrokerNativeTest do
         Broker.prepare(
           conv.id,
           %{"TELEGRAM_TOKEN" => "8199:tg-secret-value"},
-          %{"TELEGRAM_TOKEN" => [binding("TELEGRAM_TOKEN", rig.origin_host, "substitute")]},
+          %{"TELEGRAM_TOKEN" => [binding("TELEGRAM_TOKEN", rig.origin_host)]},
           user_id: user.id
         )
 

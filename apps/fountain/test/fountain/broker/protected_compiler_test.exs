@@ -3,7 +3,7 @@ defmodule Fountain.Broker.Native.ProtectedCompilerTest do
 
   alias Fountain.Broker.Native.ProtectedCompiler
   alias Fountain.ChatGPTAccounts.{Grant, Reserved}
-  alias Fountain.SecretBindings.Binding
+  alias Fountain.Broker.Binding
   alias Managoat.Broker.{Injector, ProtectedCredential, ProtectedRule, Session}
 
   # The compiler takes no bearer (ADR 0060 stage 3): the session path never
@@ -24,8 +24,7 @@ defmodule Fountain.Broker.Native.ProtectedCompilerTest do
     end
   end
 
-  defp binding(key, host, extra \\ %{}),
-    do: struct(%Binding{key: key, host: host, auth_type: "bearer", enabled: true}, extra)
+  defp binding(key, host), do: %Binding{key: key, host: host}
 
   defp request(extra \\ %{}),
     do:
@@ -49,33 +48,28 @@ defmodule Fountain.Broker.Native.ProtectedCompilerTest do
     refute :erlang.term_to_binary(compiled) =~ @token
   end
 
-  test "ordinary cross-key templates keep their inputs and never receive the managed grant" do
-    secrets = %{"STRIPE_KEY" => "ordinary-stripe", "ACCOUNT" => "ordinary-account"}
-
-    bindings = %{
-      "STRIPE_KEY" => [
-        binding("STRIPE_KEY", "api.stripe.com", %{
-          auth_type: "custom",
-          headers: %{"Authorization" => "Bearer {{ STRIPE_KEY }}", "X-Account" => "{{ ACCOUNT }}"}
-        })
-      ]
-    }
+  test "an ordinary substitution keeps its input and never receives the managed grant" do
+    secrets = %{"STRIPE_KEY" => "ordinary-stripe"}
+    bindings = %{"STRIPE_KEY" => [binding("STRIPE_KEY", "api.stripe.com")]}
 
     assert {:ok, compiled} = compile(secrets, bindings, :unrestricted)
-    assert [%{scheme: :custom, credential: ^secrets}, %{scheme: :substitute}] = compiled.rules
+
+    assert [%{scheme: :substitute, credential: "ordinary-stripe"}] = compiled.rules
     refute :erlang.term_to_binary(compiled) =~ @token
-    assert Enum.all?(compiled.rules, &Injector.matches?(&1.pattern, "api.stripe.com", 443, "/v1"))
 
     assert {:ok, headers, "/v1", _rule} =
-             Injector.inject([], "api.stripe.com", 443, "/v1", session(compiled))
+             Injector.inject(
+               [{"authorization", "Bearer " <> Fountain.Broker.placeholder("STRIPE_KEY")}],
+               "api.stripe.com",
+               443,
+               "/v1",
+               session(compiled)
+             )
 
-    assert Map.new(headers) == %{
-             "Authorization" => "Bearer ordinary-stripe",
-             "X-Account" => "ordinary-account"
-           }
+    assert Map.new(headers) == %{"authorization" => "Bearer ordinary-stripe"}
   end
 
-  test "reserved keys and aliases are refused independently of binding writes" do
+  test "reserved keys and aliases are refused" do
     for secrets <- [
           %{Reserved.key() => "some-token"},
           %{"ALIAS" => Reserved.placeholder()},
@@ -86,27 +80,8 @@ defmodule Fountain.Broker.Native.ProtectedCompilerTest do
                ProtectedCompiler.compile(secrets, %{}, :unrestricted)
     end
 
-    for template <- [
-          "{{ CODEX_CHATGPT_ACCESS_TOKEN }}",
-          "{{CODEX_CHATGPT_ACCESS_TOKEN}}",
-          Reserved.placeholder(),
-          "Bearer " <> Reserved.placeholder(Ecto.UUID.generate())
-        ] do
-      bindings = %{
-        "OTHER" => [
-          binding("OTHER", "attacker.example", %{
-            auth_type: "custom",
-            headers: %{"X-Leak" => template}
-          })
-        ]
-      }
-
-      assert {:error, :managed_credential_conflict} =
-               ProtectedCompiler.compile(%{"OTHER" => "ordinary"}, bindings, :unrestricted)
-    end
-
-    # A persisted managed binding is rejected even if no value currently
-    # exists for its key; it cannot become an export rule on a later refresh.
+    # A binding of the managed key is rejected even if no value currently
+    # exists for it; it cannot become an export rule on a later refresh.
     bindings = %{Reserved.key() => [binding(Reserved.key(), "attacker.example")]}
 
     assert {:error, :managed_credential_conflict} =

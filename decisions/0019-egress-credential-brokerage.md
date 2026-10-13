@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Egress credential brokerage: the sandbox holds placeholders, the broker holds the credential"
-description: "Accepted; live in production for every tenant since the 2026-09-04 flip, served by Fountain's own proxy since 2026-09-03. Outbound HTTP credentials are attached at a forward proxy the sandbox reaches over HTTPS_PROXY, so the agent process holds only placeholders and the only host it may reach is the broker. Gate 0 passed on 2026-08-24 against a real sandbox: brokered API calls and a private clone with no credential in the sandbox, cross-tenant probe refused, +258ms per request."
+description: "Accepted; live in production for every tenant since the 2026-09-04 flip, served by Fountain's own proxy since 2026-09-03. Outbound HTTP credentials are attached at a forward proxy the sandbox reaches over HTTPS_PROXY, so the agent process holds only placeholders and the only host it may reach is the broker. Gate 0 passed on 2026-08-24 against a real sandbox: brokered API calls and a private clone with no credential in the sandbox, cross-tenant probe refused, +258ms per request. Amended 2026-10-13: gate 1b's tenant-defined credential bindings are removed; the broker carries the GitHub catalog pair, inference credentials and managed ChatGPT grants."
 tags: [security, secrets, sandbox, egress, governance]
 status: draft
 adr: "0019"
@@ -22,8 +22,10 @@ is brokered. The proxy is `Managoat.Broker`, run inside the
 Fountain pods and published at `broker.inevitable.fyi` by the Traefik TCP
 router of §11. It was a vendor
 service, Agent Vault, until the flip of 2026-09-03; see the amendment. Its done-when was observed on a production
-Sprites conversation the same day — see *Gate 1a* under *Gates*. Every gate is built: 1a and 1b (placeholders, bindings), 2 (`limited` at the
-broker), 3 (inference credentials) and 4 (the egress trail). #1090 is closed and each
+Sprites conversation the same day — see *Gate 1a* under *Gates*. Every gate was built: 1a and 1b (placeholders, bindings), 2 (`limited` at the
+broker), 3 (inference credentials) and 4 (the egress trail). Gate 1b's
+tenant-defined bindings were removed on 2026-10-13; see the addendum of that
+date. #1090 is closed and each
 later gate gets its own tracker.
 
 The ratchet of §9 ran its course and is **retired** (amendment of
@@ -76,7 +78,7 @@ below retain their original observation dates.
 
 | Section | Verdict | What the source implements |
 |---|---|---|
-| §1 Storage and delivery | Built, narrower than the original headline | `Broker.split/2` and `Egress` broker enabled bindings, the GitHub defaults and runtime inference credentials (connection tokens too, until Connections were removed on 2026-10-12). Other encrypted secrets still enter the sandbox as values. `Crypto` remains the storage boundary. |
+| §1 Storage and delivery | Built, narrower than the original headline | `Broker.split/2` and `Egress` broker the GitHub defaults and runtime inference credentials (tenant-defined bindings too, until 2026-10-13, and connection tokens until Connections were removed on 2026-10-12). Other encrypted secrets still enter the sandbox as values. `Crypto` remains the storage boundary. |
 | §2 Network floor | Built, with a development exception | `Provisioning.check_broker_support/4` and `Egress.apply_policy/4` cover cold provision, warm restore and reattach. `BROKER_ALLOW_UNENFORCED` explicitly permits unsupported providers without enforcement. |
 | §3 Environment policy | Built | `Broker.network_for/1` creates passthrough rules plus default deny for `limited`; unrestricted uses unmatched-host passthrough behind the same sandbox floor. |
 | §4 Placeholders | Built | `Broker.placeholder/1` and `Native` construct the placeholder and matching substitution rules together; inference uses vendor-shaped placeholders. |
@@ -84,7 +86,7 @@ below retain their original observation dates.
 | §6 Failure behavior | Built, with limits stated here | No plaintext fallback on broker failure. A failed wake preserves the disk. CA installation on reattach remains best effort; a failure is logged and may fail the next turn. |
 | §7 Non-HTTP labels | Not built | No `unbrokerable` field or classification UI/API exists. Non-HTTP credentials remain a residual plaintext delivery path. |
 | §8 Vendor | Changed | `Native` is the only backend. The Agent Vault client and its configuration were removed; the original vendor comparison is historical. |
-| §9 Rollout and escape hatch | Built, and the ratchet retired | Brokerage is a property of the deployment alone: `Broker.configured?/0` is the whole gate, and `Broker.enabled_for?/1` and the `:broker_tenants` configuration no longer exist. The proposed per-secret classification escape hatch is not implemented. Binding management needs nothing more: the `connections` rollout flag that also gated it was removed with Connections on 2026-10-12. |
+| §9 Rollout and escape hatch | Built, and the ratchet retired | Brokerage is a property of the deployment alone: `Broker.configured?/0` is the whole gate, and `Broker.enabled_for?/1` and the `:broker_tenants` configuration no longer exist. The proposed per-secret classification escape hatch is not implemented. Tenant-defined bindings, which the `connections` rollout flag also gated until 2026-10-12, were removed on 2026-10-13. |
 | §10 Bodies and rewriting | Partly built by design | The proxy sees HTTP bodies but streams them without substitution. `Injector` substitutes header values and request targets. Content-policy rewriting remains future work. |
 | §11 Topology and custody | Changed | Fountain runs the library listener in-process, stores sessions in its own database and derives the CA from the master key. There are no vendor vaults or separate broker database. |
 
@@ -658,7 +660,8 @@ request log. The placeholder is **not** a lookup key — the broker
 replaces the auth header wholesale — so the "contract" below reduces to a
 plausibility rule.
 
-**Gate 1b — built 2026-08-25: bindings.** The binding model #1090 named as
+**Gate 1b — built 2026-08-25: bindings; removed 2026-10-13** (see the
+addendum of that date). The binding model #1090 named as
 the real cost. `Fountain.SecretBindings`: per tenant, per secret *name*, one
 row per host with the auth shape (bearer, basic with a username, API-key
 header with an optional prefix, custom headers with `{{ KEY }}`), validated
@@ -1050,3 +1053,37 @@ conversation state its `connection_keys`. The refresh before a turn (#1736)
 and the live refresh on a secret write (#2548) re-read the tenant's
 environment and vault secrets alone. Credential bindings are gated by
 `Broker.configured?/0` alone, for creation as for removal.
+
+## Addendum — 2026-10-13: gate 1b's credential bindings removed
+
+Fountain is self-hosted only, and in production `secret_bindings` never held
+a row that outlived its test: twelve `secret_binding.created` audit events,
+twelve `secret_binding.deleted`, and an empty table (read-only check on
+2026-10-13). Gate 1b is removed. `Fountain.SecretBindings`, its `Binding`
+schema and the vendor's 35-entry preset catalog, `/api/secret-bindings`, the
+Credential bindings page and its nav link go. The `secret_bindings` table is
+left for one release, because the release before reads it on every brokered
+provision, and is dropped by the follow-up migration.
+
+What the broker carries is now fixed by the code, not by the tenant:
+
+* `GITHUB_TOKEN` and `GH_TOKEN`, by gate 1a's catalog: `api.github.com` as a
+  bearer and `github.com` as basic `x-access-token`, with a substitution twin.
+* The runtime's inference credentials (gate 3), each a substitution on its
+  provider's host. These were always "implicit bindings" built in memory; they
+  are now `Fountain.Broker.Binding`, a key and a host and nothing else, since
+  substitution is the only shape left. The bearer, basic, API-key and custom
+  template rule shapes that only a tenant binding could ask for are gone from
+  `Native.rules_for/3`.
+* A managed ChatGPT grant (ADR 0047, 0052, 0060), unchanged: it was never a
+  binding. `ProtectedCompiler` still refuses a session whose ordinary inputs
+  name the reserved credential or whose rules, now inference substitutions,
+  the GitHub pair and a `limited` environment's passthroughs, would reach the
+  protected Codex routes.
+
+Every other secret reaches the sandbox in the clear, as §1 already said of
+secrets without a binding. That is the only behavioural change, and with no
+rows it changes nothing on the deployment. Gates 2, 3 and 4, the live secret
+refresh (#2548), the refresh before a turn (#1736) and redaction are
+untouched. §7's `exposure` label, which gate 1b answered with "the presence
+of a binding", is back to its original statement: not built.

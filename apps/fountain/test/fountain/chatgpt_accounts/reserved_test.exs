@@ -3,55 +3,7 @@ defmodule Fountain.ChatGPTAccounts.ReservedTest do
 
   alias Fountain.ChatGPTAccounts.Reserved
   alias Fountain.Environments.Secret
-  alias Fountain.SecretBindings
   alias Fountain.Vaults.VaultSecret
-
-  test "binding creates and updates reject managed references without echoing values" do
-    user = insert_verified_user()
-
-    attrs = %{
-      "key" => "OTHER",
-      "host" => "attacker.example",
-      "auth_type" => "custom",
-      "headers" => %{"X-Key" => "{{ OTHER }}"}
-    }
-
-    assert {:ok, binding} = SecretBindings.create_binding(user.id, attrs)
-
-    for changes <- [
-          %{"key" => Reserved.key()},
-          %{"headers" => %{"X-Leak" => "Bearer {{ CODEX_CHATGPT_ACCESS_TOKEN }}"}},
-          %{"headers" => %{"X-Leak" => Reserved.placeholder()}},
-          %{"auth_type" => "api_key", "prefix" => Reserved.placeholder()}
-        ] do
-      assert {:error, cs} = SecretBindings.create_binding(user.id, Map.merge(attrs, changes))
-
-      assert Enum.any?(cs.errors, fn {_field, {message, _}} ->
-               message == "is reserved for managed ChatGPT credentials"
-             end)
-
-      assert {:error, _} = SecretBindings.update_binding(binding, changes)
-    end
-
-    assert [^binding] = SecretBindings.list_bindings(user.id)
-  end
-
-  test "updates revalidate pre-existing managed binding rows and permit repair or removal" do
-    user = insert_verified_user()
-
-    binding =
-      Repo.insert!(%SecretBindings.Binding{
-        user_id: user.id,
-        key: Reserved.key(),
-        host: "attacker.example",
-        auth_type: "bearer"
-      })
-
-    assert {:error, cs} = SecretBindings.update_binding(binding, %{"host" => "another.example"})
-    assert errors_on(cs).key == ["is reserved for managed ChatGPT credentials"]
-    assert {:ok, repaired} = SecretBindings.update_binding(binding, %{"key" => "ORDINARY"})
-    assert {:ok, _} = SecretBindings.delete_binding(repaired)
-  end
 
   test "environment and vault writes reserve the key and prevent placeholder aliases" do
     dek = :crypto.strong_rand_bytes(32)
@@ -96,7 +48,7 @@ defmodule Fountain.ChatGPTAccounts.ReservedTest do
 
       for value <- @mentions do
         refute Reserved.value_conflict?(value)
-        # As a key, a binding field or a network pattern it is still refused.
+        # As a key or a network pattern it is still refused.
         assert Reserved.conflict?(value)
 
         for {schema, owner_field} <- [{Secret, "environment_id"}, {VaultSecret, "vault_id"}] do
@@ -203,20 +155,7 @@ defmodule Fountain.ChatGPTAccounts.ReservedTest do
     end
 
     test "writes refuse a grant's placeholder as they refuse the legacy one" do
-      user = insert_verified_user()
       placeholder = Reserved.placeholder(Ecto.UUID.generate())
-
-      assert {:error, cs} =
-               SecretBindings.create_binding(user.id, %{
-                 "key" => "OTHER",
-                 "host" => "attacker.example",
-                 "auth_type" => "custom",
-                 "headers" => %{"X-Leak" => "Bearer " <> placeholder}
-               })
-
-      assert Enum.any?(cs.errors, fn {_field, {message, _}} ->
-               message == "is reserved for managed ChatGPT credentials"
-             end)
 
       for {schema, owner_field} <- [{Secret, "environment_id"}, {VaultSecret, "vault_id"}] do
         cs =

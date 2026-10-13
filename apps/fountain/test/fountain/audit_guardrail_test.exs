@@ -189,11 +189,6 @@ defmodule Fountain.AuditGuardrailTest do
     {"team schedule run", &__MODULE__.do_schedule_run/1, "team.schedule.fired"},
     {"runner register", &__MODULE__.do_runner_register/1, "runner.registered"},
     {"runner delete", &__MODULE__.do_runner_delete/1, "runner.deleted"},
-    # Secret bindings (ADR 0019 gate 1b): where a credential goes is as
-    # auditable as the credential's existence.
-    {"secret binding create", &__MODULE__.do_binding_create/1, "secret_binding.created"},
-    {"secret binding update", &__MODULE__.do_binding_update/1, "secret_binding.updated"},
-    {"secret binding delete", &__MODULE__.do_binding_delete/1, "secret_binding.deleted"},
     {"oauth client create", &__MODULE__.do_oauth_client_create/1, "oauth_client.created"},
     {"oauth client update", &__MODULE__.do_oauth_client_update/1, "oauth_client.updated"},
     {"oauth client delete", &__MODULE__.do_oauth_client_delete/1, "oauth_client.deleted"},
@@ -400,37 +395,6 @@ defmodule Fountain.AuditGuardrailTest do
 
     {:ok, _} =
       Vaults.copy_vault(source, %{"name" => "copy-#{System.unique_integer([:positive])}"}, dek)
-  end
-
-  def do_binding_create(user) do
-    {:ok, _} =
-      Fountain.SecretBindings.create_binding(user.id, %{
-        "key" => "K",
-        "host" => "api.example.com",
-        "auth_type" => "bearer"
-      })
-  end
-
-  def do_binding_update(user) do
-    {:ok, b} =
-      Fountain.SecretBindings.create_binding(user.id, %{
-        "key" => "K2",
-        "host" => "api.example.com",
-        "auth_type" => "bearer"
-      })
-
-    {:ok, _} = Fountain.SecretBindings.update_binding(b, %{"enabled" => false})
-  end
-
-  def do_binding_delete(user) do
-    {:ok, b} =
-      Fountain.SecretBindings.create_binding(user.id, %{
-        "key" => "K3",
-        "host" => "api.example.com",
-        "auth_type" => "bearer"
-      })
-
-    {:ok, _} = Fountain.SecretBindings.delete_binding(b)
   end
 
   def do_runner_register(user) do

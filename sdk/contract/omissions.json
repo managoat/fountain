@@ -34,10 +34,6 @@
       "reason": "The opt-in asynchronous start lifecycle (ADR 0042). Every SDK's run handle promises an immediate conversation, while a queued start first hands back a sandbox request; callers can reach these three over the raw HTTP client until a queued-run handle owns the polling and the cancellation without weakening that promise."
     },
     {
-      "operations": ["* /api/secret-bindings*"],
-      "reason": "Egress broker bindings (ADR 0019). Configuration of where a credential lives, set once per account; the run-time effect is invisible to a client."
-    },
-    {
       "operations": ["GET /api/runners/ws"],
       "reason": "The self-hosted runner daemon's WebSocket (ADR 0022). Its socket is not JSON over HTTP."
     },
@@ -49,10 +45,7 @@
       "reason": "Avatar upload and removal belong to the console."
     },
     {
-      "operations": [
-        "GET /api/conversations/{conversation_id}/egress",
-        "GET /api/secret-bindings/presets"
-      ],
+      "operations": ["GET /api/conversations/{conversation_id}/egress"],
       "reason": "Console-facing reads. No SDK models these operations."
     },
     {

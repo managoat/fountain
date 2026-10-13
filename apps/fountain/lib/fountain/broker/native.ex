@@ -355,12 +355,11 @@ defmodule Fountain.Broker.Native do
   defp policy_for({:limited, _hosts}), do: :deny
 
   @doc """
-  The rules a set of brokered keys turns into: one per binding (plus a
-  substitution twin for every header-setting shape, so the placeholder is
+  The rules a set of brokered keys turns into: one substitution per binding
+  (an inference credential on its provider's host, so the placeholder is
   replaced wherever a client puts it -- a header value, the path or the
-  query), the catalog pair for a GitHub key with no bindings of its own,
-  then under `limited` a passthrough per allowed host that no credentialed
-  rule already covers.
+  query), the catalog pair for a GitHub key, then under `limited` a
+  passthrough per allowed host that no credentialed rule already covers.
 
   Order is not the tie-breaker it once was. Since `managoat_broker` 0.7.0
   the **most specific** matched rule sets the header, and declaration order
@@ -374,49 +373,27 @@ defmodule Fountain.Broker.Native do
       brokered
       |> Enum.sort_by(&elem(&1, 0))
       |> Enum.flat_map(fn {key, value} ->
-        bindings |> Map.get(key, []) |> Enum.flat_map(&binding_rules(key, value, &1, brokered))
+        bindings |> Map.get(key, []) |> Enum.map(&binding_rule(key, value, &1))
       end)
 
-    credentialed = bound ++ catalog_rules(brokered, bindings)
+    credentialed = bound ++ catalog_rules(brokered)
     credentialed ++ allow_rules(network, credentialed)
   end
 
-  defp binding_rules(key, value, binding, brokered) do
-    name = Broker.service_name(key, binding.host)
-    base = %Rule{name: name, pattern: pattern_for(binding.host), scheme: :passthrough}
-    twin = %{base | scheme: :substitute, placeholder: Broker.placeholder(key), credential: value}
-
-    case binding.auth_type do
-      "substitute" ->
-        [twin]
-
-      "bearer" ->
-        [%{base | scheme: :bearer, credential: value}, twin]
-
-      "basic" ->
-        [%{base | scheme: :basic, credential: {binding.username || "", value}}, twin]
-
-      "api_key" ->
-        [
-          %{
-            base
-            | scheme: :api_key,
-              header: binding.header,
-              prefix: binding.prefix || "",
-              credential: value
-          },
-          twin
-        ]
-
-      "custom" ->
-        [%{base | scheme: :custom, template: binding.headers || %{}, credential: brokered}, twin]
-    end
+  defp binding_rule(key, value, binding) do
+    %Rule{
+      name: Broker.service_name(key, binding.host),
+      pattern: pattern_for(binding.host),
+      scheme: :substitute,
+      placeholder: Broker.placeholder(key),
+      credential: value
+    }
   end
 
-  # Gate 1a's default: an unbound GitHub key goes to api.github.com as a
+  # Gate 1a's default: a GitHub key goes to api.github.com as a
   # bearer and to github.com as git's basic `x-access-token`.
-  defp catalog_rules(brokered, bindings) do
-    case Broker.catalog_github_key(brokered, bindings) do
+  defp catalog_rules(brokered) do
+    case Broker.catalog_github_key(brokered) do
       nil ->
         []
 
@@ -598,7 +575,7 @@ defmodule Fountain.Broker.Native do
       end)
 
     catalog =
-      case Broker.catalog_github_key(brokered, bindings) do
+      case Broker.catalog_github_key(brokered) do
         nil -> []
         key -> [{"github-api", key}, {"github-git", key}]
       end

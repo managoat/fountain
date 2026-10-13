@@ -14,7 +14,8 @@ server releases.
 ## [Unreleased]
 
 Fountain removed the `opencode` runtime, the `daytona` sandbox provider, the
-Buzz extension, Connections, outbound webhooks and the account data export.
+Buzz extension, Connections, outbound webhooks, the account data export and
+secret bindings.
 Held for the next release (`release:skip-sdk`). Removing `client.connections`
 takes a public method away, so that release is a major one.
 
@@ -28,8 +29,8 @@ takes a public method away, so that release is a major one.
   server's bearer from a vault secret instead.
 
 - `connections_enabled` and `connections_manageable` from `AuthMe`, and
-  `mcp_servers` from `Catalog`; the server no longer sends them. Read
-  `brokered` on `AuthMe` to decide whether to show credential bindings.
+  `mcp_servers` from `Catalog`; the server no longer sends them. `brokered`
+  on `AuthMe` still says whether the deployment brokers egress.
 
 - `paths["/api/connections"]`, `paths["/api/connections/providers"]`,
   `paths["/api/connections/{id}"]`, `paths["/api/connection-providers"]`,
@@ -48,6 +49,12 @@ takes a public method away, so that release is a major one.
   `WebhookDeliveryListResponse`, `WebhookTestResponse`, `Export`,
   `ExportResponse` and `ExportListResponse` schemas, from the generated types.
   No client method used them; the server answers `404`.
+
+- `paths["/api/secret-bindings"]`, `paths["/api/secret-bindings/presets"]`
+  and `paths["/api/secret-bindings/{id}"]`, and the `SecretBinding`,
+  `SecretBindingRequest`, `SecretBindingListResponse`, `SecretBindingPreset`
+  and `SecretBindingPresetListResponse` schemas, from the generated types. No
+  client method used them; the server answers `404`.
 
 - `"Webhook"` from the `kind` enum of `components["schemas"]["ManifestResource"]`,
   and `secret` from `["ApplyResult"]`. An apply naming the kind is refused.

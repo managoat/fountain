@@ -304,11 +304,11 @@ defmodule Fountain.Broker.Native.Sessions do
 
   # Whether a rule names the reserved credential, which no rule this release
   # writes does: `ProtectedCompiler.compile/3` refuses one for a managed
-  # session, a secret's key and every field of a binding are refused at the
-  # write, and the inference registry no longer knows the name. What is left
-  # is the previous release's rule for the deployment's grant, whose
-  # placeholder is the reserved one, and its `custom` rules, whose credential
-  # is the whole brokered map with the bearer under the reserved key.
+  # session, a secret's key is refused at the write, and the inference
+  # registry no longer knows the name. What is left is an earlier release's
+  # rule for the deployment's grant, whose placeholder is the reserved one,
+  # and its `custom` rules, whose credential is the whole brokered map with
+  # the bearer under the reserved key.
   #
   # The strict rule, `Reserved.conflict?/1`, over everything that names. A
   # string credential is a secret's value, which the tenant owns and which

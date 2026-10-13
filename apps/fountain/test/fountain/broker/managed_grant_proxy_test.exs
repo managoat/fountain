@@ -331,13 +331,7 @@ defmodule Fountain.Broker.Native.ManagedGrantProxyTest do
         {account, access} = grant(owner, user, "elsewhere")
         elsewhere = "127.0.0.1:#{rig.origin_port}"
 
-        binding = %Fountain.SecretBindings.Binding{
-          key: "STRIPE_KEY",
-          host: elsewhere,
-          auth_type: "bearer",
-          headers: %{},
-          enabled: true
-        }
+        binding = %Fountain.Broker.Binding{key: "STRIPE_KEY", host: elsewhere}
 
         session =
           session!(conversation(user), user, account, %{"STRIPE_KEY" => "sk_ordinary"}, %{
@@ -347,7 +341,10 @@ defmodule Fountain.Broker.Native.ManagedGrantProxyTest do
         seen =
           rig
           |> Rig.tunnel(session, elsewhere)
-          |> Rig.exchange("GET /v1/charges HTTP/1.1\r\nHost: #{elsewhere}\r\n\r\n")
+          |> Rig.exchange(
+            "GET /v1/charges HTTP/1.1\r\nHost: #{elsewhere}\r\n" <>
+              "Authorization: Bearer #{Fountain.Broker.placeholder("STRIPE_KEY")}\r\n\r\n"
+          )
           |> report()
 
         assert bearer?(seen, "sk_ordinary")

@@ -70,10 +70,10 @@ and Fountain behaves another. Read [claude](../runtimes/claude.md).
 ## A remote server
 
 A remote server is declared the same way, with a `url` and the headers it
-needs. A bearer comes from a vault through `${VAR}`; on a deployment that
-runs the egress broker, bind that secret to the server's host and the sandbox
-holds only a placeholder. Read
-[Bindings, when the broker is on](../../concepts/secrets.md#bindings-when-the-broker-is-on).
+needs. A bearer comes from a vault through `${VAR}`, and the sandbox holds
+it in the clear: the broker carries only the GitHub and inference
+credentials. Read
+[What the broker holds](../../concepts/secrets.md#what-the-broker-holds).
 
 ```yaml
 mcp_servers:

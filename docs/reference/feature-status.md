@@ -63,13 +63,13 @@ or a vault, through the broker where it runs.
 
 ## Brokered credentials are on for every account
 
-[Brokered credentials](../concepts/secrets.md#bindings-when-the-broker-is-on)
+[Brokered credentials](../concepts/secrets.md#what-the-broker-holds)
 are now on for every account on the hosted platform, so this page no longer
 lists them. Until 2026-09-04 we enrolled each account by hand.
 
 On your own instance they stay off until you turn them on. Set
 `BROKER_LISTEN_PORT` and its siblings. Every account on the deployment is
-then brokered, and the credential bindings page and API are open to it. Read the [configuration reference](../configuration.md).
+then brokered. Read the [configuration reference](../configuration.md).
 
 ## Where to go next
 

@@ -13,11 +13,10 @@ defmodule Fountain.Broker.Native.ProtectedCompiler do
     * `compile/3` -- the ordinary rules of a session that also carries a
       managed grant, from the same `brokered` map and bindings every other
       session is built from. Reserved names and placeholders in those inputs
-      fail compilation, including bindings persisted before
-      `Fountain.ChatGPTAccounts.Reserved` refused them at the write, and so
-      does any rule that would inject into the protected route (an exact
-      host, a wildcard, a path pattern). Errors carry no supplied value.
-      Ordinary tenant templates keep their ordinary inputs.
+      fail compilation, and so does any rule that would inject into the
+      protected route (an exact host, a wildcard, a path pattern, which a
+      `limited` environment's allowed hosts can still name). Errors carry no
+      supplied value.
 
   The grant is not an input to either. `Fountain.Broker.Native.Sessions`
   stores which grant a session may use as authorization data, and resolves
@@ -109,8 +108,8 @@ defmodule Fountain.Broker.Native.ProtectedCompiler do
       true ->
         rules = Native.rules_for(brokered, bindings, network)
 
-        # Prove the effective rules do not conflict with either route,
-        # including wildcards and path patterns in older rows. The library
+        # Prove the effective rules do not conflict with any route,
+        # including wildcards and path patterns in allowed hosts. The library
         # repeats this at admission. The identity is not an input to that
         # question.
         if Enum.all?(requests(), &prepared?(rules, &1)) do

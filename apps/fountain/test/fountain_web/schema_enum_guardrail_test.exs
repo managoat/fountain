@@ -143,12 +143,7 @@ defmodule FountainWeb.SchemaEnumGuardrailTest do
       {FountainWeb.TeamPresenter, :presence_states},
     {FountainWeb.Schemas.Teammate, "preview.kind"} => {FountainWeb.TeamPresenter, :preview_kinds},
     {FountainWeb.Schemas.Block, "kind"} => {Fountain.Conversations.Blocks, :kinds},
-    {FountainWeb.Schemas.SearchHit, "kind"} => {Fountain.Search, :kinds},
-    # Secret bindings (ADR 0019 gate 1b): the auth shapes the broker can carry.
-    {FountainWeb.Schemas.SecretBinding, "auth_type"} =>
-      {Fountain.SecretBindings.Binding, :auth_types},
-    {FountainWeb.Schemas.SecretBindingRequest, "auth_type"} =>
-      {Fountain.SecretBindings.Binding, :auth_types}
+    {FountainWeb.Schemas.SearchHit, "kind"} => {Fountain.Search, :kinds}
   }
 
   # Enums with no domain list behind them. Each entry needs a reason: the

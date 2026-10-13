@@ -253,8 +253,9 @@ defmodule Fountain.Conversations.ConversationServer do
       # never sees (the broker gets them); `broker` is the minted session.
       # Both stay empty/nil on an unbrokered conversation.
       brokered: %{},
-      # The tenant's enabled bindings by key (gate 1b), loaded once per
-      # provision; what the broker's services are built from.
+      # The inference credentials' provider hosts by key
+      # (`Fountain.Broker.Binding`), set at provision; what the broker's
+      # substitution services are built from.
       broker_bindings: %{},
       # Where the tenant's own brokered secrets came from and which keys they
       # were (#1736); `Egress.refresh_before_turn/1` reads the rows again.
@@ -455,9 +456,7 @@ defmodule Fountain.Conversations.ConversationServer do
             inference_source
           )
 
-        bindings = Egress.bindings(conv.user_id)
-
-        {secrets, brokered} = Egress.split_brokered(tenant_secrets, bindings)
+        {secrets, brokered} = Egress.split_brokered(tenant_secrets)
 
         # The tenant's own brokered keys: what the environment and vault
         # rows contributed (#1736). Read again before each turn by
@@ -465,7 +464,7 @@ defmodule Fountain.Conversations.ConversationServer do
         tenant_keys = brokered |> Map.keys() |> Enum.sort()
 
         {env_creds, brokered, bindings} =
-          Egress.split_inference(inference_creds, brokered, bindings)
+          Egress.split_inference(inference_creds, brokered, %{})
 
         state =
           %{

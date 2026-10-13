@@ -21,11 +21,8 @@
 
 ### Changed
 
-- **Credential bindings need only the broker** (#2617). The bindings page and
-  `/api/secret-bindings` are open to every account on a deployment that runs
-  the egress broker; the `connections` flag that also gated creating one is
-  gone. `GET /api/auth/me` no longer reports `connections_enabled` or
-  `connections_manageable`; read `brokered`.
+- **`GET /api/auth/me` drops the Connections fields** (#2617). It no longer
+  reports `connections_enabled` or `connections_manageable`; read `brokered`.
 
 ### Removed
 

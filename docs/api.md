@@ -285,17 +285,6 @@ To start a vault from another one's secrets, use `POST /api/vaults/:id/copy`.
 The server copies the values, so they never cross the API.
 See [Copy a vault](concepts/vault.md#copy-a-vault).
 
-## Secret bindings
-
-Use broker bindings when a sandbox should reference a credential while the
-broker supplies its value to an approved destination. The credential value stays outside the sandbox.
-
-See [Secrets](concepts/secrets.md) for the security model and the binding
-operations in the [generated reference](/api/docs) for configuration.
-
-Use `GET /api/auth/me` and its `brokered` field to decide whether to show
-binding controls: bindings exist only on a deployment that runs the broker.
-
 ## Bulk apply
 
 Use `fountain apply` when a checked-in manifest should define several related

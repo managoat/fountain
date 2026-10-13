@@ -14,7 +14,7 @@ defmodule Fountain.Conversations.EgressTest do
   alias Fountain.Conversations
   alias Fountain.Conversations.Egress
   alias Fountain.Conversations.Redaction
-  alias Fountain.SecretBindings.Binding
+  alias Fountain.Broker.Binding
   alias Managoat.Sandbox.Handle
 
   @session %{vault: "c-test", token: "av_sess_conv", expires_at: nil}
@@ -45,53 +45,46 @@ defmodule Fountain.Conversations.EgressTest do
     Application.delete_env(:fountain, :broker_listen_port)
   end
 
-  defp host_triples(bindings), do: Enum.map(bindings, &{&1.key, &1.host, &1.auth_type})
+  defp key_hosts(bindings), do: Enum.map(bindings, &{&1.key, &1.host})
 
   describe "the split rules where no broker is configured" do
-    test "are all no-ops, and read no bindings", %{user: user} do
+    test "are all no-ops" do
       broker_off()
-      {:ok, _} = Fountain.SecretBindings.create_binding(user.id, binding_attrs("DATABASE_URL"))
 
       refute Egress.brokered?()
-      assert Egress.bindings(user.id) == %{}
 
       secrets = %{"GITHUB_TOKEN" => "ghp_real", "DATABASE_URL" => "postgres://x"}
-      assert Egress.split_brokered(secrets, %{}) == {secrets, %{}}
+      assert Egress.split_brokered(secrets) == {secrets, %{}}
 
       creds = %{anthropic_api_key: "sk-ant-api03-x"}
       assert Egress.split_inference(creds, %{}, %{}) == {creds, %{}, %{}}
     end
   end
 
-  describe "split_brokered/2" do
-    test "catalog keys and bound keys become placeholders; the rest stay", %{user: user} do
+  describe "split_brokered/1" do
+    test "catalog keys become placeholders; the rest stay" do
       broker_on()
-      {:ok, _} = Fountain.SecretBindings.create_binding(user.id, binding_attrs("DATABASE_URL"))
-      bindings = Egress.bindings(user.id)
-
-      assert [%Binding{key: "DATABASE_URL", host: "api.example.com"}] = bindings["DATABASE_URL"]
 
       secrets = %{"GITHUB_TOKEN" => "ghp_real", "DATABASE_URL" => "postgres://x", "PLAIN" => "p"}
 
-      assert {sandbox, brokered} = Egress.split_brokered(secrets, bindings)
+      assert {sandbox, brokered} = Egress.split_brokered(secrets)
 
       assert sandbox == %{
                "GITHUB_TOKEN" => "__github_token__",
-               "DATABASE_URL" => "__database_url__",
+               "DATABASE_URL" => "postgres://x",
                "PLAIN" => "p"
              }
 
-      assert brokered == %{"GITHUB_TOKEN" => "ghp_real", "DATABASE_URL" => "postgres://x"}
+      assert brokered == %{"GITHUB_TOKEN" => "ghp_real"}
     end
   end
 
   describe "split_inference/3" do
-    test "placeholders for the runtime, values for the broker, the tenant's own wins",
-         %{user: user} do
+    test "placeholders for the runtime, values for the broker, the tenant's own wins" do
       broker_on()
       creds = %{anthropic_api_key: "sk-ant-api03-real", openai_api_key: "sk-real"}
       own = %{"ANTHROPIC_API_KEY" => "tenant-secret"}
-      own_bindings = %{"OPENAI_API_KEY" => [:tenant_binding]}
+      own_bindings = %{"OPENAI_API_KEY" => [:existing_binding]}
 
       {env_creds, brokered, bindings} = Egress.split_inference(creds, own, own_bindings)
 
@@ -103,11 +96,11 @@ defmodule Fountain.Conversations.EgressTest do
       # The secret split before this wins over the credential of the same name.
       assert brokered == %{"ANTHROPIC_API_KEY" => "tenant-secret", "OPENAI_API_KEY" => "sk-real"}
 
-      # An implicit binding only where the tenant has none of their own.
-      assert bindings["OPENAI_API_KEY"] == [:tenant_binding]
+      # A binding only where the key has none yet.
+      assert bindings["OPENAI_API_KEY"] == [:existing_binding]
 
-      assert host_triples(bindings["ANTHROPIC_API_KEY"]) == [
-               {"ANTHROPIC_API_KEY", "api.anthropic.com", "substitute"}
+      assert key_hosts(bindings["ANTHROPIC_API_KEY"]) == [
+               {"ANTHROPIC_API_KEY", "api.anthropic.com"}
              ]
     end
   end
@@ -408,12 +401,7 @@ defmodule Fountain.Conversations.EgressTest do
 
       bindings = %{
         "BOUND_TOKEN" => [
-          %Binding{
-            key: "BOUND_TOKEN",
-            host: "api.example.com",
-            auth_type: "bearer",
-            enabled: true
-          }
+          %Binding{key: "BOUND_TOKEN", host: "api.example.com"}
         ]
       }
 
@@ -537,9 +525,6 @@ defmodule Fountain.Conversations.EgressTest do
       assert :floor = Egress.apply_policy(handle, env, "c", true)
     end
   end
-
-  defp binding_attrs(key),
-    do: %{"key" => key, "host" => "api.example.com", "auth_type" => "bearer"}
 
   defp stages(conv_id, stage) do
     Fountain.Repo.all(

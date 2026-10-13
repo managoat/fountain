@@ -6,7 +6,7 @@ defmodule Fountain.Conversations.Egress do
   Talks to `Fountain.Broker` (the facade over its backends since #1357,
   never a backend). Functions over rows and values, not over server state
   (#1369): `ConversationServer` keeps the fields the session, its
-  placeholders and its bindings live in, unpacks them for each call and
+  placeholders and its broker bindings live in, unpacks them for each call and
   applies what comes back. The mint, which changes
   more than one field at once, is the server's short wrapper over
   `prepare/4`. The refresh before a turn reads seven fields and writes four
@@ -15,8 +15,8 @@ defmodule Fountain.Conversations.Egress do
   the same.
 
   The split rules, in order, as the server applies them at provision:
-  `bindings/1`, `split_brokered/2`, `split_inference/3`. Each is a no-op
-  where no broker is configured.
+  `split_brokered/1`, then `split_inference/3`. Each is a no-op where no
+  broker is configured.
   """
 
   alias Fountain.Broker
@@ -44,10 +44,10 @@ defmodule Fountain.Conversations.Egress do
   # On a brokered conversation the catalog keys leave the secrets map here,
   # before the MCP substitution and the env are built from it, so both see
   # the placeholder and neither sees the value.
-  @spec split_brokered(map(), Broker.bindings()) :: {map(), map()}
-  def split_brokered(secrets, bindings) do
+  @spec split_brokered(map()) :: {map(), map()}
+  def split_brokered(secrets) do
     if Broker.configured?(),
-      do: Broker.split(secrets, bindings),
+      do: Broker.split(secrets),
       else: {secrets, %{}}
   end
 
@@ -75,19 +75,10 @@ defmodule Fountain.Conversations.Egress do
     {next, fresh_keys, next != brokered}
   end
 
-  # Only read for a brokered tenant: for everyone else the table is rows
-  # nobody consults, and this path stays free of a query.
-  @spec bindings(String.t()) :: Broker.bindings()
-  def bindings(user_id) do
-    if Broker.configured?(),
-      do: Fountain.SecretBindings.enabled_by_key(user_id),
-      else: %{}
-  end
-
   # Gate 3: the runtime is handed placeholders for its inference credentials
-  # and the broker gets the values, with an implicit binding to the provider's
-  # host. A tenant's own secret of the same name (already split above) wins
-  # over the inference credential, as it wins in the environment.
+  # and the broker gets the values, with a binding to the provider's host.
+  # A tenant's own secret of the same name (already split above) wins over
+  # the inference credential, as it wins in the environment.
   @spec split_inference(map(), map(), Broker.bindings()) ::
           {map(), map(), Broker.bindings()}
   def split_inference(inference_creds, brokered, bindings) do

@@ -128,7 +128,6 @@ apps/fountain/test/fountain/sandbox_providers_test.exs	0
 apps/fountain/test/fountain/sandbox_queue_config_test.exs	0
 apps/fountain/test/fountain/sandbox_skills_test.exs	146
 apps/fountain/test/fountain/search_test.exs	2344
-apps/fountain/test/fountain/secret_bindings_test.exs	4781
 apps/fountain/test/fountain/self_host_switches_test.exs	1958
 apps/fountain/test/fountain/sentry_config_test.exs	66
 apps/fountain/test/fountain/sobelow_gate_test.exs	4
@@ -212,7 +211,6 @@ apps/fountain/test/fountain_web/controllers/sandbox_controller_test.exs	1788
 apps/fountain/test/fountain_web/controllers/sandbox_files_controller_test.exs	3590
 apps/fountain/test/fountain_web/controllers/sandbox_reset_controller_test.exs	1904
 apps/fountain/test/fountain_web/controllers/search_controller_test.exs	1558
-apps/fountain/test/fountain_web/controllers/secret_binding_controller_test.exs	1498
 apps/fountain/test/fountain_web/controllers/secret_controller_test.exs	3088
 apps/fountain/test/fountain_web/controllers/session_controller_test.exs	978
 apps/fountain/test/fountain_web/controllers/sse_stream_test.exs	8415
@@ -245,7 +243,6 @@ apps/fountain/test/fountain_web/live/environments_form_live_test.exs	768
 apps/fountain/test/fountain_web/live/hooks_test.exs	3037
 apps/fountain/test/fountain_web/live/liveview_reconciliation_test.exs	1760
 apps/fountain/test/fountain_web/live/runners_live_test.exs	508
-apps/fountain/test/fountain_web/live/secret_bindings_live_test.exs	780
 apps/fountain/test/fountain_web/live/secret_forms_live_test.exs	2820
 apps/fountain/test/fountain_web/live/start_live_platform_test.exs	516
 apps/fountain/test/fountain_web/live/start_live_test.exs	4820

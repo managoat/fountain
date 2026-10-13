@@ -293,23 +293,10 @@ defmodule FountainWeb.Router do
     delete "/:id", RunnerController, :delete
   end
 
-  # Secret bindings (ADR 0019 gate 1b). Full scope for the same reason as
-  # runners: a conversation-scoped token must not be able to redirect the
-  # account's credentials to another host.
-  scope "/api/secret-bindings", FountainWeb do
-    pipe_through [:accepts_json, :api, :require_full_scope]
-
-    get "/", SecretBindingController, :index
-    get "/presets", SecretBindingController, :presets
-    post "/", SecretBindingController, :create
-    patch "/:id", SecretBindingController, :update
-    delete "/:id", SecretBindingController, :delete
-  end
-
   # What left the sandbox through the egress broker (ADR 0019 gate 4). Full
-  # scope, like the bindings that put the credentials there: the log names
-  # which secrets went to which host, and a sandbox's per-conversation token
-  # must not be able to map another conversation's traffic (#1152).
+  # scope: the log names which secrets went to which host, and a sandbox's
+  # per-conversation token must not be able to map another conversation's
+  # traffic (#1152).
   scope "/api/conversations/:conversation_id", FountainWeb do
     pipe_through [:accepts_json, :api, :require_full_scope]
 
@@ -625,9 +612,6 @@ defmodule FountainWeb.Router do
 
       # ── OAuth apps the account registered for itself (#1125) ───────────────────────────────
       live "/account/oauth-apps", OAuthClientsLive.Index, :index
-
-      # ── Secret bindings at the egress broker (ADR 0019 gate 1b) ────────────────────────────
-      live "/account/bindings", SecretBindingsLive.Index, :index
 
       # ── Credential management (#448) ───────────────────────────────────────────────────────
       live "/account/security", AccountSecurityLive, :index

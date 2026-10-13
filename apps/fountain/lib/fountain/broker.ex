@@ -25,18 +25,16 @@ defmodule Fountain.Broker do
 
   ## What is brokered
 
-  * A secret with an enabled **binding** (`Fountain.SecretBindings`, gate 1b):
-    the tenant said which host it goes to and how. One service per binding.
-  * `GITHUB_TOKEN` and `GH_TOKEN` with no binding of their own, bound by the
-    built-in catalog to `api.github.com` (bearer) and `github.com` (git over
-    HTTPS, basic `x-access-token`) — gate 1a's default, kept so a tenant who
-    never opens the bindings page keeps working.
+  * `GITHUB_TOKEN` and `GH_TOKEN`, bound by the built-in catalog to
+    `api.github.com` (bearer) and `github.com` (git over HTTPS, basic
+    `x-access-token`) — gate 1a.
   * The runtime's **inference credential** (gate 3): `CLAUDE_CODE_OAUTH_TOKEN`
     or `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`. The runtime
     gets a vendor-shaped placeholder and the broker substitutes the value on
-    requests to the provider's host. A tenant secret of the same name with a
-    binding of its own wins, as it wins in the environment.
-  * Every other secret reaches the sandbox exactly as before.
+    requests to the provider's host (a `Fountain.Broker.Binding` per host).
+  * Every other secret reaches the sandbox exactly as before. Tenant-defined
+    bindings (gate 1b), which brokered any secret to the hosts the tenant
+    named, were removed on 2026-10-13 (ADR 0019 addendum).
   * Every tenant of a deployment that has a broker. Brokerage was a
     per-tenant ratchet (`BROKER_TENANTS`, ADR 0019 §9) while the hosted
     deployment widened one id at a time; it reached `*` on 2026-09-04 and
@@ -46,22 +44,20 @@ defmodule Fountain.Broker do
 
   Every service carries a **substitution** for its key: the broker replaces
   the placeholder wherever it appears in a request to that host, so the agent
-  sends the shape the API wants and nothing has to be told how. A binding's
-  explicit shape (bearer, api-key, custom) additionally sets a header the
-  agent did not send; `basic` is the one case substitution cannot reach,
+  sends the shape the API wants and nothing has to be told how. The GitHub
+  catalog pair additionally sets a header the agent did not send: a bearer
+  for the API, and `basic` for git, the one case substitution cannot reach,
   because the client base64-encodes the value before it leaves.
 
   Substitution reaches **header values and the request target** — the path
   and the query — since `managoat_broker` 0.2.0 (#1501 row 1). So a
-  credential a client puts in a URL is brokered: the bot-API shape
-  `/bot<token>/sendMessage`, or a `?key=` parameter. A tenant declares that
-  a key has a placeholder and nothing more; there is deliberately no
-  `auth_type` for *where* the placeholder sits, because the proxy finds it.
-  A request body is still not rewritten, and that is a recorded deviation
+  credential a client puts in a URL is brokered: a `?key=` parameter, say.
+  There is deliberately no shape for *where* the placeholder sits, because
+  the proxy finds it. A request body is still not rewritten, and that is a recorded deviation
   from Agent Vault rather than an oversight (ADR 0019's parity amendment).
 
-  Two consequences of substituting into a URL are worth knowing before
-  writing a binding. The credential replaces the placeholder **byte for
+  Two consequences of substituting into a URL are worth knowing. The
+  credential replaces the placeholder **byte for
   byte** — nothing is percent-encoded on the way in — so a credential that
   needs encoding is declared already encoded. And a credential the proxy
   cannot write where its placeholder sits is refused with a 403 rather than
@@ -74,7 +70,7 @@ defmodule Fountain.Broker do
   0047) or a user's own subscription (ADR 0060), does not get there through
   any of the above. The grant's bearer is not a
   secret in the `brokered` map, is in no rule, and cannot be named by a
-  binding or a template (`Fountain.ChatGPTAccounts.Reserved`): the session
+  secret, a network pattern or a template (`Fountain.ChatGPTAccounts.Reserved`): the session
   records *which* grant it may use, at which generation, and the proxy asks
   for the bearer on every request to the one Codex backend route
   (`Fountain.Broker.Native.Sessions`, "A session that may use a managed
@@ -109,6 +105,7 @@ defmodule Fountain.Broker do
   byte-for-byte what it was.
   """
 
+  alias Fountain.Broker.Binding
   alias Fountain.Broker.Native
 
   # Named for the vendor proxy this replaced, and deliberately not renamed:
@@ -209,10 +206,9 @@ defmodule Fountain.Broker do
   # ---------------------------------------------------------------------------
   # The catalog and the placeholder rule
 
-  # Key name → the services the broker attaches it to. A binding needs a host
-  # and an auth shape; today a secret is `{key, value}` and nothing else, so
-  # the catalog is what supplies both, by key name. The tail of secrets that
-  # need an explicit host is gate 1b (#1090).
+  # Key name → the services the broker attaches it to. A secret is `{key,
+  # value}` and nothing else, so the catalog is what supplies a host and an
+  # auth shape, by key name.
   @catalog %{
     "GITHUB_TOKEN" => :github,
     "GH_TOKEN" => :github
@@ -223,18 +219,15 @@ defmodule Fountain.Broker do
   def catalog_keys, do: Map.keys(@catalog)
 
   @doc false
-  # The unbound GitHub key the catalog pair is attached to, or nil when no
-  # catalog key is present without bindings of its own. Both names may be
-  # present after the merge; the git URL is written with whichever one
-  # `repositories[].secret_key` names, and the broker needs a single
-  # credential per service. Prefer the canonical name.
-  @spec catalog_github_key(map(), map()) :: String.t() | nil
-  def catalog_github_key(brokered, bindings) do
-    unbound = fn key -> Map.has_key?(brokered, key) and not Map.has_key?(bindings, key) end
-
+  # The GitHub key the catalog pair is attached to, or nil when neither is
+  # present. Both names may be present after the merge; the git URL is
+  # written with whichever one `repositories[].secret_key` names, and the
+  # broker needs a single credential per service. Prefer the canonical name.
+  @spec catalog_github_key(map()) :: String.t() | nil
+  def catalog_github_key(brokered) do
     cond do
-      unbound.("GITHUB_TOKEN") -> "GITHUB_TOKEN"
-      unbound.("GH_TOKEN") -> "GH_TOKEN"
+      Map.has_key?(brokered, "GITHUB_TOKEN") -> "GITHUB_TOKEN"
+      Map.has_key?(brokered, "GH_TOKEN") -> "GH_TOKEN"
       true -> nil
     end
   end
@@ -321,8 +314,9 @@ defmodule Fountain.Broker do
   @doc """
   Split the runtime's inference credentials (gate 3): the map handed to
   `default_env/2` gets placeholders, the broker gets the values under the
-  env var names, and each gets an implicit `substitute` binding to its
-  provider's host. A tenant's own binding for the same name wins. A managed
+  env var names, and each gets a `Fountain.Broker.Binding` to its
+  provider's host. A key already in `bindings` keeps the bindings it has, so
+  a second pass over a session's own bindings adds nothing. A managed
   ChatGPT grant is not one of these: `:codex_chatgpt_access_token` holds a
   placeholder already, has no entry in the table, and passes through
   untouched (see "A managed ChatGPT grant" in the moduledoc).
@@ -336,7 +330,7 @@ defmodule Fountain.Broker do
           implicit =
             if Map.has_key?(bindings, key),
               do: implicit,
-              else: Map.put(implicit, key, Enum.map(hosts, &implicit_binding(key, &1)))
+              else: Map.put(implicit, key, Enum.map(hosts, &%Binding{key: key, host: &1}))
 
           {Map.put(creds, cred, placeholder(key)), Map.put(brokered, key, value), implicit}
 
@@ -346,26 +340,16 @@ defmodule Fountain.Broker do
     end)
   end
 
-  defp implicit_binding(key, host) do
-    %Fountain.SecretBindings.Binding{
-      key: key,
-      host: host,
-      auth_type: "substitute",
-      headers: %{},
-      enabled: true
-    }
-  end
-
-  @typedoc "Enabled bindings grouped by secret key, as `Fountain.SecretBindings.enabled_by_key/1` returns them."
-  @type bindings :: %{String.t() => [Fountain.SecretBindings.Binding.t()]}
+  @typedoc "Bindings grouped by secret key, as `split_inference/2` returns them."
+  @type bindings :: %{String.t() => [Binding.t()]}
 
   @doc """
   Split a merged secrets map into what the sandbox gets and what the broker
   gets. Runs on the merged map, so the vault-wins rule has already applied
   (ADR 0019 §9: brokering happens after the merge).
 
-  A key is brokered when it has an enabled binding, or when it is a catalog
-  key (`GITHUB_TOKEN`, `GH_TOKEN`) with none. Returns `{sandbox_secrets,
+  A key is brokered when it has a binding, or when it is a catalog key
+  (`GITHUB_TOKEN`, `GH_TOKEN`). Returns `{sandbox_secrets,
   brokered}`: a placeholder in the first map, the value in the second. Keys
   with an empty value are left alone: there is nothing to broker.
   """
@@ -607,7 +591,7 @@ defmodule Fountain.Broker do
   Make the broker ready for one conversation and mint its session.
 
   Idempotent, and run on every provision and reattach, so an edited secret
-  or binding reaches the broker on the next wake, the same way the `.env`
+  reaches the broker on the next wake, the same way the `.env`
   file is refreshed. Between wakes the conversation process holds the
   session, and `refresh/4` is how an edit reaches it before the next turn
   (#1736). `opts`: `network:` (`network_for/1`), `user_id:`, which the

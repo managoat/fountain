@@ -37,10 +37,10 @@ defmodule FountainWeb.AuthMeController do
       # whether the browser will drop this user into the wizard.
       onboarding_completed: not is_nil(user.onboarding_completed_at),
       # Read-only: whether this deployment brokers egress (ADR 0019), so a
-      # client can label the mode instead of probing /api/secret-bindings for
-      # a 200 vs 404 (#1154). Deployment-wide since the §9 ratchet retired, so
-      # it is the same answer for every account here — still reported per
-      # request, because it is what this client's sandboxes will do.
+      # client can label the mode (#1154). Deployment-wide since the §9
+      # ratchet retired, so it is the same answer for every account here —
+      # still reported per request, because it is what this client's
+      # sandboxes will do.
       brokered: Fountain.Broker.configured?(),
       # The one door the `chatgpt_subscriptions` rollout holds (ADR 0060): a
       # new link. What an account already holds stays operable without it.

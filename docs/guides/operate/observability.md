@@ -110,7 +110,7 @@ check the shipped expressions and their failure fixtures.
 
 The admin page at `/admin/broker` shows recorded request traffic and current health. Health refreshes every 30 seconds. Traffic and session details refresh when you choose a window, or when you click Refresh data.
 
-The page lists the listener state, the live sessions, and the request counts by outcome for a window. It also lists the busiest hosts, the bindings the proxy attached a credential for, and the requests it refused or that failed.
+The page lists the listener state, the live sessions, and the request counts by outcome for a window. It also lists the busiest hosts, the rules the proxy attached a credential for, and the requests it refused or that failed.
 
 Denied holds every request the broker answered itself. Most of them are policy. One example is a `403` for a host outside the allowed list of a limited environment. A `502 credential_missing` is a different fault. The broker holds no usable credential for a rule, so it refuses the request instead of a send without one. A run of them points at one tenant secret that the broker cannot read. Failed holds the forwards that broke, and it leaves out the refusals, so no request appears under both.
 

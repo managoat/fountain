@@ -4148,114 +4148,6 @@ defmodule FountainWeb.Schemas do
 
   list_response(RunnerListResponse, of: Runner)
 
-  defmodule SecretBinding do
-    @moduledoc false
-    require OpenApiSpex
-
-    OpenApiSpex.schema(%{
-      title: "SecretBinding",
-      description:
-        "Which host a secret is attached to at the egress broker, and how " <>
-          "(ADR 0019). Keyed by the secret's name: it applies wherever an " <>
-          "environment or vault holds a secret of that name. A secret with at " <>
-          "least one enabled binding reaches the sandbox as a placeholder " <>
-          "(`__key__`); one with none reaches it in the clear.",
-      type: :object,
-      properties: %{
-        id: %Schema{type: :string, format: :uuid},
-        key: %Schema{type: :string, description: "The secret's name, UPPER_SNAKE_CASE."},
-        host: %Schema{
-          type: :string,
-          description:
-            "Host pattern: `api.example.com`, a one-level wildcard `*.example.com`, " <>
-              "optionally `:port` and a `/path/*` glob."
-        },
-        auth_type: %Schema{
-          type: :string,
-          enum: ["substitute", "bearer", "basic", "api_key", "custom"]
-        },
-        header: %Schema{
-          type: :string,
-          nullable: true,
-          description: "api_key only: the header the value is sent in. Defaults to Authorization."
-        },
-        prefix: %Schema{
-          type: :string,
-          nullable: true,
-          description: "api_key only: text placed before the value, such as `Token `."
-        },
-        username: %Schema{
-          type: :string,
-          nullable: true,
-          description: "basic only: the username; the secret is the password."
-        },
-        headers: %Schema{
-          type: :object,
-          additionalProperties: %Schema{type: :string},
-          description:
-            "custom only: header name to template, `{{ KEY }}` is replaced by the secret."
-        },
-        enabled: %Schema{type: :boolean},
-        created_at: %Schema{type: :string, format: :"date-time"},
-        updated_at: %Schema{type: :string, format: :"date-time"}
-      },
-      required: [:id, :key, :host, :auth_type, :headers, :enabled, :created_at, :updated_at]
-    })
-  end
-
-  defmodule SecretBindingRequest do
-    @moduledoc false
-    require OpenApiSpex
-
-    OpenApiSpex.schema(%{
-      title: "SecretBindingRequest",
-      type: :object,
-      properties: %{
-        key: %Schema{type: :string},
-        host: %Schema{type: :string},
-        auth_type: %Schema{
-          type: :string,
-          enum: ["substitute", "bearer", "basic", "api_key", "custom"]
-        },
-        header: %Schema{type: :string, nullable: true},
-        prefix: %Schema{type: :string, nullable: true},
-        username: %Schema{type: :string, nullable: true},
-        headers: %Schema{type: :object, additionalProperties: %Schema{type: :string}},
-        enabled: %Schema{type: :boolean}
-      },
-      required: [:key, :host, :auth_type],
-      example: %{key: "STRIPE_SECRET_KEY", host: "api.stripe.com", auth_type: "bearer"}
-    })
-  end
-
-  defmodule SecretBindingPreset do
-    @moduledoc false
-    require OpenApiSpex
-
-    OpenApiSpex.schema(%{
-      title: "SecretBindingPreset",
-      description: "A known service from the broker's catalog, to prefill a binding from.",
-      type: :object,
-      properties: %{
-        id: %Schema{type: :string},
-        name: %Schema{type: :string},
-        host: %Schema{type: :string},
-        description: %Schema{type: :string, nullable: true},
-        auth_type: %Schema{type: :string},
-        suggested_key: %Schema{type: :string, nullable: true},
-        header: %Schema{type: :string, nullable: true},
-        prefix: %Schema{type: :string, nullable: true},
-        headers: %Schema{type: :object, additionalProperties: %Schema{type: :string}},
-        usable: %Schema{
-          type: :boolean,
-          description:
-            "False for the few presets a binding cannot express on its own (request signing, a username of yours)."
-        }
-      },
-      required: [:id, :name, :host, :auth_type, :usable]
-    })
-  end
-
   defmodule EgressEvent do
     @moduledoc false
     require OpenApiSpex
@@ -4333,9 +4225,6 @@ defmodule FountainWeb.Schemas do
       required: [:data, :brokered]
     })
   end
-
-  list_response(SecretBindingListResponse, of: SecretBinding)
-  list_response(SecretBindingPresetListResponse, of: SecretBindingPreset)
 
   defmodule ApiKeyRequest do
     @moduledoc false

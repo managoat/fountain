@@ -96,8 +96,8 @@ the sandbox's process environment, so only a new conversation sees an edit.
 Inference credentials
 have a separate source binding: replacing the selected value requires a new
 selection before another turn, even when that value came from a vault. The section
-[Bindings, when the broker is on](#bindings-when-the-broker-is-on) says which
-secrets the broker holds.
+[What the broker holds](#what-the-broker-holds) says which secrets the broker
+holds.
 
 A conversation can name a different environment from its agent's default, and
 it can attach a vault. The agent's `allowed_environment_ids` and
@@ -289,57 +289,45 @@ pass them to each caller. The scrubber this replaced ran on the HTTPS clone
 path and not on the SSH one. A redaction that each caller must remember is a
 redaction that a new caller will one day forget.
 
-## Bindings, when the broker is on
+## What the broker holds
 
-The broker is on for every account of a deployment that runs one, and the
-hosted platform runs one. Without a broker, a secret enters the sandbox in
-the clear, and the bindings page and routes are absent. On your own instance,
+The broker is on for every account of a deployment that runs one. Without a
+broker, every secret enters the sandbox in the clear. On your own instance,
 read [Feature status](../reference/feature-status.md).
 
-On a hosted account with the egress credential broker on, a secret can have
-one or more **bindings**. A binding names a host. By default the broker
-replaces the secret's placeholder wherever it appears in a request to that
-host. The agent uses the placeholder as it would use the secret, in any
-header, in the query or in the path. It never has to know the shape the API
-wants. The broker does not rewrite a request body.
-Four other shapes are there for an API the agent cannot address itself. A
-bearer header. Basic auth with a username of yours, which the client encodes
-before it leaves. A header with an optional prefix. Custom headers with
-`{{ KEY }}` in them.
+With the egress credential broker on, two kinds of credential stay out of the
+sandbox. The agent sees a placeholder, and the broker puts the real value on
+each request to the credential's host:
 
-A secret with a binding does not enter the sandbox. The agent sees a
-placeholder, `__stripe_secret_key__` for `STRIPE_SECRET_KEY`. The broker puts
-the real value on each request to the bound host. A secret with no binding
-enters the sandbox in the clear. The four hops above describe that path.
-`GITHUB_TOKEN` and `GH_TOKEN` have a built-in binding to GitHub. It applies
-until you make one of your own. The runtime's inference credential has one
-too. `CLAUDE_CODE_OAUTH_TOKEN` and `ANTHROPIC_API_KEY` go to
-`api.anthropic.com`, `OPENAI_API_KEY` to `api.openai.com`, and
-`GEMINI_API_KEY` to `generativelanguage.googleapis.com`. The runtime sees a
-placeholder that keeps the vendor's prefix, such as
-`sk-ant-oat01-__claude_code_oauth_token__`.
+- `GITHUB_TOKEN` and `GH_TOKEN`, from an environment or a vault, go to
+  `api.github.com` as a bearer and to `github.com` as git's basic auth. The
+  sandbox holds `__github_token__`.
+- The runtime's inference credential. `CLAUDE_CODE_OAUTH_TOKEN` and
+  `ANTHROPIC_API_KEY` go to `api.anthropic.com`, `OPENAI_API_KEY` to
+  `api.openai.com`, and `GEMINI_API_KEY` to
+  `generativelanguage.googleapis.com`. The runtime sees a placeholder that
+  keeps the vendor's prefix, such as
+  `sk-ant-oat01-__claude_code_oauth_token__`. The broker replaces it wherever
+  it appears in a request to that host: in any header, in the query or in the
+  path. It does not rewrite a request body.
+
+Every other secret enters the sandbox in the clear. The four hops above
+describe that path. There is no way to attach another secret to a host of
+your choosing: credential bindings, which did that, have been removed.
 
 After a conversation, `GET /api/conversations/:id/egress` lists what left the
 sandbox through the broker. URL paths, queries and fragments are withheld.
 The `path` field contains `/[REDACTED]`, including for older rows. A credential
 can be part of any path segment, even the first. Each row shows the host, the
-binding that matched
-and so the credential attached, the status, and the latency. A row for a host
-you allowed, but bound no credential to, names no binding. A refused host
-shows the refusal. The broker writes a row when the request ends, so a long
-stream gets its row at the end of the stream. The latency is the duration of
-the whole request, not the time to the first byte. The list stays for `BROKER_LOG_RETENTION_HOURS` after the
-conversation ends. The route needs a key with full scope. The token a sandbox
-holds cannot read it. Read the
-[Conversations section](../api.md#conversations) of the API reference.
-
-You manage bindings on Account, then Credential bindings, or with
-`GET /api/secret-bindings` and its siblings, in the
-[Secret bindings section](../api.md#secret-bindings) of the API reference.
-The page and the routes are only
-there when the deployment runs a broker. A binding is about the name of
-a secret. So it applies to every environment and vault that holds a secret
-of that name.
+broker rule that matched and so the credential attached, the status, and the
+latency. A row for a host you allowed, but that carries no credential, names
+no rule. A refused host shows the refusal. The broker writes a row when the
+request ends, so a long stream gets its row at the end of the stream. The
+latency is the duration of the whole request, not the time to the first byte.
+The list stays for `BROKER_LOG_RETENTION_HOURS` after the conversation ends.
+The route needs a key with full scope. The token a sandbox holds cannot read
+it. Read the [Conversations section](../api.md#conversations) of the API
+reference.
 
 ## Where to go next
 

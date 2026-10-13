@@ -3,7 +3,7 @@ defmodule Fountain.ChatGPTAccounts.Reserved do
   Names reserved for Fountain-managed ChatGPT credentials (ADR 0052).
 
   Configuration may neither name the managed input nor embed its placeholder.
-  This is shared by binding writes and protected compilation of persisted data.
+  This is shared by secret writes and protected compilation of persisted data.
   It does not identify arbitrary secrets: the managed grant must still travel
   separately from environment, vault and ordinary broker inputs.
 
@@ -16,9 +16,9 @@ defmodule Fountain.ChatGPTAccounts.Reserved do
   ## Names and values are held to different rules
 
   `conflict?/1` is for everything that can *name* a credential or say where
-  one goes: a secret's key, every field of a binding, a network pattern, an
-  account id. There the substring match is right, because a key or a header
-  template that contains the name has no other reason to.
+  one goes: a secret's key, a network pattern, an account id. There the
+  substring match is right, because a key or a pattern that contains the
+  name has no other reason to.
 
   A secret's **value** is opaque text the tenant owns: a script, a JSON blob,
   a certificate. One that merely mentions `codex_chatgpt_access_token` names

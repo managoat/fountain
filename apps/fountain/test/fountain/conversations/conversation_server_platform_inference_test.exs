@@ -173,7 +173,7 @@ defmodule Fountain.Conversations.ConversationServerPlatformInferenceTest do
       assert_receive {:prepared, brokered, bindings}, 2_000
       assert brokered["ANTHROPIC_API_KEY"] == @platform_key
 
-      assert [%{host: "api.anthropic.com", auth_type: "substitute"}] =
+      assert [%Fountain.Broker.Binding{host: "api.anthropic.com"}] =
                bindings["ANTHROPIC_API_KEY"]
 
       assert_receive {:spawned, _cmd, _args, opts}, 2_000

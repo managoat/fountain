@@ -482,7 +482,7 @@ defmodule Fountain.Conversations.ConversationServerBrokerTest do
       assert_receive {:prepared, brokered, bindings}, 2_000
       assert brokered["CLAUDE_CODE_OAUTH_TOKEN"] == "sk-ant-oat01-realtoken"
 
-      assert [%{host: "api.anthropic.com", auth_type: "substitute"}] =
+      assert [%Fountain.Broker.Binding{host: "api.anthropic.com"}] =
                bindings["CLAUDE_CODE_OAUTH_TOKEN"]
 
       # The harness runtime ignores credentials; the real one is handed the

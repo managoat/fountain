@@ -334,7 +334,6 @@ defmodule Fountain.Team.Schedules do
   def describe_error(:sandbox_reset_pending),
     do: "teammate's computer is being reset or deleted"
 
-
   def describe_error(%Ecto.Changeset{}), do: "could not open a conversation"
   def describe_error(other), do: inspect(other) |> String.slice(0, 250)
 

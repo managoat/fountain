@@ -270,26 +270,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/admin/users/{id}/sandbox-limit": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Set an account's concurrent-sandbox cap
-         * @description The only lever for a noisy or abusive tenant (ADR 0005). 0 stops the account from starting new conversations without suspending it.
-         */
-        post: operations["FountainWeb.AdminController.set_sandbox_limit"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/admin/users/{id}/suspend": {
         parameters: {
             query?: never;
@@ -1356,50 +1336,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/sandbox-queue": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List queued sandbox requests
-         * @description The caller's waiting requests, oldest first, each with its one-based position. Only requests that are still waiting appear here. One the drainer has already claimed is not listed, and neither is one that finished; read either by id instead.
-         */
-        get: operations["FountainWeb.SandboxQueueController.index"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/sandbox-queue/{id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get a sandbox request
-         * @description The request's current status. `conversation_id` is set once it started; `error` says why if it failed. A request nobody else owns reads as 404.
-         */
-        get: operations["FountainWeb.SandboxQueueController.show"];
-        put?: never;
-        post?: never;
-        /**
-         * Cancel a queued sandbox request
-         * @description Gives up a request that is still waiting. A request the drainer has already claimed reads as 404 rather than being cancelled out from under a start in flight.
-         */
-        delete: operations["FountainWeb.SandboxQueueController.delete"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/sandboxes": {
         parameters: {
             query?: never;
@@ -2039,11 +1975,6 @@ export interface components {
             /** Format: uuid */
             user_id?: string | null;
         };
-        /** AdminSandboxLimitRequest */
-        AdminSandboxLimitRequest: {
-            /** @description Override of the concurrent-sandbox cap. Null clears it, handing the cap back to the configured ceiling. */
-            limit: number | null;
-        };
         /** AdminSandboxListResponse */
         AdminSandboxListResponse: {
             data: components["schemas"]["AdminSandbox"][];
@@ -2068,12 +1999,8 @@ export interface components {
             inserted_at?: string;
             /** Format: date-time */
             last_activity_at?: string | null;
-            /** @description The concurrency cap actually enforced: the override, or the configured ceiling. */
-            max_concurrent_sandboxes?: number | null;
             /** @enum {string} */
             role: "admin" | "user";
-            /** @description Admin override of the cap. Null means the configured ceiling applies. */
-            sandbox_limit_override?: number | null;
             suspended?: boolean;
             /** Format: date-time */
             suspended_at?: string | null;
@@ -2615,7 +2542,7 @@ export interface components {
             agent_id: string;
             /** @description Opaque key for the external channel this conversation is bound to (for example a chat thread id). When set, the latest live conversation for the same agent, vault and channel is resumed (200) instead of a new one being opened (201). */
             channel_id?: string | null;
-            /** @description Your own name for the first prompt. Ignored when the request carries no `prompt`. An immediate `channel_id` resume does not deliver the prompt; send the value with it on the prompts route. If a queued start resumes a channel bound while it waited, the queue delivers the prompt and value. Fountain stores it on the turn the prompt opens and sends it on that turn's `started` stage event, beside the `turn_id`, so a client can bind its work item to the exact turn without inferring it from turn order. Use the event to find a candidate turn and the turn itself to confirm it: the event's copy has been through event redaction, and the turn's is what you sent. It is a correlation and not an idempotency key: a second prompt with the same value opens a second turn that carries it too. Make it unique within the conversation. */
+            /** @description Your own name for the first prompt. Ignored when the request carries no `prompt`. An immediate `channel_id` resume does not deliver the prompt; send the value with it on the prompts route.Fountain stores it on the turn the prompt opens and sends it on that turn's `started` stage event, beside the `turn_id`, so a client can bind its work item to the exact turn without inferring it from turn order. Use the event to find a candidate turn and the turn itself to confirm it: the event's copy has been through event redaction, and the turn's is what you sent. It is a correlation and not an idempotency key: a second prompt with the same value opens a second turn that carries it too. Make it unique within the conversation. */
             client_request_id?: string | null;
             /**
              * Format: uuid
@@ -2637,12 +2564,10 @@ export interface components {
             } | null;
             /** @description Optional model to run instead of the agent's (ADR 0061), in canonical provider/model_id form, for this conversation only. Checked as the agent's own model is: a provider the runtime does not drive, or any model on the acp runtime, is 422 model_invalid. The model id itself is not checked against a catalog. Change it later with POST /api/conversations/{id}/reapply. Not part of the channel_id resume key: a request that resumes a conversation running a different model is 409 conversation_model_differs, before any prompt is sent; reapply the model, or set fresh: true. */
             model?: string | null;
-            /** @description Per-launch permission override (#939). Keys are matched against the tool card's title first and then ACP's kind (execute, edit, read, fetch, …); "default" covers the rest. Prefer a kind: claude titles a tool call with the command it is about to run, so a title matches one invocation only. Merged with the agent's own policy, taking the stricter of the two. It may only narrow: a policy that would loosen any tool is refused with 422 permission_policy_widens rather than silently clamped. If a queued request with a prompt and a nonempty policy resumes an existing channel, it fails with permission_policy_requires_fresh_conversation before sending the prompt. Set fresh: true to create a conversation for that policy. */
+            /** @description Per-launch permission override (#939). Keys are matched against the tool card's title first and then ACP's kind (execute, edit, read, fetch, …); "default" covers the rest. Prefer a kind: claude titles a tool call with the command it is about to run, so a title matches one invocation only. Merged with the agent's own policy, taking the stricter of the two. It may only narrow: a policy that would loosen any tool is refused with 422 permission_policy_widens rather than silently clamped. */
             permission_policy?: components["schemas"]["PermissionPolicy"] | null;
             /** @description Optional first turn prompt. A launch may open with no prompt at all, but a prompt that is present must carry words: blank and whitespace-only text is refused with 422 invalid_prompt, before the launch reserves a sandbox. */
             prompt?: string;
-            /** @description When a fresh start reaches the tenant or the fleet concurrency ceiling, wait in the bounded sandbox queue and return 202 with a SandboxRequest instead of 429 or 503 (ADR 0042). Starts carrying images or an explicit sandbox_id are never queued, and a full queue keeps the immediate error. */
-            queue?: boolean | null;
             /**
              * @description none omits the sandbox Fountain credential on provision and every wake. Requires a fresh ephemeral sandbox; unavailable on attach or policy-changing channel resume.
              * @enum {string}
@@ -2926,10 +2851,8 @@ export interface components {
          * @description The one body every JSON error status carries (#2324). `error` is the code to branch on; the other keys accompany particular codes and are absent otherwise. A `406` is the exception: content negotiation fails before any controller runs and renders `NegotiationError` instead.
          */
         Error: {
-            /** @description Sandboxes the account has in use, on `sandbox_quota_exceeded` (429). */
-            active_sandboxes?: number;
             /**
-             * @description The machine-readable code: `validation_failed`, `not_found`, `sandbox_quota_exceeded`, `expired`, `invalid_token` and the rest. On the key-authentication and scope refusals it is a sentence and `reason` carries the code.
+             * @description The machine-readable code: `validation_failed`, `not_found`, `fleet_full`, `expired`, `invalid_token` and the rest. On the key-authentication and scope refusals it is a sentence and `reason` carries the code.
              * @example validation_failed
              */
             error: string;
@@ -2937,8 +2860,6 @@ export interface components {
             errors?: {
                 [key: string]: string[];
             };
-            /** @description The account's concurrent-sandbox cap, on `sandbox_quota_exceeded` (429). */
-            limit?: number;
             /** @description A sentence for a human, when there is one. */
             message?: string;
             /** @description A second stable word. On the 401 and 403 refusals from key authentication and scope checks, `error` is prose and this is the code (`api_key_invalid`, `api_key_expired`, `insufficient_scope`). On `broker_unavailable`, `sandbox_not_resettable` and `credential_set_is_default`, `error` is the code and this narrows it (`econnrefused`, `timeout`, `is_default`, ...). */
@@ -3547,39 +3468,6 @@ export interface components {
         /** SandboxListingResponse */
         SandboxListingResponse: {
             data: components["schemas"]["SandboxListing"];
-        };
-        /**
-         * SandboxRequest
-         * @description Work waiting for sandbox capacity (ADR 0042).
-         */
-        SandboxRequest: {
-            /** Format: uuid */
-            agent_id: string;
-            /**
-             * Format: uuid
-             * @description The conversation the request started, or the target when a failed request reports prompt_delivery_unknown. Inspect it before resubmitting: after a timeout or connection loss, the prompt may have run or may still execute.
-             */
-            conversation_id?: string | null;
-            error?: string | null;
-            /** Format: uuid */
-            id: string;
-            /** Format: date-time */
-            inserted_at?: string;
-            /** @enum {string} */
-            kind: "start" | "schedule_run";
-            /** @description One-based place in the tenant's queue; null once it stops waiting. */
-            position?: number | null;
-            source?: string | null;
-            /** @enum {string} */
-            status: "queued" | "starting" | "started" | "cancelled" | "expired" | "failed";
-        };
-        /** SandboxRequestListResponse */
-        SandboxRequestListResponse: {
-            data: components["schemas"]["SandboxRequest"][];
-        };
-        /** SandboxRequestResponse */
-        SandboxRequestResponse: {
-            data: components["schemas"]["SandboxRequest"];
         };
         /** SandboxResponse */
         SandboxResponse: {
@@ -5483,87 +5371,6 @@ export interface operations {
         requestBody?: {
             content: {
                 "application/json": components["schemas"]["AdminRoleRequest"];
-            };
-        };
-        responses: {
-            /** @description Account */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AdminUserResponse"];
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Admin required */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description No acceptable representation */
-            406: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["NegotiationError"];
-                };
-            };
-            /** @description Refused */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Too Many Requests */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
-    "FountainWeb.AdminController.set_sandbox_limit": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        /** @description Limit */
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["AdminSandboxLimitRequest"];
             };
         };
         responses: {
@@ -7615,15 +7422,6 @@ export interface operations {
                     "application/json": components["schemas"]["ConversationResponse"];
                 };
             };
-            /** @description Queued for sandbox capacity */
-            202: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SandboxRequestResponse"];
-                };
-            };
             /** @description Invalid request */
             400: {
                 headers: {
@@ -7687,7 +7485,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description Tenant concurrency cap reached */
+            /** @description Too Many Requests */
             429: {
                 headers: {
                     [name: string]: unknown;
@@ -7696,7 +7494,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description Sandbox or fleet unavailable */
+            /** @description Sandbox unavailable, or every sandbox slot in use (fleet_full) */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -10329,194 +10127,6 @@ export interface operations {
                 };
             };
             /** @description No such runner */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description No acceptable representation */
-            406: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["NegotiationError"];
-                };
-            };
-            /** @description Too Many Requests */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
-    "FountainWeb.SandboxQueueController.index": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Sandbox requests */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SandboxRequestListResponse"];
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description No acceptable representation */
-            406: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["NegotiationError"];
-                };
-            };
-            /** @description Too Many Requests */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
-    "FountainWeb.SandboxQueueController.show": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Sandbox request */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SandboxRequestResponse"];
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description No acceptable representation */
-            406: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["NegotiationError"];
-                };
-            };
-            /** @description Too Many Requests */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
-    "FountainWeb.SandboxQueueController.delete": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Cancelled */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Not found or no longer queued */
             404: {
                 headers: {
                     [name: string]: unknown;

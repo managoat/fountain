@@ -635,7 +635,6 @@ if config_env() != :test do
   config :fountain, :sandboxes, fleet_ceiling: whole_number.("SANDBOX_FLEET_CEILING", 20)
 end
 
-
 # Platform inference keys (#1388, ADR 0038 decision 3, amending ADR 0008).
 #
 # Fountain runs a tenant's agent on one of these when the tenant has no

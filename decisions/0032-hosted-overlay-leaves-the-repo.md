@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "The hosted instance's overlay leaves the repo; the manifest artifact is only the baseline plus the image pin"
-description: "The maintainer's cluster-specific manifests (CNPG, Infisical, Traefik, hostnames, backups, alerts, Erlang clustering) move from k8s/ to the private home-cloud repo, which applies them on top of the OCI manifest artifact with Flux patches and a sibling Kustomization. k8s/ then went entirely (addendum): the artifact pins the image in deploy/k8s's own `images:` block and FOUNTAIN_BUILD_SHA is baked into the image. Built. Addendum 2026-10-12: publish-manifests.yml and the hosted deployed.yml schedule are removed; the repo publishes no manifest artifact, and how the hosted instance deploys is decided outside the repo."
+description: "The maintainer's cluster-specific manifests (CNPG, Infisical, Traefik, hostnames, backups, alerts, Erlang clustering) move from k8s/ to the private home-cloud repo, which applies them on top of the OCI manifest artifact with Flux patches and a sibling Kustomization. k8s/ then went entirely (addendum): the artifact pins the image in deploy/k8s's own `images:` block and FOUNTAIN_BUILD_SHA is baked into the image. Built. Addendum 2026-10-12: the hosted deployed.yml schedule is removed; publish-manifests.yml stays (2026-10-13), so every merge to main still publishes the artifact the maintainer's instance deploys from."
 tags: [deploy, infra, open-source, flux]
 status: stable
 adr: "0032"
@@ -142,23 +142,22 @@ home-cloud's `fountain` goes `BuildFailed` and applies nothing), then
 home-cloud flips its path. The other order would have built the current
 artifact's `./deploy/k8s` with the *release* pin and rolled prod back.
 
-## Addendum (2026-10-12): the repo publishes no manifest artifact
+## Addendum (2026-10-12): the hosted verification schedule goes; the artifact stays
 
 Fountain is a self-hosted product now, not a hosted service, so this
-repository stops running the hosted instance's delivery.
-`.github/workflows/publish-manifests.yml` is deleted: no merge to `main`
-publishes `ghcr.io/managoat/fountain-manifests`, and nothing nudges a Flux
-receiver. `deploy/` stays as the portable baseline, applied with
-`kubectl apply -k` or consumed by any GitOps tool from a checkout or a
-release tag. `.github/workflows/deployed.yml` goes with it: its schedule and
-its `deployed-staging` and `deployed-production` environments existed for the
+repository stops running the hosted instance's scheduled checks.
+`.github/workflows/deployed.yml` goes: its schedule and its
+`deployed-staging` and `deployed-production` environments existed for the
 hosted instance. `deployed/` stays as a tool an operator runs by hand against
 their own URL.
 
-The hosted instance still reconciles the last artifact published before this
-change, and keeps it until its owner chooses a new source. That choice
-(release tags, a home-cloud-owned build, or something else) is outside this
-repository and is not made here.
+`.github/workflows/publish-manifests.yml` stays (decided 2026-10-13). The
+maintainer's instance deploys from the artifact it publishes
+(`ghcr.io/managoat/fountain-manifests`, through home-cloud's
+`OCIRepository` and the `fountain-artifact-receiver`), and removing it would
+have frozen that instance on its last artifact with nothing to replace it.
+Anyone else can consume the same artifact, or `deploy/k8s` from a release
+tag.
 
 ## Alternatives considered
 

@@ -10,15 +10,18 @@
 # multi-arch manifest. The previous single-runner QEMU build spent ~22
 # minutes emulating the arm64 Erlang compile; native + the registry-backed
 # BuildKit cache below brings a warm code-change build to single-digit
-# minutes.
+# minutes. The `build` workflow name and its completion event are load-
+# bearing: publish-manifests.yml listens for them.
 name: build
 
 on:
   workflow_dispatch:
   # Gated on CI instead of triggering directly on push: a commit whose CI
-  # failed used to get built and published anyway. The old push-trigger
-  # paths-ignore (paths that never affect the OCI image) is re-implemented
-  # as the `changes` job below — workflow_run cannot express path filters.
+  # failed used to get built, published, and reconciled by Flux anyway.
+  # Same idiom publish-manifests.yml uses to gate on this workflow. The
+  # old push-trigger paths-ignore (paths that never affect the OCI image)
+  # is re-implemented as the `changes` job below — workflow_run cannot
+  # express path filters.
   workflow_run:
     workflows: [CI]
     types: [completed]
@@ -83,6 +86,9 @@ jobs:
         # got built; a cancelled CI run plus a docs-only follow-up broke that
         # assumption, and the follow-up's one-commit diff reported "nothing
         # image-affecting" while the cancelled commit's code sat un-built.
+        # Same ancestor walk publish-manifests.yml uses for its image pin.
+        # Manifest-only changes still deploy without a build:
+        # publish-manifests.yml triggers directly on deploy/ pushes.
         run: |
           set -euo pipefail
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
@@ -174,10 +180,10 @@ jobs:
           # all it ever claims. An image built from tree T is reused for every
           # later commit with tree T (the `changes` job above skips the
           # build), and those pods report this commit — which is exactly what
-          # the old manifest-side pin reported too: it pinned
-          # FOUNTAIN_BUILD_SHA to the *image's* commit, never the deployed
-          # one. Baking it here says the same thing with no patch in the
-          # manifests (decisions/0032 addendum). It reaches the console
+          # the old manifest-side pin reported too: publish-manifests.yml
+          # pinned FOUNTAIN_BUILD_SHA to the *image's* commit, never the
+          # deployed one. Baking it here says the same thing with no patch
+          # in the manifests (decisions/0032 addendum). It reaches the console
           # footer and the Sentry release.
           build-args: |
             BUILD_SHA=${{ github.sha }}

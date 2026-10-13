@@ -7,8 +7,9 @@
 #
 # Not referenced from ../k8s/kustomization.yaml (the baseline), because the portable
 # baseline must not assume a Grafana exists, let alone one running that
-# sidecar. An operator who has the sidecar adds this directory to their
-# overlay, and one who does not imports
+# sidecar. The hosted instance applies this directory as its own Flux
+# Kustomization from the manifest artifact (decisions/0032); a self-hoster
+# who has the sidecar adds it to their overlay, and one who does not imports
 # the JSON by hand, which is what docs/guides/operate/observability.md
 # describes.
 #

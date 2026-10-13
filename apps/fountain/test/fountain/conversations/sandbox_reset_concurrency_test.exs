@@ -128,7 +128,6 @@ defmodule Fountain.Conversations.SandboxResetConcurrencyTest do
         user_id: user.id,
         sandbox_id: home.id,
         current_turn: nil,
-        turn_execution: nil,
         handle: nil
       }
 

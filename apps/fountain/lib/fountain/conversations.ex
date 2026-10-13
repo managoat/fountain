@@ -23,10 +23,9 @@ defmodule Fountain.Conversations do
     TurnImage
   }
 
-  alias Fountain.Conversations.Interruption
   alias Fountain.Conversations.Termination
   alias Fountain.Conversations.InferenceResolution
-  alias Fountain.Conversations.{ExecutionAllowance, ExecutionGuard, ExecutionLimits}
+  alias Fountain.Conversations.TurnLocks
   alias Fountain.Conversations.Lifecycle
   alias Fountain.InferenceCredentials
   alias Fountain.InferenceCredentials.Source
@@ -764,7 +763,7 @@ defmodule Fountain.Conversations do
   end
 
   # The one place a conversation row is written. Admission writes it inside a
-  # transaction with the sandbox and the execution allowance, so it cannot
+  # transaction with the sandbox, so it cannot
   # share `create_conversation/1` outright; keeping the insert itself in one
   # function is what stops the two shapes drifting.
   # A door for `Fountain.Conversations.Launch` (#2217); not part of the
@@ -973,7 +972,7 @@ defmodule Fountain.Conversations do
 
   `opts` takes `:sandbox_id`, the actor's own binding, to refuse the write when
   the conversation has since moved to another sandbox
-  (`ExecutionGuard._unsafe_write_parent/4`).
+  (`TurnLocks._unsafe_write_parent/4`).
   """
   def _unsafe_set_turn_session(%Turn{} = turn, session_id, opts \\ []),
     do: write_turn_parent(turn, :session, %{runtime_session_id: session_id}, opts)
@@ -981,7 +980,7 @@ defmodule Fountain.Conversations do
   @doc "Clear an idle legacy peer's session only if its observed identity is still current."
   def _unsafe_clear_idle_session(conv_id, expected) do
     # ownership: this is the already-owned actor's conversation and session.
-    ExecutionGuard._unsafe_clear_idle_session(conv_id, expected, fn current ->
+    TurnLocks._unsafe_clear_idle_session(conv_id, expected, fn current ->
       current |> Conversation.changeset(%{runtime_session_id: nil}) |> Repo.update()
     end)
     |> notify_parent_change()
@@ -990,7 +989,7 @@ defmodule Fountain.Conversations do
   defp write_turn_parent(turn, mode, attrs, opts \\ []) do
     # ownership: the calling actor/recovery path already owns this exact turn.
     result =
-      ExecutionGuard._unsafe_write_parent(
+      TurnLocks._unsafe_write_parent(
         turn,
         mode,
         fn current -> current |> Conversation.changeset(attrs) |> Repo.update() end,
@@ -1327,14 +1326,14 @@ defmodule Fountain.Conversations do
   events via the FK.
   """
   def delete_conversation(%Conversation{} = conv, opts \\ []) do
-    # ownership: conv is the caller's tenant-scoped row. Persist cleanup before
-    # any potentially blocking termination and before deleting that parent.
-    with {:ok, _} <- Interruption.retire_journal_before_reattach(conv.id) do
-      delete_after_journal_interrupt(conv, opts)
-    end
+    # ownership: conv is the caller's tenant-scoped row. A row already gone
+    # answers `:not_found` rather than a stale delete.
+    if Repo.exists?(from c in Conversation, where: c.id == ^conv.id),
+      do: delete_existing_conversation(conv, opts),
+      else: {:error, :not_found}
   end
 
-  defp delete_after_journal_interrupt(%Conversation{id: id, user_id: user_id} = conv, opts) do
+  defp delete_existing_conversation(%Conversation{id: id, user_id: user_id} = conv, opts) do
     # `audit: false` on the cascade: this terminate is an implementation
     # detail of deleting, not a second thing the user asked for, and the
     # `conversation.deleted` below already accounts for the sandbox going
@@ -1565,10 +1564,8 @@ defmodule Fountain.Conversations do
   runtime **as read under the lock**, not a number the caller brought, and it
   is counted against the running turns of the other conversations **on that
   runtime** — a `claude` turn does not consume the one `gemini` slot on a
-  shared home (#1089 blocker 4). `:unbounded` skips only that check. Saved
-  execution allowances are checked under row locks; no runtime control is
-  supported yet, so any nonempty allowance refuses the turn. Refusal writes no
-  turn. Usage is recorded after the transaction commits, never inside it.
+  shared home (#1089 blocker 4). `:unbounded` skips only that check.
+  Refusal writes no turn. Usage is recorded after the transaction commits, never inside it.
   """
   def _unsafe_create_turn_on_sandbox(attrs, sandbox_id, revision \\ nil, opts \\ [])
       when is_binary(sandbox_id) and is_list(opts) do
@@ -1588,9 +1585,7 @@ defmodule Fountain.Conversations do
           :erlang.phash2(sandbox_id)
         ])
 
-        # The allowance's FK takes KEY SHARE on this row when first inserted.
-        # UPDATE also fences that first insert when there is no allowance row
-        # to lock yet. Keep both locks through the turn insert.
+        # Hold the parent row through the turn insert.
         conv =
           Repo.one(
             from c in Conversation,
@@ -1628,17 +1623,8 @@ defmodule Fountain.Conversations do
         # then means this turn would run against settings the server has not
         # read, so it is refused here rather than started wrong (#1565). A
         # caller with no revision to offer is not checked.
-        if not is_nil(revision) and conv.configuration_revision != revision do
-          # A configuration reload acknowledges the prompt before continuing.
-          # An unresolved execution must refuse it while the caller can still
-          # hear that refusal (#2009).
-          # ownership: the caller owns this conversation; its parent lock
-          # above serializes this read with journal changes.
-          if ExecutionGuard._unsafe_open_execution?(conv_id),
-            do: Repo.rollback(:execution_fenced)
-
-          Repo.rollback(:configuration_changed)
-        end
+        if not is_nil(revision) and conv.configuration_revision != revision,
+          do: Repo.rollback(:configuration_changed)
 
         # The machine, read under the lock. Row-only retirement writers do not
         # take the admission advisory lock, so its row is held `FOR SHARE`
@@ -1682,11 +1668,6 @@ defmodule Fountain.Conversations do
            ),
            do: Repo.rollback(:not_running)
 
-        case _unsafe_check_saved_execution_allowance(conv_id) do
-          :ok -> :ok
-          {:error, reason} -> Repo.rollback(reason)
-        end
-
         # The bound is the runtime's, read from the row this transaction locked,
         # and the count is over that runtime's turns alone.
         capacity = Fountain.RuntimeDispatch.concurrency(conv.runtime)
@@ -1695,16 +1676,6 @@ defmodule Fountain.Conversations do
              _unsafe_running_turns_elsewhere(sandbox_id, conv_id, conv.runtime) >= capacity do
           Repo.rollback(:sandbox_at_capacity)
         else
-          # An earlier bounded execution that is still unresolved fences this
-          # conversation: a stale deadline must not be able to terminate a
-          # process a successor has started using (ADR 0046). The parent is
-          # already locked above, so this is a plain read.
-          #
-          # ownership: conv_id was proved attached to this tenant's sandbox by
-          # the `attached?` check above, under the same locks.
-          if ExecutionGuard._unsafe_open_execution?(conv_id),
-            do: Repo.rollback(:execution_fenced)
-
           turn =
             case %Turn{} |> Turn.changeset(attrs) |> Repo.insert() do
               {:ok, turn} -> turn
@@ -1727,13 +1698,6 @@ defmodule Fountain.Conversations do
             )
           end
 
-          # Same transaction as the turn: a bounded turn that exists without a
-          # journal row is a turn nothing can expire. `conv` is the row this
-          # transaction locked.
-          # ownership: conv_id came from the caller's attrs and was verified
-          # attached to this tenant's sandbox above.
-          conv = Repo.get!(Conversation, conv_id)
-          ExecutionGuard._unsafe_register_bounded(turn, sandbox_id, conv)
           turn
         end
       end)
@@ -1787,147 +1751,6 @@ defmodule Fountain.Conversations do
   end
 
   defp record_started_turn(error), do: error
-
-  @doc """
-  Save an initial resolved allowance once, scoped to its conversation owner.
-
-  Internal persistence only: the caller must resolve trusted current ceilings
-  and prove runtime support before admission. This function does not admit work
-  or reset an active turn. No launch or HTTP path calls it yet. A duplicate
-  fails without replacing the saved policy; use `narrow_execution_allowance/3`
-  for subsequent changes. Ownership stays locked through insertion.
-  """
-  def create_execution_allowance(conversation_id, user_id, resolved_limits, opts \\ []) do
-    result =
-      Repo.transaction(fn ->
-        Repo.one(
-          from c in Conversation,
-            where: c.id == ^conversation_id and c.user_id == ^user_id,
-            select: c.id,
-            lock: "FOR SHARE"
-        ) || Repo.rollback(:not_found)
-
-        case conversation_id
-             |> ExecutionAllowance.new_changeset(resolved_limits)
-             |> Repo.insert() do
-          {:ok, allowance} -> allowance
-          {:error, changeset} -> Repo.rollback(changeset)
-        end
-      end)
-
-    with {:ok, allowance} <- result do
-      record_execution_allowance_created(allowance, user_id, opts)
-
-      {:ok, allowance}
-    end
-  end
-
-  # A door for `Fountain.Conversations.Launch` (#2217); not part of the
-  # context's public surface.
-  @doc false
-  def record_execution_allowance_created(allowance, user_id, opts) do
-    Audit.record(%{
-      user_id: user_id,
-      action: "conversation.execution_allowance_created",
-      resource_type: "conversation",
-      resource_id: allowance.conversation_id,
-      actor: Keyword.get(opts, :actor, "self"),
-      request_ip: Keyword.get(opts, :request_ip),
-      metadata: %{
-        "controls" => Enum.filter(ExecutionLimits.keys(), &Map.has_key?(allowance.limits, &1))
-      }
-    })
-  end
-
-  @doc """
-  Narrow an existing allowance owned by `user_id`, retaining omitted controls.
-
-  This edits future policy only: it neither admits work nor resets an active
-  turn's usage/deadline. Initial allowance creation and current-ceiling checks
-  remain admission responsibilities. Missing and foreign records return the
-  same error. Concurrent writers revalidate against the latest locked value.
-  """
-  def narrow_execution_allowance(conversation_id, user_id, request, opts \\ []) do
-    result =
-      Repo.transaction(fn ->
-        # Keep ownership stable through the write; turn admission locks this
-        # conversation before its allowance too. No sandbox/provider work here.
-        Repo.one(
-          from c in Conversation,
-            where: c.id == ^conversation_id and c.user_id == ^user_id,
-            select: c.id,
-            lock: "FOR SHARE"
-        ) || Repo.rollback(:not_found)
-
-        allowance =
-          Repo.one(
-            from a in ExecutionAllowance,
-              where: a.conversation_id == ^conversation_id,
-              lock: "FOR UPDATE"
-          ) || Repo.rollback(:not_found)
-
-        unless is_map(allowance.limits),
-          do: Repo.rollback({:execution_limits_invalid, "object_required"})
-
-        changeset = ExecutionAllowance.narrow_changeset(allowance, request)
-
-        write =
-          if changeset.valid? and not Map.has_key?(changeset.changes, :limits),
-            do: {:ok, allowance},
-            else: Repo.update(changeset)
-
-        case write do
-          {:ok, updated} ->
-            changed =
-              Enum.filter(ExecutionLimits.keys(), &(updated.limits[&1] != allowance.limits[&1]))
-
-            {updated, changed}
-
-          {:error, changeset} ->
-            Repo.rollback(changeset)
-        end
-      end)
-
-    with {:ok, {updated, changed}} <- result do
-      if changed != [] do
-        Audit.record(%{
-          user_id: user_id,
-          action: "conversation.execution_allowance_narrowed",
-          resource_type: "conversation",
-          resource_id: conversation_id,
-          actor: Keyword.get(opts, :actor, "self"),
-          request_ip: Keyword.get(opts, :request_ip),
-          metadata: %{"changed" => changed}
-        })
-      end
-
-      {:ok, updated}
-    end
-  end
-
-  @doc """
-  Refuse saved allowances that this deployment cannot enforce. Internal callers
-  must establish conversation ownership first. Outside turn admission this is
-  only a preflight; the turn transaction rechecks under its row locks.
-  """
-  def _unsafe_check_saved_execution_allowance(conversation_id) do
-    case Repo.one(
-           from a in ExecutionAllowance,
-             where: a.conversation_id == ^conversation_id,
-             lock: "FOR SHARE"
-         ) do
-      nil ->
-        :ok
-
-      %ExecutionAllowance{limits: limits} when is_map(limits) ->
-        with {:ok, normalized} <- ExecutionLimits.normalize(limits) do
-          ExecutionLimits.require_controls(normalized, ExecutionLimits.enforced_controls(nil))
-        end
-
-      _ ->
-        {:error, {:execution_limits_invalid, "object_required"}}
-    end
-  end
 
   @doc """
   How many turns are running right now on `sandbox_id` for conversations
@@ -2078,31 +1901,25 @@ defmodule Fountain.Conversations do
   """
   def _unsafe_update_turn(%Turn{} = turn, attrs) do
     # ownership: this is the already-owned actor's turn or a system recovery write.
-    Fountain.Conversations.ExecutionGuard._unsafe_write_turn(turn, attrs, fn current, allowed ->
-      current |> Turn.changeset(allowed) |> maybe_put_reply_text(current) |> Repo.update()
-    end)
+    turn |> Turn.changeset(attrs) |> maybe_put_reply_text(turn) |> Repo.update()
   end
 
   @doc """
   Complete a running turn only on the actor's current sandbox binding.
 
-  Lock the conversation, execution journal and turn in that order, and commit
-  the journal's outcome with the reply and parent idle status. A moved or
+  Lock the conversation and turn in that order, and commit the outcome with
+  the reply and parent idle status. A moved or
   terminal conversation is a no-op. An already-ended current turn can release
   its parent without announcing another terminal event. Reply materialization
   shares that transaction;
   the sidebar publication runs after it commits. The optional
   `:exit_code` is persisted atomically with the result.
 
-  Only the latest generation can idle a running parent, and a journal must
-  have retired its execution first. A refused journal transition returns its
-  error without changing the turn, reply or parent.
+  Only the latest generation can idle a running parent.
 
-  `"interrupted"` is a terminal status this writer accepts, because a bounded
-  turn that its journal retires comes back through the same ending
-  (`BoundedTurn.retire/2` hands `finish/4` the persisted status, ADR 0046).
-  The two-phase interrupt the server drives itself is a different write, and
-  it keeps the conversation running until the peer has stopped.
+  `"interrupted"` is a terminal status this writer accepts. The two-phase
+  interrupt the server drives itself is a different write, and it keeps the
+  conversation running until the peer has stopped.
   """
   def _unsafe_complete_turn(%Turn{} = turn, sandbox_id, status, opts \\ [])
       when status in ["completed", "failed", "interrupted"] do
@@ -2115,11 +1932,11 @@ defmodule Fountain.Conversations do
   def end_running_turn(turn, sandbox_id, status, idle?, attrs \\ %{}) do
     # ownership: the actor supplied its original turn and sandbox binding.
     result =
-      ExecutionGuard._unsafe_end_actor_turn(turn, sandbox_id, status, attrs, fn conv, ending ->
+      TurnLocks._unsafe_end_actor_turn(turn, sandbox_id, status, attrs, fn conv, ending ->
         changeset = Turn.changeset(ending.turn, ending.attrs)
 
         changeset =
-          if ending.materialize?,
+          if ending.running?,
             do: maybe_put_reply_text(changeset, ending.turn),
             else: changeset
 
@@ -2128,14 +1945,13 @@ defmodule Fountain.Conversations do
         # Completion releases only its newest ended generation. Interrupt keeps
         # the parent running until the peer stops and its second half idles it.
         updated_conv =
-          if idle? and ending.idle_allowed? and
-               updated.status in ["completed", "failed", "interrupted"] and
+          if idle? and updated.status in ["completed", "failed", "interrupted"] and
                conv.status == "running" and
-               ExecutionGuard.latest_turn?(conv.id, turn.id),
+               TurnLocks.latest_turn?(conv.id, turn.id),
              do: conv |> Conversation.changeset(%{status: "idle"}) |> Repo.update!(),
              else: conv
 
-        {updated, updated_conv, ending.announce?}
+        {updated, updated_conv, ending.running?}
       end)
 
     case result do
@@ -2169,7 +1985,7 @@ defmodule Fountain.Conversations do
   and the two other writers of `running` (`Reattachment` and `Connection`) both
   have their running turn in hand. So that pair is a stuck row, and the sweeps
   cannot repair it — `AutonomousTurnReaper.sweep_stuck_turns/0` and
-  `ExecutionGuard._unsafe_recover_turn/3` both select a running turn, and there
+  `TurnLocks._unsafe_recover_turn/3` both select a running turn, and there
   is none. `_unsafe_idle_interrupted_turn/1` declines to recheck the binding for
   exactly this reason and names this function as its backstop (#2000); a
   refusal here would strand the parent with nothing left to release it.
@@ -2250,9 +2066,9 @@ defmodule Fountain.Conversations do
     recover_opts = Keyword.take(opts, [:sandbox_id])
 
     result =
-      ExecutionGuard._unsafe_recover_turn(
+      TurnLocks._unsafe_recover_turn(
         turn,
-        fn current, conv, latest?, bounded? ->
+        fn current, conv, latest? ->
           now = DateTime.utc_now() |> DateTime.truncate(:second)
           reply_text = current.reply_text || _unsafe_turn_reply_text(current)
 
@@ -2273,7 +2089,7 @@ defmodule Fountain.Conversations do
               do: conv |> Conversation.changeset(%{status: "idle"}) |> Repo.update!(),
               else: conv
 
-          {updated, conv, conversation_changed?, bounded?}
+          {updated, conv, conversation_changed?}
         end,
         recover_opts
       )
@@ -2282,7 +2098,7 @@ defmodule Fountain.Conversations do
       {:ok, :noop} ->
         :noop
 
-      {:ok, {updated_turn, conv, conversation_changed?, bounded?}} ->
+      {:ok, {updated_turn, conv, conversation_changed?}} ->
         if conversation_changed?, do: broadcast_sidebar_update(conv.user_id)
 
         metadata = %{
@@ -2292,12 +2108,7 @@ defmodule Fountain.Conversations do
           reason: why
         }
 
-        if bounded? do
-          status = if updated_turn.status == "failed", do: "failed", else: "interrupted"
-          publish_stage(turn.conversation_id, "turn", status, metadata)
-        else
-          publish_stage(turn.conversation_id, "reattach", "interrupted", metadata)
-        end
+        publish_stage(turn.conversation_id, "reattach", "interrupted", metadata)
 
         Audit.record(%{
           user_id: conv.user_id,
@@ -2360,8 +2171,8 @@ defmodule Fountain.Conversations do
     # recording with it. Anything that is not a non-negative integer counts
     # as nothing, which is what an unreported figure already counts as.
     Repo.transaction(fn ->
-      # Same parent-before-turn lock order as ExecutionGuard. Delayed accounting
-      # survives retirement, but duplicate deliveries cannot debit twice.
+      # Same parent-before-turn lock order as TurnLocks. Duplicate deliveries
+      # cannot count twice.
       Repo.one(from c in Conversation, where: c.id == ^turn.conversation_id, lock: "FOR UPDATE") ||
         Repo.rollback(:not_found)
 
@@ -2421,14 +2232,9 @@ defmodule Fountain.Conversations do
 
   defp maybe_put_reply_text(%Ecto.Changeset{valid?: false} = changeset, _turn), do: changeset
 
-  # `get_field`, not `get_change`: a turn fenced by `ExecutionGuard` has its
-  # `:status` dropped from `attrs` before the writer sees it, so the change is
-  # gone by here while the row is already terminal — and a turn that ends at a
-  # deadline would have kept a null `reply_text` forever.
-  #
-  # This does reach the unbounded path, where the two used to agree: a terminal
-  # turn whose text is still null is now re-derived on each later write rather
-  # than only on the write that ended it. That is the same work
+  # `get_field`, not `get_change`: a terminal turn whose text is still null is
+  # re-derived on each later write rather than only on the write that ended
+  # it. That is the same work
   # `_unsafe_backfill_reply_texts/0` below does, on the same rows, for the same
   # reason — a turn whose assistant blocks landed after its status did. The
   # guard is `reply_text: nil`, so a turn that has one is never revisited.
@@ -2499,9 +2305,7 @@ defmodule Fountain.Conversations do
 
   @doc """
   Insert a log event. Returns the inserted struct (with integer `:id`,
-  used as the SSE event id), or nil for output from a retired bounded turn.
-  Stage callers use `publish_stage/4`; the deadline journal inserts its own
-  terminal event while holding the same locks.
+  used as the SSE event id). Stage callers use `publish_stage/4`.
   """
   def log!(attrs) do
     # Microsecond precision so the LiveView can compute stage durations
@@ -2515,29 +2319,10 @@ defmodule Fountain.Conversations do
     # log path is covered whether or not its author knew to.
     attrs = attrs |> redact_attrs() |> sanitize_raw_output()
 
-    # The writer is main's ordered insert (#1706), not a bare `Repo.insert!`:
-    # a bounded turn's output still has to take the account's SSE cursor lock,
-    # or its events can commit out from behind the cursor and never be seen.
-    writer = fn -> %LogEvent{} |> LogEvent.changeset(attrs) |> insert_ordered_log_event!() end
-
-    # LOCK ORDER, before the call below: on the bounded path
-    # `_unsafe_write_event/3` already holds the conversation, journal and turn
-    # rows `FOR UPDATE`, so the advisory lock inside
-    # `insert_ordered_log_event!/1` is taken *after* those rows, while every
-    # other log-event write takes it *before* touching the conversation (its
-    # insert needs `KEY SHARE` on that row through the foreign key). Two
-    # writers on one account can therefore take these in opposite orders.
-    # Postgres aborts one rather than hanging, and the path is unreachable
-    # while no execution ceiling can be set, but the inversion is real.
-    if attrs[:kind] == "output" do
-      # ownership: callers supply the owned conversation and exact output turn.
-      {:ok, event} =
-        ExecutionGuard._unsafe_write_event(attrs[:conversation_id], attrs[:turn_id], writer)
-
-      event
-    else
-      writer.()
-    end
+    # The ordered insert (#1706), not a bare `Repo.insert!`: events must take
+    # the account's SSE cursor lock, or they can commit out from behind the
+    # cursor and never be seen.
+    %LogEvent{} |> LogEvent.changeset(attrs) |> insert_ordered_log_event!()
   end
 
   defp insert_ordered_log_event!(%Ecto.Changeset{valid?: true} = changeset) do
@@ -2588,16 +2373,13 @@ defmodule Fountain.Conversations do
   conversation's PubSub topic, and emit a `[:fountain, :stage]` telemetry
   event.
 
-  Deadline outcomes are persisted by the journal and notified by a durable job.
-  A late terminal stage reuses that event, or returns nil if retention deleted
-  it. Notifications are at-least-once; clients deduplicate by the log event id.
   `stage` and `status` are the metric's only tags; both value sets are small
   and fixed. `conv_id` stays in metadata and must never become a tag.
   """
   def publish_stage(conv_id, stage, status, meta \\ %{}) do
     turn_id = Map.get(meta, :turn_id) || Map.get(meta, "turn_id")
 
-    writer = fn ->
+    event =
       log!(%{
         conversation_id: conv_id,
         turn_id: turn_id,
@@ -2606,35 +2388,10 @@ defmodule Fountain.Conversations do
         state: status,
         data: Jason.encode!(meta)
       })
-    end
 
-    result =
-      if stage == "turn" and status in ["done", "failed", "interrupted"] and
-           match?({:ok, _}, Ecto.UUID.cast(turn_id)) do
-        # ownership: lifecycle caller owns conv_id; the journal query binds this
-        # turn to that conversation and serializes it with deadline expiration.
-        {:ok, result} = ExecutionGuard._unsafe_terminal_stage(conv_id, turn_id, status, writer)
-        result
-      else
-        {:ok, event} = ExecutionGuard._unsafe_write_event(conv_id, turn_id, writer)
-        {:new, event}
-      end
-
-    case result do
-      {:new, nil} ->
-        nil
-
-      {:existing, event} ->
-        event
-
-      {:new, event} ->
-        notify_stage(event)
-        event
-    end
+    notify_stage(event)
+    event
   end
-
-  @doc "Notify subscribers of an existing stage; deadline jobs may repeat its id."
-  def _unsafe_notify_stage(%LogEvent{kind: "stage"} = event), do: notify_stage(event)
 
   defp notify_stage(event) do
     conv_id = event.conversation_id
@@ -2948,38 +2705,6 @@ defmodule Fountain.Conversations do
   alias Fountain.Agents
   alias Fountain.Conversations.ConversationServer
 
-  # No runtime has integrated end-to-end enforcement yet. Refuse a requested
-  # control before reserving capacity, attaching or unbinding a channel; an
-  # SDK option alone must not make admission promise a bounded execution.
-  # Public for `Fountain.Conversations.Launch` (stage 7a of #2175), which
-  # owns the channel door; not a request-facing entry point.
-  def check_execution_limits(user_id, request) do
-    with {:ok, _limits} <- resolve_admission_limits(user_id, request), do: :ok
-  end
-
-  # A door for `Fountain.Conversations.Launch` (#2217); not part of the
-  # context's public surface.
-  @doc false
-  def resolve_admission_limits(user_id, request) do
-    # Ownership: each caller just fetched the agent by this authenticated user.
-    # Read the current account policy, never a request-supplied or cached map.
-    case {Fountain.Accounts.get_user(user_id), ExecutionLimits.host_ceiling()} do
-      {%Fountain.Accounts.User{execution_limits: ceiling}, host}
-      when is_map(ceiling) and is_map(host) ->
-        with {:ok, limits} <- ExecutionLimits.resolve(host, ceiling, request),
-             :ok <-
-               ExecutionLimits.require_controls(limits, ExecutionLimits.enforced_controls(nil)) do
-          {:ok, limits}
-        end
-
-      {nil, _} ->
-        {:error, :not_found}
-
-      _ ->
-        {:error, {:execution_limits_invalid, "object_required"}}
-    end
-  end
-
   # A resume lands on the conversation the binding already has, so labels on
   # the request are merged into it rather than dropped (#1637). A caller that
   # sends none changes nothing, and the resume stays the silent path it was.
@@ -3147,15 +2872,6 @@ defmodule Fountain.Conversations do
   Two audit rows, not one: `sandbox.reset_requested` when the fence commits,
   and `sandbox.reset` only when the provider confirms the destroy.
 
-  Also refused with `:execution_fenced` while a bounded turn on this machine
-  has remote work Fountain cannot account for (ADR 0046). That is a third,
-  distinct fact: `:sandbox_mid_turn` is a live turn and ends by itself,
-  `:sandbox_reset_pending` is a delete this function asked for and has not had
-  confirmed, and `:execution_fenced` is a command that may still be running
-  under a deadline whose termination was never acknowledged. It is bounded —
-  the deadline coordinator writes an unresolvable obligation off — so this
-  refusal clears on its own without needing the reaping the other one does.
-
   `opts[:reason]` says *why*, and reaches every transcript on the machine and
   the audit row: `"home_reset"` (the owner asked — the default),
   `"environment_changed"`, `"environment_deleted"`, `"vault_deleted"` or
@@ -3165,7 +2881,7 @@ defmodule Fountain.Conversations do
   If a retry retires the row while this call awaits the provider, this caller
   returns `{:ok, :skipped}` without repeating completion notifications.
 
-  A fourth refusal joins the three above in ADR 0058 stage 5c:
+  A third refusal joins the two above in ADR 0058 stage 5c:
   `:sandbox_unavailable`, when another teardown of this machine holds its
   owner's lease. It is the only one answered **after** the fence has committed,
   so it does not mean the reset was refused — the machine is fenced and
@@ -3212,16 +2928,6 @@ defmodule Fountain.Conversations do
 
           _unsafe_running_turns_elsewhere(current.id, nil) > 0 ->
             Repo.rollback(:sandbox_mid_turn)
-
-          # ownership: `current` is the caller's scoped sandbox, re-read under
-          # this transaction's lock.
-          #
-          # A turn that has ended locally can still owe a remote termination
-          # (ADR 0046), so this outlives the running-turn check above and is a
-          # different answer. Destroying the machine would drop the journal row
-          # that says the command was never confirmed stopped.
-          ExecutionGuard._unsafe_sandbox_open?(current.id) ->
-            Repo.rollback(:execution_fenced)
 
           true ->
             :ok
@@ -4110,20 +3816,6 @@ defmodule Fountain.Conversations do
 
         :ok
     end
-  end
-
-  @doc """
-  Check current ceilings before an already-owned conversation starts another turn.
-
-  Reads the saved allowance from `execution_allowances` (#1790) rather than a
-  column on the parent: that row carries a revision, so a launch and a resume
-  cannot silently overwrite each other's policy.
-  """
-  def _unsafe_execution_limits_gate(%Conversation{} = conv) do
-    # ownership: the caller fetched this conversation for its actor or for an
-    # authorized API operation.
-    with :ok <- _unsafe_check_saved_execution_allowance(conv.id),
-         do: ExecutionGuard._unsafe_admission_gate(conv.id)
   end
 
   # A per-launch permission override (#939). Unlike the vault and environment

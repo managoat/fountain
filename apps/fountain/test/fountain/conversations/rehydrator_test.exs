@@ -4,7 +4,7 @@ defmodule Fountain.Conversations.RehydratorTest do
   use Fountain.DataCase, async: false
   use Mimic
 
-  alias Fountain.Conversations.{ConversationServer, ExecutionAllowance, Rehydrator}
+  alias Fountain.Conversations.{ConversationServer, Rehydrator}
 
   setup do
     owner = self()
@@ -17,65 +17,9 @@ defmodule Fountain.Conversations.RehydratorTest do
     :ok
   end
 
-  for status <- ["idle", "running"] do
-    test "boot refuses every saved control for a #{status} conversation without mutation" do
-      conv = resumable(unquote(status))
-      before = Repo.reload!(conv)
-      sandbox = Repo.reload!(conv.sandbox)
-      turn = if unquote(status == "running"), do: insert_turn(conv, status: "running")
-
-      for {control, limit} <- [
-            wall_time_seconds: 30,
-            max_model_turns: 2,
-            max_estimated_cost_usd: 0.5
-          ] do
-        allowance = save(conv, %{control => limit})
-
-        for _ <- 1..2 do
-          assert sweep() == 0
-          assert Repo.reload!(conv) == before
-          assert Repo.reload!(conv.sandbox) == sandbox
-          assert Repo.reload!(allowance) == allowance
-          if turn, do: assert(Repo.reload!(turn) == turn)
-          refute_received {:worker_start, _}
-        end
-
-        Repo.delete!(allowance)
-      end
-    end
-  end
-
-  for malformed <- [:map, :null] do
-    test "boot skips corrupt #{malformed} policy without exposing its contents" do
-      conv = resumable("idle")
-      allowance = save(conv, %{})
-
-      if unquote(malformed == :map) do
-        allowance
-        |> Ecto.Changeset.change(limits: %{"private-field" => "private-value"})
-        |> Repo.update!()
-      else
-        Repo.query!(
-          "UPDATE execution_allowances SET limits = 'null'::jsonb WHERE conversation_id = $1",
-          [Ecto.UUID.dump!(conv.id)]
-        )
-      end
-
-      log = ExUnit.CaptureLog.capture_log(fn -> assert sweep() == 0 end)
-      assert log =~ "execution_limits_invalid"
-      refute log =~ "private-field"
-      refute log =~ "private-value"
-      refute_received {:worker_start, _}
-      assert Repo.reload!(conv).status == "idle"
-    end
-  end
-
-  test "one refused tenant does not block absent or empty allowances, including an existing server" do
-    limited = resumable("running")
-    save(limited, %{max_model_turns: 2})
+  test "boot starts every resumable conversation, including one with an existing server" do
     ordinary = resumable("idle")
     existing = resumable("running")
-    save(existing, %{})
     owner = self()
 
     stub_server_start(fn _, {ConversationServer, args} ->
@@ -96,7 +40,6 @@ defmodule Fountain.Conversations.RehydratorTest do
     assert first[:initial_prompt] == nil
     assert second[:initial_prompt] == nil
     refute_received {:worker_start, _}
-    assert Repo.reload!(limited).status == "running"
   end
 
   # ADR 0058 stage 6a. The sweep reads `ready` rows, and a `ready` row can be
@@ -269,9 +212,6 @@ defmodule Fountain.Conversations.RehydratorTest do
     sandbox = insert_sandbox(user_id: agent.user_id, status: "ready")
     insert_conversation(agent: agent, sandbox: sandbox, status: status)
   end
-
-  defp save(conv, limits),
-    do: conv.id |> ExecutionAllowance.new_changeset(limits) |> Repo.insert!()
 
   defp sweep,
     do: Rehydrator.run(cluster_wait_ms: 0, stabilize_ms: 0, poll_ms: 1)

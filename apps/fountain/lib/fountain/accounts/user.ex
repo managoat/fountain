@@ -19,10 +19,6 @@ defmodule Fountain.Accounts.User do
     # Postgres column is still `max_concurrent_sandboxes` — renaming it would
     # break a rolling deploy — so the honest name lives here.
     field :sandbox_limit_override, :integer, source: :max_concurrent_sandboxes
-    # Operator-owned per-turn ceilings, read by launch preflight. Later-turn and
-    # recovery ceiling checks remain unwired; leave overrides empty until integrated.
-    # Never cast it through registration, OAuth or profile changes.
-    field :execution_limits, :map, default: %{}
     field :role, :string, default: "user"
     # Set by an operator; a suspended account cannot sign in or spend.
     field :suspended_at, :utc_datetime
@@ -101,22 +97,6 @@ defmodule Fountain.Accounts.User do
     user
     |> cast(attrs, [:sandbox_limit_override])
     |> validate_number(:sandbox_limit_override, greater_than_or_equal_to: 0)
-  end
-
-  @doc """
-  Validate operator-owned execution ceiling storage; nil clears the override.
-
-  This primitive does not authorize an operator or enforce a ceiling. A future
-  context must establish operator authority and audit writes before exposing it.
-  """
-  def execution_limits_changeset(user, limits) do
-    case Fountain.Conversations.ExecutionLimits.normalize(limits) do
-      {:ok, normalized} ->
-        change(user, execution_limits: normalized)
-
-      {:error, {:execution_limits_invalid, field}} ->
-        user |> change() |> add_error(:execution_limits, "invalid #{field}")
-    end
   end
 
   @doc "Changeset for updating theme preference (light | dark | system)."

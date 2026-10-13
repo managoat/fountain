@@ -187,7 +187,6 @@ defmodule Fountain.Conversations.RedactionTest do
       current_command: nil,
       current_turn: nil,
       acp_request_params: nil,
-      turn_execution: nil,
       runner_replay: nil,
       output_carry: nil,
       tenant_key: nil,

@@ -31,8 +31,7 @@ defmodule Fountain.Machines.Binding do
   moved here whole: one transaction under the per-sandbox advisory lock (4316)
   that locks the tenant's inference source, re-reads the agent and the
   machine's row, decides `attachable/6` **under that lock** (#2307 constraint
-  1), inserts the conversation, reserves its inference and inserts its
-  execution allowance. What stage 8b changes is who may call it and where it
+  1), inserts the conversation and reserves its inference. What stage 8b changes is who may call it and where it
   runs: `Fountain.Team.open_fresh_conversation/3` used to insert a bound row
   through `Conversations.create_conversation/1` with none of these checks, and
   the write queues in the owner's mailbox behind a park, a resume or a destroy
@@ -166,7 +165,7 @@ defmodule Fountain.Machines.Binding do
   `:sandbox_runtime_mismatch`, `:guest_attach_requires_full_scope` (#2525),
   `:sandbox_reset_pending`,
   `{:sandbox_not_attachable, status}`, `:sandbox_unavailable`, `:not_found`, a
-  changeset, the inference and allowance refusals); `detach/2` the fence's and
+  changeset, the inference refusals); `detach/2` the fence's and
   the release's; `retarget/3` the reapply's. New are `:machine_busy` (a live
   lease, waited out), `:attach_expired` / `:detach_expired` (a caller that
   left) and `:transaction_open` (the caller's bug), which the door translates.
@@ -176,7 +175,7 @@ defmodule Fountain.Machines.Binding do
 
   alias Fountain.Agents
   alias Fountain.Conversations
-  alias Fountain.Conversations.{CodexChatGPT, Conversation, ExecutionAllowance, Sandbox}
+  alias Fountain.Conversations.{CodexChatGPT, Conversation, Sandbox}
   alias Fountain.Conversations.{InferenceBinding, Launch, Lifecycle, Termination}
   alias Fountain.InferenceCredentials
   alias Fountain.InferenceCredentials.Source
@@ -246,11 +245,8 @@ defmodule Fountain.Machines.Binding do
   must carry `:sandbox_id` (equal to `sandbox_id`), `:agent_id`, `:user_id`,
   `:vault_id` and `:environment_id`. Options:
 
-    * `:request` — the execution-limits request, resolved under the lock by
-      `Conversations.resolve_admission_limits/2`; nil for the account's default.
     * `:rotate_from` — a channel rotation, handed to
       `Launch.unbind_rotated_channel/2` inside the transaction.
-    * `:actor` / `:request_ip` — attribution for the allowance event.
     * `:deadline` — a `DateTime` on the database clock after which the caller
       is no longer waiting. Set by `Machine.attach/3` on the in-owner path.
     * `:guest_ok` — `true` when the caller may make a **new** guest pairing:
@@ -264,24 +260,16 @@ defmodule Fountain.Machines.Binding do
 
   Both guest options are read by `attachable/6` under the lock.
 
-  Answers `{:ok, conversation, allowance}` after the commit, having recorded
-  the allowance's audit event.
+  Answers `{:ok, conversation}` after the commit.
   """
   @spec attach(Ecto.UUID.t(), map(), keyword()) ::
-          {:ok, Conversation.t(), struct()} | {:error, term()}
+          {:ok, Conversation.t()} | {:error, term()}
   def attach(sandbox_id, attrs, opts \\ [])
       when is_binary(sandbox_id) and is_map(attrs) and is_list(opts) do
     if Repo.in_transaction?() do
       {:error, :transaction_open}
     else
-      case Repo.transaction(fn -> locked_attach(sandbox_id, attrs, opts) end) do
-        {:ok, {conv, allowance}} ->
-          Conversations.record_execution_allowance_created(allowance, conv.user_id, opts)
-          {:ok, conv, allowance}
-
-        {:error, _} = error ->
-          error
-      end
+      Repo.transaction(fn -> locked_attach(sandbox_id, attrs, opts) end)
     end
   end
 
@@ -347,13 +335,9 @@ defmodule Fountain.Machines.Binding do
 
     attrs = pin_guest_identity(attrs, sandbox)
 
-    with {:ok, limits} <-
-           Conversations.resolve_admission_limits(attrs.user_id, Keyword.get(opts, :request)),
-         {:ok, conv} <- Conversations.insert_conversation_row(attrs),
-         :ok <- reserve_inference(conv),
-         {:ok, allowance} <-
-           conv.id |> ExecutionAllowance.new_changeset(limits) |> Repo.insert() do
-      {conv, allowance}
+    with {:ok, conv} <- Conversations.insert_conversation_row(attrs),
+         :ok <- reserve_inference(conv) do
+      conv
     else
       {:error, reason} -> Repo.rollback(reason)
     end

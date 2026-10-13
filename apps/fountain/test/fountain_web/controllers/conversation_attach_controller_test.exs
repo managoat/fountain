@@ -5,8 +5,8 @@ defmodule FountainWeb.ConversationAttachControllerTest do
 
   import Ecto.Query, only: [from: 2]
 
-  alias Fountain.{Conversations, Repo}
-  alias Fountain.Conversations.{Conversation, ExecutionAllowance}
+  alias Fountain.Repo
+  alias Fountain.Conversations.Conversation
 
   setup do
     user = insert_active_user()
@@ -42,7 +42,6 @@ defmodule FountainWeb.ConversationAttachControllerTest do
     assert data["sandbox_id"] == ctx.sandbox.id
     assert data["status"] == "idle"
     assert data["sandbox"]["agent_id"] == ctx.agent.id
-    assert Repo.get!(ExecutionAllowance, data["id"]).limits == %{}
   end
 
   test "with a prompt, the request's client_request_id goes with it (#1406)", ctx do
@@ -299,70 +298,13 @@ defmodule FountainWeb.ConversationAttachControllerTest do
     assert length(Fountain.Conversations.list_conversations(ctx.user.id)) == 1
   end
 
-  test "the initial allowance exists before prompt delivery", ctx do
-    stub(Fountain.Conversations.ConversationServer, :send_prompt, fn id, "hello", _, _ ->
-      assert Repo.get!(ExecutionAllowance, id).limits == %{}
-      :ok
-    end)
-
-    assert ctx
-           |> create(%{"sandbox_id" => ctx.sandbox.id, "prompt" => "hello"})
-           |> json_response(201)
-  end
-
-  test "a refused allowance insert rolls back the conversation without creation audit", ctx do
-    before_count = Repo.aggregate(Conversation, :count)
-
-    stub(ExecutionAllowance, :new_changeset, fn _, _ ->
-      %ExecutionAllowance{}
-      |> Ecto.Changeset.change()
-      |> Ecto.Changeset.add_error(:limits, "refused")
-    end)
-
-    assert ctx |> create(%{"sandbox_id" => ctx.sandbox.id}) |> json_response(422)
-    assert Repo.aggregate(Conversation, :count) == before_count
-    assert Repo.aggregate(ExecutionAllowance, :count) == 0
-    assert creation_events(ctx.user.id) == []
-  end
-
-  test "a ceiling changed after early preflight refuses attachment before writes", ctx do
-    before_count = Repo.aggregate(Conversation, :count)
-
-    stub(Fountain.RuntimeDispatch, :for_agent, fn agent ->
-      ctx.user
-      |> Repo.reload!()
-      |> Fountain.Accounts.User.execution_limits_changeset(%{max_model_turns: 2})
-      |> Repo.update!()
-
-      Mimic.call_original(Fountain.RuntimeDispatch, :for_agent, [agent])
-    end)
-
-    assert %{"error" => "execution_limits_unsupported"} =
-             ctx |> create(%{"sandbox_id" => ctx.sandbox.id}) |> json_response(422)
-
-    assert Repo.aggregate(Conversation, :count) == before_count
-    assert Repo.aggregate(ExecutionAllowance, :count) == 0
-    assert creation_events(ctx.user.id) == []
-  end
-
-  test "attachment saves only its own allowance and audits its creation", ctx do
-    {:ok, first_policy} =
-      Conversations.create_execution_allowance(ctx.first.id, ctx.user.id, %{max_model_turns: 2})
-
+  test "attachment audits its own creation and leaves the first conversation alone", ctx do
     data =
       ctx |> create(%{"sandbox_id" => ctx.sandbox.id}) |> json_response(201) |> Map.fetch!("data")
 
-    assert Repo.get!(ExecutionAllowance, data["id"]).limits == %{}
-    assert Repo.reload!(first_policy) == first_policy
     assert Repo.reload!(ctx.first).status == "idle"
     assert Repo.reload!(ctx.sandbox).status == "ready"
-    events = Enum.filter(creation_events(ctx.user.id), &(&1.resource_id == data["id"]))
-
-    assert [event] =
-             Enum.filter(events, &(&1.action == "conversation.execution_allowance_created"))
-
-    assert event.metadata == %{"controls" => []}
-    assert event.actor == "api"
+    assert [_event] = Enum.filter(creation_events(ctx.user.id), &(&1.resource_id == data["id"]))
   end
 
   defp creation_events(user_id) do
@@ -370,7 +312,7 @@ defmodule FountainWeb.ConversationAttachControllerTest do
       from e in Fountain.Audit.Event,
         where:
           e.user_id == ^user_id and
-            e.action in ["conversation.created", "conversation.execution_allowance_created"]
+            e.action == "conversation.created"
     )
   end
 end

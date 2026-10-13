@@ -613,47 +613,6 @@ if github_client_id = System.get_env("GITHUB_OAUTH_CLIENT_ID") do
     client_secret: System.get_env("GITHUB_OAUTH_CLIENT_SECRET")
 end
 
-# Per-turn host ceiling. Empty until runtime enforcement and later-turn/recovery
-# ceiling checks are integrated. Never inherit an operator's shell policy in tests.
-execution_limit_ceiling =
-  if env == :test do
-    %{}
-  else
-    case Fountain.Conversations.ExecutionLimits.from_json_env(
-           System.get_env("FOUNTAIN_EXECUTION_LIMITS")
-         ) do
-      {:ok, limits} ->
-        limits
-
-      {:error, {:execution_limits_invalid, field}} ->
-        raise "FOUNTAIN_EXECUTION_LIMITS is invalid: #{field}"
-    end
-  end
-
-config :fountain, :execution_limit_ceiling, execution_limit_ceiling
-
-# The deadline coordinator polls `turn_executions` on every node, so it starts
-# only where there is something for it to expire: a configured host ceiling.
-# An operator who sets a per-account ceiling without the host one sets this
-# explicitly, which is the case the docs row names. `false` turns it off
-# anywhere, without a rebuild, which is what an incident needs.
-execution_deadline_worker =
-  case System.get_env("FOUNTAIN_EXECUTION_DEADLINE_WORKER") do
-    nil -> map_size(execution_limit_ceiling) > 0
-    value when value in ~w(1 true TRUE yes) -> true
-    value when value in ~w(0 false FALSE no) -> false
-    value -> raise "FOUNTAIN_EXECUTION_DEADLINE_WORKER must be true or false, got: #{value}"
-  end
-
-config :fountain, :execution_deadline_worker_enabled, execution_deadline_worker
-
-# How often it looks. Deadlines are absolute and durable, so lateness costs
-# accuracy rather than correctness, and a second of it is not worth a poll per
-# second per replica on a hot table.
-config :fountain,
-       :execution_deadline_interval_ms,
-       String.to_integer(System.get_env("FOUNTAIN_EXECUTION_DEADLINE_INTERVAL_MS") || "5000")
-
 # Concurrency (ADR 0005, 0042): the per-account ceiling, and the fleet
 # ceiling — the most live sandboxes the deployment will run in total, which is
 # the provider plan's number (Sprites' $20 plan allows about 20).

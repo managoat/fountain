@@ -714,8 +714,8 @@ defmodule Fountain.Machines.Machine do
   entirely the caller's already. The locked insert answers in the words
   `TurnMachine.open_turn/5` and `Connection.open_autonomous_turn/5` have
   matched on since long before ADR 0058 — `:sandbox_at_capacity`,
-  `:configuration_changed`, `:execution_fenced`, `:not_running`,
-  `:sandbox_unavailable`, the saved-allowance and inference-source refusals,
+  `:configuration_changed`, `:not_running`,
+  `:sandbox_unavailable`, the inference-source refusals,
   a changeset — and every one of them travels as itself, because each tells the
   server something different to publish. Two words are the protocol's and are
   translated here: `:machine_busy` (a live lease on the machine, already waited
@@ -780,7 +780,7 @@ defmodule Fountain.Machines.Machine do
   the attach door's already: every refusal `Launch.attach_conversation/3`
   rendered on `main` — `:sandbox_identity_mismatch`, `:sandbox_runtime_mismatch`,
   `:sandbox_reset_pending`, `{:sandbox_not_attachable, status}`,
-  `:sandbox_unavailable`, `:not_found`, the inference and allowance refusals,
+  `:sandbox_unavailable`, `:not_found`, the inference refusals,
   a changeset — travels as itself. An unreachable owner and a caller that
   left before the owner reached its message are `:sandbox_unavailable`, the
   503 with a `Retry-After`; an enclosing transaction is
@@ -790,7 +790,7 @@ defmodule Fountain.Machines.Machine do
   owner cannot be reached: this verb writes.
   """
   @spec attach(String.t(), map(), keyword()) ::
-          {:ok, Conversation.t(), struct()}
+          {:ok, Conversation.t()}
           | {:error, :sandbox_unavailable | :provider_transaction_open | term()}
   def attach(sandbox_id, attrs, opts \\ [])
       when is_binary(sandbox_id) and is_map(attrs) and is_list(opts) do
@@ -819,7 +819,7 @@ defmodule Fountain.Machines.Machine do
   `{:ok, :already_terminal}` and `{:ok, :released}` each tell the caller
   something different to do next, and the refusals are the fence's and the
   release's own words (`:sandbox_unavailable`, `:not_found`, `:busy`,
-  `:execution_fenced`, `:not_running`). A live lease, waited out, and an
+  `:not_running`). A live lease, waited out, and an
   unreachable owner are `:sandbox_unavailable`; a `:superseded` destroy is
   `{:ok, :already_terminal}`.
   """
@@ -1321,7 +1321,7 @@ defmodule Fountain.Machines.Machine do
   # What the two checks bound, exactly (round 2, protocol review, driven): the
   # write's check refuses a *row read* past the deadline, and the commit can
   # still land up to one transaction tail after it — the parent check, the
-  # allowance, the count, the insert and the parent update, with no lock wait
+  # count, the insert and the parent update, with no lock wait
   # among them; milliseconds in practice. That tail is the price of the check
   # and the insert being two statements. This pre-check is not the smaller
   # half: the write's check sits after the machine's own verdicts, so an

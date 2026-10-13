@@ -158,12 +158,11 @@ defmodule Fountain.Machines.BindingTest do
   # ── attach ────────────────────────────────────────────────────────────────
 
   describe "attach" do
-    test "binds a conversation to the machine, with its allowance, in the owner", ctx do
-      assert {:ok, %Conversation{} = attached, allowance} =
+    test "binds a conversation to the machine, in the owner", ctx do
+      assert {:ok, %Conversation{} = attached} =
                Machine.attach(ctx.sandbox.id, attach_attrs(ctx), actor: "api")
 
       assert attached.sandbox_id == ctx.sandbox.id
-      assert allowance.conversation_id == attached.id
       assert Machine.whereis(ctx.sandbox.id) != nil
       assert length(conversations(ctx)) == 2
     end
@@ -284,7 +283,7 @@ defmodule Fountain.Machines.BindingTest do
       # transaction: the same call with a deadline it is inside lands.
       future = DateTime.add(DateTime.utc_now(), 60, :second)
 
-      assert {:ok, %Conversation{}, _allowance} =
+      assert {:ok, %Conversation{}} =
                Binding.attach(ctx.sandbox.id, attach_attrs(ctx), deadline: future)
 
       assert length(conversations(ctx)) == 2
@@ -317,7 +316,7 @@ defmodule Fountain.Machines.BindingTest do
       assert_receive :suspending, 2_000
 
       # Onto the parked machine: `suspended` is attachable, as it always was.
-      assert {:ok, %Conversation{}, _allowance} =
+      assert {:ok, %Conversation{}} =
                Machine.attach(ctx.sandbox.id, attach_attrs(ctx), attach_timeout_ms: 5_000)
 
       assert_receive {:park, {:ok, :parked}}, 5_000
@@ -647,7 +646,7 @@ defmodule Fountain.Machines.BindingTest do
             assert Task.yield(detach, 0) == nil
 
             send(attach.pid, :commit)
-            assert {:ok, %Conversation{}, _} = Task.await(attach)
+            assert {:ok, %Conversation{}} = Task.await(attach)
 
             assert_receive {:detach, {:ok, :kept}}, 5_000
             Task.await(detach)
@@ -740,7 +739,7 @@ defmodule Fountain.Machines.BindingTest do
             end
 
           for task <- tasks do
-            assert {:ok, %Conversation{}, _} = Task.await(task, 5_000)
+            assert {:ok, %Conversation{}} = Task.await(task, 5_000)
           end
 
           assert Repo.aggregate(

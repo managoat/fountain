@@ -713,7 +713,7 @@ defmodule FountainWeb.ConversationController do
                        permission_policy model session_config sandbox_mode sandbox_api_access
                        sprite_name
                        channel_id fresh parent_conversation_id labels
-                       execution_limits client_request_id)
+                       client_request_id)
 
   # Queueing is opt-in (ADR 0042 decision 2). A caller that did not ask keeps
   # the immediate 429 or 503 its client already handles.

@@ -6,8 +6,7 @@ defmodule Fountain.Conversations.Interruption do
   Moved out of `Fountain.Conversations.ConversationServer` and
   `Fountain.Conversations` in #2213 (one owner per lifecycle verb, #2175), so
   this module is the only writer of the interrupted turn row. The server
-  keeps `handle_call(:interrupt)`, `interrupt_turn/1` and
-  `retire_bounded_turn/1`: they act on `current_command`, `acp_peer` and the
+  keeps `handle_call(:interrupt)` and `interrupt_turn/1`: they act on `current_command`, `acp_peer` and the
   quiet timer, state this module cannot see from outside the process.
 
   Tenant scoping is the caller's job: `interrupt/2` is reached only after a
@@ -20,7 +19,7 @@ defmodule Fountain.Conversations.Interruption do
   import Fountain.Conversations.ConversationServer, only: [whereis: 1, call_server: 2]
 
   alias Fountain.Conversations
-  alias Fountain.Conversations.{Conversation, ExecutionGuard, Termination, Turn, Wake}
+  alias Fountain.Conversations.{Conversation, Termination, Turn, TurnLocks, Wake}
   alias Fountain.Repo
 
   @doc """
@@ -33,41 +32,15 @@ defmodule Fountain.Conversations.Interruption do
   """
   def interrupt(conv_id, opts \\ []) do
     # ownership: public callers established the conversation's tenant before
-    # this boundary. Bounded cancellation commits before any actor/provider I/O.
+    # this boundary.
     result =
-      case ExecutionGuard._unsafe_interrupt(conv_id) do
-        {:ok, {:bounded, id}} ->
-          if pid = whereis(conv_id), do: send(pid, {:execution_retired, id})
-          :ok
-
-        {:ok, :unbounded} ->
-          case whereis(conv_id) do
-            nil -> interrupt_dead(conv_id)
-            pid -> call_server(pid, :interrupt)
-          end
-
-        {:error, _} = error ->
-          error
+      case whereis(conv_id) do
+        nil -> interrupt_dead(conv_id)
+        pid -> call_server(pid, :interrupt)
       end
 
     Termination.audit_lifecycle(conv_id, "conversation.interrupted", result, opts)
     result
-  end
-
-  @doc """
-  The journal door for the provision continue before a reattach
-  (`ConversationServer.handle_continue(:provision, _)`) and the delete
-  cascade (`Conversations.delete_conversation/2`): a journal left by another
-  incarnation, or by the conversation being deleted, is retired rather than
-  reattached or replayed (ADR 0046: a bounded journal means the actor stops
-  instead of reattaching). Returns the guard's `{:ok, _} | {:error, _}`
-  unchanged.
-  """
-  def retire_journal_before_reattach(conv_id) do
-    # ownership: the server already holds this conversation's row (fetched at
-    # the top of the provision continue); the delete cascade runs after its
-    # own tenant-scoped fetch. Both callers established ownership before here.
-    ExecutionGuard._unsafe_interrupt(conv_id)
   end
 
   defp interrupt_dead(conv_id) do
@@ -153,7 +126,7 @@ defmodule Fountain.Conversations.Interruption do
 
   This half deliberately takes no `sandbox_id` and does not repeat the binding
   check. It writes no turn result. Under the parent and turn locks, it requires
-  a `running` parent, an `interrupted` turn and `ExecutionGuard.latest_turn?/2`.
+  a `running` parent, an `interrupted` turn and `TurnLocks.latest_turn?/2`.
   A successor admitted while the peer was stopping prevents the idle write;
   an older turn left `running` does not. Admission inserts its turn and sets
   the parent `running` in the same transaction under the same parent lock, so
@@ -161,7 +134,7 @@ defmodule Fountain.Conversations.Interruption do
 
   Rechecking the binding here could leave the parent `running` after the
   first half retired its last running turn. `AutonomousTurnReaper.sweep_stuck_turns/0`
-  selects running turns, and `ExecutionGuard._unsafe_recover_turn/3` returns
+  selects running turns, and `TurnLocks._unsafe_recover_turn/3` returns
   `:noop` for a retired turn, so those recovery paths cannot repair that state.
   Other paths can idle the parent: `MachineEvents.gone/5` and the lifecycle's
   park and reclaim paths do so when they run.
@@ -198,7 +171,7 @@ defmodule Fountain.Conversations.Interruption do
 
         with %Conversation{status: "running"} = conv <- Repo.one(conversation_query),
              %Turn{status: "interrupted"} <- Repo.one(turn_query),
-             true <- ExecutionGuard.latest_turn?(conv.id, turn.id) do
+             true <- TurnLocks.latest_turn?(conv.id, turn.id) do
           conv |> Conversation.changeset(%{status: "idle"}) |> Repo.update!()
         else
           _ -> :noop

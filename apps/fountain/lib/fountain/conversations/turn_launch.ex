@@ -4,19 +4,14 @@ defmodule Fountain.Conversations.TurnLaunch do
 
   Extracted from `ConversationServer.run_fresh_turn/6`: the actor is
   the largest module in the system and its line count only ratchets down
-  (`conversation_server_size_test.exs`), so the bounded-turn lifecycle #1749
-  adds has to buy its room from somewhere. This is the natural seam — a pure
+  (`conversation_server_size_test.exs`). This is the natural seam — a pure
   launch, given a state it does not own and returning it.
 
   `fail_before_start` is the actor's own pre-start failure path, passed in
-  rather than duplicated: it logs the failure and retires any bounded
-  execution, both of which are the actor's business.
+  rather than duplicated: it logs the failure, which is the actor's business.
 
-  Nothing here is bounded-turn specific. `run_turn/6` decides whether a turn is
-  bounded and which transport it gets; by the time this runs that is settled.
-
-  `relaunch_crashed/3` and `relaunch_contended/3` are the exceptions, and say
-  why at their definitions: an unbounded adapter that a native crash killed
+  `relaunch_crashed/3` and `relaunch_contended/3` say why at their
+  definitions: an adapter that a native crash killed
   before it wrote a byte is launched once more under the same turn (#2402),
   and one whose Codex could not open its SQLite state is launched again after
   a pause (#1910).
@@ -25,7 +20,7 @@ defmodule Fountain.Conversations.TurnLaunch do
   require OpenTelemetry.Tracer
 
   alias Fountain.Conversations
-  alias Fountain.Conversations.{CodexChatGPT, Connection, ExecutionLimits}
+  alias Fountain.Conversations.{CodexChatGPT, Connection}
   alias Fountain.Conversations.{McpServers, Output, TurnMachine}
 
   def run(state, conv, turn, prompt, agent, images, fail_before_start) do
@@ -52,7 +47,7 @@ defmodule Fountain.Conversations.TurnLaunch do
     Logger.warning("conv #{state.conversation_id}: runtime session preparation refused")
     {:ok, _} = Conversations._unsafe_update_turn(turn, %{status: "failed"})
     {:ok, _} = Conversations._unsafe_idle_after_turn(turn)
-    if state.turn_execution, do: Connection.close_bounded(state), else: state
+    state
   end
 
   # `spec` is what the launch runs, kept on the turn's metrics so a relaunch
@@ -114,22 +109,8 @@ defmodule Fountain.Conversations.TurnLaunch do
           detachable: true
         ]
 
-      # A bounded turn goes through the supervised transport, which records
-      # spawn intent before any I/O and keeps stdin closed until the provider
-      # names its session (ADR 0046). Unbounded turns spawn directly.
-      spawn_result =
-        if state.turn_execution do
-          # ownership: admission registered this actor's turn against its
-          # persisted tenant and sandbox.
-          Connection._unsafe_spawn_bounded(state, conv.runtime, cmd, args, spawn_opts)
-        else
-          with {:ok, command} <-
-                 Connection.spawn_command(state, conv.runtime, cmd, args, spawn_opts),
-               do: {:ok, command, nil}
-        end
-
-      case spawn_result do
-        {:ok, command, transport} ->
+      case Connection.spawn_command(state, conv.runtime, cmd, args, spawn_opts) do
+        {:ok, command} ->
           stream_tracer = Managoat.ACP.Tracer.new(turn_span, prefix: "fountain")
 
           {peer, peer_mon} =
@@ -147,15 +128,12 @@ defmodule Fountain.Conversations.TurnLaunch do
               model: TurnMachine.acp_model(conv, agent),
               config: TurnMachine.acp_session_config(turn),
               permission_policy: TurnMachine.effective_permission_policy(conv, agent),
-              auth: CodexChatGPT.peer_auth(state.runtime_module, state.inference_credentials),
-              execution_transport: transport,
-              execution_limits: bounded_sdk_limits(state, conv.runtime)
+              auth: CodexChatGPT.peer_auth(state.runtime_module, state.inference_credentials)
             )
 
           %{
             state
             | current_command: command,
-              execution_transport: transport,
               current_command_ref: command.ref,
               current_turn: turn,
               runtime_session_id: runtime_session_id,
@@ -207,7 +185,7 @@ defmodule Fountain.Conversations.TurnLaunch do
   }
 
   @doc """
-  Launch an unbounded turn's adapter once more after a native crash killed it
+  Launch a turn's adapter once more after a native crash killed it
   before it wrote a byte (#2402).
 
   Node 24 on Sprites guests has been seen to die of SIGSEGV during startup
@@ -223,10 +201,9 @@ defmodule Fountain.Conversations.TurnLaunch do
   turns may already have been prompted. Only the first launch retries, so a
   crash that recurs fails the turn as it always did.
 
-  A bounded turn's command belongs to its execution journal and deadline, and
-  is not relaunched here. Neither is a turn whose conversation has moved to
-  another sandbox since this actor launched it, including while its peer was
-  stopping: the plan write carries the actor's binding and refuses.
+  A turn whose conversation has moved to another sandbox since this actor
+  launched it, including while its peer was stopping, is not relaunched: the
+  plan write carries the actor's binding and refuses.
 
   `finish` is the server's exit path, `(state, code) -> {:noreply, state}`.
   Every exit goes through here; the ones that do not qualify, and any retry
@@ -235,7 +212,6 @@ defmodule Fountain.Conversations.TurnLaunch do
   """
   def relaunch_crashed(
         %{
-          turn_execution: nil,
           current_turn: %{} = turn,
           turn_metrics: %{first_output?: false, launch: %{relaunched?: false} = launch}
         } = state,
@@ -249,8 +225,7 @@ defmodule Fountain.Conversations.TurnLaunch do
     state = %{state | acp_peer: nil, acp_peer_mon: nil}
     {mode, id} = launch.plan
 
-    # An unbounded turn has no journal naming its sandbox, so the plan write
-    # carrying this actor's binding is the only check that Wake has not moved
+    # The plan write carrying this actor's binding is the check that Wake has not moved
     # the conversation to a replacement. Nothing is announced or spawned
     # before it passes. On any refusal the exit ends the turn as it always
     # did: `finish` is the server's exit path, whose `Machine.end_turn/3`
@@ -338,7 +313,7 @@ defmodule Fountain.Conversations.TurnLaunch do
   @contended_waits [2, 6, 15]
 
   @doc """
-  Launch an unbounded turn's adapter again, after a pause, when Codex could
+  Launch a turn's adapter again, after a pause, when Codex could
   not open its SQLite state (#1910).
 
   Codex keeps its state in SQLite under its home, which every Codex
@@ -354,9 +329,8 @@ defmodule Fountain.Conversations.TurnLaunch do
   `initialize`, which the peer sends before anything else, so no session was
   opened and no prompt was sent. The adapter is still running and is closed
   first. The launch must be this turn's own fresh launch (`:launch` is set
-  only there), unbounded, and still on this actor's sandbox (the plan write
-  carries the binding, as for #2402). A bounded turn's command belongs to its
-  execution journal and is not relaunched.
+  only there) and still on this actor's sandbox (the plan write carries the
+  binding, as for #2402).
 
   The pause runs inside the sandbox, as a `sleep` in front of the adapter, so
   this actor stays responsive: an interrupt stops the command as it would any
@@ -371,7 +345,6 @@ defmodule Fountain.Conversations.TurnLaunch do
   """
   def relaunch_contended(
         %{
-          turn_execution: nil,
           current_turn: %{} = turn,
           turn_metrics: %{launch: %{contended: attempt} = launch}
         } = state,
@@ -479,22 +452,4 @@ defmodule Fountain.Conversations.TurnLaunch do
   end
 
   defp repository_directories(_state), do: []
-
-  # The SDK's own view of the allowance, from the frozen journal copy rather
-  # than from current policy: an in-flight turn keeps what it was admitted
-  # under. Nil for an unbounded turn, which asks the SDK for nothing.
-  defp bounded_sdk_limits(%{turn_execution: nil}, _runtime), do: nil
-
-  # The hard match is safe at a distance, which is worth saying rather than
-  # leaving to be rediscovered: admission already called
-  # `Managoat.Runtimes.ACP.execution_limits/2` for this runtime and allowance
-  # inside `_unsafe_register_bounded/3`, through a `with` that rolls the turn
-  # back on `{:error, _}`. A journal row therefore cannot exist for a runtime
-  # that refuses its own limits, so reaching here with one is a bug in
-  # admission and crashing is the right answer to it.
-  defp bounded_sdk_limits(state, runtime) do
-    options = ExecutionLimits.sdk_options(state.turn_execution.execution_limits)
-    {:ok, limits} = Managoat.Runtimes.ACP.execution_limits(runtime, options)
-    limits
-  end
 end

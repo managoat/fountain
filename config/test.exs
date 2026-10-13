@@ -43,8 +43,6 @@ config :fountain, :skip_rehydrate, true
 # must not put `$callers` in the owner (`Fountain.Machines.Machine.handle_call/3`
 # says why).
 config :fountain, :owner_adopts_callers, true
-# Tests start the coordinator explicitly with owned database fixtures.
-config :fountain, :execution_deadline_worker_enabled, false
 config :fountain, :checkpoint_creation_enabled, false
 config :managoat_sandbox, Managoat.Sandbox.Sprites, checkpoint_creation_enabled: false
 # A park's snapshot of the disk (ADR 0063) runs two scripts on the machine;

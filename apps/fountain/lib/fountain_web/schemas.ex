@@ -1346,12 +1346,6 @@ defmodule FountainWeb.Schemas do
               "request is on the conversation as a `pending_requests` entry."
         },
         exit_code: %Schema{type: :integer, nullable: true},
-        limit_reason: %Schema{
-          type: :string,
-          nullable: true,
-          description:
-            "The service-enforced limit that ended this turn, or null. Set independently of exit_code: a runtime that exits zero after its deadline is still an incomplete turn, so a client must read this before treating a turn as successful."
-        },
         started_at: %Schema{type: :string, format: :"date-time", nullable: true},
         ended_at: %Schema{type: :string, format: :"date-time", nullable: true},
         inserted_at: %Schema{type: :string, format: :"date-time"},

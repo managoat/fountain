@@ -102,7 +102,12 @@ defmodule Fountain.Conversations.ConversationServerSizeTest do
   # `Egress` calls — into `Egress.switch_to_api_key/1`, beside the other
   # functions that take the server's state. The file is 2002 lines on this
   # branch, so this is that plus ten. Nothing is stacked below this PR.
-  @pin 2012
+  #
+  # 2012 → 1922. Retiring ADR 0046 took the bounded-turn branches out: the
+  # journal gate in `handle_info/2`, the bounded retire/close paths and the
+  # journal lookup in `run_turn/6`. The file is 1912 lines on this branch, so
+  # this is that plus ten.
+  @pin 1922
 
   @server "apps/fountain/lib/fountain/conversations/conversation_server.ex"
 

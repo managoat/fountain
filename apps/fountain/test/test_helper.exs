@@ -42,8 +42,6 @@ Mimic.copy(Plug.Adapters.Test.Conn)
 Mimic.copy(Fountain.Usage)
 
 Mimic.copy(Fountain.Conversations)
-Mimic.copy(Fountain.Conversations.ExecutionAllowance)
-Mimic.copy(Fountain.Conversations.ExecutionLimits)
 Mimic.copy(Fountain.Conversations.Egress)
 Mimic.copy(Fountain.Conversations.InferenceResolution)
 Mimic.copy(Fountain.Conversations.Interruption)

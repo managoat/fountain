@@ -1,11 +1,11 @@
 ---
 type: ADR
 title: "Durable turn deadlines and remote execution identity"
-description: "Persist turn deadlines and provider-operation intent before I/O; the journal, its per-turn allowance and the deadline coordinator are implemented, while transport and lifecycle integration remain."
+description: "Retired 2026-10-13: never activated, and removed with its tables to follow. Persist turn deadlines and provider-operation intent before I/O; the journal, its per-turn allowance and the deadline coordinator are implemented, while transport and lifecycle integration remain."
 tags: [conversations, sandbox, reliability, limits]
-status: draft
+status: deprecated
 adr: "0046"
-adr_status: "Proposed"
+adr_status: "Retired"
 date: 2026-09-07
 generated: { by: process:codex, at: 2026-09-07T22:39:25Z }
 verified: { by: process:codex, at: 2026-09-07T22:39:25Z }
@@ -14,7 +14,7 @@ stale_after: 2026-09-21
 
 # 0046 — Durable turn deadlines and remote execution identity
 
-**Status:** Proposed; not shipped. `ExecutionGuard`, `TurnExecution` and their
+**Status:** Retired 2026-10-13 without ever being activated; see the addendum at the end. The text above the addendum is history. Was: Proposed; not shipped. `ExecutionGuard`, `TurnExecution` and their
 migration are implemented locally. Full precommit passes: 4,632 tests and six
 doctests, zero failures, two existing skips and seven exclusions. Thirty guard
 regressions cover the journal. The existing
@@ -347,3 +347,42 @@ proofs; they remain in git history before that date, and the hashes in
 - Local disconnects and signals alone do not confirm that remote work stopped.
 - Reconstructing success from writable markers cannot recover trusted exit evidence.
 - Replaying uncertain operations can create duplicate workers or affect a successor.
+
+## Addendum — 2026-10-13: retired
+
+The journal was never turned on. No deployment set `FOUNTAIN_EXECUTION_LIMITS`
+or an account ceiling, and none of the 4,717 turns on the maintainer's instance
+carried a `limit_reason`. It still cost every conversation an
+`execution_allowances` row and a `conversation.execution_allowance_created`
+audit event, a journal lookup on every turn write, and the bounded branches
+through the conversation actor, the launch and the lifecycle verbs. Fountain is
+self-hosted with a handful of users, and activation was blocked on
+per-provider granularity (#1864) that nobody needs.
+
+- Removed: `ExecutionGuard`, `ExecutionTransport`, `ExecutionDeadlineWorker`,
+  `ExecutionLimits`, `ExecutionAllowance`, `TurnExecution`, `BoundedTurn`,
+  `DeadlineEvents`, the `TurnDeadlineNotification` worker and its
+  `notifications` Oban queue, `Accounts.update_execution_limits/3`, the
+  `execution_limits` request field (no longer read; it was never in the
+  contract), the `limit_reason` turn field, the `execution_limits_*` and
+  `execution_fenced` error codes, and `FOUNTAIN_EXECUTION_LIMITS`,
+  `FOUNTAIN_EXECUTION_DEADLINE_WORKER` and
+  `FOUNTAIN_EXECUTION_DEADLINE_INTERVAL_MS`.
+- Kept, as `Fountain.Conversations.TurnLocks`: the parent-before-turn row
+  locks and the binding checks every unbounded turn already went through
+  (`_unsafe_end_actor_turn/5`, `_unsafe_write_parent/4`,
+  `_unsafe_recover_turn/3`, `_unsafe_release_parent/3`,
+  `_unsafe_clear_idle_session/3`, `latest_turn?/2`). Those were never the
+  journal's; they lived in its module.
+- The race-proof scripts (`scripts/verify-*-races.exs`) and their evidence
+  files went with the code they exercised.
+- The tables stay for one release: `turn_executions`, `execution_allowances`,
+  `turns.limit_reason` and `users.execution_limits` are no longer read or
+  written, but the previous release writes `execution_allowances` on every
+  launch, so dropping them during a rolling deploy would fail launches on the
+  old pods. A later migration drops them, as #2611 and #2618 did for the
+  billing and webhook tables.
+
+A wall-clock bound on a turn, if one is wanted again, starts from the open
+questions above (remote termination, provider identity, activation scope),
+not from this code.

@@ -2,7 +2,7 @@ defmodule Fountain.Conversations.TurnParentTest do
   use Fountain.DataCase, async: true
 
   alias Fountain.Conversations
-  alias Fountain.Conversations.{Conversation, ExecutionGuard, Turn, TurnExecution, TurnMachine}
+  alias Fountain.Conversations.{Conversation, Turn, TurnMachine}
 
   setup do
     user = insert_verified_user()
@@ -17,15 +17,7 @@ defmodule Fountain.Conversations.TurnParentTest do
       )
 
     turn = insert_turn(conv, status: "running")
-
-    {:ok, execution} =
-      ExecutionGuard._unsafe_register(
-        turn.id,
-        Ecto.UUID.generate(),
-        DateTime.add(DateTime.utc_now(), 60)
-      )
-
-    %{conv: conv, turn: turn, execution: execution, sandbox: sandbox}
+    %{conv: conv, turn: turn, sandbox: sandbox}
   end
 
   defp machine(c),
@@ -38,18 +30,19 @@ defmodule Fountain.Conversations.TurnParentTest do
       runtime_session_id: "original-session"
     }
 
+  # Another writer ends the current turn, as an interrupt does.
+  defp interrupt!(c) do
+    Repo.get!(Turn, c.turn.id)
+    |> Ecto.Changeset.change(
+      status: "interrupted",
+      ended_at: DateTime.truncate(DateTime.utc_now(), :second)
+    )
+    |> Repo.update!()
+  end
+
   defp successor(c) do
-    {:ok, _} = ExecutionGuard._unsafe_interrupt(c.conv.id)
-    next = insert_turn(c.conv, status: "running")
-
-    {:ok, execution} =
-      ExecutionGuard._unsafe_register(
-        next.id,
-        Ecto.UUID.generate(),
-        DateTime.add(DateTime.utc_now(), 60)
-      )
-
-    {next, execution}
+    interrupt!(c)
+    insert_turn(c.conv, status: "running")
   end
 
   # Named for the mechanism that actually refuses this write. `successor/1`
@@ -58,7 +51,7 @@ defmodule Fountain.Conversations.TurnParentTest do
   # turn's own status, before any parent decision is reached. The refusal that
   # depends on the successor existing is the `latest_turn?` pair below.
   test "a completion whose turn another actor already ended writes nothing", c do
-    {next, execution} = successor(c)
+    next = successor(c)
     assert Repo.get!(Turn, c.turn.id).status == "interrupted"
 
     TurnMachine.finish(machine(c), "completed", %{}, %{})
@@ -66,20 +59,9 @@ defmodule Fountain.Conversations.TurnParentTest do
     assert Repo.get!(Turn, c.turn.id).status == "interrupted"
     assert Repo.get!(Conversation, c.conv.id).status == "running"
     assert Repo.get!(Turn, next.id).status == "running"
-    assert Repo.get!(TurnExecution, execution.id).state == "active"
   end
 
   test "a superseded turn cannot idle the parent once its successor has ended too", c do
-    # This completion now consults the journal, so it must name a started command.
-    {:ok, _} = ExecutionGuard._unsafe_claim_spawn(c.execution.id)
-
-    {:ok, _} =
-      ExecutionGuard._unsafe_bind_identity(
-        c.execution.id,
-        c.execution.connection_id,
-        "running-command"
-      )
-
     insert_turn(c.conv,
       status: "completed",
       ended_at: DateTime.utc_now() |> DateTime.truncate(:second)
@@ -102,16 +84,6 @@ defmodule Fountain.Conversations.TurnParentTest do
   end
 
   test "a completion cannot idle a parent that is not running", c do
-    # This completion now consults the journal, so it must name a started command.
-    {:ok, _} = ExecutionGuard._unsafe_claim_spawn(c.execution.id)
-
-    {:ok, _} =
-      ExecutionGuard._unsafe_bind_identity(
-        c.execution.id,
-        c.execution.connection_id,
-        "running-command"
-      )
-
     c.conv |> Ecto.Changeset.change(status: "pending") |> Repo.update!()
 
     TurnMachine.finish(machine(c), "completed", %{}, %{})
@@ -121,14 +93,14 @@ defmodule Fountain.Conversations.TurnParentTest do
   end
 
   test "the interrupt's delayed second half cannot idle a successor", c do
-    {next, _} = successor(c)
+    next = successor(c)
     TurnMachine.close_interrupted(machine(c))
     assert Repo.get!(Conversation, c.conv.id).status == "running"
     assert Repo.get!(Turn, next.id).status == "running"
   end
 
   test "the current ended generation can idle its parent", c do
-    {:ok, _} = ExecutionGuard._unsafe_interrupt(c.conv.id)
+    interrupt!(c)
 
     assert {:ok, %{applied: true, conversation: %{status: "idle"}}} =
              Conversations._unsafe_idle_after_turn(c.turn)
@@ -142,7 +114,7 @@ defmodule Fountain.Conversations.TurnParentTest do
   end
 
   test "late terminal callbacks preserve terminated and failed parents", c do
-    {:ok, _} = ExecutionGuard._unsafe_interrupt(c.conv.id)
+    interrupt!(c)
 
     for status <- ["terminated", "failed"] do
       c.conv |> Ecto.Changeset.change(status: status) |> Repo.update!()
@@ -167,24 +139,12 @@ defmodule Fountain.Conversations.TurnParentTest do
     assert Repo.get!(Conversation, c.conv.id).runtime_session_id == "successor-session"
   end
 
-  test "retirement alone fences session writes even before a successor exists", c do
-    {:ok, _} = ExecutionGuard._unsafe_interrupt(c.conv.id)
+  test "an ended turn fences session writes even before a successor exists", c do
+    interrupt!(c)
 
     assert {:ok, %{applied: false}} =
              Conversations._unsafe_set_turn_session(c.turn, "late-session")
 
-    assert Repo.get!(Conversation, c.conv.id).runtime_session_id == "original-session"
-  end
-
-  test "the session writer enforces expiration without a coordinator tick", c do
-    c.execution
-    |> Ecto.Changeset.change(deadline_at: DateTime.add(DateTime.utc_now(), -1))
-    |> Repo.update!()
-
-    assert {:ok, %{applied: false}} =
-             Conversations._unsafe_set_turn_session(c.turn, "late-session")
-
-    assert Repo.get!(Turn, c.turn.id).limit_reason == "wall_time_limit"
     assert Repo.get!(Conversation, c.conv.id).runtime_session_id == "original-session"
   end
 
@@ -195,12 +155,7 @@ defmodule Fountain.Conversations.TurnParentTest do
     assert Repo.get!(Conversation, c.conv.id).runtime_session_id == nil
   end
 
-  test "changed sandbox identity and a forged parent cannot authorize a session write", c do
-    c.sandbox |> Ecto.Changeset.change(machine_name: "replacement") |> Repo.update!()
-
-    assert {:ok, %{applied: false}} =
-             Conversations._unsafe_set_turn_session(c.turn, "wrong-machine")
-
+  test "a forged parent cannot authorize a session write", c do
     other = insert_conversation(user_id: insert_verified_user().id)
 
     assert {:error, :ownership_changed} =
@@ -214,17 +169,10 @@ defmodule Fountain.Conversations.TurnParentTest do
   end
 
   test "a deleted parent returns an explicit refusal", c do
-    {:ok, _} = ExecutionGuard._unsafe_interrupt(c.conv.id)
+    interrupt!(c)
     Repo.delete!(c.conv)
     assert {:error, :not_found} = Conversations._unsafe_idle_after_turn(c.turn)
     assert {:error, :not_found} = Conversations._unsafe_set_turn_session(c.turn, "orphan")
-  end
-
-  test "an idle peer cannot erase a bounded session even after cleanup completed", c do
-    {:ok, _} = ExecutionGuard._unsafe_interrupt(c.conv.id)
-    state = %{actor(c) | current_turn: nil}
-    assert ^state = TurnMachine.forget_turn_session(state, "session_gone", "old")
-    assert Repo.get!(Conversation, c.conv.id).runtime_session_id == "original-session"
   end
 
   test "idle legacy reset preserves its behavior but cannot clear a changed session" do
@@ -248,49 +196,17 @@ defmodule Fountain.Conversations.TurnParentTest do
     assert Repo.get!(Conversation, conv.id).runtime_session_id == nil
   end
 
-  test "orphan recovery retires a known command before idling the parent", c do
-    {:ok, _} = ExecutionGuard._unsafe_claim_spawn(c.execution.id)
-
-    {:ok, _} =
-      ExecutionGuard._unsafe_bind_identity(
-        c.execution.id,
-        c.execution.connection_id,
-        "orphan-command"
-      )
-
+  test "orphan recovery interrupts the turn before idling the parent", c do
     assert {:ok, updated, %{status: "idle"}} =
              Conversations._unsafe_orphan_turn(c.turn, "lost_actor")
 
     assert updated.status == "interrupted"
     assert updated.orphaned_at
-    assert Repo.get!(TurnExecution, c.execution.id).state == "ready"
-    assert {:ok, %{permitted: true}} = ExecutionGuard._unsafe_claim_termination(c.execution.id)
     assert :noop = Conversations._unsafe_orphan_turn(c.turn, "duplicate")
   end
 
-  test "orphan recovery retains an unknown spawn and cannot authorize a replacement", c do
-    {:ok, _} = ExecutionGuard._unsafe_claim_spawn(c.execution.id)
-    assert {:ok, updated, _} = Conversations._unsafe_orphan_turn(c.turn, "lost_actor")
-    assert updated.orphaned_at
-    assert Repo.get!(TurnExecution, c.execution.id).state == "awaiting_identity"
-    assert {:error, :execution_fenced} = ExecutionGuard._unsafe_admission_gate(c.conv.id)
-  end
-
-  test "orphan recovery preserves a deadline outcome and its durable event", c do
-    c.execution
-    |> Ecto.Changeset.change(deadline_at: DateTime.add(DateTime.utc_now(), -1))
-    |> Repo.update!()
-
-    assert {:ok, updated, _} = Conversations._unsafe_orphan_turn(c.turn, "lost_actor")
-    assert updated.status == "failed"
-    assert updated.limit_reason == "wall_time_limit"
-    assert updated.orphaned_at
-    events = Repo.all(from e in Conversations.LogEvent, where: e.turn_id == ^c.turn.id)
-    assert [%{state: "failed"}] = events
-  end
-
   test "recovering an old already-ended turn leaves its successor untouched", c do
-    {next, _} = successor(c)
+    next = successor(c)
     assert :noop = Conversations._unsafe_orphan_turn(c.turn, "stale_candidate")
     assert Repo.get!(Conversation, c.conv.id).status == "running"
     assert Repo.get!(Turn, next.id).status == "running"
@@ -305,8 +221,7 @@ defmodule Fountain.Conversations.TurnParentTest do
 
     {:ok, _} = Conversations.update_conversation(conv, %{sandbox_id: replacement.id})
 
-    # No journal row, so `cleanup_binding?/1` has nothing to compare: the
-    # actor's own `:sandbox_id` is the only record of the binding.
+    # The actor's own `:sandbox_id` is the only record of the binding.
     assert {:error, :ownership_changed} =
              Conversations._unsafe_orphan_turn(turn, "rebound", sandbox_id: old.id)
 
@@ -342,7 +257,7 @@ defmodule Fountain.Conversations.TurnParentTest do
   end
 
   test "admission commits running status even when an older snapshot still said running", c do
-    {:ok, _} = ExecutionGuard._unsafe_interrupt(c.conv.id)
+    interrupt!(c)
     {:ok, _} = Conversations.update_conversation(c.conv, %{status: "idle"})
 
     attrs = %{
@@ -360,7 +275,7 @@ defmodule Fountain.Conversations.TurnParentTest do
   end
 
   test "failed admission cannot leave an idle parent running", c do
-    {:ok, _} = ExecutionGuard._unsafe_interrupt(c.conv.id)
+    interrupt!(c)
     {:ok, _} = Conversations.update_conversation(c.conv, %{status: "idle"})
     attrs = %{conversation_id: c.conv.id, turn_number: 2, status: "running"}
 
@@ -371,7 +286,7 @@ defmodule Fountain.Conversations.TurnParentTest do
   end
 
   test "closed parents refuse user and background admission without revival", c do
-    {:ok, _} = ExecutionGuard._unsafe_interrupt(c.conv.id)
+    interrupt!(c)
     attrs = %{conversation_id: c.conv.id, turn_number: 2, prompt: "late", status: "running"}
 
     for status <- ["terminated", "failed"] do
@@ -398,22 +313,9 @@ defmodule Fountain.Conversations.TurnParentTest do
     assert Repo.aggregate(Turn, :count) == 1
   end
 
-  test "a changed binding cannot expire or recover another machine's parent", c do
-    c.sandbox |> Ecto.Changeset.change(machine_name: "replacement") |> Repo.update!()
-
-    c.execution
-    |> Ecto.Changeset.change(deadline_at: DateTime.add(DateTime.utc_now(), -1))
-    |> Repo.update!()
-
-    assert {:ok, %{applied: false}} = Conversations._unsafe_set_turn_session(c.turn, "late")
-    assert {:error, :ownership_changed} = Conversations._unsafe_orphan_turn(c.turn, "old_machine")
-    assert Repo.get!(Conversation, c.conv.id).status == "running"
-    assert Repo.get!(Turn, c.turn.id).status == "running"
-  end
-
   test "session preparation and a late pre-start failure cannot change a successor", c do
-    {next, _} = successor(c)
-    assert {:error, :execution_fenced} = TurnMachine.session_plan(c.turn, nil)
+    next = successor(c)
+    assert {:error, :plan_refused} = TurnMachine.session_plan(c.turn, nil)
 
     assert :ok =
              TurnMachine.fail_before_start(
@@ -430,7 +332,7 @@ defmodule Fountain.Conversations.TurnParentTest do
 
   test "refused session preparation returns before command construction", c do
     successor(c)
-    state = %{conversation_id: c.conv.id, runtime_session_id: nil, turn_execution: nil}
+    state = %{conversation_id: c.conv.id, runtime_session_id: nil}
 
     assert ^state =
              Conversations.TurnLaunch.run(state, c.conv, c.turn, "late", nil, [], fn _, _, _ ->

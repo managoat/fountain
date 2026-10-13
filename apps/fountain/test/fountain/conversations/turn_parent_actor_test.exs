@@ -1,7 +1,7 @@
 defmodule Fountain.Conversations.TurnParentActorTest do
   use Fountain.ConversationServerCase
 
-  alias Fountain.Conversations.{ExecutionGuard, Turn, TurnExecution}
+  alias Fountain.Conversations.Turn
 
   setup do
     user = insert_verified_user()
@@ -12,35 +12,18 @@ defmodule Fountain.Conversations.TurnParentActorTest do
     on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
 
     turn = insert_turn(conv, status: "running")
-
-    {:ok, execution} =
-      ExecutionGuard._unsafe_register(
-        turn.id,
-        Ecto.UUID.generate(),
-        DateTime.add(DateTime.utc_now(), 60)
-      )
-
-    {:ok, _} = ExecutionGuard._unsafe_claim_spawn(execution.id)
-
-    {:ok, execution} =
-      ExecutionGuard._unsafe_bind_identity(
-        execution.id,
-        execution.connection_id,
-        "old-synthetic-command"
-      )
-
     {:ok, _} = Conversations.update_conversation(conv, %{status: "running"})
     ref = make_ref()
 
     :sys.replace_state(pid, fn state ->
-      %{state | current_turn: turn, current_command_ref: ref, turn_execution: execution}
+      %{state | current_turn: turn, current_command_ref: ref}
     end)
 
-    %{pid: pid, turn: turn, execution: execution, conv: conv, ref: ref}
+    %{pid: pid, turn: turn, conv: conv, ref: ref}
   end
 
   test "cancellation and successor admission after dispatch cannot let the old actor idle the parent",
-       %{pid: pid, turn: turn, execution: execution, conv: conv, ref: ref} do
+       %{pid: pid, turn: turn, conv: conv, ref: ref} do
     test = self()
 
     # The barrier sits on the terminal writer the completion path actually
@@ -64,22 +47,8 @@ defmodule Fountain.Conversations.TurnParentActorTest do
 
     send(pid, {:acp, ref, {:done, "end_turn", nil}})
     assert_receive :after_dispatch_before_write, 2_000
-    {:ok, _} = ExecutionGuard._unsafe_interrupt(conv.id)
-
-    {:ok, %{permitted: true, execution: claimed}} =
-      ExecutionGuard._unsafe_claim_termination(execution.id)
-
-    # Synthetic provider acknowledgment permits a successor. This test performs
-    # no remote termination and makes no claim about actual command deletion.
-    {:ok, _} = ExecutionGuard._unsafe_record_termination(execution.id, claimed.attempt_id, :ok)
+    interrupt!(turn)
     next = insert_turn(conv, status: "running")
-
-    {:ok, next_execution} =
-      ExecutionGuard._unsafe_register(
-        next.id,
-        Ecto.UUID.generate(),
-        DateTime.add(DateTime.utc_now(), 60)
-      )
 
     send(pid, :continue)
     assert %{current_turn: nil} = :sys.get_state(pid)
@@ -92,7 +61,6 @@ defmodule Fountain.Conversations.TurnParentActorTest do
     assert Repo.get!(Turn, turn.id).status == "interrupted"
     assert Conversations._unsafe_get_conversation!(conv.id).status == "running"
     assert Repo.get!(Turn, next.id).status == "running"
-    assert Repo.get!(TurnExecution, next_execution.id).state == "active"
   end
 
   test "a session callback passed by dispatch cannot overwrite a successor after cancellation",
@@ -116,21 +84,22 @@ defmodule Fountain.Conversations.TurnParentActorTest do
 
     send(c.pid, {:acp, c.ref, {:session, "late"}})
     assert_receive :session_after_dispatch, 2_000
-    {:ok, _} = ExecutionGuard._unsafe_interrupt(c.conv.id)
-    {:ok, %{execution: claimed}} = ExecutionGuard._unsafe_claim_termination(c.execution.id)
-    {:ok, _} = ExecutionGuard._unsafe_record_termination(c.execution.id, claimed.attempt_id, :ok)
-    next = insert_turn(c.conv, status: "running")
-
-    {:ok, _} =
-      ExecutionGuard._unsafe_register(
-        next.id,
-        Ecto.UUID.generate(),
-        DateTime.add(DateTime.utc_now(), 60)
-      )
+    interrupt!(c.turn)
+    _next = insert_turn(c.conv, status: "running")
 
     {:ok, _} = Conversations.update_conversation(c.conv, %{runtime_session_id: "successor"})
     send(c.pid, :continue)
     assert %{runtime_session_id: "original"} = :sys.get_state(c.pid)
     assert Conversations._unsafe_get_conversation!(c.conv.id).runtime_session_id == "successor"
+  end
+
+  # Another writer ends the turn while the actor is held after dispatch.
+  defp interrupt!(turn) do
+    Repo.get!(Turn, turn.id)
+    |> Ecto.Changeset.change(
+      status: "interrupted",
+      ended_at: DateTime.truncate(DateTime.utc_now(), :second)
+    )
+    |> Repo.update!()
   end
 end

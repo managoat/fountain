@@ -7,7 +7,7 @@ defmodule Fountain.Conversations.OrphanBindingIsolationTest do
   @moduledoc """
   The actor's binding check and the reassignment that invalidates it serialize.
 
-  `ExecutionGuard._unsafe_recover_turn/3` takes `FOR UPDATE` on the parent
+  `TurnLocks._unsafe_recover_turn/3` takes `FOR UPDATE` on the parent
   before it compares the actor's `:sandbox_id` binding
   (`Fountain.Machines.Admission.bound?/2`), so the comparison and every write
   that follows it happen under one lock. These two tests run the pair in both

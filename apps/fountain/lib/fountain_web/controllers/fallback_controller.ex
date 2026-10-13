@@ -15,33 +15,6 @@ defmodule FountainWeb.FallbackController do
     |> json(%{error: "not_found"})
   end
 
-  def call(conn, {:error, {:execution_limits_invalid, field}}) do
-    conn
-    |> put_status(:unprocessable_entity)
-    |> json(%{
-      error: "execution_limits_invalid",
-      errors: %{execution_limits: ["invalid #{field}"]}
-    })
-  end
-
-  def call(conn, {:error, {:execution_limits_widen, field}}) do
-    conn
-    |> put_status(:unprocessable_entity)
-    |> json(%{
-      error: "execution_limits_widen",
-      errors: %{execution_limits: ["cannot widen #{field}"]}
-    })
-  end
-
-  def call(conn, {:error, {:execution_limits_unsupported, controls}}) do
-    conn
-    |> put_status(:unprocessable_entity)
-    |> json(%{
-      error: "execution_limits_unsupported",
-      message: "Execution-limit enforcement is unavailable: #{Enum.join(controls, ", ")}."
-    })
-  end
-
   # Opening input a launch cannot use (Fountain.Conversations.PromptInput).
   # Refused before any sandbox is reserved, so nothing was spent. Named here
   # rather than left to the terminal safety net below: these are ordinary
@@ -730,27 +703,6 @@ defmodule FountainWeb.FallbackController do
         "this computer is being torn down or reset and the provider has not confirmed it " <>
           "yet; Fountain retries automatically, or an administrator can retry from the " <>
           "admin sandbox list"
-    })
-  end
-
-  # A third reason a reset is refused, distinct from the two above (ADR 0046).
-  # `:sandbox_mid_turn` is a turn that is running and ends by itself;
-  # `:sandbox_reset_pending` is a delete this server asked for and never had
-  # confirmed; this is a bounded turn whose remote command was never confirmed
-  # stopped. Unlike the other two it clears on its own — the deadline
-  # coordinator writes an obligation nothing can resolve off after a cutoff —
-  # so the caller is told to wait rather than to fetch an operator.
-  #
-  # Without this clause the atom reached the unmapped-atom safety net: a 422
-  # carrying no message at all, plus a warning log on every refusal.
-  def call(conn, {:error, :execution_fenced}) do
-    conn
-    |> put_status(:conflict)
-    |> json(%{
-      error: "execution_fenced",
-      message:
-        "a bounded turn on this sandbox has remote work that was never confirmed " <>
-          "stopped; this clears on its own once the obligation ages out, then send again"
     })
   end
 

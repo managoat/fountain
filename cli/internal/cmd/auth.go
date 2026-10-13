@@ -58,9 +58,8 @@ func init() {
 	registerCmd := &cobra.Command{
 		Use:   "register",
 		Short: "Create an account, wait for the emailed link, and save the key",
-		Long: "The terminal half of ADR 0038's path. Creates the account, waits " +
-			"while you click the link in your email, saves the API key, and prints " +
-			"the same first request the start page shows.",
+		Long: "Creates the account, waits while you click the link in your email, " +
+			"saves the API key, and prints the same first request the manual shows.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			email, _ := cmd.Flags().GetString("email")
 			password, _ := cmd.Flags().GetString("password")

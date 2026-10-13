@@ -1,6 +1,6 @@
 defmodule FountainWeb.Live.Hooks do
   @moduledoc """
-  LiveView `on_mount` hooks for multi-tenant authentication and billing.
+  LiveView `on_mount` hooks for authentication and the admin gate.
 
   ## Usage in router live_session
 
@@ -94,10 +94,7 @@ defmodule FountainWeb.Live.Hooks do
   end
 
   @doc """
-  Where a verified user belongs: the console's dashboard, which is also what
-  greets an account that has not set anything up yet (#867 — the onboarding
-  wizard was a set of pages, and the dashboard says the same things without
-  taking the account hostage).
+  Where a verified user belongs: the console's dashboard.
 
   Public so `FountainWeb.VerifyPendingLive` sends users to the same place
   `:require_pending_verification` does — the page and the gate that guards it

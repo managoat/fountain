@@ -1,8 +1,8 @@
 defmodule FountainWeb.InferenceCredentialSave do
   @moduledoc """
   Validate-then-persist an inference credential from a LiveView, with the
-  messages the user sees. One place for the three doors that collect keys
-  (onboarding, the credentials page, the agent form's just-in-time prompt),
+  messages the user sees. One place for the doors that collect keys (the
+  credentials page, the agent form's just-in-time prompt),
   so every one validates against the provider first and audits the save
   with the socket's attribution (#546).
   """

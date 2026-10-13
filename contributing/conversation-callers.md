@@ -11,7 +11,7 @@ the CLI are the callers that remain here.
 
 | Caller | Identity and execution ownership | Disposition |
 |---|---|---|
-| `docs/snippets/first-request.ts`, `Fountain.Onboarding`, start page | Server already has the selected agent ID; SDK follows the first turn | Use `runRequest` with `agent_id`; catalog and CLI share the same snippet |
+| `docs/snippets/first-request.ts`, `Fountain.FirstRequest` | Server already has the selected agent ID; SDK follows the first turn | Use `runRequest` with `agent_id`; catalog and CLI share the same snippet |
 | CLI first-request renderer | Reads the catalog; substitutes selected ID and raw key | Already supports the ID placeholder; test both current and older name-based catalog snippets |
 | TypeScript README examples | Many intentionally start from resource names | Keep name conveniences documented; direct IDs and complete field coverage use the existing API-shaped launch sections linked below |
 | Hermes `FountainTools._run` | User tool accepts names; plugin owns polling, turn tracking and wait=false | Resolve names and translate tool arguments once, then pass an API-shaped map through the internal client. Preserve the tool schema and polling behavior |

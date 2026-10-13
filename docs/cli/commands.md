@@ -137,7 +137,7 @@ fountain auth logout
 
 Create an account, wait for the emailed link, and save the key
 
-The terminal half of ADR 0038's path. Creates the account, waits while you click the link in your email, saves the API key, and prints the same first request the start page shows.
+Creates the account, waits while you click the link in your email, saves the API key, and prints the same first request the manual shows.
 
 ```
 fountain auth register [flags]
@@ -360,7 +360,7 @@ Options:
 
 Run the first request against your default agent and stream the reply
 
-Sends the same prompt the start page and the manual show, to the agent this account already has, and streams the reply. It is `fountain run` with the agent and the prompt filled in.
+Sends the same prompt the manual shows, to the agent this account already has, and streams the reply. It is `fountain run` with the agent and the prompt filled in.
 
 ```
 fountain quickstart

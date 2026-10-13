@@ -81,9 +81,6 @@ config :fountain, Oban,
        # server stops while such a request waits. One indexed query, usually
        # empty.
        {"* * * * *", Fountain.Workers.DetachedRequestSweeper},
-       # 05:41 UTC — after the 03:17 backup and the 04:23 retention prune, so
-       # a backup always captures the accounts before the sweep removes them.
-       {"41 5 * * *", Fountain.Workers.UnverifiedAccountPruner},
        # 17:07 UTC — vault-secret expiry notices land mid-day for the US and
        # end-of-day for Europe, when someone is at a keyboard to rotate the
        # credential; the notice window is days wide, so the hour is about
@@ -114,12 +111,7 @@ config :fountain, Oban,
 config :fountain,
   registration_enabled: true,
   registration_allowed_email_domains: [],
-  registration_access_code: nil,
-  # Whether the marketing site (managoat/site) fronts this deployment, so the
-  # public chrome links its pages. False everywhere but the hosted deployment,
-  # which opts in with MARKETING_SITE (runtime.exs); config/test.exs pins it
-  # true and tests flip it off per-test. See Fountain.Marketing.
-  marketing_site: false
+  registration_access_code: nil
 
 # Concurrency (ADR 0005, 0042). A tenant may run cap_ceiling sandboxes at
 # once, or users.sandbox_limit_override when set. fleet_ceiling bounds the
@@ -197,8 +189,8 @@ config :phoenix, :filter_parameters, ["password", "token", "access_code"]
 config :fountain, Fountain.Mailer, adapter: Swoosh.Adapters.Local
 
 # The API adapters (Resend) call out over Req. Swoosh defaults to hackney,
-# which only stripity_stripe used to pull in; without this the release dies
-# at boot on "missing hackney dependency". dev and test turn it off.
+# which is not a dependency; without this the release dies at boot on
+# "missing hackney dependency". dev and test turn it off.
 config :swoosh, :api_client, Swoosh.ApiClient.Req
 
 # Whether this instance can deliver email at all. Flipped to false only by

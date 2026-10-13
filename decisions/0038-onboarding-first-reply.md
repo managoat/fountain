@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Onboarding is the path from verified to first reply, carried by the API"
-description: "The primary audience is the developer integrating the API; activation is the first conversation with a reply, from any door; the path is a key and one request handed over on the verified landing against a default agent that runs on platform inference metered against credits (amending 0008); the CLI is the second door with `auth register`. Decided 2026-09-02; nothing is built yet. Amended 2026-10-12: platform inference is no longer metered and has no daily ceiling."
+description: "The primary audience is the developer integrating the API; activation is the first conversation with a reply, from any door; the path is a key and one request handed over on the verified landing against a default agent that runs on platform inference metered against credits (amending 0008); the CLI is the second door with `auth register`. Decided 2026-09-02; nothing is built yet. Amended 2026-10-12: platform inference is no longer metered and has no daily ceiling. Amended 2026-10-13: the verified landing, the welcome email and the onboarding stamp are removed; the default agent, the shared first request and the CLI door stay."
 tags: [onboarding, product, billing, inference, cli, analytics]
 status: draft
 adr: "0038"
@@ -291,3 +291,30 @@ selection rule is unchanged: the tenant's own credential wins.
 - The default agent and the verified landing are unchanged. There is no
   opening credit, so nothing caps a stranger on a platform key; an operator
   who opens registration and sets a platform key accepts that.
+
+## Addendum — 2026-10-13: the landing and the stamp are removed
+
+Fountain is a self-hosted server with a handful of accounts that all work
+through the API, so the parts of this decision that existed to win a
+stranger's first hour are removed. What goes:
+
+- **The verified landing.** `/start` (`FountainWeb.StartLive`) is gone. The
+  verification link, an OAuth signup and `/` all send a person to
+  `/dashboard`, and the dashboard's "nothing has answered yet" line is gone
+  with it.
+- **The welcome email** (`Workers.WelcomeEmail`) and the unverified-account
+  pruner (`Workers.UnverifiedAccountPruner`, `UNVERIFIED_PRUNE_EXEMPT`).
+- **The stamp (decision 7).** `Fountain.Onboarding` is gone, and nothing
+  writes `users.onboarding_completed_at`. `GET` and
+  `POST /api/account/onboarding[/complete]` are removed, and
+  `onboarding_completed` leaves `GET /api/auth/me` and
+  `onboarding_completed_at` leaves the admin user view. The column stays one
+  release so a rolling deploy's old replicas can still read it; a later
+  migration drops it.
+
+What stays: the default `starter` agent (decision 4), platform inference for
+an account with no credential (decision 3, as amended above), and the one
+first request (decision 5). The snippet half of `Fountain.Onboarding` is now
+`Fountain.FirstRequest`; `docs/quickstart.md`, `GET /api/catalog`'s
+`first_request` and `fountain auth register` / `fountain quickstart`
+(decision 6) still print the same text.

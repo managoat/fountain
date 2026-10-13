@@ -263,8 +263,8 @@ func TestFetchFirstRequestReadsTheCatalogShape(t *testing.T) {
 	}
 }
 
-// Same rule as the verified landing: prefer the starter planted at
-// verification, but work for an account that renamed or deleted it.
+// Prefer the starter planted at verification, but work for an account that
+// renamed or deleted it.
 func TestFetchDefaultAgentPrefersTheStarter(t *testing.T) {
 	agentsJSON := func(names ...string) string {
 		type a struct {

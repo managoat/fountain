@@ -1,6 +1,6 @@
 defmodule FountainWeb.SessionController do
   @moduledoc """
-  Multi-tenant session management.
+  Browser session management.
 
   HTML routes (email + password):
     GET  /auth/login   — render login form
@@ -20,7 +20,7 @@ defmodule FountainWeb.SessionController do
        [bucket: "auth_token", max: 10, window_ms: 3_600_000]
        when action in [:create]
 
-  ## Multi-tenant email/password login
+  ## Email/password login
 
   def new(conn, _params) do
     render(conn, :new, error: nil, layout: false)

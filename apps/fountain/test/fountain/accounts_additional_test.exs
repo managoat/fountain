@@ -308,18 +308,6 @@ defmodule Fountain.AccountsAdditionalTest do
     end
   end
 
-  # ── complete_onboarding/1 ───────────────────────────────────────────────────
-
-  describe "complete_onboarding/1" do
-    test "sets onboarding_completed_at, which is the whole of onboarding since #1393" do
-      user = insert_verified_user()
-      assert is_nil(user.onboarding_completed_at)
-
-      assert {:ok, updated} = Accounts.complete_onboarding(user)
-      assert %DateTime{} = updated.onboarding_completed_at
-    end
-  end
-
   # ── touch_api_key/1 ─────────────────────────────────────────────────────────
 
   describe "touch_api_key/1" do

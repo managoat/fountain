@@ -18,21 +18,17 @@ defmodule Fountain.BrandTest do
   defp restore(key, nil), do: Application.delete_env(:fountain, key)
   defp restore(key, value), do: Application.put_env(:fountain, key, value)
 
-  test "unset or blank falls back to the engine, which is never hosted" do
+  test "unset or blank falls back to the engine's name" do
     Application.delete_env(:fountain, :product_name)
     assert Brand.name() == "Fountain"
-    refute Brand.hosted?()
 
     Application.put_env(:fountain, :product_name, "   ")
     assert Brand.name() == "Fountain"
-    refute Brand.hosted?()
   end
 
-  test "a brand is trimmed, used, and marks the deployment hosted" do
+  test "a brand is trimmed and used" do
     Application.put_env(:fountain, :product_name, " Managoat ")
     assert Brand.name() == "Managoat"
-    assert Brand.engine() == "Fountain"
-    assert Brand.hosted?()
   end
 
   test "without a bundle the assets are the built-in files, on the same origin" do

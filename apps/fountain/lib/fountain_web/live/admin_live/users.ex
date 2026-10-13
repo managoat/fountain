@@ -423,7 +423,6 @@ defmodule FountainWeb.AdminLive.Users do
                 Usage 30d
               </th>
               <th class="px-4 py-2">Sandboxes</th>
-              <th class="px-4 py-2">Onboarding</th>
               <th class="px-4 py-2">
                 <.sort_header label="Last active" col="last_activity" filters={@filters} />
               </th>
@@ -436,7 +435,7 @@ defmodule FountainWeb.AdminLive.Users do
           <tbody>
             <tr :if={@users == []}>
               <td
-                colspan="8"
+                colspan="7"
                 class="px-4 py-6 text-center text-sm text-[var(--color-text-secondary)]"
               >
                 No users match.
@@ -514,9 +513,6 @@ defmodule FountainWeb.AdminLive.Users do
                   />
                   <button class="text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] underline">set</button>
                 </form>
-              </td>
-              <td class="px-4 py-2 text-[var(--color-text-secondary)] text-xs">
-                {if u.onboarding_completed_at, do: format_date(u.onboarding_completed_at), else: "—"}
               </td>
               <td class="px-4 py-2 text-[var(--color-text-secondary)] text-xs">
                 {if u.last_activity_at, do: format_date(u.last_activity_at), else: "—"}

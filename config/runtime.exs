@@ -425,8 +425,7 @@ config :sentry,
 # What the chrome calls this deployment (Fountain.Brand): the sidebar header,
 # the <title>, the sign-in and consent pages and every email subject. The
 # engine stays Fountain everywhere it is named as the engine — the CLI, the
-# API, the manual — so a hosted deployment under another brand sets this and
-# the manual explains the split at the top of every page.
+# API, the manual.
 case System.get_env("PRODUCT_NAME") do
   nil -> :ok
   value -> config :fountain, :product_name, String.trim(value)
@@ -452,68 +451,9 @@ case System.get_env("BRAND_ASSETS_URL") do
     config :fountain, :brand_assets_url, trimmed
 end
 
-# Which page `/` serves. The hosted deployment shows the product pitch; every
-# other deployment shows a plain front door, for the reason a self-hosted
-# instance does not serve the upstream project's legal terms either. Off by
-# default, opted into by the hosted deployment's overlay.
-#
-# Skipped in :test — config/test.exs pins it on, so the suite exercises the
-# marketing page and flips it off per-test through the application env.
-if config_env() != :test do
-  config :fountain, :marketing_site, System.get_env("MARKETING_SITE", "false") != "false"
-end
-
-# The legal identity /terms and /privacy render (#517). Instance config, not
-# source: a self-hosted operator must never serve the upstream project's legal
-# terms, and the hosted instance's real entity does not belong in the repo.
-# All four or none — a partial set is a typo, and a terms page with a real
-# entity but a blank jurisdiction is broken legal copy, so refuse to boot
-# rather than render it. Unset entirely, the pages are hidden — see
-# Fountain.Legal.
-# Skipped in :test — config/test.exs pins values so the developer's shell
-# cannot leak into the suite.
-if config_env() != :test do
-  legal_vars = [
-    "LEGAL_ENTITY",
-    "LEGAL_CONTACT_EMAIL",
-    "LEGAL_JURISDICTION",
-    "LEGAL_EFFECTIVE_DATE"
-  ]
-
-  legal_values =
-    Map.new(legal_vars, fn var ->
-      case System.get_env(var) do
-        blank when blank in [nil, ""] -> {var, nil}
-        value -> {var, String.trim(value)}
-      end
-    end)
-
-  case Enum.split_with(legal_vars, &legal_values[&1]) do
-    {_set, []} ->
-      config :fountain, :legal, %{
-        entity: legal_values["LEGAL_ENTITY"],
-        contact_email: legal_values["LEGAL_CONTACT_EMAIL"],
-        jurisdiction: legal_values["LEGAL_JURISDICTION"],
-        updated: legal_values["LEGAL_EFFECTIVE_DATE"]
-      }
-
-    {[], _unset} ->
-      config :fountain, :legal, nil
-
-    {set, unset} ->
-      raise """
-      Legal identity is partially configured: #{Enum.join(set, ", ")} set,
-      but #{Enum.join(unset, ", ")} missing. /terms and /privacy need all
-      four (entity, contact email, jurisdiction, effective date) to render
-      coherent legal copy — set the missing ones, or unset all four to leave
-      the pages unpublished.
-      """
-  end
-end
-
-# Registration was open to the world with no way to close it. A self-hoster
-# exposing an instance had no control over who signed up, and on the hosted
-# side every signup consumes the platform Sprites token.
+# Registration was open to the world with no way to close it. An operator
+# exposing an instance had no control over who signed up, and every signup
+# can start sandboxes on the instance's provider credentials.
 config :fountain, :registration_enabled, System.get_env("REGISTRATION_ENABLED", "true") != "false"
 
 allowed_signup_domains =
@@ -603,19 +543,6 @@ if config_env() != :test do
   config :fountain, Fountain.SandboxFiles.Snapshots,
     enabled: System.get_env("SANDBOX_SNAPSHOTS_ENABLED", "true") != "false"
 end
-
-# Accounts that registered and never verified are deleted after thirty days
-# (#258; the number lives in Fountain.Workers.UnverifiedAccountPruner) — they
-# cannot log in, so they are rows, not users. UNVERIFIED_PRUNE_EXEMPT is a
-# comma-separated list of email substrings that are never pruned
-# (operator/test accounts that deliberately stay unverified).
-unverified_prune_exempt =
-  case System.get_env("UNVERIFIED_PRUNE_EXEMPT") do
-    blank when blank in [nil, ""] -> []
-    list -> list |> String.split(",", trim: true) |> Enum.map(&String.trim/1)
-  end
-
-config :fountain, unverified_prune_exempt: unverified_prune_exempt
 
 # CIDRs treated as proxies when resolving the client IP from X-Forwarded-For.
 # Only widen this to cover addresses that are genuinely proxies — anything

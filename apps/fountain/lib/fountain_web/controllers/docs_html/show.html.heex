@@ -75,17 +75,6 @@
   </aside>
 
   <article class="flex-1 min-w-0 bg-[var(--color-bg-1)] border border-[var(--color-border)] rounded-lg shadow-sm p-8">
-    <%!-- On a deployment sold under another brand (PRODUCT_NAME), say once,
-    on every page, why the manual, the CLI and the API all say Fountain: the
-    reader lands on any page from a search, not only the index. --%>
-    <p
-      :if={Fountain.Brand.hosted?()}
-      class="mb-6 rounded-md border border-[var(--color-border)] bg-[var(--color-bg-2)] px-4 py-3 text-sm text-[var(--color-text-secondary)]"
-      data-role="brand-note"
-    >
-      <span class="font-medium text-[var(--color-text-primary)]">{Fountain.Brand.name()}</span>
-      is the hosted {Fountain.Brand.engine()}. {Fountain.Brand.engine()} is the open-source engine, and its name is on the CLI, the API, the SDK and this manual. Everything here applies to {Fountain.Brand.name()} unless a page says it is for a self-hosted server.
-    </p>
     <%!-- The `prose-code:` chip (background, padding, rounding) is for *inline*
     code; Tailwind Typography's `code` variant also matches the `<code>` inside
     a `<pre>`, which paints a light box behind every line of every code block.

@@ -554,13 +554,9 @@ defmodule Fountain.InferenceCredentials do
   Returns `true` if the user has at least one provider set, in **any** of
   their credential sets.
 
-  Used by the dashboard onboarding checklist to report whether the account
-  has connected a provider.
-
   Any set rather than the default one: this answers "has this account
   connected a provider at all", and an account whose only key lives in a set
-  they made for one agent has connected one. Asking only the default would
-  put the onboarding nag back in front of somebody who is already running.
+  they made for one agent has connected one.
 
   A set that names a connected ChatGPT subscription counts (ADR 0060 stage
   4b): that account has connected a provider, for its codex agents, and the

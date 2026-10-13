@@ -3,24 +3,14 @@ defmodule Fountain.Brand do
   The name this deployment goes by.
 
   Fountain is the engine: the CLI, the API, the SDK, the env vars and the
-  manual all carry its name, and none of that changes per deployment. What
-  does change is what the *chrome* says: the sidebar header, the `<title>`,
-  the sign-in page, the OAuth consent screen and the subject line of every
-  email. A hosted deployment sold under another brand (`PRODUCT_NAME`) puts
-  that brand there and nowhere else, the way GitLab.com is GitLab and Grafana
-  Cloud is Grafana.
-
-  The manual is the one place both names show up, on purpose: a reader of the
-  hosted docs types `fountain auth login`, so the word Fountain has to be on
-  the page. `hosted?/0` is what lets the docs layout explain that once, at the
-  top, rather than the reader working it out.
+  manual all carry its name, and none of that changes per deployment. What an
+  operator may change is what the *chrome* says: the sidebar header, the
+  `<title>`, the sign-in page, the OAuth consent screen and the subject line of
+  every email (`PRODUCT_NAME`), and the icons and card those pages show
+  (`BRAND_ASSETS_URL`).
   """
 
   @engine "Fountain"
-
-  @doc "The engine's name. Never configurable; it is what the code is called."
-  @spec engine() :: String.t()
-  def engine, do: @engine
 
   @doc """
   The deployment's brand: `PRODUCT_NAME`, or `"Fountain"` when unset or blank.
@@ -39,30 +29,14 @@ defmodule Fountain.Brand do
     end
   end
 
-  @doc "The engine's repository, which the public chrome links on the marketing site."
-  @spec repo_url() :: String.t()
-  def repo_url, do: "https://github.com/managoat/fountain"
-
-  @doc "True when the deployment is branded as something other than the engine."
-  @spec hosted?() :: boolean()
-  def hosted?, do: name() != @engine
-
   # The files a brand supplies, and nothing else: the console header and the
   # public chrome use the app icon, the root layout links the favicons and
   # the touch icon, and every Open Graph card carries the 1200×630 card. The
-  # names are fixed so that a bundle is a directory with these seven files in
+  # names are fixed so that a bundle is a directory with these six files in
   # it, whatever brand it is for.
-  #
-  # `mark-mono.png` is the odd one: a single-colour drawing of the mark on a
-  # transparent ground, which is what the marketing site (managoat/site) puts
-  # in its chrome and behind its opening lines; the app only ships it. The app icon is a coloured tile
-  # and cannot do that job — a page set in one ink cannot hold a second
-  # palette in the corner — and the drawing is inverted rather than duplicated
-  # for the dark theme, so one file serves both. A brand that supplies the
-  # other six has to supply this one too.
-  @assets ~w(app-icon.png apple-touch-icon.png favicon-32x32.png favicon-16x16.png favicon.ico og-card.png mark-mono.png)
+  @assets ~w(app-icon.png apple-touch-icon.png favicon-32x32.png favicon-16x16.png favicon.ico og-card.png)
 
-  @doc "The seven files a brand asset bundle holds."
+  @doc "The six files a brand asset bundle holds."
   @spec assets() :: [String.t()]
   def assets, do: @assets
 
@@ -73,9 +47,8 @@ defmodule Fountain.Brand do
   The icon and the card are pixels, and pixels do not belong in an env var
   the way a name does — but they do not belong in the release image either,
   where swapping them means a rebuild of the engine for a change to the
-  chrome. A hosted deployment points this at a directory it serves (any
-  static host will do) holding `assets/0`; the engine's own files stay the
-  default for everyone else.
+  chrome. A deployment points this at a directory it serves (any static host
+  will do) holding `assets/0`; the engine's own files stay the default.
   """
   @spec assets_url() :: String.t() | nil
   def assets_url do

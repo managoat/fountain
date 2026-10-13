@@ -46,22 +46,6 @@ defmodule FountainWeb.Live.HooksTest do
       assert path == "/dashboard"
     end
 
-    # One destination whatever the account has set up (#867): the wizard that
-    # used to claim a half-configured account is gone.
-    test "sends an onboarded user to the same place", %{conn: conn} do
-      user = insert_verified_user()
-
-      {:ok, user} =
-        user
-        |> Ecto.Changeset.change(onboarding_completed_at: DateTime.utc_now(:second))
-        |> Repo.update()
-
-      conn = login_user(conn, user)
-
-      assert {:error, {:redirect, %{to: path}}} = live(conn, ~p"/auth/verify-pending")
-      assert path == "/dashboard"
-    end
-
     test "redirects an unauthenticated visitor to login", %{conn: conn} do
       assert {:error, {:redirect, %{to: path}}} = live(conn, ~p"/auth/verify-pending")
       assert path =~ "/auth/login"

@@ -21,22 +21,6 @@ defmodule FountainWeb.AdminUsersLiveTest do
       assert html =~ admin.email
       assert html =~ other.email
     end
-
-    # The column was the wizard's `onboarding_state` until #1393. What is left
-    # is the one stamp: a date when the account is onboarded, an em dash when
-    # it is not.
-    test "shows whether each user is onboarded", %{conn: conn} do
-      admin = insert_admin()
-      conn = login_user(conn, admin)
-      {:ok, _lv, html} = live(conn, ~p"/admin/users")
-
-      refute html =~ "step_1"
-      assert html =~ "Onboarding"
-
-      {:ok, _} = Accounts.complete_onboarding(admin)
-      {:ok, _lv, onboarded} = live(login_user(build_conn(), admin), ~p"/admin/users")
-      assert onboarded =~ Calendar.strftime(DateTime.utc_now(), "%Y-%m-%d")
-    end
   end
 
   describe "AdminLive.Users — toggle_admin" do
@@ -101,20 +85,6 @@ defmodule FountainWeb.AdminUsersLiveTest do
 
       # inserted_at is always set so date column should have a year
       assert html =~ to_string(Date.utc_today().year)
-    end
-
-    test "shows onboarding_completed_at date when set", %{conn: conn} do
-      admin = insert_admin()
-      # Mark onboarding complete via direct Repo update
-      now = DateTime.utc_now() |> DateTime.truncate(:second)
-
-      {:ok, admin_with_date} =
-        Fountain.Repo.update(Ecto.Changeset.change(admin, onboarding_completed_at: now))
-
-      conn = login_user(conn, admin_with_date)
-      {:ok, _lv, html} = live(conn, ~p"/admin/users")
-
-      assert html =~ to_string(now.year)
     end
   end
 

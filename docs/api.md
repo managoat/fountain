@@ -77,9 +77,8 @@ change.
 
 ## Account state
 
-Read account identity before you display account-specific controls. The console
-uses onboarding state to show setup progress. An API integration can complete
-setup without following the console checklist.
+Read account identity (`GET /api/auth/me`) before you display
+account-specific controls.
 
 See the account and Auth operations in the [generated reference](/api/docs).
 

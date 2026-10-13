@@ -512,7 +512,6 @@ defmodule Fountain.Conversations.TurnMachineTest do
         assert Fountain.Repo.get(Conversations.Turn, ctx.row.id) == persisted_turn
         assert Fountain.Repo.get(Conversations.Conversation, ctx.conv.id) == persisted_conv
         assert stages(ctx.conv.id, "turn") == []
-        refute Fountain.Repo.reload!(ctx.user).onboarding_completed_at
         refute_receive {:telemetry, [:fountain, :turn, :completed], _, _}, 50
       end
     end
@@ -528,11 +527,10 @@ defmodule Fountain.Conversations.TurnMachineTest do
       assert Fountain.Repo.reload!(successor).status == "running"
     end
 
-    test "completion materializes a reply and activates the account", ctx do
+    test "completion materializes a reply", ctx do
       insert_log_event(ctx.conv, turn_id: ctx.row.id, stream: "acp", data: @update_line)
       TurnMachine.finish(ctx.machine, "completed", %{}, %{})
       assert Fountain.Repo.reload!(ctx.row).reply_text == "hi"
-      assert Fountain.Repo.reload!(ctx.user).onboarding_completed_at
     end
 
     test "a failed status is the failed stage, and no metric without metrics", %{
@@ -570,21 +568,14 @@ defmodule Fountain.Conversations.TurnMachineTest do
     end
 
     # The interrupt is a second door onto the writer that materialises
-    # `reply_text`, and materialising it is what completes onboarding (#1392).
-    # `_unsafe_interrupt_turn/2` passes `idle?: false`, so the onboarding call
-    # must not be gated on the idle write the way the sidebar broadcast beside
-    # it is: an interrupted first reply is still a first reply, and nothing
-    # recovers it later. `_unsafe_backfill_reply_texts/0` writes the column
-    # without calling `Onboarding.turn_replied/1`, and `maybe_put_reply_text/2`
-    # only re-derives on a later write a terminal row may never get (#2055).
-    test "an interrupted first reply activates the account", ctx do
+    # `reply_text`; `_unsafe_interrupt_turn/2` passes `idle?: false`, and the
+    # reply must not be gated on the idle write.
+    test "an interrupted turn materializes its reply", ctx do
       insert_log_event(ctx.conv, turn_id: ctx.row.id, stream: "acp", data: @update_line)
-      refute Fountain.Repo.reload!(ctx.user).onboarding_completed_at
 
       TurnMachine.mark_interrupted(ctx.machine)
 
       assert Fountain.Repo.reload!(ctx.row).reply_text == "hi"
-      assert Fountain.Repo.reload!(ctx.user).onboarding_completed_at
     end
 
     for stale <- [:reassigned, :terminated, :completed, :interrupted] do
@@ -880,7 +871,6 @@ defmodule Fountain.Conversations.TurnMachineTest do
       assert %{status: "failed", exit_code: nil, reply_text: "hi", ended_at: %DateTime{}} =
                Fountain.Repo.reload!(ctx.row)
 
-      assert Fountain.Repo.reload!(ctx.user).onboarding_completed_at
       assert [{"failed", %{"exit_code" => nil}}] = stages(ctx.conv.id, "turn")
     end
 
@@ -927,7 +917,6 @@ defmodule Fountain.Conversations.TurnMachineTest do
         assert Fountain.Repo.get(Conversations.Turn, ctx.row.id) == persisted_turn
         assert Fountain.Repo.get(Conversations.Conversation, ctx.conv.id) == persisted_conv
         assert stages(ctx.conv.id, "turn") == []
-        refute Fountain.Repo.reload!(ctx.user).onboarding_completed_at
       end
     end
   end

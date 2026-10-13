@@ -8,8 +8,8 @@ defmodule Fountain.SandboxFiles do
 
     * **Not exec.** The four operations are fixed scripts; the caller
       chooses a path and a few flags, never a command. Exec over the API
-      would be a second I/O path beside ACP, unmetered (credits burn on
-      turns), unredacted and, on a self-hosted runner, a shell on the
+      would be a second I/O path beside ACP, outside the turn's audit and
+      usage accounting, unredacted and, on a self-hosted runner, a shell on the
       user's own machine behind a bearer token.
     * **Not a new seam.** `Managoat.Sandbox` has `exec/4` on every adapter
       and no read primitive, so the scripts run through `exec` and every

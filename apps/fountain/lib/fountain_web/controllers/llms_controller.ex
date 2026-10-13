@@ -168,7 +168,7 @@ defmodule FountainWeb.LlmsController do
       """
       # Fountain
 
-      > Fountain is a multi-tenant service for running sandboxed coding agents. It provisions an isolated sandbox per conversation, mounts a preconfigured environment (packages, repos, env vars, MCP servers, skills), and runs the agent CLI — claude, codex, or gemini — inside. Use it to delegate, fan out, or parallelize coding agents from your own scripts, CI, or IDE.
+      > Fountain is a self-hosted server for running sandboxed coding agents. It provisions an isolated sandbox per conversation, mounts a preconfigured environment (packages, repos, env vars, MCP servers, skills), and runs the agent CLI — claude, codex, or gemini — inside. Use it to delegate, fan out, or parallelize coding agents from your own scripts, CI, or IDE.
 
       The four primitives:
 

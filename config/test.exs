@@ -62,21 +62,6 @@ config :ueberauth, Ueberauth.Strategy.Github.OAuth,
   client_id: "test-github-client-id",
   client_secret: "test-github-client-secret"
 
-# The public chrome links the marketing site's pages in :test (MARKETING_SITE
-# is not read in :test — see config/runtime.exs); the chrome without them is
-# covered by flipping this off per-test.
-config :fountain, :marketing_site, true
-
-# Legal identity pinned (LEGAL_* env vars are not read in :test — see
-# config/runtime.exs) so the developer's shell can't change suite behavior;
-# unpublished-page tests set :legal to nil through the application env.
-config :fountain, :legal, %{
-  entity: "Test Legal Entity LLC",
-  contact_email: "legal@example.com",
-  jurisdiction: "the State of Testing",
-  updated: "2026-01-01"
-}
-
 # A per-account cap well under the fleet ceiling, so a test that fills one
 # account's cap meets the account's refusal (429) rather than the fleet's (503).
 config :fountain, :sandboxes, cap_ceiling: 2, fleet_ceiling: 20

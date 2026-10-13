@@ -7,23 +7,27 @@ token, and no install. To run an instance of your own, read
 
 ## 1. Your key and your agent
 
-Your start page holds an API key and the id of your agent. The page adds both
-to the request below, and it shows a key once. Copy the key there.
+Create an API key in the console under API keys. The console shows a key
+once, so copy it there. Your account already has an agent named `starter`.
+`GET /api/agents` lists it with its id, and the id is also in the address of
+its edit page under Agents.
 
 ```sh
 export FOUNTAIN_BASE_URL="https://fountain.example.com"
-export FOUNTAIN_API_KEY="the key from your start page"
-export FOUNTAIN_AGENT_ID="the agent id from your start page"
+export FOUNTAIN_API_KEY="the key from the API keys page"
+export FOUNTAIN_AGENT_ID="the id of your starter agent"
 ```
 
-Use your instance's address as `FOUNTAIN_BASE_URL`.
+Use your instance's address as `FOUNTAIN_BASE_URL`. The
+[CLI](#install-and-authenticate-the-cli) does all of this for you:
+`fountain auth login`, then `fountain quickstart`.
 
 !!! note "Whose model key"
 
     An agent calls a model. Fountain runs your agent on this deployment's own
     model key while your account has none. Your key always wins when you add
     one, under Account, then Inference keys. A server with no key of its own
-    needs yours first, and your start page says which case you are in.
+    needs yours first.
 
 ## 2. Send the request
 
@@ -36,8 +40,7 @@ holds the conversation `id`.
 
 ## 3. Read the reply
 
-The reply arrives on your start page. For a terminal, read the conversation
-stream with the id from step 2.
+Read the conversation stream with the id from step 2.
 
 ```sh
 curl -N -H "Authorization: Bearer $FOUNTAIN_API_KEY" \
@@ -59,7 +62,7 @@ npm install @managoat/fountain-sdk@^5.2.0
 
 `new Fountain()` reads `FOUNTAIN_API_KEY` and `FOUNTAIN_BASE_URL` from the
 environment, exactly as the CLI does. The request uses the same agent ID as
-the curl example; copy it from your start page. `runRequest` accepts API fields
+the curl example. `runRequest` accepts API fields
 directly, with local timeout/event options passed separately. From another
 language, call the [HTTP API](api.md) directly.
 

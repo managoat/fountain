@@ -2,7 +2,7 @@ defmodule FountainWeb.SessionHTML do
   @moduledoc false
   use FountainWeb, :html
 
-  ## Multi-tenant login form (email + password)
+  ## Login form (email + password)
 
   def new(assigns) do
     ~H"""

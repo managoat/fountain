@@ -984,37 +984,6 @@
         }
       }
     },
-    "GET /api/account/onboarding": {
-      "operation_id": "FountainWeb.OnboardingController.show",
-      "path_params": [],
-      "responses": {
-        "200": {
-          "application/json": {
-            "ref": "OnboardingResponse"
-          }
-        },
-        "401": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "403": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "406": {
-          "application/json": {
-            "ref": "NegotiationError"
-          }
-        },
-        "429": {
-          "application/json": {
-            "ref": "Error"
-          }
-        }
-      }
-    },
     "GET /api/admin/audit": {
       "operation_id": "FountainWeb.AdminController.index_audit",
       "path_params": [],
@@ -4015,37 +3984,6 @@
         }
       }
     },
-    "POST /api/account/onboarding/complete": {
-      "operation_id": "FountainWeb.OnboardingController.complete",
-      "path_params": [],
-      "responses": {
-        "200": {
-          "application/json": {
-            "ref": "OnboardingResponse"
-          }
-        },
-        "401": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "403": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "406": {
-          "application/json": {
-            "ref": "NegotiationError"
-          }
-        },
-        "429": {
-          "application/json": {
-            "ref": "Error"
-          }
-        }
-      }
-    },
     "POST /api/admin/sandboxes/{id}/reap": {
       "operation_id": "FountainWeb.AdminController.reap_sandbox",
       "path_params": [
@@ -6461,12 +6399,6 @@
           "required": false,
           "type": "integer"
         },
-        "onboarding_completed_at": {
-          "format": "date-time",
-          "nullable": true,
-          "required": false,
-          "type": "string"
-        },
         "role": {
           "enum": [
             "admin",
@@ -7351,10 +7283,6 @@
           "format": "uuid",
           "required": true,
           "type": "string"
-        },
-        "onboarding_completed": {
-          "required": false,
-          "type": "boolean"
         },
         "role": {
           "enum": [
@@ -9333,27 +9261,6 @@
         "token_type": {
           "required": true,
           "type": "string"
-        }
-      },
-      "type": "object"
-    },
-    "OnboardingResponse": {
-      "properties": {
-        "data": {
-          "properties": {
-            "completed": {
-              "required": true,
-              "type": "boolean"
-            },
-            "completed_at": {
-              "format": "date-time",
-              "nullable": true,
-              "required": false,
-              "type": "string"
-            }
-          },
-          "required": true,
-          "type": "object"
         }
       },
       "type": "object"

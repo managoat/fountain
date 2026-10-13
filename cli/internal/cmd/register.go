@@ -18,10 +18,9 @@ import (
 
 // ── fountain auth register ──────────────────────────────────────────────
 //
-// The second door of ADR 0038: the same path as the verified landing, for a
-// developer who lives in a terminal. It creates the account, waits for the
-// verification the emailed link performs, saves the key, and prints the same
-// first request the landing shows.
+// Signup for a developer who lives in a terminal. It creates the account,
+// waits for the verification the emailed link performs, saves the key, and
+// prints the same first request the manual shows.
 //
 // It does the steps rather than describing them. What it deliberately does
 // NOT do is anything the server already does: anti-enumeration and rate

@@ -2,7 +2,7 @@ defmodule FountainWeb.OpenGraph do
   @moduledoc """
   The Open Graph / Twitter card every HTML page carries in its `<head>`.
 
-  A link to the landing page, a docs page or the sign-in page unfurls in
+  A link to a docs page or the sign-in page unfurls in
   Slack, iMessage, X and LinkedIn with a title, a description and the card
   image at `/images/og-card.png` (1200×630). The values come from assigns a
   controller may set — `:page_title` and `:meta_description` — with a
@@ -20,35 +20,20 @@ defmodule FountainWeb.OpenGraph do
   @spec title(map()) :: String.t()
   def title(assigns), do: assigns[:page_title] || Fountain.Brand.name()
 
-  @doc "The page's card description: `:meta_description`, else the pitch."
+  @doc "The page's card description: `:meta_description`, else what the instance is."
   @spec description(map()) :: String.t()
   def description(assigns), do: assigns[:meta_description] || default_description()
 
-  @doc """
-  The description used when a page sets none of its own. The pitch where the
-  marketing site fronts the deployment; a plain statement of what the instance
-  is everywhere else (`Fountain.Marketing`): a deployment is not the project,
-  and its cards should not sell it.
-  """
+  @doc "The description used when a page sets none of its own."
   @spec default_description() :: String.t()
   def default_description do
-    if Fountain.Marketing.site?() do
-      "#{Fountain.Brand.name()} is a conversational API to a computer. The " <>
-        "machine arrives with your repositories and credentials, and the meter " <>
-        "runs while an agent works and stops while the machine waits."
-    else
-      "#{Fountain.Brand.name()} runs agents on sandboxes and serves their " <>
-        "conversations over an API."
-    end
+    "#{Fountain.Brand.name()} runs agents on sandboxes and serves their " <>
+      "conversations over an API."
   end
 
-  @doc "Alt text for the marketing card; the brand on instance and custom cards."
+  @doc "Alt text for the card: the brand."
   @spec image_alt() :: String.t()
-  def image_alt do
-    if Fountain.Marketing.site?() and is_nil(Fountain.Brand.assets_url()),
-      do: "Fountain Conversations with a code diff, beside Workbench on a phone.",
-      else: Fountain.Brand.name()
-  end
+  def image_alt, do: Fountain.Brand.name()
 
   @doc "Absolute canonical URL of the request path (query string dropped)."
   @spec url(Plug.Conn.t() | nil) :: String.t()

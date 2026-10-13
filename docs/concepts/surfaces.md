@@ -63,8 +63,8 @@ with a self-hosted server when its CORS configuration admits their origins.
 If an app URL is empty, the console omits that app's links. Open `/dashboard`
 and use the API or CLI for conversations on that deployment.
 
-The separate `/api/account/onboarding` API remains available. This retirement
-changes browser URLs only; the conversation and team APIs remain under `/api`.
+This retirement changes browser URLs only; the conversation and team APIs
+remain under `/api`.
 
 ## Why divide them
 

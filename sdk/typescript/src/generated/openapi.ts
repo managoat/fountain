@@ -246,43 +246,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/account/onboarding": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get onboarding state */
-        get: operations["FountainWeb.OnboardingController.show"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/account/onboarding/complete": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Mark onboarding complete
-         * @description Idempotent: completing an already-completed account keeps the original `completed_at` rather than moving it.
-         */
-        post: operations["FountainWeb.OnboardingController.complete"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/admin/audit": {
         parameters: {
             query?: never;
@@ -904,7 +867,7 @@ export interface paths {
         };
         /**
          * The instance's form vocabulary
-         * @description Runtimes with model suggestions per runtime (suggestions, not an allowlist — any `provider/model` under a known provider is accepted), sandbox providers usable on this instance and the default, package managers an environment accepts, the URLs of the browser apps this instance sends people to for conversations and the team, and remote MCP servers verified to complete connection discovery (again suggestions — any URL can be discovered), each with the date it was last verified. Also `first_request`, the one onboarding snippet this deployment hands out, with its base URL already in it and the caller's own key and agent left as placeholders.
+         * @description Runtimes with model suggestions per runtime (suggestions, not an allowlist — any `provider/model` under a known provider is accepted), sandbox providers usable on this instance and the default, package managers an environment accepts, the URLs of the browser apps this instance sends people to for conversations and the team, and remote MCP servers verified to complete connection discovery (again suggestions — any URL can be discovered), each with the date it was last verified. Also `first_request`, the one quickstart snippet this deployment hands out, with its base URL already in it and the caller's own key and agent left as placeholders.
          */
         get: operations["FountainWeb.CatalogController.show"];
         put?: never;
@@ -2219,8 +2182,6 @@ export interface components {
             last_activity_at?: string | null;
             /** @description The concurrency cap actually enforced: the override, or the configured ceiling. */
             max_concurrent_sandboxes?: number | null;
-            /** Format: date-time */
-            onboarding_completed_at?: string | null;
             /** @enum {string} */
             role: "admin" | "user";
             /** @description Admin override of the cap. Null means the configured ceiling applies. */
@@ -2583,7 +2544,6 @@ export interface components {
             expires_at?: string | null;
             /** Format: uuid */
             id: string;
-            onboarding_completed?: boolean;
             /** @enum {string} */
             role: "user" | "admin";
         };
@@ -2656,7 +2616,7 @@ export interface components {
                     conversations: string | null;
                     team: string | null;
                 };
-                /** @description The one onboarding request this deployment hands out (ADR 0038), the same text the verified landing and the manual print. The base URL is already in it. The caller's key and agent are not: the server stores only a hash of a key, so a client substitutes the key it holds and an agent from `GET /api/agents`. */
+                /** @description The one quickstart request this deployment hands out, the same text the manual and `fountain quickstart` print. The base URL is already in it. The caller's key and agent are not: the server stores only a hash of a key, so a client substitutes the key it holds and an agent from `GET /api/agents`. */
                 first_request: {
                     /** @description The `curl`, with placeholders. */
                     curl: string;
@@ -3496,14 +3456,6 @@ export interface components {
             expires_in: number;
             /** @example bearer */
             token_type: string;
-        };
-        /** OnboardingResponse */
-        OnboardingResponse: {
-            data: {
-                completed: boolean;
-                /** Format: date-time */
-                completed_at?: string | null;
-            };
         };
         /** PasswordChangeRequest */
         PasswordChangeRequest: {
@@ -5841,118 +5793,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Too Many Requests */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
-    "FountainWeb.OnboardingController.show": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Onboarding state */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["OnboardingResponse"];
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Insufficient scope */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description No acceptable representation */
-            406: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["NegotiationError"];
-                };
-            };
-            /** @description Too Many Requests */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
-    "FountainWeb.OnboardingController.complete": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Onboarding state */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["OnboardingResponse"];
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Insufficient scope */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description No acceptable representation */
-            406: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["NegotiationError"];
                 };
             };
             /** @description Too Many Requests */

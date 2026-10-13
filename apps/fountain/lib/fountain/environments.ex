@@ -112,8 +112,7 @@ defmodule Fountain.Environments do
 
   `opts` carries the audit attribution — `:actor` and `:request_ip`, from
   `FountainWeb.Audited.attribution/2` on a web surface. Recording here rather
-  than at each caller is what makes the UI, the API, the onboarding wizard and
-  manifest apply all leave the same trail (#543).
+  than at each caller is what makes the UI, the API and manifest apply all leave the same trail (#543).
   """
   def create_environment(attrs, opts \\ []) do
     changeset = Environment.changeset(%Environment{}, attrs)

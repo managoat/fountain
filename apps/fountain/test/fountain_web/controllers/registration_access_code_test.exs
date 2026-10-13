@@ -127,7 +127,7 @@ defmodule FountainWeb.RegistrationAccessCodeTest do
         |> assign(:ueberauth_auth, github_auth("gh-code@example.com"))
         |> get(~p"/auth/oauth/github/callback")
 
-      assert redirected_to(conn) == ~p"/start"
+      assert redirected_to(conn) == ~p"/dashboard"
       assert Accounts.get_user_by_email("gh-code@example.com")
       refute get_session(conn, :registration_access_grant)
     end

@@ -2075,35 +2075,12 @@ defmodule Fountain.Conversations do
   turn is materialised into `reply_text` in the same write (#826). Conditional
   completion and orphan reconciliation also materialize the reply in their
   transactions. A turn that already carries a `reply_text` keeps it.
-
-  The same write is where onboarding completes (ADR 0038): a turn that ends
-  carrying a reply is handed to `Fountain.Onboarding.turn_replied/1`, which
-  does nothing unless it is the account's *first*. Same choke-point argument,
-  same best-effort contract — it cannot fail this update.
   """
   def _unsafe_update_turn(%Turn{} = turn, attrs) do
     # ownership: this is the already-owned actor's turn or a system recovery write.
-    result =
-      Fountain.Conversations.ExecutionGuard._unsafe_write_turn(turn, attrs, fn current, allowed ->
-        changeset = current |> Turn.changeset(allowed) |> maybe_put_reply_text(current)
-
-        case Repo.update(changeset) do
-          {:ok, updated} -> {:ok, {updated, changeset}}
-          {:error, reason} -> {:error, reason}
-        end
-      end)
-
-    case result do
-      {:ok, {updated, changeset}} ->
-        if is_binary(Ecto.Changeset.get_change(changeset, :reply_text)) do
-          Fountain.Onboarding.turn_replied(updated)
-        end
-
-        {:ok, updated}
-
-      {:error, reason} ->
-        {:error, reason}
-    end
+    Fountain.Conversations.ExecutionGuard._unsafe_write_turn(turn, attrs, fn current, allowed ->
+      current |> Turn.changeset(allowed) |> maybe_put_reply_text(current) |> Repo.update()
+    end)
   end
 
   @doc """
@@ -2114,7 +2091,7 @@ defmodule Fountain.Conversations do
   terminal conversation is a no-op. An already-ended current turn can release
   its parent without announcing another terminal event. Reply materialization
   shares that transaction;
-  the onboarding stamp and sidebar publication run after it commits. The optional
+  the sidebar publication runs after it commits. The optional
   `:exit_code` is persisted atomically with the result.
 
   Only the latest generation can idle a running parent, and a journal must
@@ -2158,16 +2135,14 @@ defmodule Fountain.Conversations do
              do: conv |> Conversation.changeset(%{status: "idle"}) |> Repo.update!(),
              else: conv
 
-        {updated, updated_conv, is_binary(Ecto.Changeset.get_change(changeset, :reply_text)),
-         ending.announce?}
+        {updated, updated_conv, ending.announce?}
       end)
 
     case result do
       {:ok, :noop} ->
         :noop
 
-      {:ok, {updated, conv, reply_materialized?, announce?}} ->
-        if reply_materialized?, do: Fountain.Onboarding.turn_replied(updated)
+      {:ok, {updated, conv, announce?}} ->
         if idle?, do: broadcast_sidebar_update(conv.user_id)
         if announce?, do: {:ok, updated}, else: :noop
 
@@ -2308,10 +2283,6 @@ defmodule Fountain.Conversations do
         :noop
 
       {:ok, {updated_turn, conv, conversation_changed?, bounded?}} ->
-        if is_nil(turn.reply_text) and is_binary(updated_turn.reply_text) do
-          Fountain.Onboarding.turn_replied(updated_turn)
-        end
-
         if conversation_changed?, do: broadcast_sidebar_update(conv.user_id)
 
         metadata = %{

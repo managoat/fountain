@@ -596,23 +596,6 @@ defmodule Fountain.Accounts do
   end
 
   @doc """
-  Mark onboarding as completed by setting `onboarding_completed_at` to now.
-
-  `onboarding_completed_at` is the whole of it since #1393. The wizard's
-  `onboarding_state` column is gone, and so is `advance_onboarding/2`, which
-  existed only to walk that state machine: a stamp is either set or it is not,
-  and there are no steps left to be part-way through.
-  """
-  @spec complete_onboarding(User.t()) :: {:ok, User.t()} | {:error, Ecto.Changeset.t()}
-  def complete_onboarding(%User{} = user) do
-    now = DateTime.utc_now() |> DateTime.truncate(:second)
-
-    user
-    |> Ecto.Changeset.change(onboarding_completed_at: now)
-    |> Repo.update()
-  end
-
-  @doc """
   Find or create a user from an OAuth provider callback.
 
   Looks up by `(provider, provider_uid)` first; falls back to email lookup

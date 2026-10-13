@@ -257,7 +257,7 @@ defmodule FountainWeb.Layouts do
   attr :label, :string, required: true
   attr :current, :string, default: ""
   # Highlight only on an exact path match — for links like /account whose
-  # href is a prefix of sibling pages (/account/billing, /account/security).
+  # href is a prefix of sibling pages (/account/security, /account/runners).
   attr :exact, :boolean, default: false
 
   defp nav_link(assigns) do

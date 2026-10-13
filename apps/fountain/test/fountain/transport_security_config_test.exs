@@ -74,7 +74,10 @@ defmodule Fountain.TransportSecurityConfigTest do
         read_prod(
           base
           |> Map.put("PUBLIC_URL", "https://fountain.example.com")
-          |> Map.put("FORCE_SSL_EXCLUDE_HOSTS", " fountain.fountain.svc.cluster.local, ,localhost")
+          |> Map.put(
+            "FORCE_SSL_EXCLUDE_HOSTS",
+            " fountain.fountain.svc.cluster.local, ,localhost"
+          )
         )
 
       assert config[:force_ssl][:exclude] == ["localhost", "fountain.fountain.svc.cluster.local"]

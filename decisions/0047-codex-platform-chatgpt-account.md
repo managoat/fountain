@@ -896,7 +896,7 @@ G0's.
 
 ## Addendum — 2026-10-13: retired, ChatGPT subscriptions are removed
 
-Fountain no longer runs codex on a ChatGPT sign-in (#PRNUM). The maintainer
+Fountain no longer runs codex on a ChatGPT sign-in (#2642). The maintainer
 decided on 2026-10-13 to cut the feature: production held three grants, all
 owned by one account that has left, none on the deployment's own row, and
 the last conversation on a subscription ran on 2026-10-08. The feature was

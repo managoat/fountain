@@ -442,7 +442,7 @@ and it is what ships; the pool is a later decision with evidence behind it.
 
 ## Addendum — 2026-10-13: ChatGPT subscriptions removed
 
-ADRs 0047, 0052 and 0060 are retired (#PRNUM): Fountain no longer runs codex
+ADRs 0047, 0052 and 0060 are retired (#2642): Fountain no longer runs codex
 on a ChatGPT sign-in. What this ADR said about them no longer applies. A set
 does not name a subscription (`chatgpt_grant_id` was cleared by a migration
 and is dropped one release later), resolution has no `grant` scope, and

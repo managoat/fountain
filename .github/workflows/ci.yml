@@ -340,7 +340,7 @@ jobs:
         run: echo "count=${{ strategy.job-total }}" >> "$GITHUB_OUTPUT"
 
       - name: Upload coverage export
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: coverdata-${{ matrix.partition }}
           # The lib-* globs match only on the partition that ran the library
@@ -394,7 +394,7 @@ jobs:
         run: scripts/ci/mix-lock-backport.sh --install
 
       - name: Download coverage exports
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: coverdata-*
           merge-multiple: true
@@ -767,7 +767,7 @@ jobs:
       # which is also what enforces `erasableSyntaxOnly`, the setting that
       # keeps those sources runnable without a build step.
       - name: Set up Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
           cache: npm
@@ -813,7 +813,7 @@ jobs:
       # runtime runs JavaScript compiled from those same tests. Both legs
       # typecheck, build and verify the SDK contract and browser bundle.
       - name: Set up Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ matrix.node }}
           cache: npm
@@ -948,7 +948,7 @@ jobs:
         run: python3 -m unittest discover -s integrations/hermes/tests -v
 
       - name: Set up Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
 
@@ -1312,7 +1312,7 @@ jobs:
       # few seconds once the queue is the thing doing the testing.
       - name: Record the tested tree
         if: ${{ github.event_name != 'push' }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: tested-tree
           path: tested-tree.txt

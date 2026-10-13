@@ -1,6 +1,6 @@
 ### Upgrade notes
 
-- **A migration drops the turn-deadline tables** (#NNNN). Migration
+- **A migration drops the turn-deadline tables** (#2637). Migration
   `20261013090000` drops `turn_executions`, `execution_allowances`,
   `turns.limit_reason` and `users.execution_limits`, which the release
   removing the turn-deadline journal (#2636) left in place, unread, for one

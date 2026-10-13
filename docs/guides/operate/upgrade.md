@@ -222,7 +222,7 @@ stored ChatGPT sign-ins go with the table. Nothing revokes them at OpenAI.
 The release that removed the unused turn-deadline journal (ADR 0046) stopped
 reading `turn_executions`, `execution_allowances`, `turns.limit_reason` and
 `users.execution_limits` but left them in place, because its predecessor
-writes `execution_allowances` on every launch. Migration `20261013090000`
+writes `execution_allowances` on every launch. Migration `20261013170000`
 drops all four. Take it only after that release is fully rolled out; a
 rolling upgrade straight from an older release fails the old replicas'
 launches until they are replaced. No deployment ever stored anything in them

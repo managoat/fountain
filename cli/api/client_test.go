@@ -74,19 +74,19 @@ func TestClientDo(t *testing.T) {
 
 	t.Run("non-2xx returns HTTPError with decoded JSON body", func(t *testing.T) {
 		c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(429)
-			w.Write([]byte(`{"error":"sandbox_quota_exceeded","message":"3 of 3 in use"}`))
+			w.WriteHeader(503)
+			w.Write([]byte(`{"error":"fleet_full","message":"every slot in use"}`))
 		})
 		err := c.Get("/conversations", nil)
 		var he *HTTPError
 		if !errors.As(err, &he) {
 			t.Fatalf("err = %v, want *HTTPError", err)
 		}
-		if he.Status != 429 || StatusCode(err) != 429 {
+		if he.Status != 503 || StatusCode(err) != 503 {
 			t.Errorf("status = %d, StatusCode = %d", he.Status, StatusCode(err))
 		}
 		body, ok := he.Body.(map[string]any)
-		if !ok || body["error"] != "sandbox_quota_exceeded" {
+		if !ok || body["error"] != "fleet_full" {
 			t.Errorf("body = %v", he.Body)
 		}
 	})

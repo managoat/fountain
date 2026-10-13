@@ -19,15 +19,6 @@ defmodule Fountain.Workers.RetentionPruner do
   The rest are operational and safe to expire sooner: a revoked API key can
   never be used again.
 
-  `sandbox_requests` is the same shape of bookkeeping (ADR 0042): a finished
-  request holds no prompt, because every terminal transition erases `attrs`.
-  What is left is provenance and an outcome that the audit trail already
-  carries at its own, longer window. Waiting and claimed rows are never pruned
-  whatever the window says: the cutoff must not be what decides that a row is
-  live. A waiting row is bounded by `SANDBOX_QUEUE_MAX_WAIT_SECONDS`, and a
-  claimed one by the drain reclaiming an abandoned claim rather than by any
-  expiry, so neither is the pruner's to reason about.
-
   `usage_events` gets the longest window because it is the input to the
   usage history, and `turn_images` is deliberately absent — those rows are owned by
   their turn and go when the conversation does.
@@ -65,8 +56,7 @@ defmodule Fountain.Workers.RetentionPruner do
     log_events: 90,
     audit_events: 365,
     revoked_api_keys: 30,
-    usage_events: 400,
-    sandbox_requests: 30
+    usage_events: 400
   ]
 
   @impl Oban.Worker
@@ -159,17 +149,6 @@ defmodule Fountain.Workers.RetentionPruner do
 
   defp do_prune(:usage_events, cutoff) do
     delete_where("usage_events", dynamic([r], r.inserted_at < ^cutoff))
-  end
-
-  # Terminal rows only. A `queued` or `starting` row is live work, and the
-  # cutoff must never be what decides that.
-  defp do_prune(:sandbox_requests, cutoff) do
-    terminal = ~w(started failed cancelled expired)
-
-    delete_where(
-      "sandbox_requests",
-      dynamic([r], r.inserted_at < ^cutoff and r.status in ^terminal)
-    )
   end
 
   defp do_prune(:revoked_api_keys, cutoff) do

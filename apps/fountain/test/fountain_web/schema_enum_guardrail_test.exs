@@ -121,8 +121,6 @@ defmodule FountainWeb.SchemaEnumGuardrailTest do
     {FountainWeb.Schemas.StreamLogEvent, "state"} => {LogEvent, :states},
     {FountainWeb.Schemas.ManifestResource, "kind"} => {Manifest, :kinds},
     {FountainWeb.Schemas.Sandbox, "status"} => {Sandbox, :statuses},
-    {FountainWeb.Schemas.SandboxRequest, "kind"} => {Fountain.SandboxQueue.Request, :kinds},
-    {FountainWeb.Schemas.SandboxRequest, "status"} => {Fountain.SandboxQueue.Request, :statuses},
     # The sandbox mode (ADR 0023 gate 6): on the agent as a default, on a
     # launch as the choice, on the sandbox row as what it is.
     {FountainWeb.Schemas.Sandbox, "mode"} => {Sandbox, :modes},

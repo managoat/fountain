@@ -81,8 +81,7 @@ defmodule Fountain.Conversations do
   Deliberately built on the same query: the admin overview shows this count
   and links to the list, and a count that came from a second definition of
   "active" would disagree with the page it points at. `Quotas` has its own,
-  narrower definition (`pending`/`starting`/`ready`) because a concurrency cap
-  counts sandboxes being paid for, not sandboxes on screen.
+  narrower definition (`pending`/`starting`/`ready`) because the fleet ceiling counts sandboxes being paid for, not sandboxes on screen.
   """
   def _unsafe_count_sandboxes_admin, do: Repo.aggregate(admin_sandboxes(), :count, :id)
 
@@ -155,14 +154,11 @@ defmodule Fountain.Conversations do
   # it had before it. (`update_sandbox/2`, the context's own write, ran the
   # same two after its transaction until 9b deleted it.)
   #
-  # Both halves matter and neither is optional. `record_sandbox_usage/2` is the
-  # metering choke point this context exists to keep honest — a terminal write
-  # that skips it leaves `sandbox_terminated` unrecorded, and that row is what
-  # a provider bill is reconciled against. `maybe_poke_sandbox_queue/2` is what
-  # turns a freed quota slot into a drain (ADR 0042 decision 5): without it a
-  # tenant at their cap waits for the five-minute cron instead of a second.
-  # A third, smaller one rides along: a machine that has stopped for good drops
-  # the snapshot its last park took (ADR 0063).
+  # `record_sandbox_usage/2` is the metering choke point this context exists
+  # to keep honest — a terminal write that skips it leaves
+  # `sandbox_terminated` unrecorded, and that row is what a provider bill is
+  # reconciled against. A smaller one rides along: a machine that has stopped
+  # for good drops the snapshot its last park took (ADR 0063).
   #
   # A door for `Fountain.Machines` (ADR 0058); not part of the context's public
   # surface, like the two it calls.
@@ -171,7 +167,6 @@ defmodule Fountain.Conversations do
   def sandbox_status_effects(%Sandbox{} = written, previous_status)
       when is_binary(previous_status) do
     record_sandbox_usage(previous_status, written)
-    maybe_poke_sandbox_queue(previous_status, written)
     forget_snapshot(written)
     :ok
   end
@@ -188,33 +183,6 @@ defmodule Fountain.Conversations do
   # tenant's prefix. See `mint_machine_name/3`. Deliberately narrow: the value
   # becomes a machine name at a provider, and the old code accepted anything.
   @machine_name_suffix ~r/\A[A-Za-z0-9][A-Za-z0-9_-]{0,39}\z/
-
-  # A transition out of a cap-counting status frees a tenant slot and the
-  # deployment-wide fleet slot at once, so every tenant with live queue work
-  # wants draining — not just this one (ADR 0042 decision 5). This is the
-  # choke point every sandbox status change goes through and almost every one
-  # of them happens with an empty queue, so the cost here is one existence
-  # probe against a partial index. When there is work it is one Oban insert,
-  # and the job does the scan that finds the tenants.
-  defp maybe_poke_sandbox_queue(was, %Sandbox{} = updated) do
-    active = Fountain.Quotas.active_statuses()
-
-    if was in active and updated.status not in active and
-         Fountain.SandboxQueue.any_active_requests?() do
-      Fountain.Workers.SandboxQueueDrainer.poke_all_later()
-    end
-
-    :ok
-  rescue
-    # Best-effort for the same reason `Fountain.Usage.record_usage/5` rescues at this
-    # choke point: the row is already committed, nearly every call site matches
-    # `{:ok, _}` (ConversationServer's terminate path, `Accounts.Deletion`,
-    # `SandboxReaper`), and a failed poke must not take down a caller that only
-    # wanted to write a status. The cron backstop drains anyway.
-    e ->
-      Logger.warning("sandbox queue poke failed: #{Exception.message(e)}")
-      :ok
-  end
 
   # Transitions only: a writer can write the same status more than once, and
   # double-counting a sandbox would overstate a bill. Provision

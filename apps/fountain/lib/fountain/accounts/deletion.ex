@@ -209,7 +209,7 @@ defmodule Fountain.Accounts.Deletion do
   # machines running, while the account is still there. The reaper's other
   # passes skip such a row; only `SandboxReaper.sweep_fenced_teardowns/0`
   # finishes it, and only after its grace period (#2329). Until then the row
-  # holds a `Quotas.active_sandboxes/0` slot and a fleet slot, and the machine
+  # holds a fleet slot (`Quotas.active_sandboxes/0`), and the machine
   # bills. Carrying on tears the rest down now rather than leaving it to that
   # sweep. ADR 0009 decision 2 makes sprite teardown best-effort, and #1767
   # asks that failed cleanup stay recoverable by reconciliation.

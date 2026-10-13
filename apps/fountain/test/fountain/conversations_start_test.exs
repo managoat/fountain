@@ -255,58 +255,49 @@ defmodule Fountain.ConversationsStartTest do
       assert {:error, :vault_not_found} = Launch.start_conversation(attrs)
     end
 
-    test "is refused once the tenant is at its concurrent-sandbox cap" do
+    test "is refused once the fleet is at its ceiling" do
       user = insert_active_user()
       agent = insert_agent(user_id: user.id)
+      fill_fleet()
 
-      limit = Fountain.Quotas.sandbox_limit(user.id)
-      for _ <- 1..limit, do: insert_sandbox(user_id: user.id, status: "ready")
-
-      assert {:error, {:sandbox_quota_exceeded, %{count: ^limit, limit: ^limit}}} =
+      assert {:error, :fleet_full} =
                Launch.start_conversation(%{"agent_id" => agent.id, "user_id" => user.id})
     end
 
-    test "the cap is checked before any sandbox row is allocated" do
+    test "the ceiling is checked before any sandbox row is allocated" do
       user = insert_active_user()
       agent = insert_agent(user_id: user.id)
+      fill_fleet()
 
-      for _ <- 1..Fountain.Quotas.sandbox_limit(user.id),
-          do: insert_sandbox(user_id: user.id, status: "ready")
-
-      before = Fountain.Quotas.active_sandbox_count(user.id)
+      before = Fountain.Quotas.fleet_count()
 
       assert {:error, _} =
                Launch.start_conversation(%{"agent_id" => agent.id, "user_id" => user.id})
 
-      # A denial that still allocated would let a caller ratchet past the cap
-      # by retrying, which is the failure mode the cap exists to prevent.
-      assert Fountain.Quotas.active_sandbox_count(user.id) == before
+      # A denial that still allocated would let a caller ratchet past the
+      # ceiling by retrying, which is the failure mode the ceiling prevents.
+      assert Fountain.Quotas.fleet_count() == before
     end
 
-    test "one tenant at its cap does not block another" do
-      capped = insert_active_user()
-      other = insert_active_user()
+    test "one account may use every slot the fleet has" do
+      user = insert_active_user()
+      agent = insert_agent(user_id: user.id)
 
-      for _ <- 1..Fountain.Quotas.sandbox_limit(capped.id),
-          do: insert_sandbox(user_id: capped.id, status: "ready")
-
-      agent = insert_agent(user_id: other.id)
+      for _ <- 1..(Fountain.Quotas.fleet_ceiling() - 1),
+          do: insert_sandbox(user_id: user.id, status: "ready")
 
       stub_server_start(fn _s, _spec -> {:ok, spawn(fn -> :ok end)} end)
 
       assert {:ok, _} =
-               Launch.start_conversation(%{"agent_id" => agent.id, "user_id" => other.id})
+               Launch.start_conversation(%{"agent_id" => agent.id, "user_id" => user.id})
     end
 
     test "terminated sandboxes free capacity" do
       user = insert_active_user()
       agent = insert_agent(user_id: user.id)
+      [first | _] = fill_fleet()
 
-      [first | _] =
-        for _ <- 1..Fountain.Quotas.sandbox_limit(user.id),
-            do: insert_sandbox(user_id: user.id, status: "ready")
-
-      assert {:error, _} =
+      assert {:error, :fleet_full} =
                Launch.start_conversation(%{"agent_id" => agent.id, "user_id" => user.id})
 
       {:ok, _} = update_sandbox(first, %{status: "terminated"})

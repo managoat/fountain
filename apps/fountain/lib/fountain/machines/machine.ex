@@ -453,11 +453,11 @@ defmodule Fountain.Machines.Machine do
   attach that meets a machine mid-operation means exactly what a refused
   destroy means — come back shortly — and `:sandbox_unavailable` is already
   503 with a `Retry-After`, `NotReadyError` in the SDK, and snoozed by
-  the launch queue and the schedule runner. A second word would have to be
+  the schedule runner. A second word would have to be
   taught to five clients (#2304, written and closed unmerged) to say the same
   thing. What stage 6a did add is the vocabulary sites this one was still
-  missing: `SandboxQueue.@transient_errors` and, through it,
-  `TeamScheduleRun`'s snooze guard, plus `Team.Schedules.describe_error/1`.
+  missing: `TeamScheduleRun`'s snooze guard (then read from the since-removed
+  sandbox queue's list), plus `Team.Schedules.describe_error/1`.
   See `refusal/2`.
 
   Unlike `who_is_here/1` there is no falling back to a direct read when the
@@ -574,11 +574,10 @@ defmodule Fountain.Machines.Machine do
     * `:sandbox_resume_failed` — the provider was asked and would not. `main`'s
       word, and the protocol's `:resume_failed` is translated to it here so the
       surfaces that already know it do not have to learn a second.
-    * the admission's own refusals — `{:sandbox_quota_exceeded, _}` and
-      `:fleet_full` — which are the tenant's cap and the fleet ceiling, exactly
-      as `Quotas.with_sandbox_reservation/3` has always answered them on this
-      path. They are 429 and 503, and flattening either to
-      `:sandbox_unavailable` would hide which limit was hit.
+    * the admission's own refusal, `:fleet_full` — the fleet ceiling, exactly
+      as `Quotas.with_sandbox_reservation/2` answers it on this path. It is a
+      503, and flattening it to `:sandbox_unavailable` would hide that the
+      limit was hit.
 
   Everything else is a refusal to act on right now — contention for the lease, a
   database fault, an unreachable owner — and reads as `:sandbox_unavailable`.
@@ -599,8 +598,7 @@ defmodule Fountain.Machines.Machine do
              | :sandbox_reset_pending
              | :provisioning
              | :sandbox_resume_failed
-             | :fleet_full
-             | {:sandbox_quota_exceeded, map()}}
+             | :fleet_full}
   def ensure_up(sandbox_id, opts) when is_binary(sandbox_id) and is_list(opts) do
     cond do
       # As in `destroy/2` and `park/2`: the protocol's own guard is
@@ -1002,7 +1000,7 @@ defmodule Fountain.Machines.Machine do
     do: {:error, :sandbox_reset_pending}
 
   defp refusal({:error, reason}, sandbox_id, verb) do
-    if travels?(verb, reason) do
+    if reason in travelling(verb) do
       {:error, reason}
     else
       Logger.warning(
@@ -1017,13 +1015,6 @@ defmodule Fountain.Machines.Machine do
   defp superseded(:destroy), do: {:ok, :already_terminal}
   defp superseded(:park), do: {:ok, :already_parked}
   defp superseded(:ensure_up), do: {:ok, :already_up}
-
-  # `travelling/1` is a list of atoms, and one refusal that has to travel is not
-  # one: `{:sandbox_quota_exceeded, %{count: n, limit: n}}` carries the numbers
-  # the 429 body and the schedule's error string are both built from, so it
-  # cannot be flattened to an atom on the way out.
-  defp travels?(:ensure_up, {:sandbox_quota_exceeded, _}), do: true
-  defp travels?(verb, reason), do: reason in travelling(verb)
 
   # The words each verb lets through, and nothing else.
   #

@@ -31,7 +31,6 @@ defmodule FountainWeb.TurnImageIngestTest do
     # which is more sandboxes than the default plan allows. The subject here
     # is the image payload, so the quota is lifted out of the way rather than
     # being allowed to answer 429 and read as a rejected media type.
-    {:ok, user} = Fountain.Accounts.update_sandbox_limit(user, 25)
     {_key, raw_key} = insert_api_key(user)
     agent = insert_agent(user_id: user.id)
     {:ok, user: user, raw_key: raw_key, agent: agent}

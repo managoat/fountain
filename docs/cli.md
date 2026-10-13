@@ -182,8 +182,8 @@ fountain run <agent-name-or-id> -p "Run the approved plan" --client-request-id p
 ```
 
 For the full conversation creation API, pass a JSON object with wire names and
-IDs. The command prints the complete API response, including a queued sandbox
-request if the server returns 202; it does not start a stream:
+IDs. The command prints the complete API response; it does not start a
+stream:
 
 ```bash
 fountain conv create --file launch.json
@@ -193,7 +193,7 @@ cat launch.json | fountain conv create --file -
 For example, `launch.json` can contain:
 
 ```json
-{"agent_id":"<agent-id>","prompt":"Review the repository","labels":{"source":"nightly"},"queue":true}
+{"agent_id":"<agent-id>","prompt":"Review the repository","labels":{"source":"nightly"}}
 ```
 
 Omitted fields stay omitted; null, false, zero and empty values pass through.

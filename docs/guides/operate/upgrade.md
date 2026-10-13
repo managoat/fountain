@@ -174,6 +174,22 @@ after that release is fully rolled out; a rolling upgrade straight from an
 older release fails the old replicas' turns until they are replaced. The
 stored webhook secrets and connection tokens go with the tables.
 
+## Sandbox queue and per-account cap removed
+
+Fountain keeps one capacity limit, `SANDBOX_FLEET_CEILING`. The sandbox
+capacity queue and the per-account sandbox cap are gone, so
+`SANDBOX_CAP_CEILING`, `SANDBOX_QUEUE_MAX_DEPTH` and
+`SANDBOX_QUEUE_MAX_WAIT_SECONDS` are ignored; remove them from your
+configuration when convenient. A start past the ceiling gets
+`503 fleet_full`, and a request with `queue: true` is no longer held: the
+field is ignored. Requests still waiting in the queue when you upgrade are
+not started.
+
+This release stops reading the `sandbox_requests` table and the
+`users.max_concurrent_sandboxes` column but leaves them in place, because the
+release before it reads both. A later release drops them; take it only after
+this one has fully rolled out.
+
 ## Conversation message compatibility
 
 The server uses the `managoat_acp` peer from its own release. The audited peer

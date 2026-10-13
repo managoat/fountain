@@ -116,13 +116,9 @@ defmodule FountainWeb.AdminLive.UserDetail do
         <div class="bg-[var(--color-bg-1)] rounded shadow border border-[var(--color-border)] px-4 py-3">
           <div class="text-xs text-[var(--color-text-secondary)]">Sandboxes</div>
           <div class="text-sm font-medium tabular-nums">
-            {@active_sandboxes} / {Fountain.Quotas.sandbox_limit_for(@user)}
+            {@active_sandboxes}
           </div>
-          <div class="text-xs text-[var(--color-text-secondary)]">
-            active / limit · {if @user.sandbox_limit_override,
-              do: "override",
-              else: "ceiling"}
-          </div>
+          <div class="text-xs text-[var(--color-text-secondary)]">active</div>
         </div>
         <div class="bg-[var(--color-bg-1)] rounded shadow border border-[var(--color-border)] px-4 py-3">
           <div class="text-xs text-[var(--color-text-secondary)]">Resources</div>

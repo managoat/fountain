@@ -67,7 +67,6 @@ Mimic.copy(Fountain.Health)
 Mimic.copy(FountainWeb.OAuth)
 Mimic.copy(Fountain.Mailer)
 Mimic.copy(Fountain.InferenceCredentials)
-Mimic.copy(Fountain.Workers.SandboxQueueDrainer)
 # The user-grant refresh coordinator, copied so one grant's renewal can be
 # answered `:refresh_timeout` while another's runs for real (ADR 0060 stage 5,
 # `workers/chatgpt_grant_keepalive_test.exs`).

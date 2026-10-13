@@ -14,11 +14,6 @@ defmodule Fountain.Accounts.User do
     field :password_hash, :string
     field :password, :string, virtual: true, redact: true
     field :email_verified_at, :utc_datetime
-    # Per-user override of the concurrent-sandbox cap
-    # (`Fountain.Quotas.sandbox_limit/1`); null means the configured ceiling. The
-    # Postgres column is still `max_concurrent_sandboxes` — renaming it would
-    # break a rolling deploy — so the honest name lives here.
-    field :sandbox_limit_override, :integer, source: :max_concurrent_sandboxes
     field :role, :string, default: "user"
     # Set by an operator; a suspended account cannot sign in or spend.
     field :suspended_at, :utc_datetime
@@ -41,7 +36,7 @@ defmodule Fountain.Accounts.User do
   @doc "Changeset for new user registration (email + password path)."
   def registration_changeset(user, attrs) do
     user
-    |> cast(attrs, [:email, :password, :role, :sandbox_limit_override])
+    |> cast(attrs, [:email, :password, :role])
     |> validate_required([:email, :password])
     |> validate_format(:email, ~r/^[^\s@]+@[^\s@]+\.[^\s@]+$/,
       message: "must be a valid email address"
@@ -76,7 +71,7 @@ defmodule Fountain.Accounts.User do
   @doc "Changeset for OAuth registration (no password required; email pre-verified by provider)."
   def oauth_registration_changeset(user, attrs) do
     user
-    |> cast(attrs, [:email, :role, :sandbox_limit_override, :email_verified_at])
+    |> cast(attrs, [:email, :role, :email_verified_at])
     |> validate_required([:email])
     |> validate_format(:email, ~r/^[^\s@]+@[^\s@]+\.[^\s@]+$/,
       message: "must be a valid email address"
@@ -84,19 +79,6 @@ defmodule Fountain.Accounts.User do
     |> validate_inclusion(:role, @roles)
     |> update_change(:email, &String.downcase/1)
     |> unique_constraint(:email)
-  end
-
-  @doc """
-  Changeset for the per-tenant sandbox concurrency override (ADR 0005).
-
-  Admin-only. Zero is valid and meaningful — it is the lever for cutting off an
-  abusive tenant without deleting their account. `nil` is valid too and means
-  something different: clear the override and fall back to the ceiling.
-  """
-  def sandbox_limit_changeset(user, attrs) do
-    user
-    |> cast(attrs, [:sandbox_limit_override])
-    |> validate_number(:sandbox_limit_override, greater_than_or_equal_to: 0)
   end
 
   @doc "Changeset for updating theme preference (light | dark | system)."

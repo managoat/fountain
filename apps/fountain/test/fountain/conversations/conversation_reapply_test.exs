@@ -8,7 +8,6 @@ defmodule Fountain.Conversations.ConversationReapplyTest do
 
   setup do
     user = insert_active_user()
-    {:ok, user} = Fountain.Accounts.update_sandbox_limit(user, 10)
     old_env = insert_env(user_id: user.id)
     old_vault = insert_vault(user_id: user.id)
     new_vault = insert_vault(user_id: user.id)

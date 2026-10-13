@@ -591,7 +591,7 @@ defmodule Fountain.Conversations.Wake do
   `wake: :background` in `opts` (#2561) is the API's: answer once
   `admit_prompt_wake/1` has run, and wake behind the response, with a failure
   reported on the event stream. Every other caller waits for the wake, because
-  it acts on the refusal: the sandbox queue retries a full fleet, a launch
+  it acts on the refusal: a schedule run retries a full fleet, a launch
   reports it.
   """
   @spec for_prompt(binary(), PromptDelivery.wake_prompt(), list(), keyword()) ::
@@ -618,7 +618,7 @@ defmodule Fountain.Conversations.Wake do
   without a provider round trip (#2561): the conversation's status, its saved
   allowance, the agent, the account's suspension, the saved
   inference source, a machine being reset, and, when the wake would add a
-  machine, room under the tenant's cap and the fleet ceiling.
+  machine, room under the fleet ceiling.
 
   The capacity check is advisory: nothing is reserved here, and the wake
   itself reserves under the locks as before. A slot taken in between is the
@@ -639,7 +639,7 @@ defmodule Fountain.Conversations.Wake do
   # A machine on its way out is refused as `maybe_reuse_sandbox/1` refuses it.
   # A `ready` machine with no server adds no compute when it is reused; every
   # other wake adds a machine to the count, from parked or from nothing.
-  defp check_machine(%Conversation{sandbox_id: sandbox_id, user_id: user_id}) do
+  defp check_machine(%Conversation{sandbox_id: sandbox_id}) do
     # ownership: the conversation's own machine.
     case sandbox_id && Conversations._unsafe_get_sandbox(sandbox_id) do
       %Sandbox{transition: "destroying", status: status} when status not in @terminal_statuses ->
@@ -650,10 +650,7 @@ defmodule Fountain.Conversations.Wake do
 
       _ ->
         opts = if sandbox_id, do: [exclude: sandbox_id], else: []
-
-        with :ok <- Fountain.Quotas.check_fleet_ceiling(opts) do
-          Fountain.Quotas.check_sandbox_quota(user_id, opts)
-        end
+        Fountain.Quotas.check_fleet_ceiling(opts)
     end
   end
 
@@ -720,7 +717,7 @@ defmodule Fountain.Conversations.Wake do
     do: reason in @retryable_wake_failures
 
   defp retryable_wake_failure?({reason, _detail}) when is_atom(reason),
-    do: reason in @retryable_wake_failures or reason == :sandbox_quota_exceeded
+    do: reason in @retryable_wake_failures
 
   defp retryable_wake_failure?(_reason), do: false
 
@@ -814,7 +811,6 @@ defmodule Fountain.Conversations.Wake do
          # Same reservation as start_conversation/1 — see the note there (#330).
          {:ok, new_sandbox} <-
            Fountain.Quotas.with_sandbox_reservation(
-             conv.user_id,
              [exclude: conv.sandbox_id],
              fn ->
                Fountain.Machines.Provision.reserve(%{
@@ -880,9 +876,9 @@ defmodule Fountain.Conversations.Wake do
         {:error, {:already_started, winner_pid}} ->
           # Lost a concurrent wake of the same conversation. The winner's
           # server is running against its own sandbox; this one's just-created
-          # row would otherwise sit pending — holding a quota slot — until the
-          # reaper's pass an hour later, so a user at their cap could lock
-          # themselves out by double-clicking (#330). Clean up our own row and
+          # row would otherwise sit pending — holding a fleet slot — until the
+          # reaper's pass an hour later, so a full fleet could lock a user
+          # out after a double-click (#330). Clean up our own row and
           # hand the prompt to the winner, which drops it if a turn is already
           # running — exactly right for a double-click.
           #
@@ -898,7 +894,7 @@ defmodule Fountain.Conversations.Wake do
 
         {:error, _} = err ->
           # Nothing ever ran on this sandbox. Retiring it keeps a failed wake
-          # from holding a quota slot until the reaper's next pass — the same
+          # from holding a fleet slot until the reaper's next pass — the same
           # reasoning as the branch above.
           _ = mark_old_sandbox_terminated(new_sandbox.id)
           err

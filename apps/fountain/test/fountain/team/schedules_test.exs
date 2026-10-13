@@ -362,240 +362,26 @@ defmodule Fountain.Team.SchedulesTest do
     assert Schedules.describe_error(:fleet_full) == "sandbox fleet is full"
   end
 
-  describe "run_schedule/2 at a sandbox ceiling" do
-    defp fill_cap(user) do
-      for _ <- 1..Fountain.Quotas.sandbox_limit(user.id),
-          do: insert_sandbox(user_id: user.id, status: "ready")
-    end
-
-    defp events(user) do
-      Fountain.Audit.list_recent_for_user(user.id, 50)
-    end
-
+  describe "run_schedule/2 at the fleet ceiling" do
     defp fired_events(user) do
-      events(user) |> Enum.filter(&(&1.action == "team.schedule.fired"))
+      Fountain.Audit.list_recent_for_user(user.id, 50)
+      |> Enum.filter(&(&1.action == "team.schedule.fired"))
     end
 
-    defp queue_events(user, action) do
-      events(user) |> Enum.filter(&(&1.action == action))
-    end
-
-    test "the cron firing waits in the queue instead of being lost" do
+    test "the firing is refused, stamped and recorded; the worker retries it" do
       user = insert_verified_user()
       agent = insert_agent(user_id: user.id)
       schedule = create!(user, agent, %{"one_off" => true})
-      fill_cap(user)
-      opts = [actor: Schedules.actor()]
+      fill_fleet()
 
-      # The caller still gets the refusal unchanged; what changes is that the
-      # run is not lost with it.
-      assert {:error, {:sandbox_quota_exceeded, _}} = Schedules.run_schedule(schedule, opts)
-
-      assert Schedules.get_schedule(schedule.id, user.id).last_error ==
-               "waiting for a free sandbox slot"
-
-      assert [request] = Fountain.SandboxQueue.list_queued(user.id)
-      assert request.kind == "schedule_run"
-      assert request.schedule_id == schedule.id
-      assert request.source == "schedule"
-    end
-
-    test "a schedule that keeps firing while it waits does not stack copies" do
-      user = insert_verified_user()
-      agent = insert_agent(user_id: user.id)
-      schedule = create!(user, agent, %{"one_off" => true})
-      fill_cap(user)
-      opts = [actor: Schedules.actor()]
-
-      assert {:error, _} = Schedules.run_schedule(schedule, opts)
-      assert {:error, _} = Schedules.run_schedule(schedule, opts)
-      assert {:error, _} = Schedules.run_schedule(schedule, opts)
-
-      assert [_one] = Fountain.SandboxQueue.list_queued(user.id)
-    end
-
-    test ~s("Run now" gets the refusal and starts nothing behind the caller's back) do
-      user = insert_verified_user()
-      agent = insert_agent(user_id: user.id)
-      schedule = create!(user, agent, %{"one_off" => true})
-      fill_cap(user)
-
-      assert {:error, {:sandbox_quota_exceeded, _}} =
-               Schedules.run_schedule(schedule, actor: "api")
-
-      assert Fountain.SandboxQueue.list_queued(user.id) == []
-
-      assert Schedules.get_schedule(schedule.id, user.id).last_error !=
-               "waiting for a free sandbox slot"
-    end
-
-    test "a waiting firing is not a run, and is not recorded as one" do
-      user = insert_verified_user()
-      agent = insert_agent(user_id: user.id)
-      schedule = create!(user, agent, %{"one_off" => true})
-      fill_cap(user)
-
-      assert {:error, _} = Schedules.run_schedule(schedule, actor: Schedules.actor())
+      assert {:error, :fleet_full} = Schedules.run_schedule(schedule, actor: Schedules.actor())
 
       reloaded = Schedules.get_schedule(schedule.id, user.id)
-      assert reloaded.last_error == "waiting for a free sandbox slot"
-
-      # Nothing ran, so `last_run_at` is untouched and no firing is on the
-      # trail. `sandbox_request.enqueued` is the event that did happen.
-      assert is_nil(reloaded.last_run_at)
-      assert fired_events(user) == []
-      assert [_] = queue_events(user, "sandbox_request.enqueued")
-    end
-
-    test ~s(a person's "Run now" during a queued window is still recorded) do
-      user = insert_verified_user()
-      agent = insert_agent(user_id: user.id)
-      schedule = create!(user, agent, %{"one_off" => true})
-      fill_cap(user)
-
-      # The cron fires first and queues. The row now says "waiting", and the
-      # next caller is a person pressing the button.
-      assert {:error, _} = Schedules.run_schedule(schedule, actor: Schedules.actor())
-      assert fired_events(user) == []
-
-      assert {:error, {:sandbox_quota_exceeded, _}} =
-               Schedules.run_schedule(schedule, actor: "ui", request_ip: "1.2.3.4")
-
-      # They fired and were refused. That is a mutation, and it records —
-      # deciding "is anybody waiting" rather than "did this caller wait" left
-      # a person's action with no audit trace at all.
-      assert [event] = fired_events(user)
-      assert event.actor == "ui"
-      assert event.metadata["outcome"] =~ "sandbox quota"
-
-      reloaded = Schedules.get_schedule(schedule.id, user.id)
-      assert reloaded.last_run_at, "a refused firing is still an attempt"
-      # The row reports the schedule's state, which is that work is waiting.
-      assert reloaded.last_error == "waiting for a free sandbox slot"
-    end
-
-    test "a replay that meets the ceiling again keeps saying it is waiting" do
-      user = insert_verified_user()
-      agent = insert_agent(user_id: user.id)
-      schedule = create!(user, agent, %{"one_off" => true})
-      fill_cap(user)
-
-      assert {:error, _} = Schedules.run_schedule(schedule, actor: Schedules.actor())
-
-      assert Schedules.get_schedule(schedule.id, user.id).last_error ==
-               "waiting for a free sandbox slot"
-
-      # The drainer claims the request and replays it. Capacity has not freed,
-      # so the replay is refused again — and the row must not flip back to the
-      # capacity error, which is the one thing a person reading it needs to
-      # know is not the whole story (ADR 0042 decision 3).
-      assert %{started: 0, failed: 0} = Fountain.SandboxQueue.drain(user.id)
-
-      assert Schedules.get_schedule(schedule.id, user.id).last_error ==
-               "waiting for a free sandbox slot"
-
-      assert [_still_waiting] = Fountain.SandboxQueue.list_queued(user.id)
-    end
-
-    test "a refusal past the depth bound reports the capacity error, not a wait" do
-      user = insert_verified_user()
-      agent = insert_agent(user_id: user.id)
-      schedule = create!(user, agent, %{"one_off" => true})
-      fill_cap(user)
-
-      # Fill the queue with other work, so the schedule's own firing cannot get
-      # a row. The queue delays the cap; it never raises it.
-      for _ <- 1..10 do
-        {:ok, _} =
-          Fountain.SandboxQueue.enqueue(%{
-            user_id: user.id,
-            agent_id: agent.id,
-            kind: "start",
-            attrs: %{}
-          })
-      end
-
-      assert {:error, {:sandbox_quota_exceeded, _}} =
-               Schedules.run_schedule(schedule, actor: Schedules.actor())
-
-      reloaded = Schedules.get_schedule(schedule.id, user.id)
-      assert reloaded.last_error =~ "sandbox quota"
+      assert reloaded.last_error == "sandbox fleet is full"
       assert reloaded.last_run_at
-    end
 
-    test "the row stops saying it is waiting once the request expires" do
-      user = insert_verified_user()
-      agent = insert_agent(user_id: user.id)
-      schedule = create!(user, agent, %{"one_off" => true})
-      fill_cap(user)
-
-      assert {:error, _} = Schedules.run_schedule(schedule, actor: Schedules.actor())
-      assert [request] = Fountain.SandboxQueue.list_queued(user.id)
-
-      {1, _} =
-        Repo.update_all(
-          from(r in Fountain.SandboxQueue.Request, where: r.id == ^request.id),
-          set: [inserted_at: DateTime.add(DateTime.utc_now(), -2, :hour)]
-        )
-
-      assert %{expired: 1} = Fountain.SandboxQueue.drain(user.id)
-
-      # A cron schedule self-corrects at its next firing. A one-off has no next
-      # firing, so without this the row claims it is waiting for a slot nothing
-      # is waiting for, permanently.
-      assert Schedules.get_schedule(schedule.id, user.id).last_error ==
-               "timed out waiting for a free sandbox slot"
-    end
-
-    test "the row stops saying it is waiting once the request is cancelled" do
-      user = insert_verified_user()
-      agent = insert_agent(user_id: user.id)
-      schedule = create!(user, agent, %{"one_off" => true})
-      fill_cap(user)
-
-      assert {:error, _} = Schedules.run_schedule(schedule, actor: Schedules.actor())
-      assert [request] = Fountain.SandboxQueue.list_queued(user.id)
-
-      {:ok, _} = Fountain.SandboxQueue.cancel_request(request, actor: "ui")
-
-      assert Schedules.get_schedule(schedule.id, user.id).last_error ==
-               "the queued run was cancelled"
-    end
-
-    test "a start request ending touches no schedule" do
-      user = insert_verified_user()
-      agent = insert_agent(user_id: user.id)
-      schedule = create!(user, agent, %{"one_off" => true})
-      fill_cap(user)
-
-      assert {:error, _} = Schedules.run_schedule(schedule, actor: Schedules.actor())
-
-      {:ok, plain} =
-        Fountain.SandboxQueue.enqueue(%{
-          user_id: user.id,
-          agent_id: agent.id,
-          kind: "start",
-          attrs: %{}
-        })
-
-      {:ok, _} = Fountain.SandboxQueue.cancel_request(plain, actor: "ui")
-
-      # The schedule's own request is untouched, so its row still reports the
-      # wait. A `start` has no schedule to notify and must not guess at one.
-      assert Schedules.get_schedule(schedule.id, user.id).last_error ==
-               "waiting for a free sandbox slot"
-    end
-
-    test "the queue's own replay does not re-enter the queue" do
-      user = insert_verified_user()
-      agent = insert_agent(user_id: user.id)
-      schedule = create!(user, agent, %{"one_off" => true})
-      fill_cap(user)
-
-      assert {:error, {:sandbox_quota_exceeded, _}} =
-               Schedules.run_schedule(schedule, actor: "system:sandbox_queue")
-
-      assert Fountain.SandboxQueue.list_queued(user.id) == []
+      assert [event] = fired_events(user)
+      assert event.metadata["outcome"] == "sandbox fleet is full"
     end
   end
 end

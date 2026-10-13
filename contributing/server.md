@@ -69,12 +69,10 @@ fails on a new context mutation until it audits or is excluded with a reason.
 Nothing is priced, granted or gated on spend: credits and billing were removed
 on 2026-10-12 (ADR 0031, retired).
 
-- **The cap is an override else a ceiling.** `Quotas.sandbox_limit/1` is the
-  account's `sandbox_limit_override` when an operator set one, else
-  `SANDBOX_CAP_CEILING`; `SANDBOX_FLEET_CEILING` is global and `:fleet_full`
-  is 503. Both are enforced under the reservation lock in
-  `Quotas.with_sandbox_reservation/3`. Anything that displays a cap uses
-  `Quotas.sandbox_limit_for/1`.
+- **One ceiling, no per-account cap, no queue.** `SANDBOX_FLEET_CEILING` is
+  global and `:fleet_full` is 503; it is enforced under the reservation lock
+  in `Quotas.with_sandbox_reservation/2`. A refused start is the caller's to
+  retry (ADR 0042, amended 2026-10-13).
 - **A turn hour is not a sandbox hour.** `usage_events` (`Fountain.Usage`)
   record `turn_seconds` per turn; `busy_seconds` in `Fountain.Machines.Usage`
   is the union of intervals and relates to a provider bill. Several

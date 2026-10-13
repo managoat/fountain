@@ -42,11 +42,11 @@ that token's account, which is yours. Two results follow.
 
 - Each signup that can start a conversation can spend your money. Close
   registration, or restrict it, before you put an instance on the internet.
-- Fountain caps concurrency for each user, at 20 by default
-  (`SANDBOX_CAP_CEILING`). An admin can override it for one
-  user from the admin panel, or with `POST /api/admin/users/:id/sandbox-limit`.
-  A sandbox counts from the moment a provision starts, because that is
-  the moment it starts to cost money.
+- Fountain caps live sandboxes across every account, at 20 by default
+  (`SANDBOX_FLEET_CEILING`, the $20 Sprites plan's limit); a start past it
+  gets `503 fleet_full`. There is no per-account cap. A sandbox counts from
+  the moment a provision starts, because that is the moment it starts to
+  cost money.
 
 Fountain never shows the token to a tenant, to the admin UI, or to a sandbox.
 A sprite receives a scoped token that expires, and its only audience is your

@@ -374,8 +374,8 @@ try {
 
 ## Errors
 
-Branch on `code`, and not on the status. `conversation_busy` is a 400,
-`sandbox_quota_exceeded` is a 429, and `provisioning` is a 503. What you want
+Branch on `code`, and not on the status. `conversation_busy` is a 400, and
+`provisioning` and `fleet_full` are 503s. What you want
 to say about each one has nothing to do with those numbers.
 
 ```ts
@@ -383,7 +383,6 @@ try {
   await fountain.team.message("watchtower", prompt);
 } catch (error) {
   if (error instanceof ConversationBusyError) return "Still working on the last one.";
-  if (error instanceof QuotaExceededError) return `Sandboxes full (${error.activeSandboxes}/${error.limit}).`;
   if (error instanceof NotReadyError) return `Starting up, retry in ${error.retryAfter}s.`;
   if (error instanceof ValidationError) return Object.entries(error.fieldErrors)[0]?.join(" ");
   throw error;
@@ -394,7 +393,6 @@ try {
 |---|---|---|
 | `ConversationBusyError` | `conversation_busy` (400) | Yes. The turn in flight must finish. |
 | `NotReadyError` | `provisioning`, `fleet_full`, `sandbox_unavailable` (503) | Yes. It carries the server's `Retry-After`. |
-| `QuotaExceededError` | `sandbox_quota_exceeded` (429) | Yes. Terminate a conversation first. |
 | `ValidationError` | 422 | No. Read `fieldErrors`. |
 | `AuthError` and `NotFoundError` | 401 and 404 | No. |
 | `ConnectionError` | It never reached the server. | In a browser, the cause is usually CORS. |

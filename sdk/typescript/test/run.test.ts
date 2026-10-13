@@ -511,7 +511,7 @@ describe("runRequest", () => {
     fake.onTurn = (c, n) => fake.scriptTurn(c.id, { turnNumber: n, turnId: "t1", text: ["ok"] });
     const request = {
       agent_id: "11111111-1111-1111-1111-111111111111", prompt: "hello",
-      title: "", vault_id: null, images: [], fresh: false, queue: false,
+      title: "", vault_id: null, images: [], fresh: false,
       labels: { attempt: "0" }, permission_policy: { default: "auto_allow" as const },
       sandbox_api_access: "none" as const,
     };
@@ -573,12 +573,11 @@ describe("runRequest", () => {
     assert.deepEqual(fake.requests[0]?.body, { agent_id: "11111111-1111-1111-1111-111111111111" });
   });
 
-  test("refuses promptless and queued runs before sending anything", () => {
+  test("refuses promptless runs before sending anything", () => {
     const sdk = client();
     for (const prompt of [undefined, "", "  "]) {
       assert.throws(() => sdk.runRequest({ agent_id: "id", prompt }), /non-empty prompt/);
     }
-    assert.throws(() => sdk.runRequest({ agent_id: "id", prompt: "hi", queue: true }), /queued/);
     assert.equal(fake.requests.length, 0);
   });
 });

@@ -46,7 +46,7 @@ should use the request API rather than acquire another convenience argument.
 | Swift FountainKit | Accept agent/vault/environment IDs; translate prompt, title, images, permissionPolicy, sandboxMode, sandboxID, channelID, fresh into the generated request |
 
 Timeout, cancellation and event collection remain local options where supported.
-The request APIs preserve wire values and reject promptless or queued launches.
+The request APIs preserve wire values and reject promptless launches.
 The legacy helpers keep their existing empty-value behavior: for example, the
 map clients omit an empty prompt/images and false `fresh`, while FountainKit
 encodes supplied empty values and false. TypeScript also omits an empty title;

@@ -13,7 +13,6 @@ defmodule Fountain.Conversations.SandboxResetTest do
 
   setup do
     user = insert_active_user()
-    {:ok, user} = Fountain.Accounts.update_sandbox_limit(user, 10)
     env = insert_env(user_id: user.id)
     agent = insert_agent(user_id: user.id, runtime: "claude", environment_id: env.id)
 

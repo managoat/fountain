@@ -88,111 +88,17 @@ defmodule FountainWeb.AdminUsersLiveTest do
     end
   end
 
-  describe "AdminLive.Users — sandbox concurrency cap" do
-    test "shows each user's active sandbox count against their cap", %{conn: conn} do
+  describe "AdminLive.Users — active sandboxes" do
+    test "shows each user's active sandbox count", %{conn: conn} do
       admin = insert_admin()
       insert_sandbox(user_id: admin.id, status: "ready")
       insert_sandbox(user_id: admin.id, status: "pending")
 
       conn = login_user(conn, admin)
-      {:ok, _lv, html} = live(conn, ~p"/admin/users")
+      {:ok, lv, html} = live(conn, ~p"/admin/users")
 
       assert html =~ "Sandboxes"
-      assert html =~ "2 /"
-    end
-
-    test "admin can raise a user's cap", %{conn: conn} do
-      admin = insert_admin()
-      target = insert_active_user()
-
-      conn = login_user(conn, admin)
-      {:ok, lv, _html} = live(conn, ~p"/admin/users")
-
-      lv
-      |> element("#sandbox-limit-#{target.id}")
-      |> render_submit(%{"user_id" => target.id, "limit" => "25"})
-
-      assert Fountain.Quotas.sandbox_limit(target.id) == 25
-      assert render(lv) =~ "Sandbox limit override set"
-    end
-
-    # Every admin action leaves a row in the privilege trail; these helpers
-    # read it back.
-    defp assert_admin_event(target_id, event_type) do
-      types =
-        target_id
-        |> Fountain.Audit._unsafe_list_admin_events_for_target(50)
-        |> Enum.map(& &1.event_type)
-
-      assert event_type in types,
-             "no #{event_type} admin event recorded (got #{inspect(types)}) — " <>
-               "the type is probably missing from AdminEvent's allowlist"
-    end
-
-    test "an empty field clears the override and the cap follows the balance", %{conn: conn} do
-      admin = insert_admin()
-      target = insert_active_user()
-      {:ok, _} = Fountain.Accounts.update_sandbox_limit(target, 25, actor: "admin")
-
-      conn = login_user(conn, admin)
-      {:ok, lv, _html} = live(conn, ~p"/admin/users")
-
-      lv
-      |> element("#sandbox-limit-#{target.id}")
-      |> render_submit(%{"user_id" => target.id, "limit" => ""})
-
-      assert render(lv) =~ "Override cleared"
-
-      assert Fountain.Quotas.sandbox_limit(target.id) == Fountain.Quotas.sandbox_limit(target.id)
-
-      assert Fountain.Accounts.get_user(target.id).sandbox_limit_override == nil
-    end
-
-    test "admin can drop a cap to zero to cut off an abusive tenant", %{conn: conn} do
-      admin = insert_admin()
-      target = insert_active_user()
-
-      conn = login_user(conn, admin)
-      {:ok, lv, _html} = live(conn, ~p"/admin/users")
-
-      lv
-      |> element("#sandbox-limit-#{target.id}")
-      |> render_submit(%{"user_id" => target.id, "limit" => "0"})
-
-      assert Fountain.Quotas.sandbox_limit(target.id) == 0
-
-      assert {:error, {:sandbox_quota_exceeded, _}} =
-               Fountain.Quotas.check_sandbox_quota(target.id)
-    end
-
-    test "a negative cap is rejected", %{conn: conn} do
-      admin = insert_admin()
-      target = insert_active_user()
-
-      conn = login_user(conn, admin)
-      {:ok, lv, _html} = live(conn, ~p"/admin/users")
-
-      lv
-      |> element("#sandbox-limit-#{target.id}")
-      |> render_submit(%{"user_id" => target.id, "limit" => "-1"})
-
-      assert Fountain.Quotas.sandbox_limit(target.id) == Fountain.Quotas.sandbox_limit(target.id)
-      assert render(lv) =~ "whole number"
-    end
-
-    test "a non-numeric cap is rejected", %{conn: conn} do
-      admin = insert_admin()
-      target = insert_active_user()
-
-      conn = login_user(conn, admin)
-      {:ok, lv, _html} = live(conn, ~p"/admin/users")
-
-      lv
-      |> element("#sandbox-limit-#{target.id}")
-      |> render_submit(%{"user_id" => target.id, "limit" => "lots"})
-
-      assert Fountain.Quotas.sandbox_limit(target.id) == Fountain.Quotas.sandbox_limit(target.id)
-      assert render(lv) =~ "whole number"
+      refute has_element?(lv, "#sandbox-limit-#{admin.id}")
     end
   end
 

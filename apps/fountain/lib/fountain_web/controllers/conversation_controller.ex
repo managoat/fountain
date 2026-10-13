@@ -628,11 +628,10 @@ defmodule FountainWeb.ConversationController do
       conflict:
         {"Conflicting state, changed inference source, or incompatible Codex sandbox credential",
          "application/json", Schemas.Error},
-      service_unavailable: {"Sandbox or fleet unavailable", "application/json", Schemas.Error},
+      service_unavailable:
+        {"Sandbox unavailable, or every sandbox slot in use (fleet_full)", "application/json",
+         Schemas.Error},
       created: {"Conversation", "application/json", Schemas.ConversationResponse},
-      accepted:
-        {"Queued for sandbox capacity", "application/json", Schemas.SandboxRequestResponse},
-      too_many_requests: {"Tenant concurrency cap reached", "application/json", Schemas.Error},
       ok:
         {"Conversation (resumed by channel_id)", "application/json", Schemas.ConversationResponse},
       forbidden:
@@ -690,77 +689,6 @@ defmodule FountainWeb.ConversationController do
       conn
       |> put_status(if(outcome == :created, do: :created, else: :ok))
       |> render(:show, conversation: conv, resumed: outcome == :resumed)
-    else
-      {:error, {:sandbox_quota_exceeded, _} = reason} ->
-        maybe_enqueue(conn, params, user, reason)
-
-      {:error, :fleet_full = reason} ->
-        maybe_enqueue(conn, params, user, reason)
-
-      {:error, _} = error ->
-        error
-    end
-  end
-
-  # Exactly the launch keys `Conversations.start_conversation/2` reads
-  # (`client_request_id` among them: it waits with the prompt it names), minus
-  # the ones this path sets itself (`user_id`, `agent_id`, `source`) and the
-  # two it refuses to queue. An allow list rather than a drop list:
-  # `ConversationCreateRequest` does not set `additionalProperties: false`, so
-  # dropping the keys we know would park whatever else a caller sent in
-  # `attrs` until the request expired.
-  @queued_attr_keys ~w(prompt title vault_id environment_id inference_credential_id
-                       permission_policy model session_config sandbox_mode sandbox_api_access
-                       sprite_name
-                       channel_id fresh parent_conversation_id labels
-                       client_request_id)
-
-  # Queueing is opt-in (ADR 0042 decision 2). A caller that did not ask keeps
-  # the immediate 429 or 503 its client already handles.
-  #
-  # Images never queue: the server does not hold image bytes for an hour. An
-  # explicit `sandbox_id` never queues either — that is an attach to a machine
-  # the caller already has, not a request for capacity. That arm is belt and
-  # braces rather than a path with a test: `attach_conversation/4` takes no
-  # sandbox reservation, so it cannot raise either capacity error for this
-  # clause to intercept. It is here so a future attach that *does* reserve
-  # cannot start queueing by accident.
-  defp maybe_enqueue(conn, params, user, reason) do
-    if params["queue"] == true and params["images"] in [nil, []] and
-         params["sandbox_id"] in [nil, ""] do
-      enqueue_params = %{
-        user_id: user.id,
-        agent_id: params["agent_id"],
-        kind: "start",
-        source: params["source"],
-        # The restriction this request arrived under, carried so the replay is
-        # held to it an hour later. Without it a `sprite` token could queue a
-        # `channel_id` start with `labels` and have the drainer merge them into
-        # a conversation the token does not own, which is the write
-        # `Conversations.set_conversation_labels/4` refuses at this door
-        # (ADR 0045). `nil` for any other credential, which every rule reads as
-        # "no sandbox restriction applies".
-        sandbox_key_id: SandboxKey.id(conn),
-        attrs: Map.take(params, @queued_attr_keys)
-      }
-
-      case Fountain.SandboxQueue.enqueue(enqueue_params, Audited.attribution(conn)) do
-        {:ok, request} ->
-          conn
-          |> put_status(:accepted)
-          |> put_view(FountainWeb.SandboxQueueJSON)
-          |> render(:show, request: request, position: Fountain.SandboxQueue.position(request))
-
-        # At the depth bound the caller gets the capacity error it was about
-        # to get anyway. The queue delays the cap; it never raises it.
-        {:error, :queue_full} ->
-          {:error, reason}
-
-        {:error, _} = error ->
-          error
-      end
-    else
-      {:error, reason}
     end
   end
 

@@ -77,7 +77,7 @@ one.
 
 You can pause, edit, delete and run a schedule on demand. When Fountain cannot
 deliver a run, the last error shows on the schedule. That happens when the
-teammate was busy for half an hour, or when the sandbox quota was full.
+teammate was busy, or every sandbox slot was in use, for half an hour.
 
 Remove a teammate and Fountain deletes its schedules.
 

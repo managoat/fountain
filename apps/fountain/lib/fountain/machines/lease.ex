@@ -468,7 +468,7 @@ defmodule Fountain.Machines.Lease do
 
   **`nest: true` permits an enclosing transaction**, which every other function
   here refuses, and there are two callers. `Machines.Resume`'s admission runs
-  this inside `Quotas.with_sandbox_reservation/3`'s transaction so that the
+  this inside `Quotas.with_sandbox_reservation/2`'s transaction so that the
   `resuming` stamp and the quota count that authorised it commit together.
   `Machines.Provision.fail/2` runs it beside its caller's own write, so that
   `Launch.fail_initial_start/2` fails a conversation and its machine in one
@@ -489,7 +489,7 @@ defmodule Fountain.Machines.Lease do
   this transaction is this call. And an error out of the nested `Repo.update_all`
   aborts the enclosing transaction, so the caller must treat any `{:error, _}`
   from here as fatal to the whole reservation rather than something to continue
-  from; `Resume` does, by returning it and letting `with_sandbox_reservation/3`
+  from; `Resume` does, by returning it and letting `with_sandbox_reservation/2`
   roll back.
 
   It does not consult `lease_until`, and that is the contract, not an

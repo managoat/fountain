@@ -4,13 +4,14 @@ defmodule Fountain.Workers.TeamScheduleRun do
   as a job, so it retries sensibly and never blocks the ticker.
 
   A teammate that is busy (`:busy`), whose computer is still starting
-  (`:provisioning`) or whose own machine is off (`:runner_offline`) is worth
-  waiting for: the job snoozes and tries again,
+  (`:provisioning`), whose own machine is off (`:runner_offline`), or a fleet
+  with every sandbox slot in use (`:fleet_full`) is worth waiting for: the job
+  snoozes and tries again,
   for up to `@wait_for` after the scheduled time, then gives up with the
   error on the row — the next scheduled run is a better use of the prompt
   than a stale one delivered an hour late. Every other error is final for
   this firing: it is on the schedule's `last_error`, and retrying `:not_found`
-  or a quota error seconds later would not change it.
+  seconds later would not change it.
 
   Idempotent per `{schedule_id, fired_at}` — the unique clause below — so a
   ticker that is retried cannot enqueue the same firing twice.
@@ -23,21 +24,18 @@ defmodule Fountain.Workers.TeamScheduleRun do
 
   require Logger
 
-  alias Fountain.SandboxQueue
   alias Fountain.Team.Schedules
 
   # How long a firing waits for a busy teammate before it is dropped.
   @wait_for 30 * 60
   @snooze 30
 
-  # `SandboxQueue`'s own transient-error list rather than a second copy of it
-  # (ADR 0058 stage 6a). The two said the same thing until 6a added
-  # `sandbox_unavailable` to the queue's, and a list spelled out here is a list
-  # that gets found one refusal late. A module attribute because the guard
-  # below needs one; assigning it from `SandboxQueue.transient_errors()` makes
-  # this module compile-time dependent on `SandboxQueue`, which Mix orders
-  # correctly on its own.
-  @transient_errors SandboxQueue.transient_errors()
+  # Not this firing's fault and gone by itself: the turn in flight ends, the
+  # home sandbox finishes provisioning, the runner comes back, the machine's
+  # owner finishes the operation it is in the middle of (`sandbox_unavailable`,
+  # ADR 0058), a sandbox slot frees (`fleet_full`, ADR 0042 as amended).
+  @transient_errors ~w(busy provisioning runner_offline sandbox_at_capacity sandbox_unavailable
+                       sprite_probe_failed sandbox_resume_failed fleet_full)a
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: %{"schedule_id" => id} = args}) do

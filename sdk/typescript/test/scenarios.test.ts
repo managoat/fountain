@@ -29,7 +29,6 @@ import {
   FountainError,
   NotFoundError,
   NotReadyError,
-  QuotaExceededError,
   RateLimitError,
   ResolutionError,
   TimeoutError,
@@ -215,7 +214,6 @@ interface Observations {
 const ERROR_KINDS: [new (...args: any[]) => Error, string][] = [
   // Most specific first: every one of these extends FountainError.
   [ConversationBusyError, "busy"],
-  [QuotaExceededError, "quota"],
   [NotReadyError, "not_ready"],
   [RateLimitError, "rate_limited"],
   [ValidationError, "validation"],

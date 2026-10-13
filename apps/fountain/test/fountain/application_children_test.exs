@@ -49,7 +49,7 @@ defmodule Fountain.ApplicationChildrenTest do
     test "the listener starts before Oban, so it outlives every job" do
       # The same trap one layer down from the endpoint. Reverse termination
       # would otherwise stop the listener while jobs still ran in the tail of
-      # a drain. SandboxQueueDrainer can start waiting turns during that tail.
+      # a drain. A team schedule run can start a turn during that tail.
       ids = ids()
 
       assert before?(ids, Managoat.Broker, Oban)

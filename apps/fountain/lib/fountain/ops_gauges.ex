@@ -40,17 +40,6 @@ defmodule Fountain.OpsGauges do
         Fountain.Conversations.Sandbox.statuses()
       )
 
-      # Waiting and claimed only, for the same reason the Oban states above
-      # exclude `completed`: the terminal statuses are history rows, so a
-      # `last_value` over them only ever climbs and says nothing about queue
-      # health now. Outcomes are counted as they happen, on
-      # `[:fountain, :sandbox_queue, :completed]`.
-      emit_status_counts(
-        [:fountain, :sandbox_queue, :requests],
-        Fountain.SandboxQueue.Request,
-        Fountain.SandboxQueue.Request.active_statuses()
-      )
-
       emit_sandbox_provider_counts()
       emit_oban_depths()
     end)

@@ -925,10 +925,7 @@ defmodule FountainWeb.Schemas do
               "the command it is about to run, so a title matches one invocation only. " <>
               "Merged with the agent's own policy, taking the stricter of the two. It may " <>
               "only narrow: a policy that would loosen any tool is refused with 422 " <>
-              "permission_policy_widens rather than silently clamped. " <>
-              "If a queued request with a prompt and a nonempty policy resumes an existing " <>
-              "channel, it fails with permission_policy_requires_fresh_conversation before " <>
-              "sending the prompt. Set fresh: true to create a conversation for that policy."
+              "permission_policy_widens rather than silently clamped."
         },
         session_config: %Schema{
           allOf: [SessionConfig],
@@ -962,8 +959,7 @@ defmodule FountainWeb.Schemas do
           ClientRequestId.request(
             "Your own name for the first prompt. Ignored when the request carries no " <>
               "`prompt`. An immediate `channel_id` resume does not deliver the prompt; " <>
-              "send the value with it on the prompts route. If a queued start resumes " <>
-              "a channel bound while it waited, the queue delivers the prompt and value. "
+              "send the value with it on the prompts route."
           ),
         title: %Schema{
           type: :string,
@@ -1063,58 +1059,11 @@ defmodule FountainWeb.Schemas do
               "at most 64 bytes and a value at most 256 bytes, and a 422 names the offending " <>
               "key under `errors.labels`. With channel_id, a resume merges these into the " <>
               "conversation it hands back rather than dropping them."
-        },
-        queue: %Schema{
-          type: :boolean,
-          nullable: true,
-          description:
-            "When a fresh start reaches the tenant or the fleet concurrency ceiling, wait " <>
-              "in the bounded sandbox queue and return 202 with a SandboxRequest instead " <>
-              "of 429 or 503 (ADR 0042). Starts carrying images or an explicit sandbox_id " <>
-              "are never queued, and a full queue keeps the immediate error."
         }
       },
       required: [:agent_id]
     })
   end
-
-  defmodule SandboxRequest do
-    @moduledoc false
-    require OpenApiSpex
-
-    OpenApiSpex.schema(%{
-      title: "SandboxRequest",
-      description: "Work waiting for sandbox capacity (ADR 0042).",
-      type: :object,
-      properties: %{
-        id: %Schema{type: :string, format: :uuid},
-        agent_id: %Schema{type: :string, format: :uuid},
-        kind: %Schema{type: :string, enum: Fountain.SandboxQueue.Request.kinds()},
-        status: %Schema{type: :string, enum: Fountain.SandboxQueue.Request.statuses()},
-        source: %Schema{type: :string, nullable: true},
-        conversation_id: %Schema{
-          type: :string,
-          format: :uuid,
-          nullable: true,
-          description:
-            "The conversation the request started, or the target when a failed request " <>
-              "reports prompt_delivery_unknown. Inspect it before resubmitting: after a " <>
-              "timeout or connection loss, the prompt may have run or may still execute."
-        },
-        error: %Schema{type: :string, nullable: true},
-        position: %Schema{
-          type: :integer,
-          nullable: true,
-          description: "One-based place in the tenant's queue; null once it stops waiting."
-        },
-        inserted_at: %Schema{type: :string, format: :"date-time"}
-      },
-      required: [:id, :agent_id, :kind, :status]
-    })
-  end
-
-  item_response(SandboxRequestResponse, of: SandboxRequest)
-  list_response(SandboxRequestListResponse, of: SandboxRequest)
 
   defmodule ConversationLabelsRequest do
     @moduledoc false
@@ -2370,17 +2319,6 @@ defmodule FountainWeb.Schemas do
         email_verified_at: %Schema{type: :string, format: :"date-time", nullable: true},
         suspended: %Schema{type: :boolean},
         suspended_at: %Schema{type: :string, format: :"date-time", nullable: true},
-        max_concurrent_sandboxes: %Schema{
-          type: :integer,
-          nullable: true,
-          description:
-            "The concurrency cap actually enforced: the override, or the configured ceiling."
-        },
-        sandbox_limit_override: %Schema{
-          type: :integer,
-          nullable: true,
-          description: "Admin override of the cap. Null means the configured ceiling applies."
-        },
         active_sandboxes: %Schema{type: :integer},
         last_activity_at: %Schema{type: :string, format: :"date-time", nullable: true},
         inserted_at: %Schema{type: :string, format: :"date-time"}
@@ -2464,27 +2402,6 @@ defmodule FountainWeb.Schemas do
       type: :object,
       properties: %{role: %Schema{type: :string, enum: ~w(admin user)}},
       required: [:role]
-    })
-  end
-
-  defmodule AdminSandboxLimitRequest do
-    @moduledoc false
-    require OpenApiSpex
-
-    OpenApiSpex.schema(%{
-      title: "AdminSandboxLimitRequest",
-      type: :object,
-      properties: %{
-        limit: %Schema{
-          type: :integer,
-          minimum: 0,
-          nullable: true,
-          description:
-            "Override of the concurrent-sandbox cap. Null clears it, " <>
-              "handing the cap back to the configured ceiling."
-        }
-      },
-      required: [:limit]
     })
   end
 
@@ -3673,7 +3590,7 @@ defmodule FountainWeb.Schemas do
           type: :string,
           description:
             "The machine-readable code: `validation_failed`, `not_found`, " <>
-              "`sandbox_quota_exceeded`, `expired`, " <>
+              "`fleet_full`, `expired`, " <>
               "`invalid_token` and the rest. On the key-authentication and scope " <>
               "refusals it is a sentence and `reason` carries the code.",
           example: "validation_failed"
@@ -3700,15 +3617,10 @@ defmodule FountainWeb.Schemas do
               "OpenAPI cast or in a changeset (#1431).",
           additionalProperties: %Schema{type: :array, items: %Schema{type: :string}}
         },
-        active_sandboxes: %Schema{
-          type: :integer,
-          description: "Sandboxes the account has in use, on `sandbox_quota_exceeded` (429)."
-        },
         limit: %Schema{
           type: :integer,
           description:
-            "The account's concurrent-sandbox cap, on `sandbox_quota_exceeded` (429); " <>
-              "how many ChatGPT subscriptions it may hold, on " <>
+            "How many ChatGPT subscriptions the account may hold, on " <>
               "`chatgpt_grant_limit_reached` (409); how many sign-ins it may have open, " <>
               "on `chatgpt_link_attempts_exceeded` (409); how many it may start in an " <>
               "hour, on `chatgpt_link_attempts_rate_limited` (429)."

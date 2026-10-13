@@ -41,56 +41,6 @@ defmodule Fountain.Workers.RetentionPrunerTest do
     )
   end
 
-  describe "sandbox_requests" do
-    defp insert_request!(user, agent, status, at) do
-      %Fountain.SandboxQueue.Request{}
-      |> Fountain.SandboxQueue.Request.changeset(%{
-        user_id: user.id,
-        agent_id: agent.id,
-        kind: "start",
-        status: status
-      })
-      |> Repo.insert!()
-      # `sandbox_requests` timestamps are :utc_datetime_usec, and days_ago/1
-      # truncates to the second.
-      |> Ecto.Changeset.change(inserted_at: DateTime.add(at, 0, :microsecond))
-      |> Repo.update!()
-    end
-
-    test "prunes finished rows and never touches live work" do
-      user = insert_verified_user()
-      agent = insert_agent(user_id: user.id)
-
-      old_started = insert_request!(user, agent, "started", days_ago(60))
-      old_failed = insert_request!(user, agent, "failed", days_ago(60))
-      recent = insert_request!(user, agent, "started", days_ago(1))
-      # Only reachable by a window shorter than the wait bound, or a clock
-      # that moved. Either way an unstarted request is not history.
-      stale_queued = insert_request!(user, agent, "queued", days_ago(60))
-
-      with_windows([sandbox_requests: 30], fn ->
-        assert RetentionPruner.prune(:sandbox_requests) == 2
-      end)
-
-      assert Repo.get(Fountain.SandboxQueue.Request, old_started.id) == nil
-      assert Repo.get(Fountain.SandboxQueue.Request, old_failed.id) == nil
-      assert Repo.get(Fountain.SandboxQueue.Request, recent.id)
-      assert Repo.get(Fountain.SandboxQueue.Request, stale_queued.id)
-    end
-
-    test "a claimed row is live work too" do
-      user = insert_verified_user()
-      agent = insert_agent(user_id: user.id)
-      claimed = insert_request!(user, agent, "starting", days_ago(60))
-
-      with_windows([sandbox_requests: 30], fn ->
-        assert RetentionPruner.prune(:sandbox_requests) == 0
-      end)
-
-      assert Repo.get(Fountain.SandboxQueue.Request, claimed.id)
-    end
-  end
-
   describe "log_events" do
     test "prunes rows past the window and keeps the rest" do
       user = insert_verified_user()

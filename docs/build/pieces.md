@@ -148,8 +148,8 @@ Fountain scopes each route to the key that called it. Across agents,
 conversations, secrets, search and audit, a key sees its own account and
 nothing else. That scope lives in the queries, and not in each controller.
 
-So the second person to sign in gets their own roster, their own machines and
-their own quota. You write not one line about it.
+So the second person to sign in gets their own roster and their own
+machines. You write not one line about it.
 
 Nobody can talk a browser app that holds one person's key into a reach for
 anybody else's teammates.

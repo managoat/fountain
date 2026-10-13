@@ -212,7 +212,7 @@ defmodule Fountain.Team do
   Idempotent — an agent already on the team gets its existing live
   conversation back, `attrs` ignored, and nothing is recorded, since nothing
   changed. Returns `{:ok, conv}` or the `start_conversation/2` error
-  (`:not_found`, `{:sandbox_quota_exceeded, _}`, ...). `opts` is audit attribution, plus an optional `:source` (`"ui"` or
+  (`:not_found`, `:fleet_full`, ...). `opts` is audit attribution, plus an optional `:source` (`"ui"` or
   `"api"`, default `"ui"`) recorded on the conversation.
   """
   def add_teammate(user_id, agent_id, attrs \\ %{}, opts \\ [])

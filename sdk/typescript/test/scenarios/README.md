@@ -154,7 +154,6 @@ Every key is optional, and an absent key asserts nothing.
 | `validation` | 422 |
 | `rate_limited` | 429 |
 | `busy` | `conversation_busy` |
-| `quota` | `sandbox_quota_exceeded` — the concurrency cap; terminate a conversation and carry on |
 | `not_ready` | `provisioning`, `sprite_probe_failed`, `fleet_full`, 503 |
 | `timeout` | the client's own deadline elapsed |
 | `connection` | the transport failed before a status arrived |

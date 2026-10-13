@@ -64,7 +64,7 @@ defmodule Fountain.Machines.Destroy do
      tenant's capacity — until the provider *confirms* the machine is gone,
      because the fence is retryable by design (`SandboxReaper`'s teardown
      run, the admin retry) and writing the row terminal on an unconfirmed delete would
-     release a quota slot and record `sandbox.reset` for a machine that may
+     release a fleet slot and record `sandbox.reset` for a machine that may
      still be running and billing. Such a destroy answers
      `{:error, :provider_unconfirmed}` and writes nothing at all.
   6. **Finalize**: `status: "terminated"` and the transition cleared, again by
@@ -756,7 +756,7 @@ defmodule Fountain.Machines.Destroy do
           :finalize ->
             finalize(sandbox, epoch, opts)
 
-          # The reset: nothing is written, so the fence, the quota slot and the
+          # The reset: nothing is written, so the fence, the fleet slot and the
           # `transition` stamp all stay exactly as they were and the retry that
           # `SandboxReaper`'s teardown run or the admin panel runs picks the machine
           # up where this left it — through the takeover clause above, which is

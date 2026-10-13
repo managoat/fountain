@@ -101,8 +101,7 @@ defmodule Fountain.Workers.SandboxReaper do
   # the 5 leaked sprites keep billing invisibly — their rows already read as
   # finished, so no other pass looks at them. Before ADR 0058 stage 5b the two
   # populations shared one `Enum.take/2` here; now pass 1 has strict priority.
-  # That is the right way round — a live-status row with no server holds a
-  # quota slot *and* bills, where a terminal row only bills — and the starvation
+  # That is the right way round — a live-status row with no server holds a fleet slot *and* bills, where a terminal row only bills — and the starvation
   # is bounded by the same backlog that causes it.
   @destroy_limit 25
 
@@ -776,8 +775,7 @@ defmodule Fountain.Workers.SandboxReaper do
   #
   # What is left is a live row stamped `destroying` with no owner working on
   # it. Every reader refuses it (ADR 0058 stage 9a: `destroying` is the one
-  # durable transition), `Quotas` counts it against the tenant cap and the
-  # fleet ceiling, and the machine bills. This pass is the only thing that
+  # durable transition), `Quotas` counts it against the fleet ceiling, and the machine bills. This pass is the only thing that
   # finishes it, and it never *starts* a destroy: the stamp is the request, so
   # a row only reaches here because a caller already decided this machine was
   # to go away.
@@ -830,8 +828,7 @@ defmodule Fountain.Workers.SandboxReaper do
   @doc """
   Drives to completion the destroys that were asked for and then abandoned.
 
-  A live row stamped `destroying` is refused by every reader and holds its
-  quota slot for as long as it stands, so this is the only thing that can free
+  A live row stamped `destroying` is refused by every reader and holds its fleet slot for as long as it stands, so this is the only thing that can free
   it. A row whose machine lease is live is skipped: an owner is working on it,
   and this pass would be finishing a destroy that has not failed. An expired
   lease, or none, is the abandonment this pass is for.

@@ -555,7 +555,7 @@ defmodule Fountain.Conversations.Launch do
   # two leaves a `pending` conversation pointing at a `failed` machine, which
   # the next prompt resolves on its own — `Wake.wake_conversation/2` reads a
   # terminal row as `:create_new` — where the other order leaves a `pending`
-  # machine holding a quota slot with no server, which nothing but the reaper's
+  # machine holding a fleet slot with no server, which nothing but the reaper's
   # hourly pass collects.
   #
   # The machine's half goes through its owner (ADR 0058 stage 7b); the
@@ -628,12 +628,12 @@ defmodule Fountain.Conversations.Launch do
   # same category of wait and joins them.
   #
   # This is one transaction: the nested `Repo.transaction` inside
-  # `with_sandbox_reservation/3` joins it rather than opening another, so the
+  # `with_sandbox_reservation/2` joins it rather than opening another, so the
   # sandbox and conversation still commit or roll back together.
   # That is also why the `case` below re-raises the inner rollback with its
   # reason: a nested rollback the outer transaction does not re-raise reaches
-  # the caller as `{:error, :rollback}`, which would turn every quota and
-  # fleet refusal into a 500 instead of a 429 or 503.
+  # the caller as `{:error, :rollback}`, which would turn every fleet refusal
+  # into a 500 instead of a 503.
   #
   # The wait does not disappear, it changes hands. This transaction holds
   # `users FOR SHARE` for its whole life, the fleet-lock wait included, and
@@ -668,7 +668,7 @@ defmodule Fountain.Conversations.Launch do
       end
 
       result =
-        Fountain.Quotas.with_sandbox_reservation(conversation_attrs.user_id, fn ->
+        Fountain.Quotas.with_sandbox_reservation(fn ->
           with {:ok, sandbox} <- Fountain.Machines.Provision.reserve(sandbox_attrs),
                {:ok, conv} <-
                  Conversations.insert_conversation_row(
@@ -987,7 +987,7 @@ defmodule Fountain.Conversations.Launch do
   end
 
   # How long a rotation may wait for the row it is replacing. On the fresh path
-  # this runs inside `with_sandbox_reservation/3`, which holds the global fleet
+  # this runs inside `with_sandbox_reservation/2`, which holds the global fleet
   # advisory lock, and the row it wants is the one `_unsafe_create_turn_on_sandbox/3`
   # takes `FOR UPDATE` — so an unbounded wait would let one busy channel stall
   # provisioning for every tenant. Turn admission holds that row for a handful

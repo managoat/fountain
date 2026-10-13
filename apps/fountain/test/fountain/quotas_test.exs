@@ -39,9 +39,8 @@ defmodule Fountain.QuotasTest do
     end
 
     test "suspended does not count — a parked sprite is not compute (0017)" do
-      # Otherwise five abandoned conversations would permanently lock a
-      # default-cap tenant out of starting anything. Waking a suspended
-      # sandbox re-runs the gate (Conversations.wake_suspended_sandbox/2).
+      # Otherwise abandoned conversations would permanently fill the fleet.
+      # Waking a suspended sandbox re-runs the gate (Machines.Resume).
       user = insert_active_user()
 
       insert_sandbox(user_id: user.id, status: "ready")
@@ -64,134 +63,35 @@ defmodule Fountain.QuotasTest do
     end
   end
 
-  describe "sandbox_limit/1" do
-    # The ceiling is 2 in test config.
-    test "an account with no override gets the ceiling" do
-      assert Quotas.sandbox_limit(insert_active_user().id) == 2
+  describe "check_fleet_ceiling/1" do
+    test "passes below the ceiling" do
+      fill_fleet(1)
+      assert :ok = Quotas.check_fleet_ceiling()
     end
 
-    test "an override beats the ceiling, in either direction" do
-      up = insert_active_user()
-      {:ok, up} = Fountain.Accounts.update_sandbox_limit(up, 25)
-      assert Quotas.sandbox_limit(up.id) == 25
-
-      down = insert_active_user()
-      {:ok, down} = Fountain.Accounts.update_sandbox_limit(down, 1)
-      assert Quotas.sandbox_limit(down.id) == 1
+    test "refuses at the ceiling, whoever holds the slots" do
+      fill_fleet()
+      assert {:error, :fleet_full} = Quotas.check_fleet_ceiling()
     end
 
-    test "an override of zero is an override, not an absent one" do
-      user = insert_active_user()
-      {:ok, user} = Fountain.Accounts.update_sandbox_limit(user, 0)
-      assert Quotas.sandbox_limit(user.id) == 0
+    test "exclude: lets a replacement through at exactly the ceiling" do
+      [replacing | _] = fill_fleet()
+      assert {:error, :fleet_full} = Quotas.check_fleet_ceiling()
+      assert :ok = Quotas.check_fleet_ceiling(exclude: replacing.id)
     end
 
-    test "clearing the override hands the cap back to the ceiling" do
-      user = insert_active_user()
-      {:ok, user} = Fountain.Accounts.update_sandbox_limit(user, 1)
-      {:ok, user} = Fountain.Accounts.update_sandbox_limit(user, nil)
-      assert Quotas.sandbox_limit(user.id) == 2
-    end
-
-    test "an unknown user gets nothing rather than being unlimited" do
-      assert Quotas.sandbox_limit(Ecto.UUID.generate()) == 0
+    test "a suspended sandbox holds no slot" do
+      [parked | _] = fill_fleet()
+      parked |> Ecto.Changeset.change(status: "suspended") |> Repo.update!()
+      assert :ok = Quotas.check_fleet_ceiling()
     end
   end
 
-  # The fleet ceiling lives in `quotas_fleet_ceiling_test.exs`, which is
-  # `async: false`. It has to be: the only way to test a different ceiling is
-  # to write the global `:sandboxes` config, and an async module that does
-  # that changes the ceiling for every test running beside it.
+  # A different ceiling lives in `quotas_fleet_ceiling_test.exs`, which is
+  # `async: false`: the only way to test one is to write the global
+  # `:sandboxes` config.
 
-  describe "sandbox_limit_for/1" do
-    # The admin table renders it per row and must not query per row, so it has
-    # to agree with the querying version for every combination that matters.
-    test "agrees with sandbox_limit/1 without touching the database" do
-      for override <- [nil, 0, 25] do
-        user = insert_active_user()
-
-        {:ok, user} =
-          Fountain.Accounts.update_sandbox_limit(Fountain.Repo.reload!(user), override)
-
-        assert Quotas.sandbox_limit_for(user) == Quotas.sandbox_limit(user.id),
-               "override=#{inspect(override)}"
-      end
-    end
-  end
-
-  describe "check_sandbox_quota/2" do
-    test "passes below the cap" do
-      user = insert_active_user()
-      insert_sandbox(user_id: user.id, status: "ready")
-
-      assert :ok = Quotas.check_sandbox_quota(user.id)
-    end
-
-    # Unlike the block above, these derive the cap rather than writing it out:
-    # what is under test is the counting and the exclusion, not which number
-    # the catalog holds. Pinning it here only makes every future cap change
-    # break six unrelated tests.
-    test "denies at the cap" do
-      user = insert_active_user()
-      limit = Quotas.sandbox_limit(user.id)
-      for _ <- 1..limit, do: insert_sandbox(user_id: user.id, status: "ready")
-
-      assert {:error, {:sandbox_quota_exceeded, %{count: ^limit, limit: ^limit}}} =
-               Quotas.check_sandbox_quota(user.id)
-    end
-
-    test "denies above the cap" do
-      user = insert_active_user()
-      limit = Quotas.sandbox_limit(user.id)
-      over = limit + 2
-      for _ <- 1..over, do: insert_sandbox(user_id: user.id, status: "ready")
-
-      assert {:error, {:sandbox_quota_exceeded, %{count: ^over, limit: ^limit}}} =
-               Quotas.check_sandbox_quota(user.id)
-    end
-
-    test "one tenant at its cap does not affect another" do
-      user = insert_active_user()
-      other = insert_active_user()
-
-      for _ <- 1..Quotas.sandbox_limit(user.id),
-          do: insert_sandbox(user_id: user.id, status: "ready")
-
-      assert {:error, _} = Quotas.check_sandbox_quota(user.id)
-      assert :ok = Quotas.check_sandbox_quota(other.id)
-    end
-
-    test "exclude: lets a replacement through at exactly the cap" do
-      user = insert_active_user()
-
-      [replacing | _] =
-        for _ <- 1..Quotas.sandbox_limit(user.id),
-            do: insert_sandbox(user_id: user.id, status: "ready")
-
-      assert {:error, _} = Quotas.check_sandbox_quota(user.id)
-      assert :ok = Quotas.check_sandbox_quota(user.id, exclude: replacing.id)
-    end
-
-    test "a raised cap admits more" do
-      user = insert_active_user()
-      limit = Quotas.sandbox_limit(user.id)
-      for _ <- 1..limit, do: insert_sandbox(user_id: user.id, status: "ready")
-      assert {:error, _} = Quotas.check_sandbox_quota(user.id)
-
-      {:ok, _} = Fountain.Accounts.update_sandbox_limit(user, limit + 5)
-      assert :ok = Quotas.check_sandbox_quota(user.id)
-    end
-
-    test "a cap of zero denies everything — the lever for shutting off abuse" do
-      user = insert_active_user()
-      {:ok, user} = Fountain.Accounts.update_sandbox_limit(user, 0)
-
-      assert {:error, {:sandbox_quota_exceeded, %{count: 0, limit: 0}}} =
-               Quotas.check_sandbox_quota(user.id)
-    end
-  end
-
-  describe "with_sandbox_reservation/3 (#330)" do
+  describe "with_sandbox_reservation/2 (#330)" do
     # The cross-connection serialization itself rests on
     # pg_advisory_xact_lock and cannot be observed under the SQL sandbox
     # (every allowed process shares one transaction). What these pin is the
@@ -199,11 +99,11 @@ defmodule Fountain.QuotasTest do
 
     alias Fountain.Quotas
 
-    test "creates the row when below the cap" do
+    test "creates the row when below the ceiling" do
       user = insert_active_user()
 
       assert {:ok, sandbox} =
-               Quotas.with_sandbox_reservation(user.id, fn ->
+               Quotas.with_sandbox_reservation(fn ->
                  {:ok, insert_sandbox(user_id: user.id, status: "pending")}
                end)
 
@@ -211,24 +111,23 @@ defmodule Fountain.QuotasTest do
       assert sandbox.user_id == user.id
     end
 
-    test "refuses at the cap and creates nothing" do
-      user = insert_active_user()
-      limit = Quotas.sandbox_limit(user.id)
-      for _ <- 1..limit, do: insert_sandbox(user_id: user.id, status: "ready")
+    test "refuses at the ceiling and creates nothing" do
+      fill_fleet()
+      before = Quotas.fleet_count()
 
-      assert {:error, {:sandbox_quota_exceeded, %{count: ^limit, limit: ^limit}}} =
-               Quotas.with_sandbox_reservation(user.id, fn ->
-                 flunk("fun must not run once the quota refuses")
+      assert {:error, :fleet_full} =
+               Quotas.with_sandbox_reservation(fn ->
+                 flunk("fun must not run once the ceiling refuses")
                end)
 
-      assert Quotas.active_sandbox_count(user.id) == limit
+      assert Quotas.fleet_count() == before
     end
 
     test "a failure in fun rolls the reservation back" do
       user = insert_active_user()
 
       assert {:error, :boom} =
-               Quotas.with_sandbox_reservation(user.id, fn ->
+               Quotas.with_sandbox_reservation(fn ->
                  insert_sandbox(user_id: user.id, status: "pending")
                  {:error, :boom}
                end)
@@ -239,15 +138,10 @@ defmodule Fountain.QuotasTest do
 
     test "honours the :exclude option the wake path needs" do
       user = insert_active_user()
-
-      sandboxes =
-        for _ <- 1..Quotas.sandbox_limit(user.id),
-            do: insert_sandbox(user_id: user.id, status: "ready")
-
-      replacing = hd(sandboxes)
+      [replacing | _] = fill_fleet()
 
       assert {:ok, _} =
-               Quotas.with_sandbox_reservation(user.id, [exclude: replacing.id], fn ->
+               Quotas.with_sandbox_reservation([exclude: replacing.id], fn ->
                  {:ok, insert_sandbox(user_id: user.id, status: "pending")}
                end)
     end

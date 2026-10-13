@@ -71,7 +71,7 @@ What it gives you that raw `fetch` does not: `Run` handles you can await or
 stream; `blocks: true` on every feed; reconnect from the last event id; the
 name-or-id resolver on agents/environments/vaults; and one error class per
 server `code` (`ConversationBusyError`, `NotReadyError` with `retryAfter`,
-`QuotaExceededError`, `SubscriptionRequiredError` with `upgradeUrl`,
+`SubscriptionRequiredError` with `upgradeUrl`,
 `ValidationError` with `fieldErrors`, `ConnectionError` — in a browser,
 CORS). In Node the credentials resolve from `FOUNTAIN_API_KEY` /
 `FOUNTAIN_BASE_URL` and `~/.fountain/credentials`, same as the CLI; in a

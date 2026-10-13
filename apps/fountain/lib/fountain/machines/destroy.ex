@@ -774,9 +774,8 @@ defmodule Fountain.Machines.Destroy do
            transition_reason: nil
          ) do
       {:ok, %Sandbox{} = terminated} ->
-        # The two effects every status change owes — the `sandbox_terminated`
-        # usage row and the sandbox-queue poke that turns this tenant's freed
-        # slot into a drain. After the write commits and outside every
+        # The effects every status change owes — the `sandbox_terminated`
+        # usage row first. After the write commits and outside every
         # transaction, with the status the row carried *going into* the
         # finalize rather than a fresh reload: the rule #2309 set, which
         # `Conversations.update_sandbox/2` followed with its `FOR UPDATE` read

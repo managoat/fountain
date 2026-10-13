@@ -60,7 +60,6 @@ config :ueberauth, Ueberauth.Strategy.Github.OAuth,
   client_id: "test-github-client-id",
   client_secret: "test-github-client-secret"
 
-
 # Key rate limit buckets by calling process PID instead of IP, so async
 # ExUnit tests don't share counters. Each test runs in its own process.
 config :fountain, :rate_limit_test_isolation, true

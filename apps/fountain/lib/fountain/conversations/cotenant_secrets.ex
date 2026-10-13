@@ -41,8 +41,7 @@ defmodule Fountain.Conversations.CotenantSecrets do
   its stored `inference_source`, re-validated against its environment and
   vault by `InferenceResolution.revalidate/3`. That path is read-only — one
   transaction holding the per-user source lock (advisory locks, no row
-  writes), no reservation, no audit and no provider I/O; a ChatGPT grant is
-  read by metadata only and never renewed there. Registration is `Redaction.add/2`,
+  writes), no reservation, no audit and no provider I/O. Registration is `Redaction.add/2`,
   so nothing registered is forgotten before the conversation ends. What is
   registered is every credential in the resolved map, not only the one the
   co-tenant's runtime exports: over-redacting costs a little stream latency
@@ -70,10 +69,6 @@ defmodule Fountain.Conversations.CotenantSecrets do
 
   ## What is not covered
 
-    * **A ChatGPT subscription** (ADR 0060, and the deployment's grant). Its
-      resolution yields the grant's placeholder, never its bearer, and the
-      bearer never enters a sandbox (`CodexChatGPT`), so there is nothing to
-      register; the placeholder is skipped as it is in `SpriteEnv` (#2366).
     * **A co-tenant whose source no longer re-validates** (its configuration
       moved since admission). It is re-resolved as a new selection on the
       set it names, which covers a changed revision but not a rotated value:
@@ -244,15 +239,12 @@ defmodule Fountain.Conversations.CotenantSecrets do
 
     case resolve(conv, agent, opts) do
       {:ok, _source, creds} ->
-        for {_kind, value} <- creds,
-            is_binary(value),
-            not Fountain.ChatGPTAccounts.Reserved.placeholder?(value),
-            do: value
+        for {_kind, value} <- creds, is_binary(value), do: value
 
       {:error, reason} ->
         Logger.warning(
           "conv #{conv.id}: co-tenant inference credentials not readable for redaction: " <>
-            inspect(Fountain.InferenceCredentials.loggable_reason(reason))
+            inspect(reason)
         )
 
         []

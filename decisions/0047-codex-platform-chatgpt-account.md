@@ -1,19 +1,20 @@
 ---
 type: ADR
 title: "Run the codex runtime on the platform's ChatGPT account"
-description: "An admin signs the Fountain server in to ChatGPT once; the server keeps the rotating refresh token, the broker carries the access token to chatgpt.com, and a codex sandbox holds only a placeholder. Built and measured in #1755: four of the five G0 measurements pass, a codex turn has run on the grant through Fountain, and the idle-lifetime measurement is due 2026-09-17. Amended 2026-09-16 (#2362): a grant whose account OpenAI confirms has spent its Codex usage is skipped for the platform API key until the reset time OpenAI gives; a sandbox's report only triggers the server-side check, and the failing turn is not retried. Amended 2026-09-20 by ADR 0060: the grant moves onto the protected broker path (no bearer in a broker session or a conversation, a per-request check, one chatgpt.com route, HTTP only, a CODEX_HOME of its own), in a change gated on a measurement of that path against the image's codex client. It merged on 2026-09-21 without that measurement; the offline half was taken the same day (the client honours CODEX_HOME, and it asks chatgpt.com for ten routes besides the allowed one and completes its turns with all of them refused), and once the account was reconnected that evening the hosted half was taken for a first and a second turn (both completed on the account through the real broker on managoat_broker 0.15.0, and chatgpt.com honoured the forced identity encoding). The reattached turn is still owed."
+description: "Retired 2026-10-13: ChatGPT subscriptions and the deployment's ChatGPT account were removed, and codex runs on an OpenAI API key. Was: Run the codex runtime on the platform's ChatGPT account: the server held a rotating refresh token and the broker carried the access token to chatgpt.com, so a codex sandbox held only a placeholder."
 tags: [inference, broker, codex, security, billing]
-status: draft
+status: deprecated
 adr: "0047"
-adr_status: "Proposed"
+adr_status: "Retired"
 date: 2026-09-08
 generated: { by: claude-fable/5.1, at: 2026-09-08T12:00:00-04:00 }
-stale_after: 2026-10-08
 ---
 
 # 0047 — Run the codex runtime on the platform's ChatGPT account
 
-**Status:** Proposed, 2026-09-08. **Built and measured in #1755**, out of
+**Status:** Retired 2026-10-13; see the addendum at the end. The text above the addendum is history. Was: Proposed, 2026-09-08.
+
+**Status before retirement:** Proposed, 2026-09-08. **Built and measured in #1755**, out of
 the order the gates below prescribe: G1, G2 and G3 are in the code, and
 four of the five measurements in [Measured](#measured) were taken on
 2026-09-08 with a real ChatGPT Pro account, including a codex turn on the
@@ -892,3 +893,38 @@ G0's.
   [codex-lb OAuth configuration](https://mintlify.wiki/Soju06/codex-lb/configuration/oauth)
 - [Anthropic bans subscription auth in third-party tools](https://alternativeto.net/news/2026/2/anthropic-officially-bans-using-subscription-authentication-for-third-party-claude-use)
 - [ChatGPT and Codex account ban risk guide](https://blog.4sapi.com/blog/chatgpt-codex-account-ban-api-guide)
+
+## Addendum — 2026-10-13: retired, ChatGPT subscriptions are removed
+
+Fountain no longer runs codex on a ChatGPT sign-in (#PRNUM). The maintainer
+decided on 2026-10-13 to cut the feature: production held three grants, all
+owned by one account that has left, none on the deployment's own row, and
+the last conversation on a subscription ran on 2026-10-08. The feature was
+about 7,700 lines of server code and 15,500 of tests for that. "If I want it
+I can add it back."
+
+What went: the deployment's ChatGPT account (`/admin/inference`'s ChatGPT
+row, its refresher and keepalive), users' subscriptions (the
+`/api/account/chatgpt-subscriptions` routes, device-code link attempts, the
+console card and the set picker, `chatgpt_grant_id` on a credential set, the
+`chatgpt_subscriptions` flag and with it `Fountain.FeatureFlags`), the
+per-grant `CODEX_HOME` and its `auth.json`, the broker's managed-grant path
+(`ProtectedCompiler`, `authorize/2`, the `managed_*` session fence, the
+reserved `CODEX_CHATGPT_ACCESS_TOKEN` name), the usage-limit check and the
+`chatgpt` and `chatgpt_refresh` Oban queues.
+
+What stays: the codex runtime on an OpenAI API key from a credential set, an
+environment, a vault or the platform key, with the broker's ordinary
+substitution path; `PlatformInference`'s keys; and the machine's
+`codex_peer_homes` flag, which ADR 0023's guest attach (#2516) still uses to
+let a built machine take its first Codex bind.
+
+Existing rows: a credential set that named a subscription was cleared by a
+migration. A conversation or turn that ran on one still lists, with no
+`inference` source shown, and a conversation pinned to one is refused with
+`409 inference_source_changed` at its next turn or wake. The grant tables,
+`inference_credentials.chatgpt_grant_id` and the `managed_*` broker session
+columns are dropped one release later, so a replica of the previous release
+keeps working during the rollout. Nothing revokes a sign-in at OpenAI.
+
+The text above this addendum is history.

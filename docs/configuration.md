@@ -103,7 +103,6 @@ at a dead end, with no error to see. Read [Email](guides/operate/email.md).
 | Variable | Default | Required | Effect |
 |---|---|---|---|
 | `SANDBOX_FLEET_CEILING` | `20` | No. | The most live sandboxes across every account; there is no per-account cap. Set it to what your sandbox provider plan allows (Sprites' $20 plan allows about 20). A start or wake beyond it gets `503 fleet_full` with `Retry-After: 60`; nothing queues. |
-| `CHATGPT_GRANT_CEILING` | `5` | No. | The most ChatGPT subscriptions one account may link. A disconnected subscription keeps its place until the account removes it. A link beyond it gets `409 chatgpt_grant_limit_reached`. A lower value refuses new links only, and `0` refuses each new link. |
 
 ## Platform inference
 
@@ -142,132 +141,11 @@ deployment that already runs.
 
 ### The ChatGPT account for the codex runtime
 
-Fountain can also hold one ChatGPT account for the `codex` runtime. A codex
-agent whose tenant has no OpenAI key then runs on that account, before the
-`PLATFORM_OPENAI_API_KEY` key. The tenant's own key always wins.
-
-Connect the account at `/admin/inference`. There are three ways in.
-
-- **A device code.** Fountain requests a code, shows the code and a link, and
-  waits for your approval on the ChatGPT page. The account must permit
-  device-code login in its ChatGPT security settings.
-- **A pasted `auth.json`.** Use Codex 0.93.0 or newer on a laptop.
-  The file must contain `"auth_mode": "chatgpt"` and a refresh token.
-  Missing, null and other modes are refused. Follow the export steps below.
-  After the paste, the file belongs to Fountain. Do not use it anywhere
-  else, or both copies stop.
-- **A workspace access token.** A ChatGPT Business or Enterprise workspace
-  can mint a static token in its admin console. Paste the token and its
-  expiry date. This is the credential OpenAI sanctions for servers, so use it
-  where you have one.
-
-For a fresh file export, run these commands and complete the ChatGPT sign-in.
-
-```bash
-FOUNTAIN_CODEX_HOME=$(mktemp -d)
-CODEX_HOME="$FOUNTAIN_CODEX_HOME" codex -c 'cli_auth_credentials_store="file"' login
-```
-
-Paste `auth.json` from that temporary directory into Fountain.
-For an older file, upgrade Codex and repeat these steps. Do not add a mode
-field to an old file. Stored Fountain grants continue to refresh without
-another import.
-
-The [Codex 0.93.0 login writer](https://github.com/openai/codex/blob/rust-v0.93.0/codex-rs/login/src/server.rs#L562)
-sets the explicit mode. This is the supported producer floor; Fountain
-checks the file format because `auth.json` contains no producer version.
-
-Fountain keeps the refresh token, encrypted under `MASTER_SECRETS_KEY`, and
-renews the access token itself. A sandbox never sees either token. The
-sandbox holds a placeholder, and the egress broker puts the real token into
-the request to `chatgpt.com`. Each connect and disconnect leaves an
-`admin.platform_chatgpt` event on the admin activity page.
-
-The broker asks Fountain for the token on every request, and only for the
-two routes Codex uses: `POST https://chatgpt.com/backend-api/codex/responses`,
-and `GET https://chatgpt.com/backend-api/codex/models` with only the
-`client_version` query parameter.
-So a disconnect or a reconnect takes effect on the next request, including
-in a conversation that is mid-turn. A secret binding or a custom header
-template cannot send the token anywhere else. If a binding of yours matches
-either route, a codex conversation on the account fails to provision until you
-remove it. A codex conversation on the account cannot open a WebSocket, or
-any other protocol upgrade, through the broker to any host. Plain HTTP
-requests and streamed responses work as before. Fountain sets `CODEX_HOME`
-for such a conversation, and ignores a `CODEX_HOME` from its environment or
-vault.
-
-The broker also allows two more routes for such a conversation:
-
-- **The model list:** `GET https://chatgpt.com/backend-api/codex/models`,
-  with only the `client_version` query parameter.
-- **Analytics:** `POST https://chatgpt.com/backend-api/codex/analytics-events/events`.
-  Fountain turns Codex's analytics off by default in the conversation's
-  `CODEX_HOME`, so these requests arrive only if a `config.toml` turns
-  analytics on.
-
-Codex also asks `chatgpt.com` for plugin lists, an MCP surface and settings.
-The broker refuses those requests, and `/admin/broker` lists them as denied.
-This is expected. Most of the refusals come once, when a sandbox starts, and
-each turn after that adds a few more. On a subscription Fountain turns off
-Codex's remote plugin catalog, so fewer of them arrive. A refused request
-that has no body leaves its connection open. We observed this in production on
-2026-09-21 with codex-acp 1.10.0 and Codex CLI 0.153.4, and the turns
-completed without those requests.
-
-A ChatGPT account has Codex usage limits. When a codex turn on the account
-fails because the account is at its limit, that turn fails. Fountain does
-not retry it. The error comes from the sandbox, and a tenant can change what
-runs in the sandbox, so Fountain does not trust the error. Fountain asks
-ChatGPT for the account's usage itself, with the account's own token. It
-asks at most once every five minutes.
-
-If ChatGPT confirms the limit, Fountain records the reset time that ChatGPT
-gives and shows it at `/admin/inference`. It also records an
-`admin.platform_chatgpt.exhausted` event. Until the reset time, new codex
-conversations use `PLATFORM_OPENAI_API_KEY` instead of the account. Those
-turns use the API key, which has no limit. If no OpenAI
-platform key is set, codex conversations continue to use the account.
-After the reset time, the account is used again. If ChatGPT does not confirm
-the limit, or the check fails, Fountain records nothing.
-
-The limit belongs to the ChatGPT account, not to its token. If you reconnect
-the same account, the reset time stays. If you connect a different account,
-Fountain clears it. If ChatGPT confirms the limit but gives no reset time,
-Fountain skips the account for one hour.
-
-The switch applies to new selections only. A codex sandbox stays bound to
-the credential it started on, and Fountain does not move it. A new
-conversation is not always a new sandbox: with `sandbox_mode: persistent`, it
-lands on the agent's persistent home. So each switch has the same effects:
-
-- **When the limit is confirmed.** A persistent home that started on the
-  account refuses new persistent conversations with
-  `409 codex_inference_conflict`. A conversation that runs on the account
-  stays on it. Its turns fail until the reset time. If its sandbox parks,
-  wake and provision fail with `409 inference_source_changed` until the reset
-  time.
-- **When the reset time passes.** The same happens in reverse. A persistent
-  home that started on `PLATFORM_OPENAI_API_KEY` refuses new persistent
-  conversations with `409 codex_inference_conflict`. A conversation that runs
-  on the key fails wake and provision with `409 inference_source_changed`.
-
-To run on the new selection, use a sandbox that is not bound to the old
-credential. Start the conversation with `sandbox_mode: ephemeral`, or reset
-the persistent home with `DELETE /api/sandboxes/{id}`. The next persistent
-conversation then builds a new home. A reset replaces the home's disk. See
-[Sandboxes](api.md#sandboxes).
-
-These effects belong to the deployment's account and key, which share one
-Codex sign-in file on a sandbox. A ChatGPT subscription that a tenant links
-and a credential set names is different. Codex keeps that sign-in in a home
-of its own, so it shares a sandbox with each other source and gets no
-`409 codex_inference_conflict`. A sandbox that was first bound before Fountain
-prepared such homes keeps the old rule for each source.
-
-A personal subscription is one account for every tenant on the deployment.
-That pattern is behind reported account bans, and it is an operator's own
-risk. The page says so.
+Fountain removed the deployment's ChatGPT account, and users' ChatGPT
+subscriptions, on 2026-10-13. A codex agent with no OpenAI key of its own runs
+on `PLATFORM_OPENAI_API_KEY`, or on nothing. A later release deletes the
+stored ChatGPT sign-ins. Fountain cannot revoke a sign-in at OpenAI: to end
+one now, sign the device out in the ChatGPT account's security settings.
 
 ## Brand
 
@@ -322,23 +200,3 @@ else. It is **off by default**. It exports a span only when you explicitly set
 The OTel SDK also honours its own standard variables, and those win. Set
 `OTEL_TRACES_EXPORTER=otlp` or `=none` to force the export on or off, whatever
 the table above says.
-
-## Feature flags
-
-`Fountain.FeatureFlags` reads configuration and nothing else. A flag is on or
-off for the whole deployment, and the same answer applies to each account.
-
-The one flag is `chatgpt_subscriptions`. It holds the door that links a new ChatGPT subscription to an account, and that feature is in
-development. The flag reads off until you add `chatgpt_subscriptions` to
-`FEATURE_FLAGS_ON`. It needs the credential broker too. Read
-[feature status](reference/feature-status.md) first, and do not turn the flag
-on for an instance that serves people you do not trust. An account that loses
-the flag keeps each subscription it linked. The API still lists, renames,
-reconnects, disconnects and removes them.
-
-| Variable | Default | Required | Effect |
-|---|---|---|---|
-| `FEATURE_FLAGS_ON` | — | — | Comma-separated flag keys, turned on for each account. ChatGPT subscriptions are off unless `chatgpt_subscriptions` is here, and the feature is not proven on the real service. See [feature status](reference/feature-status.md). |
-
-A flag that gates a shipped feature would read on by default, so that an
-upgrade adding it does not take the feature away. None does today.

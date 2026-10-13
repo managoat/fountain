@@ -46,88 +46,6 @@
         }
       }
     },
-    "DELETE /api/account/chatgpt-subscriptions/attempts/{id}": {
-      "operation_id": "FountainWeb.ChatGPTSubscriptionController.cancel_attempt",
-      "path_params": [
-        "id"
-      ],
-      "responses": {
-        "200": {
-          "application/json": {
-            "ref": "ChatGPTLinkAttemptResponse"
-          }
-        },
-        "401": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "403": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "404": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "406": {
-          "application/json": {
-            "ref": "NegotiationError"
-          }
-        },
-        "409": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "429": {
-          "application/json": {
-            "ref": "Error"
-          }
-        }
-      }
-    },
-    "DELETE /api/account/chatgpt-subscriptions/{id}": {
-      "operation_id": "FountainWeb.ChatGPTSubscriptionController.delete",
-      "path_params": [
-        "id"
-      ],
-      "responses": {
-        "204": {},
-        "401": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "403": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "404": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "406": {
-          "application/json": {
-            "ref": "NegotiationError"
-          }
-        },
-        "409": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "429": {
-          "application/json": {
-            "ref": "Error"
-          }
-        }
-      }
-    },
     "DELETE /api/account/inference-credential-sets/{id}": {
       "operation_id": "FountainWeb.InferenceCredentialSetController.delete",
       "path_params": [
@@ -562,6 +480,40 @@
         }
       }
     },
+    "DELETE /api/sandbox-queue/{id}": {
+      "operation_id": "FountainWeb.SandboxQueueController.delete",
+      "path_params": [
+        "id"
+      ],
+      "responses": {
+        "204": {},
+        "401": {
+          "application/json": {
+            "ref": "Error"
+          }
+        },
+        "403": {
+          "application/json": {
+            "ref": "Error"
+          }
+        },
+        "404": {
+          "application/json": {
+            "ref": "Error"
+          }
+        },
+        "406": {
+          "application/json": {
+            "ref": "NegotiationError"
+          }
+        },
+        "429": {
+          "application/json": {
+            "ref": "Error"
+          }
+        }
+      }
+    },
     "DELETE /api/sandboxes/{id}": {
       "operation_id": "FountainWeb.SandboxController.delete",
       "path_params": [
@@ -761,106 +713,6 @@
       ],
       "responses": {
         "204": {},
-        "401": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "403": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "404": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "406": {
-          "application/json": {
-            "ref": "NegotiationError"
-          }
-        },
-        "429": {
-          "application/json": {
-            "ref": "Error"
-          }
-        }
-      }
-    },
-    "GET /api/account/chatgpt-subscriptions": {
-      "operation_id": "FountainWeb.ChatGPTSubscriptionController.index",
-      "path_params": [],
-      "responses": {
-        "200": {
-          "application/json": {
-            "ref": "ChatGPTSubscriptionListResponse"
-          }
-        },
-        "401": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "403": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "406": {
-          "application/json": {
-            "ref": "NegotiationError"
-          }
-        },
-        "429": {
-          "application/json": {
-            "ref": "Error"
-          }
-        }
-      }
-    },
-    "GET /api/account/chatgpt-subscriptions/attempts": {
-      "operation_id": "FountainWeb.ChatGPTSubscriptionController.index_attempts",
-      "path_params": [],
-      "responses": {
-        "200": {
-          "application/json": {
-            "ref": "ChatGPTLinkAttemptListResponse"
-          }
-        },
-        "401": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "403": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "406": {
-          "application/json": {
-            "ref": "NegotiationError"
-          }
-        },
-        "429": {
-          "application/json": {
-            "ref": "Error"
-          }
-        }
-      }
-    },
-    "GET /api/account/chatgpt-subscriptions/attempts/{id}": {
-      "operation_id": "FountainWeb.ChatGPTSubscriptionController.show_attempt",
-      "path_params": [
-        "id"
-      ],
-      "responses": {
-        "200": {
-          "application/json": {
-            "ref": "ChatGPTLinkAttemptResponse"
-          }
-        },
         "401": {
           "application/json": {
             "ref": "Error"
@@ -2265,6 +2117,75 @@
         }
       }
     },
+    "GET /api/sandbox-queue": {
+      "operation_id": "FountainWeb.SandboxQueueController.index",
+      "path_params": [],
+      "responses": {
+        "200": {
+          "application/json": {
+            "ref": "SandboxRequestListResponse"
+          }
+        },
+        "401": {
+          "application/json": {
+            "ref": "Error"
+          }
+        },
+        "403": {
+          "application/json": {
+            "ref": "Error"
+          }
+        },
+        "406": {
+          "application/json": {
+            "ref": "NegotiationError"
+          }
+        },
+        "429": {
+          "application/json": {
+            "ref": "Error"
+          }
+        }
+      }
+    },
+    "GET /api/sandbox-queue/{id}": {
+      "operation_id": "FountainWeb.SandboxQueueController.show",
+      "path_params": [
+        "id"
+      ],
+      "responses": {
+        "200": {
+          "application/json": {
+            "ref": "SandboxRequestResponse"
+          }
+        },
+        "401": {
+          "application/json": {
+            "ref": "Error"
+          }
+        },
+        "403": {
+          "application/json": {
+            "ref": "Error"
+          }
+        },
+        "404": {
+          "application/json": {
+            "ref": "Error"
+          }
+        },
+        "406": {
+          "application/json": {
+            "ref": "NegotiationError"
+          }
+        },
+        "429": {
+          "application/json": {
+            "ref": "Error"
+          }
+        }
+      }
+    },
     "GET /api/sandboxes": {
       "operation_id": "FountainWeb.SandboxController.index",
       "path_params": [],
@@ -3167,57 +3088,6 @@
         }
       }
     },
-    "PATCH /api/account/chatgpt-subscriptions/{id}": {
-      "operation_id": "FountainWeb.ChatGPTSubscriptionController.update",
-      "path_params": [
-        "id"
-      ],
-      "request_body": {
-        "content": {
-          "application/json": {
-            "ref": "ChatGPTSubscriptionUpdateRequest"
-          }
-        },
-        "required": false
-      },
-      "responses": {
-        "200": {
-          "application/json": {
-            "ref": "ChatGPTSubscriptionResponse"
-          }
-        },
-        "401": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "403": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "404": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "406": {
-          "application/json": {
-            "ref": "NegotiationError"
-          }
-        },
-        "422": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "429": {
-          "application/json": {
-            "ref": "Error"
-          }
-        }
-      }
-    },
     "PATCH /api/account/inference-credential-sets/{id}": {
       "operation_id": "FountainWeb.InferenceCredentialSetController.update",
       "path_params": [
@@ -3735,108 +3605,6 @@
         }
       }
     },
-    "POST /api/account/chatgpt-subscriptions/attempts": {
-      "operation_id": "FountainWeb.ChatGPTSubscriptionController.create_attempt",
-      "path_params": [],
-      "request_body": {
-        "content": {
-          "application/json": {
-            "ref": "ChatGPTLinkAttemptCreateRequest"
-          }
-        },
-        "required": false
-      },
-      "responses": {
-        "201": {
-          "application/json": {
-            "ref": "ChatGPTLinkAttemptResponse"
-          }
-        },
-        "401": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "403": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "404": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "406": {
-          "application/json": {
-            "ref": "NegotiationError"
-          }
-        },
-        "409": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "422": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "429": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "502": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "503": {
-          "application/json": {
-            "ref": "Error"
-          }
-        }
-      }
-    },
-    "POST /api/account/chatgpt-subscriptions/{id}/disconnect": {
-      "operation_id": "FountainWeb.ChatGPTSubscriptionController.disconnect",
-      "path_params": [
-        "id"
-      ],
-      "responses": {
-        "200": {
-          "application/json": {
-            "ref": "ChatGPTSubscriptionResponse"
-          }
-        },
-        "401": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "403": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "404": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "406": {
-          "application/json": {
-            "ref": "NegotiationError"
-          }
-        },
-        "429": {
-          "application/json": {
-            "ref": "Error"
-          }
-        }
-      }
-    },
     "POST /api/account/inference-credential-sets": {
       "operation_id": "FountainWeb.InferenceCredentialSetController.create",
       "path_params": [],
@@ -3977,6 +3745,57 @@
         "content": {
           "application/json": {
             "ref": "AdminRoleRequest"
+          }
+        },
+        "required": false
+      },
+      "responses": {
+        "200": {
+          "application/json": {
+            "ref": "AdminUserResponse"
+          }
+        },
+        "401": {
+          "application/json": {
+            "ref": "Error"
+          }
+        },
+        "403": {
+          "application/json": {
+            "ref": "Error"
+          }
+        },
+        "404": {
+          "application/json": {
+            "ref": "Error"
+          }
+        },
+        "406": {
+          "application/json": {
+            "ref": "NegotiationError"
+          }
+        },
+        "422": {
+          "application/json": {
+            "ref": "Error"
+          }
+        },
+        "429": {
+          "application/json": {
+            "ref": "Error"
+          }
+        }
+      }
+    },
+    "POST /api/admin/users/{id}/sandbox-limit": {
+      "operation_id": "FountainWeb.AdminController.set_sandbox_limit",
+      "path_params": [
+        "id"
+      ],
+      "request_body": {
+        "content": {
+          "application/json": {
+            "ref": "AdminSandboxLimitRequest"
           }
         },
         "required": false
@@ -4568,6 +4387,11 @@
         "201": {
           "application/json": {
             "ref": "ConversationResponse"
+          }
+        },
+        "202": {
+          "application/json": {
+            "ref": "SandboxRequestResponse"
           }
         },
         "400": {
@@ -6168,6 +5992,16 @@
       },
       "type": "object"
     },
+    "AdminSandboxLimitRequest": {
+      "properties": {
+        "limit": {
+          "nullable": true,
+          "required": true,
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
     "AdminSandboxListResponse": {
       "properties": {
         "data": {
@@ -6225,6 +6059,11 @@
           "required": false,
           "type": "string"
         },
+        "max_concurrent_sandboxes": {
+          "nullable": true,
+          "required": false,
+          "type": "integer"
+        },
         "role": {
           "enum": [
             "admin",
@@ -6232,6 +6071,11 @@
           ],
           "required": true,
           "type": "string"
+        },
+        "sandbox_limit_override": {
+          "nullable": true,
+          "required": false,
+          "type": "integer"
         },
         "suspended": {
           "required": false,
@@ -7081,10 +6925,6 @@
           "required": false,
           "type": "boolean"
         },
-        "chatgpt_subscriptions_enabled": {
-          "required": false,
-          "type": "boolean"
-        },
         "email": {
           "format": "email",
           "required": true,
@@ -7389,269 +7229,6 @@
       },
       "type": "object"
     },
-    "ChatGPTLinkAttempt": {
-      "properties": {
-        "auth_unreachable": {
-          "required": true,
-          "type": "boolean"
-        },
-        "expires_at": {
-          "format": "date-time",
-          "required": true,
-          "type": "string"
-        },
-        "failure": {
-          "nullable": true,
-          "properties": {
-            "grant": {
-              "nullable": true,
-              "required": true,
-              "type": "string"
-            },
-            "grant_id": {
-              "format": "uuid",
-              "nullable": true,
-              "required": true,
-              "type": "string"
-            },
-            "reason": {
-              "enum": [
-                "account_already_linked",
-                "authorization_failed",
-                "exchange_failed",
-                "grant_limit_reached",
-                "grant_not_found",
-                "internal_error",
-                "invalid_sign_in",
-                "linking_disabled",
-                "name_taken",
-                "owner_ineligible",
-                "stale_grant",
-                "tenant_key_unavailable"
-              ],
-              "required": true,
-              "type": "string"
-            }
-          },
-          "required": true,
-          "type": "object"
-        },
-        "grant_id": {
-          "format": "uuid",
-          "nullable": true,
-          "required": true,
-          "type": "string"
-        },
-        "id": {
-          "format": "uuid",
-          "required": true,
-          "type": "string"
-        },
-        "inserted_at": {
-          "format": "date-time",
-          "required": true,
-          "type": "string"
-        },
-        "kind": {
-          "enum": [
-            "link",
-            "reconnect"
-          ],
-          "required": true,
-          "type": "string"
-        },
-        "name": {
-          "nullable": true,
-          "required": true,
-          "type": "string"
-        },
-        "poll_interval": {
-          "required": true,
-          "type": "integer"
-        },
-        "result_grant_id": {
-          "format": "uuid",
-          "nullable": true,
-          "required": true,
-          "type": "string"
-        },
-        "state": {
-          "enum": [
-            "cancelled",
-            "completed",
-            "expired",
-            "failed",
-            "pending"
-          ],
-          "required": true,
-          "type": "string"
-        },
-        "updated_at": {
-          "format": "date-time",
-          "required": true,
-          "type": "string"
-        },
-        "user_code": {
-          "nullable": true,
-          "required": true,
-          "type": "string"
-        },
-        "verification_url": {
-          "nullable": true,
-          "required": true,
-          "type": "string"
-        }
-      },
-      "type": "object"
-    },
-    "ChatGPTLinkAttemptCreateRequest": {
-      "properties": {
-        "grant_id": {
-          "format": "uuid",
-          "required": false,
-          "type": "string"
-        },
-        "name": {
-          "required": false,
-          "type": "string"
-        }
-      },
-      "type": "object"
-    },
-    "ChatGPTLinkAttemptListResponse": {
-      "properties": {
-        "data": {
-          "items": {
-            "ref": "ChatGPTLinkAttempt"
-          },
-          "required": true,
-          "type": "array"
-        }
-      },
-      "type": "object"
-    },
-    "ChatGPTLinkAttemptResponse": {
-      "properties": {
-        "data": {
-          "ref": "ChatGPTLinkAttempt",
-          "required": true
-        }
-      },
-      "type": "object"
-    },
-    "ChatGPTSubscription": {
-      "properties": {
-        "access_expires_at": {
-          "format": "date-time",
-          "nullable": true,
-          "required": true,
-          "type": "string"
-        },
-        "account_email": {
-          "nullable": true,
-          "required": true,
-          "type": "string"
-        },
-        "exhausted_until": {
-          "format": "date-time",
-          "nullable": true,
-          "required": true,
-          "type": "string"
-        },
-        "id": {
-          "format": "uuid",
-          "required": true,
-          "type": "string"
-        },
-        "inserted_at": {
-          "format": "date-time",
-          "required": true,
-          "type": "string"
-        },
-        "last_refreshed_at": {
-          "format": "date-time",
-          "nullable": true,
-          "required": true,
-          "type": "string"
-        },
-        "name": {
-          "required": true,
-          "type": "string"
-        },
-        "plan_type": {
-          "nullable": true,
-          "required": true,
-          "type": "string"
-        },
-        "refreshable": {
-          "required": true,
-          "type": "boolean"
-        },
-        "revoked_reason": {
-          "nullable": true,
-          "required": true,
-          "type": "string"
-        },
-        "status": {
-          "enum": [
-            "active",
-            "disconnected",
-            "expired",
-            "revoked"
-          ],
-          "required": true,
-          "type": "string"
-        },
-        "updated_at": {
-          "format": "date-time",
-          "required": true,
-          "type": "string"
-        }
-      },
-      "type": "object"
-    },
-    "ChatGPTSubscriptionListResponse": {
-      "properties": {
-        "count": {
-          "required": true,
-          "type": "integer"
-        },
-        "data": {
-          "items": {
-            "ref": "ChatGPTSubscription"
-          },
-          "required": true,
-          "type": "array"
-        },
-        "limit": {
-          "required": true,
-          "type": "integer"
-        },
-        "linking_enabled": {
-          "required": true,
-          "type": "boolean"
-        }
-      },
-      "type": "object"
-    },
-    "ChatGPTSubscriptionResponse": {
-      "properties": {
-        "data": {
-          "ref": "ChatGPTSubscription",
-          "required": true
-        }
-      },
-      "type": "object"
-    },
-    "ChatGPTSubscriptionUpdateRequest": {
-      "properties": {
-        "name": {
-          "required": true,
-          "type": "string"
-        }
-      },
-      "type": "object"
-    },
     "Conversation": {
       "properties": {
         "acp": {
@@ -7923,6 +7500,11 @@
         "prompt": {
           "required": false,
           "type": "string"
+        },
+        "queue": {
+          "nullable": true,
+          "required": false,
+          "type": "boolean"
         },
         "sandbox_api_access": {
           "enum": [
@@ -8500,12 +8082,7 @@
     },
     "Error": {
       "properties": {
-        "attempt_id": {
-          "format": "uuid",
-          "required": false,
-          "type": "string"
-        },
-        "count": {
+        "active_sandboxes": {
           "required": false,
           "type": "integer"
         },
@@ -8523,16 +8100,6 @@
           "required": false,
           "type": "object"
         },
-        "grant": {
-          "nullable": true,
-          "required": false,
-          "type": "string"
-        },
-        "grant_id": {
-          "format": "uuid",
-          "required": false,
-          "type": "string"
-        },
         "limit": {
           "required": false,
           "type": "integer"
@@ -8542,27 +8109,6 @@
           "type": "string"
         },
         "reason": {
-          "required": false,
-          "type": "string"
-        },
-        "retry_after_seconds": {
-          "required": false,
-          "type": "integer"
-        },
-        "sets": {
-          "items": {
-            "type": "string"
-          },
-          "required": false,
-          "type": "array"
-        },
-        "state": {
-          "required": false,
-          "type": "string"
-        },
-        "until": {
-          "format": "date-time",
-          "nullable": true,
           "required": false,
           "type": "string"
         }
@@ -8634,38 +8180,6 @@
     },
     "InferenceCredentialSet": {
       "properties": {
-        "chatgpt_grant": {
-          "nullable": true,
-          "properties": {
-            "id": {
-              "format": "uuid",
-              "required": true,
-              "type": "string"
-            },
-            "name": {
-              "required": true,
-              "type": "string"
-            },
-            "status": {
-              "enum": [
-                "active",
-                "disconnected",
-                "expired",
-                "revoked"
-              ],
-              "required": true,
-              "type": "string"
-            }
-          },
-          "required": true,
-          "type": "object"
-        },
-        "chatgpt_grant_id": {
-          "format": "uuid",
-          "nullable": true,
-          "required": true,
-          "type": "string"
-        },
         "id": {
           "format": "uuid",
           "required": true,
@@ -8737,12 +8251,6 @@
     },
     "InferenceCredentialSetUpdateRequest": {
       "properties": {
-        "chatgpt_grant_id": {
-          "format": "uuid",
-          "nullable": true,
-          "required": false,
-          "type": "string"
-        },
         "is_default": {
           "required": false,
           "type": "boolean"
@@ -9883,6 +9391,88 @@
       },
       "type": "object"
     },
+    "SandboxRequest": {
+      "properties": {
+        "agent_id": {
+          "format": "uuid",
+          "required": true,
+          "type": "string"
+        },
+        "conversation_id": {
+          "format": "uuid",
+          "nullable": true,
+          "required": false,
+          "type": "string"
+        },
+        "error": {
+          "nullable": true,
+          "required": false,
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "required": true,
+          "type": "string"
+        },
+        "inserted_at": {
+          "format": "date-time",
+          "required": false,
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "schedule_run",
+            "start"
+          ],
+          "required": true,
+          "type": "string"
+        },
+        "position": {
+          "nullable": true,
+          "required": false,
+          "type": "integer"
+        },
+        "source": {
+          "nullable": true,
+          "required": false,
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "cancelled",
+            "expired",
+            "failed",
+            "queued",
+            "started",
+            "starting"
+          ],
+          "required": true,
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "SandboxRequestListResponse": {
+      "properties": {
+        "data": {
+          "items": {
+            "ref": "SandboxRequest"
+          },
+          "required": true,
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "SandboxRequestResponse": {
+      "properties": {
+        "data": {
+          "ref": "SandboxRequest",
+          "required": true
+        }
+      },
+      "type": "object"
+    },
     "SandboxResponse": {
       "properties": {
         "data": {
@@ -10859,12 +10449,6 @@
         "inference": {
           "nullable": true,
           "properties": {
-            "chatgpt_grant_id": {
-              "format": "uuid",
-              "nullable": true,
-              "required": true,
-              "type": "string"
-            },
             "origin": {
               "enum": [
                 "own",
@@ -10876,7 +10460,6 @@
             "scope": {
               "enum": [
                 "credential",
-                "grant",
                 "missing",
                 "none",
                 "platform",

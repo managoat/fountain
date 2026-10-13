@@ -53,19 +53,6 @@ defmodule FountainWeb.SchemaEnumGuardrailTest do
       {Fountain.InferenceCredentials.Source, :scopes},
     {FountainWeb.Schemas.Turn, "inference.origin"} =>
       {Fountain.InferenceCredentials.Source, :origins},
-    # A user's ChatGPT subscriptions and their sign-ins (ADR 0060 stage 4). A
-    # subscription is a row of the grant table, whose statuses the platform's
-    # row shares; `disconnected` is reachable by a user's row only.
-    {FountainWeb.Schemas.ChatGPTSubscription, "status"} =>
-      {Fountain.PlatformChatGPT.Account, :statuses},
-    {FountainWeb.Schemas.InferenceCredentialSet, "chatgpt_grant.status"} =>
-      {Fountain.PlatformChatGPT.Account, :statuses},
-    {FountainWeb.Schemas.ChatGPTLinkAttempt, "state"} =>
-      {Fountain.ChatGPTAccounts.LinkAttempt, :states},
-    {FountainWeb.Schemas.ChatGPTLinkAttempt, "failure.reason"} =>
-      {Fountain.ChatGPTAccounts.LinkAttempt, :failure_reasons},
-    {FountainWeb.Schemas.ChatGPTLinkAttempt, "kind"} =>
-      {Fountain.ChatGPTAccounts.AttemptView, :kinds},
     # Sandbox files (ADR 0039): what the listing script classifies an entry
     # as, and how a file's bytes travel.
     {FountainWeb.Schemas.SandboxEntry, "type"} => {Fountain.SandboxFiles, :entry_types},

@@ -9,7 +9,7 @@ defmodule Fountain.InferenceCredentialsEnvNamesTest do
   one knows is a placeholder nobody substitutes, and a name only the broker
   knows is an override selection cannot see, which is the bug decision 5
   exists to fix. Hold them together here rather than merging them: the broker
-  carries hosts and the managed grant, and this context must not carry either.
+  carries hosts, and this context must not.
   """
 
   use ExUnit.Case, async: true
@@ -42,18 +42,5 @@ defmodule Fountain.InferenceCredentialsEnvNamesTest do
     for {credential, [canonical | _]} <- InferenceCredentials.env_aliases() do
       assert InferenceCredentials.env_names()[credential] == canonical
     end
-  end
-
-  # ADR 0052 decision 6: configuration may neither name the managed grant nor
-  # embed its placeholder, so it is not a credential a tenant secret can
-  # shadow. Protect managed credentials; resolve ordinary tenant overrides.
-  test "the managed ChatGPT grant is not one of them" do
-    names = InferenceCredentials.env_names()
-
-    refute Map.has_key?(names, :codex_chatgpt_access_token)
-    refute "CODEX_CHATGPT_ACCESS_TOKEN" in Map.values(names)
-    # Nor is it a key the broker substitutes: a managed grant rides the
-    # protected path, as a session's authorization and never as a rule.
-    refute Map.has_key?(Broker.inference_keys(), "CODEX_CHATGPT_ACCESS_TOKEN")
   end
 end

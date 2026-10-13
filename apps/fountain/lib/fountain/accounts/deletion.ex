@@ -101,12 +101,6 @@ defmodule Fountain.Accounts.Deletion do
   end
 
   defp delete_user_row(user, sprites, opts) do
-    # Counted here because the delete below removes them by cascade, with
-    # their link attempts and broker sessions (ADR 0060 stage 5). Fountain's
-    # copy of each sign-in goes; nothing revokes one at OpenAI, which has no
-    # such endpoint in `PlatformChatGPT.OAuth`, and the email says so.
-    chatgpt_grants = Fountain.ChatGPTAccounts.count_for_user(user.id)
-
     Audit.record(%{
       user_id: user.id,
       action: "account.deleted",
@@ -118,17 +112,14 @@ defmodule Fountain.Accounts.Deletion do
       metadata: %{
         "email" => user.email,
         "user_id" => user.id,
-        "sprites_destroyed" => sprites,
-        "chatgpt_grants_removed" => chatgpt_grants
+        "sprites_destroyed" => sprites
       }
     })
 
-    # Nilifying this user's attribution on the platform grant row and on
-    # platform inference keys invokes the platform source trigger. Take
-    # exclusive platform before tenant so that trigger never upgrades shared
-    # while another reader waits on our tenant lock. The cascade over the
-    # user's own ChatGPT grants takes the tenant key, already held (ADR 0060
-    # decision 5). Teardown and audit remain outside this transaction.
+    # Nilifying this user's attribution on platform inference keys invokes the
+    # platform source trigger. Take exclusive platform before tenant so that
+    # trigger never upgrades shared while another reader waits on our tenant
+    # lock. Teardown and audit remain outside this transaction.
     result =
       Fountain.InferenceCredentials.with_platform_source_lock(fn ->
         Fountain.InferenceCredentials.lock_source(user.id)
@@ -148,9 +139,7 @@ defmodule Fountain.Accounts.Deletion do
         # whoever triggered the deletion. The job carries the address
         # itself; the row is already gone.
         if user.email_verified_at do
-          Fountain.Workers.AccountEmail.enqueue_deleted(user.email,
-            chatgpt_subscriptions: chatgpt_grants
-          )
+          Fountain.Workers.AccountEmail.enqueue_deleted(user.email)
         end
 
         {:ok, %{user_id: user.id, sprites_destroyed: sprites}}

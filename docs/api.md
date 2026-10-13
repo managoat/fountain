@@ -108,7 +108,7 @@ These routes require a full-scope account key.
 |---|---|
 | `GET /api/account/inference-credential-sets` | List sets, default first and then by name. |
 | `POST /api/account/inference-credential-sets` | Create an empty set with a `name`. |
-| `PATCH /api/account/inference-credential-sets/:id` | Rename with `name`, promote with `is_default: true`, or name a [ChatGPT subscription](#chatgpt-subscriptions) with `chatgpt_grant_id`. |
+| `PATCH /api/account/inference-credential-sets/:id` | Rename with `name`, or promote with `is_default: true`. |
 | `DELETE /api/account/inference-credential-sets/:id` | Delete a non-default set. Promote another first to delete the current default. |
 | `PUT /api/account/inference-credential-sets/:id/credentials/:provider` | Set one provider with `{"value": "..."}`. |
 | `DELETE /api/account/inference-credential-sets/:id/credentials/:provider` | Clear one provider in that set. |
@@ -135,93 +135,11 @@ and the [generated reference](/api/docs) for response schemas and refusals.
 
 ### ChatGPT subscriptions
 
-!!! note "ChatGPT subscriptions"
-
-    Linking a ChatGPT subscription is in development. On the hosted
-    platform it is on for every account since 2026-09-21, and parts of it
-    are not tested on the real service. On your own instance it is off
-    unless the operator forces the `chatgpt_subscriptions` flag. See
-    [feature status](reference/feature-status.md).
-
-The console does the same on one page. See
-[Run Codex on a ChatGPT subscription](guides/chatgpt-subscriptions.md).
-
-An account can link ChatGPT subscriptions for the `codex` runtime, up to
-`CHATGPT_GRANT_CEILING`. Fountain holds and renews the tokens. No route
-returns a token or refreshes one. A credential set names a subscription with
-`chatgpt_grant_id`, and each set then reports `chatgpt_grant` with the
-subscription's name and status. The codex runs of that set use the
-subscription. Each other OpenAI consumer still needs an `openai_api_key`.
-
-A named subscription is used or the run fails. If it is disconnected, revoked
-or expired, the launch and the turn get `409 chatgpt_grant_unusable` with the
-subscription's name. Fountain does not try another subscription, the set's
-own key or the platform. To name a subscription ends the set's running codex
-conversations with `409 inference_source_changed`.
-
-A subscription can spend its Codex usage. The turn that reaches the limit
-fails with the message from codex. Fountain then asks OpenAI, and records the
-limit only when OpenAI confirms it. After that, the subscription shows
-`exhausted_until`. Each launch and each turn on it gets
-`409 chatgpt_grant_unusable` with `reason` `exhausted` and the reset time in
-`until`, and the `admission_refused` stage event carries the same `until`. The
-rule above still applies: nothing else is used in its place. The subscription
-is usable again when the time passes. Fountain does not check usage before a
-turn fails. It asks OpenAI at most one time in 5 minutes for each
-subscription. If that request fails, the subscription stays usable and the
-next request can be up to 5 minutes later.
-
-These routes require a full-scope account key. The ID of another account is
-`404`.
-
-| Method and path | Purpose |
-|---|---|
-| `GET /api/account/chatgpt-subscriptions` | List subscriptions by name, with `count`, `limit` and `linking_enabled`. |
-| `PATCH /api/account/chatgpt-subscriptions/:id` | Rename with `name`. The credential does not change. |
-| `POST /api/account/chatgpt-subscriptions/:id/disconnect` | Forget the tokens and keep the row. No later sandbox request can use it. |
-| `DELETE /api/account/chatgpt-subscriptions/:id` | Remove a disconnected subscription that no set names. |
-| `POST /api/account/chatgpt-subscriptions/attempts` | Start a sign-in: `{"name": "..."}` links a new subscription, `{"grant_id": "..."}` reconnects one. |
-| `GET /api/account/chatgpt-subscriptions/attempts` | List the pending sign-ins, each with its code. |
-| `GET /api/account/chatgpt-subscriptions/attempts/:id` | Read one sign-in. Poll this route. |
-| `DELETE /api/account/chatgpt-subscriptions/attempts/:id` | Cancel a pending sign-in. |
-
-A sign-in is a device-code flow, and it takes a person some minutes. Create an
-attempt, show its `user_code` and `verification_url` to the person, and read
-the attempt every `poll_interval` seconds. Fountain polls ChatGPT. A read of
-the attempt contacts nobody. The `state` goes from `pending` to one of
-`completed`, `cancelled`, `expired` and `failed`, and it does not change again.
-The `user_code` is null after that. An attempt expires after 15 minutes. While
-`auth_unreachable` is true, ChatGPT's sign-in service did not answer the last
-poll; the attempt stays open and Fountain asks again. A
-`failed` attempt gives a `failure.reason`. For `account_already_linked`, the
-`failure` also names the subscription that holds the ChatGPT account, which is
-the one to reconnect.
-
-Show the `user_code` only to the person who started the sign-in. Tell them to
-enter a code only if they started it themselves: a person who enters the code
-of someone else links their subscription to that other account. Take the page
-from `verification_url` and from nowhere else.
-
-A reconnect keeps the old credential in use until the new sign-in is stored.
-A sign-in that finishes after a newer one, or after a disconnect, fails with
-`stale_grant` and changes nothing. A sign-in that finishes after a cancel
-stores nothing.
-
-An account can have three sign-ins open, and one for each subscription. An
-account can start ten in an hour, and a cancelled sign-in counts. The refusals
-are `409 chatgpt_link_attempts_exceeded`, `409 chatgpt_link_attempt_pending`
-with the open `attempt_id`, `409 chatgpt_grant_limit_reached` with `count` and
-`limit`, and `429 chatgpt_link_attempts_rate_limited` with `Retry-After` and
-`retry_after_seconds`.
-
-The `chatgpt_subscriptions` flag and the credential broker hold one door: a
-sign-in for a new subscription gets `404 chatgpt_subscriptions_not_enabled`
-without them. `GET /api/auth/me` reports the door as
-`chatgpt_subscriptions_enabled`. A sign-in for a new subscription that is open
-when the door closes fails with `linking_disabled`. A reconnect needs only the
-broker. Each other
-route stays open, so an account that loses the flag can still list, rename,
-reconnect, disconnect and remove its subscriptions.
+Fountain removed ChatGPT subscriptions on 2026-10-13. The `codex` runtime
+runs on an `openai_api_key`. The `/api/account/chatgpt-subscriptions` routes
+are gone, and a set no longer carries `chatgpt_grant_id`. A conversation that
+ran on a subscription keeps its turns, and its next prompt or wake gets
+`409 inference_source_changed`.
 
 ## Rate limiting
 
@@ -357,13 +275,12 @@ A new conversation creates another thread.
 
 Each turn has a read-only `inference` object that says which inference source
 served it. `origin` is `own` for a credential of the account and `platform`
-for the deployment's. `scope` is one of `credential`, `tenant_secret`, `grant`,
-`platform`, `none` and `missing`. `chatgpt_grant_id` is the
-[ChatGPT subscription](#chatgpt-subscriptions) that served the turn when
-`scope` is `grant`, and null otherwise. Fountain writes the object when the
-turn starts and does not change it. A later change to the credential set, a
-reconnect of the subscription or a restart changes later turns only. The
-object is null on a turn from before Fountain recorded it.
+for the deployment's. `scope` is one of `credential`, `tenant_secret`,
+`platform`, `none` and `missing`. Fountain writes the object when the turn
+starts and does not change it. A later change to the credential set or a
+restart changes later turns only. The object is null on a turn from before
+Fountain recorded it, and on a turn that ran on a
+[ChatGPT subscription](#chatgpt-subscriptions).
 
 ```bash
 curl --fail-with-body \

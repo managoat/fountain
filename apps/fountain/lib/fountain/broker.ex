@@ -68,21 +68,6 @@ defmodule Fountain.Broker do
   mangled: a space or a control character in a target, a CR or LF in a
   header value.
 
-  ## A managed ChatGPT grant
-
-  A conversation that runs codex on a ChatGPT grant, the deployment's (ADR
-  0047) or a user's own subscription (ADR 0060), does not get there through
-  any of the above. The grant's bearer is not a
-  secret in the `brokered` map, is in no rule, and cannot be named by a
-  binding or a template (`Fountain.ChatGPTAccounts.Reserved`): the session
-  records *which* grant it may use, at which generation, and the proxy asks
-  for the bearer on every request to the one Codex backend route
-  (`Fountain.Broker.Native.Sessions`, "A session that may use a managed
-  ChatGPT grant"; ADR 0052 decisions 5 and 6). `prepare/4` and `refresh/4`
-  take it as `managed:`, and `revoke_grant/2` is what the grant's own
-  lifecycle calls. Such a session is HTTP only: no WebSocket or other
-  upgrade, to any host.
-
   ## The network policy (gate 2)
 
   The sandbox's own policy is always the floor, `allow: [broker]`. What the
@@ -322,10 +307,7 @@ defmodule Fountain.Broker do
   Split the runtime's inference credentials (gate 3): the map handed to
   `default_env/2` gets placeholders, the broker gets the values under the
   env var names, and each gets an implicit `substitute` binding to its
-  provider's host. A tenant's own binding for the same name wins. A managed
-  ChatGPT grant is not one of these: `:codex_chatgpt_access_token` holds a
-  placeholder already, has no entry in the table, and passes through
-  untouched (see "A managed ChatGPT grant" in the moduledoc).
+  provider's host. A tenant's own binding for the same name wins.
   """
   @spec split_inference(map(), bindings()) :: {map(), %{String.t() => String.t()}, bindings()}
   def split_inference(credentials, bindings \\ %{}) when is_map(credentials) do
@@ -612,11 +594,7 @@ defmodule Fountain.Broker do
   session, and `refresh/4` is how an edit reaches it before the next turn
   (#1736). `opts`: `network:` (`network_for/1`), `user_id:`, which the
   native backend needs to reach the tenant's key and looks up from the
-  conversation when the caller has not got it to hand, and `managed:`, the
-  managed ChatGPT grant the conversation runs on, if any
-  (`t:Fountain.ChatGPTAccounts.grant_ref/0`; see "A managed ChatGPT grant"
-  above). Issuance for a grant that is no longer active at that generation
-  is refused.
+  conversation when the caller has not got it to hand.
   """
   @spec prepare(String.t(), %{String.t() => String.t()}, bindings(), keyword()) ::
           {:ok, session()} | {:error, term()}
@@ -646,17 +624,6 @@ defmodule Fountain.Broker do
       backend -> impl(backend).refresh(conversation_id, brokered, bindings, opts)
     end
   end
-
-  @doc """
-  Revoke every live session's authority to use a managed ChatGPT grant, at
-  one generation or (`:all`) at any, and return how many it marked. Called by
-  `Fountain.ChatGPTAccounts` inside the transaction that ends the grant's
-  generation, so it is not gated on `configured?/0`: rows minted while the
-  broker was on are revoked after it is turned off. The rows and every other
-  rule in them stay.
-  """
-  @spec revoke_grant(Ecto.UUID.t(), Ecto.UUID.t() | :all) :: non_neg_integer()
-  def revoke_grant(grant_id, generation), do: Native.Sessions.revoke_grant(grant_id, generation)
 
   @doc """
   Release a conversation's session at the end of its life, so nothing

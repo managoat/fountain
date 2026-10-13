@@ -24,118 +24,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/account/chatgpt-subscriptions": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List ChatGPT subscriptions
-         * @description Every subscription the account holds, by name, with how many it may hold and whether it may link another now. Tokens are never returned.
-         */
-        get: operations["FountainWeb.ChatGPTSubscriptionController.index"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/account/chatgpt-subscriptions/attempts": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List open ChatGPT sign-ins
-         * @description The account's pending attempts, oldest first, each with its code: what a client that lost its state reads to pick up where it was.
-         */
-        get: operations["FountainWeb.ChatGPTSubscriptionController.index_attempts"];
-        put?: never;
-        /**
-         * Start a ChatGPT sign-in
-         * @description `name` links a new subscription; `grant_id` reconnects one, which keeps the old credential serving until the new sign-in commits. The answer carries the code to type and the page to type it on. It expires in fifteen minutes. Limited to ten an hour and three open at once, per account.
-         */
-        post: operations["FountainWeb.ChatGPTSubscriptionController.create_attempt"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/account/chatgpt-subscriptions/attempts/{id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Read a ChatGPT sign-in
-         * @description The endpoint to poll. It reads a row and contacts nobody. An attempt that ran out of time reads `expired`.
-         */
-        get: operations["FountainWeb.ChatGPTSubscriptionController.show_attempt"];
-        put?: never;
-        post?: never;
-        /**
-         * Cancel a ChatGPT sign-in
-         * @description Ends a pending attempt; a sign-in approved afterwards stores nothing. Already cancelled is a 200. An attempt that has completed, failed or expired is a 409 `chatgpt_link_attempt_not_pending` carrying its `state`.
-         */
-        delete: operations["FountainWeb.ChatGPTSubscriptionController.cancel_attempt"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/account/chatgpt-subscriptions/{id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /**
-         * Remove a disconnected ChatGPT subscription
-         * @description Deletes the row, which frees its place under the limit. Refused with 409 `chatgpt_grant_still_connected` until it is disconnected, and with 409 `chatgpt_grant_named_by_sets` while credential sets name it.
-         */
-        delete: operations["FountainWeb.ChatGPTSubscriptionController.delete"];
-        options?: never;
-        head?: never;
-        /**
-         * Rename a ChatGPT subscription
-         * @description A name is a label. Renaming changes no credential, and conversations running on the subscription are not disturbed.
-         */
-        patch: operations["FountainWeb.ChatGPTSubscriptionController.update"];
-        trace?: never;
-    };
-    "/api/account/chatgpt-subscriptions/{id}/disconnect": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Disconnect a ChatGPT subscription
-         * @description Forgets the subscription's tokens and keeps its row. From the moment this returns no sandbox request may use it, inside a connection that was already open too. A credential set that names it keeps naming it, and its codex runs fail by name until the subscription is reconnected or the set is pointed elsewhere; nothing is substituted. Already disconnected is a 200. The token is not revoked at ChatGPT.
-         */
-        post: operations["FountainWeb.ChatGPTSubscriptionController.disconnect"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/account/inference-credential-sets": {
         parameters: {
             query?: never;
@@ -178,8 +66,8 @@ export interface paths {
         options?: never;
         head?: never;
         /**
-         * Rename an inference credential set, make it the default, or name a ChatGPT subscription
-         * @description Omitting a field leaves it alone. `is_default: false` is refused: a set stops being the default when another becomes it, never on its own, because an account with no default has nothing to read a credential from. `chatgpt_grant_id` names one of the account's ChatGPT subscriptions for the set's codex runs, and `null` stops naming one. Naming one ends the set's running codex conversations with `inference_source_changed`: their source is now the subscription. An id that is not one of the account's subscriptions, and a disconnected one, are 422; sending the id the set already names changes nothing.
+         * Rename an inference credential set or make it the default
+         * @description Omitting a field leaves it alone. `is_default: false` is refused: a set stops being the default when another becomes it, never on its own, because an account with no default has nothing to read a credential from.
          */
         patch: operations["FountainWeb.InferenceCredentialSetController.update"];
         trace?: never;
@@ -376,6 +264,26 @@ export interface paths {
         put?: never;
         /** Grant or revoke the admin role */
         post: operations["FountainWeb.AdminController.set_role"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/users/{id}/sandbox-limit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Set an account's concurrent-sandbox cap
+         * @description The only lever for a noisy or abusive tenant (ADR 0005). 0 stops the account from starting new conversations without suspending it.
+         */
+        post: operations["FountainWeb.AdminController.set_sandbox_limit"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1448,6 +1356,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/sandbox-queue": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List queued sandbox requests
+         * @description The caller's waiting requests, oldest first, each with its one-based position. Only requests that are still waiting appear here. One the drainer has already claimed is not listed, and neither is one that finished; read either by id instead.
+         */
+        get: operations["FountainWeb.SandboxQueueController.index"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/sandbox-queue/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get a sandbox request
+         * @description The request's current status. `conversation_id` is set once it started; `error` says why if it failed. A request nobody else owns reads as 404.
+         */
+        get: operations["FountainWeb.SandboxQueueController.show"];
+        put?: never;
+        post?: never;
+        /**
+         * Cancel a queued sandbox request
+         * @description Gives up a request that is still waiting. A request the drainer has already claimed reads as 404 rather than being cancelled out from under a start in flight.
+         */
+        delete: operations["FountainWeb.SandboxQueueController.delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/sandboxes": {
         parameters: {
             query?: never;
@@ -2087,6 +2039,11 @@ export interface components {
             /** Format: uuid */
             user_id?: string | null;
         };
+        /** AdminSandboxLimitRequest */
+        AdminSandboxLimitRequest: {
+            /** @description Override of the concurrent-sandbox cap. Null clears it, handing the cap back to the configured ceiling. */
+            limit: number | null;
+        };
         /** AdminSandboxListResponse */
         AdminSandboxListResponse: {
             data: components["schemas"]["AdminSandbox"][];
@@ -2111,8 +2068,12 @@ export interface components {
             inserted_at?: string;
             /** Format: date-time */
             last_activity_at?: string | null;
+            /** @description The concurrency cap actually enforced: the override, or the configured ceiling. */
+            max_concurrent_sandboxes?: number | null;
             /** @enum {string} */
             role: "admin" | "user";
+            /** @description Admin override of the cap. Null means the configured ceiling applies. */
+            sandbox_limit_override?: number | null;
             suspended?: boolean;
             /** Format: date-time */
             suspended_at?: string | null;
@@ -2462,8 +2423,6 @@ export interface components {
         AuthMeResponse: {
             /** @description Whether this account's conversations run behind the egress credential broker (ADR 0019): secrets with bindings stay at the broker, a limited environment is enforced there, and /api/conversations/:id/egress has content. Read-only; an operator sets it. */
             brokered?: boolean;
-            /** @description Whether this account may link a new ChatGPT subscription. Listing, renaming, reconnecting, disconnecting and removing the ones it holds never depend on it. */
-            chatgpt_subscriptions_enabled?: boolean;
             /** Format: email */
             email: string;
             email_verified: boolean;
@@ -2570,133 +2529,6 @@ export interface components {
             };
         };
         /**
-         * ChatGPTLinkAttempt
-         * @description One device-code sign-in, for a new subscription or to reconnect one. Show `user_code` and `verification_url` to the person, then read the attempt again every `poll_interval` seconds until `state` leaves `pending`. The server does the polling of ChatGPT; reading this costs nothing upstream.
-         */
-        ChatGPTLinkAttempt: {
-            /** @description True while a pending attempt's last poll of ChatGPT's sign-in service went unanswered. The attempt is still open and Fountain asks again, less often. */
-            auth_unreachable: boolean;
-            /** Format: date-time */
-            expires_at: string;
-            /** @description Why a `failed` attempt failed. Null otherwise. */
-            failure: {
-                grant: string | null;
-                /** Format: uuid */
-                grant_id: string | null;
-                /**
-                 * @description `stale_grant`: the subscription was reconnected or disconnected after this attempt began, and what is there now was left alone. `account_already_linked`: the account holds this ChatGPT account already, as `grant`; reconnect that one instead. `linking_disabled`: linking was turned off for the account while this new link was open.
-                 * @enum {string}
-                 */
-                reason: "stale_grant" | "account_already_linked" | "grant_limit_reached" | "grant_not_found" | "name_taken" | "owner_ineligible" | "linking_disabled" | "tenant_key_unavailable" | "invalid_sign_in" | "authorization_failed" | "exchange_failed" | "internal_error";
-            } | null;
-            /**
-             * Format: uuid
-             * @description The subscription being reconnected. Null for a new link.
-             */
-            grant_id: string | null;
-            /** Format: uuid */
-            id: string;
-            /** Format: date-time */
-            inserted_at: string;
-            /** @enum {string} */
-            kind: "link" | "reconnect";
-            /** @description The name a new subscription will take. Null for a reconnect. */
-            name: string | null;
-            /** @description Seconds to wait between reads of this attempt. */
-            poll_interval: number;
-            /**
-             * Format: uuid
-             * @description The subscription a completed attempt linked or reconnected.
-             */
-            result_grant_id: string | null;
-            /**
-             * @description `pending`, then exactly one of the other four, which are final.
-             * @enum {string}
-             */
-            state: "pending" | "completed" | "cancelled" | "expired" | "failed";
-            /** Format: date-time */
-            updated_at: string;
-            /** @description The code to type at `verification_url`. Null once the attempt ends. */
-            user_code: string | null;
-            verification_url: string | null;
-        };
-        /**
-         * ChatGPTLinkAttemptCreateRequest
-         * @description Exactly one of the two: `name` links a new subscription under that name, `grant_id` reconnects the one it names.
-         */
-        ChatGPTLinkAttemptCreateRequest: {
-            /** Format: uuid */
-            grant_id?: string;
-            name?: string;
-        };
-        /** ChatGPTLinkAttemptListResponse */
-        ChatGPTLinkAttemptListResponse: {
-            data: components["schemas"]["ChatGPTLinkAttempt"][];
-        };
-        /** ChatGPTLinkAttemptResponse */
-        ChatGPTLinkAttemptResponse: {
-            data: components["schemas"]["ChatGPTLinkAttempt"];
-        };
-        /**
-         * ChatGPTSubscription
-         * @description One ChatGPT subscription linked to the account, for the codex runtime. Fountain holds and renews its tokens; none is ever returned, and neither is the provider's account id. A credential set names one by `id`.
-         */
-        ChatGPTSubscription: {
-            /** Format: date-time */
-            access_expires_at: string | null;
-            /** @description The ChatGPT account's email, shown to its owner and nobody else. */
-            account_email: string | null;
-            /**
-             * Format: date-time
-             * @description When the subscription's Codex usage resets, while that is in the future. Nothing records one for an account's subscription yet.
-             */
-            exhausted_until: string | null;
-            /** Format: uuid */
-            id: string;
-            /** Format: date-time */
-            inserted_at: string;
-            /** Format: date-time */
-            last_refreshed_at: string | null;
-            /** @description Unique within the account. */
-            name: string;
-            plan_type: string | null;
-            /** @description Whether a refresh token is stored. False once disconnected. */
-            refreshable: boolean;
-            /** @description The auth server's reason code when `status` is `revoked`. */
-            revoked_reason: string | null;
-            /**
-             * @description `active` serves runs. `revoked`: the auth server refused the refresh token; reconnect it. `disconnected`: the account disconnected it; the row holds no token, still counts against the limit, and can be reconnected or removed. A set that names a subscription that is not `active` fails its codex runs by name; nothing is substituted.
-             * @enum {string}
-             */
-            status: "active" | "revoked" | "expired" | "disconnected";
-            /** Format: date-time */
-            updated_at: string;
-        };
-        /**
-         * ChatGPTSubscriptionListResponse
-         * @description Every subscription the account holds, by name. Not paginated: it is capped.
-         */
-        ChatGPTSubscriptionListResponse: {
-            /** @description How many the account holds. A disconnected one counts until removed. */
-            count: number;
-            data: components["schemas"]["ChatGPTSubscription"][];
-            /** @description How many it may hold. */
-            limit: number;
-            /** @description Whether this account may link a new subscription now. False leaves every other operation here working. */
-            linking_enabled: boolean;
-        };
-        /** ChatGPTSubscriptionResponse */
-        ChatGPTSubscriptionResponse: {
-            data: components["schemas"]["ChatGPTSubscription"];
-        };
-        /**
-         * ChatGPTSubscriptionUpdateRequest
-         * @description A new name. A name is a label: renaming changes no credential.
-         */
-        ChatGPTSubscriptionUpdateRequest: {
-            name: string;
-        };
-        /**
          * Conversation
          * @description One chat with one agent inside one sandbox.
          */
@@ -2783,7 +2615,7 @@ export interface components {
             agent_id: string;
             /** @description Opaque key for the external channel this conversation is bound to (for example a chat thread id). When set, the latest live conversation for the same agent, vault and channel is resumed (200) instead of a new one being opened (201). */
             channel_id?: string | null;
-            /** @description Your own name for the first prompt. Ignored when the request carries no `prompt`. An immediate `channel_id` resume does not deliver the prompt; send the value with it on the prompts route.Fountain stores it on the turn the prompt opens and sends it on that turn's `started` stage event, beside the `turn_id`, so a client can bind its work item to the exact turn without inferring it from turn order. Use the event to find a candidate turn and the turn itself to confirm it: the event's copy has been through event redaction, and the turn's is what you sent. It is a correlation and not an idempotency key: a second prompt with the same value opens a second turn that carries it too. Make it unique within the conversation. */
+            /** @description Your own name for the first prompt. Ignored when the request carries no `prompt`. An immediate `channel_id` resume does not deliver the prompt; send the value with it on the prompts route. If a queued start resumes a channel bound while it waited, the queue delivers the prompt and value. Fountain stores it on the turn the prompt opens and sends it on that turn's `started` stage event, beside the `turn_id`, so a client can bind its work item to the exact turn without inferring it from turn order. Use the event to find a candidate turn and the turn itself to confirm it: the event's copy has been through event redaction, and the turn's is what you sent. It is a correlation and not an idempotency key: a second prompt with the same value opens a second turn that carries it too. Make it unique within the conversation. */
             client_request_id?: string | null;
             /**
              * Format: uuid
@@ -2796,7 +2628,7 @@ export interface components {
             images?: components["schemas"]["ImageInput"][] | null;
             /**
              * Format: uuid
-             * @description Optional credential set to run on instead of the agent's; the conversation stays pinned to it across wakes. Must be owned by the caller (404 inference_credential_not_found otherwise) and satisfy the agent's allowed_inference_credential_ids when that allowlist is set (422 inference_credential_not_allowed). An unusable selected set is 422 inference_credential_unusable. The resolved source and revision stay bound across wakes; replacing or deleting the source returns 409 inference_source_changed. Not part of sandbox identity, but a shared Codex sandbox requires the same resolved source and revision (409 codex_inference_conflict otherwise). The exception is a set that names a ChatGPT subscription: Codex keeps that sign-in in a home of its own, so it shares a sandbox with any other source, unless the sandbox was first bound before Fountain prepared such homes.
+             * @description Optional credential set to run on instead of the agent's; the conversation stays pinned to it across wakes. Must be owned by the caller (404 inference_credential_not_found otherwise) and satisfy the agent's allowed_inference_credential_ids when that allowlist is set (422 inference_credential_not_allowed). An unusable selected set is 422 inference_credential_unusable. The resolved source and revision stay bound across wakes; replacing or deleting the source returns 409 inference_source_changed. Not part of sandbox identity, but a shared Codex sandbox requires the same resolved source and revision (409 codex_inference_conflict otherwise).
              */
             inference_credential_id?: string | null;
             /** @description Key/value strings to stamp on the conversation. At most 32 entries; a key is at most 64 bytes and a value at most 256 bytes, and a 422 names the offending key under `errors.labels`. With channel_id, a resume merges these into the conversation it hands back rather than dropping them. */
@@ -2805,10 +2637,12 @@ export interface components {
             } | null;
             /** @description Optional model to run instead of the agent's (ADR 0061), in canonical provider/model_id form, for this conversation only. Checked as the agent's own model is: a provider the runtime does not drive, or any model on the acp runtime, is 422 model_invalid. The model id itself is not checked against a catalog. Change it later with POST /api/conversations/{id}/reapply. Not part of the channel_id resume key: a request that resumes a conversation running a different model is 409 conversation_model_differs, before any prompt is sent; reapply the model, or set fresh: true. */
             model?: string | null;
-            /** @description Per-launch permission override (#939). Keys are matched against the tool card's title first and then ACP's kind (execute, edit, read, fetch, …); "default" covers the rest. Prefer a kind: claude titles a tool call with the command it is about to run, so a title matches one invocation only. Merged with the agent's own policy, taking the stricter of the two. It may only narrow: a policy that would loosen any tool is refused with 422 permission_policy_widens rather than silently clamped. */
+            /** @description Per-launch permission override (#939). Keys are matched against the tool card's title first and then ACP's kind (execute, edit, read, fetch, …); "default" covers the rest. Prefer a kind: claude titles a tool call with the command it is about to run, so a title matches one invocation only. Merged with the agent's own policy, taking the stricter of the two. It may only narrow: a policy that would loosen any tool is refused with 422 permission_policy_widens rather than silently clamped. If a queued request with a prompt and a nonempty policy resumes an existing channel, it fails with permission_policy_requires_fresh_conversation before sending the prompt. Set fresh: true to create a conversation for that policy. */
             permission_policy?: components["schemas"]["PermissionPolicy"] | null;
             /** @description Optional first turn prompt. A launch may open with no prompt at all, but a prompt that is present must carry words: blank and whitespace-only text is refused with 422 invalid_prompt, before the launch reserves a sandbox. */
             prompt?: string;
+            /** @description When a fresh start reaches the tenant or the fleet concurrency ceiling, wait in the bounded sandbox queue and return 202 with a SandboxRequest instead of 429 or 503 (ADR 0042). Starts carrying images or an explicit sandbox_id are never queued, and a full queue keeps the immediate error. */
+            queue?: boolean | null;
             /**
              * @description none omits the sandbox Fountain credential on provision and every wake. Requires a fresh ephemeral sandbox; unavailable on attach or policy-changing channel resume.
              * @enum {string}
@@ -3092,15 +2926,10 @@ export interface components {
          * @description The one body every JSON error status carries (#2324). `error` is the code to branch on; the other keys accompany particular codes and are absent otherwise. A `406` is the exception: content negotiation fails before any controller runs and renders `NegotiationError` instead.
          */
         Error: {
+            /** @description Sandboxes the account has in use, on `sandbox_quota_exceeded` (429). */
+            active_sandboxes?: number;
             /**
-             * Format: uuid
-             * @description The sign-in already open on that subscription, on `chatgpt_link_attempt_pending` (409): read or cancel that one.
-             */
-            attempt_id?: string;
-            /** @description How many the account has against `limit`, on `chatgpt_grant_limit_reached` and `chatgpt_link_attempts_exceeded` (409). */
-            count?: number;
-            /**
-             * @description The machine-readable code: `validation_failed`, `not_found`, `fleet_full`, `expired`, `invalid_token` and the rest. On the key-authentication and scope refusals it is a sentence and `reason` carries the code.
+             * @description The machine-readable code: `validation_failed`, `not_found`, `sandbox_quota_exceeded`, `expired`, `invalid_token` and the rest. On the key-authentication and scope refusals it is a sentence and `reason` carries the code.
              * @example validation_failed
              */
             error: string;
@@ -3108,30 +2937,12 @@ export interface components {
             errors?: {
                 [key: string]: string[];
             };
-            /** @description That subscription's name, on `chatgpt_grant_unusable` (409). */
-            grant?: string | null;
-            /**
-             * Format: uuid
-             * @description The ChatGPT subscription the refusal is about, on `chatgpt_grant_unusable` (409).
-             */
-            grant_id?: string;
-            /** @description How many ChatGPT subscriptions the account may hold, on `chatgpt_grant_limit_reached` (409); how many sign-ins it may have open, on `chatgpt_link_attempts_exceeded` (409); how many it may start in an hour, on `chatgpt_link_attempts_rate_limited` (429). */
+            /** @description The account's concurrent-sandbox cap, on `sandbox_quota_exceeded` (429). */
             limit?: number;
             /** @description A sentence for a human, when there is one. */
             message?: string;
-            /** @description A second stable word. On the 401 and 403 refusals from key authentication and scope checks, `error` is prose and this is the code (`api_key_invalid`, `api_key_expired`, `insufficient_scope`). On `broker_unavailable`, `sandbox_not_resettable` and `credential_set_is_default`, `error` is the code and this narrows it (`econnrefused`, `timeout`, `is_default`, ...). On `chatgpt_grant_unusable` it says why the named subscription cannot serve: `disconnected`, `revoked`, `expired`, `reconnect_required`, `exhausted`, `not_found`, `broker_required` or `owner_ineligible`. */
+            /** @description A second stable word. On the 401 and 403 refusals from key authentication and scope checks, `error` is prose and this is the code (`api_key_invalid`, `api_key_expired`, `insufficient_scope`). On `broker_unavailable`, `sandbox_not_resettable` and `credential_set_is_default`, `error` is the code and this narrows it (`econnrefused`, `timeout`, `is_default`, ...). */
             reason?: string;
-            /** @description Seconds until another sign-in may be started, on `chatgpt_link_attempts_rate_limited` (429); the `Retry-After` header says the same. */
-            retry_after_seconds?: number;
-            /** @description The credential sets that still name the subscription, by name, on `chatgpt_grant_named_by_sets` (409): point them elsewhere first. */
-            sets?: string[];
-            /** @description What the attempt had already become, on `chatgpt_link_attempt_not_pending` (409). */
-            state?: string;
-            /**
-             * Format: date-time
-             * @description When the subscription's Codex usage resets, on `chatgpt_grant_unusable` with `reason: "exhausted"`; null otherwise.
-             */
-            until?: string | null;
         };
         /** HealthResponse */
         HealthResponse: {
@@ -3174,19 +2985,6 @@ export interface components {
          * @description One named set of a tenant's inference credentials. An account holds one or more and exactly one is the default; an agent or a launch may name another. Values are never returned — `providers` reports only which of them this set holds.
          */
         InferenceCredentialSet: {
-            /** @description The named subscription's name and status, so a set that will fail says so here. Read-only; the whole subscription is at `/api/account/chatgpt-subscriptions`. */
-            chatgpt_grant: {
-                /** Format: uuid */
-                id: string;
-                name: string;
-                /** @enum {string} */
-                status: "active" | "revoked" | "expired" | "disconnected";
-            } | null;
-            /**
-             * Format: uuid
-             * @description The ChatGPT subscription this set's codex runs use, or null. A named subscription is used or the run fails with 409 `chatgpt_grant_unusable`: nothing falls back to the set's `openai_api_key`, to another subscription or to the platform. Every other OpenAI consumer still needs the key.
-             */
-            chatgpt_grant_id: string | null;
             /** Format: uuid */
             id: string;
             /** Format: date-time */
@@ -3214,14 +3012,9 @@ export interface components {
         };
         /**
          * InferenceCredentialSetUpdateRequest
-         * @description Rename a set, make it the default, name a ChatGPT subscription, or any of them. Omitting a field leaves it alone. `is_default: false` is refused: a set stops being the default when another becomes it, never on its own.
+         * @description Rename a set, make it the default, or both. Omitting a field leaves it alone. `is_default: false` is refused: a set stops being the default when another becomes it, never on its own.
          */
         InferenceCredentialSetUpdateRequest: {
-            /**
-             * Format: uuid
-             * @description One of the account's ChatGPT subscriptions, or null to stop naming one. Naming one ends the set's running codex conversations.
-             */
-            chatgpt_grant_id?: string | null;
             is_default?: boolean;
             name?: string;
         };
@@ -3755,6 +3548,39 @@ export interface components {
         SandboxListingResponse: {
             data: components["schemas"]["SandboxListing"];
         };
+        /**
+         * SandboxRequest
+         * @description Work waiting for sandbox capacity (ADR 0042).
+         */
+        SandboxRequest: {
+            /** Format: uuid */
+            agent_id: string;
+            /**
+             * Format: uuid
+             * @description The conversation the request started, or the target when a failed request reports prompt_delivery_unknown. Inspect it before resubmitting: after a timeout or connection loss, the prompt may have run or may still execute.
+             */
+            conversation_id?: string | null;
+            error?: string | null;
+            /** Format: uuid */
+            id: string;
+            /** Format: date-time */
+            inserted_at?: string;
+            /** @enum {string} */
+            kind: "start" | "schedule_run";
+            /** @description One-based place in the tenant's queue; null once it stops waiting. */
+            position?: number | null;
+            source?: string | null;
+            /** @enum {string} */
+            status: "queued" | "starting" | "started" | "cancelled" | "expired" | "failed";
+        };
+        /** SandboxRequestListResponse */
+        SandboxRequestListResponse: {
+            data: components["schemas"]["SandboxRequest"][];
+        };
+        /** SandboxRequestResponse */
+        SandboxRequestResponse: {
+            data: components["schemas"]["SandboxRequest"];
+        };
         /** SandboxResponse */
         SandboxResponse: {
             data: components["schemas"]["SandboxDetail"];
@@ -4191,23 +4017,18 @@ export interface components {
             id: string;
             /** @description Number of images attached to this turn. */
             image_count?: number;
-            /** @description Which inference source served this turn, recorded once when the turn started and never rewritten: repointing the credential set, reconnecting the subscription or restarting the conversation changes later turns only. Null on a turn that started before the source was recorded. */
+            /** @description Which inference source served this turn, recorded once when the turn started and never rewritten: repointing the credential set or restarting the conversation changes later turns only. Null on a turn that started before the source was recorded, or on one that ran on a ChatGPT subscription, which Fountain no longer supports. */
             readonly inference?: {
-                /**
-                 * Format: uuid
-                 * @description The ChatGPT subscription that served the turn when `scope` is `grant`, as listed by `GET /api/account/chatgpt-subscriptions`; null otherwise. It keeps naming that subscription after the subscription is removed.
-                 */
-                chatgpt_grant_id: string | null;
                 /**
                  * @description `own` for a credential of the account's, `platform` for the deployment's.
                  * @enum {string}
                  */
                 origin: "own" | "platform";
                 /**
-                 * @description Where the credential came from: the account's credential set (`credential`), an environment or vault value (`tenant_secret`), a ChatGPT subscription the set names (`grant`), the deployment (`platform`), or nowhere because the provider needs none (`none`) or none was found (`missing`).
+                 * @description Where the credential came from: the account's credential set (`credential`), an environment or vault value (`tenant_secret`), the deployment (`platform`), or nowhere because the provider needs none (`none`) or none was found (`missing`).
                  * @enum {string}
                  */
-                scope: "credential" | "tenant_secret" | "grant" | "platform" | "none" | "missing";
+                scope: "credential" | "tenant_secret" | "platform" | "none" | "missing";
             } | null;
             /** Format: date-time */
             inserted_at?: string;
@@ -4431,589 +4252,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Too Many Requests */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
-    "FountainWeb.ChatGPTSubscriptionController.index": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Subscriptions */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ChatGPTSubscriptionListResponse"];
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Insufficient scope */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description No acceptable representation */
-            406: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["NegotiationError"];
-                };
-            };
-            /** @description Too Many Requests */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
-    "FountainWeb.ChatGPTSubscriptionController.index_attempts": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Attempts */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ChatGPTLinkAttemptListResponse"];
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Insufficient scope */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description No acceptable representation */
-            406: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["NegotiationError"];
-                };
-            };
-            /** @description Too Many Requests */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
-    "FountainWeb.ChatGPTSubscriptionController.create_attempt": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** @description What to sign in for */
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["ChatGPTLinkAttemptCreateRequest"];
-            };
-        };
-        responses: {
-            /** @description Attempt */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ChatGPTLinkAttemptResponse"];
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Insufficient scope, or `chatgpt_owner_ineligible` */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description `chatgpt_subscriptions_not_enabled`, or no such subscription to reconnect */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description No acceptable representation */
-            406: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["NegotiationError"];
-                };
-            };
-            /** @description `chatgpt_grant_limit_reached`, `chatgpt_link_attempts_exceeded` or `chatgpt_link_attempt_pending` */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Invalid or duplicate name */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description `chatgpt_link_attempts_rate_limited`, with `Retry-After` */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description `chatgpt_auth_unreachable` */
-            502: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description `chatgpt_tenant_key_unavailable` */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
-    "FountainWeb.ChatGPTSubscriptionController.show_attempt": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Attempt */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ChatGPTLinkAttemptResponse"];
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Insufficient scope */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description No such attempt */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description No acceptable representation */
-            406: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["NegotiationError"];
-                };
-            };
-            /** @description Too Many Requests */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
-    "FountainWeb.ChatGPTSubscriptionController.cancel_attempt": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Attempt */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ChatGPTLinkAttemptResponse"];
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Insufficient scope */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description No such attempt */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description No acceptable representation */
-            406: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["NegotiationError"];
-                };
-            };
-            /** @description `chatgpt_link_attempt_not_pending` */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Too Many Requests */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
-    "FountainWeb.ChatGPTSubscriptionController.delete": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Removed */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Insufficient scope */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description No such subscription */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description No acceptable representation */
-            406: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["NegotiationError"];
-                };
-            };
-            /** @description Still connected, or named by sets */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Too Many Requests */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
-    "FountainWeb.ChatGPTSubscriptionController.update": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        /** @description New name */
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["ChatGPTSubscriptionUpdateRequest"];
-            };
-        };
-        responses: {
-            /** @description Subscription */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ChatGPTSubscriptionResponse"];
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Insufficient scope, or `chatgpt_owner_ineligible` */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description No such subscription */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description No acceptable representation */
-            406: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["NegotiationError"];
-                };
-            };
-            /** @description Invalid or duplicate name */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Too Many Requests */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
-    "FountainWeb.ChatGPTSubscriptionController.disconnect": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Subscription */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ChatGPTSubscriptionResponse"];
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Insufficient scope */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description No such subscription */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description No acceptable representation */
-            406: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["NegotiationError"];
                 };
             };
             /** @description Too Many Requests */
@@ -6245,6 +5483,87 @@ export interface operations {
         requestBody?: {
             content: {
                 "application/json": components["schemas"]["AdminRoleRequest"];
+            };
+        };
+        responses: {
+            /** @description Account */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminUserResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Admin required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No acceptable representation */
+            406: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NegotiationError"];
+                };
+            };
+            /** @description Refused */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    "FountainWeb.AdminController.set_sandbox_limit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        /** @description Limit */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["AdminSandboxLimitRequest"];
             };
         };
         responses: {
@@ -8296,6 +7615,15 @@ export interface operations {
                     "application/json": components["schemas"]["ConversationResponse"];
                 };
             };
+            /** @description Queued for sandbox capacity */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SandboxRequestResponse"];
+                };
+            };
             /** @description Invalid request */
             400: {
                 headers: {
@@ -8359,7 +7687,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description Too Many Requests */
+            /** @description Tenant concurrency cap reached */
             429: {
                 headers: {
                     [name: string]: unknown;
@@ -8368,7 +7696,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description Sandbox unavailable, or every sandbox slot in use (fleet_full) */
+            /** @description Sandbox or fleet unavailable */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -11001,6 +10329,194 @@ export interface operations {
                 };
             };
             /** @description No such runner */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No acceptable representation */
+            406: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NegotiationError"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    "FountainWeb.SandboxQueueController.index": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Sandbox requests */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SandboxRequestListResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No acceptable representation */
+            406: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NegotiationError"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    "FountainWeb.SandboxQueueController.show": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Sandbox request */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SandboxRequestResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No acceptable representation */
+            406: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NegotiationError"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    "FountainWeb.SandboxQueueController.delete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Cancelled */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not found or no longer queued */
             404: {
                 headers: {
                     [name: string]: unknown;

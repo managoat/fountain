@@ -108,20 +108,15 @@ defmodule Fountain.Conversations.CodexTransportTest do
   # variable every resumed thread went back to the built-in provider and
   # dialled the WebSocket again.
   test "the selected provider is also the launch variable codex-acp resumes with" do
-    for env <- [
-          [key("sk-x")],
-          [{"CODEX_CHATGPT_ACCESS_TOKEN", "__codex_chatgpt_access_token__"}]
-        ] do
-      assert {:ok, result} = CodexTransport.spawn_opts(%{broker: %{}}, "codex", env: env)
+    assert {:ok, result} = CodexTransport.spawn_opts(%{broker: %{}}, "codex", env: [key("sk-x")])
 
-      assert config(result)["model_provider"] == "fountain_openai_http"
+    assert config(result)["model_provider"] == "fountain_openai_http"
 
-      assert Enum.filter(result[:env], &match?({"MODEL_PROVIDER", _}, &1)) ==
-               [{"MODEL_PROVIDER", "fountain_openai_http"}]
+    assert Enum.filter(result[:env], &match?({"MODEL_PROVIDER", _}, &1)) ==
+             [{"MODEL_PROVIDER", "fountain_openai_http"}]
 
-      # Applying the policy again changes nothing.
-      assert {:ok, ^result} = CodexTransport.spawn_opts(%{broker: %{}}, "codex", result)
-    end
+    # Applying the policy again changes nothing.
+    assert {:ok, ^result} = CodexTransport.spawn_opts(%{broker: %{}}, "codex", result)
 
     # Nothing selected, nothing pinned: the built-in resumes as before.
     assert {:ok, bare} = CodexTransport.spawn_opts(%{broker: %{}}, "codex", env: [])
@@ -145,35 +140,6 @@ defmodule Fountain.Conversations.CodexTransportTest do
 
     assert Enum.filter(moved[:env], &match?({"MODEL_PROVIDER", _}, &1)) ==
              [{"MODEL_PROVIDER", "fountain_openai_http"}]
-  end
-
-  # #2503. A grant's session refuses every chatgpt.com route but the
-  # protected ones. The remote plugin catalog asked for such routes hundreds
-  # of times an hour. (Analytics is built from the process config, which the
-  # overlay does not reach, so it is not set here: see the module.)
-  test "a grant spawn turns off the remote plugin catalog by default" do
-    grant = [{"CODEX_CHATGPT_ACCESS_TOKEN", "__codex_chatgpt_access_token__"}]
-    assert {:ok, result} = CodexTransport.spawn_opts(%{broker: %{}}, "codex", env: grant)
-
-    assert config(result)["features"]["remote_plugin"] == false
-    refute Map.has_key?(config(result), "analytics")
-
-    # What the overlay sets itself is kept, in either spelling.
-    for overlay <- [
-          %{"features" => %{"remote_plugin" => true}},
-          %{"features.remote_plugin" => true}
-        ] do
-      env = grant ++ [{"CODEX_CONFIG", Jason.encode!(overlay)}]
-      assert {:ok, result} = CodexTransport.spawn_opts(%{broker: %{}}, "codex", env: env)
-
-      refute config(result)["features"]["remote_plugin"] == false
-    end
-
-    # Not a grant, nothing refused: codex's own defaults stand.
-    for env <- [[key("sk-x")], grant ++ [key("sk-x")], []] do
-      assert {:ok, result} = CodexTransport.spawn_opts(%{broker: %{}}, "codex", env: env)
-      refute Map.has_key?(config(result)["features"], "remote_plugin")
-    end
   end
 
   # The built-in provider reads OPENAI_BASE_URL, so an environment pointing
@@ -365,52 +331,6 @@ defmodule Fountain.Conversations.CodexTransportTest do
                0
              )
     end
-  end
-
-  # ADR 0047 decision 4. On the deployment's ChatGPT grant the sandbox holds
-  # `auth.json` in chatgptAuthTokens mode with the placeholder as its access
-  # token, and the provider must read it: `requires_openai_auth` with no
-  # `env_key` resolves the ambient auth whatever the provider id. The
-  # endpoint is the Codex backend, not the API.
-  test "a codex spawn on the ChatGPT grant gets the backend provider that reads auth.json" do
-    env = [{"CODEX_CHATGPT_ACCESS_TOKEN", "__codex_chatgpt_access_token__"}]
-    assert {:ok, result} = CodexTransport.spawn_opts(%{broker: %{}}, "codex", env: env)
-    config = config(result)
-
-    assert config["model_provider"] == "fountain_openai_http"
-
-    assert config["model_providers"] == %{
-             "fountain_openai_http" => %{
-               "name" => "OpenAI",
-               "base_url" => "https://chatgpt.com/backend-api/codex",
-               "wire_api" => "responses",
-               "requires_openai_auth" => true,
-               "supports_websockets" => false
-             }
-           }
-
-    assert config["features"]["respect_system_proxy"] == true
-    assert List.keyfind(result[:env], "CODEX_CHATGPT_ACCESS_TOKEN", 0) == hd(env)
-
-    # An API key beside the grant takes the key shape, as everywhere else;
-    # and a gateway the environment names is left to its own provider.
-    assert {:ok, keyed} =
-             CodexTransport.spawn_opts(%{broker: %{}}, "codex", env: env ++ [key("sk-x")])
-
-    assert config(keyed)["model_providers"]["fountain_openai_http"]["env_key"] == "OPENAI_API_KEY"
-
-    gateway = [{"CODEX_CONFIG", ~s({"model_provider":"gw"})} | env]
-    assert {:ok, other} = CodexTransport.spawn_opts(%{broker: %{}}, "codex", env: gateway)
-    assert config(other)["model_provider"] == "gw"
-    refute Map.has_key?(config(other), "model_providers")
-
-    # An emptied grant is no grant.
-    assert {:ok, none} =
-             CodexTransport.spawn_opts(%{broker: %{}}, "codex",
-               env: env ++ [{"CODEX_CHATGPT_ACCESS_TOKEN", ""}]
-             )
-
-    refute Map.has_key?(config(none), "model_provider")
   end
 
   defp key(value), do: {"OPENAI_API_KEY", value}

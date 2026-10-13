@@ -222,17 +222,16 @@ defmodule Fountain.VaultsTest do
       source = insert_vault(user_id: user.id)
       {:ok, dek} = Fountain.Crypto.load_tenant_key(user.id)
 
-      # A row written before the reserved-key check existed.
+      # A row written before the key format check existed.
       Repo.insert!(%Fountain.Vaults.VaultSecret{
         vault_id: source.id,
-        key: Fountain.ChatGPTAccounts.Reserved.key(),
+        key: "legacy-key",
         value_ciphertext: Fountain.Crypto.encrypt("legacy", dek)
       })
 
-      assert {:error, {:secret_not_copyable, key}} =
+      assert {:error, {:secret_not_copyable, "legacy-key"}} =
                Vaults.copy_vault(source, %{"name" => "track-7"}, dek)
 
-      assert key == Fountain.ChatGPTAccounts.Reserved.key()
       assert Vaults.get_vault_by_name("track-7", user.id) == nil
     end
   end

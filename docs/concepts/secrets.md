@@ -132,9 +132,7 @@ Inference auth inputs also stay out of that shared file. This includes
 `ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`, `OPENAI_API_KEY`,
 `GEMINI_API_KEY` and its alias
 `GOOGLE_GENERATIVE_AI_API_KEY`. The rule applies whether a value comes from a
-credential set, the platform, an environment or a vault. The reserved managed
-name `CODEX_CHATGPT_ACCESS_TOKEN` is filtered too, including when its value is
-a broker placeholder.
+credential set, the platform, an environment or a vault.
 
 Fountain passes auth inputs to each process through its environment. The
 `setup_script` receives them too. A later shell cannot recover these values
@@ -152,16 +150,6 @@ Existing credential rows become Default sets on upgrade.
 
 A set holds up to four values: an Anthropic key, a Claude OAuth token, an
 OpenAI key and a Gemini key. Most accounts never need a second set.
-
-A set can also name one ChatGPT subscription that the account linked. That is
-a reference, and the set holds no token for it. The `codex` runs of the set
-then use the subscription, or fail with its name when it cannot serve. Each
-other runtime still uses the set's keys. The feature is in development. It
-is on for every account on the hosted platform since 2026-09-21, with parts
-not tested on the real service, and off on your own instance unless the
-operator forces its flag. See
-[Run Codex on a ChatGPT subscription](../guides/chatgpt-subscriptions.md)
-and [feature status](../reference/feature-status.md).
 
 Make a second set when you hold a second subscription. A set carries a name
 you choose. Exactly one set is the default, and the default is what Fountain
@@ -185,8 +173,7 @@ same kind. Vault wins over environment; supported aliases resolve to the
 same kind. Conflicting alias values within one layer are refused. The
 runtime then selects the kind it supports: Claude prefers its OAuth token
 over an API key. Billing follows the
-resolved source. Managed ChatGPT inputs remain reserved, including static
-tokens on the managed path.
+resolved source.
 
 Each conversation binds its resolved source, revision, selected set, model,
 runtime, environment and vault. Each turn records the source that served it.
@@ -214,10 +201,7 @@ for the sandbox's lifetime, including after all its conversations terminate
 or are deleted. A different Codex source needs a new sandbox; resetting an
 existing sandbox does not clear this binding. An existing machine without a
 provable source binding must also be replaced before it can use a new source.
-A ChatGPT subscription that a set names is the exception: Codex keeps that
-sign-in in a home of its own, so it shares a sandbox with each other source.
-A sandbox that was first bound before Fountain prepared such homes keeps the
-rule above. Use separate accounts when different customers need isolation.
+Use separate accounts when different customers need isolation.
 
 Set the whole thing up at `/account/inference-credentials`, or over the API
 under `/api/account/inference-credential-sets`.

@@ -36,10 +36,6 @@ defmodule Fountain.Workers.RetentionPruner do
 
   Every window is configurable, and setting one to `nil` disables pruning for
   that table entirely.
-
-  One table is swept here on its own, fixed term rather than a window:
-  `chatgpt_link_attempts` (ADR 0060 stage 4), whose ended rows hold no secret
-  and are deleted a week after they ended.
   """
 
   use Oban.Worker, queue: :maintenance, max_attempts: 3
@@ -62,10 +58,7 @@ defmodule Fountain.Workers.RetentionPruner do
   @impl Oban.Worker
   def perform(_job) do
     results =
-      Enum.map(@defaults, fn {table, _} -> {table, prune(table)} end) ++
-        [
-          {:chatgpt_link_attempts, Fountain.ChatGPTAccounts.purge_ended_attempts()}
-        ]
+      Enum.map(@defaults, fn {table, _} -> {table, prune(table)} end)
 
     deleted = results |> Enum.map(&elem(&1, 1)) |> Enum.sum()
 

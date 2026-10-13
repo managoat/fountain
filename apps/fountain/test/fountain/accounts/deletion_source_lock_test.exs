@@ -4,10 +4,9 @@ defmodule Fountain.Accounts.DeletionSourceLockTest do
   alias Ecto.Adapters.SQL.Sandbox
   alias Fountain.Accounts.{Deletion, User}
   alias Fountain.InferenceCredentials
-  alias Fountain.PlatformChatGPT.Account
   alias Fountain.PlatformInference.Key
 
-  for source <- [:none, :personal_chatgpt, :operator_attribution] do
+  for source <- [:none, :operator_attribution] do
     test "deleting an account with #{source} does not deadlock source admission" do
       Sandbox.unboxed_run(Repo, fn ->
         user = insert_user()
@@ -29,30 +28,6 @@ defmodule Fountain.Accounts.DeletionSourceLockTest do
         end
       end)
     end
-  end
-
-  test "unrelated accounts with personal ChatGPT grants can both be deleted" do
-    Sandbox.unboxed_run(Repo, fn ->
-      first = insert_user()
-      second = insert_user()
-      first_source = seed_source(:personal_chatgpt, first)
-      second_source = seed_source(:personal_chatgpt, second)
-
-      try do
-        {first_result, second_result} =
-          compete_with_deletion(first, fn -> Deletion.delete_user(second) end)
-
-        assert {:ok, _} = first_result
-        assert {:ok, _} = second_result
-        refute Repo.get(User, first.id)
-        refute Repo.get(User, second.id)
-        assert_source_deleted(first_source)
-        assert_source_deleted(second_source)
-      after
-        cleanup(first, first_source)
-        cleanup(second, second_source)
-      end
-    end)
   end
 
   # Pause after the real deletion transaction takes its tenant lock. With the
@@ -142,15 +117,6 @@ defmodule Fountain.Accounts.DeletionSourceLockTest do
 
   defp seed_source(:none, _user), do: nil
 
-  defp seed_source(:personal_chatgpt, user) do
-    Repo.insert!(%Account{
-      user_id: user.id,
-      name: "deletion-lock-test",
-      kind: "chatgpt",
-      access_token_ciphertext: "deletion-lock-test"
-    })
-  end
-
   defp seed_source(:operator_attribution, user) do
     Repo.insert!(%Key{
       provider: "anthropic",
@@ -160,7 +126,6 @@ defmodule Fountain.Accounts.DeletionSourceLockTest do
   end
 
   defp assert_source_deleted(nil), do: :ok
-  defp assert_source_deleted(%Account{id: id}), do: refute(Repo.get(Account, id))
 
   defp assert_source_deleted(%Key{} = key) do
     current = Repo.reload!(key)

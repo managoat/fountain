@@ -1357,9 +1357,22 @@ if config_env() == :prod and server? do
   #
   # rewrite_on is required behind a terminating proxy: without it every request
   # looks like http to the app and the redirect loops.
+  # FORCE_SSL_EXCLUDE_HOSTS: hosts the redirect and HSTS leave alone, for callers
+  # inside the deployment's own network that reach the app over plain http at
+  # its service name (a Kubernetes Service, a compose service), with no proxy
+  # in front to set X-Forwarded-Proto. Without it they are sent to https:// on
+  # a host that serves nothing there. localhost stays excluded, as Plug.SSL's
+  # default has it.
+  force_ssl_exclude =
+    (System.get_env("FORCE_SSL_EXCLUDE_HOSTS") || "")
+    |> String.split(",", trim: true)
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+
   if https? do
     config :fountain, :force_ssl,
       rewrite_on: [:x_forwarded_proto, :x_forwarded_host, :x_forwarded_port],
+      exclude: Enum.uniq(["localhost" | force_ssl_exclude]),
       hsts: true,
       # One year, including subdomains. No `preload`: that is a one-way door —
       # getting off the preload list takes months — and not this change's call.

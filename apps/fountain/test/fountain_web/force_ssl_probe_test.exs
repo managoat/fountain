@@ -64,6 +64,33 @@ defmodule FountainWeb.ForceSslProbeTest do
     end
   end
 
+  describe "with an excluded in-network host" do
+    test "a request to that host is served over http, without HSTS", %{conn: conn} do
+      Application.put_env(:fountain, :force_ssl,
+        rewrite_on: [:x_forwarded_proto],
+        hsts: true,
+        exclude: ["localhost", "fountain.fountain.svc.cluster.local"]
+      )
+
+      conn = conn |> Map.put(:host, "fountain.fountain.svc.cluster.local") |> get("/auth/login")
+
+      refute conn.status == 301
+      assert Plug.Conn.get_resp_header(conn, "strict-transport-security") == []
+    end
+
+    test "any other host still redirects", %{conn: conn} do
+      Application.put_env(:fountain, :force_ssl,
+        rewrite_on: [:x_forwarded_proto],
+        hsts: true,
+        exclude: ["localhost", "fountain.fountain.svc.cluster.local"]
+      )
+
+      conn = conn |> Map.put(:host, "fountain.example.com") |> get("/auth/login")
+
+      assert conn.status == 301
+    end
+  end
+
   describe "with force_ssl off" do
     test "nothing redirects", %{conn: conn} do
       Application.delete_env(:fountain, :force_ssl)

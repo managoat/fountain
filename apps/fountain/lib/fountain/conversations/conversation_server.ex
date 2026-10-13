@@ -648,7 +648,11 @@ defmodule Fountain.Conversations.ConversationServer do
                 sandbox_started_at: Lifecycle.clock_start(sandbox)
             }
 
-            new_state = Reattachment.reattach_running_turn(%{new_state | current_turn: nil})
+            new_state =
+              case Reattachment.reattach_running_turn(%{new_state | current_turn: nil}) do
+                {:relaunch, state, turn} -> relaunch_unsent(state, turn)
+                state -> state
+              end
 
             new_state =
               Reattachment.finish_runner_reconnect(
@@ -1639,6 +1643,7 @@ defmodule Fountain.Conversations.ConversationServer do
            meta
          ) do
       {:ok, conv, turn} ->
+        TurnMachine.store_images(turn, images)
         {:noreply, run_turn(state, conv, turn, prompt, agent, images)}
 
       refused when refused in [:at_capacity, :no_command] ->
@@ -1679,8 +1684,6 @@ defmodule Fountain.Conversations.ConversationServer do
     why = Connection.stale_reason(state, replaced?, conv, agent)
     state = if why, do: drop_connection(state, why), else: state
 
-    TurnMachine.store_images(turn, images)
-
     # An idle peer carries the next turn without spawn, handshake or resume
     # (#817). It applies the model before prompting; background tasks and
     # Codex session grants survive.
@@ -1689,6 +1692,15 @@ defmodule Fountain.Conversations.ConversationServer do
     else
       run_fresh_turn(state, conv, turn, prompt, agent, images)
     end
+  end
+
+  # A turn whose prompt never reached the agent, found on reattach: run it again
+  # on this server, with the images it was admitted with.
+  defp relaunch_unsent(state, turn) do
+    # ownership: the turn reattach found running on this server's own conversation.
+    conv = Conversations._unsafe_get_conversation!(state.conversation_id)
+    images = Conversations._unsafe_list_turn_images(turn.id)
+    run_turn(state, conv, turn, turn.prompt, TurnMachine.agent_for(conv), images)
   end
 
   # The launch itself lives in `TurnLaunch` (see its moduledoc): this module's

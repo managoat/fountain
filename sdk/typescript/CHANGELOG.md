@@ -11,6 +11,14 @@ server releases.
 
 ---
 
+## [6.5.1] - 2026-10-13
+
+### Changed
+
+- The generated types carry `AdminCreateUserRequest` and
+  `AdminCreatedUserResponse`, for `POST /api/admin/users` (ADR 0064). No
+  hand-written client calls it; nothing else changes.
+
 ## [6.5.0] - 2026-10-02
 
 ### Added

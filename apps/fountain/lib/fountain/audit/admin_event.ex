@@ -40,6 +40,7 @@ defmodule Fountain.Audit.AdminEvent do
     admin.role.granted
     admin.role.revoked
     admin.sandbox_limit.changed
+    admin.account.created
     admin.account.deleted
     admin.comp.granted
     admin.comp.revoked

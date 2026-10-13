@@ -16,6 +16,8 @@ defmodule Fountain.Conversations.ConversationServerACPTest do
   alias Managoat.Runtimes.ACP
   alias Fountain.Conversations.Reapply
 
+  @relaunch_image %{media_type: "image/png", data: <<0, 9, 128, 255>>}
+
   defp acp_agent(user, runtime \\ "claude") do
     insert_agent(user_id: user.id, runtime: runtime)
   end
@@ -2335,11 +2337,54 @@ defmodule Fountain.Conversations.ConversationServerACPTest do
       assert Enum.count(acp, &(&1.data =~ ~s("used":250))) == 1
     end
 
-    test "a turn whose prompt was never sent is orphaned and its adapter stopped", %{} do
-      # The previous peer died mid-handshake: the adapter is idle waiting for a
-      # prompt no peer can now write. Nothing to resume — end it cleanly rather
-      # than leave a session the next reattach would bind to.
+    test "a turn whose prompt was never sent runs again on a fresh adapter", %{} do
+      # The previous peer died mid-handshake, as a deploy's draining server
+      # does: the adapter is idle waiting for a prompt no peer can now write.
+      # It is stopped, and because the agent never saw the prompt, the turn
+      # runs again from the start with the prompt and images it was admitted
+      # with, instead of being lost.
       {conv, turn, _ref} = reattach_fixture(nil)
+      {:ok, 1} = Conversations._unsafe_insert_turn_images(turn.id, [@relaunch_image])
+      fresh = make_ref()
+      test = self()
+
+      Mimic.stub(Managoat.Sandbox.Sprites, :spawn, fn _h, _cmd, _args, _opts ->
+        send(test, :spawned)
+        {:ok, %Managoat.Sandbox.Command{provider: :sprites, ref: fresh}}
+      end)
+
+      pid = start_reattached(conv)
+
+      assert_receive :command_stopped, 1_000
+      assert_receive :spawned, 1_000
+      params = drive_handshake_to_prompt(pid, fresh)
+
+      assert [
+               %{"type" => "text", "text" => "long task"},
+               %{"type" => "image", "mimeType" => "image/png", "data" => encoded}
+             ] = params["prompt"]
+
+      assert Base.decode64!(encoded) == @relaunch_image.data
+      assert Fountain.Repo.reload!(turn).status == "running"
+
+      assert [_one] =
+               Fountain.Repo.all(
+                 from t in Fountain.Conversations.Turn, where: t.conversation_id == ^conv.id
+               )
+
+      stages = Enum.filter(Conversations._unsafe_list_log_events(conv.id), &(&1.kind == "stage"))
+      assert Enum.any?(stages, &(&1.stage == "reattach" and &1.data =~ "turn_relaunched"))
+      refute Enum.any?(stages, &(&1.stage == "reattach" and &1.state == "interrupted"))
+    end
+
+    test "an unsent turn past the relaunch window is orphaned and its adapter stopped", %{} do
+      {conv, turn, _ref} = reattach_fixture(nil)
+      long_ago = DateTime.utc_now() |> DateTime.add(-3_600) |> DateTime.truncate(:second)
+
+      Fountain.Repo.update_all(from(t in Fountain.Conversations.Turn, where: t.id == ^turn.id),
+        set: [started_at: long_ago]
+      )
+
       pid = start_reattached(conv)
 
       assert_receive :command_stopped, 1_000
@@ -2350,6 +2395,43 @@ defmodule Fountain.Conversations.ConversationServerACPTest do
 
       stages = Enum.filter(Conversations._unsafe_list_log_events(conv.id), &(&1.kind == "stage"))
       assert Enum.any?(stages, &(&1.stage == "reattach" and &1.data =~ "acp_prompt_not_sent"))
+    end
+
+    # Answers each request the fresh peer makes, whichever session path it
+    # takes, until `session/prompt`, and hands back that request's params.
+    defp drive_handshake_to_prompt(pid, ref) do
+      # A fresh adapter is prepared before its peer says anything.
+      case next_write(5_000) do
+        %{"method" => "session/prompt", "params" => params} ->
+          settle(pid)
+          params
+
+        %{"id" => id, "method" => "initialize"} ->
+          reply(pid, ref, id, %{
+            "agentCapabilities" => %{
+              "loadSession" => true,
+              "sessionCapabilities" => %{"resume" => %{}}
+            }
+          })
+
+          drive_handshake_to_prompt(pid, ref)
+
+        %{"id" => id, "method" => "session/new"} ->
+          reply(pid, ref, id, %{"sessionId" => "sess_1", "models" => %{}})
+          drive_handshake_to_prompt(pid, ref)
+
+        # `"models"` is what makes the peer pin the model before prompting.
+        %{"id" => id, "method" => "session/" <> resumed} when resumed in ["resume", "load"] ->
+          reply(pid, ref, id, %{"models" => %{}})
+          drive_handshake_to_prompt(pid, ref)
+
+        %{"id" => id} ->
+          reply(pid, ref, id, %{})
+          drive_handshake_to_prompt(pid, ref)
+
+        _notification ->
+          drive_handshake_to_prompt(pid, ref)
+      end
     end
   end
 

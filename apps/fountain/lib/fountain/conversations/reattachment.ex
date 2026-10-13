@@ -8,6 +8,11 @@ defmodule Fountain.Conversations.Reattachment do
   alias Fountain.Conversations.{Connection, Egress, Output, Pending, Provisioning, TurnMachine}
   alias Fountain.Machines.Machine
 
+  # How long after it started a turn whose prompt never reached the agent is
+  # still run again on reattach. Past it the turn is orphaned: the person has
+  # likely moved on, and it bounds a turn that keeps landing on dying servers.
+  @relaunch_window_s 600
+
   @doc """
   Whether a server about to reattach `conv` to `sandbox` must not: a guest
   whose environment or vault is no longer the machine's
@@ -365,6 +370,9 @@ defmodule Fountain.Conversations.Reattachment do
   # closes the turn cleanly. If no active session is found, the command
   # finished while the BEAM was down — we don't know the exit code, so
   # mark the orphaned turn `interrupted` so the user gets a clear signal.
+  #
+  # Answers the state, or `{:relaunch, state, turn}` when the turn's prompt
+  # never reached the agent and the server should run it again.
   def reattach_running_turn(state) do
     running_turn = find_running_turn(state.conversation_id)
 
@@ -458,10 +466,29 @@ defmodule Fountain.Conversations.Reattachment do
         # predates the column). The adapter is sitting idle in its handshake
         # with nothing to answer, and no peer can pick that up: the ids it
         # would need are gone with the process. Stop it — otherwise it lingers
-        # as a session the next reattach could bind to — and orphan the turn.
+        # as a session the next reattach could bind to.
+        #
+        # The agent never saw the prompt, so running the turn again from the
+        # start is safe, and it is what the person asked for: a deploy that
+        # lands between admission and `session/prompt` used to lose it. A turn
+        # older than the window is orphaned as before, so a prompt is never
+        # run long after it was sent, and a server that keeps dying cannot
+        # relaunch the same turn forever.
         Managoat.Sandbox.stop_command(idle_command)
-        mark_orphan(state, running_turn, "acp_prompt_not_sent")
-        state
+
+        if relaunchable?(running_turn) do
+          Output.publish_stage(state.conversation_id, "reattach", "done", %{
+            outcome: "turn_relaunched",
+            reason: "acp_prompt_not_sent",
+            turn_number: running_turn.turn_number,
+            turn_id: running_turn.id
+          })
+
+          {:relaunch, state, running_turn}
+        else
+          mark_orphan(state, running_turn, "acp_prompt_not_sent")
+          state
+        end
 
       {:ok, command} ->
         finish_session_attach(state, running_turn, conv, command, session, matched_by)
@@ -544,6 +571,11 @@ defmodule Fountain.Conversations.Reattachment do
         result
     end
   end
+
+  defp relaunchable?(%{started_at: %DateTime{} = started_at}),
+    do: DateTime.diff(DateTime.utc_now(), started_at) <= @relaunch_window_s
+
+  defp relaunchable?(_turn), do: false
 
   def find_running_turn(conv_id) do
     import Ecto.Query

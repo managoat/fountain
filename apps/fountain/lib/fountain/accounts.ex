@@ -734,7 +734,7 @@ defmodule Fountain.Accounts do
   Options:
 
     * `:scopes` — defaults to `["full"]`
-    * `:expires_at` — required for principal scope; other scopes default to no expiry
+    * `:expires_at` — defaults to no expiry
     * `:actor` — who minted it, for the audit trail. Defaults to `"self"`;
       pass `FountainWeb.Audited.attribution/2` from a web surface, or a
       `"system:<worker>"` string from a background one.
@@ -885,13 +885,7 @@ defmodule Fountain.Accounts do
           # invariant depended on, and a fifth would have reopened the gap in
           # silence. Keys predating #314, when `POST /api/auth/token` would mint
           # for an unverified account, stop working here: that is the point.
-          #
-          # A claimable principal (ADR 0044) is the one row that authenticates
-          # without ever verifying: it has no email to verify and never will.
-          # The flag is read off the already-preloaded user rather than from
-          # `claimable_users`, because this is the hottest auth path in the
-          # system and a join here would be paid by every request.
-          is_nil(key.user.email_verified_at) and not key.user.principal ->
+          is_nil(key.user.email_verified_at) ->
             {:error, :unverified}
 
           true ->
@@ -965,42 +959,6 @@ defmodule Fountain.Accounts do
     |> Repo.insert()
   end
 
-  @doc """
-  Insert a claimable principal's `users` row (ADR 0044).
-
-  An identity-less tenant: no email, no password, `principal: true`, and its
-  own wrapped DEK so that environment and vault secrets encrypt exactly as
-  they do for an ordinary account. `Fountain.Principals` owns the grant that
-  makes it temporary; this only makes the tenant.
-
-  `:sandbox_limit_override` is the principal's live-sandbox cap and is always
-  set by the caller — which is why `Fountain.Quotas` needs no knowledge of
-  principals at all: the override branch answers before the balance rule is
-  ever consulted.
-
-  Deliberately not audited here. A principal's creation is recorded once, as
-  `claimable_user.created` against the application that opened it; a second
-  `account.registered` under the principal's own id would be a trail nobody
-  can reach, on a tenant with no human behind it.
-
-  Returns `{:ok, user}` or `{:error, changeset}`. Runs in a transaction: a row
-  without a data key cannot hold a secret, so the two land together or not
-  at all.
-  """
-  @spec create_principal_user(keyword()) :: {:ok, User.t()} | {:error, Ecto.Changeset.t()}
-  def create_principal_user(opts \\ []) do
-    attrs = %{sandbox_limit_override: Keyword.get(opts, :sandbox_limit_override)}
-
-    Repo.transaction(fn ->
-      with {:ok, user} <- %User{} |> User.principal_changeset(attrs) |> Repo.insert(),
-           {:ok, _udk} <- create_user_data_key(user.id) do
-        user
-      else
-        {:error, changeset} -> Repo.rollback(changeset)
-      end
-    end)
-  end
-
   defp create_user_data_key(user_id) do
     dek = Crypto.generate_dek()
     wrapped = Crypto.wrap_dek(dek)
@@ -1027,56 +985,6 @@ defmodule Fountain.Accounts do
       order_by: [desc: k.inserted_at]
     )
     |> Repo.all()
-  end
-
-  @doc "Active keys the account manages: its own keys and its claimed principals' credentials."
-  def list_managed_api_keys(user_id) when is_binary(user_id) do
-    user_id
-    |> managed_api_keys()
-    |> where([k], is_nil(k.revoked_at))
-    |> order_by([k], desc: k.inserted_at)
-    |> Repo.all()
-  end
-
-  @doc "Revoke an owned or claimed-principal credential, with a trail the managing owner can read."
-  def revoke_managed_api_key(user_id, key_id, opts \\ []) do
-    case user_id |> managed_api_keys() |> where([k], k.id == ^key_id) |> Repo.one() do
-      nil ->
-        {:error, :not_found}
-
-      key ->
-        with {:ok, revoked} <- revoke_api_key(key.user_id, key.id, opts) do
-          if key.user_id != user_id do
-            Audit.record(%{
-              user_id: user_id,
-              action: "api_key.revoked",
-              resource_type: "api_key",
-              resource_id: key.id,
-              actor: Keyword.get(opts, :actor, "self"),
-              request_ip: Keyword.get(opts, :request_ip),
-              metadata: %{
-                "name" => key.name,
-                "key_prefix" => key.key_prefix,
-                "principal_user_id" => key.user_id
-              }
-            })
-          end
-
-          {:ok, revoked}
-        end
-    end
-  end
-
-  defp managed_api_keys(user_id) do
-    principals =
-      from o in Fountain.Principals.Owner,
-        where: o.owner_user_id == ^user_id,
-        select: o.principal_user_id
-
-    from k in ApiKey,
-      where:
-        k.user_id == ^user_id or
-          ("principal" in k.scopes and k.user_id in subquery(principals))
   end
 
   @doc "List all users, ordered by insertion date."

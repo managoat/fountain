@@ -11,6 +11,13 @@ server releases.
 
 ---
 
+## [Unreleased]
+
+### Removed
+
+- The generated types for claimable principals: `components["schemas"]["ClaimableUser"]`, `["ClaimableUserCreated"]`, `["ClaimedPrincipal"]` and their response wrappers, with the `/api/claimable-users` entries of `paths` and `operations`. The server no longer serves those routes (ADR 0044, retired). No hand-written client method used them.
+
+  Breaking for the type surface, because `schemas.ts` re-exports `components` and `paths`. Held for the next major release, which the rest of the self-hosted cleanup also needs.
 ## [6.5.1] - 2026-10-13
 
 ### Changed

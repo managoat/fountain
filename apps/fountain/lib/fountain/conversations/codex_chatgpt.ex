@@ -177,8 +177,8 @@ defmodule Fountain.Conversations.CodexChatGPT do
   defp renewal_refusal(ref, :invalid_grant), do: {:error, unusable(ref, :reconnect_required)}
 
   # The row is there for its owner's metadata read and not for the credential
-  # read: the owner is suspended, unverified or a principal. Gone altogether
-  # is `:not_found`.
+  # read: the owner is suspended or unverified. Gone altogether is
+  # `:not_found`.
   defp renewal_refusal(ref, :not_connected), do: {:error, unusable(ref, :owner_ineligible)}
 
   defp renewal_refusal(%{grant_id: grant_id}, reason) do

@@ -198,7 +198,7 @@ defmodule FountainWeb.FallbackController do
     |> json(%{
       error: "chatgpt_owner_ineligible",
       message:
-        "only a verified account that is not suspended and is not a principal may link, " <>
+        "only a verified account that is not suspended may link, " <>
           "reconnect or rename a ChatGPT subscription"
     })
   end
@@ -713,7 +713,7 @@ defmodule FountainWeb.FallbackController do
 
   # A guest attach (a conversation of another agent onto a home by
   # `sandbox_id`) made with a credential below full scope (#2525): a sandbox's
-  # own `sprite` token, or a principal's. 403 with `RequireFullScope`'s shape,
+  # own `sprite` token. 403 with `RequireFullScope`'s shape,
   # `reason: "insufficient_scope"` and `required_scope: "full"`, because the
   # refusal is that plug's rule applied inside the attach door, and only ever
   # given for an attach that passed the pairing checks.
@@ -992,55 +992,6 @@ defmodule FountainWeb.FallbackController do
     conn
     |> put_status(:not_found)
     |> json(%{error: "billing_disabled", billing: "disabled"})
-  end
-
-  # ── claimable principals (ADR 0044) ───────────────────────────────────────
-  #
-  # Named rather than left to the 422 safety net below, because an application
-  # recovering from a lost response branches on exactly these: a claim it lost
-  # the response to (409) reads differently from one it was too late for (410),
-  # and both read differently from a bad token (403).
-
-  def call(conn, {:error, :already_claimed}) do
-    conn
-    |> put_status(:conflict)
-    |> json(%{error: "already_claimed", reason: "already_claimed"})
-  end
-
-  def call(conn, {:error, reason}) when reason in [:expired, :released] do
-    conn
-    |> put_status(:gone)
-    |> json(%{error: to_string(reason), reason: to_string(reason)})
-  end
-
-  def call(conn, {:error, :invalid_claim_token}) do
-    conn
-    |> put_status(:forbidden)
-    |> json(%{error: "invalid_claim_token", reason: "invalid_claim_token"})
-  end
-
-  # The claiming account, not the grant: verified, not suspended, and able to
-  # fund the work the claim moves onto its ledger.
-  def call(conn, {:error, :ineligible}) do
-    conn
-    |> put_status(:forbidden)
-    |> json(%{
-      error: "this account cannot claim a principal",
-      reason: "ineligible_claimer"
-    })
-  end
-
-  def call(conn, {:error, reason})
-      when reason in [:too_many_outstanding_principals, :principal_rate_limited] do
-    conn
-    |> put_status(:too_many_requests)
-    |> json(%{error: to_string(reason), reason: to_string(reason)})
-  end
-
-  def call(conn, {:error, {:invalid, message}}) when is_binary(message) do
-    conn
-    |> put_status(:bad_request)
-    |> json(%{error: message, reason: "invalid_request"})
   end
 
   def call(conn, {:error, reason}) when is_binary(reason) do

@@ -59,7 +59,7 @@ defmodule Fountain.Accounts.ExecutionLimitsTest do
     end
   end
 
-  test "registration, OAuth and principal creation cannot set ceilings" do
+  test "registration and OAuth cannot set ceilings" do
     attrs = %{
       email: "ceiling-#{Ecto.UUID.generate()}@example.test",
       password: "valid-password",
@@ -68,8 +68,7 @@ defmodule Fountain.Accounts.ExecutionLimitsTest do
 
     for changeset <- [
           User.registration_changeset(%User{}, attrs),
-          User.oauth_registration_changeset(%User{}, %{attrs | email: "oauth-#{attrs.email}"}),
-          User.principal_changeset(%User{}, attrs)
+          User.oauth_registration_changeset(%User{}, %{attrs | email: "oauth-#{attrs.email}"})
         ] do
       assert Repo.insert!(changeset).execution_limits == %{}
     end

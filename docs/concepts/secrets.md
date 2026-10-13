@@ -217,7 +217,7 @@ provable source binding must also be replaced before it can use a new source.
 A ChatGPT subscription that a set names is the exception: Codex keeps that
 sign-in in a home of its own, so it shares a sandbox with each other source.
 A sandbox that was first bound before Fountain prepared such homes keeps the
-rule above. Use separate principals when different customers need isolation.
+rule above. Use separate accounts when different customers need isolation.
 
 Set the whole thing up at `/account/inference-credentials`, or over the API
 under `/api/account/inference-credential-sets`.

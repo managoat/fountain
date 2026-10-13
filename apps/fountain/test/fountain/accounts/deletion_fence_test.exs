@@ -3,7 +3,7 @@ defmodule Fountain.Accounts.DeletionFenceTest do
   use Mimic
 
   alias Fountain.Accounts.{Deletion, User}
-  alias Fountain.{Audit, Conversations, Principals}
+  alias Fountain.{Audit, Conversations}
   import Ecto.Query, only: [where: 3]
   alias Fountain.Conversations.ConversationServer
   alias Fountain.Conversations.Lifecycle
@@ -104,32 +104,6 @@ defmodule Fountain.Accounts.DeletionFenceTest do
     assert log =~ ":fixture_refusal"
     refute Repo.get(User, ctx.user.id)
     assert deleted_event(ctx.user.id)
-  end
-
-  test "principal cleanup forwards the closing caller's attribution", ctx do
-    assert {:ok, %{claimable: claimable}} =
-             Principals.create_claimable(ctx.user, %{"application_id" => "fence-test"})
-
-    sandbox = insert_sandbox(user_id: claimable.user_id, status: "ready")
-
-    expect(Managoat.Sandbox.Sprites, :destroy, fn _ ->
-      assert Repo.reload!(sandbox).transition == "destroying"
-      refute Repo.in_transaction?()
-      :ok
-    end)
-
-    assert {:ok, _} =
-             Principals.release(claimable,
-               actor: "system:principal_sweep",
-               request_ip: "192.0.2.2"
-             )
-
-    assert [event] = events(claimable.user_id)
-    assert event.actor == "system:principal_sweep"
-    assert event.request_ip == "192.0.2.2"
-    assert event.metadata["reason"] == "principal_closed"
-    assert Repo.reload!(sandbox).status == "terminated"
-    refute Repo.reload!(ctx.sandbox).transition == "destroying"
   end
 
   test "provider failure still retires the fenced row and still counts the machine", ctx do
@@ -301,11 +275,11 @@ defmodule Fountain.Accounts.DeletionFenceTest do
     end
 
     test "the late pass, after the actors have stopped", ctx do
-      assert Deletion.destroy_sprites(ctx.user, reason: "principal_closed") == 2
+      assert Deletion.destroy_sprites(ctx.user, reason: "compute_stopped") == 2
 
       assert [{:fence_opts, _, _}, {:actors_stopped, late_id} | late_pass] = mailbox()
       assert {:fence_opts, _, opts} = List.keyfind(late_pass, late_id, 1)
-      assert opts[:transition_reason] == :principal_closed
+      assert opts[:transition_reason] == :compute_stopped
     end
   end
 

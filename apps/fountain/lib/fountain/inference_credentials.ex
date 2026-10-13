@@ -407,10 +407,6 @@ defmodule Fountain.InferenceCredentials do
   `opts` carries `:actor` / `:request_ip`, from
   `FountainWeb.Audited.attribution/2` on a web surface.
 
-  An internal `:authorize` callback may take an ownership lock and return
-  `:ok` or `{:error, reason}`. It runs in the credential write transaction;
-  the audit event is recorded only after that transaction commits.
-
   Returns `{:ok, credential}` (the updated row) or `{:error, reason}`.
   """
   @spec put_credential(binary(), binary(), atom(), String.t() | nil, keyword()) ::
@@ -449,23 +445,11 @@ defmodule Fountain.InferenceCredentials do
         plain when is_binary(plain) -> Crypto.encrypt(plain, dek)
       end
 
-    # Principals takes its ownership row lock here, in the same transaction
-    # as the write. Audit remains outside so a failed trail insert cannot
-    # roll back the credential transaction (ADR 0013).
+    # Audit remains outside so a failed trail insert cannot roll back the
+    # credential transaction (ADR 0013).
     result =
       Repo.transaction(fn ->
         lock_source(user_id)
-
-        case Keyword.get(opts, :authorize) do
-          nil ->
-            :ok
-
-          authorize ->
-            case authorize.() do
-              :ok -> :ok
-              {:error, reason} -> Repo.rollback(reason)
-            end
-        end
 
         set =
           case selection do
@@ -533,8 +517,7 @@ defmodule Fountain.InferenceCredentials do
       # not, and a trail that cannot say which key moved cannot explain the
       # turn that ran on it. Still no value, and still no ciphertext.
       # Merged over the caller's, so a surface acting for somebody else can
-      # name who asked (`Principals.put_inference_credential/5`) without this
-      # function knowing about it.
+      # name who asked without this function knowing about it.
       metadata:
         Map.merge(Keyword.get(opts, :metadata, %{}), %{
           "provider" => Atom.to_string(provider),

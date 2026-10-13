@@ -485,36 +485,34 @@ defmodule Fountain.Machines.DestroyForcedTest do
       assert Repo.all(from e in Audit.Event, where: e.action == "sandbox.destroyed") == []
     end
 
-    test "stopping a principal's compute keeps its rows, so it records the destroy", ctx do
-      # The other caller of `destroy_sprites/2` (ADR 0044). Nothing is deleted
-      # here, `user_id` survives, and a machine torn down is worth an event —
+    test "stopping a tenant's compute keeps its rows, so it records the destroy", ctx do
+      # A bare `destroy_sprites/2`. Nothing is deleted here, `user_id` survives, and a machine torn down is worth an event —
       # which is why the suppression is `delete_user/2`'s and not this module's.
       capture_provider()
 
       capture_log(fn ->
         assert 1 ==
                  Deletion.destroy_sprites(ctx.user,
-                   reason: "principal_closed",
-                   actor: "system:principal_sweep"
+                   reason: "compute_stopped",
+                   actor: "system:operator"
                  )
       end)
 
       assert [destroyed] = events(ctx.user.id, "sandbox.destroyed")
-      assert destroyed.actor == "system:principal_sweep"
-      assert destroyed.metadata["reason"] == "principal_closed"
+      assert destroyed.actor == "system:operator"
+      assert destroyed.metadata["reason"] == "compute_stopped"
     end
 
-    test "stopping a principal's compute records the destroy but no conversation rows", ctx do
-      # The two events this path leaves are deliberately split (ADR 0044,
-      # ADR 0058 stage 5b). `sandbox.destroyed` is recorded — nothing is being
-      # deleted, `user_id` survives, and a machine torn down is worth an event.
-      # `conversation.terminated` is not: releasing or expiring a claimable
-      # principal has never left a row per live conversation, and
-      # `destroy_sprites/2` hardcodes that for every caller.
+    test "stopping a tenant's compute records the destroy but no conversation rows", ctx do
+      # The two events this path leaves are deliberately split (ADR 0058 stage
+      # 5b). `sandbox.destroyed` is recorded — nothing is being deleted,
+      # `user_id` survives, and a machine torn down is worth an event.
+      # `conversation.terminated` is not: `destroy_sprites/2` hardcodes that
+      # for every caller.
       #
       # The regression this pins is one keyword wide: threading the
       # conversation audit through the caller's `:audit`, as the machine one
-      # correctly is, turns the principals path chatty while leaving the
+      # correctly is, turns the bare-stop path chatty while leaving the
       # deletion path looking right.
       {:ok, probe} =
         GenServer.start_link(DestroyingProbe, %{owner: self(), sandbox_id: ctx.sandbox.id})
@@ -529,8 +527,8 @@ defmodule Fountain.Machines.DestroyForcedTest do
       capture_log(fn ->
         assert 0 ==
                  Deletion.destroy_sprites(ctx.user,
-                   reason: "principal_closed",
-                   actor: "system:principal_sweep"
+                   reason: "compute_stopped",
+                   actor: "system:operator"
                  )
       end)
 
@@ -545,18 +543,17 @@ defmodule Fountain.Machines.DestroyForcedTest do
       # 5c). Until 5c `do_destroy_sprites/2` forwarded no `:actor` to
       # `terminate_conversation/2`, so this recorded `self` while the sibling
       # test above — the same operation on a machine whose conversation had no
-      # live server — recorded `system:principal_sweep`. Which actor a
+      # live server — recorded the caller's actor. Which actor a
       # teardown was attributed to depended on whether a GenServer happened to
       # be up. Now both say who asked, and the row's
       # `sandbox.teardown_requested` agrees with its `sandbox.destroyed`.
-      assert destroyed.actor == "system:principal_sweep"
+      assert destroyed.actor == "system:operator"
 
       assert [requested] = events(ctx.user.id, "sandbox.teardown_requested")
       assert requested.actor == destroyed.actor
 
       assert events(ctx.user.id, "conversation.terminated") == [],
-             "closing a principal recorded a per-conversation event; `main` recorded " <>
-               "none and no release or expiry has ever asked for one"
+             "stopping a tenant's compute recorded a per-conversation event"
     end
 
     test "a provider error does not abort the deletion", ctx do

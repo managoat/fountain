@@ -78,12 +78,6 @@ defmodule Fountain.Accounts.Deletion do
   refused before any teardown: actor and provider calls must run outside its
   locks. There is no subscription to cancel first (ADR 0031), and the Stripe
   customer stays for the refund trail.
-
-  A claimable principal this account owns (ADR 0044) goes with it. The
-  ownership row cascades either way, so the alternative is not "keep it" but
-  "leave a tenant with resources, no owner, no credential that reaches it and
-  no sweep that would ever find it" — a permanent leak of exactly the kind
-  `@non_terminal` above exists to prevent.
   """
   @spec delete_user(User.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def delete_user(%User{} = user, opts \\ []) do
@@ -95,8 +89,6 @@ defmodule Fountain.Accounts.Deletion do
   end
 
   defp do_delete_user(user, opts) do
-    delete_owned_principals(user, opts)
-
     sprite_opts =
       opts
       |> Keyword.put_new(:reason, "account_deleted")
@@ -106,9 +98,9 @@ defmodule Fountain.Accounts.Deletion do
       # would survive as an orphan describing a cascade, and `account.deleted`
       # carries the identity that makes the trail readable (#2344, ADR 0058
       # stage 5b). Set here rather than in `destroy_sprites/2` because this is
-      # the only caller that is about to delete the tenant — `Principals`
-      # stopping a released principal's compute keeps its rows, and its
-      # machines are worth an event each.
+      # the only caller that is about to delete the tenant — a bare
+      # `destroy_sprites/2` keeps the tenant's rows, and its machines are worth
+      # an event each.
       |> Keyword.put(:audit, false)
 
     with sprites when is_integer(sprites) <- destroy_sprites(user, sprite_opts) do
@@ -178,30 +170,6 @@ defmodule Fountain.Accounts.Deletion do
     end
   end
 
-  # ── owned principals (ADR 0044) ───────────────────────────────────────────
-
-  # Recursive only in principle: a principal is identity-less, so it can never
-  # sign in to claim one of its own, and `Principals.create_claimable/3`
-  # refuses it as an application. Each of these is therefore a leaf.
-  defp delete_owned_principals(%User{principal: true}, _opts), do: :ok
-
-  defp delete_owned_principals(%User{id: owner_id}, opts) do
-    for principal_id <- Fountain.Principals.list_owned(owner_id),
-        %User{} = principal <- [Repo.get(User, principal_id)] do
-      case delete_user(principal, Keyword.put(opts, :actor, "system:owner_deleted")) do
-        {:ok, _} ->
-          :ok
-
-        {:error, reason} ->
-          Logger.warning("account deletion: owned principal #{principal_id}: #{inspect(reason)}")
-      end
-    end
-
-    :ok
-  rescue
-    e -> Logger.warning("deleting owned principals for #{owner_id} failed: #{inspect(e)}")
-  end
-
   # ── sprites ───────────────────────────────────────────────────────────────
 
   @doc """
@@ -219,10 +187,9 @@ defmodule Fountain.Accounts.Deletion do
   sprite goes through the same path as a user-initiated terminate. Otherwise
   destroy the sprite directly.
 
-  Public because deletion is not the only reason to stop a tenant's compute:
-  expiring or releasing a claimable principal (ADR 0044) stops it too, and
-  keeps the rows. Duplicating this would be duplicating the part that costs
-  money when it is wrong.
+  Public so that stopping a tenant's compute without deleting the tenant has
+  one implementation: duplicating this would be duplicating the part that
+  costs money when it is wrong.
   """
   @spec destroy_sprites(User.t() | binary(), keyword()) :: non_neg_integer() | {:error, term()}
   def destroy_sprites(user, opts \\ [])
@@ -292,25 +259,24 @@ defmodule Fountain.Accounts.Deletion do
         #
         # `:audit` silences `conversation.terminated`, and it is hardcoded
         # `false` for every caller of this function — `account.deleted` already
-        # says everything went away, and `Principals` closing a claimable
-        # principal (ADR 0044) is not asking for a per-conversation row either.
-        # Threading it through `:audit` instead would start recording one per
-        # live conversation on the principals path, which no release or expiry
-        # has ever done.
+        # says everything went away, and a bare stop of a tenant's compute is
+        # not asking for a per-conversation row either. Threading it through
+        # `:audit` instead would start recording one per live conversation on
+        # that path.
         #
         # `:audit_destroy` silences the machine's `sandbox.destroyed`, and that
         # one *does* follow the caller's `:audit`: `delete_user/2` is about to
-        # nilify the `user_id` those rows carry, and `Principals` is not, so it
+        # nilify the `user_id` those rows carry, and a bare stop is not, so it
         # keeps its machine events (ADR 0058 stage 5b, review rounds 2-3). It
         # travels through the server, which is the only way to reach a machine
         # whose conversation still has one — the rest are handled by
         # `destroy_sprite/2` below, off the same `:audit`.
         # `:actor` and `:request_ip` too, since ADR 0058 stage 5c, and the one
-        # event they move is `sandbox.destroyed` on the **principals** path.
+        # event they move is `sandbox.destroyed` on the bare-stop path.
         # Without them the live-server path recorded `self` there while
         # `destroy_sprite/2` — the same operation, on the machines whose
         # conversations happened to have no server — recorded the caller's
-        # `system:principal_sweep`. Which actor a computer's teardown was
+        # own actor. Which actor a computer's teardown was
         # attributed to depended on whether a GenServer was up, which is not a
         # fact about who asked.
         #
@@ -421,13 +387,11 @@ defmodule Fountain.Accounts.Deletion do
   defp destroy_sprite(_sandbox, _opts), do: false
 
   # The machine's transition reason, from the fence reason the caller already
-  # distinguishes its paths by: `delete_user/2` sets `"account_deleted"`,
-  # `Principals` sets `"principal_closed"`, and a bare `destroy_sprites/2` is
-  # the documented "stop this tenant's compute".
+  # distinguishes its paths by: `delete_user/2` sets `"account_deleted"`, and a
+  # bare `destroy_sprites/2` is the documented "stop this tenant's compute".
   defp destroy_reason(opts) do
     case Keyword.get(opts, :reason) do
       "account_deleted" -> :account_deleted
-      "principal_closed" -> :principal_closed
       _other -> :compute_stopped
     end
   end

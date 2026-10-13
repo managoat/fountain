@@ -355,6 +355,10 @@ its customer's credential on the principal it just opened. The owner of a
 principal gets an owner-authenticated route to write a credential on a
 principal it owns. The principal's own key gains nothing.
 
+*Retired 2026-10-12 with [ADR 0044](0044-claimable-principals.md): claimable
+principals and this owner-authenticated route are removed. Per-customer
+isolation is an ordinary account per customer.*
+
 ## Implementation order and acceptance
 
 This is a shared implementation plan for the overlapping parts of ADRs 0052

@@ -119,6 +119,13 @@ request log, `GET /api/conversations/:id/egress`, shows each decision. List what
 `registry.npmjs.org` for the agent's adapter. A host with a bound credential,
 such as the model's API, needs no entry.
 
+The policy is applied before the environment's packages install, so the
+package mirrors belong in the allowlist too: `archive.ubuntu.com` and
+`security.ubuntu.com` for `apt`, `registry.npmjs.org` for `npm`. A `limited`
+environment that lists packages without its mirrors fails at the `packages`
+stage, with the mirror's name in the output, rather than installing them on
+an open network.
+
 Put an IPv6 address in square brackets, such as `[2001:db8::1]`. Without them
 there is no way to tell the port apart from the address.
 

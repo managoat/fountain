@@ -236,33 +236,6 @@ broker. Each other
 route stays open, so an account that loses the flag can still list, rename,
 reconnect, disconnect and remove its subscriptions.
 
-## Claimable principals
-
-A claimable principal lets an application start a computer before its visitor
-has a Fountain account. A claim attaches an owner; resource IDs and the
-tenant stay the same.
-
-Follow [Start before sign-in](build/anonymous-visitors.md). Use the documented
-idempotency key to reconcile a lost create or claim response. A repeated
-request can return a fresh credential, so keep the latest successful result.
-The [generated reference](/api/docs) defines required scopes and refusals.
-
-### Set a principal's provider credential
-
-Use `PUT /api/claimable-users/:id/inference-credentials/:provider` with
-`{"value": "..."}` to write a provider credential to the principal's default
-set. Use `DELETE` on the same path to clear it. Here `:id` is the claim grant
-ID returned by `POST /api/claimable-users`, not the principal's tenant ID.
-Both operations return `204` on success, and encrypt under the principal's
-own tenant key. They do not validate the value with the provider.
-
-These writes require the current owner's full-scope key. Before claim, that
-is the application account that opened the principal. After claim, it is the
-account that claimed it; the original application loses credential-write
-access. A `principal`-scoped key gains no account-write permission. Use
-[principals](build/anonymous-visitors.md) for customer isolation; multiple
-sets on one account do not create separate tenants.
-
 ## Rate limiting
 
 The resource API uses fixed one-minute windows, independently on each server

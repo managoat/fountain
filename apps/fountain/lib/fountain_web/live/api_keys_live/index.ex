@@ -3,19 +3,17 @@ defmodule FountainWeb.ApiKeysLive.Index do
   use FountainWeb, :live_view
 
   alias Fountain.Accounts
-  alias Fountain.Principals
 
   @impl true
   def mount(_params, _session, socket) do
     user = socket.assigns.current_user
-    keys = Accounts.list_managed_api_keys(user.id)
+    keys = Accounts.list_api_keys(user.id)
 
     {:ok,
      socket
      |> assign(:page_title, "API keys")
      |> assign(:user_id, user.id)
      |> assign(:keys, keys)
-     |> assign(:principals, Principals.list_owned_details(user.id))
      |> assign(:new_key, nil)}
   end
 
@@ -32,28 +30,11 @@ defmodule FountainWeb.ApiKeysLive.Index do
       {:ok, {key, raw_token}} ->
         {:noreply,
          socket
-         |> assign(:keys, Accounts.list_managed_api_keys(socket.assigns.user_id))
+         |> assign(:keys, Accounts.list_api_keys(socket.assigns.user_id))
          |> assign(:new_key, %{key: key, raw_token: raw_token})}
 
       {:error, _cs} ->
         {:noreply, put_flash(socket, :error, "Failed to create API key")}
-    end
-  end
-
-  def handle_event("renew_principal_key", %{"principal_id" => id}, socket) do
-    with {:ok, principal_id} <- Ecto.UUID.cast(id),
-         {:ok, {key, raw_token}} <-
-           Principals.renew_owned_credential(
-             socket.assigns.user_id,
-             principal_id,
-             FountainWeb.Audited.attribution(socket)
-           ) do
-      {:noreply,
-       socket
-       |> assign(:keys, Accounts.list_managed_api_keys(socket.assigns.user_id))
-       |> assign(:new_key, %{key: key, raw_token: raw_token})}
-    else
-      _ -> {:noreply, put_flash(socket, :error, "Could not replace principal key")}
     end
   end
 
@@ -65,7 +46,7 @@ defmodule FountainWeb.ApiKeysLive.Index do
     # `revoke_api_key/3` records `api_key.revoked` itself now (#552), the same
     # move the mint made in #542 — so this surface owes the trail only who was
     # on the socket, and its own `from_socket` call had to go with it.
-    case Accounts.revoke_managed_api_key(
+    case Accounts.revoke_api_key(
            socket.assigns.user_id,
            id,
            FountainWeb.Audited.attribution(socket)
@@ -73,7 +54,7 @@ defmodule FountainWeb.ApiKeysLive.Index do
       {:ok, _revoked} ->
         {:noreply,
          socket
-         |> assign(:keys, Accounts.list_managed_api_keys(socket.assigns.user_id))
+         |> assign(:keys, Accounts.list_api_keys(socket.assigns.user_id))
          |> put_flash(:info, "Key revoked")}
 
       {:error, :not_found} ->
@@ -138,36 +119,6 @@ defmodule FountainWeb.ApiKeysLive.Index do
         <.button type="submit">Create key</.button>
       </form>
 
-      <form
-        :if={@principals != []}
-        id="renew-principal-key"
-        phx-submit="renew_principal_key"
-        phx-hook="ConfirmSubmit"
-        data-confirm="Replace this principal's key? Its current key will stop working."
-        class="space-y-3 rounded border border-[var(--color-border)] p-4"
-      >
-        <label for="principal-id" class="block font-medium">Replace a principal key</label>
-        <p class="text-sm text-[var(--color-text-secondary)]">
-          Create a new key for a principal you own. Its previous key will stop working.
-          You can also replace an expired or revoked key here.
-        </p>
-        <select
-          id="principal-id"
-          name="principal_id"
-          class="w-full rounded border border-[var(--color-border)] bg-[var(--color-bg-1)] p-2 text-sm"
-        >
-          <option :for={principal <- @principals} value={principal.id}>
-            {principal_label(principal)}
-          </option>
-        </select>
-        <.button
-          type="submit"
-          variant="secondary"
-        >
-          Replace principal key
-        </.button>
-      </form>
-
       <div
         :if={@keys == []}
         class="rounded border border-dashed border-[var(--color-border)] p-8 text-center text-[var(--color-text-muted)]"
@@ -195,9 +146,6 @@ defmodule FountainWeb.ApiKeysLive.Index do
           >
             <td class="px-4 py-2 font-medium">
               {k.name}
-              <span :if={k.user_id != @user_id} class="text-xs text-[var(--color-text-muted)]">
-                Principal
-              </span>
             </td>
             <td class="px-4 py-2 font-mono text-[var(--color-text-muted)] text-xs">
               {k.key_prefix}···
@@ -225,12 +173,6 @@ defmodule FountainWeb.ApiKeysLive.Index do
     </div>
     """
   end
-
-  defp principal_label(%{id: id, application_id: application_id})
-       when is_binary(application_id) and application_id != "",
-       do: "#{application_id} (#{id})"
-
-  defp principal_label(%{id: id}), do: id
 
   defp format_date(nil), do: ""
   defp format_date(dt), do: Calendar.strftime(dt, "%Y-%m-%d")

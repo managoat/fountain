@@ -66,6 +66,26 @@ defmodule Fountain.Accounts.User do
     |> hash_password()
   end
 
+  @doc """
+  Changeset for an account an admin opens over the API (ADR 0064): a platform
+  built on this instance opening one per application.
+
+  No password, so nobody signs in as it: the platform holds its API key.
+  Verified at creation, because the address is the operator's own naming and
+  no mail is read there. The role is never cast; it is always `user`.
+  """
+  def admin_created_changeset(user, attrs) do
+    user
+    |> cast(attrs, [:email])
+    |> validate_required([:email])
+    |> validate_format(:email, ~r/^[^\s@]+@[^\s@]+\.[^\s@]+$/,
+      message: "must be a valid email address"
+    )
+    |> update_change(:email, &String.downcase/1)
+    |> unique_constraint(:email)
+    |> put_change(:email_verified_at, DateTime.utc_now() |> DateTime.truncate(:second))
+  end
+
   @doc "Changeset for OAuth registration (no password required; email pre-verified by provider)."
   def oauth_registration_changeset(user, attrs) do
     user

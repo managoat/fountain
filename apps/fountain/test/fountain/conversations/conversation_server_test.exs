@@ -560,6 +560,100 @@ defmodule Fountain.Conversations.ConversationServerTest do
     end
   end
 
+  describe "provisioning — the floor precedes the packages (#2597)" do
+    test "the cold arm applies the network policy before any package command runs", %{
+      user: user
+    } do
+      # The package commands run with the conversation's full process env,
+      # broker session token included, and apt/npm hooks are code the tenant
+      # chose. Before the floor is applied the sandbox has the provider's open
+      # egress, so the policy has to land first and the packages come after.
+      stub_happy_sprite()
+      test_pid = self()
+
+      env =
+        insert_env(
+          user_id: user.id,
+          packages: %{"apt" => ["jq"]},
+          networking_type: "limited",
+          networking_config: %{"allowed_hosts" => ["archive.ubuntu.com"]}
+        )
+
+      agent = insert_agent(user_id: user.id, environment_id: env.id, runtime: "claude")
+      sandbox = insert_sandbox(user_id: user.id, status: "pending")
+
+      conv =
+        insert_conversation(
+          user_id: user.id,
+          agent: agent,
+          runtime: "claude",
+          sandbox_id: sandbox.id,
+          status: "pending"
+        )
+
+      Mimic.stub(Fountain.Conversations.Provisioning, :apply_network_policy, fn _h, _e, _c ->
+        send(test_pid, :network_policy)
+        :ok
+      end)
+
+      Mimic.stub(Fountain.Conversations.Provisioning, :install_packages, fn _s, _e, _se, _c ->
+        send(test_pid, :packages)
+        :ok
+      end)
+
+      {pid, _ref, :alive} = start_server(conv)
+
+      # Both ran, and in this order: the mailbox keeps arrival order.
+      assert_received :network_policy
+      assert_received :packages
+      refute_received :network_policy
+      assert Conversations._unsafe_get_sandbox!(sandbox.id).status == "ready"
+      GenServer.stop(pid)
+    end
+
+    test "a policy that cannot be applied stops the provision before the packages", %{
+      user: user
+    } do
+      stub_happy_sprite()
+      test_pid = self()
+
+      env =
+        insert_env(
+          user_id: user.id,
+          packages: %{"apt" => ["jq"]},
+          networking_type: "limited",
+          networking_config: %{"allowed_hosts" => ["archive.ubuntu.com"]}
+        )
+
+      agent = insert_agent(user_id: user.id, environment_id: env.id, runtime: "claude")
+      sandbox = insert_sandbox(user_id: user.id, status: "pending")
+
+      conv =
+        insert_conversation(
+          user_id: user.id,
+          agent: agent,
+          runtime: "claude",
+          sandbox_id: sandbox.id,
+          status: "pending"
+        )
+
+      Mimic.stub(Fountain.Conversations.Provisioning, :apply_network_policy, fn _h, _e, _c ->
+        {:error, {:network_policy, :unreachable}}
+      end)
+
+      Mimic.stub(Fountain.Conversations.Provisioning, :install_packages, fn _s, _e, _se, _c ->
+        send(test_pid, :packages)
+        :ok
+      end)
+
+      {_pid, ref, _} = start_server(conv)
+      assert_stopped(ref)
+
+      refute_received :packages
+      assert Conversations._unsafe_get_sandbox!(sandbox.id).status == "failed"
+    end
+  end
+
   describe "provisioning — failure paths" do
     test "a sprite that cannot be created marks both rows failed", %{conv: conv, sandbox: sandbox} do
       stub_happy_sprite()

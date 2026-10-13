@@ -2392,6 +2392,47 @@ defmodule FountainWeb.Schemas do
 
   item_response(AdminUserResponse, of: AdminUser)
 
+  defmodule AdminCreateUserRequest do
+    @moduledoc false
+    require OpenApiSpex
+
+    OpenApiSpex.schema(%{
+      title: "AdminCreateUserRequest",
+      type: :object,
+      properties: %{
+        email: %Schema{
+          type: :string,
+          description: "The new account's address. Verified at creation; no mail is sent."
+        },
+        key_name: %Schema{
+          type: :string,
+          nullable: true,
+          description: "Name of the API key minted with the account. Default `platform`."
+        }
+      },
+      required: [:email],
+      example: %{"email" => "helpdesk@apps.example.com"}
+    })
+  end
+
+  defmodule AdminCreatedUserResponse do
+    @moduledoc false
+    require OpenApiSpex
+
+    OpenApiSpex.schema(%{
+      title: "AdminCreatedUserResponse",
+      type: :object,
+      properties: %{
+        data: AdminUser,
+        api_key: %Schema{
+          type: :string,
+          description: "The new account's full-scope API key. Shown once; only its hash is kept."
+        }
+      },
+      required: [:data, :api_key]
+    })
+  end
+
   defmodule AdminUserListResponse do
     @moduledoc false
     require OpenApiSpex

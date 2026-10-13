@@ -170,6 +170,57 @@ defmodule Fountain.Accounts do
 
   defp audited_registration(other, _opts), do: other
 
+  @doc """
+  Open an account on behalf of `admin` (ADR 0064): verified, with no
+  password, and with one full-scope API key, returned in plaintext here and
+  never again.
+
+  This is the operator's door, so registration's own gates
+  (`REGISTRATION_ENABLED`, the access code, the domain list) do not apply;
+  the admin pipeline in front of it is the gate. Audited as
+  `account.created_by_admin` and `api_key.created`, both naming the admin.
+
+  Options: `:key_name` (default `"platform"`).
+
+  Returns `{:ok, {user, raw_key}}` or `{:error, changeset}`.
+  """
+  @spec create_account_by_admin(User.t(), String.t(), keyword()) ::
+          {:ok, {User.t(), String.t()}} | {:error, Ecto.Changeset.t()}
+  def create_account_by_admin(%User{role: "admin"} = admin, email, opts \\ [])
+      when is_binary(email) do
+    actor = "admin:#{admin.id}"
+
+    result =
+      Repo.transaction(fn ->
+        with {:ok, user} <- Repo.insert(User.admin_created_changeset(%User{}, %{email: email})),
+             {:ok, _udk} <- create_user_data_key(user.id),
+             {changeset, raw} = build_api_key(user.id, Keyword.get(opts, :key_name, "platform")),
+             {:ok, key} <- Repo.insert(changeset) do
+          {user, key, raw}
+        else
+          {:error, reason} -> Repo.rollback(reason)
+        end
+      end)
+
+    with {:ok, {user, key, raw}} <- result do
+      # After the commit: a failed audit insert inside the transaction would
+      # roll back the account it describes (see audited_registration/2).
+      record_api_key_created(key, actor: actor, request_ip: Keyword.get(opts, :request_ip))
+
+      Audit.record(%{
+        user_id: user.id,
+        action: "account.created_by_admin",
+        resource_type: "user",
+        resource_id: user.id,
+        actor: actor,
+        request_ip: Keyword.get(opts, :request_ip),
+        metadata: %{"email" => user.email}
+      })
+
+      {:ok, {user, raw}}
+    end
+  end
+
   defp do_register_user(attrs) do
     Repo.transaction(fn ->
       with {:ok, user} <- insert_user(attrs),

@@ -625,6 +625,7 @@ defmodule FountainWeb.Router do
     pipe_through [:accepts_json, :api, :require_full_scope, :require_admin_api]
 
     get "/users", AdminController, :index_users
+    post "/users", AdminController, :create_user
     get "/users/:id", AdminController, :show_user
     post "/users/:id/role", AdminController, :set_role
     post "/users/:id/sandbox-limit", AdminController, :set_sandbox_limit

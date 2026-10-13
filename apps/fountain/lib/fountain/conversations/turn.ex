@@ -31,8 +31,6 @@ defmodule Fountain.Conversations.Turn do
     field :prompt, :string
     field :status, :string, default: "pending"
     field :exit_code, :integer
-    # A service-enforced limit is incomplete even if a late runtime exits zero.
-    field :limit_reason, :string
     field :started_at, :utc_datetime
     field :ended_at, :utc_datetime
     # Set when Fountain, rather than the runtime or the user, reconciles a
@@ -165,7 +163,6 @@ defmodule Fountain.Conversations.Turn do
       :status,
       :inference_source,
       :exit_code,
-      :limit_reason,
       :started_at,
       :ended_at,
       :orphaned_at,

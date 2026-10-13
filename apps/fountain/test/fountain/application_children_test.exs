@@ -55,28 +55,6 @@ defmodule Fountain.ApplicationChildrenTest do
       assert before?(ids, Managoat.Broker, Oban)
     end
 
-    test "the listener outlives bounded transports and the deadline worker" do
-      previous = Application.fetch_env(:fountain, :execution_deadline_worker_enabled)
-      Application.put_env(:fountain, :execution_deadline_worker_enabled, true)
-
-      on_exit(fn ->
-        case previous do
-          {:ok, value} ->
-            Application.put_env(:fountain, :execution_deadline_worker_enabled, value)
-
-          :error ->
-            Application.delete_env(:fountain, :execution_deadline_worker_enabled)
-        end
-      end)
-
-      ids = ids()
-
-      assert before?(ids, Managoat.Broker, Fountain.ExecutionTransportSupervisor)
-      assert before?(ids, Managoat.Broker, Fountain.Conversations.ExecutionDeadlineWorker)
-      assert before?(ids, Fountain.ExecutionTransportSupervisor, FountainWeb.Endpoint)
-      assert before?(ids, Fountain.Conversations.ExecutionDeadlineWorker, FountainWeb.Endpoint)
-    end
-
     test "the migrator starts before the broker, so its tables exist" do
       ids = ids()
 

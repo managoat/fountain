@@ -47,7 +47,7 @@ defmodule Fountain.OpsGaugesTest do
     end
 
     # Every configured queue × watched state, zeros included.
-    for queue <- ~w(maintenance notifications),
+    for queue <- ~w(maintenance mailer),
         state <- ~w(available scheduled executing retryable discarded) do
       assert_receive {:telemetry, [:fountain, :oban_queue], %{depth: _},
                       %{queue: ^queue, state: ^state}}
@@ -138,7 +138,7 @@ defmodule Fountain.OpsGaugesTest do
 
     Repo.insert!(%Oban.Job{queue: "maintenance", worker: "Test.Worker", state: "available"})
     Repo.insert!(%Oban.Job{queue: "maintenance", worker: "Test.Worker", state: "available"})
-    Repo.insert!(%Oban.Job{queue: "notifications", worker: "Test.Worker", state: "discarded"})
+    Repo.insert!(%Oban.Job{queue: "mailer", worker: "Test.Worker", state: "discarded"})
 
     assert :ok = OpsGauges.emit_telemetry()
 
@@ -146,7 +146,7 @@ defmodule Fountain.OpsGaugesTest do
                     %{queue: "maintenance", state: "available"}}
 
     assert_receive {:telemetry, [:fountain, :oban_queue], %{depth: 1},
-                    %{queue: "notifications", state: "discarded"}}
+                    %{queue: "mailer", state: "discarded"}}
   end
 
   test "a raising tick is skipped, not propagated — the poller trap (#365)" do

@@ -11,10 +11,6 @@ defmodule Fountain.Conversations.Rehydrator do
   sandboxes from a crashed mid-provision are left as-is — the user's next
   action lazily resolves them via `wake_conversation`.
 
-  Saved execution allowances must be enforceable before a server is started.
-  Refused rows remain unchanged; this preflight does not stop provider work
-  that was already running. Turn admission still rechecks the saved policy.
-
   ## Clustered boot
 
   `run/1` fires on every node as it boots, but libcluster needs a few
@@ -146,8 +142,7 @@ defmodule Fountain.Conversations.Rehydrator do
 
   defp spawn_server(conv, lease_now) do
     # Ownership: internal boot sweep; each conversation supplies its own agent_id.
-    with :ok <- Conversations._unsafe_check_saved_execution_allowance(conv.id),
-         :ok <- check_machine_free(conv, lease_now),
+    with :ok <- check_machine_free(conv, lease_now),
          %Agents.Agent{} = _agent <-
            (conv.agent_id && Agents._unsafe_get_agent(conv.agent_id)) || {:skip, :no_agent},
          {:ok, runtime_module} <- Fountain.RuntimeDispatch.for_agent(conv) do

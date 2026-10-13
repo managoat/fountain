@@ -25,7 +25,6 @@ defmodule Fountain.Conversations.Launch do
   alias Fountain.Conversations.{
     Conversation,
     ConversationServer,
-    ExecutionAllowance,
     InferenceBinding,
     PromptDelivery,
     Sandbox
@@ -91,7 +90,6 @@ defmodule Fountain.Conversations.Launch do
     with :ok <- Conversations.require_provider_commit_boundary(),
          :ok <- Fountain.Conversations.PromptInput.validate_initial(attrs),
          %Agents.Agent{} = agent <- Agents.get_agent(agent_id, user_id) || {:error, :not_found},
-         :ok <- Conversations.check_execution_limits(user_id, attrs["execution_limits"]),
          {:ok, runtime_module} <- Fountain.RuntimeDispatch.for_agent(agent),
          {:ok, vault_id} <- Conversations.resolve_vault_id(attrs["vault_id"], user_id, agent),
          {:ok, env_id} <-
@@ -123,7 +121,7 @@ defmodule Fountain.Conversations.Launch do
          {:ok, provider} <- Conversations.resolve_sandbox_provider(agent),
          {:ok, machine_name} <-
            Conversations.mint_machine_name(provider, user_id, attrs["sprite_name"]),
-         {:ok, {sandbox, conv, allowance}} <-
+         {:ok, {sandbox, conv}} <-
            reserve_initial_conversation(
              %{
                environment_id: env_id || agent.environment_id,
@@ -161,11 +159,8 @@ defmodule Fountain.Conversations.Launch do
                session_config: session_config,
                labels: attrs["labels"] || %{}
              },
-             attrs["execution_limits"],
              opts
            ) do
-      Conversations.record_execution_allowance_created(allowance, user_id, opts)
-
       # Recorded here rather than in either branch below: both of them return
       # {:ok, conv}. The row exists and the sandbox reservation is spent even
       # when the server fails to start, so "a conversation was created" is
@@ -400,7 +395,6 @@ defmodule Fountain.Conversations.Launch do
     with :ok <- Conversations.require_provider_commit_boundary(),
          :ok <- Fountain.Conversations.PromptInput.validate_initial(attrs),
          %Agents.Agent{} = agent <- Agents.get_agent(agent_id, user_id) || {:error, :not_found},
-         :ok <- Conversations.check_execution_limits(user_id, attrs["execution_limits"]),
          {:ok, _runtime_module} <- Fountain.RuntimeDispatch.for_agent(agent),
          {:ok, vault_id} <- Conversations.resolve_vault_id(attrs["vault_id"], user_id, agent),
          {:ok, env_id} <-
@@ -435,7 +429,7 @@ defmodule Fountain.Conversations.Launch do
              Keyword.take(opts, [:guest_ok, :successor_of])
            ),
          :ok <- check_attach_capacity(sandbox, agent, attrs["prompt"]),
-         {:ok, conv, _allowance} <-
+         {:ok, conv} <-
            Machine.attach(
              sandbox.id,
              %{
@@ -459,7 +453,7 @@ defmodule Fountain.Conversations.Launch do
                session_config: session_config,
                labels: attrs["labels"] || %{}
              },
-             Keyword.put(opts, :request, attrs["execution_limits"])
+             opts
            ) do
       Audit.record(%{
         user_id: user_id,
@@ -635,7 +629,7 @@ defmodule Fountain.Conversations.Launch do
   #
   # This is one transaction: the nested `Repo.transaction` inside
   # `with_sandbox_reservation/3` joins it rather than opening another, so the
-  # sandbox, conversation and allowance still commit or roll back together.
+  # sandbox and conversation still commit or roll back together.
   # That is also why the `case` below re-raises the inner rollback with its
   # reason: a nested rollback the outer transaction does not re-raise reaches
   # the caller as `{:error, :rollback}`, which would turn every quota and
@@ -647,7 +641,7 @@ defmodule Fountain.Conversations.Launch do
   # tenant's user row queues behind its own in-flight launch, which may itself
   # be queued behind every other tenant's. A tenant-scoped wait beats a
   # fleet-wide one, which is why it is the right trade.
-  defp reserve_initial_conversation(sandbox_attrs, conversation_attrs, request, opts) do
+  defp reserve_initial_conversation(sandbox_attrs, conversation_attrs, opts) do
     Repo.transaction(fn ->
       # Set/secret mutations take this same tenant lock. Take it before the
       # fleet reservation so a source edit cannot stall every tenant's launch.
@@ -675,17 +669,13 @@ defmodule Fountain.Conversations.Launch do
 
       result =
         Fountain.Quotas.with_sandbox_reservation(conversation_attrs.user_id, fn ->
-          with {:ok, limits} <-
-                 Conversations.resolve_admission_limits(conversation_attrs.user_id, request),
-               {:ok, sandbox} <- Fountain.Machines.Provision.reserve(sandbox_attrs),
+          with {:ok, sandbox} <- Fountain.Machines.Provision.reserve(sandbox_attrs),
                {:ok, conv} <-
                  Conversations.insert_conversation_row(
                    Map.put(conversation_attrs, :sandbox_id, sandbox.id)
                  ),
-               :ok <- reserve_inference(conv),
-               {:ok, allowance} <-
-                 conv.id |> ExecutionAllowance.new_changeset(limits) |> Repo.insert() do
-            {:ok, {sandbox, conv, allowance}}
+               :ok <- reserve_inference(conv) do
+            {:ok, {sandbox, conv}}
           end
         end)
 
@@ -801,7 +791,6 @@ defmodule Fountain.Conversations.Launch do
       )
       when is_binary(channel_id) and channel_id != "" do
     with %Agents.Agent{} = agent <- Agents.get_agent(agent_id, user_id) || {:error, :not_found},
-         :ok <- Conversations.check_execution_limits(user_id, attrs["execution_limits"]),
          {:ok, vault_id} <- Conversations.resolve_vault_id(attrs["vault_id"], user_id, agent),
          {:ok, env_id} <-
            Conversations.resolve_environment_id(attrs["environment_id"], user_id, agent),
@@ -841,10 +830,8 @@ defmodule Fountain.Conversations.Launch do
       InferenceCredentials.with_source_lock(conv.user_id, fn ->
         Conversations.with_sandbox_lock(conv.sandbox_id, fn ->
           # Match turn admission and teardown: sandbox advisory lock, then
-          # conversation row, then allowance. Taking the allowance first lets
-          # narrowing hold the conversation while waiting on our allowance,
-          # deadlocking the later label/source write. Codex reservation takes
-          # the sandbox row only after this conversation lock too.
+          # conversation row. Codex reservation takes the sandbox row only
+          # after this conversation lock too.
           current =
             Repo.one(
               from c in Conversation,
@@ -860,7 +847,6 @@ defmodule Fountain.Conversations.Launch do
                    do: :ok,
                    else: {:error, :provisioning}
                  ),
-               :ok <- Conversations._unsafe_check_saved_execution_allowance(current.id),
                :ok <- check_sandbox_api_resume(current, attrs["sandbox_api_access"]),
                :ok <- check_model_resume(current, agent, attrs["model"]),
                :ok <- check_session_config_resume(current, attrs["session_config"]),
@@ -1066,7 +1052,7 @@ defmodule Fountain.Conversations.Launch do
   exactly that requirement. It is kept rather than deleted because it is the
   only read-only door onto the channel resolution
   `start_or_resume_conversation/2` performs — duplicating that resolution is
-  how the two drift — and `saved_allowance_channel_test.exs` still pins that
+  how the two drift — and `channel_resume_test.exs` still pins that
   the two agree, including for a foreign tenant. Remove it with its test if
   nothing has claimed it by the time the retirement releases.
   """

@@ -624,9 +624,7 @@ defmodule Fountain.Conversations.TurnMachine do
   #
   # #1667: recover once before the model receives the prompt. The peer
   # retains the original input and initializes a new session on the same
-  # remote command. Keeping that command also retains the admitted execution,
-  # its immutable identity, deadline and write fences. The turn's span and
-  # measurements stay open; `note_session_restart/2` records the lost context.
+  # remote command. The turn's span and measurements stay open; `note_session_restart/2` records the lost context.
   # `session_retry` prevents another recovery within this turn.
   #
   # Read out of the error's sentence rather than off a field, as the two
@@ -776,10 +774,6 @@ defmodule Fountain.Conversations.TurnMachine do
   is the server's; what it clears after (activity) is too. Returns the turn
   with its bookkeeping cleared. A stale completion clears local bookkeeping
   without overwriting the persisted result or emitting another completion.
-
-  Completion arbitrates against the execution journal under its row locks.
-  The persisted outcome wins over the peer's requested status; deadline events
-  already recorded by the journal are not announced again during actor cleanup.
   """
   @spec finish(t(), String.t(), map(), map()) :: t()
   def finish(%__MODULE__{} = turn, status, span_attrs, stage_meta) do
@@ -792,23 +786,9 @@ defmodule Fountain.Conversations.TurnMachine do
       {:ok, row} ->
         stage_meta = Map.merge(stage_meta, %{turn_id: row.id, turn_number: row.turn_number})
 
-        # A service-enforced limit sets both: `limit_reason` names which limit,
-        # and `stop_reason` is the field every existing transcript reader
-        # already switches on. The conversations app and the team app live
-        # outside this repo (ADR 0034), so a new field alone would render as an
-        # unexplained failure in both until each one shipped.
-        stage_meta =
-          if row.limit_reason,
-            do:
-              stage_meta
-              |> Map.put(:limit_reason, row.limit_reason)
-              |> Map.put(:stop_reason, row.limit_reason),
-            else: stage_meta
-
         publish_stage(
           turn.conversation_id,
           "turn",
-          # The journal can change a requested success to a failure.
           if(row.status == "completed", do: "done", else: "failed"),
           Map.merge(stage_meta, waiting_meta(row))
         )
@@ -1503,9 +1483,8 @@ defmodule Fountain.Conversations.TurnMachine do
   (#2402) runs the plan its first launch had, since the session that launch
   named was never created.
 
-  `sandbox_id` is the actor's own binding. An unbounded turn has no journal to
-  name its machine, so this is the only check that the conversation has not
-  moved to a replacement sandbox since the first launch:
+  `sandbox_id` is the actor's own binding: the check that the conversation
+  has not moved to a replacement sandbox since the first launch:
   `{:error, :ownership_changed}` when it has.
   """
   @spec session_plan(Conversations.Turn.t(), :run | :continue, String.t(), String.t() | nil) ::
@@ -1518,7 +1497,7 @@ defmodule Fountain.Conversations.TurnMachine do
     # placeholder must remain tied to the admitted turn across cancellation.
     case Conversations._unsafe_set_turn_session(turn, id, opts) do
       {:ok, %{applied: true}} -> {:ok, {mode, id}}
-      {:ok, %{applied: false}} -> {:error, :execution_fenced}
+      {:ok, %{applied: false}} -> {:error, :plan_refused}
       {:error, _} = error -> error
     end
   end
@@ -1548,7 +1527,7 @@ defmodule Fountain.Conversations.TurnMachine do
       Managoat.ACP.Peer.start(
         owner: self(),
         # See reattach_acp_peer/3 for the writer's contract.
-        writer: command_writer(command, opts),
+        writer: fn data -> Managoat.Sandbox.write_stdin(command, data) end,
         ref: command.ref,
         prompt: prompt,
         mode: mode,
@@ -1563,8 +1542,7 @@ defmodule Fountain.Conversations.TurnMachine do
         # A codex spawn on the deployment's ChatGPT grant must not be
         # authenticated with codex-acp's api-key method (ADR 0047); see
         # `Fountain.Conversations.CodexChatGPT.peer_auth/2`.
-        auth: Keyword.get(opts, :auth, :api_key),
-        execution_limits: Keyword.get(opts, :execution_limits)
+        auth: Keyword.get(opts, :auth, :api_key)
       )
 
     {peer, Process.monitor(peer)}
@@ -1599,16 +1577,6 @@ defmodule Fountain.Conversations.TurnMachine do
   @spec model_env(module(), Conversation.t(), map() | nil) :: [{String.t(), String.t()}]
   def model_env(runtime_module, conv, agent),
     do: Managoat.Runtimes.model_env(runtime_module, acp_model(conv, agent))
-
-  defp command_writer(command, opts) do
-    case Keyword.get(opts, :execution_transport) do
-      nil ->
-        fn data -> Managoat.Sandbox.write_stdin(command, data) end
-
-      pid when is_pid(pid) ->
-        fn data -> Fountain.Conversations.ExecutionTransport.write(pid, data) end
-    end
-  end
 
   # The permission policy in force for this turn (#939): the agent's own,
   # clamped by whatever narrowing the launch asked for. Resolved per turn from

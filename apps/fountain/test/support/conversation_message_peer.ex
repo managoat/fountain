@@ -3,7 +3,7 @@ defmodule Fountain.Test.ConversationMessagePeer do
   use GenServer
 
   alias Fountain.Conversations
-  alias Fountain.Conversations.{ConversationServer, ExecutionGuard, Lifecycle, Termination}
+  alias Fountain.Conversations.{ConversationServer, Lifecycle, Termination}
 
   # Runs only in disposable peer VMs. The real client and receiver communicate
   # over distribution; the database fence is the observation point, so this
@@ -31,9 +31,8 @@ defmodule Fountain.Test.ConversationMessagePeer do
 
   @impl true
   def init({:caller, actor}) do
-    start_mimic([Fountain.Repo, ExecutionGuard, Horde.Registry])
+    start_mimic([Fountain.Repo, Horde.Registry])
     Mimic.stub(Fountain.Repo, :in_transaction?, fn -> false end)
-    Mimic.stub(ExecutionGuard, :_unsafe_interrupt, fn "conversation" -> {:ok, :unbounded} end)
 
     Mimic.stub(Horde.Registry, :lookup, fn Fountain.ConversationRegistry, "conversation" ->
       [{actor, nil}]

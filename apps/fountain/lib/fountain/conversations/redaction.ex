@@ -291,9 +291,6 @@ defmodule Fountain.Conversations.Redaction do
         # The cached permission request includes raw tool input. Keep the
         # request id and parameter keys, but not tenant-supplied text.
         acp_request_params: deep_redact(state.acp_request_params),
-        # The bounded execution journal can carry provider error text. The
-        # current turn above retains the identity needed to find its journal.
-        turn_execution: secrets(state.turn_execution),
         runner_replay: replay(state.runner_replay),
         # Output held back until the value it may begin arrives (#2359): by
         # construction, the start of a secret.

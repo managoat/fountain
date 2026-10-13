@@ -413,7 +413,7 @@ defmodule Fountain.Conversations.Wake do
   # `images` defaults for the interrupt door, which carries no prompt for them
   # to belong to; the prompt door always passes what the request decoded.
   def wake_conversation_for(conv_id, initial_prompt, purpose, images \\ []) do
-    with {:ok, conv, agent, runtime_module} <- preflight(conv_id, purpose) do
+    with {:ok, conv, agent, runtime_module} <- preflight(conv_id) do
       case reuse_verdict(conv, agent) do
         {:reuse, sandbox_id, observed} ->
           # Reuse provisions nothing, so the fresh-path gates below never ran
@@ -567,19 +567,11 @@ defmodule Fountain.Conversations.Wake do
   # Ownership is established by callers before reaching this internal wake
   # path. The agent fetched below is the conversation's own agent_id, same
   # tenant by construction.
-  defp preflight(conv_id, purpose) do
+  defp preflight(conv_id) do
     with :ok <- Conversations.require_provider_commit_boundary(),
          %Conversation{} = conv <-
            Conversations._unsafe_get_conversation(conv_id) || {:error, :not_found},
          :ok <- assert_resumable(conv),
-         # Preflight only: no database lock spans provider I/O. Turn admission
-         # checks again under its transaction. Cancellation must remain
-         # reachable. ownership: conv fetched above is already tenant-scoped.
-         :ok <-
-           if(purpose == :interrupt,
-             do: :ok,
-             else: Conversations._unsafe_check_saved_execution_allowance(conv.id)
-           ),
          # Ownership: conv.agent_id belongs to this established-owner conversation.
          %Agents.Agent{} = agent <-
            (conv.agent_id &&
@@ -637,7 +629,7 @@ defmodule Fountain.Conversations.Wake do
   """
   @spec admit_prompt_wake(binary()) :: :ok | {:error, term()}
   def admit_prompt_wake(conv_id) when is_binary(conv_id) do
-    with {:ok, conv, agent, _runtime_module} <- preflight(conv_id, :work),
+    with {:ok, conv, agent, _runtime_module} <- preflight(conv_id),
          :ok <- Fountain.Accounts.check_not_suspended(conv.user_id),
          :ok <- check_saved_inference(conv, agent) do
       check_machine(conv)

@@ -17,7 +17,7 @@ defmodule Fountain.Machines.Admission do
   The locked insert `Fountain.Conversations._unsafe_create_turn_on_sandbox/3`
   is still the write, and it is still one transaction under the per-sandbox
   advisory lock (4316): the inference-source lock, the parent `FOR UPDATE`,
-  the revision, the saved allowance, the capacity count, the turn row and the
+  the revision, the capacity count, the turn row and the
   parent's `running` status all commit together, as they did on `main`. What
   stage 8a adds is decided **under that lock**, from the machine's row read in
   the same transaction, because a verdict taken before the lock is stale by
@@ -157,13 +157,6 @@ defmodule Fountain.Machines.Admission do
   authority: the conversation's *current binding* decides who may end its
   turns, whichever machine a given turn was admitted on.
 
-  (For a *bounded* turn a per-turn machine record already exists and already
-  refuses: `ExecutionGuard.cleanup_binding?/1` compares the journal's recorded
-  sandbox to the parent's current binding, so counterexample 3's successor
-  write is refused today for a turn with a `TurnExecution` row. Execution
-  limits ship inert, so every production turn takes the no-journal path — the
-  rule below is about that path, and the journal's is not hypothetical.)
-
   The machine's lease epoch cannot stand in for it, on three reachable paths:
 
     1. On a shared home a cotenant's resume or park moves the epoch while this
@@ -194,10 +187,10 @@ defmodule Fountain.Machines.Admission do
   ## Vocabulary
 
   `run/3` answers `{:ok, turn}` or the write's own refusal: `:sandbox_at_capacity`,
-  `:configuration_changed`, `:execution_fenced`, `:not_running`,
+  `:configuration_changed`, `:not_running`,
   `:inference_source_changed`, `:sandbox_unavailable` (a terminal or fenced
-  machine, or a conversation that is not bound to it), the saved-allowance and
-  inference-source refusals, or an `Ecto.Changeset`. Every one of those is a
+  machine, or a conversation that is not bound to it), the inference-source
+  refusals, or an `Ecto.Changeset`. Every one of those is a
   word the callers already handled on `main`. New here are `:machine_busy` (a
   live lease, waited out) and `:transaction_open` (the caller's bug), which the
   door translates.
@@ -420,7 +413,7 @@ defmodule Fountain.Machines.Admission do
   May an actor bound to `sandbox_id` end this conversation's turns?
 
   The one definition of the binding fence, read by
-  `Fountain.Conversations.ExecutionGuard` under the parent's `FOR UPDATE` on
+  `Fountain.Conversations.TurnLocks` under the parent's `FOR UPDATE` on
   both of its ending paths. True when the conversation is bound to the actor's
   sandbox **now** — a `nil` on both sides is a conversation with no machine and
   an actor that expects none, and matches. See the moduledoc for why this is

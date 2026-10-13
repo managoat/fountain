@@ -175,7 +175,6 @@ defmodule Fountain.Conversations.CommandExitBindingTest do
     }
 
     state
-    |> Map.put(:turn_execution, nil)
     |> Map.update!(:turn_metrics, &Map.put(&1, :launch, launch))
   end
 

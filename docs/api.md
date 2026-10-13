@@ -355,24 +355,6 @@ Create a conversation with an agent and a first prompt, follow its events,
 and send later prompts to that same conversation. Keep the returned ID.
 A new conversation creates another thread.
 
-Launch requests inherit the stricter host and account execution ceilings. Omitted, null or
-empty `execution_limits` do not remove it. Wider requests return
-`422 execution_limits_widen`; malformed requests or configured policy return
-`422 execution_limits_invalid`. Nonempty effective limits return
-`422 execution_limits_unsupported`; Fountain cannot yet enforce these controls.
-These preflight checks cover fresh launches, sandbox attachments and channel
-resumes before worker start or channel changes. This is not an atomic reservation
-against later policy changes. Keep host and account ceilings empty until later-turn and
-recovery checks and runtime enforcement are integrated. Fresh launches and
-attachments save their initial allowance with the conversation before worker
-startup or prompt delivery. Fresh launches also reserve the sandbox in that
-transaction; a failed insert leaves no sandbox or conversation.
-
-A turn that a limit ended carries `limit_reason`. Read it before you read
-`exit_code`. A runtime that answers after its deadline can exit zero. A client
-that reads only `exit_code` then shows a stopped turn as a success. The
-transcript event for that turn puts the same value in `stop_reason`.
-
 Each turn has a read-only `inference` object that says which inference source
 served it. `origin` is `own` for a credential of the account and `platform`
 for the deployment's. `scope` is one of `credential`, `tenant_secret`, `grant`,

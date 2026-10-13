@@ -55,17 +55,12 @@ defmodule Fountain.Conversations.Termination do
     if Fountain.Repo.in_transaction?() do
       {:error, :provider_transaction_open}
     else
-      # ownership: callers established this conversation's tenant. Cleanup must
-      # survive a blocked actor, failed provider teardown, or subsequent deletion.
-      case Fountain.Conversations.ExecutionGuard._unsafe_interrupt(conv_id) do
-        {:ok, _} -> terminate_after_journal_interrupt(conv_id, opts)
-        {:error, :not_found} -> {:error, :not_running}
-        {:error, _} = error -> error
-      end
+      # ownership: callers established this conversation's tenant.
+      do_terminate_conversation(conv_id, opts)
     end
   end
 
-  defp terminate_after_journal_interrupt(conv_id, opts) do
+  defp do_terminate_conversation(conv_id, opts) do
     result =
       case whereis(conv_id) do
         nil ->
@@ -114,9 +109,7 @@ defmodule Fountain.Conversations.Termination do
 
   `{:error, :busy}` while a turn runs on a **live** server; nothing is
   interrupted. With no server alive that row is as likely an orphan (see
-  `Conversations.wake_for_interrupt/1`), so release proceeds. Unresolved
-  bounded execution answers `{:error, :execution_fenced}` either way: a
-  durable fact rather than an inference, and bounded (ADR 0046).
+  `Conversations.wake_for_interrupt/1`), so release proceeds.
 
   Audited as `conversation.released` unless `audit: false`.
   """
@@ -737,23 +730,12 @@ defmodule Fountain.Conversations.Termination do
     end
   end
 
-  @doc """
-  The journal door for `_unsafe_release_conversation/2` below: the same
-  durable-idle-parent release `ExecutionGuard._unsafe_release_parent/3`
-  performs, exposed so that module is the journal's only caller outside
-  `ExecutionGuard` itself. Arguments and return are the guard's, unchanged.
-  """
-  def release_journal(conversation_id, writer, opts \\ []) do
-    # ownership: the caller (_unsafe_release_conversation/2 below) already
-    # received an owned conversation id from its own caller.
-    Fountain.Conversations.ExecutionGuard._unsafe_release_parent(conversation_id, writer, opts)
-  end
-
-  @doc "Terminate the owned conversation only when no turn or remote execution remains open."
+  @doc "Terminate the owned conversation only when no turn remains open."
   def _unsafe_release_conversation(conversation_id, opts \\ []) do
     # ownership: the lifecycle client/actor received an already-owned conversation.
+    # ownership: the caller already received an owned conversation id.
     result =
-      release_journal(
+      Fountain.Conversations.TurnLocks._unsafe_release_parent(
         conversation_id,
         fn current ->
           current |> Conversation.changeset(%{status: "terminated"}) |> Repo.update()

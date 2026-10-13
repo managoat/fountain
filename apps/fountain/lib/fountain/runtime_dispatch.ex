@@ -50,8 +50,6 @@ defmodule Fountain.RuntimeDispatch do
 
   def command(runtime, _agent), do: ACP.command(runtime)
 
-  def bootstrap_command(runtime, cmd, args), do: ACP.bootstrap_command(runtime, cmd, args)
-
   def cwd(runtime), do: ACP.cwd(runtime)
 
   def concurrency(runtime), do: ACP.concurrency(runtime)

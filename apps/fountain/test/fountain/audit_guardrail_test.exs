@@ -129,10 +129,6 @@ defmodule Fountain.AuditGuardrailTest do
     {"conversation configuration reapply", &__MODULE__.do_conv_reapply/1,
      "conversation.configuration_reapplied"},
     {"conversation labels", &__MODULE__.do_labels/1, "conversation.labels_set"},
-    {"allowance creation", &__MODULE__.do_allowance_creation/1,
-     "conversation.execution_allowance_created"},
-    {"allowance narrowing", &__MODULE__.do_allowance_narrowing/1,
-     "conversation.execution_allowance_narrowed"},
     {"sandbox reset", &__MODULE__.do_sandbox_reset/1, "sandbox.reset"},
     {"pending sandbox reset retry", &__MODULE__.do_pending_reset_retry/1, "sandbox.reset"},
     {"sandbox teardown fence", &__MODULE__.do_teardown_fence/1, "sandbox.teardown_requested"},
@@ -683,21 +679,6 @@ defmodule Fountain.AuditGuardrailTest do
       )
 
     :ok = Termination.release_conversation(conv.id, actor: "ui")
-  end
-
-  def do_allowance_creation(user) do
-    conv = insert_conversation(user_id: user.id)
-    {:ok, _} = Conversations.create_execution_allowance(conv.id, user.id, %{})
-  end
-
-  def do_allowance_narrowing(user) do
-    conv = insert_conversation(user_id: user.id)
-
-    conv.id
-    |> Fountain.Conversations.ExecutionAllowance.new_changeset(%{max_model_turns: 10})
-    |> Repo.insert!()
-
-    {:ok, _} = Conversations.narrow_execution_allowance(conv.id, user.id, %{max_model_turns: 2})
   end
 
   def do_labels(user) do

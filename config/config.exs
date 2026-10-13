@@ -5,10 +5,6 @@ import Config
 # the problem the Rehydrator solves by hand.
 config :fountain, Oban,
   repo: Fountain.Repo,
-  # notifications carries work whose whole value is being prompt — a turn
-  # outcome reaching a live subscriber. It is not on maintenance, because that
-  # one is concurrency 1 behind eight sweeps, so a notification would queue
-  # single file behind whichever one is mid-run.
   # chatgpt carries the pollers of users' ChatGPT sign-ins (ADR 0060 stage 4):
   # one short HTTP call to the auth server every few seconds per open attempt,
   # for at most fifteen minutes. Its own queue so a burst of sign-ins never
@@ -29,7 +25,6 @@ config :fountain, Oban,
     chatgpt: 10,
     chatgpt_refresh: 2,
     mailer: 5,
-    notifications: 5,
     schedules: 5
   ],
   plugins: [

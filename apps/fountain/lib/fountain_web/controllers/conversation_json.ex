@@ -255,9 +255,6 @@ defmodule FountainWeb.ConversationJSON do
       # somebody answers it or its deadline passes.
       waiting: t.waiting == true,
       exit_code: t.exit_code,
-      # Read this before reading exit_code: a turn ended by a service limit can
-      # still carry a zero exit from a runtime that answered late (#1732).
-      limit_reason: t.limit_reason,
       started_at: t.started_at,
       ended_at: t.ended_at,
       inserted_at: t.inserted_at,

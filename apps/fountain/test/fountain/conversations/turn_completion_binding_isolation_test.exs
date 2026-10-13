@@ -2,16 +2,14 @@ defmodule Fountain.Conversations.TurnCompletionBindingIsolationTest do
   use Fountain.DataCase, async: false
 
   alias Fountain.Conversations
-  alias Fountain.Conversations.{Conversation, ExecutionGuard, TurnExecution}
+  alias Fountain.Conversations.Conversation
 
   for first <- [:reassignment, :completion],
-      outcome <- [:completion, :startup_failure],
-      bounded? <- [false, true] do
-    @tag first: first, outcome: outcome, bounded?: bounded?
-    test "#{first} serializes #{outcome} with reassignment, bounded=#{bounded?}", %{
+      outcome <- [:completion, :startup_failure] do
+    @tag first: first, outcome: outcome
+    test "#{first} serializes #{outcome} with reassignment", %{
       first: first,
-      outcome: outcome,
-      bounded?: bounded?
+      outcome: outcome
     } do
       Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
         user = insert_verified_user()
@@ -19,7 +17,6 @@ defmodule Fountain.Conversations.TurnCompletionBindingIsolationTest do
         replacement = insert_sandbox(user_id: user.id, status: "ready")
         conv = insert_conversation(user_id: user.id, sandbox: old, status: "running")
         turn = insert_turn(conv, status: "running")
-        execution = if bounded?, do: bind_execution(turn)
 
         insert_log_event(conv,
           turn_id: turn.id,
@@ -104,11 +101,6 @@ defmodule Fountain.Conversations.TurnCompletionBindingIsolationTest do
               assert Repo.reload(turn).exit_code == nil
             end
 
-            if execution do
-              assert Repo.reload!(execution).state ==
-                       if(first == :completion, do: "ready", else: "active")
-            end
-
             assert Repo.reload(conv).sandbox_id == replacement.id
 
             assert Repo.reload(conv).status ==
@@ -120,29 +112,12 @@ defmodule Fountain.Conversations.TurnCompletionBindingIsolationTest do
           Task.shutdown(leading, :brutal_kill)
           :telemetry.detach(handler)
           Repo.delete_all(from e in Fountain.Audit.Event, where: e.user_id == ^user.id)
-          Repo.delete_all(from e in TurnExecution, where: e.user_id == ^user.id)
           Repo.delete!(user)
           Repo.delete!(old)
           Repo.delete!(replacement)
         end
       end)
     end
-  end
-
-  defp bind_execution(turn) do
-    {:ok, execution} =
-      ExecutionGuard._unsafe_register(
-        turn.id,
-        Ecto.UUID.generate(),
-        DateTime.add(DateTime.utc_now(), 60)
-      )
-
-    {:ok, _} = ExecutionGuard._unsafe_claim_spawn(execution.id)
-
-    {:ok, execution} =
-      ExecutionGuard._unsafe_bind_identity(execution.id, execution.connection_id, "race-command")
-
-    execution
   end
 
   def pause_completion(_event, _measurements, metadata, owner) do

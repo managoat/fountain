@@ -21,7 +21,7 @@ defmodule Fountain.Conversations.MachineEvents do
   # a conversation back to `idle`, as it could with the column: an accepted
   # residual, not a regression.
   def reset(
-        %{sandbox_id: sandbox_id, current_turn: nil, turn_execution: nil} = state,
+        %{sandbox_id: sandbox_id, current_turn: nil} = state,
         sandbox_id,
         reason,
         by,

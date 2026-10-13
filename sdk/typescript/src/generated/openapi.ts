@@ -4321,8 +4321,6 @@ export interface components {
             } | null;
             /** Format: date-time */
             inserted_at?: string;
-            /** @description The service-enforced limit that ended this turn, or null. Set independently of exit_code: a runtime that exits zero after its deadline is still an incomplete turn, so a client must read this before treating a turn as successful. */
-            limit_reason?: string | null;
             /** @description ACP model selection evidence; null for turns without a selection report. */
             model_selection?: {
                 effective_model?: string | null;

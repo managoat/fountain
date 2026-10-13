@@ -821,7 +821,7 @@ defmodule Fountain.Team do
     # has already ended, which the attach door checks off the rows under its
     # lock, so this is no new pairing and needs no full-scope caller. It is the only guest attach this module makes: every other
     # launch here names no `sandbox_id`.
-    with {:ok, conv, _allowance} <-
+    with {:ok, conv} <-
            Machine.attach(
              prev.sandbox_id,
              attrs,

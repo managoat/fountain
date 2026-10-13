@@ -1,6 +1,6 @@
 ### Upgrade notes
 
-- **A migration drops the ChatGPT grant tables and columns** (#2643).
+- **A migration drops the ChatGPT grant tables and columns** (#2645).
   Migration `20261013160000` drops `platform_chatgpt_account`,
   `chatgpt_link_attempts`, `inference_credentials.chatgpt_grant_id` and the
   `managed_*` columns of `broker_sessions`, which the release that removed

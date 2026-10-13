@@ -9,21 +9,25 @@ defmodule Fountain.InferenceCredentials.Source do
 
   `scope` says where the credential came from: the tenant's set
   (`:credential`), a tenant secret named after one (`:tenant_secret`), the
-  deployment (`:platform`), nowhere because the provider needs none
-  (`:none`), or nowhere at all (`:missing`). Whether a
+  tenant's ChatGPT subscription (`:grant`, ADR 0070), the deployment
+  (`:platform`, its API key or its ChatGPT subscription), nowhere because the
+  provider needs none (`:none`), or nowhere at all (`:missing`). Whether a
   source is the platform's is a function of that, `platform?/1`; the
   `"origin"` key every stored map carries (`"platform"` or `"own"`) is
   written by `dump/1` from the scope and ignored by `load/1`, so rows
   written before it was derived and the `expected_source` comparison keep
   their shape.
 
-  Rows written while ChatGPT subscriptions existed (removed 2026-10-13) may
-  carry scope `"grant"`, kind `"codex_chatgpt_access_token"`, `"grant_id"`
-  and `"generation"`. Nothing resolves to that any more: `load/1` reads the
-  scope and kind as `nil`, `summary/1` shows no source for such a turn, and
-  a conversation pinned to one fails its next turn with
-  `:inference_source_changed`, because no fresh dump equals its stored map.
-  Every stored map is compared whole with a fresh dump, so a key that every
+  A ChatGPT subscription's source is kind `:codex_chatgpt_access_token`,
+  identity `"chatgpt:<user id>"` (scope `:grant`) or `"platform:chatgpt"`
+  (scope `:platform`), and revision the subscription's account id: a token
+  refresh keeps the source, a link to another account changes it.
+  `Fountain.ChatGPT` reads the owner back from the identity (`chatgpt_owner/1`).
+
+  Rows written by the retired implementation (ADR 0060, before 2026-10-13)
+  carry `"grant_id"` and `"generation"` as well. They load and render as a
+  subscription, but no fresh dump equals them, so a conversation pinned to
+  one fails its next turn with `:inference_source_changed`. Every stored map is compared whole with a fresh dump, so a key that every
   source started to carry, even as `nil`, would make every conversation
   admitted before it read as `:inference_source_changed`.
   """
@@ -41,7 +45,7 @@ defmodule Fountain.InferenceCredentials.Source do
     :vault_id
   ]
 
-  @scopes [:credential, :tenant_secret, :platform, :none, :missing]
+  @scopes [:credential, :tenant_secret, :grant, :platform, :none, :missing]
 
   @doc "Every scope a source can have; the API's `inference.scope` enum is this list."
   @spec scopes() :: [atom()]
@@ -53,6 +57,7 @@ defmodule Fountain.InferenceCredentials.Source do
 
   def credential, do: %__MODULE__{scope: :credential}
   def tenant_secret, do: %__MODULE__{scope: :tenant_secret}
+  def grant, do: %__MODULE__{scope: :grant}
   def none, do: %__MODULE__{scope: :none}
   def platform, do: %__MODULE__{scope: :platform}
   def missing, do: %__MODULE__{scope: :missing}
@@ -110,7 +115,8 @@ defmodule Fountain.InferenceCredentials.Source do
           :anthropic_api_key,
           :claude_code_oauth_token,
           :openai_api_key,
-          :gemini_api_key
+          :gemini_api_key,
+          :codex_chatgpt_access_token
         ]),
       identity: source["identity"],
       revision: source["revision"],
@@ -123,4 +129,29 @@ defmodule Fountain.InferenceCredentials.Source do
   end
 
   defp decode(value, allowed), do: Enum.find(allowed, &(Atom.to_string(&1) == value))
+
+  @doc """
+  The ChatGPT subscription a source runs on, as a `Fountain.ChatGPT` owner,
+  and the account it was bound to; nil for every other source and for a
+  source the retired implementation wrote.
+  """
+  @spec chatgpt_owner(t() | map() | nil) :: {Fountain.ChatGPT.owner(), String.t()} | nil
+  def chatgpt_owner(%__MODULE__{kind: :codex_chatgpt_access_token} = source),
+    do: owner_of(source.identity, source.revision)
+
+  def chatgpt_owner(%{"kind" => "codex_chatgpt_access_token"} = stored),
+    do: owner_of(stored["identity"], stored["revision"])
+
+  def chatgpt_owner(_), do: nil
+
+  defp owner_of("platform:chatgpt", account) when is_binary(account), do: {:platform, account}
+
+  defp owner_of("chatgpt:" <> user_id, account) when is_binary(account) do
+    case Ecto.UUID.cast(user_id) do
+      {:ok, id} -> {{:user, id}, account}
+      :error -> nil
+    end
+  end
+
+  defp owner_of(_, _), do: nil
 end

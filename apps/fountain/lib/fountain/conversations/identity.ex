@@ -57,7 +57,8 @@ defmodule Fountain.Conversations.Identity do
   # Unbrokered values are bearer material; broker placeholders are harmless
   # fixed strings, but neither needs to persist in the shared env file.
   # Runtime-owned auth files require separate isolation (decision 6).
-  @process_only [@tag_key, "FOUNTAIN_TOKEN", "TRACEPARENT"] ++
+  # A ChatGPT subscription's placeholder (ADR 0070) is process env too.
+  @process_only [@tag_key, "FOUNTAIN_TOKEN", "TRACEPARENT", "CODEX_CHATGPT_ACCESS_TOKEN"] ++
                   Fountain.Broker.process_only_keys() ++
                   (Fountain.InferenceCredentials.env_aliases() |> Map.values() |> List.flatten())
 

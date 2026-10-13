@@ -27,6 +27,7 @@ Here is the scheduled work. All times are UTC.
 |---|---|---|
 | Each hour at :07 | The sandbox reaper. | Reconciles the sandbox rows against sprites.dev. It frees a row stuck mid-provision, expires an abandoned sandbox, destroys a sprite whose row is already terminal, and reports an untracked sprite. |
 | 04:23 daily | The retention pruner. | Deletes a row past its retention. Log events go after 90 days, audit events after 365, and usage events after 400. A revoked API key goes after 30. |
+| 04:29 daily | The ChatGPT keepalive. | Refreshes each linked ChatGPT subscription that nobody has refreshed for 6 days, one at a time. With none linked, it does nothing. |
 
 
 ### Clustering

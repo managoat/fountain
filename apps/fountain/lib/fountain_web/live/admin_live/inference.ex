@@ -21,16 +21,21 @@ defmodule FountainWeb.AdminLive.Inference do
   import FountainWeb.AdminLive.Shell
 
   alias Fountain.PlatformInference
+  alias FountainWeb.ChatGPTSubscriptionCard
 
   @impl true
   def mount(_params, _session, socket) do
     {:ok,
      socket
      |> assign(:page_title, "Admin · Inference")
+     |> ChatGPTSubscriptionCard.assign_card(:platform)
      |> assign_keys()}
   end
 
   @impl true
+  def handle_event("chatgpt_" <> _ = event, params, socket),
+    do: ChatGPTSubscriptionCard.handle_event(event, params, socket)
+
   def handle_event("set_key", %{"provider" => provider, "value" => value}, socket) do
     case PlatformInference.put_key(provider, value, actor_user_id: socket.assigns.current_user.id) do
       {:ok, _} ->
@@ -60,6 +65,10 @@ defmodule FountainWeb.AdminLive.Inference do
      |> assign_keys()
      |> put_flash(:info, "#{provider_label(provider)} key cleared")}
   end
+
+  @impl true
+  def handle_info({:chatgpt_poll, _ref} = message, socket),
+    do: ChatGPTSubscriptionCard.handle_poll(message, socket)
 
   defp assign_keys(socket) do
     socket
@@ -132,8 +141,16 @@ defmodule FountainWeb.AdminLive.Inference do
         </div>
       </section>
 
+      <ChatGPTSubscriptionCard.card
+        owner={@chatgpt_owner}
+        sub={@chatgpt_sub}
+        device={@chatgpt_device}
+        message={@chatgpt_message}
+        brokered?={@chatgpt_brokered?}
+      />
+
       <p class="text-xs text-[var(--color-text-secondary)]">
-        A tenant's own credential always wins over these. Nothing limits what a platform key
+        A tenant's own credential always wins over these keys. Nothing limits what a platform key
         spends: every tenant without a credential of their own runs on it, billed to this
         deployment's provider account.
       </p>

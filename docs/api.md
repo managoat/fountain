@@ -135,11 +135,14 @@ and the [generated reference](/api/docs) for response schemas and refusals.
 
 ### ChatGPT subscriptions
 
-Fountain removed ChatGPT subscriptions on 2026-10-13. The `codex` runtime
-runs on an `openai_api_key`. The `/api/account/chatgpt-subscriptions` routes
-are gone, and a set no longer carries `chatgpt_grant_id`. A conversation that
-ran on a subscription keeps its turns, and its next prompt or wake gets
-`409 inference_source_changed`.
+A codex run on an `openai/` model uses the account's ChatGPT subscription,
+else the deployment's, before any `openai_api_key`. Subscriptions are linked
+in the console, not through the API; see
+[Run Codex on a ChatGPT subscription](guides/chatgpt-subscription.md). A turn
+on the account's subscription reports `scope: "grant"`, and one on the
+deployment's reports `scope: "platform"`. A conversation whose subscription
+was disconnected, refused by OpenAI or linked to another account gets
+`409 chatgpt_reconnect_required` on its next prompt or wake.
 
 ## Rate limiting
 
@@ -276,11 +279,11 @@ A new conversation creates another thread.
 Each turn has a read-only `inference` object that says which inference source
 served it. `origin` is `own` for a credential of the account and `platform`
 for the deployment's. `scope` is one of `credential`, `tenant_secret`,
+`grant` (the account's [ChatGPT subscription](#chatgpt-subscriptions)),
 `platform`, `none` and `missing`. Fountain writes the object when the turn
 starts and does not change it. A later change to the credential set or a
 restart changes later turns only. The object is null on a turn from before
-Fountain recorded it, and on a turn that ran on a
-[ChatGPT subscription](#chatgpt-subscriptions).
+Fountain recorded it.
 
 ```bash
 curl --fail-with-body \
@@ -787,8 +790,7 @@ pagination, and returned metadata.
 Every JSON error status declares one schema, `Error`. Its `error` field is
 the machine-readable code to branch on. The other fields accompany particular
 codes and are absent otherwise: `message` is a sentence for a human, `errors`
-holds field validation messages beside `validation_failed`, and `limit`
-comes with the ChatGPT subscription limits. On the
+holds field validation messages beside `validation_failed`. On the
 key-authentication and scope refusals `error` is a sentence and `reason`
 carries the code. A 406 is the one
 exception: content negotiation fails before any operation runs and renders

@@ -119,10 +119,21 @@ defmodule FountainWeb.FallbackController do
     |> json(%{
       error: "inference_source_changed",
       message:
-        "the conversation's credential source was changed or deleted, or is a ChatGPT " <>
-          "subscription, which Fountain no longer supports; start a new conversation with an " <>
-          "available source, on a sandbox not bound to the old one (sandbox_mode ephemeral, " <>
-          "or reset the persistent home)"
+        "the conversation's credential source was changed or deleted; start a new " <>
+          "conversation with an available source, on a sandbox not bound to the old one " <>
+          "(sandbox_mode ephemeral, or reset the persistent home)"
+    })
+  end
+
+  def call(conn, {:error, :chatgpt_reconnect_required}) do
+    conn
+    |> put_status(:conflict)
+    |> json(%{
+      error: "chatgpt_reconnect_required",
+      message:
+        "the ChatGPT subscription this conversation runs on was disconnected, refused by " <>
+          "OpenAI, or linked to another account; link it again under Inference credentials " <>
+          "(or ask an admin, for the deployment's), then send the prompt again"
     })
   end
 

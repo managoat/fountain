@@ -11,7 +11,7 @@ date: 2026-09-20
 
 # 0060 — A user links several ChatGPT subscriptions, and a credential set names one
 
-**Status:** Retired 2026-10-13; see the addendum at the end. The text above the addendum is history. Was: Proposed, 2026-09-20.
+**Status:** Retired 2026-10-13; see the addendum at the end. Rebuilt in a much smaller form by [0070](0070-one-chatgpt-subscription-per-user.md) the same day. The text above the addendum is history. Was: Proposed, 2026-09-20.
 
 **Status before retirement:** Proposed, 2026-09-20. **All five stages below are built, stages
 4 and 5 in two halves each, except the second sentence of stage 5: the

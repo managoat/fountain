@@ -190,6 +190,16 @@ This release stops reading the `sandbox_requests` table and the
 release before it reads both. A later release drops them; take it only after
 this one has fully rolled out.
 
+## ChatGPT subscriptions linked again
+
+The release that rebuilt ChatGPT subscriptions keeps none of the old ones.
+After you deploy it, each account that used a ChatGPT subscription links it
+again at `/account/inference-credentials`, and an admin links the
+deployment's again at `/admin/inference`. Until then codex runs on an OpenAI
+API key, or on nothing. A conversation that ran on an old subscription is
+refused at its next prompt with `409 inference_source_changed`: start a new
+one. See [Run Codex on a ChatGPT subscription](../chatgpt-subscription.md).
+
 ## Conversation message compatibility
 
 The server uses the `managoat_acp` peer from its own release. The audited peer

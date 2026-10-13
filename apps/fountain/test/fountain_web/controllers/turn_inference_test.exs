@@ -133,10 +133,9 @@ defmodule FountainWeb.TurnInferenceTest do
            ] = turns(conn, ctx)
   end
 
-  # ChatGPT subscriptions were removed on 2026-10-13. A turn that ran on one
-  # is history: it is still listed, and says no source rather than a scope
-  # the API no longer has.
-  test "a turn that ran on a ChatGPT subscription is still listed, with no source",
+  # A turn the retired ChatGPT subscriptions (ADR 0060) ran is history: it is
+  # still listed, under the scope today's subscriptions use (ADR 0070).
+  test "a turn that ran on a retired ChatGPT subscription is still listed",
        %{conn: conn} = ctx do
     grant_id = Ecto.UUID.generate()
 
@@ -164,7 +163,7 @@ defmodule FountainWeb.TurnInferenceTest do
     )
 
     assert [
-             %{"inference" => nil},
+             %{"inference" => %{"origin" => "own", "scope" => "grant"}},
              %{"inference" => %{"origin" => "platform", "scope" => "platform"}}
            ] = turns(conn, ctx)
 
@@ -192,7 +191,6 @@ defmodule FountainWeb.TurnInferenceTest do
              Source.summary(%{"scope" => "tenant_secret"})
 
     assert Source.summary(%{"scope" => "something_new"}) == nil
-    assert Source.summary(%{"scope" => "grant", "grant_id" => Ecto.UUID.generate()}) == nil
     assert Source.summary(nil) == nil
   end
 end

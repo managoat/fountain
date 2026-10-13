@@ -94,6 +94,7 @@ defmodule Fountain.Conversations.SpriteEnv do
 
     sprite_env =
       (runtime_module.default_env(agent, env_credentials) || []) ++
+        Fountain.Conversations.CodexChatGPT.env(runtime_module, env_credentials) ++
         CallbackKey.env(Keyword.fetch!(opts, :callback_token)) ++
         conversation_env(conversation_id) ++
         sandbox_id_env(Keyword.fetch!(opts, :sandbox_id)) ++

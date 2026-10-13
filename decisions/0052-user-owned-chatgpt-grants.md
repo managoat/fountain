@@ -12,7 +12,7 @@ generated: { by: "process:codex", at: 2026-09-11T21:03:56-04:00 }
 
 # 0052 — Users link a ChatGPT subscription and Fountain manages the grant
 
-**Status:** Retired 2026-10-13; see the addendum at the end. The text above the addendum is history. Was: Proposed, 2026-09-11.
+**Status:** Retired 2026-10-13; see the addendum at the end. Rebuilt in a much smaller form by [0070](0070-one-chatgpt-subscription-per-user.md) the same day. The text above the addendum is history. Was: Proposed, 2026-09-11.
 
 **Status before retirement:** Proposed. The user-level surface (decisions 2, 4 and 5: the
 linking UI and API, selection, per-peer sandbox identity) was never built.

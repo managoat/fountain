@@ -30,16 +30,21 @@ defmodule Fountain.InferenceCredentials.Resolver do
 
       provider = Managoat.Runtimes.Model.provider(model)
 
+      # The platform's subscription, like its key, never serves a run that
+      # names its set explicitly (`usable/2`).
+      explicit_set? = is_nil(expected) and is_binary(Keyword.get(opts, :credential_set_id))
+
       with :ok <- require_set(set_id, set),
            {:ok, dek} <- Crypto.load_tenant_key(user_id),
            {:ok, own} <- InferenceCredentials.decrypted_for_set(set, dek),
            {:ok, overrides} <- overrides(user_id, dek, opts, provider),
            {:ok, source, creds} <-
-             select(%Inputs{
-               provider: provider,
-               own: own,
-               overrides: overrides
-             }),
+             chatgpt(user_id, provider, runtime, own, not explicit_set?) ||
+               select(%Inputs{
+                 provider: provider,
+                 own: own,
+                 overrides: overrides
+               }),
            :ok <-
              usable(if(expected, do: nil, else: Keyword.get(opts, :credential_set_id)), source),
            source <- bind(source, set, creds, dek),
@@ -56,6 +61,41 @@ defmodule Fountain.InferenceCredentials.Resolver do
     end)
   end
 
+  # A codex run on an OpenAI model takes a ChatGPT subscription first (ADR
+  # 0070): the user's own, else the deployment's, and only an API key after
+  # both. Only on a brokered deployment: the access token goes to the broker
+  # and the sandbox gets a placeholder (`Fountain.Conversations.CodexChatGPT`);
+  # without a broker it would land in the sandbox in the clear. A read and a
+  # decrypt, no provider I/O: this runs under the source lock. nil when no
+  # subscription serves, and the ordinary selection runs.
+  defp chatgpt(user_id, "openai", "codex", own, platform?) do
+    if Fountain.Broker.configured?() do
+      case Fountain.ChatGPT.serving(user_id, platform?) do
+        {:ok, owner, sub, token} ->
+          {scope, identity} =
+            case owner do
+              {:user, id} -> {Source.grant(), "chatgpt:" <> id}
+              :platform -> {Source.platform(), "platform:chatgpt"}
+            end
+
+          source = %{
+            scope
+            | kind: :codex_chatgpt_access_token,
+              identity: identity,
+              revision: sub.account_id
+          }
+
+          {:ok, source,
+           own |> drop_competitors("openai") |> Map.put(:codex_chatgpt_access_token, token)}
+
+        :none ->
+          nil
+      end
+    end
+  end
+
+  defp chatgpt(_user_id, _provider, _runtime, _own, _platform?), do: nil
+
   defp require_set(nil, _), do: :ok
   defp require_set(_, nil), do: {:error, :inference_credential_not_found}
   defp require_set(_, _), do: :ok
@@ -67,8 +107,30 @@ defmodule Fountain.InferenceCredentials.Resolver do
 
   def matches(nil, _), do: :ok
 
+  # A conversation bound to a subscription that no longer serves (removed,
+  # revoked, or linked to another account) is told to reconnect, not that its
+  # source changed: linking it again is the fix.
   def matches(expected, source) do
-    if expected == Source.dump(source), do: :ok, else: {:error, :inference_source_changed}
+    cond do
+      expected == Source.dump(source) ->
+        :ok
+
+      reconnect?(expected, source) ->
+        {:error, :chatgpt_reconnect_required}
+
+      true ->
+        {:error, :inference_source_changed}
+    end
+  end
+
+  defp reconnect?(expected, source) do
+    case Source.chatgpt_owner(expected) do
+      {owner, _account} ->
+        Source.chatgpt_owner(source) == nil or not Fountain.ChatGPT.active?(owner)
+
+      nil ->
+        false
+    end
   end
 
   # Overrides win over the set's value for the same kind; the runtime's kind
@@ -198,6 +260,7 @@ defmodule Fountain.InferenceCredentials.Resolver do
       case source.scope do
         :credential -> {"credential:#{set.id}:#{source.kind}", set.revision}
         :tenant_secret -> {source.identity, source.revision}
+        _ when source.kind == :codex_chatgpt_access_token -> {source.identity, source.revision}
         :platform -> PlatformInference.reference(source.kind, creds, dek)
         scope -> {Atom.to_string(scope), "1"}
       end

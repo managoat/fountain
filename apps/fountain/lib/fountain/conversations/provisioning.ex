@@ -24,7 +24,7 @@ defmodule Fountain.Conversations.Provisioning do
   (`record_sandbox_url/3`), step 5 (`run_setup_script/4`), step 6
   (`write_runtime_config/3`), the agent's instructions file
   (`write_instructions/3`) and the runtime's own preparation once the pipeline
-  is done (`prepare_runtime_sprite/5`, which installs the ACP adapter first).
+  is done (`prepare_runtime_sprite/7`, which installs the ACP adapter first).
   The environment they are handed is `Fountain.Conversations.SpriteEnv`'s.
 
   Two of those steps left again in ADR 0058 stage 7b, and they are the two that
@@ -1117,15 +1117,25 @@ defmodule Fountain.Conversations.Provisioning do
 
   @doc """
   The runtime's own sandbox preparation, after its ACP adapter is in place.
+  `source` and `user_id` are the conversation's resolved inference source and
+  its owner: a codex spawn on a ChatGPT subscription gets its `auth.json`
+  from Fountain (`CodexChatGPT.prepare_sandbox/4`, ADR 0070) instead of the
+  library's API-key write.
   """
-  def prepare_runtime_sprite(handle, runtime, runtime_module, agent, sprite_env) do
+  def prepare_runtime_sprite(handle, runtime, runtime_module, agent, sprite_env, source, user_id) do
     Code.ensure_loaded(runtime_module)
 
     with :ok <- prepare_acp_adapter(handle, runtime, sprite_env) do
-      if function_exported?(runtime_module, :prepare_sandbox, 3) do
-        runtime_module.prepare_sandbox(handle, agent, sprite_env)
-      else
-        :ok
+      case Fountain.Conversations.CodexChatGPT.prepare_sandbox(handle, runtime, source, user_id) do
+        :skip ->
+          if function_exported?(runtime_module, :prepare_sandbox, 3) do
+            runtime_module.prepare_sandbox(handle, agent, sprite_env)
+          else
+            :ok
+          end
+
+        result ->
+          result
       end
     end
   end

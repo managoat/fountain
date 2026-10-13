@@ -471,7 +471,11 @@ export interface paths {
         /** List accounts (admin) */
         get: operations["FountainWeb.AdminController.index_users"];
         put?: never;
-        post?: never;
+        /**
+         * Open an account and mint its API key (admin)
+         * @description For a platform built on this instance that opens one account per application (ADR 0064). The account is verified, has no password, and comes with one full-scope API key, shown once in `api_key`. Registration's gates (REGISTRATION_ENABLED, the access code, the domain list) don't apply: this is the operator's door.
+         */
+        post: operations["FountainWeb.AdminController.create_user"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2593,6 +2597,24 @@ export interface components {
         /** AdminCompRequest */
         AdminCompRequest: {
             comped: boolean;
+        };
+        /**
+         * AdminCreateUserRequest
+         * @example {
+         *       "email": "helpdesk@apps.example.com"
+         *     }
+         */
+        AdminCreateUserRequest: {
+            /** @description The new account's address. Verified at creation; no mail is sent. */
+            email: string;
+            /** @description Name of the API key minted with the account. Default `platform`. */
+            key_name?: string | null;
+        };
+        /** AdminCreatedUserResponse */
+        AdminCreatedUserResponse: {
+            /** @description The new account's full-scope API key. Shown once; only its hash is kept. */
+            api_key: string;
+            data: components["schemas"]["AdminUser"];
         };
         /**
          * AdminCreditsRequest
@@ -7682,6 +7704,76 @@ export interface operations {
                 };
             };
             /** @description Invalid request parameters */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    "FountainWeb.AdminController.create_user": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Account */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["AdminCreateUserRequest"];
+            };
+        };
+        responses: {
+            /** @description Account and key */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminCreatedUserResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Admin required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No acceptable representation */
+            406: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NegotiationError"];
+                };
+            };
+            /** @description Refused */
             422: {
                 headers: {
                     [name: string]: unknown;

@@ -96,7 +96,7 @@
     "Environment": { "required": ["id", "name"] },
     "EnvironmentRequest": {},
     "EnvironmentUpdate": {},
-    "Error": { "required": ["error"], "optional": ["errors", "limit", "message"] },
+    "Error": { "required": ["error"], "optional": ["errors", "message"] },
     "ImageInput": {},
     "LogEvent": {
       "required": ["id", "kind", "ts"],

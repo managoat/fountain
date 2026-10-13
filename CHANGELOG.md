@@ -20,6 +20,823 @@ Changes that have merged but not yet shipped are the files under
 [`changelog.d/`](https://github.com/managoat/fountain/tree/main/changelog.d);
 the release PR rolls them into a dated section here.
 
+## [0.22.0] - 2026-10-13
+
+### Upgrade notes
+
+- **Claude Code in sandboxes no longer sends telemetry or error reports to
+  Anthropic, and its `/bug` command and auto-updater are off** (#2501). The
+  auto-updater was already moot, since the version is pinned. An environment
+  that sets `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` itself still decides.
+
+- **Render is no longer a supported host** (#2543). Fountain does not run on
+  Render with the credential broker on. `render.yaml` and the Render guide
+  are gone, and `RENDER_EXTERNAL_URL` no longer stands in for `PUBLIC_URL`.
+  An instance still on Render must set `PUBLIC_URL` explicitly to keep
+  booting, and should move to another host.
+
+- **The support-report extension is removed** (#2606). `GET/POST
+  /api/support/reports` and `GET /api/support/reports/{id}` are gone, and a
+  migration drops the `support_reports` table with its rows. Export any
+  reports you need first. `SUPPORT_GITHUB_REPO` and `SUPPORT_GITHUB_TOKEN` are
+  no longer read; `SUPPORT_EMAIL` still names the account emails' contact.
+
+- **Claimable principals are removed** (#2607). Migration `20261012120000`
+  drops `claimable_users` and `principal_owners`, deletes any remaining
+  principal account with its rows, and makes `users.email` required again. It
+  cannot stop a principal's sandboxes: release every open principal before
+  upgrading. See
+  [Claimable principals removed](https://managoat.com/docs/guides/operate/upgrade#claimable-principals-removed).
+
+- **`POSTHOG_*` variables are no longer read** (#2608):
+  `POSTHOG_PROJECT_API_KEY`, `POSTHOG_HOST`, `POSTHOG_CAPTURE`,
+  `POSTHOG_PERSON_PII`, `POSTHOG_BROWSER_CAPTURE` and `POSTHOG_INSTANCE`.
+  Remove them from your configuration.
+
+- **Credits, Stripe and the `ee/` directory are removed** (#2609). Fountain
+  no longer prices, grants, gates or sells anything. These variables are no
+  longer read; remove them from your configuration: `CREDITS_ENABLED`,
+  `STRIPE_SECRET_KEY` (as server configuration), `STRIPE_WEBHOOK_SECRET`,
+  `CREDIT_OPENING_CENTS`, `CREDIT_OPENING_DAYS`, `CREDIT_TURN_HOUR_CENTS`,
+  `CREDIT_PACKS_CENTS`, `PROVIDER_COST_BASIS`, `SANDBOX_RESERVE_CENTS`,
+  `SANDBOX_CAP_FLOOR`, `PLATFORM_INFERENCE_DAILY_CENTS` and
+  `PLATFORM_INFERENCE_RATES`. A deployment that had a Stripe webhook endpoint
+  pointing at `/api/stripe/webhook` should disable it in the Stripe
+  dashboard: the route now answers 404.
+- **Usage on platform inference keys is unbounded** (#2609). There is no
+  daily ceiling any more: every account without a credential of its own runs
+  on the deployment's `PLATFORM_*_API_KEY`, billed to the deployment's
+  provider account, with no 503 when a day's spend is high.
+- **One migration drops three tables** (#2609): `stripe_events`,
+  `stripe_webhook_failures` and `provider_invoices`, and it deletes the Oban
+  jobs of the `credits` queue. `credit_ledger` and the `users` columns
+  `credit_balance_cents`, `stripe_customer_id` and `comped` stay for one
+  release, unread, so replicas still running the previous release keep
+  working during a rolling deploy; a later release drops them.
+
+- **A migration drops the last billing and principal columns** (#2611).
+  Migration `20261012210000` drops the `credit_ledger` table and the `users`
+  columns `credit_balance_cents`, `stripe_customer_id`, `comped` and
+  `principal`, which the previous two removals left in place, unread, for one
+  release. Take the release that removed credits (#2609) and let it finish
+  rolling out first: a rolling deploy straight from an older release would
+  fail its old replicas' requests until they are replaced. See
+  [Billing and principal columns dropped](https://managoat.com/docs/guides/operate/upgrade#billing-and-principal-columns-dropped).
+- **`PROVIDER_HOURLY_CENTS` is no longer read** (#2611). Nothing used it
+  since the finance page was removed. Remove it from your configuration.
+
+- **The opencode runtime and the Daytona sandbox provider are removed**
+  (#2613). An agent whose runtime is `opencode` still loads and shows, but a
+  conversation on it is refused with 400 `unsupported runtime: opencode;
+  change the agent's runtime` until you move it to `claude`, `codex`, `gemini`
+  or `acp`. A migration moves agents pinned to `sandbox_provider: daytona` to
+  the instance default and marks Daytona sandboxes that were still live as
+  terminated; delete any machine left behind in Daytona's own console.
+  `SANDBOX_PROVIDER=daytona` now refuses to boot, and `DAYTONA_API_KEY`,
+  `DAYTONA_API_URL` and `DAYTONA_SNAPSHOT` are no longer read.
+
+- **The Buzz extension is removed** (#2614). Hosted Buzz agents stop when the
+  release rolls out: `/api/buzz/agents` and `/api/mcp/buzz/:conversation_id`
+  answer `404`, and a migration drops `buzz_identities` and deletes pending
+  harness-sweep jobs. The vaults that held each identity's Nostr key are
+  untouched; delete them if you no longer need them. `BUZZ_IDENTITY_CEILING`,
+  `BUZZ_ACP_BASE_URL`, `BUZZ_ACP_PATH` and `FOUNTAIN_CLI_PATH` are no longer
+  read.
+
+- **Outbound webhooks and the account data export are removed** (#2615).
+  `/api/webhooks`, `/account/webhooks`, `/api/account/exports` and the export
+  download answer `404`, `fountain webhooks` is gone, and a manifest naming
+  the `Webhook` kind is refused. A migration drops `account_exports` and
+  deletes pending webhook and export jobs; the webhook tables stay until a
+  later release drops them. `WEBHOOKS_ENABLED` and `WEBHOOK_ALLOW_HTTP` are
+  no longer read. Account deletion is unchanged.
+
+- **Connections are removed** (#2617). `/api/connections`,
+  `/api/connection-providers`, the `/connections/:provider/start` and
+  `/callback` round trip and the **Connections** page answer `404`, and the
+  Google, Microsoft and Slack extensions are gone, with the Gmail MCP server at
+  `/api/mcp/gmail`. Fountain stops reading `GOOGLE_OAUTH_CLIENT_ID`,
+  `GOOGLE_OAUTH_CLIENT_SECRET`, `GOOGLE_OAUTH_SCOPES`,
+  `MICROSOFT_OAUTH_CLIENT_ID`, `MICROSOFT_OAUTH_CLIENT_SECRET`,
+  `MICROSOFT_OAUTH_SCOPES`, `SLACK_OAUTH_CLIENT_ID`,
+  `SLACK_OAUTH_CLIENT_SECRET` and `SLACK_OAUTH_USER_SCOPES`; remove them. The
+  `connections` feature flag is gone, so `FEATURE_FLAGS_ON=connections` does
+  nothing. A migration removes every `mcp_servers` entry that names a
+  connection from your agents, and an agent can no longer be saved with one.
+  Give a remote MCP server its bearer from a vault secret through `${VAR}`
+  instead, bound to the server's host where the broker runs. Fountain does
+  not revoke the stored grants at Google, Microsoft, Slack or your own OAuth
+  apps; revoke them at the provider if you want them gone. The
+  `connections` and `connection_providers` tables stay for one more release,
+  unread, and a later migration drops them.
+
+- **A migration drops the webhook and connection tables** (#2618). Migration
+  `20261012200000` drops `webhook_endpoints`, `webhook_deliveries`,
+  `connections` and `connection_providers`, which the releases removing
+  webhooks and Connections left in place, unread, for one release. Take it
+  only once the release that removed them is fully rolled out: a rolling
+  deploy straight from an older release would fail its old replicas' turns
+  until they are replaced. Stored webhook secrets and connection tokens are
+  deleted with the tables.
+
+- **Releases no longer publish `-core` image tags** (#2620). Fountain has no
+  extensions left, so the bundled and core images are the same server and a
+  release publishes one image under `vX.Y.Z` and `vX.Y`. A `-core` tag you
+  pinned keeps working but gets no new versions; move to the tag without the
+  suffix to upgrade. The `BUNDLE_EXTENSIONS` build argument is gone.
+
+- **The `fountain-fixture` test runtime is removed** (#2630).
+  `DEPLOYED_ACP_FIXTURE_ENABLED` and `DEPLOYED_ACP_FIXTURE_USER_ID` are no
+  longer read. An agent that still names `fountain-fixture` is refused at
+  launch as an unsupported runtime; change its runtime or delete it.
+
+- **`/` redirects to the console, and `/start`, `/terms` and `/privacy` are
+  gone** (#2633). Unset `MARKETING_SITE`, `LEGAL_ENTITY`,
+  `LEGAL_CONTACT_EMAIL`, `LEGAL_JURISDICTION`, `LEGAL_EFFECTIVE_DATE` and
+  `UNVERIFIED_PRUNE_EXEMPT`; nothing reads them. A `BRAND_ASSETS_URL` bundle
+  no longer needs `mark-mono.png`.
+
+- **The unused turn-deadline journal is removed** (#1732, ADR 0046).
+  `FOUNTAIN_EXECUTION_LIMITS`, `FOUNTAIN_EXECUTION_DEADLINE_WORKER` and
+  `FOUNTAIN_EXECUTION_DEADLINE_INTERVAL_MS` are no longer read, and the
+  `notifications` Oban queue is gone. Conversations no longer write an
+  execution allowance or a `conversation.execution_allowance_created` audit
+  event. The `turn_executions` and `execution_allowances` tables and the
+  `turns.limit_reason` and `users.execution_limits` columns stay, unread, until
+  a later release drops them.
+
+- **The sandbox-capacity queue and the per-account sandbox cap are removed.**
+  `SANDBOX_FLEET_CEILING` (default 20) is the one capacity limit left. These
+  variables are no longer read; remove them from your configuration:
+  `SANDBOX_CAP_CEILING`, `SANDBOX_QUEUE_MAX_DEPTH` and
+  `SANDBOX_QUEUE_MAX_WAIT_SECONDS`. Requests still waiting in the queue when
+  you upgrade are not started.
+- **The `sandbox_requests` table and the `users.max_concurrent_sandboxes`
+  column stay for one release, unread**, so replicas still running the
+  previous release keep working during a rolling deploy; a later release
+  drops them.
+
+- **ChatGPT subscriptions and the deployment's ChatGPT account are removed**
+  (#2642). The codex runtime runs on an OpenAI API key only: a credential
+  set's, an environment's or a vault's, or `PLATFORM_OPENAI_API_KEY`.
+  Migration `20261013120000` clears each credential set's
+  `chatgpt_grant_id`, so a codex agent on such a set runs on the set's OpenAI
+  key, or has none. A conversation that ran on a subscription, or on the
+  ChatGPT account at `/admin/inference`, keeps its history: it still lists,
+  and its turns show `inference: null`. Its next prompt or wake is refused
+  with `409 inference_source_changed`; start a new conversation. The grant
+  tables, `inference_credentials.chatgpt_grant_id` and the `managed_*`
+  columns of `broker_sessions` stay for one release so that a replica of the
+  previous release keeps working during a rolling upgrade, and a later
+  release drops them with the stored sign-ins. Fountain cannot revoke a
+  sign-in at OpenAI. To end one now, sign the device out in the ChatGPT
+  account's security settings.
+- **`FEATURE_FLAGS_ON` and `CHATGPT_GRANT_CEILING` are no longer read**
+  (#2642). `chatgpt_subscriptions` was the last feature flag, and
+  `Fountain.FeatureFlags` is gone with it. Remove both from your
+  configuration.
+- **The `fountain_chatgpt_*` metrics are gone** (#2642): the refresh-lock
+  contention counter, the keepalive sweep and job counters, and the refresh
+  rate-limit and breaker counters. Remove alerts and panels that read them.
+  The `chatgpt` and `chatgpt_refresh` Oban queues and the two daily
+  keepalive jobs are gone too.
+
+- **Link ChatGPT subscriptions again after deploying** (#2644). None of the
+  subscriptions removed in #2642 carries over. Each account links its own
+  again at `/account/inference-credentials`, and an admin links the
+  deployment's at `/admin/inference`. A subscription is used only when the
+  egress broker is configured (`BROKER_LISTEN_PORT`).
+
+### Added
+
+- **`GIT_SSL_CAINFO` joins the broker's CA variables** (#2057). It names the
+  same bundle as `SSL_CERT_FILE`, because git does not read that variable.
+  Like the other CA variables it is a default that an environment's
+  `env_vars` or a secret can replace.
+
+- **`REGISTRATION_ACCESS_CODE` gates signup behind a shared code** (#2436). When it is set, the sign-up form asks for the code, `POST /api/auth/register` refuses a request without it with 403 `access_code_required` (`fountain auth register --access-code` sends it), and a first GitHub sign-in needs the code entered on the sign-up page first. Existing accounts sign in as before. Unset, signup is unchanged. See the [configuration reference](https://managoat.com/docs/configuration).
+
+- **A turn says which inference source served it** (#2461).
+  `GET /api/conversations/:id/turns` gives each turn a read-only `inference`
+  object: `origin` (`own` or `platform`) and `scope`. It is written when the
+  turn starts and never rewritten, so repointing a credential set or a
+  restart changes later turns only; it is null on turns from before it was
+  recorded. The TypeScript SDK's generated `Turn` type gains the field. See
+  https://managoat.com/docs/api#conversations.
+
+- **`DATABASE_IPV6=true` connects to Postgres over IPv6** (#2477). The shipped
+  `fly.toml` sets it, because Fly Managed Postgres's `*.flympg.net` host
+  resolves to a private IPv6 address only. Without it, an instance deployed by
+  the Fly guide cannot find its database and exits at boot with `:nxdomain`.
+
+- **Claude Opus 5.5 (`anthropic/claude-opus-5-5`) is a suggested model**
+  (#2495). Platform-key turns on it are priced at Anthropic's list rates. Opus 5
+  (`anthropic/claude-opus-5`) stays available, and agents set to it keep it.
+
+- **`fountain.provision_step.stop.duration`**, a histogram of each named
+  provisioning step (create, skills, callback key, sandbox URL, broker
+  session, sandbox config, inference reserve, adapter), tagged by `step`
+  (#2499). Each step's start and stop also reach the JSON log.
+
+- **`/admin/broker` lists sandboxes that keep cutting streamed replies**
+  (#2503). Some Sprites machines drop any connection that is quiet for about
+  a second, so every model reply that pauses is cut and the broker records it
+  as `client_closed`. The new Sandboxes cutting streams section lists each
+  sandbox with at least 10 requests of one second or longer in the window,
+  at least half of them cut, with its owner and the counts. Healthy streams
+  end that way less than 1% of the time. Fountain still does not reset such
+  a sandbox by itself; see
+  [A Sprites machine that drops quiet connections](https://managoat.com/docs/concepts/sandboxes#a-sprites-machine-that-drops-quiet-connections).
+
+- **A conversation can run a different model from its agent** (#2511, ADR 0061).
+  Name one with `model` on `POST /api/conversations`, or change it on a
+  running conversation with `POST /api/conversations/{id}/reapply`. The next
+  turn runs on the new model and continues the same runtime session; `null`
+  returns to the agent's model. A model the runtime cannot run is
+  `422 model_invalid`, and one the conversation's credential does not serve is
+  `409 inference_source_changed`. The conversation object reports the override
+  as `model`, the four SDKs' `reapply` helpers take it, and `fountain acp`
+  reports it on `session/load`. See
+  [Change the model](https://managoat.com/docs/api#change-the-model).
+
+- **A second agent of another runtime can share a persistent sandbox** (#2515).
+  `POST /api/conversations` with `sandbox_id` now attaches a conversation of a
+  different agent to another agent's persistent sandbox when both name the same
+  environment and vault and the runtimes keep their files apart, such as a
+  codex agent on a claude agent's home. Two agents of one runtime, and `acp`
+  agents, are still refused with `422 sandbox_identity_mismatch`. The sandbox
+  stays its own agent's, a guest's reapply answers `409 rebuild_required`
+  (`field: "shared_sandbox"` while another conversation is on it, `"guest"`
+  once it is alone), and each conversation redacts the other runtime's
+  inference credentials. A claude home created before this release refuses a
+  codex guest with `409 codex_inference_conflict` until it is reset. See
+  [a second agent on a machine](https://managoat.com/docs/concepts/sandboxes#a-second-agent-on-a-machine).
+
+- **Copy a vault server-side** (#PR). `POST /api/vaults/:id/copy` with
+  `{"name": ...}` creates a new vault holding every secret of one you own,
+  decrypted and re-encrypted on the server, so values never cross the API.
+  The copy is all or nothing, returns the vault create shape, and is audited
+  as `vault.created` with `copied_from` plus one `vault.secret.write` per key.
+  See [Copy a vault](https://managoat.com/docs/concepts/vault#copy-a-vault).
+
+- **Newest-first conversation event pages** (#2531).
+  `GET /api/conversations/{id}/events` takes `order=desc` with a `before`
+  cursor, and `whole_turns=true` so a page never ends inside a turn. A client
+  opens a long conversation at its newest complete turns in one request and
+  pages back without re-reading them. Every page also carries a `page`
+  object with `order`, `oldest_cursor`, `newest_cursor` and `turn_split`;
+  `meta` and forward paging are unchanged. See the
+  [API reference](https://managoat.com/docs/api#open-a-thread-at-its-newest-turns).
+
+- **Reasoning effort and fast mode, and any other ACP session config option**
+  (#2537, ADR 0062).
+  - Set `session_config`, a map of the runtime's option id to a value, on an
+    agent, on a conversation (at creation or with a reapply), or on a prompt
+    for that turn only. For example `{"effort": "high", "fast": true}` on
+    claude, or `{"reasoning_effort": "high"}` on codex.
+  - Fountain applies the options after the model and before every prompt.
+    An option the current model doesn't offer is skipped. A value the runtime
+    refuses fails the turn with the runtime's message.
+  - Each turn records what was requested, applied and skipped under
+    `config_selection`, and emits `config` stage events.
+  - The conversation's `session_config_options` lists what the runtime
+    offers.
+  - See
+    [Set reasoning effort and fast mode](https://managoat.com/docs/api#set-reasoning-effort-and-fast-mode).
+
+- **Wake a conversation without a prompt** (#2551). `POST
+  /api/conversations/{id}/wake`, `fountain conv wake <id>` and
+  `Conversation.wake()` in the TypeScript SDK bring a conversation's sandbox
+  up ahead of its next prompt, so that prompt does not wait for the wake.
+
+- **A parked sandbox's files can be read without waking it** (#2552, ADR 0063). A
+  park now snapshots the git work trees under the agent's working directory,
+  and `GET /api/sandboxes/:id/files`, `/file`, `/diff` and `/git-status`
+  answer a suspended sandbox from that snapshot, with `snapshot_at` giving
+  when it was taken. Reads the snapshot does not cover (ignored files, files
+  over 256 KiB, diffs against a ref) still return `409 sandbox_not_ready`.
+  `SANDBOX_SNAPSHOTS_ENABLED=false` turns the snapshot off.
+
+- **`fountain_turn_first_update_elapsed_ms`** (#2564), the time from a turn's
+  start to the agent's first visible update: text, thinking, a tool call or a
+  plan. `fountain_turn_first_output_elapsed_ms` times the first bytes the
+  runtime prints, which under ACP include the handshake, so it reads well under
+  what a user waits.
+
+- **Codex on a ChatGPT subscription, rebuilt small** (#2644, ADR 0070). Each
+  account can link one ChatGPT subscription, by a device code or by pasting
+  the `auth.json` from `codex login`, and an admin can link one for the
+  deployment. A codex run on an `openai/` model uses the account's own,
+  else the deployment's, before any OpenAI API key. The broker substitutes
+  the access token on `chatgpt.com`, and the sandbox holds a placeholder. A
+  daily job at 04:29 UTC refreshes any subscription idle for six days. A
+  turn only re-reads the stored token, unless that token has expired or
+  expires within ten minutes. A turn on the account's subscription reports
+  `inference.scope: "grant"`. A conversation whose subscription was
+  disconnected, refused by OpenAI or linked to another account gets
+  `409 chatgpt_reconnect_required`. See
+  https://managoat.com/docs/guides/chatgpt-subscription.
+
+- `POST /api/admin/users` opens an account for a platform built on the
+  instance: verified, with no password, and returned with one full-scope API
+  key, shown once. Registration's gates (`REGISTRATION_ENABLED`, the access
+  code, the domain list) don't apply, because the admin pipeline in front of
+  it is the gate. Audited as `account.created_by_admin`, `api_key.created` and
+  the admin trail's `admin.account.created` (ADR 0064).
+
+- **A Fly app can run more than one machine** (#2546). Set `RELEASE_COOKIE` as
+  a secret and the release names each node after the machine's private IPv6
+  address, runs Erlang distribution over IPv6, and finds its peers under
+  `<app>.internal`; then `fly scale count 2`. Without the cookie a Fly
+  machine runs alone, as before, and `CLUSTER_DNS_QUERY` set on Fly without
+  it refuses to boot. Kubernetes is unchanged. Read
+  [Run more than one machine](https://managoat.com/docs/guides/operate/fly#run-more-than-one-machine).
+
+- `FORCE_SSL_EXCLUDE_HOSTS` names hosts that the HTTPS redirect and HSTS leave
+  alone, for callers inside the deployment's network that reach the app over
+  plain HTTP at its service name (a Kubernetes Service). Before, they got a 301
+  to `https://` on a host that serves nothing there. `localhost` stays
+  excluded.
+
+### Changed
+
+- **Codex can write to the environment's repositories** (#1684). Fountain now
+  sends each repository's `mount_path` to the runtime adapter as an ACP
+  `additionalDirectories` entry. Codex adds these to its sandbox's writable
+  roots, so an agent can commit to a clone Fountain made, and cut a worktree
+  from it, without `INITIAL_AGENT_MODE=agent-full-access`. Claude receives the
+  same directories. Network access in codex's sandbox is unchanged. This needs
+  `managoat_acp` 0.4.4.
+
+- **The Claude adapter moves to claude-agent-acp 0.81.2** (#2495). Its `opus`
+  alias now means Opus 5.5, so an agent set to the bare `anthropic/opus`
+  model runs on Opus 5.5 rather than Opus 5. Existing sandboxes install the
+  new adapter the next time they wake or start a turn.
+
+- **A refused request no longer closes its connection through the broker**
+  (#2503). `managoat_broker` 0.16.0 answers a refused request that has no body
+  and keeps the connection open for the next request. A refused request with a
+  body still closes it. A sandbox now opens far fewer connections when it
+  keeps asking for routes the broker refuses.
+
+- **Sandboxes record their applied skills per runtime** (#2514). A migration
+  adds `sandboxes.applied_skills_by_runtime` and copies each recorded selection
+  under the runtime that built the disk, so two runtimes on one machine will
+  not treat each other's skills as their own. The old `applied_skills` column
+  is no longer read or written and will be dropped in a later release; the
+  migration is safe to run while the previous release is still serving. A
+  legacy row whose runtime cannot be established keeps its old list but gets
+  no per-runtime record, so it now counts toward `missing_applied_skills` in
+  the sandbox metadata report. The
+  legacy skill-manifest console steps in
+  [Run a release task](https://managoat.com/docs/guides/operate/run-a-release-task)
+  now read the record with `Sandbox.applied_skills(sandbox, conv.runtime)`.
+
+- **A brokered secret written during a turn reaches that turn** (#2548).
+  Writing or deleting an environment or vault secret now updates the broker
+  rules of every running conversation that uses it, without ending the turn or
+  replacing the sandbox's session token. The sandbox's next connection through
+  the broker, such as the next `git push`, uses the new value. A client can
+  replace a one-hour GitHub App token mid-turn. Unbrokered secrets still reach
+  only a new conversation. See
+  [Secrets](https://managoat.com/docs/concepts/secrets#hop-3-environment-and-vault-merge).
+
+- **Each write in a wake's config step is timed on its own** (#2557):
+  `reattach_config_runtime`, `reattach_config_instructions`,
+  `reattach_config_ca` and `reattach_config_env` on the
+  `fountain.provision_step` histogram, next to the `reattach_config` total.
+
+- **A prompt to a parked conversation answers before the sandbox wakes**
+  (#2561). `POST /api/conversations/{id}/prompts` used to wake the sandbox
+  inside the request: 6–13 s for a cold one, and a `503` after 30 s at worst.
+  It now answers `queued` once the checks that need no provider pass. Those
+  cover credit, the account, the agent, a sandbox being reset, and room under
+  the sandbox cap and the fleet ceiling. The wake then runs behind the response.
+  A wake that fails after that is reported on the event stream and to webhooks
+  as `conversation.wake.failed`, with its `reason` and whether sending the
+  prompt again can succeed (`retryable`). The sandbox queue, launches and team
+  runs still wait for the wake, because they act on its refusal.
+
+- **Terminate answers before the sandbox is destroyed** (#2561).
+  `POST /api/conversations/{id}/terminate` used to wait for the provider to
+  destroy the sandbox, up to 16 s. It now answers once the conversation is
+  terminated and the sandbox is marked for teardown, and then destroys the
+  sandbox. The marked sandbox takes no new work. A destroy that fails or never
+  runs is finished by the reaper within five minutes, like any interrupted
+  destroy. Account deletion and other internal callers still wait for the
+  destroy.
+
+- **A wake writes the sandbox's config files at once** (#2562). Reattaching to
+  a sandbox rewrote the runtime config, the agent's instructions, the env file
+  and the broker CA one after another; it now writes them concurrently, as a
+  fresh provision has since #2499. Each reattach step is timed on the
+  `fountain.provision_step` histogram under a `reattach_` step name.
+
+- **An API key's `last_used_at` is updated at most once a minute** (#2563).
+  Every authenticated request used to write the key's row, and parallel
+  requests on one key waited on each other for it, up to 2.7 s each while
+  holding a database connection. The stamp can now be up to a minute behind
+  the key's latest use.
+
+- **A prompt to a conversation whose sandbox is still being set up answers
+  `queued`** (#2577). It used to wait on the server for 30 s and answer `503`,
+  and the prompt still ran once setup finished, so a client that retried got a
+  duplicate turn. It is now queued behind the setup after the same checks a
+  parked conversation's prompt gets. A queued prompt that then cannot run
+  (another turn is running, or it is refused when its turn would open) is
+  reported as `conversation.wake.failed` with its reason, where it was dropped
+  silently before.
+
+- **`POST /api/conversations/{id}/wake` answers before the sandbox is up**
+  (#2584). It answers `waking` once the checks that need no sandbox pass, as a
+  prompt to a parked conversation does, and wakes the sandbox after the
+  response. A wake that then fails is reported as `conversation.wake.failed`.
+
+- **The server is licensed under Apache-2.0** (#2605). `apps/fountain`,
+  `config` and `priv` move from AGPL-3.0-or-later to Apache-2.0, the licence
+  the CLI and SDK already use (ADR 0068). Earlier releases stay under the
+  terms they were released under.
+
+- The welcome email no longer mentions credit (#2608).
+
+- **The per-account sandbox cap is `SANDBOX_CAP_CEILING`** (default 20), or
+  the account's override when an operator set one (#2609). It no longer
+  follows a balance. The fleet ceiling (`SANDBOX_FLEET_CEILING`) is
+  unchanged.
+- **`/terms` and `/privacy` are published only when all four `LEGAL_*`
+  variables are set** (#2609), and no longer mention Stripe or credits. The
+  placeholder pages a billing deployment served without them are gone.
+- The release-task smoke check in CI runs
+  `Fountain.Release.inventory_sandbox_metadata/0` (#2609).
+
+- **Credential bindings need only the broker** (#2617). The bindings page and
+  `/api/secret-bindings` are open to every account on a deployment that runs
+  the egress broker; the `connections` flag that also gated creating one is
+  gone. `GET /api/auth/me` no longer reports `connections_enabled` or
+  `connections_manageable`; read `brokered`.
+
+- **A start or wake past the fleet ceiling is refused with `503 fleet_full`**
+  and `Retry-After: 60`, never queued. A teammate schedule's cron firing that
+  meets a full fleet retries on its own for up to 30 minutes after the
+  firing, as it does for a busy teammate, instead of waiting in the queue.
+
+- The periodic backstops run as one Oban worker (#2640).
+  `Fountain.Workers.SandboxReaper` now also reaps turns left running with no
+  server (on its five-minute `teardowns` run) and denies detached permission
+  requests past their deadline (a one-minute `detached_requests` run). The
+  `AutonomousTurnReaper` and `DetachedRequestSweeper` workers are gone, so
+  Oban job metrics and `oban_jobs` rows for that work carry the
+  `SandboxReaper` worker name. The cron table has one fewer entry. Audit actors and
+  telemetry events are unchanged.
+
+- **`CODEX_CHATGPT_ACCESS_TOKEN` is an ordinary name** (#2642). An
+  environment or vault secret, and a secret binding, may use it as a key or
+  in its value. The credential broker no longer has a protected path for
+  `chatgpt.com`: a request there is an ordinary request, credentialed only by
+  a binding of yours.
+
+- Sprites refuses checkpoint calls unless checkpoint creation is enabled,
+  which matches the capability it advertises (managoat_sandbox 0.5.4).
+  Fountain creates checkpoints only with that same setting on, and a refused
+  environment restore provisions cold and clears the stale id, as a failed
+  restore already did, so nothing changes in use.
+
+### Removed
+
+- The scheduled deployed-instance verification workflow is removed (#2606).
+
+- `/api/claimable-users` and its inference-credential routes, the `principal`
+  API-key scope, the "Start before sign-in" guide, and the principal key
+  picker on the API keys page (#2607, ADR 0044).
+
+- **Product analytics** (#2608). Fountain sends no events to PostHog, and the
+  public pages load no PostHog script and record no sessions. The audit trail
+  and the Prometheus metrics are unchanged.
+- **The lifecycle funnel** (#2608): the funnel tile on `/admin`, the
+  `fountain.funnel.*` metrics and the funnel panels on the Grafana product
+  dashboard. The verified landing at `/start` is unchanged, and onboarding
+  still completes at an account's first reply.
+
+- **Billing and credits** (#2609): the `/account/billing` page, the
+  dashboard's credit tile, `GET /api/account/billing`,
+  `POST /api/account/billing/credits/checkout`, the Stripe webhook at
+  `POST /api/stripe/webhook`, the opening credit, credit packs, the credit
+  emails and their workers. No request is refused with
+  402 `insufficient_credits` any more, and the `upgrade_url` error field is
+  gone.
+- **Comps and admin credit grants** (#2609): `POST
+  /api/admin/users/:id/comp`, `POST /api/admin/users/:id/credits`, the comp
+  button and the comped/billed filter on `/admin/users`. The admin user JSON
+  no longer has `comped`, `has_stripe_customer` or `credit_balance_cents`,
+  and `GET /api/auth/me` no longer has `comped`.
+- **`/admin/finance`, the Finance tab and the Finance Grafana dashboard**
+  (#2609). Its sandbox-time, provider and failed-email panels moved to the
+  Ops dashboard. The `fountain.credits.*` and
+  `fountain.stripe_webhook.failure.count` metrics are gone.
+- **The platform inference daily ceiling** (#2609): the
+  `platform_inference_unavailable` 503 and the ceiling on `/admin/inference`.
+- `Fountain.Release.rebuild_credit_lots/0` (#2609).
+
+- **The SDKs drop their credit handling** (#2610). The server stopped
+  answering 402 in #2609, so each client removes its credit error and the
+  billing surface it carried: TypeScript 7.0.0 (`InsufficientCreditsError`,
+  `upgradeUrl`), Python 0.8.0 (`InsufficientCreditsError`, `upgrade_url`),
+  Elixir 0.8.0 (`:insufficient_credits`, `Fountain.Error.upgrade_url(error)`) and
+  Swift 0.23.0 (the credit error cases and `upgradeURL`, plus FountainKit's
+  `AdminResource.setComped`/`grantCredits` and the `comped` and credit fields
+  on `AdminUser` and `AuthMe`). A 402 from a proxy in front of the server is
+  now each client's generic error. See
+  https://managoat.com/docs/sdk#credit-error-removal.
+- The CLI no longer appends `(upgrade: …)` to an error message (#2610).
+
+- **TypeScript is the one maintained SDK** (#2612). The Python, Elixir and Swift
+  SDKs are removed from the repository with their CI jobs, release gates,
+  publishers and manual pages. Their published releases stay where they are,
+  unmaintained and untested against new servers: `fountain-agent-sdk` on PyPI,
+  `fountain_sdk` on Hex, and the `sdk-swift-v*` tags (and the historical `v*`
+  tags) that SwiftPM resolves. Move to `@managoat/fountain-sdk`, the `fountain`
+  CLI, or the HTTP API. See https://managoat.com/docs/sdk#other-languages.
+
+- The `opencode` runtime and the `daytona` sandbox provider, from the API
+  enums, the console, the configuration and the manual (#2613). Requests that
+  name either are refused at validation. Responses still carry the old value on
+  rows written before the removal, so `runtime` on agents and conversations and
+  `provider` on sandboxes are now plain strings in the OpenAPI document.
+- `422 permission_policy_unenforceable`, which only opencode could produce
+  (#2613).
+
+- The Buzz extension (`apps/fountain_buzz`), its `buzz-backend-fountain`
+  provider binary, the `fountain buzz agents` CLI commands and the Buzz manual
+  pages (#2614). Releases no longer attach `buzz-backend-fountain-*`, and the
+  server image no longer bakes `buzz-acp`, `buzz` or the `fountain` CLI.
+
+- Outbound webhooks: endpoints, signed deliveries, the delivery log, the
+  switched-off email, the console page, the `fountain webhooks` commands, the
+  `Webhook` manifest kind and its signing secret on apply results, and the
+  webhooks reference page (#2615).
+- The account data export, from the API and from the `/account` page (#2615).
+
+- Connections, connection providers and the verified remote MCP server list
+  (#2617): `GET /api/catalog` no longer carries `mcp_servers`, and the
+  connection guides and the per-server catalog pages left the manual.
+
+- The first-party extension mechanism (ADR 0043) is removed (#2620). No
+  extension implemented it any more. An unknown `/api` path still answers
+  `404` JSON after authentication.
+
+- The deployed-instance verification suite (`deployed/`) and
+  `scripts/verify-deployment.sh` are removed (#2630).
+
+- The SDK catalog (`SDKs.md`, `sdk/catalog.json`) and the language-neutral
+  conformance matrix (`sdk/conformance`) are removed (#2632). The wire
+  scenarios now run in the TypeScript SDK's own tests.
+
+- The verified landing at `/start` and the onboarding stamp (#2633).
+  Verification and an OAuth signup land on `/dashboard`.
+  `GET /api/account/onboarding` and `POST /api/account/onboarding/complete`
+  are removed, `onboarding_completed` leaves `GET /api/auth/me`, and
+  `onboarding_completed_at` leaves the admin user views.
+- The welcome email, and the daily sweep that deleted accounts left
+  unverified for thirty days (#2633).
+- The legal pages and the marketing-site links in the manual's header and
+  footer (#2633).
+
+- The `limit_reason` field on turns, which no turn ever set, and the
+  `execution_limits_invalid`, `execution_limits_widen`,
+  `execution_limits_unsupported` and `execution_fenced` errors. A launch
+  request's `execution_limits` field is no longer read (#1732).
+
+- **The sandbox queue**: `queue: true` and the `202` response on
+  `POST /api/conversations`, `GET /api/sandbox-queue`,
+  `GET /api/sandbox-queue/{id}`, `DELETE /api/sandbox-queue/{id}`, the
+  `SandboxRequest` schemas, the `sandbox_request.*` audit events, the
+  five-minute drainer job and the `fountain.sandbox_queue.*` metrics.
+- **The per-account sandbox cap**: `429 sandbox_quota_exceeded`,
+  `POST /api/admin/users/{id}/sandbox-limit`, the admin users page's limit
+  control, and `max_concurrent_sandboxes` and `sandbox_limit_override` on the
+  admin user object. The admin pages still show each account's active
+  sandboxes.
+- **`QuotaExceededError`** from the TypeScript SDK (unreleased; it ships with
+  the next major).
+
+- **`/api/account/chatgpt-subscriptions`** and its sign-in `attempts` routes
+  (#2642). They answer `404`. `chatgpt_grant_id` and `chatgpt_grant` are
+  gone from a credential set, and a `PATCH` that sends `chatgpt_grant_id`
+  changes nothing. `chatgpt_subscriptions_enabled` is gone from
+  `GET /api/auth/me`, and `chatgpt_grant_id` and the `grant` scope from a
+  turn's `inference`. `409 chatgpt_grant_unusable` and the other `chatgpt_*`
+  errors are gone.
+- **The console's ChatGPT surfaces** (#2642): the ChatGPT subscriptions
+  card and the set's subscription picker at `/account/inference-credentials`,
+  the banners on `/start` and the agent form, and the ChatGPT account row at
+  `/admin/inference`. The `admin.platform_chatgpt.*` admin events are no
+  longer recorded; existing rows stay.
+
+### Fixed
+
+- **Codex can branch and commit in the environment's repositories** (#1684).
+  The earlier change made each clone writable, but codex keeps `.git`
+  read-only inside every writable root, so `git worktree add`, a new branch
+  and a commit still failed. Fountain now sends each clone's `.git` as a
+  writable root of its own.
+
+- **A Codex turn is no longer failed outright when Codex cannot open its local
+  state** (#1910). Codex conversations on one sandbox share one SQLite state.
+  During a burst of turns, a new Codex process could give up waiting for the
+  lock and exit before your prompt was sent. The turn then failed with
+  `failed to initialize sqlite state runtime`. The runtime is now started again
+  up to three times, after pauses of about 2–4, 6–12 and 15–30 seconds. Each
+  restart shows on the stream as a `session` stage event with `reason:
+  "runtime_state_locked"`. The turn fails with the original error only if all
+  three restarts fail too.
+
+- **A brokered conversation now provisions on a self-hosted runner** (#2057).
+  Installing the broker CA used `sudo` and `update-ca-certificates`. A runner
+  sandbox runs as the machine's user with no root, so every launch failed
+  with `ca_install_exit` and `sudo: a password is required`. On a runner, the
+  CA and a bundle of the machine's own roots plus the CA are now written
+  inside the sandbox, under `~/.fountain/broker/`. The sandbox's CA
+  variables point at their real paths on that machine. The machine's own
+  trust store is never changed. Other providers install into the OS trust
+  store as before.
+
+- **A files read no longer races a park or a destroy of the same sandbox**
+  (#2394). The four sandbox file routes check the sandbox again under the
+  machine's lock before they run. A sandbox that is being parked or destroyed
+  returns `503 sandbox_unavailable` with a `Retry-After`. Before, the read ran
+  against a machine that was going away. A read that started first finishes
+  before the park or the destroy calls the provider.
+
+- The Sandbox images workflow can rebuild and smoke the E2B template (#2481).
+  The repository had no `E2B_API_KEY`, so the job had never run. Its smoke
+  step also passed `-lc` to the e2b CLI instead of to `bash`, and left stdin
+  open for the CLI to wait on.
+
+- A sandbox no longer fails to provision when the sprite is briefly
+  unreachable during the clone (#2491). The clone now retries the same way
+  every other provisioning step already does, but only when the sprite
+  refused to start the command at all. A clone that started and failed
+  partway is still returned on the first attempt, so a half-written directory
+  is never cloned over.
+
+- **Claude conversations on a Claude.ai subscription token wake and
+  provision about 30 seconds faster** (#2495). Since 2026-09-12, sandbox setup ran a
+  model-list warm-up that could only succeed on an Anthropic API key. On a
+  subscription token it waited out its 30-second limit on every cold start
+  and every wake, which put the median wake at 36 seconds. The newer Claude
+  adapter lists every model itself, so the warm-up is gone.
+- **Claude Fable 5.1 works on a Claude.ai subscription token, and on a
+  sandbox's first conversation** (#2495). Before, those turns failed with
+  "Invalid value for config option model".
+- **Platform-key turns on Claude Fable 5.1 are priced at Fable's rate**
+  (#2495). They were priced at the Opus rate, half their cost.
+
+- **New Claude conversations provision about 10 seconds faster, and every
+  Claude turn that starts a fresh adapter about 3 seconds faster** (#2498).
+  The Claude adapter now installs from a pinned manifest of its whole
+  dependency tree, with every package checked against its sha512 integrity,
+  instead of through npm: about 2–3 seconds on a new sandbox instead of about
+  12. The check before each adapter start no longer runs the adapter twice.
+  Existing sandboxes reinstall once, into a new versioned directory, the next
+  time they wake or start a turn. This comes from `managoat_runtimes` 0.5.1.
+
+- **New conversations provision about 3–4 seconds faster** (#2499). The
+  broker CA is added to a fresh sandbox's trust store directly instead of
+  rebuilding the whole store (about 0.4 seconds instead of 2.4); the
+  sandbox's config files, env file and CA install run at the same time
+  instead of one after another; and the bundled skills are written without
+  the reconciliation a fresh sandbox has nothing to reconcile, alongside the
+  rest of provisioning.
+
+- **The Claude adapter install writes about 105 MB less to a new sandbox's
+  disk** (#2500). Each package now unpacks as it downloads instead of after,
+  with its integrity checked before the adapter can run. Installs also record
+  their phase timings in the sandbox (`.install-timing`) for diagnosing slow
+  ones. This comes from `managoat_runtimes` 0.5.2.
+
+- **Claude Code's first start in a new sandbox no longer waits on its
+  non-essential network traffic** (#2501). Sandboxes now run it with
+  `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`, and its start inside a new
+  session took 1.1–1.3 s in production where it had taken up to 3 s. The
+  median time to a new conversation's first reply did not move. This comes
+  from `managoat_runtimes` 0.5.3.
+
+- **Claude and Codex conversations start answering about a second sooner**
+  (#2502). Every adapter start (a new conversation, a reattach, waking a
+  parked sandbox) went through the sandbox's `node` shim, which took ~0.8 s
+  to start. The adapter now runs on the Node binary its install recorded, and
+  reaches its first protocol reply in 0.4–0.55 s instead of 0.9–1.6 s. This
+  comes from `managoat_runtimes` 0.5.4.
+
+- **A resumed Codex conversation no longer tries the WebSocket transport first**
+  (#2503). Fountain runs Codex on a provider with the WebSocket transport off.
+  The ACP adapter did not pass that provider to Codex when it resumed a
+  conversation, so every resumed turn went back to Codex's built-in provider,
+  and waited up to the full connect timeout of about 300 seconds before it
+  used HTTPS. Fountain now also
+  sets `MODEL_PROVIDER`, which the adapter passes on resume. An existing
+  `MODEL_PROVIDER` counts as your own choice of provider, like `model_provider`
+  in `CODEX_CONFIG`.
+
+- **A wake no longer rebuilds the sandbox's trust store** (#2557). The broker
+  CA is derived from a fixed seed, but its signature is randomised, so every
+  copy Fountain wrote differed from the one already installed byte for byte.
+  The install therefore rebuilt the whole system trust store on every wake,
+  about 1.5–2.3 s. It now compares the certificates' public keys, which is how
+  TLS clients match a trust anchor, and skips the rebuild when they agree.
+
+- **A setup script's background processes no longer hold the provision**
+  (#2558). The setup step ends when the script exits. A process it leaves
+  running, such as a dev server started with `&` or a keepalive loop, used to
+  keep the step open until it closed its output, which delayed the provision by
+  up to 30 s or failed it at the setup timeout. Output a background process
+  writes after the script exits no longer reaches the setup log.
+
+- **A wake no longer trips over the network policy request's late answer**
+  (#2559). On a sprite booting from cold, Sprites answers the policy request
+  only once the machine is up, which can take longer than the 30 s client
+  timeout. The retry then read the first attempt's late `204` off the pooled
+  connection and failed with a `CaseClauseError`, and the earlier fix (#2571),
+  which ran each attempt in its own process, didn't prevent it.
+  `managoat_sandbox` 0.5.2 gives this one request 90 s, so the first attempt
+  waits out the boot. The per-attempt process from #2571 is removed.
+
+- **E2B conversations work again after their sandbox is parked** (#2574).
+  After an E2B sandbox was paused and resumed, every turn failed at once with
+  `acp_write_failed, :command_exited`: envd stopped finding processes by tag,
+  so the first message to the newly started agent was refused.
+  `managoat_sandbox` 0.5.1 addresses the process by its pid.
+
+- A runner on a host that suspends, like a sprite between requests, now
+  reconnects when the host wakes (#2586). It pings Fountain every 10 seconds
+  and reconnects when a ping goes unanswered, instead of waiting forever on a
+  connection that died while it was suspended.
+
+- Saving a provider credential that a set already holds no longer ends the
+  conversations running on that set with `409 inference_source_changed`
+  (#2590). A different value still replaces the credential and ends them.
+
+- A parked sandbox's file snapshot is no longer dropped when the agent has
+  changed many files (#2591). The capture's file list no longer goes in the
+  exec request, which Sprites refused with 414 on most parks, leaving the
+  sandbox's files "not ready" until it woke.
+
+- A turn whose server was stopped by a deploy before its prompt reached the
+  agent now runs again on reattach instead of ending `interrupted`, so the
+  prompt is no longer lost (#2593). A turn that started more than 10 minutes
+  earlier still ends `interrupted`.
+
+- During a deploy, a server that has begun shutting down no longer takes new
+  conversations, so a turn is not started on a pod that is about to stop
+  (#2594).
+
+- A self-hosted runner whose server stays unreachable keeps waiting 30
+  seconds between reconnects (#2599). Before, after about 65 failed attempts
+  the delay overflowed to zero, and the runner redialed in a tight loop,
+  writing a warning on every try until its log filled the disk.
+
+- **A repository clone that fails to connect is retried** (#1684). On
+  Sprites, the first connection through a newly applied broker network policy
+  is sometimes refused. About 2 in 5 fresh provisions that install packages
+  and then clone a repository failed with `Could not connect to server` and
+  never started. Fountain now retries a clone that never reached the remote,
+  up to three attempts in total. That clone wrote nothing, so retrying it is
+  safe. Any other clone failure still fails the provision on the first
+  attempt.
+
+- **The image carries `bin/migrate` and `bin/server`** (#2546). The Dockerfile
+  never copied `rel/`, so `mix release` built without its overlays and a
+  migration Job pointed at `/app/bin/migrate` had nothing to run.
+
+- Codex and Gemini agents run on self-hosted runners. Before, every codex
+  conversation on a runner failed at provision with
+  `{:codex_login_write, :command_exited}`, and every gemini turn exited 127,
+  because both relied on a CLI that the hosted images ship and a runner does
+  not have. Codex now gets its `auth.json` written directly, and Gemini's CLI
+  is installed, pinned, when it is missing (managoat_runtimes 0.5.6). The
+  runners page listed CLIs Fountain did not install; it now says what each
+  runtime gets.
+
+### Security
+
+- **Attaching another agent's conversation to a sandbox needs a full-scope
+  key, and only a claude and codex pair may share one** (#2525). A sandbox's
+  own token (`FOUNTAIN_TOKEN`), or any key below full scope, can no longer put
+  a conversation of a different agent onto a persistent sandbox with
+  `sandbox_id`: `POST /api/conversations` answers
+  `403 guest_attach_requires_full_scope` (`reason: "insufficient_scope"`). An
+  agent could otherwise pair another agent with a machine with no person
+  involved and leave files there that the machine's own agent loads. A guest
+  teammate keeps its machine through a team rotation; a `fresh` `channel_id`
+  rotation of a guest now needs a full-scope key too. Guests are also limited
+  to one claude agent and one codex agent together; gemini and opencode pairs
+  are now refused with `422 sandbox_identity_mismatch`, as is a guest on a
+  machine where an agent of another runtime, or another agent of its own
+  runtime, has run. See
+  [a second agent on a machine](https://managoat.com/docs/concepts/sandboxes#a-second-agent-on-a-machine).
+
+- A cold provision applies the environment's network policy before it installs the environment's packages (#2597). The apt and npm commands run with the conversation's process environment, so they no longer run on the provider's open network before the floor lands. A `limited` environment must list its package mirrors in `allowed_hosts`; one that lists packages without them now fails at the `packages` stage instead of installing them unrestricted.
+
 ## [0.21.0] - 2026-09-18
 
 ### Upgrade notes

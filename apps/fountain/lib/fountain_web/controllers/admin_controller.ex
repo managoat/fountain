@@ -131,6 +131,48 @@ defmodule FountainWeb.AdminController do
     end)
   end
 
+  operation(:create_user,
+    summary: "Open an account and mint its API key (admin)",
+    description:
+      "For a platform built on this instance that opens one account per " <>
+        "application (ADR 0064). The account is verified, has no password, and " <>
+        "comes with one full-scope API key, shown once in `api_key`. " <>
+        "Registration's gates (REGISTRATION_ENABLED, the access code, the domain " <>
+        "list) don't apply: this is the operator's door.",
+    request_body: {"Account", "application/json", Schemas.AdminCreateUserRequest},
+    responses: [
+      created: {"Account and key", "application/json", Schemas.AdminCreatedUserResponse},
+      forbidden: {"Admin required", "application/json", Schemas.Error},
+      unprocessable_entity: {"Refused", "application/json", Schemas.Error}
+    ]
+  )
+
+  def create_user(conn, %{"email" => email} = params) when is_binary(email) do
+    admin = conn.assigns.current_user
+
+    case Accounts.create_account_by_admin(admin, email,
+           key_name: params["key_name"] || "platform",
+           request_ip: FountainWeb.Audited.attribution(conn)[:request_ip]
+         ) do
+      {:ok, {user, raw}} ->
+        record_admin(admin, user, "admin.account.created", %{"email" => user.email})
+
+        conn
+        |> put_status(:created)
+        |> render(:create_user,
+          user: user,
+          sandbox_counts: Quotas.active_sandbox_counts(),
+          api_key: raw
+        )
+
+      {:error, %Ecto.Changeset{} = changeset} ->
+        refuse(conn, "invalid_account", changeset_message(changeset))
+    end
+  end
+
+  def create_user(conn, _params),
+    do: refuse(conn, "invalid_request", ~s(Send {"email": "..."}.))
+
   operation(:set_role,
     summary: "Grant or revoke the admin role",
     parameters: [id: [in: :path, type: :string, required: true]],
@@ -555,6 +597,14 @@ defmodule FountainWeb.AdminController do
       :error ->
         {:error, :not_found}
     end
+  end
+
+  defp changeset_message(%Ecto.Changeset{} = changeset) do
+    changeset
+    |> Ecto.Changeset.traverse_errors(fn {msg, opts} ->
+      Enum.reduce(opts, msg, fn {k, v}, acc -> String.replace(acc, "%{#{k}}", to_string(v)) end)
+    end)
+    |> Enum.map_join("; ", fn {field, msgs} -> "#{field} #{Enum.join(msgs, ", ")}" end)
   end
 
   defp render_user(conn, user) do

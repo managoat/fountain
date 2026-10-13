@@ -307,14 +307,18 @@ catalog response; the [Catalog](catalog/index.md) explains shipped resources.
 An environment supplies the packages, repositories, scripts, network policy,
 and baseline secrets a machine needs. See [Environments](concepts/environment.md).
 The [generated reference](/api/docs) defines the editable configuration and
-secret operations. Changes can affect persistent machines built from it.
+secret operations. Changes can affect persistent machines built from it. A
+secret write reaches running conversations the way a vault secret write does.
 
 ## Vaults
 
 A vault supplies secret overrides without a duplicate environment.
 See [Vaults](concepts/vault.md) for precedence and reuse. Submit secret values
 through the write operations in the [generated reference](/api/docs); do not
-expect read operations to return them.
+expect read operations to return them. On a brokered deployment, a write or
+delete reaches running conversations on the vault during their current turn,
+at the sandbox's next connection through the broker. See
+[Secrets](concepts/secrets.md#hop-3-environment-and-vault-merge).
 
 To start a vault from another one's secrets, use `POST /api/vaults/:id/copy`.
 The server copies the values, so they never cross the API.
@@ -523,6 +527,14 @@ conversation with no machine must wake first, and the turn opens after that.
 So the response cannot give you a turn ID. Give Fountain your own name for the
 prompt instead.
 
+The wake runs after the response, and so does the wait for a sandbox that is
+still being set up or reattached. The request still refuses what needs no
+sandbox to decide: no credit, a suspended account, a missing agent, a sandbox
+being reset, or no room for one more sandbox. A wake that fails later is a
+`wake` stage event with the `failed` state. Its `reason` says why, and
+`retryable` says whether sending the prompt again can succeed. No turn opens
+for that prompt.
+
 ```json
 {"prompt": "Run the approved plan.", "client_request_id": "plan-7-step-3"}
 ```
@@ -547,7 +559,8 @@ at a time, so one prompt opens the turn. The turn carries the value of that
 client. Turn order cannot tell you that. When the conversation has a machine
 that is awake, Fountain answers `conversation_busy` to the other client. When
 the conversation must wake first, Fountain answers `queued` to the two clients.
-It then drops the prompt that arrives second, and the stream does not say so.
+It then drops the prompt that arrives second, and says so on the stream with a
+`wake` stage event in the `failed` state and the reason `conversation_busy`.
 
 The value is a string of 1 to 200 characters. It cannot contain a null
 character; Fountain answers `422` for one that does. Send it in the request

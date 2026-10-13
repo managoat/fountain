@@ -5,8 +5,13 @@ defmodule Fountain.Conversations.Reattachment do
 
   alias Fountain.Conversations
   alias Fountain.Conversations.ActorStatus
-  alias Fountain.Conversations.{Connection, Output, Pending, Provisioning, TurnMachine}
+  alias Fountain.Conversations.{Connection, Egress, Output, Pending, Provisioning, TurnMachine}
   alias Fountain.Machines.Machine
+
+  # How long after it started a turn whose prompt never reached the agent is
+  # still run again on reattach. Past it the turn is orphaned: the person has
+  # likely moved on, and it bounds a turn that keeps landing on dying servers.
+  @relaunch_window_s 600
 
   @doc """
   Whether a server about to reattach `conv` to `sandbox` must not: a guest
@@ -39,10 +44,9 @@ defmodule Fountain.Conversations.Reattachment do
   @doc false
   def prepare_source(handle, state, conv, agent, sprite_env) do
     with :ok <-
-           Provisioning.write_env_file(
-             handle,
-             Fountain.Conversations.Identity.disk_env(sprite_env)
-           ) do
+           step(state, "reattach_config", fn ->
+             write_config(handle, state, agent, conv, sprite_env)
+           end) do
       # Deliberately unchecked, and the reattach carries on either way. Since
       # ADR 0058 stage 8b the skills record is written through
       # `Machine.retarget/3`, which takes the machine's advisory lock, so a
@@ -52,22 +56,130 @@ defmodule Fountain.Conversations.Reattachment do
       # it. That is a record lagging the disk, not a failed reattach, and
       # refusing the reattach over it would be the worse trade (round 1,
       # protocol review).
-      _ = Fountain.Conversations.Reapply.mount_skills(handle, conv, agent)
-      runtime = conv.runtime || (agent && agent.runtime) || "claude"
-      Provisioning.write_instructions(handle, runtime, agent)
+      _ =
+        step(state, "reattach_skills", fn ->
+          Fountain.Conversations.Reapply.mount_skills(handle, conv, agent)
+        end)
 
       with :ok <- Fountain.Conversations.InferenceBinding.reserve(conv, state.inference_source) do
-        Provisioning.prepare_runtime_sprite(
-          handle,
-          runtime,
-          state.runtime_module,
-          agent,
-          sprite_env,
-          state.inference_source,
-          state.user_id
-        )
+        step(state, "reattach_adapter", fn ->
+          Provisioning.prepare_runtime_sprite(
+            handle,
+            runtime(conv, agent),
+            state.runtime_module,
+            agent,
+            sprite_env,
+            state.inference_source,
+            state.user_id
+          )
+        end)
       end
     end
+  end
+
+  # What a reattach rewrites on the disk: the runtime's config, the agent's
+  # instructions, the env file and the broker CA. None reads another, so they
+  # go at once, as `FreshProvision`'s config step has since #2499; one after
+  # another they were most of a reattach's own time (#2562). Only the env file
+  # decides the answer, as before:
+  #
+  # - The runtime config rewrite keeps `.mcp.json` current with the agent's
+  #   resolved servers after the callback token rotated (#2152). Best effort:
+  #   the turn's own failure says more than a refused wake would.
+  # - The CA is an idempotent rewrite on a machine that has it, and installs
+  #   it on one provisioned before its tenant was brokered. Best effort for the
+  #   same reason. It finishes before anything after this step dials out.
+  # - The env file is required.
+  #
+  # Each write is its own `reattach_config_*` span too: the step's p50 was
+  # 1.85 s on 2026-10-05 for four writes at once, and its one span cannot say
+  # which of them that is.
+  defp write_config(handle, state, agent, conv, sprite_env) do
+    [
+      fn ->
+        step(state, "reattach_config_runtime", fn ->
+          write_runtime_config(handle, state, agent)
+        end)
+      end,
+      fn ->
+        step(state, "reattach_config_instructions", fn ->
+          Provisioning.write_instructions(handle, runtime(conv, agent), agent)
+        end)
+      end,
+      fn ->
+        step(state, "reattach_config_ca", fn ->
+          Egress.install_ca(state.broker, handle, state.conversation_id)
+          |> best_effort("broker CA install on wake")
+        end)
+      end
+    ]
+    |> Enum.map(&async_step/1)
+    |> then(fn tasks ->
+      env_file =
+        step(state, "reattach_config_env", fn ->
+          Provisioning.write_env_file(
+            handle,
+            Fountain.Conversations.Identity.disk_env(sprite_env)
+          )
+        end)
+
+      Enum.each(tasks, &await_step/1)
+      env_file
+    end)
+  end
+
+  defp write_runtime_config(handle, state, agent) do
+    Provisioning.write_runtime_config(
+      handle,
+      state.runtime_module,
+      Egress.with_connection_servers(
+        agent,
+        state.user_id,
+        state.conversation_id,
+        state.callback_token
+      )
+    )
+    |> best_effort("runtime config write on wake")
+  end
+
+  # As `FreshProvision`'s: an exception in a task would reach the server as a
+  # link exit, past the handling a raise in the server itself gets, so the
+  # task catches it and awaiting re-raises it here with its own stacktrace.
+  defp async_step(fun) do
+    Task.async(fn ->
+      try do
+        {:ok, fun.()}
+      rescue
+        exception -> {:raised, exception, __STACKTRACE__}
+      end
+    end)
+  end
+
+  defp await_step(task) do
+    case Task.await(task, :infinity) do
+      {:ok, result} -> result
+      {:raised, exception, stacktrace} -> reraise exception, stacktrace
+    end
+  end
+
+  defp best_effort(:ok, _what), do: :ok
+
+  defp best_effort({:error, reason}, what) do
+    Logger.warning("#{what}: #{inspect(reason)}")
+    :ok
+  end
+
+  defp runtime(conv, agent), do: conv.runtime || (agent && agent.runtime) || "claude"
+
+  # A reattach step on the `fountain.provision_step` histogram, under a
+  # `reattach_` name, so a slow wake says which step it spent its time in the
+  # way a slow provision does.
+  defp step(state, name, fun) do
+    conv_id = state.conversation_id
+
+    Fountain.Telemetry.span([:provision_step], %{conv_id: conv_id, step: name}, fn ->
+      {fun.(), %{conv_id: conv_id, step: name}}
+    end)
   end
 
   @doc """
@@ -258,6 +370,9 @@ defmodule Fountain.Conversations.Reattachment do
   # closes the turn cleanly. If no active session is found, the command
   # finished while the BEAM was down — we don't know the exit code, so
   # mark the orphaned turn `interrupted` so the user gets a clear signal.
+  #
+  # Answers the state, or `{:relaunch, state, turn}` when the turn's prompt
+  # never reached the agent and the server should run it again.
   def reattach_running_turn(state) do
     running_turn = find_running_turn(state.conversation_id)
 
@@ -351,10 +466,29 @@ defmodule Fountain.Conversations.Reattachment do
         # predates the column). The adapter is sitting idle in its handshake
         # with nothing to answer, and no peer can pick that up: the ids it
         # would need are gone with the process. Stop it — otherwise it lingers
-        # as a session the next reattach could bind to — and orphan the turn.
+        # as a session the next reattach could bind to.
+        #
+        # The agent never saw the prompt, so running the turn again from the
+        # start is safe, and it is what the person asked for: a deploy that
+        # lands between admission and `session/prompt` used to lose it. A turn
+        # older than the window is orphaned as before, so a prompt is never
+        # run long after it was sent, and a server that keeps dying cannot
+        # relaunch the same turn forever.
         Managoat.Sandbox.stop_command(idle_command)
-        mark_orphan(state, running_turn, "acp_prompt_not_sent")
-        state
+
+        if relaunchable?(running_turn) do
+          Output.publish_stage(state.conversation_id, "reattach", "done", %{
+            outcome: "turn_relaunched",
+            reason: "acp_prompt_not_sent",
+            turn_number: running_turn.turn_number,
+            turn_id: running_turn.id
+          })
+
+          {:relaunch, state, running_turn}
+        else
+          mark_orphan(state, running_turn, "acp_prompt_not_sent")
+          state
+        end
 
       {:ok, command} ->
         finish_session_attach(state, running_turn, conv, command, session, matched_by)
@@ -437,6 +571,11 @@ defmodule Fountain.Conversations.Reattachment do
         result
     end
   end
+
+  defp relaunchable?(%{started_at: %DateTime{} = started_at}),
+    do: DateTime.diff(DateTime.utc_now(), started_at) <= @relaunch_window_s
+
+  defp relaunchable?(_turn), do: false
 
   def find_running_turn(conv_id) do
     import Ecto.Query

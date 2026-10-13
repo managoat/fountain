@@ -5134,6 +5134,50 @@
         }
       }
     },
+    "POST /api/admin/users": {
+      "operation_id": "FountainWeb.AdminController.create_user",
+      "path_params": [],
+      "request_body": {
+        "content": {
+          "application/json": {
+            "ref": "AdminCreateUserRequest"
+          }
+        },
+        "required": false
+      },
+      "responses": {
+        "201": {
+          "application/json": {
+            "ref": "AdminCreatedUserResponse"
+          }
+        },
+        "401": {
+          "application/json": {
+            "ref": "Error"
+          }
+        },
+        "403": {
+          "application/json": {
+            "ref": "Error"
+          }
+        },
+        "406": {
+          "application/json": {
+            "ref": "NegotiationError"
+          }
+        },
+        "422": {
+          "application/json": {
+            "ref": "Error"
+          }
+        },
+        "429": {
+          "application/json": {
+            "ref": "Error"
+          }
+        }
+      }
+    },
     "POST /api/admin/users/{id}/comp": {
       "operation_id": "FountainWeb.AdminController.set_comp",
       "path_params": [
@@ -7960,6 +8004,33 @@
         "comped": {
           "required": true,
           "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "AdminCreateUserRequest": {
+      "properties": {
+        "email": {
+          "required": true,
+          "type": "string"
+        },
+        "key_name": {
+          "nullable": true,
+          "required": false,
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "AdminCreatedUserResponse": {
+      "properties": {
+        "api_key": {
+          "required": true,
+          "type": "string"
+        },
+        "data": {
+          "ref": "AdminUser",
+          "required": true
         }
       },
       "type": "object"

@@ -27,7 +27,7 @@ defmodule Fountain.Conversations.CodexTransport do
   #     variable out of the spawn env, so hard-coding OpenAI's URL here does
   #     not silently redirect a conversation that had been going elsewhere.
   #   * **The credential.** A custom provider does not read `~/.codex/auth.json`,
-  #     which is where `codex login --with-api-key` puts the key at provision
+  #     which is where the runtime library writes the key at provision
   #     time (ADR 0019 gate 3) and where a sandbox shared by several
   #     conversations still holds one. So the substitution happens only when
   #     `OPENAI_API_KEY` is in this spawn's env for `env_key` to name. Without

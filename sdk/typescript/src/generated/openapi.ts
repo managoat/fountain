@@ -471,7 +471,11 @@ export interface paths {
         /** List accounts (admin) */
         get: operations["FountainWeb.AdminController.index_users"];
         put?: never;
-        post?: never;
+        /**
+         * Open an account and mint its API key (admin)
+         * @description For a platform built on this instance that opens one account per application (ADR 0064). The account is verified, has no password, and comes with one full-scope API key, shown once in `api_key`. Registration's gates (REGISTRATION_ENABLED, the access code, the domain list) don't apply: this is the operator's door.
+         */
+        post: operations["FountainWeb.AdminController.create_user"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1422,7 +1426,7 @@ export interface paths {
         put?: never;
         /**
          * Send another prompt
-         * @description Queues a new turn. If the ConversationServer has been GC'd (e.g. across a BEAM restart) a fresh sprite is provisioned and the runtime resumes via its session id.
+         * @description Queues a new turn. A conversation whose sandbox is parked or gone is woken behind the response: it answers `queued` once the credit, account, agent and capacity checks pass, and a wake that then fails is reported on the event stream as a `wake` `failed` stage, with its `reason` and whether a retry can succeed. A sandbox that is gone is replaced, and the runtime resumes via its session id where its disk survives.
          */
         post: operations["FountainWeb.ConversationController.prompt"];
         delete?: never;
@@ -1534,7 +1538,7 @@ export interface paths {
         put?: never;
         /**
          * Terminate a conversation
-         * @description Tears down the sprite and marks the conversation `terminated`. Idempotent for already-dead conversations.
+         * @description Marks the conversation `terminated` and answers. Its sandbox, unless another conversation still holds it or it is a persistent home, is then destroyed at the provider; it accepts no new work from the moment the request is answered. Idempotent for already-dead conversations.
          */
         post: operations["FountainWeb.ConversationController.terminate"];
         delete?: never;
@@ -1611,9 +1615,9 @@ export interface paths {
         put?: never;
         /**
          * Wake a conversation without a prompt
-         * @description Brings the conversation's sandbox and server up without opening a turn, so the next prompt does not wait for them. A suspended sandbox is resumed; one that is gone is replaced with a fresh one, as a prompt would do. Answers once the server has started; its reattach or provision continues and reports on the event stream. A woken conversation is parked again after the usual idle period.
+         * @description Brings the conversation's sandbox and server up without opening a turn, so the next prompt does not wait for them. A suspended sandbox is resumed; one that is gone is replaced with a fresh one, as a prompt would do. Answers `waking` once the checks that need no sandbox pass, and wakes behind the response: the reattach or provision reports on the event stream, and a wake that fails is a `wake` `failed` stage there. A woken conversation is parked again after the usual idle period.
          *
-         *     `awake` means the server was already running and nothing was done. Refused as a prompt's wake is: 402 without credits, 410 once the conversation has ended, 409 `sandbox_reset_pending` while its machine is being reset, and 503 while the machine or fleet is unavailable.
+         *     `awake` means the server was already running and nothing was done. Refused as a prompt's wake is: 402 without credits, 410 once the conversation has ended, 409 `sandbox_reset_pending` while its machine is being reset, and 503 while the fleet is full. Anything the sandbox itself refuses arrives on the event stream.
          */
         post: operations["FountainWeb.ConversationController.wake"];
         delete?: never;
@@ -2678,6 +2682,24 @@ export interface components {
         /** AdminCompRequest */
         AdminCompRequest: {
             comped: boolean;
+        };
+        /**
+         * AdminCreateUserRequest
+         * @example {
+         *       "email": "helpdesk@apps.example.com"
+         *     }
+         */
+        AdminCreateUserRequest: {
+            /** @description The new account's address. Verified at creation; no mail is sent. */
+            email: string;
+            /** @description Name of the API key minted with the account. Default `platform`. */
+            key_name?: string | null;
+        };
+        /** AdminCreatedUserResponse */
+        AdminCreatedUserResponse: {
+            /** @description The new account's full-scope API key. Shown once; only its hash is kept. */
+            api_key: string;
+            data: components["schemas"]["AdminUser"];
         };
         /**
          * AdminCreditsRequest
@@ -7864,6 +7886,76 @@ export interface operations {
                 };
             };
             /** @description Invalid request parameters */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    "FountainWeb.AdminController.create_user": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Account */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["AdminCreateUserRequest"];
+            };
+        };
+        responses: {
+            /** @description Account and key */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminCreatedUserResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Admin required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No acceptable representation */
+            406: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NegotiationError"];
+                };
+            };
+            /** @description Refused */
             422: {
                 headers: {
                     [name: string]: unknown;

@@ -5,6 +5,7 @@ defmodule Fountain.Environments do
 
   alias Fountain.Agents.Agent
   alias Fountain.Audit
+  alias Fountain.Conversations.LiveSecrets
   alias Fountain.Environments.{Environment, Secret}
   alias Fountain.InferenceCredentials
   alias Fountain.Repo
@@ -233,6 +234,7 @@ defmodule Fountain.Environments do
       end
     end)
     |> audited_secret(env, key, "environment.secret.write", opts)
+    |> secrets_changed(env)
   end
 
   @doc """
@@ -245,6 +247,7 @@ defmodule Fountain.Environments do
   def delete_secret(%Environment{} = env, %Secret{} = secret, opts \\ []) do
     InferenceCredentials.with_source_lock(env.user_id, fn -> Repo.delete(secret) end)
     |> audited_secret(env, secret.key, "environment.secret.delete", opts)
+    |> secrets_changed(env)
   end
 
   # `resource_id` is the environment, not the secret row: a deleted secret's id
@@ -266,6 +269,15 @@ defmodule Fountain.Environments do
   end
 
   defp audited_secret(other, _env, _key, _action, _opts), do: other
+
+  # After the commit, so a server that reads the rows again sees this write:
+  # the live conversations on this environment rewrite their broker rules (#2548).
+  defp secrets_changed({:ok, _} = ok, %Environment{} = env) do
+    LiveSecrets.secrets_changed(:environment, env.id, env.user_id)
+    ok
+  end
+
+  defp secrets_changed(other, _env), do: other
 
   @doc """
   Returns a flat map `%{"KEY" => "plaintext"}` of all decrypted secrets

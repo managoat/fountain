@@ -18,7 +18,7 @@ defmodule Fountain.Conversations.ConversationServer do
   alias Fountain.Conversations.{BoundedTurn, CallbackKey, Connection, Conversation}
   alias Fountain.Conversations.{DetachedRequest, Egress, FreshProvision, Interruption}
   alias Fountain.Conversations.{Lifecycle, MachineEvents, McpServers, Output, Pending}
-  alias Fountain.Conversations.{PromptDelivery, Provisioning, ProvisionWatchdog, Reattachment}
+  alias Fountain.Conversations.{PromptDelivery, ProvisionWatchdog, Reattachment, ServerPhase}
   alias Fountain.Conversations.{Redaction, SpriteEnv, Termination, TurnLaunch, TurnMachine, Wake}
   alias Fountain.Machines.Machine
 
@@ -96,20 +96,15 @@ defmodule Fountain.Conversations.ConversationServer do
   """
   def send_prompt(conv_id, prompt, images \\ [], opts \\ []) do
     result =
-      case whereis(conv_id) do
-        nil ->
+      case Horde.Registry.lookup(Fountain.ConversationRegistry, conv_id) do
+        [] ->
           # `images` travels the wake road too, or the woken turn opens
           # without them while this still answers :ok (#2373; see `Wake`). The
           # correlation rides with the prompt, in the shape `Wake` takes.
-          case Wake.wake_conversation(conv_id, PromptDelivery.for_wake(prompt, opts), images) do
-            {:ok, _conv} -> :ok
-            {:error, :gone} -> {:error, :gone}
-            {:error, :not_found} -> {:error, :not_running}
-            {:error, _} = err -> err
-          end
+          Wake.for_prompt(conv_id, PromptDelivery.for_wake(prompt, opts), images, opts)
 
-        pid ->
-          PromptDelivery.deliver(pid, prompt, images, opts)
+        [{pid, phase}] ->
+          deliver_or_queue(conv_id, {pid, phase}, prompt, images, opts)
       end
 
     # Size and image count, never the text. A prompt is the tenant's content —
@@ -121,6 +116,19 @@ defmodule Fountain.Conversations.ConversationServer do
     })
 
     result
+  end
+
+  # A server setting up its machine cannot answer a call until it is done, so
+  # the API's prompt (`wake: :background`) is queued behind the setup and
+  # answered `queued` once the refusals that need no provider have run, as a
+  # prompt to a parked conversation is (#2577). Everyone else calls.
+  defp deliver_or_queue(conv_id, {pid, phase}, prompt, images, opts) do
+    if Keyword.get(opts, :wake) == :background and phase == ServerPhase.setting_up_value() do
+      with :ok <- Wake.admit_prompt_wake(conv_id),
+           do: PromptDelivery.queue(pid, prompt, images, PromptDelivery.travelling(opts))
+    else
+      PromptDelivery.deliver(pid, prompt, images, opts)
+    end
   end
 
   # Public entry points contain common GenServer.call exits here (#412).
@@ -368,7 +376,15 @@ defmodule Fountain.Conversations.ConversationServer do
     end
   end
 
+  # Calls wait while this runs, so the registry says so (`ServerPhase`).
   def handle_continue(:provision, state) do
+    ServerPhase.setting_up(state.conversation_id)
+    result = provision(state)
+    ServerPhase.ready(state.conversation_id)
+    result
+  end
+
+  defp provision(state) do
     conv = Conversations._unsafe_get_conversation(state.conversation_id)
     sandbox = state.sandbox_id && Conversations._unsafe_get_sandbox(state.sandbox_id)
 
@@ -618,35 +634,6 @@ defmodule Fountain.Conversations.ConversationServer do
       {state, _conv} = rotate_callback_api_key(state, conv)
       sprite_env = build_sprite_env(state, agent, env, secrets, nil, ca_files)
 
-      # The callback token just rotated. The connection entries in the file
-      # carry a broker placeholder rather than it since #2152 (an
-      # extension-served server reaches claude through `session/new` and is
-      # never in `.mcp.json`), so this rewrite keeps the file current with the
-      # agent's resolved servers rather than with the token. Idempotent for an
-      # agent without one. Best effort here, like the CA below: the turn's
-      # own failure says more than a refused wake would.
-      case Provisioning.write_runtime_config(
-             handle,
-             state.runtime_module,
-             Egress.with_connection_servers(
-               agent,
-               state.user_id,
-               state.conversation_id,
-               state.callback_token
-             )
-           ) do
-        :ok -> :ok
-        {:error, reason} -> Logger.warning("runtime config write on wake: #{inspect(reason)}")
-      end
-
-      # A machine provisioned before its tenant was brokered has no CA yet;
-      # on one that has it this is an idempotent rewrite. Best effort here:
-      # the turn's own failure says more than a refused wake would.
-      case Egress.install_ca(state.broker, handle, state.conversation_id) do
-        :ok -> :ok
-        {:error, reason} -> Logger.warning("broker CA install on wake: #{inspect(reason)}")
-      end
-
       with :ok <- Reattachment.prepare_source(handle, state, conv, agent, sprite_env) do
         # Validate even a cached ready row: retirement may have won while the
         # provider was waking. Through the machine's owner since ADR 0058 stage
@@ -661,7 +648,11 @@ defmodule Fountain.Conversations.ConversationServer do
                 sandbox_started_at: Lifecycle.clock_start(sandbox)
             }
 
-            new_state = Reattachment.reattach_running_turn(%{new_state | current_turn: nil})
+            new_state =
+              case Reattachment.reattach_running_turn(%{new_state | current_turn: nil}) do
+                {:relaunch, state, turn} -> relaunch_unsent(state, turn)
+                state -> state
+              end
 
             new_state =
               Reattachment.finish_runner_reconnect(
@@ -816,31 +807,6 @@ defmodule Fountain.Conversations.ConversationServer do
     |> Fountain.Conversations.CotenantSecrets.assembled(state)
   end
 
-  # The OAuth token was refused: forget it on both sides and, when brokered,
-  # re-prepare the vault so the API key is what the substitution carries.
-  # Best effort — a broker error here leaves the turn to fail at the proxy,
-  # which names the cause, rather than silently injecting a plaintext key.
-  defp broker_switch_to_api_key(%{broker: nil} = state), do: state
-
-  defp broker_switch_to_api_key(state) do
-    {env_creds, brokered, bindings} =
-      Egress.drop_oauth_token(state.inference_credentials, state.brokered, state.broker_bindings)
-
-    state = %{state | brokered: brokered, broker_bindings: bindings, env_credentials: env_creds}
-
-    case Egress.reprepare(state) do
-      {:ok, session, sprite_env} ->
-        %{state | broker: session, sprite_env: sprite_env}
-
-      {:error, reason} ->
-        Logger.warning(
-          "conv #{state.conversation_id}: broker re-prepare after OAuth refusal failed: #{inspect(reason)}"
-        )
-
-        state
-    end
-  end
-
   @impl true
   def handle_call({:send_prompt, prompt, images}, from, state),
     do: handle_call({:send_prompt, prompt, images, []}, from, state)
@@ -982,6 +948,8 @@ defmodule Fountain.Conversations.ConversationServer do
         "conv #{state.conversation_id}: initial prompt arrived while a turn was running; dropping it"
       )
 
+      Wake.report_unrun_prompt(state.conversation_id, :conversation_busy)
+
       {:noreply, state}
     else
       conv = Conversations._unsafe_get_conversation!(state.conversation_id)
@@ -1022,6 +990,10 @@ defmodule Fountain.Conversations.ConversationServer do
       &drop_connection/2
     )
   end
+
+  # A vault or environment secret was written (#2548): `Egress.refresh_live/1`,
+  # mid-turn too. It rewrites rules only; the turn and the token stay.
+  def handle_cast(:refresh_secrets, state), do: {:noreply, Egress.refresh_live(state)}
 
   # Catch-all for the same reason as the handle_call one above (#315).
   def handle_cast(msg, state) do
@@ -1149,7 +1121,7 @@ defmodule Fountain.Conversations.ConversationServer do
     # On a brokered conversation the API key is a placeholder in the env and
     # the value moves to the broker; the vault is re-prepared so its
     # substitution now carries the key instead of the refused OAuth token.
-    state = broker_switch_to_api_key(state)
+    state = Egress.switch_to_api_key(state)
 
     fallback_env =
       Managoat.Runtimes.Claude.fall_back_to_api_key(state.sprite_env, state.env_credentials)
@@ -1455,11 +1427,7 @@ defmodule Fountain.Conversations.ConversationServer do
     state = drop_connection(state, "terminated")
     opts = Keyword.put(opts, :terminating_conversation_id, nil)
 
-    case Termination._unsafe_destroy_machine(state.sandbox_id, opts) do
-      {:ok, _outcome} -> :ok
-      {:error, reason} -> Logger.warning("conv #{state.conversation_id}: #{inspect(reason)}")
-    end
-
+    Termination.destroy_after_terminate(state.sandbox_id, opts)
     Egress.release(state.conversation_id)
     finish_termination(state, %{})
   end
@@ -1652,6 +1620,7 @@ defmodule Fountain.Conversations.ConversationServer do
 
   defp log_initial_refusal(state, reason) do
     TurnMachine.log_refusal(state.conversation_id, "initial turn refused", reason)
+    Wake.report_unrun_prompt(state.conversation_id, reason)
 
     state
   end
@@ -1674,6 +1643,7 @@ defmodule Fountain.Conversations.ConversationServer do
            meta
          ) do
       {:ok, conv, turn} ->
+        TurnMachine.store_images(turn, images)
         {:noreply, run_turn(state, conv, turn, prompt, agent, images)}
 
       refused when refused in [:at_capacity, :no_command] ->
@@ -1714,8 +1684,6 @@ defmodule Fountain.Conversations.ConversationServer do
     why = Connection.stale_reason(state, replaced?, conv, agent)
     state = if why, do: drop_connection(state, why), else: state
 
-    TurnMachine.store_images(turn, images)
-
     # An idle peer carries the next turn without spawn, handshake or resume
     # (#817). It applies the model before prompting; background tasks and
     # Codex session grants survive.
@@ -1724,6 +1692,15 @@ defmodule Fountain.Conversations.ConversationServer do
     else
       run_fresh_turn(state, conv, turn, prompt, agent, images)
     end
+  end
+
+  # A turn whose prompt never reached the agent, found on reattach: run it again
+  # on this server, with the images it was admitted with.
+  defp relaunch_unsent(state, turn) do
+    # ownership: the turn reattach found running on this server's own conversation.
+    conv = Conversations._unsafe_get_conversation!(state.conversation_id)
+    images = Conversations._unsafe_list_turn_images(turn.id)
+    run_turn(state, conv, turn, turn.prompt, TurnMachine.agent_for(conv), images)
   end
 
   # The launch itself lives in `TurnLaunch` (see its moduledoc): this module's

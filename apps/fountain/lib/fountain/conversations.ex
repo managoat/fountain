@@ -1506,6 +1506,19 @@ defmodule Fountain.Conversations do
     end)
   end
 
+  @doc """
+  A turn's stored images, in the shape `_unsafe_insert_turn_images/2` took
+  them, for launching the turn again (`Reattachment`'s unsent-prompt relaunch).
+  """
+  def _unsafe_list_turn_images(turn_id) do
+    Repo.all(
+      from i in TurnImage,
+        where: i.turn_id == ^turn_id,
+        order_by: i.position,
+        select: %{media_type: i.media_type, data: i.data}
+    )
+  end
+
   def _unsafe_get_turn_image(turn_id, position) do
     Repo.get_by(TurnImage, turn_id: turn_id, position: position)
   end

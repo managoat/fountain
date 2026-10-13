@@ -86,10 +86,19 @@ daemon that you left up reconnects and registers itself again.
 It needs what the Sprites base image has, on the `PATH` of whoever starts the
 daemon. That is `bash`, `git`, `node`, `npm`, `npx`, and `bun` for opencode.
 
-Fountain installs the agent CLIs at provision, the way it does everywhere
-else, with `npm install -g`. They go into the sandbox's own npm prefix,
-`<sandbox>/.npm-global`, so Fountain writes nothing to your global node
-install. The npm cache is your real `~/.npm`.
+The machine does not need the agent CLIs. Fountain brings what each runtime
+needs at provision:
+
+| Runtime | On a runner |
+|---|---|
+| claude | The pinned ACP adapter, which carries Claude Code. |
+| codex | The pinned ACP adapter. Fountain writes the credential (the API key, or the broker's placeholder for it) to `~/.codex/auth.json`, so no `codex` binary is needed. |
+| gemini | `@google/gemini-cli`, pinned, when `gemini` is not already on `PATH`. |
+| opencode | `opencode-ai` through `bun`, when `opencode` is not already on `PATH`. |
+
+npm installs go into the sandbox's own npm prefix, `<sandbox>/.npm-global`,
+so Fountain writes nothing to your global node install. The npm cache is your
+real `~/.npm`. The first gemini sandbox on a machine downloads about 120 MB.
 
 Fountain adds `/opt/homebrew/bin`, `/usr/local/bin`, `~/.local/bin` and
 `~/.bun/bin` to `PATH` when they exist. So a daemon that `launchd` starts with

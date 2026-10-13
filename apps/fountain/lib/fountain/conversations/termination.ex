@@ -91,7 +91,7 @@ defmodule Fountain.Conversations.Termination do
           # `user_id`, which is the orphaned row this module refuses to write.
           call_server(
             pid,
-            {:terminate_conv, Keyword.take(opts, [:actor, :request_ip, :audit_destroy])}
+            {:terminate_conv, Keyword.take(opts, [:actor, :request_ip, :audit_destroy, :destroy])}
           )
       end
 
@@ -278,9 +278,16 @@ defmodule Fountain.Conversations.Termination do
     # yet, so the detach's fence is the decision — it keeps a home or a machine
     # a co-tenant still holds — and with no adapter to close in between,
     # `destroy: true` lets the protocol finish it.
+    #
+    # `destroy: :background` (#2561) splits that call at the fence: the
+    # decision commits here, and a machine that is going is destroyed in a task
+    # after the caller has its answer. `destroy_after_terminate/2` says why
+    # that is safe.
+    background? = Keyword.get(opts, :destroy) == :background
+
     case Machine.detach(conv.sandbox_id,
            conversation_id: conv.id,
-           destroy: true,
+           destroy: not background?,
            actor: Keyword.get(opts, :actor, "self"),
            reason: Keyword.get(opts, :reason, "conversation_terminated"),
            destroy_reason: Keyword.get(opts, :destroy_reason, :terminated),
@@ -288,9 +295,53 @@ defmodule Fountain.Conversations.Termination do
            metadata: Keyword.get(opts, :metadata),
            audit: Keyword.get(opts, :audit_destroy, true)
          ) do
-      {:ok, _outcome} -> :ok
-      {:error, _} = error -> error
+      {:ok, :detached} when background? ->
+        destroy_after_terminate(
+          conv.sandbox_id,
+          Keyword.put(opts, :terminating_conversation_id, nil)
+        )
+
+      {:ok, _outcome} ->
+        :ok
+
+      {:error, _} = error ->
+        error
     end
+  end
+
+  @doc """
+  Destroy a fenced machine at the end of a conversation's termination: in the
+  caller, or with `destroy: :background` in `opts` (#2561), in a task under
+  `Fountain.TaskSupervisor`, so the request that ended the conversation does
+  not wait on the provider (up to 16 s in prod).
+
+  Safe to leave behind because the decision is already durable. The fence has
+  stamped the row `destroying` before this runs, so no wake, attach or read
+  reaches the machine (`Wake.maybe_reuse_sandbox/1` refuses it), the destroy
+  continues from that stamp, and a destroy that fails or never runs, because
+  its node went down, is finished by the reaper's sweep of fenced rows as any
+  interrupted destroy is. A provider error is logged either way, as the server
+  has always done; the conversation is terminated regardless.
+
+  Account deletion and the other internal callers keep the default: they act
+  on the machine being gone.
+  """
+  @spec destroy_after_terminate(String.t(), keyword()) :: :ok
+  def destroy_after_terminate(sandbox_id, opts) do
+    destroy = fn ->
+      case _unsafe_destroy_machine(sandbox_id, opts) do
+        {:ok, _outcome} -> :ok
+        {:error, reason} -> Logger.warning("sandbox #{sandbox_id}: destroy: #{inspect(reason)}")
+      end
+    end
+
+    if Keyword.get(opts, :destroy) == :background do
+      {:ok, _pid} = Task.Supervisor.start_child(Fountain.TaskSupervisor, destroy)
+    else
+      destroy.()
+    end
+
+    :ok
   end
 
   @doc """

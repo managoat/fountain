@@ -250,6 +250,18 @@ defmodule FountainWeb.Telemetry do
         description: "Time from turn start to the sandbox's first output byte"
       ),
 
+      # What first_output was meant to be (#2564): the first update a user
+      # sees — agent text, thinking, a tool call or a plan — rather than the
+      # first bytes, which under ACP include the handshake. Same buckets, so
+      # the two read side by side.
+      distribution("fountain.turn.first_update.elapsed_ms",
+        event_name: [:fountain, :turn, :first_update],
+        measurement: :elapsed_ms,
+        tags: [:runtime, :provider],
+        reporter_options: [buckets: [250, 500, 1000, 2500, 5000, 10_000, 30_000, 60_000]],
+        description: "Time from turn start to the agent's first visible update"
+      ),
+
       # ── Provisioning sub-steps (#537) ─────────────────────────────────────
       # The two spans above answer "did provisioning get slower"; these answer
       # "which step". All six were already emitting :stop events with a

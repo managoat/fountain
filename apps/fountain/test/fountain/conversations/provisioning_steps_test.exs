@@ -100,7 +100,10 @@ defmodule Fountain.Conversations.ProvisioningStepsTest do
       conv = insert_conversation()
       sprite_env = [{"A", "1"}]
 
-      stub(Managoat.Sandbox, :exec, fn _handle, "bash", ["-lc", "echo hi"], opts ->
+      stub(Managoat.Sandbox, :exec, fn _handle,
+                                       "bash",
+                                       ["-c", _, "fountain-setup", "echo hi"],
+                                       opts ->
         assert opts[:env] == sprite_env
         assert opts[:stderr_to_stdout]
         assert opts[:timeout] == 120_000
@@ -129,7 +132,10 @@ defmodule Fountain.Conversations.ProvisioningStepsTest do
       conv = insert_conversation()
       env = insert_env(setup_script: "install-dependencies", setup_timeout_seconds: 900)
 
-      expect(Managoat.Sandbox, :exec, fn _handle, "bash", ["-lc", "install-dependencies"], opts ->
+      expect(Managoat.Sandbox, :exec, fn _handle,
+                                         "bash",
+                                         ["-c", _, "fountain-setup", "install-dependencies"],
+                                         opts ->
         assert opts[:timeout] == 900_000
         {:error, :timeout}
       end)
@@ -141,6 +147,36 @@ defmodule Fountain.Conversations.ProvisioningStepsTest do
                {"started", %{}},
                {"failed", %{"reason" => ":timeout"}}
              ]
+    end
+
+    # #2558: the exec used to collect output until the pipe closed, so a
+    # process the script left running held the step open. The wrapper is run
+    # here by a real bash, with a background child that outlives the script by
+    # far more than the step takes.
+    test "the step ends when the script exits, whatever it leaves running" do
+      conv = insert_conversation()
+
+      stub(Managoat.Sandbox, :exec, fn _handle, "bash", args, _opts ->
+        {output, code} = System.cmd("bash", args, stderr_to_stdout: true)
+        {:ok, output, code}
+      end)
+
+      script = "(sleep 30; echo late) & echo done; echo oops >&2; exit 4"
+
+      {micros, result} =
+        :timer.tc(fn ->
+          Provisioning.run_setup_script(handle(), %{setup_script: script}, [], conv.id)
+        end)
+
+      assert result == {:error, {:setup_exit, 4}}
+      assert micros < 10_000_000
+
+      assert [%{data: "done\noops\n"}] =
+               Fountain.Repo.all(
+                 from(e in Conversations.LogEvent,
+                   where: e.conversation_id == ^conv.id and e.kind == "output"
+                 )
+               )
     end
 
     test "a non-zero exit is the step's failure, with the exit code" do

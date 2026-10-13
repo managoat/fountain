@@ -126,8 +126,11 @@ defmodule Fountain.Conversations.TurnMachineTest do
       assert {^m, [:arm_autonomous_quiet, {:persist_lines, "acp", @update_line}]} =
                TurnMachine.handle(m, {:lines, "acp", @update_line}, %{autonomous?: true})
 
-      assert {^m, [{:persist_lines, "acp", @update_line}]} =
+      # On a prompted turn the first agent update also marks the metric (#2564).
+      assert {next, [{:persist_lines, "acp", @update_line}]} =
                TurnMachine.handle(m, {:lines, "acp", @update_line}, %{autonomous?: false})
+
+      assert next == %{m | metrics: Map.put(m.metrics, :first_update?, true)}
     end
 
     test "a stderr line is only persisted", %{machine: m} do
@@ -737,6 +740,35 @@ defmodule Fountain.Conversations.TurnMachineTest do
       refute_receive {:telemetry, [:fountain, :turn, :first_output], _, _}, 50
 
       assert TurnMachine.maybe_emit_first_output(idle(m)) == idle(m)
+    end
+
+    # #2564: first_output fires on handshake bytes; this one waits for the
+    # agent to show something.
+    test "first update is reported once, on the first agent update", %{machine: m} do
+      attach_telemetry([[:fountain, :turn, :first_update]])
+
+      update = fn kind ->
+        Jason.encode!(%{
+          jsonrpc: "2.0",
+          method: "session/update",
+          params: %{sessionId: "s", update: %{sessionUpdate: kind}}
+        }) <> "\n"
+      end
+
+      bookkeeping = TurnMachine.maybe_emit_first_update(m, update.("available_commands_update"))
+      assert bookkeeping == m
+      refute_receive {:telemetry, [:fountain, :turn, :first_update], _, _}, 50
+
+      once = TurnMachine.maybe_emit_first_update(m, update.("agent_thought_chunk"))
+
+      assert_receive {:telemetry, [:fountain, :turn, :first_update], %{elapsed_ms: _},
+                      %{runtime: "claude", provider: "runner", kind: "agent_thought_chunk"}}
+
+      assert TurnMachine.maybe_emit_first_update(once, update.("agent_message_chunk")) == once
+      refute_receive {:telemetry, [:fountain, :turn, :first_update], _, _}, 50
+
+      assert TurnMachine.maybe_emit_first_update(idle(m), update.("tool_call")) == idle(m)
+      assert TurnMachine.maybe_emit_first_update(m, "not json\n") == m
     end
 
     test "record_usage/2 records nothing for nil, and warns on a second recording", %{

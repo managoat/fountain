@@ -191,6 +191,9 @@ defmodule FountainWeb.MetricsTest do
         # conversation_server_turn_metrics_test.exs against a real server
         [:fountain, :turn, :completed],
         [:fountain, :turn, :first_output],
+        # TurnMachine.handle/3 on the first agent update of a prompted turn
+        # (#2564) — exercised by turn_machine_test.exs
+        [:fountain, :turn, :first_update],
         # :telemetry.execute call sites
         [:fountain, :sandbox, :reclaimed],
         [:fountain, :sandbox, :suspended],

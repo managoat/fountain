@@ -155,6 +155,22 @@ defmodule FountainWeb.Plugs.TenantAPIAuthTest do
       assert conn.assigns.current_user.id == user.id
     end
 
+    test "is skipped for a key stamped within the last minute (#2563)", %{conn: conn} do
+      user = insert_verified_user()
+      {record, raw_key} = insert_api_key(user)
+      now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+      record |> Ecto.Changeset.change(last_used_at: now) |> Fountain.Repo.update!()
+
+      test_pid = self()
+      stub(Accounts, :touch_api_key, fn key -> send(test_pid, {:touched, key}) && :ok end)
+
+      conn = conn |> authed_with_key(raw_key) |> TenantAPIAuth.call([])
+
+      refute conn.halted
+      refute_receive {:touched, _}, 200
+    end
+
     test "a raise inside it kills neither the request nor the test that made it", %{conn: conn} do
       # Trapped so a link, if one came back, shows up as an assertable message
       # rather than as this test dying with an unrelated EXIT.

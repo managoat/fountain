@@ -934,6 +934,9 @@ defmodule Fountain.Conversations.ConversationServerBrokerTest do
 
       {pid, _mon, :alive} = start_server(conv, initial_prompt: "first")
       on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
+      # The harness's servers are outside the registry; a secret write finds
+      # this one the way it finds a registered one (#2548).
+      stub_registered(conv, pid)
 
       # Turn one: the vault's value went to the broker, the placeholder and
       # the session token into the process env.
@@ -1024,6 +1027,48 @@ defmodule Fountain.Conversations.ConversationServerBrokerTest do
       assert %{"method" => "session/prompt"} = next_prompt(pid, ref)
     end
 
+    # #2548: a live rewrite that fails must not swallow the change, or the
+    # refresh before the next turn would find nothing to do.
+    test "a live rewrite that fails mid-turn leaves the change for the next turn", %{
+      vault: vault,
+      dek: dek,
+      pid: pid,
+      ref: ref,
+      peer: peer
+    } do
+      test = self()
+      assert :ok = GenServer.call(pid, {:send_prompt, "again", []})
+      %{"method" => "session/prompt", "id" => prompt_id} = next_prompt(pid, ref)
+
+      stub(Fountain.Broker, :refresh, fn _c, _b, _bindings, _opts ->
+        send(test, :rewrite_failed)
+        {:error, :unreachable}
+      end)
+
+      reject(Fountain.Broker, :prepare, 4)
+
+      {:ok, _} =
+        Vaults.upsert_secret(vault, %{"key" => "GITHUB_TOKEN", "value" => "ghp_rotated"}, dek)
+
+      assert_receive :rewrite_failed, 2_000
+      state = :sys.get_state(pid)
+      assert state.brokered["GITHUB_TOKEN"] == "ghp_from_vault"
+      assert state.current_turn
+      assert state.acp_peer == peer
+
+      reply(pid, ref, prompt_id, %{"stopReason" => "end_turn"})
+
+      stub(Fountain.Broker, :refresh, fn conv_id, brokered, _bindings, _opts ->
+        send(test, {:refreshed, conv_id, brokered})
+        {:ok, 1}
+      end)
+
+      # Rewritten before the turn, on the same token: still no new session.
+      assert :ok = GenServer.call(pid, {:send_prompt, "once more", []})
+      assert_receive {:refreshed, _, %{"GITHUB_TOKEN" => "ghp_rotated"}}, 2_000
+      assert %{"method" => "session/prompt"} = next_prompt(pid, ref)
+    end
+
     test "an unchanged secret writes nothing", %{pid: pid, ref: ref} do
       reject(Fountain.Broker, :prepare, 4)
       reject(Fountain.Broker, :refresh, 4)
@@ -1034,11 +1079,13 @@ defmodule Fountain.Conversations.ConversationServerBrokerTest do
 
     test "a rewrite that finds no live session mints a fresh one, and the idle peer goes with it",
          %{vault: vault, dek: dek, pid: pid, peer: peer, session: session} do
+      test = self()
+      # Before the write: the write's own live refresh (#2548) finds no
+      # session either, and leaves the change for the turn.
+      stub(Fountain.Broker, :refresh, fn _c, _b, _bindings, _opts -> {:ok, 0} end)
+
       {:ok, _} =
         Vaults.upsert_secret(vault, %{"key" => "GITHUB_TOKEN", "value" => "ghp_rotated"}, dek)
-
-      test = self()
-      stub(Fountain.Broker, :refresh, fn _c, _b, _bindings, _opts -> {:ok, 0} end)
 
       stub(Fountain.Broker, :prepare, fn _c, brokered, _bindings, _opts ->
         send(test, {:prepared, brokered})
@@ -1120,6 +1167,125 @@ defmodule Fountain.Conversations.ConversationServerBrokerTest do
       assert_receive {:prepared, conv_id, %{"GITHUB_TOKEN" => "ghp_woken"}}, 2_000
       assert conv_id == conv.id
     end
+  end
+
+  # #2548. A GitHub App token lives an hour, and a turn can outlive it: the
+  # client writes a fresh one to the vault while the turn runs. The native
+  # broker reads a session's rules once per tunnel, and each `git push` is a
+  # new tunnel, so the rewrite has to land on the session the running turn's
+  # processes already hold. No stubbed broker here: the token is looked up
+  # the way the broker's listener looks it up.
+  describe "a secret written during a turn" do
+    setup %{user: user, agent: agent} do
+      configure_broker()
+
+      vault = insert_vault(user_id: user.id)
+
+      {:ok, _} =
+        Vaults.upsert_secret(vault, %{"key" => "GITHUB_TOKEN", "value" => "ghp_hour_one"}, @dek)
+
+      conv = insert_conversation(user_id: user.id, agent: agent, vault_id: vault.id)
+      test = self()
+
+      stub_happy_sprite()
+      stub(Fountain.Broker, :preflight, fn -> :ok end)
+      stub(Fountain.Broker, :ca_pem, fn -> {:ok, "PEM"} end)
+
+      ref = make_ref()
+
+      Mimic.stub(Managoat.Sandbox.Sprites, :spawn, fn _h, cmd, args, opts ->
+        send(test, {:spawned, cmd, args, opts})
+        {:ok, %Managoat.Sandbox.Command{provider: :sprites, ref: ref}}
+      end)
+
+      Mimic.stub(Managoat.Sandbox.Sprites, :close_stdin, fn _c -> :ok end)
+
+      Mimic.stub(Managoat.Sandbox.Sprites, :write_stdin, fn _c, data ->
+        send(test, {:wrote, IO.iodata_to_binary(data)})
+        :ok
+      end)
+
+      {pid, _mon, :alive} = start_server(conv, initial_prompt: "push in an hour")
+      on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
+      # The harness's servers are outside the registry; a secret write finds
+      # this one the way it finds a registered one (#2548).
+      stub_registered(conv, pid)
+
+      # The turn is running: the prompt is out and nothing has answered it.
+      assert_receive {:spawned, _cmd, _args, _opts}, 2_000
+      prompt_id = drive_to_prompt(pid, ref)
+
+      {:ok, conv: conv, vault: vault, pid: pid, ref: ref, prompt_id: prompt_id}
+    end
+
+    test "the next tunnel of the running turn carries the new value, token and turn kept", %{
+      conv: conv,
+      vault: vault,
+      pid: pid,
+      ref: ref,
+      prompt_id: prompt_id
+    } do
+      %{broker: %{token: token}, acp_peer: peer, current_turn: turn} = :sys.get_state(pid)
+      assert turn
+      assert github_credential(token) == "ghp_hour_one"
+
+      reject(Fountain.Broker, :prepare, 4)
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          {:ok, _} =
+            Vaults.upsert_secret(
+              vault,
+              %{"key" => "GITHUB_TOKEN", "value" => "ghp_hour_two"},
+              @dek
+            )
+
+          settle(pid)
+        end)
+
+      # What the listener resolves the sandbox's token to now.
+      assert github_credential(token) == "ghp_hour_two"
+
+      state = :sys.get_state(pid)
+      assert state.broker.token == token
+      assert state.acp_peer == peer
+      assert state.current_turn == turn
+      refute_received {:spawned, _, _, _}
+
+      # Registered before the rules could inject it.
+      assert Fountain.Conversations.Redaction.redact(conv.id, "ghp_hour_two") != "ghp_hour_two"
+
+      # The turn ends on its own terms.
+      reply(pid, ref, prompt_id, %{"stopReason" => "end_turn"})
+      assert :sys.get_state(pid).current_turn == nil
+
+      refute log =~ "ghp_hour_two"
+
+      for event <- Conversations._unsafe_list_log_events(conv.id),
+          do: refute(inspect(event) =~ "ghp_hour_two")
+    end
+
+    test "an unbrokered conversation's server takes the write as a no-op", %{pid: pid} do
+      # The same cast, to a server with no broker session: nothing to rewrite.
+      :sys.replace_state(pid, &%{&1 | broker: nil})
+      before = :sys.get_state(pid)
+      GenServer.cast(pid, :refresh_secrets)
+      assert :sys.get_state(pid) == before
+    end
+  end
+
+  defp stub_registered(conv, pid) do
+    conv_id = conv.id
+
+    stub(Fountain.Conversations.ConversationServer, :whereis, fn
+      ^conv_id -> pid
+      _ -> nil
+    end)
+  end
+
+  defp github_credential(token) do
+    {:ok, %{rules: rules}} = Fountain.Broker.Native.Sessions.lookup(token)
+    Enum.find_value(rules, &(&1.name == "github-api" && &1.credential))
   end
 
   # The ACP wire, as `conversation_server_acp_test.exs` drives it: every byte

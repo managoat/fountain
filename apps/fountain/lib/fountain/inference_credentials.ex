@@ -477,21 +477,42 @@ defmodule Fountain.InferenceCredentials do
               get_set(id, user_id) || Repo.rollback(:not_found)
           end
 
-        attrs =
-          Map.put(
-            %{user_id: user_id, name: set.name, is_default: set.is_default},
-            ct_field,
-            ciphertext
-          )
+        if unchanged?(set, ct_field, value, dek) do
+          set
+        else
+          attrs =
+            Map.put(
+              %{user_id: user_id, name: set.name, is_default: set.is_default},
+              ct_field,
+              ciphertext
+            )
 
-        case set |> Credential.changeset(attrs) |> Repo.insert_or_update() do
-          {:ok, credential} -> credential
-          {:error, changeset} -> Repo.rollback(changeset)
+          case set |> Credential.changeset(attrs) |> Repo.insert_or_update() do
+            {:ok, credential} -> credential
+            {:error, changeset} -> Repo.rollback(changeset)
+          end
         end
       end)
 
     audited(result, user_id, provider, ciphertext, opts)
   end
+
+  # Saving the value a set already holds changes nothing. The source-lock
+  # trigger moves the set's `revision` whenever a ciphertext column changes,
+  # and every encryption draws a fresh IV, so writing the same token again
+  # would end every conversation bound to the set with
+  # `:inference_source_changed` over a credential that did not change. A
+  # client that re-saves on reconnect ended a hundred conversations that way.
+  defp unchanged?(%Credential{} = set, ct_field, value, dek) when is_binary(value) do
+    with stored when is_binary(stored) <- Map.get(set, ct_field),
+         {:ok, plain} <- Crypto.decrypt(stored, dek) do
+      Plug.Crypto.secure_compare(plain, value)
+    else
+      _ -> false
+    end
+  end
+
+  defp unchanged?(_set, _ct_field, _value, _dek), do: false
 
   # The provider name is the whole payload. The credential must never reach a
   # second table — the same rule the secret-write events follow, and the

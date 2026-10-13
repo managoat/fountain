@@ -334,6 +334,39 @@ defmodule Fountain.AccountsAdditionalTest do
       assert updated.last_used_at != nil
     end
 
+    # #2563: parallel requests on one key queued on its row; a fresh stamp is
+    # left alone so a burst writes once.
+    test "leaves a stamp from the last minute alone and rewrites an older one" do
+      user = insert_verified_user()
+      {:ok, {key, raw_key}} = Accounts.create_api_key(user.id, "throttled")
+      now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+      recent = DateTime.add(now, -30)
+
+      Fountain.Repo.update_all(from(k in ApiKey, where: k.id == ^key.id),
+        set: [last_used_at: recent]
+      )
+
+      assert :ok = Accounts.touch_api_key(raw_key)
+      assert Fountain.Repo.get!(ApiKey, key.id).last_used_at == recent
+
+      old = DateTime.add(now, -120)
+
+      Fountain.Repo.update_all(from(k in ApiKey, where: k.id == ^key.id),
+        set: [last_used_at: old]
+      )
+
+      assert :ok = Accounts.touch_api_key(raw_key)
+      assert DateTime.compare(Fountain.Repo.get!(ApiKey, key.id).last_used_at, recent) == :gt
+    end
+
+    test "api_key_touch_due?/1 is true for a key never or not recently stamped" do
+      now = DateTime.utc_now() |> DateTime.truncate(:second)
+      assert Accounts.api_key_touch_due?(%ApiKey{last_used_at: nil})
+      assert Accounts.api_key_touch_due?(%ApiKey{last_used_at: DateTime.add(now, -61)})
+      refute Accounts.api_key_touch_due?(%ApiKey{last_used_at: DateTime.add(now, -5)})
+    end
+
     test "returns :ok silently for an unknown key (no error)" do
       fake_raw = "ftn_" <> String.duplicate("b", 64)
       assert :ok = Accounts.touch_api_key(fake_raw)

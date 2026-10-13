@@ -98,8 +98,15 @@ defmodule Fountain.ApplicationChildrenTest do
       assert before?(ids, Fountain.Repo, Fountain.Broker.Native.RequestLog)
     end
 
-    test "the endpoint is last" do
-      assert List.last(ids()) == FountainWeb.Endpoint
+    test "the endpoint is last but the drain marker" do
+      # `Fountain.Drain` stops first, so the node is marked draining before
+      # the endpoint begins its drain; everything else stays behind the
+      # endpoint.
+      assert Enum.take(ids(), -2) == [FountainWeb.Endpoint, Fountain.Drain]
+    end
+
+    test "the drain marker writes into a registry that outlives it" do
+      assert before?(ids(), Fountain.ConversationRegistry, Fountain.Drain)
     end
 
     test "the machine owner outlives the conversation servers that ask it" do
@@ -127,8 +134,8 @@ defmodule Fountain.ApplicationChildrenTest do
       refute Fountain.Broker.Native.RequestLog in ids
     end
 
-    test "still ends with the endpoint" do
-      assert List.last(ids()) == FountainWeb.Endpoint
+    test "still ends with the endpoint and the drain marker" do
+      assert Enum.take(ids(), -2) == [FountainWeb.Endpoint, Fountain.Drain]
     end
   end
 

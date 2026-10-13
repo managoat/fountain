@@ -17,6 +17,23 @@ defmodule Fountain.Conversations.CheckpointTest do
 
   setup :set_mimic_global
 
+  # Since managoat_sandbox 0.5.4 the adapter refuses both calls with
+  # `:not_supported` unless checkpoints are on, as they are wherever Fountain
+  # makes them; config/test.exs turns them off for everything else.
+  setup do
+    prior = Application.get_env(:managoat_sandbox, Managoat.Sandbox.Sprites)
+
+    Application.put_env(
+      :managoat_sandbox,
+      Managoat.Sandbox.Sprites,
+      Keyword.put(prior || [], :checkpoint_creation_enabled, true)
+    )
+
+    on_exit(fn ->
+      Application.put_env(:managoat_sandbox, Managoat.Sandbox.Sprites, prior || [])
+    end)
+  end
+
   # Full-stack: Provisioning -> facade -> real Sprites adapter -> the SDK
   # stubs below, so these fixtures keep pinning the shapes the library
   # really returns.

@@ -39,6 +39,8 @@ defmodule Fountain.Webhooks.EventsTest do
     "lib/fountain/conversations/lifecycle.ex",
     "lib/fountain/conversations/connection.ex",
     "lib/fountain/conversations/output.ex",
+    # A prompt's background wake reports its failure (#2561).
+    "lib/fountain/conversations/wake.ex",
     "lib/fountain/machines/home_checkpoint.ex"
   ]
 

@@ -82,9 +82,18 @@ environment secrets  --merge-->  vault secrets  -->  the sandbox
 
 The merge happens once, at spawn. Edit either one afterwards and the edit does
 not reach a sandbox that already runs. A brokered secret is the exception.
-Before each turn, Fountain reads the environment and the vault again and
-gives the broker the new value. A rotated `GITHUB_TOKEN` in a vault works on
-the next turn of a conversation that already runs. Inference credentials
+When you write or delete a secret in an environment or a vault, Fountain
+gives the broker the new value for every running conversation that uses it,
+even during a turn. The turn keeps running. The broker reads the value when
+the sandbox opens its next connection, so a rotated `GITHUB_TOKEN` works on
+the next `git push` of the same turn. The update runs moments after the write
+returns, without waiting for the turn, and a write that races a push can miss
+that push. A connection that is already open keeps the old value until it
+closes.
+Fountain also reads both again before each turn, which covers a conversation
+whose machine was parked or whose update failed. An unbrokered secret is in
+the sandbox's process environment, so only a new conversation sees an edit.
+Inference credentials
 have a separate source binding: replacing the selected value requires a new
 selection before another turn, even when that value came from a vault. The section
 [Bindings, when the broker is on](#bindings-when-the-broker-is-on) says which

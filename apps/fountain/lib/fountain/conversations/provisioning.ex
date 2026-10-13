@@ -587,7 +587,7 @@ defmodule Fountain.Conversations.Provisioning do
     install =
       "( trap #{shell_quote(cleanup)} EXIT; safe=0; " <>
         "if command -v flock >/dev/null 2>&1; then flock -w 120 9 || exit 75; safe=1; fi; " <>
-        "{ cmp -s #{shell_quote(staging)} #{shell_quote(path)} && " <>
+        "{ #{same_ca_key(staging, path)} && " <>
         "sha256sum -c --status #{shell_quote(marker)} 2>/dev/null; } || " <>
         "{ sudo rm -f -- #{shell_quote(marker)} && " <>
         "if [ ! -e #{shell_quote(path)} ] && [ -s #{shell_quote(bundle)} ]; then " <>
@@ -635,6 +635,21 @@ defmodule Fountain.Conversations.Provisioning do
         publish_stage(conv_id, "broker", "failed", %{reason: inspect(reason)})
         err
     end
+  end
+
+  # Whether the CA at `installed` is the one at `staged`, compared the way a
+  # TLS client matches a trust anchor: by public key. The bytes cannot be
+  # compared. `Managoat.Broker.CA` derives the key, subject, serial and
+  # validity from the seed, but ECDSA signing is randomised, so every
+  # derivation is a different PEM. Compared with `cmp`, the installed CA never
+  # matched the one about to be written, and every provision and every wake
+  # rebuilt the whole system trust store: ~1.5–2.3 s of each wake, measured on
+  # 2026-10-07. An empty key (no `openssl`, or a file that does not parse) is
+  # never a match, so a machine without `openssl` rebuilds as before.
+  defp same_ca_key(staged, installed) do
+    "{ staged_key=$(openssl x509 -noout -pubkey -in #{shell_quote(staged)} 2>/dev/null) && " <>
+      "installed_key=$(openssl x509 -noout -pubkey -in #{shell_quote(installed)} 2>/dev/null) && " <>
+      ~s([ -n "$staged_key" ] && [ "$staged_key" = "$installed_key" ]; })
   end
 
   # Global, so it covers the agent's own `git push`/`fetch` inside the sandbox
@@ -826,12 +841,25 @@ defmodule Fountain.Conversations.Provisioning do
         "git -c http.proxyAuthMethod=basic clone --depth 50 " <>
         "#{branch_arg(repo)}#{shell_quote(auth_url)} #{shell_quote(mount)}"
 
-    # Retried only when git never reached the remote: that clone wrote
-    # nothing (git removes the directory it made), so running it again is
-    # idempotent. Any other failure may have left a half-written directory.
-    # On Sprites, the first connection through a just-applied broker floor is
-    # sometimes refused outright, measured at about 2 in 5 after a package
-    # install; the next one lands.
+    # Retried only when nothing was written, so that `mount` is still exactly
+    # as this step found it. `Retry`'s moduledoc says never to wrap a git
+    # clone, and it is right about the case it means: a clone that started
+    # and failed partway leaves a half-written directory, and a second clone
+    # into it is not the same operation. That case is not retried. Two are:
+    #
+    # - The sprite refused the exec, so no command started (`never_started?/1`).
+    #   A freshly created sprite answers 503 ("service temporarily
+    #   unavailable, please retry", Retry-After: 1) for its first several
+    #   seconds; every other provisioning step already rode that out, and the
+    #   clone was the one that failed the conversation (#2491).
+    # - git ran but never reached the remote, so it wrote nothing (git
+    #   removes the directory it made). On Sprites, the first connection
+    #   through a just-applied broker floor is sometimes refused outright,
+    #   measured at about 2 in 5 after a package install; the next one lands.
+    #
+    # Everything else is final on the first attempt: `:timeout` above all,
+    # which can fire with a clone half-done, and which `Retry`'s default
+    # classifier would otherwise treat as transient.
     result =
       Retry.with_backoff(
         fn ->
@@ -854,7 +882,7 @@ defmodule Fountain.Conversations.Provisioning do
           end
         end,
         label: "git clone",
-        retriable?: &match?({:clone_connect, _}, &1)
+        retriable?: &clone_retriable?/1
       )
 
     case result do
@@ -862,6 +890,25 @@ defmodule Fountain.Conversations.Provisioning do
       other -> other
     end
   end
+
+  defp clone_retriable?({:clone_connect, _code}), do: true
+  defp clone_retriable?({:clone_unreachable, _url, reason}), do: never_started?(reason)
+  defp clone_retriable?(_reason), do: false
+
+  # Reasons that prove `Sandbox.exec` never started a command, so retrying it
+  # repeats nothing. Deliberately narrower than `Retry.transient?/1`, whose
+  # "unknown shapes are transient" default is the right call for an idempotent
+  # step and the wrong one for a clone.
+  defp never_started?({:unavailable, _detail}), do: true
+  defp never_started?({:rate_limited, _retry_after}), do: true
+
+  # The adapter's unclassified escape hatch (`{:provider, provider, term}`) —
+  # a status the sprite answered with rather than a classification, so read it
+  # directly: 429 and 5xx are the front door turning the request away.
+  defp never_started?({:provider, _provider, %{status: status}}) when is_integer(status),
+    do: status == 429 or status >= 500
+
+  defp never_started?(_reason), do: false
 
   # curl's words, through git, for a connection that never opened: to the
   # proxy, or to the host itself.
@@ -979,6 +1026,23 @@ defmodule Fountain.Conversations.Provisioning do
       nil
   end
 
+  # The setup step ends when the user's script exits, not when the exec's
+  # output pipe closes (#2558). A process the script leaves running — a dev
+  # server, a keepalive loop, a `sleep` it killed the parent of — inherits that
+  # pipe, and an exec collects output until EOF: a provision waited up to 30 s
+  # on a lingering `sleep 30`, and a server started with `&` held it until the
+  # setup timeout failed it. So the script writes to a private file instead,
+  # which is read back once it exits; anything still running keeps the
+  # unlinked file, not the step. stdin is closed for the same reason.
+  @setup_wrapper ~S"""
+  out=$(mktemp) || exit 1
+  bash -lc "$1" >"$out" 2>&1 </dev/null
+  rc=$?
+  cat "$out"
+  rm -f "$out"
+  exit "$rc"
+  """
+
   def run_setup_script(_handle, nil, _sprite_env, _conv_id), do: :ok
   def run_setup_script(_handle, %{setup_script: ""}, _sprite_env, _conv_id), do: :ok
 
@@ -989,7 +1053,10 @@ defmodule Fountain.Conversations.Provisioning do
       fn ->
         publish_stage(conv_id, "setup", "started")
 
-        case Managoat.Sandbox.exec(handle, "bash", ["-lc", script],
+        case Managoat.Sandbox.exec(
+               handle,
+               "bash",
+               ["-c", @setup_wrapper, "fountain-setup", script],
                env: sprite_env,
                stderr_to_stdout: true,
                timeout: Map.get(environment, :setup_timeout_seconds, 120) * 1000
@@ -1050,7 +1117,7 @@ defmodule Fountain.Conversations.Provisioning do
   The runtime's own sandbox preparation, after its ACP adapter is in place.
   `source` and `user_id` are the conversation's resolved inference source and
   its owner: a codex spawn on a ChatGPT grant gets its `auth.json` from
-  Fountain, from that source, not from the library's `codex login` (ADR 0047
+  Fountain, from that source, not from the library's own `auth.json` (ADR 0047
   decision 4, ADR 0052 decision 5).
   """
   def prepare_runtime_sprite(handle, runtime, runtime_module, agent, sprite_env, source, user_id) do

@@ -22,6 +22,8 @@ defmodule Fountain.Conversations.ProvisioningTest do
   # the exact wire shapes Sprites receives.
   defp sandbox_handle(name \\ "test-sprite") do
     stub(Managoat.Sandbox.Sprites.Client, :get!, fn -> %Sprites.Client{token: "test"} end)
+    # The network policy request asks for a client of its own (0.5.2).
+    stub(Managoat.Sandbox.Sprites.Client, :get!, fn _opts -> %Sprites.Client{token: "test"} end)
     Managoat.Sandbox.Sprites.build_handle(name)
   end
 
@@ -200,6 +202,80 @@ defmodule Fountain.Conversations.ProvisioningTest do
       assert_received {:script, script}
       assert script =~ "git -c http.proxyAuthMethod=basic clone --depth 50"
     end
+
+    # A sprite answers 503 ("service temporarily unavailable, please retry")
+    # for its first seconds. Every other provisioning step already rides that
+    # out; the clone did not, so one cold sprite failed the conversation.
+    test "a sprite that refuses the exec is retried — nothing ran, so nothing was half-written" do
+      conv = insert_conversation()
+      test = self()
+
+      env = %Fountain.Environments.Environment{
+        repositories: [%{"url" => "https://github.com/o/r", "mount_path" => "/workspace/r"}]
+      }
+
+      Mimic.stub(Managoat.Sandbox.Sprites, :exec, fn _h, _cmd, _args, _opts ->
+        send(test, :exec)
+
+        receive do
+          :already_refused -> {:ok, "", 0}
+        after
+          0 ->
+            send(self(), :already_refused)
+
+            {:error,
+             {:unavailable, {:http, 503, %{"error" => "service temporarily unavailable"}}}}
+        end
+      end)
+
+      assert :ok =
+               Provisioning.clone_repositories(sandbox_handle(), env, %{}, [], conv.id)
+
+      assert_received :exec
+      assert_received :exec, "the refused attempt is retried, not surfaced as a failure"
+    end
+
+    test "a clone that ran and failed is never retried — a half-written mount is not cloned over" do
+      conv = insert_conversation()
+      test = self()
+
+      env = %Fountain.Environments.Environment{
+        repositories: [%{"url" => "https://github.com/o/r", "mount_path" => "/workspace/r"}]
+      }
+
+      Mimic.stub(Managoat.Sandbox.Sprites, :exec, fn _h, _cmd, _args, _opts ->
+        send(test, :exec)
+        {:ok, "fatal: could not read Username", 128}
+      end)
+
+      assert {:error, {:clone, "https://github.com/o/r", 128}} =
+               Provisioning.clone_repositories(sandbox_handle(), env, %{}, [], conv.id)
+
+      assert_received :exec
+
+      refute_received :exec,
+                      "a command that ran is returned on the first attempt, exactly as before"
+    end
+
+    test "a timeout is not retried either — it can fire with the clone half-done" do
+      conv = insert_conversation()
+      test = self()
+
+      env = %Fountain.Environments.Environment{
+        repositories: [%{"url" => "https://github.com/o/r", "mount_path" => "/workspace/r"}]
+      }
+
+      Mimic.stub(Managoat.Sandbox.Sprites, :exec, fn _h, _cmd, _args, _opts ->
+        send(test, :exec)
+        {:error, :timeout}
+      end)
+
+      assert {:error, {:clone_unreachable, "https://github.com/o/r", :timeout}} =
+               Provisioning.clone_repositories(sandbox_handle(), env, %{}, [], conv.id)
+
+      assert_received :exec
+      refute_received :exec, "Retry's own default would have retried this; a clone must not"
+    end
   end
 
   describe "clone_repositories/5 when the connection never opens" do
@@ -276,7 +352,8 @@ defmodule Fountain.Conversations.ProvisioningTest do
       assert :ok = Provisioning.install_broker_ca(sandbox_handle(), conv.id)
 
       # The staging file is per invocation, so several conversations writing
-      # it at once cannot change each other's input to `cmp` and `install`.
+      # it at once cannot change each other's input to the comparison and
+      # `install`.
       assert_received {:wrote, staging, "PEM", [mode: 0o644]}
       assert String.starts_with?(staging, "/tmp/agent-vault-ca.crt.")
       refute staging == "/tmp/agent-vault-ca.crt"
@@ -292,7 +369,9 @@ defmodule Fountain.Conversations.ProvisioningTest do
                "( trap 'rm -f -- '\\''#{staging}'\\''' EXIT; " <>
                  "safe=0; " <>
                  "if command -v flock >/dev/null 2>&1; then flock -w 120 9 || exit 75; safe=1; fi; " <>
-                 "{ cmp -s '#{staging}' '#{ca}' && " <>
+                 "{ { staged_key=$(openssl x509 -noout -pubkey -in '#{staging}' 2>/dev/null) && " <>
+                 "installed_key=$(openssl x509 -noout -pubkey -in '#{ca}' 2>/dev/null) && " <>
+                 ~s([ -n "$staged_key" ] && [ "$staged_key" = "$installed_key" ]; } && ) <>
                  "sha256sum -c --status '#{marker}' 2>/dev/null; } || " <>
                  "{ sudo rm -f -- '#{marker}' && " <>
                  "if [ ! -e '#{ca}' ] && [ -s '#{bundle}' ]; then " <>
@@ -323,7 +402,9 @@ defmodule Fountain.Conversations.ProvisioningTest do
       conv = insert_conversation()
       test = self()
 
-      stub(Fountain.Broker, :ca_pem, fn -> {:ok, "PEM\n"} end)
+      # A real broker CA: the comparison is by public key, which needs one.
+      seed = :crypto.strong_rand_bytes(32)
+      stub(Fountain.Broker, :ca_pem, fn -> {:ok, Managoat.Broker.CA.pem(seed)} end)
 
       Mimic.stub(Managoat.Sandbox.Sprites, :write_file, fn _h, path, data, _opts ->
         send(test, {:staged, path, data})
@@ -382,9 +463,9 @@ defmodule Fountain.Conversations.ProvisioningTest do
         File.chmod!(path, 0o755)
       end
 
-      run = fn ->
+      run_with = fn staged ->
         # The EXIT trap consumes the staging file on every invocation.
-        File.write!(tmp_dir <> staging, pem)
+        File.write!(tmp_dir <> staging, staged)
 
         result =
           System.cmd("bash", ["-c", cmd],
@@ -395,6 +476,8 @@ defmodule Fountain.Conversations.ProvisioningTest do
         refute File.exists?(tmp_dir <> staging)
         result
       end
+
+      run = fn -> run_with.(pem) end
 
       # A fresh sandbox: the image's bundle, and no broker CA yet. The CA is
       # added to the bundle without a rebuild.
@@ -407,6 +490,16 @@ defmodule Fountain.Conversations.ProvisioningTest do
 
       assert {_, 0} = run.()
       refute File.exists?(counter)
+
+      # The same CA derived again: every byte of its PEM differs, because
+      # ECDSA signing is randomised, but its key does not, and it is the same
+      # trust anchor. Compared byte for byte, this rebuilt the trust store on
+      # every wake (1.5-2.3 s, 2026-10-07).
+      rederived = Managoat.Broker.CA.pem(seed)
+      refute rederived == pem
+      assert {_, 0} = run_with.(rederived)
+      refute File.exists?(counter)
+      assert File.read!(ca) == pem
 
       # Anything but "never installed" rebuilds, which is what repairs.
       File.write!(bundle, "truncated bundle\n")
@@ -428,7 +521,7 @@ defmodule Fountain.Conversations.ProvisioningTest do
 
       # A replaced CA rebuilds too, so the old one leaves the bundle rather
       # than staying trusted beside the new one.
-      File.write!(ca, "OLD PEM\n")
+      File.write!(ca, Managoat.Broker.CA.pem(:crypto.strong_rand_bytes(32)))
       assert {_, 0} = run.()
       assert File.read!(ca) == pem
       assert File.read!(bundle) == pem <> "system-roots\n"

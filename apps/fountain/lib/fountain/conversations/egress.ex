@@ -8,11 +8,12 @@ defmodule Fountain.Conversations.Egress do
   never a backend) and `Fountain.Connections`. Functions over rows and
   values, not over server state (#1369): `ConversationServer` keeps the
   fields the session, its placeholders and its bindings live in, unpacks
-  them for each call and applies what comes back. Two places that change
-  more than one field at once (mint, the OAuth switch) are the server's
-  short wrappers over `prepare/4` and `drop_oauth_token/3`. The third, the
-  refresh before a turn, reads seven fields and writes four since #1736, so
-  `refresh_before_turn/1` takes the state and names them.
+  them for each call and applies what comes back. The mint, which changes
+  more than one field at once, is the server's short wrapper over
+  `prepare/4`. The refresh before a turn reads seven fields and writes four
+  since #1736, so `refresh_before_turn/1` takes the state and names them;
+  `refresh_live/1` (#2548) and the OAuth switch, `switch_to_api_key/1`, do
+  the same.
 
   The split rules, in order, as the server applies them at provision:
   `bindings/1`, `add_connection_secrets/4`, `split_brokered/2`,
@@ -284,6 +285,37 @@ defmodule Fountain.Conversations.Egress do
   end
 
   @doc """
+  `drop_oauth_token/3` then `reprepare/1`, over the server's state: the
+  OAuth token was refused, so the vault is re-prepared with the API key as
+  what the substitution carries. Writes `brokered`, `broker_bindings`,
+  `env_credentials`, `broker` and `sprite_env`. Best effort — a broker
+  error leaves the turn to fail at the proxy, which names the cause, rather
+  than silently injecting a plaintext key. An unbrokered state comes back
+  unchanged.
+  """
+  @spec switch_to_api_key(map()) :: map()
+  def switch_to_api_key(%{broker: nil} = state), do: state
+
+  def switch_to_api_key(state) do
+    {env_creds, brokered, bindings} =
+      drop_oauth_token(state.inference_credentials, state.brokered, state.broker_bindings)
+
+    state = %{state | brokered: brokered, broker_bindings: bindings, env_credentials: env_creds}
+
+    case reprepare(state) do
+      {:ok, session, sprite_env} ->
+        %{state | broker: session, sprite_env: sprite_env}
+
+      {:error, reason} ->
+        Logger.warning(
+          "conv #{state.conversation_id}: broker re-prepare after OAuth refusal failed: #{inspect(reason)}"
+        )
+
+        state
+    end
+  end
+
+  @doc """
   Replace the session and rebuild the env with the new token; everything
   else in the env is unchanged. No stage is published: this is the refresh
   before a turn and the re-prepare after an OAuth refusal, not provisioning.
@@ -367,20 +399,9 @@ defmodule Fountain.Conversations.Egress do
   def refresh_before_turn(%{broker: nil} = state), do: {state, false}
 
   def refresh_before_turn(%{broker: session} = state) do
-    {state, changed?} = reread_secrets(state)
+    {state, outcome} = reread_and_rewrite(state)
 
-    # Before the broker can inject any of it. An edited vault secret or a
-    # rotated connection token becomes live through the rewrite or the fresh
-    # session below, and `SpriteEnv.build/4` — the only other registration —
-    # does not run on this path. Registered without it, the new credential
-    # would be echoed into `log_events` in plaintext by the first upstream
-    # that returns a header. `add/2`, not `put/2`: the old value can still be
-    # in output already on its way.
-    Redaction.add(state.conversation_id, Map.to_list(state.brokered))
-
-    rewritten? = changed? and rewrite_rules(state) == :ok
-
-    if (changed? and not rewritten?) or Broker.expiring?(session) do
+    if outcome == :failed or Broker.expiring?(session) do
       case reprepare(state) do
         {:ok, fresh, sprite_env} ->
           {%{state | broker: fresh, sprite_env: sprite_env}, fresh.token != session.token}
@@ -394,6 +415,56 @@ defmodule Fountain.Conversations.Egress do
       end
     else
       {state, false}
+    end
+  end
+
+  @doc """
+  The refresh a secret write asks for, during a turn or between turns
+  (#2548): the rereading, registration and rewrite `refresh_before_turn/1`
+  starts with, and nothing after it. No session is minted and no connection
+  is touched, so a running turn carries on, and its next tunnel through the
+  broker reads the new rules. Reads and writes the fields
+  `refresh_before_turn/1` does, less `broker` and `sprite_env`.
+
+  The state comes back unchanged unless the rules were rewritten. A rewrite
+  that fails leaves the old copy in place, so the refresh before the next
+  turn still sees the change and falls through to a fresh session as it
+  always has. An unbrokered conversation is a no-op: its secrets are in the
+  sandbox's env, and only a new process reads them again.
+  """
+  @spec refresh_live(map()) :: map()
+  def refresh_live(%{broker: nil} = state), do: state
+
+  def refresh_live(state) do
+    case reread_and_rewrite(state) do
+      {refreshed, :rewritten} ->
+        Logger.info("conv #{state.conversation_id}: a secret write reached the live broker rules")
+        refreshed
+
+      {_refreshed, _unchanged_or_failed} ->
+        state
+    end
+  end
+
+  # What both refreshes share: the secrets read again, registered, and a
+  # change written into the live session's rules with the token kept.
+  # `:unchanged`, `:rewritten` or `:failed`, with the state that was read.
+  defp reread_and_rewrite(state) do
+    {state, changed?} = reread_secrets(state)
+
+    # Before the broker can inject any of it. An edited vault secret or a
+    # rotated connection token becomes live through the rewrite or a fresh
+    # session, and `SpriteEnv.build/4` — the only other registration — does
+    # not run on these paths. Registered without it, the new credential
+    # would be echoed into `log_events` in plaintext by the first upstream
+    # that returns a header. `add/2`, not `put/2`: the old value can still be
+    # in output already on its way.
+    Redaction.add(state.conversation_id, Map.to_list(state.brokered))
+
+    cond do
+      not changed? -> {state, :unchanged}
+      rewrite_rules(state) == :ok -> {state, :rewritten}
+      true -> {state, :failed}
     end
   end
 

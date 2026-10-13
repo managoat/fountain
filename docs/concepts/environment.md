@@ -76,6 +76,11 @@ installation more time. Changing it invalidates the environment checkpoint.
 The overall 30-minute provisioning deadline still applies; a failed or timed-out
 setup does not start the agent. This controls setup, not inference time or spend.
 
+The setup step ends when the script exits. A process the script starts in the
+background, such as a dev server, keeps running, but what it prints after the
+script exits is not in the setup log. Redirect its output to a file if you
+want to read it later.
+
 ### The network policy is not symmetric
 
 `unrestricted` does nothing. A Sprites sandbox is open by default, so the

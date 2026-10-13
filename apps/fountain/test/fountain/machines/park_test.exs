@@ -499,7 +499,7 @@ defmodule Fountain.Machines.ParkTest do
     test "a running turn nothing is driving is not occupancy", ctx do
       # The regression this rule exists for. A turn parked on a human's
       # permission decision whose server then died stays `running` for ever —
-      # `AutonomousTurnReaper` skips those by design, because a person may
+      # `SandboxReaper.sweep_stuck_turns/0` skips those by design, because a person may
       # still answer — so counting it refused the park for ever and the machine
       # went on billing with nothing able to reclaim it. `main` had no turn
       # check and its reaper parked this machine.

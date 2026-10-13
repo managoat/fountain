@@ -103,7 +103,7 @@ defmodule Fountain.Machines.Admission do
   and the recovery of a turn nothing is driving any more
   (`Fountain.Conversations._unsafe_orphan_turn/3`, from a server's `terminate/2`,
   the reattach path's give-up, a wake's dead-interrupt reconcile, and the
-  `AutonomousTurnReaper`). The writes themselves stay in the context, where the
+  `SandboxReaper.sweep_stuck_turns/0`). The writes themselves stay in the context, where the
   locks they take are; what moves here is the door and the one predicate they
   all check, `bound?/2`.
 
@@ -169,7 +169,7 @@ defmodule Fountain.Machines.Admission do
     3. A turn stamped at admission with the machine it was admitted on fares no
        better: a wake that builds a fresh machine and a successor that reattaches
        on it must orphan the predecessor's turn, which was admitted elsewhere,
-       and `AutonomousTurnReaper` never collects it because a server is
+       and `SandboxReaper.sweep_stuck_turns/0` never collects it because a server is
        registered. A turn-level record would refuse the one write that closes
        it.
 

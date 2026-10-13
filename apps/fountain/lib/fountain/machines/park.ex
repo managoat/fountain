@@ -481,7 +481,7 @@ defmodule Fountain.Machines.Park do
   # **And a turn nothing is driving is not occupancy.** A `running` turn row
   # whose conversation has no live `ConversationServer` is a leftover, and one
   # shape of it never goes away on its own: a turn parked on a human's
-  # permission decision, whose server then died. `AutonomousTurnReaper` skips
+  # permission decision, whose server then died. `SandboxReaper.sweep_stuck_turns/0` skips
   # those by design — a person may still answer — so the row stays `running`
   # for ever, and counting it refused the park for ever with it. `main` had no
   # turn check at all and its reaper reclaimed that machine; a stage that says

@@ -1984,7 +1984,7 @@ defmodule Fountain.Conversations do
   `running` in one transaction under this same lock (`_unsafe_create_turn_on_sandbox/3`),
   and the two other writers of `running` (`Reattachment` and `Connection`) both
   have their running turn in hand. So that pair is a stuck row, and the sweeps
-  cannot repair it — `AutonomousTurnReaper.sweep_stuck_turns/0` and
+  cannot repair it — `SandboxReaper.sweep_stuck_turns/0` and
   `TurnLocks._unsafe_recover_turn/3` both select a running turn, and there
   is none. `_unsafe_idle_interrupted_turn/1` declines to recheck the binding for
   exactly this reason and names this function as its backstop (#2000); a

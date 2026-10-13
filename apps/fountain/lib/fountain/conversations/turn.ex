@@ -53,7 +53,7 @@ defmodule Fountain.Conversations.Turn do
     field :waiting, :boolean, default: false
     # When a detached request is denied for want of an answer. A column rather
     # than a key inside `pending_permission` because the sweep that fires it
-    # (`Fountain.Workers.DetachedRequestSweeper`) is an indexed query, and
+    # (`Fountain.Workers.SandboxReaper.sweep_expired_requests/1`) is an indexed query, and
     # because a process timer cannot outlive the suspend this whole path
     # exists to allow. nil while nothing is waiting.
     field :permission_deadline, :utc_datetime

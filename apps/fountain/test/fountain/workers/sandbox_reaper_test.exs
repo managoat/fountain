@@ -1170,6 +1170,7 @@ defmodule Fountain.Workers.SandboxReaperTest do
 
       assert {"*/5 * * * *", SandboxReaper, args: %{"pass" => "teardowns"}} in crontab
       assert {"7 * * * *", SandboxReaper} in crontab
+      assert {"* * * * *", SandboxReaper, args: %{"pass" => "detached_requests"}} in crontab
     end
   end
 

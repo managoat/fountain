@@ -16,7 +16,7 @@ defmodule Fountain.Conversations.DetachedRequestTest do
   alias Fountain.Audit
   alias Fountain.Conversations
   alias Fountain.Conversations.{ConversationServer, DetachedRequest}
-  alias Fountain.Workers.DetachedRequestSweeper
+  alias Fountain.Workers.SandboxReaper
 
   @options [
     %{"optionId" => "allow", "kind" => "allow_once", "name" => "Apply"},
@@ -365,7 +365,7 @@ defmodule Fountain.Conversations.DetachedRequestTest do
       %{conv: conv, turn: turn} = waiting_conversation(deadline: hours_from_now(-1))
       record_wake()
 
-      assert DetachedRequestSweeper.sweep_expired_requests() == 1
+      assert SandboxReaper.sweep_expired_requests() == 1
 
       reloaded = Repo.reload(turn)
       refute reloaded.waiting
@@ -386,7 +386,7 @@ defmodule Fountain.Conversations.DetachedRequestTest do
       %{user: user} = waiting_conversation(deadline: hours_from_now(-1))
       record_wake()
 
-      assert DetachedRequestSweeper.sweep_expired_requests() == 1
+      assert SandboxReaper.sweep_expired_requests() == 1
 
       assert denied =
                user.id
@@ -406,7 +406,7 @@ defmodule Fountain.Conversations.DetachedRequestTest do
       {:ok, _} = Conversations.update_conversation(conv, %{status: "running"})
       reject(&ConversationServer.send_prompt/4)
 
-      assert DetachedRequestSweeper.sweep_expired_requests() == 0
+      assert SandboxReaper.sweep_expired_requests() == 0
 
       reloaded = Repo.reload(turn)
       assert reloaded.waiting
@@ -421,7 +421,7 @@ defmodule Fountain.Conversations.DetachedRequestTest do
       # No `reject/1` here: the second half of this test needs the delivery to
       # work. The untouched row and the silent stream are what say the first
       # sweep delivered nothing.
-      assert DetachedRequestSweeper.sweep_expired_requests() == 0
+      assert SandboxReaper.sweep_expired_requests() == 0
       assert Repo.reload(turn).waiting
       assert request_stages(conv.id, "done") == []
 
@@ -429,7 +429,7 @@ defmodule Fountain.Conversations.DetachedRequestTest do
       set_suspended(user, false)
       record_wake()
 
-      assert DetachedRequestSweeper.sweep_expired_requests() == 1
+      assert SandboxReaper.sweep_expired_requests() == 1
       refute Repo.reload(turn).waiting
     end
 
@@ -440,17 +440,17 @@ defmodule Fountain.Conversations.DetachedRequestTest do
       {:ok, _} = Conversations.update_conversation(conv, %{status: "terminated"})
       reject(&ConversationServer.send_prompt/4)
 
-      assert DetachedRequestSweeper.sweep_expired_requests() == 1
+      assert SandboxReaper.sweep_expired_requests() == 1
 
       refute Repo.reload(turn).waiting
       assert [%{"outcome" => "timeout"}] = request_stages(conv.id, "done")
-      assert DetachedRequestSweeper.sweep_expired_requests() == 0
+      assert SandboxReaper.sweep_expired_requests() == 0
     end
 
     test "a request still inside its deadline is left alone" do
       %{turn: turn} = waiting_conversation(deadline: hours_from_now(24))
 
-      assert DetachedRequestSweeper.sweep_expired_requests() == 0
+      assert SandboxReaper.sweep_expired_requests() == 0
       assert Repo.reload(turn).waiting
     end
 
@@ -462,14 +462,14 @@ defmodule Fountain.Conversations.DetachedRequestTest do
       {:ok, _} =
         Repo.update(Ecto.Changeset.change(turn, waiting: false, status: "running"))
 
-      assert DetachedRequestSweeper.sweep_expired_requests() == 0
+      assert SandboxReaper.sweep_expired_requests() == 0
     end
 
     test "the worker runs the sweep" do
       %{turn: turn} = waiting_conversation(deadline: hours_from_now(-1))
       record_wake()
 
-      assert :ok = DetachedRequestSweeper.perform(%Oban.Job{args: %{}})
+      assert :ok = SandboxReaper.perform(%Oban.Job{args: %{"pass" => "detached_requests"}})
       refute Repo.reload(turn).waiting
     end
   end

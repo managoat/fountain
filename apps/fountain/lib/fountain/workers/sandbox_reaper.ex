@@ -1,6 +1,23 @@
 defmodule Fountain.Workers.SandboxReaper do
   @moduledoc """
-  Reconciles the `sandboxes` table against what actually exists at sprites.dev.
+  The one periodic reconciler: every Oban sweep that notices something stuck
+  and puts it right. Its passes, by cadence (`config/config.exs` has the three
+  cron entries):
+
+  | Cadence | `pass` arg | What it reconciles |
+  |---|---|---|
+  | hourly, at :07 | none | rows stuck mid-provision, `ready` machines past an idle or lifetime bound with no server, terminal rows whose sprite still exists, and sprites with no row (counted only) |
+  | every 5 minutes | `"teardowns"` | destroys that were asked for and then abandoned (`sweep_fenced_teardowns/0`), then turns left `running` with no server (`sweep_stuck_turns/0`) |
+  | every minute | `"detached_requests"` | detached permission requests past their deadline (`sweep_expired_requests/1`) |
+
+  The in-process backstops are not here, because each needs the process it
+  guards: `Fountain.Conversations.ProvisionWatchdog` monitors one provision
+  and acts the moment it dies, and a live server's idle and lifetime ticks
+  (`Fountain.Conversations.Lifecycle`) run in that server. The hourly pass is
+  their durable twin for machines whose server is gone.
+
+  Most of this moduledoc is about the sandbox passes, which reconcile the
+  `sandboxes` table against what actually exists at sprites.dev.
 
   ## What leaks, and how
 
@@ -49,8 +66,11 @@ defmodule Fountain.Workers.SandboxReaper do
   """
 
   # `unique:` since ADR 0058 stage 6b, matching `SandboxResetReconciler`'s
-  # (deleted in stage 9b). Oban keys it on the args too, so the hourly run and
-  # the five-minute teardown run are unique apart.
+  # (deleted in stage 9b). Oban keys it on the args too, so the hourly run,
+  # the five-minute teardown run and the one-minute detached-request run are
+  # unique apart. For the minute run that means a tick queued behind a long
+  # hourly run on the one-slot `:maintenance` queue is dropped rather than
+  # piled up behind it; the next free tick does the same work.
   # Contention used to be rare here — the sweeps wrote rows nobody else wanted
   # — and it is ordinary now that every park and every expiry asks the
   # machine's owner and can be made to wait for a lease. A run that spends its
@@ -67,7 +87,16 @@ defmodule Fountain.Workers.SandboxReaper do
   require Logger
 
   alias Fountain.Conversations
-  alias Fountain.Conversations.{Lifecycle, Sandbox, Termination}
+
+  alias Fountain.Conversations.{
+    ConversationServer,
+    Lifecycle,
+    LogEvent,
+    Sandbox,
+    Termination,
+    Turn
+  }
+
   alias Fountain.Machines.Destroy
   alias Fountain.Machines.Lease
   alias Fountain.Machines.Machine
@@ -181,6 +210,16 @@ defmodule Fountain.Workers.SandboxReaper do
   # The five-minute run: pass 1c alone (ADR 0058 stage 9b). See
   # `sweep_fenced_teardowns/0` for why it has a cron entry of its own.
   @impl Oban.Worker
+  def perform(%Oban.Job{args: %{"pass" => "detached_requests"}}) do
+    expired = sweep_expired_requests()
+
+    if expired > 0, do: Logger.info("detached_request_sweeper: expired=#{expired}")
+
+    :telemetry.execute([:fountain, :detached_request_sweeper, :run], %{expired: expired}, %{})
+
+    :ok
+  end
+
   def perform(%Oban.Job{args: %{"pass" => "teardowns"}}) do
     {reconciled, refused} = sweep_fenced_teardowns()
 
@@ -197,6 +236,15 @@ defmodule Fountain.Workers.SandboxReaper do
       %{reconciled: reconciled, refused: refused},
       %{}
     )
+
+    # The stuck-turn sweep shares this clock (it had a five-minute cron entry
+    # of its own until the backstops were consolidated). It runs after the
+    # teardowns and is idempotent, so a retry of a run whose teardowns raised
+    # repeats nothing it already did.
+    reaped = sweep_stuck_turns()
+
+    Logger.info("autonomous_turn_reaper: reaped=#{reaped}")
+    :telemetry.execute([:fountain, :autonomous_turn_reaper, :run], %{reaped: reaped}, %{})
 
     :ok
   end
@@ -1164,5 +1212,142 @@ defmodule Fountain.Workers.SandboxReaper do
     Managoat.Sandbox.list_all_names(provider)
   rescue
     e -> {:error, e}
+  end
+
+  # ── turns left running with no server ─────────────────────────────────────
+  #
+  # The in-process autonomous quiet timer disappears with its server. This is
+  # the durable backstop for hard crashes and departed nodes. It only considers
+  # old turns that are not waiting on a permission and have produced no recent
+  # output. Output is the partition-safe liveness signal because all nodes
+  # write it to the shared database even when Horde's registry cannot see
+  # across a cluster partition.
+  #
+  # A conversation that reached its durable output budget can appear quiet
+  # even while its runtime is active. The server liveness check remains a
+  # second guard for that case. The oldest candidates are capped per run so a
+  # historical backlog cannot fan out an unbounded burst of events.
+
+  @stuck_after_minutes_turns 30
+  @quiet_grace_minutes 15
+  @reap_limit 25
+
+  @doc false
+  def sweep_stuck_turns do
+    now = DateTime.utc_now()
+    started_cutoff = DateTime.add(now, -@stuck_after_minutes_turns * 60, :second)
+    quiet_cutoff = DateTime.add(now, -@quiet_grace_minutes * 60, :second)
+
+    last_output =
+      from(l in LogEvent,
+        where: l.turn_id == parent_as(:turn).id and l.kind == "output",
+        select: max(l.inserted_at)
+      )
+
+    Turn
+    |> from(as: :turn)
+    |> where([t], t.status == "running" and t.started_at < ^started_cutoff)
+    |> where([t], is_nil(t.pending_permission))
+    |> where([t], coalesce(subquery(last_output), t.started_at) < ^quiet_cutoff)
+    |> order_by([t], asc: t.started_at)
+    |> limit(^@reap_limit)
+    |> Repo.all()
+    |> Enum.count(&reap_turn_if_unowned/1)
+  end
+
+  defp reap_turn_if_unowned(%Turn{} = turn) do
+    if ConversationServer.whereis(turn.conversation_id) do
+      false
+    else
+      # Through the owner's door (ADR 0058 stage 8a), with no `:sandbox_id`:
+      # the reaper recovers on nobody's behalf, so there is no binding to fence
+      # on, and the write is the same one it has always made.
+      case Machine.end_turn(turn, {:orphan, "stuck_running_no_server"},
+             actor: "system:autonomous_turn_reaper"
+           ) do
+        {:ok, _, _} ->
+          Logger.info(
+            "autonomous_turn_reaper: reaped turn #{turn.id} " <>
+              "(conversation #{turn.conversation_id}) started #{turn.started_at}"
+          )
+
+          true
+
+        :noop ->
+          false
+
+        {:error, reason} ->
+          Logger.warning(
+            "autonomous_turn_reaper: could not reap turn #{turn.id}: #{inspect(reason)}"
+          )
+
+          false
+      end
+    end
+  end
+
+  # ── detached permission requests past their deadline (#1635) ──────────────
+  #
+  # A request held inside a running turn is timed by a process timer in the
+  # `ConversationServer`. A detached one cannot be: the whole point of it is
+  # that the sandbox parks and the server stops while the request waits, and a
+  # deploy in the middle of a two-day wait would drop the timer with nothing to
+  # notice. So the deadline lives on the turn row (`turns.permission_deadline`,
+  # with a partial index over `waiting`) and this pass is what reads it.
+  #
+  # Expiry is a denial, which is the only safe default, and the denial reaches
+  # the agent the same way an answer does: the request is resolved on the row
+  # and a new turn is opened carrying the outcome, waking the sandbox. The
+  # option it names is one the agent itself offered.
+  #
+  # The grain is a minute. A detached deadline is hours or days, so a minute of
+  # overshoot is immaterial, and the query is one indexed read that is empty
+  # almost every time. The batch is capped so a backlog cannot wake a hundred
+  # sandboxes at once.
+
+  @expiry_limit 25
+
+  @doc false
+  def sweep_expired_requests(now \\ DateTime.utc_now()) do
+    Turn
+    |> where([t], t.waiting == true and not is_nil(t.pending_permission))
+    |> where([t], t.permission_deadline <= ^now)
+    |> order_by([t], asc: t.permission_deadline)
+    |> limit(^@expiry_limit)
+    |> Repo.all()
+    |> Enum.count(&expire_request/1)
+  end
+
+  # Ownership: a system sweep, which ADR 0013 and the `_unsafe_` rules name as
+  # a legitimate caller. The resolution is guarded on the request id, so a
+  # client answering in the same second wins or loses cleanly rather than
+  # both landing.
+  #
+  # A conversation that cannot take the resume turn right now — a turn of its
+  # own is running, the account is suspended — leaves the row exactly as it
+  # was. The deadline has passed, so the denial is owed either way, but
+  # resolving it into a prompt nobody delivers loses it with nothing to retry
+  # from. This runs every minute; the next one carries it.
+  defp expire_request(%Turn{} = turn) do
+    case Conversations._unsafe_expire_detached_request(turn) do
+      :ok ->
+        Logger.info(
+          "detached_request_sweeper: denied request on turn #{turn.id} " <>
+            "(conversation #{turn.conversation_id}) after its deadline"
+        )
+
+        true
+
+      {:error, :no_pending_permission} ->
+        false
+
+      {:error, reason} ->
+        Logger.info(
+          "detached_request_sweeper: leaving the request on turn #{turn.id} " <>
+            "(conversation #{turn.conversation_id}) for the next sweep: #{inspect(reason)}"
+        )
+
+        false
+    end
   end
 end

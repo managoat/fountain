@@ -1,4 +1,4 @@
-defmodule Fountain.Workers.AutonomousTurnReaperTest do
+defmodule Fountain.Workers.SandboxReaperStuckTurnsTest do
   use Fountain.DataCase, async: false
   use Mimic
 
@@ -8,7 +8,7 @@ defmodule Fountain.Workers.AutonomousTurnReaperTest do
   alias Fountain.Conversations
   alias Fountain.Conversations.ConversationServer
   alias Fountain.Repo
-  alias Fountain.Workers.AutonomousTurnReaper
+  alias Fountain.Workers.SandboxReaper
 
   setup :set_mimic_global
 
@@ -45,7 +45,7 @@ defmodule Fountain.Workers.AutonomousTurnReaperTest do
 
     Phoenix.PubSub.subscribe(Fountain.PubSub, "conv:#{conv.id}")
 
-    capture_log(fn -> assert 1 = AutonomousTurnReaper.sweep_stuck_turns() end)
+    capture_log(fn -> assert 1 = SandboxReaper.sweep_stuck_turns() end)
 
     reloaded = Repo.reload(turn)
     assert reloaded.status == "interrupted"
@@ -70,7 +70,7 @@ defmodule Fountain.Workers.AutonomousTurnReaperTest do
       if id == conv.id, do: self()
     end)
 
-    assert 0 = AutonomousTurnReaper.sweep_stuck_turns()
+    assert 0 = SandboxReaper.sweep_stuck_turns()
     assert Repo.reload(turn).status == "running"
   end
 
@@ -81,7 +81,7 @@ defmodule Fountain.Workers.AutonomousTurnReaperTest do
     insert_log_event(active_conv, %{turn_id: active_turn.id, inserted_at: minutes_ago(5)})
     no_live_servers()
 
-    assert 0 = AutonomousTurnReaper.sweep_stuck_turns()
+    assert 0 = SandboxReaper.sweep_stuck_turns()
     assert Repo.reload(recent_turn).status == "running"
     assert Repo.reload(active_turn).status == "running"
     assert Repo.reload(recent_conv).status == "running"
@@ -95,7 +95,7 @@ defmodule Fountain.Workers.AutonomousTurnReaperTest do
 
     no_live_servers()
 
-    assert 0 = AutonomousTurnReaper.sweep_stuck_turns()
+    assert 0 = SandboxReaper.sweep_stuck_turns()
     assert Repo.reload(turn).status == "running"
   end
 
@@ -104,7 +104,7 @@ defmodule Fountain.Workers.AutonomousTurnReaperTest do
     {:ok, _} = Conversations.update_conversation(conv, %{status: "terminated"})
     no_live_servers()
 
-    assert 1 = AutonomousTurnReaper.sweep_stuck_turns()
+    assert 1 = SandboxReaper.sweep_stuck_turns()
     assert Repo.reload(turn).status == "interrupted"
     assert Repo.reload(conv).status == "terminated"
   end
@@ -208,7 +208,7 @@ defmodule Fountain.Workers.AutonomousTurnReaperTest do
     expected = turns |> Enum.sort_by(& &1.started_at) |> Enum.take(25) |> MapSet.new(& &1.id)
     no_live_servers()
 
-    capture_log(fn -> assert 25 = AutonomousTurnReaper.sweep_stuck_turns() end)
+    capture_log(fn -> assert 25 = SandboxReaper.sweep_stuck_turns() end)
 
     reaped =
       turns
@@ -219,7 +219,18 @@ defmodule Fountain.Workers.AutonomousTurnReaperTest do
     assert reaped == expected
   end
 
-  test "is scheduled every five minutes" do
+  test "the five-minute teardowns run reaps stuck turns too" do
+    {_user, _conv, turn} = running_turn()
+    no_live_servers()
+
+    capture_log(fn ->
+      assert :ok = SandboxReaper.perform(%Oban.Job{args: %{"pass" => "teardowns"}})
+    end)
+
+    assert Repo.reload(turn).status == "interrupted"
+  end
+
+  test "is scheduled every five minutes, with the teardowns" do
     crontab =
       Application.fetch_env!(:fountain, Oban)
       |> Keyword.fetch!(:plugins)
@@ -228,6 +239,6 @@ defmodule Fountain.Workers.AutonomousTurnReaperTest do
         _ -> nil
       end)
 
-    assert {"*/5 * * * *", AutonomousTurnReaper} in crontab
+    assert {"*/5 * * * *", SandboxReaper, args: %{"pass" => "teardowns"}} in crontab
   end
 end

@@ -133,7 +133,7 @@ defmodule Fountain.Conversations.Interruption do
   it cannot slip between this check and the write.
 
   Rechecking the binding here could leave the parent `running` after the
-  first half retired its last running turn. `AutonomousTurnReaper.sweep_stuck_turns/0`
+  first half retired its last running turn. `SandboxReaper.sweep_stuck_turns/0`
   selects running turns, and `TurnLocks._unsafe_recover_turn/3` returns
   `:noop` for a retired turn, so those recovery paths cannot repair that state.
   Other paths can idle the parent: `MachineEvents.gone/5` and the lifecycle's

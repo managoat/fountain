@@ -963,7 +963,7 @@ defmodule Fountain.Machines.AdmissionTest do
     test "the successor on the replacement machine ends the predecessor's turn", ctx do
       # The turn was admitted on the old machine; a wake built a fresh one and
       # the server on it is the one that has to close the turn — and
-      # `AutonomousTurnReaper` never would, because a server is registered.
+      # `SandboxReaper.sweep_stuck_turns/0` never would, because a server is registered.
       replacement = insert_sandbox(user_id: ctx.user.id, status: "ready")
       {:ok, _} = Conversations.update_conversation(ctx.conv, %{sandbox_id: replacement.id})
 

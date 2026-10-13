@@ -78,12 +78,9 @@ defmodule FountainWeb.SchemaEnumGuardrailTest do
     {FountainWeb.Schemas.AdminRoleRequest, "role"} => {User, :roles},
     {FountainWeb.Schemas.AdminUser, "role"} => {User, :roles},
     {FountainWeb.Schemas.AuthMeResponse, "role"} => {User, :roles},
-    # The four Fountain ships, and the only ones the published contract names:
-    # `fountain-fixture` is a per-deployment test harness, and a deployment that
-    # names a fixture account adds it to the spec that deployment serves
-    # (`FountainWeb.ApiSpec.FixtureRuntime`, #1716). Admission is narrower still
-    # — `Agent.runtimes/0` — as sandbox providers distinguish known_providers/0
-    # from enabled_providers/0. Responses carry no enum for a runtime or a
+    # The four Fountain ships, and the only ones the published contract names.
+    # Sandbox providers distinguish known_providers/0 from enabled_providers/0.
+    # Responses carry no enum for a runtime or a
     # provider: rows from before opencode and Daytona were removed (2026-10)
     # still name them.
     {FountainWeb.Schemas.AgentRequest, "runtime"} => {Agent, :packaged_runtimes},

@@ -64,17 +64,6 @@ message.
 | `CHECKPOINT_CREATION_ENABLED` | `false` | — | Set to `true`, and Fountain takes a checkpoint of each persistent home when it parks, on a provider that has checkpoints (Sprites). The checkpoint belongs to that one machine. It can roll the machine back, and it cannot rebuild a machine that the provider lost. Each park adds one checkpoint, and Fountain does not delete old ones. The same flag also makes Fountain checkpoint each environment after it provisions a sandbox, which Sprites cannot restore into a new sandbox. |
 | `SANDBOX_SNAPSHOTS_ENABLED` | `true` | — | When a sandbox parks, Fountain saves a snapshot of the git work trees under its working directory, so the files API can answer while the sandbox is parked. Set it to `false` to turn this off. A parked sandbox's file reads then return `409 sandbox_not_ready`. |
 
-## Deployed ACP fixture
-
-Use these only on an isolated test instance. The fixed fixture runtime exercises
-the real sandbox/ACP path without model inference. It does not enable arbitrary
-custom harnesses. See [Test the deployed ACP path](integrations/acp.md#test-the-deployed-acp-path).
-
-| Variable | Default | Required | Meaning |
-|---|---|---|---|
-| `DEPLOYED_ACP_FIXTURE_ENABLED` | `false` | — | Set exactly `true` to offer the fixed `fountain-fixture` runtime on a test deployment. The account UUID below is also required. |
-| `DEPLOYED_ACP_FIXTURE_USER_ID` | — | With the fixture enabled | UUID of the dedicated verified test account allowed to create and launch fixture agents. Other accounts are refused. Naming it is also what puts `fountain-fixture` into the runtime enums of the OpenAPI document this deployment serves, so keep it set while any fixture agent or fixture conversation still exists. Both outlive the flag: agents so their owner can edit and delete them, and conversations because deleting an agent keeps its conversation history, which the conversation and sandbox responses still report with the `fountain-fixture` runtime. |
-
 ## Registration and accounts
 
 | Variable | Default | Required | Effect |

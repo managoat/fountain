@@ -6,7 +6,7 @@ defmodule FountainWeb.ApiSpec do
 
   alias OpenApiSpex.{Components, Info, OpenApi, Paths, SecurityScheme, Server}
   alias FountainWeb.{Endpoint, Router}
-  alias FountainWeb.ApiSpec.{FixtureRuntime, PipelineResponses}
+  alias FountainWeb.ApiSpec.PipelineResponses
 
   @behaviour OpenApi
 
@@ -45,8 +45,5 @@ defmodule FountainWeb.ApiSpec do
       security: [%{"bearer" => []}]
     }
     |> PipelineResponses.apply(Router)
-    # Last, on resolved components: a deployment that names an account for the
-    # opt-in test fixture names its runtime in its own spec, nowhere else (#1716).
-    |> FixtureRuntime.widen()
   end
 end

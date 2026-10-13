@@ -358,12 +358,9 @@ defmodule FountainWeb.SchemaGuard do
     end
   end
 
-  # Cached per test run, and keyed by the one thing a deployment can vary in
-  # its own document: whether it names a fixture account, which decides if
-  # `fountain-fixture` is in its runtime enums (#1716). A test that toggles
-  # that config expects to be measured against the spec it is then serving.
+  # Cached per test run.
   defp spec do
-    key = {__MODULE__, :spec, Fountain.DeployedACPFixture.configured?()}
+    key = {__MODULE__, :spec}
 
     case :persistent_term.get(key, nil) do
       nil ->

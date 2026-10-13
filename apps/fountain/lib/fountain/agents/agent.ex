@@ -199,25 +199,11 @@ defmodule Fountain.Agents.Agent do
 
   def credential_set_allowed?(_agent, _credential_set_id), do: false
 
-  @doc """
-  The runtimes Fountain ships, and the only ones the published contract names.
-
-  `fountain-fixture` is deliberately absent (#1716): it is a test harness for
-  one configured account on one deployment, not product surface, and an SDK
-  generated from the contract should not offer it. A deployment that names a
-  fixture account adds it to the spec that deployment serves — see
-  `FountainWeb.ApiSpec.FixtureRuntime`.
-  """
+  @doc "The runtimes Fountain ships, and the only ones the published contract names."
   def packaged_runtimes, do: @runtimes
 
-  @doc "Every runtime that can appear in persisted data, including the opt-in test fixture."
-  def known_runtimes, do: @runtimes ++ ["fountain-fixture"]
-
-  def runtimes do
-    if Fountain.DeployedACPFixture.enabled?(),
-      do: known_runtimes(),
-      else: @runtimes
-  end
+  @doc "The runtimes an agent may be created or updated with."
+  def runtimes, do: @runtimes
 
   @sandbox_modes ~w(ephemeral persistent)
 
@@ -253,7 +239,6 @@ defmodule Fountain.Agents.Agent do
     |> cast(attrs, cast_fields())
     |> validate_required([:name, :runtime])
     |> validate_inclusion(:runtime, runtimes())
-    |> validate_fixture_account()
     |> validate_inclusion(:sandbox_mode, @sandbox_modes)
     |> validate_model_presence()
     |> validate_runtime_command()
@@ -278,33 +263,6 @@ defmodule Fountain.Agents.Agent do
     |> foreign_key_constraint(:environment_id)
     |> foreign_key_constraint(:inference_credential_id)
   end
-
-  defp validate_fixture_account(changeset) do
-    if get_field(changeset, :runtime) == "fountain-fixture" do
-      changeset =
-        if retaining_fixture?(changeset) or
-             Fountain.DeployedACPFixture.allowed?(get_field(changeset, :user_id)),
-           do: changeset,
-           else: add_error(changeset, :runtime, "fixture is not enabled for this account")
-
-      Enum.reduce([:skills, :mcp_servers, :system], changeset, fn field, acc ->
-        if get_field(acc, field) in [nil, [], %{}, ""],
-          do: acc,
-          else: add_error(acc, field, "is not supported by the scripted fixture")
-      end)
-    else
-      changeset
-    end
-  end
-
-  # Disabling a runtime stops admission, not maintenance of its persisted
-  # agents. Retaining the same fixture and owner does not grant launch access;
-  # RuntimeDispatch and prepare_sandbox recheck the live account gate.
-  defp retaining_fixture?(%{data: %__MODULE__{runtime: "fountain-fixture"} = agent} = changeset) do
-    agent.__meta__.state == :loaded and get_field(changeset, :user_id) == agent.user_id
-  end
-
-  defp retaining_fixture?(_changeset), do: false
 
   # `model` is required for every runtime but `acp`, where it is optional and
   # inert: that runtime resolves no inference credential, so a model would be
@@ -382,14 +340,6 @@ defmodule Fountain.Agents.Agent do
   # The model id itself is never checked — a model released since the last
   # deploy has to work the day it ships.
   defp validate_model_provider(changeset) do
-    if get_field(changeset, :runtime) == "fountain-fixture" do
-      validate_inclusion(changeset, :model, ["fixture/deterministic-v1"])
-    else
-      validate_packaged_model_provider(changeset)
-    end
-  end
-
-  defp validate_packaged_model_provider(changeset) do
     case Model.provider(get_field(changeset, :model)) do
       nil -> changeset
       actual -> validate_provider(changeset, actual, get_field(changeset, :runtime))

@@ -26,7 +26,7 @@ name in a red build says which toolchain to look at:
 | **changes** | Classifies the diff and emits the plan every other job reads: `docs_only` (which gates the server jobs), `manual_docs` (which selects the published-manual tests), `cli_docs` and `tree` (`scripts/ci/changes.py`). Fail-open: an unreadable diff or an unregistered path selects the full server plan. Runs on `pull_request`, `merge_group` and `workflow_dispatch`, never on `push`, where the outputs are empty so every `!=`-gated job runs |
 | **already-tested** | `Skip the re-run when a PR already tested this exact tree`: `scripts/ci/already-tested.sh` compares the checkout tree with a successful run's `tested-tree` artifact. Runs only on `push` and `merge_group`. Missing or expired artifacts and API failures leave `skip=false` |
 | **typescript-sdk** (×2) | The TypeScript SDK on the minimum Node in `engines.node` (20.19.0) and on 24, conformance fixtures, and the packed tarball installed into a throwaway consumer project |
-| **cli-plugins** | The Go module (`cli/`) with vet and gofmt, the Hermes plugin, and the deployed-instance runner tests under `deployed/test/` |
+| **cli-plugins** | The Go module (`cli/`) with vet and gofmt, and the Hermes plugin |
 | **compose-fresh-clone** | `docker compose config --quiet` without `.env`, `SECRET_KEY_BASE` or `MASTER_SECRETS_KEY`, so the documented database-only startup can load the Compose file |
 | **compose-pinned-image-boot** | `scripts/compose-boot-check.sh` exercises the Compose quick start against its pinned release image. An unpublished pin that matches the version in `mix.exs` defers the boot check to `release.yml`; any other missing pin fails |
 | **docs** | Compiles the embedded manual, runs `scripts/test-docs.sh` (the manual's suites), and runs CLI documentation parity when `cli_docs` is true. Selected only when `docs_only` and `manual_docs` are true and the tree is not reused; skipped on `push` |
@@ -145,8 +145,8 @@ time. Its merge settings do not batch builds. Revisit
 
 ## SDK jobs
 
-The TypeScript SDK runs in `typescript-sdk`. The Go CLI, Hermes plugin and
-deployed-runner checks run in `cli-plugins`. Each reads the committed contract;
+The TypeScript SDK runs in `typescript-sdk`. The Go CLI and Hermes plugin
+checks run in `cli-plugins`. Each reads the committed contract;
 `release-and-contract` checks its generation. The Python, Elixir and Swift SDKs
 and their jobs were removed on 2026-10-12 (ADR 0059).
 The TypeScript job owns
@@ -268,9 +268,6 @@ Merge CI runs no sandbox provider; two checks outside it do.
     checkpoints and egress.
 
   Neither can be checked by the stubbed tests.
-
-The deployed suite's provider matrix (`deployed/README.md`) has no workflow
-here; an operator runs it by hand against their own instance.
 
 ## Portable alert rules
 

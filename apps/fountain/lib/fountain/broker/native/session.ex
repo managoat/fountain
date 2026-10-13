@@ -4,10 +4,6 @@ defmodule Fountain.Broker.Native.Session do
   broker with, the conversation and tenant it belongs to, and the rules
   the proxy may apply, as ciphertext under the tenant's DEK. See
   `Fountain.Broker.Native.Sessions`.
-
-  The table still has the `managed_*` columns of the removed ChatGPT
-  subscriptions (ADR 0060, retired); nothing writes or reads them, and a
-  later migration drops them.
   """
   use Ecto.Schema
   import Ecto.Changeset

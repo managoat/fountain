@@ -200,6 +200,19 @@ API key, or on nothing. A conversation that ran on an old subscription is
 refused at its next prompt with `409 inference_source_changed`: start a new
 one. See [Run Codex on a ChatGPT subscription](../chatgpt-subscription.md).
 
+## Old ChatGPT grant tables dropped
+
+The release that removed ChatGPT subscriptions (#2642) stopped reading
+`platform_chatgpt_account`, `chatgpt_link_attempts`,
+`inference_credentials.chatgpt_grant_id` and the `managed_*` columns of
+`broker_sessions`, but left them in place, because its predecessor reads them
+on every codex resolution and every brokered provision. Migration
+`20261013160000` drops them, with their indexes and constraints, and deletes
+any unfinished job of the four removed ChatGPT workers. Take it only after
+that release is fully rolled out; a rolling upgrade straight from an older
+release fails the old replicas' provisions until they are replaced. The
+stored ChatGPT sign-ins go with the table. Nothing revokes them at OpenAI.
+
 ## Conversation message compatibility
 
 The server uses the `managoat_acp` peer from its own release. The audited peer

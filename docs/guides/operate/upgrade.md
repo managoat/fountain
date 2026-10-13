@@ -190,7 +190,7 @@ This release stops reading the `sandbox_requests` table and the
 release before it reads both. A later release drops them; take it only after
 this one has fully rolled out.
 
-That later release runs migration `20261013120000`, which drops the
+That later release runs migration `20261013180000`, which drops the
 `sandbox_requests` table (with any requests still in it), the
 `users.max_concurrent_sandboxes` column and any pending drainer jobs.
 

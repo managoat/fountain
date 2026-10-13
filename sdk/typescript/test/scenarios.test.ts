@@ -1,14 +1,17 @@
 /**
- * The shared conformance suite, run against this client.
+ * Wire scenarios: scripted bytes in, observations out.
  *
- * The scenarios live in `sdk/conformance/scenarios` and are written for any
- * client, whatever its language. Nothing language-specific belongs in them, and
- * nothing here decides what passes: this file serves the scripted bytes, drives
- * the public client, normalises what it saw into the shared vocabulary, and
- * compares that against the scenario's own `expect`.
+ * `sdk/contract` pins the shape of the wire. These pin the behaviour: what the
+ * client does with an SSE frame split across two TCP writes, which error class
+ * a 429 becomes, whether a dropped stream resumes from the right cursor, and
+ * what `run` returns when the turn fails. Each `scenarios/*.json` file serves
+ * scripted HTTP exchanges over a real socket, drives the public client through
+ * a small vocabulary of steps, and compares what it saw against the scenario's
+ * own `expect`. `scenarios/README.md` is the format.
  *
- * `sdk/conformance/README.md` is the format. Read it before changing anything
- * here, because three other adapters implement the same thing.
+ * Every `json` response body a scenario serves is also checked against the
+ * schema `sdk/contract/contract.json` declares for that operation, so a fixture
+ * cannot quietly encode a response the real server would never send.
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -34,9 +37,9 @@ import {
 } from "../src/errors.ts";
 import type { RunEvent } from "../src/types.ts";
 
-const SDK = "typescript";
 const HERE = dirname(fileURLToPath(import.meta.url));
-const CONFORMANCE = join(HERE, "..", "..", "conformance");
+const SCENARIOS = join(HERE, "scenarios");
+const CONTRACT = join(HERE, "..", "..", "contract", "contract.json");
 
 // ── the scenario format, as this adapter reads it ────────────────────────────
 
@@ -148,7 +151,7 @@ class ScriptedServer {
       // plausibly would let a client's extra round trip pass unnoticed.
       this.unmatched.push(recorded);
       res.writeHead(599, { "content-type": "application/json" });
-      res.end(JSON.stringify({ error: "conformance_unmatched_request" }));
+      res.end(JSON.stringify({ error: "scenario_unmatched_request" }));
       return;
     }
 
@@ -329,7 +332,7 @@ async function drive(scenario: Scenario, baseUrl: string): Promise<Partial<Obser
         break;
       }
       default:
-        throw new Error(`conformance: this adapter has no op ${step.op}`);
+        throw new Error(`scenario: no such op ${step.op}`);
     }
   }
   return out;
@@ -483,24 +486,23 @@ function check(scenario: Scenario, observed: Observations): string[] {
 
 // ── the driver ───────────────────────────────────────────────────────────────
 
-const skips: Record<string, unknown> = (() => {
-  const matrix = JSON.parse(readFileSync(join(CONFORMANCE, "matrix.json"), "utf8"));
-  const out: Record<string, unknown> = {};
-  for (const [name, verdicts] of Object.entries(matrix.scenarios ?? {})) {
-    const verdict = (verdicts as Record<string, unknown>)[SDK];
-    if (verdict !== "yes") out[name] = verdict;
-  }
-  return out;
-})();
+const files = readdirSync(SCENARIOS).filter((file) => file.endsWith(".json")).sort();
+const scenarios: Scenario[] = files.map((file) =>
+  JSON.parse(readFileSync(join(SCENARIOS, file), "utf8")),
+);
 
-const scenarios: Scenario[] = readdirSync(join(CONFORMANCE, "scenarios"))
-  .filter((file) => file.endsWith(".json"))
-  .sort()
-  .map((file) => JSON.parse(readFileSync(join(CONFORMANCE, "scenarios", file), "utf8")));
+test("scenarios exist and each is named after its file", () => {
+  assert.ok(scenarios.length > 0, "test/scenarios is empty");
+  scenarios.forEach((scenario, index) => assert.equal(`${scenario.name}.json`, files[index]));
+});
 
 for (const scenario of scenarios) {
-  const skip = skips[scenario.name] as { skip?: string; issue?: number } | undefined;
-  test(`conformance/${scenario.name}`, { skip: skip ? `#${skip.issue}: ${skip.skip}` : false }, async () => {
+  test(`scenario fixtures match the contract/${scenario.name}`, () => {
+    const problems = fixtureProblems(scenario);
+    assert.equal(problems.length, 0, `\n  ${problems.join("\n  ")}\n`);
+  });
+
+  test(`scenario/${scenario.name}`, async () => {
     const server = new ScriptedServer(scenario.http);
     const baseUrl = await server.start();
     const observed: Observations = {
@@ -524,12 +526,119 @@ for (const scenario of scenarios) {
     assert.equal(
       problems.length,
       0,
-      `\nconformance FAILED for ${SDK} / ${scenario.name}\n` +
+      `\nscenario FAILED: ${scenario.name}\n` +
         `  ${scenario.title}\n\n` +
         problems.map((problem) => `  ${problem}`).join("\n\n") +
         "\n",
     );
   });
+}
+
+// ── fixtures against the declared contract ──────────────────────────────────
+//
+// A structural check, not a JSON Schema validator. It answers the two
+// questions a fixture gets wrong: does it use a property the schema does not
+// declare, and does it omit one the schema requires. Type checks stop at the
+// primitive families, and a union is satisfied by any member.
+
+interface ContractSchema {
+  ref?: string;
+  type?: string;
+  items?: ContractSchema;
+  properties?: Record<string, ContractSchema & { required?: boolean }>;
+  additionalProperties?: unknown;
+  oneOf?: unknown;
+  anyOf?: unknown;
+}
+interface Contract {
+  operations: Record<string, { responses?: Record<string, Record<string, ContractSchema>> }>;
+  schemas: Record<string, ContractSchema>;
+}
+
+const contract: Contract = JSON.parse(readFileSync(CONTRACT, "utf8"));
+// Fewest variables first, then longest: a literal segment beats a variable.
+const templates = [...new Set(Object.keys(contract.operations).map((op) => op.split(" ", 2)[1]!))].sort(
+  (a, b) => (a.match(/\{/g)?.length ?? 0) - (b.match(/\{/g)?.length ?? 0) || b.length - a.length,
+);
+
+function templateFor(path: string): string | undefined {
+  const parts = path.split("/").filter(Boolean);
+  return templates.find((template) => {
+    const segments = template.split("/").filter(Boolean);
+    return (
+      segments.length === parts.length &&
+      segments.every((segment, index) => segment.startsWith("{") || segment === parts[index])
+    );
+  });
+}
+
+function resolve(schema: ContractSchema | undefined): ContractSchema | undefined {
+  const seen = new Set<string>();
+  while (schema?.ref) {
+    if (seen.has(schema.ref)) return undefined;
+    seen.add(schema.ref);
+    schema = contract.schemas[schema.ref];
+  }
+  return schema;
+}
+
+function checkBody(body: unknown, raw: ContractSchema | undefined, where: string, out: string[]): void {
+  const schema = resolve(raw);
+  if (!schema || Object.keys(schema).length === 0 || schema.oneOf || schema.anyOf) return;
+
+  if (schema.type === "array") {
+    if (!Array.isArray(body)) return void out.push(`${where}: the schema says array`);
+    body.forEach((item, index) => checkBody(item, schema.items, `${where}[${index}]`, out));
+    return;
+  }
+  if (schema.type === "object" || schema.properties) {
+    if (body === null || typeof body !== "object" || Array.isArray(body)) {
+      return void out.push(`${where}: the schema says object`);
+    }
+    const properties = schema.properties ?? {};
+    if (Object.keys(properties).length === 0) return;
+    const record = body as Record<string, unknown>;
+    for (const key of Object.keys(record).sort()) {
+      if (!(key in properties) && !schema.additionalProperties) {
+        out.push(`${where}.${key}: no such property in the declared schema`);
+      }
+    }
+    for (const [key, property] of Object.entries(properties)) {
+      if (property.required && !(key in record)) {
+        out.push(`${where}.${key}: the schema requires it and the fixture omits it`);
+      }
+      if (key in record) checkBody(record[key], property, `${where}.${key}`, out);
+    }
+    return;
+  }
+  if (body === null) return;
+  const family: Record<string, (value: unknown) => boolean> = {
+    string: (value) => typeof value === "string",
+    integer: (value) => Number.isInteger(value),
+    number: (value) => typeof value === "number",
+    boolean: (value) => typeof value === "boolean",
+  };
+  const ok = schema.type ? family[schema.type] : undefined;
+  if (ok && !ok(body)) out.push(`${where}: the schema says ${schema.type}`);
+}
+
+function fixtureProblems(scenario: Scenario): string[] {
+  const out: string[] = [];
+  scenario.http.forEach(({ match, respond }, index) => {
+    if (respond.json === undefined) return;
+    const template = templateFor(match.path);
+    const operation = template && contract.operations[`${match.method.toUpperCase()} ${template}`];
+    const declared = operation && operation.responses?.[String(respond.status)]?.["application/json"];
+    if (!declared) {
+      out.push(
+        `http[${index}]: no operation in sdk/contract/contract.json serves ` +
+          `${match.method} ${match.path} with a ${respond.status} JSON body`,
+      );
+      return;
+    }
+    checkBody(respond.json, declared, `http[${index}].json`, out);
+  });
+  return out;
 }
 
 function sleep(ms: number): Promise<void> {

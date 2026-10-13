@@ -1,37 +1,24 @@
-# The SDK conformance suite
+# Wire scenarios
 
-`sdk/contract/` pins the *shape* of the wire. This pins the *behaviour*: what a
-client does with an SSE frame split across two TCP writes, which error class a
-429 becomes, whether a dropped stream resumes from the right cursor, and what
-`run` returns when the turn fails. None of that is in an OpenAPI document, and
-all of it is something Fountain promises to every client, whatever its
-language. The TypeScript SDK is the client that runs it today; the Python,
-Elixir and Swift SDKs that also ran it were removed on 2026-10-12 (ADR 0059).
+`sdk/contract/` pins the *shape* of the wire. These pin the *behaviour*: what
+the client does with an SSE frame split across two TCP writes, which error
+class a 429 becomes, whether a dropped stream resumes from the right cursor,
+and what `run` returns when the turn fails. None of that is in an OpenAPI
+document.
 
-Each scenario is a JSON file describing bytes in and observations out. Each SDK
-supplies a thin adapter that serves those bytes to its own public client and
-reports what it saw. The scenarios contain no language-specific expectation,
-and the adapters contain no expectation at all.
+Each scenario is a JSON file describing bytes in and observations out.
+`../scenarios.test.ts` serves those bytes over a real socket to the public
+client, records what it saw, and compares that with the scenario's `expect`.
+It also checks every `json` response body against the schema the server
+declares for that operation in `sdk/contract/contract.json`, so a fixture
+cannot quietly encode a response the real server would never send.
 
-## Layout
+They run with the rest of the SDK's tests (`npm test` in `sdk/typescript`).
+To run only these: `node --test test/scenarios.test.ts`.
 
-```
-sdk/conformance/
-  README.md            this file: the format, the vocabulary, how to add one
-  scenarios/*.json     the canonical scenarios
-  matrix.json          which SDK runs which scenario, and why not
-  lint.py             validates the scenarios, the matrix and the fixtures
-```
-
-## Running it
-
-| SDK | Command | Run from |
-|---|---|---|
-| TypeScript | `npm run conformance` | `sdk/typescript` |
-
-It also runs inside the SDK's normal test command, so a contributor who runs
-the suite gets it without knowing it is there. `python3 sdk/conformance/lint.py`
-checks the scenarios themselves.
+These scenarios were once a language-neutral suite shared by four SDKs
+(`sdk/conformance`). TypeScript is the one SDK left, so they live with its
+tests; the format below is unchanged.
 
 ## A scenario
 
@@ -75,7 +62,7 @@ checks the scenarios themselves.
 
 ### `http`: the bytes going out
 
-An ordered list of exchanges. For each incoming request the adapter takes the
+An ordered list of exchanges. For each incoming request the test server takes the
 **first not-yet-consumed** entry whose `match` fits, and consumes it. Order
 matters only between entries that match the same request, which is how a
 reconnect scenario says "this stream dies, the next one resumes".
@@ -92,7 +79,7 @@ which conversation it means is not pinning much.
 `respond` is one of two shapes.
 
 **A whole response.** `status`, optional `headers`, and a body as either `json`
-(encoded by the adapter) or `body` (a string sent verbatim, for the malformed
+(encoded by the test server) or `body` (a string sent verbatim, for the malformed
 cases). No body key means no body.
 
 **A stream.** `status`, `headers`, and `sse`: a list of strings written in
@@ -103,16 +90,12 @@ timing matters. `close` is `end` for a clean end of stream or `abort` for a
 connection that dies without one, which is what a deploy or a proxy timeout
 looks like to a client that has been reading happily for hours.
 
-**How the bytes reach the client is the adapter's business.** A real loopback
-socket and a transport-level mock are both fine, as long as the client parses
-the same bytes.
-
 ### `steps`: what the client is asked to do
 
 The vocabulary is small on purpose. Every op is something a client
 exposes publicly; nothing here reaches into a private class.
 
-| `op` | Fields | What the adapter calls |
+| `op` | Fields | What the test calls |
 |---|---|---|
 | `me` | | the "who am I" call |
 | `list` | `resource` (`agents`\|`vaults`\|`environments`) | that collection's list |
@@ -127,12 +110,12 @@ the result. `channel_id` selects a channel to create or resume, and
 `client_request_id` names the prompt submission on both the create request and
 the follow-up prompt request when the channel resumes.
 `answer_permissions` maps a permission request id (or `"*"`) to the
-option id the adapter should answer with, which is how the permission flow is
+option id the test should answer with, which is how the permission flow is
 driven without the scenario knowing anything about callbacks or futures.
 
 `client` sets up the client: `api_key`, and optionally `base_url_suffix` (append
 to the server's base URL, for the normalisation scenarios) and `timeout_ms`.
-The adapter supplies the base URL; a scenario never knows the port.
+The test supplies the base URL; a scenario never knows the port.
 
 ### `expect`: what must be observed
 
@@ -152,13 +135,11 @@ Every key is optional, and an absent key asserts nothing.
 - **`events`** — the ordered run events, each a subset match. The event
   vocabulary is the one the SDK already emits: `conversation`,
   `turn-start`, `text`, `thinking`, `tool`, `permission`, `block`, `event`,
-  `turn-end`. Adapters report `type` in that spelling whatever their language
-  calls it.
+  `turn-end`.
 - **`result`** — a subset match against the finished run: `state`, `text`,
   `tools_used`, `turn_number`, `exit_code`, `reason`, `conversation_id`.
 - **`error`** — the failure the client raised, subset-matched. `kind` comes
-  from the shared vocabulary below, because an error class name is
-  one language's spelling of the promise, not the promise. The other keys are `status`, `code` (the server's `error` string),
+  from the vocabulary below rather than an error class name. The other keys are `status`, `code` (the server's `error` string),
   `retryable`, `retry_after` (seconds, from `Retry-After`), `field_errors` (the
   422 map) and `partial_text` (what a timed-out run had collected).
 - **`no_error`: true** — the step must not raise. Implied when `result` or
@@ -180,40 +161,24 @@ Every key is optional, and an absent key asserts nothing.
 | `resolution` | a name the account has no match for |
 | `server` | any other non-2xx |
 
-An SDK whose class names differ maps them here in its adapter. The mapping is
-the adapter's only judgement call, and it is the thing the suite is asserting,
-so keep it honest: map the class the client actually raises, never the class
-the scenario wants.
-
-## The support matrix
-
-`matrix.json` says which SDK runs which scenario. Every scenario needs an entry
-for every registered SDK, and the only values are `"yes"` or an object
-`{"skip": "why", "issue": 1234}`. `lint.py` fails on a scenario missing from the
-matrix, on an SDK missing from a scenario, on a skip with no issue, and on a
-matrix entry naming a scenario that no longer exists. A gap is therefore a
-decision somebody wrote down and filed, never an absence.
+`scenarios.test.ts` maps the client's error classes to these kinds. Keep the
+mapping honest: map the class the client actually raises, never the class the
+scenario wants.
 
 ## Adding a behaviour
 
-One place, in this order:
-
-1. Write the scenario JSON here. This is the definition of the behaviour, and
-   it lands before any implementation changes.
-2. Run `python3 sdk/conformance/lint.py`. It checks the format, and it checks
-   every `json` response body in the scenario against the schema the server
-   declares for that operation in `sdk/contract/contract.json` — so a fixture
-   cannot quietly encode a response the real server would never send.
-3. Add it to `matrix.json`, `"yes"` for the SDKs that pass and a skip with an
-   issue number for the ones that do not yet.
-4. Fix the clients.
+1. Write the scenario JSON here, named after its `name`. It is the definition
+   of the behaviour, and it lands before the client changes.
+2. Run `node --test test/scenarios.test.ts`. A fixture body the contract does
+   not declare fails before the client is even driven.
+3. Fix the client.
 
 ## What this is not
 
-It does not replace each SDK's own tests. Those cover idiom, ergonomics and
-implementation detail, such as how `for await` behaves. This suite owns only
-the behaviour Fountain promises to every client, and its scenarios
-should stay boring enough that a reader can tell which is which.
+It does not replace the SDK's other tests. Those cover idiom, ergonomics and
+implementation detail, such as how `for await` behaves. These own only the
+behaviour on the wire, and should stay boring enough that a reader can tell
+which is which.
 
 It also does not drive a real Fountain. Every scenario is scripted bytes, which
 is what makes byte-level framing and connection death testable at all. The

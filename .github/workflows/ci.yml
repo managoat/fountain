@@ -806,9 +806,6 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
 
-      - name: SDK conformance scenarios are well formed
-        run: python3 sdk/conformance/lint.py
-
       # Node 24 runs the TypeScript test sources directly. The minimum
       # runtime runs JavaScript compiled from those same tests. Both legs
       # typecheck, build and verify the SDK contract and browser bundle.
@@ -874,16 +871,6 @@ jobs:
       - name: TypeScript SDK contract
         working-directory: sdk/typescript
         run: npm run verify-contract
-
-      - name: TypeScript SDK conformance on the minimum runtime
-        if: ${{ matrix.node == '20.19.0' }}
-        working-directory: sdk/typescript
-        run: node scripts/test-compiled.mjs --conformance
-
-      - name: TypeScript SDK conformance
-        if: ${{ matrix.node == '24' }}
-        working-directory: sdk/typescript
-        run: npm run conformance
 
   cli-plugins:
     name: CLI and plugins
@@ -1195,8 +1182,6 @@ jobs:
           # The changelog guard diffs the PR's merge commit against its
           # first parent, so it needs one level of history.
           fetch-depth: 0
-      - name: Check SDK maintenance contract
-        run: python3 scripts/sdk-catalog.py
       - name: Reject conflict markers
         run: python3 scripts/conflict-markers.py
       - name: Test CI decisions

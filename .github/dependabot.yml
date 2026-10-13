@@ -59,7 +59,7 @@ updates:
       # carries that peer, 7.7.3 through 7.13.0 (`latest`); the `next` tag is
       # the older 7.0.0-rc.1. A TypeScript major above 5 therefore makes the
       # tree unresolvable and `npm ci` exits 1 on ERESOLVE before typecheck,
-      # tests, build, `verify-contract`, conformance or the generated-types
+      # tests, build, `verify-contract` or the generated-types
       # freshness diff get to say whether the compiler itself is fine
       # (ci.yml `SDK install`, and sdk-publish.yml runs the same install).
       # `--legacy-peer-deps` is not the way out: it would run a TS-5-targeting

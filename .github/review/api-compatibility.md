@@ -17,8 +17,9 @@ and plugins. Generated TypeScript OpenAPI types and the
 committed wire contract must stay current. A new endpoint needs an explicit
 client or a justified omission; do not add an omission to make a test pass.
 For SSE framing, cursor resume, reconnect, pagination, terminal states, error
-mapping and permission flows, inspect shared conformance scenarios and client
-adapters. A new skip needs the maintainer's decision, not an automatic fix.
+mapping and permission flows, inspect the TypeScript SDK's wire scenarios
+(`sdk/typescript/test/scenarios`). Changing or removing a scenario needs the
+maintainer's decision, not an automatic fix.
 
 Check public docs, CLI command documentation and examples against the actual
 behavior. SDK versions have their own release rules; changing a server contract

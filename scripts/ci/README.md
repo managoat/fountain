@@ -19,13 +19,13 @@ name in a red build says which toolchain to look at:
 
 | Job | What it runs |
 |---|---|
-| **workflow-checks** | `CI policy and alert tests`: conflict-marker detection (`scripts/conflict-markers.py`), the Python suite in `scripts/ci/` that gates CI's own decision logic, the SDK ownership/support catalog (`scripts/sdk-catalog.py`), the DCO sign-off gate (`scripts/ci/dco.py`, PRs only; Dependabot's commits on its own PRs are exempt), the changelog guard and Prometheus alert-fixture evaluation (`scripts/test-alerts.py`). Policy checks run even for docs-only changes and reused trees; alert evaluation skips only explicit docs-only plans |
+| **workflow-checks** | `CI policy and alert tests`: conflict-marker detection (`scripts/conflict-markers.py`), the Python suite in `scripts/ci/` that gates CI's own decision logic, the DCO sign-off gate (`scripts/ci/dco.py`, PRs only; Dependabot's commits on its own PRs are exempt), the changelog guard and Prometheus alert-fixture evaluation (`scripts/test-alerts.py`). Policy checks run even for docs-only changes and reused trees; alert evaluation skips only explicit docs-only plans |
 | **test** (×6) | The suite, as six partitions (`scripts/test-partition.sh`), plus a `coverage` job that merges their exports with `scripts/coverage-gate.exs` and enforces the 85% threshold |
 | **elixir-static** | `mix deps.unlock --unused`, `mix format --check-formatted`, `mix compile --warnings-as-errors`, `mix credo --strict`, `scripts/hex-audit-gate.exs`, `scripts/sobelow.sh`, `MIX_ENV=dev mix dialyzer` |
 | **release-and-contract** | `mix ecto.create && mix ecto.migrate`, the prod release boot check (probes `/health` and `/health/ready`, runs a release task beside the live server), `mix openapi.spec.json` + `jq empty`, and `scripts/sdk-contract/build.sh --check` |
 | **changes** | Classifies the diff and emits the plan every other job reads: `docs_only` (which gates the server jobs), `manual_docs` (which selects the published-manual tests), `cli_docs` and `tree` (`scripts/ci/changes.py`). Fail-open: an unreadable diff or an unregistered path selects the full server plan. Runs on `pull_request`, `merge_group` and `workflow_dispatch`, never on `push`, where the outputs are empty so every `!=`-gated job runs |
 | **already-tested** | `Skip the re-run when a PR already tested this exact tree`: `scripts/ci/already-tested.sh` compares the checkout tree with a successful run's `tested-tree` artifact. Runs only on `push` and `merge_group`. Missing or expired artifacts and API failures leave `skip=false` |
-| **typescript-sdk** (×2) | The TypeScript SDK on the minimum Node in `engines.node` (20.19.0) and on 24, conformance fixtures, and the packed tarball installed into a throwaway consumer project |
+| **typescript-sdk** (×2) | The TypeScript SDK on the minimum Node in `engines.node` (20.19.0) and on 24, and the packed tarball installed into a throwaway consumer project |
 | **cli-plugins** | The Go module (`cli/`) with vet and gofmt, and the Hermes plugin |
 | **compose-fresh-clone** | `docker compose config --quiet` without `.env`, `SECRET_KEY_BASE` or `MASTER_SECRETS_KEY`, so the documented database-only startup can load the Compose file |
 | **compose-pinned-image-boot** | `scripts/compose-boot-check.sh` exercises the Compose quick start against its pinned release image. An unpublished pin that matches the version in `mix.exs` defers the boot check to `release.yml`; any other missing pin fails |
@@ -150,15 +150,14 @@ checks run in `cli-plugins`. Each reads the committed contract;
 `release-and-contract` checks its generation. The Python, Elixir and Swift SDKs
 and their jobs were removed on 2026-10-12 (ADR 0059).
 The TypeScript job owns
-installation, type checks, tests, builds, browser bundling, contract and
-conformance checks on Node 20.19.0 and 24. The minimum runtime runs compiled
+installation, type checks, tests (wire scenarios included), builds, browser
+bundling and contract checks on Node 20.19.0 and 24. The minimum runtime runs compiled
 JavaScript from the same test sources in a temporary fixture tree. Node 24
 retains native TypeScript tests. Both legs build the SDK and browser bundle.
 They also pack and install the npm artifact in a temporary consumer project.
 That project typechecks against the published declarations and exercises the
 Node and browser entry points with a fake fetch implementation. It also bundles
 that consumer for a browser, checking the package export conditions.
-It lints the conformance fixtures before its tests.
 **The SDK job runs on every plan.** Pull requests, merge groups, manual
 dispatches and main pushes all run it, docs-only plans included; the one
 thing that skips an SDK leg is verified tested-tree reuse, exactly as it

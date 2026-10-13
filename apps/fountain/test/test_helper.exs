@@ -99,7 +99,7 @@ Mimic.copy(Fountain.Machines.Resume)
 #
 # Every other check in this repository compares a schema with another schema.
 # `sdk/contract` projects the OpenAPI document and pins the SDK to it,
-# `sdk/conformance` pins what that client does with it, and both pass happily
+# the SDK's wire scenarios pin what that client does with it, and both pass happily
 # when the document is a lie about its own controller. Three defects of that
 # shape surfaced in one day (#1417, #1418, #1427).
 #

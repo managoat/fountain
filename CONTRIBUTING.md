@@ -242,7 +242,7 @@ argument lists; add an ergonomic argument only when it merits a convenience API.
 An optional field with no new client behavior needs the server input/JSON-view
 change, its focused server test, and regeneration. TypeScript receives
 generated declarations; CLI JSON input forwards it. Do not add the field to
-the SDK manifest or an unrelated conformance scenario.
+the SDK manifest or an unrelated wire scenario.
 Manifest claims still name dependencies of handwritten code: fields read by
 run following, error handling, resolvers, or legacy convenience builders.
 A new behavior still needs independent expectations in the relevant tests.
@@ -257,7 +257,7 @@ production schemas. See [the inventory and prerequisites](sdk/contract/README.md
 
 ### The schema has to match its own controller
 
-`sdk/contract` and `sdk/conformance` both compare a schema with another schema,
+`sdk/contract` and the SDK's wire scenarios both compare a schema with another schema,
 so neither notices when the document is wrong about what the action actually
 renders. Three defects of that shape landed in a day (#1417, #1418, #1427), so
 the suite now checks it directly and you will meet it without doing anything:
@@ -286,31 +286,22 @@ finishes.
 The contract above covers request and response *shape*. What a client does with
 that shape — SSE framing, reconnect and cursor resume, which error class a
 status becomes, terminal run states, the permission flow, pagination — is the
-shared conformance suite in `sdk/conformance/`, a set of JSON scenarios the
-TypeScript SDK runs.
+TypeScript SDK's wire scenarios in `sdk/typescript/test/scenarios/`, JSON files
+of scripted bytes in and observations out.
 
-Change one of those behaviours and the scenario is where you start, before any
+Change one of those behaviours and the scenario is where you start, before the
 client changes:
 
 ```bash
-$EDITOR sdk/conformance/scenarios/<name>.json
-python3 sdk/conformance/lint.py
+$EDITOR sdk/typescript/test/scenarios/<name>.json
+cd sdk/typescript && node --test test/scenarios.test.ts
 ```
 
-The lint checks the format, checks the support matrix, and checks every fixture
-body against the schema the server declares for that operation, so a scenario
-cannot go green against a response the real server would never send. Then run
-the adapter:
-
-```bash
-cd sdk/typescript && npm run conformance
-```
-
-A client that cannot pass a scenario yet gets an entry in
-`sdk/conformance/matrix.json` saying what it does instead and the issue
-tracking it. `lint.py` refuses a skip with no issue number, so a gap is always
-something somebody decided and filed. `sdk/conformance/README.md` is the
-reference for the scenario format and the shared vocabularies.
+The test checks every fixture body against the schema the server declares for
+that operation in `sdk/contract/contract.json`, so a scenario cannot go green
+against a response the real server would never send. They also run in
+`npm test`. `sdk/typescript/test/scenarios/README.md` is the reference for the
+scenario format and its vocabularies.
 
 Do not bump an SDK's version because the contract moved. Merging a version bump
 publishes that SDK, so a version moves when its own public surface changes.
@@ -318,10 +309,9 @@ Label a PR `release:skip-sdk` where the distinction needs saying out loud.
 
 ## SDK ownership and releases
 
-[SDKs.md](SDKs.md) is the checked package and support catalog.
-[SDK maintenance](contributing/sdk-maintenance.md) owns version bumps, release
-tags, credentials and the checklist for a new client.
-After a package version or catalog change, run `python3 scripts/sdk-catalog.py --write`.
+TypeScript (`@managoat/fountain-sdk`, [sdk/typescript](sdk/typescript/README.md))
+is the one SDK. [SDK maintenance](contributing/sdk-maintenance.md) owns version
+bumps, release tags and credentials.
 
 ## Pull requests
 

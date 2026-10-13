@@ -1,6 +1,6 @@
 ### Changed
 
-- The periodic backstops run as one Oban worker (#NNNN).
+- The periodic backstops run as one Oban worker (#2640).
   `Fountain.Workers.SandboxReaper` now also reaps turns left running with no
   server (on its five-minute `teardowns` run) and denies detached permission
   requests past their deadline (a one-minute `detached_requests` run). The

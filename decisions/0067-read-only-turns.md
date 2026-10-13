@@ -4,12 +4,12 @@ title: "A read-only turn is enforced by the sandbox, not by the harness"
 description: "Proposed, unbuilt: a prompt may run read-only; Fountain starts that turn's adapter in a read-only mount namespace with capabilities dropped and the harness state replaced by a throwaway copy at its own paths, so the turn leaves nothing in the owner's session; it rejects permission requests, withholds write credentials and MCP servers, and refuses runtimes it cannot hold to it. Harness modes alone were measured and do not enforce it."
 tags: [conversations, sandbox, acp, permissions]
 status: draft
-adr: "0064"
+adr: "0067"
 adr_status: "Proposed"
 date: 2026-10-02
 ---
 
-# 0064 — A read-only turn is enforced by the sandbox, not by the harness
+# 0067 — A read-only turn is enforced by the sandbox, not by the harness
 
 ## Context
 

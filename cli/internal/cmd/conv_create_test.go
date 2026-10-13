@@ -17,13 +17,10 @@ import (
 func TestConversationCreateForwardsFileAndStdinWithoutFieldMappings(t *testing.T) {
 	body := `{"agent_id":"agent-1","title":"","vault_id":null,"fresh":false,"images":[],"labels":{"source":"nightly"},"permission_policy":{"ask_timeout":0},"future_field":9007199254740993}`
 	for _, source := range []string{"file", "stdin"} {
-		for _, status := range []int{201, 202} {
+		// 201 opened a conversation; 200 resumed one by channel_id.
+		for _, status := range []int{201, 200} {
 			t.Run(source+http.StatusText(status), func(t *testing.T) {
-				// A 202 is a sandbox request, not a conversation to follow.
 				response := `{"data":{"id":"created","status":"idle"}}`
-				if status == 202 {
-					response = `{"data":{"id":"queued","status":"pending","kind":"start"}}`
-				}
 				var calls atomic.Int32
 				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					calls.Add(1)

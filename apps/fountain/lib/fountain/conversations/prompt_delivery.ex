@@ -117,17 +117,11 @@ defmodule Fountain.Conversations.PromptDelivery do
   end
 
   @doc """
-  Deliver to a live server, with the caller's uncertain-delivery classification.
-
-  A timeout or distribution loss can follow acceptance of the prompt. The
-  sandbox queue sets `:uncertain_error` to `:prompt_delivery_unknown` to stop
-  automatic retries on either outcome. Ordinary callers keep their existing
-  timeout response and exit behavior. An explicit refusal from the server is
-  returned unchanged. This option stays local and never travels with the prompt.
+  Deliver to a live server. A timeout answers `:provisioning`; an explicit
+  refusal from the server is returned unchanged.
   """
   def deliver(pid, prompt, images, opts) do
-    uncertain_error = Keyword.get(opts, :uncertain_error, :provisioning)
-    ConversationServer.call_server(pid, call(pid, prompt, images, opts), uncertain_error)
+    ConversationServer.call_server(pid, call(pid, prompt, images, opts))
   end
 
   @doc "The cast that delivers a prompt to the server `pid` once it has provisioned."

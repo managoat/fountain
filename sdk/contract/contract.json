@@ -562,40 +562,6 @@
         }
       }
     },
-    "DELETE /api/sandbox-queue/{id}": {
-      "operation_id": "FountainWeb.SandboxQueueController.delete",
-      "path_params": [
-        "id"
-      ],
-      "responses": {
-        "204": {},
-        "401": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "403": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "404": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "406": {
-          "application/json": {
-            "ref": "NegotiationError"
-          }
-        },
-        "429": {
-          "application/json": {
-            "ref": "Error"
-          }
-        }
-      }
-    },
     "DELETE /api/sandboxes/{id}": {
       "operation_id": "FountainWeb.SandboxController.delete",
       "path_params": [
@@ -2290,75 +2256,6 @@
         "409": {
           "application/json": {
             "ref": "Error"
-          }
-        },
-        "429": {
-          "application/json": {
-            "ref": "Error"
-          }
-        }
-      }
-    },
-    "GET /api/sandbox-queue": {
-      "operation_id": "FountainWeb.SandboxQueueController.index",
-      "path_params": [],
-      "responses": {
-        "200": {
-          "application/json": {
-            "ref": "SandboxRequestListResponse"
-          }
-        },
-        "401": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "403": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "406": {
-          "application/json": {
-            "ref": "NegotiationError"
-          }
-        },
-        "429": {
-          "application/json": {
-            "ref": "Error"
-          }
-        }
-      }
-    },
-    "GET /api/sandbox-queue/{id}": {
-      "operation_id": "FountainWeb.SandboxQueueController.show",
-      "path_params": [
-        "id"
-      ],
-      "responses": {
-        "200": {
-          "application/json": {
-            "ref": "SandboxRequestResponse"
-          }
-        },
-        "401": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "403": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "404": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "406": {
-          "application/json": {
-            "ref": "NegotiationError"
           }
         },
         "429": {
@@ -4122,57 +4019,6 @@
         }
       }
     },
-    "POST /api/admin/users/{id}/sandbox-limit": {
-      "operation_id": "FountainWeb.AdminController.set_sandbox_limit",
-      "path_params": [
-        "id"
-      ],
-      "request_body": {
-        "content": {
-          "application/json": {
-            "ref": "AdminSandboxLimitRequest"
-          }
-        },
-        "required": false
-      },
-      "responses": {
-        "200": {
-          "application/json": {
-            "ref": "AdminUserResponse"
-          }
-        },
-        "401": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "403": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "404": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "406": {
-          "application/json": {
-            "ref": "NegotiationError"
-          }
-        },
-        "422": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "429": {
-          "application/json": {
-            "ref": "Error"
-          }
-        }
-      }
-    },
     "POST /api/admin/users/{id}/suspend": {
       "operation_id": "FountainWeb.AdminController.set_suspended",
       "path_params": [
@@ -4722,11 +4568,6 @@
         "201": {
           "application/json": {
             "ref": "ConversationResponse"
-          }
-        },
-        "202": {
-          "application/json": {
-            "ref": "SandboxRequestResponse"
           }
         },
         "400": {
@@ -6327,16 +6168,6 @@
       },
       "type": "object"
     },
-    "AdminSandboxLimitRequest": {
-      "properties": {
-        "limit": {
-          "nullable": true,
-          "required": true,
-          "type": "integer"
-        }
-      },
-      "type": "object"
-    },
     "AdminSandboxListResponse": {
       "properties": {
         "data": {
@@ -6394,11 +6225,6 @@
           "required": false,
           "type": "string"
         },
-        "max_concurrent_sandboxes": {
-          "nullable": true,
-          "required": false,
-          "type": "integer"
-        },
         "role": {
           "enum": [
             "admin",
@@ -6406,11 +6232,6 @@
           ],
           "required": true,
           "type": "string"
-        },
-        "sandbox_limit_override": {
-          "nullable": true,
-          "required": false,
-          "type": "integer"
         },
         "suspended": {
           "required": false,
@@ -8103,11 +7924,6 @@
           "required": false,
           "type": "string"
         },
-        "queue": {
-          "nullable": true,
-          "required": false,
-          "type": "boolean"
-        },
         "sandbox_api_access": {
           "enum": [
             "none",
@@ -8684,10 +8500,6 @@
     },
     "Error": {
       "properties": {
-        "active_sandboxes": {
-          "required": false,
-          "type": "integer"
-        },
         "attempt_id": {
           "format": "uuid",
           "required": false,
@@ -10066,88 +9878,6 @@
       "properties": {
         "data": {
           "ref": "SandboxListing",
-          "required": true
-        }
-      },
-      "type": "object"
-    },
-    "SandboxRequest": {
-      "properties": {
-        "agent_id": {
-          "format": "uuid",
-          "required": true,
-          "type": "string"
-        },
-        "conversation_id": {
-          "format": "uuid",
-          "nullable": true,
-          "required": false,
-          "type": "string"
-        },
-        "error": {
-          "nullable": true,
-          "required": false,
-          "type": "string"
-        },
-        "id": {
-          "format": "uuid",
-          "required": true,
-          "type": "string"
-        },
-        "inserted_at": {
-          "format": "date-time",
-          "required": false,
-          "type": "string"
-        },
-        "kind": {
-          "enum": [
-            "schedule_run",
-            "start"
-          ],
-          "required": true,
-          "type": "string"
-        },
-        "position": {
-          "nullable": true,
-          "required": false,
-          "type": "integer"
-        },
-        "source": {
-          "nullable": true,
-          "required": false,
-          "type": "string"
-        },
-        "status": {
-          "enum": [
-            "cancelled",
-            "expired",
-            "failed",
-            "queued",
-            "started",
-            "starting"
-          ],
-          "required": true,
-          "type": "string"
-        }
-      },
-      "type": "object"
-    },
-    "SandboxRequestListResponse": {
-      "properties": {
-        "data": {
-          "items": {
-            "ref": "SandboxRequest"
-          },
-          "required": true,
-          "type": "array"
-        }
-      },
-      "type": "object"
-    },
-    "SandboxRequestResponse": {
-      "properties": {
-        "data": {
-          "ref": "SandboxRequest",
           "required": true
         }
       },

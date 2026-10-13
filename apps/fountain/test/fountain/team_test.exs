@@ -478,7 +478,6 @@ defmodule Fountain.TeamTest do
     test "a co-tenant of the retired computer keeps its own binding, either wake order" do
       for order <- [:teammate_first, :cotenant_first] do
         user = insert_active_user()
-        {:ok, user} = Fountain.Accounts.update_sandbox_limit(user, 10)
         env = insert_env(user_id: user.id)
         other = insert_env(user_id: user.id)
 

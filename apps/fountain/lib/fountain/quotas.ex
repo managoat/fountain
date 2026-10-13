@@ -1,31 +1,24 @@
 defmodule Fountain.Quotas do
   @moduledoc """
-  Per-tenant resource caps.
+  The fleet ceiling: the most live sandboxes the deployment runs at once
+  (`SANDBOX_FLEET_CEILING`, default 20 — the Sprites plan's limit).
 
-  Fountain provisions every tenant's sandboxes with a single platform-level
-  `SPRITES_TOKEN` and pays the resulting bill (ADR 0005), so a per-tenant
-  concurrency cap is the primary defence against one account — whether abusive,
-  scripted, or merely enthusiastic — consuming the platform's capacity.
-
-  A tenant may run `cap_ceiling` sandboxes at once (`SANDBOX_CAP_CEILING`).
-  `users.sandbox_limit_override` wins when it is set, which is the admin
-  lever: raise it for a trusted tenant, drop it to zero during abuse. A null
-  override means the ceiling.
-
-  A fleet ceiling bounds the sum across every tenant to what the providers
-  allow; `with_sandbox_reservation/3` checks it under a global lock and
-  refuses with `:fleet_full`, which is capacity, not a tenant's cap.
+  `with_sandbox_reservation/2` checks it under a global lock and refuses with
+  `:fleet_full` when every slot is in use, whoever holds them. There is no
+  per-account cap and no queue: a self-hosted deployment's accounts share one
+  provider bill by choice, and a refused start is retried by its caller (ADR
+  0042, as amended 2026-10-13).
 
   ## What counts
 
   A sandbox counts while it is compute: `pending`, `starting` and `ready`.
   `pending` and `starting` count because a sprite is being paid for from the
   moment provisioning begins, and counting only `ready` would let a burst of
-  concurrent starts sail past the cap before any of them settle. `suspended`
+  concurrent starts sail past the ceiling before any of them settle. `suspended`
   deliberately does NOT count — a parked sprite is scaled to zero and costs
   ~nothing (decisions/0017) — which means this set is narrower than the admin
   sandbox view's "anything non-terminal": the admin table will list a suspended
-  sandbox that the per-user counter ignores. Waking one re-runs the quota gate
+  sandbox that the counter ignores. Waking one re-runs the ceiling check
   (`Fountain.Machines.Resume`). Unconfirmed resets also count,
   even on parked machines, and cannot use the replacement exclusion.
 
@@ -33,14 +26,14 @@ defmodule Fountain.Quotas do
   stage 7a): a row stamped `transition: "resuming"` under a *live* lease is
   compute that has been paid for and is on its way up, and it counts even while
   its status still says `suspended`. That stamp is written inside
-  `with_sandbox_reservation/3`'s own transaction, which is what makes the
+  `with_sandbox_reservation/2`'s own transaction, which is what makes the
   reservation a reservation rather than a read — without it, two wakes of two
   parked machines would each pass a check the other was invisible to and both
-  come up past a cap with room for one.
+  come up past a ceiling with room for one.
 
   The live-lease half is what keeps it honest in the other direction. A resume
   whose owner died leaves the stamp behind, and counting *that* would hold a
-  tenant's slot until some later sweep cleared it. A lease that has expired is
+  slot until some later sweep cleared it. A lease that has expired is
   an abandoned operation for the next owner to take over — stage 6a's rule,
   applied here — so the slot comes back when the lease does. The clock is the
   database's (stage 7a), the same one `lease_until` is written from.
@@ -56,19 +49,16 @@ defmodule Fountain.Quotas do
 
   import Ecto.Query
 
-  alias Fountain.Accounts.User
   alias Fountain.Conversations.Sandbox
   alias Fountain.Repo
 
   @active_statuses ~w(pending starting ready)
 
   @doc """
-  Number of sandboxes currently counting against `user_id`'s cap.
+  Number of `user_id`'s sandboxes that hold a fleet slot.
 
-  Pass `exclude: sandbox_id` to leave a specific sandbox out. The wake path
-  needs this: it provisions the replacement before retiring the sandbox it is
-  replacing, so without the exclusion a conversation sitting exactly at the cap
-  could never be woken even though concurrency would not increase.
+  Pass `exclude: sandbox_id` to leave a specific sandbox out, as
+  `check_fleet_ceiling/1` does.
   """
   @spec active_sandbox_count(binary(), keyword()) :: non_neg_integer()
   def active_sandbox_count(user_id, opts \\ []) when is_binary(user_id) do
@@ -107,46 +97,14 @@ defmodule Fountain.Quotas do
     |> Map.new()
   end
 
-  @doc """
-  The concurrency cap for `user_id`: the override if it has one, otherwise
-  the configured ceiling.
-
-  A user who cannot be found at all gets zero, so a lookup failure tightens
-  rather than removes the limit.
-  """
-  @spec sandbox_limit(binary()) :: non_neg_integer()
-  def sandbox_limit(user_id) when is_binary(user_id) do
-    query =
-      from u in User,
-        where: u.id == ^user_id,
-        select: %{override: u.sandbox_limit_override}
-
-    case Repo.one(query) do
-      %{override: override} -> resolve_limit(override)
-      nil -> 0
-    end
-  end
-
-  @doc """
-  The same answer as `sandbox_limit/1` for a user already loaded — for the
-  admin table, which shows the cap on every row and must not run a query per
-  row (the same contract as `active_sandbox_counts/0`).
-  """
-  @spec sandbox_limit_for(User.t()) :: non_neg_integer()
-  def sandbox_limit_for(%User{} = user), do: resolve_limit(user.sandbox_limit_override)
-
-  defp resolve_limit(override) when is_integer(override), do: override
-  defp resolve_limit(_override), do: settings().cap_ceiling
-
   @doc "Live sandboxes across every tenant, against the fleet ceiling."
   @spec fleet_count() :: non_neg_integer()
   def fleet_count do
     Repo.one(from(s in active_sandboxes(), select: count(s.id))) || 0
   end
 
-  # A reset holds its slot until deletion is confirmed, including a reset
-  # requested while parked, and so does a teardown. Replacement exclusions
-  # cannot spend that slot.
+  # A teardown holds its slot until deletion is confirmed, including one
+  # requested while parked. Replacement exclusions cannot spend that slot.
   #
   # The second arm is ADR 0058 stage 9a's `destroying` stamp, which both fences
   # write; until stage 9b an arm beside it read `reset_requested_at`, the same
@@ -157,8 +115,7 @@ defmodule Fountain.Quotas do
   # when its lease lapses, where a destroy whose owner died is an *unfinished*
   # one — the machine is still at the provider and still billing, and
   # `SandboxReaper.sweep_fenced_teardowns/0`'s driver is what ends it. Counting
-  # it as free would let a tenant start a machine against a slot two machines
-  # are using.
+  # it as free would let a start take a slot two machines are using.
   #
   # The last arm is ADR 0058 stage 7a's resume reservation, and it is the one
   # rendering of `Machines.Lease.live?/2` that had to be written in SQL: this is
@@ -182,18 +139,10 @@ defmodule Fountain.Quotas do
              s.lease_until > fragment("statement_timestamp() AT TIME ZONE 'UTC'"))
   end
 
-  @doc "The per-account ceiling and the fleet ceiling in force."
-  @spec settings() :: %{
-          cap_ceiling: non_neg_integer(),
-          fleet_ceiling: non_neg_integer()
-        }
-  def settings do
-    cfg = Application.get_env(:fountain, :sandboxes, [])
-
-    %{
-      cap_ceiling: Keyword.get(cfg, :cap_ceiling, 20),
-      fleet_ceiling: Keyword.get(cfg, :fleet_ceiling, 20)
-    }
+  @doc "The fleet ceiling in force."
+  @spec fleet_ceiling() :: non_neg_integer()
+  def fleet_ceiling do
+    :fountain |> Application.get_env(:sandboxes, []) |> Keyword.get(:fleet_ceiling, 20)
   end
 
   @doc """
@@ -202,7 +151,7 @@ defmodule Fountain.Quotas do
   """
   @spec check_fleet_ceiling(keyword()) :: :ok | {:error, :fleet_full}
   def check_fleet_ceiling(opts \\ []) do
-    ceiling = settings().fleet_ceiling
+    ceiling = fleet_ceiling()
 
     count =
       case Keyword.get(opts, :exclude) do
@@ -221,68 +170,31 @@ defmodule Fountain.Quotas do
     if count < ceiling, do: :ok, else: {:error, :fleet_full}
   end
 
-  @doc """
-  Check `user_id` against the sandbox concurrency cap.
-
-  Returns `:ok`, or `{:error, {:sandbox_quota_exceeded, %{count: n, limit: n}}}`.
-
-  Call this immediately before creating a sandbox row — every row precedes a
-  `Managoat.Sandbox.create/3`, so guarding row creation guards sandbox
-  creation at the provider.
-  """
-  @spec check_sandbox_quota(binary(), keyword()) ::
-          :ok
-          | {:error,
-             {:sandbox_quota_exceeded, %{count: non_neg_integer(), limit: non_neg_integer()}}}
-  def check_sandbox_quota(user_id, opts \\ []) when is_binary(user_id) do
-    limit = sandbox_limit(user_id)
-    count = active_sandbox_count(user_id, opts)
-
-    if count < limit do
-      :ok
-    else
-      {:error, {:sandbox_quota_exceeded, %{count: count, limit: limit}}}
-    end
-  end
-
-  # Advisory-lock namespace for sandbox reservations; the second key is a hash
-  # of the user id. A hash collision between users only over-serializes two
-  # tenants' creations — never under-counts.
+  # Advisory-lock key for sandbox reservations: one for the whole fleet, so
+  # the ceiling is counted by one reservation at a time.
   @lock_namespace 4315
-  # One key for the whole fleet, so the ceiling is counted by one reservation
-  # at a time. Taken before the per-user lock, always, so two reservations
-  # cannot deadlock on each other.
   @fleet_lock_key 0
 
   @doc """
-  Check the cap and run `fun` (which must create the sandbox row) atomically,
-  under a per-user Postgres advisory lock.
+  Check the fleet ceiling and run `fun` (which must create the sandbox row)
+  atomically, under a Postgres advisory lock.
 
-  `check_sandbox_quota/2` alone is check-then-insert: N concurrent requests at
-  the cap could each read `count < limit` before any row landed, and each go
-  on to provision a paid sprite (#330). The lock serializes check + insert per
-  user, so the second request re-counts after the first has committed. Scoped
-  per user: one tenant's burst cannot queue behind another's.
+  A check alone is check-then-insert: concurrent starts at the last slot could
+  each read "room" before any row landed, and each go on to provision a paid
+  machine (#330). The lock serializes check and insert, so the second start
+  re-counts after the first has committed.
 
-  `fun` must return `{:ok, value}` or `{:error, reason}`; any error — the
-  quota's or `fun`'s — rolls the whole reservation back.
+  `opts` takes `exclude: sandbox_id` (see `check_fleet_ceiling/1`). `fun` must
+  return `{:ok, value}` or `{:error, reason}`; any error — the ceiling's or
+  `fun`'s — rolls the whole reservation back.
   """
-  @spec with_sandbox_reservation(binary(), keyword(), (-> {:ok, term()} | {:error, term()})) ::
+  @spec with_sandbox_reservation(keyword(), (-> {:ok, term()} | {:error, term()})) ::
           {:ok, term()} | {:error, term()}
-  def with_sandbox_reservation(user_id, quota_opts \\ [], fun) when is_binary(user_id) do
+  def with_sandbox_reservation(opts \\ [], fun) when is_list(opts) do
     Repo.transaction(fn ->
       Repo.query!("SELECT pg_advisory_xact_lock($1, $2)", [@lock_namespace, @fleet_lock_key])
 
-      Repo.query!("SELECT pg_advisory_xact_lock($1, $2)", [
-        @lock_namespace,
-        :erlang.phash2(user_id)
-      ])
-
-      # The fleet ceiling and the tenant's cap both live under the locks:
-      # two requests at the last slot must not both read "room" and both
-      # provision.
-      with :ok <- check_fleet_ceiling(quota_opts),
-           :ok <- check_sandbox_quota(user_id, quota_opts),
+      with :ok <- check_fleet_ceiling(opts),
            {:ok, value} <- fun.() do
         value
       else
@@ -291,6 +203,6 @@ defmodule Fountain.Quotas do
     end)
   end
 
-  @doc "Sandbox statuses that count against the cap."
+  @doc "Sandbox statuses that hold a fleet slot."
   def active_statuses, do: @active_statuses
 end

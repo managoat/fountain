@@ -328,33 +328,6 @@ defmodule FountainWeb.Telemetry do
         event_name: [:fountain, :sandbox, :suspended],
         description: "Sandboxes parked by the idle bound (sprite kept, decisions/0017)"
       ),
-      # ── The bounded capacity queue (ADR 0042) ──────────────────────────
-      #
-      # Depth is observed after every queue mutation rather than polled, so a
-      # spike between two poller ticks is still in the histogram.
-      distribution("fountain.sandbox_queue.tenant_depth",
-        event_name: [:fountain, :sandbox_queue, :tenant_depth],
-        measurement: :depth,
-        reporter_options: [buckets: [0, 1, 2, 3, 5, 8, 10]],
-        description: "Live sandbox requests for a tenant, after a queue mutation"
-      ),
-      counter("fountain.sandbox_queue.completed.count",
-        event_name: [:fountain, :sandbox_queue, :completed],
-        measurement: :count,
-        tags: [:status, :kind],
-        description: "Sandbox requests that reached a terminal outcome, by outcome and kind"
-      ),
-      # The number that says whether the queue is a wait or a black hole, and
-      # the evidence for revisiting the one-hour bound.
-      distribution("fountain.sandbox_queue.completed.wait_ms",
-        event_name: [:fountain, :sandbox_queue, :completed],
-        measurement: :wait_ms,
-        tags: [:status, :kind],
-        reporter_options: [
-          buckets: [1000, 5000, 15_000, 30_000, 60_000, 300_000, 900_000, 1_800_000, 3_600_000]
-        ],
-        description: "How long a sandbox request waited before its terminal outcome"
-      ),
       # Swoosh already spans every delivery, so this needs no call-site change
       # across the `Mailer.deliver/1` sites. A failed verification email is a
       # person who never gets into their account, which until now was visible
@@ -480,12 +453,6 @@ defmodule FountainWeb.Telemetry do
         measurement: :count,
         tags: [:status],
         description: "Sandbox rows by status"
-      ),
-      last_value("fountain.sandbox_queue.requests.count",
-        event_name: [:fountain, :sandbox_queue, :requests],
-        measurement: :count,
-        tags: [:status],
-        description: "Waiting and claimed sandbox request rows by status"
       ),
       # The live view of what the sandbox providers are charging for. Tagged
       # by provider because a minute on each is bought at a different price;

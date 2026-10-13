@@ -22,7 +22,6 @@ export {
   RateLimitError,
   ConversationBusyError,
   NotReadyError,
-  QuotaExceededError,
   ConnectionError,
   TimeoutError,
   ResolutionError,

@@ -293,20 +293,6 @@ defmodule FountainWeb.AuditCoverageTest do
       assert event.event_type == "admin.role.revoked"
     end
 
-    test "a quota change is recorded", %{conn: conn, admin: admin} do
-      target = insert_verified_user()
-
-      {:ok, lv, _html} = live(login_user(conn, admin), ~p"/admin/users")
-
-      lv
-      |> element("#sandbox-limit-#{target.id}")
-      |> render_submit(%{"user_id" => target.id, "limit" => "42"})
-
-      assert [event] = Repo.all(AdminEvent)
-      assert event.event_type == "admin.sandbox_limit.changed"
-      assert event.metadata["to"] == 42
-    end
-
     test "the admin view surfaces the trail", %{conn: conn, admin: admin} do
       target = insert_verified_user()
 

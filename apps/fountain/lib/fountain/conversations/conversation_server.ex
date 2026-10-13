@@ -132,20 +132,16 @@ defmodule Fountain.Conversations.ConversationServer do
   end
 
   # Public entry points contain common GenServer.call exits here (#412).
-  # Provisioning blocks the mailbox; ordinary callers keep :provisioning on
-  # timeout. Queued delivery opts into :prompt_delivery_unknown for timeout
-  # or distribution loss, since either can follow acceptance. Normal process
-  # death returns :not_running; unclassified exits still propagate.
+  # Provisioning blocks the mailbox, so a timeout answers :provisioning.
+  # Normal process death returns :not_running; unclassified exits still
+  # propagate.
   @doc false
-  def call_server(pid, msg, uncertain_error \\ :provisioning) do
+  def call_server(pid, msg) do
     timeout = Application.get_env(:fountain, :conversation_call_timeout_ms, 30_000)
     GenServer.call(pid, msg, timeout)
   catch
     :exit, {:timeout, _} ->
-      {:error, uncertain_error}
-
-    :exit, {{:nodedown, _}, _} when uncertain_error == :prompt_delivery_unknown ->
-      {:error, uncertain_error}
+      {:error, :provisioning}
 
     :exit, {reason, _} when reason in [:noproc, :normal, :shutdown] ->
       {:error, :not_running}

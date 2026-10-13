@@ -1247,8 +1247,7 @@ defmodule Fountain.Machines.ProvisionTest do
   defp committed_tenant do
     user =
       Repo.insert!(%Fountain.Accounts.User{
-        email: "machine-provision-#{Ecto.UUID.generate()}@example.test",
-        sandbox_limit_override: 5
+        email: "machine-provision-#{Ecto.UUID.generate()}@example.test"
       })
 
     sandbox =

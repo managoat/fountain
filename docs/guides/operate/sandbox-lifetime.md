@@ -17,8 +17,8 @@ A `0` stops either bound. A value that is not a non-negative integer refuses
 to boot, and it does not quietly turn the bound off.
 
 With the ceiling off, the idle timeout is the one automatic stop. A sandbox
-that stays busy stays up, and the concurrent-sandbox cap bounds how many can
-be up at once.
+that stays busy stays up, and the fleet ceiling (`SANDBOX_FLEET_CEILING`)
+bounds how many can be up at once.
 
 ## Which one you can be aggressive with
 

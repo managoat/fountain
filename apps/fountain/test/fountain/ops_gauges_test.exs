@@ -54,47 +54,6 @@ defmodule Fountain.OpsGaugesTest do
     end
   end
 
-  test "counts waiting and claimed sandbox requests, and no history rows (#1033)" do
-    attach([[:fountain, :sandbox_queue, :requests]])
-
-    user = insert_verified_user()
-    agent = insert_agent(user_id: user.id)
-
-    {:ok, waiting} =
-      Fountain.SandboxQueue.enqueue(%{
-        user_id: user.id,
-        agent_id: agent.id,
-        kind: "start",
-        attrs: %{}
-      })
-
-    {:ok, done} =
-      Fountain.SandboxQueue.enqueue(%{
-        user_id: user.id,
-        agent_id: agent.id,
-        kind: "start",
-        attrs: %{}
-      })
-
-    {:ok, _} = Fountain.SandboxQueue.cancel_request(done)
-
-    assert :ok = OpsGauges.emit_telemetry()
-
-    assert_receive {:telemetry, [:fountain, :sandbox_queue, :requests], %{count: 1},
-                    %{status: "queued"}}
-
-    assert_receive {:telemetry, [:fountain, :sandbox_queue, :requests], %{count: 0},
-                    %{status: "starting"}}
-
-    # A `last_value` over terminal rows only ever climbs, so it says nothing
-    # about the queue now. Outcomes are counted as they happen instead.
-    for status <- ~w(started cancelled expired failed) do
-      refute_receive {:telemetry, [:fountain, :sandbox_queue, :requests], _, %{status: ^status}}
-    end
-
-    assert waiting.status == "queued"
-  end
-
   test "counts non-terminal sandboxes by provider and status" do
     # The live counterpart to the after-the-fact roll-up: which providers are
     # charging us right now. Tagged by provider, never by tenant — that would

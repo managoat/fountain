@@ -15,7 +15,6 @@ defmodule Fountain.Conversations.SandboxModeTest do
   setup do
     user = insert_active_user()
     # Several homes get provisioned in one test; the cap is not the subject.
-    {:ok, user} = Fountain.Accounts.update_sandbox_limit(user, 10)
     env = insert_env(user_id: user.id)
     agent = insert_agent(user_id: user.id, runtime: "claude", environment_id: env.id)
     agent = agent |> Ecto.Changeset.change(sandbox_mode: "persistent") |> Repo.update!()

@@ -280,12 +280,11 @@ await conversation.markRead();
 
 ## Errors
 
-Branch on `code`, not status — `conversation_busy` is a 400,
-`sandbox_quota_exceeded` a 429, `provisioning` a 503:
+Branch on `code`, not status — `conversation_busy` is a 400, `provisioning`
+and `fleet_full` are 503s:
 
 ```ts
 if (error instanceof ConversationBusyError) …   // the turn in flight must finish
-if (error instanceof QuotaExceededError) …      // error.activeSandboxes / error.limit
 if (error instanceof NotReadyError) …           // error.retryAfter, from the server
 if (error instanceof ValidationError) …         // error.fieldErrors
 ```
@@ -299,8 +298,7 @@ Every error carries `status`, `code`, `body`, `retryAfter` and `retryable`.
 | `ValidationError` | 422 — read `fieldErrors` |
 | `RateLimitError` | 429 |
 | `ConversationBusyError` | the agent is still on the previous prompt |
-| `QuotaExceededError` | at the concurrent-sandbox cap — `activeSandboxes` / `limit` |
-| `NotReadyError` | the sandbox is still coming up — retry after `retryAfter` |
+| `NotReadyError` | the sandbox is still coming up, or every sandbox slot is in use (`fleet_full`) — retry after `retryAfter` |
 | `TimeoutError` | the SDK stopped waiting — carries `conversationId` and `partialText` |
 | `ResolutionError` | a name matched no agent/vault/environment, or matched several |
 | `ConnectionError` | the request never reached Fountain — in a browser, usually CORS |
@@ -468,8 +466,8 @@ This path uses IDs directly and forwards values unchanged, including explicit
 null, false and empty collections. Omitted properties stay omitted. Local run
 options are a separate argument. It does not combine raw fields with the
 name-based options of `run(prompt, config)`; existing `run` calls still work.
-A run needs a non-empty prompt and cannot queue (`queue: true` is refused
-before HTTP). Use `client.api.request` for promptless or queued creation.
+A run needs a non-empty prompt. Use `client.api.request` for promptless
+creation.
 
 With `channel_id`, `runRequest` follows turn 1 when the server creates a
 conversation, including fresh launches. When the server resumes a channel,

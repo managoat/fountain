@@ -2,7 +2,7 @@ import { test, describe, before, after, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { FakeFountain } from "./server.ts";
 import { Fountain } from "../src/index.ts";
-import { ConversationBusyError, NotReadyError, QuotaExceededError, ValidationError } from "../src/errors.ts";
+import { ConversationBusyError, NotReadyError, ValidationError } from "../src/errors.ts";
 
 let fake: FakeFountain;
 let baseUrl: string;
@@ -153,22 +153,14 @@ describe("team", () => {
 });
 
 describe("errors the apps branch on", () => {
-  test("a sandbox cap says what the cap is, and is retryable", async () => {
-    fake.failNextWith = {
-      status: 429,
-      body: {
-        error: "sandbox_quota_exceeded",
-        message: "You have 5 of 5 concurrent sandboxes in use.",
-        active_sandboxes: 5,
-        limit: 5,
-      },
-    };
+  test("a full fleet is not ready yet, and is retryable", async () => {
+    fake.failNextWith = { status: 503, body: { error: "fleet_full" }, retryAfter: 60 };
     await assert.rejects(
       () => client().team.list(),
       (error: unknown) => {
-        assert.ok(error instanceof QuotaExceededError);
-        assert.equal(error.activeSandboxes, 5);
-        assert.equal(error.limit, 5);
+        assert.ok(error instanceof NotReadyError);
+        assert.equal(error.code, "fleet_full");
+        assert.equal(error.retryAfter, 60);
         assert.equal(error.retryable, true);
         return true;
       },

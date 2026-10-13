@@ -226,14 +226,13 @@ defmodule Fountain.ConversationsWakeTest do
       assert {:ok, _woken} = Wake.wake_conversation(conv.id)
     end
 
-    test "waking a suspended sandbox re-runs the quota gate" do
-      # A parked sprite is free; waking it is compute again. A user at their
-      # cap must be refused, exactly as if they were starting a conversation.
+    test "waking a suspended sandbox re-runs the fleet ceiling" do
+      # A parked sprite is free; waking it is compute again. A full fleet must
+      # refuse it, exactly as if this were a new conversation.
       user = insert_verified_user()
-      {:ok, user} = Fountain.Accounts.update_sandbox_limit(user, 1)
       agent = insert_agent(user_id: user.id)
 
-      insert_sandbox(user_id: user.id, status: "ready")
+      fill_fleet()
 
       sandbox = insert_sandbox(user_id: user.id, machine_name: "test-sprite-capped")
       {:ok, sandbox} = update_sandbox(sandbox, %{status: "suspended"})
@@ -241,7 +240,7 @@ defmodule Fountain.ConversationsWakeTest do
 
       stub(Managoat.Sandbox.Sprites, :get, fn _handle -> {:ok, %{status: :unknown, raw: %{}}} end)
 
-      assert {:error, {:sandbox_quota_exceeded, _}} = Wake.wake_conversation(conv.id)
+      assert {:error, :fleet_full} = Wake.wake_conversation(conv.id)
       # Refused means still parked — the row must not be half-woken.
       assert Repo.reload(sandbox).status == "suspended"
     end

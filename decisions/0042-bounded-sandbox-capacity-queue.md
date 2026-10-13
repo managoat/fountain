@@ -1,11 +1,11 @@
 ---
 type: ADR
 title: "Bounded sandbox-capacity queue"
-description: "A fresh start can opt into a per-tenant FIFO queue at the tenant or fleet ceiling, and a schedule opts in when its cron fires; ten requests wait at most an hour. Built with this ADR (#1033). Since 2026-10-12 there is no credit gate on replay."
+description: "Retired 2026-10-13: the queue and the per-account cap are removed; SANDBOX_FLEET_CEILING alone remains and a start past it gets 503 fleet_full. Was: a fresh start can opt into a per-tenant FIFO queue at the tenant or fleet ceiling, and a schedule opts in when its cron fires; ten requests wait at most an hour. Built with this ADR (#1033). Since 2026-10-12 there is no credit gate on replay."
 tags: [sandbox, quotas, api, schedules]
-status: stable
+status: deprecated
 adr: "0042"
-adr_status: "Accepted"
+adr_status: "Retired"
 date: 2026-09-10
 generated: { by: claude-code/opus-5, at: 2026-09-10T23:45:00-04:00 }
 verified: { by: claude-code/opus-5, at: 2026-09-10T23:45:00-04:00 }
@@ -14,8 +14,9 @@ stale_after: 2026-12-10
 
 # 0042 — Bounded sandbox-capacity queue
 
-**Status:** Accepted, and built by the stack that ends with this file
-(#1033). Nothing described here is unbuilt.
+**Status:** Retired 2026-10-13; see the last addendum. The text above it is
+history. Was: Accepted, and built by the stack that ends with this file
+(#1033).
 
 ## Context
 
@@ -252,3 +253,28 @@ the account's `sandbox_limit_override`, else `SANDBOX_CAP_CEILING`, under
 inference gates; there is no credit gate to re-check, and a request can no
 longer fail after acceptance because its credit ran out. The queue's bounds
 and behaviour are otherwise unchanged.
+
+## Addendum — 2026-10-13: retired, one fleet ceiling and no queue
+
+Fountain is self-hosted only, with about two accounts on the maintainer's own
+instance. The queue and the per-account cap existed because a hosted platform
+shared one provider bill across tenants who could not see each other's load;
+no deployment has that problem now, and the queue carried a table, a drainer,
+four routes, a client contract and a claim protocol for it.
+
+- **Removed:** the queue (`Fountain.SandboxQueue`, the drainer cron,
+  `queue: true` and the `202` on `POST /api/conversations`,
+  `/api/sandbox-queue`, `SANDBOX_QUEUE_MAX_DEPTH`,
+  `SANDBOX_QUEUE_MAX_WAIT_SECONDS`, the `fountain.sandbox_queue.*` metrics)
+  and the per-account cap (`SANDBOX_CAP_CEILING`, the admin override and its
+  `POST /api/admin/users/{id}/sandbox-limit`, `429 sandbox_quota_exceeded`).
+- **Kept:** `SANDBOX_FLEET_CEILING` (default 20, the Sprites plan's limit),
+  checked under the reservation lock in `Quotas.with_sandbox_reservation/2`.
+  A start or wake past it is refused at once with `503 fleet_full` and
+  `Retry-After: 60`; the caller retries.
+- **Schedules (decision 3):** a teammate schedule's cron firing that meets
+  `fleet_full` is no longer queued. `Fountain.Workers.TeamScheduleRun` treats
+  it as transient and snoozes, as it does a busy teammate, for up to 30
+  minutes after the firing, then leaves the error on the schedule.
+- The `sandbox_requests` table and `users.max_concurrent_sandboxes` stay one
+  release, unread, and a follow-up migration drops them.

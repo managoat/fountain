@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Platform-shared SPRITES_TOKEN; per-tenant concurrency cap as noisy-neighbor mitigation"
-description: "One platform-level Sprites credential provisions every tenant sandbox; a per-tenant concurrent-sandbox cap is the noisy-neighbor mitigation. Amended by 0018 to one credential per provider, and by 0042 with a bounded wait in front of the cap. Since 2026-10-12 the cap is an operator override or SANDBOX_CAP_CEILING, not funded by any balance."
+description: "One platform-level Sprites credential provisions every tenant sandbox; a per-tenant concurrent-sandbox cap is the noisy-neighbor mitigation. Amended by 0018 to one credential per provider. Since 2026-10-13 there is no per-tenant cap: only the deployment-wide SANDBOX_FLEET_CEILING bounds concurrency."
 tags: [sandbox, secrets, quotas]
 status: stable
 adr: "0005"
@@ -81,3 +81,14 @@ account's `sandbox_limit_override` when an operator set one, and
 `SANDBOX_CAP_CEILING` (default 20) otherwise. `SANDBOX_FLEET_CEILING` still
 bounds the deployment as a whole. The noisy-neighbour rationale above is
 unchanged, and it is now the whole rationale.
+
+## Addendum — 2026-10-13: no per-tenant cap
+
+Fountain is self-hosted only (2026-10-12), so the tenants sharing a
+deployment's provider bill are the operator's own accounts, and the
+noisy-neighbour risk this ADR answered is gone. The per-tenant cap is
+removed: `SANDBOX_CAP_CEILING`, `users.sandbox_limit_override` and the admin
+endpoint that set it, and the `429 sandbox_quota_exceeded` refusal. The
+platform-shared credential stands. `SANDBOX_FLEET_CEILING` alone bounds how
+many sandboxes the deployment runs, refusing past it with `503 fleet_full`.
+ADR 0042's queue is retired with it (see that ADR's 2026-10-13 addendum).

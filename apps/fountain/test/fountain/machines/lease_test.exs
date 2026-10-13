@@ -435,7 +435,7 @@ defmodule Fountain.Machines.LeaseTest do
 
     test "an enclosing transaction is permitted where a caller opts in", ctx do
       # The one exception, and it has one caller: `Machines.Resume`'s admission
-      # runs this inside `Quotas.with_sandbox_reservation/3`'s transaction so the
+      # runs this inside `Quotas.with_sandbox_reservation/2`'s transaction so the
       # `resuming` stamp and the quota count that authorised it commit together.
       # `cas_update/4` takes no advisory lock, so the moduledoc's reason for the
       # guard does not reach it; what nesting *does* do — a rollback undoing the

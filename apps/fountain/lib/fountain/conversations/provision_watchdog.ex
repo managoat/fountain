@@ -50,7 +50,7 @@ defmodule Fountain.Conversations.ProvisionWatchdog do
   the whole reason this watchdog exists is a server wedged alive inside
   `handle_continue(:provision)` — which the refusal arm then deliberately keeps
   alive. So "leave it for the reaper" named a backstop excluded by the very
-  condition this module creates: row `starting`, an active-status quota slot
+  condition this module creates: row `starting`, an active-status fleet slot
   held, the conversation `pending`, until the next deploy. That is verbatim the
   failure #329 exists to prevent, and it is not reachable on `main`, which
   killed unconditionally at thirty minutes.
@@ -89,7 +89,7 @@ defmodule Fountain.Conversations.ProvisionWatchdog do
   # default step timeouts (packages 300s + clone 600s + setup 120s). Setup
   # may opt into up to 900s, but this overall ceiling still applies. It also
   # catches a step that stalls without raising — the case where
-  # the row sat in `starting` holding a quota slot until the next deploy:
+  # the row sat in `starting` holding a fleet slot until the next deploy:
   # the reaper exempts rows whose server is alive, and the server's own
   # timers queue behind the stuck handle_continue. Overridable in tests.
   @provision_deadline_ms :timer.minutes(30)

@@ -174,8 +174,7 @@ onto a component diffs `contract.json` to nothing.
 ## Conversation field workflow
 
 The API-shaped SDK launch method forwards the supplied request. The CLI's `conv create --file` preserves
-JSON values and prints the response, including queued 202 job responses. Run
-methods require a nonblank prompt and immediate creation. Omission and explicit
+JSON values and prints the response. Run methods require a nonblank prompt. Omission and explicit
 null stay distinct; local timeout/collection options never enter the body.
 
 | Representative addition | Handwritten work before | Handwritten work now | Generated output |

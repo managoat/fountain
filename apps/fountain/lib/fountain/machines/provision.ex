@@ -37,8 +37,8 @@ defmodule Fountain.Machines.Provision do
   `Fountain.Quotas.active_statuses/0` is `pending`, `starting`, `ready`. The row
   is inserted `pending`, by `Launch.reserve_initial_conversation/4` or
   `Wake.create_fresh_sandbox_and_start/4`, **inside**
-  `Quotas.with_sandbox_reservation/3`'s own transaction — so the tenant's cap,
-  the fleet ceiling and the credit gate are checked and the slot is taken in one
+  `Quotas.with_sandbox_reservation/2`'s own transaction — so the fleet ceiling
+  is checked and the slot is taken in one
   commit, before any server exists. *The row's creation is the reservation.*
 
   Which decides the lock order, the thing 7a had to be corrected about. The rule
@@ -405,9 +405,9 @@ defmodule Fountain.Machines.Provision do
   Insert the row a provision will build: the reservation.
 
   Stage 7b found that the reservation needs no stamp of its own — the row is
-  inserted `pending` inside the tenant's quota transaction
-  (`Fountain.Quotas.with_sandbox_reservation/3`), and `pending` already counts
-  against the cap — so the bracket `run/3` opens begins after that commit.
+  inserted `pending` inside the fleet reservation's transaction
+  (`Fountain.Quotas.with_sandbox_reservation/2`), and `pending` already counts
+  against the ceiling — so the bracket `run/3` opens begins after that commit.
   This is the insert, moved here from `Conversations.create_sandbox/1` in stage
   9b so that the owner's namespace is the only code that writes the
   `sandboxes` row. It runs inside the caller's transaction, as it always did.
@@ -1144,7 +1144,7 @@ defmodule Fountain.Machines.Provision do
   # one. The window is narrow and it is not harmless: `Launch.fail_initial_start/2`
   # is the hook's only caller, it fails the *conversation* there, and a crash
   # after that commit left a `failed` conversation pointing at a `pending`
-  # machine — a reserved quota slot with no server, which nothing but the
+  # machine — a reserved fleet slot with no server, which nothing but the
   # reaper's hourly pass collects.
   #
   # `Lease.cas_update/4`'s `nest: true` is what makes this possible, and it is

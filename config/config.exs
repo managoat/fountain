@@ -92,11 +92,7 @@ config :fountain, Oban,
        # Every minute: the tick for user-defined team schedules. Cheap — one
        # indexed query, usually empty — and a minute is the cron grain the
        # schedules are written in.
-       {"* * * * *", Fountain.Workers.TeamScheduler},
-       # Five-minute backstop for the event-driven sandbox queue (ADR 0042).
-       # Normal drains come from a sandbox leaving a cap-counting status; this
-       # catches a lost poke and expires work that waited too long.
-       {"*/5 * * * *", Fountain.Workers.SandboxQueueDrainer}
+       {"* * * * *", Fountain.Workers.TeamScheduler}
      ]}
   ]
 
@@ -106,20 +102,10 @@ config :fountain,
   registration_allowed_email_domains: [],
   registration_access_code: nil
 
-# Concurrency (ADR 0005, 0042). A tenant may run cap_ceiling sandboxes at
-# once, or users.sandbox_limit_override when set. fleet_ceiling bounds the
-# sum across every tenant to what the providers allow. runtime.exs overrides
-# from SANDBOX_*.
-config :fountain, :sandboxes,
-  cap_ceiling: 20,
-  fleet_ceiling: 20
-
-# The bounded wait in front of those two ceilings (ADR 0042). Depth is per
-# tenant; the wait bound is what stops a queued start outliving the intent
-# behind its prompt.
-config :fountain,
-  sandbox_queue_max_depth: 10,
-  sandbox_queue_max_wait_seconds: 3600
+# Concurrency (ADR 0042). fleet_ceiling bounds the live sandboxes across
+# every account to what the provider plan allows; a start past it is refused
+# with 503 fleet_full. runtime.exs overrides it from SANDBOX_FLEET_CEILING.
+config :fountain, :sandboxes, fleet_ceiling: 20
 
 # How many ChatGPT subscriptions one account may link (ADR 0060 decision 1).
 # It stops a runaway client; it does not price anything. Nothing links one

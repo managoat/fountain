@@ -18,9 +18,8 @@ defmodule Fountain.Conversations.Lifecycle do
     (`last_resumed_at || inserted_at`). Crossing it **destroys** an ephemeral
     sprite and **parks** a persistent home (ADR 0023). **Off by default since
     #936**: a tenant who wants a machine running 24/7 is not something to
-    stop, so nothing automatic stops a sandbox that keeps itself busy — the
-    idle timeout parks it once it stops, and the concurrent-sandbox cap
-    bounds how many can be up. An operator who wants the old backstop sets
+    stop, so nothing automatic stops a sandbox that keeps itself busy — the idle timeout parks it once it stops, and the fleet ceiling bounds how
+    many can be up. An operator who wants the old backstop sets
     `SANDBOX_MAX_LIFETIME_HOURS`.
 
   ## Why the split

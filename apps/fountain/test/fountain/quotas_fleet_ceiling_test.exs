@@ -6,7 +6,7 @@
 # the ceiling at 2, every async test running beside it saw a ceiling of 2, and
 # any of them that reserved a sandbox with two already live got
 # `{:error, :fleet_full}` instead of what it asserted. That surfaced as
-# `conversations_start_test.exs` failing on the tenant-cap assertions — a
+# `conversations_start_test.exs` failing on its capacity assertions — a
 # different one each time, on some seeds and not others, and never locally,
 # because CI runs the partition under `--cover` and the timing decides who is
 # in the window.
@@ -30,17 +30,15 @@ defmodule Fountain.QuotasFleetCeilingTest do
       insert_sandbox(user_id: other.id, status: "ready")
       insert_sandbox(user_id: other.id, status: "starting")
 
-      user = insert_active_user()
-
       assert {:error, :fleet_full} = Quotas.check_fleet_ceiling()
 
       assert {:error, :fleet_full} =
-               Quotas.with_sandbox_reservation(user.id, [], fn -> {:ok, :never} end)
+               Quotas.with_sandbox_reservation(fn -> {:ok, :never} end)
 
       # A suspended sandbox is not compute and does not hold a slot.
       Fountain.Repo.update_all(Fountain.Conversations.Sandbox, set: [status: "suspended"])
       assert :ok = Quotas.check_fleet_ceiling()
-      assert {:ok, :ran} = Quotas.with_sandbox_reservation(user.id, [], fn -> {:ok, :ran} end)
+      assert {:ok, :ran} = Quotas.with_sandbox_reservation(fn -> {:ok, :ran} end)
     end
 
     test "a machine being destroyed cannot be excluded out of the count" do

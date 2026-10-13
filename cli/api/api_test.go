@@ -6,7 +6,7 @@ import (
 )
 
 // The server writes actionable messages; the CLI used to print the raw Go
-// map ("http 429: map[active_sandboxes:3 error:sandbox_quota_exceeded ...]").
+// map ("http 503: map[error:fleet_full message:...]").
 func TestHTTPErrorError(t *testing.T) {
 	cases := []struct {
 		name string
@@ -15,11 +15,11 @@ func TestHTTPErrorError(t *testing.T) {
 	}{
 		{
 			name: "message is preferred over the error slug",
-			err: HTTPError{Status: 429, Body: map[string]any{
-				"error":   "sandbox_quota_exceeded",
-				"message": "You have 3 of 3 concurrent sandboxes in use.",
+			err: HTTPError{Status: 503, Body: map[string]any{
+				"error":   "fleet_full",
+				"message": "Every sandbox slot is in use right now. Try again in a minute.",
 			}},
-			want: "http 429: You have 3 of 3 concurrent sandboxes in use.",
+			want: "http 503: Every sandbox slot is in use right now. Try again in a minute.",
 		},
 		{
 			name: "error slug when there is no message",

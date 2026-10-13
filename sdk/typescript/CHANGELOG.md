@@ -14,11 +14,27 @@ server releases.
 ## [Unreleased]
 
 Fountain removed the `opencode` runtime, the `daytona` sandbox provider, the
-Buzz extension, Connections, outbound webhooks and the account data export.
+Buzz extension, Connections, outbound webhooks, the account data export, the
+sandbox-capacity queue and the per-account sandbox cap.
 Held for the next release (`release:skip-sdk`). Removing `client.connections`
-takes a public method away, so that release is a major one.
+and `QuotaExceededError` takes public API away, so that release is a major one.
 
 ### Removed
+
+- `QuotaExceededError` and `"sandbox_quota_exceeded"` from `FountainErrorCode`.
+  The server has no per-account sandbox cap and never answers that 429; a full
+  deployment answers 503 `fleet_full`, which raises `NotReadyError`.
+
+- The `runRequest` refusal of `queue: true`, and `queue` from the generated
+  `ConversationCreateRequest`. `paths["/api/sandbox-queue"]` and
+  `paths["/api/sandbox-queue/{id}"]`, the `202` response of
+  `POST /api/conversations`, and the `SandboxRequest`,
+  `SandboxRequestResponse` and `SandboxRequestListResponse` schemas are gone
+  from the generated types; the server answers `404` on those paths.
+
+- `paths["/api/admin/users/{id}/sandbox-limit"]`, the `AdminSandboxLimitRequest`
+  schema, `max_concurrent_sandboxes` and `sandbox_limit_override` from
+  `AdminUser`, and `active_sandboxes` from `Error`, from the generated types.
 
 - `client.connections` and `client.connections.providers`, the `Connections`
   and `ConnectionProviders` classes, and the `Connection`,

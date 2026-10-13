@@ -168,14 +168,11 @@ export class Fountain {
   /**
    * Run an API-shaped launch request using IDs, without name resolution.
    * Every request field goes to the server; local execution settings stay in
-   * options. For a promptless or queued creation, use api.request instead.
+   * options. For a promptless creation, use api.request instead.
    */
   runRequest(request: ConversationInput, options: RunOptions = {}): Run {
     if (typeof request.prompt !== "string" || !request.prompt.trim()) {
       throw new TypeError("runRequest requires a non-empty prompt; use api.request for promptless creation");
-    }
-    if (request.queue != null && request.queue !== false) {
-      throw new TypeError("runRequest does not support queued creation; use api.request");
     }
     const body = { ...request };
     return new Run(this.api, { start: () => this.startConversation(body) }, options);

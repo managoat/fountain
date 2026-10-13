@@ -194,50 +194,6 @@ defmodule FountainWeb.AdminController do
   def set_role(conn, _params),
     do: refuse(conn, "invalid_role", ~s(role must be "admin" or "user".))
 
-  operation(:set_sandbox_limit,
-    summary: "Set an account's concurrent-sandbox cap",
-    description:
-      "The only lever for a noisy or abusive tenant (ADR 0005). 0 stops the " <>
-        "account from starting new conversations without suspending it.",
-    parameters: [id: [in: :path, type: :string, required: true]],
-    request_body: {"Limit", "application/json", Schemas.AdminSandboxLimitRequest},
-    responses: [
-      ok: {"Account", "application/json", Schemas.AdminUserResponse},
-      forbidden: {"Admin required", "application/json", Schemas.Error},
-      not_found: {"Not found", "application/json", Schemas.Error},
-      unprocessable_entity: {"Refused", "application/json", Schemas.Error}
-    ]
-  )
-
-  def set_sandbox_limit(conn, %{"id" => id, "limit" => limit})
-      when is_nil(limit) or (is_integer(limit) and limit >= 0) do
-    admin = conn.assigns.current_user
-
-    with_user(conn, id, fn user ->
-      case Accounts.update_sandbox_limit(user, limit, actor: "admin") do
-        {:ok, updated} ->
-          record_admin(admin, user, "admin.sandbox_limit.changed", %{
-            "email" => user.email,
-            "from" => user.sandbox_limit_override,
-            "to" => limit
-          })
-
-          render_user(conn, updated)
-
-        {:error, _} ->
-          refuse(conn, "invalid_limit", "Limit must be a whole number of 0 or more.")
-      end
-    end)
-  end
-
-  def set_sandbox_limit(conn, _params),
-    do:
-      refuse(
-        conn,
-        "invalid_limit",
-        "Limit must be a whole number of 0 or more, or null for the configured ceiling."
-      )
-
   operation(:set_suspended,
     summary: "Suspend or unsuspend an account",
     description:

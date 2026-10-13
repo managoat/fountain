@@ -434,12 +434,6 @@ defmodule FountainWeb.Router do
 
     resources "/agents", AgentController, except: [:new, :edit]
 
-    # The bounded sandbox-capacity queue (ADR 0042). Read and cancel only:
-    # work enters it through `POST /api/conversations` with `queue: true`, or
-    # through a teammate schedule's own cron firing.
-    get "/sandbox-queue", SandboxQueueController, :index
-    get "/sandbox-queue/:id", SandboxQueueController, :show
-    delete "/sandbox-queue/:id", SandboxQueueController, :delete
     # Config history (ADR 0029, #1051): read-only. Rollback stays a console action.
     get "/agents/:id/versions", AgentVersionController, :index
     get "/agents/:id/versions/:version", AgentVersionController, :show
@@ -550,7 +544,6 @@ defmodule FountainWeb.Router do
     post "/users", AdminController, :create_user
     get "/users/:id", AdminController, :show_user
     post "/users/:id/role", AdminController, :set_role
-    post "/users/:id/sandbox-limit", AdminController, :set_sandbox_limit
     post "/users/:id/suspend", AdminController, :set_suspended
     delete "/users/:id", AdminController, :delete_user
 

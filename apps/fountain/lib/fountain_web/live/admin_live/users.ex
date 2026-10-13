@@ -69,49 +69,6 @@ defmodule FountainWeb.AdminLive.Users do
     with_target_user(socket, id, fn user -> do_toggle_admin(socket, user) end)
   end
 
-  # The concurrency cap is normally the configured ceiling. This overrides it,
-  # which is the lever for a noisy or abusive tenant (ADR 0005) and the way to
-  # hand a trusted one more. Submitting the field empty clears the override
-  # and hands the cap back to the ceiling.
-  @impl true
-  def handle_event("set_sandbox_limit", %{"user_id" => id, "limit" => raw}, socket) do
-    with {:ok, limit} <- parse_limit_override(raw),
-         %Accounts.User{} = user <- Accounts.get_user(id),
-         {:ok, _} <- Accounts.update_sandbox_limit(user, limit, actor: "admin") do
-      Fountain.Audit.record_admin(%{
-        actor_user_id: socket.assigns.current_user.id,
-        target_user_id: user.id,
-        event_type: "admin.sandbox_limit.changed",
-        metadata: %{
-          "email" => user.email,
-          "from" => user.sandbox_limit_override,
-          "to" => limit
-        }
-      })
-
-      message =
-        if is_nil(limit),
-          do: "Override cleared — the cap is the ceiling again",
-          else: "Sandbox limit override set"
-
-      {:noreply, socket |> assign_users() |> put_flash(:info, message)}
-    else
-      nil ->
-        {:noreply,
-         socket
-         |> assign_users()
-         |> put_flash(:error, "User not found — the account may have been deleted")}
-
-      _ ->
-        {:noreply,
-         put_flash(
-           socket,
-           :error,
-           "Override must be a whole number of 0 or more, or empty for the ceiling"
-         )}
-    end
-  end
-
   # The reversible abuse lever short of delete (#287): sessions die, API keys
   # refuse, sandboxes are reaped — and it all comes back with one click. See
   # Accounts.suspend_user/1.
@@ -233,21 +190,6 @@ defmodule FountainWeb.AdminLive.Users do
     end
   end
 
-  # "" clears the override (the cap goes back to the balance rule); anything else
-  # must be a whole number of zero or more.
-  defp parse_limit_override(raw) do
-    case String.trim(raw) do
-      "" ->
-        {:ok, nil}
-
-      trimmed ->
-        case Integer.parse(trimmed) do
-          {limit, ""} when limit >= 0 -> {:ok, limit}
-          _ -> :error
-        end
-    end
-  end
-
   defp assign_users(socket) do
     f = socket.assigns.filters
     now = DateTime.utc_now()
@@ -286,7 +228,6 @@ defmodule FountainWeb.AdminLive.Users do
       Enum.map(users, fn u ->
         u
         |> Map.put(:active_sandboxes, Map.get(sandbox_counts, u.id, 0))
-        |> Map.put(:sandbox_limit, Fountain.Quotas.sandbox_limit_for(u))
         |> Map.put(:usage, Map.get(usage, u.id, no_usage))
       end)
 
@@ -483,36 +424,8 @@ defmodule FountainWeb.AdminLive.Users do
               >
                 {u.usage.conversations}c · {u.usage.turns}t · {format_hours(u.usage.turn_hours)}
               </td>
-              <td class="px-4 py-2">
-                <form
-                  phx-submit="set_sandbox_limit"
-                  id={"sandbox-limit-#{u.id}"}
-                  class="flex items-center gap-1"
-                >
-                  <input type="hidden" name="user_id" value={u.id} />
-                  <span class={[
-                    "text-xs tabular-nums",
-                    if(u.active_sandboxes >= u.sandbox_limit,
-                      do: "text-[var(--color-error-text)] font-medium",
-                      else: "text-[var(--color-text-secondary)]"
-                    )
-                  ]}>
-                    {u.active_sandboxes} / {u.sandbox_limit}
-                  </span>
-                  <%!-- Empty means "no override": the cap is the ceiling, shown
-                        as the placeholder so an admin can see what clearing
-                        the box would leave behind. --%>
-                  <input
-                    type="number"
-                    name="limit"
-                    min="0"
-                    value={u.sandbox_limit_override}
-                    placeholder={u.sandbox_limit}
-                    title="Empty: the configured ceiling"
-                    class="w-14 rounded border border-[var(--color-border)] px-1 py-0.5 text-xs"
-                  />
-                  <button class="text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] underline">set</button>
-                </form>
+              <td class="px-4 py-2 text-xs tabular-nums text-[var(--color-text-secondary)]">
+                {u.active_sandboxes}
               </td>
               <td class="px-4 py-2 text-[var(--color-text-secondary)] text-xs">
                 {if u.last_activity_at, do: format_date(u.last_activity_at), else: "—"}

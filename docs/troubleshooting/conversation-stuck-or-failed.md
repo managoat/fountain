@@ -22,8 +22,8 @@ was busy, and sending the prompt again can succeed. Otherwise fix the reason
 first, such as the account or the agent.
 
 **`provision` failed outright.** Fountain could not create the sandbox. The
-provider is unhealthy, the token is invalid, or the user is at their quota for
-concurrent sandboxes. Read [Sandbox errors](sandbox-errors.md).
+provider is unhealthy, the token is invalid, or the deployment is at its fleet
+ceiling (`503 fleet_full`). Read [Sandbox errors](sandbox-errors.md).
 
 **Stuck, with no failure.** A `running` conversation with no events usually
 means the process on the sandbox side died and Fountain missed the exit.
@@ -103,17 +103,16 @@ sandbox. Fountain leaves the stored transcript alone, but the agent starts a
 fresh session. Read [About conversations](../concepts/conversation.md), and
 the full table in [Conversation states](../reference/conversation-states.md).
 
-## The knock-on effect on quota
+## The knock-on effect on capacity
 
 A crash in the middle of a provision leaves a `pending` or `starting` sandbox
-row. That row counts against the user's quota, which is 2 concurrent sandboxes
-by default.
+row. That row counts against the fleet ceiling (`SANDBOX_FLEET_CEILING`, 20
+live sandboxes by default).
 
 The reaper runs each hour at :07 and releases a row that has been stuck for
-more than 60 minutes. An admin can raise a user's cap at once, from
-`/admin/users` or with `POST /api/admin/users/:id/sandbox-limit`. An admin
-can also see every sandbox with `GET /api/admin/sandboxes`, and release a
-stuck one with `POST /api/admin/sandboxes/:id/reap`. Read
+more than 60 minutes. An admin can see every sandbox with
+`GET /api/admin/sandboxes`, and release a stuck one at once with
+`POST /api/admin/sandboxes/:id/reap`. Read
 [Admin](../api.md#admin).
 
 The reaper logs one summary line for each run.

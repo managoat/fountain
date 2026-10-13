@@ -66,7 +66,7 @@ has no disk to replace yet.
 
 A reset blocks new turns before it calls the provider. It releases capacity
 only after the provider confirms deletion. A timeout or lost request keeps
-the reset fence and quota reservation. Another reset returns
+the reset fence and its fleet slot. Another reset returns
 `409 sandbox_reset_pending`, and so does an attach or a wake. None of them
 send a second delete.
 
@@ -92,8 +92,7 @@ Deleting a machine, resetting one and parking an idle one each take the
 machine for the length of one provider round trip. Send the request again.
 When a machine is deleted, every turn still running on it is marked
 interrupted: nothing on that machine can finish it. Each SDK reports
-this as a not-ready error, the launch queue and a team schedule wait and try
-again on their own, and the boot sweep leaves the machine to the operation that
+this as a not-ready error, a team schedule waits and tries again on its own, and the boot sweep leaves the machine to the operation that
 holds it.
 
 Every five minutes, Fountain looks for resets and deletions that were asked for
@@ -113,7 +112,7 @@ and its outcome. The action checks the administrator's current access again,
 so an old browser tab cannot retain revoked authority.
 
 For a manual override, an operator reaps the sandbox from the admin
-sandbox list. That terminates the row and releases the quota slot. The
+sandbox list. That terminates the row and releases its fleet slot. The
 machine at the provider is then the operator's to check, because Fountain
 has no evidence that the delete completed. Do not use a reap as a routine
 retry. The audit trail shows `sandbox.reset_requested` when the fence commits
@@ -227,9 +226,9 @@ for the first, and then finds a machine that is already running. If the first
 takes long enough that the second gives up waiting, the second is answered
 `503 sandbox_unavailable` with a `Retry-After`, and the retry lands on the
 running machine. Waking a machine is compute again, so it passes the same
-account limits as starting one: the balance, the account's concurrent-machine
-cap and the deployment's fleet ceiling. A machine being woken counts against
-those from the moment Fountain allows the wake, not from the moment the
+limit as starting one: the deployment's fleet ceiling
+(`SANDBOX_FLEET_CEILING`). A machine being woken counts against it from the
+moment Fountain allows the wake, not from the moment the
 provider answers.
 
 A wake the provider refuses answers `503 sandbox_resume_failed`, and the

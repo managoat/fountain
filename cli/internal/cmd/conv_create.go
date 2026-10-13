@@ -9,8 +9,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// Creation and following are separate: the API may return a queued request
-// or an idle conversation. Print that response without assuming a turn exists.
+// Creation and following are separate: the API may return an idle
+// conversation. Print that response without assuming a turn exists.
 func newConversationCreateCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:   "create --file <path|->",

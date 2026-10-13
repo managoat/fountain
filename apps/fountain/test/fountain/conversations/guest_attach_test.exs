@@ -15,7 +15,6 @@ defmodule Fountain.Conversations.GuestAttachTest do
 
   setup do
     user = insert_active_user()
-    {:ok, user} = Fountain.Accounts.update_sandbox_limit(user, 10)
     env = insert_env(user_id: user.id)
     {:ok, dek} = Crypto.load_tenant_key(user.id)
     claude_set = set_with(user, dek, "Claude", :anthropic_api_key, @claude_key)

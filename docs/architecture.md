@@ -26,9 +26,8 @@ Here is the scheduled work. All times are UTC.
 | Schedule | Job | What it does |
 |---|---|---|
 | Each hour at :07 | The sandbox reaper. | Reconciles the sandbox rows against sprites.dev. It frees a row stuck mid-provision, expires an abandoned sandbox, destroys a sprite whose row is already terminal, and reports an untracked sprite. |
-| 04:23 daily | The retention pruner. | Deletes a row past its retention. Log events go after 90 days, audit events after 365, and usage events after 400. A revoked API key or a finished sandbox request goes after 30. |
+| 04:23 daily | The retention pruner. | Deletes a row past its retention. Log events go after 90 days, audit events after 365, and usage events after 400. A revoked API key goes after 30. |
 | 04:37 daily | The ChatGPT subscription keepalive. | Finds each linked ChatGPT subscription that nobody renewed for 6 days, and queues one renewal for each on the `chatgpt_refresh` queue. The renewals are spread over 5 minutes to 6 hours, by how many there are. With no linked subscription, it does nothing. |
-| Each 5 minutes | The sandbox queue drainer. | Replays work that waits for sandbox capacity, and expires a request past its wait bound. A freed sandbox slot drains the queue at once; this run is the backstop. |
 
 
 ### Clustering
@@ -134,10 +133,9 @@ a state of `started`, `done`, `failed` or `interrupted`.
 1. **Gates.** A prompt arrives, through `POST /api/conversations` or through a
    client on it. Three gates apply, in order. The agent must exist *and belong
    to you*, because Fountain scopes each query in the system to one tenant.
-   The vault must be on the agent's allowlist. The quota for concurrent
-   sandboxes applies: 20 for each user by default (`SANDBOX_CAP_CEILING`),
-   unless an admin sets an override for the account, and 20 across the whole
-   deployment (`SANDBOX_FLEET_CEILING`).
+   The vault must be on the agent's allowlist. The fleet ceiling applies: 20
+   live sandboxes across the whole deployment by default
+   (`SANDBOX_FLEET_CEILING`), refused with `503 fleet_full` past it.
 2. **`provision`.** Fountain creates the sandbox and conversation rows, as
    `pending`, then starts a conversation server. That server creates the
    sprite, mounts the skills, and mints a scoped API key that expires. The
@@ -208,7 +206,7 @@ level, which says what to run and what the output means, is
 
 | Symptom | Look at |
 |---|---|
-| A conversation is stuck or `failed` at startup. | The stage events in its log view name the step that failed. A `packages`, `clone` or `setup` failure is usually the environment's own config. A `provision` that fails outright is sprites.dev, or the sandbox quota. |
+| A conversation is stuck or `failed` at startup. | The stage events in its log view name the step that failed. A `packages`, `clone` or `setup` failure is usually the environment's own config. A `provision` that fails outright is sprites.dev, or the fleet ceiling. |
 | The UI is down, and `GET /health/ready` returns 503. | Postgres. |
 | A container restarts in a loop at boot. | Migrations cannot reach Postgres, so the boot fails before it opens a listener. |
 | The stream is dead for some viewers and correct for others, on several replicas. | The Erlang cluster, through `CLUSTER_DNS_QUERY`. |

@@ -1061,23 +1061,6 @@ defmodule Fountain.Accounts do
     end)
   end
 
-  @doc """
-  Override a user's concurrent-sandbox cap (ADR 0005). Admin-only.
-
-  The cap is normally the configured ceiling (`Fountain.Quotas.sandbox_limit/1`).
-  This is the operator's override for raising the cap for a trusted tenant, and
-  for dropping it to zero during abuse. `nil` clears the override and hands the
-  cap back to the ceiling.
-  """
-  def update_sandbox_limit(%User{} = user, limit, opts \\ []) do
-    user
-    |> User.sandbox_limit_changeset(%{sandbox_limit_override: limit})
-    |> Repo.update()
-    |> audited_account("account.sandbox_limit_changed", "user", opts, fn updated ->
-      %{"from" => user.sandbox_limit_override, "to" => updated.sandbox_limit_override}
-    end)
-  end
-
   @doc false
   def hash_key(raw_key) when is_binary(raw_key) do
     :crypto.hash(:sha256, raw_key) |> Base.encode16(case: :lower)

@@ -696,8 +696,7 @@ defmodule Fountain.Conversations.Termination do
   sweeps stragglers. Returns the number of sandboxes reaped.
   """
   def reap_all_for_user(user_id) when is_binary(user_id) do
-    # Deliberately NOT Quotas.active_statuses(): `suspended` is excluded from
-    # the concurrency cap (a parked sprite is not compute) but its sprite is
+    # Deliberately NOT Quotas.active_statuses(): `suspended` is excluded from the fleet ceiling (a parked sprite is not compute) but its sprite is
     # very much alive at sprites.dev, and a suspended tenant must not keep it.
     from(s in Sandbox,
       where: s.user_id == ^user_id and s.status in ~w(pending starting ready suspended),

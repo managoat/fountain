@@ -2,8 +2,7 @@
  * Failures, keyed the way callers actually branch on them.
  *
  * The apps built on Fountain switch on the server's `error` string, not on the
- * status: `conversation_busy` is a 400, `sandbox_quota_exceeded` is a 429 and
- * `provisioning` is a 503, and what a UI wants to say about each has nothing
+ * status: `conversation_busy` is a 400 and `provisioning` is a 503, and what a UI wants to say about each has nothing
  * to do with those numbers. So `code` is the primary axis here, status the
  * secondary one, and the conditions worth retrying say so themselves.
  */
@@ -13,7 +12,6 @@ export type FountainErrorCode =
   | "conversation_busy"
   | "provisioning"
   | "sprite_probe_failed"
-  | "sandbox_quota_exceeded"
   | "sandbox_at_capacity"
   | "sandbox_not_found"
   | "sandbox_not_attachable"
@@ -85,7 +83,6 @@ const RETRYABLE_CODES = new Set([
   "conversation_busy",
   "provisioning",
   "sprite_probe_failed",
-  "sandbox_quota_exceeded",
   // Another conversation's turn is using a one-at-a-time runtime's sandbox;
   // it clears when that turn ends.
   "sandbox_at_capacity",
@@ -119,20 +116,6 @@ export class ConversationBusyError extends FountainError {}
  */
 export class NotReadyError extends FountainError {}
 
-/**
- * The account is at its concurrent-sandbox cap (`sandbox_quota_exceeded`, 429).
- * Terminate a conversation and continue.
- */
-export class QuotaExceededError extends FountainError {
-  /** Sandboxes in use right now. */
-  get activeSandboxes(): number | undefined {
-    return numberFrom(this.body, "active_sandboxes");
-  }
-  /** The cap. */
-  get limit(): number | undefined {
-    return numberFrom(this.body, "limit");
-  }
-}
 
 /** `run`/`send` gave up waiting. The turn is still running — resume it. */
 export class TimeoutError extends FountainError {
@@ -201,8 +184,6 @@ export function errorForStatus(
     case "sprite_probe_failed":
     case "sandbox_unavailable":
       return new NotReadyError(message, init);
-    case "sandbox_quota_exceeded":
-      return new QuotaExceededError(message, init);
     case "fleet_full":
       return new NotReadyError(message, init);
   }
@@ -219,9 +200,4 @@ export function errorForStatus(
     default:
       return new FountainError(message, init);
   }
-}
-
-function numberFrom(body: unknown, key: string): number | undefined {
-  const value = (body as Record<string, unknown> | null)?.[key];
-  return typeof value === "number" ? value : undefined;
 }

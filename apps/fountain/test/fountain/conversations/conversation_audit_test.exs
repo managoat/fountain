@@ -91,10 +91,9 @@ defmodule Fountain.Conversations.ConversationAuditTest do
     end
 
     test "a refused start records nothing", %{user: user, agent: agent} do
-      # At the sandbox cap: no conversation exists, so the trail must not
+      # At the fleet ceiling: no conversation exists, so the trail must not
       # claim one was created.
-      for _ <- 1..Fountain.Quotas.sandbox_limit(user.id),
-          do: insert_sandbox(user_id: user.id, status: "ready")
+      fill_fleet()
 
       assert {:error, _} =
                Launch.start_conversation(%{"agent_id" => agent.id, "user_id" => user.id})

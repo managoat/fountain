@@ -484,13 +484,10 @@ lost. Read the turns first.
 
 `POST /api/conversations` takes the same field for its first prompt. The value
 goes to turn 1 of a new conversation, and to the first turn of a conversation
-that you attach to a sandbox with `sandbox_id`. A start that waits in the queue
-keeps the value until it starts. Fountain ignores the value when the request
-has no `prompt`. When an immediate `channel_id` request returns a resumed
+that you attach to a sandbox with `sandbox_id`. Fountain ignores the value
+when the request has no `prompt`. When a `channel_id` request returns a resumed
 conversation, it does not deliver the prompt. Send the prompt to that
-conversation on the prompts route, with the value. A queued start is different:
-if its channel becomes bound while it waits, the queue delivers the prompt and
-its value to the resumed conversation itself.
+conversation on the prompts route, with the value.
 
 An accepted prompt does not always open a turn. Fountain can refuse it after
 the response: the machine is at capacity, a limit on the conversation stops
@@ -521,44 +518,12 @@ The CLI takes `--client-request-id` on `fountain run` and `fountain conv prompt`
 The ACP bridge takes `_meta.clientRequestId` on each `session/prompt`; see
 [ACP prompt metadata](integrations/acp.md#_meta-extensions-on-sessionprompt).
 
-### Wait for capacity
+### When the fleet is full
 
-A start can reach the tenant sandbox cap or the fleet ceiling. Fountain then
-answers `429` or `503`. Set `queue: true` to wait instead. Fountain answers
-`202` with a sandbox request and its one-based `position`. The request becomes
-a conversation when capacity is free.
-
-`GET /api/sandbox-queue` lists your requests in position order.
-`GET /api/sandbox-queue/{id}` reports the status of one request. It carries
-`conversation_id` after the start, or when delivery to that conversation has an
-unknown outcome. `DELETE /api/sandbox-queue/{id}` cancels a
-request that still has the `queued` status.
-
-If a queued request carries a prompt and a nonempty `permission_policy`, it
-cannot automatically send that prompt to an existing channel conversation.
-It ends with `status: "failed"` and
-`error: "permission_policy_requires_fresh_conversation"`, without sending the
-prompt or changing that conversation's policy. This applies even if its saved
-policy currently matches: prompt delivery does not accept a per-turn override.
-Set `fresh: true` when queueing restricted work to create a conversation that
-stores and enforces the requested policy. An omitted, null, or empty policy
-does not block queued channel delivery.
-
-A queued channel resume waits for a later pass if the conversation is busy or
-the provider cannot be reached to wake it. If a prompt call times out or loses
-its connection to the conversation's node, the prompt may have run or may still
-execute later. The request instead ends with `status: "failed"` and
-`error: "prompt_delivery_unknown"`; the queue does not send it again. Inspect
-the linked conversation before deciding to resubmit. This error does not mean
-the prompt was cancelled or that it did not run.
-
-Each tenant holds ten requests at once. A request waits one hour at most. A
-full queue keeps the immediate `429` or `503` answer. A start with images does
-not wait. A start with an explicit `sandbox_id` does not wait. A queued start
-must pass the inference gate again.
-
-A teammate schedule uses the queue without the flag. No person is present
-when its cron fires, so Fountain must not lose the run.
+A start or a wake that would take the deployment past `SANDBOX_FLEET_CEILING`
+live sandboxes gets `503 fleet_full` with `Retry-After: 60`. Nothing queues:
+send the request again once a sandbox frees. A teammate schedule's cron firing
+that meets a full fleet retries on its own for up to 30 minutes.
 
 ### Labels
 
@@ -905,8 +870,8 @@ pagination, and returned metadata.
 Every JSON error status declares one schema, `Error`. Its `error` field is
 the machine-readable code to branch on. The other fields accompany particular
 codes and are absent otherwise: `message` is a sentence for a human, `errors`
-holds field validation messages beside `validation_failed`, and
-`active_sandboxes` and `limit` come with `sandbox_quota_exceeded`. On the
+holds field validation messages beside `validation_failed`, and `limit`
+comes with the ChatGPT subscription limits. On the
 key-authentication and scope refusals `error` is a sentence and `reason`
 carries the code. A 406 is the one
 exception: content negotiation fails before any operation runs and renders

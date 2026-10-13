@@ -296,26 +296,13 @@ defmodule Fountain.Machines.ParkTest do
   end
 
   describe "the effects the row write owes" do
-    # `Conversations.update_sandbox/2` runs `record_sandbox_usage/2` and the
-    # queue poke after its own transaction, and both parks went through it on
-    # `main`. The finalize is a guarded `update_all` and runs neither, so the
-    # protocol calls `sandbox_status_effects/2` itself. Losing them is
-    # invisible until a provider bill is reconciled against a usage row that is
-    # not there, or a tenant at their cap waits for the five-minute cron
+    # `Conversations.update_sandbox/2` runs `record_sandbox_usage/2` after its
+    # own transaction, and both parks went through it on `main`. The finalize
+    # is a guarded `update_all` and runs nothing, so the protocol calls
+    # `sandbox_status_effects/2` itself. Losing it is invisible until a
+    # provider bill is reconciled against a usage row that is not there
     # (`destroy_effects_test.exs` says the same thing for the other verb).
-    setup ctx do
-      {:ok, _request} =
-        Fountain.SandboxQueue.enqueue(%{
-          user_id: ctx.user.id,
-          agent_id: ctx.agent.id,
-          kind: "start",
-          attrs: %{"prompt" => "queued work"}
-        })
-
-      :ok
-    end
-
-    test "a park records the usage row and pokes the queue, once", ctx do
+    test "a park records the usage row, once", ctx do
       stub(Managoat.Sandbox, :suspend, fn _ -> :ok end)
 
       assert {:ok, :parked} = Park.run(ctx.sandbox.id, opts())
@@ -323,9 +310,6 @@ defmodule Fountain.Machines.ParkTest do
       assert usage_events(ctx) == ["sandbox_suspended"],
              "no sandbox_suspended usage row — the interval a provider bill is " <>
                "reconciled against has no end"
-
-      assert all_enqueued(worker: Fountain.Workers.SandboxQueueDrainer) != [],
-             "the sandbox queue was not poked; this tenant's freed slot waits for the cron"
     end
 
     test "a machine that was already parked is not counted twice", ctx do

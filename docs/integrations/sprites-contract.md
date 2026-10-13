@@ -162,7 +162,7 @@ One that ignores a deny rule fails the whole `limited` feature open.
   `sprite_creation_rate_limited`, `concurrent_sprite_limit_exceeded` and
   `retry_after_seconds`. Fountain handles those generically today, as 429s.
 - **The bill.** One platform token pays for each sandbox (ADR 0005). That is
-  why a per-tenant concurrency quota counts from the moment a provision
+  why the fleet ceiling counts a sandbox from the moment a provision
   starts, and why the reaper exists at all.
 
 ---

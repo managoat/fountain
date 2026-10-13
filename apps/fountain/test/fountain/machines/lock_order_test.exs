@@ -4,8 +4,7 @@ defmodule Fountain.Machines.LockOrderTest do
   #2309).
 
   Two advisory-lock namespaces are taken around a machine coming up. 4315 is
-  `Fountain.Quotas.with_sandbox_reservation/3` — the fleet key, then a per-user
-  key. 4316 is the per-sandbox lock every fence, every turn admission and
+  `Fountain.Quotas.with_sandbox_reservation/2` — the fleet key. 4316 is the per-sandbox lock every fence, every turn admission and
   `Fountain.Machines.Lease.claim/4` take. Two namespaces taken in opposite
   orders by two callers is a deadlock, which is what #2309 is about.
 
@@ -45,7 +44,7 @@ defmodule Fountain.Machines.LockOrderTest do
   # `pg_advisory_xact_lock` call themselves.
   #
   # Scoped to the *namespace* rather than to the call, because
-  # `Quotas.with_sandbox_reservation/3` writes the same
+  # `Quotas.with_sandbox_reservation/2` writes the same
   # `pg_advisory_xact_lock($1, $2)` for 4315 — a pattern matching the call alone
   # named that function its own offender.
   @takes_sandbox_lock ~r/with_sandbox_lock\(|Lease\.claim\(|Lease\.take_over\(|@sandbox_lock_namespace|pg_advisory_xact_lock\(\$1, \$2\)"\s*,\s*\[\s*4316/
@@ -111,7 +110,7 @@ defmodule Fountain.Machines.LockOrderTest do
   # sandbox every test is one transaction, so a transaction-scoped advisory lock
   # taken by a nested `Repo.transaction` is held until the test ends whatever
   # the code does — `Lease.claim/4` looks like it never releases 4316, and
-  # `with_sandbox_reservation/3` like it never releases 4315. Reading `pg_locks`
+  # `with_sandbox_reservation/2` like it never releases 4315. Reading `pg_locks`
   # here would prove the sandbox, not the protocol.
   #
   # `resume_test.exs`'s "a resume waiting on the quota lock is holding no

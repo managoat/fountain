@@ -613,9 +613,8 @@ if github_client_id = System.get_env("GITHUB_OAUTH_CLIENT_ID") do
     client_secret: System.get_env("GITHUB_OAUTH_CLIENT_SECRET")
 end
 
-# Concurrency (ADR 0005, 0042): the per-account ceiling, and the fleet
-# ceiling — the most live sandboxes the deployment will run in total, which is
-# the provider plan's number (Sprites' $20 plan allows about 20).
+# Concurrency (ADR 0042): the fleet ceiling — the most live sandboxes the
+# deployment will run in total, which is the provider plan's number (Sprites' $20 plan allows about 20).
 whole_number = fn var, default ->
   case System.get_env(var) do
     value when value in [nil, ""] ->
@@ -630,18 +629,11 @@ whole_number = fn var, default ->
 end
 
 #
-# Skipped in :test — config/test.exs pins a per-account ceiling below the
-# fleet's, so the suite's cap tests meet the account's refusal first.
+# Skipped in :test, so a developer's own SANDBOX_FLEET_CEILING cannot change
+# what the suite's capacity tests meet.
 if config_env() != :test do
-  config :fountain, :sandboxes,
-    cap_ceiling: whole_number.("SANDBOX_CAP_CEILING", 20),
-    fleet_ceiling: whole_number.("SANDBOX_FLEET_CEILING", 20)
+  config :fountain, :sandboxes, fleet_ceiling: whole_number.("SANDBOX_FLEET_CEILING", 20)
 end
-
-# The bounded sandbox-capacity queue (ADR 0042).
-config :fountain,
-  sandbox_queue_max_depth: whole_number.("SANDBOX_QUEUE_MAX_DEPTH", 10),
-  sandbox_queue_max_wait_seconds: whole_number.("SANDBOX_QUEUE_MAX_WAIT_SECONDS", 3600)
 
 # ChatGPT subscriptions one account may link (ADR 0060 decision 1). It stops a
 # runaway client and prices nothing; a disconnected subscription holds its

@@ -102,10 +102,7 @@ at a dead end, with no error to see. Read [Email](guides/operate/email.md).
 
 | Variable | Default | Required | Effect |
 |---|---|---|---|
-| `SANDBOX_CAP_CEILING` | `20` | No. | The most sandboxes one tenant may run at once. An admin override for one account replaces it for that account. |
-| `SANDBOX_FLEET_CEILING` | `20` | No. | The most live sandboxes across every tenant. Set it to what your sandbox provider plan allows. A start beyond it gets `503 fleet_full`. |
-| `SANDBOX_QUEUE_MAX_DEPTH` | `10` | No. | The most sandbox requests one tenant holds at once. A request beyond it keeps the immediate capacity error. |
-| `SANDBOX_QUEUE_MAX_WAIT_SECONDS` | `3600` | No. | How long a sandbox request waits for capacity before Fountain expires it. |
+| `SANDBOX_FLEET_CEILING` | `20` | No. | The most live sandboxes across every account; there is no per-account cap. Set it to what your sandbox provider plan allows (Sprites' $20 plan allows about 20). A start or wake beyond it gets `503 fleet_full` with `Retry-After: 60`; nothing queues. |
 | `CHATGPT_GRANT_CEILING` | `5` | No. | The most ChatGPT subscriptions one account may link. A disconnected subscription keeps its place until the account removes it. A link beyond it gets `409 chatgpt_grant_limit_reached`. A lower value refuses new links only, and `0` refuses each new link. |
 
 ## Platform inference

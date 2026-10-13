@@ -200,11 +200,6 @@ defmodule FountainWeb.MetricsTest do
         [:fountain, :reaper, :run],
         [:fountain, :reaper, :teardowns],
         [:fountain, :reaper, :untracked],
-        # SandboxQueue emits depth after every mutation and completion at each
-        # terminal transition; OpsGauges emits the live row counts (#1033).
-        [:fountain, :sandbox_queue, :tenant_depth],
-        [:fountain, :sandbox_queue, :completed],
-        [:fountain, :sandbox_queue, :requests],
         # Audit.record_admin/1 rejection path (#451) — exercised by
         # Fountain.AuditTest's rejected-write telemetry test
         [:fountain, :audit, :admin_record_rejected],

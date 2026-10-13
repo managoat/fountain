@@ -121,14 +121,6 @@ defmodule Fountain.Machines.ResumeTest do
     :ok
   end
 
-  # A cap the tenant is already at, without touching this machine: N other
-  # `ready` rows and a limit of N.
-  defp fill_the_cap(ctx, others) do
-    for _ <- 1..others//1, do: insert_sandbox(user_id: ctx.user.id, status: "ready")
-    {:ok, _} = Fountain.Accounts.update_sandbox_limit(ctx.user, others)
-    :ok
-  end
-
   describe "the happy path" do
     test "stamps the intent, resumes, finalizes, audits, in that order", ctx do
       test = self()
@@ -470,13 +462,13 @@ defmodule Fountain.Machines.ResumeTest do
       assert_lease_released(row(ctx))
     end
 
-    test "the quota slot the admission reserved is given back", ctx do
+    test "the fleet slot the admission reserved is given back", ctx do
       expect(Managoat.Sandbox, :resume, fn _handle -> {:error, :boom} end)
 
       capture_log(fn -> assert {:error, :resume_failed} = Resume.run(ctx.sandbox.id, opts()) end)
 
       # Neither half of the reservation survives — the stamp is cleared and the
-      # lease is released — so nothing of this machine counts against the cap,
+      # lease is released — so nothing of this machine counts against the ceiling,
       # which is what lets the retry through. Either one alone would be enough
       # for the count; both are gone because a row that lies about what is
       # happening to it is its own problem (see the test above).
@@ -484,13 +476,12 @@ defmodule Fountain.Machines.ResumeTest do
     end
   end
 
-  describe "the quota" do
-    test "a tenant at the cap cannot wake one more machine", ctx do
-      fill_the_cap(ctx, 1)
+  describe "the fleet ceiling" do
+    test "a full fleet cannot wake one more machine", ctx do
+      fill_fleet()
       reject(&Managoat.Sandbox.resume/1)
 
-      assert {:error, {:sandbox_quota_exceeded, %{count: 1, limit: 1}}} =
-               Resume.run(ctx.sandbox.id, opts())
+      assert {:error, :fleet_full} = Resume.run(ctx.sandbox.id, opts())
 
       still = row(ctx)
       assert still.status == "suspended", "refused means still parked, not half-woken"
@@ -499,11 +490,10 @@ defmodule Fountain.Machines.ResumeTest do
     end
 
     test "the machine being woken is excluded from its own count", ctx do
-      # One other machine and a limit of two: the tenant has room for this one.
-      # Without the exclusion the `resuming` stamp this writes would count
-      # against the check that authorised it and refuse its own resume.
-      fill_the_cap(ctx, 1)
-      {:ok, _} = Fountain.Accounts.update_sandbox_limit(ctx.user, 2)
+      # One free slot: the fleet has room for this one. Without the exclusion
+      # the `resuming` stamp this writes would count against the check that
+      # authorised it and refuse its own resume.
+      fill_fleet(1)
       stub(Managoat.Sandbox, :resume, fn handle -> {:ok, handle} end)
 
       assert {:ok, :resumed} = Resume.run(ctx.sandbox.id, opts())
@@ -513,7 +503,6 @@ defmodule Fountain.Machines.ResumeTest do
       # The reservation, observed from the outside: while the provider call is
       # in flight the row still reads `suspended`, and it counts anyway.
       test = self()
-      {:ok, _} = Fountain.Accounts.update_sandbox_limit(ctx.user, 5)
 
       expect(Managoat.Sandbox, :resume, fn handle ->
         mid = Repo.reload!(ctx.sandbox)
@@ -543,8 +532,8 @@ defmodule Fountain.Machines.ResumeTest do
     test "the reservation and the stamp commit together", ctx do
       # The design point of 7a, pinned where it can be observed on one
       # connection: the `resuming` stamp is written *inside*
-      # `with_sandbox_reservation/3`'s transaction. A stamp that landed in a
-      # second transaction would make the quota check a read with no record —
+      # `with_sandbox_reservation/2`'s transaction. A stamp that landed in a
+      # second transaction would make the ceiling check a read with no record —
       # two wakes of two parked machines would each pass a check the other was
       # invisible to — and a refusal would leave a stamp behind to be swept.
       test = self()
@@ -562,7 +551,7 @@ defmodule Fountain.Machines.ResumeTest do
 
     test "the provider is called outside every transaction", ctx do
       # What `main` got wrong, and the reason 7a exists at all: its resume ran
-      # inside `with_sandbox_reservation/3`'s transaction, which ADR 0058
+      # inside `with_sandbox_reservation/2`'s transaction, which ADR 0058
       # forbids and #2309 priced. The suite's own sandbox transaction is not
       # reported by `in_transaction?/0`, so `false` here means exactly what it
       # says — nothing the protocol opened is still open.
@@ -577,14 +566,14 @@ defmodule Fountain.Machines.ResumeTest do
       assert_receive {:in_transaction?, false}
     end
 
-    test "two wakes of two machines cannot overshoot the cap", ctx do
+    test "two wakes of two machines cannot overshoot the ceiling", ctx do
       # The case the reservation exists for, and the one a check with no record
       # would let through: two *different* parked machines, one free slot. The
       # first to be admitted holds it; the second is refused rather than both
       # reading "there is room" while both are still `suspended`.
       other = insert_sandbox(user_id: ctx.user.id, status: "suspended")
       on_exit(fn -> stop_machine(other.id) end)
-      {:ok, _} = Fountain.Accounts.update_sandbox_limit(ctx.user, 1)
+      fill_fleet(1)
 
       test = self()
 
@@ -597,7 +586,7 @@ defmodule Fountain.Machines.ResumeTest do
       end)
 
       assert {:ok, :resumed} = Resume.run(ctx.sandbox.id, opts())
-      assert_receive {:second, {:error, {:sandbox_quota_exceeded, %{count: 1, limit: 1}}}}
+      assert_receive {:second, {:error, :fleet_full}}
 
       assert Repo.reload!(other).status == "suspended"
       assert is_nil(Repo.reload!(other).transition)
@@ -718,18 +707,17 @@ defmodule Fountain.Machines.ResumeTest do
       # ever, so by the time a takeover is *possible* the reservation is already
       # gone and somebody else may hold the slot.
       abandon_mid_resume(ctx)
-      fill_the_cap(ctx, 1)
+      fill_fleet()
 
       expect(Managoat.Sandbox, :get, fn _handle -> {:ok, %{status: :running, raw: %{}}} end)
       reject(&Managoat.Sandbox.resume/1)
 
       quietly(fn ->
-        assert {:error, {:sandbox_quota_exceeded, %{count: 1, limit: 1}}} =
-                 Resume.run(ctx.sandbox.id, opts())
+        assert {:error, :fleet_full} = Resume.run(ctx.sandbox.id, opts())
       end)
 
       still = row(ctx)
-      assert still.status == "suspended", "it finalized past the cap"
+      assert still.status == "suspended", "it finalized past the ceiling"
       assert is_nil(still.transition)
       assert events(ctx, "sandbox.resumed") == []
     end
@@ -739,7 +727,7 @@ defmodule Fountain.Machines.ResumeTest do
       # when there is capacity, because the machine being taken over is left out
       # of the count exactly as on the ordinary path.
       abandon_mid_resume(ctx)
-      {:ok, _} = Fountain.Accounts.update_sandbox_limit(ctx.user, 1)
+      fill_fleet(1)
 
       expect(Managoat.Sandbox, :get, fn _handle -> {:ok, %{status: :running, raw: %{}}} end)
 
@@ -908,11 +896,7 @@ defmodule Fountain.Machines.ResumeTest do
     end
 
     test "the words a waking caller has to act on travel unchanged", ctx do
-      travelling = [
-        :provisioning,
-        :fleet_full,
-        {:sandbox_quota_exceeded, %{count: 1, limit: 1}}
-      ]
+      travelling = [:provisioning, :fleet_full]
 
       for reason <- travelling do
         expect(Fountain.Machines.Resume, :run, fn _id, _opts -> {:error, reason} end)
@@ -1025,7 +1009,7 @@ defmodule Fountain.Machines.ResumeTest do
           blocker =
             independent(fn ->
               Repo.transaction(fn ->
-                # The fleet key, which `with_sandbox_reservation/3` takes first.
+                # The fleet key, which `with_sandbox_reservation/2` takes first.
                 Repo.query!("SELECT pg_advisory_xact_lock($1, $2)", [@quota_lock_namespace, 0])
                 send(owner, :locked)
 
@@ -1073,8 +1057,7 @@ defmodule Fountain.Machines.ResumeTest do
   defp committed_tenant do
     user =
       Repo.insert!(%Fountain.Accounts.User{
-        email: "machine-resume-#{Ecto.UUID.generate()}@example.test",
-        sandbox_limit_override: 5
+        email: "machine-resume-#{Ecto.UUID.generate()}@example.test"
       })
 
     sandbox =

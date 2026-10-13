@@ -298,6 +298,17 @@ defmodule Fountain.Factory do
     end
   end
 
+  @doc """
+  Fill the fleet ceiling with `ready` sandboxes of a throwaway account, leaving
+  `free` slots open. Safe in an async test: the count runs inside the test's
+  own SQL sandbox transaction. Returns the sandboxes it inserted.
+  """
+  def fill_fleet(free \\ 0) do
+    owner = insert_verified_user()
+    n = Fountain.Quotas.fleet_ceiling() - Fountain.Quotas.fleet_count() - free
+    if n > 0, do: for(_ <- 1..n, do: insert_sandbox(user_id: owner.id, status: "ready")), else: []
+  end
+
   defp sandbox_runtime(%{agent_id: agent_id}) when is_binary(agent_id) do
     case Repo.get(Fountain.Agents.Agent, agent_id) do
       nil -> "claude"

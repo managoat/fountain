@@ -6,7 +6,7 @@ defmodule Fountain.Machines.Resume do
   machine resume it once; the second waits". On `main` they do not. Two wakes of
   one parked home both read `suspended`, both call `Managoat.Sandbox.resume/1`,
   and both write `ready`; what serializes them is an accident — the *per-user*
-  advisory lock `Fountain.Quotas.with_sandbox_reservation/3` takes, which
+  advisory lock `Fountain.Quotas.with_sandbox_reservation/2` takes, which
   happens to be held across the provider call. That accident is also the bug it
   is paying for: the provider round trip runs **inside a database transaction**,
   which ADR 0058 forbids outright and #2309 priced, and it serializes every
@@ -18,13 +18,12 @@ defmodule Fountain.Machines.Resume do
   thing neither of them has: an **admission** step, because a resume is the only
   verb here that turns a parked disk back into compute somebody is billed for.
 
-  ## The quota, and why it is where it is
+  #### The ceiling, and why it is where it is
 
   What the reservation actually protects is two concurrent starts *or wakes* of
   **different** machines both reading "there is room" and both provisioning:
-  the fleet ceiling, the tenant's concurrency cap, and the credit gate in front
-  of both. What it does **not** need to protect is one machine against itself —
-  that is the lease's job, and it does it per machine instead of per tenant.
+  the fleet ceiling. What it does **not** need to protect is one machine against itself —
+  that is the lease's job, and it does it per machine instead of per fleet.
 
   So the two are separated, and the ordering is the whole of 7a:
 
@@ -486,11 +485,11 @@ defmodule Fountain.Machines.Resume do
   # ends before any provider I/O. See the moduledoc for why the stamp is inside
   # it and what happens without it.
   #
-  # `exclude: sandbox_id` keeps `main`'s question exactly: "does this tenant have
+  # `exclude: sandbox_id` keeps `main`'s question exactly: "is there
   # capacity *besides* this machine". A suspended row does not count against the
-  # cap (ADR 0017 — a parked sprite is scaled to zero), so without the exclusion
+  # ceiling (ADR 0017 — a parked sprite is scaled to zero), so without the exclusion
   # the very row being woken would start counting the moment it is stamped and
-  # refuse its own resume at the cap.
+  # refuse its own resume at the ceiling.
   #
   # A row with no `user_id` is account deletion's nilified machine (#2329): there
   # is no tenant to check against and no cap it could exceed, so the reservation
@@ -517,24 +516,22 @@ defmodule Fountain.Machines.Resume do
   defp admit(%Sandbox{user_id: nil} = sandbox, epoch), do: settle_admission(stamp(sandbox, epoch))
 
   defp admit(%Sandbox{} = sandbox, epoch) do
-    Quotas.with_sandbox_reservation(sandbox.user_id, [exclude: sandbox.id], fn ->
+    Quotas.with_sandbox_reservation([exclude: sandbox.id], fn ->
       stamp(sandbox, epoch)
     end)
     |> settle_admission()
   end
 
   # The row went terminal between the recheck and the stamp: not a refusal to
-  # report, the machine is gone. Everything else — the tenant's cap, the fleet
-  # ceiling, the credit gate, a compare-and-set that found this lease
+  # report, the machine is gone. Everything else — the fleet ceiling, a compare-and-set that found this lease
   # superseded — rolled its transaction back, so no stamp was written and the
   # row is exactly as it was found.
   defp settle_admission({:ok, %Sandbox{} = marked}), do: {:ok, marked}
   defp settle_admission({:error, :retired}), do: {:ok, :already_terminal}
   defp settle_admission({:error, _reason} = refusal), do: refusal
 
-  # The reservation itself. Inside `with_sandbox_reservation/3`'s transaction on
-  # purpose: the stamp is what makes this machine count against the cap the
-  # check just read, and a check whose reservation lands in a second transaction
+  # The reservation itself. Inside `with_sandbox_reservation/2`'s transaction on
+  # purpose: the stamp is what makes this machine count against the ceiling the check just read, and a check whose reservation lands in a second transaction
   # is a check two callers can both pass.
   #
   # `nest: true` is how `Lease.cas_update/4` is told that the enclosing
@@ -727,10 +724,10 @@ defmodule Fountain.Machines.Resume do
         # owner had paid for the slot when it stamped. It had; the slot did not
         # survive it. `Quotas.active_sandboxes/0` counts a `resuming` row only
         # while its lease is *live*, which is what keeps an abandoned resume
-        # from holding a tenant's capacity for ever — so by the time a takeover
+        # from holding a slot for ever — so by the time a takeover
         # is possible at all, that reservation has already been released and
         # another machine may have taken the slot. Finalizing without asking
-        # again put the tenant over the cap.
+        # again put the fleet over the ceiling.
         #
         # Asking again costs nothing when there is room (the row is excluded
         # from its own count, as on the ordinary path) and refuses honestly when
@@ -812,7 +809,7 @@ defmodule Fountain.Machines.Resume do
   end
 
   # Clearing the stamp is what makes the column mean something again, and here
-  # it is also what gives the quota slot back: `Quotas.active_sandboxes/0`
+  # it is also what gives the fleet slot back: `Quotas.active_sandboxes/0`
   # counts a `resuming` row under a live lease, so a resume that refused or
   # failed must not leave one behind. A status-free write is not a revival, so
   # `Lease.refuse_revival/2` lets it through even on a terminal row. A refusal

@@ -214,7 +214,6 @@ defmodule FountainWeb.AdminControllerTest do
       assert row["role"]
       assert Map.has_key?(row, "active_sandboxes")
       assert Map.has_key?(row, "suspended")
-      assert Map.has_key?(row, "max_concurrent_sandboxes")
     end
 
     test "filters by email, role and verification", %{conn: conn, key: key, target: target} do
@@ -264,7 +263,7 @@ defmodule FountainWeb.AdminControllerTest do
     test "show reports the account's privilege trail", %{conn: conn, key: key, target: target} do
       build_conn()
       |> authed_with_key(key)
-      |> post_json("/api/admin/users/#{target.id}/sandbox-limit", %{"limit" => 3})
+      |> post_json("/api/admin/users/#{target.id}/suspend", %{"suspended" => true})
       |> json_response(200)
 
       body =
@@ -274,7 +273,11 @@ defmodule FountainWeb.AdminControllerTest do
         |> json_response(200)
 
       assert body["data"]["id"] == target.id
-      assert Enum.any?(body["data"]["admin_events"], &(&1["event_type"] =~ "sandbox_limit"))
+
+      assert Enum.any?(
+               body["data"]["admin_events"],
+               &(&1["event_type"] == "admin.account.suspended")
+             )
     end
 
     test "an unknown id is 404, not a crash", %{conn: conn, key: key} do
@@ -326,28 +329,6 @@ defmodule FountainWeb.AdminControllerTest do
 
       assert body["error"] == "cannot_change_own_role"
       assert Accounts.get_user(admin.id).role == "admin"
-    end
-  end
-
-  describe "sandbox limit" do
-    test "sets the cap and records it", %{conn: conn, key: key, target: target} do
-      body =
-        conn
-        |> authed_with_key(key)
-        |> post_json("/api/admin/users/#{target.id}/sandbox-limit", %{"limit" => 0})
-        |> json_response(200)
-
-      assert body["data"]["max_concurrent_sandboxes"] == 0
-      assert "admin.sandbox_limit.changed" in event_types()
-    end
-
-    test "refuses a negative limit", %{conn: conn, key: key, target: target} do
-      conn
-      |> authed_with_key(key)
-      |> post_json("/api/admin/users/#{target.id}/sandbox-limit", %{"limit" => -1})
-      |> json_response(422)
-
-      assert admin_events() == []
     end
   end
 

@@ -198,8 +198,8 @@ defmodule Fountain.Application do
   # Oban is the same trap one layer down, which is why these moved above it
   # rather than merely above the endpoint. A job that runs in the tail of a
   # drain would otherwise meet a listener that had already stopped.
-  # SandboxQueueDrainer can start waiting turns, so the listener must
-  # remain available until Oban has finished stopping its jobs.
+  # A team schedule's run can start a turn, so the listener must remain
+  # available until Oban has finished stopping its jobs.
   #
   # The starting end matters to CI as well as to kubelet. All three `probe()`
   # helpers that curl `/health/ready` (two in ci.yml, one in

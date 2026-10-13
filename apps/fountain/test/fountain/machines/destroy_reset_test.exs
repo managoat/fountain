@@ -53,7 +53,6 @@ defmodule Fountain.Machines.DestroyResetTest do
   alias Fountain.Machines.Lease
   alias Fountain.Machines.Machine
   alias Fountain.Quotas
-  alias Fountain.Workers.SandboxQueueDrainer
   alias Fountain.Workers.SandboxReaper
 
   setup do
@@ -67,7 +66,6 @@ defmodule Fountain.Machines.DestroyResetTest do
     end)
 
     user = insert_verified_user()
-    {:ok, user} = Fountain.Accounts.update_sandbox_limit(user, 10)
     env = insert_env(user_id: user.id)
     agent = insert_agent(user_id: user.id, runtime: "claude", environment_id: env.id)
 
@@ -236,26 +234,16 @@ defmodule Fountain.Machines.DestroyResetTest do
       end
     end
 
-    test "the finalize runs the metering and the queue poke, once", ctx do
-      {:ok, _request} =
-        Fountain.SandboxQueue.enqueue(%{
-          user_id: ctx.user.id,
-          agent_id: ctx.agent.id,
-          kind: "start",
-          attrs: %{"prompt" => "queued work"}
-        })
-
+    test "the finalize runs the metering, once", ctx do
       capture_provider()
       assert {:ok, %Sandbox{}} = Conversations.reset_sandbox(ctx.home)
 
-      # `update_sandbox_if/3` ran both of these for the reset before this
-      # stage; `Lease.cas_update/3` is a guarded `update_all` and runs neither,
-      # so the protocol calls `Conversations.sandbox_status_effects/2` itself.
-      # Losing them is invisible until a provider bill is reconciled against a
-      # usage row that is not there, or a tenant at their cap waits out the
-      # five-minute cron.
+      # `update_sandbox_if/3` ran this for the reset before this stage;
+      # `Lease.cas_update/3` is a guarded `update_all` and runs nothing, so the
+      # protocol calls `Conversations.sandbox_status_effects/2` itself. Losing
+      # it is invisible until a provider bill is reconciled against a usage
+      # row that is not there.
       assert usage_events(ctx.home.id) == ["sandbox_terminated"]
-      assert all_enqueued(worker: SandboxQueueDrainer) != []
     end
 
     test "capacity is held until the provider confirms, and released when it does", ctx do

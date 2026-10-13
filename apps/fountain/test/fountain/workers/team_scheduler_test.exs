@@ -96,11 +96,7 @@ defmodule Fountain.Workers.TeamSchedulerTest do
     end
 
     test "snoozes on a machine its owner is mid-operation on" do
-      # ADR 0058 stage 6a. This worker's snooze list used to be spelled out
-      # inline beside `SandboxQueue`'s, so a refusal added to one was a refusal
-      # the other consumed instead of retrying — the shape #2286's fourth
-      # review round found. It reads the queue's list now, so this case and the
-      # queue's own drain case cannot disagree.
+      # ADR 0058 stage 6a: a machine mid-operation is a wait, not a failure.
       user = insert_verified_user()
       ada = insert_agent(user_id: user.id)
 
@@ -126,16 +122,11 @@ defmodule Fountain.Workers.TeamSchedulerTest do
                "Fountain was working on the teammate's computer"
     end
 
-    test "every reason the queue snoozes on, this worker snoozes on" do
-      # The property, not membership (round 1, surfaces review). The first
-      # version asserted `:sandbox_unavailable in
-      # SandboxQueue.transient_errors()`, which says only that the *queue's*
-      # list contains the word — put an inline copy back in this worker and it
-      # still passed.
-      #
-      # This drives the worker with every reason on the queue's list, so a
-      # second list here that is missing any of them fails, and a reason added
-      # to the queue's list later is covered the day it is added.
+    test "snoozes on every transient refusal, a full fleet among them" do
+      # A cron firing has nobody there to retry it, so a refusal that clears by
+      # itself is retried here rather than consumed. `:fleet_full` joined the
+      # list when the sandbox queue that used to hold these firings went
+      # (ADR 0042, as amended 2026-10-13).
       user = insert_verified_user()
       ada = insert_agent(user_id: user.id)
 
@@ -147,10 +138,10 @@ defmodule Fountain.Workers.TeamSchedulerTest do
       )
 
       s = create!(user, ada)
-      reasons = Fountain.SandboxQueue.transient_errors()
-      assert :sandbox_unavailable in reasons, "the scan is not reaching the queue's list"
 
-      for reason <- reasons do
+      for reason <-
+            ~w(busy provisioning runner_offline sandbox_at_capacity sandbox_unavailable
+               sprite_probe_failed sandbox_resume_failed fleet_full)a do
         stub(ConversationServer, :send_prompt, fn _, _, _, _ -> {:error, reason} end)
         fresh = DateTime.utc_now() |> DateTime.to_iso8601()
 
@@ -159,18 +150,7 @@ defmodule Fountain.Workers.TeamSchedulerTest do
                "a firing that met #{inspect(reason)} was consumed rather than retried"
       end
 
-      # And the source half: the worker reads the queue's list rather than
-      # spelling one out, which is what makes Mix rebuild it when that list
-      # changes.
-      source = Path.expand("../../../lib/fountain/workers/team_schedule_run.ex", __DIR__)
-      assert File.exists?(source), "the scan missed #{source}"
-      body = File.read!(source)
-
-      assert body =~ "@transient_errors SandboxQueue.transient_errors()"
-
-      refute body =~ ~r/@transient_errors\s+(~w|\[)/,
-             "team_schedule_run.ex spells out a snooze list of its own again; " <>
-               "read `SandboxQueue.transient_errors/0` instead (ADR 0058 stage 6a)"
+      assert Schedules.get_schedule(s.id, user.id).last_error == "sandbox fleet is full"
     end
 
     test "a deleted or paused schedule is a no-op" do

@@ -2,8 +2,10 @@
 
 **Further extraction is paused** (ADR 0037, addendum of 2026-09-14). Nine
 database-free subsystems left the server as Apache-2.0 `Managoat.*` libraries
-and all nine are on hex; every one of them now costs two PRs per cross-seam
-change. A tenth is worth that coordination only when a consumer outside
+and all nine went to hex; every one of them costs two PRs per cross-seam
+change. One came back: `managoat_substitution` never had a consumer outside
+Fountain, so the `${VAR}` engine is `Fountain.Substitution` again (ADR 0037,
+addendum of 2026-10-13). A tenth is worth that coordination only when a consumer outside
 Fountain needs it, or when it needs a release schedule of its own. Until one
 of those is true, a subsystem stays where it is, behind whatever module
 boundary the compiler already enforces. The recipes below are kept for the
@@ -11,7 +13,6 @@ day that changes, and for a fix that has to land in a graduated library.
 
 | Library | Owns | Fountain keeps |
 |---|---|---|
-| `managoat_substitution` | `Managoat.Substitution`, the `${VAR}` engine | |
 | `managoat_mcp_auth` | the client side of MCP authorization: RFC 9728/8414/7591 discovery and registration, the SSRF guard, and `Managoat.McpAuth.Client`, an OAuth 2.0 code flow | nothing: Connections, its one consumer, were removed, and Fountain no longer depends on it |
 | `managoat_oauth` | the OAuth 2.0 code+PKCE and device-grant state machine, a `use` macro over `Managoat.OAuth.Host` | `Fountain.OAuth` is the instance; its host mints the API key |
 | `managoat_acp` | the client-side ACP session (Peer), Protocol, Permissions, Blocks, Usage, Tracer, the ScriptedAgent | `Conversations.Blocks` |
@@ -46,8 +47,8 @@ boundaries. Keep the release links in the PR so both sides are reviewable.
 A new library starts as an app in this umbrella, `apps/managoat_<name>`,
 and graduates once its surface stops moving. The model to copy is the last
 extraction as merged, `git show 1b848031 -- apps/managoat_substitution`
-(#1347, the smallest), or `managoat/managoat_substitution` on GitHub minus
-what the graduation template added. A new one needs:
+(#1347, the smallest; the library has since been folded back into
+`Fountain.Substitution`). A new one needs:
 
 - `apps/managoat_<name>/mix.exs` with the three umbrella path lines
   (`build_path`, `deps_path`, `lockfile`) and deliberately **no**
@@ -92,7 +93,7 @@ string as the hex package), from which CI publishes it to hex, and
 `scripts/graduate-library.sh` and a `templates/managoat-library/` copied into
 each new repository (#1345). Both are gone from this repository now that
 extraction is paused; a tenth library starts from one of the nine. Copy
-`managoat/managoat_substitution`'s CI, release gate, publish workflow,
+`managoat/managoat_docs`'s CI, release gate, publish workflow,
 `scripts/release.exs`, `NOTICE` and `CHANGELOG.md`, and take the three
 umbrella path lines out of its `mix.exs`.
 

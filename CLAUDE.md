@@ -69,8 +69,8 @@ standards/, contributing/  unpublished contributor material
 scripts/                   the gates and the CI helpers (scripts/ci/README.md)
 ```
 
-The eight `managoat_*` libraries Fountain uses (substitution, oauth, acp,
-sandbox, docs, broker, runner, runtimes) are hex packages pinned in
+The seven `managoat_*` libraries Fountain uses (oauth, acp, sandbox, docs,
+broker, runner, runtimes) are hex packages pinned in
 `apps/fountain/mix.exs`, not directories here. What each owns is tabled in
 [contributing/component-libraries.md](contributing/component-libraries.md).
 

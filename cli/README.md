@@ -68,9 +68,9 @@ HTTP requests) are validated by smoke runs against a real server.
 
 This binary replaced the Elixir/Burrito CLI that previously lived at
 `apps/fountain_cli/`. The `${VAR}` substitution module the server still
-needs at provision time was moved into the server app, and has since become
-the library `Managoat.Substitution` in `apps/managoat_substitution`
-(decisions/0037); everything else was deleted. `internal/substitution` here
+needs at provision time was moved into the server app, where it is
+`Fountain.Substitution` (it spent 2026-09 and 2026-10 as the hex library
+`managoat_substitution`, decisions/0037); everything else was deleted. `internal/substitution` here
 is the Go implementation of the same syntax and the two are kept aligned.
 
 The `up` / `down` self-deploy commands were removed before the Go port

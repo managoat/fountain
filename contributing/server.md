@@ -34,7 +34,7 @@ Environments.upsert_secret(env, %{"key" => "TOKEN", "value" => "plaintext"}, dek
 %{"TOKEN" => "plaintext"} = Environments.decrypted_env(env, dek)                    # a plain map
 ```
 
-`Managoat.Substitution.apply(value, vars)` resolves `${VAR}` (and `$$` to `$`)
+`Fountain.Substitution.apply(value, vars)` resolves `${VAR}` (and `$$` to `$`)
 recursively through maps and lists, returning `{:ok, result}` or
 `{:error, {:missing_vars, sorted_list}}` with **every** missing var.
 

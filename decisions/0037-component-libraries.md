@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Component libraries, extracted umbrella-first under the Managoat namespace"
-description: "Fountain's database-free subsystems (sandbox, ACP peer, runtime provisioning, MCP authorization discovery, broker, runner protocol, docs, OAuth, substitution) are extracted one at a time as Apache-2.0 libraries named Managoat.*, first as apps in this umbrella and then as managoat/<name> repos on hex. Built so far: managoat_substitution (#1336), managoat_sandbox (#1337), managoat_mcp_auth (#1338), managoat_runner (#1341), managoat_docs (#1342), managoat_oauth (#1343), managoat_broker (#1340), managoat_acp (#1339) and managoat_runtimes (#1368). Graduated to hex so far: managoat_substitution, managoat_mcp_auth, managoat_oauth, managoat_acp, managoat_sandbox, managoat_docs, managoat_broker, managoat_runner, managoat_runtimes. All nine. goatherd is an external application consumer; ADR 0055 records its boundary with Fountain. Further extraction is paused (2026-09-14) unless an independent consumer or a release schedule of its own justifies the two-PR coordination cost. Addendum 2026-10-12: scripts/graduate-library.sh and templates/managoat-library are removed; a new library copies an existing managoat_* repository."
+description: "Fountain's database-free subsystems (sandbox, ACP peer, runtime provisioning, MCP authorization discovery, broker, runner protocol, docs, OAuth, substitution) are extracted one at a time as Apache-2.0 libraries named Managoat.*, first as apps in this umbrella and then as managoat/<name> repos on hex. Built so far: managoat_substitution (#1336), managoat_sandbox (#1337), managoat_mcp_auth (#1338), managoat_runner (#1341), managoat_docs (#1342), managoat_oauth (#1343), managoat_broker (#1340), managoat_acp (#1339) and managoat_runtimes (#1368). Graduated to hex so far: managoat_substitution, managoat_mcp_auth, managoat_oauth, managoat_acp, managoat_sandbox, managoat_docs, managoat_broker, managoat_runner, managoat_runtimes. All nine. goatherd is an external application consumer; ADR 0055 records its boundary with Fountain. Further extraction is paused (2026-09-14) unless an independent consumer or a release schedule of its own justifies the two-PR coordination cost. Addendum 2026-10-12: scripts/graduate-library.sh and templates/managoat-library are removed; a new library copies an existing managoat_* repository. Addendum 2026-10-13: managoat_substitution is folded back into the server as Fountain.Substitution; it never had a second consumer."
 tags: [architecture, libraries, licensing, ci]
 status: stable
 adr: "0037"
@@ -295,6 +295,19 @@ A future library starts its repository from an existing `managoat_*` one;
 `contributing/component-libraries.md` ("Graduating a library") says what to
 copy. The umbrella-first rule, the namespace, the licence and
 the two-PR cost are unchanged.
+
+## Addendum (2026-10-13): `managoat_substitution` comes back
+
+`managoat_substitution` was extracted first because it was the smallest seam,
+not because anything outside Fountain needed it, and nothing ever did: its one
+caller is `Fountain.Conversations.McpServers`, and the hex package had one
+release (0.1.0). By the paused-extraction test above (an independent consumer
+or a release schedule of its own) it would not be extracted today, so it is
+not kept extracted either. The module returns unchanged as
+`Fountain.Substitution`, with its tests, and the hex pin is dropped; the
+`managoat/managoat_substitution` repository is archived and 0.1.0 stays on
+hex. The other libraries are unaffected; this is not a precedent for folding
+back a library that has a second consumer.
 
 ## Alternatives considered
 

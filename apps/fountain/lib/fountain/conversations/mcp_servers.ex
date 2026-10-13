@@ -17,7 +17,7 @@ defmodule Fountain.Conversations.McpServers do
 
   alias Fountain.Agents.Agent
   alias Fountain.Environments.Environment
-  alias Managoat.Substitution
+  alias Fountain.Substitution
 
   # Resolve `${VAR}` references in the agent's MCP server config against
   # env_vars + env_secrets + vault_secrets (vault wins). Env vars values

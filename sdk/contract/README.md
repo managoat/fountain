@@ -218,7 +218,8 @@ checked-in generated model.
 
 This fixture proves propagation, not server acceptance of an invented field.
 It does not generate expected SSE/retry/permission/pagination/run-termination
-behavior; those scenarios remain independently authored in `sdk/conformance`.
+behavior; those scenarios remain independently authored in
+`sdk/typescript/test/scenarios`.
 
 Regeneration is not a release instruction. Assess the SDK's public change under
 its version/publishing rules in `contributing/sdk-maintenance.md`.

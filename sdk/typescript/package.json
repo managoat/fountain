@@ -45,7 +45,6 @@
     "build": "tsc -p tsconfig.build.json",
     "generate": "openapi-typescript ${FOUNTAIN_OPENAPI:-../../dist/openapi.json} -o src/generated/openapi.ts",
     "verify-contract": "node scripts/verify-contract.mjs",
-    "conformance": "node --test test/conformance.test.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node --test test/*.test.ts",
     "prepublishOnly": "node scripts/ci-publishes.mjs && npm run typecheck && npm test && npm run build"

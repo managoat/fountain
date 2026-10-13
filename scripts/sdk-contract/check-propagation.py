@@ -2,7 +2,8 @@
 """Probe a synthetic additive field through real SDK/CLI HTTP paths.
 
 Only a loopback server is used. SDK create returns a deliberate 422 after
-recording the body: run/stream behavior remains covered by conformance.
+recording the body: run/stream behavior remains covered by the TypeScript
+SDK's wire scenarios (sdk/typescript/test/scenarios).
 """
 import argparse
 import json

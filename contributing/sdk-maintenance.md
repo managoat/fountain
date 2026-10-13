@@ -1,13 +1,8 @@
 # Maintaining an SDK
 
-[SDKs.md](../SDKs.md) is the checked catalog. `sdk/catalog.json` records ownership,
-install coordinates, stability and CI hooks; each package's own manifest owns its
-version and runtime requirement. `python3 scripts/sdk-catalog.py --write` refreshes
-the catalog. CI rejects stale output, unregistered SDK directories, missing owners,
-missing release/contract hooks and version identities that disagree with manifests.
-The tool needs Python 3.11 or newer.
-
-TypeScript is the one maintained SDK. The Python, Elixir and Swift SDKs were
+TypeScript (`@managoat/fountain-sdk`, `npm install @managoat/fountain-sdk`) is the
+one maintained SDK. `sdk/typescript/package.json` owns its version and runtime
+requirement. The Python, Elixir and Swift SDKs were
 removed on 2026-10-12 ([ADR 0059](../decisions/0059-independent-sdk-maintenance.md));
 their published releases on PyPI, Hex and the `sdk-swift-v*` tags stay where they
 are, unmaintained. Their release tags are history: never move or delete them.
@@ -15,11 +10,8 @@ are, unmaintained. Their release tags are history: never move or delete them.
 ## Ownership and support
 
 `@BinaryBourbon` owns the TypeScript SDK and is the fallback for shared SDK
-tooling. Delegate ownership by changing both `sdk/catalog.json` and
-`.github/CODEOWNERS`. Owners must have repository write access. Register a
-real GitHub user or team, not a placeholder. The catalog's conformance counts are
-computed from `sdk/conformance/matrix.json`; supported scenarios still run in the
-SDK's CI job, and a skip needs its existing reason and tracking issue.
+tooling. Delegate ownership in `.github/CODEOWNERS`. Owners must have repository
+write access. Register a real GitHub user or team, not a placeholder.
 
 ## Releasing a change
 
@@ -33,8 +25,8 @@ server; changing the contract does not demand a no-op release.
 2. Update `USER_AGENT` in `sdk/typescript/src/http.ts` to match.
 3. Add the versioned SDK changelog entry and run the SDK's checks from
    [CI maintenance](../scripts/ci/README.md#sdk-jobs).
-4. Run `python3 scripts/sdk-catalog.py --write`, commit, and open a PR. The release
-   gate runs on the PR; the normal review and merge queue still apply.
+4. Commit and open a PR. The release gate runs on the PR; the normal review and
+   merge queue still apply.
 
 Merging the bump publishes the SDK from CI. The deliberate existing exception
 is `release:skip-sdk` (legacy spelling `sdk-no-release`): explain in the PR why a
@@ -73,14 +65,10 @@ incident; the registry remains authoritative for availability.
 
 ## Adding an SDK
 
-Add its own manifest/version, Apache-2.0 license, README, changelog and actual
-registry/install coordinate. Register its owner and fallback, stability,
-conformance adapters, contract-check file, CI job and commands, PR release gate
-and main publisher in `sdk/catalog.json`. Add the CODEOWNERS entry and a native
-manifest reader/version-identity check in `scripts/sdk-catalog.py`. Do not migrate
-other SDK manifests to a shared build system.
-
-Wire the contract and conformance checks into CI, implement an idempotent CI
-publisher and source/version/changelog gate, add relevant coverage to the shared
-matrix, and regenerate the catalog. Extend the release-policy regression tests
-when introducing a new manifest format or release rule.
+There is one SDK, and no machinery for registering another: the catalog and
+the language-neutral conformance matrix were removed on 2026-10-13 (ADR 0059).
+A new client would bring its own manifest, Apache-2.0 license, README,
+changelog, contract manifest under `sdk/contract/manifests/`, a
+`check-propagation.py` probe, a CI job, and an idempotent publisher and release
+gate modelled on TypeScript's. Its wire behaviour can be checked against the
+scenarios in `sdk/typescript/test/scenarios/`.

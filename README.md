@@ -115,7 +115,8 @@ machine, with the same checkout and the same session. See
 [`sdk/typescript/`](sdk/typescript/) or the
 [TypeScript SDK docs](https://managoat.com/docs/sdk). The Python, Elixir and
 Swift SDKs are retired: their published releases stay on PyPI, Hex and the
-`sdk-swift-v*` tags but are no longer maintained ([SDKs.md](SDKs.md)).
+`sdk-swift-v*` tags but are no longer maintained
+([ADR 0059](decisions/0059-independent-sdk-maintenance.md)).
 
 ## Get started with the CLI
 

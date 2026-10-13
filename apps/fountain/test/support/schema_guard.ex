@@ -4,7 +4,7 @@ defmodule FountainWeb.SchemaGuard do
 
   Every other check in this repository compares a schema with another schema.
   `sdk/contract` projects the OpenAPI document and pins the SDK to it,
-  `sdk/conformance` pins what that client does with it, and both pass happily
+  the SDK's wire scenarios pin what that client does with it, and both pass happily
   when the document itself is a lie about its own controller. Three defects of
   exactly that shape surfaced in one day (#1427): a `required` list naming
   properties the schema did not have (#1417), a declared field the action never

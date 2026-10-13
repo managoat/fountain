@@ -10,7 +10,7 @@ import sys
 SDK_READMES = frozenset({"sdk/typescript/README.md"})
 
 
-CONTRIBUTOR_FILES = {"CLAUDE.md", "CONTRIBUTING.md", "SETUP.md", "SDKs.md", "scripts/ci/README.md"}
+CONTRIBUTOR_FILES = {"CLAUDE.md", "CONTRIBUTING.md", "SETUP.md", "scripts/ci/README.md"}
 
 
 def contributor_doc(path):

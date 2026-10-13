@@ -1,7 +1,6 @@
 # SDK ownership. BinaryBourbon is also the fallback for shared SDK infrastructure.
 /sdk/ @BinaryBourbon
 /sdk/typescript/ @BinaryBourbon
-/SDKs.md @BinaryBourbon
 /scripts/sdk-*/ @BinaryBourbon
 /scripts/sdk-*.py @BinaryBourbon
 /scripts/sdk-*.mjs @BinaryBourbon

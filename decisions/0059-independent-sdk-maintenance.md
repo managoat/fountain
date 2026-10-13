@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Independent SDK maintenance and source releases"
-description: "Keep native SDK manifests and independent releases, enforce ownership and support metadata, and publish Swift with revision-pinned source tags. Amended 2026-10-12: TypeScript is the one maintained SDK; the Python, Elixir and Swift SDKs, their CI jobs and publishers were removed, and their published releases stay up unmaintained."
+description: "Keep native SDK manifests and independent releases, enforce ownership and support metadata, and publish Swift with revision-pinned source tags. Amended 2026-10-12: TypeScript is the one maintained SDK; the Python, Elixir and Swift SDKs, their CI jobs and publishers were removed, and their published releases stay up unmaintained. Amended 2026-10-13: the SDK catalog and the language-neutral conformance matrix were removed; the scenarios run in the TypeScript SDK's own tests."
 tags: [sdk, distribution]
 status: stable
 adr: "0059"
@@ -11,9 +11,10 @@ date: 2026-09-17
 
 # 0059 — Independent SDK maintenance and source releases
 
-**Status:** Accepted 2026-09-17; amended 2026-10-12 to one SDK. See the
-addendum at the end: the text above it describes four SDKs, of which only
-TypeScript remains.
+**Status:** Accepted 2026-09-17; amended 2026-10-12 to one SDK and
+2026-10-13 to drop the catalog and conformance matrix. See the addenda at the
+end: the text above them describes four SDKs, of which only TypeScript
+remains.
 
 ## Context
 
@@ -108,3 +109,22 @@ revision-pinned release scheme and its compatibility baseline are moot.
 swift-goat, which consumes FountainKit (ADR 0041), keeps working at whatever
 revision it pins and receives no further releases.
 [ADR 0041](0041-typed-swift-client.md) is retired by this addendum.
+
+## Addendum — 2026-10-13: no catalog, no shared conformance matrix
+
+With one SDK, the machinery for registering several had nothing left to
+check. `sdk/catalog.json`, the generated `SDKs.md` and `scripts/sdk-catalog.py`
+are removed, with the catalog half of the maintenance tests. The
+language-neutral conformance suite (`sdk/conformance`: its matrix, its lint
+and its README) is removed too. Its 26 scenarios all ran on TypeScript, so
+they move unchanged to `sdk/typescript/test/scenarios` and run in `npm test`,
+and the lint's one check that guarded more than the format, every fixture
+body against the schema `sdk/contract/contract.json` declares, moves into
+that test.
+
+What stays: the TypeScript package's own manifest, version, changelog,
+release gate, publisher and release-tag recorder; `CODEOWNERS`; and
+`sdk/contract` with its drift checks (`verify-contract`, the
+`check-propagation.py` probes for TypeScript and the CLI), which catch real
+API breaks. The procedure for adding an SDK above no longer applies; a new
+client would bring its own CI job and checks.

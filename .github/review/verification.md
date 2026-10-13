@@ -15,7 +15,7 @@ configuration leaks that separate CI partitions cannot. It covers the core `mix 
 unused-dependency/lockfile checks, formatting, Credo, Dialyzer in dev, security
 scanning, release assembly in prod, and tests. Commands fail fast, including grouped stages that keep the policy within
 20 entries; any failed stage makes verification incomplete. Plain `mix deps.get` preserves dev/test dependencies
-when preparing prod. It also checks the wire contract, conformance fixtures, the TypeScript
+when preparing prod. It also checks the wire contract, the TypeScript
 SDK, both Go modules and the Hermes plugin. Each command must
 exit successfully; a failed stage is not excused by a later successful one.
 

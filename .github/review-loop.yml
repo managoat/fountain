@@ -47,7 +47,6 @@ fixes:
     - "**/LICENSE*"
     - sdk/contract/manifests/**
     - sdk/contract/omissions.json
-    - sdk/conformance/matrix.json
     - "**/pyproject.toml"
     - "**/uv.lock"
   # Allow a small repair to include its regression test and supporting fixture.
@@ -105,9 +104,9 @@ verification:
     - rl-env bash scripts/sobelow.sh
     - rl-env bash scripts/sdk-contract/build.sh --check
     - rl-env sh -c 'cd sdk/typescript && npm ci --no-audit --no-fund && npm run typecheck && npm test && npm
-      run build && npm run verify-contract && npm run conformance'
+      run build && npm run verify-contract'
     - rl-env sh -c 'cd cli && go test -count=1 ./... && go vet ./...'
-    - rl-env sh -c 'python3 sdk/conformance/lint.py && python3 -m unittest discover -s integrations/hermes/tests -v'
+    - rl-env python3 -m unittest discover -s integrations/hermes/tests -v
 approval:
   mode: policy-pass-with-exceptions
   require_all_reviewers: true

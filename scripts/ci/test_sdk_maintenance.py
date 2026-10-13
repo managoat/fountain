@@ -1,5 +1,4 @@
-"""Mutation tests for the maintenance contract and real release-gate entry points."""
-import importlib.util
+"""Tests for the TypeScript SDK's real release-gate and release-tag entry points."""
 import json
 import os
 from pathlib import Path
@@ -11,30 +10,17 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def module(name, path):
-    spec = importlib.util.spec_from_file_location(name, ROOT / path)
-    result = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(result)
-    return result
-
-
-catalog = module('sdk_catalog', 'scripts/sdk-catalog.py')
-
-
 class SDKMaintenanceTest(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         # Tiny fixture tree with the real metadata and hooks; no SDK builds or deps.
-        config = catalog.load()
-        paths = {'sdk/catalog.json', 'sdk/conformance/matrix.json', '.github/CODEOWNERS',
-                 '.github/workflows/ci.yml', 'scripts/sdk-release.mjs',
-                 'scripts/sdk-release-tag.py', 'SDKs.md'}
-        for language, sdk in config['sdks'].items():
-            paths.update([sdk['manifest'], sdk['release_gate'], sdk['publish_workflow'], sdk['contract_check']])
-            paths.update(f'sdk/{language}/{file}' for file in ['README.md', 'CHANGELOG.md', 'LICENSE'])
-        paths.add('sdk/typescript/src/http.ts')
+        paths = {'.github/CODEOWNERS', '.github/workflows/ci.yml', 'scripts/sdk-release.mjs',
+                 'scripts/sdk-release-tag.py', 'sdk/typescript/package.json',
+                 '.github/workflows/sdk-release-gate.yml', '.github/workflows/sdk-publish.yml',
+                 'sdk/typescript/scripts/verify-contract.mjs', 'sdk/typescript/src/http.ts'}
+        paths.update(f'sdk/typescript/{file}' for file in ['README.md', 'CHANGELOG.md', 'LICENSE'])
         for path in paths:
             target = self.root / path
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -60,33 +46,8 @@ class SDKMaintenanceTest(unittest.TestCase):
     def append(self, path, text='\n# changed\n'):
         self.change(path, lambda s: s + text)
 
-    def test_current_catalog_is_derived_from_native_facts(self):
-        self.assertEqual(catalog.validate(self.root), [])
-        self.assertEqual(catalog.render(self.root), (self.root / 'SDKs.md').read_text())
-
-    def test_unregistered_directory_is_rejected(self):
-        (self.root / 'sdk/rust').mkdir()
-        self.assertTrue(any('registered' in e for e in catalog.validate(self.root)))
-
-    def test_owner_removal_is_rejected(self):
-        self.change('.github/CODEOWNERS', lambda s: s.replace('/sdk/typescript/ @BinaryBourbon', ''))
-        self.assertTrue(any('typescript: missing explicit CODEOWNERS' in e for e in catalog.validate(self.root)))
-
-    def test_contract_check_removed_from_ci_is_rejected(self):
-        self.change('.github/workflows/ci.yml', lambda s: s.replace('run: npm run verify-contract', 'run: echo removed'))
-        self.assertTrue(any('typescript: CI job lacks' in e for e in catalog.validate(self.root)))
-
-    def test_publisher_removed_from_workflow_is_rejected(self):
-        self.change('.github/workflows/sdk-publish.yml', lambda s: s.replace('npm publish --tag', 'echo not-a-publisher'))
-        self.assertTrue(any('typescript: missing publisher' in e for e in catalog.validate(self.root)))
-
-    def test_version_identity_is_checked_even_without_a_bump(self):
-        path = self.root / 'sdk/typescript/src/http.ts'
-        path.write_text(path.read_text().replace('fountain-sdk-js/', 'fountain-sdk-js/stale'))
-        self.assertTrue(catalog.version_errors('typescript', self.root))
-
     def bump_typescript(self):
-        old = catalog.facts('typescript', self.root)[1]
+        old = json.loads((self.root / 'sdk/typescript/package.json').read_text())['version']
         new = old.rsplit('.', 1)[0] + '.' + str(int(old.rsplit('.', 1)[1]) + 1)
         for file in ['sdk/typescript/package.json', 'sdk/typescript/src/http.ts']:
             self.change(file, lambda s: s.replace(old, new))
@@ -157,7 +118,7 @@ runpy.run_path(sys.argv[0], run_name='__main__')
         source = self.git('rev-parse', 'HEAD')
         self.record_tag(version, published=True)
         self.record_tag(version, attempt=2)
-        self.append('SDKs.md')
+        self.append('.github/CODEOWNERS')
         self.commit()
         self.record_tag(version)
         remote = self.git('ls-remote', 'origin', f'refs/tags/sdk-typescript-v{version}^{{}}')
@@ -173,7 +134,7 @@ runpy.run_path(sys.argv[0], run_name='__main__')
 
     def test_later_rerun_cannot_backfill_tag_for_an_older_artifact(self):
         version = self.tag_fixture()
-        self.append('SDKs.md')
+        self.append('.github/CODEOWNERS')
         self.commit()
         evidence = self.upload_evidence(self.git('rev-parse', 'HEAD'), 'skipped')
         self.record_tag(version, attempt=2, evidence=evidence, success=False)

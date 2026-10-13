@@ -7,10 +7,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const sdk = join(dirname(fileURLToPath(import.meta.url)), "..");
-const mode = process.argv.slice(2);
-if (mode.length > 1 || (mode.length === 1 && mode[0] !== "--conformance")) {
-  throw new Error("usage: node scripts/test-compiled.mjs [--conformance]");
-}
+if (process.argv.length > 2) throw new Error("usage: node scripts/test-compiled.mjs");
 const temporary = mkdtempSync(join(tmpdir(), "fountain-sdk-tests-"));
 const output = join(temporary, "sdk", "typescript");
 try {
@@ -23,11 +20,9 @@ try {
   // A test that imports a package resolves it from the copy, not from here.
   // rmSync unlinks the symlink without following it into the real directory.
   symlinkSync(join(sdk, "node_modules"), join(output, "node_modules"), "dir");
-  for (const fixtures of ["conformance", "contract"]) {
-    cpSync(join(sdk, "..", fixtures), join(temporary, "sdk", fixtures), { recursive: true });
-  }
-  const tests = mode.length ? ["conformance.test.js"]
-    : readdirSync(join(output, "test")).filter(name => name.endsWith(".test.js")).sort();
+  cpSync(join(sdk, "test", "scenarios"), join(output, "test", "scenarios"), { recursive: true });
+  cpSync(join(sdk, "..", "contract"), join(temporary, "sdk", "contract"), { recursive: true });
+  const tests = readdirSync(join(output, "test")).filter(name => name.endsWith(".test.js")).sort();
   if (!tests.length) throw new Error("No compiled SDK tests found");
   const result = spawnSync(process.execPath, ["--test", ...tests.map(name => join(output, "test", name))],
     { cwd: output, stdio: "inherit" });

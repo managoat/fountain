@@ -26,6 +26,11 @@ Sprites conversation the same day — see *Gate 1a* under *Gates*. Every gate is
 broker), 3 (inference credentials) and 4 (the egress trail). #1090 is closed and each
 later gate gets its own tracker.
 
+**Proposed amendment (2026-10-13):** [0069](0069-secrets-never-enter-the-sandbox.md)
+would replace gate 1b: every secret is brokered on hosts it carries itself,
+the binding table goes, a secret is never delivered in the clear, and the
+broker becomes mandatory. Until it is accepted, the text here stands.
+
 The ratchet of §9 ran its course and is **retired** (amendment of
 2026-09-12). The hosted deployment named **one** tenant, the maintainer's own
 account, from home-cloud#131 (2026-08-25) until home-cloud#163 (2026-09-04),

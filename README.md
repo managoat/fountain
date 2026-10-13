@@ -257,7 +257,6 @@ code. The long form, and where everything lives, is
 [docs/open-source.md](docs/open-source.md), published at `/docs/open-source`.
 
 See [`NOTICE`](NOTICE) for third-party attribution,
-[`CONTRIBUTING.md`](CONTRIBUTING.md) for how the licences apply to
-contributions, and
+[`CONTRIBUTING.md`](CONTRIBUTING.md) for how to contribute, and
 [`decisions/0068-relicense-the-server-under-apache.md`](decisions/0068-relicense-the-server-under-apache.md)
 for the reasoning.

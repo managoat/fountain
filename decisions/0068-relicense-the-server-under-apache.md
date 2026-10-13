@@ -91,3 +91,14 @@ contribution is rewritten rather than the change reverted.
   of those contributors may never answer. Notifying them, and rewriting any
   contribution whose author objects, gets the same result without blocking
   on silence.
+
+## Addendum — 2026-10-13: no contributor agreement
+
+With every first-party directory under Apache-2.0, the explicit inbound term
+that 0027's addendum added (contributions licensed to Fountain under
+Apache-2.0, "opening a pull request is the grant") says nothing that
+section 5 of the Apache License does not already say. It existed so a
+contribution could go out under a different licence from the one it came in
+under, and there is no different licence left. `CONTRIBUTING.md` drops it and
+points at the licence. The DCO sign-off stays: it certifies where a patch
+came from, which the licence does not.

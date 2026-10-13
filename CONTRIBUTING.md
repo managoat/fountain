@@ -46,16 +46,12 @@ in its own linked issue before converting the broader record.
 
 **You contribute under the Apache License 2.0**, and Fountain distributes
 your work under the Apache License 2.0. Every first-party directory carries an
-Apache-2.0 LICENSE file, except `ee/`:
+Apache-2.0 LICENSE file:
 
 | Directory | License |
 |---|---|
 | `apps/fountain`, `config`, `priv` | Apache License 2.0 |
-
-| `cli/`, `sdk/` (every client) | Apache License 2.0 |
-
-`ee/` is being removed. Until then, a contribution to it is still made under
-Apache-2.0 and distributed under the Elastic License 2.0.
+| `cli/`, `sdk/` | Apache License 2.0 |
 
 There is no separate document to sign and no CLA bot. Opening a pull request is
 the grant. You keep the copyright in your work. This is a license, not an

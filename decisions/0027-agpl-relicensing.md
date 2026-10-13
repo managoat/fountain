@@ -237,11 +237,9 @@ thing: a competing host improving Fountain in private. With no hosted product
 to compete with, that reason is gone, and the policy bans that the AGPL
 triggers now cost the self-hosters Fountain is built for.
 [0068](0068-relicense-the-server-under-apache.md) relicenses `apps/fountain`,
-the first-party extensions, `config` and `priv` under Apache-2.0, the licence
-`cli/` and `sdk/` already use. The inbound Apache-2.0 term from the addendum
-above is what makes that possible without a CLA. 0068 still asks each outside
-contributor before it takes effect.
-
-`ee/` is not relicensed. A separate change deletes it, along with the billing
-it held. Releases made under this ADR stay under the AGPL for anyone who has
-them. This ADR is kept as the record of why the AGPL was chosen.
+`config` and `priv` under Apache-2.0, the licence `cli/` and `sdk/` already
+use. The inbound Apache-2.0 term from the addendum above is what makes that
+possible without a CLA or a fresh round of consent. `ee/` and the first-party
+extensions were deleted before it (#2606, #2609, #2614, #2617). Releases made
+under this ADR stay under the AGPL for anyone who has them. This ADR is kept
+as the record of why the AGPL was chosen.

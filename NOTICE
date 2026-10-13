@@ -11,9 +11,6 @@ its own LICENSE file, and that file governs.
   apps/fountain, config, priv    Apache License 2.0 ........... LICENSE
   (the Fountain server)
 
-  apps/fountain_*/               Apache License 2.0 ........... apps/<app>/LICENSE
-  (the first-party extensions)
-
 
   cli/                           Apache License 2.0 ........... cli/LICENSE
   sdk/typescript/                Apache License 2.0 ........... sdk/typescript/LICENSE
@@ -23,7 +20,7 @@ its own LICENSE file, and that file governs.
   when there is one; each carries its own LICENSE and graduates to a
   managoat/managoat_<name> repository. All nine extracted so far have.)
 
-Everything outside ee/ is under the Apache License 2.0. Running, modifying,
+Everything first-party here is under the Apache License 2.0. Running, modifying,
 hosting or redistributing the server, or shipping a client inside a
 proprietary product, carries no copyleft obligation. The Apache License 2.0
 license and notice terms apply when you redistribute any of it.
@@ -49,8 +46,8 @@ License, or under the AGPL, keeps it under those terms.
 
 Contributions from outside the project have been accepted under the Apache
 License 2.0 since 2026-08-22 (CONTRIBUTING.md), which permits distribution
-under the Apache License 2.0. Every outside contributor to the server was
-also asked for, and gave, consent to the move from the AGPL (decisions/0068).
+under the Apache License 2.0. That grant covers the move from the AGPL, so
+no further consent was needed (decisions/0068).
 
 The MIT terms are reproduced below as the record of what the v0.12.0 and
 earlier releases were distributed under. Anyone holding one of those releases
